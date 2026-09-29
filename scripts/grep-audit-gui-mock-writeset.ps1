@@ -80,7 +80,7 @@ $allowedTypes = @(
     # --- the gallery's own surface ---
     'GuiMockSession', 'GuiMockCatalogue', 'GuiMockState', 'GuiMockPayload',
     'GuiMockStructure', 'GuiMockWitness', 'GuiMockSuppressionSite',
-    'GuiMockKerbalsStates', 'GuiMockCareerStates', 'GuiMockStructureStates',
+    'GuiMockKerbalsStates', 'GuiMockStructureStates',
     'MissionInputs', 'RosterInputs', 'RouteShape', 'FlightShape',
 
     # --- the seam halves this op is part of ---
@@ -92,7 +92,7 @@ $allowedTypes = @(
     'ParsekTestCommandAddon', 'MockIntent',
 
     # --- the windows the applier injects into, and their PURE model types ---
-    'KerbalsWindowUI', 'KerbalsPresentation', 'CareerStateWindowUI',
+    'KerbalsWindowUI', 'KerbalsPresentation',
     'StructureListWindowUI', 'ParsekUI', 'UiComplexityMode', 'UiSurface',
     'UiSurfaceVisibility',
 

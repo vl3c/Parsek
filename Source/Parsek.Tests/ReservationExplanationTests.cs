@@ -1,22 +1,22 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Parsek.Patches;
 using Xunit;
 
 namespace Parsek.Tests
 {
     /// <summary>
-    /// The section 6 explanation texts (ReservationExplanation.cs): fact + rule + when the
-    /// item frees up, for every kind and variant, with a deterministic date formatter.
+    /// The explanation texts (ReservationExplanation.cs) in the owner's 2026-09-27 wording:
+    /// the participle, the exact date and time, then "blocked by timeline until then." (a
+    /// kerbal: "Reserved by timeline for 'Flight' until DATE."), for every kind and variant,
+    /// with a deterministic date formatter.
     /// </summary>
     public class ReservationExplanationTests
     {
-        // "Y<year> D<day>" from whole days, so the tests read like KSPUtil.PrintDateCompact.
+        // "D<day>" from whole days, so the tests read like KSPUtil.PrintDateCompact.
         private static readonly Func<double, string> Fmt =
             ut => "D" + ((long)(ut / 100.0)).ToString(CultureInfo.InvariantCulture);
-
-        private const string Rule =
-            "Parsek's timeline is fixed once committed, so this cannot happen earlier or twice.";
 
         private static CommittedFutureEntry Entry(CommittedFutureKind kind, double ut, string flight = null, int level = 0)
         {
@@ -24,103 +24,112 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Tech_NamesTheFlight_AndSaysWhenItUnlocks()
+        public void Tech_ParticipleDateAndBlockedUntilThen()
         {
             var text = ReservationExplanation.Tech(Entry(CommittedFutureKind.TechResearch, 11400, "Mun Lander 3"), Fmt);
-
             Assert.Equal("Researched on D114", text.Title);
-            Assert.Equal(
-                "Researched on D114 by the committed flight 'Mun Lander 3'. " + Rule + " It unlocks on that date.",
-                text.Body);
+            Assert.Equal("Researched on D114, blocked by timeline until then.", text.Body);
+            // A flight name or none reads the same.
+            Assert.Equal(text.Body, ReservationExplanation.Tech(Entry(CommittedFutureKind.TechResearch, 11400), Fmt).Body);
         }
 
         [Fact]
-        public void Tech_WithoutAFlight_SaysOnYourCommittedTimeline()
+        public void PartPurchase_And_ContractAccept_And_Hire_And_Dismissal()
         {
-            var text = ReservationExplanation.Tech(Entry(CommittedFutureKind.TechResearch, 11400), Fmt);
-            Assert.StartsWith("Researched on D114 on your committed timeline.", text.Body);
+            Assert.Equal("Purchased on D114, blocked by timeline until then.",
+                ReservationExplanation.PartPurchase(Entry(CommittedFutureKind.PartPurchase, 11400), Fmt).Body);
+            var accept = ReservationExplanation.ContractAccept(Entry(CommittedFutureKind.ContractAccept, 11400, "Mun Lander 3"), Fmt);
+            Assert.Equal("Accepted on D114", accept.Title);
+            Assert.Equal("Accepted on D114, blocked by timeline until then.", accept.Body);
+            var hire = ReservationExplanation.KerbalHire(Entry(CommittedFutureKind.KerbalHire, 11400), Fmt);
+            Assert.Equal("Hired on D114", hire.Title);
+            Assert.Equal("Hired on D114, blocked by timeline until then.", hire.Body);
+            var retire = ReservationExplanation.KerbalRetire(Entry(CommittedFutureKind.KerbalRetire, 11400), Fmt);
+            Assert.Equal("Dismissed on D114", retire.Title);
+            Assert.Equal("Dismissed on D114, blocked by timeline until then.", retire.Body);
         }
 
         [Fact]
-        public void ContractAccept_SaysItBecomesActiveOnThatDate()
+        public void ContractResolution_PerOutcome()
         {
-            var text = ReservationExplanation.ContractAccept(Entry(CommittedFutureKind.ContractAccept, 11400, "Mun Lander 3"), Fmt);
-            Assert.Equal("Accepted on D114", text.Title);
-            Assert.Equal(
-                "Accepted on D114 by the committed flight 'Mun Lander 3'. " + Rule + " It becomes active on that date.",
-                text.Body);
+            Assert.Equal("Completed on D114, blocked by timeline until then.",
+                ReservationExplanation.ContractResolution(Entry(CommittedFutureKind.ContractComplete, 11400, "X"), Fmt).Body);
+            Assert.Equal("Failed on D114, blocked by timeline until then.",
+                ReservationExplanation.ContractResolution(Entry(CommittedFutureKind.ContractFail, 11400), Fmt).Body);
+            Assert.Equal("Expired on D114, blocked by timeline until then.",
+                ReservationExplanation.ContractResolution(new CommittedFutureEntry(
+                    CommittedFutureKind.ContractFail, "k", 11400, null, null, deadlineExpiry: true), Fmt).Body);
+            Assert.Equal("Cancelled on D114, blocked by timeline until then.",
+                ReservationExplanation.ContractResolution(Entry(CommittedFutureKind.ContractCancel, 11400), Fmt).Body);
+            Assert.Equal("Completed on D114",
+                ReservationExplanation.ContractResolution(Entry(CommittedFutureKind.ContractComplete, 11400), Fmt).Title);
         }
 
         [Fact]
-        public void FacilityUpgrade_Single()
+        public void ContractSlot_NamesTheContractAndAgent()
         {
-            var text = ReservationExplanation.FacilityUpgrade(
+            var e = new CommittedFutureEntry(CommittedFutureKind.ContractAccept, "k", 11400, "rec", "Mun Lander",
+                title: "Survey Kerbin", agentTitle: "Zaltonic Electronics");
+            var text = ReservationExplanation.ContractSlot(e, Fmt);
+            Assert.Equal("Slot needed from D114", text.Title);
+            Assert.Equal("Slot needed from D114 for 'Survey Kerbin' (Zaltonic Electronics), blocked by timeline.", text.Body);
+            Assert.Equal("Slot needed from D114 for a contract, blocked by timeline.",
+                ReservationExplanation.ContractSlot(Entry(CommittedFutureKind.ContractAccept, 11400), Fmt).Body);
+        }
+
+        [Fact]
+        public void Strategies_Activation_Slot_Conflict_Deactivation()
+        {
+            Assert.Equal("Activated on D114, blocked by timeline until then.",
+                ReservationExplanation.StrategyActivation(Entry(CommittedFutureKind.StrategyActivate, 11400), Fmt).Body);
+            Assert.Equal("Slot needed from D114 for 'Outsourced R&D', blocked by timeline.",
+                ReservationExplanation.StrategySlot(Entry(CommittedFutureKind.StrategyActivate, 11400), "Outsourced R&D", Fmt).Body);
+            Assert.Equal("Slot needed from D114 for a strategy, blocked by timeline.",
+                ReservationExplanation.StrategySlot(Entry(CommittedFutureKind.StrategyActivate, 11400), null, Fmt).Body);
+            Assert.Equal("Conflicts with 'Fundraising' from D114 until D200, blocked by timeline.",
+                ReservationExplanation.StrategyConflict(Entry(CommittedFutureKind.StrategyActivate, 11400),
+                    Entry(CommittedFutureKind.StrategyDeactivate, 20000), "Fundraising", Fmt).Body);
+            Assert.Equal("Conflicts with 'Fundraising' from D114, blocked by timeline.",
+                ReservationExplanation.StrategyConflict(Entry(CommittedFutureKind.StrategyActivate, 11400),
+                    null, "Fundraising", Fmt).Body);
+            Assert.Equal("Deactivated on D400, blocked by timeline until then.",
+                ReservationExplanation.StrategyDeactivation(Entry(CommittedFutureKind.StrategyDeactivate, 40000), Fmt).Body);
+            Assert.Equal("Activated again on D400, blocked by timeline until then.",
+                ReservationExplanation.StrategyDeactivation(Entry(CommittedFutureKind.StrategyActivate, 40000), Fmt).Body);
+        }
+
+        [Fact]
+        public void FacilityUpgrade_SingleAndTwo()
+        {
+            var one = ReservationExplanation.FacilityUpgrade(
                 new[] { Entry(CommittedFutureKind.FacilityUpgrade, 11400, level: 2) }, Fmt);
-            Assert.Equal("Upgraded on D114", text.Title);
-            Assert.Equal(
-                "Upgraded to level 2 on D114 on your committed timeline. " + Rule + " The upgrade happens on that date.",
-                text.Body);
-        }
-
-        [Fact]
-        public void FacilityUpgrade_Two_ListsBothDates()
-        {
-            var text = ReservationExplanation.FacilityUpgrade(
-                new[]
-                {
-                    Entry(CommittedFutureKind.FacilityUpgrade, 11400, level: 2),
-                    Entry(CommittedFutureKind.FacilityUpgrade, 20000, level: 3)
-                }, Fmt);
-            Assert.Equal(
-                "Upgraded to level 2 on D114 and to level 3 on D200 on your committed timeline. " + Rule
-                + " The upgrades happen on those dates.",
-                text.Body);
-        }
-
-        [Fact]
-        public void FacilityUpgrade_TwoByOneFlight_NamesIt()
-        {
-            var text = ReservationExplanation.FacilityUpgrade(
+            Assert.Equal("Upgraded on D114", one.Title);
+            Assert.Equal("Upgraded to level 2 on D114, blocked by timeline until then.", one.Body);
+            var two = ReservationExplanation.FacilityUpgrade(
                 new[]
                 {
                     Entry(CommittedFutureKind.FacilityUpgrade, 11400, "Builder", 2),
                     Entry(CommittedFutureKind.FacilityUpgrade, 20000, "Builder", 3)
                 }, Fmt);
-            Assert.StartsWith("Upgraded to level 2 on D114 and to level 3 on D200 by the committed flight 'Builder'.", text.Body);
+            Assert.Equal("Upgraded to level 2 on D114 and to level 3 on D200, blocked by timeline until then.", two.Body);
+            Assert.Equal("Upgraded later, blocked by timeline.",
+                ReservationExplanation.FacilityUpgrade(new CommittedFutureEntry[0], Fmt).Body);
         }
 
         [Fact]
-        public void KerbalHire_SaysTheyJoinTheRosterThen()
-        {
-            var text = ReservationExplanation.KerbalHire(Entry(CommittedFutureKind.KerbalHire, 11400), Fmt);
-            Assert.Equal("Hired on D114", text.Title);
-            Assert.Equal("Hired on D114 on your committed timeline. " + Rule + " They join the roster on that date.", text.Body);
-        }
-
-        [Fact]
-        public void KerbalRetire_IsWordedDismissed_NotTheWindowsRetired()
-        {
-            var text = ReservationExplanation.KerbalRetire(Entry(CommittedFutureKind.KerbalRetire, 11400), Fmt);
-            Assert.Equal("Dismissed on D114", text.Title);
-            Assert.Equal("Dismissed on D114 on your committed timeline. " + Rule + " They leave the roster on that date.", text.Body);
-        }
-
-        private const string CrewRule = "A kerbal on a committed flight cannot be used or risked before it ends.";
-
-        [Fact]
-        public void KerbalOnFlight_FiniteHold_FreeAfterTheDate()
+        public void KerbalOnFlight_FiniteHold_UntilTheDate()
         {
             var text = ReservationExplanation.KerbalOnFlight(new KerbalHold
             {
-                KerbalName = "Jeb", FlightName = "Mun Lander 3", EndState = KerbalEndState.Recovered,
+                KerbalName = "Jeb", FlightName = "Mun Lander", EndState = KerbalEndState.Recovered,
                 ReleaseUT = 13000
             }, Fmt);
             Assert.Equal("Reserved until D130", text.Title);
-            Assert.Equal("Flies 'Mun Lander 3' on your committed timeline. " + CrewRule + " Free after D130.", text.Body);
+            Assert.Equal("Reserved by timeline for 'Mun Lander' until D130.", text.Body);
         }
 
         [Fact]
-        public void KerbalOnFlight_Aboard_FreeOnceRecovered()
+        public void KerbalOnFlight_Aboard_UntilRecovered_AndNeverNamesALoop()
         {
             var text = ReservationExplanation.KerbalOnFlight(new KerbalHold
             {
@@ -128,22 +137,8 @@ namespace Parsek.Tests
                 ReleaseUT = double.PositiveInfinity
             }, Fmt);
             Assert.Equal("Reserved", text.Title);
-            Assert.Equal("Flies 'Mun Lander 3' on your committed timeline. " + CrewRule
-                + " Free once 'Mun Lander 3' is recovered.", text.Body);
-        }
-
-        [Fact]
-        public void KerbalOnFlight_OpenEndedHold_NeverNamesALoop()
-        {
-            // The loop is visual only (design 12.7, operator ruling 2026-09-27): no hold is
-            // ever explained as held by a loop.
-            var text = ReservationExplanation.KerbalOnFlight(new KerbalHold
-            {
-                KerbalName = "Jeb", FlightName = "Mun Lander 3", EndState = KerbalEndState.Recovered,
-                ReleaseUT = double.PositiveInfinity
-            }, Fmt);
+            Assert.Equal("Reserved by timeline for 'Mun Lander 3' until it is recovered.", text.Body);
             Assert.DoesNotContain("loop", text.Body);
-            Assert.EndsWith("Free once 'Mun Lander 3' is recovered.", text.Body);
         }
 
         [Fact]
@@ -155,42 +150,31 @@ namespace Parsek.Tests
                 ReleaseUT = double.PositiveInfinity
             }, Fmt);
             Assert.Equal("Reserved for Jeb", text.Title);
-            Assert.Equal("Flies a committed flight in Jeb's seat on your timeline. " + CrewRule
-                + " Free once that flight's vessel is recovered.", text.Body);
-        }
-
-        [Fact]
-        public void KerbalOnFlight_OwnSlot_IsNotReservedForHimself()
-        {
-            var text = ReservationExplanation.KerbalOnFlight(new KerbalHold
+            Assert.Equal("Reserved by timeline in Jeb's seat until that flight is recovered.", text.Body);
+            var own = ReservationExplanation.KerbalOnFlight(new KerbalHold
             {
                 KerbalName = "Jeb", SlotOwner = "Jeb", FlightName = "X", EndState = KerbalEndState.Aboard,
                 ReleaseUT = double.PositiveInfinity
             }, Fmt);
-            Assert.Equal("Reserved", text.Title);
-            Assert.DoesNotContain("seat", text.Body);
+            Assert.Equal("Reserved", own.Title);
+            Assert.DoesNotContain("seat", own.Body);
         }
 
         [Fact]
-        public void KerbalLost_UsesTheKerbalsWindowRemedy_OnlyWhenAReFlyReachesTheLoss()
+        public void KerbalLost_FlightAndDeathDate_AndARespawn()
         {
-            // Owner ruling 2026-09-27: the Re-Fly way back is named only when an open
-            // Re-Fly would actually reach this loss.
-            var named = ReservationExplanation.KerbalLost(
-                "Mun Lander 3", offerReFlyRemedy: true);
-            Assert.Equal("Lost", named.Title);
-            Assert.Equal("Lost on the committed flight 'Mun Lander 3'. That flight is fixed history. "
-                + KerbalsPresentation.LostReFlyRemedy, named.Body);
-            Assert.StartsWith("Lost on a committed flight.", ReservationExplanation.KerbalLost(null).Body);
-
-            var unreachable = ReservationExplanation.KerbalLost("Mun Lander 3");
-            Assert.Equal("Lost on the committed flight 'Mun Lander 3'. That flight is fixed history.",
-                unreachable.Body);
-            Assert.DoesNotContain("rewind point", unreachable.Body);
+            var lost = ReservationExplanation.KerbalLost("Mun Lander", 94000, double.NaN, Fmt);
+            Assert.Equal("Lost", lost.Title);
+            Assert.Equal("Lost on 'Mun Lander' on D940.", lost.Body);
+            Assert.Equal("Lost.", ReservationExplanation.KerbalLost(null).Body);
+            Assert.Equal("Lost on 'Mun Lander'.", ReservationExplanation.KerbalLost("Mun Lander").Body);
+            var back = ReservationExplanation.KerbalLost("Mun Lander", 94000, 120000, Fmt);
+            Assert.Equal("Lost until D1200", back.Title);
+            Assert.Equal("Lost on 'Mun Lander' on D940, back on D1200.", back.Body);
         }
 
         [Fact]
-        public void ExplainKerbalReservation_OffersTheRemedyOnlyForAReachableDeathRecording()
+        public void ExplainKerbalReservation_LostNamesTheDeathFlightAndDate()
         {
             var index = CommittedFutureIndex.Build(
                 new List<GameAction>
@@ -198,7 +182,7 @@ namespace Parsek.Tests
                     new GameAction
                     {
                         Type = GameActionType.KerbalAssignment, KerbalName = "Jeb",
-                        RecordingId = "rec-dead", UT = 100.0, StartUT = 100f, EndUT = 500f,
+                        RecordingId = "rec-dead", UT = 100.0, StartUT = 100f, EndUT = 50000f,
                         KerbalEndStateField = KerbalEndState.Dead,
                     },
                 },
@@ -207,38 +191,88 @@ namespace Parsek.Tests
             {
                 KerbalName = "Jeb", ReservedUntilUT = double.PositiveInfinity, IsPermanent = true,
             };
-
-            var reachable = StockUiReservationPredicates.ExplainKerbalReservation(
-                index, "Jeb", hold, null, Fmt, id => id == "rec-dead");
-            Assert.EndsWith(KerbalsPresentation.LostReFlyRemedy, reachable.Body);
-
-            var other = StockUiReservationPredicates.ExplainKerbalReservation(
-                index, "Jeb", hold, null, Fmt, id => id == "rec-other");
-            Assert.DoesNotContain(KerbalsPresentation.LostReFlyRemedy, other.Body);
-
-            var none = StockUiReservationPredicates.ExplainKerbalReservation(
-                index, "Jeb", hold, null, Fmt);
-            Assert.DoesNotContain(KerbalsPresentation.LostReFlyRemedy, none.Body);
+            var text = StockUiReservationPredicates.ExplainKerbalReservation(index, "Jeb", hold, null, Fmt);
+            Assert.Equal("Lost on 'Mun Lander 3' on D500.", text.Body);
         }
 
         [Fact]
-        public void EveryText_IsPlainAscii_WithNoRawUT()
+        public void StandIn_And_RetiredStandIn()
         {
+            Assert.Equal("Standing in for Jebediah Kerman, reserved by timeline for 'Mun Lander'.",
+                ReservationExplanation.StandingIn("Jebediah Kerman", "Mun Lander"));
+            Assert.Equal("Standing in for Jebediah Kerman, reserved by timeline.",
+                ReservationExplanation.StandingIn("Jebediah Kerman", null));
+            var retired = ReservationExplanation.KerbalRetiredStandIn("Jebediah Kerman");
+            Assert.Equal("Retired", retired.Title);
+            Assert.Equal("Retired after standing in for Jebediah Kerman, kept off new crews by timeline.", retired.Body);
+        }
+
+        /// <summary>
+        /// The owner rules of 2026-09-27 over EVERY builder and variant plus the dismissal
+        /// texts: plain ASCII, no raw UT, never "your timeline" / "the timeline" /
+        /// "committed", no append-only rule and no way-out part, one sentence per text.
+        /// </summary>
+        [Fact]
+        public void EveryText_FollowsTheOwnersWording_AndNeverSaysYourTimeline()
+        {
+            var accept = new CommittedFutureEntry(CommittedFutureKind.ContractAccept, "k", 11400, "rec", "Flight",
+                title: "Survey", agentTitle: "Agent");
             var texts = new List<ReservationText>
             {
                 ReservationExplanation.Tech(Entry(CommittedFutureKind.TechResearch, 11400, "A"), Fmt),
+                ReservationExplanation.Tech(Entry(CommittedFutureKind.TechResearch, 11400), Fmt),
+                ReservationExplanation.PartPurchase(Entry(CommittedFutureKind.PartPurchase, 11400, "A"), Fmt),
                 ReservationExplanation.ContractAccept(Entry(CommittedFutureKind.ContractAccept, 11400), Fmt),
-                ReservationExplanation.FacilityUpgrade(new[] { Entry(CommittedFutureKind.FacilityUpgrade, 11400, level: 2) }, Fmt),
+                ReservationExplanation.ContractResolution(Entry(CommittedFutureKind.ContractComplete, 11400, "A"), Fmt),
+                ReservationExplanation.ContractResolution(Entry(CommittedFutureKind.ContractFail, 11400), Fmt),
+                ReservationExplanation.ContractResolution(Entry(CommittedFutureKind.ContractCancel, 11400), Fmt),
+                ReservationExplanation.ContractSlot(accept, Fmt),
+                ReservationExplanation.ContractSlot(null, Fmt),
+                ReservationExplanation.FacilityUpgrade(new[] { Entry(CommittedFutureKind.FacilityUpgrade, 11400, "A", 2) }, Fmt),
+                ReservationExplanation.FacilityUpgrade(new CommittedFutureEntry[0], Fmt),
+                ReservationExplanation.FacilityRepair(new[] { Entry(CommittedFutureKind.FacilityRepair, 11400, "A") }, Fmt),
+                ReservationExplanation.FacilityRepair(new CommittedFutureEntry[0], Fmt),
+                ReservationExplanation.StrategyActivation(Entry(CommittedFutureKind.StrategyActivate, 11400, "A"), Fmt),
+                ReservationExplanation.StrategySlot(Entry(CommittedFutureKind.StrategyActivate, 11400), "S", Fmt),
+                ReservationExplanation.StrategyConflict(Entry(CommittedFutureKind.StrategyActivate, 11400), null, "S", Fmt),
+                ReservationExplanation.StrategyDeactivation(Entry(CommittedFutureKind.StrategyDeactivate, 11400), Fmt),
                 ReservationExplanation.KerbalHire(Entry(CommittedFutureKind.KerbalHire, 11400), Fmt),
                 ReservationExplanation.KerbalRetire(Entry(CommittedFutureKind.KerbalRetire, 11400), Fmt),
                 ReservationExplanation.KerbalOnFlight(new KerbalHold { ReleaseUT = 500, EndState = KerbalEndState.Recovered }, Fmt),
-                ReservationExplanation.KerbalLost("A")
+                ReservationExplanation.KerbalOnFlight(new KerbalHold { KerbalName = "L", SlotOwner = "J", FlightName = "F",
+                    ReleaseUT = double.PositiveInfinity }, Fmt),
+                ReservationExplanation.KerbalRetiredStandIn("J"),
+                ReservationExplanation.KerbalRetiredStandIn(null),
+                ReservationExplanation.KerbalLost("A", 500, 900, Fmt),
+                ReservationExplanation.KerbalLost(null)
             };
+            var bodies = new List<string>();
             foreach (var t in texts)
             {
-                foreach (char c in t.Title + t.Body)
-                    Assert.True(c < 128, "non-ASCII char in: " + t.Body);
-                Assert.DoesNotContain("UT ", t.Body);
+                Assert.True(string.IsNullOrEmpty(t.Rule) && string.IsNullOrEmpty(t.WayOut), "a rule or way-out part in: " + t.Body);
+                bodies.Add(t.Body);
+                bodies.Add(t.Title);
+            }
+            bodies.Add(ReservationExplanation.StandingIn("J", "F"));
+            bodies.Add(KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.NotManaged, true));
+            bodies.Add(KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.ReservedActive));
+            bodies.Add(KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.ReservedRetired));
+            bodies.Add(KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.NotManaged, "J", "F"));
+            bodies.Add(KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.NotManaged));
+
+            foreach (string body in bodies)
+            {
+                Assert.False(string.IsNullOrEmpty(body));
+                foreach (char c in body)
+                    Assert.True(c < 128, "non-ASCII char in: " + body);
+                Assert.DoesNotContain("UT ", body);
+                Assert.DoesNotContain("your timeline", body, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("the timeline", body, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("committed", body, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("fixed once", body);
+                // One sentence: at most one period, and only at the end.
+                int dot = body.IndexOf('.');
+                Assert.True(dot < 0 || dot == body.Length - 1, "more than one sentence in: " + body);
             }
         }
 

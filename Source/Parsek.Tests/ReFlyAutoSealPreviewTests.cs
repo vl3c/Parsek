@@ -872,7 +872,7 @@ namespace Parsek.Tests
                 "TestVessel", 123.0, preview, willAutoSeal: false);
             Assert.Contains("TestVessel", body);
             Assert.Contains("Do you want to commit this Re-Fly attempt", body);
-            Assert.Contains("to the timeline", body);
+            Assert.Contains("attempt to timeline?", body);
             Assert.DoesNotContain("cannot be undone", body);
             Assert.DoesNotContain("auto-sealed", body);
             Assert.DoesNotContain("for the following reason", body);

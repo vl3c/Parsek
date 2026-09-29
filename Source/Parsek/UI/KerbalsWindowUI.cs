@@ -52,7 +52,7 @@ namespace Parsek
         private bool kerbalsWindowHasInputLock;
         private bool isResizingKerbalsWindow;
         private Vector2 kerbalsScrollPos;
-        // Internal: see CareerStateWindowUI.CareerStateInputLockId (design 7.2 close set).
+        // Internal so the design-7.2 close set (ParsekUI.BuildGatedWindowCloseSet) can name it.
         internal const string KerbalsInputLockId = "Parsek_KerbalsWindow";
 
         // ---- column widths, per tab ----
@@ -169,7 +169,7 @@ namespace Parsek
         private GUIStyle cellRecoveredStyle;
         private GUIStyle cellAboardStyle;
         private GUIStyle cellStandInStyle;
-        // Toggle button style for tab bar - mirrors CareerStateWindowUI / TimelineWindowUI:
+        // Toggle button style for tab bar - mirrors TimelineWindowUI:
         // the "on" background is copied from GUI.skin.button.active so the selected tab
         // looks visibly pushed in.
         private GUIStyle toggleButtonStyle;
@@ -178,8 +178,8 @@ namespace Parsek
         private int selectedTab;
 
         /// <summary>
-        /// The transient tab selection, exposed the way <c>RecordingsTableUI</c> and
-        /// <c>CareerStateWindowUI</c> expose theirs: so a test can pin the order, and so the
+        /// The transient tab selection, exposed the way <c>RecordingsTableUI</c> exposes
+        /// its own: so a test can pin the order, and so the
         /// automation-only <c>UiAction op=tab</c> seam op can select a tab for a screenshot
         /// without a synthetic click. Transient either way - nothing persists it.
         /// </summary>
@@ -537,7 +537,7 @@ namespace Parsek
 
         /// <summary>
         /// Whether this window currently holds its KSP input lock (diagnostic read for the
-        /// design-7.2 close handler; see CareerStateWindowUI.HasInputLock).
+        /// design-7.2 close handler; see ParsekUI.BuildGatedWindowCloseSet).
         /// </summary>
         internal bool HasInputLock => kerbalsWindowHasInputLock;
 
@@ -590,7 +590,7 @@ namespace Parsek
             cellAboardStyle = new GUIStyle(tableCell) { normal = { textColor = aboardStyle.normal.textColor } };
             cellStandInStyle = new GUIStyle(tableCell) { normal = { textColor = activeChainStyle.normal.textColor } };
             // Tab bar button: selected tab looks pressed via onNormal.background copied
-            // from GUI.skin.button.active.background (matches CareerStateWindowUI and
+            // from GUI.skin.button.active.background (matches the
             // TimelineWindowUI toggle idiom).
             toggleButtonStyle = new GUIStyle(GUI.skin.button)
             {
@@ -612,7 +612,7 @@ namespace Parsek
             if (cachedVM == null) cachedVM = GatherViewModel();
             var vm = cachedVM.Value;
 
-            // Tab bar - same idiom as CareerStateWindowUI.
+            // Tab bar - same idiom as RecordingsTableUI.
             int newTab = GUILayout.Toolbar(selectedTab, TabLabels, toggleButtonStyle);
             if (newTab != selectedTab)
             {
@@ -933,7 +933,7 @@ namespace Parsek
         // ------------------------- shared helpers -------------------------
 
         // Logs the tab-switch. Extracted as a pure helper so the log contract stays
-        // testable outside IMGUI (mirrors CareerStateWindowUI.SwitchTab).
+        // testable outside IMGUI.
         internal static void SwitchTab(int oldTab, int newTab)
         {
             ParsekLog.Verbose("UI",

@@ -11367,13 +11367,15 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # window. GS-1 / GS-2 / GS-3 `structure` joined their armed `rewind`
                        # (`_2000` / `_2005` / `_2007`); GS-7 both blocks `_2016`; GS-9 both
                        # `_2040`; V3F both `_2048`; V3R both `_2104` (all `2026-09-27_`).
-                       # GS-8's reading `_2029` was PARSEK-FAIL on a watch-hold token (todo
-                       # GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD), so its blocks stay
-                       # report-only.
                        "GS-7-kerbalx-crash-watch-hold.toml",
                        "GS-9-kerbalx-repeat-rewind.toml",
                        "V3F-flight-arrival-faithful.toml",
                        "V3R-flight-arrival-reaim.toml",
+                       # GS-8 both blocks: armed 2026-09-28 (branch `gs8-watch-hold`) off
+                       # `2026-09-28_1732`, the first green reading after the
+                       # GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD fix; all 10 bounds
+                       # inverted offline, each red on exactly its window.
+                       "GS-8-kerbalx-zone-round-trip.toml",
                        # B17: rewind (all max 0 - a clean single-launch flight
                        # authors no RP/supersede/tombstone) + structure (the
                        # exact two-recording committed topology) armed
@@ -16794,8 +16796,16 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
 
         errors = hlib.validate_ui_action_step(
             2, {"op": "mock", "window": "kerbals",
-                "mockState": "career.banner.divergent"})
+                "mockState": "structure.route.pickup"})
         self.assertTrue(any("mock-state-window-mismatch" in e for e in errors), errors)
+
+        # The Career window was removed 2026-09-27: no table may still offer it, so a
+        # `window=career` step is refused pre-launch by the closed window row (the
+        # spec-level VERB_SCOPED_CLOSED_ARGS check) rather than after a boot.
+        self.assertNotIn("career", hlib.UIACTION_WINDOW_VALUES)
+        self.assertNotIn("career", hlib.UIACTION_MOCKABLE_WINDOWS)
+        self.assertNotIn("career", hlib.UIACTION_WINDOW_TABS)
+        self.assertNotIn("career", hlib.UIACTION_EXPAND_PREFIXES)
 
         self.assertEqual([], hlib.validate_ui_action_step(
             3, {"op": "mock", "window": "kerbals",
@@ -17850,21 +17860,18 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                 self.assertTrue(any("silently ignored" in e for e in errors), errors)
 
     def test_uiaction_tab_is_validated_against_that_windows_own_vocabulary(self):
-        # The typo class this exists for: `tab = "recordings"` on the career window is a
+        # The typo class this exists for: `tab = "recordings"` on the kerbals window is a
         # real tab NAME on a DIFFERENT window, so a flat closed-value set over the union
         # of every tab token would pass it and the spec would cost a boot to fix.
         self.assertEqual([], hlib.validate_ui_action_step(
-            0, {"op": "tab", "window": "career", "tab": "strategies"}))
-        # A tab the Career window no longer has (its Facilities / Milestones history moved
-        # to the Timeline) is refused before a boot, though the TIMELINE still has both.
-        errors = hlib.validate_ui_action_step(
-            0, {"op": "tab", "window": "career", "tab": "facilities"})
-        self.assertTrue(any("not a tab of window" in e for e in errors), errors)
+            0, {"op": "tab", "window": "timeline", "tab": "strategies"}))
         self.assertEqual([], hlib.validate_ui_action_step(
             0, {"op": "tab", "window": "timeline", "tab": "facilities"}))
         errors = hlib.validate_ui_action_step(
-            0, {"op": "tab", "window": "career", "tab": "recordings"})
+            0, {"op": "tab", "window": "kerbals", "tab": "recordings"})
         self.assertTrue(any("not a tab of window" in e for e in errors), errors)
+        # The removed Career window has no tab vocabulary left to validate against.
+        self.assertNotIn("career", hlib.UIACTION_WINDOW_TABS)
 
     def test_uiaction_tab_on_an_untabbed_window_names_the_tabbed_ones(self):
         errors = hlib.validate_ui_action_step(

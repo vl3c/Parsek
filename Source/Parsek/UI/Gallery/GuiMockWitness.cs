@@ -23,8 +23,7 @@ namespace Parsek.UI.Gallery
     ///
     /// <para><b>AND WHY THE COVERED ROW COMES FIRST.</b> A generic "first row" scan
     /// produced witness sets that missed the state's point entirely - seven Structure
-    /// states witnessed only their launch row, and six Career contracts states shared one
-    /// identical set - so a state could pass its read-back while the cell it exists to
+    /// states witnessed only their launch row, and several states shared one identical set - so a state could pass its read-back while the cell it exists to
     /// photograph was absent. <see cref="Covered"/> derives from the row that carries the
     /// state's own <c>Covers</c> branch and is tried FIRST; <see cref="Expected"/> only
     /// tops up from the generic scan afterwards. A state with a non-empty <c>Covers</c>
@@ -52,8 +51,6 @@ namespace Parsek.UI.Gallery
 
         // The window tab tokens this deriver switches on, named once.
         private const string FlightsTab = "outcomes";
-        private const string ContractsTab = "contracts";
-        private const string StrategiesTab = "strategies";
 
         /// <summary>
         /// The derived witness set for a built payload: the covered-row derivations first,
@@ -99,11 +96,6 @@ namespace Parsek.UI.Gallery
                                          found);
                     AppendKerbalsBoolCovered(payload.Kerbals.Value, tab, cover, found);
                 }
-                if (payload.Career.HasValue)
-                {
-                    AppendCareerCovered(payload.Career.Value, tab, enumName, member, found);
-                    AppendCareerBoolCovered(payload.Career.Value, tab, cover, found);
-                }
                 if (payload.Structure != null)
                 {
                     AppendStructureCovered(payload.Structure, enumName, member, found);
@@ -118,7 +110,6 @@ namespace Parsek.UI.Gallery
         {
             if (payload == null) return;
             if (payload.Kerbals.HasValue) AppendKerbals(payload.Kerbals.Value, tab, into);
-            if (payload.Career.HasValue) AppendCareer(payload.Career.Value, tab, into);
             if (payload.Structure != null) AppendStructure(payload.Structure, into);
         }
 
@@ -195,119 +186,6 @@ namespace Parsek.UI.Gallery
             }
         }
 
-        // ----- career: covered -----
-
-        private static void AppendCareerCovered(
-            CareerStateWindowUI.CareerStateViewModel vm, string tab, string enumName,
-            string member, List<string> into)
-        {
-            if (enumName == "TimelineEndKind")
-            {
-                AppendTimelineEndCovered(vm, tab, member, into);
-                return;
-            }
-            if (enumName != "GameActionType") return;
-            switch (member)
-            {
-                case "ContractAccept":
-                    // A PENDING row is what an Accept past live UT produces, and it is the
-                    // half no capture has; prefer it, fall back to a current row.
-                    AppendFirstContract(vm.Contracts.ProjectedRows,
-                                        r => r.IsPendingAccept, into);
-                    AppendFirstContract(vm.Contracts.CurrentRows, r => true, into);
-                    return;
-                case "ContractComplete":
-                case "ContractFail":
-                case "ContractCancel":
-                    AppendFirstContract(vm.Contracts.CurrentRows,
-                                        r => r.IsClosingByTimelineEnd, into);
-                    return;
-                case "StrategyActivate":
-                    AppendFirstStrategy(vm.Strategies.ProjectedRows,
-                                        r => r.IsPendingActivate, into);
-                    AppendFirstStrategy(vm.Strategies.CurrentRows, r => true, into);
-                    return;
-                case "StrategyDeactivate":
-                    AppendFirstStrategy(vm.Strategies.CurrentRows,
-                                        r => r.IsClosingByTimelineEnd, into);
-                    return;
-                case "FacilityUpgrade":
-                    // An upgrade shows in this window only through the SLOT COUNTS, which
-                    // are numbers rather than cells - so the covered derivation defers to
-                    // the generic scan rather than producing a numeric witness any
-                    // capture would satisfy.
-                    return;
-            }
-        }
-
-        // The Timeline-end cell IS the branch: its text names the outcome, so it is the
-        // witness, taken from the first row (current, then pending) that carries it.
-        private static void AppendTimelineEndCovered(
-            CareerStateWindowUI.CareerStateViewModel vm, string tab, string member,
-            List<string> into)
-        {
-            CareerStateWindowUI.TimelineEndKind want;
-            if (!TryParseEnum(out want, member)) return;
-            if (tab == StrategiesTab)
-            {
-                foreach (List<CareerStateWindowUI.StrategyRow> rows in new[]
-                         { vm.Strategies.CurrentRows, vm.Strategies.PendingRows })
-                {
-                    if (rows == null) continue;
-                    for (int i = 0; i < rows.Count; i++)
-                    {
-                        if (rows[i].EndKind != want) continue;
-                        Add(into, CareerStateWindowUI.FormatStrategyRow_TimelineEnd(
-                            rows[i], CareerStateWindowUI.FormatDate));
-                        return;
-                    }
-                }
-                return;
-            }
-            if (tab != ContractsTab) return;
-            foreach (List<CareerStateWindowUI.ContractRow> rows in new[]
-                     { vm.Contracts.CurrentRows, vm.Contracts.PendingRows })
-            {
-                if (rows == null) continue;
-                for (int i = 0; i < rows.Count; i++)
-                {
-                    if (rows[i].EndKind != want) continue;
-                    Add(into, CareerStateWindowUI.FormatContractRow_TimelineEnd(
-                        rows[i], CareerStateWindowUI.FormatDate));
-                    return;
-                }
-            }
-        }
-
-        private static void AppendFirstContract(
-            List<CareerStateWindowUI.ContractRow> rows,
-            Func<CareerStateWindowUI.ContractRow, bool> match, List<string> into)
-        {
-            if (rows == null || into.Count >= MaxWitnesses) return;
-            for (int i = 0; i < rows.Count; i++)
-            {
-                if (!match(rows[i])) continue;
-                Add(into, CareerStateWindowUI.FormatContractRow_Title(rows[i]));
-                return;
-            }
-        }
-
-        private static void AppendFirstStrategy(
-            List<CareerStateWindowUI.StrategyRow> rows,
-            Func<CareerStateWindowUI.StrategyRow, bool> match, List<string> into)
-        {
-            if (rows == null || into.Count >= MaxWitnesses) return;
-            for (int i = 0; i < rows.Count; i++)
-            {
-                if (!match(rows[i])) continue;
-                // The Flow cell has no picture at all in the census, so it is the witness
-                // that matters most on this tab.
-                Add(into, CareerStateWindowUI.FormatStrategyRow_Flow(rows[i]));
-                Add(into, CareerStateWindowUI.FormatStrategyRow_Title(rows[i]));
-                return;
-            }
-        }
-
         // ----- structure: covered -----
 
         private static void AppendStructureCovered(GuiMockStructure structure,
@@ -335,9 +213,8 @@ namespace Parsek.UI.Gallery
         // ----- the bool-driven branches -----
         //
         // Reflection cannot see a branch decided by a bool, and several of the most
-        // consequential cells in these windows are: the divergence banner, (pending),
-        // (closing), (destroyed), (upcoming), a status tooltip, a collapsed run. Each is a
-        // NAMED cover key (see GuiMockCompletenessTests.BoolBranches), and each derives
+        // consequential cells in these windows are: (destroyed), (upcoming), a status
+        // tooltip, a collapsed run. Each is a NAMED cover key (see GuiMockCompletenessTests.BoolBranches), and each derives
         // its witness from the row that carries the flag.
 
         private static void AppendKerbalsBoolCovered(
@@ -388,39 +265,6 @@ namespace Parsek.UI.Gallery
                         Add(into, row.MissionCellText);
                         return;
                     }
-                    return;
-            }
-        }
-
-        private static void AppendCareerBoolCovered(
-            CareerStateWindowUI.CareerStateViewModel vm, string tab, string cover,
-            List<string> into)
-        {
-            switch (cover)
-            {
-                case "CareerBanner.Divergent":
-                    if (!vm.HasDivergence) return;
-                    // The banner itself is composed inside the draw method from the VM's
-                    // own UT text, so the witness is the PENDING row the divergence
-                    // produces - the half of the layout that only exists when it diverges.
-                    AppendFirstContract(vm.Contracts.ProjectedRows,
-                                        r => r.IsPendingAccept, into);
-                    return;
-                case "ContractRow.IsPendingAccept":
-                    AppendFirstContract(vm.Contracts.ProjectedRows,
-                                        r => r.IsPendingAccept, into);
-                    return;
-                case "ContractRow.IsClosingByTimelineEnd":
-                    AppendFirstContract(vm.Contracts.CurrentRows,
-                                        r => r.IsClosingByTimelineEnd, into);
-                    return;
-                case "StrategyRow.IsPendingActivate":
-                    AppendFirstStrategy(vm.Strategies.ProjectedRows,
-                                        r => r.IsPendingActivate, into);
-                    return;
-                case "StrategyRow.IsClosingByTimelineEnd":
-                    AppendFirstStrategy(vm.Strategies.CurrentRows,
-                                        r => r.IsClosingByTimelineEnd, into);
                     return;
             }
         }
@@ -517,43 +361,6 @@ namespace Parsek.UI.Gallery
                 // real roster shares with a mocked one (the stock kerbal names).
                 Add(into, rows[i].StatusText);
                 Add(into, rows[i].LastFlightText);
-            }
-        }
-
-        // ----- career: generic -----
-
-        private static void AppendCareer(CareerStateWindowUI.CareerStateViewModel vm,
-                                         string tab, List<string> into)
-        {
-            if (tab == StrategiesTab)
-            {
-                AppendStrategyRows(vm.Strategies.CurrentRows, into);
-                if (into.Count < MaxWitnesses)
-                    AppendStrategyRows(vm.Strategies.ProjectedRows, into);
-                return;
-            }
-
-            AppendContractRows(vm.Contracts.CurrentRows, into);
-            if (into.Count < MaxWitnesses)
-                AppendContractRows(vm.Contracts.ProjectedRows, into);
-        }
-
-        private static void AppendContractRows(List<CareerStateWindowUI.ContractRow> rows,
-                                               List<string> into)
-        {
-            if (rows == null) return;
-            for (int i = 0; i < rows.Count && into.Count < MaxWitnesses; i++)
-                Add(into, CareerStateWindowUI.FormatContractRow_Title(rows[i]));
-        }
-
-        private static void AppendStrategyRows(List<CareerStateWindowUI.StrategyRow> rows,
-                                               List<string> into)
-        {
-            if (rows == null) return;
-            for (int i = 0; i < rows.Count && into.Count < MaxWitnesses; i++)
-            {
-                Add(into, CareerStateWindowUI.FormatStrategyRow_Flow(rows[i]));
-                Add(into, CareerStateWindowUI.FormatStrategyRow_Title(rows[i]));
             }
         }
 

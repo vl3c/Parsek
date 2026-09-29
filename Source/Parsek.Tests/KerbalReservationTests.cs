@@ -447,11 +447,10 @@ namespace Parsek.Tests
 
             var kerbals = KerbalsTestHelper.RecalculateModule(module);
 
-            Assert.Equal("Standing in for Jeb, who is held by a committed flight. "
-                    + "Dismissing them would leave that seat without a kerbal.",
+            Assert.Equal("Standing in for Jeb, reserved by timeline.",
                 Parsek.Patches.KerbalDismissalPatch.DescribeDismissalRefusal(kerbals, "Hanley"));
             Assert.True(kerbals.ShouldBlockDismissal("Kirrim"));
-            Assert.Equal("Parsek keeps this kerbal as a stand-in for a kerbal a committed flight holds.",
+            Assert.Equal("Kept as a stand-in for a reserved kerbal, blocked by timeline.",
                 Parsek.Patches.KerbalDismissalPatch.DescribeDismissalRefusal(kerbals, "Kirrim"));
             Assert.Null(Parsek.Patches.KerbalDismissalPatch.DescribeDismissalRefusal(kerbals, "Bob"));
         }

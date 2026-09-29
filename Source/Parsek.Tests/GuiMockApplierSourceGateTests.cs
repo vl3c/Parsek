@@ -66,7 +66,7 @@ namespace Parsek.Tests
             // so a scan reading comments would find sites that are not wired.
             string synthetic = string.Join("\n", new[]
             {
-                "// if (GuiMockSession.Suppressed(GuiMockSession.CareerVmRebuild)) return false;",
+                "// if (GuiMockSession.Suppressed(GuiMockSession.KerbalsLiveCrew)) return false;",
                 "/// <para>Mirrors GuiMockSession.Suppressed(GuiMockSession.KerbalsLiveCrew).</para>",
                 "public void InvalidateCache()",
                 "{",
@@ -113,16 +113,13 @@ namespace Parsek.Tests
         public void EachInstallArmNamesItsOwnWindowsUiAccessorAndItsOwnInjectionMember()
         {
             // One row per window, each naming the accessor and the member it swaps. This
-            // is the cell a mis-wired arm (kerbals reaching the career field) fails.
+            // is the cell a mis-wired arm (kerbals reaching the structure field) fails.
             string code = PreparedSource(ApplierPath);
             var expected = new[]
             {
                 new { Method = "InstallKerbalsMock",
                       Accessor = "ui.GetKerbalsUI()",
                       Member = "CachedViewModelForTesting" },
-                new { Method = "InstallCareerMock",
-                      Accessor = "ui.GetCareerStateUI()",
-                      Member = "CachedVMForTesting" },
                 new { Method = "InstallStructureMock",
                       Accessor = "ui.GetStructureListUI()",
                       Member = "OpenWithGallerySteps" },
@@ -163,7 +160,7 @@ namespace Parsek.Tests
             // would photograph it.
             string code = PreparedSource(ApplierPath);
             foreach (string method in new[]
-                     { "InstallKerbalsMock", "InstallCareerMock", "InstallStructureMock" })
+                     { "InstallKerbalsMock", "InstallStructureMock" })
             {
                 int at = code.IndexOf("void " + method + "(", StringComparison.Ordinal);
                 Assert.True(at >= 0,
@@ -268,8 +265,6 @@ namespace Parsek.Tests
         /// renamed field is a compile error here rather than a silent miss.</summary>
         private static string SiteFieldName(GuiMockSuppressionSite site)
         {
-            if (site.Site == GuiMockSession.CareerVmRebuild.Site) return "CareerVmRebuild";
-            if (site.Site == GuiMockSession.CareerInvalidate.Site) return "CareerInvalidate";
             if (site.Site == GuiMockSession.KerbalsInvalidate.Site) return "KerbalsInvalidate";
             if (site.Site == GuiMockSession.KerbalsLiveCrew.Site) return "KerbalsLiveCrew";
             throw new InvalidOperationException(
@@ -283,7 +278,6 @@ namespace Parsek.Tests
             switch (constantName)
             {
                 case "KerbalsWindow": return GuiMockSession.KerbalsWindow;
-                case "CareerWindow": return GuiMockSession.CareerWindow;
                 case "StructureWindow": return GuiMockSession.StructureWindow;
                 default:
                     throw new InvalidOperationException(

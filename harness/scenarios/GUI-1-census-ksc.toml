@@ -36,8 +36,8 @@ tier = "operator"
 # HOST: an OPERATOR-LOCAL fixture (`fixtures/local-saves/c1-gui`), not a committed one,
 # and the reason is density rather than convenience. A census photographs LAYOUT, and a
 # window with no rows photographs as an empty box - so it needs a Missions window with
-# missions, a Recordings table with rows, a Career State window with contracts and
-# strategies, a Kerbals roster with kerbals, a Logistics window with routes. The only
+# missions, a Recordings table with rows, a Timeline with career rows, a Kerbals roster
+# with kerbals, a Logistics window with routes. The only
 # save like that is the operator's own long-lived career (42 MB, 704 recording sidecars,
 # 12 vessels, CAREER mode), which cannot be committed and cannot be minted by a builder -
 # the point IS the accumulated content. Stage it first:
@@ -68,24 +68,26 @@ tier = "operator"
 # argument is in the `[expectations.analyzer]` block at the bottom; the findings
 # themselves stay filed as U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER.
 #
-# WINDOW COVERAGE. Nine windows are drawn at the Space Center by `ParsekKSC.OnGUI`:
-# main, missions, timeline, kerbals, career, logistics, structure, settings, testrunner.
+# WINDOW COVERAGE. Eight windows are drawn at the Space Center by `ParsekKSC.OnGUI`:
+# main, missions, timeline, kerbals, logistics, structure, settings, testrunner (the Career
+# State window was removed 2026-09-27; its slot counts live in the Timeline's Contracts and
+# Strategies button hovers).
 # A TENTH is reachable there and is NOT this lane's: `testrunnerglobal`, the global
 # Ctrl+Shift+T runner, which draws from its own MonoBehaviour outside that host's showUI
 # gate and is photographed by GUI-12-census-testrunners together with the states of the
-# Settings-launched one. That is also why every `describe` echo below reads `windows=12`:
+# Settings-launched one. That is also why every `describe` echo below reads `windows=11`:
 # the count is the seam's whole TABLE, not the scene's drawn set.
 # The two flight-only windows - spawncontrol and gloops - belong to GUI-2; asking for
 # either here is a REJECTED (`window-not-in-scene`) by design rather than a capture of a
-# scene without them. Sixteen of the captures are TABS: missions x8 (its two tabs, each
+# scene without them. Fourteen of the captures are TABS: missions x8 (its two tabs, each
 # in the restored, the collapsed and the fully expanded state, plus one deep fold
-# apiece), timeline x4 (its filter modes), kerbals x2, career x2 (Contracts and Strategies; its Facilities and Milestones tabs were removed 2026-09-24 and their two captures with them). Settings has six SECTIONS rather than tabs (they
+# apiece), timeline x4 (its filter modes), kerbals x2. Settings has six SECTIONS rather than tabs (they
 # all draw in one pass, and three are hidden in Basic), so the Advanced/Basic pair IS its
 # section coverage; Logistics' bubbles are expand-collapse, not a selector.
 #
-# 27 PNGs (22 Advanced + 5 Basic) and 27 dumps beside them: 54 files, plus ONE more the
+# 25 PNGs (20 Advanced + 5 Basic) and 25 dumps beside them: 50 files, plus ONE more the
 # `GuiTree` batch below writes itself (`parsek-guitree-probe.gui.json`, its probe
-# window's own capture) = 55, against the harvest's file-count cap
+# window's own capture) = 51, against the harvest's file-count cap
 # (hlib.ARTIFACT_MAX_SCREENSHOTS). That cap was 64 when this lane was written, which is
 # why the dump steps did not need it raised; it is 1024 since the GUI state gallery's P1b
 # (a capture PAIR is two files, so 64 harvested at most 32 STATES and silently dropped the
@@ -332,18 +334,6 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "ksc-kerbals-outcomes-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "kerbals" }, expect = "OK" },
 
-  # career state (Advanced only, two tabs)
-  { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "contracts" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "ksc-career-contracts-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "ksc-career-contracts-advanced" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "strategies" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "ksc-career-strategies-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "ksc-career-strategies-advanced" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
-
   # logistics - ONE OF THE TWO WINDOWS THAT DOES NOT FIT THE INSTANCE. Its own
   # MinWindowWidth is 1410 px (LogisticsWindowUI) and its first-open default is 1556, both
   # wider than the profile's 1280x720 screen. The WINDOW does not scroll, but its whole
@@ -361,7 +351,7 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "ksc-logistics-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-logistics-advanced" }, expect = "OK" },
   # THE NEAR-MISS SUBSECTION, EXPANDED. The one line item this host buys that no other
-  # can: the collapsed header `Recently committed trees not yet eligible (N)` is already
+  # can: the collapsed header `Recently merged trees not yet eligible (N)` is already
   # in the capture above, and every one of the reject strings under it
   # (LogisticsRejectPresentation.DescribeNearMiss over RouteCreationFormatters) has been
   # dark in every census dump, because nothing ever expanded it. The key is the window's
@@ -405,7 +395,7 @@ steps = [
   { cmd = "UiAction", args = { op = "close", window = "testrunner" }, expect = "OK" },
 
   # --- Basic pass ---
-  # The mode switch itself CLOSES the gated, lock-owning windows (career, testrunner,
+  # The mode switch itself CLOSES the gated, lock-owning windows (testrunner,
   # gloops, spawncontrol, group picker) and clamps the Missions window's tab
   # to index 0. Everything is already shut here, so the switch is only doing the surface
   # gating - which is the thing being photographed.
@@ -522,7 +512,7 @@ allowedAnomalies = []
 # (`design-gui-tree-dump.md` -> "What the first flight measured") and these lines stay
 # pinned as the regression check they now are. `hits=` is deliberately left UNPINNED: it counts funnel body runs in a real
 # frame, so any literal would pin the row count of whatever the window happened to
-# contain; a reader compares it across the 27 dumps instead. `windows=` / `nodes=` are
+# contain; a reader compares it across the 25 dumps instead. `windows=` / `nodes=` are
 # unpinned for the same reason.
 #
 # THE BATCH LINE IS A WHOLE PIN SINCE THE READING RUN, and it was an INTERIM one until
@@ -546,21 +536,20 @@ allowedAnomalies = []
 # the remedy for a red here is a HOST where the probe draws - never a looser pin.
 required = [
   # --- Advanced pass: main alone, then one per window opened ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,missions",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,timeline",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,kerbals",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,career",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,logistics",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,structure",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,settings",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,testrunner",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,kerbals",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,structure",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,settings",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,testrunner",
   # --- Basic pass: the mode switch itself, then the windows Basic still offers ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,missions",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,timeline",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,logistics",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,settings",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,settings",
   # --- the near-miss expand, pinned `changed=1` so a key the window no longer enumerates
   # reds here rather than producing a picture of the collapsed section under the expanded
   # label. `expanded=` / `total=` are left open: they count this host's live row set. ---
@@ -601,8 +590,6 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-refly-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-kerbals-roster-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-kerbals-outcomes-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-career-contracts-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-career-strategies-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-logistics-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-logistics-nearmiss-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-structure-advanced .*patched=17/17",
@@ -652,11 +639,11 @@ forbidden = []
 gating = false
 
 [runtime]
-# 27 captures and 27 dumps, each holding the FIFO head for a couple of frames, plus a
+# 25 captures and 25 dumps, each holding the FIFO head for a couple of frames, plus a
 # 300 s cold load of a 42 MB career, ~60 single-phase UI ops and one one-cell in-game
 # batch. 1500 s is generous on purpose: the product is the images and the trees, and a
 # KILLED run leaves neither. The 300 s added over the pre-dump 1200 s was never a measured
-# cost - it is head-room for 27 more two-phase steps whose flush assembles, serialises and
+# cost - it is head-room for 25 more two-phase steps whose flush assembles, serialises and
 # writes a file inside ONE LateUpdate, which is a visible hitch on a big window by design.
 # THE MEASURED WALL IS 96 s (reading run `2026-09-11_0548`, PASS attempt 1; the two
 # 2026-09-10 INVALID attempts read 79 / 80 s), so the budget is 15x the measurement and

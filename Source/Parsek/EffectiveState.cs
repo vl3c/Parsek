@@ -1343,9 +1343,10 @@ namespace Parsek
         /// </list>
         /// <para>
         /// Every other branch-point type (Undock / Dock / JointBreak / Breakup / a
-        /// foreign Board) IS a real downstream split and stops the walk, so the
-        /// <c>downstreamBp</c> reject in <see cref="UnfinishedFlightClassifier.TryQualify"/>
-        /// keeps its meaning. With <paramref name="followOwnEvaBoard"/> false only
+        /// foreign Board) stops the walk; the <c>downstreamBp</c> reject in
+        /// <see cref="UnfinishedFlightClassifier.TryQualify"/> then decides whether that
+        /// stop blocks (a debris-only staging and a post-switch Launch do not,
+        /// <see cref="UnfinishedFlightClassifier.IsNonBlockingDownstreamBranch"/>). With <paramref name="followOwnEvaBoard"/> false only
         /// switch continuations are followed (the pre-ruling walk).
         /// </para>
         /// <para>
@@ -1703,7 +1704,7 @@ namespace Parsek
         /// <paramref name="collectDetail"/> it also records how each kerbal's history
         /// ENDS (for the foreign-join rule) and the ground parts the kerbal placed
         /// (<see cref="BranchPointType.GroundPartPlaced"/> children, found by parent
-        /// id like <c>RecordingStore.EnqueueGroundPartPlacedChildren</c>).
+        /// id like <c>RecordingStore.EnqueueParentedBranchChildren</c>).
         /// </summary>
         private static void AddOwnEvaKerbals(
             RecordingTree tree, BranchPoint evaBp, Recording vessel,
@@ -2445,7 +2446,7 @@ namespace Parsek
                     // Ground parts an EVA kerbal in the closure placed hang off a
                     // GroundPartPlaced point the (still recording) kerbal does NOT
                     // reference through ChildBranchPointId, so they are found by parent
-                    // id (RecordingStore.EnqueueGroundPartPlacedChildren's pattern).
+                    // id (RecordingStore.EnqueueParentedBranchChildren's pattern).
                     EnqueueGroundPartPlacedChildrenForClosure(
                         currentRec, recById, queue, result, ref placedPartsAdded);
 

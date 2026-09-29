@@ -29,10 +29,6 @@ namespace Parsek.Tests
         private static readonly Func<double, string> Fmt =
             ut => "D" + ((long)(ut / 100.0)).ToString(CultureInfo.InvariantCulture);
 
-        private const string Rule =
-            "Parsek's timeline is fixed once committed, so this cannot happen earlier or twice.";
-
-        private const string WayOut = "A slot frees when one of your active contracts ends.";
 
         public ContractSlotReservationTests()
         {
@@ -506,9 +502,8 @@ namespace Parsek.Tests
             Assert.False(MissionControlStockAnnotation.BlocksAcceptAndDecline(d));
             Assert.False(MissionControlStockAnnotation.BlocksCancel(d));
             Assert.Equal(500, d.UT);
-            Assert.Equal("Slot needed on D5", d.Title);
-            Assert.Equal("The committed flight 'Mun Lander 3' accepts the contract 'Rescue Bill' on D5 and needs this slot. "
-                + Rule + " " + WayOut, d.Why);
+            Assert.Equal("Slot needed from D5", d.Title);
+            Assert.Equal("Slot needed from D5 for 'Rescue Bill', blocked by timeline.", d.Why);
             // No per-row mark: the row keeps stock's own label.
             Assert.Equal(MissionControlStockAnnotation.StockDefaultLabel("Free"),
                 MissionControlStockAnnotation.ComposeRowLabel("", "Free", d));
@@ -563,11 +558,10 @@ namespace Parsek.Tests
                 new CommittedFutureEntry(CommittedFutureKind.ContractAccept, "k", 11400, "rec", "Mun Lander 3",
                     agentTitle: "Zaltonic Electronics"), Fmt);
 
-            Assert.Equal("Your committed timeline accepts the contract 'Conduct a focused observational survey of Kerbin.'"
-                + " from Zaltonic Electronics on D114 and needs this slot. " + Rule + " " + WayOut, withAgent.Body);
-            Assert.Equal("The committed flight 'Mun Lander 3' accepts a contract from Zaltonic Electronics on D114"
-                + " and needs this slot. " + Rule + " " + WayOut, agentNoTitle.Body);
-            Assert.Equal("Slot needed on D114", withAgent.Title);
+            Assert.Equal("Slot needed from D114 for 'Conduct a focused observational survey of Kerbin.'"
+                + " (Zaltonic Electronics), blocked by timeline.", withAgent.Body);
+            Assert.Equal("Slot needed from D114 for a contract (Zaltonic Electronics), blocked by timeline.", agentNoTitle.Body);
+            Assert.Equal("Slot needed from D114", withAgent.Title);
         }
 
         // Second in-game census (2026-09-25_2332, F6): the index is rebuilt on scene load
@@ -598,8 +592,8 @@ namespace Parsek.Tests
             Assert.Equal(slots.FirstStarvedAccept.UT, resolved.FirstStarvedAccept.UT);
             Assert.Equal(slots.FirstStarvedAccept.Title, resolved.FirstStarvedAccept.Title);
             Assert.Equal(slots.Describe(), resolved.Describe());
-            Assert.Equal("Your committed timeline accepts the contract 'Conduct a focused observational survey of Kerbin.'"
-                + " from Zaltonic Electronics on D5 and needs this slot. " + Rule + " " + WayOut,
+            Assert.Equal("Slot needed from D5 for 'Conduct a focused observational survey of Kerbin.'"
+                + " (Zaltonic Electronics), blocked by timeline.",
                 ContractSlotReservation.Explain(resolved, Fmt).Body);
             Assert.Contains(logLines, l => l.Contains("[ContractSlotReservation]")
                 && l.Contains("Starved accept c-live agent resolved at render time: 'Zaltonic Electronics'"));
@@ -614,8 +608,7 @@ namespace Parsek.Tests
             Assert.Same(slots, ContractSlotReservation.WithStarvedAcceptAgent(slots, key => null));
             Assert.Same(slots, ContractSlotReservation.WithStarvedAcceptAgent(slots, key => "  "));
             Assert.Same(slots, ContractSlotReservation.WithStarvedAcceptAgent(slots, null));
-            Assert.Equal("Your committed timeline accepts the contract 'Conduct a focused observational survey of Kerbin.'"
-                + " on D5 and needs this slot. " + Rule + " " + WayOut, before);
+            Assert.Equal("Slot needed from D5 for 'Conduct a focused observational survey of Kerbin.', blocked by timeline.", before);
             Assert.Contains(logLines, l => l.Contains("[ContractSlotReservation]")
                 && l.Contains("Starved accept c-live has no snapshot agent and stock lists none"));
         }
@@ -629,7 +622,7 @@ namespace Parsek.Tests
                 key => { throw new InvalidOperationException("contract system not loaded"); });
 
             Assert.Same(slots, result);
-            Assert.DoesNotContain(" from ", ContractSlotReservation.Explain(result, Fmt).Body);
+            Assert.DoesNotContain(" (", ContractSlotReservation.Explain(result, Fmt).Body);
             Assert.Contains(logLines, l => l.Contains("[ContractSlotReservation]")
                 && l.Contains("Starved accept c-live agent not resolved (InvalidOperationException)"));
         }
@@ -703,7 +696,7 @@ namespace Parsek.Tests
             Assert.Equal("Zaltonic Electronics",
                 index.FirstFuture(CommittedFutureKind.ContractAccept, "c-agent", 100).AgentTitle);
             Assert.True(MissionControlStockAnnotation.BlocksAcceptForSlot(d));
-            Assert.Contains("'Conduct a focused observational survey of Kerbin.' from Zaltonic Electronics on D5", d.Why);
+            Assert.Contains("from D5 for 'Conduct a focused observational survey of Kerbin.' (Zaltonic Electronics)", d.Why);
         }
 
         [Fact]
@@ -716,13 +709,10 @@ namespace Parsek.Tests
             var unnamedFlight = ReservationExplanation.ContractSlot(
                 new CommittedFutureEntry(CommittedFutureKind.ContractAccept, "k", 11400, "rec2", null, title: "Orbit the Mun"), Fmt);
 
-            Assert.Equal("Slot needed on D114", named.Title);
-            Assert.Equal("The committed flight 'Mun Lander 3' accepts the contract 'Rescue Bill' on D114 and needs this slot. "
-                + Rule + " " + WayOut, named.Body);
-            Assert.Equal("Your committed timeline accepts a contract on D114 and needs this slot. " + Rule + " " + WayOut,
-                ksc.Body);
-            Assert.Equal("A committed flight accepts the contract 'Orbit the Mun' on D114 and needs this slot. "
-                + Rule + " " + WayOut, unnamedFlight.Body);
+            Assert.Equal("Slot needed from D114", named.Title);
+            Assert.Equal("Slot needed from D114 for 'Rescue Bill', blocked by timeline.", named.Body);
+            Assert.Equal("Slot needed from D114 for a contract, blocked by timeline.", ksc.Body);
+            Assert.Equal("Slot needed from D114 for 'Orbit the Mun', blocked by timeline.", unnamedFlight.Body);
             foreach (char c in named.Body + ksc.Body + unnamedFlight.Body + named.Title)
                 Assert.True(c < 128, "non-ASCII char " + (int)c);
         }

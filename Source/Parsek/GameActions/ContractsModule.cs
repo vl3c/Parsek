@@ -416,6 +416,7 @@ namespace Parsek
             {
                 // Duplicate completion — rewards zeroed
                 action.Effective = false;
+                action.NotCountedReason = GameActionNotCountedReason.ContractAlreadyCompleted;
 
                 ParsekLog.Info(Tag,
                     $"Complete: contractId='{id}' effective=false (already credited), " +
@@ -425,6 +426,7 @@ namespace Parsek
             {
                 // Deadline failure already resolved this contract; rewards zeroed.
                 action.Effective = false;
+                action.NotCountedReason = GameActionNotCountedReason.ContractDeadlinePassed;
 
                 ParsekLog.Info(Tag,
                     $"Complete: contractId='{id}' effective=false (deadline expired), " +
@@ -434,6 +436,7 @@ namespace Parsek
             {
                 // Explicit fail/cancel already resolved this contract; rewards zeroed.
                 action.Effective = false;
+                action.NotCountedReason = GameActionNotCountedReason.ContractAlreadyResolved;
 
                 ParsekLog.Info(Tag,
                     $"Complete: contractId='{id}' effective=false (explicitly resolved), " +
@@ -445,6 +448,7 @@ namespace Parsek
                 // at the same UT. PrePass sees the whole walk and makes that
                 // same-tick explicit terminal state authoritative.
                 action.Effective = false;
+                action.NotCountedReason = GameActionNotCountedReason.ContractAlreadyResolved;
 
                 ParsekLog.Info(Tag,
                     $"Complete: contractId='{id}' effective=false " +
@@ -454,6 +458,7 @@ namespace Parsek
             {
                 // First completion — credit awarded
                 action.Effective = true;
+                action.NotCountedReason = GameActionNotCountedReason.None;
                 creditedContracts.Add(id);
                 terminalContracts.Add(id);
                 terminalContractActions[id] = GameActionType.ContractComplete;
@@ -591,6 +596,7 @@ namespace Parsek
                 return false;
 
             action.Effective = false;
+            action.NotCountedReason = GameActionNotCountedReason.ContractOutcomeAfterEnd;
             ParsekLog.Info(Tag,
                 $"{label}: contractId='{id}' effective=false (already {prior} earlier in the walk), " +
                 $"penalties not charged: fundsPenalty={action.FundsPenalty.ToString("R", IC)} " +

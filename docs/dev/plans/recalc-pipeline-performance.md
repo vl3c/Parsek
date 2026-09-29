@@ -523,7 +523,7 @@ The cache stores `{available, projection-min-balance}` per resource. On hit: ret
 | `KspStatePatcher.cs` | applies walk results | None - runs after walk completes. |
 | `LedgerOrchestrator.RebuildCommittedScienceFromWalk` (`:1563`) | post-walk | None - runs after walk completes. |
 | `PostWalkActionReconciler.cs` | post-walk | None - runs after walk completes. |
-| `Source/Parsek/UI/CareerStateWindowUI.cs` | UI repaint | **REAL RISK** - reads displayed projected fields. |
+| ~~`Source/Parsek/UI/CareerStateWindowUI.cs`~~ (removed 2026-09-27; its slot counts are now `CareerSlotSummary`, read by the Timeline hover) | UI repaint | **REAL RISK** - reads displayed projected fields. |
 | `Source/Parsek/Timeline/TimelineBuilder.cs:525, 602, 645` | Timeline window repaint | **REAL RISK** - reads `Effective*Reward` for future-action rendering. |
 | `LedgerLoadMigration.cs` | OnLoad migration | None - runs once before any walk. |
 | `KscActionExpectationClassifier.cs` | classification | None - reads action-immutable fields, not derived ones. |

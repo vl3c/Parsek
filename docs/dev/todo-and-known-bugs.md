@@ -15,6 +15,190 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~BREAKUP-CONTINUOUS-LEAF-READERS: readers that took any `ChildBranchPointId` as "the vessel's flight ended here"~~ [FOUND 2026-09-28 by the audit that followed GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD; FIXED 2026-09-28, branch `breakup-continuous-leaf-audit`]
+
+**In gameplay terms.** Every staging or decouple of the focused vessel goes through the crash
+coalescer, and `ParsekFlight.WireBreakupIntoTree` stamps that branch on a recording that keeps
+flying to its own terminal (children: the different-PID stages and debris it dropped). The
+post-switch Launch branch has the same shape. Splits that close their parent (`CreateSplitBranch`
+Undock / EVA, `BackgroundRecorder.CloseParentRecording`) leave a same-PID child; Dock / Board
+continue the vessel in the merged child. Readers that treated any branch as "ended here" lost the
+staged vessel: see the CHANGELOG entry for the player-visible list.
+
+**Fix.** Two predicates, chosen by whether the reader can trust UTs:
+- `RecordingTree.IsVesselLineEnd` / `ChildBranchLeavesVesselLineOpen` (live-safe, reads no UTs):
+  the branch is a Breakup / JointBreak / Launch (`BranchTypeCanLeaveParentRecording`), no child
+  shares the PID, the recording was not closed AT the branch (`ExplicitEndUT <= bp.UT`, which
+  `BackgroundRecorder.CloseParentRecording` writes synchronously; its "parent vessel destroyed"
+  path leaves no same-PID child and no terminal, and the PR review showed such a parent would
+  otherwise re-enter the BackgroundMap, get stretched to commit UT and respawn), and no later chain
+  segment continues the recording. Used on live trees, where the recorder may not have flushed
+  the parent's points yet. `MissionEventDigest` opts out of the closed-at-branch refusal
+  (`allowClosedAtBranch`) because it already reads the recording's own terminal.
+- `GhostPlaybackLogic.RecordingContinuesPastChildBranch` (committed trees): the same shape plus
+  PR #1918's `RecordingContinuedPastBranchPoint` end-UT test, for readers that must still follow a
+  child when the parent ended AT the split (a crash breakup).
+
+**Audit (every `ChildBranchPointId` read in `Source/Parsek`, re-derived from callers).** WRONG and
+fixed, each with tests both ways (`BreakupContinuousLeafTests`, one CommNet cell in
+`GhostCommNetTests`):
+- `GhostChainWalker.IsTreeFullyTerminated`: dock claim, then the merged craft staged a stage that
+  crashed; the tree read fully terminated and the station's claim was dropped (the #174 hypothesis,
+  reproduced).
+- `GhostChainWalker.WalkToLeaf`: same tree, the chain tip fell back to the dropped debris.
+- `RecordingTree.IsBackgroundMapEligible`: after a switch away and a reload, the staged rocket left
+  the BackgroundMap and stopped recording.
+- `RecordingTree.AreAllLeavesTerminal` / `AreAllActiveCrashBlockersDebris`: a crash of the switched-to
+  vessel could finalize the tree while the staged rocket still flew (tree overloads added).
+- `RecordingTree.GetSpawnableLeaves` / `GetAllLeaves`: the staged rocket missed pre-switch commit
+  adoption and the merge dialog's vessel decisions (`BuildDefaultVesselDecisions`).
+- `SwitchSegmentBuilder` resolver + creator: Switch-To back onto a staged rocket started a standalone
+  segment (`no-terminal-leaf`) instead of continuing it. The attached continuation overwrites the
+  parent's staging link; a scoped Discard now restores it from the latest surviving Breakup /
+  JointBreak / Launch branch that lists the parent (`FindOverwrittenContinuingBranchPointId`)
+  instead of nulling it.
+- `ParsekFlight.CreateSplitBranchFromBackgroundParent`: EVA from a switched-back staged rocket aborted
+  "already has child branch" (guard extracted as `BackgroundParentAlreadySplit`).
+- `ParsekFlight.ShouldAllowFinalEndpointSegmentPhase`: staged flights got no final SegmentPhase.
+- `ParsekFlight.StashActiveTreeAsPendingLimbo`: the #268 pre-capture skipped a non-active staged rocket
+  (not unit-testable; inline in the live scene path).
+- `RecordingStore.CollectSwitchSegmentSubtreeRecordingIds`: a later staging overwrote the link to an
+  earlier one, so scoped Discard missed the first stage's children; it now walks every branch point
+  that lists the recording as a parent (`EnqueueParentedBranchChildren`).
+- `MissionEventDigest.AddTerminalRows`: every staged main vessel lost its terminal row.
+- `TimelineBuilder` (`isTreeLeaf`): a tree child that staged had no VesselSpawn row
+  (`IsBreakupContinuousSpawnLeaf` mirrors the spawn gate).
+- `MissionCrossTreeDock.FindBranchSuccessor`: a post-switch Launch branch walked the partner journey
+  onto the unrelated switched-to vessel.
+- `GhostCommNetMath.ApplyContinuationHold`: a superseded breakup-continuous tip lost its CommNet hold.
+
+Already handled (IsEffectiveLeafForVessel or an equivalent): `ShouldSpawnAtRecordingEnd`,
+`IsFinalSpawnSegment`, `RecordingVisualClassifier`, `ShouldEnsureActiveRecordingTerminalState`,
+`FinalizeIndividualRecording`, `IsCommittedSpawnedRecordingRestorable`,
+`ShouldRefreshActiveEffectiveLeafSnapshot`, `ParsekScenario.IsTerminalEventTarget`,
+`RecordingOptimizer.TailTrim.IsLeafRecording`, `KerbalsModule.ResolveSplitHandoffUT`,
+`TimelineBuilder.HasSamePidTreeContinuation`, `EffectiveState.ComputeSubtreeClosureInternal`, and the
+watch readers (PR #1918). Correct as written (copies, serialization, topology walks, fences, conservative
+refusals): the codec, `Recording` / `SessionMerger` / `RecordingOptimizer` copies, optimizer / splitter BP
+moves, cleanup nulling, `VesselSpawner` / `ParsekKSC` post-gate coordinate picks, `AnchorDetector`,
+`ParsekFlight.TerminalOrbit`, `FindPreferredChildRecording`, `BackgroundRecorder.CheckDebrisTTL`,
+`EffectiveState` slot walks (they hop only closing switch / own-EVA / Board types), `SupersedeCommit`,
+`MergeDialog.IsTerminalLinkedToParentBranch`, `RecordingOptimizer.CanAutoMerge`,
+`UnfinishedFlightClassifier` rewind-point lookup and shape gates. Follow-ups filed below; the
+`downstreamBp` one was ruled and fixed on the same branch.
+
+## ~~UF-DOWNSTREAM-BP-ON-DEBRIS-OR-LAUNCH: does a debris-only staging or a post-switch Launch branch end re-flyability of an earlier split?~~ [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OWNER RULING 2026-09-28 (interview): neither ends it. FIXED 2026-09-28, branch `breakup-continuous-leaf-audit`]
+
+`UnfinishedFlightClassifier.TryQualify` rejects `downstreamBp` when the walked tip's
+`ChildBranchPointId` differs from the rewind point's branch and the terminal is not Destroyed. A
+slot vessel that later dropped only debris (JointBreak with debris children), or that was switched
+away from while idle (post-switch Launch branch stamped on it), is therefore no longer an
+Unfinished Flight at the earlier split, although nothing re-flyable happened downstream. For a
+real controllable split the rule is intended. If ruled wrong: block only when the downstream branch
+has a same-PID child, a non-debris child, or a resolved rewind point; excluding Launch settles
+that half outright.
+
+**Ruling and fix.** Owner ruling 2026-09-28: a debris-only staging and a post-switch Launch branch
+do not end re-flyability at the earlier split; a controllable child still does.
+`UnfinishedFlightClassifier.HasBlockingDownstreamBranch` checks every branch point the walked tip
+parents at or after the rewind point's own branch (by parent id, so an earlier controllable split
+overwritten by a later debris staging still blocks) and ignores the two non-blocking shapes
+(`IsNonBlockingDownstreamBranch`, which needs at least one recorded child, all debris). Follow-up
+ruling 2026-09-28 (the review found Site B-1 still sealing through the structural-mutation gate):
+a debris-only staging DURING a Re-Fly does not seal the slot either;
+`SupersedeCommit.HasReFlySessionStructuralMutation` skips the same shape. Design:
+`docs/parsek-rewind-to-separation-design.md` section 1.7. Tests: five cells in
+`SwitchContinuationTerminalWalkTests` (debris-only qualifies, controllable child rejects, Launch
+qualifies, overwritten controllable split rejects, a pre-rewind branch is not downstream), two in
+`SupersedeCommitTests` (debris-only session staging is not a mutation, controllable still is) and
+the edge cells in `BreakupContinuousLeafTests` (Breakup type, same-pid debris, missing / no child,
+no tree, missing rewind branch).
+
+## CHILD-BRANCH-SINGLE-SLOT-OVERWRITE: a second split overwrites a breakup-continuous recording's `ChildBranchPointId` [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OPEN, low; owner ruling 2026-09-28: leave filed until a player-visible defect shows]
+
+`WireBreakupIntoTree`, `CreateSplitBranch` and the switch-continuation creator all overwrite
+`ChildBranchPointId`; the earlier branch still lists the recording in `ParentRecordingIds`. Walks
+that follow only `ChildBranchPointId` lose the earlier branch's children: `AnchorDetector`'s
+replay-point affinity (rank only), `GhostChainWalker.TraceLineagePids` (a dropped probe's pid could
+read as a background vessel), the cleanup sites that null the field when the latest branch is
+removed. The switch-segment subtree walk now finds branches by parent id (fixed above); the rest
+are unaudited for impact. Fix direction: the same parent-id lookup where a walk needs every child.
+
+## ~~TIMELINE-ROW-HOVERS: the Timeline explains every row, past and future~~ [DONE 2026-09-28, branch `timeline-row-hovers`, owner direction]
+
+**In gameplay terms.** The Timeline is the Parsek window that explains every element; the
+stock screens explain their blocks. Before this, a row's description had no hover at all (only
+its buttons did). Hovering a row now explains it in the bottom help line: a future row names
+the stock control it holds (the same predicate the click-block reads, so it never names a hold
+stock does not enforce), a contract accept names its deadline / advance / rewards / agent, a
+contract end names its flight and the rest of its rewards or penalty, a launch names its crew,
+how it ends and its mission, a greyed row says why it did not count, and the "now" divider
+says the rows below hold stock controls until their date. The same change replaces "your
+timeline" / "the timeline" / "committed" with "timeline" in Parsek's own windows.
+
+**Fix.** `Timeline/TimelineRowHover.cs` (pure builders + `TimelineRowHoverTracker`),
+`ReservationExplanation.ForTimelineRow`, `GameAction.NotCountedReason` (runtime only, not a
+schema change), `TimelineEntry.Action` / `PairedContractComplete`. Contract of record:
+`design-gui-inventory.md` 3.3 "Row hover". Tests: `TimelineRowHoverTests`,
+`TooltipEchoBudgetTests.TimelineRowHovers_FitTheTimelineStrip`.
+
+**Not done (by choice).** Tech rows do not list the parts they unlock (the part list needs
+`PartLoader`, a live-scene dependency); a facility repair row claims no hold (the repair block
+depends on the building being destroyed at click time, which a row cannot know); a future
+contract accept's hover (hold plus terms) is longer than one strip line and scrolls in the
+marquee.
+
+## ~~GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD: at the end of a watched replay the camera jumps to a stage the rocket dropped mid-flight~~ [FILED 2026-09-27 from run `2026-09-27_2029` (PARSEK-FAIL(expectation), automation DLL sha256 `f747fdee...`, origin/main `1329091f8`), branch `arm-batch2`. FIXED 2026-09-28, branch `gs8-watch-hold`]
+
+**In gameplay terms.** The player watches a replayed Kerbal X to the end of its flight. At
+the moment its recording ends, the camera does not hold on the Kerbal X (the 3 s end hold,
+then back to the player's vessel); it jumps to the probe-cored core stage the rocket dropped
+about 150 s EARLIER, holds 3 s on that, and exits. Nothing is lost or mis-recorded: the save
+is correct, only the camera goes to the wrong ghost for the last 3 seconds.
+
+**Evidence.** GS-8's one failing expectation was the required
+`phase=MeshDestroyed ... vessel=Kerbal X reason=watch hold expired`. The log of `_2029` read
+`FindNextWatchTarget: currentIndex=0 ... childBpId=6200c1cd...`, `found target at index 7`,
+`Auto-following: #0 "Kerbal X" -> #7 "Kerbal X Probe"`, then `Watch hold started for #7: 3s
+terminal=SubOrbital` and the probe's `watch hold expired`. The produced save: the Kerbal X
+recording `526d008e...` runs to `explicitEndUT = 297.64` with its own SubOrbital terminal,
+yet carries `childBranchPointId = 6200c1cd...`, the JointBreak / DECOUPLE branch point at
+`ut = 146.44` whose only child is the probe `517ffd5a...` (non-debris, parent-anchored,
+`explicitEndUT = 297.70`, so its ghost was still live when the Kerbal X ended).
+
+**Cause (confirmed from log and source).** The core discard went through the crash
+coalescer: `ProcessBreakupEvent: controlled child created ... Kerbal X Probe` then
+`ProcessBreakupEvent: JointBreak attached to tree ... parentRec=526d008e..., bpId=6200c1cd...`.
+`ParsekFlight.WireBreakupIntoTree` stamps `ChildBranchPointId` on the FOCUSED recording, which
+keeps sampling past the split (the breakup-continuous design `DebrisParentStateGate` and
+`GhostPlaybackLogic.IsEffectiveLeafForVessel` already document); only the splits that close
+their parent (`CreateSplitBranch`, `BackgroundRecorder.CloseParentRecording`) trim it to the
+branch UT. `GhostPlaybackLogic.FindNextWatchTarget` case 2 read every `ChildBranchPointId` as
+"the flight ended here": with no same-PID child it fell back (non-Breakup branch, #321) to
+the first active non-debris child, the probe. Every live caller (`ParsekPlaybackPolicy`'s
+completion and mid-chain auto-follow, `WatchModeController.ProcessWatchEndHoldTimer`, the
+hold extension through `TryGetPendingWatchActivationUT`) goes through these pure functions.
+Why the 2026-09-08 greens held on the Kerbal X is not established (those results are gone);
+any run where the probe's ghost outlives the parent's end reaches the fallback.
+
+**Fix.** `GhostPlaybackLogic.RecordingContinuedPastBranchPoint`: the recording's `EndUT` lies
+past `bp.UT + CoalesceWindow + 1 s`. When there is no same-PID continuation and that holds,
+the different-vessel fallback is refused in all three readers of the branch
+(`FindNextWatchTarget`, `TryGetPendingWatchActivationUT`, `ResolveEffectiveTreeWatchTargetIndex`),
+logged `continued past branch ... not following a different-vessel child`, so the watch holds
+on the watched vessel's own ending. Mirror, unchanged: a recording that ENDED at the split
+(parent destroyed at or within window + slack of the decouple) still retargets to the child
+or waits for it, a same-PID continuation is still followed whatever the end UT, and a crash
+Breakup still never falls back (#321). The same gate also covers the post-switch Launch branch
+point (`ParsekFlight` ~10640, parent = the previously active recording): when that recording
+kept recording in the background past the switch, its watched ending no longer jumps to the
+vessel launched at the switch. That is the same wrong-vessel jump and is intended. GS-7 (crash watch hold) is outside the change: its
+watched Kerbal X reads `childBpId=null` in `2026-09-27_2016`. Tests:
+`WatchContinuedPastBranchTests` (GS-8 shape on all three readers, the four mirror cases, the
+predicate's window); three older fallback tests now give their branch point the UT the root
+ends at, the shape they describe. Re-flight: see the GS-8 spec's STATUS section.
+
+
 ## ~~RF-20-FIRST-FLIGHT-SPEC-RELOAD-BEFORE-COMMIT-SAVE: RF-20's first flight reloaded a pre-commit persistent.sfs~~ [FILED AND CLOSED 2026-09-27, branch `stashslot-live-refly`. LANE SPEC DEFECT, not a Parsek defect]
 
 Run `2026-09-27_1827` classified PARSEK-FAIL: the tree commits on arrival at the Space Center, after the scene exit has saved, so the lane's reload read a pre-commit `persistent.sfs` and `TryRestoreActiveTreeNode` resumed the tree as a live recording; with nothing committed, `StashSlot` correctly answered `stash-refused tip-unresolvable`. Loading an older save is intended to restore it that way (a player only meets it after a crash at the KSC before the next save, and the tree resumes rather than being lost). Fix: a `SaveGame persistent` step after `ExitToSpaceCenter`, the order RF-13H already uses. Re-flown: `_1832` reading run, `_1838` PASS.
@@ -297,49 +481,6 @@ with one Offered contract accepted and one tier-1 node left unresearched after i
 (`start`) - or `stock-screen-census`, if it carries both (not checked). Not fixed now:
 a new or re-harvested fixture moves H45's host and every lane pinned to it.
 
-## GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD: at the end of a watched replay the camera jumps to a stage the rocket dropped mid-flight [FILED 2026-09-27 from run `2026-09-27_2029` (PARSEK-FAIL(expectation), automation DLL sha256 `f747fdee...`, origin/main `1329091f8`), branch `arm-batch2`. OPEN]
-
-**In gameplay terms.** The player watches a replayed Kerbal X to the end of its flight. At
-the moment its recording ends, the camera does not hold on the Kerbal X (the 3 s end hold,
-then back to the player's vessel); it jumps to the probe-cored core stage the rocket dropped
-about 150 s EARLIER, holds 3 s on that, and exits. Nothing is lost or mis-recorded: the save
-is correct, only the camera goes to the wrong ghost for the last 3 seconds.
-
-**Evidence.** GS-8's one failing expectation was
-`logContracts.required not matched: phase=MeshDestroyed [^
-]*vessel=Kerbal X reason=watch hold expired`.
-The log (`results/2026-09-27_2029_GS-8-kerbalx-zone-round-trip_shots/KSP.log`):
-- `PlaybackCompleted index=0 vessel=Kerbal X ghostWasActive=True pastEffectiveEnd=True ... watched=True`
-- `FindNextWatchTarget: currentIndex=0, chainId=null, chainIndex=-1, treeId=7ce95245..., childBpId=6200c1cd..., supersedes=0`
-  then `found target at index 7` and `Auto-following: #0 "Kerbal X" -> #7 "Kerbal X Probe"`
-- `phase=MeshDestroyed ... vessel=Kerbal X reason=auto-followed to next stage`
-- `PlaybackCompleted index=7 vessel=Kerbal X Probe ... pastEffectiveEnd=True` in the same frame,
-  `Watch hold started for #7: 3s terminal=SubOrbital`, then
-  `phase=MeshDestroyed ... vessel=Kerbal X Probe reason=watch hold expired`.
-
-The produced save says why the follow was wrong: the Kerbal X recording `526d008e...` runs
-to `explicitEndUT = 297.64` with its own `terminalState = 3` (SubOrbital), yet carries
-`childBranchPointId = 6200c1cd...`, a JointBreak / DECOUPLE branch point at `ut = 146.44`
-whose only child is the probe `517ffd5a...` (the parent CONTINUED past the split). The
-2026-09-08 greens read `Watch hold started for #0: 3s terminal=SubOrbital` on the Kerbal X
-itself (autotest-status GS-8 row). Every save window matched (supersedeRows 0, tombstones
-0; trees 1, committedTrees 1, recordings 8, JointBreak 5, SubOrbital 2, Destroyed 6), and
-the run was a single attempt (a PARSEK-FAIL is not retried).
-
-**Suspected cause (from source, not bisected).** `GhostPlaybackLogic.FindNextWatchTarget`
-case 2 treats `ChildBranchPointId` as the branch the recording ENDED at: it looks for an
-active child and, for a non-Breakup branch, falls back to a different-pid child. On a
-parent-continues split the branch point is mid-recording, so a recording that ended on its
-own terminal is "followed" to the child of a split 150 s earlier. What changed since
-2026-09-08 (the flight shape, or which recording carries the branch point) is not
-established. Fix direction: case 2 should only follow a child when the branch point is at
-the recording's end (bp.UT at or after the recording's end, within the coalesce window),
-or when the recording has no terminal of its own. Mirror check: the chain case 1 and the
-`MapFocus` / watch re-target paths that also read `ChildBranchPointId`.
-
-**Harness.** GS-8's `rewind` and `recordings.structure` blocks stay report-only until a
-green reading. GS-9 and GS-7 (the same mission) read green in this pass.
-
 ## RF-LANES-RELOAD-A-PRE-COMMIT-SAVE: RF-1, RF-4 and RF-9 reload the game before the committed flight is saved [FILED 2026-09-27, branch `arm-batch2`. LANE SPEC DEFECT, not a Parsek defect. SPEC FIX COMMITTED, RE-FLIGHT PENDING]
 
 All three lanes run `ExitToSpaceCenter` and then `LoadGame persistent` straight away. The
@@ -399,7 +540,6 @@ Still report-only, 25 blocks on 22 specs:
 - Awaiting the re-flight of a fixed lane: RF-1 and RF-9 `structure`
   (RF-LANES-RELOAD-A-PRE-COMMIT-SAVE), CL-3 `structure` (CL-LANES-INJECTED-RP-IN-THE-FUTURE),
   RF-4 `rewind` (below).
-- A red reading: GS-8 both (GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD).
 - No reading on current code: B17 `points`; B23, B24, B25, B26, B28, B29, B30 `rewind`;
   V3C both; RF-2, RF-3, RF-12L `rewind`; and the blocks declared since #1902: EVA-7
   `structure`, RF-16 `rewind`, RF-17 `rewind`, RF-20 both, RR-1 `structure`.
@@ -428,6 +568,9 @@ Remaining (batch 2 paused): re-fly RF-4, RF-1, RF-9, CL-3 and CL-4 after provisi
 `arm-batch2`; arm RF-1 / RF-9 / CL-3 `structure` and RF-4 `rewind` where they read green,
 inverting each offline; then the autotest-status / CHANGELOG / roadmap docs, the C# and
 provision / missions suites, and the PR.
+
+GS-8 both blocks armed 2026-09-28 off `2026-09-28_1732` (branch `gs8-watch-hold`, after the
+GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD fix).
 
 ---
 
@@ -2071,6 +2214,13 @@ panel; reserved kerbals greyed in both crew lists. The findings, none fixed here
    this slot`) over stock's own on all ten inactive strategies. Section 4 S1 says an overflow at
    now is stock's own check; whether the Parsek reason should then stand aside is for the
    overlay program to rule.
+   Follow-up (branch `overlay-gaps`): with stock-first in place the selected strategy showed
+   only stock's slot reason and nothing said the committed timeline activates it later. The
+   `CanBeActivated` postfix now appends the committed activation fact after stock's reason
+   when stock refuses and a committed StrategyActivate of THAT strategy is ahead
+   (`StrategyReservationPredicates.AppendCommittedActivationToStockReason`); stock's refusal
+   stays the block. Wording since the owner's 2026-09-27 rule: stock's reason, then
+  `Activated on DATE, blocked by timeline until then.`
 
 Two kerbal-side readings the same captures show, outside the overlay code:
 
@@ -2333,7 +2483,51 @@ pairing rule):
   T2; the Career window already skips it). The index is built from the effective ledger on
   its own cache cycle, not from the walk, so reading the walk's `Effective` there is not a
   trivially safe change; left for the overlay program.
-- K2: EVA / crew transfer / rescue of a reserved kerbal aboard a live vessel has no guard.
+- ~~K2: EVA / crew transfer / rescue of a reserved kerbal aboard a live vessel has no guard.~~
+  Fixed (branch `overlay-gaps`) as a block at the stock controls, not a flight fix. Predicate
+  `StockUiFlightCrewDecoration.IsMoveRefused`: the crew dialog's
+  (`KerbalsModule.ShouldFilterFromCrewDialog`, live Re-Fly carve-out included) narrowed to a
+  kerbal a committed flight holds now (`ReservedActive`: on-flight or lost; a retired stand-in
+  is not held, his flights are over) aboard a vessel that continues no committed flight (a
+  Parsek-spawned or adopted vessel, `CrewReservationManager.ActiveVesselIsParsekSpawned`, is
+  exempt, the flight-ready swap's own exemption), and never while a Re-Fly session is active
+  (design 3.3.1: the origin's rows stay effective until the merge, and the crew dialog's
+  pid-only carve-out misses a decoupled / undocked child or a dock that keeps the other pid,
+  so the whole block stands down for the session; review blocker on PR #1917). Marks: `KerbalPortrait.Update` postfix greys
+  the portrait EVA button with the reason in stock's `evaTooltip` (after stock's own locked
+  reason when stock also refuses); `CrewHatchDialog.CreateList` postfix greys the hatch row's
+  EVA and Transfer with the reason in a stock tooltip and the status on the row's name label.
+  Backstops, same text via `CommittedActionDialog`: prefixes on `FlightEVA.spawnEVA` (returns
+  null, stock's own no-EVA result) and `CrewTransfer.Create` (no transfer host), the only stock
+  entry points (whole-assembly IL scan). Code: `StockUiFlightCrewDecoration.cs`,
+  `Patches/FlightCrewReservationPatches.cs`; cells `StockUiFlightCrewTests`. Not covered:
+  boarding from EVA (`KerbalEVA.BoardPart`) is left alone, because refusing it would strand an
+  already-EVA held kerbal in the open and the EVA itself is refused; docking a vessel that
+  carries a held kerbal is not a crew move. Not proven in game: no committed fixture boots a
+  held kerbal aboard a live non-continuation vessel (on `career-earned-pad` the flight-ready
+  swap takes Jeb out of the only vessel first); see the overlay-gaps PR notes for the smallest
+  fixture that would.
+- ~~Mission Control read "fails" / "Fails on" for a committed ContractFail row that is the
+  deadline running out, where the Timeline reads "Expired" and the Career window "expires".~~
+  Fixed (branch `overlay-gaps`): `CommittedFutureIndex.Build` stamps a fail row
+  `DeadlineExpiry` through the Timeline's own test (`GameActionDisplay.IsExpiredContractFail`
+  against the accept the fail closes, `FindAcceptForOutcome`), and
+  `ReservationExplanation.ContractResolution` reads "Expired" for it (the owner's 2026-09-27
+  participle wording), so the Active-row label, the detail panel and the Cancel refusal say
+  "expired" / "Expired on".
+- ~~The reservation text was fact + "fixed once committed" rule + way out, said "your
+  committed timeline", and a greyed stock button (Research, Accept / Decline / Cancel,
+  Administration Accept / Cancel) had no hover saying why.~~ Owner wording and coverage
+  rules of 2026-09-27, applied (branch `overlay-gaps`): one sentence per text
+  (`<Participle> on <date and time>, blocked by timeline until then.`; kerbals `Reserved by
+  timeline for 'Flight' until <date>.`), never "committed" / "your timeline" / "the timeline"
+  (pinned by `ReservationExplanationTests`), and every Parsek-greyed stock button carries the
+  reason in a stock tooltip (`StockUiReasonTooltip`); the facility menu also shows it in its
+  description. Final strings and the per-screen matrix: reference sections 6.1 and 6.2. Left
+  without text: the slot-refused Mission Control rows (no row mark by design, C2) and the
+  crew portrait element (its EVA button carries it). The Lost text no longer names the Re-Fly
+  way back on stock screens (the owner dropped every way-out sentence); the Kerbals window
+  keeps it.
 
 **Defects in the existing PR #721 layer:**
 - ~~The Mission Control badges are lost on a tab switch.~~ Fixed by PR 2b: the badge is gone;
@@ -3938,7 +4132,30 @@ sequence), which is also what a player does. Fix direction if it matters: have `
 tree, exactly as `MissionsWindowUI`'s GoTo path already does ("Calling the same idempotent static
 the draw and ParsekScenario.OnLoad both call is not a second seam").
 
-## CAREER-STATE-VIEW-2026-09-24: the Career window became the state view of contracts and strategies (PR 4 of the career-vs-timeline plan) [FILED 2026-09-24 with branch `career-state-view`. DONE on that branch; the residue below is OPEN]
+## ~~CAREER-WINDOW-REMOVED-2026-09-27: the Career State window is removed; its reserved-slot counts moved into the Timeline's Contracts / Strategies button hovers~~ [DONE 2026-09-27, branch `remove-career-window`, owner decision]
+
+Owner decision 2026-09-27: the Career window was redundant. Stock Mission Control and
+Administration carry Parsek's reservation overlays (active counts, deadlines, accept dates,
+the `- completes Y1 D7` labels, strategy effects and end dates) and the Timeline's Career
+category views carry the dated past and future. The only facts shown nowhere else were the
+"reserved for later" slot counts (kept) and the deadline of a contract the timeline accepts
+later (dropped: not important). **Fix:** `CareerSlotSummary` (the slot walk moved out of the
+window, not forked: contracts read the shared `ContractSlotReservation` forecast the C2
+accept block reads, live `ForecastNow()` first and the pure ledger forecast as fallback;
+strategies keep the peak walk) feeds one sentence appended to the EXISTING hover of the
+Timeline's `Contracts` and `Strategies` view buttons, Career mode only, free first:
+`Contract slots: 4 of 7 free now (2 active, 1 reserved for later).` /
+`... no slot limit (2 active).` Budgeted by `TooltipEchoBudgetTests.CareerSlotHovers_FitTheTimelineStrip`.
+Deleted: `UI/CareerStateWindowUI.cs`, `UI/Gallery/GuiMockCareerStates.cs`, the launcher,
+`UiSurface.MainButtonCareer`, the host draw calls, the seam's `window=career` (tabs, the
+`pending:` expand prefix, the mock arm) and its hlib mirrors, the career mock suppression
+sites and the Career in-game mock cell. `SpaceBeforeCapitals` moved to
+`GameActionDisplay`. GUI-15 is repointed to the Timeline's Contracts view and its hover;
+GUI-1 / GUI-5 / GUI-6 dropped their Career captures. The open residue of
+CAREER-STATE-VIEW-2026-09-24, CAREER-WINDOW-ROUND3-2026-09-22 and the census items about
+the Career window's folds and divergence banner is MOOT with the window.
+
+## CAREER-STATE-VIEW-2026-09-24: the Career window became the state view of contracts and strategies (PR 4 of the career-vs-timeline plan) [FILED 2026-09-24 with branch `career-state-view`. DONE on that branch; the residue below is MOOT since CAREER-WINDOW-REMOVED-2026-09-27 except item 3]
 
 Done: tabs Contracts and Strategies only (Facilities and Milestones removed with their VM,
 draw code, gallery states and tests; the Timeline's Career view owns that history); ONE
@@ -4001,7 +4218,7 @@ Open residue:
    (`ParsekTestCommandAddon.UiAction.cs`), which sets `IsOpen` in any game mode and which
    GUI-6 uses for its Sandbox banner capture; both are automation-only.
 
-## CAREER-WINDOW-ROUND3-2026-09-22: the Career window rebuild (dates, Timeline-end column, mode-appropriate tabs) and what it leaves open [FILED 2026-09-22 with branch `ui-career-round3`. Items 1 to 8 of the career-window review are DONE on that branch; the residue below is OPEN]
+## ~~CAREER-WINDOW-ROUND3-2026-09-22: the Career window rebuild (dates, Timeline-end column, mode-appropriate tabs) and what it leaves open~~ [FILED 2026-09-22 with branch `ui-career-round3`. Items 1 to 8 of the career-window review are DONE on that branch; the residue below is MOOT since CAREER-WINDOW-REMOVED-2026-09-27]
 
 Done on the branch (owner-approved review items 1-8): house dates with a relative deadline
 tail; expanding name column in every table; milestone titles via the Timeline humanizer and
@@ -4512,8 +4729,9 @@ GUI-STATE-COVERAGE-RESIDUE-2026-09-21 (which records that window's zero-candidat
 branch as dead) seen from the other side, and it NEEDS the same thing: a FLIGHT fixture
 with a spawnable committed recording close to the active vessel.
 
-**4. THE CAREER `Pending in timeline` FOLD NEEDS A DIVERGING CAREER, NOT A LONG ONE**
-(`GUI-CENSUS-CAREER-PENDING-FOLD-NEEDS-A-DIVERGING-CAREER`). MEASURED by GUI-24's first
+**4. ~~THE CAREER `Pending in timeline` FOLD NEEDS A DIVERGING CAREER, NOT A LONG ONE~~**
+(`GUI-CENSUS-CAREER-PENDING-FOLD-NEEDS-A-DIVERGING-CAREER`). MOOT 2026-09-27: the Career
+window was removed (CAREER-WINDOW-REMOVED-2026-09-27). MEASURED by GUI-24's first
 flight (`2026-09-21_2252`) rather than derived. `op=expand window=career key=none` ran
 correctly and answered `state=false expanded=0 total=2`, and the two captures beside it
 showed NO FOLD: `CareerStateWindowUI` draws `Pending in timeline (N)` only in the `else`
@@ -4661,8 +4879,9 @@ the in-game `StrategyLifecycle` category, and an in-game batch captures and REST
 photographed. **Fix:** a fixture with a strategy-activation ledger row, built by
 construction the way `career-contract-pad` was.
 
-**6. The Career State window's DIVERGENCE banner and its two `Pending in timeline` folds
-have no HOST.** The banner's `(timeline ends at UT N)` form and the split
+**6. ~~The Career State window's DIVERGENCE banner and its two `Pending in timeline` folds
+have no HOST.~~** MOOT 2026-09-27: the Career window was removed
+(CAREER-WINDOW-REMOVED-2026-09-27). The banner's `(timeline ends at UT N)` form and the split
 `Active now (N)` + `Pending in timeline (K)` layout need committed actions in the FUTURE of
 the live clock, i.e. a rewind. **The SEAM half is no longer missing:** this item was filed
 saying `career` had no `op=expand` route, and the wave-6 seam additions that landed the

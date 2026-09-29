@@ -963,7 +963,10 @@ namespace Parsek
                 chainIntermediateWouldSpawn,
                 superseded,
                 spawnable,
-                string.IsNullOrEmpty(rec.ChildBranchPointId),
+                // The spawn gate's own leaf test: a breakup-continuous recording (its child
+                // branch point has no same-PID child) is its vessel's leaf and spawns.
+                string.IsNullOrEmpty(rec.ChildBranchPointId)
+                    || GhostPlaybackLogic.IsEffectiveLeafForVessel(rec),
                 rec.IsDebris,
                 rec.IsGhostOnly,
                 rec.ChainBranch > 0,

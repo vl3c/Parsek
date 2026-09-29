@@ -107,11 +107,21 @@ Top of the window, three rows of buttons:
 
 The **Career** view lists every row of one subject from both Overview and Details, past and future: contracts accepted, completed, failed, expired or cancelled (a contract whose deadline ran out reads `Expired: <name>`, one that failed any other way `Fail: <name>`); strategies activated or deactivated; facility upgrades, destructions and repairs; milestones; and tech unlocks. Career reopens the last subject you picked. The time range still applies, so a Last Day / 7d / 30d range hides the future rows. Science games show only Facilities, Milestones and Tech, and Sandbox games have no Career button.
 
+In Career games, hovering **Contracts** or **Strategies** also counts your slots, free first: `Contract slots: 4 of 7 free now (2 active, 1 reserved for later).` A slot is "reserved for later" when your committed recordings accept a contract (or activate a strategy) later while the ones active now are still running. Parsek takes the most it will hold at once between now and the end of the recorded timeline, so a contract that completes on day 50 frees the slot a flight's day-60 accept then takes, and only overlapping ones count. The reserved part is left out when nothing is reserved, and a fully upgraded Mission Control reads `no slot limit (2 active)`. For contracts this is the same count Mission Control uses when Parsek refuses an accept that would leave a recorded flight's later accept without a slot: a deadline frees its slot on the deadline date, a recorded Mission Control upgrade adds its slots when it happens, and contracts stock accepts automatically hold no slot.
+
 Each entry row shows UT, a description, and (for `RecordingStart` entries) the following buttons:
 
 - **W** - watch button in flight. Enabled only when the recording currently has an active same-body ghost within the watch cutoff; otherwise shown grayed out. A watched row shows **W\***.
 - **R** / **FF** - same rewind / fast-forward buttons as the Recordings Manager.
 - **GoTo** - opens the Missions window on the mission this recording belongs to, revealing the row (the window opens itself if it was closed). There is no loop toggle on a Timeline row: looping is authored per mission in the Missions window, or per recording in the Recordings tab.
+
+Hover a row's description to have the help line at the bottom of the window explain it:
+
+- **Future rows** (below the "now" divider, dimmed) that hold a stock control name it, for example `Holds Research in R&D until Y1, D06, 14:05.` or `Holds Accept and Decline in Mission Control until ...`. The Timeline names only a hold the stock screen actually enforces: tech research, contract accept / decline and cancel, facility upgrades, hires, the Administration strategy button the strategy shows now (Activate while it is inactive, Deactivate while it is active) and part purchases. A repair row names none, because the repair block depends on the building being destroyed at the time you click.
+- **Contract accepts** name the deadline, the advance, the rewards (once the contract's completion is on timeline) and the agent: `Deadline Y2, D105, 06:00. Advance 12000, reward 39270 funds + 18 rep. Agent: C7 Aerospace.` Completions and failures name the flight that closed the contract and the rep, science or penalty the row text leaves out.
+- **Launches** name the crew, how the launched vessel ends and the mission: `Crew: Jebediah, Bill, Bob. Ends landed at Midlands on Mun. Mission: Mun Landing.`
+- **Greyed rows** say why they did not count, for example `Not counted: already completed earlier on timeline, so no reward was paid.`
+- The **now divider** reads `Rows below happen on their date and hold stock controls until then.`
 
 ### Recordings Manager
 
@@ -223,7 +233,7 @@ Click the "Kerbals" button in the main Parsek window to open the Kerbals window.
 
 - **Roster** - one row per kerbal, answering "who can I fly right now, and why not". Rows are grouped by crew slot: a kerbal's stand-ins are listed directly under him, marked with a tree line.
   - **Kerbal** - name and trait.
-  - **Status now** - one of `Available`, `Assigned (vessel name)`, `On EVA`, `Reserved: aboard <vessel>` (a committed flight ends with him aboard that vessel), `Reserved: <mission>` (a committed flight holds him), `Reserved for <kerbal>` (a stand-in held while covering someone else's seat), `Stand-in for <kerbal>` (only while he is actually covering the seat; the cell adds `(aboard <vessel>)` when it fits, or names the craft on hover), `Retired`, or `Lost`. Hover a `Reserved` status to see which flight holds the kerbal: a reservation does not end when the flight's date passes; it lasts while that flight stays in your timeline. Hover a `Lost` status to see the mission he died on; when an Unfinished Flight whose re-fly would reach his death is open (he died aboard that separated vessel, or on an EVA from it), the hover also says re-flying it can undo the loss.
+  - **Status now** - one of `Available`, `Assigned (vessel name)`, `On EVA`, `Reserved: aboard <vessel>` (a committed flight ends with him aboard that vessel), `Reserved: <mission>` (a committed flight holds him), `Reserved for <kerbal>` (a stand-in held while covering someone else's seat), `Stand-in for <kerbal>` (only while he is actually covering the seat; the cell adds `(aboard <vessel>)` when it fits, or names the craft on hover), `Retired`, or `Lost`. Hover a `Reserved` status to see which flight holds the kerbal: a reservation does not end when the flight's date passes; it lasts while that flight stays on timeline. Hover a `Lost` status to see the mission he died on; when an Unfinished Flight whose re-fly would reach his death is open (he died aboard that separated vessel, or on an EVA from it), the hover also says re-flying it can undo the loss.
   - **Last flight** - the kerbal's most recent recorded flight and how it ended. Click it to scroll the Timeline window to that flight.
   - Kerbals with nothing to report - available, no reservation, no stand-in, no recorded flight - are collected behind one closed row, `Available, no recorded flights (N)`. Click it to list them.
 - **Flights** - every mission a kerbal flew, grouped per kerbal.
@@ -234,19 +244,6 @@ Click the "Kerbals" button in the main Parsek window to open the Kerbals window.
 When Parsek takes a reserved kerbal out of a craft you launched and seats his stand-in, a short on-screen message says so. Trying to dismiss a kerbal Parsek manages (reserved, standing in, or retired) shows an "Action Blocked" dialog explaining why. In the Astronaut Complex, Parsek's badge tooltips use the same words as this window.
 
 The window is draggable and resizable. Fold state is transient: it survives closing and reopening the window, and resets on a scene change.
-
-### Career State Window
-
-Click the "Career" button in the main Parsek window (Advanced mode, Career games only) to open the Career State window. It shows the two slot-limited parts of a career that have no stock screen of their own: which contracts and strategies hold a slot now, and what the recorded timeline still does to them. Every date is the compact KSP date the Kerbals and Timeline windows use (`Y1, D40, 05:17`). Dated career history - every contract and strategy event, facility upgrades and damage, milestones and tech unlocks - is in the Timeline's **Career** view.
-
-- **Contracts** - active contracts with their accept date and deadline. A deadline also says how far away it is, `(in 12d)`, or `(overdue 3d)` in amber once it has passed.
-- **Strategies** - active Administration strategies with their activation date and resource flow.
-
-Each tab opens with one heading line that counts slots free first, then active, then reserved: `4 of 7 slots free (2 active, 1 reserved for later)`, `5 of 7 slots free (2 active)` when nothing is reserved, and `No slot limit (2 active)` at Mission Control level 3. A slot is "reserved for later" when your committed recordings accept a contract (or activate a strategy) later while the ones active now are still running: Parsek takes the most it will hold at once between now and the end of the recorded timeline, so a contract that completes on day 50 frees the slot a flight's day-60 accept then takes, and only overlapping ones count. Hover the heading to see why fewer slots are free (`Contracts your recorded flights accept later need 1 more slot at peak, so only 4 are free for a new one.`), or, when nothing is reserved, the Mission Control (contracts) or Administration (strategies) level the limit comes from. For contracts the heading is the same slot count Mission Control uses when Parsek refuses an accept that would leave a recorded flight's later accept without a slot: a deadline frees its slot on the deadline date, a recorded Mission Control upgrade adds its slots when it happens, and contracts stock accepts automatically hold no slot (as in stock), so the active count can be lower than the number of rows. For strategies it is the Career window's own count of the same kind (the Administration building refuses, per strategy, an activation that would take a slot a recorded flight's later activation needs). One column header follows, then the rows. When the recorded timeline changes a row after the live moment, a **Timeline end** column appears and says what it does: `completes Y1, D40`, `FAILS Y1, D40` (amber: a failure costs funds and reputation), `expires Y1, D40` (the deadline runs out first; amber too, stock charges the same penalties), `cancelled`, `deactivates`. Contracts and strategies the timeline adds later (accepted or activated in a committed recording that has not played yet) sit under a fold row inside the same table, `Accepted later by your recorded flights (1)` or `Activated later by your recorded flights (1)`; hover it for the slots free at the end of the recorded timeline. A tab with nothing active and nothing pending shows one grey line, such as `No active contracts.`. The mode banner reads `Career mode - <date>` and adds `(timeline ends <date>)` when the timeline reaches past the live moment.
-
-Click a contract or strategy name to open the Timeline on that category (Contracts or Strategies), scrolled to its first row - for a contract, its accept row, with how it ends beneath.
-
-In Science and Sandbox games the Career button is hidden: there are no contracts or strategies there. Science games still record milestones, facility changes and tech unlocks, which the Timeline's Career view shows.
 
 Parsek runs in Career, Science and Sandbox games only. In Making History missions, the mission builder and stock training or scenario saves it stays off: no toolbar button, no recording, ghosts or rewind, and no changes to stock screens.
 
@@ -267,7 +264,7 @@ Interface:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Basic / Advanced | Basic on a new install, Advanced where Parsek was already in use | Basic shows the core windows only: Timeline, Missions, Logistics, Kerbals and Settings. Advanced adds Real Spawn Control, Career, the raw Recordings tab, the Missions loop controls and the three Advanced-only Settings sections. The mode is visibility only: hidden windows keep working in the background |
+| Basic / Advanced | Basic on a new install, Advanced where Parsek was already in use | Basic shows the core windows only: Timeline, Missions, Logistics, Kerbals and Settings. Advanced adds Real Spawn Control, the raw Recordings tab, the Missions loop controls and the three Advanced-only Settings sections. The mode is visibility only: hidden windows keep working in the background |
 
 Ghosts:
 

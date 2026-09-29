@@ -113,7 +113,7 @@ count = { min = 3, max = 3 }
 required = [
   # (a) the menu's own decoration pass: the Repair item, marked and blocked, with the
   #     ReservationExplanation text for one covering repair on the committed timeline.
-  "\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] decorate screen=FacilityMenu tab=Repair item=SpaceCenter/TrackingStation kind=FacilityRepair marked=true blocked=true why=\"Repaired on [^\"]+ on your committed timeline\\. Parsek's timeline is fixed once committed, so this cannot happen earlier or twice\\. The repair happens on that date\\.\"",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] decorate screen=FacilityMenu tab=Repair item=SpaceCenter/TrackingStation kind=FacilityRepair marked=true blocked=true why=\"Repaired on [^\"]+, blocked by timeline until then\\.\"",
   "\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] FacilityMenu SpaceCenter/TrackingStation: Repair disabled, reason on the stock tooltip",
   # ...read back at capture time from the same decision, and the stock control as stock
   #    holds it in that frame.
@@ -124,7 +124,7 @@ required = [
   # (b) the refusal in the RepairFacility prefix, the dialog with the same text, the seam's
   #     own before / after read (funds identical), and the typed refusal.
   "\\[Parsek\\]\\[INFO\\]\\[FacilityRepairPatch\\] Blocking facility repair: 'SpaceCenter/TrackingStation' - 1 destroyed building\\(s\\) of 1 already repaired by a committed future row, first building='SpaceCenter/TrackingStation/Facility/OuterDish' ut=80000 last ut=80000 nowUT=",
-  "\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot repair \"[^\"]+\" - Repaired on [^\\n]+ on your committed timeline\\.",
+  "\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot repair \"[^\"]+\" - Repaired on [^\\n]+, blocked by timeline until then\\.",
   "kscaction repair-facility not applied: target=SpaceCenter/TrackingStation destroyedBefore=1 destroyedAfter=1 fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0",
   "kscaction refused action=repair-facility reason=repair-not-applied target=SpaceCenter/TrackingStation",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false",

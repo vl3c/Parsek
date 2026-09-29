@@ -4,8 +4,8 @@ using System.Collections.Generic;
 namespace Parsek
 {
     /// <summary>
-    /// The one place a ledger strategy id becomes the name the player reads: the Career
-    /// window's Strategies rows and the Timeline's strategy activate / deactivate rows.
+    /// The one place a ledger strategy id becomes the name the player reads: the Timeline's
+    /// strategy activate / deactivate rows.
     ///
     /// A ledger strategy id is stock's strategy config name
     /// (<c>Strategy.Config.Name</c>, e.g. <c>OutsourcedResearchCfg</c>). It is named by
@@ -85,7 +85,7 @@ namespace Parsek
             string core = strategyId;
             if (core.Length > 3 && core.EndsWith("Cfg", StringComparison.Ordinal))
                 core = core.Substring(0, core.Length - 3);
-            string spaced = CareerStateWindowUI.SpaceBeforeCapitals(core);
+            string spaced = GameActionDisplay.SpaceBeforeCapitals(core);
             if (string.IsNullOrEmpty(spaced)) return strategyId;
             return char.ToUpperInvariant(spaced[0]) + spaced.Substring(1);
         }

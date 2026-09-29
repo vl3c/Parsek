@@ -1083,10 +1083,14 @@ branch without it - and are harmless only because later runs superseded them.
 | `main` | 2026-09-22T18:41:11Z | #1755, 2026-09-22T19:16:54Z | GUI-1-census-ksc 2026-09-22_1841 |
 | `kerbals` | 2026-09-22T20:04:25Z | #1762, 2026-09-22T20:38:41Z | GUI-11-census-kerbals-crewed 2026-09-22_2004 |
 | `timeline` | 2026-09-25T18:38:07Z | #1828 (after #1818, #1809, #1792) | GUI-6-census-flight-playback 2026-09-25_1838 (Custom sliders: GUI-24 2026-09-25_1842) |
-| `career` | 2026-09-24T15:22:01Z | #1796, 2026-09-24T16:18:48Z | GUI-15-census-career-contracts 2026-09-24_1522 |
 | `spawncontrol` | 2026-09-25T18:38:07Z | #1828 | GUI-6-census-flight-playback 2026-09-25_1838 |
 | `structure` | 2026-09-25T18:39:56Z | #1828 | GUI-4-census-missions-docked 2026-09-25_1839 |
 | `settings` | 2026-09-26T10:10:05Z | #1867 | GUI-14-census-settings-and-facility 2026-09-26_1009 |
+
+The `career` row (2026-09-25T20:21:53Z, #1834) was removed 2026-09-27 with the Career State
+window itself: `LayoutEpochTests` holds every key to the seam's window vocabulary, which no
+longer has `career`. Its old captures leave the rail as RETIRED once the lanes that took them
+(GUI-1, GUI-5, GUI-6, GUI-15) are re-flown without them.
 
 Each boundary was checked against the captures' own chrome: every Timeline
 capture from 2026-09-23_2134 on draws the `Career` view toggle and the one

@@ -936,6 +936,62 @@ namespace Parsek.Tests
             Assert.Contains("sinceUT=100.00", detail);
         }
 
+        // Owner ruling 2026-09-28: a staging during the Re-Fly that dropped only debris does
+        // not seal the slot; one that dropped a controllable vessel still does.
+        private static ReFlySessionMarker InstallStagingSession(
+            string treeId, bool childIsDebris, out Recording provisional)
+        {
+            const string rpId = "rp_staging";
+            var rec = Rec("rec_provisional", treeId, childBranchPointId: "bp_staging", vesselPid: 500);
+            rec.ExplicitEndUT = 400.0;
+            provisional = rec;
+            var dropped = Rec("rec_dropped", treeId, parentBranchPointId: "bp_staging", vesselPid: 501);
+            dropped.IsDebris = childIsDebris;
+            var stagingBp = new BranchPoint
+            {
+                Id = "bp_staging",
+                Type = BranchPointType.JointBreak,
+                UT = 150.0,
+                ParentRecordingIds = new List<string> { "rec_provisional" },
+                ChildRecordingIds = new List<string> { "rec_dropped" },
+            };
+            InstallTree(treeId,
+                new List<Recording> { rec, dropped },
+                new List<BranchPoint> { stagingBp });
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.TreeId = treeId;
+            marker.RewindPointId = rpId;
+            marker.InvokedUT = 300.0;
+            var scenario = InstallScenario(marker);
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = rpId,
+                UT = 100.0,
+                BranchPointId = "bp_seed",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>(),
+            });
+            return marker;
+        }
+
+        [Fact]
+        public void HasReFlySessionStructuralMutation_DebrisOnlyStaging_NotAMutation()
+        {
+            var marker = InstallStagingSession("tree_debris_staging", childIsDebris: true, out Recording rec);
+
+            Assert.False(SupersedeCommit.HasReFlySessionStructuralMutation(rec, marker, out _));
+            Assert.Contains(logLines, l => l.Contains("[Supersede]")
+                && l.Contains("ignored 1 debris-only staging"));
+        }
+
+        [Fact]
+        public void HasReFlySessionStructuralMutation_ControllableStaging_StillAMutation()
+        {
+            var marker = InstallStagingSession("tree_ctrl_staging", childIsDebris: false, out Recording rec);
+
+            Assert.True(SupersedeCommit.HasReFlySessionStructuralMutation(rec, marker, out _));
+        }
+
         [Fact]
         public void HasReFlySessionStructuralMutation_RpMissingFromScenario_FallsBackToInvokedUT()
         {

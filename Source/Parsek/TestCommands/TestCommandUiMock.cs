@@ -100,11 +100,12 @@ namespace Parsek.TestCommands
         /// PRE-CALL: the CURRENT complexity mode hides the window's launcher, so no player
         /// can have it on screen.
         ///
-        /// <para>Basic hides the Kerbals and Career State launchers - the surface-level
-        /// visibility predicate decides it - AND the mode switch force-closes both
+        /// <para>A launcher Basic hides - the surface-level visibility predicate decides
+        /// it - has its window force-closed by the mode switch
         /// (<c>ParsekUI.BuildGatedWindowCloseSet</c>), so a Basic apply would photograph a
-        /// window the product cannot show, which the coverage audit already classifies as
-        /// UNREACHABLE rather than uncaptured. Refused rather than drawn, because the one
+        /// window the product cannot show, which the coverage audit classifies as
+        /// UNREACHABLE rather than uncaptured. No mockable window's launcher is hidden in
+        /// Basic today (the Kerbals launcher draws in both modes since 2026-09-22). Refused rather than drawn, because the one
         /// thing this feature may not do is put an impossible picture on the mirror. The
         /// applier reaches that predicate through
         /// <c>GuiMockCatalogue.IsMockableInMode</c>, which is where the mode vocabulary
@@ -151,9 +152,9 @@ namespace Parsek.TestCommands
         /// <para>Distinct from <see cref="NotAppliedReason"/> on purpose: not-applied
         /// means the frame never drew the model, while this means the model was there and
         /// went AWAY, which sends an author to a MISSING SUPPRESSION SITE rather than to
-        /// the state or the lane. The case is real rather than defensive: Career State's
-        /// cached VM has TWO writers, and the first build suppressed only the rebuild
-        /// predicate - so any ledger write nulled a mocked VM mid-scope.</para>
+        /// the state or the lane. The case was real rather than defensive: a window
+        /// whose cached model had TWO writers once had only one of them suppressed, so any
+        /// ledger write nulled a mocked model mid-scope.</para>
         ///
         /// <para>A clear also reports it, so a lane that never polls an apply still learns
         /// the capture it took was not the state it asked for.</para>

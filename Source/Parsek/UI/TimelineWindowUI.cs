@@ -140,7 +140,7 @@ namespace Parsek
             return isPlayerAction ? TimelineSourceToggle.Actions : TimelineSourceToggle.Events;
         }
 
-        private const float DefaultWindowWidth = CareerStateWindowUI.DefaultWindowWidth;
+        internal const float DefaultWindowWidth = 820f;
         // The filter area is three rows (DrawFilterBar, DrawTimeRangeFilterBar). Every
         // button in them has one width, the cell of a six-cell grid over the window
         // (FilterRowCellWidth), and every row is left-aligned: a row of fewer than six
@@ -175,11 +175,34 @@ namespace Parsek
         private List<TimelineEntry> cachedTimeline;
         private bool timelineDirty = true;
 
+        // The ERS recordings the cached timeline was built from (the launch hover walks a
+        // launch's chain and tree over them).
+        private IReadOnlyList<Recording> cachedTimelineRecordings;
+
+        // Row hover: which row the help strip explains and the memoized text per entry.
+        // Reset whenever the cached timeline rebuilds.
+        private readonly TimelineRowHoverTracker rowHover = new TimelineRowHoverTracker();
+        private Func<TimelineEntry, bool, string> rowHoverBuilder;
+
+        /// <summary>The "now" divider's hover (the rows under it are the future).</summary>
+        internal const string NowDividerTooltip =
+            "Rows below happen on their date and hold stock controls until then.";
+
         // The archive-filter value the cached list was BUILT with. The filter is shared
         // cross-window state (see ShowArchivedRecordings), so the Recordings tab's own
         // Archive header toggle can change it while this cache is warm and nothing else
         // would mark it dirty.
         private bool cachedTimelineShowedArchived;
+
+        // The Career-mode slot counts the Contracts and Strategies category buttons append
+        // to their hover (CareerSlotSummary). Rebuilt on ledger invalidation, time moving
+        // backwards, or a new game minute (the counts move when a recorded accept /
+        // activation or a deadline passes), and only while the Career category row draws.
+        private CareerSlotSummary.Snapshot? careerSlotSnapshot;
+        private double careerSlotSnapshotUT;
+        private bool careerSlotSnapshotDirty = true;
+        private string contractsToggleTooltip = ContractsToggleTooltip;
+        private string strategiesToggleTooltip = StrategiesToggleTooltip;
 
         // Filter state
         private TimelineTierFilterMode tierFilterMode = TimelineTierFilterMode.Overview;
@@ -642,6 +665,7 @@ namespace Parsek
             committedIndexById = null;
             rewindSaveExistsByRecordingId = null;
             warpResolveDirty = true;
+            careerSlotSnapshotDirty = true;
             ParsekLog.Verbose("Timeline", "Cache invalidated");
         }
 
@@ -772,7 +796,13 @@ namespace Parsek
                     GetCurrentGameMode(),
                     showArchivedRows);
                 cachedTimelineShowedArchived = showArchivedRows;
+                cachedTimelineRecordings = recordings;
                 timelineDirty = false;
+                int droppedHovers = rowHover.MemoCount;
+                rowHover.Reset();
+                if (droppedHovers > 0)
+                    ParsekLog.Verbose("Timeline",
+                        $"Row hover memo cleared on rebuild: dropped={droppedHovers}");
 
                 // Rebuild recording lookup cache (ERS-scoped so cross-link
                 // navigation only resolves to visible recordings).
@@ -1233,15 +1263,14 @@ namespace Parsek
         /// game mode shows, in <see cref="TimelineCareerCategories.Ordered"/> order.</summary>
         private void DrawCategoryToggles(Game.Modes? gameMode, float btnW)
         {
+            RefreshCareerSlotTooltips(gameMode);
             if (TimelineCareerCategories.IsAvailableInMode(TimelineCareerCategory.Contracts, gameMode))
                 DrawCategoryToggle(TimelineCareerCategory.Contracts,
-                    new GUIContent("Contracts",
-                        "Only contract rows: accepted, completed, failed and cancelled, past and future."),
+                    new GUIContent("Contracts", contractsToggleTooltip),
                     btnW);
             if (TimelineCareerCategories.IsAvailableInMode(TimelineCareerCategory.Strategies, gameMode))
                 DrawCategoryToggle(TimelineCareerCategory.Strategies,
-                    new GUIContent("Strategies",
-                        "Only strategy rows: each strategy activated or deactivated, past and future."),
+                    new GUIContent("Strategies", strategiesToggleTooltip),
                     btnW);
             if (TimelineCareerCategories.IsAvailableInMode(TimelineCareerCategory.Facilities, gameMode))
                 DrawCategoryToggle(TimelineCareerCategory.Facilities,
@@ -1258,6 +1287,98 @@ namespace Parsek
                     new GUIContent("Tech",
                         "Only tech rows: each technology you unlocked, past and future."),
                     btnW);
+        }
+
+        /// <summary>The Contracts button's hover before its slot sentence.</summary>
+        internal const string ContractsToggleTooltip = "Only contract rows, past and future.";
+
+        /// <summary>The Strategies button's hover before its slot sentence.</summary>
+        internal const string StrategiesToggleTooltip = "Only strategy rows, past and future.";
+
+        /// <summary>Game seconds per slot-count refresh: the counts move only when a
+        /// recorded accept / activation or a deadline passes, and a minute is the finest
+        /// unit the player's clock shows.</summary>
+        internal const double CareerSlotRefreshSeconds = 60.0;
+
+        /// <summary>
+        /// A category button's hover: its own sentence, then the slot sentence when there
+        /// is one. A null or empty <paramref name="slotSentence"/> leaves the base text.
+        /// </summary>
+        internal static string BuildCategoryTooltip(string baseTooltip, string slotSentence)
+        {
+            if (string.IsNullOrEmpty(slotSentence)) return baseTooltip;
+            return baseTooltip + " " + slotSentence;
+        }
+
+        /// <summary>
+        /// Whether the cached slot counts must be rebuilt: never built, invalidated by a
+        /// ledger change, the clock moved backwards (a rewind), or a new game minute began.
+        /// </summary>
+        internal static bool ShouldRebuildCareerSlots(bool dirty, bool missing,
+                                                      double builtUT, double liveUT)
+        {
+            if (dirty || missing) return true;
+            if (liveUT < builtUT) return true;
+            return Math.Floor(liveUT / CareerSlotRefreshSeconds)
+                != Math.Floor(builtUT / CareerSlotRefreshSeconds);
+        }
+
+        /// <summary>
+        /// The two hover texts for a game mode and a snapshot: Career gets the slot
+        /// sentences (<see cref="CareerSlotSummary.FormatSlotSentence"/>); any other mode,
+        /// or no snapshot, the bare base texts.
+        /// </summary>
+        internal static void ComposeCareerSlotTooltips(Game.Modes? gameMode,
+            CareerSlotSummary.Snapshot? snapshot,
+            out string contractsTooltip, out string strategiesTooltip)
+        {
+            if (gameMode != Game.Modes.CAREER || !snapshot.HasValue)
+            {
+                contractsTooltip = ContractsToggleTooltip;
+                strategiesTooltip = StrategiesToggleTooltip;
+                return;
+            }
+            contractsTooltip = BuildCategoryTooltip(ContractsToggleTooltip,
+                CareerSlotSummary.FormatSlotSentence(
+                    CareerSlotSummary.SlotKind.Contracts, snapshot.Value.Contracts));
+            strategiesTooltip = BuildCategoryTooltip(StrategiesToggleTooltip,
+                CareerSlotSummary.FormatSlotSentence(
+                    CareerSlotSummary.SlotKind.Strategies, snapshot.Value.Strategies));
+        }
+
+        // Career mode only: contracts and strategies exist nowhere else. Reads the
+        // effective ledger and the live Mission Control forecast (the one the accept block
+        // reads), so the hover and the block agree.
+        private void RefreshCareerSlotTooltips(Game.Modes? gameMode)
+        {
+            if (gameMode != Game.Modes.CAREER)
+            {
+                ComposeCareerSlotTooltips(gameMode, null,
+                    out contractsToggleTooltip, out strategiesToggleTooltip);
+                return;
+            }
+            double liveUT = Planetarium.GetUniversalTime();
+            if (!ShouldRebuildCareerSlots(careerSlotSnapshotDirty, !careerSlotSnapshot.HasValue,
+                    careerSlotSnapshotUT, liveUT))
+                return;
+
+            careerSlotSnapshot = CareerSlotSummary.Build(
+                EffectiveState.ComputeELS(),
+                liveUT,
+                CommittedFutureIndexCache.IsAutoAcceptContractSnapshot,
+                ContractSlotReservation.ForecastNow());
+            careerSlotSnapshotUT = liveUT;
+            careerSlotSnapshotDirty = false;
+            ComposeCareerSlotTooltips(gameMode, careerSlotSnapshot,
+                out contractsToggleTooltip, out strategiesToggleTooltip);
+            // The counts are in the key, so a CHANGED count logs at once and only an
+            // unchanged rebuild (a new game minute) is throttled.
+            ParsekLog.VerboseRateLimited("Timeline",
+                "career-slot-hover|" + contractsToggleTooltip + "|" + strategiesToggleTooltip,
+                "Career slot hover rebuilt "
+                + CareerSlotSummary.FormatSnapshotForLog(careerSlotSnapshot.Value, liveUT)
+                + " contractsHover='" + contractsToggleTooltip + "'"
+                + " strategiesHover='" + strategiesToggleTooltip + "'");
         }
 
         private void DrawCategoryToggle(TimelineCareerCategory category, GUIContent content, float btnW)
@@ -1667,6 +1788,7 @@ namespace Parsek
 
             bool dividerDrawn = false;
             bool countdownRowDrawn = false;
+            rowHover.BeginList(Event.current.type == EventType.Repaint);
 
             for (int i = 0; i < cachedTimeline.Count; i++)
             {
@@ -1686,7 +1808,7 @@ namespace Parsek
                 }
 
                 bool isFuture = entry.UT > currentUT;
-                DrawEntryRow(entry, isFuture, currentUT, showCountdownTime);
+                DrawEntryRow(entry, i, isFuture, currentUT, showCountdownTime);
             }
 
             // Draw divider at the end if all entries are in the past
@@ -1694,6 +1816,8 @@ namespace Parsek
             {
                 DrawNowDivider(currentUT);
             }
+
+            rowHover.EndList();
 
             GUILayout.EndVertical();
             GUILayout.EndScrollView();
@@ -1819,7 +1943,8 @@ namespace Parsek
             GUILayout.BeginHorizontal();
             // First column: the current-time label, sized to the UT column so the rule starts
             // where the entry rows' description column does.
-            GUILayout.Label($"\u2500\u2500 {utText} (now)", timelineGrayStyle,
+            string nowLabel = $"\u2500\u2500 {utText} (now)";
+            GUILayout.Label(new GUIContent(nowLabel, NowDividerTooltip), timelineGrayStyle,
                 GUILayout.Width(TimeColumnWidth));
             GUILayout.Space(14f);
             // Second column: a thin rule that fills the remaining width and grows on resize,
@@ -1853,7 +1978,7 @@ namespace Parsek
         }
 
         private void DrawEntryRow(
-            TimelineEntry entry, bool isFuture, double currentUT, bool showCountdownTime)
+            TimelineEntry entry, int rowIndex, bool isFuture, double currentUT, bool showCountdownTime)
         {
             GUILayout.BeginHorizontal();
 
@@ -1896,7 +2021,18 @@ namespace Parsek
             string description = entry.IsArchivedRecording
                 ? entry.DisplayText + "   [archived]"
                 : entry.DisplayText;
-            GUILayout.Label(description, style, GUILayout.ExpandWidth(true));
+            // Row hover: only the row hovered on the last Repaint gets a tooltip (its text is
+            // memoized per entry), so no hover string is built per row per frame. Either way
+            // this is ONE Label, so the Layout and Repaint control counts stay identical.
+            string hover = rowHover.WantsTooltip(rowIndex)
+                ? rowHover.GetText(entry, isFuture, rowHoverBuilder ?? (rowHoverBuilder = BuildRowHover))
+                : null;
+            if (hover != null)
+                GUILayout.Label(new GUIContent(description, hover), style, GUILayout.ExpandWidth(true));
+            else
+                GUILayout.Label(description, style, GUILayout.ExpandWidth(true));
+            if (Event.current.type == EventType.Repaint)
+                rowHover.ObserveRow(rowIndex, GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition));
 
             // R/FF + GoTo for RecordingStart entries (R/FF first, GoTo last for alignment)
             if (entry.Type == TimelineEntryType.RecordingStart && !string.IsNullOrEmpty(entry.RecordingId))
@@ -2232,6 +2368,115 @@ namespace Parsek
                 && slotListIndex >= 0
                 && rp.ChildSlots != null
                 && slotListIndex < rp.ChildSlots.Count;
+        }
+
+        /// <summary>
+        /// The hover text of one row, composed from the pure builders: the walk's not-counted
+        /// reason on a greyed row, the stock control a future row holds
+        /// (<see cref="ReservationExplanation.ForTimelineRow"/>, the click-blocks' own
+        /// predicates over the committed-future index), then the row kind's details. Called
+        /// through the memo only, for the hovered row.
+        /// </summary>
+        private string BuildRowHover(TimelineEntry entry, bool isFuture)
+        {
+            if (entry == null) return null;
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            string notCounted = null;
+            string hold = null;
+            string details = null;
+            try
+            {
+                if (!entry.IsEffective && entry.Action != null)
+                    notCounted = TimelineRowHover.NotCounted(entry.Action.NotCountedReason);
+                if (isFuture && entry.Action != null)
+                    hold = ReservationExplanation.ForTimelineRow(
+                        entry,
+                        CommittedFutureIndexCache.Current,
+                        CommittedFutureIndexCache.CurrentUT(),
+                        ReservationExplanation.DefaultDateFormatter,
+                        IsPartPurchaseBlockedLive,
+                        IsStrategyActiveNowLive);
+                details = BuildRowHoverDetails(entry);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Timeline",
+                    $"Row hover build failed: type={entry.Type} ut={entry.UT.ToString("F1", ic)} " +
+                    $"({ex.GetType().Name}: {ex.Message})");
+            }
+            string text = TimelineRowHover.Compose(notCounted, hold, details);
+            ParsekLog.Verbose("Timeline",
+                $"Row hover built: type={entry.Type} ut={entry.UT.ToString("F1", ic)} " +
+                $"future={isFuture} effective={entry.IsEffective} notCounted={notCounted != null} " +
+                $"hold={hold != null} details={details != null} len={(text != null ? text.Length : 0)}");
+            return text;
+        }
+
+        private string BuildRowHoverDetails(TimelineEntry entry)
+        {
+            switch (entry.Type)
+            {
+                case TimelineEntryType.ContractAccept:
+                    return TimelineRowHover.ContractAccept(
+                        entry.Action,
+                        entry.PairedContractComplete,
+                        entry.Action != null
+                            ? CommittedFutureIndexCache.ContractAgentTitleFromSnapshot(entry.Action.ContractId)
+                            : null,
+                        ReservationExplanation.DefaultDateFormatter);
+                case TimelineEntryType.ContractComplete:
+                case TimelineEntryType.ContractFail:
+                case TimelineEntryType.ContractCancel:
+                    return TimelineRowHover.ContractOutcome(entry.Action, entry.VesselName);
+                case TimelineEntryType.RecordingStart:
+                {
+                    Recording rec = FindRecordingById(entry.RecordingId);
+                    if (rec == null) return null;
+                    var crew = CrewReservationManager.ExtractCrewFromSnapshot(
+                        rec.GhostVisualSnapshot ?? rec.VesselSnapshot);
+                    if (crew.Count == 0 && !string.IsNullOrEmpty(rec.EvaCrewName))
+                        crew.Add(rec.EvaCrewName);
+                    Recording end = TimelineRowHover.ResolveLaunchEnd(rec, cachedTimelineRecordings);
+                    Mission mission = string.IsNullOrEmpty(rec.TreeId)
+                        ? null
+                        : MissionStore.FindOriginalMission(rec.TreeId);
+                    return TimelineRowHover.Launch(
+                        crew, TimelineRowHover.LaunchEnd(end), mission != null ? mission.Name : null);
+                }
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>Whether stock has the strategy active now (the Administration gate's own
+        /// read, <c>StrategyReservationGate.ActiveStrategyIds</c>).</summary>
+        private static bool IsStrategyActiveNowLive(string strategyId)
+        {
+            if (string.IsNullOrEmpty(strategyId)) return false;
+            try
+            {
+                foreach (string id in Parsek.Patches.StrategyReservationGate.ActiveStrategyIds())
+                    if (string.Equals(id, strategyId, StringComparison.Ordinal)) return true;
+            }
+            catch (Exception)
+            {
+            }
+            return false;
+        }
+
+        /// <summary>The live part-purchase decision (<c>StockUiPartPurchase.DecideLive</c>).</summary>
+        private static bool IsPartPurchaseBlockedLive(string partName)
+        {
+            if (string.IsNullOrEmpty(partName)) return false;
+            try
+            {
+                AvailablePart ap = PartLoader.getPartInfoByName(partName);
+                return ap != null && StockUiPartPurchase.DecideLive(ap).Blocked;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         /// <summary>

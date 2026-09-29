@@ -12,6 +12,29 @@ namespace Parsek
     /// </summary>
     internal static class GameActionDisplay
     {
+        /// <summary>
+        /// Inserts a space before a capital letter unless the previous character is
+        /// also uppercase. Preserves acronyms like "VAB" (stays "VAB") while
+        /// expanding camel/pascal-cased names like "FirstMunFlyby" -> "First Mun Flyby".
+        /// Returns the input unchanged if null or empty. Shared by the contract, facility
+        /// and strategy display names (FacilityDisplayNames, StrategyDisplayNames).
+        /// </summary>
+        internal static string SpaceBeforeCapitals(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            var sb = new System.Text.StringBuilder(s.Length + 8);
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                // Space only when the previous character is not also uppercase, which
+                // keeps runs of caps together ("VAB", "SPH", "RCS").
+                if (i > 0 && char.IsUpper(c) && !char.IsUpper(s[i - 1]))
+                    sb.Append(' ');
+                sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         /// <summary>Human-readable description of the action.</summary>
@@ -243,7 +266,7 @@ namespace Parsek
                 string baseType = type.EndsWith("Contract", StringComparison.Ordinal) && type.Length > "Contract".Length
                     ? type.Substring(0, type.Length - "Contract".Length)
                     : type;
-                return CareerStateWindowUI.SpaceBeforeCapitals(baseType) + " contract";
+                return SpaceBeforeCapitals(baseType) + " contract";
             }
 
             source = ContractNameSource.IdFallback;

@@ -171,8 +171,7 @@ namespace Parsek.Tests
             Assert.True(d.Marked);
             Assert.True(d.Blocked);
             Assert.Equal(1000, d.UT);
-            Assert.Equal("Upgraded to level 2 on D10 on your committed timeline. "
-                + ReservationExplanation.TimelineRule + " The upgrade happens on that date.", d.Why);
+            Assert.Equal("Upgraded to level 2 on D10, blocked by timeline until then.", d.Why);
             Assert.DoesNotContain("SpaceCenter", d.Why);
         }
 
@@ -209,12 +208,11 @@ namespace Parsek.Tests
             Ledger.AddAction(Upgrade(2000, LaunchPadId, 3));
             var index = CommittedFutureIndexCache.Current;
             var both = StockUiDecorationQuery.ForFacilityMenu(index, 500, LaunchPadId, false, Fmt);
-            Assert.StartsWith("Upgraded to level 2 on D10 and to level 3 on D20 on your committed timeline.", both.Why);
-            Assert.EndsWith("The upgrades happen on those dates.", both.Why);
+            Assert.Equal("Upgraded to level 2 on D10 and to level 3 on D20, blocked by timeline until then.", both.Why);
             var later = StockUiDecorationQuery.ForFacilityMenu(index, 1500, LaunchPadId, false, Fmt);
             Assert.True(later.Blocked);
             Assert.Equal(2000, later.UT);
-            Assert.StartsWith("Upgraded to level 3 on D20 on your committed timeline.", later.Why);
+            Assert.Equal("Upgraded to level 3 on D20, blocked by timeline until then.", later.Why);
         }
 
         [Fact]

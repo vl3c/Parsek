@@ -3,6 +3,15 @@
 Measured 2026-09-11 against commit `4eb427e9e`. All `file:line` references are relative to
 `Source/Parsek/` unless they start with `harness/`, `docs/` or `scripts/`.
 
+STRUCTURAL CHANGE 2026-09-27 (owner decision): the Career State window is REMOVED - its class,
+its launcher, its `UiSurface` key (`MainButtonCareer`), its seam token `career` and its gallery
+states. So the window population is **13** (was 14), the main window's launchers are one fewer
+(3.1), and the gate has **13** keys (3.16). Its one unique fact, how many contract / strategy
+slots the committed future reserves, is the last sentence of the Timeline's `Contracts` and
+`Strategies` button hovers (3.3). Section 3.5 is kept as a one-paragraph tombstone; the tallies
+of section 2 and the coverage history elsewhere are the record of the flights that took them
+and are not rewritten.
+
 STRUCTURAL CHANGE 2026-09-26 (operator ruling: recordings are never player-deletable, because a
 deletion breaks the timeline and the ledger). The Settings window's Data Management section is
 GONE with both its buttons (`Wipe All Recordings (N)`, `Wipe All Milestones (N)`), their two
@@ -324,7 +333,8 @@ whether wave 2 took one.
 
 ### 3.0 Window index
 
-The 14 distinct IMGUI windows, in the main window's own button order - the order
+The 14 distinct IMGUI windows as measured, in the main window's own button order (row 5 was
+removed 2026-09-27, so 13 remain) - the order
 `TestCommands/TestCommandUiAction.cs:361-364` pins for the same reason.
 
 | # | title | class + host line | scenes | seam token | census labels |
@@ -333,7 +343,7 @@ The 14 distinct IMGUI windows, in the main window's own button order - the order
 | 2 | `Parsek - Missions` | `UI/RecordingsTableUI.cs:651` | FLIGHT, SPACECENTER | `missions` (tabs `missions`, `recordings`) | 4 labels (3.2) |
 | 3 | `Parsek - Timeline` | `UI/TimelineWindowUI.cs:281` | FLIGHT, SPACECENTER | `timeline` (tabs `overview`, `details`, `rewindff`, `refly`, `contracts`, `strategies`, `facilities`, `milestones`, `tech`) | 5 labels (3.3) |
 | 4 | `Parsek - Kerbals` | `UI/KerbalsWindowUI.cs:205` | FLIGHT, SPACECENTER | `kerbals` (tabs `roster`, `outcomes`) | 2 labels |
-| 5 | `Parsek - Career State` | `UI/CareerStateWindowUI.cs:1211` | FLIGHT, SPACECENTER | `career` (2 tabs) | 2 labels per host (4 before 2026-09-24) |
+| 5 | ~~`Parsek - Career State`~~ REMOVED 2026-09-27 | - | - | - (the `career` token is gone) | historical only |
 | 6 | `Parsek - Logistics` | `UI/LogisticsWindowUI.cs:444` | FLIGHT, SPACECENTER | `logistics` | `ksc-logistics-advanced/basic` |
 | 7 | Logistics round-trip link picker (`Link round-trip partner`) | `UI/LogisticsWindowUI.cs:1762` | as its host | excluded `TestCommandUiAction.cs:374-377`; reached by `op=picker picker=link` | `ib-logistics-linkpicker-advanced` (GUI-3, 198 nodes, `windows=4`) |
 | 8 | `Parsek - Structure` | `UI/StructureListWindowUI.cs:174` | FLIGHT, SPACECENTER | `structure` | `ksc-structure-advanced` (empty chrome) |
@@ -386,14 +396,14 @@ stands out from every sub-window title (2026-09-22, owner review round 1).
 | `Timeline` | `Every recorded flight and career event on one clock.` | `:794` | none | `timelineUI.IsOpen` `:798` |
 | `Missions` | `Your missions, and the recordings they are built from.` | `:806` | none | `ToggleRecordingsWindow()` `:809` |
 | `Logistics` | `Supply routes that repeat a delivery you already flew.` | `:885` | none | `logisticsUI.IsOpen` `:889`; tinted red when `LogisticsButtonState.AnyRouteHardBroken` (`UI/LogisticsButtonState.cs:27`), else cyan while a route prompt pends (`:874-884`, broken outranks hint) |
-| `Kerbals` | `Who is reserved, flying or retired in your timeline.` | `:914` | `IsVisible(MainButtonKerbals)` `:904` | `kerbalsUI.IsOpen` `:918` |
-| `Career` | `Contracts and strategies you hold along the timeline.` | `:925` | `IsVisible(MainButtonCareer)` `:906` AND `ModeOffersLauncher` (Career games only) | `careerStateUI.IsOpen` `:929` |
+| `Kerbals` | `Who is reserved, flying or retired on timeline.` | `:914` | `IsVisible(MainButtonKerbals)` `:904` | `kerbalsUI.IsOpen` `:918` |
 | `Gloops Flight Recorder` | `Record a ghost-only flight that your career ignores.` | `:943` | `IsVisible(MainButtonGloops)` `:941` - **never true** (`UI/UiComplexityMode.cs:140-143`, short-circuit `:162`) | would flip `gloopsUI.IsOpen` `:947` |
 | `Settings` | `Recording, looping, ghost and diagnostic options.` | `:955` | none | `ToggleSettingsWindow()` `:958` |
 
-Basic vs Advanced: Basic drops Real Spawn Control and Career; the `Space(10f)` that opens
-the Kerbals/Career group is gated on the group being non-empty so Basic shows one gap, not
-two. Census-verified sets (2026-09-11): KSC Basic 4 buttons, KSC Advanced 6, FLIGHT Basic 4,
+Basic vs Advanced: Basic drops Real Spawn Control (the `Career` launcher it also dropped was
+removed with its window on 2026-09-27, so Advanced KSC is now 5 buttons and Advanced FLIGHT 6);
+the `Space(10f)` that opens the Kerbals group is gated on the group being non-empty so a hidden
+Kerbals launcher never leaves two gaps. Census-verified sets (2026-09-11): KSC Basic 4 buttons, KSC Advanced 6, FLIGHT Basic 4,
 FLIGHT Advanced 7. **Since the 2026-09-22 owner re-ruling the Kerbals launcher draws in Basic
 too** (`design-gui-kerbals-window.md` ruling 1), so Basic is 5 buttons in both scenes from
 that build on.
@@ -584,7 +594,14 @@ height); the category buttons
 `Career` reopens the last one used). The Career cell and the category set read the GAME mode,
 never the UI complexity mode: Career mode draws all five, Science draws Facilities /
 Milestones / Tech, Sandbox draws no Career cell, and a category view the loaded mode does not
-show falls back to one it does. Row 3 is always drawn: `Last Day` / `Last 7d` / `Last 30d` /
+show falls back to one it does. In Career mode the `Contracts` and `Strategies` buttons' hover
+ends with the slot counts the removed Career window used to head its tabs with (2026-09-27,
+`CareerSlotSummary.FormatSlotSentence`, free first: `Only contract rows, past and future.
+Contract slots: 4 of 7 free now (2 active, 1 reserved for later).`, `no slot limit (2
+active)` at an unlimited building, the reserved clause dropped when nothing is reserved);
+contracts read the shared `ContractSlotReservation` forecast, strategies the peak walk; the
+counts rebuild on a ledger change, a rewind, or a new game minute, and only while that row
+draws. Row 3 is always drawn: `Last Day` / `Last 7d` / `Last 30d` /
 `This Year` / `All` / `Custom`, exactly one lit (`ResolveLitTimeRangeButton`; `All` by
 default), so the range in force is always visible. `Custom` shows the sliders
 (`SetCustomRangeSelected`; on over a preset keeps that range without its preset name, off
@@ -600,6 +617,28 @@ and no header row** - chronological is the only order. Cells: a 160 px time labe
 more right-aligned action buttons. Row colour is one of six cached styles (`:1269-1277`):
 strikethrough when `!IsEffective`, dim when future, blue when `IsPlayerAction`, else green /
 red / white.
+
+Row hover (2026-09-28, `timeline-row-hovers`): the description label carries a tooltip that
+the single-line echo strip shows, and only the row hovered on the last Repaint gets one
+(`TimelineRowHoverTracker`: the row index whose rect held the mouse is published at the end of
+the Repaint pass, the text is memoized per `TimelineEntry` and rebuilt when the row crosses
+now, the memo clears on every cache rebuild; the label stays ONE control either way). The text
+is `TimelineRowHover.Compose` of three parts: the walk's not-counted reason on a grey row
+(`GameAction.NotCountedReason`, runtime only, stamped at the `ContractsModule` /
+`MilestonesModule` / `FundsModule` repair sites that clear `Effective` and reset with it in
+`RecalculationEngine.ResetDerivedFields`); on a future row, the stock control it holds
+(`ReservationExplanation.ForTimelineRow`: the click-block predicates over
+`CommittedFutureIndexCache.Current`, `Holds <control> until <row date>.`; a repair row never
+claims one, a part purchase reads `StockUiPartPurchase.DecideLive`, a strategy names only the
+button stock shows now - Activate while inactive, Deactivate while active - from
+`StrategyReservationGate.ActiveStrategyIds`); then the row kind's
+details (contract accept: deadline, advance, the rewards of the first counted completion
+`TimelineBuilder.FindPairedContractComplete` stamps on `TimelineEntry.PairedContractComplete`,
+the snapshot agent; contract end: flight, rep / science or penalty; launch: crew from the
+snapshot, `ResolveLaunchEnd` over the same launch's chain and tree, the original mission's
+name). The "now" divider label hovers `NowDividerTooltip`. Budget: the literal floor is 19,
+and `TooltipEchoBudgetTests.TimelineRowHovers_FitTheTimelineStrip` pins each builder's worst
+case; a future accept (hold plus terms) is the one composition that runs into the marquee.
 
 Row text for career rows: a contract row (Accept / Complete / Fail / Cancel) names the
 contract - its own `ContractTitle`, else the title of the same contract's accept in the ELS
@@ -780,130 +819,20 @@ Pictures: `ksc-kerbals-roster-advanced` is **9 nodes** - one collapsed owner row
 subrows covering all four end states. No picture: an expanded chain, the orphan tail, the
 reserved / active statuses, either empty state, a folded outcomes header, the flight scene.
 
-### 3.5 Parsek - Career State
+### 3.5 Parsek - Career State (REMOVED 2026-09-27)
 
-Purpose: read-only. The STATE view of the two slot-limited career modules, contracts and
-strategies: what holds a slot now, beside what the recorded timeline still does to it. Dated
-career history (every contract and strategy event, facility changes, milestones, tech) is the
-Timeline's Career view (3.4), and each row's name cell links there. Nothing in it writes to
-contracts or strategies.
-
-Hosts: `ParsekFlight.cs:2135`, `ParsekKSC.cs:257`. Basic-HIDDEN (`ParsekUI.cs:906`,
-`UI/UiComplexityMode.cs:182`), force-closed on the switch (`ParsekUI.cs:492-497`). The
-main-window launcher also shows in CAREER games only (`CareerStateWindowUI.ModeOffersLauncher`;
-Career + Science 2026-09-22 to 2026-09-24): Science mode has no contracts or strategies, and
-its milestone / facility / tech history is the Timeline's.
-
-Structure (reworked 2026-09-24, the state-view PR; rebuilt 2026-09-22, career window round
-3): a one-line mode banner (`FormatModeBanner`: `Career mode - <date>` with an optional
-`  (timeline ends <date>)` divergence suffix; the seam-only non-Career forms `Science mode -
-contracts and strategies are not tracked` and `Sandbox mode - career state is not tracked`),
-the `Contracts | Strategies` tab toolbar (Career only; `VisibleTabsFor` answers none in every
-other mode), a scroll view, the SINGLE-line echo strip, `Close`. A null-game fallback replaces
-the entire body with one label plus `Close`. Every date is the house compact KSP date
-(`TimelineWindowUI.FormatTimelineEntryTimeLabel`), never raw UT seconds. Minimum size 520x320.
-
-Each tab body, top to bottom - the stacked title bar + group label + column header of round 3
-collapsed to ONE heading and ONE header:
-- the heading line, free first, then active, then reserved (bold, `FormatSlotHeading`
-  over `SlotUsage`; 2026-09-25): `4 of 7 slots free (2 active, 1 reserved for later)`,
-  `5 of 7 slots free (2 active)` with no reservation, `No slot limit (2 active)` at Mission
-  Control L3 (999), `1 of 1 slot free` singular. CONTRACTS (2026-09-25) read the shared
-  Mission Control slot forecast (`ContractSlotReservation`, PR #1824 - the query that also
-  refuses a slot-starving accept at Mission Control): `ForecastNow()` over stock's live
-  contracts and limit when stock's contract state is readable, else the pure `Forecast`
-  over the window's own ledger rows (`ForecastContractSlotsFromLedger`: holders with accept
-  UT and deadline); `SlotUsageFromForecast` maps it (free clamped at 0; peak against today's
-  limit = limit - raw free; reserved = that peak - active). Deadlines release a slot at the
-  deadline, a committed Mission Control upgrade adds its slots at its UT, and stock
-  auto-accept contracts hold no slot (stock's `GetActiveContractCount` skips them), so the
-  heading's active count can be below the number of rows listed. STRATEGIES keep this
-  window's own walk (`ComputeSlotUsage` over activate / deactivate / Administration upgrade
-  changes in UT order, releases before occupies on one tick; a later upgrade counts against
-  today's limit). Either way a slot freed on day 50 and a flight's accept on day 60 share one
-  slot. Its hover
-  (`FormatSlotHeadingTooltip`) with a reservation: `Contracts your recorded flights accept
-  later need 1 more slot at peak, so only 4 are free for a new one.` (Strategies: `activate
-  later`); without one it names the building behind the limit (`Slot limit from Mission
-  Control L1.`, plus `(L2 at timeline end)`; `No slot limit at Mission Control L3.`).
-  Administration's own slot refusal (`StrategyReservationPredicates.EvaluateActivation`) is a
-  per-strategy decision with no shared count, so the strategies heading keeps its own walk;
-- ONE column header;
-- one body box holding the rows active now and, only when the recorded timeline adds rows,
-  a full-width fold row `Accepted later by your recorded flights (1)` / `Activated later by
-  your recorded flights (1)` (`FormatPendingFold`; hover `FormatPendingFoldTooltip`: `Not
-  active yet. At the end of the recorded timeline: 3 of 7 slots free.`, or `... no slot
-  limit.`) with the pending rows under it, so both groups share the columns.
-  A tab with pending rows but nothing active draws `No active contracts.` in the body above
-  the fold.
-A tab with nothing active and nothing pending is ONE grey line (`No active contracts.` /
-`No active strategies.`), no heading and no header (`IsTabEmpty`).
-
-| tab | columns (name column EXPANDS in header and rows; the rest are fixed) | sort | slot limit from |
-|---|---|---|---|
-| Contracts | `Contract` (expand), `Accepted` 145, `Deadline` 220, `Timeline end` 240 | `AcceptUT` then id | Mission Control level |
-| Strategies | `Strategy` (expand), `Activated` 145, `Flow` 230, `Timeline end` 240 | `ActivateUT` then id | Administration level |
-
-`Timeline end` is drawn only when some row of the tab has an outcome, and says what the
-recorded future does to the row: `completes <date>`, `FAILS <date>` (alert amber),
-`expires <deadline>` (alert amber; stock charges the failure penalties),
-`cancelled <date>`, `deactivates <date>`. FAILS stays upper case as the Career emphasis for a
-real failure; the other verbs match the stock-screen wording the overlay work uses. An
-expiry is a contract whose accepted deadline passes before the timeline ends: stock's
-`Contract.Update` sets `State.DeadlineExpired` and fires the same `onFailed` event as a
-failure, so a recorded fail row at or after the deadline is the expiry
-(`ContractsModule.IsDeadlineExpiryFail`, the ledger's own test), and a deadline passing with
-no row expires at the deadline too, as `ContractsModule.CheckDeadlines` does. `Deadline` is the date plus a relative tail,
-`(in 12d)` or `(overdue 3d)` in amber. Pending rows are not coloured - the fold row is their
-one marker; amber is kept for cells that need attention. Fold keys `Contracts.Pending` /
-`Strategies.Pending`; seam wire values `pending:contracts` / `pending:strategies`.
-
-Body text alignment (2026-09-25): every body cell - the plain and amber labels, the grey
-`No active contracts.` line inside the body, and the label-styled name-link buttons - draws
-with a style built on `ParsekUI.GetTableCellStyle()` (the boxed column header's horizontal
-padding), so its text starts at its header's text x (was 4 px left). Gated by
-`TableRowInsetAlignmentTests.TintedTableRowsDrawEveryCellWithACellStyleBuiltOnTheSharedOne`.
-
-The name cell is a label-styled button (the Kerbals `Last flight` pattern): clicking it calls
-`TimelineWindowUI.ScrollToCareerSubject(Contracts|Strategies, id)` with the ledger contract id
-/ strategy id, which is exactly the `CareerSubjectId` the Timeline stamps on that subject's
-rows (`TimelineCareerCategories.ResolveSubjectId`; pinned by
-`CareerStateWindowUITests.LinkSubjects_AreTheIdsTheTimelineStampsOnTheSameActions`). Hover:
-`Click to open the Timeline on Contracts, scrolled to this contract.` A row with no id is
-not a link.
-
-The walk (`Build`) reads the effective ledger (`EffectiveState.ComputeELS()`) and branches on
-seven action types: the four contract ones, the two strategy ones, and `FacilityUpgrade`
-read only for the Mission Control and Administration levels. Before each action it expires
-every active contract whose deadline has passed by that action's UT (dated at the deadline),
-mirroring `ContractsModule.ProcessAction`. The rebuild's Verbose line carries
-`contractsExpired=` and `contractSlots=` / `strategySlots=`
-(`active=/limit=/peak=/reserved=/free=`; the contract one ends `/source=live|ledger|none`). Every cell's text is formatted
-once per rebuild, and the rebuild runs once per game minute, or once per second while a
-deadline is within two minutes of now.
-
-REMOVED 2026-09-24 with the Facilities and Milestones tabs: the facility level / destroyed
-table (a building's level is on the Space Center; stock's `ScenarioDestructibles` read went
-with it), the milestone list (it kept only each id's first credit, so repeat world records
-never showed; the Timeline's Milestones view shows every credit), their seven gallery
-states, and the Science-mode tab subsets.
-
-Pictures of the shared-forecast heading and the cell-text alignment (2026-09-25, PR #1834):
-GUI-15 `2026-09-25_2021`, GUI-5 `_2023`. The GUI-15 host's stock `CONTRACTS` node is empty
-(its two contracts exist only in the ledger), so the LIVE forecast reads `2 of 2 slots free
-(0 active)` over its two rows (`contractSlots=.../source=live`), which is what Mission
-Control would allow on that save; the gallery mock captures read the ledger fallback
-(`source=ledger`) and keep `3 of 7 slots free (3 active, 1 reserved for later)`.
-Pictures of the slots / expiry wording (2026-09-25): GUI-15 `2026-09-25_1718` (`cc-career-contracts-pendingfold-advanced`: `3 of 7 slots free (3 active, 1 reserved for later)` over `Accepted later by your recorded flights (2)`; `cc-career-contracts-closing-advanced`: `completes` / `FAILS` / `expires` / `cancelled`; `cc-career-strategies-pendingfold-advanced`: `0 of 3 slots free (2 active, 1 reserved for later)` over `Activated later by your recorded flights (1)`), GUI-5 `2026-09-25_1722_a2` (`0 of 1 slot free (1 active)` over Outsourced R&D). Earlier pictures, with the old wording (2026-09-24 re-flights): GUI-15 `2026-09-24_1528`
-`cc-career-contracts-active-advanced` (`Active now: 2 of 2 slots`, two rows),
-`cc-career-contracts-pendingfold-advanced` (the fold over the gallery's
-`career.banner.divergent` view model: `Active now: 3 of 7 slots`, `Pending in timeline (2) -
-5 of 7 slots at timeline end`), `cc-career-strategies-advanced` (`No active strategies.`);
-GUI-5 `_1523` and GUI-1 `_1526` (both tabs empty); GUI-8 `_1524` (the Science main window
-without the launcher); GUI-14 `_1525` (the facility upgrade in the Timeline's Facilities
-view). Todo `CAREER-STATE-VIEW-2026-09-24`. Still no census picture on a REAL
-host: pending rows, a recorded failure, populated strategies, the divergence suffix (the
-gallery catalogue in `UI/Gallery/GuiMockCareerStates.cs` covers each as a synthetic state).
+Removed by owner decision. It was the read-only STATE view of contracts and strategies (a
+slot heading per tab, the rows holding a slot now, and an `Accepted later` / `Activated later`
+fold for rows the recorded timeline adds), Advanced-only and Career-mode only. Everything it
+showed is elsewhere: stock Mission Control and Administration carry Parsek's reservation
+overlays (active counts, deadlines, accept dates, the `- completes Y1 D7` labels, strategy
+effects and end dates) and the Timeline's Career view (3.3) lists every dated contract and
+strategy event, past and future. The one fact only it showed - the slots the committed future
+reserves - moved into the Timeline's `Contracts` / `Strategies` button hovers
+(`CareerSlotSummary`, contracts through the shared `ContractSlotReservation` forecast the C2
+accept block reads). The deadline of a contract the timeline accepts later was dropped. Its
+flights are recorded in `docs/dev/autotest-status.md` (GUI-1, GUI-5, GUI-6, GUI-15) and in
+todo `CAREER-WINDOW-REMOVED-2026-09-27`.
 
 ### 3.6 Parsek - Logistics
 
@@ -916,7 +845,7 @@ modes not because the gate says keep but because nothing asks - the two census t
 byte-identical at 58 nodes each.
 
 Six bubbles inside one scroll view (`:541-554`). Only THREE are caret disclosures with a count
-badge - Dormant Routes (`:675`), `Recently committed trees not yet eligible` (`:777`) and
+badge - Dormant Routes (`:675`), `Recently merged trees not yet eligible` (`:777`) and
 `Dismissed` (`:844`); Active, Paused and Candidates are drawn unconditionally with a plain
 centred title (`:544-545`). Per-ROW expand is separate (`:979`, `:1487`).
 
@@ -1362,7 +1291,6 @@ control count (`ParsekUI.cs:294-297`, `:246`).
 | `MainButtonRecordings` | `:53` | KEEP (`:172`) | **none** | nothing |
 | `MainButtonLogistics` | `:56` | KEEP (`:173`) | **none** | nothing |
 | `MainButtonKerbals` | `:59` | KEEP since 2026-09-22 (was HIDE `:181`) | `ParsekUI.cs:904` | nothing in Basic any more; the launcher draws in both modes |
-| `MainButtonCareer` | `:62` | HIDE (`:182`) | `ParsekUI.cs:906` | the Career launcher |
 | `MainButtonGloops` | `:69` | RETIRED in both (`:140-143`) | `ParsekUI.cs:941` | the Gloops launcher, in Advanced too |
 | `MainButtonSettings` | `:72` | KEEP (`:174`) | **none** | nothing |
 | `TabRecordings` | `:75` | HIDE (`:183`) | `UI/RecordingsTableUI.cs:189` | the Recordings tab and its whole body |
@@ -1377,9 +1305,10 @@ than by enforcement; flipping any of the four to `visibleInBasic = false` would 
 on screen. Separately, `UiSurfaceVisibility.HiddenSurfaces` (`UI/UiComplexityMode.cs:214`) has
 no production consumer: its only reference outside its own file is a doc comment at
 `ParsekUI.cs:471` explaining why the real close set is the hand-written
-`BuildGatedWindowCloseSet` (`ParsekUI.cs:488-529`). That set carries five targets since the
-2026-09-22 Kerbals re-ruling (six before it: Kerbals was the second) - CareerState,
-GloopsRecorder, SpawnControl, TestRunner (maps to no `UiSurface`; its launcher lives
+`BuildGatedWindowCloseSet` (`ParsekUI.cs:488-529`). That set carried five targets after the
+2026-09-22 Kerbals re-ruling (six before it: Kerbals was the second) and four since the
+2026-09-27 removal of the Career window (CareerState was the first) - GloopsRecorder,
+SpawnControl, TestRunner (maps to no `UiSurface`; its launcher lives
 in the hidden Diagnostics section) and GroupPicker (maps to no `UiSurface`; a reachability rule,
 not a lock rule, `ParsekUI.cs:479-482`) - and deliberately omits the Missions, Structure,
 Timeline, Logistics and Settings windows (`ParsekUI.cs:484-487`).
