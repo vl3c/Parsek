@@ -28,14 +28,14 @@ Callers re-derived from the full set: `ParsekScenario` scene-exit / OnLoad / pen
 
 Fix: a tree carrying any `BranchPointType.GroundPartPlaced` branch point is never idle (the kerbal
 created vessels). One pure veto, `ParsekFlight.TreeHasPlacedGroundPartsForIdle` over
-`CountPlacedGroundParts`, runs first in both predicates and logs Info `IsTreeIdleOnPad: not idle -
-tree has N placed ground part(s) tree='<name>'` (or the `IsActiveTreeIdleOnPad:` prefix). An EVA
+`CountPlacedGroundParts`, runs first in all three discard predicates (`IsTreeIdleOnPad`, its live
+mirror `IsActiveTreeIdleOnPad`, and `IsTreePadFailure`, which shares the scene-exit discard at
+`ShowPostDestructionTreeMergeDialog`) and logs Info `IsTreeIdleOnPad: not idle - tree has N placed
+ground part(s) tree='<name>'` (or the `IsActiveTreeIdleOnPad:` / `IsTreePadFailure:` prefix). An EVA
 with no placement stays idle. Tests: `PlacedPartsNotIdleTests` (red on the pre-fix predicates).
 
 Left alone, noted for a decision: a flag planted within 30 m (a `FlagEvent` on the kerbal's
-recording, not a tree member) still reads idle and is discarded with the tree; `IsTreePadFailure`
-has no placed-part veto either (it needs every recording under 10 s, which a placement flight
-cannot meet in practice).
+recording, not a tree member) still reads idle and is discarded with the tree.
 
 ## ~~STOCK-TEXT-KEY-APPENDED-RAW: the facility menu showed `#autoLOC_900122` above Parsek's reason~~ [FILED AND FIXED 2026-09-29, branch `stock-text-localize`]
 

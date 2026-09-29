@@ -20334,6 +20334,9 @@ namespace Parsek
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
                 return false;
 
+            if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreePadFailure"))
+                return false;
+
             foreach (var rec in tree.Recordings.Values)
             {
                 if (!IsPadFailure(rec))

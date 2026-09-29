@@ -98,6 +98,41 @@ namespace Parsek.Tests
                 && l.Contains("tree='Mun Lander'"));
         }
 
+        // Every recording lasts under the pad-failure duration and stays pad-local.
+        private static RecordingTree ShortPadFailureTree()
+        {
+            RecordingTree tree = LanderWithEvaTree();
+            foreach (Recording rec in tree.Recordings.Values)
+            {
+                rec.Points.Clear();
+                rec.Points.Add(new TrajectoryPoint { ut = 100.0, bodyName = "Mun" });
+                rec.Points.Add(new TrajectoryPoint { ut = 104.0, bodyName = "Mun" });
+            }
+            return tree;
+        }
+
+        [Fact]
+        public void IsTreePadFailure_ShortTreeWithoutPlacement_IsPadFailure()
+        {
+            Assert.True(ParsekFlight.IsTreePadFailure(ShortPadFailureTree()));
+        }
+
+        [Fact]
+        public void IsTreePadFailure_PlacedGroundPart_NotPadFailure()
+        {
+            RecordingTree tree = ShortPadFailureTree();
+            var (bp, member) = GroundPartPlacement.BuildPlacementBranchData(
+                "kerbal", tree.Id, 102.0, 5001u, "Deployed Seismic Sensor", 1);
+            member.Points.Add(new TrajectoryPoint { ut = 102.0, bodyName = "Mun" });
+            member.Points.Add(new TrajectoryPoint { ut = 104.0, bodyName = "Mun" });
+            tree.BranchPoints.Add(bp);
+            tree.Recordings[member.RecordingId] = member;
+
+            Assert.False(ParsekFlight.IsTreePadFailure(tree));
+            Assert.Contains(logLines, l =>
+                l.Contains("IsTreePadFailure: not idle - tree has 1 placed ground part(s)"));
+        }
+
         [Fact]
         public void IsTreeIdleOnPad_SinglePlacement_NotIdle()
         {
