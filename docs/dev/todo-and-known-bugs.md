@@ -15,6 +15,59 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS: a tree committed in flight is never optimized (no boring-tail trim, no split / merge) until the next cold load~~ [FILED 2026-09-29 from EVA-9 `2026-09-29_1528`, branch `deployables-lanes`; FIXED 2026-09-29, branch `inflight-commit-optimize`. DEDUPE: the OPEN entry with this id lives on `deployables-lanes`; when both branches land keep this closed entry and drop the open one]
+
+**In gameplay terms.** A tree committed WITHOUT leaving the flight scene (the pre-switch Merge /
+Discard dialog's Merge, Case A / Case B of `Patches/MapFocusObjectOnSelectPatch.cs`, and the
+harness `CommitTree` seam verb) kept its idle tails, so the vessels it ended with appeared later
+than after a Space Center exit, and all at the same moment (EVA-9 `2026-09-29_1528`: four placed
+members spawned within 5 ms after the rewind, zero `TrimBoringTail: trimmed` lines). The next cold
+load trimmed it, changing the recordings then.
+
+**Verdict: omission, not design.** Caller set re-derived 2026-09-29: `RecordingStore.RunOptimizationPass`
+is called by `MergeDialog.MergeCommit` (merge dialog, scene-exit auto-commit, and
+`ParsekFlight.CommitFreshRolloutRefusedPendingTree`, which already runs it IN FLIGHT with ghosts
+alive), the ghost-only auto-commit branch in `ParsekScenario`, and the cold `OnLoad`; never by
+`ParsekFlight.CommitTreeFlight`, and never was (`git log -S RunOptimizationPass -- ParsekFlight.cs`
+is empty). Its own doc comment and `Recording.LoopSyncParentIdx`'s say it runs "after every
+commit"; the committed-list notifications (`RecordingStore.CommittedListNotifications.cs`) exist so
+flight-scene index state follows its mid-list merges and splits.
+
+**The one real hazard (why the pass is not a one-line add).** The in-flight commit stamps the live
+active vessel's recording spawned (`VesselSpawned` + `SpawnedVesselPersistentId`) and spawns /
+adopts the other leaves AT the commit, where `MergeCommit` leaves spawning to playback. An optimizer
+split moves the terminal state and `VesselSnapshot` to a NEW second half with a fresh id and does
+not move the spawn stamp (`RecordingOptimizer.TransferTerminalFieldsToSecondHalf`), and a merge can
+absorb the recording into an earlier chain segment. Run after the stamps, a split would leave the
+active vessel's line with an unstamped spawnable tip.
+
+Fix: `CommitTreeFlight` runs the pass right after `RecordingStore.CommitTree` (after
+`MarkTreeAsApplied`, before `NotifyLedgerTreeCommitted`, the `MergeCommit` order) through
+`RunInFlightCommitOptimizationPass`, then moves the active vessel's stamp onto its post-pass chain
+tip (`InFlightCommitOptimization.ResolveChainTip` / `CarrySpawnStampToTip`: highest-`ChainIndex`
+branch-0 member of the same chain and tree; the head is cleared, the scene-exit shape) and hands the
+tip id to `SpawnTreeLeaves`, which now runs after the pass so its adopt / spawn stamps land on the
+tips; the spawned-leaf count resolves the pre-commit leaves to their tips. Skipped, with today's
+behavior (the next cold load optimizes), while a Re-Fly session marker or a merge journal is live:
+`MergeCommit`'s Re-Fly handling (survivor hint, supersede rows, retained-tip adoption) is not part
+of the in-flight commit, and `CommitTree`'s Re-Fly union branch commits a different tree object
+than the flight controller holds. Log: Info `CommitTreeFlight: optimization pass ran
+committed=N->M activeRec=... activeTip=... spawnStampMoved=...` or `CommitTreeFlight: optimization
+pass skipped reason=re-fly-session-active|merge-journal-active`. The pass and the stamp move run
+through `InFlightCommitOptimization.RunPassAndResolveActiveTip`, each step guarded: a throw (sidecar
+I/O in `FlushDirtyFiles`, say) logs Error `CommitTreeFlight: optimization pass threw` / `active
+spawn-stamp move threw` and the commit still reaches the ledger notify and the leaf spawn (the stamp
+stays on the pre-pass recording if its move threw). Tests:
+`InFlightCommitOptimizationTests` (the source gate reds on the pre-fix `CommitTreeFlight`; the
+integration cell shows a real optimizer split leaving the tip unstamped until the carry).
+
+Not flown. A regression lane would commit with the seam `CommitTree` after idling past 30 s and
+require `Optimization pass: trimmed boring tails` plus the `optimization pass ran` line (EVA-9 /
+EVA-10 now commit through `ExitToSpaceCenter`, so they no longer witness this). Left alone, noted:
+`ParsekScenario.SafetyNetAutoCommitPending` (on save outside Flight, documented unreachable) and
+`RecordingStore.CommitRecordingDirect` (destroyed-during-split standalone) also commit without the
+pass; the first runs inside `OnSave`, where a pass that deletes and flushes sidecars does not belong.
+
 ## ~~REWIND-KEPT-VESSEL-RESPAWNED-BY-STANDALONE-SEGMENT: after a Rewind-to-Launch a standalone 2-point segment of the kept lander replays and spawns a second lander on top of it~~ [FILED 2026-09-29 from EVA-10 `2026-09-29_2012` / `_2018` on branch `deployables-lanes`; FIXED 2026-09-29, branch `rewind-standalone-twin`. The filing entry lives on `deployables-lanes`: deduplicate the two when both land]
 
 **In gameplay terms.** After rewinding, the lander the rewind kept as history got a twin spawned
@@ -127,48 +180,6 @@ branch) PASS attempt 1. All nine steps completed on their first move (`offTarget
 anchor released on every step after the first), two stumbles (the 1.95 m downhill set-down to the
 Go-ob spot, and the last step back beside the capsule) were got up by `step ragdoll-recover ...
 event=On_recover_start`, no crash, all five placements and the pick-up completed, committed count 15.
-
-## IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS: a tree committed in flight is never optimized (no boring-tail trim, no split / merge) until the next cold load [FILED 2026-09-29 from EVA-9 `2026-09-29_1528`, branch `deployables-lanes`. OPEN, product inconsistency, needs a ruling; no product change made]
-
-**In gameplay terms.** When a tree is committed WITHOUT leaving the flight scene - the
-pre-switch Merge / Discard dialog's Merge (Case A / Case B of
-`Patches/MapFocusObjectOnSelectPatch.cs`) - its recordings keep their idle tails, so the
-vessels they end with appear later than they would after a Space Center exit, and all at the
-same moment instead of one after another. The same flight committed by leaving for the Space
-Center is trimmed at once. Nothing in the saved data is wrong; the difference lasts until KSP
-next loads the save from cold, which trims it.
-
-**Evidence.** EVA-9 `2026-09-29_1528` (automation DLL = main + #1920 + #1921 + #1923,
-`Parsek-deployables-integration/harness/results/..._shots/KSP.log`): four placed members lived
-41-65 s (placed 18:29:29-18:29:53, `StopRecording` + seam `CommitTree` at 18:30:34, whose
-`CommitTreeFlight: committed tree "Jebediah Kerman"` is at 18:30:34.744), yet the log holds
-ZERO `TrimBoringTail: trimmed` lines, and after the rewind all four chain tips spawned within
-5 ms (18:32:01.804-.809). The only `Optimization pass` lines are the boot's cold load
-(18:29:24, `TrimBoringTail skipped 9 recording(s)`). The operator's run
-`logs/2026-09-28_2231_deployables/KSP.log` trimmed 11 recordings at 22:24:33.5, inside
-`Silent full-fidelity auto-commit (scene-exit): tree='rover science'`.
-
-**Cause (from source).** `RecordingStore.RunOptimizationPass` (the only caller of the tail
-trim, `RecordingStore.Optimization.cs` `TrimBoringTailsForOptimization`) is called by
-`MergeDialog.MergeCommit` (`MergeDialog.Commit.cs:86`, which the scene-exit auto-commit
-`ParsekScenario` "pending-outside-flight" route and the merge dialog both use) and by the cold
-`OnLoad` (`ParsekScenario.cs:4548`, phase `optimization`). `ParsekFlight.CommitTreeFlight`
-(`ParsekFlight.cs:13406`, reached from the pre-switch dialog and the seam `CommitTree`) marks the
-tree applied, commits, recalculates the ledger and spawns the leaves, but runs no optimization
-pass, and an in-session scene load returns at `phase=rewind-point-reap
-status=returned-scene-change` (`ParsekScenario.cs:4316`) before the optimization phase, so
-nothing optimizes that tree until a cold load. The Phase C comment in `MergeDialog.Commit.cs`
-records that the two commit paths were brought into parity for `MarkTreeAsApplied`; the
-optimization pass was not.
-
-**Fix direction (needs a ruling).** Call `RecordingStore.RunOptimizationPass()` in
-`CommitTreeFlight` after `RecordingStore.CommitTree`, as `MergeCommit` does after
-`CommitPendingTree` (the committed-list notifications exist so that flight-scene index state
-follows any mid-list mutation, an optimizer merge or split included). Check the leaves
-`SpawnTreeLeaves` just adopted keep their spawn stamps across a split / trim. Lanes: EVA-9 and
-EVA-10 now commit through `ExitToSpaceCenter` (the player's own path) and so no longer witness
-this; a regression lane would commit with the seam `CommitTree`, idle past 30 s, and require
-the trim line.
 
 ## GROUND-SCIENCE-CLUSTER-FIVE-PART-HOST: no committed fixture can host a cluster with three or more experiments inside stock inventory limits [FILED 2026-09-28, branch `deployables-lanes`]
 
