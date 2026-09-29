@@ -77,7 +77,9 @@ namespace Parsek.TestCommands
                 SetExecResult("REJECTED", null, TestCommandStockScreen.WrongSceneReason + " scene=" + scene);
                 return;
             }
-            if (HighLogic.CurrentGame == null || HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            if (HighLogic.CurrentGame == null || !TestCommandStockScreen.IsAvailableInMode(request.Screen,
+                    HighLogic.CurrentGame.Mode == Game.Modes.CAREER,
+                    HighLogic.CurrentGame.Mode == Game.Modes.SCIENCE_SANDBOX))
             {
                 string mode = HighLogic.CurrentGame != null ? HighLogic.CurrentGame.Mode.ToString() : "none";
                 ParsekLog.Warn(Tag, $"stockscreen rejected reason={TestCommandStockScreen.CareerOnlyReason} mode={mode}");

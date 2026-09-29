@@ -343,6 +343,38 @@ namespace Parsek.Tests
         }
 
         [Theory]
+        [InlineData("decline-contract contract=90e4faaf-2029-4c6b-8bc1-40226bb0fc27")]
+        [InlineData("cancel-contract contract=07c8e34d-0464-4416-a973-1e2b472bc347")]
+        [InlineData("sack-kerbal kerbal=Bill%20Kerman")]
+        [InlineData("press-strategy strategy=AppreciationCampaignCfg")]
+        [InlineData("purchase-part part=probeCoreSphere.v2")]
+        [InlineData("purchase-all node=start")]
+        public void KscAction_ClickBlockSubActions_NeedCareerAndSpaceCenter(string args)
+        {
+            var cmd = Cmd("id=1 cmd=KscAction action=" + args);
+            AssertDefer(TestCommandDispatcher.DecideDispatch(cmd,
+                    new DispatchState { Scene = TestCommandScene.SpaceCenter, AtSpaceCenter = true }),
+                "career-not-ready");
+            AssertDefer(TestCommandDispatcher.DecideDispatch(cmd,
+                    new DispatchState { Scene = TestCommandScene.TrackingStation, CareerPresent = true, AtSpaceCenter = false }),
+                "not-at-space-center");
+            // None reads the hidden Administration host or the building animations.
+            Assert.Equal(DispatchDecision.Execute, TestCommandDispatcher.DecideDispatch(cmd,
+                new DispatchState { Scene = TestCommandScene.SpaceCenter, CareerPresent = true, AtSpaceCenter = true,
+                    KscStructuresSettling = true, StrategyAdministrationReady = false }).Decision);
+        }
+
+        [Fact]
+        public void KscAction_AssignCrew_RunsOutsideTheSpaceCenter()
+        {
+            // The VAB/SPH crew dialog lives in the editor scene; the applier refuses
+            // crew-dialog-not-open itself when no dialog is up.
+            var cmd = Cmd("id=1 cmd=KscAction action=assign-crew kerbal=Bill%20Kerman");
+            Assert.Equal(DispatchDecision.Execute, TestCommandDispatcher.DecideDispatch(cmd,
+                new DispatchState { Scene = TestCommandScene.Editor, CareerPresent = true, AtSpaceCenter = false }).Decision);
+        }
+
+        [Theory]
         [InlineData("activate-strategy strategy=OutsourcedResearchCfg")]
         [InlineData("deactivate-strategy strategy=OutsourcedResearchCfg")]
         public void KscAction_StrategySubActions_NeedCareerAndSpaceCenter(string args)

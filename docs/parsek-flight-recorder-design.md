@@ -514,7 +514,33 @@ and never a recovery (no funds, science or reputation), and the part really is b
 finalizes `Landed` with a snapshot and is a spawnable leaf, so after a rewind it comes back as a real
 vessel at its recorded end pose like any other vessel the tree leaves behind (the KSC exclusion-zone
 retirement applies to it like to any vessel: a part left on the pad is retired, not spawned). A
-picked-up member ends `Disassembled` and is never spawned.
+picked-up member ends `Disassembled` and is never spawned. Members of one cluster stand a few metres
+apart, well inside the spawn-collision box (12.6 m for one part), so the spawn collision check and
+the Space Center landed de-overlap ignore a vessel Parsek spawned from another member of the same
+committed tree that still stands where its spawn put it (`CoexistingTreeSiblingSpawn`; the same rule
+lets the kerbal and the rover that end among the parts spawn there). Without it only the first
+member of a cluster spawns. At a member's recorded end spot the rule's time gate (recorded
+existence overlaps, persisting terminals running past their trimmed end) always passes for two
+spawnable leaves; at a walkback candidate it is real: the other member counts only if it already
+stood at its spot at the candidate's recorded UT, so a vehicle stepping back along its own path is
+never placed inside a part set down there after it drove through. The other member may be its
+spawn or its recorded vessel still live (a positive pid + launch Guid match, never the spawning
+member's own launch), measured from that vessel's latest recorded segment.
+
+**Beside a vessel of an earlier flight** (operator ruling 2026-09-29). An EVA kerbal or a placed
+part is not pushed off its recorded spot by a vessel that was already standing there when its
+recording was made and has not moved since (the capsule the kerbal climbed out of, recorded in
+an earlier committed tree); a vessel that arrived later still pushes it. Parsek records no
+foreign vessel's position during a recording, so the proof is the blocker's own committed
+history (`CoexistingTreeSiblingSpawn.ClassifyOtherTree`): the blocker is positively that history's
+vessel (spawn stamp or pid + launch Guid, from the effective recording set), its tree was
+committed before the spawning member's tree, its latest segment is a standing leaf that ended at
+or before the spawning member arrived at its spot (a placed part's placement, an EVA kerbal's
+start of its final stand; a walkback candidate's UT on a walkback; a history still running then
+was a replay, not a vessel), and it stands within 3 m of that leaf's spot.
+Every collision site above and the Space Center de-overlap apply it. A vehicle spawning beside
+such a vessel is still nudged clear (the duplicate-delivery guard), and a vessel with no
+committed history, or only a later one, still pushes.
 
 **The ghost.** The member's ghost is the placed part standing where it was placed: visible from the
 placement UT (the Placed event), hidden at the pick-up (the Removed event), and gone when the recording

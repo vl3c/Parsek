@@ -359,6 +359,25 @@ The spec-to-fixture pairing is gated by `L4SpecFixtureSyncTests` in the same fil
 the structural counts by `CommittedFixtureSweepTests.RECORDED_FIXTURES` in
 `harness/lib/test_saveparse.py`.
 
+## k2-held-kerbal-pad (GAME Mode = CAREER, 2 VESSELS, 2 recordings, derived from career-earned-pad)
+
+`career-earned-pad` plus a clone of `rover-route-recorded`'s crewless `rover fuel 0`
+(PRELAUNCH on the runway start, ~1.8 km from the pad; the donor `pad-runway-pair` also
+clones). The clone is inserted at VESSEL index 0 and the base's `activeVessel = 0` now
+focuses it, so the list reads [rover, pad craft]. That is the whole point: Jebediah Kerman
+is held open-ended by the career's committed `Jumping Flea` flight and sits in the pad
+craft, whose launch guid and pid do not match the recorded flight's, and the flight-ready
+crew swap only takes a held kerbal out of the ACTIVE vessel. Booting on the rover leaves
+Jeb aboard a live vessel that continues no committed flight, the state block audit row K2
+is about (a Switch-To onto it runs no crew swap). The clone's launch Guid, vessel
+`persistentId` and every nested `persistentId` are re-derived deterministically (seed
+`k2-held-kerbal-pad/v1`), `lct` / `lastUT` are re-stamped to the base UT, and part `uid`s
+are asserted not to collide with the base. The save `Title` and `loadmeta`'s `vesselCount`
+(1 -> 2) are the only other edits; every other file is career-earned-pad's byte for byte.
+Built and drift-gated by `harness/tools/build_k2_held_kerbal_pad.py` (`--check`) and
+`harness/lib/test_k2_held_kerbal_pad.py`; the structural counts by
+`CommittedFixtureSweepTests.RECORDED_FIXTURES`. Host of `KB-5-flight-eva-block-held-kerbal`.
+
 ## career-earned-ksc (GAME Mode = CAREER, 0 VESSELS, 2 recordings)
 
 `career-earned-pad`'s career WITHOUT the spliced pad craft: the xUnit base
@@ -371,8 +390,10 @@ sibling's D8 cell and needs a craft to be honest). It exists because `ResourceTo
 two cells are career-only AND Space-Center-scoped and no committed career booted to
 the Space Center (H71 drives them here, and since 2026-09-08 BOTH of its cells
 execute). The nine Offered contracts were meant to reach the two `StockUiOverlay`
-Mission Control cells as well, AND SINCE 2026-09-08 THEY DO: `H45-stock-ui-overlay` is
-hosted here and executes all six of its cells.
+Mission Control cells as well, AND SINCE 2026-09-08 THEY DO: `H45-stock-ui-overlay` was
+hosted here and executed all six of its cells (it moved to the pad sibling on 2026-09-28,
+whose one Active contract its Cancel cell needs; the pad craft is harmless under its
+`scene=spacecenter` boot).
 ~~The census read them skipping here exactly as on H45 ("rows=9, contractRows=0"): the
 offered rows populate only with the Mission Control building UI open, which no seam
 verb drives.~~ That reading was wrong, and this fixture is what disproved it: `rows=9`
@@ -424,8 +445,12 @@ Mission Control and Administration stay at level 1 (two contract slots, one stra
 so the one Active contract plus the committed accept fill both slots at UT 50000 and
 every other Offered row carries the C2 slot block. The earliest committed row is
 30000 s after the clock, so a Space Center lane at 1x cannot reach it. Hosts
-`GUI-28-census-stock-screens` and `KB-3-ksc-click-blocks-after-rewind` (which presses the
-tech, upgrade, hire and accept controls its four reservations block).
+`GUI-28-census-stock-screens`, `KB-3-ksc-click-blocks-after-rewind` (which presses the
+tech, upgrade, hire and accept controls its four reservations block) and
+`KB-4-ksc-click-blocks-remaining` (Decline, Cancel, the slot-starved Accept, both
+Administration buttons, the dismiss, the part purchase and purchase-all, the VAB crew
+seat; it upgrades the Administration in-lane to free a strategy slot, since at level 1 the
+active strategy fills the only one and stock refuses first).
 
 ## stock-screen-census-repair (GAME Mode = CAREER, 0 VESSELS, 3 recordings)
 
@@ -604,6 +629,21 @@ by `harness/tools/build_gloops_airshow_hard.py` (`--check`) and
 launch nothing through kRPC. Host of `RF-16-hard-preset-refly-exit-merge` and
 `RF-17-hard-preset-refly-exit-discard` (two lanes, one leaf: neither harvests its produced
 save, so the shared staged directory is harmless).
+
+## career-pad-craft-hard (GAME Mode = CAREER, 1 VESSEL, derived from career-pad-craft)
+
+`career-pad-craft`'s `persistent.sfs` and `persistent.loadmeta` byte for byte, except eleven
+values in the top-level `PARAMETERS` node set to KSP 1.12.5's Hard preset (decompiled
+`GameParameters.SetDifficultyPresets`): `preset = Custom -> Hard`; `FLIGHT` `CanQuickLoad`,
+`CanRestart`, `CanLeaveToEditor` `True -> False`; `DIFFICULTY`
+`BypassEntryPurchaseAfterResearch` `True -> False` and `AllowOtherLaunchSites`
+`False -> True`; `CAREER` funds / rep / science gain `1 -> 0.6` and funds / rep loss
+`1 -> 2`. The source already carries every other Hard value (starting funds 10000, decline
+rep 3, no respawn, resource abundance 0.5, CommNet on), and the builder asserts each of them.
+The first career fixture that is not x1: the game-settings axis's Hard host. Built and
+drift-gated by `harness/tools/build_career_pad_craft_hard.py` (`--check`) and
+`harness/lib/test_career_pad_craft_hard.py`; no `AddOns` copy (seam-only lanes). Host of
+`HC-1-hard-career-ledger`.
 
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 

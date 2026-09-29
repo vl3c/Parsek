@@ -112,6 +112,12 @@ namespace Parsek.InGameTests
                     yield break;
                 yield return WaitForRdController(15f);
                 controller = RDController.Instance ?? Object.FindObjectOfType<RDController>();
+                // RDNode.state stays 0 (no State member) until stock's first UpdateGraphics
+                // pass, a few frames after the controller exists; picking earlier reads every
+                // node as neither RESEARCHABLE nor HIDDEN and skips on a tree that has one.
+                RDController settling = controller;
+                yield return WaitUntilTrue(() => RdNodeStatesComputed(settling),
+                    "R&D node states should be computed after opening R&D", 10f);
                 if (!TryPickUnresearchedRdNode(controller, requireResearchable: true,
                         out RDNode node, out string techId, out string reason))
                 {
@@ -119,6 +125,13 @@ namespace Parsek.InGameTests
                     yield break;
                 }
 
+                // The stock baseline is the SAME node's panel with no committed row: the
+                // button's graphic set depends on the panel it shows (its Research label is
+                // rebuilt on selection), so a snapshot taken before any node is selected is not
+                // the look the lifted block must restore.
+                controller.node_selected = node;
+                controller.ShowNodePanel(node);
+                yield return null;
                 List<Color> actionColorsBefore = SnapshotButtonColors(controller.actionButton.Button);
 
                 recordingId = "stockui-rnd-block-" + System.Guid.NewGuid().ToString("N");
@@ -417,6 +430,19 @@ namespace Parsek.InGameTests
             reason = requireResearchable
                 ? $"No unresearched RESEARCHABLE R&D node (unresearched={unresearched}); the Research button is hidden on FADED nodes"
                 : "No unresearched R&D tree node with a tech id";
+            return false;
+        }
+
+        /// <summary>True once stock has set a state on the tree's nodes (the start node reads
+        /// RESEARCHED after the first <c>RDNode.UpdateGraphics</c>).</summary>
+        private static bool RdNodeStatesComputed(RDController controller)
+        {
+            if (controller == null || controller.nodes == null) return false;
+            for (int i = 0; i < controller.nodes.Count; i++)
+            {
+                RDNode n = controller.nodes[i];
+                if (n != null && n.treeNode && n.state == RDNode.State.RESEARCHED) return true;
+            }
             return false;
         }
 

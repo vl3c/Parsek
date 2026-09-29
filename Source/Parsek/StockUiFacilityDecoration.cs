@@ -120,9 +120,9 @@ namespace Parsek
         /// The tooltip text on the Upgrade button: the explanation alone on a controller
         /// Parsek added, else the stock text with the explanation appended on its own line.
         /// </summary>
-        internal static string ComposeTooltipText(bool parsekOwned, string stockText, string why)
+        internal static string ComposeTooltipText(bool parsekOwned, string stockText, string why, string site = null)
         {
-            return parsekOwned ? (why ?? "") : StockUiRnDDecoration.AppendReason(stockText, why);
+            return parsekOwned ? (why ?? "") : StockUiRnDDecoration.AppendReason(stockText, why, site);
         }
 
         /// <summary>Removes a line <see cref="StockUiRnDDecoration.AppendReason"/> added.
@@ -469,7 +469,8 @@ namespace Parsek
             if (tip != null && tip.prefab != null)
             {
                 tip.RequireInteractable = false;
-                tip.SetText(ComposeTooltipText(state.TooltipOwned, state.StockTooltipText, WrapTooltipText(why)));
+                tip.SetText(ComposeTooltipText(state.TooltipOwned, state.StockTooltipText, WrapTooltipText(why),
+                    "facility menu button tooltip"));
                 tip.enabled = true;
                 // The facility's own state sentence in the menu's stock description too
                 // (owner coverage rule 2026-09-27: element and button both carry it).
@@ -517,7 +518,7 @@ namespace Parsek
             if (text == null) return;
             if (state.DescriptionReason != null && state.DescriptionReason != why)
                 text = RemoveReason(text, state.DescriptionReason);
-            StockUiText.Set(label, StockUiRnDDecoration.AppendReason(text, why));
+            StockUiText.Set(label, StockUiRnDDecoration.AppendReason(text, why, "facility menu description"));
             state.DescriptionReason = why;
         }
 

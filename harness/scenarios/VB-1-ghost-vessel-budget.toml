@@ -1,0 +1,123 @@
+schema = 1
+id = "VB-1-ghost-vessel-budget"
+tier = "nightly"
+# THE GAME-SETTINGS AXIS, FIRST LANE (operator request 2026-09-29): do Parsek's ghost map
+# vessels count toward the stock save-time vessel budget, so that a player with many
+# committed recordings loses real debris from the save?
+#
+# THE MECHANISM (decompiled KSP 1.12.5, FlightState's parameterless constructor, the build
+# Game.Updated runs on every save in FLIGHT / TRACKSTATION / SPACECENTER, plus FlightDriver.Start
+# and the Game constructor): it walks every non-dead vessel in FlightGlobals.Vessels, then,
+# unless MAX_VESSELS_BUDGET is -1, walks the list from its oldest end removing vessels that are
+# `!isPersistent && !isCommandable` until `list.Count <= MAX_VESSELS_BUDGET`, logging
+# "[Flight Persistence]: Too many vessels in scene - skipping save for <name>" per removal.
+# `isCommandable` is `vesselType > Debris`, so ONLY Debris-typed vessels can be removed, but
+# EVERY vessel counts. Ghost map ProtoVessels (GhostMapPresence.BuildGhostProtoVesselNode:
+# the recording's own type, `prst = True`, `cln = False`) are never removed themselves, but
+# they are live vessels at that moment and `GhostMapPresence.StripFromSave` runs later, from
+# ParsekScenario.OnSave. So without Parsek's fix each ghost pushes one real Debris vessel out
+# of the save. The fix (Patches/FlightStateGhostBudgetPatch.cs, KSP-SETTINGS-AUDIT S5) raises
+# the budget by the live ghost count around that one constructor and restores it after.
+#
+# THE HOST, SIZED SO THE ANSWER IS BINARY. `mun-park-kerbalx` (the Parsek-stripped copy of
+# mun-orbit-recorded; sandbox) holds EIGHT real vessels: one asteroid, the Kerbal X upper
+# stage in Mun orbit and SIX `Kerbal X Debris` (five landed at the pad, one sub-orbital), all
+# `prst = False`. The `vessel-budget` preset adds eight committed trees, one uncrewed probe
+# each on a Kerbin-synchronous orbit whose window opens 1 s after the save's clock and runs
+# 100000 s, so the Tracking Station builds EIGHT ghost map vessels and nothing spawns. The run
+# sets MAX_VESSELS_BUDGET to 10 through `[runtime] kspSettings` (the shared instance keeps its
+# profile's 250 for every other lane): two slots of slack over the eight real vessels, because
+# stock's asteroid spawner can add a SpaceObject at the Tracking Station load (it did on the
+# first reading run). Without the fix the save build sees about 18 vessels against 10 and drops
+# all six debris; with it the build sees them against 18 and drops nothing. DECLUTTER_KSC is
+# turned off for the run so the only mechanism in play is the budget (in a sandbox save
+# declutter only flags the pad debris `cln`, it never deletes them).
+#
+# EVIDENCE: the produced save (FLIGHTSTATE keeps all six debris; the ghosts are not in it),
+# the stock prune line never printed, and Parsek's adjustment line with the exact counts
+# (8 ghosts, 10 -> 18). The produced save is the one FlushAndQuit writes after the SaveGame
+# (both builds run with the eight ghosts live and registered).
+#
+# READING 1, `2026-09-29_1657`, PARSEK-FAIL on this spec's first shape (budget 8 plus a
+# RunTests VesselBudget step), and it is the instrument proof this lane keeps:
+#   * the SaveGame build logged `excluded 8 ghost map vessel(s) ... MAX_VESSELS_BUDGET 8 -> 16`
+#     and stock then printed EXACTLY ONE `Too many vessels in scene - skipping save for Kerbal
+#     X Debris`. The seventeenth vessel was a SECOND asteroid (`Ast. CGM-911`) stock spawned at
+#     the load: nine real vessels against a budget of eight is one real excess, and one is what
+#     stock dropped. Without the exclusion it would have needed to drop nine and dropped all six.
+#     So the stock prune IS live at this budget and the ghosts were excluded exactly.
+#   * the in-game batch then showed the pre-fix world by accident: the runner's between-run
+#     cleanup (`InGameTestRunner.PerformBetweenRunCleanup` -> `GhostMapPresence.
+#     ResetBetweenTestRuns`) clears the ghost-map bookkeeping in the Tracking Station WITHOUT
+#     removing the ghost ProtoVessels (there is no ParsekFlight to destroy them), so the next two
+#     saves (the batch baseline and its marker) counted eight unregistered ghosts as real and
+#     stock dropped all six debris from each (`Too many vessels` x6, twice). The same clear is
+#     why the `VesselBudget` cell SKIPPED ("needs at least one ghost map vessel"): it runs after
+#     the clear and before the ghosts are rebuilt. Filed as todo
+#     INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS (test runner only; no player path calls it).
+#     The RunTests step is therefore dropped from this lane.
+description = "The stock vessel budget vs ghost map vessels, in the Tracking Station: mun-park-kerbalx (eight real vessels, six of them Debris) plus eight in-window probe ghosts, flown at MAX_VESSELS_BUDGET = 10 via a per-run settings delta. Every save build must drop nothing (the ghosts are excluded by FlightStateGhostBudgetPatch) and the produced save keeps all six debris."
+instanceProfile = "stock-minimal"
+tags = ["settings-axis", "vessel-budget", "ghost-map", "injected-recordings", "tracking-station",
+        "VB-1"]
+
+[fixture]
+saveTemplate = "fixtures/saves/mun-park-kerbalx"
+injectedRecordings = "vessel-budget"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # 1x Tracking Station time so the ghost map vessels exist before the save build.
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # The save under test: Game.Updated -> new FlightState() with the ghosts live.
+  { cmd = "SaveGame",   args = { name = "persistent" }, expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["sandbox", "scene-ts"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 8, max = 8 }
+
+[expectations.recordings.structure]
+committedTrees = { min = 8, max = 8 }
+vesselNames    = { "Kerbal X Debris" = { min = 6, max = 6 }, "#autoLOC_501232" = { min = 1, max = 1 }, "Ghost: VB Probe 1" = { min = 0, max = 0 } }
+
+[expectations.logContracts]
+required  = [
+  "\\[GhostMap\\] Created ghost vessel 'Ghost: VB Probe 1' ",
+  "\\[GhostMap\\] Created ghost vessel 'Ghost: VB Probe 8' ",
+  "\\[GhostMap\\] FlightState vessel budget: excluded 8 ghost map vessel\\(s\\) from the stock save budget, MAX_VESSELS_BUDGET 10 -> 18 for this build \\(restored after\\)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Too many vessels in scene - skipping save for",
+  "FlightState vessel budget: ghost exclusion failed",
+]
+
+[runtime]
+budgetSeconds = 900
+kspSettings = { MAX_VESSELS_BUDGET = 10, DECLUTTER_KSC = false }
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -299,7 +299,18 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # Consumers:
                                         # RB-1-rewind-readback-divergence,
                                         # RB-2-rewind-readback-within-range.
-                                        "rewind-readback")
+                                        "rewind-readback",
+                                        # vessel-budget: EIGHT committed
+                                        # single-recording trees, an uncrewed
+                                        # probe each on a Kerbin-synchronous
+                                        # orbit, opening 1 s after the save UT
+                                        # and running 100000 s, so each is one
+                                        # ghost map vessel in the Tracking
+                                        # Station and none spawns. The host's
+                                        # FLIGHTSTATE is untouched. `--filter
+                                        # InjectVesselBudget`. No RP. Consumer:
+                                        # VB-1-ghost-vessel-budget.
+                                        "vessel-budget")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
@@ -6934,7 +6945,9 @@ SCREEN_RESOLUTION_SPEC_KEY = "screenResolution"
 
 # The [runtime] keys validate_spec accepts. A misspelled `screenResolution`
 # would otherwise read as "no opt-in" and silently capture at 1280x720.
-RUNTIME_SPEC_KEYS: Tuple[str, ...] = ("budgetSeconds", SCREEN_RESOLUTION_SPEC_KEY)
+KSP_SETTINGS_SPEC_KEY = "kspSettings"
+RUNTIME_SPEC_KEYS: Tuple[str, ...] = (
+    "budgetSeconds", SCREEN_RESOLUTION_SPEC_KEY, KSP_SETTINGS_SPEC_KEY)
 
 # The sizes a spec may ask for. 1280x720 is the provisioned default (declaring it
 # is a no-op); 1920x1080 is the GUI census frame. A closed set, so a lane cannot
@@ -6976,6 +6989,7 @@ def validate_screen_resolution(runtime: Dict) -> List[str]:
             errors.append("runtime.%s: %r not in %s"
                           % (SCREEN_RESOLUTION_SPEC_KEY, value,
                              list(ALLOWED_SCREEN_RESOLUTIONS)))
+    errors.extend(validate_ksp_gameplay_settings(runtime))
     return errors
 
 
@@ -7090,6 +7104,94 @@ def render_screen_restore_marker(original: Dict[str, str]) -> str:
     left out, so the restore never invents one."""
     return "".join("%s = %s\n" % (k, original[k])
                    for k in KSP_SCREEN_SETTING_KEYS if k in original)
+
+
+# ---------------------------------------------------------------------------
+# Per-run KSP GAMEPLAY settings (`[runtime] kspSettings`). Pure.
+#
+# WHY. The game-settings test axis flies a lane at a stock setting the shared
+# provisioned instance does not carry (a vessel budget small enough to bind, the
+# KSC declutter toggled). Re-provisioning the shared instance for one lane would
+# move every sibling lane; a per-run delta leaves the profile values in force
+# for everyone else, exactly as `screenResolution` does for the window size.
+#
+# HOW. The same patch / restore contract as the screen override above, on its
+# own marker (`settings.cfg.harness-gameplay-restore`) so the two opt-ins never
+# share state: marker first holding the ORIGINAL values, patch second, restore
+# at teardown and at the start of EVERY run's stage (a killed run is healed by
+# the next one). Only the declared key values are rewritten.
+#
+# A CLOSED KEY SET. Each key is one a settings-axis lane has a stated reason to
+# move, with a value validator; a lane cannot rewrite an arbitrary settings.cfg
+# key (the render and physics keys the profile pins stay out of reach).
+#   MAX_VESSELS_BUDGET - int >= -1 (stock: -1 = no limit; the dropdown offers
+#                        0, 25, 50 ...; settings.cfg takes any int).
+#   DECLUTTER_KSC      - bool, written as KSP writes one (`True` / `False`).
+# Unlike the screen override, a gameplay delta the shell cannot apply makes the
+# run INVALID(staging): a lane measuring a budget it did not get would read a
+# green that proves nothing.
+# ---------------------------------------------------------------------------
+
+KSP_GAMEPLAY_SETTING_KEYS: Tuple[str, ...] = ("MAX_VESSELS_BUDGET", "DECLUTTER_KSC")
+
+KSP_GAMEPLAY_RESTORE_MARKER = provlib.KSP_GAMEPLAY_RESTORE_MARKER
+
+
+def _canonical_ksp_gameplay_value(key: str, value: Any) -> Optional[str]:
+    """The settings.cfg text for one declared value, or None when invalid."""
+    if key == "MAX_VESSELS_BUDGET":
+        if isinstance(value, bool) or not isinstance(value, int) or value < -1:
+            return None
+        return str(value)
+    if key == "DECLUTTER_KSC":
+        if not isinstance(value, bool):
+            return None
+        return "True" if value else "False"
+    return None
+
+
+def validate_ksp_gameplay_settings(runtime: Dict) -> List[str]:
+    """Spec errors for `[runtime] kspSettings`: not a table, a key outside
+    KSP_GAMEPLAY_SETTING_KEYS, or a value its validator rejects."""
+    errors: List[str] = []
+    runtime = runtime or {}
+    if KSP_SETTINGS_SPEC_KEY not in runtime:
+        return errors
+    table = runtime[KSP_SETTINGS_SPEC_KEY]
+    if not isinstance(table, dict) or not table:
+        errors.append("runtime.%s: must be a non-empty table of %s"
+                      % (KSP_SETTINGS_SPEC_KEY, ", ".join(KSP_GAMEPLAY_SETTING_KEYS)))
+        return errors
+    for key in sorted(table):
+        if key not in KSP_GAMEPLAY_SETTING_KEYS:
+            errors.append("runtime.%s.%s: unknown key (known: %s)"
+                          % (KSP_SETTINGS_SPEC_KEY, key, ", ".join(KSP_GAMEPLAY_SETTING_KEYS)))
+            continue
+        if _canonical_ksp_gameplay_value(key, table[key]) is None:
+            errors.append("runtime.%s.%s: %r is not a valid value (%s)"
+                          % (KSP_SETTINGS_SPEC_KEY, key, table[key],
+                             "int >= -1" if key == "MAX_VESSELS_BUDGET" else "bool"))
+    return errors
+
+
+def spec_ksp_gameplay_settings(spec: Dict) -> Dict[str, str]:
+    """{settings.cfg key: text} for a spec's valid `[runtime] kspSettings`, in
+    KSP_GAMEPLAY_SETTING_KEYS order; {} when it declares none (the instance's
+    own values then govern, unchanged). An invalid table yields {} too:
+    validate_spec refuses such a spec before a run can reach this."""
+    runtime = (spec or {}).get("runtime") or {}
+    table = runtime.get(KSP_SETTINGS_SPEC_KEY)
+    if not isinstance(table, dict) or validate_ksp_gameplay_settings(runtime):
+        return {}
+    return {k: _canonical_ksp_gameplay_value(k, table[k])
+            for k in KSP_GAMEPLAY_SETTING_KEYS if k in table}
+
+
+def render_gameplay_restore_marker(original: Dict[str, str]) -> str:
+    """The gameplay restore marker body: the ORIGINAL values of the keys a run
+    is about to overwrite. A key the file did not carry is left out."""
+    return "".join("%s = %s\n" % (k, original[k])
+                   for k in KSP_GAMEPLAY_SETTING_KEYS if k in original)
 
 
 # ---------------------------------------------------------------------------
@@ -9477,6 +9579,27 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # Offered is career state. A committed-timeline refusal is `blocked-committed`, above.
     "unknown-contract": "driver-arg",
     "contract-not-offered": "driver-career",
+    # The stock-UI click-block sub-actions (KB-4): decline-contract / cancel-contract /
+    # sack-kerbal / press-strategy / purchase-part / purchase-all / assign-crew. A part
+    # name the loader does not know is the SPEC's fault; a stock screen the sub-action
+    # presses a control on that is not open (or a button the build does not have), or a
+    # press that changed nothing without a refusal the seam can read, is a gate; the
+    # target already in the state the click would put it in is career state. A
+    # committed-timeline refusal is `blocked-committed`, above.
+    "unknown-part": "driver-arg",
+    "strategy-not-selected": "driver-arg",
+    "contract-not-active": "driver-career",
+    "part-tech-not-researched": "driver-career",
+    "part-already-purchased": "driver-career",
+    "node-not-researched": "driver-career",
+    "nothing-to-purchase": "driver-career",
+    "kerbal-already-assigned": "driver-career",
+    "no-empty-seat": "driver-career",
+    "administration-not-open": "driver-gate",
+    "rnd-not-open": "driver-gate",
+    "crew-dialog-not-open": "driver-gate",
+    "button-not-found": "driver-gate",
+    "button-no-effect": "driver-gate",
     # R12 (design "> Update (R12)"). Both verbs ship a TYPED refusal taxonomy; without
     # these rows every one of them collapses to the coarse driver-verdict-mismatch and the
     # taxonomy is decorative on the harness side. Same retryability either way - these

@@ -337,11 +337,17 @@ namespace Parsek
         /// so the new spawn is nudged clear before materialization.
         ///
         /// Excludes: the recording's own already-adopted source vessel (<paramref name="excludePid"/>),
-        /// ghost-map vessels, and Debris/EVA/Flag/SpaceObject types. Only same-body surface
+        /// ghost-map vessels, Debris/EVA/Flag/SpaceObject types, and (when
+        /// <paramref name="spawningRecording"/> is given) vessels of other members of the same
+        /// committed tree that stood beside it in the recording, and, for an EVA kerbal or placed
+        /// ground part, a vessel of an earlier committed tree already standing there when it was
+        /// recorded (<see cref="CoexistingTreeSiblingSpawn"/>). Only same-body surface
         /// vessels are returned — orbital/flying vessels do not constrain a ground footprint.
         /// </summary>
         internal static List<(double lat, double lon)> GatherExistingLandedVesselPositions(
-            CelestialBody body, uint excludePid)
+            CelestialBody body, uint excludePid, Recording spawningRecording = null,
+            double spawnLat = double.NaN, double spawnLon = double.NaN,
+            double exemptionRangeMeters = double.NaN)
         {
             var result = new List<(double lat, double lon)>();
             if (body == null)
@@ -349,6 +355,9 @@ namespace Parsek
 
             int loadedCount = 0;
             int protoCount = 0;
+            int siblingCount = 0;
+            int otherTreeCount = 0;
+            int unresolvedFarCount = 0;
             try
             {
                 var vessels = FlightGlobals.Vessels;
@@ -363,6 +372,16 @@ namespace Parsek
                         if (!(v.Landed || v.Splashed)) continue;
                         if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
                         if (SpawnCollisionDetector.ShouldSkipVesselType(v.vesselType)) continue;
+                        if (spawningRecording != null
+                            && WithinExemptionRange(spawnLat, spawnLon, v.latitude, v.longitude,
+                                body.Radius, exemptionRangeMeters, ref unresolvedFarCount)
+                            && CountExemption(CoexistingTreeSiblingSpawn.ResolveExemption(
+                                spawningRecording, v.persistentId,
+                                v.id.ToString("N", CultureInfo.InvariantCulture),
+                                Recording.ResolveLocalizedName(v.vesselName),
+                                body.name, v.latitude, v.longitude, body.Radius,
+                                "landed-de-overlap"), ref siblingCount, ref otherTreeCount))
+                            continue;
                         result.Add((v.latitude, v.longitude));
                         loadedCount++;
                     }
@@ -381,6 +400,16 @@ namespace Parsek
                         if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) continue;
                         if (SpawnCollisionDetector.ShouldSkipVesselType(pv.vesselType)) continue;
                         if (!ProtoVesselIsOnSameBodySurface(pv, body)) continue;
+                        if (spawningRecording != null
+                            && WithinExemptionRange(spawnLat, spawnLon, pv.latitude, pv.longitude,
+                                body.Radius, exemptionRangeMeters, ref unresolvedFarCount)
+                            && CountExemption(CoexistingTreeSiblingSpawn.ResolveExemption(
+                                spawningRecording, pv.persistentId,
+                                VesselLaunchIdentity.ReadLaunchGuid(pv),
+                                Recording.ResolveLocalizedName(pv.vesselName),
+                                body.name, pv.latitude, pv.longitude, body.Radius,
+                                "landed-de-overlap"), ref siblingCount, ref otherTreeCount))
+                            continue;
                         result.Add((pv.latitude, pv.longitude));
                         protoCount++;
                     }
@@ -396,8 +425,38 @@ namespace Parsek
 
             ParsekLog.Verbose("Spawner",
                 $"GatherExistingLandedVesselPositions: body={body.name} excludePid={excludePid} " +
-                $"loaded={loadedCount} proto={protoCount} total={result.Count}");
+                $"loaded={loadedCount} proto={protoCount} coexistingTreeSiblings={siblingCount} otherTreeStanding={otherTreeCount} " +
+                $"beyondExemptionRange={unresolvedFarCount} total={result.Count}");
             return result;
+        }
+
+        /// <summary>
+        /// True when a landed vessel at (<paramref name="vesselLat"/>, <paramref name="vesselLon"/>)
+        /// is close enough to the spawn spot for its exemption to matter: within
+        /// <paramref name="rangeMeters"/> (the de-overlap separation; a vessel farther away never
+        /// triggers a nudge). A vessel beyond it is kept as a plain blocker without resolving (or
+        /// logging) an exemption and counted in <paramref name="unresolvedFarCount"/>. NaN spawn
+        /// coordinates or range resolve every vessel.
+        /// </summary>
+        internal static bool WithinExemptionRange(
+            double spawnLat, double spawnLon, double vesselLat, double vesselLon,
+            double bodyRadius, double rangeMeters, ref int unresolvedFarCount)
+        {
+            if (double.IsNaN(spawnLat) || double.IsNaN(spawnLon) || double.IsNaN(rangeMeters))
+                return true;
+            if (SpawnCollisionDetector.SurfaceDistance(spawnLat, spawnLon, vesselLat, vesselLon, bodyRadius)
+                < rangeMeters)
+                return true;
+            unresolvedFarCount++;
+            return false;
+        }
+
+        private static bool CountExemption(
+            OverlapExemptionScope scope, ref int sameTreeCount, ref int otherTreeCount)
+        {
+            if (scope == OverlapExemptionScope.SameTree) sameTreeCount++;
+            else if (scope == OverlapExemptionScope.OtherTree) otherTreeCount++;
+            return scope != OverlapExemptionScope.None;
         }
 
         /// <summary>
@@ -1860,7 +1919,8 @@ namespace Parsek
             bool skipActive = !isEva;
             var (overlap, overlapDist, blockerName, blockerVessel) =
                 SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
-                    spawnPos, spawnBounds, 5f, skipActive, exemptVesselPid);
+                    spawnPos, spawnBounds, 5f, skipActive, exemptVesselPid,
+                    spawningRecording: rec, site: "end-of-recording");
             if (overlap)
             {
                 // Precedence: duplicate-blocker-recovery FIRST (#112), walkback SECOND (#264).
@@ -1893,7 +1953,8 @@ namespace Parsek
                     // Re-check overlap after recovery — another vessel may still block
                     var (stillOverlap, recheckDist, recheckName, _) =
                         SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
-                            spawnPos, spawnBounds, 5f, skipActive, exemptVesselPid);
+                            spawnPos, spawnBounds, 5f, skipActive, exemptVesselPid,
+                            spawningRecording: rec, site: "end-of-recording-post-recovery");
                     if (!stillOverlap)
                     {
                         // Blocker removed, no other overlap — fall through to spawn at original position
@@ -1989,10 +2050,12 @@ namespace Parsek
                 body.Radius,
                 SpawnCollisionDetector.DefaultWalkbackStepMeters,
                 (lat, lon, alt) => body.GetWorldSurfacePosition(lat, lon, alt),
-                worldPos =>
+                (worldPos, candidateUT) =>
                 {
                     var (ov, _, _, _) = SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
-                        worldPos, spawnBounds, 5f, skipActive, exemptVesselPid);
+                        worldPos, spawnBounds, 5f, skipActive, exemptVesselPid,
+                        spawningRecording: rec, site: "end-of-recording-walkback",
+                        candidateUT: candidateUT);
                     return ov;
                 });
 

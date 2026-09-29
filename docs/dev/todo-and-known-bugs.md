@@ -15,6 +15,107 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~IDLE-ON-PAD-DISCARDS-PLACED-GROUND-PARTS: a tree whose EVA kerbal placed ground parts within 30 m was auto-discarded as idle on pad~~ [FILED AND FIXED 2026-09-29 from the deployables flights `2026-09-29_1856` / `_1901` / `_1905` / `_1916` (EVA-9 / EVA-10), branch `placed-parts-not-idle`]
+
+`ParsekFlight.IsTreeIdleOnPad` (and its live-tree mirror `IsActiveTreeIdleOnPad`, read by
+`SceneExitInterceptor.TryAutoDiscardIdleActiveTree`) classified a tree idle when every recording
+stayed within 30 m of its start. In the lanes an EVA kerbal left a landed capsule and placed a
+Breaking Ground cluster within about 17 m, so the scene exit logged `IsTreeIdleOnPad: all 6
+recordings within 30m - idle on pad` then `Idle on pad at scene exit - auto-discarding tree` and
+deleted the tree, its four placed-part member vessels' recordings and its `parsek_rw_` rewind save.
+Callers re-derived from the full set: `ParsekScenario` scene-exit / OnLoad / pending-tree paths
+(three sites), `ParsekFlight.ShowPostDestructionTreeMergeDialog`, and the interceptor's live mirror.
+
+Fix: a tree carrying any `BranchPointType.GroundPartPlaced` branch point is never idle (the kerbal
+created vessels). One pure veto, `ParsekFlight.TreeHasPlacedGroundPartsForIdle` over
+`CountPlacedGroundParts`, runs first in all three discard predicates (`IsTreeIdleOnPad`, its live
+mirror `IsActiveTreeIdleOnPad`, and `IsTreePadFailure`, which shares the scene-exit discard at
+`ShowPostDestructionTreeMergeDialog`) and logs Info `IsTreeIdleOnPad: not idle - tree has N placed
+ground part(s) tree='<name>'` (or the `IsActiveTreeIdleOnPad:` / `IsTreePadFailure:` prefix). An EVA
+with no placement stays idle. Tests: `PlacedPartsNotIdleTests` (red on the pre-fix predicates).
+
+Left alone, noted for a decision: a flag planted within 30 m (a `FlagEvent` on the kerbal's
+recording, not a tree member) still reads idle and is discarded with the tree.
+
+## ~~STOCK-TEXT-KEY-APPENDED-RAW: the facility menu showed `#autoLOC_900122` above Parsek's reason~~ [FILED AND FIXED 2026-09-29, branch `stock-text-localize`]
+
+The GUI-28 captures of the Tracking Station facility menu (the committed timeline upgrades it
+later) showed `#autoLOC_900122` on the description's first line, then Parsek's reason. An
+earlier review of those captures read the key line as stock's own text; the Sandbox census
+`GUI-30-census-stock-screens-sandbox` `2026-09-29_1511` (no Parsek marks,
+`sb-stock-facility-menu.png`) shows stock renders the English description there, so the key
+line was Parsek's.
+
+Root cause (decompiled, KSP 1.12.5): `KSCFacilityContextMenu.CreateWindowContent` sets
+`descriptionText.text = description`, which is `SpaceCenterBuilding.buildingDescription`, the
+bare key. KSP's `TMP_Text.StringToCharArray` runs `Localizer.Format(text)` over the WHOLE text
+at render time, and `Localizer.ReplaceSingleTagIfFound` replaces a text only when it is exactly
+one tag. `StockUiFacilityDecoration.AppendDescriptionReason` read the raw key back, appended
+its reason line, and wrote `key + "\n" + line`, which is no longer a tag and renders raw.
+
+Fix: one shared resolver, `StockUiText.ResolveStockKey(text, site)`, localizes a '#'-prefixed
+stock text (live `Localizer.Format` in a NoInlining core, `LocalizerForTesting` seam) before
+anything is appended; a key the localizer does not know, and every other text, comes back
+unchanged. Every composer that appends onto stock text routes through it:
+`StockUiRnDDecoration.AppendReason` (facility description, facility / hatch / Administration /
+R&D / Mission Control button tooltips through `ComposeTooltipText` and
+`StockUiReasonTooltip.Compose`, R&D node tooltip and description, part tooltip greyout
+message, portrait EVA tooltip), `StockUiAstronautDecoration.AppendTooltip` and
+`ComposeAssignedLabel`, `MissionControlStockAnnotation.ComposeRowLabel` and
+`ComposeDetailText` (only when appending), and
+`StrategyReservationPredicates.AppendCommittedActivationToStockReason`. `RemoveReason` leaves
+the localized text, which displays the same. One rate-limited Verbose line per site
+(`<site>: stock text was localization key '#...', localized before appending Parsek text`);
+GUI-28 now requires it for the facility description, and the in-game `FacilityMenu` cell
+asserts the decorated text carries no `#autoLOC`. Unit tests:
+`StockUiTextLocalizationTests`, `StrategyReservationTests`.
+
+Live proof: `GUI-28-census-stock-screens` `2026-09-29_1742` PASS attempt 1 (automation DLL sha256
+`aa6d5ef3...`): `stk-facility-menu.png` shows "At the Tracking Station, all ongoing missions can
+be viewed and focused. Landed craft can be recovered from here as well." then the orange
+reason, and the Upgrade tooltip. The run's log names four resolved keys: the facility
+description (`#autoLOC_900122`) and the Mission Control Accept, Decline and Cancel button
+tooltips (`#autoLOC_900693`, `#autoLOC_900700`, `#autoLOC_7001222`), which carried the same
+raw-key defect on hover. No other `#autoLOC` in the log outside stock's own config loading.
+
+---
+
+## KB-4-RND-PART-TOOLTIP-LOST: the R&D part tooltip closed between KB-4's hover and its capture [FILED 2026-09-29 from KB-4 `2026-09-29_1507`, branch `kb4-block-proof`. OPEN, not reproduced on the next flight]
+
+`KB-4-ksc-click-blocks-remaining` `2026-09-29_1507` (automation DLL sha256 `caf7091b...`,
+the post-main-merge head) was PARSEK-FAIL(expectation) on three `logContracts.required`
+tokens, all of the `kb4-rnd-part` capture: no `record ... screen=PartTooltip ... why=`
+and no `control ... screen=PartTooltip name=buttonPurchase` line. The hover itself landed
+(`stockscreen ok screen=rnd act=hover ... part=probeCoreSphere.v2 frames=3
+tooltip=PartListTooltipController/direct/moved`, and `[PartPurchasePatch] Part tooltip
+purchase button disabled for 'probeCoreSphere.v2'` at +49 ms), but 240 ms later the
+capture shows the R&D tree with no tooltip (PNG 133080 bytes against 240273 on the PASS
+`2026-09-28_2031`, whose log order and timing are otherwise identical). Every block in the
+lane still fired and refused with nothing changed (both purchase dialogs present). The
+next flight on the same DLL, `2026-09-29_1514`, PASS attempt 1 with the tooltip in the
+photo. The cursor target (client 1111,490) is the partly clipped third row of the
+Available Parts grid, at the scroll view's bottom edge; an operator mouse move, or the
+pointer sitting on the mask edge, would close the tooltip the same way. Unknown which.
+Next step if it recurs: have the hover verb pick the part icon's visible centre (clipped
+by the viewport mask) and re-read the tooltip's presence at capture time, so a lost
+tooltip reads INVALID(pointer) instead of a missing product token.
+
+## STOCK-SCREEN-CENSUS-FUNDS-GUARD-CLAMPS: the census career's funds guard clamps both ways, and an allowed upgrade does not move the walk target [FILED 2026-09-28 from KB-4 `2026-09-28_2031`, branch `kb4-block-proof`. OPEN, not investigated, not gated]
+
+On `stock-screen-census` the funds patch clamps at load (`PatchFunds: GUARDED DRAWDOWN
+clamped resource=Funds running=244370.5 live=465808 wouldBeTarget=244370.5 clampedTo=465808`,
+also in KB-3's `2026-09-27_1240`), and the lanes then read live funds 236416.75. KB-4's
+allowed in-lane Administration upgrade (150000, one `FacilityUpgrade` KSC row, ledger 26 -> 27)
+is followed by `GUARDED UPLIFT clamped resource=Funds running=465808 live=86416.75
+wouldBeTarget=236416.75 clampedTo=86416.75 ... ledger may be missing a spending channel`, the
+same on the next scene loads (and a `Held your funds at the spent value` screen message). So
+the walk target after the upgrade still reads the pre-upgrade pool. The guard keeps the live
+value correct (86416.75, the stock debit), so no lane gates on it. Unknown whether this is
+the fixture (its ledger seed disagrees with its save pools: `running` 244370.5 vs `live`
+465808 at load) or a walk that does not charge a present-day upgrade on this host. Next
+step: read `FundsModule` over the census ledger headless (the committed rows plus one
+KSC FacilityUpgrade at UT 473) and compare the walk's running total with the save's pool.
+
 ## ~~BREAKUP-CONTINUOUS-LEAF-READERS: readers that took any `ChildBranchPointId` as "the vessel's flight ended here"~~ [FOUND 2026-09-28 by the audit that followed GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD; FIXED 2026-09-28, branch `breakup-continuous-leaf-audit`]
 
 **In gameplay terms.** Every staging or decouple of the focused vessel goes through the crash
@@ -181,6 +282,140 @@ the flight scene has this hook: KSC ghosts and the tracking station have no reap
 clamp. Watch mode and loop playback share this path. Tests: `GhostCameraPreCullFrameTests` (xUnit,
 red before the fix) and the in-game `GhostReapplyFrame` category (a mid-frame `Camera.Render()`
 over a probe parked below PQS at the active vessel's ground track; not flown yet).
+
+## ~~KSC-DE-OVERLAP-MOVES-PLACED-PARTS-OFF-THEIR-SPOT: a ground part spawned from the Space Center lands 15 m from where it was placed~~ [FILED 2026-09-28 from EVA-6's green run, branch `deployables-lanes`. FIXED 2026-09-29 on the PR #1920 branch `placed-part-cluster-spawn`, operator ruling 2026-09-29]
+
+**In gameplay terms.** A kerbal places a Breaking Ground part a metre or two from his landed
+capsule, the flight is committed, and after a rewind the Space Center spawns the part (and the
+kerbal) 15 m away from where they stood.
+
+**Evidence.** EVA-6 `2026-09-28_2101_a2` (and `2026-09-27_1815`): `[KSCSpawn] De-overlap for #9
+"Jebediah Kerman": nudged 15.0m` and the same for `#10 "Grand Slam Passive Seismometer"`, each
+after `GatherExistingLandedVesselPositions: ... loaded=1 proto=1 coexistingTreeSiblings=0
+total=2`. The two blockers are ONE vessel counted twice (its unloaded `Vessel` and its proto; the
+produced save holds one landed Kerbal X, pid 2708531065, launch Guid `5493223f...`): the capsule
+of the fixture's EARLIER committed tree `c05c834c` (three chain segments of one launch, the
+adoption stamp on the head segment, the Landed leaf `77dc5686` ending at UT 1274.68 at the
+capsule's live spot, 0.05 m off). The kerbal's tree `fd03bd24` (the kerbal's own recording,
+started after `EvaExit`, so no EVA branch and no `EvaCrewName` - which is also why the
+EVA de-overlap skip did not apply to him - plus the placed seismometer) was committed after it.
+
+**Ruling (operator, 2026-09-29).** At the Space Center Parsek must NOT push an EVA kerbal or a
+placed ground part off its recorded spot when the vessel it overlaps was already standing there
+when the recording was made and has not moved since. A vessel that arrived later still pushes it.
+
+**Fix.** `CoexistingTreeSiblingSpawn.EvaluateBlocker` (pure) / `ResolveExemption` (live, also
+behind `IsExemptBlocker`, so the Space Center de-overlap AND every flight-scene collision site
+of PLACED-PART-CLUSTER-SPAWN-BLOCKED-BY-SIBLING apply it: chain tip, blocked recheck, both
+`VesselGhoster` walkbacks, `CheckSpawnCollisions`, its post-recovery recheck and its walkback).
+Parsek records no foreign vessel's position during a recording, so the evidence is the
+blocker's OWN committed history (`ClassifyOtherTree`), all required:
+- identity: the live blocker is named by a committed recording's spawn stamp (a genuine spawn,
+  or an adoption stamp only on a POSITIVE pid + launch Guid match), else it is that recording's
+  recorded vessel by a positive pid + Guid match (`LiveVesselIsPositivelyRecordedLaunch`, never
+  a bare craft-baked pid); read from `EffectiveState.ComputeERS()` (superseded / retired
+  recordings do not vouch); never a segment of the spawning member's own launch;
+- scope: the spawning member is an EVA kerbal (`EvaCrewName`, start situation EVA, or snapshot
+  `type = EVA`) or a placed ground part (`GroundPartPlacement.IsPlacedPartMember`); a vehicle
+  keeps the #duplicate-stack de-overlap (verdict `SpawningNotKerbalOrPlacedPart`);
+- there when recorded: the blocker's tree was committed BEFORE the spawning member's tree
+  (`NotCommittedBefore` otherwise: its history was flown in a later timeline), and the
+  blocker's LATEST positively-same-launch segment is a leaf that persists standing and ended at
+  or before the spawning member's ARRIVAL at its spot (`SpawningArrivalUT`: a placed part's
+  recording start, an EVA kerbal's start of its trailing run within 3 m of its spawn spot; a
+  walkback candidate's UT on a walkback): a history still running then was a replay, not a
+  vessel, and a vessel landing beside a kerbal who had stood there since UT 600 at UT 1100 still
+  pushes even when his recording runs to 1200 (`NotStandingByThen`; also when the arrival
+  cannot be derived);
+- not moved since: the live blocker is within 3 m (horizontal) of that leaf's spawn spot
+  (`Displaced`).
+The same-tree rule gains the mirror pieces: a same-tree member's recorded vessel still live with
+no spawn stamp is recognised (`blocker kind original`), and a sibling's displacement is measured
+from its launch's LATEST segment (a chain whose adoption stamp sits on its head segment read as
+Displaced from the head's mid-flight end). Log: `Overlap exempt: other-tree vessel standing there
+first: site=... tree=... spawning='...' rec=... blocker='...' pid=... blockerKind=spawn|original
+blockerTree=... blockerRec=... blockerEndUT=... referenceUT=... verdict=Exempt ...`, and `Overlap
+not exempt: other-tree vessel: ... verdict=NotCommittedBefore|NotStandingByThen|Displaced|
+SpawningNotKerbalOrPlacedPart`; a same-tree unstamped original logs `Overlap exempt: co-existing
+tree sibling original:`. The Space Center gather resolves (and logs) an exemption only for a
+landed vessel within the 15 m de-overlap separation of the spawn spot, the only ones that can
+trigger a nudge; a farther vessel stays a plain blocker, unresolved and unlogged. Its summary
+adds `otherTreeStanding=N beyondExemptionRange=N`. Tests:
+`CoexistingTreeSiblingSpawnTests` (EVA-6's capsule, kerbal and seismometer; each gate red under
+its own mutant). Not live-proven yet: EVA-6 can forbid the two nudge lines and require the new
+exemption once reflown on a DLL carrying the fix.
+
+**Not covered.** A blocker Parsek holds no committed history for (a vessel never recorded, or
+only in a tree committed after the spawning one) still pushes, even if it truly stood there.
+Commit order is the proxy for "existed when this was recorded": a tree re-committed in place
+(a continuation) keeps its original position in the list. The double count in the gather (an
+unloaded vessel counted once as a `Vessel` and once as its proto) is harmless to the distance
+test and left alone.
+
+## ~~PLACED-PART-CLUSTER-SPAWN-BLOCKED-BY-SIBLING: after a rewind, a ground-part cluster spawns only its first member~~ [FILED 2026-09-28 from the operator's collected log `logs/2026-09-28_2231_deployables` (tree 'rover science', DLL = origin/main `235503259`). FIXED 2026-09-28, branch `placed-part-cluster-spawn`]
+
+**In gameplay terms.** An EVA kerbal set out a Breaking Ground cluster (RTG, three solar
+panels, seismometer, Central Station, goo, ion, weather, dish, ground anchor) a few metres
+apart near KSC, the flight was committed and rewound. On replay the ghost kerbal placed every
+part, but only the RTG became a real vessel; the other ten ghosts vanished and nothing spawned.
+
+**Fingerprint.** `[SpawnCollision] Spawn overlaps with Mini-NUK-PD Radioisotope Thermoelectric
+Generator (pid=502661026) via part 'DeployedRTG' at 2.9m`, `Spawn blocked: vessel=OX-Stat-PD
+Photovoltaic Panel overlaps with ...`, `Chain tip spawn blocked by collision`, then after 5 s
+`[WARN][SpawnCollision] Trajectory walkback EXHAUSTED: vessel=... entire trajectory overlaps
+with Mini-NUK-PD ... Manual placement required.` for 10 of 11 members.
+
+**Cause.** `SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels` runs `Physics.OverlapBox`
+with the snapshot bounds (one part = the 2.5 m default cube, `DefaultPartHalfExtent = 1.25`)
+grown by `SpawnCollisionPadding = 5 m` on every side: a 12.6 m cube (`halfExtents=(6.3,6.3,6.3)`
+in the log). Any loaded vessel within about 6 m blocks, so a sibling part 2.9 m away always
+does. The walkback cannot help a stationary member: its whole trajectory sits at the spot. The
+first member spawned only because nothing was there yet. The overlap is not a real collision:
+stock physics placed both parts there, at the same time, in the recording. The rover and the
+EVA kerbal (Bob) end among the parts at UT 337.5 and reach the same check (the operator left
+before that UT). The Space Center path has the twin: `ParsekKSC`'s landed de-overlap nudges a
+new surface spawn 15 m (`DefaultLandedSpawnSeparationMeters`) clear of every landed proto, so a
+cluster spawned there would scatter.
+
+**Fix.** `CoexistingTreeSiblingSpawn` (pure `Evaluate` / `Classify`, live `IsExemptBlocker`):
+an overlap does not block when the blocker is positively the SPAWN of another recording of the
+spawning recording's committed tree (`VesselLaunchIdentity.LiveVesselIsRecordedSpawn`, so a
+relaunch reusing the preserved baked pid with a different launch Guid never matches), the
+blocker stands within 3 m horizontally of the spot its own spawn used (the landed spawn lifts a
+vessel recorded below the PQS floor, +2.4 m on the RTG, so height is not compared), and a time
+gate that depends on the site:
+- At the end-of-recording position (chain tip, blocked recheck, `CheckSpawnCollisions` and its
+  post-recovery recheck, the Space Center de-overlap) the gate is recorded-interval overlap with
+  a Landed / Splashed / Orbiting / SubOrbital leaf persisting past its trimmed end. Every
+  spawnable leaf persists, so there the gate always passes for two spawnable leaves and is
+  defensive only; identity and position do the work. Order does not matter: a later member
+  spawned first exempts the earlier one too.
+- At a walkback candidate (both `VesselGhoster` walkbacks and `TryWalkbackForEndOfRecordingSpawn`)
+  the walkback now hands the candidate's recorded UT (interpolated per sub-step) to the check,
+  and the sibling counts only if it already stood at its spot at that UT: from its arrival (the
+  earliest point of its trailing run within 3 m of the spot, Absolute sections only; the
+  placement UT for a part, the parking UT for a vehicle) and not after a non-persisting end. A
+  rover that drove through a spot where a part was placed later is not walked back into that
+  part when a foreign vessel blocks its parking spot (verdict `NotAtSpotAtCandidateUT`).
+
+The player's craft, another tree's spawn, a sibling moved away, and the recording's own earlier
+spawn still block (a vessel of an earlier tree that already stood there when an EVA kerbal or
+placed part was recorded no longer does: KSC-DE-OVERLAP-MOVES-PLACED-PARTS-OFF-THEIR-SPOT). Tracking Station spawns reach the same `CheckSpawnCollisions`, where nothing
+is loaded. Log, one Info per (spawning recording, blocker, verdict) and 5 s: `Overlap exempt:
+co-existing tree sibling spawn: site=... tree=... spawning='...' rec=... blocker='...' pid=...
+siblingRec=... verdict=Exempt ... candidateUT=<end|UT>`; a same-tree sibling that still blocks
+logs `Overlap not exempt: tree sibling spawn: ... verdict=Displaced|NotCoexisting|NotAtSpotAtCandidateUT`.
+Tests: `CoexistingTreeSiblingSpawnTests` (the operator's RTG and panel, the mirror order, the
+still-blocking cases, the tolerance edge, the snapshot spot, the drive-through rover walkback,
+the arrival derivation, the live wrapper's log and a source wiring check of every call site,
+including that each walkback passes its candidate UT).
+
+**Checked, not changed.** `RecordingOptimizer.TrimBoringTail` cut each member to about 13 s
+after its placement (RTG `from endUT=337.5 to 133.4`). That is the intended tail trim for a
+stationary landed leaf ("the ghost finishes quickly and the real vessel spawns promptly"): the
+member spawns at its unchanged terminal spot while the kerbal's ghost still places later parts,
+and ghosts are not physical, so the early real part disturbs nothing. The trimmed end is also
+why the end-of-recording gate extends a persisting terminal past `EndUT`. Not live-proven yet.
 
 ## ~~GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD: at the end of a watched replay the camera jumps to a stage the rocket dropped mid-flight~~ [FILED 2026-09-27 from run `2026-09-27_2029` (PARSEK-FAIL(expectation), automation DLL sha256 `f747fdee...`, origin/main `1329091f8`), branch `arm-batch2`. FIXED 2026-09-28, branch `gs8-watch-hold`]
 
@@ -500,7 +735,21 @@ the same frame. A row the Active rebuild itself lists for the contract is alive 
 frame, so the assertion still catches the product defect it exists for. Re-fly
 `2026-09-27_1235` PASS 10 / 0 / 2.
 
-## H45-HOST-LACKS-ACTIVE-CONTRACT-AND-RESEARCHABLE-NODE: two StockUiOverlay cells never run on `career-earned-ksc` [FILED 2026-09-27. OPEN, fixture gap, not a defect]
+## ~~H45-HOST-LACKS-ACTIVE-CONTRACT-AND-RESEARCHABLE-NODE: two StockUiOverlay cells never run on `career-earned-ksc`~~ [FILED 2026-09-27. CLOSED 2026-09-28, branch `kb4-block-proof`]
+
+**Resolution.** Half fixture, half test. H45 moved to `career-earned-pad`, the same career
+with the D8 splice's one Active contract (no new fixture; the pad craft is harmless under
+its `scene=spacecenter` boot). The researchable-node skip was NOT a fixture gap: the tree has
+researchable tier-1 nodes, and the cell read `RDNode.state` before stock's first
+`UpdateGraphics` (the R&D canvas was up 36 ms). Fixed test-only: the cell waits for the
+tree's states, and (found on its first execution, `2026-09-28_2034`, `passed=11 failed=1`)
+takes its stock-colour baseline on the selected node's panel rather than with no node
+selected. Re-fly `2026-09-28_2105`: `total=12 passed=12 failed=0 skipped=0`, PARSEK-FAIL
+(expectation) on the old `10 / 2` pin alone; the line was re-pinned whole to `12 / 0 / 0`
+and the re-pin's first flight, `2026-09-29_1506` on the post-main-merge head (automation DLL
+sha256 `caf7091b...`), PASS attempt 1 with exactly that line.
+
+Original filing:
 
 On H45's host both skip at run time (`RUNTIME_SKIPS` 2, run `2026-09-27_1235`):
 `MissionControlActiveRowLabelAndCancelBlockedWithReason` ("needs a career host with an
@@ -515,29 +764,94 @@ with one Offered contract accepted and one tier-1 node left unresearched after i
 (`start`) - or `stock-screen-census`, if it carries both (not checked). Not fixed now:
 a new or re-harvested fixture moves H45's host and every lane pinned to it.
 
-## SAVE-BLOCKS-AWAITING-READINGS: 28 report-only save-structure blocks on 23 specs still wait for a matching reading [FILED 2026-09-27 from the arming pass, branch `arm-save-checks`. OPEN]
+## ~~RF-LANES-RELOAD-A-PRE-COMMIT-SAVE: RF-1, RF-4 and RF-9 reload the game before the committed flight is saved~~ [FILED 2026-09-27, branch `arm-batch2`. LANE SPEC DEFECT, not a Parsek defect. FIXED AND RE-FLOWN GREEN 2026-09-29]
+
+All three lanes run `ExitToSpaceCenter` and then `LoadGame persistent` straight away. The
+tree commits on arrival at the Space Center, AFTER the exit's own persistent.sfs write, so
+the reload reads a save that still carries the flight as the ACTIVE tree:
+`TryRestoreActiveTreeNode: removed committed tree 'GS1 Auto-Chute Booster'`, the flight
+resumes in Limbo, the re-fly starts with `tree=<none> inPlaceContinuation=False`,
+`RestoreActiveTreeFromPending` waits 3 s for the capsule while the probe is active and
+gives up, and `AnswerMergeDialog` times out; the scene-exit auto-commit then discards the
+provisional as a zombie (`Marker invalid field=TreeId`, `Zombies discarded=1`). This is the
+same shape as RF-20-FIRST-FLIGHT-SPEC-RELOAD-BEFORE-COMMIT-SAVE, and loading an older save
+is meant to restore it that way. Runs on current main (DLL sha256 `f747fdee...`,
+origin/main `1329091f8`): RF-4 `2026-09-27_1943` (merge, seal and rewind-to-launch all
+failed; saveParse rewindPoints 1, supersedeRows 0), RF-1 `2026-09-27_1948` (its ARMED
+`rewind` block red: rewindPoints 0 < 1, supersedeRows 0 < 1), RF-9 `2026-09-27_1952`
+(merge committed with no supersede row; ARMED `rewind` red on supersedeRows and
+tombstones). The 2026-09-15 greens passed only because that build dropped the active node
+for an incompatible sidecar (`TryRestoreActiveTreeNode: dropped entire tree ...
+incompatible sidecar`) and so kept the committed copy. Fix (committed on `arm-batch2`): a
+`SaveGame persistent` step after `ExitToSpaceCenter` in all three specs, RF-13H's and
+RF-20's order, budgets re-derived. RF-9's `Inserted 12 transient state seed event(s)`
+token read 8 on `_1952`; check it on the re-flight before re-pinning.
+
+**Re-flown 2026-09-29** (automation DLL sha256 `ee677200...`, origin/main `8a5cc483f` merged): RF-4
+`2026-09-29_1516` and RF-1 `_1520` PASS attempt 1. RF-9 `_1523` met every save window but was
+PARSEK-FAIL(expectation) on the seed token alone, reading 8 again. Cause established: the
+four missing seeds are the four static solarPanels5 `DeployableExtended` seeds, which
+`4c13c13da` (2026-09-15, `PartStateSeeder.DeployableHasNoPoseAnimation`) deliberately stopped
+recording (`Built 8 ... engineSentinels=8 visualStates=0`; `2026-09-15_1546` read
+`visualStates=4`). An intended product change, so the token was re-pinned to 8, and
+`2026-09-29_1538` PASS attempt 1. All three armed `rewind` blocks met; RF-4 `rewind` and RF-1 /
+RF-9 `structure` armed off these readings (SAVE-BLOCKS-AWAITING-READINGS).
+
+## ~~CL-LANES-INJECTED-RP-IN-THE-FUTURE: CL-3 and CL-4 cannot Re-Fly since the future-rewind-point gate (#1788)~~ [FILED 2026-09-27, branch `arm-batch2`. LANE SPEC DEFECT, not a Parsek defect. FIXED AND RE-FLOWN GREEN 2026-09-29]
+
+`RewindCrewLossFixture` puts the split (and `rp_cl_root`) 60 s after the host save's UT
+(9.06 -> 69.06). Since RP-SURVIVES-REWIND-TO-LAUNCH a rewind point later than the clock is
+not invokable, so both lanes' mission `InvokeRewind` is refused
+`refly-gate This separation is in your future - Re-Fly opens once the clock reaches it` and
+the run is INVALID MISSION-FLAKE on both attempts: CL-3 `2026-09-27_1956` / `_1957_a2`,
+CL-4 `2026-09-27_1959` and its retry. Both lanes have ARMED `rewind` blocks, so both are
+broken on main. #1788 gave S4.1-S4.4 a `TimeJump 61 s` and missed these two. Fix
+(committed on `arm-batch2`): the same `TimeJump deltaSeconds=61.0` after the settings and
+before the mission phase (the clock lands just past the split and before the probe's
+split+40 and the pod's split+55 ends, so nothing materializes; the rewind lands on the
+quicksave's 9.06, so `clockRewound` stays about a minute), budgets 1800 -> 2400 and
+2100 -> 2700. A grep of every spec invoking a literal injected RP found no other lane
+without a jump or a flown ascent first. Re-flown 2026-09-29 (DLL `ee677200...`): CL-3
+`2026-09-29_1535` and CL-4 `_1536` PASS attempt 1, both armed `rewind` blocks met (supersedeRows 1,
+tombstones 2 on each); CL-3 `structure` armed off `_1535`.
+
+## SAVE-BLOCKS-AWAITING-READINGS: 19 report-only save-structure blocks on 17 specs still wait for a matching reading [FILED 2026-09-27 from the arming pass, branch `arm-save-checks`; BATCH 2 2026-09-27 / 2026-09-29, branch `arm-batch2`. OPEN]
 
 The operator's 2026-09-27 arming pass armed every report-only `rewind` /
-`recordings.structure` / `recordings.points` block that had a matching reading on current
-enough code (37 blocks; `autotest-status.md` header), and RVR-8 `structure` followed the
-same day off its green re-fly `2026-09-27_1310`. These remain report-only, and each
-needs a reading flight on current code (or a decision) before it can be armed:
+`recordings.structure` / `recordings.points` block that had a matching reading (37 blocks,
+then RVR-8 `structure`; GS-8 both followed on 2026-09-28 after its watch-hold fix). BATCH 2
+(branch `arm-batch2`) armed 15 more, each off its own PASS reading with every window met,
+and every bound inverted offline against that save red on exactly its window (80 of 80):
+- 2026-09-27, automation DLL sha256 `f747fdee...`: GS-1 / GS-2 / GS-3 `structure` (`_2000` /
+  `_2005` / `_2007`), GS-7 both (`_2016`), GS-9 both (`_2040`), V3F both (`_2048`), V3R both
+  (`_2104`), all `2026-09-27_`.
+- 2026-09-29, automation DLL sha256 `ee677200...` (origin/main `8a5cc483f` merged), after the
+  two lane-spec fixes (RF-LANES-RELOAD-A-PRE-COMMIT-SAVE, CL-LANES-INJECTED-RP-IN-THE-FUTURE):
+  RF-4 `rewind` (`_1516`), RF-1 `structure` (`_1520`), CL-3 `structure` (`_1535`), RF-9
+  `structure` (`_1538`), all `2026-09-29_`. The already-armed `rewind` blocks read green on
+  RF-1, RF-9, CL-3 and CL-4 (`_1536`).
 
-- No reading on file anywhere: B17 `points`; B23, B24, B25, B26, B28, B29, B30 `rewind`;
-  CL-3, GS-1, GS-2, GS-3 `structure`; GS-7, V3C, V3F, V3R both blocks; RF-2, RF-3,
-  RF-12L `rewind`.
-- Readings only before the 2026-09-23 rewind fixes (#1788 and after): GS-9 both
-  (`2026-09-11_0109`), RF-1 and RF-9 `structure` (`2026-09-15_1542` / `_1546`).
-- A reading that contradicts the window: RF-4 `rewind` read rewindPoints 1 against
-  `max = 0` (`2026-09-15_1553`, before #1788); the window needs a decision under the
-  rewind-point-survives ruling, not just a flight.
+Re-derived from the specs with `saveparse.declared_structure_blocks` /
+`armed_structure_blocks` (rewind, structure, points, routes): 180 of 199 declared blocks
+armed across 107 specs. Also re-checked after the Re-Fly separations-only / session EVA /
+session undock changes (#1897, #1909, #1910): RF-13 `2026-09-27_2009` (supersedeRows 1,
+tombstones 2) and RF-12S `_2013` (5 / 12) still meet their armed windows; no committed
+fixture carries an EVA rewind point, so #1897 moved no armed window.
 
-GS-8 both blocks armed 2026-09-28 off `2026-09-28_1732` (branch `gs8-watch-hold`, after the
-GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD fix).
+**RF-4 `rewind` (answered).** Its only earlier reading `2026-09-15_1553` read rewindPoints 1
+against `max = 0`: a product defect since fixed by RP-SURVIVES-REWIND-TO-LAUNCH (#1788), not a
+legitimate leftover. The seal reaped the booster's point, then the Rewind-to-Launch reloaded a
+persistent.sfs written 17 ms before the reap. #1788 carries the in-memory list across the
+rewind, so a point reaped before the rewind stays reaped. In gameplay terms: once the player
+seals a re-flown booster, rewinding the whole flight to launch does not offer that
+separation's Re-Fly again. The supervisor agreed on 2026-09-27, and `2026-09-29_1516` read
+rewindPoints 0, so the block is armed.
 
-Cheapest next flights (proposed 2026-09-27, deferred by the supervisor): GS-9, GS-8 (nightly,
-about 6-8 min each; GS-8 now flown), RF-1, RF-4, RF-9, CL-3, GS-1, GS-2, GS-3 (about 3-5 min each), GS-7,
-V3F, V3R. The long harvest missions (B17, V3C, B23-B30, RF-2, RF-3, RF-12L) are not proposed.
+Still report-only, 19 blocks on 17 specs, none with a reading on current code:
+- The long harvest missions: B17 `points`; B23, B24, B25, B26, B28, B29, B30 `rewind`; V3C both.
+- RF-2, RF-3, RF-12L `rewind`.
+- Declared since #1902: EVA-7 `structure`, RF-16 `rewind`, RF-17 `rewind`, RF-20 both, RR-1
+  `structure`.
 
 ---
 
@@ -1041,6 +1355,18 @@ Bugs (no ruling needed):
   recovery terminal update reads the pending tree, not the active one). In-session debris end
   by their 60 s TTL first, so the reachable case is a restored debris member: its TTL is set
   only at split time (`debrisTTLExpiry`) and is not restored.
+  LIVE PROOF 2026-09-29 (branch `settings-axis`, operator request for a game-settings test axis,
+  which supersedes the "no dedicated low-budget lane" half of S6): re-derived from a fresh
+  decompile (the only budget reader is the parameterless `FlightState()`, called by
+  `Game.Updated`, `FlightDriver.Start` and the `Game` constructor; it is a save-time filter that
+  removes only non-persistent Debris-typed vessels, oldest first) and flown as
+  `VB-1-ghost-vessel-budget` over a new per-run settings delta (`[runtime] kspSettings`). Its
+  first reading (`2026-09-29_1657`, budget 8, eight ghosts) logged the exclusion `8 -> 16` and
+  stock then dropped exactly the one debris that was a REAL excess (stock had spawned a second
+  asteroid, nine real vessels against eight), not nine. The same run found a test-runner-only
+  gap: INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS below (unregistered ghosts still count, and the
+  in-game `VesselBudget` cell skips in every Tracking Station batch). No product defect: with
+  the patch no real vessel is lost because of ghosts.
 
 Owner rulings (2026-09-26):
 
@@ -1167,6 +1493,37 @@ KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN); alternate launch sites with
 `AllowOtherLaunchSites` off.
 
 ---
+
+## INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS: an in-game batch in the Tracking Station orphans every ghost map vessel [FILED 2026-09-29 from VB-1's first reading run, branch `settings-axis`. OPEN; test runner only, no player path]
+
+Found by `VB-1-ghost-vessel-budget` reading `2026-09-29_1657` (its KSP.log). Before a batch,
+`InGameTestRunner.PerformBetweenRunCleanup` destroys the flight-scene ghosts through
+`ParsekFlight.DestroyAllTimelineGhosts` and then calls `GhostMapPresence.ResetBetweenTestRuns`,
+which CLEARS the ghost-map bookkeeping (`ghostMapVesselPids`, the per-index and per-chain maps)
+but never removes a ProtoVessel. In FLIGHT the destroy step has already removed the map vessels;
+in the TRACKING STATION there is no `ParsekFlight.Instance`, so every live ghost map vessel is
+left in `FlightGlobals.Vessels` unregistered (`PerformBetweenRunCleanup: end ... ghostsBefore=0
+mapPidsBefore=8 mapPidsAfter=0`), and the Tracking Station then builds a fresh set beside them.
+While orphaned they read as REAL vessels to every `IsGhostMapVessel` guard:
+
+- the two saves the batch writes at its start (the baseline `.bak` and the marker save) counted
+  them against the stock vessel budget and dropped all six real debris from each
+  (`[Flight Persistence]: Too many vessels in scene - skipping save for Kerbal X Debris` x6,
+  twice; no `FlightState vessel budget` line, because `FlightStateGhostBudgetPatch` counts
+  registered ghosts only), and `StripFromSave` cannot strip them, so those two saves would carry
+  `Ghost: ...` vessels (inferred, those files were not read; the batch revert restored the pre-batch bytes, so nothing leaked to the
+  produced save in that run);
+- the `VesselBudget` in-game cell (`FlightStateGhostBudgetInGameTest`) SKIPS in every Tracking
+  Station batch ("needs at least one ghost map vessel"): it runs after the clear and before the
+  rebuild, so the cell cannot pass unattended as written.
+
+Scope, re-derived from the caller set: `ResetBetweenTestRuns` has one caller
+(`PerformBetweenRunCleanup`, InGameTestRunner.cs:632), whose callers are the runner's batch
+entry points, the post-abort path and one runtime test; no player path reaches it. Fix
+direction (not done here): in the Tracking Station, remove the registered ghost ProtoVessels
+before clearing the bookkeeping (or let `ParsekTrackingStation` rebuild from a clean slate), and
+give the `VesselBudget` cell a wait for the rebuilt ghosts. VB-1 drops its RunTests step until
+then.
 
 ## KSP-SETTINGS-FOLLOWUPS-2026-09-27: fixes from the traces of the settings audit [FILED 2026-09-27, branch `kss2-career`]
 

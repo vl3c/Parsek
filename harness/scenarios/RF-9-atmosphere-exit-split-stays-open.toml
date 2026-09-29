@@ -223,6 +223,14 @@ steps = [
   { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },       expect = "OK" },
   { phase = "mission",                                                                   expect = "MISSION-OK", budget = 1600 },
   { cmd = "ExitToSpaceCenter",                                                           expect = "OK", budget = 120 },
+  # SAVE BEFORE THE RELOAD (RF-13H's / RF-20's order, todo
+  # RF-LANES-RELOAD-A-PRE-COMMIT-SAVE). The tree commits on arrival at the Space Center,
+  # AFTER the exit's own persistent.sfs write, so a LoadGame straight after the exit
+  # quickload-resumes the pre-commit tree as a live recording (`TryRestoreActiveTreeNode:
+  # removed committed tree`) and the re-fly's merge never concludes (reading
+  # `2026-09-27_1948` on RF-1, the same act). The 2026-09-15 greens passed only because that build dropped the
+  # active node on an incompatible sidecar and so kept the committed copy.
+  { cmd = "SaveGame",          args = { name = "persistent" },                           expect = "OK" },
   { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
   { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
   { cmd = "StopRecording",                                                               expect = "OK" },
@@ -412,7 +420,16 @@ required  = ["Recording started",
              "Invocation complete",
              "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
              "Restored: recs=.* pendingScience=",
-             "Inserted 12 transient state seed event\\(s\\) at split UT=[0-9.]+ \\(skippedExistingBoundary=0\\)",
+             # RE-PINNED 12 -> 8 on 2026-09-29 (branch `arm-batch2`): the four missing seeds
+             # are the four static solarPanels5 DeployableExtended seeds. `4c13c13da`
+             # (2026-09-15, after the last 12-read) stopped seeding a ModuleDeployablePart
+             # with no pose animation (`PartStateSeeder.DeployableHasNoPoseAnimation`), so
+             # the focus recording now carries no DeployableExtended at all and the split
+             # seeds only the 8 engine sentinels: `Built 8 ... engineSentinels=8
+             # visualStates=0` on `2026-09-27_1952` and `2026-09-29_1523` (it read
+             # `engineSentinels=8 visualStates=4` on `2026-09-15_1546`). Forwarded 19 is
+             # unchanged. An intended product change, not a defect.
+             "Inserted 8 transient state seed event\\(s\\) at split UT=[0-9.]+ \\(skippedExistingBoundary=0\\)",
              "Forwarded 19 permanent state event\\(s\\) as seeds at UT=[0-9.]+",
              "Inserted 1 transient state seed event\\(s\\) at split UT=[0-9.]+ \\(skippedExistingBoundary=0\\)",
              "Forwarded 1 permanent state event\\(s\\) as seeds at UT=[0-9.]+"]
@@ -475,6 +492,13 @@ tombstones    = { min = 1 }
 # above already gates. `branchPoints` is GS-4's - three booster pairs and the core -
 # and is a fact about the staging plan rather than about this profile (run 1: 5).
 [expectations.recordings.structure]
+# ARMED 2026-09-29 (branch `arm-batch2`) off the reading `2026-09-29_1538` (PASS attempt 1, the
+# first green current-code flight after the SaveGame-before-reload fix and the transient-seed
+# re-pin): trees 1, committedTrees 1, recordings 11, JointBreak 5, Destroyed 10, SubOrbital 1,
+# every window met; its 9 bounds inverted offline against that save each red on exactly
+# their window. (`2026-09-29_1523` read the same windows but was PARSEK-FAIL on the stale
+# `Inserted 12` token.)
+gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 11, max = 11 }
@@ -489,14 +513,15 @@ terminalStates = { Destroyed = { min = 8 }, SubOrbital = { min = 1 } }
 #   SetSetting x4     120 x4                =  480
 #   mission           1600                  = 1600
 #   ExitToSpaceCenter max(120,120+60) = 180 =  180
+#   SaveGame          120                   =  120
 #   StopRecording     120                   =  120
 #   ListHandles       120                   =  120
 #   InvokeRewind      660                   =  660
 #   AnswerMergeDialog 180                   =  180
 #   RecordingState    120                   =  120
-#   FlushAndQuit      120                   =  120   -> sum 4900
+#   FlushAndQuit      120                   =  120   -> sum 5020
 # The ceiling must EXCEED that sum or a capped deferred wait KILLs mid-step instead of
-# surfacing the seam's own per-step TIMEOUT. 5200 clears it by 300.
+# surfacing the seam's own per-step TIMEOUT. 5200 clears it by 180.
 budgetSeconds = 5200
 
 [retry]

@@ -484,8 +484,12 @@ gating = true
 spawned = { min = 8 }
 requireBalanced = true
 
-# REPORT-ONLY: no Re-Fly machinery may have run (Rewind-to-Launch builds neither).
+# No Re-Fly machinery may have run (Rewind-to-Launch builds neither). ARMED 2026-09-27
+# (branch `arm-batch2`) off the reading `2026-09-27_2016` on current main (PASS attempt 1):
+# supersedeRows 0, tombstones 0 (rewindPoints 1, unpinned); both bounds inverted offline
+# against that save each red on exactly their window.
 [expectations.rewind]
+gating        = true
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
@@ -497,8 +501,13 @@ tombstones    = { max = 0 }
 # cause=DECOUPLE, debris=8`, code fact 4) and the core discard's empty twin are pruned
 # with the stubs, so `Breakup` is NOT in the produced save on this crash shape - the
 # first-flight `Breakup = { min = 1 }` came from round 1's slow near-vertical impact
-# and is retired. Stays report-only (roadmap item 5 owns the debris structure).
+# and is retired. ARMED 2026-09-27 (branch `arm-batch2`, the operator's arming decision
+# of 2026-09-27 supersedes the earlier "stays report-only") off the reading
+# `2026-09-27_2016` on current main (PASS attempt 1), which read round 5's shape
+# exactly: trees 1, committedTrees 1, recordings 8, JointBreak 4, Destroyed 8; its 7
+# bounds inverted offline against that save each red on exactly their window.
 [expectations.recordings.structure]
+gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 8 }

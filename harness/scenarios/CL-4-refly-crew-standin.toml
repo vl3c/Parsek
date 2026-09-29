@@ -132,6 +132,15 @@ steps = [
   # The reservation walk's per-slot lines (`Reservation: ... endUT=INDEFINITE (Dead)`,
   # the PostWalk slot creation) are Verbose; `Stand-in generated` itself is Info.
   { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },  expect = "OK" },
+  # THE FUTURE-RP GATE (operator ruling 2026-09-23, RP-SURVIVES-REWIND-TO-LAUNCH): a
+  # rewind point is not invokable until the clock reaches its UT. `RewindCrewLossFixture`
+  # places the split 60 s after the host save's UT (9.06 -> rp_cl_root at 69.06), so the
+  # mission's InvokeRewind was REJECTED `refly-gate This separation is in your future`
+  # (CL-3's reading `2026-09-27_1956`, MISSION-FLAKE twice; this lane shares its road). TimeJump 61 s puts the clock just
+  # past the split and still ahead of both leaves' ends (probe split+40, pod split+55),
+  # so nothing materializes: S4.1's fix. The rewind then lands on the quicksave's own
+  # UT (the template's 9.06), so `clockRewound` still reads about a minute.
+  { cmd = "TimeJump",          args = { deltaSeconds = "61.0" },                    expect = "OK", budget = 120 },
   { phase = "mission",                                                    expect = "MISSION-OK", budget = 600 },
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },               expect = "OK", budget = 240 },
   { cmd = "RecordingState",                                               expect = "OK" },
@@ -209,9 +218,10 @@ maxTotal = 0
 # Per-step waits as run.py computes them: LoadGame max(240,600)+60 = 660 (deferred
 # verb), SetSetting max(60, 60+60) = 120 EACH (240 for the two), mission 600 (the raw
 # declared budget - a mission step is a kRPC subprocess, no dispatch margin),
+# TimeJump max(120,600)+60 = 660 (deferred verb),
 # AnswerMergeDialog max(240, 120+60) = 240, RecordingState 120, FlushAndQuit 120
-# -> 1980. 2100 clears it by 120, so no step-wait is capped by the run budget.
-budgetSeconds = 2100
+# -> 2640. 2700 clears it by 60, so no step-wait is capped by the run budget.
+budgetSeconds = 2700
 
 [retry]
 policy = "once"

@@ -34,6 +34,38 @@ namespace Parsek.TestCommands
         /// pays the advance).</summary>
         AcceptContract,
 
+        /// <summary>Decline one Offered contract through Mission Control's own call,
+        /// <c>Contract.Decline()</c> (the Decline button's <c>OnClickDecline</c> ends in it).</summary>
+        DeclineContract,
+
+        /// <summary>Cancel one Active contract through Mission Control's own call,
+        /// <c>Contract.Cancel()</c> (the Cancel button's <c>OnClickCancel</c> ends in it).</summary>
+        CancelContract,
+
+        /// <summary>Dismiss an Available crew member through the Astronaut Complex's own
+        /// call, <c>KerbalRoster.SackAvailable</c> (the dismiss button ends in it). Unlike
+        /// <see cref="DismissKerbal"/> it asks no Parsek predicate first.</summary>
+        SackKerbal,
+
+        /// <summary>Press the Administration screen's Accept / Cancel button for the
+        /// strategy the OPEN screen has selected (<c>Administration.BtnInputAccept</c>, with
+        /// the state the button shows: accept when the strategy is inactive, else cancel).</summary>
+        PressStrategyButton,
+
+        /// <summary>Buy one part through the purchase primitive both R&amp;D purchase paths end
+        /// in, <c>RDTech.PurchasePart</c>, on the OPEN R&amp;D screen's own node for the part's
+        /// tech.</summary>
+        PurchasePart,
+
+        /// <summary>Press the OPEN R&amp;D screen's purchase-all button for one researched node
+        /// (<c>KSP.UI.Screens.RDController.ActionButtonClick("purchase")</c> with the node selected).</summary>
+        PurchaseAllParts,
+
+        /// <summary>Click an available kerbal's assign button in the OPEN VAB/SPH crew dialog
+        /// (<c>BaseCrewAssignmentDialog.ListItemButtonClick(V, row)</c>), after stock's Clear
+        /// button empties the seats when none is free.</summary>
+        AssignCrew,
+
         /// <summary>An unrecognized <c>action</c> arg (REJECTED unknown-action).</summary>
         Unknown,
     }
@@ -120,6 +152,18 @@ namespace Parsek.TestCommands
 
         /// <summary>activate-strategy: the Administration level's active-strategy limit.</summary>
         public int SlotLimit;
+
+        /// <summary>press-strategy / purchase-part / purchase-all / assign-crew: the stock
+        /// screen the sub-action presses a control on is open.</summary>
+        public bool ScreenOpen;
+
+        /// <summary>press-strategy: the open Administration screen has the named strategy
+        /// selected.</summary>
+        public bool TargetSelected;
+
+        /// <summary>purchase-part: the part's tech is researched; purchase-all: the node is
+        /// researched (stock shows the purchase button on a researched node only).</summary>
+        public bool PrerequisiteMet;
     }
 
     internal static class TestCommandKscAction
@@ -139,6 +183,13 @@ namespace Parsek.TestCommands
                 case "activate-strategy": return KscActionKind.ActivateStrategy;
                 case "deactivate-strategy": return KscActionKind.DeactivateStrategy;
                 case "accept-contract": return KscActionKind.AcceptContract;
+                case "decline-contract": return KscActionKind.DeclineContract;
+                case "cancel-contract": return KscActionKind.CancelContract;
+                case "sack-kerbal": return KscActionKind.SackKerbal;
+                case "press-strategy": return KscActionKind.PressStrategyButton;
+                case "purchase-part": return KscActionKind.PurchasePart;
+                case "purchase-all": return KscActionKind.PurchaseAllParts;
+                case "assign-crew": return KscActionKind.AssignCrew;
                 default: return KscActionKind.Unknown;
             }
         }
@@ -158,6 +209,13 @@ namespace Parsek.TestCommands
                 case KscActionKind.ActivateStrategy: return "strategy-activate";
                 case KscActionKind.DeactivateStrategy: return "strategy-deactivate";
                 case KscActionKind.AcceptContract: return "contract-accept";
+                case KscActionKind.DeclineContract: return "contract-decline";
+                case KscActionKind.CancelContract: return "contract-cancel";
+                case KscActionKind.SackKerbal: return "kerbal-dismiss";
+                case KscActionKind.PressStrategyButton: return "strategy-button";
+                case KscActionKind.PurchasePart:
+                case KscActionKind.PurchaseAllParts: return "part-purchase";
+                case KscActionKind.AssignCrew: return "crew-assign";
                 default: return string.Empty;
             }
         }
@@ -250,6 +308,42 @@ namespace Parsek.TestCommands
                     // the button would.
                     if (inputs.AlreadyApplied) { d.RejectReason = "contract-not-offered"; return d; }
                     break;
+
+                case KscActionKind.DeclineContract:
+                    if (inputs.AlreadyApplied) { d.RejectReason = "contract-not-offered"; return d; }
+                    break;
+
+                case KscActionKind.CancelContract:
+                    if (inputs.AlreadyApplied) { d.RejectReason = "contract-not-active"; return d; }
+                    break;
+
+                case KscActionKind.SackKerbal:
+                    // No Parsek predicate here: the point is to reach stock's own call and
+                    // let the dismissal backstop answer.
+                    if (!inputs.IsDismissable) { d.RejectReason = "kerbal-not-dismissable"; return d; }
+                    break;
+
+                case KscActionKind.PressStrategyButton:
+                    if (!inputs.ScreenOpen) { d.RejectReason = "administration-not-open"; return d; }
+                    if (!inputs.TargetSelected) { d.RejectReason = "strategy-not-selected"; return d; }
+                    break;
+
+                case KscActionKind.PurchasePart:
+                    if (!inputs.ScreenOpen) { d.RejectReason = "rnd-not-open"; return d; }
+                    if (!inputs.PrerequisiteMet) { d.RejectReason = "part-tech-not-researched"; return d; }
+                    if (inputs.AlreadyApplied) { d.RejectReason = "part-already-purchased"; return d; }
+                    break;
+
+                case KscActionKind.PurchaseAllParts:
+                    if (!inputs.ScreenOpen) { d.RejectReason = "rnd-not-open"; return d; }
+                    if (!inputs.PrerequisiteMet) { d.RejectReason = "node-not-researched"; return d; }
+                    if (inputs.AlreadyApplied) { d.RejectReason = "nothing-to-purchase"; return d; }
+                    break;
+
+                case KscActionKind.AssignCrew:
+                    if (!inputs.ScreenOpen) { d.RejectReason = "crew-dialog-not-open"; return d; }
+                    if (inputs.AlreadyApplied) { d.RejectReason = "kerbal-already-assigned"; return d; }
+                    break;
             }
 
             d.Accepted = true;
@@ -268,7 +362,14 @@ namespace Parsek.TestCommands
                 case KscActionKind.DismissKerbal: return "unknown-kerbal";
                 case KscActionKind.ActivateStrategy:
                 case KscActionKind.DeactivateStrategy: return "unknown-strategy";
-                case KscActionKind.AcceptContract: return "unknown-contract";
+                case KscActionKind.AcceptContract:
+                case KscActionKind.DeclineContract:
+                case KscActionKind.CancelContract: return "unknown-contract";
+                case KscActionKind.SackKerbal:
+                case KscActionKind.AssignCrew: return "unknown-kerbal";
+                case KscActionKind.PressStrategyButton: return "unknown-strategy";
+                case KscActionKind.PurchasePart: return "unknown-part";
+                case KscActionKind.PurchaseAllParts: return "unknown-tech-node";
                 default: return "unknown-target";
             }
         }
@@ -309,7 +410,7 @@ namespace Parsek.TestCommands
         /// </summary>
         internal static KscActionExecOutcome Execute(
             string action, string node, string facility, string kerbal, string building = null,
-            string strategy = null, string factor = null, string contract = null)
+            string strategy = null, string factor = null, string contract = null, string part = null)
         {
             KscActionKind kind = ParseKind(action);
             switch (kind)
@@ -323,6 +424,13 @@ namespace Parsek.TestCommands
                 case KscActionKind.ActivateStrategy: return ExecuteActivateStrategy(strategy, factor);
                 case KscActionKind.DeactivateStrategy: return ExecuteDeactivateStrategy(strategy);
                 case KscActionKind.AcceptContract: return ExecuteAcceptContract(contract);
+                case KscActionKind.DeclineContract: return ExecuteDeclineOrCancelContract(contract, cancel: false);
+                case KscActionKind.CancelContract: return ExecuteDeclineOrCancelContract(contract, cancel: true);
+                case KscActionKind.SackKerbal: return ExecuteSackKerbal(kerbal);
+                case KscActionKind.PressStrategyButton: return ExecutePressStrategyButton(strategy);
+                case KscActionKind.PurchasePart: return ExecutePurchasePart(part);
+                case KscActionKind.PurchaseAllParts: return ExecutePurchaseAll(node);
+                case KscActionKind.AssignCrew: return ExecuteAssignCrew(kerbal);
                 default:
                     ParsekLog.Warn(Tag, "kscaction refused action=" + (action ?? string.Empty) + " reason=unknown-action target=");
                     return KscActionExecOutcome.Reject("unknown-action");
@@ -1209,6 +1317,421 @@ namespace Parsek.TestCommands
                 + "/" + LiveStrategySlotLimit().ToString(CultureInfo.InvariantCulture);
             LogApplied(action, strategyArg, d.ManifestKind, "slots=" + slots);
             return KscActionExecOutcome.Ok(OkPayload(action, strategyArg, "slots", slots));
+        }
+
+        // ------------------------------------------------------------------
+        // Stock-UI click-block proofs (KB-4). Each sub-action below makes the call a stock
+        // control makes (Mission Control's Decline / Cancel, the Astronaut Complex's dismiss,
+        // the Administration Accept / Cancel button, R&D's part purchase and purchase-all, the
+        // crew dialog's assign button) and reads the target's own state plus the funds,
+        // science and reputation pools on both sides, so a refused click reads as "nothing
+        // changed" (the not-applied line). None asks a Parsek predicate before stock's call:
+        // the Parsek backstop on that call is what the lane is proving.
+        // ------------------------------------------------------------------
+
+        private static double LiveReputation()
+            => Reputation.Instance != null ? Reputation.Instance.reputation : 0.0;
+
+        /// <summary>The not-applied line with the reputation pool appended (the contract and
+        /// strategy calls move reputation when stock lets them through).</summary>
+        internal static string AppendRepFields(string line, double repBefore, double repAfter)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            return line
+                + " repBefore=" + repBefore.ToString("R", ic)
+                + " repAfter=" + repAfter.ToString("R", ic)
+                + " repDelta=" + (repAfter - repBefore).ToString("R", ic);
+        }
+
+        private static KscActionExecOutcome ExecuteDeclineOrCancelContract(string contractArg, bool cancel)
+        {
+            string action = cancel ? "cancel-contract" : "decline-contract";
+            Contracts.Contract.State required = cancel
+                ? Contracts.Contract.State.Active
+                : Contracts.Contract.State.Offered;
+            bool argPresent = !string.IsNullOrEmpty(contractArg);
+            Contracts.Contract contract = argPresent ? ResolveContract(contractArg) : null;
+
+            var inputs = new KscActionInputs
+            {
+                ArgPresent = argPresent,
+                TargetResolves = contract != null,
+                AlreadyApplied = contract != null && contract.ContractState != required,
+            };
+            KscActionDecision d = Decide(action, contractArg, inputs);
+            if (!d.Accepted)
+                return Refuse(action, contractArg, d.RejectReason);
+
+            // Mission Control's Decline / Cancel buttons end in these calls;
+            // ContractDeclinePatch / ContractCancelPatch refuse them for a contract the
+            // committed timeline accepts / resolves later.
+            string stateBefore = contract.ContractState.ToString();
+            double fundsBefore = LiveFunds();
+            double scienceBefore = LiveScience();
+            double repBefore = LiveReputation();
+            try
+            {
+                if (cancel) contract.Cancel();
+                else contract.Decline();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn(Tag, "kscaction " + action + " threw: " + ex.GetType().Name + ": " + ex.Message);
+            }
+
+            if (contract.ContractState == required)
+            {
+                ParsekLog.Info(Tag, AppendRepFields(FormatNotAppliedLine(action, contractArg, "state",
+                    stateBefore, contract.ContractState.ToString(),
+                    fundsBefore, LiveFunds(), scienceBefore, LiveScience()), repBefore, LiveReputation()));
+                return Refuse(action, contractArg, "blocked-committed");
+            }
+
+            string observed = contract.ContractState.ToString();
+            LogApplied(action, contractArg, d.ManifestKind, "state=" + observed);
+            return KscActionExecOutcome.Ok(OkPayload(action, contractArg, "state", observed));
+        }
+
+        private static KscActionExecOutcome ExecuteSackKerbal(string kerbal)
+        {
+            const string action = "sack-kerbal";
+            bool argPresent = !string.IsNullOrEmpty(kerbal);
+            KerbalRoster roster = HighLogic.CurrentGame != null ? HighLogic.CurrentGame.CrewRoster : null;
+            ProtoCrewMember crew = (argPresent && roster != null) ? roster[kerbal] : null;
+            // The Astronaut Complex lists only Available crew with a dismiss button.
+            bool dismissable = crew != null
+                && crew.rosterStatus == ProtoCrewMember.RosterStatus.Available
+                && crew.type == ProtoCrewMember.KerbalType.Crew;
+
+            var inputs = new KscActionInputs
+            {
+                ArgPresent = argPresent,
+                TargetResolves = crew != null,
+                IsDismissable = dismissable,
+            };
+            KscActionDecision d = Decide(action, kerbal, inputs);
+            if (!d.Accepted)
+                return Refuse(action, kerbal, d.RejectReason);
+
+            string typeBefore = crew.type.ToString();
+            double fundsBefore = LiveFunds();
+            double scienceBefore = LiveScience();
+            try { roster.SackAvailable(crew); }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn(Tag, "kscaction sack-kerbal SackAvailable threw: " + ex.GetType().Name + ": " + ex.Message);
+            }
+
+            // Confirm: KerbalSackPatch refuses SackAvailable for a kerbal the committed
+            // timeline holds; a sacked kerbal leaves the crew (stock moves him out of the
+            // roster's crew list).
+            bool stillCrew = roster.Exists(kerbal) && roster[kerbal] != null
+                && roster[kerbal].type == ProtoCrewMember.KerbalType.Crew;
+            if (stillCrew)
+            {
+                ParsekLog.Info(Tag, FormatNotAppliedLine(action, kerbal, "type",
+                    typeBefore, roster[kerbal].type.ToString(),
+                    fundsBefore, LiveFunds(), scienceBefore, LiveScience()));
+                return Refuse(action, kerbal, "blocked-committed");
+            }
+
+            int crewCount = SafeActiveCrewCount(roster);
+            string observed = crewCount.ToString(CultureInfo.InvariantCulture);
+            LogApplied(action, kerbal, d.ManifestKind, "crewCount=" + observed);
+            return KscActionExecOutcome.Ok(OkPayload(action, kerbal, "crewCount", observed));
+        }
+
+        private static KscActionExecOutcome ExecutePressStrategyButton(string strategyArg)
+        {
+            const string action = "press-strategy";
+            bool argPresent = !string.IsNullOrEmpty(strategyArg);
+            Strategies.Strategy strategy = argPresent ? ResolveStrategy(strategyArg) : null;
+            var admin = KSP.UI.Screens.Administration.Instance;
+            var selected = admin != null && admin.SelectedWrapper != null ? admin.SelectedWrapper.strategy : null;
+
+            var inputs = new KscActionInputs
+            {
+                ArgPresent = argPresent,
+                TargetResolves = strategy != null,
+                ScreenOpen = admin != null,
+                TargetSelected = selected != null && selected.Config != null && selected.Config.Name == strategyArg,
+            };
+            KscActionDecision d = Decide(action, strategyArg, inputs);
+            if (!d.Accepted)
+                return Refuse(action, strategyArg, d.RejectReason);
+
+            // The button's own state: Accept on an inactive strategy, Cancel on an active one
+            // (Administration.SetSelectedStrategy). AdministrationButtonBackstopPatch refuses
+            // BtnInputAccept for either when the committed timeline relies on the strategy.
+            string state = strategy.IsActive ? "cancel" : "accept";
+            MethodInfo press = typeof(KSP.UI.Screens.Administration).GetMethod("BtnInputAccept",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null,
+                new[] { typeof(string) }, null);
+            if (press == null)
+                return Refuse(action, strategyArg, "button-not-found");
+
+            bool activeBefore = strategy.IsActive;
+            double fundsBefore = LiveFunds();
+            double scienceBefore = LiveScience();
+            double repBefore = LiveReputation();
+            ParsekLog.Info(Tag, "kscaction press-strategy pressing state=" + state + " strategy=" + strategyArg);
+            try { press.Invoke(admin, new object[] { state }); }
+            catch (System.Exception ex)
+            {
+                var inner = ex.InnerException ?? ex;
+                ParsekLog.Warn(Tag, "kscaction press-strategy BtnInputAccept threw: " + inner.GetType().Name + ": " + inner.Message);
+            }
+
+            // Stock's own allowed path opens a confirmation dialog and changes nothing until
+            // it is answered, so an unchanged strategy is not proof of a block by itself: the
+            // lane pins the backstop's Blocking line.
+            if (strategy.IsActive == activeBefore)
+            {
+                ParsekLog.Info(Tag, AppendRepFields(FormatNotAppliedLine(action, strategyArg, "active",
+                    activeBefore ? "True" : "False", strategy.IsActive ? "True" : "False",
+                    fundsBefore, LiveFunds(), scienceBefore, LiveScience()), repBefore, LiveReputation()));
+                return Refuse(action, strategyArg, "button-no-effect");
+            }
+
+            string observed = strategy.IsActive ? "True" : "False";
+            LogApplied(action, strategyArg, d.ManifestKind, "active=" + observed);
+            return KscActionExecOutcome.Ok(OkPayload(action, strategyArg, "active", observed));
+        }
+
+        private static KSP.UI.Screens.RDNode FindRdNode(KSP.UI.Screens.RDController controller, string techId)
+        {
+            if (controller == null || controller.nodes == null || string.IsNullOrEmpty(techId)) return null;
+            for (int i = 0; i < controller.nodes.Count; i++)
+            {
+                KSP.UI.Screens.RDNode n = controller.nodes[i];
+                if (n != null && n.tech != null && n.tech.techID == techId)
+                    return n;
+            }
+            return null;
+        }
+
+        private static KscActionExecOutcome ExecutePurchasePart(string partArg)
+        {
+            const string action = "purchase-part";
+            bool argPresent = !string.IsNullOrEmpty(partArg);
+            AvailablePart ap = argPresent ? PartLoader.getPartInfoByName(partArg) : null;
+            KSP.UI.Screens.RDController controller = KSP.UI.Screens.RDController.Instance;
+            KSP.UI.Screens.RDNode node = ap != null ? FindRdNode(controller, ap.TechRequired) : null;
+            bool researched = ap != null
+                && ResearchAndDevelopment.GetTechnologyState(ap.TechRequired) == RDTech.State.Available;
+
+            var inputs = new KscActionInputs
+            {
+                ArgPresent = argPresent,
+                TargetResolves = ap != null,
+                ScreenOpen = controller != null && node != null,
+                PrerequisiteMet = researched,
+                AlreadyApplied = ap != null && ResearchAndDevelopment.PartModelPurchased(ap),
+            };
+            KscActionDecision d = Decide(action, partArg, inputs);
+            if (!d.Accepted)
+                return Refuse(action, partArg, d.RejectReason);
+
+            // RDTech.PurchasePart on the R&D screen's own node: the R&D part tooltip's
+            // purchase and purchase-all both end here. RDTechPurchasePartPatch refuses it for
+            // a part the committed timeline buys later.
+            double fundsBefore = LiveFunds();
+            double scienceBefore = LiveScience();
+            try { node.tech.PurchasePart(ap); }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn(Tag, "kscaction purchase-part PurchasePart threw: " + ex.GetType().Name + ": " + ex.Message);
+            }
+
+            bool purchasedNow = ResearchAndDevelopment.PartModelPurchased(ap);
+            if (!purchasedNow)
+            {
+                ParsekLog.Info(Tag, FormatNotAppliedLine(action, partArg, "purchased",
+                    "False", "False", fundsBefore, LiveFunds(), scienceBefore, LiveScience()));
+                return Refuse(action, partArg, "blocked-committed");
+            }
+
+            string observed = LiveFunds().ToString("R", CultureInfo.InvariantCulture);
+            LogApplied(action, partArg, d.ManifestKind, "funds=" + observed);
+            return KscActionExecOutcome.Ok(OkPayload(action, partArg, "fundsAfter", observed));
+        }
+
+        private static int CountPurchased(RDTech tech)
+        {
+            if (tech == null || tech.partsAssigned == null) return 0;
+            int n = 0;
+            for (int i = 0; i < tech.partsAssigned.Count; i++)
+                if (ResearchAndDevelopment.PartModelPurchased(tech.partsAssigned[i])) n++;
+            return n;
+        }
+
+        private static KscActionExecOutcome ExecutePurchaseAll(string techId)
+        {
+            const string action = "purchase-all";
+            bool argPresent = !string.IsNullOrEmpty(techId);
+            KSP.UI.Screens.RDController controller = KSP.UI.Screens.RDController.Instance;
+            KSP.UI.Screens.RDNode node = argPresent ? FindRdNode(controller, techId) : null;
+            bool researched = argPresent
+                && ResearchAndDevelopment.GetTechnologyState(techId) == RDTech.State.Available;
+            int assigned = node != null && node.tech != null && node.tech.partsAssigned != null
+                ? node.tech.partsAssigned.Count : 0;
+            int purchasedBefore = node != null ? CountPurchased(node.tech) : 0;
+
+            var inputs = new KscActionInputs
+            {
+                ArgPresent = argPresent,
+                TargetResolves = argPresent && ResolveProtoTech(techId) != null,
+                ScreenOpen = controller != null && node != null,
+                PrerequisiteMet = researched,
+                AlreadyApplied = node != null && purchasedBefore >= assigned,
+            };
+            KscActionDecision d = Decide(action, techId, inputs);
+            if (!d.Accepted)
+                return Refuse(action, techId, d.RejectReason);
+
+            MethodInfo click = typeof(KSP.UI.Screens.RDController).GetMethod("ActionButtonClick",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null,
+                new[] { typeof(string) }, null);
+            if (click == null)
+                return Refuse(action, techId, "button-not-found");
+
+            // Select the node the way a click on it does, then press the side panel's
+            // purchase-all (the researched-node state of the action button).
+            // RnDPurchaseAllPatch skips each part the committed timeline buys later and names
+            // them in one dialog; RDTechPurchasePartPatch refuses each one again.
+            double fundsBefore = LiveFunds();
+            double scienceBefore = LiveScience();
+            try
+            {
+                controller.node_selected = node;
+                controller.ShowNodePanel(node);
+                click.Invoke(controller, new object[] { "purchase" });
+            }
+            catch (System.Exception ex)
+            {
+                var inner = ex.InnerException ?? ex;
+                ParsekLog.Warn(Tag, "kscaction purchase-all ActionButtonClick threw: " + inner.GetType().Name + ": " + inner.Message);
+            }
+
+            int purchasedAfter = CountPurchased(node.tech);
+            if (purchasedAfter == purchasedBefore)
+            {
+                ParsekLog.Info(Tag, FormatNotAppliedLine(action, techId, "purchased",
+                    purchasedBefore.ToString(CultureInfo.InvariantCulture) + "/" + assigned.ToString(CultureInfo.InvariantCulture),
+                    purchasedAfter.ToString(CultureInfo.InvariantCulture) + "/" + assigned.ToString(CultureInfo.InvariantCulture),
+                    fundsBefore, LiveFunds(), scienceBefore, LiveScience()));
+                return Refuse(action, techId, "blocked-committed");
+            }
+
+            string observed = purchasedAfter.ToString(CultureInfo.InvariantCulture) + "/" + assigned.ToString(CultureInfo.InvariantCulture);
+            LogApplied(action, techId, d.ManifestKind, "purchased=" + observed);
+            return KscActionExecOutcome.Ok(OkPayload(action, techId, "purchased", observed));
+        }
+
+        private static KSP.UI.UIListItem FindCrewDialogRow(KSP.UI.UIList list, string kerbal)
+        {
+            if (list == null) return null;
+            for (int i = 0; i < 256; i++)
+            {
+                KSP.UI.UIListItem item = list.GetUilistItemAt(i);
+                if (item == null) break;
+                if (StockUiCrewDialogDecoration.KerbalNameOf(item) == kerbal) return item;
+            }
+            return null;
+        }
+
+        private static bool CrewDialogHasEmptySeat(KSP.UI.UIList crewList)
+        {
+            if (crewList == null) return false;
+            for (int i = 0; i < 256; i++)
+            {
+                KSP.UI.UIListItem item = crewList.GetUilistItemAt(i);
+                if (item == null) break;
+                var row = item.GetComponent<KSP.UI.CrewListItem>();
+                if (row != null && row.isEmpty) return true;
+            }
+            return false;
+        }
+
+        private static bool ManifestHolds(KSP.UI.CrewAssignmentDialog dialog, string kerbal)
+        {
+            VesselCrewManifest manifest = dialog != null ? dialog.GetManifest(false) : null;
+            if (manifest == null) return false;
+            foreach (ProtoCrewMember pcm in manifest.GetAllCrew(false))
+                if (pcm != null && pcm.name == kerbal) return true;
+            return false;
+        }
+
+        private static KscActionExecOutcome ExecuteAssignCrew(string kerbal)
+        {
+            const string action = "assign-crew";
+            bool argPresent = !string.IsNullOrEmpty(kerbal);
+            var dialog = KSP.UI.CrewAssignmentDialog.Instance;
+            KerbalRoster roster = HighLogic.CurrentGame != null ? HighLogic.CurrentGame.CrewRoster : null;
+            bool exists = argPresent && roster != null && roster.Exists(kerbal);
+            bool assigned = argPresent && ManifestHolds(dialog, kerbal);
+            KSP.UI.UIListItem row = argPresent && dialog != null ? FindCrewDialogRow(dialog.scrollListAvail, kerbal) : null;
+
+            var inputs = new KscActionInputs
+            {
+                ArgPresent = argPresent,
+                TargetResolves = exists,
+                ScreenOpen = dialog != null,
+                AlreadyApplied = assigned || (dialog != null && exists && row == null),
+            };
+            KscActionDecision d = Decide(action, kerbal, inputs);
+            if (!d.Accepted)
+                return Refuse(action, kerbal, d.RejectReason);
+
+            MethodInfo click = typeof(KSP.UI.BaseCrewAssignmentDialog).GetMethod("ListItemButtonClick",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null,
+                new[] { typeof(KSP.UI.CrewListItem.ButtonTypes), typeof(KSP.UI.CrewListItem) }, null);
+            if (click == null)
+                return Refuse(action, kerbal, "button-not-found");
+
+            // Stock's assign button seats the kerbal in the first EMPTY seat and does nothing
+            // when every seat is taken, so the seats are emptied first with the dialog's own
+            // Clear button (an editor manifest change, no career state).
+            if (!CrewDialogHasEmptySeat(dialog.scrollListCrew))
+            {
+                ParsekLog.Info(Tag, "kscaction assign-crew no empty seat - pressing the crew dialog's Clear first");
+                try { dialog.ButtonClear(); }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn(Tag, "kscaction assign-crew ButtonClear threw: " + ex.GetType().Name + ": " + ex.Message);
+                }
+                row = FindCrewDialogRow(dialog.scrollListAvail, kerbal);
+                if (row == null)
+                    return Refuse(action, kerbal, "kerbal-already-assigned");
+            }
+            bool emptySeat = CrewDialogHasEmptySeat(dialog.scrollListCrew);
+
+            string statusBefore = roster[kerbal].rosterStatus.ToString();
+            double fundsBefore = LiveFunds();
+            double scienceBefore = LiveScience();
+            try
+            {
+                click.Invoke(dialog, new object[] { KSP.UI.CrewListItem.ButtonTypes.V, row.GetComponent<KSP.UI.CrewListItem>() });
+            }
+            catch (System.Exception ex)
+            {
+                var inner = ex.InnerException ?? ex;
+                ParsekLog.Warn(Tag, "kscaction assign-crew ListItemButtonClick threw: " + inner.GetType().Name + ": " + inner.Message);
+            }
+
+            // Confirm: CrewDialogMoveToSeatPatch refuses the seat for a kerbal the committed
+            // timeline reserves; an allowed click puts him in the dialog's manifest.
+            if (!ManifestHolds(dialog, kerbal))
+            {
+                ParsekLog.Info(Tag, FormatNotAppliedLine(action, kerbal, "seated",
+                    "False", "False", fundsBefore, LiveFunds(), scienceBefore, LiveScience())
+                    + " emptySeat=" + (emptySeat ? "True" : "False")
+                    + " rosterBefore=" + statusBefore + " rosterAfter=" + roster[kerbal].rosterStatus);
+                return Refuse(action, kerbal, emptySeat ? "blocked-committed" : "no-empty-seat");
+            }
+
+            LogApplied(action, kerbal, d.ManifestKind, "seated=True");
+            return KscActionExecOutcome.Ok(OkPayload(action, kerbal, "seated", "True"));
         }
     }
 }

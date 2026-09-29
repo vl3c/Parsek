@@ -25,6 +25,18 @@ _(unreleased — entries accumulate here per commit)_
   timeline, so no reward was paid.`), and the "now" divider says the rows below happen on
   their date and hold stock controls until then. The text is built only for the hovered
   row.
+- **Dev: a game-settings test axis.** Every harness lane had run at the Normal preset with
+  the instance's `settings.cfg`; lanes can now fly at other stock settings. A spec may declare
+  `[runtime] kspSettings = { MAX_VESSELS_BUDGET = N, DECLUTTER_KSC = true|false }`: the run
+  patches just those values into the instance's `settings.cfg` for its own boot and puts them
+  back afterwards (restore marker, healed by the next run if a harness process dies; a delta
+  that cannot be applied, or a failed heal of a leftover marker, refuses the run pre-boot). A new `vessel-budget` injection preset
+  (eight in-window probe ghosts) and two lanes: `VB-1-ghost-vessel-budget` flies ghost map
+  vessels against a binding stock vessel budget in the Tracking Station, and
+  `HC-1-hard-career-ledger` runs LedgerGroundTruth, a record, a commit and a Rewind-to-Launch
+  on `career-pad-craft-hard`, the first career fixture at KSP's Hard preset (x0.6 gains, x2
+  losses, quickload and restart off), derived from `career-pad-craft` by a builder with a
+  byte-identity drift test.
 - **Dev: the automated tests can press Stash, and a lane re-flies a stashed slot whose flight went EVA.** A new test command, `StashSlot`, presses the Recordings table's per-row Stash button (the same handler) and checks that the slot now shows as an Unfinished Flight. `RF-20-stashed-eva-slot-refly` (flown green 2026-09-27) uses it: a staged orbital flight where a kerbal steps out and back in is committed, the crewed stage (a stable orbit, so not an Unfinished Flight on its own) is stashed, re-flown from the separation and merged, and the merge must replace the old flight including the kerbal's EVA and close the slot
 - **Dev: a lane for rewinding a relaunch of a craft.** `RR-1-relaunch-rewind-keeps-earlier-launch` (never flown) relaunches the stock Kerbal X on `kerbin-splashdown-recorded`, whose earlier Kerbal X capsule is still landed, commits, rewinds that flight and checks the rewind keeps the earlier capsule while removing the relaunched vessel.
 
@@ -41,6 +53,14 @@ _(unreleased — entries accumulate here per commit)_
   timing fix in one of its tests. One logistics lane (RVR-8) found that a route's second
   cycle no longer held when its origin was out of cargo. That was lost supply-route cargo
   (see Fixed), and RVR-8's own check is armed off its green re-fly.
+- **Dev: 15 more save-structure checks now gate the automated tests.** GS-1, GS-2, GS-3, GS-7,
+  GS-9, V3F, V3R, RF-1, RF-4, RF-9 and CL-3 each had a report-only check on the saved game read
+  correctly by a fresh run, and each check was shown to fail when its window was moved. 180 of
+  the 199 declared checks now gate; 19 on 17 lanes still wait for a reading. Two lane fixes came
+  first: RF-1, RF-4 and RF-9 reloaded a save written before the flight was committed, and CL-3
+  and CL-4 tried to Re-Fly a separation that was still in the future. RF-9's count of
+  split seeds was re-pinned after static solar panels stopped recording a deploy event.
+- **Dev: lanes for every remaining stock-screen block, and the EVA block for a held kerbal.** `KB-4-ksc-click-blocks-remaining` (flown green 2026-09-28) presses, on the stock-screen census career, Mission Control's Decline, Cancel and a slot-starved Accept, both Administration buttons (after an allowed Administration upgrade frees a strategy slot), the Astronaut Complex dismiss, the R&D part purchase and purchase-all, and the VAB crew-dialog seat. Each is refused with the blocked dialog showing exactly the text its greyed control showed, and nothing changes. `KB-5-flight-eva-block-held-kerbal` (flown green 2026-09-28) switches to a pad craft carrying Jebediah Kerman, whom a committed flight holds, and checks that his EVA is refused. It runs on a new fixture, `k2-held-kerbal-pad`. The `KscAction` test verb gains seven sub-actions, one per stock call those controls make. `UiAction op=dismiss` now works in the editor. `StockScreen` opens the screens a Science or Sandbox save has, and new captures cover the SPH part tooltip (GUI-28), the Science-mode R&D, Astronaut Complex and facility menu (GUI-8), and the Sandbox Space Center (new GUI-30); all of them must show no Parsek mark. H45 moves to `career-earned-pad`, whose Active contract its Cancel cell needs. Its R&D Research-button cell now waits for stock to set the tree's node states and compares colours against the selected node's own panel, so all twelve cells run and pass.
 - **Dev: a lane for the tech, upgrade, hire and contract-accept blocks after a rewind.** `KB-3-ksc-click-blocks-after-rewind` runs on the stock-screen census career, whose committed timeline researches a tech, upgrades the Tracking Station, hires an applicant and accepts a contract after the save clock. For each of the four it checks that the stock control is greyed with the committed-timeline explanation, that the stock call behind the control is refused with the blocked dialog, that the dialog shows exactly the explanation the hover showed, and that no state, funds, science or ledger row changes. The `KscAction` test verb gains `action=accept-contract contract=<guid>` (Mission Control's own `Contract.Accept()` call), and a refused research, upgrade, hire or accept now logs the target's state and the funds and science pools before and after stock's call.
 - **Dev: a lane for the facility repair block after a rewind.** `KB-2-ksc-repair-block-after-rewind` (never flown) runs on a new committed fixture, `stock-screen-census-repair`: the stock-screen census career with the Tracking Station dish destroyed before the save clock and its repair committed after it, built by `Source/Parsek.Tests/StockScreenRepairFixture.cs`. It checks that the Tracking Station menu greys Repair and shows the explanation on its tooltip, and that a repair made through the menu's own call is refused with the blocked dialog, repairs nothing and leaves funds unchanged. The `StockScreen` test verb can now hover the facility menu's Repair button (`item=repair`), and a refused `KscAction repair-facility` logs the destroyed-building count and the funds before and after stock's call.
 - **Automated testing: the coverage-wave rulings are confirmed, and the RemoteTech cell is retired.**
@@ -1238,6 +1258,24 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Setting up ground science next to a landed vessel no longer throws the flight away.** When
+  nothing in a flight moved more than 30 m, Parsek treats it as "idle on the pad" and discards
+  it on leaving the scene. A kerbal who stepped out of a landed capsule and placed a Breaking
+  Ground experiment, power, comms or Central Station part beside it counted as idle, so the
+  flight, the placed parts' recordings and its rewind point were all deleted. A flight in which
+  a kerbal placed any ground part is now never idle (log: `IsTreeIdleOnPad: not idle - tree has
+  N placed ground part(s)`). A plain EVA with nothing placed is still idle, as before.
+
+- **The Space Center facility menu no longer shows `#autoLOC_900122` above Parsek's reason.**
+  When the committed timeline upgrades a facility later, Parsek adds the reason under the
+  facility's description in its Space Center menu. The description is a translation key that
+  the game only translates when the text is exactly that key, so adding a line to it made the
+  menu show the raw key instead of the description (for the Tracking Station, "At the Tracking
+  Station, all ongoing missions can be viewed and focused..."). Parsek now translates the game's
+  text before adding its line, on every stock text it adds to: the facility menu description
+  and button tooltips, the R&D node description and tooltip, the part tooltip, Mission Control
+  row labels and contract details, the Administration strategy reason and button tooltips, the
+  Astronaut Complex labels and tooltips, and the flight crew EVA and hatch tooltips.
 - **A vessel that dropped a stage and kept flying is no longer treated as if its flight ended at
   the staging.** Every staging or decouple of the vessel you are flying is recorded as a branch
   that the vessel flies straight past, but several places read any branch as "this vessel's
@@ -1289,6 +1327,25 @@ _(unreleased — entries accumulate here per commit)_
   recorded height, so it flickered between the two, about a metre apart. Every frame now shows the
   same height. The log line `Ghost camera pre-cull before LateUpdate: kept N reapply entries for
   LateUpdate` marks the frames that used to flicker.
+- **A cluster of ground parts an EVA kerbal placed now spawns whole after a rewind.** When a
+  kerbal set out a Breaking Ground cluster a few metres apart (RTG, solar panels, experiments,
+  Central Station), only the first part to finish replaying became a real vessel: every later
+  part found the earlier one inside its spawn-collision box, waited, then gave up with "Manual
+  placement required", and its ghost vanished. The rover and the kerbal ending among the parts
+  would have hit the same wall. A spawn at a member's recorded end spot now ignores a vessel
+  Parsek spawned from another member of the same committed flight that still stands where it was
+  put; the player's own craft, another flight's spawn and a member since moved elsewhere still
+  block. When a spawn has to step back along its own path, a member counts only if it was
+  already standing there at that moment of the recording, so a rover is never placed inside a
+  part set down later where it once drove. At the Space Center the same members are no longer
+  nudged 15 m apart. A kerbal or a placed part is also no longer pushed off its spot by the
+  vessel it stood beside when that vessel was already standing there when the recording was
+  made and has not moved since, such as the landed capsule the kerbal climbed out of, recorded
+  in an earlier flight: after a rewind the Space Center used to move both the kerbal and his
+  seismometer 15 m away from it. Parsek knows the capsule was there from the capsule's own
+  saved flight, which was saved before the kerbal's and ended, standing on that spot, before
+  the kerbal got there. A vessel that arrived later, one moved since, or one Parsek has
+  no saved flight for still pushes, and a rover or other craft is still nudged clear as before.
 - **Watching a replayed flight to its end now holds on that vessel, not on a stage it dropped
   earlier.** When a replayed rocket had decoupled a controllable stage (a probe core) earlier in
   the flight and kept flying, the camera at the end of the rocket's flight jumped to that stage,

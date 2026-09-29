@@ -513,6 +513,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AppendCommittedActivationToStockReason_LocalizesAKeyStockReasonBeforeAppending()
+        {
+            var entry = Index(On(300.0, "A")).FirstFuture(CommittedFutureKind.StrategyActivate, "A", 100.0);
+            Assert.NotNull(entry);
+            StockUiText.LocalizerForTesting = key => key == "#autoLOC_304827" ? StockSlotsFull : key;
+            try
+            {
+                string composed = StrategyReservationPredicates.AppendCommittedActivationToStockReason(
+                    "#autoLOC_304827", entry, Date);
+                Assert.Equal(StockSlotsFull + "\n" + ReservationExplanation.StrategyActivation(entry, Date).Fact, composed);
+            }
+            finally
+            {
+                StockUiText.LocalizerForTesting = null;
+            }
+        }
+
+        [Fact]
         public void Precedence_StockAllows_ParsekRefusesWithItsOwnReason()
         {
             Ledger.AddAction(On(300.0, "A"));

@@ -179,7 +179,7 @@ namespace Parsek
         internal static string ComposeAssignedLabel(string stockLabel, string title)
         {
             if (string.IsNullOrEmpty(stockLabel)) return title;
-            return stockLabel + " (" + title + ")";
+            return StockUiText.ResolveStockKey(stockLabel, "Astronaut Complex assigned label") + " (" + title + ")";
         }
 
         /// <summary>Whether the crew tooltip carries the explanation: only the kinds whose row
@@ -203,14 +203,16 @@ namespace Parsek
         /// <summary>
         /// Appends the explanation to a stock crew tooltip in stock's own reason format
         /// (<c>"\n\n&lt;b&gt;title&lt;/b&gt;\ncaption"</c>, the same block stock appends for
-        /// the crew-limit lock). Idempotent.
+        /// the crew-limit lock). Idempotent. A description that is a localization key is
+        /// localized first (<see cref="StockUiText.ResolveStockKey"/>).
         /// </summary>
         internal static string AppendTooltip(string description, string title, string why)
         {
             if (string.IsNullOrEmpty(why)) return description;
             if (!string.IsNullOrEmpty(description) && description.Contains(why)) return description;
             string block = "<b>" + (title ?? "") + "</b>\n" + why;
-            return string.IsNullOrEmpty(description) ? block : description + "\n\n" + block;
+            if (string.IsNullOrEmpty(description)) return block;
+            return StockUiText.ResolveStockKey(description, "Astronaut Complex crew tooltip") + "\n\n" + block;
         }
 
         // ---------------- live applicators (Harmony postfix bodies) ----------------

@@ -187,6 +187,15 @@ steps = [
   { cmd = "SetSetting",         args = { name = "verboseLogging", value = "true" },      expect = "OK" },
   { phase = "mission",                                                                    expect = "MISSION-OK", budget = 900 },
   { cmd = "ExitToSpaceCenter",                                                            expect = "OK", budget = 120 },
+  # SAVE BEFORE THE RELOAD (RF-13H's / RF-20's order). The tree commits on arrival at the
+  # Space Center, AFTER the exit's own persistent.sfs write, so a LoadGame straight after
+  # the exit reads a save that still carries the flight as the ACTIVE tree: it
+  # quickload-resumes the pre-commit tree (`TryRestoreActiveTreeNode: removed committed
+  # tree`), the re-fly then starts with `tree=<none> inPlaceContinuation=False`, the
+  # resume waits for the capsule while the probe is active, and the merge never
+  # concludes (reading `2026-09-27_1943`). The 2026-09-15 greens passed only because that
+  # build DROPPED the active node on an incompatible sidecar, which kept the committed copy.
+  { cmd = "SaveGame",           args = { name = "persistent" },                          expect = "OK" },
   # --- ACT 2: the re-fly, flown and merged so a fork exists -----------------------------
   { cmd = "LoadGame",           args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
   { cmd = "SetSetting",         args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
@@ -323,6 +332,12 @@ forbidden = [
 #   tombstones    nobody dies on this profile: the pod lands intact, the booster is still
 #                 flying, and the re-flown booster is unmanned.
 [expectations.rewind]
+# ARMED 2026-09-29 (branch `arm-batch2`) off the reading `2026-09-29_1516` (PASS attempt 1,
+# the first current-code flight after the SaveGame-before-reload fix): rewindPoints 0,
+# supersedeRows 1, tombstones 0, every window met; its 3 bounds inverted offline against
+# that save each red on exactly their window. `rewindPoints max 0` is the sealed booster
+# point staying reaped across the Rewind-to-Launch (todo SAVE-BLOCKS-AWAITING-READINGS).
+gating        = true
 rewindPoints  = { max = 0 }
 supersedeRows = { min = 1 }
 tombstones    = { max = 0 }
@@ -331,9 +346,9 @@ tombstones    = { max = 0 }
 # Budget arithmetic (M-A5 S8), deferred verbs at max(step,600)+60 and the rest at
 # max(step, 60+60):
 #   LoadGame x3 1980 + SetSetting x5 600 + mission 900 + ExitToSpaceCenter 180
-#   + StopRecording x2 240 + ListHandles x2 240 + InvokeRewind 660
+#   + SaveGame 120 + StopRecording x2 240 + ListHandles x2 240 + InvokeRewind 660
 #   + AnswerMergeDialog 180 + SealSlot 120 + InvokeRewindToLaunch 660
-#   + FlushAndQuit 120 = 5880. 6200 clears it by 320.
+#   + FlushAndQuit 120 = 6000. 6200 clears it by 200.
 budgetSeconds = 6200
 
 [retry]

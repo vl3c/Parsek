@@ -4144,6 +4144,9 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # `RnDResearchButtonDisabledShowsItsReason` needs an unresearched RESEARCHABLE
         # node (the host's 145 unresearched nodes are all FADED). Todo
         # H45-HOST-LACKS-ACTIVE-CONTRACT-AND-RESEARCHABLE-NODE names the fixture.
+        # CLOSED 2026-09-28 (`2026-09-28_2105`, 12 / 0 / 0): the lane moved to
+        # `career-earned-pad` (one Active contract) and the R&D cell's pick was a TEST
+        # timing defect (it read RDNode.state before stock set any), so H45 owes nothing.
         # H53 (`gloops-airshow` + the 274-row corpus): "No ghost map PIDs - patch not
         # exercised" and "No live active tree to use as a synth source". BOTH ARE
         # DRIVER-STATE rather than fixture properties - the first wants playback armed
@@ -4164,7 +4167,6 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # a looped LANDING arrival) while naming an OPERATOR save, `s15`, that is not a
         # committed fixture. Each is satisfiable by its OWN harvest; none by this one.
         "H54-missions": 4,
-        "H45-stock-ui-overlay": 2,
     }
 
     # NOTE the asymmetry this leaves: for 13 of the 16, the skipped= floor is
@@ -4304,8 +4306,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     #      OPERATOR save (`s15`) that is not a committed fixture at all. Reading a guard
     #      string as a fixture spec is a hypothesis, not a derivation.
     #
-    # Only H53 / H54 / H45 owe a RUNTIME_SKIPS entry (2 / 4 / 2; H45's first 2 closed
-    # 2026-09-08, its current 2 are the twelve-cell shape's host gaps). H44's 16 and H46's 1
+    # Only H53 / H54 owe a RUNTIME_SKIPS entry (2 / 4; H45's first 2 closed 2026-09-08,
+    # its second 2 on 2026-09-28). H44's 16 and H46's 1
     # are PURE SCENE FILTERING - the runner's own `Scene eligibility skip summary` line
     # accounts for every one and neither run contains a single per-test `SKIPPED:` line -
     # and that distinction is the one to keep straight: a scene skip is a lane's SCOPE,
@@ -8631,6 +8633,10 @@ class UnityExceptionScanTests(unittest.TestCase):
             # its own three driver-valid runs 2026-09-09 (_1813 / _1815 / _1817), every one
             # total=0; gating on its first flight was therefore a re-measurement, not a bet.
             "CL-4-refly-crew-standin.toml": 0,
+            # HC-1: L2's boot shape on L2's host with the Hard preset values, plus a pad
+            # record / commit / Rewind-to-Launch; its three driver-valid runs 2026-09-29
+            # (_1745 / _1821 / _1831) all read total=0 in every counted class.
+            "HC-1-hard-career-ledger.toml": 0,
             "L1-dismiss-kerbal-career.toml": 0,
             "L1-hire-kerbal-career.toml": 0,
             "L1-passive-sandbox.toml": 0,
@@ -9728,6 +9734,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # lane carries; it additionally moves the operator's cursor (a pointer lane).
         "GUI-28-census-stock-screens.toml":
                                        "tier=operator by CADENCE (capture host) and a POINTER lane: its hovers move the operator's cursor. Hosted on the committed `stock-screen-census` fixture (Source/Parsek.Tests/StockScreenCensusFixture.cs). READING RUN `2026-09-25_2055` PASS attempt 1 (72 s, 25 PNG; earlier PASS flights `_2035` / `_2046` shaped the editor settle, the control readback and the fixture's funds pool). Per-screen findings filed as STOCK-UI-CENSUS-GUI-28-FINDINGS; nothing is armed (report-only: no marked or blocked count is pinned). Owed: the overlay findings its PNGs name go to the overlay session; the ordinary promotion call.",
+        "GUI-30-census-stock-screens-sandbox.toml": "tier=operator by CADENCE (capture host). Hosted on the committed `fresh-sandbox` fixture; the stock screens a Sandbox player can open, pinned to carry no Parsek mark (marked=0 / blocked=0 records). FLOWN PASS 2026-09-28 (run _2106, attempt 1, 3 PNG). Owed: the ordinary promotion call only.",
         "GUI-27-census-missions-include.toml":
                                        "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-22 (run _2304, attempt 1, 58 s, 3 PNG + 3 dumps) - the only lane of the wave whose FIRST flight is its record. Owed: the ordinary promotion call.",
     }
@@ -11017,6 +11024,10 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # pin (body -> Eeloo), V15M `2026-09-10_1914` and V15T `2026-09-10_1917`, each
     # red on exactly the inverted element, drift gate met.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
+                       # CL-3 (on the line above) `recordings.structure`: armed 2026-09-29
+                       # (branch `arm-batch2`) off `2026-09-29_1535`, the first flight since
+                       # the TimeJump 61 fix (todo CL-LANES-INJECTED-RP-IN-THE-FUTURE); 5 of 5
+                       # bounds inverted offline, each red on exactly its window.
                        # CL-4: `rewind` armed 2026-09-09 off its own reading run
                        # `2026-09-09_1813_CL-4-refly-crew-standin` (supersedeRows 1, tombstones 1,
                        # CL-3's facets on CL-3's shape; rewindPoints unpinned, the RP is reaped);
@@ -11144,6 +11155,9 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # (rewindPoints inverted to {2,2}, red on exactly that facet).
                        # `rewindPoints = {1,1}` is the armed claim: the reaper declines
                        # only while a slot's effective tip is CommittedProvisional.
+                       # RF-1 `recordings.structure`: armed 2026-09-29 (branch `arm-batch2`)
+                       # off `2026-09-29_1520`, the first current-code reading after the
+                       # SaveGame-before-reload spec fix; 8 of 8 bounds inverted offline.
                        "RF-1-continuation-stays-open.toml",
                        # RF-10: `rewind` armed 2026-09-09 off its reading run. The
                        # safest arming in the program: the lane starts no recorder and
@@ -11158,6 +11172,9 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # then landed unchanged on run 2, which is the same two-sample
                        # standard; negative control inverted tombstones to {max = 0},
                        # the exact window the reading run refuted.
+                       # RF-9 `recordings.structure`: armed 2026-09-29 (branch `arm-batch2`)
+                       # off `2026-09-29_1538`, after the SaveGame-before-reload fix and the
+                       # 12 -> 8 transient-seed re-pin; 9 of 9 bounds inverted offline.
                        "RF-9-atmosphere-exit-split-stays-open.toml",
                        "V27M-rover-route-endpoint-substituted-map-lines.toml",  # routes, armed 2026-09-07 off `2026-09-07_1858`
                        "V14M-ike-player-loop.toml", "V14T-ike-ts-arrival.toml",
@@ -11360,6 +11377,23 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        "V23T-mun-landing-ts-arrival.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
                        "GS-3-switch-nudge-deployed.toml",
+                       # 2026-09-27 BATCH 2 (branch `arm-batch2`, the operator's arming
+                       # decision of 2026-09-27), each off its own reading on current main
+                       # (automation DLL sha256 f747fdee...), every window met, every bound
+                       # inverted offline against that produced save and red on exactly its
+                       # window. GS-1 / GS-2 / GS-3 `structure` joined their armed `rewind`
+                       # (`_2000` / `_2005` / `_2007`); GS-7 both blocks `_2016`; GS-9 both
+                       # `_2040`; V3F both `_2048`; V3R both `_2104` (all `2026-09-27_`).
+                       "GS-7-kerbalx-crash-watch-hold.toml",
+                       "GS-9-kerbalx-repeat-rewind.toml",
+                       "V3F-flight-arrival-faithful.toml",
+                       "V3R-flight-arrival-reaim.toml",
+                       # RF-4 `rewind`: armed 2026-09-29 (branch `arm-batch2`) off
+                       # `2026-09-29_1516`, its first current-code reading after the
+                       # SaveGame-before-reload spec fix (rewindPoints 0, supersedeRows 1,
+                       # tombstones 0); 3 of 3 bounds inverted offline, each red on exactly
+                       # its window.
+                       "RF-4-rewind-to-launch-after-merge.toml",
                        # GS-8 both blocks: armed 2026-09-28 (branch `gs8-watch-hold`) off
                        # `2026-09-28_1732`, the first green reading after the
                        # GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD fix; all 10 bounds
@@ -23977,6 +24011,31 @@ class ScreenResolutionSpecTests(unittest.TestCase):
         res = hlib.validate_spec(spec, load_registry())
         self.assertTrue(any("runtime.screenResolution" in e for e in res.errors),
                         res.errors)
+
+    def test_ksp_gameplay_settings_validation(self):
+        ok = {"kspSettings": {"MAX_VESSELS_BUDGET": 7, "DECLUTTER_KSC": False}}
+        self.assertEqual([], hlib.validate_screen_resolution(ok))
+        self.assertEqual([], hlib.validate_screen_resolution(
+            {"kspSettings": {"MAX_VESSELS_BUDGET": -1}}))
+        for bad in ({"MAX_VESSELS_BUDGET": -2}, {"MAX_VESSELS_BUDGET": "7"},
+                    {"MAX_VESSELS_BUDGET": True}, {"DECLUTTER_KSC": "True"},
+                    {"PHYSICS_FRAME_DT_LIMIT": 0.04}, {}):
+            errs = hlib.validate_screen_resolution({"kspSettings": bad})
+            self.assertEqual(1, len(errs), (bad, errs))
+            self.assertIn("runtime.kspSettings", errs[0])
+        self.assertEqual(1, len(hlib.validate_screen_resolution({"kspSettings": 5})))
+
+    def test_spec_ksp_gameplay_settings(self):
+        self.assertEqual({}, hlib.spec_ksp_gameplay_settings({}))
+        self.assertEqual({}, hlib.spec_ksp_gameplay_settings({"runtime": {"budgetSeconds": 5}}))
+        self.assertEqual({}, hlib.spec_ksp_gameplay_settings(
+            {"runtime": {"kspSettings": {"MAX_VESSELS_BUDGET": -5}}}))
+        self.assertEqual({"MAX_VESSELS_BUDGET": "7", "DECLUTTER_KSC": "False"},
+                         hlib.spec_ksp_gameplay_settings({"runtime": {"kspSettings": {
+                             "DECLUTTER_KSC": False, "MAX_VESSELS_BUDGET": 7}}}))
+        self.assertEqual("MAX_VESSELS_BUDGET = 250\nDECLUTTER_KSC = True\n",
+                         hlib.render_gameplay_restore_marker(
+                             {"DECLUTTER_KSC": "True", "MAX_VESSELS_BUDGET": "250"}))
 
     def test_spec_screen_resolution(self):
         self.assertIsNone(hlib.spec_screen_resolution({}))

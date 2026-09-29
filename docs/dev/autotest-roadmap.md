@@ -115,7 +115,9 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 246 of 246 registry cells (was 245 of 246 on `origin/main` before `MC-5-persistent-rotation` claimed D17 `persistent-rotation` on 2026-09-26; every cell is covered)
+### Coverage: 247 of 247 registry cells (the game-settings axis added D14 `hard-preset` on 2026-09-29 and HC-1 claims it; every cell is covered)
+
+RE-DERIVED 2026-09-29 on `settings-axis`: `hlib.compute_coverage(specs, [], registry)` over the 351 committed specs prints 247 of 247. THE GAME-SETTINGS AXIS starts here (operator request 2026-09-29): `[runtime] kspSettings` flies a lane at a stock `settings.cfg` value without re-provisioning the shared instance, and D14 grows one value per claimed setting. Claimed: `hard-preset` (HC-1, reading `2026-09-29_1821`, armed `_1831`). Proposed in the registry comment and added only when flown: `vessel-budget` (VB-1, see autotest-status), then `declutter-ksc`, `respawn-timer`, `earth-calendar` from the KSP-SETTINGS-AUDIT list. Open from the axis: todo INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS (a Tracking Station in-game batch orphans the ghost map vessels, so the in-game `VesselBudget` cell cannot pass unattended).
 
 RE-DERIVED 2026-09-27 on `clickblock-lanes`: `hlib.compute_coverage(specs, [], registry)` over the 333 committed specs prints 246 of 246. `KB-3-ksc-click-blocks-after-rewind` (reading `2026-09-27_1238`, armed `_1240`, offline negative control 20 of 20) is the behavioural proof of the tech, facility-upgrade, hire and contract-accept click-blocks after a rewind and claims no new cell (its D8 / D14 values are already covered). The strategy, Decline, Cancel, contract-slot, dismissal, crew-dialog and part-purchase blocks still have no pressing lane (todo `STOCK-UI-RESERVATION-OVERLAYS-2026-09-25`).
 
@@ -6305,15 +6307,18 @@ Remaining fail-open surfaces, ranked:
    and rewind points off the produced save on every driver-valid run. It becomes a
    GATE per scenario when that scenario arms `gating = true` after its report-only
    readings are confirmed live. S4.1-rewind-merge is armed (runs `2026-07-31_1628`
-   read-only / `_1635` armed / `_1637` negative control). STATE 2026-09-27 (branch
-   `arm-save-checks`, the operator's arming pass, plus RVR-8 `structure` from
-   `arm-rvr8-structure`): 159 of the 189 declared blocks are armed
-   across 99 specs, the last 37 off matching readings (24 of them read by flights of current code that
-   day) with an offline one-window-at-a-time inversion against each produced save (172 of
-   172 red). What stays ADDRESSED-REPORT-ONLY is 30 blocks on 24 specs, listed in todo
-   SAVE-BLOCKS-AWAITING-READINGS: mostly long harvest missions (B17, B23-B30, V3C / V3F /
-   V3R), the GS / RF autopilot lanes whose last readings predate the 2026-09-23 rewind
-   fixes. RVR-8, whose first reading was red, was armed off its green re-fly `_1310`.
+   read-only / `_1635` armed / `_1637` negative control). STATE 2026-09-29 (branch
+   `arm-batch2`, re-derived from the specs with `saveparse.declared_structure_blocks` /
+   `armed_structure_blocks` over rewind + structure + points + routes): 180 of the 199
+   declared blocks are armed across 107 specs. The 2026-09-27 arming pass (`arm-save-checks`)
+   armed 37 off matching readings, then RVR-8 `structure` and GS-8 both followed their green
+   re-flies, and batch 2 armed 15 more (GS-1 / GS-2 / GS-3 `structure`; GS-7, GS-9, V3F,
+   V3R both; RF-4 `rewind`; RF-1, RF-9, CL-3 `structure`), each off its own PASS reading
+   with every bound inverted offline against that save and red on exactly its window.
+   What stays ADDRESSED-REPORT-ONLY is 19 blocks on 17 specs, listed in todo
+   SAVE-BLOCKS-AWAITING-READINGS: the long harvest missions (B17 `points`, B23-B30, V3C),
+   RF-2 / RF-3 / RF-12L `rewind`, and the blocks declared since #1902 (EVA-7, RF-16, RF-17,
+   RF-20, RR-1), none with a reading on current code.
 3. **Three expectation verifier families were declared and inert** (`route`,
    `rewind`, `loop`). PARTIALLY CLOSED by R9 2026-07-31: `rewind` is now evaluated
    AND ARMED on its one declarer - S4.1's asserts stopped being comments and became

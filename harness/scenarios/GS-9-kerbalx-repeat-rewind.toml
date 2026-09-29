@@ -317,16 +317,24 @@ spawnLines      = { min = 16, max = 16 }
 destroyLines    = { min = 16, max = 16 }
 requireBalanced = true
 
-# REPORT-ONLY, GS-4's block: Rewind-to-Launch builds neither supersede rows nor
-# tombstones, twice over (the reading measured 0 / 0, rewindPoints 0).
+# GS-4's block: Rewind-to-Launch builds neither supersede rows nor tombstones, twice
+# over (the 2026-09-11 reading measured 0 / 0, rewindPoints 0). ARMED 2026-09-27 (branch
+# `arm-batch2`) off the reading `2026-09-27_2040` on current main (PASS attempt 1):
+# supersedeRows 0, tombstones 0; rewindPoints now reads 1, the point the rewinds carry
+# (RP-SURVIVES-REWIND-TO-LAUNCH), and stays unpinned. Both bounds inverted offline
+# against that save each red on exactly their window.
 [expectations.rewind]
+gating        = true
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
-# REPORT-ONLY structural shape, GS-4's floors: a second rewind adds no recording, no
-# branch point and no terminal state (the reading measured trees 1, committedTrees 1,
-# recordings 8, JointBreak 5, Destroyed 6 / SubOrbital 2 - GS-4's own census).
+# Structural shape, GS-4's floors: a second rewind adds no recording, no branch point
+# and no terminal state (the reading measured trees 1, committedTrees 1, recordings 8,
+# JointBreak 5, Destroyed 6 / SubOrbital 2 - GS-4's own census). ARMED 2026-09-27
+# (branch `arm-batch2`) off `2026-09-27_2040`, which read that census exactly; its 8
+# bounds inverted offline against that save each red on exactly their window.
 [expectations.recordings.structure]
+gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 8 }

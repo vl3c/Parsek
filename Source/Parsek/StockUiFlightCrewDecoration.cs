@@ -130,7 +130,7 @@ namespace Parsek
         internal static string PortraitTooltip(bool stockAllowed, string stockText, string why)
         {
             if (stockAllowed || string.IsNullOrEmpty(stockText)) return why ?? "";
-            return StockUiRnDDecoration.AppendReason(stockText, why);
+            return StockUiRnDDecoration.AppendReason(stockText, why, "portrait EVA tooltip");
         }
 
         /// <summary>The hatch dialog row label: stock's name plus the status, in the reason colour.</summary>
@@ -421,7 +421,7 @@ namespace Parsek
             }
             tip.RequireInteractable = false;
             tip.SetText(StockUiFacilityDecoration.ComposeTooltipText(owned, tip.textString,
-                StockUiFacilityDecoration.WrapTooltipText(why)));
+                StockUiFacilityDecoration.WrapTooltipText(why), "crew hatch button tooltip"));
             tip.enabled = true;
         }
 

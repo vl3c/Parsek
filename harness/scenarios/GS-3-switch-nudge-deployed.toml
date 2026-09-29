@@ -534,6 +534,11 @@ tombstones    = { max = 0 }
 # commit rather than being auto-discarded, i.e. the save-side half of the header's
 # no-op-disposition finding.
 [expectations.recordings.structure]
+# ARMED 2026-09-27 (branch `arm-batch2`) off the reading `2026-09-27_2007` on current main
+# (PASS attempt 1): trees 1, committedTrees 1, recordings 3, Orbiting 3, JointBreak 1,
+# VesselSwitchContinuation 1, every window met; its 8 bounds inverted offline against that
+# save each red on exactly their window.
+gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 3 }
