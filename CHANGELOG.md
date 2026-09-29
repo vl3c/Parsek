@@ -1246,6 +1246,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Setting up ground science next to a landed vessel no longer throws the flight away.** When
+  nothing in a flight moved more than 30 m, Parsek treats it as "idle on the pad" and discards
+  it on leaving the scene. A kerbal who stepped out of a landed capsule and placed a Breaking
+  Ground experiment, power, comms or Central Station part beside it counted as idle, so the
+  flight, the placed parts' recordings and its rewind point were all deleted. A flight in which
+  a kerbal placed any ground part is now never idle (log: `IsTreeIdleOnPad: not idle - tree has
+  N placed ground part(s)`). A plain EVA with nothing placed is still idle, as before.
+
 - **The Space Center facility menu no longer shows `#autoLOC_900122` above Parsek's reason.**
   When the committed timeline upgrades a facility later, Parsek adds the reason under the
   facility's description in its Space Center menu. The description is a translation key that
