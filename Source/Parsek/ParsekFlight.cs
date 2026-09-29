@@ -2540,6 +2540,10 @@ namespace Parsek
             // over rec.TrackSections / rec.Points see the in-flight data.
             FlushRecorderIntoActiveTreeForSerialization();
 
+            // After the flush: a flag planted this flight is still in the recorder buffer before it.
+            if (TreeHasPlantedFlagsForIdle(activeTree, "IsActiveTreeIdleOnPad"))
+                return false;
+
             bool anyHasPoints = false;
             foreach (var rec in activeTree.Recordings.Values)
             {
@@ -20412,7 +20416,8 @@ namespace Parsek
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
                 return false;
 
-            if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreePadFailure"))
+            if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreePadFailure")
+                || TreeHasPlantedFlagsForIdle(tree, "IsTreePadFailure"))
                 return false;
 
             foreach (var rec in tree.Recordings.Values)
@@ -20442,6 +20447,39 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Counts the flags planted across every recording of <paramref name="tree"/>
+        /// (<see cref="Recording.FlagEvents"/>). Pure, null-safe.
+        /// </summary>
+        internal static int CountPlantedFlags(RecordingTree tree)
+        {
+            if (tree?.Recordings == null) return 0;
+            int count = 0;
+            foreach (Recording rec in tree.Recordings.Values)
+            {
+                if (rec?.FlagEvents != null)
+                    count += rec.FlagEvents.Count;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Idle-on-pad veto for a planted flag: the flag is a vessel the player made,
+        /// so the flight is player work even when nothing moved 30 m. Logs the veto;
+        /// returns true when the tree must not be classified idle. The live predicate
+        /// must call this after flushing the recorder, which buffers flag events.
+        /// </summary>
+        internal static bool TreeHasPlantedFlagsForIdle(RecordingTree tree, string caller)
+        {
+            int flags = CountPlantedFlags(tree);
+            if (flags <= 0) return false;
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "{0}: not idle - tree has {1} planted flag(s) tree='{2}'",
+                    caller, flags, tree?.TreeName ?? "<unnamed>"));
+            return true;
+        }
+
+        /// <summary>
         /// Idle-on-pad veto shared by <see cref="IsTreeIdleOnPad(RecordingTree)"/> and
         /// <see cref="IsActiveTreeIdleOnPad"/>: a tree whose kerbal placed ground parts
         /// created vessels, so it is player work even when nothing moved 30 m (a
@@ -20468,7 +20506,8 @@ namespace Parsek
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
                 return false;
 
-            if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreeIdleOnPad"))
+            if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreeIdleOnPad")
+                || TreeHasPlantedFlagsForIdle(tree, "IsTreeIdleOnPad"))
                 return false;
 
             bool anyHasPoints = false;

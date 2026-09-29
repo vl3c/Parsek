@@ -34,8 +34,13 @@ mirror `IsActiveTreeIdleOnPad`, and `IsTreePadFailure`, which shares the scene-e
 ground part(s) tree='<name>'` (or the `IsActiveTreeIdleOnPad:` / `IsTreePadFailure:` prefix). An EVA
 with no placement stays idle. Tests: `PlacedPartsNotIdleTests` (red on the pre-fix predicates).
 
-Left alone, noted for a decision: a flag planted within 30 m (a `FlagEvent` on the kerbal's
-recording, not a tree member) still reads idle and is discarded with the tree.
+Follow-up (2026-09-29, branch `flag-not-idle`): a flag planted within 30 m (a `FlagEvent` on the
+kerbal's recording, not a tree member) read idle and was discarded with the tree. A second veto,
+`ParsekFlight.TreeHasPlantedFlagsForIdle` over `CountPlantedFlags`, now runs in all three
+predicates and logs `<caller>: not idle - tree has N planted flag(s)`. In the live
+`IsActiveTreeIdleOnPad` it runs AFTER `FlushRecorderIntoActiveTreeForSerialization`, because the
+recorder buffers flag events until the flush (source-gated by
+`IsActiveTreeIdleOnPad_FlagVetoRunsAfterTheRecorderFlush`). Tests in `PlacedPartsNotIdleTests`.
 
 ## ~~STOCK-TEXT-KEY-APPENDED-RAW: the facility menu showed `#autoLOC_900122` above Parsek's reason~~ [FILED AND FIXED 2026-09-29, branch `stock-text-localize`]
 

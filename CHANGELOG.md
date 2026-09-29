@@ -1263,8 +1263,9 @@ _(unreleased — entries accumulate here per commit)_
   it on leaving the scene. A kerbal who stepped out of a landed capsule and placed a Breaking
   Ground experiment, power, comms or Central Station part beside it counted as idle, so the
   flight, the placed parts' recordings and its rewind point were all deleted. A flight in which
-  a kerbal placed any ground part is now never idle (log: `IsTreeIdleOnPad: not idle - tree has
-  N placed ground part(s)`). A plain EVA with nothing placed is still idle, as before.
+  a kerbal placed any ground part or planted a flag is now never idle (log: `IsTreeIdleOnPad:
+  not idle - tree has N placed ground part(s)` / `... N planted flag(s)`). A plain EVA with
+  nothing placed and no flag is still idle, as before.
 
 - **The Space Center facility menu no longer shows `#autoLOC_900122` above Parsek's reason.**
   When the committed timeline upgrades a facility later, Parsek adds the reason under the
