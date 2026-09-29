@@ -133,6 +133,51 @@ namespace Parsek.Tests
                 l.Contains("IsTreePadFailure: not idle - tree has 1 placed ground part(s)"));
         }
 
+        private static void AddFlag(RecordingTree tree)
+        {
+            tree.Recordings["kerbal"].FlagEvents.Add(new FlagEvent
+            {
+                ut = 160.0,
+                flagSiteName = "Mun Base Flag",
+                placedBy = "Jebediah Kerman",
+                bodyName = "Mun"
+            });
+        }
+
+        [Fact]
+        public void IsTreeIdleOnPad_PlantedFlag_NotIdle()
+        {
+            RecordingTree tree = LanderWithEvaTree();
+            AddFlag(tree);
+
+            Assert.False(ParsekFlight.IsTreeIdleOnPad(tree));
+            Assert.Contains(logLines, l => l.Contains("[Flight]")
+                && l.Contains("IsTreeIdleOnPad: not idle - tree has 1 planted flag(s)")
+                && l.Contains("tree='Mun Lander'"));
+        }
+
+        [Fact]
+        public void IsTreePadFailure_PlantedFlag_NotPadFailure()
+        {
+            RecordingTree tree = ShortPadFailureTree();
+            AddFlag(tree);
+
+            Assert.False(ParsekFlight.IsTreePadFailure(tree));
+            Assert.Contains(logLines, l =>
+                l.Contains("IsTreePadFailure: not idle - tree has 1 planted flag(s)"));
+        }
+
+        [Fact]
+        public void CountPlantedFlags_SumsAcrossRecordings_NullSafe()
+        {
+            Assert.Equal(0, ParsekFlight.CountPlantedFlags(null));
+            RecordingTree tree = LanderWithEvaTree();
+            Assert.Equal(0, ParsekFlight.CountPlantedFlags(tree));
+            AddFlag(tree);
+            tree.Recordings["capsule"].FlagEvents.Add(new FlagEvent { ut = 170.0 });
+            Assert.Equal(2, ParsekFlight.CountPlantedFlags(tree));
+        }
+
         [Fact]
         public void IsTreeIdleOnPad_SinglePlacement_NotIdle()
         {
@@ -195,6 +240,28 @@ namespace Parsek.Tests
             Assert.True(walk > start, "IsActiveTreeIdleOnPad distance walk not found");
             string head = source.Substring(start, walk - start);
             Assert.Contains("TreeHasPlacedGroundPartsForIdle(activeTree, \"IsActiveTreeIdleOnPad\")", head);
+        }
+
+        [Fact]
+        public void IsActiveTreeIdleOnPad_FlagVetoRunsAfterTheRecorderFlush()
+        {
+            // The recorder buffers flag events until the flush copies them into the
+            // tree, so the flag veto must sit between the flush and the distance walk.
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string source = File.ReadAllText(
+                Path.Combine(projectRoot, "Source", "Parsek", "ParsekFlight.cs"))
+                .Replace("\r\n", "\n");
+
+            int start = source.IndexOf("internal bool IsActiveTreeIdleOnPad()\n", StringComparison.Ordinal);
+            Assert.True(start >= 0, "IsActiveTreeIdleOnPad declaration not found");
+            int flush = source.IndexOf("FlushRecorderIntoActiveTreeForSerialization();", start, StringComparison.Ordinal);
+            int veto = source.IndexOf("TreeHasPlantedFlagsForIdle(activeTree, \"IsActiveTreeIdleOnPad\")", start, StringComparison.Ordinal);
+            int walk = source.IndexOf("foreach (var rec in activeTree.Recordings.Values)", start, StringComparison.Ordinal);
+            Assert.True(flush > start, "flush not found in IsActiveTreeIdleOnPad");
+            Assert.True(veto > flush, "flag veto must run after the recorder flush");
+            Assert.True(walk > veto, "flag veto must run before the distance walk");
         }
     }
 }
