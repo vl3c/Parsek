@@ -11017,6 +11017,10 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # pin (body -> Eeloo), V15M `2026-09-10_1914` and V15T `2026-09-10_1917`, each
     # red on exactly the inverted element, drift gate met.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
+                       # CL-3 (on the line above) `recordings.structure`: armed 2026-09-29
+                       # (branch `arm-batch2`) off `2026-09-29_1535`, the first flight since
+                       # the TimeJump 61 fix (todo CL-LANES-INJECTED-RP-IN-THE-FUTURE); 5 of 5
+                       # bounds inverted offline, each red on exactly its window.
                        # CL-4: `rewind` armed 2026-09-09 off its own reading run
                        # `2026-09-09_1813_CL-4-refly-crew-standin` (supersedeRows 1, tombstones 1,
                        # CL-3's facets on CL-3's shape; rewindPoints unpinned, the RP is reaped);
@@ -11161,6 +11165,9 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # then landed unchanged on run 2, which is the same two-sample
                        # standard; negative control inverted tombstones to {max = 0},
                        # the exact window the reading run refuted.
+                       # RF-9 `recordings.structure`: armed 2026-09-29 (branch `arm-batch2`)
+                       # off `2026-09-29_1538`, after the SaveGame-before-reload fix and the
+                       # 12 -> 8 transient-seed re-pin; 9 of 9 bounds inverted offline.
                        "RF-9-atmosphere-exit-split-stays-open.toml",
                        "V27M-rover-route-endpoint-substituted-map-lines.toml",  # routes, armed 2026-09-07 off `2026-09-07_1858`
                        "V14M-ike-player-loop.toml", "V14T-ike-ts-arrival.toml",

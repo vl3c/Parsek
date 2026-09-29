@@ -41,6 +41,13 @@ _(unreleased — entries accumulate here per commit)_
   timing fix in one of its tests. One logistics lane (RVR-8) found that a route's second
   cycle no longer held when its origin was out of cargo. That was lost supply-route cargo
   (see Fixed), and RVR-8's own check is armed off its green re-fly.
+- **Dev: 15 more save-structure checks now gate the automated tests.** GS-1, GS-2, GS-3, GS-7,
+  GS-9, V3F, V3R, RF-1, RF-4, RF-9 and CL-3 each had a report-only check on the saved game read
+  correctly by a fresh run, and each check was shown to fail when its window was moved. 180 of
+  the 199 declared checks now gate; 19 on 17 lanes still wait for a reading. Two lane fixes came
+  first: RF-1, RF-4 and RF-9 reloaded a save written before the flight was committed, and CL-3
+  and CL-4 tried to Re-Fly a separation that was still in the future. RF-9's count of
+  split seeds was re-pinned after static solar panels stopped recording a deploy event.
 - **Dev: a lane for the tech, upgrade, hire and contract-accept blocks after a rewind.** `KB-3-ksc-click-blocks-after-rewind` runs on the stock-screen census career, whose committed timeline researches a tech, upgrades the Tracking Station, hires an applicant and accepts a contract after the save clock. For each of the four it checks that the stock control is greyed with the committed-timeline explanation, that the stock call behind the control is refused with the blocked dialog, that the dialog shows exactly the explanation the hover showed, and that no state, funds, science or ledger row changes. The `KscAction` test verb gains `action=accept-contract contract=<guid>` (Mission Control's own `Contract.Accept()` call), and a refused research, upgrade, hire or accept now logs the target's state and the funds and science pools before and after stock's call.
 - **Dev: a lane for the facility repair block after a rewind.** `KB-2-ksc-repair-block-after-rewind` (never flown) runs on a new committed fixture, `stock-screen-census-repair`: the stock-screen census career with the Tracking Station dish destroyed before the save clock and its repair committed after it, built by `Source/Parsek.Tests/StockScreenRepairFixture.cs`. It checks that the Tracking Station menu greys Repair and shows the explanation on its tooltip, and that a repair made through the menu's own call is refused with the blocked dialog, repairs nothing and leaves funds unchanged. The `StockScreen` test verb can now hover the facility menu's Repair button (`item=repair`), and a refused `KscAction repair-facility` logs the destroyed-building count and the funds before and after stock's call.
 - **Automated testing: the coverage-wave rulings are confirmed, and the RemoteTech cell is retired.**

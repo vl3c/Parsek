@@ -492,6 +492,13 @@ tombstones    = { min = 1 }
 # above already gates. `branchPoints` is GS-4's - three booster pairs and the core -
 # and is a fact about the staging plan rather than about this profile (run 1: 5).
 [expectations.recordings.structure]
+# ARMED 2026-09-29 (branch `arm-batch2`) off the reading `2026-09-29_1538` (PASS attempt 1, the
+# first green current-code flight after the SaveGame-before-reload fix and the transient-seed
+# re-pin): trees 1, committedTrees 1, recordings 11, JointBreak 5, Destroyed 10, SubOrbital 1,
+# every window met; its 9 bounds inverted offline against that save each red on exactly
+# their window. (`2026-09-29_1523` read the same windows but was PARSEK-FAIL on the stale
+# `Inserted 12` token.)
+gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 11, max = 11 }

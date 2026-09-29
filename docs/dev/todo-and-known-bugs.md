@@ -481,7 +481,7 @@ with one Offered contract accepted and one tier-1 node left unresearched after i
 (`start`) - or `stock-screen-census`, if it carries both (not checked). Not fixed now:
 a new or re-harvested fixture moves H45's host and every lane pinned to it.
 
-## RF-LANES-RELOAD-A-PRE-COMMIT-SAVE: RF-1, RF-4 and RF-9 reload the game before the committed flight is saved [FILED 2026-09-27, branch `arm-batch2`. LANE SPEC DEFECT, not a Parsek defect. SPEC FIX COMMITTED, RE-FLIGHT PENDING]
+## ~~RF-LANES-RELOAD-A-PRE-COMMIT-SAVE: RF-1, RF-4 and RF-9 reload the game before the committed flight is saved~~ [FILED 2026-09-27, branch `arm-batch2`. LANE SPEC DEFECT, not a Parsek defect. FIXED AND RE-FLOWN GREEN 2026-09-29]
 
 All three lanes run `ExitToSpaceCenter` and then `LoadGame persistent` straight away. The
 tree commits on arrival at the Space Center, AFTER the exit's own persistent.sfs write, so
@@ -502,10 +502,19 @@ for an incompatible sidecar (`TryRestoreActiveTreeNode: dropped entire tree ...
 incompatible sidecar`) and so kept the committed copy. Fix (committed on `arm-batch2`): a
 `SaveGame persistent` step after `ExitToSpaceCenter` in all three specs, RF-13H's and
 RF-20's order, budgets re-derived. RF-9's `Inserted 12 transient state seed event(s)`
-token read 8 on `_1952`; check it on the re-flight before re-pinning. Remaining: re-fly
-all three.
+token read 8 on `_1952`; check it on the re-flight before re-pinning.
 
-## CL-LANES-INJECTED-RP-IN-THE-FUTURE: CL-3 and CL-4 cannot Re-Fly since the future-rewind-point gate (#1788) [FILED 2026-09-27, branch `arm-batch2`. LANE SPEC DEFECT, not a Parsek defect. SPEC FIX COMMITTED, RE-FLIGHT PENDING]
+**Re-flown 2026-09-29** (automation DLL sha256 `ee677200...`, origin/main `8a5cc483f` merged): RF-4
+`2026-09-29_1516` and RF-1 `_1520` PASS attempt 1. RF-9 `_1523` met every save window but was
+PARSEK-FAIL(expectation) on the seed token alone, reading 8 again. Cause established: the
+four missing seeds are the four static solarPanels5 `DeployableExtended` seeds, which
+`4c13c13da` (2026-09-15, `PartStateSeeder.DeployableHasNoPoseAnimation`) deliberately stopped
+recording (`Built 8 ... engineSentinels=8 visualStates=0`; `2026-09-15_1546` read
+`visualStates=4`). An intended product change, so the token was re-pinned to 8, and
+`2026-09-29_1538` PASS attempt 1. All three armed `rewind` blocks met; RF-4 `rewind` and RF-1 /
+RF-9 `structure` armed off these readings (SAVE-BLOCKS-AWAITING-READINGS).
+
+## ~~CL-LANES-INJECTED-RP-IN-THE-FUTURE: CL-3 and CL-4 cannot Re-Fly since the future-rewind-point gate (#1788)~~ [FILED 2026-09-27, branch `arm-batch2`. LANE SPEC DEFECT, not a Parsek defect. FIXED AND RE-FLOWN GREEN 2026-09-29]
 
 `RewindCrewLossFixture` puts the split (and `rp_cl_root`) 60 s after the host save's UT
 (9.06 -> 69.06). Since RP-SURVIVES-REWIND-TO-LAUNCH a rewind point later than the clock is
@@ -519,58 +528,47 @@ before the mission phase (the clock lands just past the split and before the pro
 split+40 and the pod's split+55 ends, so nothing materializes; the rewind lands on the
 quicksave's 9.06, so `clockRewound` stays about a minute), budgets 1800 -> 2400 and
 2100 -> 2700. A grep of every spec invoking a literal injected RP found no other lane
-without a jump or a flown ascent first. Remaining: re-fly both.
+without a jump or a flown ascent first. Re-flown 2026-09-29 (DLL `ee677200...`): CL-3
+`2026-09-29_1535` and CL-4 `_1536` PASS attempt 1, both armed `rewind` blocks met (supersedeRows 1,
+tombstones 2 on each); CL-3 `structure` armed off `_1535`.
 
-## SAVE-BLOCKS-AWAITING-READINGS: 25 report-only save-structure blocks on 22 specs still wait for a matching reading [FILED 2026-09-27 from the arming pass, branch `arm-save-checks`; BATCH 2 2026-09-27, branch `arm-batch2`, PAUSED by the operator (token budget). OPEN]
+## SAVE-BLOCKS-AWAITING-READINGS: 19 report-only save-structure blocks on 17 specs still wait for a matching reading [FILED 2026-09-27 from the arming pass, branch `arm-save-checks`; BATCH 2 2026-09-27 / 2026-09-29, branch `arm-batch2`. OPEN]
 
 The operator's 2026-09-27 arming pass armed every report-only `rewind` /
 `recordings.structure` / `recordings.points` block that had a matching reading (37 blocks,
-then RVR-8 `structure`). BATCH 2 (branch `arm-batch2`, automation DLL sha256 `f747fdee...`,
-origin/main `1329091f8`) read and ARMED 11 more, each off its own PASS reading with every
-window met, and every bound inverted offline against that save red on exactly its window
-(55 of 55): GS-1 / GS-2 / GS-3 `structure` (`_2000` / `_2005` / `_2007`), GS-7 both
-(`_2016`), GS-9 both (`_2040`), V3F both (`_2048`), V3R both (`_2104`), all `2026-09-27_`.
-Re-derived from the specs: 174 of 199 declared blocks armed (the 199 includes blocks
-declared since #1902 on EVA-7, RF-16, RF-17, RF-20 and RR-1). Also re-checked after the
-Re-Fly separations-only / session EVA / session undock changes (#1897, #1909, #1910): RF-13
-`_2009` (supersedeRows 1, tombstones 2) and RF-12S `_2013` (5 / 12) still meet their armed
-windows; no committed fixture carries an EVA rewind point, so #1897 moved no armed window.
+then RVR-8 `structure`; GS-8 both followed on 2026-09-28 after its watch-hold fix). BATCH 2
+(branch `arm-batch2`) armed 15 more, each off its own PASS reading with every window met,
+and every bound inverted offline against that save red on exactly its window (80 of 80):
+- 2026-09-27, automation DLL sha256 `f747fdee...`: GS-1 / GS-2 / GS-3 `structure` (`_2000` /
+  `_2005` / `_2007`), GS-7 both (`_2016`), GS-9 both (`_2040`), V3F both (`_2048`), V3R both
+  (`_2104`), all `2026-09-27_`.
+- 2026-09-29, automation DLL sha256 `ee677200...` (origin/main `8a5cc483f` merged), after the
+  two lane-spec fixes (RF-LANES-RELOAD-A-PRE-COMMIT-SAVE, CL-LANES-INJECTED-RP-IN-THE-FUTURE):
+  RF-4 `rewind` (`_1516`), RF-1 `structure` (`_1520`), CL-3 `structure` (`_1535`), RF-9
+  `structure` (`_1538`), all `2026-09-29_`. The already-armed `rewind` blocks read green on
+  RF-1, RF-9, CL-3 and CL-4 (`_1536`).
 
-Still report-only, 25 blocks on 22 specs:
-- Awaiting the re-flight of a fixed lane: RF-1 and RF-9 `structure`
-  (RF-LANES-RELOAD-A-PRE-COMMIT-SAVE), CL-3 `structure` (CL-LANES-INJECTED-RP-IN-THE-FUTURE),
-  RF-4 `rewind` (below).
-- No reading on current code: B17 `points`; B23, B24, B25, B26, B28, B29, B30 `rewind`;
-  V3C both; RF-2, RF-3, RF-12L `rewind`; and the blocks declared since #1902: EVA-7
-  `structure`, RF-16 `rewind`, RF-17 `rewind`, RF-20 both, RR-1 `structure`.
+Re-derived from the specs with `saveparse.declared_structure_blocks` /
+`armed_structure_blocks` (rewind, structure, points, routes): 180 of 199 declared blocks
+armed across 107 specs. Also re-checked after the Re-Fly separations-only / session EVA /
+session undock changes (#1897, #1909, #1910): RF-13 `2026-09-27_2009` (supersedeRows 1,
+tombstones 2) and RF-12S `_2013` (5 / 12) still meet their armed windows; no committed
+fixture carries an EVA rewind point, so #1897 moved no armed window.
 
-**RF-4 `rewind` (analysed 2026-09-27, no flight needed for the answer).** Its only reading
-`2026-09-15_1553` read rewindPoints 1 against `max = 0`. That point was a PRODUCT DEFECT,
-since fixed, not a legitimate leftover. The log shows the seal reaping the booster's point
-(`Reaped rp=rp_fcdb5e13... slots=2`, `ReapOrphanedRPs: reaped=1 remaining=0 fileDeleteOk=1`
-at 18:56:11.527) and the Rewind-to-Launch's own load then printing
-`RewindPoints loaded: 1`: the rewind loads the Space Center, `SpaceCenterMain.Start` reloads
-persistent.sfs, and the last write of it (OnSave `rewindPoints=1`) came 17 ms before the
-reap. The produced save carries the REWIND_POINT entry and the branch-point back-reference
-but no quicksave under `Parsek/RewindPoints/`. RP-SURVIVES-REWIND-TO-LAUNCH (#1788) now
-carries the in-memory list across the rewind (`RecordingStore.CaptureRewindPointsForRewind`
-in `ExecuteRewindSaveLoad`, reinstalled by `ReinstallRewindCarriedRewindPointsAfterLoad`),
-so a point reaped before the rewind stays reaped and `max = 0` stands. QUESTION FOR THE
-OPERATOR, in gameplay terms: the player re-flies the booster, SEALS it ("this attempt
-counts"), then rewinds the whole flight to launch; should the booster's separation offer a
-Re-Fly again? The window says no: the seal closed it for good, and "a rewind point always
-survives a Rewind-to-Launch" keeps only points that still exist when the rewind starts.
-The supervisor agreed on 2026-09-27 and asked to arm RF-4 if a current-code reading shows
-rewindPoints 0; its first current-code flight `_1943` hit RF-LANES-RELOAD-A-PRE-COMMIT-SAVE
-before it could read the window.
+**RF-4 `rewind` (answered).** Its only earlier reading `2026-09-15_1553` read rewindPoints 1
+against `max = 0`: a product defect since fixed by RP-SURVIVES-REWIND-TO-LAUNCH (#1788), not a
+legitimate leftover. The seal reaped the booster's point, then the Rewind-to-Launch reloaded a
+persistent.sfs written 17 ms before the reap. #1788 carries the in-memory list across the
+rewind, so a point reaped before the rewind stays reaped. In gameplay terms: once the player
+seals a re-flown booster, rewinding the whole flight to launch does not offer that
+separation's Re-Fly again. The supervisor agreed on 2026-09-27, and `2026-09-29_1516` read
+rewindPoints 0, so the block is armed.
 
-Remaining (batch 2 paused): re-fly RF-4, RF-1, RF-9, CL-3 and CL-4 after provisioning from
-`arm-batch2`; arm RF-1 / RF-9 / CL-3 `structure` and RF-4 `rewind` where they read green,
-inverting each offline; then the autotest-status / CHANGELOG / roadmap docs, the C# and
-provision / missions suites, and the PR.
-
-GS-8 both blocks armed 2026-09-28 off `2026-09-28_1732` (branch `gs8-watch-hold`, after the
-GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD fix).
+Still report-only, 19 blocks on 17 specs, none with a reading on current code:
+- The long harvest missions: B17 `points`; B23, B24, B25, B26, B28, B29, B30 `rewind`; V3C both.
+- RF-2, RF-3, RF-12L `rewind`.
+- Declared since #1902: EVA-7 `structure`, RF-16 `rewind`, RF-17 `rewind`, RF-20 both, RR-1
+  `structure`.
 
 ---
 

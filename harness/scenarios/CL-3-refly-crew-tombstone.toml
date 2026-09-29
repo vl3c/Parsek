@@ -605,6 +605,11 @@ tombstones    = { min = 1 }
 # left undeclared because it depends on where the relaunch leg happens to end, and
 # a single sample is not a contract.
 [expectations.recordings.structure]
+# ARMED 2026-09-29 (branch `arm-batch2`) off the reading `2026-09-29_1535` (PASS attempt 1, the
+# first flight since the TimeJump fix for the future-rewind-point gate): trees 1,
+# committedTrees 1, recordings 4, every window met; its 5 bounds inverted offline against
+# that save each red on exactly their window.
+gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 4 }

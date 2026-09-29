@@ -1638,22 +1638,26 @@ class Cl3SpecArmedTests(unittest.TestCase):
         # the opposite of correct behaviour.
         self.assertNotIn("rewindPoints", self.exp["rewind"])
 
-    def test_the_structure_block_is_declared_but_left_report_only(self):
-        # Gating is PER BLOCK, so structure is recorded without being gated. Its
-        # terminal-state mix depends on where the relaunch leg ends, and a single
-        # sample is not a contract - only the counts are.
+    def test_the_structure_block_is_armed_on_counts_only(self):
+        # ARMED 2026-09-29 (branch `arm-batch2`) off `2026-09-29_1535`, the first flight
+        # since the TimeJump fix (todo CL-LANES-INJECTED-RP-IN-THE-FUTURE), every bound
+        # inverted offline. Its terminal-state mix depends on where the relaunch leg
+        # ends, and a single sample is not a contract - so only the counts are armed.
         struct = self.exp["recordings"]["structure"]
-        self.assertNotIn("gating", struct)
-        self.assertNotIn("structure", saveparse.armed_structure_blocks(self.exp))
+        self.assertIs(True, struct.get("gating"))
+        self.assertIn("recordings.structure", saveparse.armed_structure_blocks(self.exp))
+        self.assertEqual({"min": 1, "max": 1}, struct["trees"])
+        self.assertEqual({"min": 1, "max": 1}, struct["committedTrees"])
         self.assertEqual({"min": 4}, struct["recordings"])
         self.assertNotIn("terminalStates", struct)
         self.assertNotIn("points", self.exp.get("recordings", {}))
 
-    def test_exactly_one_block_arms_gating_and_it_is_rewind(self):
-        # Anti-over-arming: a later author adding `gating = true` to structure or
-        # points must do it deliberately, with its own measurement.
+    def test_exactly_rewind_and_structure_arm_gating(self):
+        # Anti-over-arming: a later author adding `gating = true` to points (or a new
+        # block) must do it deliberately, with its own measurement.
         self.assertTrue(saveparse.gating_armed(self.exp))
-        self.assertEqual(("rewind",), saveparse.armed_structure_blocks(self.exp))
+        self.assertEqual(("rewind", "recordings.structure"),
+                         saveparse.armed_structure_blocks(self.exp))
         # ...and not in a block shape this test does not model either: the raw
         # text carries no `gating` key at all, so a future author cannot arm one
         # by declaring a surface these asserts do not enumerate.
@@ -1664,9 +1668,9 @@ class Cl3SpecArmedTests(unittest.TestCase):
                 continue
             if "gating" in stripped:
                 gating_lines.append(stripped)
-        # EXACTLY ONE non-comment `gating` line in the whole file, so a second
-        # armed block cannot appear without this cell noticing.
-        self.assertEqual(["gating       = true"], gating_lines)
+        # EXACTLY TWO non-comment `gating` lines in the whole file (rewind, then
+        # structure), so a third armed block cannot appear without this cell noticing.
+        self.assertEqual(["gating       = true", "gating         = true"], gating_lines)
 
     def test_it_is_on_the_save_structure_armed_allowlist(self):
         # THE CROSS-FILE HALF, read out of the guard's own source rather than
