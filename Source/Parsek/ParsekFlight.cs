@@ -13538,17 +13538,26 @@ namespace Parsek
             }
 
             int before = RecordingStore.CommittedRecordings.Count;
-            RecordingStore.RunOptimizationPass();
+            bool stampMoved = false;
+            // Guarded: a throw is logged as an Error and the commit continues to the ledger
+            // notify and leaf spawn with whatever the committed list holds.
+            string activeTipId = InFlightCommitOptimization.RunPassAndResolveActiveTip(
+                RecordingStore.RunOptimizationPass,
+                () =>
+                {
+                    Recording activeTip = InFlightCommitOptimization.ResolveChainTip(
+                        activeRec, RecordingStore.CommittedRecordings);
+                    stampMoved = InFlightCommitOptimization.CarrySpawnStampToTip(activeRec, activeTip);
+                    return activeTip?.RecordingId;
+                },
+                activeRecId,
+                out bool passThrew,
+                out bool stampMoveThrew);
             int after = RecordingStore.CommittedRecordings.Count;
-
-            Recording activeTip = InFlightCommitOptimization.ResolveChainTip(
-                activeRec, RecordingStore.CommittedRecordings);
-            bool stampMoved = InFlightCommitOptimization.CarrySpawnStampToTip(activeRec, activeTip);
-            string activeTipId = activeTip?.RecordingId ?? activeRecId;
             ParsekLog.Info("Flight",
                 $"CommitTreeFlight: optimization pass ran committed={before}->{after} " +
                 $"activeRec={activeRecId ?? "<none>"} activeTip={activeTipId ?? "<none>"} " +
-                $"spawnStampMoved={stampMoved}");
+                $"spawnStampMoved={stampMoved} passThrew={passThrew} stampMoveThrew={stampMoveThrew}");
             return activeTipId;
         }
 

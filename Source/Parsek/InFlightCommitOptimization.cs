@@ -86,6 +86,52 @@ namespace Parsek
             return true;
         }
 
+        internal const string PassThrewLogToken = "CommitTreeFlight: optimization pass threw";
+        internal const string StampMoveThrewLogToken = "CommitTreeFlight: active spawn-stamp move threw";
+
+        /// <summary>
+        /// Runs the pass and then the active-tip resolution + stamp move, each guarded, so a
+        /// throw (sidecar I/O in FlushDirtyFiles, a bad recording) is logged as an Error and the
+        /// in-flight commit still reaches its ledger notify and leaf spawn instead of stopping
+        /// half-done. The two steps are guarded separately: a pass that split the active
+        /// recording and then threw still gets the stamp moved onto the new tip. Returns the
+        /// id the commit treats as the active vessel's recording: the resolved tip, or
+        /// <paramref name="fallbackActiveId"/> (the stamp stays on the pre-pass recording)
+        /// when the resolution threw or returned null.
+        /// </summary>
+        internal static string RunPassAndResolveActiveTip(
+            Action runPass, Func<string> resolveTipAndMoveStamp, string fallbackActiveId,
+            out bool passThrew, out bool stampMoveThrew)
+        {
+            passThrew = false;
+            stampMoveThrew = false;
+            try
+            {
+                runPass?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                passThrew = true;
+                ParsekLog.Error("Flight",
+                    $"{PassThrewLogToken} {ex.GetType().Name}: {ex.Message} - " +
+                    "continuing the commit on the committed list as it stands");
+            }
+
+            try
+            {
+                string tipId = resolveTipAndMoveStamp?.Invoke();
+                return tipId ?? fallbackActiveId;
+            }
+            catch (Exception ex)
+            {
+                stampMoveThrew = true;
+                ParsekLog.Error("Flight",
+                    $"{StampMoveThrewLogToken} {ex.GetType().Name}: {ex.Message} - " +
+                    $"the stamp stays on activeRec={fallbackActiveId ?? "<none>"}");
+                return fallbackActiveId;
+            }
+        }
+
         /// <summary>
         /// Counts the distinct post-pass tips of <paramref name="leaves"/> (captured before the
         /// commit) that are spawned, excluding the active vessel's tip.

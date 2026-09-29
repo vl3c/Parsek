@@ -53,7 +53,11 @@ behavior (the next cold load optimizes), while a Re-Fly session marker or a merg
 of the in-flight commit, and `CommitTree`'s Re-Fly union branch commits a different tree object
 than the flight controller holds. Log: Info `CommitTreeFlight: optimization pass ran
 committed=N->M activeRec=... activeTip=... spawnStampMoved=...` or `CommitTreeFlight: optimization
-pass skipped reason=re-fly-session-active|merge-journal-active`. Tests:
+pass skipped reason=re-fly-session-active|merge-journal-active`. The pass and the stamp move run
+through `InFlightCommitOptimization.RunPassAndResolveActiveTip`, each step guarded: a throw (sidecar
+I/O in `FlushDirtyFiles`, say) logs Error `CommitTreeFlight: optimization pass threw` / `active
+spawn-stamp move threw` and the commit still reaches the ledger notify and the leaf spawn (the stamp
+stays on the pre-pass recording if its move threw). Tests:
 `InFlightCommitOptimizationTests` (the source gate reds on the pre-fix `CommitTreeFlight`; the
 integration cell shows a real optimizer split leaving the tip unstamped until the carry).
 

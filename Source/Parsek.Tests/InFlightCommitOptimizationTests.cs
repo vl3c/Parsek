@@ -166,6 +166,73 @@ namespace Parsek.Tests
                 leaves, committed, "active-tip"));
         }
 
+        // --- RunPassAndResolveActiveTip: a throw never stops the commit ---
+
+        private readonly List<string> logLines = new List<string>();
+
+        private void CaptureLog()
+        {
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
+
+        [Fact]
+        public void RunPassAndResolveActiveTip_NoThrow_ReturnsResolvedTip()
+        {
+            CaptureLog();
+            bool ran = false;
+            string id = InFlightCommitOptimization.RunPassAndResolveActiveTip(
+                () => ran = true, () => "tip", "active",
+                out bool passThrew, out bool stampMoveThrew);
+            Assert.True(ran);
+            Assert.Equal("tip", id);
+            Assert.False(passThrew);
+            Assert.False(stampMoveThrew);
+            Assert.DoesNotContain(logLines, l => l.Contains("threw"));
+        }
+
+        [Fact]
+        public void RunPassAndResolveActiveTip_PassThrows_LogsErrorAndStillMovesStamp()
+        {
+            CaptureLog();
+            bool resolved = false;
+            string id = InFlightCommitOptimization.RunPassAndResolveActiveTip(
+                () => throw new System.IO.IOException("sidecar locked"),
+                () => { resolved = true; return "tip"; },
+                "active",
+                out bool passThrew, out bool stampMoveThrew);
+            Assert.True(passThrew);
+            Assert.False(stampMoveThrew);
+            Assert.True(resolved);
+            Assert.Equal("tip", id);
+            Assert.Contains(logLines, l => l.Contains("[ERROR]") && l.Contains("[Flight]")
+                && l.Contains(InFlightCommitOptimization.PassThrewLogToken)
+                && l.Contains("IOException") && l.Contains("sidecar locked"));
+        }
+
+        [Fact]
+        public void RunPassAndResolveActiveTip_StampMoveThrows_FallsBackToActiveId()
+        {
+            CaptureLog();
+            string id = InFlightCommitOptimization.RunPassAndResolveActiveTip(
+                () => { },
+                () => throw new InvalidOperationException("bad chain"),
+                "active",
+                out bool passThrew, out bool stampMoveThrew);
+            Assert.False(passThrew);
+            Assert.True(stampMoveThrew);
+            Assert.Equal("active", id);
+            Assert.Contains(logLines, l => l.Contains("[ERROR]")
+                && l.Contains(InFlightCommitOptimization.StampMoveThrewLogToken)
+                && l.Contains("activeRec=active"));
+        }
+
+        [Fact]
+        public void RunPassAndResolveActiveTip_NullTip_FallsBackToActiveId()
+        {
+            Assert.Equal("active", InFlightCommitOptimization.RunPassAndResolveActiveTip(
+                () => { }, () => null, "active", out _, out _));
+        }
+
         // --- Integration over the real optimizer ---
 
         private static Recording MakeActiveSplittableRecording(RecordingTree tree)
@@ -277,9 +344,14 @@ namespace Parsek.Tests
             int helperIdx = prepared.IndexOf(helperDecl, StringComparison.Ordinal);
             Assert.True(helperIdx >= 0, "RunInFlightCommitOptimizationPass declaration not found");
             string helper = SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', helperIdx));
-            Assert.Contains("RecordingStore.RunOptimizationPass();", helper);
             Assert.Contains("InFlightCommitOptimization.DecideSkipReason(", helper);
             Assert.Contains("InFlightCommitOptimization.CarrySpawnStampToTip(", helper);
+            // The pass runs only through the guarded runner, never as a bare call that could
+            // throw out of the commit before the ledger notify and the leaf spawn.
+            Assert.Contains("InFlightCommitOptimization.RunPassAndResolveActiveTip(", helper);
+            Assert.Contains("RecordingStore.RunOptimizationPass,", helper);
+            Assert.DoesNotContain("RunOptimizationPass()", helper);
+            Assert.DoesNotContain("RunOptimizationPass()", body);
         }
     }
 }
