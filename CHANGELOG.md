@@ -1258,6 +1258,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A flight merged without leaving the flight scene is tidied at once.** Merging from the
+  Switch-To Merge / Discard dialog now trims idle tails and splits the flight into its phases
+  right away, as leaving for the Space Center already did, so the vessels it ends with appear
+  one after another on a later rewind instead of all at the moment of the merge (the trim used
+  to wait for the next time KSP loaded the save from cold). The vessel you are flying stays
+  marked as the real vessel on the trimmed flight's last segment. Skipped during a Re-Fly.
 - **Setting up ground science next to a landed vessel no longer throws the flight away.** When
   nothing in a flight moved more than 30 m, Parsek treats it as "idle on the pad" and discards
   it on leaving the scene. A kerbal who stepped out of a landed capsule and placed a Breaking

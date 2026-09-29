@@ -13405,6 +13405,10 @@ namespace Parsek
         /// <c>CommitTree</c> seam verb (<c>TestCommands/ParsekTestCommandAddon.cs:2016</c>).
         /// The merge DIALOG's own commit is a different path
         /// (<c>MergeDialog.MergeCommit</c>) and does not come through here.</para>
+        /// <para>Both paths run <see cref="RecordingStore.RunOptimizationPass"/> after the
+        /// commit. This one spawns / adopts the leaves AFTER the pass, so the spawn stamps land
+        /// on the post-split chain tips, and moves the live active vessel's stamp onto its tip
+        /// (<see cref="InFlightCommitOptimization"/>).</para>
         /// </summary>
         public void CommitTreeFlight()
         {
@@ -13459,23 +13463,24 @@ namespace Parsek
             // Commit tree to storage
             RecordingStore.CommitTree(activeTree);
 
+            // Same position as MergeDialog.MergeCommit: after the commit + MarkTreeAsApplied,
+            // before the ledger notify. Without it a tree committed in flight kept its idle
+            // tails (and unsplit / unmerged segments) until the next cold load.
+            string activeTipId = RunInFlightCommitOptimizationPass(activeRec, activeRecId);
+
             // Recalculate crew reservations (replaces ReserveCrewForLeaves)
             LedgerOrchestrator.NotifyLedgerTreeCommitted(activeTree);
 
             // Spawn all non-active leaf vessels
-            SpawnTreeLeaves(activeTree, activeRecId);
+            SpawnTreeLeaves(activeTree, activeTipId);
 
             // Crew swap on active vessel
             int swapped = CrewReservationManager.SwapReservedCrewInFlight();
             if (swapped > 0)
                 ParsekLog.Info("Flight", $"CommitTreeFlight: swapped {swapped} crew on active vessel");
 
-            int spawnCount = 0;
-            foreach (var leaf in spawnableLeaves)
-            {
-                if (leaf.RecordingId != activeRecId && leaf.VesselSpawned)
-                    spawnCount++;
-            }
+            int spawnCount = InFlightCommitOptimization.CountSpawnedLeafTips(
+                spawnableLeaves, RecordingStore.CommittedRecordings, activeTipId);
 
             // Clear state
             var treeName = activeTree.TreeName;
@@ -13506,6 +13511,45 @@ namespace Parsek
             // hooks in MergeDialog.MergeCommit. Internally gated (test batch,
             // restore window, prompted-once, dismissed) and never throws.
             Logistics.RouteRunPrompt.NotifyTreeCommitted(committedTreeForPrompt);
+        }
+
+        /// <summary>
+        /// Runs <see cref="RecordingStore.RunOptimizationPass"/> for an in-flight tree commit
+        /// (boring-tail trim, env splits, chain merges) and moves the live active vessel's
+        /// spawn stamp onto its post-pass chain tip. Returns the id the rest of the commit
+        /// must treat as the active vessel's recording. Skipped (the next cold load optimizes
+        /// instead) while a Re-Fly session or a merge journal is live; see
+        /// <see cref="InFlightCommitOptimization.DecideSkipReason"/>.
+        /// </summary>
+        private string RunInFlightCommitOptimizationPass(Recording activeRec, string activeRecId)
+        {
+            var scenario = ParsekScenario.Instance;
+            bool reFly = !object.ReferenceEquals(null, scenario)
+                && scenario.ActiveReFlySessionMarker != null;
+            bool journal = !object.ReferenceEquals(null, scenario)
+                && scenario.ActiveMergeJournal != null;
+            string skipReason = InFlightCommitOptimization.DecideSkipReason(reFly, journal);
+            if (skipReason != null)
+            {
+                ParsekLog.Info("Flight",
+                    $"CommitTreeFlight: optimization pass skipped reason={skipReason} " +
+                    "(the next cold load optimizes this tree)");
+                return activeRecId;
+            }
+
+            int before = RecordingStore.CommittedRecordings.Count;
+            RecordingStore.RunOptimizationPass();
+            int after = RecordingStore.CommittedRecordings.Count;
+
+            Recording activeTip = InFlightCommitOptimization.ResolveChainTip(
+                activeRec, RecordingStore.CommittedRecordings);
+            bool stampMoved = InFlightCommitOptimization.CarrySpawnStampToTip(activeRec, activeTip);
+            string activeTipId = activeTip?.RecordingId ?? activeRecId;
+            ParsekLog.Info("Flight",
+                $"CommitTreeFlight: optimization pass ran committed={before}->{after} " +
+                $"activeRec={activeRecId ?? "<none>"} activeTip={activeTipId ?? "<none>"} " +
+                $"spawnStampMoved={stampMoved}");
+            return activeTipId;
         }
 
         /// <summary>
