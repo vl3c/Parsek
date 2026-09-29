@@ -498,5 +498,123 @@ namespace Parsek.Tests
                 System.Threading.Thread.CurrentThread.CurrentCulture = saved;
             }
         }
+
+        // ----- The stock-UI click-block sub-actions (KB-4) -----
+
+        [Theory]
+        [InlineData("decline-contract", "DeclineContract", "contract-decline")]
+        [InlineData("cancel-contract", "CancelContract", "contract-cancel")]
+        [InlineData("sack-kerbal", "SackKerbal", "kerbal-dismiss")]
+        [InlineData("press-strategy", "PressStrategyButton", "strategy-button")]
+        [InlineData("purchase-part", "PurchasePart", "part-purchase")]
+        [InlineData("purchase-all", "PurchaseAllParts", "part-purchase")]
+        [InlineData("assign-crew", "AssignCrew", "crew-assign")]
+        public void ParseKind_And_ManifestKind_ClickBlockSubActions(string action, string kind, string manifest)
+        {
+            KscActionKind parsed = TestCommandKscAction.ParseKind(action);
+            Assert.Equal(kind, parsed.ToString());
+            Assert.Equal(manifest, TestCommandKscAction.ManifestKindFor(parsed));
+        }
+
+        [Theory]
+        [InlineData("decline-contract", "unknown-contract")]
+        [InlineData("cancel-contract", "unknown-contract")]
+        [InlineData("sack-kerbal", "unknown-kerbal")]
+        [InlineData("assign-crew", "unknown-kerbal")]
+        [InlineData("press-strategy", "unknown-strategy")]
+        [InlineData("purchase-part", "unknown-part")]
+        [InlineData("purchase-all", "unknown-tech-node")]
+        public void Decide_ClickBlock_UnknownTargetNamedFirst(string action, string reason)
+        {
+            // Every other input would refuse too; the unknown target is named first so a
+            // typo never reads as a state refusal.
+            var d = TestCommandKscAction.Decide(action, "x", new KscActionInputs
+            {
+                ArgPresent = true, TargetResolves = false, AlreadyApplied = true,
+            });
+            Assert.False(d.Accepted);
+            Assert.Equal(reason, d.RejectReason);
+        }
+
+        [Fact]
+        public void Decide_DeclineAndCancel_StateRefusalsThenAccept()
+        {
+            Assert.Equal("contract-not-offered", TestCommandKscAction.Decide("decline-contract", "g",
+                ContractInputs(notOffered: true)).RejectReason);
+            Assert.Equal("contract-not-active", TestCommandKscAction.Decide("cancel-contract", "g",
+                ContractInputs(notOffered: true)).RejectReason);
+            Assert.True(TestCommandKscAction.Decide("decline-contract", "g", ContractInputs()).Accepted);
+            Assert.True(TestCommandKscAction.Decide("cancel-contract", "g", ContractInputs()).Accepted);
+        }
+
+        [Fact]
+        public void Decide_Sack_AsksNoParsekPredicate()
+        {
+            // A Parsek-managed kerbal is still admitted: the backstop on stock's call is
+            // what the lane proves, so the seam must reach it.
+            var admitted = TestCommandKscAction.Decide("sack-kerbal", "Bill Kerman", new KscActionInputs
+            {
+                ArgPresent = true, TargetResolves = true, IsParsekManaged = true, IsDismissable = true,
+            });
+            Assert.True(admitted.Accepted);
+            Assert.Equal("kerbal-not-dismissable", TestCommandKscAction.Decide("sack-kerbal", "Bill Kerman",
+                new KscActionInputs { ArgPresent = true, TargetResolves = true }).RejectReason);
+        }
+
+        [Fact]
+        public void Decide_PressStrategy_NeedsTheOpenScreenWithTheStrategySelected()
+        {
+            var inputs = new KscActionInputs { ArgPresent = true, TargetResolves = true };
+            Assert.Equal("administration-not-open",
+                TestCommandKscAction.Decide("press-strategy", "s", inputs).RejectReason);
+            inputs.ScreenOpen = true;
+            Assert.Equal("strategy-not-selected",
+                TestCommandKscAction.Decide("press-strategy", "s", inputs).RejectReason);
+            inputs.TargetSelected = true;
+            Assert.True(TestCommandKscAction.Decide("press-strategy", "s", inputs).Accepted);
+        }
+
+        [Theory]
+        [InlineData("purchase-part", "part-tech-not-researched", "part-already-purchased")]
+        [InlineData("purchase-all", "node-not-researched", "nothing-to-purchase")]
+        public void Decide_Purchase_RefusalsInOrder(string action, string notResearched, string nothingLeft)
+        {
+            var inputs = new KscActionInputs { ArgPresent = true, TargetResolves = true, AlreadyApplied = true };
+            Assert.Equal("rnd-not-open", TestCommandKscAction.Decide(action, "x", inputs).RejectReason);
+            inputs.ScreenOpen = true;
+            Assert.Equal(notResearched, TestCommandKscAction.Decide(action, "x", inputs).RejectReason);
+            inputs.PrerequisiteMet = true;
+            Assert.Equal(nothingLeft, TestCommandKscAction.Decide(action, "x", inputs).RejectReason);
+            inputs.AlreadyApplied = false;
+            Assert.True(TestCommandKscAction.Decide(action, "x", inputs).Accepted);
+        }
+
+        [Fact]
+        public void Decide_AssignCrew_RefusalsThenAccept()
+        {
+            var inputs = new KscActionInputs { ArgPresent = true, TargetResolves = true, AlreadyApplied = true };
+            Assert.Equal("crew-dialog-not-open", TestCommandKscAction.Decide("assign-crew", "k", inputs).RejectReason);
+            inputs.ScreenOpen = true;
+            Assert.Equal("kerbal-already-assigned", TestCommandKscAction.Decide("assign-crew", "k", inputs).RejectReason);
+            inputs.AlreadyApplied = false;
+            Assert.True(TestCommandKscAction.Decide("assign-crew", "k", inputs).Accepted);
+        }
+
+        [Fact]
+        public void AppendRepFields_PinnedShape_CultureInvariant()
+        {
+            var saved = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+                Assert.Equal("L repBefore=12.5 repAfter=12.5 repDelta=0",
+                    TestCommandKscAction.AppendRepFields("L", 12.5, 12.5));
+                Assert.EndsWith(" repDelta=-2.5", TestCommandKscAction.AppendRepFields("L", 12.5, 10.0));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
     }
 }

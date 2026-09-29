@@ -1,0 +1,81 @@
+schema = 1
+id = "GUI-30-census-stock-screens-sandbox"
+tier = "operator"
+# THE STOCK SCREENS IN SANDBOX MODE, WITH NO PARSEK MARK.
+#
+# WHY THIS LANE EXISTS. The stock-screen annotation program
+# (docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md) marks and greys stock
+# controls for committed-timeline reservations. Its census (GUI-28) photographs a Career
+# host; GUI-8 photographs the Science-mode screens. Sandbox has no contracts, strategies,
+# funds, science or R&D (stock locks Mission Control, Administration and R&D there), so the
+# screens a Sandbox player can open must carry no Parsek mark at all. No lane had looked.
+#
+# THE HOST. `fixtures/saves/fresh-sandbox` is the suite's committed never-flown
+# `Mode = SANDBOX` save: vessel-less (the NoVesselSpaceCenter boot), no recordings, no
+# ParsekScenario node (a cold first boot, `PreParsekBackup` runs). Nothing is committed, so
+# nothing may be marked.
+#
+# WHAT IT PHOTOGRAPHS (3 PNGs): the Space Center, the Astronaut Complex and the Tracking
+# Station's facility menu. The VAB crew panel is not reachable here
+# (`StockScreen editor open` needs a craft in the save's Ships/VAB, and this save has
+# none). Each capture writes the open screens' decision records
+# (`[StockUiOverlay] record label=...`), which must read marked=0 / blocked=0.
+#
+# The facility menu is photographed unhovered: outside Career its Upgrade button carries no
+# tooltip at all (the hover step refused `stockscreen-no-tooltip control=Upgrade` on the
+# reading runs), and a Parsek reason there would itself be the finding.
+description = "GUI census of the stock screens a Sandbox player can open (the Space Center, the Astronaut Complex, a facility menu) on the committed fresh Sandbox save, where nothing is committed, so no stock screen carries a Parsek mark or block."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "stock-ui", "sandbox", "GUI-30", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/fresh-sandbox"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "pointer", park = "true" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "sb-stock-ksc" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "astronaut", act = "open" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "sb-stock-ac" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "astronaut", act = "close" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "facilitymenu", act = "open", item = "SpaceCenter/TrackingStation" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "sb-stock-facility-menu" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "facilitymenu", act = "close" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY: the verdict is a set of images and the no-mark records.
+D14 = ["sandbox", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = [
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=sb-stock-ac screen=AstronautComplex tab=Available items=[0-9]+ marked=0 blocked=0",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=sb-stock-facility-menu screen=FacilityMenu",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=sb-stock-ksc",
+]
+forbidden = [
+  "record label=sb-stock-\\S+ .*marked=(true|[1-9])",
+  "record label=sb-stock-\\S+ .*blocked=(true|[1-9])",
+]
+
+[runtime]
+budgetSeconds = 600
+screenResolution = "1920x1080"
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

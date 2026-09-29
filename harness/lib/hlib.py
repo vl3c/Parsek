@@ -9477,6 +9477,27 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # Offered is career state. A committed-timeline refusal is `blocked-committed`, above.
     "unknown-contract": "driver-arg",
     "contract-not-offered": "driver-career",
+    # The stock-UI click-block sub-actions (KB-4): decline-contract / cancel-contract /
+    # sack-kerbal / press-strategy / purchase-part / purchase-all / assign-crew. A part
+    # name the loader does not know is the SPEC's fault; a stock screen the sub-action
+    # presses a control on that is not open (or a button the build does not have), or a
+    # press that changed nothing without a refusal the seam can read, is a gate; the
+    # target already in the state the click would put it in is career state. A
+    # committed-timeline refusal is `blocked-committed`, above.
+    "unknown-part": "driver-arg",
+    "strategy-not-selected": "driver-arg",
+    "contract-not-active": "driver-career",
+    "part-tech-not-researched": "driver-career",
+    "part-already-purchased": "driver-career",
+    "node-not-researched": "driver-career",
+    "nothing-to-purchase": "driver-career",
+    "kerbal-already-assigned": "driver-career",
+    "no-empty-seat": "driver-career",
+    "administration-not-open": "driver-gate",
+    "rnd-not-open": "driver-gate",
+    "crew-dialog-not-open": "driver-gate",
+    "button-not-found": "driver-gate",
+    "button-no-effect": "driver-gate",
     # R12 (design "> Update (R12)"). Both verbs ship a TYPED refusal taxonomy; without
     # these rows every one of them collapses to the coarse driver-verdict-mismatch and the
     # taxonomy is decorative on the harness side. Same retryability either way - these
