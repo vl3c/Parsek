@@ -15,6 +15,26 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## KB-4-RND-PART-TOOLTIP-LOST: the R&D part tooltip closed between KB-4's hover and its capture [FILED 2026-09-29 from KB-4 `2026-09-29_1507`, branch `kb4-block-proof`. OPEN, not reproduced on the next flight]
+
+`KB-4-ksc-click-blocks-remaining` `2026-09-29_1507` (automation DLL sha256 `caf7091b...`,
+the post-main-merge head) was PARSEK-FAIL(expectation) on three `logContracts.required`
+tokens, all of the `kb4-rnd-part` capture: no `record ... screen=PartTooltip ... why=`
+and no `control ... screen=PartTooltip name=buttonPurchase` line. The hover itself landed
+(`stockscreen ok screen=rnd act=hover ... part=probeCoreSphere.v2 frames=3
+tooltip=PartListTooltipController/direct/moved`, and `[PartPurchasePatch] Part tooltip
+purchase button disabled for 'probeCoreSphere.v2'` at +49 ms), but 240 ms later the
+capture shows the R&D tree with no tooltip (PNG 133080 bytes against 240273 on the PASS
+`2026-09-28_2031`, whose log order and timing are otherwise identical). Every block in the
+lane still fired and refused with nothing changed (both purchase dialogs present). The
+next flight on the same DLL, `2026-09-29_1514`, PASS attempt 1 with the tooltip in the
+photo. The cursor target (client 1111,490) is the partly clipped third row of the
+Available Parts grid, at the scroll view's bottom edge; an operator mouse move, or the
+pointer sitting on the mask edge, would close the tooltip the same way. Unknown which.
+Next step if it recurs: have the hover verb pick the part icon's visible centre (clipped
+by the viewport mask) and re-read the tooltip's presence at capture time, so a lost
+tooltip reads INVALID(pointer) instead of a missing product token.
+
 ## STOCK-SCREEN-CENSUS-FUNDS-GUARD-CLAMPS: the census career's funds guard clamps both ways, and an allowed upgrade does not move the walk target [FILED 2026-09-28 from KB-4 `2026-09-28_2031`, branch `kb4-block-proof`. OPEN, not investigated, not gated]
 
 On `stock-screen-census` the funds patch clamps at load (`PatchFunds: GUARDED DRAWDOWN
@@ -491,7 +511,10 @@ researchable tier-1 nodes, and the cell read `RDNode.state` before stock's first
 `UpdateGraphics` (the R&D canvas was up 36 ms). Fixed test-only: the cell waits for the
 tree's states, and (found on its first execution, `2026-09-28_2034`, `passed=11 failed=1`)
 takes its stock-colour baseline on the selected node's panel rather than with no node
-selected. Re-fly `2026-09-28_2105`: `total=12 passed=12 failed=0 skipped=0`, pinned whole.
+selected. Re-fly `2026-09-28_2105`: `total=12 passed=12 failed=0 skipped=0`, PARSEK-FAIL
+(expectation) on the old `10 / 2` pin alone; the line was re-pinned whole to `12 / 0 / 0`
+and the re-pin's first flight, `2026-09-29_1506` on the post-main-merge head (automation DLL
+sha256 `caf7091b...`), PASS attempt 1 with exactly that line.
 
 Original filing:
 

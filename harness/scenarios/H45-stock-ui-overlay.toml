@@ -164,8 +164,9 @@ tier = "nightly"
 # its lift wrote the same 2 of 3). The baseline is now the same node's panel before the
 # committed row goes in. Re-fly `2026-09-28_2105`, on an automation DLL carrying both fixes
 # (sha256 381c0c4e...): `total=12 passed=12 failed=0 skipped=0`; its PARSEK-FAIL was the old
-# 10 / 2 pin alone, and the line is now pinned WHOLE.
-description = "LIVE-PROVEN 2026-09-28 (run 2026-09-28_2105, total=12 passed=12 failed=0 skipped=0; first 2026-09-27_1235, 10 passed and 2 host skips): the in-game StockUiOverlay category unattended on a career host with contracts on offer, twelve cells - Parsek's annotations on the live stock R&D, Astronaut Complex, Mission Control and KSC facility menu screens, all on stock mechanisms (tinted R&D node, stock tooltip / description / detail text, row labels on the Available and Active tabs, greyed Research / hire / dismiss / Accept / Decline / Cancel / facility Upgrade, the contract-slot Accept block, Decline and Cancel backstops) and nothing left behind on close. Every cell runs on this host (career-earned-pad since 2026-09-28)."
+# 10 / 2 pin alone, and the line is now pinned WHOLE. The re-pin's first flight,
+# `2026-09-29_1506` on the post-main-merge head (sha256 caf7091b...), PASS attempt 1.
+description = "LIVE-PROVEN 2026-09-29 (run 2026-09-29_1506, PASS attempt 1, total=12 passed=12 failed=0 skipped=0; first 2026-09-27_1235, 10 passed and 2 host skips): the in-game StockUiOverlay category unattended on a career host with contracts on offer, twelve cells - Parsek's annotations on the live stock R&D, Astronaut Complex, Mission Control and KSC facility menu screens, all on stock mechanisms (tinted R&D node, stock tooltip / description / detail text, row labels on the Available and Active tabs, greyed Research / hire / dismiss / Accept / Decline / Cancel / facility Upgrade, the contract-slot Accept block, Decline and Cancel backstops) and nothing left behind on close. Every cell runs on this host (career-earned-pad since 2026-09-28)."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "phase4-wave1", "stock-ui", "career", "H45"]
 
@@ -251,7 +252,8 @@ count = { min = 2, max = 2 }
 #  - 2026-09-25 (PR 7): total=12, the KSC facility menu cell added.
 #  - 2026-09-27: pinned WHOLE off `2026-09-27_1235` (10 passed, 2 runtime host skips).
 #  - 2026-09-28: re-pinned WHOLE off `2026-09-28_2105` (12 passed, 0 skipped) after the host
-#    move to career-earned-pad and the R&D cell's two test-only fixes (see the header).
+#    move to career-earned-pad and the R&D cell's two test-only fixes (see the header);
+#    first PASS on this pin `2026-09-29_1506`.
 required  = ["BATCH_COMPLETE v1 total=12 passed=12 failed=0 skipped=0 category=StockUiOverlay scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
