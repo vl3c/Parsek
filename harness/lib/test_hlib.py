@@ -11144,6 +11144,9 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # (rewindPoints inverted to {2,2}, red on exactly that facet).
                        # `rewindPoints = {1,1}` is the armed claim: the reaper declines
                        # only while a slot's effective tip is CommittedProvisional.
+                       # RF-1 `recordings.structure`: armed 2026-09-29 (branch `arm-batch2`)
+                       # off `2026-09-29_1520`, the first current-code reading after the
+                       # SaveGame-before-reload spec fix; 8 of 8 bounds inverted offline.
                        "RF-1-continuation-stays-open.toml",
                        # RF-10: `rewind` armed 2026-09-09 off its reading run. The
                        # safest arming in the program: the lane starts no recorder and
@@ -11371,6 +11374,12 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        "GS-9-kerbalx-repeat-rewind.toml",
                        "V3F-flight-arrival-faithful.toml",
                        "V3R-flight-arrival-reaim.toml",
+                       # RF-4 `rewind`: armed 2026-09-29 (branch `arm-batch2`) off
+                       # `2026-09-29_1516`, its first current-code reading after the
+                       # SaveGame-before-reload spec fix (rewindPoints 0, supersedeRows 1,
+                       # tombstones 0); 3 of 3 bounds inverted offline, each red on exactly
+                       # its window.
+                       "RF-4-rewind-to-launch-after-merge.toml",
                        # GS-8 both blocks: armed 2026-09-28 (branch `gs8-watch-hold`) off
                        # `2026-09-28_1732`, the first green reading after the
                        # GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD fix; all 10 bounds

@@ -332,6 +332,12 @@ forbidden = [
 #   tombstones    nobody dies on this profile: the pod lands intact, the booster is still
 #                 flying, and the re-flown booster is unmanned.
 [expectations.rewind]
+# ARMED 2026-09-29 (branch `arm-batch2`) off the reading `2026-09-29_1516` (PASS attempt 1,
+# the first current-code flight after the SaveGame-before-reload fix): rewindPoints 0,
+# supersedeRows 1, tombstones 0, every window met; its 3 bounds inverted offline against
+# that save each red on exactly their window. `rewindPoints max 0` is the sealed booster
+# point staying reaped across the Rewind-to-Launch (todo SAVE-BLOCKS-AWAITING-READINGS).
+gating        = true
 rewindPoints  = { max = 0 }
 supersedeRows = { min = 1 }
 tombstones    = { max = 0 }

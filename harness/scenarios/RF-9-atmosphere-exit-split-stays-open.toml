@@ -420,7 +420,16 @@ required  = ["Recording started",
              "Invocation complete",
              "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
              "Restored: recs=.* pendingScience=",
-             "Inserted 12 transient state seed event\\(s\\) at split UT=[0-9.]+ \\(skippedExistingBoundary=0\\)",
+             # RE-PINNED 12 -> 8 on 2026-09-29 (branch `arm-batch2`): the four missing seeds
+             # are the four static solarPanels5 DeployableExtended seeds. `4c13c13da`
+             # (2026-09-15, after the last 12-read) stopped seeding a ModuleDeployablePart
+             # with no pose animation (`PartStateSeeder.DeployableHasNoPoseAnimation`), so
+             # the focus recording now carries no DeployableExtended at all and the split
+             # seeds only the 8 engine sentinels: `Built 8 ... engineSentinels=8
+             # visualStates=0` on `2026-09-27_1952` and `2026-09-29_1523` (it read
+             # `engineSentinels=8 visualStates=4` on `2026-09-15_1546`). Forwarded 19 is
+             # unchanged. An intended product change, not a defect.
+             "Inserted 8 transient state seed event\\(s\\) at split UT=[0-9.]+ \\(skippedExistingBoundary=0\\)",
              "Forwarded 19 permanent state event\\(s\\) as seeds at UT=[0-9.]+",
              "Inserted 1 transient state seed event\\(s\\) at split UT=[0-9.]+ \\(skippedExistingBoundary=0\\)",
              "Forwarded 1 permanent state event\\(s\\) as seeds at UT=[0-9.]+"]

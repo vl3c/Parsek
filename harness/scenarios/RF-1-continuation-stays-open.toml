@@ -481,6 +481,11 @@ tombstones    = { max = 0 }
 # (Landed >= 1) and the booster does not (SubOrbital >= 1). A run that read `Landed = 2`
 # flew GS-1, not this.
 [expectations.recordings.structure]
+# ARMED 2026-09-29 (branch `arm-batch2`) off the reading `2026-09-29_1520` (PASS attempt 1, the
+# first current-code flight after the SaveGame-before-reload fix): trees 1, committedTrees 1,
+# recordings 3, Landed 1, SubOrbital 1, JointBreak 1, every window met; its 8 bounds
+# inverted offline against that save each red on exactly their window.
+gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 2 }
