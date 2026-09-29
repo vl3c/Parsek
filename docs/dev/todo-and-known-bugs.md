@@ -186,8 +186,12 @@ blocker's OWN committed history (`ClassifyOtherTree`), all required:
 - there when recorded: the blocker's tree was committed BEFORE the spawning member's tree
   (`NotCommittedBefore` otherwise: its history was flown in a later timeline), and the
   blocker's LATEST positively-same-launch segment is a leaf that persists standing and ended at
-  or before the spawning member's recorded end (a walkback candidate's UT on a walkback): a
-  history still running then was a replay, not a vessel (`NotStandingByThen`);
+  or before the spawning member's ARRIVAL at its spot (`SpawningArrivalUT`: a placed part's
+  recording start, an EVA kerbal's start of its trailing run within 3 m of its spawn spot; a
+  walkback candidate's UT on a walkback): a history still running then was a replay, not a
+  vessel, and a vessel landing beside a kerbal who had stood there since UT 600 at UT 1100 still
+  pushes even when his recording runs to 1200 (`NotStandingByThen`; also when the arrival
+  cannot be derived);
 - not moved since: the live blocker is within 3 m (horizontal) of that leaf's spawn spot
   (`Displaced`).
 The same-tree rule gains the mirror pieces: a same-tree member's recorded vessel still live with
@@ -198,7 +202,10 @@ first: site=... tree=... spawning='...' rec=... blocker='...' pid=... blockerKin
 blockerTree=... blockerRec=... blockerEndUT=... referenceUT=... verdict=Exempt ...`, and `Overlap
 not exempt: other-tree vessel: ... verdict=NotCommittedBefore|NotStandingByThen|Displaced|
 SpawningNotKerbalOrPlacedPart`; a same-tree unstamped original logs `Overlap exempt: co-existing
-tree sibling original:`. The gather summary adds `otherTreeStanding=N`. Tests:
+tree sibling original:`. The Space Center gather resolves (and logs) an exemption only for a
+landed vessel within the 15 m de-overlap separation of the spawn spot, the only ones that can
+trigger a nudge; a farther vessel stays a plain blocker, unresolved and unlogged. Its summary
+adds `otherTreeStanding=N beyondExemptionRange=N`. Tests:
 `CoexistingTreeSiblingSpawnTests` (EVA-6's capsule, kerbal and seismometer; each gate red under
 its own mutant). Not live-proven yet: EVA-6 can forbid the two nudge lines and require the new
 exemption once reflown on a DLL carrying the fix.

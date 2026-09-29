@@ -535,8 +535,9 @@ foreign vessel's position during a recording, so the proof is the blocker's own 
 history (`CoexistingTreeSiblingSpawn.ClassifyOtherTree`): the blocker is positively that history's
 vessel (spawn stamp or pid + launch Guid, from the effective recording set), its tree was
 committed before the spawning member's tree, its latest segment is a standing leaf that ended at
-or before the spawning member's recorded end (a walkback candidate's UT on a walkback; a history
-still running then was a replay, not a vessel), and it stands within 3 m of that leaf's spot.
+or before the spawning member arrived at its spot (a placed part's placement, an EVA kerbal's
+start of its final stand; a walkback candidate's UT on a walkback; a history still running then
+was a replay, not a vessel), and it stands within 3 m of that leaf's spot.
 Every collision site above and the Space Center de-overlap apply it. A vehicle spawning beside
 such a vessel is still nudged clear (the duplicate-delivery guard), and a vessel with no
 committed history, or only a later one, still pushes.

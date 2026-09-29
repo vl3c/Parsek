@@ -1299,7 +1299,7 @@ _(unreleased — entries accumulate here per commit)_
   in an earlier flight: after a rewind the Space Center used to move both the kerbal and his
   seismometer 15 m away from it. Parsek knows the capsule was there from the capsule's own
   saved flight, which was saved before the kerbal's and ended, standing on that spot, before
-  the kerbal's recording did. A vessel that arrived later, one moved since, or one Parsek has
+  the kerbal got there. A vessel that arrived later, one moved since, or one Parsek has
   no saved flight for still pushes, and a rover or other craft is still nudged clear as before.
 - **Watching a replayed flight to its end now holds on that vessel, not on a stage it dropped
   earlier.** When a replayed rocket had decoupled a controllable stage (a probe core) earlier in

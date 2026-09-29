@@ -546,12 +546,12 @@ namespace Parsek.Tests
             treeId == CapsuleTreeId ? 0 : treeId == JebTreeId ? 1 : -1;
 
         private static TreeSiblingOverlapVerdict EvaluateCapsuleBlocker(
-            Recording spawning, bool kerbalOrPart, List<Recording> capsuleTree,
+            Recording spawning, SpawningMemberKind kind, List<Recording> capsuleTree,
             Func<string, int> order, uint pid = CapsulePid, string guid = CapsuleGuid,
             double lat = LiveCapsuleLat, double lon = LiveCapsuleLon, double candidateUT = double.NaN)
         {
             return CoexistingTreeSiblingSpawn.EvaluateBlocker(
-                new List<Recording> { spawning }, capsuleTree, order, spawning, kerbalOrPart,
+                new List<Recording> { spawning }, capsuleTree, order, spawning, kind,
                 pid, guid, "Kerbin", lat, lon, KerbinRadius,
                 out _, out _, out _, candidateUT);
         }
@@ -561,7 +561,7 @@ namespace Parsek.Tests
         {
             Recording jeb = Jeb();
             Assert.Equal(TreeSiblingOverlapVerdict.Exempt, CoexistingTreeSiblingSpawn.EvaluateBlocker(
-                new List<Recording> { jeb, Seismometer() }, CapsuleTree(), CapsuleFirst, jeb, true,
+                new List<Recording> { jeb, Seismometer() }, CapsuleTree(), CapsuleFirst, jeb, SpawningMemberKind.EvaKerbal,
                 CapsulePid, CapsuleGuid, "Kerbin", LiveCapsuleLat, LiveCapsuleLon, KerbinRadius,
                 out Recording blocker, out OverlapBlockerKind kind, out double displacement));
             // The adoption stamp sits on the head segment (ends 70 km up) and identifies the live
@@ -579,7 +579,7 @@ namespace Parsek.Tests
                 CapsuleMid(), CapsuleLeaf() };
             Recording jeb = Jeb();
             Assert.Equal(TreeSiblingOverlapVerdict.Exempt, CoexistingTreeSiblingSpawn.EvaluateBlocker(
-                new List<Recording> { jeb }, capsule, CapsuleFirst, jeb, true,
+                new List<Recording> { jeb }, capsule, CapsuleFirst, jeb, SpawningMemberKind.EvaKerbal,
                 CapsulePid, CapsuleGuid, "Kerbin", LiveCapsuleLat, LiveCapsuleLon, KerbinRadius,
                 out _, out OverlapBlockerKind kind, out _));
             Assert.Equal(OverlapBlockerKind.Original, kind);
@@ -589,7 +589,7 @@ namespace Parsek.Tests
         public void Eva6_PlacedPartBesideTheCapsuleOfAnEarlierTree_IsExempt()
         {
             Assert.Equal(TreeSiblingOverlapVerdict.Exempt,
-                EvaluateCapsuleBlocker(Seismometer(), true, CapsuleTree(), CapsuleFirst));
+                EvaluateCapsuleBlocker(Seismometer(), SpawningMemberKind.PlacedPart, CapsuleTree(), CapsuleFirst));
         }
 
         [Fact]
@@ -598,10 +598,10 @@ namespace Parsek.Tests
             // The capsule's history was recorded in a timeline flown after the kerbal's: it was not
             // there when the kerbal's recording was made.
             Assert.Equal(TreeSiblingOverlapVerdict.NotCommittedBefore,
-                EvaluateCapsuleBlocker(Jeb(), true, CapsuleTree(),
+                EvaluateCapsuleBlocker(Jeb(), SpawningMemberKind.EvaKerbal, CapsuleTree(),
                     id => id == CapsuleTreeId ? 1 : id == JebTreeId ? 0 : -1));
             Assert.Equal(TreeSiblingOverlapVerdict.NotCommittedBefore,
-                EvaluateCapsuleBlocker(Jeb(), true, CapsuleTree(), id => -1));
+                EvaluateCapsuleBlocker(Jeb(), SpawningMemberKind.EvaKerbal, CapsuleTree(), id => -1));
         }
 
         [Fact]
@@ -611,7 +611,7 @@ namespace Parsek.Tests
             // the kerbal's end it was not yet standing there (or was only a replay).
             var capsule = new List<Recording> { CapsuleHead(), CapsuleMid(), CapsuleLeaf(endUT: 1290.0) };
             Assert.Equal(TreeSiblingOverlapVerdict.NotStandingByThen,
-                EvaluateCapsuleBlocker(Jeb(), true, capsule, CapsuleFirst));
+                EvaluateCapsuleBlocker(Jeb(), SpawningMemberKind.EvaKerbal, capsule, CapsuleFirst));
         }
 
         [Fact]
@@ -620,14 +620,14 @@ namespace Parsek.Tests
             // Only the flying head and mid segments committed: no evidence it ever stood there.
             var capsule = new List<Recording> { CapsuleHead(), CapsuleMid() };
             Assert.Equal(TreeSiblingOverlapVerdict.NotStandingByThen,
-                EvaluateCapsuleBlocker(Jeb(), true, capsule, CapsuleFirst));
+                EvaluateCapsuleBlocker(Jeb(), SpawningMemberKind.EvaKerbal, capsule, CapsuleFirst));
         }
 
         [Fact]
         public void CapsuleMovedSince_StillPushes()
         {
             Assert.Equal(TreeSiblingOverlapVerdict.Displaced,
-                EvaluateCapsuleBlocker(Jeb(), true, CapsuleTree(), CapsuleFirst,
+                EvaluateCapsuleBlocker(Jeb(), SpawningMemberKind.EvaKerbal, CapsuleTree(), CapsuleFirst,
                     lat: CapsuleLat + 20.0 * MetersToDegLat, lon: CapsuleLon));
         }
 
@@ -637,7 +637,7 @@ namespace Parsek.Tests
             // The ruling covers an EVA kerbal or a placed ground part; a vehicle keeps the
             // duplicate-delivery de-overlap.
             Assert.Equal(TreeSiblingOverlapVerdict.SpawningNotKerbalOrPlacedPart,
-                EvaluateCapsuleBlocker(Jeb(), false, CapsuleTree(), CapsuleFirst));
+                EvaluateCapsuleBlocker(Jeb(), SpawningMemberKind.Other, CapsuleTree(), CapsuleFirst));
         }
 
         [Fact]
@@ -645,20 +645,92 @@ namespace Parsek.Tests
         {
             // Same craft-baked pid, a different launch Guid: another launch, not the recorded one.
             Assert.Equal(TreeSiblingOverlapVerdict.NotTreeSibling,
-                EvaluateCapsuleBlocker(Jeb(), true, CapsuleTree(), CapsuleFirst,
+                EvaluateCapsuleBlocker(Jeb(), SpawningMemberKind.EvaKerbal, CapsuleTree(), CapsuleFirst,
                     guid: "11112222333344445555666677778888"));
             // An unknown live Guid is not positive evidence in another tree (no pid-only fallback).
             Assert.Equal(TreeSiblingOverlapVerdict.NotTreeSibling,
-                EvaluateCapsuleBlocker(Jeb(), true, CapsuleTree(), CapsuleFirst, guid: null));
+                EvaluateCapsuleBlocker(Jeb(), SpawningMemberKind.EvaKerbal, CapsuleTree(), CapsuleFirst, guid: null));
         }
 
         [Fact]
         public void OtherTreeWalkback_CountsTheCapsuleOnlyOnceItsHistoryHadEnded()
         {
             Assert.Equal(TreeSiblingOverlapVerdict.NotStandingByThen,
-                EvaluateCapsuleBlocker(Jeb(), true, CapsuleTree(), CapsuleFirst, candidateUT: 1270.0));
+                EvaluateCapsuleBlocker(Jeb(), SpawningMemberKind.EvaKerbal, CapsuleTree(), CapsuleFirst, candidateUT: 1270.0));
             Assert.Equal(TreeSiblingOverlapVerdict.Exempt,
-                EvaluateCapsuleBlocker(Jeb(), true, CapsuleTree(), CapsuleFirst, candidateUT: 1279.9));
+                EvaluateCapsuleBlocker(Jeb(), SpawningMemberKind.EvaKerbal, CapsuleTree(), CapsuleFirst, candidateUT: 1279.9));
+        }
+
+        // A kerbal walks onto the spot by UT 600 and stands there until his recording ends at 1200.
+        private static Recording KerbalStandingSince600() => new Recording
+        {
+            RecordingId = "kerbal600", TreeId = JebTreeId, VesselName = "Bill Kerman",
+            VesselPersistentId = 1111u, RecordedVesselGuid = "0123456789abcdef0123456789abcdef",
+            ExplicitStartUT = 500.0, ExplicitEndUT = 1200.0,
+            TerminalStateValue = TerminalState.Landed, StartSituation = "EVA",
+            Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 500.0, latitude = CapsuleLat + 40.0 * MetersToDegLat, longitude = CapsuleLon, altitude = 152.0, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 600.0, latitude = CapsuleLat, longitude = CapsuleLon, altitude = 152.0, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 1200.0, latitude = CapsuleLat, longitude = CapsuleLon, altitude = 152.0, bodyName = "Kerbin" },
+            },
+        };
+
+        [Fact]
+        public void EarlierTreesVesselThatLandedBesideAKerbalAlreadyStandingThere_StillPushes()
+        {
+            // After a rewind, an earlier-committed tree lands a vessel at UT 1100 beside a kerbal
+            // standing there since 600 whose recording ends at 1200. The kerbal was there first:
+            // the reference is his arrival (600), not his recording end.
+            Recording kerbal = KerbalStandingSince600();
+            Assert.Equal(600.0, CoexistingTreeSiblingSpawn.SpawningArrivalUT(
+                kerbal, SpawningMemberKind.EvaKerbal, KerbinRadius));
+            Assert.Equal(TreeSiblingOverlapVerdict.NotStandingByThen,
+                CoexistingTreeSiblingSpawn.ClassifyOtherTree(kerbal, SpawningMemberKind.EvaKerbal,
+                    CapsuleLeaf(endUT: 1100.0), 1, 0, 0.0,
+                    CoexistingTreeSiblingSpawn.PlacementToleranceMeters,
+                    CoexistingTreeSiblingSpawn.SpawningArrivalUT(kerbal, SpawningMemberKind.EvaKerbal, KerbinRadius)));
+            Assert.Equal(TreeSiblingOverlapVerdict.NotStandingByThen, CoexistingTreeSiblingSpawn.EvaluateBlocker(
+                new List<Recording> { kerbal },
+                new List<Recording> { CapsuleHead(), CapsuleMid(), CapsuleLeaf(endUT: 1100.0) },
+                CapsuleFirst, kerbal, SpawningMemberKind.EvaKerbal,
+                CapsulePid, CapsuleGuid, "Kerbin", CapsuleLat, CapsuleLon, KerbinRadius,
+                out _, out _, out _));
+            // A vessel that had landed there before he arrived (UT 550) is exempt.
+            Assert.Equal(TreeSiblingOverlapVerdict.Exempt,
+                CoexistingTreeSiblingSpawn.ClassifyOtherTree(kerbal, SpawningMemberKind.EvaKerbal,
+                    CapsuleLeaf(endUT: 550.0), 1, 0, 0.0,
+                    CoexistingTreeSiblingSpawn.PlacementToleranceMeters, 600.0));
+        }
+
+        [Fact]
+        public void PlacedPartReferenceIsItsPlacement()
+        {
+            // A part placed at UT 600 whose recording ends at 1200: a vessel landing at 1100 pushes.
+            Recording part = Seismometer();
+            part.ExplicitStartUT = 600.0;
+            part.ExplicitEndUT = 1200.0;
+            Assert.Equal(600.0, CoexistingTreeSiblingSpawn.SpawningArrivalUT(
+                part, SpawningMemberKind.PlacedPart, KerbinRadius));
+            Assert.Equal(TreeSiblingOverlapVerdict.NotStandingByThen,
+                EvaluateCapsuleBlocker(part, SpawningMemberKind.PlacedPart,
+                    new List<Recording> { CapsuleHead(), CapsuleMid(), CapsuleLeaf(endUT: 1100.0) }, CapsuleFirst));
+        }
+
+        [Fact]
+        public void SpawningArrivalUnknown_NeverExempts()
+        {
+            // The kerbal's trajectory does not end at his spawn spot: no arrival, no exemption.
+            Recording kerbal = Jeb();
+            kerbal.VesselSnapshot = new ConfigNode("VESSEL");
+            kerbal.VesselSnapshot.AddValue("lat", (CapsuleLat + 30.0 * MetersToDegLat).ToString("R",
+                System.Globalization.CultureInfo.InvariantCulture));
+            kerbal.VesselSnapshot.AddValue("lon", CapsuleLon.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            kerbal.VesselSnapshot.AddValue("alt", "152");
+            Assert.Equal(double.PositiveInfinity, CoexistingTreeSiblingSpawn.SpawningArrivalUT(
+                kerbal, SpawningMemberKind.EvaKerbal, KerbinRadius));
+            Assert.Equal(TreeSiblingOverlapVerdict.NotStandingByThen,
+                EvaluateCapsuleBlocker(kerbal, SpawningMemberKind.EvaKerbal, CapsuleTree(), CapsuleFirst));
         }
 
         [Fact]
@@ -670,7 +742,7 @@ namespace Parsek.Tests
             capsule.TreeId = JebTreeId;
             Recording seis = Seismometer();
             Assert.Equal(TreeSiblingOverlapVerdict.Exempt, CoexistingTreeSiblingSpawn.EvaluateBlocker(
-                new List<Recording> { capsule, seis }, null, null, seis, false,
+                new List<Recording> { capsule, seis }, null, null, seis, SpawningMemberKind.Other,
                 CapsulePid, CapsuleGuid, "Kerbin", LiveCapsuleLat, LiveCapsuleLon, KerbinRadius,
                 out _, out OverlapBlockerKind kind, out _));
             Assert.Equal(OverlapBlockerKind.Original, kind);
@@ -759,7 +831,7 @@ namespace Parsek.Tests
                 && l.Contains("blockerTree=" + CapsuleTreeId)
                 && l.Contains("blockerRec=77dc568671cd442bb682c549ca50b7a6")
                 && l.Contains("blockerEndUT=1274.68")
-                && l.Contains("referenceUT=1282.36")
+                && l.Contains("referenceUT=1280.46")
                 && l.Contains("verdict=Exempt"));
         }
 
@@ -838,8 +910,29 @@ namespace Parsek.Tests
                 ReadSource("ParsekKSC.cs"), "VesselSpawner.GatherExistingLandedVesselPositions");
             Assert.Single(calls);
             string[] args = calls[0].Split(',');
-            Assert.Equal(3, args.Length);
+            Assert.Equal(6, args.Length);
             Assert.Equal("rec", args[2].Trim());
+            Assert.Equal("spawnLat", args[3].Trim());
+            Assert.Equal("spawnLon", args[4].Trim());
+            Assert.Equal("SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters", args[5].Trim());
+        }
+
+        [Fact]
+        public void LandedDeOverlapGather_ResolvesExemptionsOnlyWithinTheSeparation()
+        {
+            int far = 0;
+            double range = SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters;
+            // The capsule 1 m away: resolved.
+            Assert.True(VesselSpawner.WithinExemptionRange(CapsuleLat, CapsuleLon,
+                CapsuleLat + 1.0 * MetersToDegLat, CapsuleLon, KerbinRadius, range, ref far));
+            // A vessel 2 km away never triggers a nudge: not resolved, not logged, counted.
+            Assert.False(VesselSpawner.WithinExemptionRange(CapsuleLat, CapsuleLon,
+                CapsuleLat + 2000.0 * MetersToDegLat, CapsuleLon, KerbinRadius, range, ref far));
+            Assert.Equal(1, far);
+            // No spawn spot or range handed over: every vessel is resolved (old behaviour).
+            Assert.True(VesselSpawner.WithinExemptionRange(double.NaN, double.NaN,
+                CapsuleLat + 2000.0 * MetersToDegLat, CapsuleLon, KerbinRadius, range, ref far));
+            Assert.Equal(1, far);
         }
     }
 }

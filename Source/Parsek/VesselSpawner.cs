@@ -345,7 +345,9 @@ namespace Parsek
         /// vessels are returned — orbital/flying vessels do not constrain a ground footprint.
         /// </summary>
         internal static List<(double lat, double lon)> GatherExistingLandedVesselPositions(
-            CelestialBody body, uint excludePid, Recording spawningRecording = null)
+            CelestialBody body, uint excludePid, Recording spawningRecording = null,
+            double spawnLat = double.NaN, double spawnLon = double.NaN,
+            double exemptionRangeMeters = double.NaN)
         {
             var result = new List<(double lat, double lon)>();
             if (body == null)
@@ -355,6 +357,7 @@ namespace Parsek
             int protoCount = 0;
             int siblingCount = 0;
             int otherTreeCount = 0;
+            int unresolvedFarCount = 0;
             try
             {
                 var vessels = FlightGlobals.Vessels;
@@ -370,6 +373,8 @@ namespace Parsek
                         if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
                         if (SpawnCollisionDetector.ShouldSkipVesselType(v.vesselType)) continue;
                         if (spawningRecording != null
+                            && WithinExemptionRange(spawnLat, spawnLon, v.latitude, v.longitude,
+                                body.Radius, exemptionRangeMeters, ref unresolvedFarCount)
                             && CountExemption(CoexistingTreeSiblingSpawn.ResolveExemption(
                                 spawningRecording, v.persistentId,
                                 v.id.ToString("N", CultureInfo.InvariantCulture),
@@ -396,6 +401,8 @@ namespace Parsek
                         if (SpawnCollisionDetector.ShouldSkipVesselType(pv.vesselType)) continue;
                         if (!ProtoVesselIsOnSameBodySurface(pv, body)) continue;
                         if (spawningRecording != null
+                            && WithinExemptionRange(spawnLat, spawnLon, pv.latitude, pv.longitude,
+                                body.Radius, exemptionRangeMeters, ref unresolvedFarCount)
                             && CountExemption(CoexistingTreeSiblingSpawn.ResolveExemption(
                                 spawningRecording, pv.persistentId,
                                 VesselLaunchIdentity.ReadLaunchGuid(pv),
@@ -418,8 +425,30 @@ namespace Parsek
 
             ParsekLog.Verbose("Spawner",
                 $"GatherExistingLandedVesselPositions: body={body.name} excludePid={excludePid} " +
-                $"loaded={loadedCount} proto={protoCount} coexistingTreeSiblings={siblingCount} otherTreeStanding={otherTreeCount} total={result.Count}");
+                $"loaded={loadedCount} proto={protoCount} coexistingTreeSiblings={siblingCount} otherTreeStanding={otherTreeCount} " +
+                $"beyondExemptionRange={unresolvedFarCount} total={result.Count}");
             return result;
+        }
+
+        /// <summary>
+        /// True when a landed vessel at (<paramref name="vesselLat"/>, <paramref name="vesselLon"/>)
+        /// is close enough to the spawn spot for its exemption to matter: within
+        /// <paramref name="rangeMeters"/> (the de-overlap separation; a vessel farther away never
+        /// triggers a nudge). A vessel beyond it is kept as a plain blocker without resolving (or
+        /// logging) an exemption and counted in <paramref name="unresolvedFarCount"/>. NaN spawn
+        /// coordinates or range resolve every vessel.
+        /// </summary>
+        internal static bool WithinExemptionRange(
+            double spawnLat, double spawnLon, double vesselLat, double vesselLon,
+            double bodyRadius, double rangeMeters, ref int unresolvedFarCount)
+        {
+            if (double.IsNaN(spawnLat) || double.IsNaN(spawnLon) || double.IsNaN(rangeMeters))
+                return true;
+            if (SpawnCollisionDetector.SurfaceDistance(spawnLat, spawnLon, vesselLat, vesselLon, bodyRadius)
+                < rangeMeters)
+                return true;
+            unresolvedFarCount++;
+            return false;
         }
 
         private static bool CountExemption(

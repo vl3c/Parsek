@@ -2145,7 +2145,8 @@ namespace Parsek
                         // of an earlier committed tree (the capsule it came from) that already
                         // stood there when it was recorded and has not moved since.
                         var existingLanded = VesselSpawner.GatherExistingLandedVesselPositions(
-                            body, 0u, rec);
+                            body, 0u, rec, spawnLat, spawnLon,
+                            SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters);
                         var deOverlap = SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn(
                             spawnLat,
                             spawnLon,

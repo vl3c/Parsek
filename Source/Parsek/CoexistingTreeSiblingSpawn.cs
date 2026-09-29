@@ -51,6 +51,17 @@ namespace Parsek
         Original = 2,
     }
 
+    /// <summary>What the spawning member is, for the other-tree exemption's scope and reference UT.</summary>
+    internal enum SpawningMemberKind
+    {
+        /// <summary>Any other vessel (a vehicle): out of the other-tree exemption's scope.</summary>
+        Other = 0,
+        /// <summary>An EVA kerbal.</summary>
+        EvaKerbal = 1,
+        /// <summary>A placed ground part (a GroundPartPlaced member).</summary>
+        PlacedPart = 2,
+    }
+
     /// <summary>Which rule exempted a blocker, if any.</summary>
     internal enum OverlapExemptionScope
     {
@@ -277,7 +288,7 @@ namespace Parsek
             out Recording sibling, out double displacementMeters, double candidateUT = double.NaN)
         {
             return EvaluateBlocker(
-                treeRecordings, null, null, spawning, false,
+                treeRecordings, null, null, spawning, SpawningMemberKind.Other,
                 candidatePid, candidateGuid, candidateBodyName, candidateLat, candidateLon, bodyRadius,
                 out sibling, out _, out displacementMeters, candidateUT);
         }
@@ -329,13 +340,31 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The UT by which an other-tree blocker must already have been standing: the walkback
-        /// candidate's recorded UT, else the spawning member's recorded end.
+        /// The UT from which the spawning member stood at the spot it spawns at: a placed part's
+        /// recording start (the placement), an EVA kerbal's arrival at the start of its trailing
+        /// run within <see cref="PlacementToleranceMeters"/> of its spawn spot
+        /// (<see cref="SiblingArrivalAtSpotUT"/>). PositiveInfinity when that cannot be derived
+        /// (no spawn spot, or the trajectory does not end there), which never exempts.
         /// </summary>
-        internal static double OtherTreeReferenceUT(Recording spawning, double candidateUT)
+        internal static double SpawningArrivalUT(Recording spawning, SpawningMemberKind kind, double bodyRadius)
         {
-            if (!double.IsNaN(candidateUT)) return candidateUT;
-            return spawning != null ? spawning.EndUT : double.NaN;
+            if (spawning == null) return double.PositiveInfinity;
+            if (kind == SpawningMemberKind.PlacedPart) return spawning.StartUT;
+            if (!TryGetSiblingSpawnSpot(spawning, out string body, out double lat, out double lon))
+                return double.PositiveInfinity;
+            return SiblingArrivalAtSpotUT(spawning, body, lat, lon, bodyRadius, PlacementToleranceMeters);
+        }
+
+        /// <summary>
+        /// The UT by which an other-tree blocker must already have been standing: the walkback
+        /// candidate's recorded UT, else the spawning member's arrival at its spot
+        /// (<see cref="SpawningArrivalUT"/>). Not its recording end: a kerbal standing on a spot
+        /// since UT 600 whose recording runs to 1200 was there first when a vessel lands beside
+        /// him at 1100.
+        /// </summary>
+        internal static double OtherTreeReferenceUT(double spawningArrivalUT, double candidateUT)
+        {
+            return double.IsNaN(candidateUT) ? spawningArrivalUT : candidateUT;
         }
 
         /// <summary>
@@ -353,24 +382,27 @@ namespace Parsek
         /// <item>the blocker's tree was committed BEFORE the spawning member's tree, so it existed
         /// when this recording was made rather than in a timeline recorded afterwards;</item>
         /// <item>its latest segment is a leaf that persists standing (<see cref="PersistsPastEnd"/>)
-        /// and ended at or before the reference UT (<see cref="OtherTreeReferenceUT"/>): a history
-        /// still running then was a replay (a ghost, not a vessel), a later end is a later arrival;</item>
+        /// and ended at or before the reference UT (<see cref="OtherTreeReferenceUT"/>: the
+        /// spawning member's ARRIVAL at its spot, or the walkback candidate's UT): a history still
+        /// running then was a replay (a ghost, not a vessel), a later end is a later arrival;</item>
         /// <item>it still stands within <paramref name="toleranceMeters"/> (horizontal) of that
         /// leaf's spawn spot: it has not moved since.</item>
         /// </list>
         /// Tree commit indices are positions in the committed-tree list (-1 unknown).
         /// </summary>
         internal static TreeSiblingOverlapVerdict ClassifyOtherTree(
-            Recording spawning, bool spawningIsKerbalOrPlacedPart,
+            Recording spawning, SpawningMemberKind spawningKind,
             Recording blockerLatest, int spawningTreeIndex, int blockerTreeIndex,
-            double displacementMeters, double toleranceMeters, double candidateUT = double.NaN)
+            double displacementMeters, double toleranceMeters, double spawningArrivalUT,
+            double candidateUT = double.NaN)
         {
             if (spawning == null || blockerLatest == null) return TreeSiblingOverlapVerdict.NotTreeSibling;
-            if (!spawningIsKerbalOrPlacedPart) return TreeSiblingOverlapVerdict.SpawningNotKerbalOrPlacedPart;
+            if (spawningKind == SpawningMemberKind.Other) return TreeSiblingOverlapVerdict.SpawningNotKerbalOrPlacedPart;
             if (spawningTreeIndex < 0 || blockerTreeIndex < 0 || blockerTreeIndex >= spawningTreeIndex)
                 return TreeSiblingOverlapVerdict.NotCommittedBefore;
-            double referenceUT = OtherTreeReferenceUT(spawning, candidateUT);
-            if (double.IsNaN(referenceUT) || !PersistsPastEnd(blockerLatest) || blockerLatest.EndUT > referenceUT)
+            double referenceUT = OtherTreeReferenceUT(spawningArrivalUT, candidateUT);
+            if (double.IsNaN(referenceUT) || double.IsInfinity(referenceUT)
+                || !PersistsPastEnd(blockerLatest) || blockerLatest.EndUT > referenceUT)
                 return TreeSiblingOverlapVerdict.NotStandingByThen;
             if (double.IsNaN(displacementMeters) || displacementMeters > toleranceMeters)
                 return TreeSiblingOverlapVerdict.Displaced;
@@ -390,7 +422,7 @@ namespace Parsek
         /// </summary>
         internal static TreeSiblingOverlapVerdict EvaluateBlocker(
             IEnumerable<Recording> sameTreeRecordings, IEnumerable<Recording> otherTreeRecordings,
-            Func<string, int> treeCommitIndex, Recording spawning, bool spawningIsKerbalOrPlacedPart,
+            Func<string, int> treeCommitIndex, Recording spawning, SpawningMemberKind spawningKind,
             uint candidatePid, string candidateGuid,
             string candidateBodyName, double candidateLat, double candidateLon, double bodyRadius,
             out Recording blocker, out OverlapBlockerKind kind, out double displacementMeters,
@@ -477,8 +509,9 @@ namespace Parsek
                 ? treeCommitIndex(spawning.TreeId) : -1;
             int blockerIdx = treeCommitIndex != null && !string.IsNullOrEmpty(latest.TreeId)
                 ? treeCommitIndex(latest.TreeId) : -1;
-            return ClassifyOtherTree(spawning, spawningIsKerbalOrPlacedPart, latest,
-                spawningIdx, blockerIdx, displacementMeters, PlacementToleranceMeters, candidateUT);
+            return ClassifyOtherTree(spawning, spawningKind, latest,
+                spawningIdx, blockerIdx, displacementMeters, PlacementToleranceMeters,
+                SpawningArrivalUT(spawning, spawningKind, bodyRadius), candidateUT);
         }
 
         /// <summary>
@@ -490,12 +523,20 @@ namespace Parsek
         /// </summary>
         internal static bool IsKerbalOrPlacedPartMember(RecordingTree tree, Recording rec)
         {
-            if (rec == null) return false;
-            if (!string.IsNullOrEmpty(rec.EvaCrewName)) return true;
-            if (string.Equals(rec.StartSituation, "EVA", StringComparison.OrdinalIgnoreCase)) return true;
+            return ClassifySpawningMember(tree, rec) != SpawningMemberKind.Other;
+        }
+
+        /// <summary>See <see cref="IsKerbalOrPlacedPartMember"/>; also tells the two apart.</summary>
+        internal static SpawningMemberKind ClassifySpawningMember(RecordingTree tree, Recording rec)
+        {
+            if (rec == null) return SpawningMemberKind.Other;
+            if (GroundPartPlacement.IsPlacedPartMember(tree, rec)) return SpawningMemberKind.PlacedPart;
+            if (!string.IsNullOrEmpty(rec.EvaCrewName)) return SpawningMemberKind.EvaKerbal;
+            if (string.Equals(rec.StartSituation, "EVA", StringComparison.OrdinalIgnoreCase))
+                return SpawningMemberKind.EvaKerbal;
             string snapshotType = rec.VesselSnapshot != null ? rec.VesselSnapshot.GetValue("type") : null;
-            if (string.Equals(snapshotType, "EVA", StringComparison.Ordinal)) return true;
-            return GroundPartPlacement.IsPlacedPartMember(tree, rec);
+            if (string.Equals(snapshotType, "EVA", StringComparison.Ordinal)) return SpawningMemberKind.EvaKerbal;
+            return SpawningMemberKind.Other;
         }
 
         /// <summary>Live wrapper, bool form of <see cref="ResolveExemption"/>.</summary>
@@ -530,10 +571,11 @@ namespace Parsek
             RecordingTree tree = FindCommittedTree(trees, spawning.TreeId, out _);
             if (tree == null || tree.Recordings == null) return OverlapExemptionScope.None;
 
+            SpawningMemberKind spawningKind = ClassifySpawningMember(tree, spawning);
             TreeSiblingOverlapVerdict verdict = EvaluateBlocker(
                 tree.Recordings.Values, EffectiveState.ComputeERS(),
                 treeId => { FindCommittedTree(trees, treeId, out int idx); return idx; },
-                spawning, IsKerbalOrPlacedPartMember(tree, spawning),
+                spawning, spawningKind,
                 candidatePid, candidateGuid, candidateBodyName, candidateLat, candidateLon, bodyRadius,
                 out Recording blocker, out OverlapBlockerKind kind, out double displacement, candidateUT);
             if (verdict == TreeSiblingOverlapVerdict.NotTreeSibling || blocker == null)
@@ -568,7 +610,8 @@ namespace Parsek
             }
             else
             {
-                double referenceUT = OtherTreeReferenceUT(spawning, candidateUT);
+                double referenceUT = OtherTreeReferenceUT(
+                    SpawningArrivalUT(spawning, spawningKind, bodyRadius), candidateUT);
                 message = string.Format(IC,
                     "{0}: site={1} tree={2} spawning='{3}' rec={4} blocker='{5}' pid={6} blockerKind={7} " +
                     "blockerTree={8} blockerRec={9} blockerEndUT={10} referenceUT={11} " +
@@ -584,7 +627,7 @@ namespace Parsek
                     blocker.TreeId ?? "?",
                     blocker.RecordingId,
                     blocker.EndUT.ToString("F2", IC),
-                    double.IsNaN(referenceUT) ? "?" : referenceUT.ToString("F2", IC),
+                    double.IsNaN(referenceUT) || double.IsInfinity(referenceUT) ? "?" : referenceUT.ToString("F2", IC),
                     verdict,
                     displacementText,
                     PlacementToleranceMeters.ToString("F1", IC),
