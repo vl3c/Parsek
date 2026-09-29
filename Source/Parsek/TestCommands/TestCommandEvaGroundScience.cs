@@ -1,9 +1,10 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 
 namespace Parsek.TestCommands
 {
-    /// <summary>The two stock player actions <c>EvaGroundScience</c> drives.</summary>
+    /// <summary>The three stock player actions <c>EvaGroundScience</c> drives.</summary>
     internal enum EvaGroundScienceAction
     {
         /// <summary>Place a ground-deployable part from the EVA kerbal's inventory.</summary>
@@ -11,6 +12,53 @@ namespace Parsek.TestCommands
 
         /// <summary>Pick a deployed ground part back up into the kerbal's inventory.</summary>
         Pickup,
+
+        /// <summary>Move a stored part from a nearby vessel's inventory container into the
+        /// EVA kerbal's inventory: the inventory window drag a player makes to carry the
+        /// next part of a multi-part cluster (one Breaking Ground part fills most of a
+        /// kerbal's 40 L).</summary>
+        Take,
+
+        /// <summary>Move the EVA kerbal onto the ground at a set horizontal distance from an
+        /// anchor vessel, along his current bearing from it or along an explicit compass
+        /// <c>bearing=</c>: the steps a player walks between a container and the spot a
+        /// part goes. Driven as a short teleport to the terrain (see the applier). A step
+        /// during a live recording leaves a jump in the kerbal's trajectory, which the
+        /// ghost replays as a fast slide; nothing reads it as a defect.</summary>
+        Step,
+    }
+
+    /// <summary>One stored part a take could come from: a container slot on a loaded
+    /// vessel, with the kerbal's distance to that container's part.</summary>
+    internal struct GroundTakeCandidate
+    {
+        public int ContainerIndex;
+        public int Slot;
+        public string PartName;
+        public double DistanceMeters;
+    }
+
+    /// <summary>The pure take-source verdict.</summary>
+    internal enum GroundTakeSourceDecision
+    {
+        /// <summary><see cref="GroundTakeSourceChoice.Candidate"/> names the source.</summary>
+        Found,
+
+        /// <summary>No loaded container stores the part.</summary>
+        NotStored,
+
+        /// <summary>A container stores it, but none within stock's EVA inventory reach.</summary>
+        OutOfRange,
+    }
+
+    internal struct GroundTakeSourceChoice
+    {
+        public GroundTakeSourceDecision Decision;
+        public GroundTakeCandidate Candidate;
+
+        /// <summary>The nearest container holding the part, in range or not (for the
+        /// out-of-range refusal line); <see cref="double.MaxValue"/> when none.</summary>
+        public double NearestDistanceMeters;
     }
 
     /// <summary>Per-poll decision while the placement preview is live.</summary>
@@ -62,6 +110,215 @@ namespace Parsek.TestCommands
         internal const string PartArg = "part";
         internal const string PlaceToken = "place";
         internal const string PickupToken = "pickup";
+        internal const string TakeToken = "take";
+        internal const string StepToken = "step";
+
+        /// <summary>Step only: the anchor vessel's persistentId.</summary>
+        internal const string AnchorArg = "anchor";
+
+        /// <summary>Step only: the horizontal distance, in metres, from the anchor.</summary>
+        internal const string DistanceArg = "distance";
+
+        /// <summary>Step only, optional: the compass bearing, in degrees clockwise from the
+        /// anchor's local north in [0, 360), of the spot from the anchor. Absent, the kerbal
+        /// moves along his own current bearing from the anchor.</summary>
+        internal const string BearingArg = "bearing";
+
+        /// <summary>Upper bound on a step: a few strides off a lander, never a relocation.</summary>
+        internal const double MaxStepDistanceMeters = 30.0;
+
+        /// <summary>Height above the PQS terrain the kerbal is set down at; he settles by
+        /// gravity from there (PQS height ignores surface colliders by a few centimetres).</summary>
+        internal const double StepLiftMeters = 0.5;
+
+        /// <summary>How far, horizontally, the settled kerbal may stand from the step's
+        /// target spot (a landing kerbal slides a little).</summary>
+        internal const double StepToleranceMeters = 1.5;
+
+        /// <summary>
+        /// Physics frames stock's <c>CollisionEnhancer</c> on each of the kerbal's parts is
+        /// told to skip around a step move (its public <c>framesToSkip</c>). Decompiled
+        /// KSP 1.12.5: every <c>FixedUpdate</c> in which a part moved more than ~0.1 m since
+        /// the last one, it linecasts from the old position to the new one against the
+        /// terrain layer and, on a hit, puts the part back at the hit point
+        /// (<c>TRANSLATE_BACK</c>, the anti-tunnelling guard). A kerbal standing on the
+        /// ground starts that segment at the terrain, so every teleport from a standing
+        /// kerbal was translated straight back (EVA-8 `2026-09-29_1618`). A skipped frame
+        /// just re-reads the part's position, so the move is not seen as a sweep.
+        /// </summary>
+        internal const int StepCollisionSkipFrames = 5;
+
+        /// <summary>Height of the kerbal's lowest collider point above the ground collider
+        /// the step sets him down at (so he lands in a frame or two instead of dropping).</summary>
+        internal const double StepSetDownMarginMeters = 0.05;
+
+        /// <summary>Margin kept above the crash guard (see <see cref="StepSetDownAltitude"/>).</summary>
+        internal const double StepCrashGuardMarginMeters = 0.05;
+
+        /// <summary>How far the settled kerbal's lowest collider point may sit from the ground
+        /// collider under him (either side) for the step to count as done.</summary>
+        internal const double StepGroundClearanceToleranceMeters = 0.25;
+
+        /// <summary>Largest believable distance from the kerbal's origin down to his lowest
+        /// collider point; a measurement outside [0, this] is ignored.</summary>
+        internal const double MaxFeetDepthMeters = 2.5;
+
+        /// <summary>The ground a step used for the set-down.</summary>
+        internal const string GroundSourceRaycast = "raycast";
+        internal const string GroundSourcePqs = "pqs";
+
+        private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
+        /// <summary>
+        /// The altitude to set the kerbal's ORIGIN down at so his feet land on the ground.
+        /// <para><paramref name="groundAltitude"/> is the altitude of the ground COLLIDER at the
+        /// target (a raycast onto layer 15, the collider the placement preview lands on); NaN
+        /// when the ray missed, which falls back to the analytic PQS height
+        /// <paramref name="pqsTerrain"/>. The PQS height is not the ground a kerbal stands on:
+        /// in EVA-9 `2026-09-29_1931` the step set Jeb down 0.53 m over PQS 151.36 and he ended
+        /// half under the ground, while a set-down 1.93 m over PQS 150.42 ragdolled him.
+        /// <paramref name="feetDepth"/> is how far below his origin his lowest collider point
+        /// is, measured before the move; the origin goes that far plus
+        /// <see cref="StepSetDownMarginMeters"/> above the ground. An unbelievable depth falls
+        /// back to <see cref="StepLiftMeters"/>.</para>
+        /// <para>CRASH GUARD: a vessel that is not landed is destroyed once its altitude reads
+        /// below its terrain altitude (decompiled <c>Vessel</c>, KSP 1.12.5; EVA-8
+        /// `2026-09-29_1729`), so the origin is never set below the target's PQS height or the
+        /// vessel's cached <c>terrainAltitude</c> (stock's -1 "unknown" ignored) plus
+        /// <see cref="StepCrashGuardMarginMeters"/>.</para>
+        /// </summary>
+        internal static double StepSetDownAltitude(double groundAltitude, double pqsTerrain,
+            double feetDepth, double cachedTerrain, out string groundSource, out bool guarded)
+        {
+            bool groundKnown = IsFinite(groundAltitude);
+            groundSource = groundKnown ? GroundSourceRaycast : GroundSourcePqs;
+            double baseAlt = groundKnown ? groundAltitude : pqsTerrain;
+            bool depthKnown = IsFinite(feetDepth) && feetDepth >= 0.0 && feetDepth <= MaxFeetDepthMeters;
+            double alt = baseAlt + (depthKnown ? feetDepth + StepSetDownMarginMeters : StepLiftMeters);
+            double guard = double.NegativeInfinity;
+            if (IsFinite(pqsTerrain)) guard = pqsTerrain;
+            if (IsFinite(cachedTerrain) && cachedTerrain != -1.0 && cachedTerrain > guard)
+                guard = cachedTerrain;
+            guarded = false;
+            if (!double.IsNegativeInfinity(guard) && alt < guard + StepCrashGuardMarginMeters)
+            {
+                alt = guard + StepCrashGuardMarginMeters;
+                guarded = true;
+            }
+            return alt;
+        }
+
+        /// <summary>Is the settled kerbal's lowest collider point within
+        /// <see cref="StepGroundClearanceToleranceMeters"/> of the ground collider under him?
+        /// An unmeasured clearance (NaN) is not.</summary>
+        internal static bool IsGroundClearanceOk(double feetClearance)
+            => IsFinite(feetClearance) && Math.Abs(feetClearance) <= StepGroundClearanceToleranceMeters;
+
+        /// <summary>The grep-stable per-step ground line: where the settled kerbal's feet are
+        /// relative to the ground collider under him.</summary>
+        internal static string FormatStepGroundLine(string kerbalName, double feetClearance,
+            double originClearance, string groundSource, bool ok)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return "evagroundscience step ground kerbal=" + (kerbalName ?? string.Empty)
+                + " feetClearance=" + (IsFinite(feetClearance) ? feetClearance.ToString("F2", ic) : "nan")
+                + " originClearance=" + (IsFinite(originClearance) ? originClearance.ToString("F2", ic) : "nan")
+                + " tolerance=" + StepGroundClearanceToleranceMeters.ToString("F2", ic)
+                + " groundSource=" + (groundSource ?? "?")
+                + " ok=" + (ok ? "true" : "false");
+        }
+
+        /// <summary>Stock's <c>KerbalEVA.recoverThreshold</c>: a ragdolled kerbal may get up
+        /// only below this speed (m/s).</summary>
+        internal const double RagdollRecoverMaxSpeed = 0.6;
+
+        /// <summary>Seconds a kerbal lies in the ragdoll state before the step gets him up
+        /// (stock's own recover check waits 0.2 s).</summary>
+        internal const double RagdollRecoverAfterSeconds = 0.5;
+
+        /// <summary>Get-ups one step may trigger.</summary>
+        internal const int MaxRagdollRecovers = 3;
+
+        /// <summary>
+        /// Should the step get a ragdolled kerbal back on his feet? Decompiled
+        /// <c>KerbalEVA.CanRecover</c> (KSP 1.12.5): the ACTIVE kerbal leaves the ragdoll state
+        /// only once the player gives a movement input (<c>tgtRpos != 0</c>), so a kerbal who
+        /// stumbled on landing (a set-down more than ~0.6 m above the ground lands faster than
+        /// <c>stumbleThreshold</c> 3.5 m/s) lies there for good in an unattended run (EVA-8
+        /// `2026-09-29_1759`: the Go-ob place waited 120 s on `standing=false`). The seam runs
+        /// stock's own <c>On_recover_start</c> event instead, the transition that input
+        /// triggers, and only once he lies landed, slower than stock's recover threshold, for
+        /// <see cref="RagdollRecoverAfterSeconds"/>, at most <see cref="MaxRagdollRecovers"/>
+        /// times.
+        /// </summary>
+        internal static bool ShouldRecoverFromRagdoll(bool isRagdoll, bool inRagdollState, bool landed,
+            double speed, double secondsInState, int recoversSoFar)
+        {
+            if (!isRagdoll || !inRagdollState || !landed) return false;
+            if (recoversSoFar >= MaxRagdollRecovers) return false;
+            if (double.IsNaN(speed) || speed >= RagdollRecoverMaxSpeed) return false;
+            return secondsInState >= RagdollRecoverAfterSeconds;
+        }
+
+        /// <summary>The move method a step's log line names, so a lane can prove which ran:
+        /// KerbalEVA's ground anchor released, then the transforms and every rigidbody pose
+        /// written together.</summary>
+        internal const string StepMoveMethod = "anchor-release+rb-pose";
+
+        /// <summary>
+        /// The per-move log line. The prefix up to <c>skipFrames=</c> is the shape the cluster
+        /// lanes already pin; <c>method=</c> and the anchor fields follow it.
+        /// </summary>
+        internal static string FormatStepMoveLine(string kerbalName, int move, int collisionEnhancers,
+            bool evaModuleFound, bool wasAnchored, bool anchorReleased, int rigidbodiesPosed,
+            double targetTerrain = double.NaN, double setDownAltitude = double.NaN,
+            double groundAltitude = double.NaN, double feetDepth = double.NaN,
+            string groundSource = null, bool guarded = false)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return "evagroundscience step move kerbal=" + (kerbalName ?? string.Empty)
+                + " move=" + move.ToString(ic)
+                + " collisionEnhancersSkipped=" + collisionEnhancers.ToString(ic)
+                + " skipFrames=" + StepCollisionSkipFrames.ToString(ic)
+                + " method=" + StepMoveMethod
+                + " evaModule=" + (evaModuleFound ? "true" : "false")
+                + " wasAnchored=" + (wasAnchored ? "true" : "false")
+                + " anchorReleased=" + (anchorReleased ? "true" : "false")
+                + " rigidbodiesPosed=" + rigidbodiesPosed.ToString(ic)
+                + " terrain=" + (double.IsNaN(targetTerrain) ? "?" : targetTerrain.ToString("F2", ic))
+                + " setDownAlt=" + (double.IsNaN(setDownAltitude) ? "?" : setDownAltitude.ToString("F2", ic))
+                + " groundAlt=" + (double.IsNaN(groundAltitude) ? "?" : groundAltitude.ToString("F2", ic))
+                + " feetDepth=" + (double.IsNaN(feetDepth) ? "?" : feetDepth.ToString("F2", ic))
+                + " groundSource=" + (groundSource ?? "?")
+                + " crashGuard=" + (guarded ? "true" : "false");
+        }
+
+        /// <summary>Frames after a move before a kerbal still off target gets the move
+        /// again (the move's own settle).</summary>
+        internal const int StepReapplyFrames = 20;
+
+        /// <summary>Moves one step may make before it waits out its budget.</summary>
+        internal const int MaxStepMoves = 3;
+
+        /// <summary>
+        /// Should the step move the kerbal again? Only while he is still more than
+        /// <see cref="StepToleranceMeters"/> (horizontal) from the target, only once the last
+        /// move had <see cref="StepReapplyFrames"/> frames to land, and at most
+        /// <see cref="MaxStepMoves"/> moves in all.
+        /// </summary>
+        internal static bool ShouldReapplyStep(double offTargetMeters, int framesSinceMove, int movesSoFar)
+            => ShouldReapplyStep(offTargetMeters, false, framesSinceMove, movesSoFar);
+
+        /// <summary>As above, also moving again a kerbal who landed on the spot but with his
+        /// feet off the ground collider (<paramref name="landedGroundOff"/>: landed and the
+        /// clearance outside tolerance), e.g. set down partly inside the ground.</summary>
+        internal static bool ShouldReapplyStep(double offTargetMeters, bool landedGroundOff,
+            int framesSinceMove, int movesSoFar)
+        {
+            if (movesSoFar >= MaxStepMoves) return false;
+            if (framesSinceMove < StepReapplyFrames) return false;
+            return double.IsNaN(offTargetMeters) || offTargetMeters > StepToleranceMeters || landedGroundOff;
+        }
 
         /// <summary>Optional <c>faceAway=true</c> on place: turn the kerbal away from the
         /// nearest other loaded vessel first (a kerbal just off a ladder faces the hull, and
@@ -91,7 +348,205 @@ namespace Parsek.TestCommands
                 action = EvaGroundScienceAction.Pickup;
                 return true;
             }
+            if (raw == TakeToken)
+            {
+                action = EvaGroundScienceAction.Take;
+                return true;
+            }
+            if (raw == StepToken)
+            {
+                action = EvaGroundScienceAction.Step;
+                return true;
+            }
             return false;
+        }
+
+        /// <summary>Parses the step's <c>anchor=</c> (a non-zero uint pid) and
+        /// <c>distance=</c> (InvariantCulture, finite, in (0, <see cref="MaxStepDistanceMeters"/>]).
+        /// Returns false with the refusal reason in <paramref name="error"/>.</summary>
+        internal static bool TryParseStepArgs(string anchorRaw, string distanceRaw,
+            out uint anchorPid, out double distance, out string error)
+        {
+            anchorPid = 0;
+            distance = 0;
+            error = null;
+            if (string.IsNullOrEmpty(anchorRaw)
+                || !uint.TryParse(anchorRaw, NumberStyles.None, CultureInfo.InvariantCulture, out anchorPid)
+                || anchorPid == 0)
+            {
+                error = "step-anchor-invalid";
+                return false;
+            }
+            if (string.IsNullOrEmpty(distanceRaw)
+                || !double.TryParse(distanceRaw, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out distance)
+                || double.IsNaN(distance) || double.IsInfinity(distance)
+                || distance <= 0 || distance > MaxStepDistanceMeters)
+            {
+                error = "step-distance-invalid";
+                distance = 0;
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>Parses the step's optional <c>bearing=</c>: absent or empty means no
+        /// bearing (<paramref name="hasBearing"/> false, success). Present, it must be an
+        /// unsigned InvariantCulture decimal in [0, 360); otherwise false with
+        /// <c>step-bearing-invalid</c>.</summary>
+        internal static bool TryParseStepBearing(string raw, out bool hasBearing,
+            out double bearingDegrees, out string error)
+        {
+            hasBearing = false;
+            bearingDegrees = 0;
+            error = null;
+            if (string.IsNullOrEmpty(raw)) return true;
+            if (!double.TryParse(raw, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture,
+                    out double b)
+                || double.IsNaN(b) || double.IsInfinity(b) || b < 0 || b >= 360.0)
+            {
+                error = "step-bearing-invalid";
+                return false;
+            }
+            hasBearing = true;
+            bearingDegrees = b;
+            return true;
+        }
+
+        /// <summary>
+        /// The latitude / longitude (degrees) of the point <paramref name="distance"/> metres
+        /// from (<paramref name="latDeg"/>, <paramref name="lonDeg"/>) along compass bearing
+        /// <paramref name="bearingDeg"/> (0 north, 90 east) on a sphere of
+        /// <paramref name="radius"/>: the local tangent-plane offset, exact enough for the
+        /// tens of metres a step covers. Longitude wraps into [-180, 180); the east offset's
+        /// cos(latitude) is floored so a polar anchor cannot divide by zero.
+        /// </summary>
+        internal static void OffsetLatLonAlongBearing(double latDeg, double lonDeg,
+            double bearingDeg, double distance, double radius, out double lat2, out double lon2)
+        {
+            double b = bearingDeg * Math.PI / 180.0;
+            double north = Math.Cos(b) * distance;
+            double east = Math.Sin(b) * distance;
+            double cosLat = Math.Max(Math.Cos(latDeg * Math.PI / 180.0), 1e-6);
+            lat2 = latDeg + north / radius * 180.0 / Math.PI;
+            lon2 = lonDeg + east / (radius * cosLat) * 180.0 / Math.PI;
+            lon2 = ((lon2 + 180.0) % 360.0 + 360.0) % 360.0 - 180.0;
+        }
+
+        /// <summary>
+        /// The horizontal offset from the anchor to set the kerbal down at: his current
+        /// horizontal offset (<paramref name="dx"/>, <paramref name="dz"/>, in any horizontal
+        /// basis) rescaled to <paramref name="distance"/>, so he moves straight out along
+        /// his own bearing. A kerbal directly above the anchor (no bearing) goes along
+        /// (<paramref name="fallbackX"/>, <paramref name="fallbackZ"/>), or +x when that is
+        /// degenerate too.
+        /// </summary>
+        internal static void StepHorizontalOffset(double dx, double dz, double distance,
+            double fallbackX, double fallbackZ, out double ox, out double oz)
+        {
+            double len = Math.Sqrt(dx * dx + dz * dz);
+            if (len < 1e-3)
+            {
+                dx = fallbackX;
+                dz = fallbackZ;
+                len = Math.Sqrt(dx * dx + dz * dz);
+                if (len < 1e-6)
+                {
+                    dx = 1.0;
+                    dz = 0.0;
+                    len = 1.0;
+                }
+            }
+            ox = dx / len * distance;
+            oz = dz / len * distance;
+        }
+
+        /// <summary>A step completes once the kerbal is landed within
+        /// <see cref="StepToleranceMeters"/> (horizontal) of the target spot itself, held for
+        /// the settle window. The spot, not the distance from the anchor: a kerbal put back
+        /// elsewhere at the right range must not pass. <paramref name="standing"/> is landed AND
+        /// not ragdolled (a ragdolled kerbal is landed but cannot place).</summary>
+        internal static GroundScienceCompletionDecision DecideStepCompletion(
+            double elapsed, double budget, bool standing, double offTargetMeters, int settledFrames)
+        {
+            bool atTarget = !double.IsNaN(offTargetMeters) && offTargetMeters <= StepToleranceMeters;
+            if (standing && atTarget && settledFrames >= SettleFrames)
+                return GroundScienceCompletionDecision.CompleteOk;
+            return elapsed >= budget
+                ? GroundScienceCompletionDecision.Timeout
+                : GroundScienceCompletionDecision.StillWaiting;
+        }
+
+        /// <summary>The wire token for an action (the inverse of <see cref="TryParseAction"/>).</summary>
+        internal static string ActionToken(EvaGroundScienceAction action)
+        {
+            switch (action)
+            {
+                case EvaGroundScienceAction.Pickup: return PickupToken;
+                case EvaGroundScienceAction.Take: return TakeToken;
+                case EvaGroundScienceAction.Step: return StepToken;
+                default: return PlaceToken;
+            }
+        }
+
+        /// <summary>
+        /// Chooses the container slot a take moves the part out of: among candidates
+        /// storing <paramref name="partName"/> (ordinal) within
+        /// <paramref name="reachMeters"/> (stock's <c>GameSettings.EVA_INVENTORY_RANGE</c>,
+        /// the distance at which a kerbal can open a container's inventory), the NEAREST
+        /// container, and inside it the LOWEST slot. Ties on distance keep the lower
+        /// container index, so the choice is deterministic.
+        /// </summary>
+        internal static GroundTakeSourceChoice ChooseTakeSource(
+            IEnumerable<GroundTakeCandidate> candidates, string partName, double reachMeters)
+        {
+            var choice = new GroundTakeSourceChoice
+            {
+                Decision = GroundTakeSourceDecision.NotStored,
+                NearestDistanceMeters = double.MaxValue,
+            };
+            if (candidates == null || string.IsNullOrEmpty(partName)) return choice;
+            bool found = false;
+            GroundTakeCandidate best = default(GroundTakeCandidate);
+            foreach (GroundTakeCandidate c in candidates)
+            {
+                if (c.PartName != partName) continue;
+                if (c.DistanceMeters < choice.NearestDistanceMeters)
+                    choice.NearestDistanceMeters = c.DistanceMeters;
+                if (c.DistanceMeters > reachMeters) continue;
+                bool better = !found
+                    || c.DistanceMeters < best.DistanceMeters
+                    || (c.DistanceMeters == best.DistanceMeters
+                        && (c.ContainerIndex < best.ContainerIndex
+                            || (c.ContainerIndex == best.ContainerIndex && c.Slot < best.Slot)));
+                if (better)
+                {
+                    best = c;
+                    found = true;
+                }
+            }
+            if (found)
+            {
+                choice.Decision = GroundTakeSourceDecision.Found;
+                choice.Candidate = best;
+            }
+            else if (choice.NearestDistanceMeters < double.MaxValue)
+            {
+                choice.Decision = GroundTakeSourceDecision.OutOfRange;
+            }
+            return choice;
+        }
+
+        /// <summary>A take completes once the kerbal's inventory holds the part AND the
+        /// source slot no longer does, held for the settle window.</summary>
+        internal static GroundScienceCompletionDecision DecideTakeCompletion(
+            double elapsed, double budget, bool kerbalHoldsPart, bool sourceSlotCleared,
+            int settledFrames)
+        {
+            if (kerbalHoldsPart && sourceSlotCleared && settledFrames >= SettleFrames)
+                return GroundScienceCompletionDecision.CompleteOk;
+            return elapsed >= budget
+                ? GroundScienceCompletionDecision.Timeout
+                : GroundScienceCompletionDecision.StillWaiting;
         }
 
         /// <summary>KSP's runtime part names use dots where the cfg used underscores.</summary>
@@ -230,8 +685,7 @@ namespace Parsek.TestCommands
             int slot, int presses, double distanceMeters)
             => new List<KeyValuePair<string, string>>
             {
-                new KeyValuePair<string, string>("action",
-                    action == EvaGroundScienceAction.Place ? PlaceToken : PickupToken),
+                new KeyValuePair<string, string>("action", ActionToken(action)),
                 new KeyValuePair<string, string>("part", partName ?? string.Empty),
                 new KeyValuePair<string, string>("partPid",
                     partPid.ToString(CultureInfo.InvariantCulture)),

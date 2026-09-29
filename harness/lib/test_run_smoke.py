@@ -5513,7 +5513,7 @@ class RemovalAndCareerStageTests(unittest.TestCase):
             self.instance, FakeRuntime("pass"), self.logger)
         self.assertFalse(ok)
         self.assertEqual("staging", subkind)
-        self.assertIn("activeVessel is 0", self._log())
+        self.assertIn("focused vessel (activeVessel = 0)", self._log())
 
     def test_removing_an_unknown_pid_terminates_invalid_without_booting(self):
         """The whole-attempt shape of the refusal: a `remove` naming a pid the

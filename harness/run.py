@@ -1345,7 +1345,12 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
     # `[[fixture.crewInventory]]` (coverage wave 10) rides the same read / patch /
     # write, third: it touches only GAME / ROSTER, disjoint from both of the above.
     crew_inventory = savepatch.declared_crew_inventory(fixture)
-    if live_state or career_state or crew_inventory:
+    # `[[fixture.partInventory]]` (the ground-science cluster lanes) rides it fourth:
+    # FLIGHTSTATE container parts, applied AFTER liveState so a liveState removal
+    # that re-points activeVessel cannot shift the vessel it addresses (it is
+    # addressed by persistentId, never by index, so the order is belt and braces).
+    part_inventory = savepatch.declared_part_inventory(fixture)
+    if live_state or career_state or crew_inventory or part_inventory:
         sfs_path = os.path.join(target_save, "persistent.sfs")
         if not _is_strictly_inside(sfs_path, saves_dir) or not os.path.isfile(sfs_path):
             logger.error("Stage", "liveState: staged save %s has no readable "
@@ -1355,6 +1360,7 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
         live_notes: List[str] = []
         career_notes: List[str] = []
         crew_notes: List[str] = []
+        part_notes: List[str] = []
         try:
             with open(sfs_path, "rb") as fh:
                 sfs_text = fh.read().decode("utf-8")
@@ -1364,6 +1370,8 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
                 patched_text, career_state)
             patched_text, crew_notes = savepatch.apply_crew_inventory(
                 patched_text, crew_inventory)
+            patched_text, part_notes = savepatch.apply_part_inventory(
+                patched_text, part_inventory)
             with open(sfs_path, "wb") as fh:
                 fh.write(patched_text.encode("utf-8"))
         except savepatch.LiveStatePatchError as ex:
@@ -1380,6 +1388,8 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
             logger.info("Stage", "career patched %s" % note)
         for note in crew_notes:
             logger.info("Stage", "crewInventory patched %s" % note)
+        for note in part_notes:
+            logger.info("Stage", "partInventory patched %s" % note)
 
     # (4) stage craft files.
     craft = fixture.get("craft", []) or []
