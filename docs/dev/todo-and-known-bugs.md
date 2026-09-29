@@ -24,6 +24,13 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
 - [x] Summary line at the title's font size, muted by colour instead of size and alpha; the
   `Next launch T- ...` segment in amber (`#ffcc66`, the window's clamp amber) through rich
   text, with every other piece escaped (`MissionPresentation.EscapeRichText`).
+- [x] Loop surfaces Advanced-only (owner ruling: they depend on Advanced mission looping):
+  Clone, Delete, `Warp to...` (drawn only while looping, a same-width space otherwise; the
+  "Turn Loop on" refusal is gone), the `Next launch` header and row cells together, the
+  summary's `Loops ~P` / `Next launch T-` pieces, and the loop-selection styling (dimmed
+  excluded vessels, `(partial)`, the chapter `[~]` / dimming, partner-journey rows).
+  `MissionsTabColumnSequenceTests` pins that the header and every row kind draw the same
+  columns in both modes.
 
 ## KB-4-RND-PART-TOOLTIP-LOST: the R&D part tooltip closed between KB-4's hover and its capture [FILED 2026-09-29 from KB-4 `2026-09-29_1507`, branch `kb4-block-proof`. OPEN, not reproduced on the next flight]
 

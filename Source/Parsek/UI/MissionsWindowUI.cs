@@ -985,21 +985,26 @@ namespace Parsek
         }
 
         /// <summary>
-        /// True when the tab draws its manual-loop AUTHORING controls: the per-mission
-        /// "Loop" toggle, the loop-period cell beside it, and the include checkboxes that
-        /// pick which intervals / partner journeys the loop replays (design
-        /// `docs/dev/design-ui-basic-advanced.md` section 4.5).
+        /// True when the tab draws its manual-loop surfaces: the per-mission "Loop" toggle,
+        /// the loop-period cell beside it, the include checkboxes that pick which intervals
+        /// / partner journeys the loop replays, Clone, Delete, "Warp to...", the summary
+        /// line's "Loops ~P" and "Next launch T-" pieces, and the loop-selection styling
+        /// (dimmed excluded rows, the "(partial)" suffix, the chapter "[~]" marker and the
+        /// partner-journey rows an include pulls in) - design
+        /// `docs/dev/design-ui-basic-advanced.md` section 4.5.
         /// <para>Basic returns false. Manually looping a mission is a presentation choice
-        /// with no career consequence, and its three controls are the tab's densest
-        /// cluster; a Basic player reaches the same flights through Watch, the Log, the
-        /// Timeline and Logistics without them.</para>
+        /// with no career consequence; everything above only exists because of it (Delete
+        /// and Warp to... included: a mission has something to delete only once it was
+        /// cloned, and a next launch only once it loops), and a Basic player reaches the
+        /// same flights through Watch, the Log, the Timeline and Logistics without it.</para>
         /// <para>Scope, stated positively so a later reader does not widen it by accident:
-        /// this hides AUTHORING only. The "Looped by route" status label, the TTL column,
-        /// "Warp to..." and Watch all stay - a mission looped in Advanced keeps looping
-        /// after the switch (philosophy 1: visibility only, never behavior), and those four
-        /// are how a Basic player sees and reaches that loop. Nothing here writes
-        /// <c>Mission.LoopPlayback</c> or the selection sets either: state authored in
-        /// Advanced survives the switch untouched and returns intact (philosophy 2).</para>
+        /// the "Looped by route" status label, Watch, Rewind / Forward, Log, Archive,
+        /// Re-Fly, the chapter headers and the Docked partner rows all stay. A mission
+        /// looped in Advanced keeps looping after the switch (philosophy 1: visibility
+        /// only, never behavior) and its ghosts keep flying where Watch reaches them.
+        /// Nothing here writes <c>Mission.LoopPlayback</c> or the selection sets either:
+        /// state authored in Advanced survives the switch untouched and returns intact
+        /// (philosophy 2).</para>
         /// <para>Derived from <see cref="UiSurfaceVisibility.IsVisible"/> so this rule has
         /// the same single decision point as every other gated surface, and takes the mode
         /// as a PARAMETER so it is unit-testable; every draw site passes the frame-latched
@@ -1689,7 +1694,9 @@ namespace Parsek
             bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
             MissionVesselInclusion inclusion =
                 MissionVesselRowBuilder.ClassifyInclusion(row, mission.ExcludedIntervalKeys);
-            bool greyed = inclusion == MissionVesselInclusion.None;
+            // Loop-selection styling is Advanced-only: in Basic an excluded vessel draws plain,
+            // since the selection it reports only means something to a loop Basic cannot see.
+            bool greyed = loopAuthoring && inclusion == MissionVesselInclusion.None;
             // A single-interval vessel has no detail to expand; Basic never expands (the detail
             // is the authoring surface). Expandability never depends on the inclusion state, so
             // a checkbox click cannot change the control count mid-frame.
@@ -1741,7 +1748,8 @@ namespace Parsek
                 GUILayout.Space(indent);
             string connector = depth > 0 ? RecordingsTableUI.TreeConnector(isLast) : "";
             string caret = expandable ? (expanded ? CaretDown : CaretRight) : "";
-            string partial = inclusion == MissionVesselInclusion.Partial ? " (partial)" : "";
+            string partial = loopAuthoring && inclusion == MissionVesselInclusion.Partial
+                ? " (partial)" : "";
             string phrase = row.EventPhrase ?? "";
             string wide = connector + caret + row.VesselName + partial
                 + (phrase.Length > 0 ? "   " + phrase : "");
@@ -1767,17 +1775,20 @@ namespace Parsek
             }
 
             // "Next launch" countdown on the mission's launch row only (mission-level value:
-            // never dimmed with an excluded vessel).
-            if (isLaunchRow)
+            // never dimmed with an excluded vessel). Advanced-only, with its column header.
+            if (loopAuthoring)
             {
-                Color prevTm = GUI.color;
-                GUI.color = prevColor;
-                DrawTMinusVesselCell(mission, periodicity);
-                GUI.color = prevTm;
-            }
-            else
-            {
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
+                if (isLaunchRow)
+                {
+                    Color prevTm = GUI.color;
+                    GUI.color = prevColor;
+                    DrawTMinusVesselCell(mission, periodicity);
+                    GUI.color = prevTm;
+                }
+                else
+                {
+                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
+                }
             }
 
             // The vessel's whole span + bounding events. The start-event cell reuses the T1.4
@@ -1952,8 +1963,9 @@ namespace Parsek
 
             // Blank "Next launch" slot: since T2.2 the mission's countdown lives on the launch
             // VESSEL row (DrawVesselRow), so every composition row here just keeps the column
-            // aligned with a same-width blank cell.
-            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
+            // aligned with a same-width blank cell - in Advanced, the only mode with the column.
+            if (ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode))
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
 
             // Interval / vessel rows show their span + bounding events; roster atoms inherit the
             // parent's span, so their time columns stay blank.
@@ -2153,7 +2165,8 @@ namespace Parsek
             // could see or undo. The else branch is the SAME single blank cell the per-interval
             // and per-vessel rows draw, so the "#" column keeps its width and the rows stay
             // aligned with the header.
-            if (ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode))
+            bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
+            if (loopAuthoring)
             {
                 bool shownChecked = state != ChapterSelectionState.AllExcluded;
                 bool toggled = GUILayout.Toggle(shownChecked, ChapterIncludeCheckboxContent,
@@ -2178,8 +2191,10 @@ namespace Parsek
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Index));
             }
 
+            // The dimming and the "[~]" marker report the loop selection, so they go with the
+            // toggle in Basic: the chapter title itself stays in both modes.
             Color prevColor = GUI.color;
-            if (state == ChapterSelectionState.AllExcluded)
+            if (loopAuthoring && state == ChapterSelectionState.AllExcluded)
                 GUI.color = DimColor;
             float indent = RecordingsTableUI.SelfConnectorIndent(depth);
             if (indent > 0f)
@@ -2187,7 +2202,7 @@ namespace Parsek
             // The header is a group label, not a leg: it deliberately carries no tree connector
             // (the row under it owns that) and no span columns - a chapter's span is exactly the
             // union of the rows below, which are already showing it.
-            string marker = state == ChapterSelectionState.Mixed ? "[~] " : "";
+            string marker = loopAuthoring && state == ChapterSelectionState.Mixed ? "[~] " : "";
             GUILayout.Label(marker + (chapter.Root.Title ?? ""),
                 compositionCellLabel, GUILayout.ExpandWidth(true));
             GUI.color = prevColor;
@@ -2308,8 +2323,10 @@ namespace Parsek
             // The partner-journey toggle picks which foreign journey the loop replays, so it is
             // part of the same authoring set as the per-interval checkboxes and goes with them in
             // Basic. The ROW itself stays in both modes: it reports that this vessel docked with
-            // another tree's, which is mission history, not loop composition. A link included in
-            // Advanced keeps rendering its expanded child rows here.
+            // another tree's, which is mission history, not loop composition. What an include
+            // DOES to the row (the dimming while it is off, the journey child rows while it is
+            // on) is loop-selection styling, so Basic draws the row plain and without its
+            // journey; the include itself is untouched and returns with Advanced.
             bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
 
             int rows = 0;
@@ -2358,7 +2375,7 @@ namespace Parsek
                 }
 
                 Color prevColor = GUI.color;
-                if (!included)
+                if (loopAuthoring && !included)
                     GUI.color = DimColor;
                 string eventWord = link.ClaimType == BranchPointType.Board ? "Boarded" : "Docked";
                 float indent = RecordingsTableUI.SelfConnectorIndent(1);
@@ -2376,7 +2393,8 @@ namespace Parsek
                         + FormatLinkLoiterGap(tree, link),
                         MissionPresentation.PartnerJourneyTooltip),
                     1, false);
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
+                if (loopAuthoring)
+                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
                 GUILayout.Label(KSPUtil.PrintDateCompact(link.DockUT, true),
                     compositionCellLabel, GUILayout.Width(ColW_StartTime));
                 GUILayout.Label(eventWord, compositionCellLabel, GUILayout.Width(ColW_StartEvent));
@@ -2390,7 +2408,7 @@ namespace Parsek
                 GUILayout.EndHorizontal();
                 rows++;
 
-                if (!included)
+                if (!included || !loopAuthoring)
                     continue;
 
                 RecordingTree foreignTree = FindTree(trees, link.ForeignTreeId);
@@ -2575,7 +2593,8 @@ namespace Parsek
                     + KSPUtil.PrintDateCompact(row.UT, true) + " - "
                     + MissionEventDigest.FormatRowText(row),
                     compositionCellLabel, GUILayout.ExpandWidth(true));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
+                if (ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode))
+                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartTime));
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartEvent));
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
@@ -2618,7 +2637,8 @@ namespace Parsek
         // plus the trailing margin-0 Archive spacer every row in this tab ends with.
         private void DrawBlankDigestCells()
         {
-            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
+            if (ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode))
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartTime));
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartEvent));
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
@@ -2762,38 +2782,41 @@ namespace Parsek
                 parentUI.OpenStructureWindowForMission(mission.TreeId, mission.Name);
             }
 
-            // Clone / Delete next. Delete is disabled when this is the tree's last mission. Log,
-            // Clone, Delete, Warp to, Watch, and Rewind/Forward all share ColW_HeaderButton so they
-            // read as one group.
+            // Clone / Delete / Warp to... next, all three Advanced-only (owner ruling 2026-09-29:
+            // they depend on Advanced mission looping). Log, Clone, Delete, Warp to, Watch, and
+            // Rewind/Forward all share ColW_HeaderButton so they read as one group.
             //
             // Clone is loop AUTHORING (a clone exists to carry a second include set / loop period
-            // over the same recordings - all controls Basic hides), so it goes with the section-4.5
-            // authoring set: hidden in Basic, its width absorbed by the FlexibleSpace like the Loop
-            // controls' (owner decision 2026-08-20). Delete STAYS in Basic: it is cleanup of a
-            // clone made in Advanced, and CanDelete keeps the tree's last mission safe, so a Basic
-            // player can remove a stray duplicate but never the mission itself.
+            // over the same recordings); Delete removes a clone, so it has nothing to act on
+            // without one (CanDelete keeps the tree's first mission safe either way); Warp to...
+            // jumps to the next launch of a LOOPING mission. In Basic their width is absorbed by
+            // the FlexibleSpace like the Loop controls', so Watch / Rewind stay pinned.
             bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
-            if (loopAuthoring
-                && GUILayout.Button(new GUIContent("Clone", MissionPresentation.CloneButtonTooltip),
-                    GUILayout.Width(ColW_HeaderButton)))
-                MissionStore.Clone(mission);
-            bool canDeleteMission = MissionStore.CanDelete(mission);
-            GUI.enabled = canDeleteMission;
-            bool deleteClicked = GUILayout.Button("Delete", GUILayout.Width(ColW_HeaderButton));
-            DisabledHoverEcho.CarryLastControl(canDeleteMission, MissionDeleteDisabledReason(mission));
-            if (deleteClicked)
-                MissionStore.Delete(mission);
-            GUI.enabled = true;
+            if (loopAuthoring)
+            {
+                if (GUILayout.Button(new GUIContent("Clone", MissionPresentation.CloneButtonTooltip),
+                        GUILayout.Width(ColW_HeaderButton)))
+                    MissionStore.Clone(mission);
+                bool canDeleteMission = MissionStore.CanDelete(mission);
+                GUI.enabled = canDeleteMission;
+                bool deleteClicked = GUILayout.Button("Delete", GUILayout.Width(ColW_HeaderButton));
+                DisabledHoverEcho.CarryLastControl(canDeleteMission, MissionDeleteDisabledReason(mission));
+                if (deleteClicked)
+                    MissionStore.Delete(mission);
+                GUI.enabled = true;
 
-            // "Warp to..." (after Delete, before Loop): jumps the game clock to this mission's next
-            // faithful relaunch (the "Next launch" countdown target = periodicity.NextRelaunchUT), reusing the
-            // Timeline "Warp to time" flow (confirmation dialog; in flight it defers to the Space
-            // Center so the Merge / Discard dialog handles the active recording first). The next
-            // relaunch is always in the future, so this is a forward (fast-forward) warp. Enabled only
-            // when the mission is looping, an engine unit was built, the next relaunch is in the
-            // future, and we are in a warp-capable scene (flight or Space Center). The ellipsis
-            // matches the existing "Warp to..." convention; the adjacent "Next launch" column says "to what".
-            DrawMissionWarpToWindowButton(mission, periodicity);
+                // "Warp to..." (after Delete, before Loop): jumps the game clock to this
+                // mission's next relaunch (the countdown target = periodicity.NextRelaunchUT)
+                // through the in-place forward jump the Forward button uses. Drawn ONLY while
+                // the mission loops; otherwise the same-width Space holds its slot, so the Loop
+                // toggle beside it does not move when the loop is switched, and the layout
+                // entry count stays the same (a Space is one entry, like the button) should
+                // another mission's Loop click clear this one's loop mid-pass.
+                if (mission.LoopPlayback)
+                    DrawMissionWarpToWindowButton(mission, periodicity);
+                else
+                    GUILayout.Space(ColW_HeaderButton);
+            }
 
             // "Loop [x]": label then checkbox (bare siblings, normal ~4 px margins; a fixed-width
             // wrapper left slack that widened the gap before the period field). The label uses the
@@ -2851,8 +2874,7 @@ namespace Parsek
             // The cell goes with the toggle in Basic: it is a period EDITOR (a value field plus a
             // unit-cycling button; only the phase-locked / re-aim states render read-only), so
             // keeping it beside a hidden toggle would leave the tab's most cryptic control as the
-            // only surviving loop control. The TTL column on the launch row is what still answers
-            // "when does this fly next?" for a mission that is looping.
+            // only surviving loop control.
             if (loopAuthoring)
                 DrawMissionLoopPeriodCell(mission, view, periodicity);
 
@@ -2923,9 +2945,14 @@ namespace Parsek
             if (!hasSummary)
                 return;
 
+            // The loop pieces ("Loops ~P", "Next launch T- ...") are Advanced-only, with the loop
+            // controls they report on (ShowsLoopAuthoringControls): Basic reads no loop word.
+            // Text-only either way, so the mode never changes this line's control count.
+            bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
+
             // The countdown, only when one exists (T1.2). Same text the row cell shows, so the two
             // can never disagree.
-            string nextLaunch = MissionPresentation.SummaryNextLaunchText(
+            string nextLaunch = !loopAuthoring ? null : MissionPresentation.SummaryNextLaunchText(
                 BuildTMinusCellText(
                     mission != null && mission.LoopPlayback,
                     periodicity.Solved,
@@ -2948,7 +2975,7 @@ namespace Parsek
             // period. Text-only (the piece appears/disappears with the loop state but never
             // changes the control count - the whole line is one label either way).
             string loopText = null;
-            if (mission != null && mission.LoopPlayback && periodicity.Solved
+            if (loopAuthoring && mission != null && mission.LoopPlayback && periodicity.Solved
                 && periodicity.Solution.P > 0 && !double.IsNaN(periodicity.Solution.P))
             {
                 loopText = "Loops ~" + ParsekTimeFormat.FormatDuration(periodicity.Solution.P);
@@ -3216,17 +3243,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Why a mission's "Warp to..." is greyed out. Four gates share the one button and
-        /// the button's own tooltip describes none of them; they are reported in the order
-        /// the player would have to fix them. Pure for unit testing.
+        /// Why a mission's "Warp to..." is greyed out. The button draws only while the mission
+        /// loops (Advanced), so the three gates left are the ones a looping mission can still
+        /// fail; the button's own tooltip describes none of them, and they are reported in the
+        /// order the player would have to fix them. Pure for unit testing.
         /// </summary>
         internal static string MissionWarpToDisabledReason(
-            bool warpScene, bool looping, bool unitBuilt, bool relaunchAhead)
+            bool warpScene, bool unitBuilt, bool relaunchAhead)
         {
             if (!warpScene)
                 return "Warping works in flight or at the Space Center";
-            if (!looping)
-                return "Turn Loop on to warp to the next launch";
             if (!unitBuilt)
                 return "This mission does not repeat on a schedule yet";
             if (!relaunchAhead)
@@ -3240,9 +3266,10 @@ namespace Parsek
         // change) that lands RewindToLaunchLeadTimeSeconds (15 s) before the launch. In flight it
         // goes through ParsekFlight.FastForwardToEventUT (notifies the recorder, then
         // TimeJumpManager.ExecuteForwardJump); at the Space Center it calls ExecuteForwardJump
-        // directly. A confirmation dialog precedes the jump (matching the Forward button). Disabled
-        // (greyed, width-stable) unless the mission is looping, an engine unit was built, the next
-        // relaunch is in the future, and we are in a warp-capable scene (flight or Space Center).
+        // directly. A confirmation dialog precedes the jump (matching the Forward button). Drawn
+        // only for a looping mission (the caller's gate, Advanced only); greyed unless an engine
+        // unit was built, the next relaunch is in the future, and we are in a warp-capable scene
+        // (flight or Space Center).
         private void DrawMissionWarpToWindowButton(Mission mission, MissionPeriodicityDisplay periodicity)
         {
             bool inFlight = parentUI.InFlightMode;
@@ -3260,13 +3287,12 @@ namespace Parsek
                 new GUIContent("Warp to...", MissionPresentation.WarpToButtonTooltip),
                 GUILayout.Width(ColW_HeaderButton));
             // WarpToButtonTooltip is the generic what-it-does sentence and stays attached
-            // while the button is greyed, so the carrier resolves which of the four gates
-            // actually closed.
+            // while the button is greyed, so the carrier resolves which of the three gates
+            // actually closed (the looping gate is the draw site's: no loop, no button).
             DisabledHoverEcho.CarryLastControl(
                 actionable,
                 MissionWarpToDisabledReason(
                     warpScene,
-                    mission != null && mission.LoopPlayback,
                     periodicity.UnitBuilt,
                     // Reuse the ENABLE gate itself for the clock leg, with the two
                     // upstream legs pinned true so only its clock + finiteness checks
@@ -4571,7 +4597,9 @@ namespace Parsek
             // blank; the mission header bar's summary line repeats the countdown, T1.2). Spelled
             // out rather than the old three-letter "TTL", which the code itself had to gloss as
             // "Time to launch" in a comment.
-            GUILayout.Label("Next launch", colHdr, GUILayout.Width(ColW_TMinus), GUILayout.Height(ColHeaderHeight));
+            // Advanced-only, like every row's cell under it (the loop it counts down to is).
+            if (ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode))
+                GUILayout.Label("Next launch", colHdr, GUILayout.Width(ColW_TMinus), GUILayout.Height(ColHeaderHeight));
 
             parentUI.DrawSortableHeaderCore("Start time", MissionSortColumn.StartTime,
                 ref sortColumn, ref sortAscending, ColW_StartTime, false, LogSortChanged, ColHeaderHeight);

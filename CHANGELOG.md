@@ -2158,7 +2158,11 @@ _(unreleased — entries accumulate here per commit)_
 - **Missions window, first redesign slice.** The mission summary line under each title is
   now the title's size (it was a smaller grey line) and stays quieter through a muted
   colour; its next-launch countdown (`Next launch T- 5h 47m`) is drawn in the window's
-  amber.
+  amber. Everything that exists only because of mission looping is now Advanced-only:
+  Clone, Delete, "Warp to..." (now shown only while the mission loops), the Next launch
+  column, the summary's `Loops ~P` and countdown pieces, and the greyed / `(partial)`
+  styling of rows left out of a loop. Basic keeps Log, Watch, Rewind / Forward, Archive,
+  Re-Fly, the chapter headers, the Docked partner rows and `Looped by route`.
 - **Parsek's own windows say "timeline", not "your timeline", "the timeline" or
   "committed".** The Kerbals launcher hover, the Kerbals window's Reserved and Lost hovers
   (`Held on timeline by the flight ...`, `Lost on a flight on timeline.`), the reserved-crew

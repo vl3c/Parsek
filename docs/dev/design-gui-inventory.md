@@ -460,8 +460,8 @@ Mission header bar controls (`UI/MissionsWindowUI.cs:2447`), with their gates:
 | title double-click | `CommitMissionRename` (`:3859`) -> `MissionGroupLink.RenameMissionGroup` (`MissionGroupLink.cs:57`) for an original, `MissionStore.RenameMission` for a clone | a group-name collision refuses the whole rename, Warn-only (`:3879`) |
 | `Log` | `ParsekUI.OpenStructureWindowForMission` (`ParsekUI.cs:1057`) | never |
 | `Clone` | `MissionStore.Clone` | HIDDEN in Basic (`:2505-2509`) |
-| `Delete` | `MissionStore.Delete` | greyed by `CanDelete`; reason is the constant `A flight always keeps its first mission` (`:2908`). Kept in Basic |
-| `Warp to...` | confirm dialog then a forward jump (`:2993`) | `ShouldEnableWarpToWindow` (`:3055`); four ordered reasons (`:2930`). Not Basic-gated |
+| `Delete` | `MissionStore.Delete` | greyed by `CanDelete`; reason is the constant `A flight always keeps its first mission` (`:2908`). HIDDEN in Basic since Missions Model 1 (2026-09-29) |
+| `Warp to...` | confirm dialog then a forward jump (`:2993`) | drawn ONLY while the mission loops (a same-width space otherwise), HIDDEN in Basic since Missions Model 1; `ShouldEnableWarpToWindow` (`:3055`); three ordered reasons (`MissionWarpToDisabledReason`: scene, schedule, launch ahead) |
 | `Loop` + toggle | `CommitMissionLoopToggle` (`:2756`) -> `MissionStore.SetLoopEnabled` | HIDDEN in Basic; greyed when `RouteTreeGuard.RouteBindingFor(treeId)` |
 | loop-period cell | `CommitMissionLoopPeriod` (`:4208`), four states (locked / auto / manual / editing) at `:3995` | HIDDEN in Basic; an open edit is DROPPED uncommitted on a Basic switch (`:772-784`) |
 | `Watch` / `W*` | `flight.EnterWatchMode` / `ExitWatchMode` | two reasons at `:2918`. Not Basic-gated |
@@ -469,9 +469,17 @@ Mission header bar controls (`UI/MissionsWindowUI.cs:2447`), with their gates:
 | Archive checkbox | writes `mission.Archived` | never |
 
 The rest of the tab: expanded per-vessel interval rows (Advanced only, `:1547`), chapter group
-header rows whose tri-state toggle is the one interval-writing control Basic does NOT hide
-(`:1885`), `Docked partner:` rows plus the foreign partner-journey staircase (`:2032`), and the
-`Events (N)` digest foldout with its `Go to` cross-link (`:2256`).
+header rows (their tri-state toggle, the `[~]` marker and the dimming are Advanced-only: the
+P21 fix gated the toggle, and Missions Model 1 gated the styling), `Docked partner:` rows plus
+the foreign partner-journey staircase (`:2032`; Basic draws the row plain and never the
+journey), and the `Events (N)` digest foldout with its `Go to` cross-link (`:2256`).
+
+Missions Model 1 (2026-09-29) made every loop surface Advanced-only: Clone, Delete, `Warp
+to...`, the `Next launch` column (header and row cells together), the summary line's `Loops ~P`
+and `Next launch T- ...` pieces, and the loop-selection styling (dimmed excluded vessels, the
+`(partial)` suffix). Basic keeps Log, Watch, Rewind / Forward, Archive, Re-Fly, the chapter
+headers, the Docked partner rows and the `Looped by route` label. The summary line is the
+title's font size with a muted colour; its countdown is amber rich text.
 
 Pictures: `ksc-missions-missions-advanced` (922 nodes, 18 missions, every Loop off, every
 period `10` / `sec`), `ksc-missions-basic` (813 - no tab bar, no Clone, no Loop, no period, no
