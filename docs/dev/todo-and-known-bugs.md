@@ -249,6 +249,40 @@ depends on the building being destroyed at click time, which a row cannot know);
 contract accept's hover (hold plus terms) is longer than one strip line and scrolls in the
 marquee.
 
+## ~~GHOST-SURFACE-HEIGHT-FLICKER-ON-PORTRAIT-FRAMES: surface ghosts alternate between their raw and terrain-clamped heights~~ [FILED AND FIXED 2026-09-28 from the operator's `2026-09-28_2231_deployables` collection (Sandbox, KSP 1.12.5, deployed origin/main `235503259`), branch `ghost-ground-flicker`]
+
+**In gameplay terms.** After Rewind-to-Launch, the replayed EVA kerbal (Bob) and the Breaking Ground
+parts he placed near KSC moved up and down quickly, flipping between the ground and about a metre
+above it. The save and the recordings are correct; only what is drawn on some frames is wrong.
+
+**Evidence.** Bob's recording `e44c90af...` sits at 64.59-64.64 m, the parts at 64.34 m, over a PQS
+height of 64.8 m (the recorded clearances are negative, -0.17 to -0.44 m: the ground mesh is below
+PQS there). The LateUpdate clamp lifts them to 65.3 m: `Ghost terrain clamp: alt=64.6 terrain=64.8
+-> 65.3 (clearance=0.5m) | suppressed=547` per 5 s, about 110 clamps/s, while the engine ran 117
+frames/s (`[Engine] Frame ... active=2 | suppressed=586` per 5 s) and the pre-cull hook fired on
+118 frames/s (`Ghost camera pre-cull skipped non-Re-Fly ... | suppressed=117` per 1 s). About 8
+frames a second positioned Bob and never clamped him.
+
+**Cause (confirmed from source and the decompiled stock `Kerbal`).** `ParsekFlight.OnCameraPreCull`
+ran its pass on the FIRST `Camera.onPreCull` of a frame and then cleared `ghostPosEntries`. Since
+`e2dd6e6cf` (2026-05-03, "Gate pre-cull reapply to Re-Fly ghosts") that pass skips non-Re-Fly
+entries but still clears the list, and since `bfca3c305` (2026-05-05) the gate skips every entry,
+so the hook is a pure clear. Stock `Kerbal.kerbalAvatarUpdateCycle` is a coroutine that calls
+`kerbalCam.Render()` every `Random.Range(0.1f, 0.15f)` s, after Update and before LateUpdate. That
+render fires `Camera.onPreCull`, the hook clears the entries Update registered, and LateUpdate finds
+nothing to reapply or clamp, so the frame draws every surface ghost at its raw Update height. The
+frames between portrait refreshes draw it clamped.
+
+**Fix.** LateUpdate stamps `ghostLateUpdateReapplyFrame`. The pure
+`ParsekFlight.ResolveGhostCameraPreCullAction` returns `KeepForLateUpdate` for a pre-cull that fires
+before this frame's LateUpdate, so a mid-frame render leaves the entries for LateUpdate and logs
+`Ghost camera pre-cull before LateUpdate: kept N reapply entries for LateUpdate (camera=...)`
+(Verbose, 5 s rate limit). The first pre-cull after LateUpdate still runs the pass and clears. Only
+the flight scene has this hook: KSC ghosts and the tracking station have no reapply list or terrain
+clamp. Watch mode and loop playback share this path. Tests: `GhostCameraPreCullFrameTests` (xUnit,
+red before the fix) and the in-game `GhostReapplyFrame` category (a mid-frame `Camera.Render()`
+over a probe parked below PQS at the active vessel's ground track; not flown yet).
+
 ## ~~KSC-DE-OVERLAP-MOVES-PLACED-PARTS-OFF-THEIR-SPOT: a ground part spawned from the Space Center lands 15 m from where it was placed~~ [FILED 2026-09-28 from EVA-6's green run, branch `deployables-lanes`. FIXED 2026-09-29 on the PR #1920 branch `placed-part-cluster-spawn`, operator ruling 2026-09-29]
 
 **In gameplay terms.** A kerbal places a Breaking Ground part a metre or two from his landed

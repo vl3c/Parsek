@@ -1320,6 +1320,13 @@ _(unreleased — entries accumulate here per commit)_
   contract whose committed outcome is its deadline running out read "fails" / "Fails on" in
   the row label, the detail panel and the Cancel refusal, while the Timeline says "Expired";
   it now reads "expired" / "Expired on".
+- **Ghosts on the ground no longer jump up and down while crew portraits are showing.** A replayed
+  EVA kerbal or a Breaking Ground part he placed, recorded standing slightly below the terrain height
+  KSP reports, is lifted just clear of the ground as it replays. On the frames where stock redrew a
+  crew portrait (about eight times a second), that lift was skipped and the ghost drew at its
+  recorded height, so it flickered between the two, about a metre apart. Every frame now shows the
+  same height. The log line `Ghost camera pre-cull before LateUpdate: kept N reapply entries for
+  LateUpdate` marks the frames that used to flicker.
 - **A cluster of ground parts an EVA kerbal placed now spawns whole after a rewind.** When a
   kerbal set out a Breaking Ground cluster a few metres apart (RTG, solar panels, experiments,
   Central Station), only the first part to finish replaying became a real vessel: every later
