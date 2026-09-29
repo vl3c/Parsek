@@ -158,6 +158,8 @@ RP_SIDECAR_BY_PRESET = {
     # RB-1 / RB-2's resurrection RP: the two-slot tree under rp_rb_root, whose
     # quicksave re-admits the host's own Jumping Flea.
     "rewind-readback": "rp_rb_root",
+    # VB-1's eight in-window probe ghosts: eight committed trees, no RP.
+    "vessel-budget": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 
@@ -1012,6 +1014,82 @@ def apply_ksp_screen_settings(spec: Dict, instance_dir: str, runtime: Runtime,
     return size
 
 
+def ksp_gameplay_restore_marker_path(instance_dir: str) -> str:
+    return os.path.join(instance_dir, hlib.KSP_GAMEPLAY_RESTORE_MARKER)
+
+
+def _fmt_gameplay(values: Dict[str, str]) -> str:
+    if not values:
+        return "n/a"
+    return " ".join("%s=%s" % (k, values[k]) for k in hlib.KSP_GAMEPLAY_SETTING_KEYS
+                    if k in values)
+
+
+def restore_ksp_gameplay_settings(instance_dir: str, logger: HarnessLogger, phase: str) -> bool:
+    """Put back the gameplay keys a `[runtime] kspSettings` run overwrote, from
+    its restore marker, and delete the marker. A no-op (True) with no marker.
+    Called at STAGE of EVERY run and at TEARDOWN in the per-attempt finally;
+    never raises (a failed restore keeps the marker for the next stage). Same
+    contract as restore_ksp_screen_settings, on its own marker."""
+    marker = ksp_gameplay_restore_marker_path(instance_dir)
+    if not os.path.isfile(marker):
+        return True
+    settings = ksp_settings_path(instance_dir)
+    keys = hlib.KSP_GAMEPLAY_SETTING_KEYS
+    try:
+        with open(marker, "r", encoding="utf-8", newline="") as fh:
+            original = hlib.read_ksp_settings_values(fh.read(), keys)
+        if original and os.path.isfile(settings):
+            with open(settings, "r", encoding="utf-8", newline="") as fh:
+                current = fh.read()
+            before = hlib.read_ksp_settings_values(current, keys)
+            _write_text_atomic(settings, hlib.rewrite_ksp_settings_values(current, original))
+        else:
+            before = {}
+        os.remove(marker)
+    except Exception as exc:  # noqa: BLE001 - housekeeping never replaces a verdict
+        logger.warn("Settings", "gameplay-settings restore FAILED phase=%s path=%s (%s: %s); "
+                                "the marker is kept and the next run's stage retries it"
+                    % (phase, settings, type(exc).__name__, exc))
+        return False
+    logger.info("Settings", "gameplay-settings restored phase=%s %s (was %s)"
+                % (phase, _fmt_gameplay(original), _fmt_gameplay(before)))
+    return True
+
+
+def apply_ksp_gameplay_settings(spec: Dict, instance_dir: str,
+                                logger: HarnessLogger) -> Tuple[bool, Dict[str, str]]:
+    """Patch the instance settings.cfg to the spec's `[runtime] kspSettings` for
+    this run. Returns (ok, values written). A spec declaring none is (True, {}).
+    Marker first (the ORIGINAL values), patch second; the matching restore is
+    restore_ksp_gameplay_settings at teardown. ANY failure is (False, {}) and the
+    caller refuses the run pre-boot: a settings-axis lane flown at the profile's
+    values would measure the wrong game. An existing marker also refuses: it holds
+    the only record of the instance's real values."""
+    wanted = hlib.spec_ksp_gameplay_settings(spec)
+    if not wanted:
+        return True, {}
+    marker = ksp_gameplay_restore_marker_path(instance_dir)
+    if os.path.exists(marker):
+        logger.error("Settings", "gameplay-settings apply REFUSED: a restore marker is still "
+                                 "present at %s (a restore failed)" % marker)
+        return False, {}
+    settings = ksp_settings_path(instance_dir)
+    try:
+        with open(settings, "r", encoding="utf-8", newline="") as fh:
+            current = fh.read()
+        original = hlib.read_ksp_settings_values(current, hlib.KSP_GAMEPLAY_SETTING_KEYS)
+        _write_text_atomic(marker, hlib.render_gameplay_restore_marker(original))
+        _write_text_atomic(settings, hlib.rewrite_ksp_settings_values(current, wanted))
+    except Exception as exc:  # noqa: BLE001 - see the docstring
+        logger.error("Settings", "gameplay-settings apply FAILED path=%s (%s: %s)"
+                     % (settings, type(exc).__name__, exc))
+        return False, {}
+    logger.info("Settings", "gameplay-settings applied %s (prior=%s)"
+                % (_fmt_gameplay(wanted), _fmt_gameplay(original)))
+    return True, wanted
+
+
 def _is_strictly_inside(child_path: str, parent_path: str) -> bool:
     """True iff realpath(child) is strictly BELOW realpath(parent) (never equal,
     never a sibling/escape). Case-normalized for Windows; a cross-drive pair (which
@@ -1348,6 +1426,22 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
     elif hlib.spec_screen_resolution(spec) is not None:
         logger.warn("Settings", "screen-resolution apply SKIPPED: the stage restore failed, "
                                 "so this run keeps the current window size")
+
+    # (8) the stock gameplay settings (`[runtime] kspSettings`), same heal-then-
+    # apply order on their own marker. Unlike the window size this one fails the
+    # run closed: a settings-axis lane at the wrong budget proves nothing.
+    gameplay_healed = restore_ksp_gameplay_settings(instance_dir, logger, "stage")
+    if hlib.spec_ksp_gameplay_settings(spec):
+        if not gameplay_healed:
+            logger.error("Stage", "gameplay-settings: the stage restore failed, so the "
+                                  "declared kspSettings cannot be applied; aborting pre-boot "
+                                  "(INVALID staging)")
+            return False, run_save_name, "staging"
+        applied_ok, _ = apply_ksp_gameplay_settings(spec, instance_dir, logger)
+        if not applied_ok:
+            logger.error("Stage", "gameplay-settings: kspSettings not applied; aborting "
+                                  "pre-boot (INVALID staging)")
+            return False, run_save_name, "staging"
 
     logger.info("Stage", "stage save=%s template=%s inject=%s craft=%d "
                          "results-rotated=%s manifest-rotated=%s"
@@ -3806,6 +3900,8 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         # And put the KSP window size back, so a `screenResolution` lane never
         # changes the frame of the next lane on this instance.
         restore_ksp_screen_settings(instance_dir, logger, "teardown")
+        # And the stock gameplay settings a `kspSettings` lane moved.
+        restore_ksp_gameplay_settings(instance_dir, logger, "teardown")
 
 
 def _terminal_result(spec, profile, attempt, started, start_wall, runtime, verdict,

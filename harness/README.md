@@ -643,6 +643,25 @@ Steps 2 to 6 below apply to any census lane. In order:
 
 6. **Copy the directory out** if the census matters (the retention pass above).
 
+### Stock gameplay settings per run (`[runtime] kspSettings`)
+
+The game-settings test axis flies a lane at a stock `settings.cfg` value the shared
+instance does not carry, without re-provisioning it for everyone:
+`kspSettings = { MAX_VESSELS_BUDGET = 8, DECLUTTER_KSC = false }` under `[runtime]`.
+
+- **A closed key set**: `MAX_VESSELS_BUDGET` (int >= -1) and `DECLUTTER_KSC` (bool,
+  written `True` / `False`). Any other key or a wrong-typed value is an INVALID-SPEC
+  (`hlib.validate_ksp_gameplay_settings`).
+- **Same patch / restore contract as the census frame below**, on its own marker
+  (`settings.cfg.harness-gameplay-restore`): marker first, then only the declared values
+  rewritten; teardown restores and deletes the marker; every run's STAGE heals a leftover
+  marker first; re-provisioning deletes one.
+- **Fails closed.** A declared delta the shell cannot apply (a leftover marker whose
+  restore failed, an unwritable file) refuses the run pre-boot as `INVALID(staging)`: a
+  lane flown at the profile's budget would measure the wrong game. The window-size
+  override below only warns, because a cropped frame is still a frame.
+- Consumer: `VB-1-ghost-vessel-budget` (ghost map vessels vs a binding stock budget).
+
 ### The census frame (`[runtime] screenResolution`)
 
 Every GUI census lane (`gui-census` tag) declares `screenResolution = "1920x1080"` under

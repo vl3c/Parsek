@@ -889,6 +889,11 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # and three PARAMETERS/FLIGHT flags (harness/tools/build_gloops_airshow_hard.py),
         # so it carries the same ParsekScenario node gloops-airshow does.
         "gloops-airshow-hard": True,
+        # career-pad-craft-hard is career-pad-craft byte for byte except eleven
+        # PARAMETERS values set to KSP's Hard preset
+        # (harness/tools/build_career_pad_craft_hard.py), so it carries the same
+        # ParsekScenario node career-pad-craft does.
+        "career-pad-craft-hard": True,
         "gs1-two-stage-pad": True,
         # coalescer-pad is gs1-two-stage-pad byte for byte except two parts' stage
         # assignments (harness/tools/build_coalescer_pad.py), so it carries the same

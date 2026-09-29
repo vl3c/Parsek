@@ -32,6 +32,7 @@ $injectFilterByPreset = @{
     "ghost-commnet-timeline" = "InjectGhostCommNetTimeline"
     "overlap-cap"           = "InjectOverlapCap"
     "rewind-readback"       = "InjectRewindReadback"
+    "vessel-budget"         = "InjectVesselBudget"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -56,6 +57,7 @@ $defaultSaveByPreset = @{
     "ghost-commnet-timeline" = "ghost-commnet-timeline-fixture"
     "overlap-cap"           = "overlap-cap-fixture"
     "rewind-readback"       = "rewind-readback-fixture"
+    "vessel-budget"         = "vessel-budget-fixture"
 }
 
 $ErrorActionPreference = "Stop"

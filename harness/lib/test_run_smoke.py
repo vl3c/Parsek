@@ -6148,6 +6148,124 @@ class RuntimeHandleSmokeTests(unittest.TestCase):
         self.assertFalse(result["kspExit"]["killed"])
 
 
+class KspGameplaySettingsStagingSmokeTests(unittest.TestCase):
+    """`[runtime] kspSettings` end to end through run_attempt: the declaring lane
+    boots KSP with the budget / declutter values in settings.cfg, the file is
+    byte-identical afterwards, a lane that declares nothing never sees them, a
+    leaked marker is healed by the next stage, and an apply the shell cannot make
+    refuses the run pre-boot instead of flying it at the profile's values."""
+
+    CFG = (b"VERSION = 1.12.5\r\n"
+           b"MAX_VESSELS_BUDGET = 250\r\n"
+           b"DECLUTTER_KSC = True\r\n"
+           b"UI_SCALE = 1\r\n")
+
+    class _Runtime(FakeRuntime):
+        def __init__(self, mode):
+            super().__init__(mode)
+            self.settings_at_launch = None
+            self.launched = False
+
+        def launch(self, exe, args, env, cwd):
+            self.launched = True
+            path = os.path.join(cwd, "settings.cfg")
+            if os.path.isfile(path):
+                with open(path, "rb") as fh:
+                    self.settings_at_launch = fh.read()
+            return super().launch(exe, args, env, cwd)
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-gameplay-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self.settings = os.path.join(self.instance, "settings.cfg")
+        self.marker = os.path.join(self.instance, hlib.KSP_GAMEPLAY_RESTORE_MARKER)
+        with open(self.settings, "wb") as fh:
+            fh.write(self.CFG)
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "gameplay_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, ksp_settings=None):
+        spec = _make_spec(self.template, 30, 600)
+        if ksp_settings:
+            spec["runtime"]["kspSettings"] = ksp_settings
+        rt = self._Runtime("pass")
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        return result, rt
+
+    def _settings_bytes(self):
+        with open(self.settings, "rb") as fh:
+            return fh.read()
+
+    def _log(self):
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_a_declaring_run_boots_at_the_delta_and_leaves_the_file_byte_identical(self):
+        result, rt = self._run({"MAX_VESSELS_BUDGET": 7, "DECLUTTER_KSC": False})
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertIn(b"MAX_VESSELS_BUDGET = 7\r\n", rt.settings_at_launch)
+        self.assertIn(b"DECLUTTER_KSC = False\r\n", rt.settings_at_launch)
+        self.assertIn(b"UI_SCALE = 1\r\n", rt.settings_at_launch)
+        self.assertEqual(self.CFG, self._settings_bytes())
+        self.assertFalse(os.path.exists(self.marker))
+        log = self._log()
+        self.assertIn("gameplay-settings applied MAX_VESSELS_BUDGET=7 DECLUTTER_KSC=False", log)
+        self.assertIn("gameplay-settings restored phase=teardown", log)
+
+    def test_a_run_that_declares_nothing_never_touches_the_file(self):
+        result, rt = self._run()
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertEqual(self.CFG, rt.settings_at_launch)
+        self.assertEqual(self.CFG, self._settings_bytes())
+        self.assertNotIn("gameplay-settings", self._log())
+
+    def test_a_marker_left_by_a_killed_run_is_healed_by_the_next_stage(self):
+        with open(self.settings, "wb") as fh:
+            fh.write(self.CFG.replace(b"= 250", b"= 3"))
+        with open(self.marker, "w", encoding="utf-8") as fh:
+            fh.write(hlib.render_gameplay_restore_marker(
+                hlib.read_ksp_settings_values(self.CFG.decode("ascii"),
+                                              hlib.KSP_GAMEPLAY_SETTING_KEYS)))
+        result, rt = self._run()
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertEqual(self.CFG, rt.settings_at_launch,
+                         "a lane that declares nothing must not fly at a leaked budget")
+        self.assertFalse(os.path.exists(self.marker))
+        self.assertIn("gameplay-settings restored phase=stage", self._log())
+
+    def test_an_apply_that_cannot_be_made_refuses_the_run_pre_boot(self):
+        real_write = run._write_text_atomic
+        marker = self.marker
+
+        def failing_write(path, text):
+            if path == marker:
+                raise OSError("forced marker write failure")
+            return real_write(path, text)
+
+        run._write_text_atomic = failing_write
+        try:
+            result, rt = self._run({"MAX_VESSELS_BUDGET": 7})
+        finally:
+            run._write_text_atomic = real_write
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("staging", result["subkind"])
+        self.assertFalse(rt.launched, "KSP must not boot at the profile's budget")
+        self.assertEqual(self.CFG, self._settings_bytes())
+
+
 class ScreenResolutionStagingSmokeTests(unittest.TestCase):
     """`[runtime] screenResolution` end to end through run_attempt: the lane that
     declares it boots KSP with the size in settings.cfg, the file is byte-identical
