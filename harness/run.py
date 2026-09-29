@@ -1079,6 +1079,15 @@ def apply_ksp_gameplay_settings(spec: Dict, instance_dir: str,
         with open(settings, "r", encoding="utf-8", newline="") as fh:
             current = fh.read()
         original = hlib.read_ksp_settings_values(current, hlib.KSP_GAMEPLAY_SETTING_KEYS)
+        # A declared key the file does not carry would be APPENDED and never removed by the
+        # restore (the marker records only keys that existed), leaking into every later lane.
+        # A provisioned settings.cfg carries both keys, so an absent one means a hand-made file.
+        absent = [k for k in wanted if k not in original]
+        if absent:
+            logger.error("Settings", "gameplay-settings apply REFUSED: settings.cfg at %s carries "
+                                     "no %s line, and an appended key would outlive the restore"
+                         % (settings, ", ".join(absent)))
+            return False, {}
         _write_text_atomic(marker, hlib.render_gameplay_restore_marker(original))
         _write_text_atomic(settings, hlib.rewrite_ksp_settings_values(current, wanted))
     except Exception as exc:  # noqa: BLE001 - see the docstring
@@ -1430,13 +1439,15 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
     # (8) the stock gameplay settings (`[runtime] kspSettings`), same heal-then-
     # apply order on their own marker. Unlike the window size this one fails the
     # run closed: a settings-axis lane at the wrong budget proves nothing.
-    gameplay_healed = restore_ksp_gameplay_settings(instance_dir, logger, "stage")
+    # A failed heal refuses EVERY run, declaring or not: the file may still carry a
+    # previous lane's budget / declutter values, and a lane that declares nothing would
+    # otherwise boot on them (as would every later lane until a restore succeeds).
+    if not restore_ksp_gameplay_settings(instance_dir, logger, "stage"):
+        logger.error("Stage", "gameplay-settings: the stage restore of a leftover marker "
+                              "failed, so settings.cfg may still carry another lane's "
+                              "kspSettings; aborting pre-boot (INVALID staging)")
+        return False, run_save_name, "staging"
     if hlib.spec_ksp_gameplay_settings(spec):
-        if not gameplay_healed:
-            logger.error("Stage", "gameplay-settings: the stage restore failed, so the "
-                                  "declared kspSettings cannot be applied; aborting pre-boot "
-                                  "(INVALID staging)")
-            return False, run_save_name, "staging"
         applied_ok, _ = apply_ksp_gameplay_settings(spec, instance_dir, logger)
         if not applied_ok:
             logger.error("Stage", "gameplay-settings: kspSettings not applied; aborting "

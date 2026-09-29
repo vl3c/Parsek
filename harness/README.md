@@ -656,10 +656,12 @@ instance does not carry, without re-provisioning it for everyone:
   (`settings.cfg.harness-gameplay-restore`): marker first, then only the declared values
   rewritten; teardown restores and deletes the marker; every run's STAGE heals a leftover
   marker first; re-provisioning deletes one.
-- **Fails closed.** A declared delta the shell cannot apply (a leftover marker whose
-  restore failed, an unwritable file) refuses the run pre-boot as `INVALID(staging)`: a
-  lane flown at the profile's budget would measure the wrong game. The window-size
-  override below only warns, because a cropped frame is still a frame.
+- **Fails closed.** A declared delta the shell cannot apply (an unwritable file, a
+  declared key the file has no line for, which an append would leak past the restore)
+  refuses the run pre-boot as `INVALID(staging)`: a lane flown at the profile's budget
+  would measure the wrong game. A leftover marker whose stage heal FAILS refuses EVERY run,
+  declaring or not, because the file may still carry another lane's values. The
+  window-size override below only warns, because a cropped frame is still a frame.
 - Consumer: `VB-1-ghost-vessel-budget` (ghost map vessels vs a binding stock budget).
 
 ### The census frame (`[runtime] screenResolution`)

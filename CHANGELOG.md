@@ -30,7 +30,7 @@ _(unreleased — entries accumulate here per commit)_
   `[runtime] kspSettings = { MAX_VESSELS_BUDGET = N, DECLUTTER_KSC = true|false }`: the run
   patches just those values into the instance's `settings.cfg` for its own boot and puts them
   back afterwards (restore marker, healed by the next run if a harness process dies; a delta
-  that cannot be applied refuses the run pre-boot). A new `vessel-budget` injection preset
+  that cannot be applied, or a failed heal of a leftover marker, refuses the run pre-boot). A new `vessel-budget` injection preset
   (eight in-window probe ghosts) and two lanes: `VB-1-ghost-vessel-budget` flies ghost map
   vessels against a binding stock vessel budget in the Tracking Station, and
   `HC-1-hard-career-ledger` runs LedgerGroundTruth, a record, a commit and a Rewind-to-Launch

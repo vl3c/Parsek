@@ -6246,6 +6246,52 @@ class KspGameplaySettingsStagingSmokeTests(unittest.TestCase):
         self.assertFalse(os.path.exists(self.marker))
         self.assertIn("gameplay-settings restored phase=stage", self._log())
 
+    def test_a_failed_heal_refuses_even_a_lane_that_declares_nothing(self):
+        """The leaked state a killed kspSettings run leaves, then a lane that declares
+        NOTHING whose stage heal cannot write settings.cfg: it must be refused pre-boot,
+        never boot on the leaked budget, and the marker must survive for the next heal."""
+        leaked = self.CFG.replace(b"= 250", b"= 10")
+        with open(self.settings, "wb") as fh:
+            fh.write(leaked)
+        with open(self.marker, "w", encoding="utf-8") as fh:
+            fh.write(hlib.render_gameplay_restore_marker(
+                hlib.read_ksp_settings_values(self.CFG.decode("ascii"),
+                                              hlib.KSP_GAMEPLAY_SETTING_KEYS)))
+        real_write = run._write_text_atomic
+        settings = self.settings
+        failures = []
+
+        def failing_write(path, text):
+            if path == settings:
+                failures.append(path)
+                raise OSError("forced settings.cfg write failure")
+            return real_write(path, text)
+
+        run._write_text_atomic = failing_write
+        try:
+            result, rt = self._run()
+        finally:
+            run._write_text_atomic = real_write
+        self.assertTrue(failures, "the forced failure did not fire")
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("staging", result["subkind"])
+        self.assertFalse(rt.launched, "KSP must not boot on the leaked MAX_VESSELS_BUDGET = 10")
+        self.assertEqual(leaked, self._settings_bytes())
+        self.assertTrue(os.path.exists(self.marker), "the marker is the only record of 250")
+        self.assertIn("stage restore of a leftover marker failed", self._log())
+
+    def test_a_declared_key_the_file_lacks_refuses_the_run(self):
+        with open(self.settings, "wb") as fh:
+            fh.write(self.CFG.replace(b"DECLUTTER_KSC = True\r\n", b""))
+        before = self._settings_bytes()
+        result, rt = self._run({"MAX_VESSELS_BUDGET": 7, "DECLUTTER_KSC": False})
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("staging", result["subkind"])
+        self.assertFalse(rt.launched)
+        self.assertEqual(before, self._settings_bytes())
+        self.assertFalse(os.path.exists(self.marker))
+        self.assertIn("carries no DECLUTTER_KSC line", self._log())
+
     def test_an_apply_that_cannot_be_made_refuses_the_run_pre_boot(self):
         real_write = run._write_text_atomic
         marker = self.marker
