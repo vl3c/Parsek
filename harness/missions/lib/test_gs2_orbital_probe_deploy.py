@@ -957,8 +957,13 @@ class Gs2SpecWiringTests(unittest.TestCase):
             # three (no re-fly is driven and nobody dies in any of them).
             self.assertEqual({"max": 0}, spec["rewind"]["supersedeRows"], name)
             self.assertEqual({"max": 0}, spec["rewind"]["tombstones"], name)
-            # The STRUCTURE block stays report-only on all three: only `rewind` armed.
-            self.assertNotIn("gating", spec["recordings"]["structure"], name)
+            # The STRUCTURE block is armed on all three since 2026-09-27 (branch
+            # `arm-batch2`, readings `_2000` / `_2005` / `_2007`), and its tree
+            # windows are exact on all three.
+            structure = spec["recordings"]["structure"]
+            self.assertIs(True, structure.get("gating"), name)
+            self.assertEqual({"min": 1, "max": 1}, structure["trees"], name)
+            self.assertEqual({"min": 1, "max": 1}, structure["committedTrees"], name)
         self.assertEqual({"max": 0},
                          specs["GS-1-auto-chute-booster"]["rewind"]["rewindPoints"])
         self.assertEqual({"min": 1},

@@ -1075,10 +1075,16 @@ class SpecSyncTests(unittest.TestCase):
                          "supersedeRows is not {max: 0} - if it reads {min: 1} this "
                          "is the un-reverted arming negative control, not a new pin")
         self.assertEqual({"max": 0}, rewind["tombstones"])
-        # The structure block stays REPORT-ONLY: gating is PER BLOCK, and its windows
-        # are single-sample readings rather than measurements worth gating.
+        # The structure block is ARMED too since 2026-09-27 (branch `arm-batch2`, reading
+        # `2026-09-27_2000`, every bound inverted offline). Gating is PER BLOCK, so the
+        # structure windows are pinned here as well: a widened window reads green forever.
         structure = self.spec["expectations"]["recordings"]["structure"]
-        self.assertNotIn("gating", structure)
+        self.assertIs(True, structure.get("gating"))
+        self.assertEqual({"min": 1, "max": 1}, structure["trees"])
+        self.assertEqual({"min": 1, "max": 1}, structure["committedTrees"])
+        self.assertEqual({"min": 2}, structure["recordings"])
+        self.assertEqual({"Landed": {"min": 2}}, structure["terminalStates"])
+        self.assertEqual({"JointBreak": {"min": 1}}, structure["branchPoints"])
 
     def test_arming_the_rewind_block_is_paired_with_the_allowlist_entry(self):
         # THE PAIR MUST NOT DRIFT APART. `test_hlib.py::SaveStructureVerifierWiringTests`
