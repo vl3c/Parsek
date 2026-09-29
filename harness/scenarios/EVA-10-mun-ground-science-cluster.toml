@@ -993,15 +993,15 @@ D14 = ["mun", "sandbox", "scene-flight", "scene-ksc"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# MEASURED, `2026-09-29_2018`: the produced save holds 19 `.prec` sidecars (this facet counts
-# them). The fixture's 8 recordings are split into 11 by the cold boot's optimization pass; the
-# boot's re-adopted lander is committed standalone as a 2-point segment (12); this tree adds 6
-# (Jeb and five placed members) = 18 in the store (`Total committed: 18 recordings, 2 trees`); the
-# 19th sidecar is not identified. `ListHandles kind=committed` lists 17 rows (tree members, the
-# standalone is in no tree): this tree's rows are rec11..rec16 in the marks. The standalone
-# segment also respawns a twin of the kept lander after the rewind, todo
-# REWIND-KEPT-VESSEL-RESPAWNED-BY-STANDALONE-SEGMENT.
-count = { min = 17, max = 19 }
+# MEASURED, `2026-09-29_2116` (after PR #1932): the produced save holds 17 `.prec` sidecars
+# (this facet counts them). The fixture's 8 recordings are split into 11 by the cold boot's
+# optimization pass; this tree adds 6 (Jeb and five placed members) = 17 in the store
+# (`Total committed: 17`), and `ListHandles kind=committed` lists the same 17: this tree's rows
+# are rec11..rec16 in the marks. Before #1932 the boot's stale stop capture was also committed
+# standalone as a 2-point Kerbal X segment (18 in the store, 19 sidecars) and respawned a twin of
+# the kept lander after the rewind (todo REWIND-KEPT-VESSEL-RESPAWNED-BY-STANDALONE-SEGMENT);
+# that shape is now forbidden below.
+count = { min = 17, max = 17 }
 
 [expectations.logContracts]
 required = [
@@ -1085,6 +1085,12 @@ forbidden = [
   "Recording terminal: kind=Disassembled reason=ground-part-retrieved [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-spawned-count-[^\\r\\n]*-\\1-true-",
   # THE DEFECT's FLIGHT shape.
   "Trajectory walkback EXHAUSTED",
+  # REWIND-KEPT-VESSEL-RESPAWNED-BY-STANDALONE-SEGMENT (fixed by PR #1932): the boot's stale stop
+  # capture committed standalone, then respawned as a twin of the kept lander after the rewind.
+  # All three printed in `2026-09-29_2018`; none in `2026-09-29_2116`.
+  "Committed recording from Kerbal X",
+  "Committed orphaned recording",
+  "Vessel spawn for #[0-9]+ \\(Kerbal X\\)",
   "Spawn not needed for #[0-9]+ \\\"Jebediah Kerman\\\": non-leaf in tree",
 ]
 

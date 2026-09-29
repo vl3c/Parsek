@@ -15,6 +15,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## BDOCK-1-STATION-SEPARATE-NOT-OBSERVED: the BDOCK-1 mission never sees the station separation it just performed [FILED 2026-09-30 from the #1931 / #1932 verification flights. OPEN, harness mission, pre-existing]
+
+`BDOCK-1-station-interceptor` classifies INVALID(autopilot-flake) twice on a build of main + #1931 + #1932
+(`Parsek-verify-1931-1932/harness/results/2026-09-29_2135`, `_2141_a2`) AND twice on plain origin/main
+4ed48230d (`Parsek-deploy-main/harness/results/2026-09-29_2203`, `_2209_a2`): the mission verdict is
+`phase STATION-SEPARATE: no separation observed (vessel_count did not increase)`, so its CommitTree is
+skipped (mission-unmet) and no Parsek code under test runs. KSP did separate: the KSP.log shows the
+JointBreak at ut=381.6, `Decouple created vessel ... 'Kerbal X Probe'`, and the mission telemetry's
+liquid fuel drops 1372 -> 720. The mission's vessel_count probe does not register the new vessel. Last
+MISSION-OK: 2026-09-10 (`Parsek-cheap-flights-arming`). Next step: read the STATION-SEPARATE phase in
+`harness/missions/` and how it samples vessel_count over kRPC (timing vs the decouple, or a filter that
+now excludes the probe), then fix the mission, not Parsek.
+
+
 ## ~~IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS: a tree committed in flight is never optimized (no boring-tail trim, no split / merge) until the next cold load~~ [FILED 2026-09-29 from EVA-9 `2026-09-29_1528`, branch `deployables-lanes`; FIXED 2026-09-29, branch `inflight-commit-optimize`. DEDUPE: the OPEN entry with this id lives on `deployables-lanes`; when both branches land keep this closed entry and drop the open one]
 
 **In gameplay terms.** A tree committed WITHOUT leaving the flight scene (the pre-switch Merge /
