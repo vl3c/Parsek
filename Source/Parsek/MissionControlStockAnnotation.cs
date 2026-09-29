@@ -266,6 +266,7 @@ namespace Parsek
                 : StripRowStatus(currentLabel);
             if (!decoration.Marked)
                 return baseLabel;
+            baseLabel = StockUiText.ResolveStockKey(baseLabel, "Mission Control row label");
             return baseLabel + RowStatusMarker + RowStatus(decoration, formatRowDate) + "</color>";
         }
 
@@ -296,6 +297,7 @@ namespace Parsek
             string baseText = StripDetail(stockText);
             if (!decoration.Blocked || string.IsNullOrEmpty(decoration.Why))
                 return baseText;
+            baseText = StockUiText.ResolveStockKey(baseText, "Mission Control detail text");
             return baseText + DetailMarker + DetailHeadingFor(decoration.Kind) + "</color></b>\n" + decoration.Why;
         }
     }
