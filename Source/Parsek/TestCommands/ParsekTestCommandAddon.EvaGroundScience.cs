@@ -183,6 +183,7 @@ namespace Parsek.TestCommands
         private double groundSciStepTargetLon;
         private int groundSciStepMoves;
         private int groundSciStepLastMoveFrame;
+        private int groundSciStepRecovers;
 
         private void EvaGroundScienceImpl(ParsedCommand cmd)
         {
@@ -270,6 +271,7 @@ namespace Parsek.TestCommands
             groundSciStepTargetLon = 0;
             groundSciStepMoves = 0;
             groundSciStepLastMoveFrame = -1;
+            groundSciStepRecovers = 0;
             EvaJumpKeyPressInjection.Remove();
             EvaJumpKeyPressInjection.AnsweredCount = 0;
 
@@ -340,6 +342,15 @@ namespace Parsek.TestCommands
                 + $"lat={lat.ToString("F6", CultureInfo.InvariantCulture)} lon={lon.ToString("F6", CultureInfo.InvariantCulture)} "
                 + $"terrain={terrain.ToString("F2", CultureInfo.InvariantCulture)} situation={kerbal.situation} "
                 + $"bearing={(hasBearing ? bearingDegrees.ToString("F1", CultureInfo.InvariantCulture) : "own")}");
+            KerbalEVA startEva = kerbal.FindPartModuleImplementing<KerbalEVA>();
+            if (startEva != null && startEva.isRagdoll)
+            {
+                // A ragdolled kerbal is several jointed bodies; moving one of them tears him
+                // apart. The completion poll gets him up first, then makes the move.
+                ParsekLog.Info(Tag, $"evagroundscience step deferred kerbal={kerbal.vesselName} reason=ragdolled");
+                SetExecResult(PendingVerdict, null, null);
+                return;
+            }
             if (!TryMoveKerbalToStepTarget(kerbal))
             {
                 SetExecResult("ERROR", null, "step-threw");
@@ -348,12 +359,24 @@ namespace Parsek.TestCommands
             SetExecResult(PendingVerdict, null, null);
         }
 
+        // KerbalEVA's private ground anchor (decompiled KSP 1.12.5): AnchorUpdate, run from
+        // KerbalEVA.LateUpdate, adds a FixedJoint with no connected body (a joint to the world
+        // at the kerbal's pose) once he has stood landed, slow and idle for 0.5 s
+        // (kerbalAnchorTimeThreshold), and RemoveRBAnchor destroys it and resets the counter.
+        private static readonly MethodInfo EvaRemoveAnchorMethod =
+            AccessTools.Method(typeof(KerbalEVA), "RemoveRBAnchor");
+        private static readonly FieldInfo EvaIsAnchoredField =
+            AccessTools.Field(typeof(KerbalEVA), "isAnchored");
+
         /// <summary>
-        /// One step move: tell every part's CollisionEnhancer to skip its next physics frames
-        /// (see <see cref="TestCommandEvaGroundScience.StepCollisionSkipFrames"/>: without
-        /// that, the anti-tunnelling linecast from the old spot to the new one hits the
-        /// ground a standing kerbal starts on and puts him straight back), then set him down
-        /// at the target's PQS terrain height plus the lift, velocity zeroed.
+        /// One step move. (1) Release KerbalEVA's ground anchor: an idle kerbal is held by a
+        /// FixedJoint to the world, which pulled every teleport of a standing kerbal straight
+        /// back (EVA-8 `2026-09-29_1711_a2`: every step after the first read the same 13.04 m);
+        /// stock re-anchors him at the new spot once he stands idle there. (2) Tell every
+        /// part's CollisionEnhancer to skip its next physics frames (see
+        /// <see cref="TestCommandEvaGroundScience.StepCollisionSkipFrames"/>). (3) Set him down
+        /// at the target's PQS terrain height plus the lift and write every rigidbody's pose to
+        /// match its transform, velocities zeroed, so the physics pose and the transform agree.
         /// </summary>
         private bool TryMoveKerbalToStepTarget(Vessel kerbal)
         {
@@ -361,6 +384,16 @@ namespace Parsek.TestCommands
             if (body == null) return false;
             try
             {
+                KerbalEVA eva = kerbal.FindPartModuleImplementing<KerbalEVA>();
+                bool wasAnchored = false;
+                bool anchorReleased = false;
+                if (eva != null && EvaIsAnchoredField != null)
+                    wasAnchored = (bool)EvaIsAnchoredField.GetValue(eva);
+                if (eva != null && EvaRemoveAnchorMethod != null)
+                {
+                    EvaRemoveAnchorMethod.Invoke(eva, null);
+                    anchorReleased = EvaIsAnchoredField == null || !(bool)EvaIsAnchoredField.GetValue(eva);
+                }
                 int enhancers = 0;
                 foreach (Part p in kerbal.parts)
                 {
@@ -374,18 +407,35 @@ namespace Parsek.TestCommands
                     }
                 }
                 double terrain = body.TerrainAltitude(groundSciStepTargetLat, groundSciStepTargetLon, false);
+                double setDownAlt = TestCommandEvaGroundScience.StepSetDownAltitude(terrain, kerbal.terrainAltitude);
                 Vector3d world = body.GetWorldSurfacePosition(groundSciStepTargetLat, groundSciStepTargetLon,
-                    terrain + TestCommandEvaGroundScience.StepLiftMeters);
+                    setDownAlt);
                 kerbal.IgnoreGForces(240);
                 kerbal.SetPosition(world);
                 kerbal.SetWorldVelocity(Vector3d.zero);
+                int bodies = 0;
+                foreach (Part p in kerbal.parts)
+                {
+                    if (p == null) continue;
+                    foreach (Rigidbody rb in p.GetComponentsInChildren<Rigidbody>())
+                    {
+                        if (rb == null) continue;
+                        rb.position = rb.transform.position;
+                        rb.rotation = rb.transform.rotation;
+                        if (!rb.isKinematic)
+                        {
+                            rb.velocity = Vector3.zero;
+                            rb.angularVelocity = Vector3.zero;
+                        }
+                        bodies++;
+                    }
+                }
                 groundSciStepMoves++;
                 groundSciStepLastMoveFrame = Time.frameCount;
                 groundSciSettledFrames = 0;
-                ParsekLog.Info(Tag, $"evagroundscience step move kerbal={kerbal.vesselName} "
-                    + $"move={groundSciStepMoves.ToString(CultureInfo.InvariantCulture)} "
-                    + $"collisionEnhancersSkipped={enhancers.ToString(CultureInfo.InvariantCulture)} "
-                    + $"skipFrames={TestCommandEvaGroundScience.StepCollisionSkipFrames.ToString(CultureInfo.InvariantCulture)}");
+                ParsekLog.Info(Tag, TestCommandEvaGroundScience.FormatStepMoveLine(
+                    kerbal.vesselName, groundSciStepMoves, enhancers, eva != null, wasAnchored,
+                    anchorReleased, bodies, terrain, setDownAlt));
                 return true;
             }
             catch (Exception ex)
@@ -432,9 +482,29 @@ namespace Parsek.TestCommands
             double horizontal = StepHorizontalDistance(kerbal);
             double offTarget = StepOffTarget(kerbal);
             bool landed = kerbal.Landed;
+            KerbalEVA eva = kerbal.FindPartModuleImplementing<KerbalEVA>();
+            bool ragdoll = eva != null && eva.isRagdoll;
+            if (eva != null && eva.fsm != null)
+            {
+                bool inRagdollState = eva.fsm.CurrentState == eva.st_ragdoll;
+                double inState = eva.fsm.TimeAtCurrentState;
+                if (TestCommandEvaGroundScience.ShouldRecoverFromRagdoll(
+                        ragdoll, inRagdollState, landed, kerbal.srfSpeed, inState, groundSciStepRecovers))
+                {
+                    groundSciStepRecovers++;
+                    groundSciSettledFrames = 0;
+                    ParsekLog.Info(Tag, $"evagroundscience step ragdoll-recover kerbal={kerbal.vesselName} "
+                        + $"recover={groundSciStepRecovers.ToString(CultureInfo.InvariantCulture)} "
+                        + $"speed={Fmt2(kerbal.srfSpeed)} secondsInState={Fmt2(inState)} "
+                        + $"offTarget={Fmt2(offTarget)} event=On_recover_start");
+                    eva.fsm.RunEvent(eva.On_recover_start);
+                    return;
+                }
+            }
             int framesSinceMove = groundSciStepLastMoveFrame < 0
                 ? int.MaxValue : Time.frameCount - groundSciStepLastMoveFrame;
-            if (TestCommandEvaGroundScience.ShouldReapplyStep(offTarget, framesSinceMove, groundSciStepMoves))
+            if (!ragdoll
+                && TestCommandEvaGroundScience.ShouldReapplyStep(offTarget, framesSinceMove, groundSciStepMoves))
             {
                 ParsekLog.Info(Tag, $"evagroundscience step off-target kerbal={kerbal.vesselName} "
                     + $"offTarget={Fmt2(offTarget)} horizontal={Fmt2(horizontal)} landed={Bool(landed)} "
@@ -444,9 +514,11 @@ namespace Parsek.TestCommands
                 return;
             }
             bool at = !double.IsNaN(offTarget) && offTarget <= TestCommandEvaGroundScience.StepToleranceMeters;
-            groundSciSettledFrames = landed && at ? groundSciSettledFrames + 1 : 0;
+            // Standing, not just landed: a ragdolled kerbal is landed but cannot place.
+            bool standing = landed && !ragdoll;
+            groundSciSettledFrames = standing && at ? groundSciSettledFrames + 1 : 0;
             GroundScienceCompletionDecision done = TestCommandEvaGroundScience.DecideStepCompletion(
-                elapsed, budget, landed, offTarget, groundSciSettledFrames);
+                elapsed, budget, standing, offTarget, groundSciSettledFrames);
             if (done == GroundScienceCompletionDecision.StillWaiting) return;
             string h = Fmt2(horizontal);
             string off = Fmt2(offTarget);
@@ -454,7 +526,8 @@ namespace Parsek.TestCommands
             if (done == GroundScienceCompletionDecision.Timeout)
             {
                 FinishGroundScience("ERROR", null, "step-timeout", elapsed,
-                    $"landed={Bool(landed)} horizontal={h} offTarget={off} moves={moves} situation={kerbal.situation}");
+                    $"landed={Bool(landed)} ragdoll={Bool(ragdoll)} horizontal={h} offTarget={off} moves={moves} "
+                    + $"recovers={groundSciStepRecovers.ToString(CultureInfo.InvariantCulture)} situation={kerbal.situation}");
                 return;
             }
             ParsekLog.Info(Tag, $"evagroundscience step complete kerbal={kerbal.vesselName} "

@@ -3608,9 +3608,34 @@ spot is that compass bearing from the anchor on the body's latitude / longitude 
 (`OffsetLatLonAlongBearing`, the local tangent-plane offset), so a lane's layout does not depend
 on which way the anchor or the kerbal faces; without it he moves straight out along his own
 horizontal bearing from the anchor (an anchor-local east/north basis; no bearing falls back to
-the anchor's right axis). The move first sets `framesToSkip` (5) on every part's
-`CollisionEnhancer`, then `IgnoreGForces(240)`, `SetPosition` at the PQS `TerrainAltitude` + 0.5 m,
-`SetWorldVelocity(zero)`, and gravity settles him. The skip is load-bearing: every
+the anchor's right axis). The move (logged `method=anchor-release+rb-pose`) first releases
+KerbalEVA's ground anchor, then sets `framesToSkip` (5) on every part's `CollisionEnhancer`,
+then `IgnoreGForces(240)`, `SetPosition` at the PQS `TerrainAltitude` + 0.5 m,
+`SetWorldVelocity(zero)`, and writes every rigidbody's pose to its transform with velocities
+zeroed; gravity settles him. THE ANCHOR (decompiled KSP 1.12.5 `KerbalEVA.AnchorUpdate`, run
+from `LateUpdate`): a kerbal landed, slower than ~0.3 m/s and in an idle ground state
+(`st_idle_gr` / `st_idle_b_gr`, construction, weld) for 0.5 s (`kerbalAnchorTimeThreshold`)
+gets a `FixedJoint` with no connected body - a joint to the world at his pose - via the private
+`AddRBAnchor`; the private `RemoveRBAnchor` destroys it and resets the counter. A transform
+teleport of an anchored kerbal is pulled straight back by that joint (EVA-8
+`2026-09-29_1711_a2`: the first step, taken seconds after the ladder release, landed; every later
+step left him at the same 13.04 m for all three moves). The seam calls `RemoveRBAnchor` by
+reflection (`wasAnchored=` / `anchorReleased=` on the move line); stock re-anchors him at the
+new spot once he stands idle there. THE SET-DOWN HEIGHT is 0.5 m above the HIGHER of the
+target's PQS terrain and the kerbal's cached `Vessel.terrainAltitude` (`StepSetDownAltitude`):
+stock destroys a vessel that is not landed once its `altitude` reads below that cached value
+("crashed through terrain"), which right after a teleport is still the old spot's, so a target
+more than 0.5 m lower than the spot he left killed him (EVA-8 `2026-09-29_1729`: 151.02 m ->
+150.42 m). The move line carries `terrain=` and `setDownAlt=`. A set-down that drops him more
+than ~0.6 m lands faster than `stumbleThreshold` (3.5 m/s) and ragdolls him, and decompiled
+`KerbalEVA.CanRecover` lets the ACTIVE kerbal up only on a movement input (`tgtRpos != 0`), so
+he would lie there for good (EVA-8 `2026-09-29_1759`: the Go-ob place waited 120 s on
+`standing=false`). Completion therefore requires him STANDING (landed and not ragdolled); a
+ragdolled kerbal lying landed, slower than 0.6 m/s, for 0.5 s is got up by stock's own
+`On_recover_start` FSM event, the transition that input triggers (`ShouldRecoverFromRagdoll`, at
+most 3, logged `evagroundscience step ragdoll-recover ...`); a step that starts on a ragdolled
+kerbal defers the move until he is up (`step deferred ... reason=ragdolled`), since moving one of
+his jointed bodies tore him apart and killed him (`_1807_a2`). The collision skip is load-bearing too: every
 `FixedUpdate` in which a part moved more than 0.1 m, `CollisionEnhancer` (stock, and the
 KSPCommunityFixes `CollisionEnhancerFastUpdate` override the harness instance runs, which logs
 `[Collision Enhancer] TRANSLATE_BACK on "kerbalEVA"`) linecasts old -> new position against the

@@ -148,6 +148,85 @@ namespace Parsek.TestCommands
         /// </summary>
         internal const int StepCollisionSkipFrames = 5;
 
+        /// <summary>
+        /// The altitude to set the kerbal down at: <see cref="StepLiftMeters"/> above the
+        /// HIGHER of the target's PQS terrain and the vessel's cached
+        /// <c>terrainAltitude</c> (the terrain under the spot he is leaving). Decompiled
+        /// <c>Vessel</c> (KSP 1.12.5): a vessel that is not landed is destroyed ("crashed
+        /// through terrain") once its <c>altitude</c> reads below its <c>terrainAltitude</c>,
+        /// and right after a teleport that cached value is still the OLD spot's, so a spot
+        /// more than the lift lower than the one he left killed him (EVA-8
+        /// `2026-09-29_1729`: 151.02 m -> 150.42 m, a 0.60 m drop against a 0.5 m lift). A
+        /// cached value of -1 (stock's "unknown") or any non-finite value is ignored.
+        /// </summary>
+        internal static double StepSetDownAltitude(double targetTerrain, double cachedTerrain)
+        {
+            double floor = targetTerrain;
+            bool cachedKnown = !double.IsNaN(cachedTerrain) && !double.IsInfinity(cachedTerrain)
+                && cachedTerrain != -1.0;
+            if (cachedKnown && cachedTerrain > floor) floor = cachedTerrain;
+            return floor + StepLiftMeters;
+        }
+
+        /// <summary>Stock's <c>KerbalEVA.recoverThreshold</c>: a ragdolled kerbal may get up
+        /// only below this speed (m/s).</summary>
+        internal const double RagdollRecoverMaxSpeed = 0.6;
+
+        /// <summary>Seconds a kerbal lies in the ragdoll state before the step gets him up
+        /// (stock's own recover check waits 0.2 s).</summary>
+        internal const double RagdollRecoverAfterSeconds = 0.5;
+
+        /// <summary>Get-ups one step may trigger.</summary>
+        internal const int MaxRagdollRecovers = 3;
+
+        /// <summary>
+        /// Should the step get a ragdolled kerbal back on his feet? Decompiled
+        /// <c>KerbalEVA.CanRecover</c> (KSP 1.12.5): the ACTIVE kerbal leaves the ragdoll state
+        /// only once the player gives a movement input (<c>tgtRpos != 0</c>), so a kerbal who
+        /// stumbled on landing (a set-down more than ~0.6 m above the ground lands faster than
+        /// <c>stumbleThreshold</c> 3.5 m/s) lies there for good in an unattended run (EVA-8
+        /// `2026-09-29_1759`: the Go-ob place waited 120 s on `standing=false`). The seam runs
+        /// stock's own <c>On_recover_start</c> event instead, the transition that input
+        /// triggers, and only once he lies landed, slower than stock's recover threshold, for
+        /// <see cref="RagdollRecoverAfterSeconds"/>, at most <see cref="MaxRagdollRecovers"/>
+        /// times.
+        /// </summary>
+        internal static bool ShouldRecoverFromRagdoll(bool isRagdoll, bool inRagdollState, bool landed,
+            double speed, double secondsInState, int recoversSoFar)
+        {
+            if (!isRagdoll || !inRagdollState || !landed) return false;
+            if (recoversSoFar >= MaxRagdollRecovers) return false;
+            if (double.IsNaN(speed) || speed >= RagdollRecoverMaxSpeed) return false;
+            return secondsInState >= RagdollRecoverAfterSeconds;
+        }
+
+        /// <summary>The move method a step's log line names, so a lane can prove which ran:
+        /// KerbalEVA's ground anchor released, then the transforms and every rigidbody pose
+        /// written together.</summary>
+        internal const string StepMoveMethod = "anchor-release+rb-pose";
+
+        /// <summary>
+        /// The per-move log line. The prefix up to <c>skipFrames=</c> is the shape the cluster
+        /// lanes already pin; <c>method=</c> and the anchor fields follow it.
+        /// </summary>
+        internal static string FormatStepMoveLine(string kerbalName, int move, int collisionEnhancers,
+            bool evaModuleFound, bool wasAnchored, bool anchorReleased, int rigidbodiesPosed,
+            double targetTerrain = double.NaN, double setDownAltitude = double.NaN)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return "evagroundscience step move kerbal=" + (kerbalName ?? string.Empty)
+                + " move=" + move.ToString(ic)
+                + " collisionEnhancersSkipped=" + collisionEnhancers.ToString(ic)
+                + " skipFrames=" + StepCollisionSkipFrames.ToString(ic)
+                + " method=" + StepMoveMethod
+                + " evaModule=" + (evaModuleFound ? "true" : "false")
+                + " wasAnchored=" + (wasAnchored ? "true" : "false")
+                + " anchorReleased=" + (anchorReleased ? "true" : "false")
+                + " rigidbodiesPosed=" + rigidbodiesPosed.ToString(ic)
+                + " terrain=" + (double.IsNaN(targetTerrain) ? "?" : targetTerrain.ToString("F2", ic))
+                + " setDownAlt=" + (double.IsNaN(setDownAltitude) ? "?" : setDownAltitude.ToString("F2", ic));
+        }
+
         /// <summary>Frames after a move before a kerbal still off target gets the move
         /// again (the move's own settle).</summary>
         internal const int StepReapplyFrames = 20;
@@ -311,12 +390,13 @@ namespace Parsek.TestCommands
         /// <summary>A step completes once the kerbal is landed within
         /// <see cref="StepToleranceMeters"/> (horizontal) of the target spot itself, held for
         /// the settle window. The spot, not the distance from the anchor: a kerbal put back
-        /// elsewhere at the right range must not pass.</summary>
+        /// elsewhere at the right range must not pass. <paramref name="standing"/> is landed AND
+        /// not ragdolled (a ragdolled kerbal is landed but cannot place).</summary>
         internal static GroundScienceCompletionDecision DecideStepCompletion(
-            double elapsed, double budget, bool landed, double offTargetMeters, int settledFrames)
+            double elapsed, double budget, bool standing, double offTargetMeters, int settledFrames)
         {
             bool atTarget = !double.IsNaN(offTargetMeters) && offTargetMeters <= StepToleranceMeters;
-            if (landed && atTarget && settledFrames >= SettleFrames)
+            if (standing && atTarget && settledFrames >= SettleFrames)
                 return GroundScienceCompletionDecision.CompleteOk;
             return elapsed >= budget
                 ? GroundScienceCompletionDecision.Timeout

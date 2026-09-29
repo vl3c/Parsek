@@ -455,6 +455,82 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FormatStepMoveLine_KeepsThePinnedPrefixAndNamesTheMethod()
+        {
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                string line = TestCommandEvaGroundScience.FormatStepMoveLine(
+                    "Jebediah Kerman", 2, 1, true, true, true, 12);
+                Assert.Equal(
+                    "evagroundscience step move kerbal=Jebediah Kerman move=2 collisionEnhancersSkipped=1 "
+                    + "skipFrames=" + TestCommandEvaGroundScience.StepCollisionSkipFrames
+                    + " method=anchor-release+rb-pose evaModule=true wasAnchored=true anchorReleased=true "
+                    + "rigidbodiesPosed=12 terrain=? setDownAlt=?",
+                    line);
+                Assert.EndsWith(" terrain=150.42 setDownAlt=151.52",
+                    TestCommandEvaGroundScience.FormatStepMoveLine(
+                        "Jebediah Kerman", 1, 1, true, false, true, 1, 150.42, 151.52));
+                // The lanes' pinned token still matches (EVA-8 / EVA-9 / EVA-10 require it on move 1).
+                string first = TestCommandEvaGroundScience.FormatStepMoveLine(
+                    "Jebediah Kerman", 1, 1, true, false, false, 1);
+                Assert.Matches(
+                    "evagroundscience step move kerbal=Jebediah Kerman move=1 collisionEnhancersSkipped=[1-9][0-9]* skipFrames=",
+                    first);
+                Assert.Matches(" method=anchor-release\\+rb-pose ", first);
+                Assert.Contains("wasAnchored=false anchorReleased=false", first);
+                Assert.Contains("evaModule=false",
+                    TestCommandEvaGroundScience.FormatStepMoveLine(null, 1, 0, false, false, false, 0));
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
+        [Fact]
+        public void ShouldRecoverFromRagdoll_OnlyALyingSettledKerbalBounded()
+        {
+            double wait = TestCommandEvaGroundScience.RagdollRecoverAfterSeconds;
+            double slow = TestCommandEvaGroundScience.RagdollRecoverMaxSpeed - 0.01;
+            int max = TestCommandEvaGroundScience.MaxRagdollRecovers;
+            // EVA-8 `2026-09-29_1759`: landed, still, ragdolled for good.
+            Assert.True(TestCommandEvaGroundScience.ShouldRecoverFromRagdoll(true, true, true, 0.02, 120.0, 0));
+            Assert.True(TestCommandEvaGroundScience.ShouldRecoverFromRagdoll(true, true, true, slow, wait, max - 1));
+            // Not ragdolled, or already out of the ragdoll state (recovering).
+            Assert.False(TestCommandEvaGroundScience.ShouldRecoverFromRagdoll(false, false, true, 0.0, 10.0, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldRecoverFromRagdoll(true, false, true, 0.0, 10.0, 0));
+            // Still tumbling or airborne, or not lying there long enough yet.
+            Assert.False(TestCommandEvaGroundScience.ShouldRecoverFromRagdoll(true, true, false, 0.0, 10.0, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldRecoverFromRagdoll(
+                true, true, true, TestCommandEvaGroundScience.RagdollRecoverMaxSpeed, 10.0, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldRecoverFromRagdoll(true, true, true, double.NaN, 10.0, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldRecoverFromRagdoll(true, true, true, 0.0, wait - 0.01, 0));
+            // Bounded.
+            Assert.False(TestCommandEvaGroundScience.ShouldRecoverFromRagdoll(true, true, true, 0.0, 10.0, max));
+        }
+
+        [Fact]
+        public void StepSetDownAltitude_ClearsTheHigherOfTheTargetAndTheCachedTerrain()
+        {
+            double lift = TestCommandEvaGroundScience.StepLiftMeters;
+            // Downhill (the EVA-8 death: 151.02 -> 150.42): lift above the OLD spot's terrain,
+            // so altitude never reads below the stale cached terrainAltitude.
+            Assert.Equal(151.02 + lift, TestCommandEvaGroundScience.StepSetDownAltitude(150.42, 151.02), 9);
+            Assert.True(TestCommandEvaGroundScience.StepSetDownAltitude(150.42, 151.02) > 151.02);
+            // Uphill: the target's own terrain is the floor.
+            Assert.Equal(151.12 + lift, TestCommandEvaGroundScience.StepSetDownAltitude(151.12, 150.64), 9);
+            // Unknown cached terrain (stock's -1, NaN, infinity): the target alone.
+            Assert.Equal(150.42 + lift, TestCommandEvaGroundScience.StepSetDownAltitude(150.42, -1.0), 9);
+            Assert.Equal(150.42 + lift, TestCommandEvaGroundScience.StepSetDownAltitude(150.42, double.NaN), 9);
+            Assert.Equal(150.42 + lift,
+                TestCommandEvaGroundScience.StepSetDownAltitude(150.42, double.PositiveInfinity), 9);
+            // Sea-level clamp (TerrainAltitude floors at 0 over water): still above it.
+            Assert.Equal(lift, TestCommandEvaGroundScience.StepSetDownAltitude(0.0, -1.0), 9);
+        }
+
+        [Fact]
         public void ShouldReapplyStep_OnlyOffTargetAfterTheMoveSettledAndBounded()
         {
             double tol = TestCommandEvaGroundScience.StepToleranceMeters;

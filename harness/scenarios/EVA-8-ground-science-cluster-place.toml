@@ -6,7 +6,11 @@ id = "EVA-8-ground-science-cluster-place"
 # containers beside the KSC), every token predicted from the emitting source and that log,
 # and the first flight `2026-09-28_2043` (integration DLL: origin/main + #1920 + #1921 +
 # #1923) PASSED attempt 1 with every token as written. RE-CUT 2026-09-29 (LAYOUT below):
-# the placements now happen at spread-out spots; the re-cut is unflown.
+# the placements now happen at spread-out spots. The re-cut's step verb took four fixes
+# (todo EVA-STEP-TRANSLATED-BACK: the collision guard, KerbalEVA's ground anchor, the stale
+# cached terrain, the unrecoverable ragdoll); re-cut flight `2026-09-29_1819` (automation
+# DLL sha256 707f46be...) PASSED attempt 1: every step landed on its first move (offTarget
+# 0.01-0.18 m), two stumbles got up by the seam, committed count 15.
 #
 # WHAT IT PROVES. A multi-part Breaking Ground CLUSTER placed by one EVA kerbal records as
 # one tree member PER PLACED PART (BranchPointType.GroundPartPlaced,
@@ -176,7 +180,11 @@ required = [
   "Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*evagroundscience pickup complete part=DeployedSeismicSensor[\\s\\S]*Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=[0-9]+ partPid=([0-9]+) rec=(?!\\1)([0-9a-f]+) [^\\r\\n]*snapshot=True[\\s\\S]*Part event captured: InventoryPartPlaced 'DeployedSeismicSensor' pid=\\2 via onDeployGroundPart rec=\\3",
   # Every step move told the kerbal's CollisionEnhancer to skip its next frames (EVA-8
   # `2026-09-29_1618`: without it the anti-tunnelling guard put him straight back).
-  "evagroundscience step move kerbal=Jebediah Kerman move=1 collisionEnhancersSkipped=[1-9][0-9]* skipFrames=",
+  "evagroundscience step move kerbal=Jebediah Kerman move=1 collisionEnhancersSkipped=[1-9][0-9]* skipFrames=[0-9]+ method=anchor-release\\+rb-pose ",
+  # A standing kerbal is held by KerbalEVA's ground anchor (a FixedJoint to the world after
+  # 0.5 s idle); the move releases it (EVA-8 `2026-09-29_1711_a2`: every step after the first
+  # was pulled straight back to 13.04 m).
+  "evagroundscience step move kerbal=Jebediah Kerman move=1 [^\\r\\n]*method=anchor-release\\+rb-pose evaModule=true wasAnchored=true anchorReleased=true ",
   # THE LAYOUT: every spot at its own compass bearing on the 13 m ring.
   "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=13\\.00 [^\\r\\n]*bearing=60\\.0",
   "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=13\\.00 [^\\r\\n]*bearing=80\\.0",
@@ -195,6 +203,8 @@ forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "evagroundscience failed",
   "evagroundscience refused",
+  # A step set down lower than the stale cached terrain of the spot he left killed him (EVA-8 flight 1).
+  "Vessel Jebediah Kerman crashed through terrain",
   "Ground part placement not recorded",
   "Ground part placement dropped",
   # ONE Removed capture per pick-up, and this lane picks up once.

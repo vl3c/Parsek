@@ -1024,7 +1024,7 @@ required = [
   "Ground part placed: tree member created part='DeployedGoExOb' vesselPid=[0-9]+ partPid=[0-9]+ rec=[0-9a-f]+ parentRec=[0-9a-f]+ bp=[0-9a-f]+ ut=[0-9.]+ snapshot=True",
   # Every step move told the kerbal's CollisionEnhancer to skip its next frames (EVA-8
   # `2026-09-29_1618`: without it the anti-tunnelling guard put him straight back).
-  "evagroundscience step move kerbal=Jebediah Kerman move=1 collisionEnhancersSkipped=[1-9][0-9]* skipFrames=",
+  "evagroundscience step move kerbal=Jebediah Kerman move=1 collisionEnhancersSkipped=[1-9][0-9]* skipFrames=[0-9]+ method=anchor-release\\+rb-pose ",
   # THE LAYOUT: every spot at its own compass bearing from the capsule (the bearing arg
   # reached the DLL; a build without it would walk Jeb along his own bearing instead).
   "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=13\\.00 [^\\r\\n]*bearing=60\\.0",
@@ -1065,6 +1065,8 @@ forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "evagroundscience failed",
   "evagroundscience refused",
+  # A step set down lower than the stale cached terrain of the spot he left killed him (EVA-8 flight 1).
+  "Vessel Jebediah Kerman crashed through terrain",
   "Ground part placement not recorded",
   "Ground part placement dropped",
   "Part event captured: InventoryPartRemoved",

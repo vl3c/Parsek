@@ -32,7 +32,40 @@ sets `framesToSkip` on every part's `CollisionEnhancer` first (both implementati
 spot itself rather than the distance from the anchor, and a kerbal still more than 1.5 m off it
 20 frames after a move is moved again (at most 3 moves). Pure `ShouldReapplyStep` /
 `DecideStepCompletion` xUnit-covered; the three cluster lanes require `step move ... move=1
-collisionEnhancersSkipped=[1-9]`. Re-flight owed.
+collisionEnhancersSkipped=[1-9]`.
+
+SECOND CAUSE, found by the re-flight `2026-09-29_1711_a2` (DLL `0bf23b867`): TRANSLATE_BACK was
+gone, the first step (seconds after the ladder release) landed `offTarget=0.03`, and every later
+step left Jeb at the same 13.04 m for all three moves. Decompiled `KerbalEVA.AnchorUpdate`
+(LateUpdate): a kerbal standing landed, slow and idle for 0.5 s is held by a `FixedJoint` to the
+world (`AddRBAnchor`), which pulls a transform teleport straight back. The move now calls the
+private `RemoveRBAnchor` by reflection first (stock re-anchors him at the new spot) and writes
+every rigidbody pose with the transforms; the line names `method=anchor-release+rb-pose
+wasAnchored= anchorReleased=`, and EVA-8 requires a move that released an anchor
+(`wasAnchored=true anchorReleased=true`).
+
+THIRD CAUSE, found by the anchor-release flight `2026-09-29_1729` (automation DLL sha256
+`037c5f14...`): every step now landed on its first move (`offTarget` 0.02-0.35), until the Go-ob
+step down to a spot 0.60 m lower than the one Jeb left: `Vessel Jebediah Kerman crashed through
+terrain` 0.33 s after the move and he died. Decompiled `Vessel` (1.12.5): a vessel that is not
+landed is destroyed once `altitude < terrainAltitude`, and that cached value was still the old
+spot's (151.02 m) while he was set down at 150.42 + 0.5 m. The set-down height is now 0.5 m above
+the higher of the two (`StepSetDownAltitude`, xUnit-covered), the move line logs `terrain=` and
+`setDownAlt=`, and the cluster lanes forbid `Vessel Jebediah Kerman crashed through terrain`.
+
+FOURTH CAUSE, found by `2026-09-29_1759` / `_1807_a2` (DLL sha256 `10ac8af0...`): no crash on the
+downhill step any more, but the 1.1 m drop landed him faster than `stumbleThreshold` (3.5 m/s)
+and he ragdolled; decompiled `KerbalEVA.CanRecover` gets the ACTIVE kerbal up only on a movement
+input, so the Go-ob place waited 120 s on `standing=false`, and the later steps moved a ragdolled
+kerbal (one of several jointed bodies), which killed him on `_1807_a2`. Step completion now needs
+him standing; the seam runs stock's `On_recover_start` FSM event once he lies landed and still for
+0.5 s (`ShouldRecoverFromRagdoll`, xUnit-covered, at most 3) and never moves him while ragdolled.
+
+VERIFIED: EVA-8 `2026-09-29_1819` (automation DLL sha256 `707f46be...`, provisioned from this
+branch) PASS attempt 1. All nine steps completed on their first move (`offTarget` 0.01-0.18 m, the
+anchor released on every step after the first), two stumbles (the 1.95 m downhill set-down to the
+Go-ob spot, and the last step back beside the capsule) were got up by `step ragdoll-recover ...
+event=On_recover_start`, no crash, all five placements and the pick-up completed, committed count 15.
 
 ## IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS: a tree committed in flight is never optimized (no boring-tail trim, no split / merge) until the next cold load [FILED 2026-09-29 from EVA-9 `2026-09-29_1528`, branch `deployables-lanes`. OPEN, product inconsistency, needs a ruling; no product change made]
 
