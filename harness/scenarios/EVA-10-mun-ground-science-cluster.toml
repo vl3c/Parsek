@@ -21,16 +21,34 @@ id = "EVA-10-mun-ground-science-cluster"
 # lander, 1.2 m from the pod's origin, and on 7 of 8 face-away turns the placement preview's
 # terrain ray hit the lander's own colliders (`placement-timeout part=DeployedCentralStation
 # ... onTerrain=true insideCap=false reTurns=8`, `hit=Collider/layer0` / `Base/layer0`). A
-# player walks a few steps off first. `EvaGroundScience action=step anchor=2708531065
-# distance=4.5` sets him down on the terrain 4.5 m (horizontal) from the lander's origin,
-# straight out along his own bearing, BEFORE StartRecording so no recorded trajectory
-# carries the move (KSP has no walk API a seam can drive; the step is a short teleport).
-# 4.5 m clears the landing legs (the Rockomax tank is 2.5 m across, the LT-2 feet reach
-# about 2.5 m from the axis), so a preview facing away from the lander lands on open
-# ground, and keeps the pod inside stock's GameSettings.EVA_INVENTORY_RANGE (5 m, measured
-# to the nearest point of its colliders): the pod's surface is ~3.25 m out and ~3 m up
-# (VESSEL hgt 4.18), about 4.4 m. A take refused `out-of-range ... distance=... range=5.00`
-# reads as that geometry, not as a defect (todo GROUND-SCIENCE-CLUSTER-FIVE-PART-HOST).
+# player walks off first. `EvaGroundScience action=step` sets him down on the terrain at
+# a horizontal distance and (since 2026-09-29) a compass `bearing=` from the lander's
+# origin (KSP has no walk API a seam can drive; the step is a short teleport).
+#
+# LAYOUT (operator directive 2026-09-29: "place the parts farther away" and "space them out
+# more"). Spots on a 19 m ring round the lander at bearings 60 / 75 / 90 / 105: neighbours
+# 2 * 19 * sin(7.5 deg) = 5.0 m apart, every part ~17 m or more from the lander even with
+# the placement preview's ~0.9 m offset and the lander's centre of mass off its pod. 19 m,
+# not EVA-9's 13 m, because the Space Center landed de-overlap keeps a non-sibling landed
+# vessel 15 m clear (SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters). Since the
+# #1920 follow-up (todo KSC-DE-OVERLAP-MOVES-PLACED-PARTS-OFF-THEIR-SPOT, closed there; EVA-6
+# is its regression lane) a vessel of an earlier committed tree standing there first no
+# longer pushes a placed part either, but 19 m keeps this lane's subject to the SIBLING
+# exemption alone, whichever build it flies on. Between
+# placements Jeb steps to 3.5 m from the pod on the next part's bearing: that clears the
+# landing legs (the LT-2 feet reach about 2.5 m from the axis) and keeps the pod inside
+# stock's GameSettings.EVA_INVENTORY_RANGE (5 m, measured to the nearest point of its
+# colliders): the pod's rim is ~2.25 m out and ~3.2 m up (VESSEL hgt 4.18), about 3.9 m. A
+# take refused `out-of-range ... distance=... range=5.00` reads as that geometry, not as a
+# defect. For the pick-up he steps to 2 m outside the placed seismometer (the step anchored
+# on its `vesselPid`, captured from the place step's payload as `${seis.vesselPid}`; pick-up
+# reach is 4 m) and re-places it from there; at the end he steps to 4.5 m on bearing 270,
+# the far side of the lander. Steps inside the recording are teleports: the kerbal's ghost
+# slides between spots, which no recorder path or analyzer rule reads as a defect.
+#
+# KEEP NEIGHBOURS WELL INSIDE 15 m. The exemption this lane requires is logged only when a
+# member's spawn finds a standing sibling inside the de-overlap radius; ~5 m keeps every
+# neighbour well inside it.
 #
 # THE SPAWN HALF. Commit, Rewind-to-Launch (lands at the Space Center 15 s before the
 # kerbal recording started), and 1x Space Center time crosses every EndUT, so each member
@@ -46,21 +64,30 @@ id = "EVA-10-mun-ground-science-cluster"
 # nudged 15.0m`). Fix PR #1920 exempts co-existing tree SIBLINGS there and logs
 # `Overlap exempt: co-existing tree sibling spawn: site=landed-de-overlap ...`, required
 # below. It does NOT exempt the capsule (a pre-existing real vessel, not a spawn of this
-# tree), so a member standing inside 15 m of the lander is still nudged after #1920; that
-# is todo KSC-DE-OVERLAP-MOVES-PLACED-PARTS-OFF-THEIR-SPOT, which is why the nudge line is
-# not forbidden here. A plain lane: it must PASS on a DLL carrying #1920. On a pre-#1920
-# DLL it reds on the two per-member exemption tokens (every member still spawns, nudged).
+# tree); the #1920 follow-up added that other-tree exemption, and the 19 m ring keeps every
+# part outside the radius anyway, so a nudge of any cluster member is FORBIDDEN here. A
+# same-tree sibling is exempted as a `spawn` (stamped) or an `original` (the live vessel the
+# recording made, unstamped); the required tokens accept either. A plain lane: it
+# must PASS on a DLL carrying #1920. On a pre-#1920 DLL it reds on the two per-member
+# exemption tokens and the forbidden member nudge (each later member is moved 15 m off its
+# still-standing neighbour).
 #
 # STAGGERED ENDS (EVA-9's first-flight lesson). A member recorded for 30 s or less is not
 # trimmed, so it ends at the commit, and members that end in the same frame spawn with no
-# sibling standing yet. About 4 s of 1x time between placements and ~40 s of idle before
-# StopRecording make every member trim to its own placement + ~13 s (required per member),
-# so each later member spawns beside an earlier one and the fix path runs for it.
+# sibling standing yet. The walk / take / walk / place cycle spaces the placements, and
+# ~40 s of idle before the commit makes every member trim to its own placement + ~10 s
+# (required per member), so each later member spawns beside an earlier one and the fix path
+# runs for it. The trim runs only in the SCENE-EXIT auto-commit (EVA-9's second-flight
+# finding: the seam CommitTree runs no optimization pass, todo
+# IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS), so the lane commits the way a player does:
+# `autoMerge=true`, `ExitToSpaceCenter` with the recording running, then SaveGame + LoadGame
+# back into FLIGHT on the lander (the asteroid removed so a Space Center save focuses it)
+# for the rewind verb, which needs FLIGHT.
 #
 # KNOWN PREAMBLE FLAKE: see EVA-9's header (the 1 Hz committed-spawned restore retry can
 # re-adopt the lander right after the boot's DiscardTree; retried once).
 tier = "nightly"
-description = "Mun ground-science cluster: on mun-landing-recorded Jeb climbs out of the landed Kerbal X carrying a Central Station, places it, takes the RTG, the seismometer and the Go-ob one at a time out of the lander pod's container and places each, picks the seismometer up and places it again; commit, Rewind-to-Launch, and 1x Space Center time spawns every member left standing (and Jeb) on the Mun through the KSC spawn-at-end, the picked-up member never. Each placement is its own GroundPartPlaced member. Jeb first steps 4.5 m off the lander (action=step) so the placement previews clear its hull, the placements are spaced and the recording idles so every member trims to a staggered end, and each later member's Space Center spawn is exempted from its standing siblings by fix #1920's landed de-overlap exemption."
+description = "Mun ground-science cluster: on mun-landing-recorded Jeb climbs out of the landed Kerbal X carrying a Central Station and places a four-part cluster on a 19 m ring round the lander, neighbours ~5 m apart (action=step walks him between the pod, where he takes the RTG, the seismometer and the Go-ob one at a time, and each part's own bearing); he picks the seismometer up and places it again; he leaves for the Space Center, whose scene-exit auto-commit trims every member to a staggered end; back into FLIGHT, Rewind-to-Launch, and 1x Space Center time spawns every member left standing (and Jeb) on the Mun through the KSC spawn-at-end, the picked-up member never, none of them nudged. Each later member's Space Center spawn is exempted from its standing siblings by fix #1920's landed de-overlap exemption."
 instanceProfile = "stock-minimal"
 tags = ["eva", "inventory", "ground-science", "breaking-ground", "cluster", "mun", "rewind-to-launch", "spawn", "EVA-10"]
 
@@ -68,6 +95,13 @@ tags = ["eva", "inventory", "ground-science", "breaking-ground", "cluster", "mun
 saveTemplate       = "fixtures/saves/mun-landing-recorded"
 injectedRecordings = "none"
 craft              = []
+
+# The index-0 asteroid (Ast. MII-526) goes, so the lander is what a Space Center save
+# focuses when the lane goes back into FLIGHT for the rewind (EVA-9's recipe; savepatch
+# keeps the boot focus on the lander, activeVessel 1 -> 0).
+[[fixture.liveState]]
+pid    = 2815888106
+remove = true
 
 [[fixture.crewInventory]]
 kerbal    = "Jebediah Kerman"
@@ -87,84 +121,33 @@ steps = [
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoMerge",          value = "true" },  expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva10-boot" },                    expect = "OK" },
   { cmd = "EvaExit",    args = { release = "true" },                         expect = "OK", budget = 120 },
-  # Off the lander onto open ground, before the recording starts (see the header).
-  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "4.5" }, expect = "OK", budget = 120 },
+  # Out to the Central Station's spot on the 19 m ring before the recording starts (LAYOUT).
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "19", bearing = "60" }, expect = "OK", budget = 120 },
   { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
   { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedCentralStation", faceAway = "true" }, expect = "OK", budget = 120 },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedRTG" },                                expect = "OK", budget = 120 },
-  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedRTG", faceAway = "true" },             expect = "OK", budget = 120 },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedSeismicSensor" },                      expect = "OK", budget = 120 },
-  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedSeismicSensor", faceAway = "true" },   expect = "OK", budget = 120 },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedGoExOb" },                             expect = "OK", budget = 120 },
-  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedGoExOb", faceAway = "true" },          expect = "OK", budget = 120 },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-space" }, expect = "OK" },
-  { cmd = "EvaGroundScience", args = { action = "pickup", part = "DeployedSeismicSensor" },                     expect = "OK", budget = 120 },
-  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedSeismicSensor", faceAway = "true" },   expect = "OK", budget = 120 },
+  # Per part: back to 3.5 m from the pod (a take reaches 5 m), take it, out to its spot, place it.
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "3.5", bearing = "75" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedRTG" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "19", bearing = "75" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedRTG", faceAway = "true" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "3.5", bearing = "90" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedSeismicSensor" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "19", bearing = "90" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedSeismicSensor", faceAway = "true" }, label = "seis", expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "3.5", bearing = "105" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedGoExOb" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "19", bearing = "105" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedGoExOb", faceAway = "true" }, expect = "OK", budget = 120 },
+  # The pick-up: over to 2 m outside the seismometer (pick-up reach is 4 m), pick it up, and
+  # place it again from there, a couple of metres further out than its first spot.
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "${seis.vesselPid}", distance = "2", bearing = "90" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "pickup", part = "DeployedSeismicSensor" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedSeismicSensor", faceAway = "true" }, expect = "OK", budget = 120 },
+  # Jeb walks back to the far side of the lander, clear of every part.
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "4.5", bearing = "270" }, expect = "OK", budget = 120 },
   # ~40 s of idle so every member records more than 30 s and trims to a staggered end.
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva10-idle" }, expect = "OK" },
@@ -328,10 +311,18 @@ steps = [
   { cmd = "MissionMark", args = { label = "eva10-idle" }, expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva10-idle" }, expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
+  # THE COMMIT, the way a player makes it (EVA-9's header: the seam CommitTree runs no
+  # optimization pass, so nothing would trim): leave for the Space Center with the
+  # recording running and let the scene-exit auto-commit commit and trim the tree.
+  { cmd = "ExitToSpaceCenter",                                               expect = "OK", budget = 120 },
+  # Back into FLIGHT for the rewind verb: a Space Center save focuses vessel 0, the lander.
+  { cmd = "SaveGame",   args = { name = "eva10-committed" },                 expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "eva10-committed" }, expect = "OK", budget = 300 },
   { cmd = "StopRecording",                                                   expect = "OK" },
-  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
-  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva10-committed" },               expect = "OK" },
+  # EVA-6's preamble flake: a re-adopted recorder would refuse the rewind `recording-active`.
+  { cmd = "StopRecording",                                                   expect = "OK" },
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
   { cmd = "MissionMark", args = { label = "eva10-rewound" },                 expect = "OK" },
   # 1x Space Center time re-crosses every EndUT (~0.25 s per step, 720 steps, ~180 s: 15 s
@@ -1089,7 +1080,16 @@ required = [
   "Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*evagroundscience pickup complete part=DeployedSeismicSensor[\\s\\S]*Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=[0-9]+ partPid=([0-9]+) rec=(?!\\1)([0-9a-f]+) [^\\r\\n]*snapshot=True[\\s\\S]*Part event captured: InventoryPartPlaced 'DeployedSeismicSensor' pid=\\2 via onDeployGroundPart rec=\\3",
   # Off the lander before the recording (the step's completion line).
   "evagroundscience step complete kerbal=Jebediah Kerman anchor=[^\\r\\n]* horizontal=[0-9.]+ situation=LANDED",
-  "committree committed=true",
+  # THE LAYOUT: every spot at its own compass bearing on the 19 m ring.
+  "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=19\\.00 [^\\r\\n]*bearing=60\\.0",
+  "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=19\\.00 [^\\r\\n]*bearing=75\\.0",
+  "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=19\\.00 [^\\r\\n]*bearing=90\\.0",
+  "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=19\\.00 [^\\r\\n]*bearing=105\\.0",
+  # The pick-up step was anchored on the placed seismometer (the captured vesselPid).
+  "Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=([0-9]+) [\\s\\S]*evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* anchorPid=\\1 [^\\r\\n]*bearing=90\\.0",
+  # THE COMMIT: the player's scene exit, whose auto-commit runs the optimization pass.
+  "exittospacecenter complete scene=SPACECENTER",
+  "full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='Jebediah Kerman' recordings=6 ",
   # THE STAGGER: every standing member trims to ~13 s after its own placement.
   "Ground part placed: tree member created part='DeployedCentralStation' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*TrimBoringTail: trimmed '[^'\\r\\n]*' \\(\\1\\) from endUT=",
   "Ground part placed: tree member created part='DeployedRTG' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*TrimBoringTail: trimmed '[^'\\r\\n]*' \\(\\1\\) from endUT=",
@@ -1104,8 +1104,8 @@ required = [
   "startrecording recordingId=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-rewound[\\s\\S]*\\[KSCSpawn\\] Attempting spawn for #([0-9]+) \\\"Jebediah Kerman\\\" \\(id=\\1\\)[\\s\\S]*\\[KSCSpawn\\] Vessel spawned for #\\2 \\\"Jebediah Kerman\\\" pid=[0-9]+ sit=LANDED ",
   # The fix's own witness (#1920), per member placed after the Central Station: its Space
   # Center spawn found an earlier sibling standing and the de-overlap exempted it.
-  "Ground part placed: tree member created part='DeployedRTG' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-rewound[\\s\\S]*Overlap exempt: co-existing tree sibling spawn: site=landed-de-overlap [^\\r\\n]* rec=\\1 blocker=",
-  "Ground part placed: tree member created part='DeployedGoExOb' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-rewound[\\s\\S]*Overlap exempt: co-existing tree sibling spawn: site=landed-de-overlap [^\\r\\n]* rec=\\1 blocker=",
+  "Ground part placed: tree member created part='DeployedRTG' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-rewound[\\s\\S]*Overlap exempt: co-existing tree sibling (?:spawn|original): site=landed-de-overlap [^\\r\\n]* rec=\\1 blocker=",
+  "Ground part placed: tree member created part='DeployedGoExOb' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-rewound[\\s\\S]*Overlap exempt: co-existing tree sibling (?:spawn|original): site=landed-de-overlap [^\\r\\n]* rec=\\1 blocker=",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -1118,16 +1118,20 @@ forbidden = [
   "Spawn RETIRED",
   "Spawn ABANDONED",
   "Spawn FAILED",
-  "Overlap not exempt: tree sibling spawn",
+  "Overlap not exempt: tree sibling (?:spawn|original)",
+  "Ghost-only auto-commit",
+  # Every part stands ~19 m from the lander, past the 15 m landed de-overlap, and its
+  # neighbours are exempted siblings: no member of the cluster is moved.
+  "De-overlap for #[0-9]+ \\\"(?:Probodobodyne Experiment Control Station|Mini-NUK-PD Radioisotope Thermoelectric Generator|Grand Slam Passive Seismometer|Go-ob ED Monitor)\\\": nudged",
   # The picked-up member is Disassembled: nothing spawns it.
   "Recording terminal: kind=Disassembled reason=ground-part-retrieved [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*\\[KSCSpawn\\] Attempting spawn for #[0-9]+ \\\"[^\\\"\\r\\n]*\\\" \\(id=\\1\\)",
   "Spawn not needed for #[0-9]+ \\\"Jebediah Kerman\\\": non-leaf in tree",
 ]
 
 [runtime]
-# ~60 s of placements and spacing + 40 s idle + 300 rewind + ~180 s Space Center wait +
-# the act budget of EVA-8 + margin.
-budgetSeconds = 2400
+# The act budget of EVA-8 + 9 steps + 40 s idle + 120 ExitToSpaceCenter + 120 SaveGame +
+# 300 LoadGame + 300 rewind + ~180 s Space Center wait + 120 SaveGame + margin.
+budgetSeconds = 2700
 
 [retry]
 policy = "once"

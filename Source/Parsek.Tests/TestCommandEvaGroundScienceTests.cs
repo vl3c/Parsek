@@ -315,6 +315,103 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryParseStepBearing_OptionalUnsignedInvariantDegreesBelow360()
+        {
+            foreach (string absent in new[] { null, "" })
+            {
+                Assert.True(TestCommandEvaGroundScience.TryParseStepBearing(absent,
+                    out bool has, out double b, out string err));
+                Assert.False(has);
+                Assert.Equal(0.0, b);
+                Assert.Null(err);
+            }
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                // A comma-decimal host culture must not change what a spec's "22.5" means.
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                Assert.True(TestCommandEvaGroundScience.TryParseStepBearing("22.5",
+                    out bool has, out double b, out string err));
+                Assert.True(has);
+                Assert.Equal(22.5, b);
+                Assert.Null(err);
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+            Assert.True(TestCommandEvaGroundScience.TryParseStepBearing("0", out bool zeroHas, out double zero, out _));
+            Assert.True(zeroHas);
+            Assert.Equal(0.0, zero);
+            Assert.True(TestCommandEvaGroundScience.TryParseStepBearing("359.9", out _, out double top, out _));
+            Assert.Equal(359.9, top);
+
+            foreach (string bad in new[] { "360", "-10", "abc", "22,5", "NaN", "1e2", "400" })
+            {
+                Assert.False(TestCommandEvaGroundScience.TryParseStepBearing(bad,
+                    out bool has, out double b, out string err));
+                Assert.False(has);
+                Assert.Equal(0.0, b);
+                Assert.Equal("step-bearing-invalid", err);
+            }
+        }
+
+        [Fact]
+        public void OffsetLatLonAlongBearing_MovesTheCompassDirectionAtTheRequestedDistance()
+        {
+            const double r = 600000.0;
+            double metresPerDegree = r * System.Math.PI / 180.0;
+
+            // Due north / south: latitude only.
+            TestCommandEvaGroundScience.OffsetLatLonAlongBearing(0.0, 10.0, 0.0, 13.0, r,
+                out double lat, out double lon);
+            Assert.Equal(13.0 / metresPerDegree, lat, 12);
+            Assert.Equal(10.0, lon, 12);
+            TestCommandEvaGroundScience.OffsetLatLonAlongBearing(0.0, 10.0, 180.0, 13.0, r,
+                out lat, out lon);
+            Assert.Equal(-13.0 / metresPerDegree, lat, 12);
+            Assert.Equal(10.0, lon, 9);
+
+            // Due east at latitude 60: the longitude step is 1 / cos(60) = 2x wider.
+            TestCommandEvaGroundScience.OffsetLatLonAlongBearing(60.0, 10.0, 90.0, 13.0, r,
+                out lat, out lon);
+            Assert.Equal(60.0, lat, 9);
+            Assert.Equal(10.0 + 2.0 * 13.0 / metresPerDegree, lon, 9);
+
+            // Any bearing: the tangent-plane distance back from the offset is the request.
+            foreach (double bearing in new[] { 60.0, 80.0, 100.0, 120.0, 270.0 })
+            {
+                TestCommandEvaGroundScience.OffsetLatLonAlongBearing(-0.12, 86.7, bearing, 13.0, r,
+                    out lat, out lon);
+                double dn = (lat + 0.12) * metresPerDegree;
+                double de = (lon - 86.7) * metresPerDegree * System.Math.Cos(-0.12 * System.Math.PI / 180.0);
+                Assert.Equal(13.0, System.Math.Sqrt(dn * dn + de * de), 6);
+                double back = (System.Math.Atan2(de, dn) * 180.0 / System.Math.PI + 360.0) % 360.0;
+                Assert.Equal(bearing, back, 6);
+            }
+
+            // Two spots 20 degrees apart on a 13 m ring stand 2 * 13 * sin(10 deg) = 4.51 m apart
+            // (the EVA-9 layout, which must stay inside the 6.25 m spawn-overlap half extent).
+            TestCommandEvaGroundScience.OffsetLatLonAlongBearing(0.0, 0.0, 60.0, 13.0, r,
+                out double lat1, out double lon1);
+            TestCommandEvaGroundScience.OffsetLatLonAlongBearing(0.0, 0.0, 80.0, 13.0, r,
+                out double lat2, out double lon2);
+            double gap = System.Math.Sqrt(
+                System.Math.Pow((lat2 - lat1) * metresPerDegree, 2)
+                + System.Math.Pow((lon2 - lon1) * metresPerDegree, 2));
+            Assert.Equal(2 * 13.0 * System.Math.Sin(10.0 * System.Math.PI / 180.0), gap, 6);
+
+            // Longitude wraps across the antimeridian; a polar anchor does not divide by zero.
+            TestCommandEvaGroundScience.OffsetLatLonAlongBearing(0.0, 179.99999, 90.0, 13.0, r,
+                out _, out lon);
+            Assert.True(lon < -179.0 && lon >= -180.0, "lon=" + lon);
+            TestCommandEvaGroundScience.OffsetLatLonAlongBearing(90.0, 0.0, 90.0, 13.0, r,
+                out lat, out lon);
+            Assert.False(double.IsNaN(lon) || double.IsInfinity(lon));
+            Assert.Equal(90.0, lat, 9);
+        }
+
+        [Fact]
         public void StepHorizontalOffset_KeepsTheKerbalsBearingAndRescalesIt()
         {
             TestCommandEvaGroundScience.StepHorizontalOffset(0.6, 0.8, 5.0, 1, 0, out double ox, out double oz);

@@ -20,10 +20,11 @@ namespace Parsek.TestCommands
         Take,
 
         /// <summary>Move the EVA kerbal onto the ground at a set horizontal distance from an
-        /// anchor vessel, along his current bearing from it: the few steps a player walks
-        /// off a lander before placing, so the placement preview clears its hull and legs.
-        /// Driven as a short teleport to the terrain (see the applier); lanes run it BEFORE
-        /// StartRecording, so no recorded trajectory carries the jump.</summary>
+        /// anchor vessel, along his current bearing from it or along an explicit compass
+        /// <c>bearing=</c>: the steps a player walks between a container and the spot a
+        /// part goes. Driven as a short teleport to the terrain (see the applier). A step
+        /// during a live recording leaves a jump in the kerbal's trajectory, which the
+        /// ghost replays as a fast slide; nothing reads it as a defect.</summary>
         Step,
     }
 
@@ -118,6 +119,11 @@ namespace Parsek.TestCommands
         /// <summary>Step only: the horizontal distance, in metres, from the anchor.</summary>
         internal const string DistanceArg = "distance";
 
+        /// <summary>Step only, optional: the compass bearing, in degrees clockwise from the
+        /// anchor's local north in [0, 360), of the spot from the anchor. Absent, the kerbal
+        /// moves along his own current bearing from the anchor.</summary>
+        internal const string BearingArg = "bearing";
+
         /// <summary>Upper bound on a step: a few strides off a lander, never a relocation.</summary>
         internal const double MaxStepDistanceMeters = 30.0;
 
@@ -196,6 +202,49 @@ namespace Parsek.TestCommands
                 return false;
             }
             return true;
+        }
+
+        /// <summary>Parses the step's optional <c>bearing=</c>: absent or empty means no
+        /// bearing (<paramref name="hasBearing"/> false, success). Present, it must be an
+        /// unsigned InvariantCulture decimal in [0, 360); otherwise false with
+        /// <c>step-bearing-invalid</c>.</summary>
+        internal static bool TryParseStepBearing(string raw, out bool hasBearing,
+            out double bearingDegrees, out string error)
+        {
+            hasBearing = false;
+            bearingDegrees = 0;
+            error = null;
+            if (string.IsNullOrEmpty(raw)) return true;
+            if (!double.TryParse(raw, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture,
+                    out double b)
+                || double.IsNaN(b) || double.IsInfinity(b) || b < 0 || b >= 360.0)
+            {
+                error = "step-bearing-invalid";
+                return false;
+            }
+            hasBearing = true;
+            bearingDegrees = b;
+            return true;
+        }
+
+        /// <summary>
+        /// The latitude / longitude (degrees) of the point <paramref name="distance"/> metres
+        /// from (<paramref name="latDeg"/>, <paramref name="lonDeg"/>) along compass bearing
+        /// <paramref name="bearingDeg"/> (0 north, 90 east) on a sphere of
+        /// <paramref name="radius"/>: the local tangent-plane offset, exact enough for the
+        /// tens of metres a step covers. Longitude wraps into [-180, 180); the east offset's
+        /// cos(latitude) is floored so a polar anchor cannot divide by zero.
+        /// </summary>
+        internal static void OffsetLatLonAlongBearing(double latDeg, double lonDeg,
+            double bearingDeg, double distance, double radius, out double lat2, out double lon2)
+        {
+            double b = bearingDeg * Math.PI / 180.0;
+            double north = Math.Cos(b) * distance;
+            double east = Math.Sin(b) * distance;
+            double cosLat = Math.Max(Math.Cos(latDeg * Math.PI / 180.0), 1e-6);
+            lat2 = latDeg + north / radius * 180.0 / Math.PI;
+            lon2 = lonDeg + east / (radius * cosLat) * 180.0 / Math.PI;
+            lon2 = ((lon2 + 180.0) % 360.0 + 360.0) % 360.0 - 180.0;
         }
 
         /// <summary>

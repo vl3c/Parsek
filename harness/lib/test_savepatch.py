@@ -1426,6 +1426,11 @@ class CommittedSpecUsageTests(unittest.TestCase):
         "kerbin-splashdown-recorded": (
             2815888106,   # `Ast. MII-526`, FLIGHTSTATE index 0
         ),
+        # EVA-10 removes the same index-0 asteroid so the landed Kerbal X lander
+        # (2708531065) is what the Space Center save it reloads into FLIGHT focuses.
+        "mun-landing-recorded": (
+            2815888106,   # `Ast. MII-526`, FLIGHTSTATE index 0
+        ),
     }
 
     def _specs(self):

@@ -25,12 +25,44 @@ id = "EVA-9-ground-science-cluster-spawn-flight"
 # event + DefaultTailBufferSeconds 10: `trimmed ... from endUT=337.5 to 133.4 ...
 # lastInterestingUT=123.5`) because he kept recording for minutes, so they ended - and
 # spawned - one after another, each beside a sibling already standing. This lane now
-# reproduces THAT: about 4 s of 1x time between placements (16 MissionMarks) and about
-# 40 s of idle after the last one (160 MissionMarks) before StopRecording, so every member
-# records more than 30 s, TrimBoringTail cuts each to its own placement + ~13 s (required
-# per member below), and the four ends are staggered by the placement spacing. The parts
-# stand 0.6-0.9 m from the kerbal (EVA-8 / this lane's first flight), well inside the 5 m
-# padded overlap box, so each later member spawns overlapping an earlier one.
+# reproduces THAT: each placement is a walk back to the pod, a take and a walk out to the
+# part's own spot (several seconds of 1x time per part), and about 40 s of idle after the
+# last one (160 MissionMarks), so every member records more than 30 s, TrimBoringTail cuts
+# each to its own placement + ~10 s (required per member below), and the four ends are
+# staggered by the placement spacing.
+#
+# WHY THE COMMIT IS A SCENE EXIT (second flight `2026-09-29_1528`, same integration DLL:
+# PARSEK-FAIL on the four trim tokens and the three exemption tokens). The members lived
+# 41-65 s, yet no `TrimBoringTail: trimmed` line printed and all four spawned within 5 ms.
+# The seam's `CommitTree` is ParsekFlight.CommitTreeFlight, which never calls
+# RecordingStore.RunOptimizationPass (the only caller of the boring-tail trim), and the
+# in-session scene loads that followed return before OnLoad's optimization phase (it runs on
+# a cold load only). The operator's trim ran inside the SCENE-EXIT auto-commit at the Space
+# Center (MergeDialog.MergeCommit runs the pass). So this lane now commits the way a player
+# does: `autoMerge=true` and `ExitToSpaceCenter` with the recording running, then SaveGame +
+# LoadGame back into FLIGHT on the capsule (a Space Center save focuses vessel 0) for the
+# rewind verb, which needs FLIGHT. The in-flight path's missing pass is filed as todo
+# IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS.
+#
+# LAYOUT (operator directive 2026-09-29: "place the parts farther away" and "space them out
+# more"). `EvaGroundScience action=step ... bearing=<deg>` sets Jeb down at a compass
+# bearing from the capsule. Spots on a 13 m ring at bearings 60 / 80 / 100 / 120: every part
+# at least ~12 m from the capsule, neighbours 2 * 13 * sin(10 deg) = 4.5 m apart (plus up to
+# ~0.9 m of placement preview offset each). Between placements Jeb steps to 3 m from the pod
+# on the next part's bearing (a take reaches GameSettings.EVA_INVENTORY_RANGE, 5 m, measured
+# to the pod's colliders) and back out; after the last one he steps to 4 m on bearing 270,
+# the far side of the capsule, clear of every part. Steps inside the recording are teleports:
+# the kerbal's ghost slides between spots, which no recorder path or analyzer rule reads as
+# a defect; each hop lands from 0.5 m, a brief airborne run the optimizer's surface-graze
+# rule should suppress (a split of Jeb's recording would read as count 15, not 14).
+#
+# DO NOT SPREAD THE PARTS PAST ~6 m APART. The FLIGHT spawn check
+# (SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels) pads a one-part vessel's bounds
+# by 5 m per side: `Physics.OverlapBox ... halfExtents=(6.3,6.3,6.3) padding=5.0m`. Parts
+# ~4.5-5.5 m apart therefore still stand INSIDE each other's box, so each later member's
+# spawn finds its earlier neighbour as a blocker - the co-existing-sibling exemption of
+# PR #1920 is what lets it spawn. Past ~6 m the neighbours stop overlapping and this lane
+# stops testing #1920 at all while still reading green.
 #
 # HOW THE CHAIN GETS BACK TO THE CLUSTER. A Rewind-to-Launch lands at the Space Center, and
 # a Space Center save focuses vessel 0 (`activeVessel = 0`, measured in EX-1). The fixture's
@@ -47,15 +79,19 @@ id = "EVA-9-ground-science-cluster-spawn-flight"
 # fixture's nine rows list first, EVA-6's measured order; the first flight read the
 # members at rec10..rec13 and Jeb at rec9) and, for each of the three members placed after
 # the Central Station, #1920's exemption line naming THAT member as the spawning recording
-# (`Overlap exempt: co-existing tree sibling spawn: site=... rec=<member> blocker=...`), the
-# proof the fix path ran for it (the line is rate-limited per spawning rec + blocker pid,
-# so one per member is what to require).
+# (`Overlap exempt: co-existing tree sibling spawn: site=... rec=<member> blocker=...`, or
+# `... sibling original:` when the blocker is the unstamped live vessel a sibling's recording
+# made, the #1920 follow-up's form; the tokens accept either), the proof the fix path ran for
+# it (the line is rate-limited per spawning rec + blocker pid, so one per member is what to
+# require).
 #
 # ON A PRE-#1920 DLL this lane reds PARSEK-FAIL(expectation) on: the three per-member
 # exemption tokens (never printed), the three later members' `-true-<pid>` read-backs (they
-# read `-false-0`: blocked, never spawned) and the kerbal's (`-true-0`, abandoned), plus the
-# forbidden `Trajectory walkback EXHAUSTED`, `Spawn ABANDONED` and member-row-false tokens.
-# The Central Station, placed first, ends first and spawns clear on either DLL.
+# read `-false-0`: blocked, never spawned), plus the forbidden `Trajectory walkback
+# EXHAUSTED` and member-row-false tokens (the operator's pre-#1920 log prints the walkback
+# line for ten of eleven parts). The Central Station, placed first, ends first and spawns
+# clear on either DLL; Jeb, who now ends ~13 m from every part beside the (active, skipped)
+# capsule, spawns clear on either DLL too.
 #
 # THE SPACE CENTER TWIN (EVA-10's subject). At the Space Center the spawn does not refuse a
 # cluster member, it NUDGES it: ParsekKSC's landed de-overlap moves any non-EVA surface
@@ -69,7 +105,7 @@ id = "EVA-9-ground-science-cluster-spawn-flight"
 # capsule as its committed tip within the same second, and the kerbal's StartRecording is
 # then refused `active-recording-id-missing` (INVALID, retried once).
 tier = "nightly"
-description = "Regression for PLACED-PART-CLUSTER-SPAWN-BLOCKED-BY-SIBLING (fix #1920): on kerbin-splashdown-recorded (asteroid removed so the landed capsule is vessel 0) Jeb places a four-part Breaking Ground cluster (Central Station from his own inventory, RTG / seismometer / Go-ob taken one at a time out of the capsule's pod) about 4 s apart and idles ~40 s so TrimBoringTail staggers the members' ends; commit, Rewind-to-Launch, SaveGame + LoadGame straight back into FLIGHT on the capsule, and 1x flight time crosses every end. Each later member spawns while an earlier sibling already stands inside its overlap box and is EXEMPTED (the fix's line per member), every member and the kerbal read back spawned with a pid, and nothing is refused (no walkback exhaustion, no abandoned spawn)."
+description = "Regression for PLACED-PART-CLUSTER-SPAWN-BLOCKED-BY-SIBLING (fix #1920): on kerbin-splashdown-recorded (asteroid removed so the landed capsule is vessel 0) Jeb places a four-part Breaking Ground cluster on a 13 m ring round the capsule, neighbours ~4.5 m apart (Central Station from his own inventory, RTG / seismometer / Go-ob each taken out of the capsule's pod, action=step walking him between the pod and each part's own bearing) and idles ~40 s; he leaves for the Space Center, whose scene-exit auto-commit trims every member to a staggered end; back into FLIGHT, Rewind-to-Launch, SaveGame + LoadGame straight back into FLIGHT on the capsule, and 1x flight time crosses every end. Each later member spawns while an earlier sibling already stands inside its overlap box and is EXEMPTED (the fix's line per member), every member and the kerbal read back spawned with a pid, and nothing is refused (no walkback exhaustion, no abandoned spawn)."
 instanceProfile = "stock-minimal"
 tags = ["eva", "inventory", "ground-science", "breaking-ground", "cluster", "rewind-to-launch", "spawn", "spawn-collision", "EVA-9"]
 
@@ -103,68 +139,31 @@ steps = [
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoMerge",          value = "true" },  expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva9-boot" },                     expect = "OK" },
-  # ACT 1: the cluster (EVA-8's placements, no pick-up).
+  # ACT 1: the cluster, spread out on a 13 m ring round the capsule (see LAYOUT in the header).
   { cmd = "EvaExit",    args = { release = "true" },                         expect = "OK", budget = 120 },
+  # Out to the Central Station's spot before the recording starts.
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "13", bearing = "60" }, expect = "OK", budget = 120 },
   { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
   { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedCentralStation", faceAway = "true" }, expect = "OK", budget = 120 },
-  # ~4 s of 1x time between placements, so the trimmed member ends are staggered.
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedRTG" },                                expect = "OK", budget = 120 },
-  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedRTG", faceAway = "true" },             expect = "OK", budget = 120 },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedSeismicSensor" },                      expect = "OK", budget = 120 },
-  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedSeismicSensor", faceAway = "true" },   expect = "OK", budget = 120 },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva9-space" }, expect = "OK" },
-  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedGoExOb" },                             expect = "OK", budget = 120 },
-  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedGoExOb", faceAway = "true" },          expect = "OK", budget = 120 },
-  # ~40 s of idle: every member records more than 30 s (MinDurationForTrimSeconds), so
-  # TrimBoringTail cuts each to its own placement + ~13 s at the commit.
+  # Per part: back to the pod (a take reaches 5 m), take it, out to its own spot, place it.
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "3", bearing = "80" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedRTG" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "13", bearing = "80" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedRTG", faceAway = "true" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "3", bearing = "100" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedSeismicSensor" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "13", bearing = "100" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedSeismicSensor", faceAway = "true" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "3", bearing = "120" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedGoExOb" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "13", bearing = "120" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedGoExOb", faceAway = "true" }, expect = "OK", budget = 120 },
+  # Jeb walks back to the far side of the capsule, clear of every part.
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "4", bearing = "270" }, expect = "OK", budget = 120 },
+  # ~40 s of idle: every member records more than 30 s (MinDurationForTrimSeconds), so the
+  # scene-exit commit's optimization pass cuts each to its own placement + ~10 s.
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
@@ -327,11 +326,22 @@ steps = [
   { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
+  # THE COMMIT, the way a player makes it: leave for the Space Center with the recording
+  # running, and the scene-exit auto-commit (MergeDialog.MergeCommit) commits the tree and
+  # runs RecordingStore.RunOptimizationPass, which trims the members' boring tails. The seam
+  # CommitTree (ParsekFlight.CommitTreeFlight) runs no optimization pass (todo
+  # IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS), which is why flight `2026-09-29_1528` never trimmed.
+  { cmd = "ExitToSpaceCenter",                                               expect = "OK", budget = 120 },
+  # Back into FLIGHT for the rewind verb: a Space Center save focuses vessel 0, the capsule.
+  { cmd = "SaveGame",   args = { name = "eva9-committed" },                  expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "eva9-committed" }, expect = "OK", budget = 300 },
   { cmd = "StopRecording",                                                   expect = "OK" },
-  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
-  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",        expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva9-commit-count-${c0.count}" }, expect = "OK" },
+  # The 1 Hz committed-tip restore retry can re-adopt the capsule after the DiscardTree
+  # (EVA-6's preamble flake); a live recorder would refuse the rewind `recording-active`.
+  { cmd = "StopRecording",                                                   expect = "OK" },
   # ACT 2: rewind, then straight back into FLIGHT on the capsule (EX-1's reload recipe).
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
   { cmd = "SaveGame",   args = { name = "eva9-rewound" },                    expect = "OK", budget = 120 },
@@ -343,7 +353,7 @@ steps = [
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",        expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva9-reloaded-count-${c1.count}-a-${c1.rec9}-${c1.rec9spawned}-b-${c1.rec10}-${c1.rec10spawned}-c-${c1.rec11}-${c1.rec11spawned}-d-${c1.rec12}-${c1.rec12spawned}-e-${c1.rec13}-${c1.rec13spawned}" }, expect = "OK" },
   # ACT 3: 1x flight time past every member's end and the kerbal's (~0.25 s per step, 640
-  # steps, ~160 s: 15 s of rewind lead + ~20 s of placements + 40 s of idle + margin).
+  # steps, ~160 s: 15 s of rewind lead + ~30 s of walks and placements + 40 s of idle + margin).
   { cmd = "MissionMark", args = { label = "eva9-flightwait" }, expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva9-flightwait" }, expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva9-flightwait" }, expect = "OK" },
@@ -1012,8 +1022,17 @@ required = [
   "Ground part placed: tree member created part='DeployedRTG' vesselPid=[0-9]+ partPid=[0-9]+ rec=[0-9a-f]+ parentRec=[0-9a-f]+ bp=[0-9a-f]+ ut=[0-9.]+ snapshot=True",
   "Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=[0-9]+ partPid=[0-9]+ rec=[0-9a-f]+ parentRec=[0-9a-f]+ bp=[0-9a-f]+ ut=[0-9.]+ snapshot=True",
   "Ground part placed: tree member created part='DeployedGoExOb' vesselPid=[0-9]+ partPid=[0-9]+ rec=[0-9a-f]+ parentRec=[0-9a-f]+ bp=[0-9a-f]+ ut=[0-9.]+ snapshot=True",
-  "committree committed=true",
-  # THE STAGGER: every member was long enough to trim, so it ends ~13 s after its own
+  # THE LAYOUT: every spot at its own compass bearing from the capsule (the bearing arg
+  # reached the DLL; a build without it would walk Jeb along his own bearing instead).
+  "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=13\\.00 [^\\r\\n]*bearing=60\\.0",
+  "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=13\\.00 [^\\r\\n]*bearing=80\\.0",
+  "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=13\\.00 [^\\r\\n]*bearing=100\\.0",
+  "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=13\\.00 [^\\r\\n]*bearing=120\\.0",
+  "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=4\\.00 [^\\r\\n]*bearing=270\\.0",
+  # THE COMMIT: the player's scene exit, whose auto-commit runs the optimization pass.
+  "exittospacecenter complete scene=SPACECENTER",
+  "full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='Jebediah Kerman' recordings=5 ",
+  # THE STAGGER: every member was long enough to trim, so it ends ~10 s after its own
   # placement rather than at the commit.
   "Ground part placed: tree member created part='DeployedCentralStation' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*TrimBoringTail: trimmed '[^'\\r\\n]*' \\(\\1\\) from endUT=",
   "Ground part placed: tree member created part='DeployedRTG' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*TrimBoringTail: trimmed '[^'\\r\\n]*' \\(\\1\\) from endUT=",
@@ -1035,9 +1054,9 @@ required = [
   "startrecording recordingId=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva9-spawned-count-14-[^\\r\\n]*-\\1-true-[1-9][0-9]*-",
   # The fix's own witness (#1920), once per member placed after the first: each spawned
   # while an earlier sibling already stood inside its overlap box, and was exempted.
-  "Ground part placed: tree member created part='DeployedRTG' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva9-reloaded-count[\\s\\S]*Overlap exempt: co-existing tree sibling spawn: site=[^\\r\\n]* rec=\\1 blocker=",
-  "Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva9-reloaded-count[\\s\\S]*Overlap exempt: co-existing tree sibling spawn: site=[^\\r\\n]* rec=\\1 blocker=",
-  "Ground part placed: tree member created part='DeployedGoExOb' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva9-reloaded-count[\\s\\S]*Overlap exempt: co-existing tree sibling spawn: site=[^\\r\\n]* rec=\\1 blocker=",
+  "Ground part placed: tree member created part='DeployedRTG' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva9-reloaded-count[\\s\\S]*Overlap exempt: co-existing tree sibling (?:spawn|original): site=[^\\r\\n]* rec=\\1 blocker=",
+  "Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva9-reloaded-count[\\s\\S]*Overlap exempt: co-existing tree sibling (?:spawn|original): site=[^\\r\\n]* rec=\\1 blocker=",
+  "Ground part placed: tree member created part='DeployedGoExOb' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva9-reloaded-count[\\s\\S]*Overlap exempt: co-existing tree sibling (?:spawn|original): site=[^\\r\\n]* rec=\\1 blocker=",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -1047,12 +1066,14 @@ forbidden = [
   "Ground part placement dropped",
   "Part event captured: InventoryPartRemoved",
   "invokerewindtolaunch refused",
+  # A ghost-only commit would null the members' snapshots: nothing could spawn.
+  "Ghost-only auto-commit",
   # THE DEFECT.
   "Trajectory walkback EXHAUSTED",
   "Spawn ABANDONED",
   "Spawn RETIRED",
   "Spawn FAILED",
-  "Overlap not exempt: tree sibling spawn",
+  "Overlap not exempt: tree sibling (?:spawn|original)",
   "Ground part placed: tree member created [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva9-spawned-count-[^\\r\\n]*-\\1-false-",
   # Nothing of this tree spawns at the Space Center (the reload beat every EndUT), so no
   # Space Center de-overlap nudge either.
@@ -1061,9 +1082,10 @@ forbidden = [
 ]
 
 [runtime]
-# EVA-8's act budget (without the pick-up) + ~60 s of spacing and idle + 300 rewind +
-# 120 SaveGame + 300 LoadGame + ~160 s of 1x flight wait + 120 SaveGame + margin.
-budgetSeconds = 2400
+# EVA-8's act budget (without the pick-up) + 7 steps + ~40 s of idle + 120 ExitToSpaceCenter
+# + 120 SaveGame + 300 LoadGame + 300 rewind + 120 SaveGame + 300 LoadGame + ~160 s of 1x
+# flight wait + 120 SaveGame + margin.
+budgetSeconds = 2700
 
 [retry]
 policy = "once"

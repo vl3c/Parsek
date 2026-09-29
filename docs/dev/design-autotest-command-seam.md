@@ -3548,7 +3548,7 @@ The verb drives the stock player actions that make stock fire those events. It f
 GameEvent itself.
 
 **Grammar.** `cmd=EvaGroundScience action=<place|pickup|take> part=<name> [faceAway=true]`, or
-`cmd=EvaGroundScience action=step anchor=<vessel pid> distance=<metres>` (no `part`).
+`cmd=EvaGroundScience action=step anchor=<vessel pid> distance=<metres> [bearing=<degrees>]` (no `part`).
 `part` is the cfg part name (underscores become the runtime dots).
 
 **Place** (decompiled KSP 1.12.5). The inventory PAW slot icon calls
@@ -3597,19 +3597,30 @@ sourceInventory=<slots>`; payload `action=take part partPid vesselPid=<source ve
 presses=0 distance`. No GameEvent is involved and the recorder records nothing for a take.
 Pure half `TestCommandEvaGroundScience.ChooseTakeSource` / `DecideTakeCompletion`.
 
-**Step** (added 2026-09-29 for EVA-10). A kerbal off a Mun lander's ladder stands ON the
+**Step** (added 2026-09-29 for EVA-10; `bearing=` added the same day for the spread-out
+cluster layouts of EVA-8 / EVA-9 / EVA-10). A kerbal off a Mun lander's ladder stands ON the
 lander, where every placement preview hits its hull (EVA-10's first flights: `placement-timeout
-... reTurns=8`). The verb sets the EVA kerbal down on the terrain at `distance` metres
-(horizontal, `(0, 30]`, InvariantCulture) from the loaded anchor vessel's origin, straight out
-along his own horizontal bearing from it (an anchor-local east/north basis; no bearing falls
-back to the anchor's right axis): `IgnoreGForces(240)`, `SetPosition` at the PQS
-`TerrainAltitude` + 0.5 m, `SetWorldVelocity(zero)`, then gravity settles him. KSP has no walk
-API a seam can drive, so this is a teleport; a lane runs it BEFORE `StartRecording` so no
-recorded trajectory carries the jump. Logs `evagroundscience step start ... from=<m> to=<m>
-lat= lon= terrain= situation=` and, once he is landed within 1.5 m of the requested distance for
-30 frames, `evagroundscience step complete kerbal=<name> anchor=<name> horizontal=<m>
-situation=<sit>`. Pure half `TryParseStepArgs` / `StepHorizontalOffset` /
-`DecideStepCompletion`.
+... reTurns=8`), and a cluster built from a container needs the kerbal to walk between the
+container and each part's own spot. The verb sets the EVA kerbal down on the terrain at
+`distance` metres (horizontal, `(0, 30]`, InvariantCulture) from the loaded anchor vessel's
+origin. With `bearing=<degrees>` (unsigned InvariantCulture, `[0, 360)`, 0 north, 90 east) the
+spot is that compass bearing from the anchor on the body's latitude / longitude grid
+(`OffsetLatLonAlongBearing`, the local tangent-plane offset), so a lane's layout does not depend
+on which way the anchor or the kerbal faces; without it he moves straight out along his own
+horizontal bearing from the anchor (an anchor-local east/north basis; no bearing falls back to
+the anchor's right axis). Then `IgnoreGForces(240)`, `SetPosition` at the PQS `TerrainAltitude`
++ 0.5 m, `SetWorldVelocity(zero)`, and gravity settles him. KSP has no walk API a seam can
+drive, so this is a teleport. Inside a live recording it leaves a jump in the kerbal's
+trajectory, replayed by the ghost as a fast slide; no recorder path or analyzer rule reads a
+same-body position jump as a boundary or a defect, and the 0.5 m drop is a brief airborne run
+the optimizer's surface-graze rule should suppress (the lanes' recording-count pins would show a
+split). The `anchor=` may be a `${label.vesselPid}`
+capture of an earlier place step (a lane steps up to the part it is about to pick up). Logs
+`evagroundscience step start ... anchorPid=<pid> from=<m> to=<m> lat= lon= terrain= situation=
+bearing=<deg|own>` and, once he is landed within 1.5 m of the requested distance for 30 frames,
+`evagroundscience step complete kerbal=<name> anchor=<name> horizontal=<m> situation=<sit>`.
+Pure half `TryParseStepArgs` / `TryParseStepBearing` / `OffsetLatLonAlongBearing` /
+`StepHorizontalOffset` / `DecideStepCompletion`.
 
 **Phases.** TWO-PHASE on a 120 s budget (the EvaExit size), NOT a `DEFERRED_SEAM_VERB`;
 `RequiresFlight` plus the EVA family's `not-eva` defer. hlib tail role world-mutating,
@@ -3619,7 +3630,7 @@ post-mission role `outcome`.
 `part-not-in-inventory`, `not-deployable`, `no-ground-part`, `no-retrieve-event`,
 `out-of-range`, `inventory-full`, and for a take `not-stored-nearby`, `over-capacity`,
 `no-stored-snapshot`, `take-store-refused`, and for a step `step-anchor-invalid`,
-`step-distance-invalid`, `step-anchor-not-loaded`, `step-body-mismatch`; ERROR `place-gate-timeout`, `inventory-window-timeout`,
+`step-distance-invalid`, `step-bearing-invalid`, `step-anchor-not-loaded`, `step-body-mismatch`; ERROR `place-gate-timeout`, `inventory-window-timeout`,
 `placement-mode-refused`, `key-injection-unavailable`, `placement-not-accepted`,
 `placement-timeout`, `preview-timeout`, `placed-vessel-timeout`, `pickup-threw`,
 `pickup-timeout`, `take-threw`, `take-timeout`, `step-threw`, `step-timeout`, `kerbal-lost`, each with an

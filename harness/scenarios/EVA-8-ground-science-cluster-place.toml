@@ -5,7 +5,8 @@ id = "EVA-8-ground-science-cluster-place"
 # 'rover science': Bob Kerman placed an eleven-part Breaking Ground cluster from a rover's
 # containers beside the KSC), every token predicted from the emitting source and that log,
 # and the first flight `2026-09-28_2043` (integration DLL: origin/main + #1920 + #1921 +
-# #1923) PASSED attempt 1 with every token as written.
+# #1923) PASSED attempt 1 with every token as written. RE-CUT 2026-09-29 (LAYOUT below):
+# the placements now happen at spread-out spots; the re-cut is unflown.
 #
 # WHAT IT PROVES. A multi-part Breaking Ground CLUSTER placed by one EVA kerbal records as
 # one tree member PER PLACED PART (BranchPointType.GroundPartPlaced,
@@ -49,13 +50,28 @@ id = "EVA-8-ground-science-cluster-place"
 # The `place start ... inventory=` and `take start ... sourceInventory=` lines are the
 # proof both patches landed (stock silently drops an unavailable name).
 #
+# LAYOUT (operator directive 2026-09-29, after the first flight jammed the cluster against
+# the capsule: "place the parts farther away" and "space them out more"). `EvaGroundScience
+# action=step ... bearing=<deg>` sets Jeb down at a compass bearing from the capsule. Spots
+# on a 13 m ring at bearings 60 / 80 / 100 / 120: every part ~12 m or more from the
+# capsule, neighbours 2 * 13 * sin(10 deg) = 4.5 m apart (plus up to ~0.9 m of placement
+# preview offset each). Between placements Jeb steps to 3 m from the pod on the next part's
+# bearing (a take reaches GameSettings.EVA_INVENTORY_RANGE, 5 m, measured to the pod's
+# colliders) and back out. For the pick-up he steps to 2 m outside the placed seismometer
+# (the step anchored on its `vesselPid`, captured from the place step's payload as
+# `${seis.vesselPid}`; pick-up reach is 4 m) and re-places it from there; at the end he
+# steps to 4 m on bearing 270, the far side of the capsule. Steps inside the recording are
+# teleports: the kerbal's ghost slides between spots, which no recorder path or analyzer
+# rule reads as a defect. Same ring as EVA-9 (same host), where the spacing is load-bearing:
+# keep neighbours under ~6 m apart (EVA-9's header).
+#
 # PLACEMENT GEOMETRY RISK. `faceAway=true` turns the kerbal away from the NEAREST other
-# vessel, which after the first placement is a placed part rather than the pod; the heading
-# ladder then fans out on a blocked preview. The pod and the placed parts all sit within a
-# few metres, so a placement timeout on this lane reads first as that geometry (todo
-# EVA-GROUND-SCIENCE-PLACEMENT-TIMEOUT-FLAKE), not as a recorder defect.
+# vessel, which after the first placement is the previous part ~4.5 m away rather than the
+# pod; the heading ladder fans out on a blocked preview. A placement timeout on this lane
+# reads first as that geometry (todo EVA-GROUND-SCIENCE-PLACEMENT-TIMEOUT-FLAKE), not as a
+# recorder defect.
 tier = "nightly"
-description = "Ground-science CLUSTER placement on kerbin-splashdown-recorded: Jeb steps out of his landed capsule carrying a Central Station, places it, then takes the RTG, the seismometer and the Go-ob one at a time out of the capsule's own inventory (EvaGroundScience action=take, inside stock's EVA reach and the kerbal's 40 L) and places each; he picks the seismometer back up and places it again; commit. Every placement is its own GroundPartPlaced tree member with its own InventoryPartPlaced, every part left standing finalizes Landed as a leaf, the picked-up seismometer ends Disassembled with ONE InventoryPartRemoved, and the re-placement is a NEW member."
+description = "Ground-science CLUSTER placement on kerbin-splashdown-recorded: Jeb steps out of his landed capsule carrying a Central Station and places a four-part cluster on a 13 m ring round the capsule, neighbours ~4.5 m apart (action=step walks him between the pod and each part's own bearing): the Central Station, then the RTG, the seismometer and the Go-ob, each taken out of the capsule's own inventory (EvaGroundScience action=take, inside stock's EVA reach and the kerbal's 40 L) and places each; he picks the seismometer back up and places it again; commit. Every placement is its own GroundPartPlaced tree member with its own InventoryPartPlaced, every part left standing finalizes Landed as a leaf, the picked-up seismometer ends Disassembled with ONE InventoryPartRemoved, and the re-placement is a NEW member."
 instanceProfile = "stock-minimal"
 tags = ["eva", "inventory", "ground-science", "breaking-ground", "cluster", "EVA-8"]
 
@@ -84,20 +100,32 @@ steps = [
   { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva8-boot" },                     expect = "OK" },
-  # ACT 1: out of the capsule, recording on the kerbal, the controller first.
+  # ACT 1: out of the capsule to the Central Station's spot on the 13 m ring (LAYOUT),
+  # recording on the kerbal, the controller first.
   { cmd = "EvaExit",    args = { release = "true" },                         expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "13", bearing = "60" }, expect = "OK", budget = 120 },
   { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
   { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedCentralStation", faceAway = "true" }, expect = "OK", budget = 120 },
-  # ACT 2: one part at a time out of the pod's container, each placed before the next.
-  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedRTG" },                                expect = "OK", budget = 120 },
-  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedRTG", faceAway = "true" },             expect = "OK", budget = 120 },
-  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedSeismicSensor" },                      expect = "OK", budget = 120 },
-  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedSeismicSensor", faceAway = "true" },   expect = "OK", budget = 120 },
-  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedGoExOb" },                             expect = "OK", budget = 120 },
-  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedGoExOb", faceAway = "true" },          expect = "OK", budget = 120 },
-  # ACT 3: pick the seismometer back up and place it again (a NEW member).
-  { cmd = "EvaGroundScience", args = { action = "pickup", part = "DeployedSeismicSensor" },                     expect = "OK", budget = 120 },
-  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedSeismicSensor", faceAway = "true" },   expect = "OK", budget = 120 },
+  # ACT 2: one part at a time: back to the pod (a take reaches 5 m), take it, out to its
+  # own spot, place it.
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "3", bearing = "80" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedRTG" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "13", bearing = "80" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedRTG", faceAway = "true" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "3", bearing = "100" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedSeismicSensor" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "13", bearing = "100" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedSeismicSensor", faceAway = "true" }, label = "seis", expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "3", bearing = "120" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedGoExOb" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "13", bearing = "120" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedGoExOb", faceAway = "true" }, expect = "OK", budget = 120 },
+  # ACT 3: over to 2 m outside the seismometer (pick-up reach is 4 m), pick it back up and
+  # place it again from there (a NEW member), then back to the far side of the capsule.
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "${seis.vesselPid}", distance = "2", bearing = "100" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "pickup", part = "DeployedSeismicSensor" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedSeismicSensor", faceAway = "true" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "4", bearing = "270" }, expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
@@ -146,6 +174,12 @@ required = [
   "repeat pick-up signal for part='DeployedSeismicSensor' [^\\r\\n]*deduplicated",
   # THE RE-PLACEMENT: after the pick-up, a second seismometer member with a NEW rec id.
   "Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*evagroundscience pickup complete part=DeployedSeismicSensor[\\s\\S]*Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=[0-9]+ partPid=([0-9]+) rec=(?!\\1)([0-9a-f]+) [^\\r\\n]*snapshot=True[\\s\\S]*Part event captured: InventoryPartPlaced 'DeployedSeismicSensor' pid=\\2 via onDeployGroundPart rec=\\3",
+  # THE LAYOUT: every spot at its own compass bearing on the 13 m ring.
+  "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=13\\.00 [^\\r\\n]*bearing=60\\.0",
+  "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=13\\.00 [^\\r\\n]*bearing=80\\.0",
+  "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=13\\.00 [^\\r\\n]*bearing=100\\.0",
+  "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=13\\.00 [^\\r\\n]*bearing=120\\.0",
+  "Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=([0-9]+) [\\s\\S]*evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* anchorPid=\\1 [^\\r\\n]*bearing=100\\.0",
   "committree committed=true",
   # Every member left standing finalizes Landed as a leaf (read at the commit).
   "Ground part placed: tree member created part='DeployedCentralStation' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*FinalizeTreeRecordings: rec='\\1' vessel='[^'\\r\\n]*' points=[0-9]+ orbitSegs=0 terminal=Landed [^\\r\\n]*leaf=True",
@@ -168,8 +202,8 @@ forbidden = [
 
 [runtime]
 # 300 LoadGame + 120 EvaExit + 180 StartRecording + 5 x 120 place + 120 pickup + 3 x 120
-# take + 120 CommitTree + 120 SaveGame + the single-phase verbs + margin.
-budgetSeconds = 1800
+# take + 9 x 120 step + 120 CommitTree + 120 SaveGame + the single-phase verbs + margin.
+budgetSeconds = 2400
 
 [retry]
 policy = "once"

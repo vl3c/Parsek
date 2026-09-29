@@ -23,14 +23,15 @@
 //            be within GameSettings.EVA_INVENTORY_RANGE and the kerbal's inventory must
 //            have a free slot and HasCapacity for the part (40 L / 0.065 t on a stock
 //            kerbal), so a take never carries more than a player could.
-//   STEP   - the few strides a player walks off a lander before placing: the kerbal is set
-//            down on the terrain at a requested horizontal distance from an anchor vessel,
-//            straight out along his own bearing from it (Vessel.SetPosition to the PQS
-//            terrain height plus a small lift, velocity zeroed, g-forces ignored for the
-//            move), then left to settle by gravity. A kerbal off a Mun lander's ladder
-//            stands on the lander, where every placement preview hits its hull; KSP has no
-//            walk API a seam can drive, so the move is a teleport, and lanes run it before
-//            StartRecording so no recorded trajectory carries the jump.
+//   STEP   - the strides a player walks between a container and the spot a part goes: the
+//            kerbal is set down on the terrain at a requested horizontal distance from an
+//            anchor vessel, along an explicit compass bearing from it (bearing=) or else
+//            straight out along his own bearing (Vessel.SetPosition to the PQS terrain
+//            height plus a small lift, velocity zeroed, g-forces ignored for the move), then
+//            left to settle by gravity. KSP has no walk API a seam can drive, so the move is
+//            a teleport. Inside a live recording it leaves a jump in the kerbal's trajectory
+//            (the ghost slides between the two spots); no recorder path or analyzer rule
+//            treats a same-body position jump as a boundary or a defect.
 //
 // The seam fires NO GameEvent itself: the recorder witness is whatever stock fires.
 // Private stock fields (selectedPart, partFullyCreated, placementonTerrain,
@@ -187,12 +188,17 @@ namespace Parsek.TestCommands
                 ArgOrNull(cmd, TestCommandEvaGroundScience.PartArg));
             uint stepAnchorPid = 0;
             double stepDistance = 0;
+            bool stepHasBearing = false;
+            double stepBearing = 0;
             if (action == EvaGroundScienceAction.Step)
             {
                 if (!TestCommandEvaGroundScience.TryParseStepArgs(
                         ArgOrNull(cmd, TestCommandEvaGroundScience.AnchorArg),
                         ArgOrNull(cmd, TestCommandEvaGroundScience.DistanceArg),
-                        out stepAnchorPid, out stepDistance, out string stepError))
+                        out stepAnchorPid, out stepDistance, out string stepError)
+                    || !TestCommandEvaGroundScience.TryParseStepBearing(
+                        ArgOrNull(cmd, TestCommandEvaGroundScience.BearingArg),
+                        out stepHasBearing, out stepBearing, out stepError))
                 {
                     ParsekLog.Warn(Tag, $"evagroundscience refused reason={stepError}");
                     SetExecResult("REJECTED", null, stepError);
@@ -259,12 +265,13 @@ namespace Parsek.TestCommands
             else if (action == EvaGroundScienceAction.Take)
                 StartGroundTake(active, inv, part);
             else if (action == EvaGroundScienceAction.Step)
-                StartGroundStep(active, stepAnchorPid, stepDistance);
+                StartGroundStep(active, stepAnchorPid, stepDistance, stepHasBearing, stepBearing);
             else
                 StartGroundPickup(active, inv, part);
         }
 
-        private void StartGroundStep(Vessel kerbal, uint anchorPid, double distance)
+        private void StartGroundStep(Vessel kerbal, uint anchorPid, double distance,
+            bool hasBearing, double bearingDegrees)
         {
             Vessel anchor = null;
             foreach (Vessel v in FlightGlobals.VesselsLoaded)
@@ -285,15 +292,29 @@ namespace Parsek.TestCommands
             Vector3d anchorPos = anchor.transform.position;
             Vector3d up = (anchorPos - body.position).normalized;
             Vector3d kerbalOffset = Vector3d.Exclude(up, (Vector3d)kerbal.transform.position - anchorPos);
-            Vector3d east = Vector3d.Exclude(up, (Vector3d)anchor.transform.right).normalized;
-            if (east.sqrMagnitude < 1e-6) east = Vector3d.Cross(up, Vector3d.forward).normalized;
-            Vector3d north = Vector3d.Cross(up, east).normalized;
-            TestCommandEvaGroundScience.StepHorizontalOffset(
-                Vector3d.Dot(kerbalOffset, east), Vector3d.Dot(kerbalOffset, north), distance,
-                1.0, 0.0, out double ox, out double oz);
-            Vector3d target = anchorPos + east * ox + north * oz;
-            double lat = body.GetLatitude(target);
-            double lon = body.GetLongitude(target);
+            double lat;
+            double lon;
+            if (hasBearing)
+            {
+                // A compass bearing from the anchor, on the body's own latitude / longitude
+                // grid, so a lane's layout does not depend on which way the anchor or the
+                // kerbal happens to face.
+                TestCommandEvaGroundScience.OffsetLatLonAlongBearing(
+                    body.GetLatitude(anchorPos), body.GetLongitude(anchorPos), bearingDegrees,
+                    distance, (anchorPos - body.position).magnitude, out lat, out lon);
+            }
+            else
+            {
+                Vector3d east = Vector3d.Exclude(up, (Vector3d)anchor.transform.right).normalized;
+                if (east.sqrMagnitude < 1e-6) east = Vector3d.Cross(up, Vector3d.forward).normalized;
+                Vector3d north = Vector3d.Cross(up, east).normalized;
+                TestCommandEvaGroundScience.StepHorizontalOffset(
+                    Vector3d.Dot(kerbalOffset, east), Vector3d.Dot(kerbalOffset, north), distance,
+                    1.0, 0.0, out double ox, out double oz);
+                Vector3d target = anchorPos + east * ox + north * oz;
+                lat = body.GetLatitude(target);
+                lon = body.GetLongitude(target);
+            }
             double terrain = body.TerrainAltitude(lat, lon, false);
             double alt = terrain + TestCommandEvaGroundScience.StepLiftMeters;
             Vector3d world = body.GetWorldSurfacePosition(lat, lon, alt);
@@ -304,7 +325,8 @@ namespace Parsek.TestCommands
                 + $"anchorPid={anchorPid} from={before.ToString("F2", CultureInfo.InvariantCulture)} "
                 + $"to={distance.ToString("F2", CultureInfo.InvariantCulture)} "
                 + $"lat={lat.ToString("F6", CultureInfo.InvariantCulture)} lon={lon.ToString("F6", CultureInfo.InvariantCulture)} "
-                + $"terrain={terrain.ToString("F2", CultureInfo.InvariantCulture)} situation={kerbal.situation}");
+                + $"terrain={terrain.ToString("F2", CultureInfo.InvariantCulture)} situation={kerbal.situation} "
+                + $"bearing={(hasBearing ? bearingDegrees.ToString("F1", CultureInfo.InvariantCulture) : "own")}");
             try
             {
                 kerbal.IgnoreGForces(240);

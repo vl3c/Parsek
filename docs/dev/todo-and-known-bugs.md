@@ -15,32 +15,47 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## KSC-DE-OVERLAP-MOVES-PLACED-PARTS-OFF-THEIR-SPOT: a ground part spawned from the Space Center lands 15 m from where it was placed [FILED 2026-09-28 from EVA-6's green run, branch `deployables-lanes`]
+## IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS: a tree committed in flight is never optimized (no boring-tail trim, no split / merge) until the next cold load [FILED 2026-09-29 from EVA-9 `2026-09-29_1528`, branch `deployables-lanes`. OPEN, product inconsistency, needs a ruling; no product change made]
 
-**In gameplay terms.** A kerbal places a Breaking Ground part a metre or two from his landed
-capsule, the flight is committed, and after a rewind the Space Center spawns the part back
-at the end of its recording - 15 m away from where he set it down. The kerbal (when his
-recording is not an EVA branch) moves the same way.
+**In gameplay terms.** When a tree is committed WITHOUT leaving the flight scene - the
+pre-switch Merge / Discard dialog's Merge (Case A / Case B of
+`Patches/MapFocusObjectOnSelectPatch.cs`) - its recordings keep their idle tails, so the
+vessels they end with appear later than they would after a Space Center exit, and all at the
+same moment instead of one after another. The same flight committed by leaving for the Space
+Center is trimmed at once. Nothing in the saved data is wrong; the difference lasts until KSP
+next loads the save from cold, which trims it.
 
-**Evidence.** EVA-6's green run `2026-09-27_1815` (Parsek-eva-harness-hardening/harness/
-results/..._shots/KSP.log, lines 14529 / 14557): `[KSCSpawn] De-overlap for #10 "Grand Slam
-Passive Seismometer": nudged 15.0m (existing landed=2, nearest now=15.7m, min=15m)` and the
-same for `#9 "Jebediah Kerman"`. EVA-6 never forbade the line, so the lane stayed green.
+**Evidence.** EVA-9 `2026-09-29_1528` (automation DLL = main + #1920 + #1921 + #1923,
+`Parsek-deployables-integration/harness/results/..._shots/KSP.log`): four placed members lived
+41-65 s (placed 18:29:29-18:29:53, `StopRecording` + seam `CommitTree` at 18:30:34, whose
+`CommitTreeFlight: committed tree "Jebediah Kerman"` is at 18:30:34.744), yet the log holds
+ZERO `TrimBoringTail: trimmed` lines, and after the rewind all four chain tips spawned within
+5 ms (18:32:01.804-.809). The only `Optimization pass` lines are the boot's cold load
+(18:29:24, `TrimBoringTail skipped 9 recording(s)`). The operator's run
+`logs/2026-09-28_2231_deployables/KSP.log` trimmed 11 recordings at 22:24:33.5, inside
+`Silent full-fidelity auto-commit (scene-exit): tree='rover science'`.
 
-**Cause (from source).** `ParsekKSC` (the landed-delivery de-overlap before the snapshot
-apply, `SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn` with
-`DefaultLandedSpawnSeparationMeters = 15`) nudges every non-EVA surface-terminal spawn clear
-of EVERY existing same-body landed vessel. It exists for repeated deliveries of one craft to
-one base (#duplicate-stack); a placed part standing beside the vessel it came from is the
-opposite case. Fix PR #1920 (PLACED-PART-CLUSTER-SPAWN-BLOCKED-BY-SIBLING) exempts co-existing
-same-tree SIBLING spawns there, but not a pre-existing real vessel such as the capsule, so a
-single placed part next to its capsule is still moved.
+**Cause (from source).** `RecordingStore.RunOptimizationPass` (the only caller of the tail
+trim, `RecordingStore.Optimization.cs` `TrimBoringTailsForOptimization`) is called by
+`MergeDialog.MergeCommit` (`MergeDialog.Commit.cs:86`, which the scene-exit auto-commit
+`ParsekScenario` "pending-outside-flight" route and the merge dialog both use) and by the cold
+`OnLoad` (`ParsekScenario.cs:4548`, phase `optimization`). `ParsekFlight.CommitTreeFlight`
+(`ParsekFlight.cs:13406`, reached from the pre-switch dialog and the seam `CommitTree`) marks the
+tree applied, commits, recalculates the ledger and spawns the leaves, but runs no optimization
+pass, and an in-session scene load returns at `phase=rewind-point-reap
+status=returned-scene-change` (`ParsekScenario.cs:4316`) before the optimization phase, so
+nothing optimizes that tree until a cold load. The Phase C comment in `MergeDialog.Commit.cs`
+records that the two commit paths were brought into parity for `MarkTreeAsApplied`; the
+optimization pass was not.
 
-**Fix direction (needs a ruling).** Exempt a placed-part member (`GroundPartPlacement.
-IsPlacedPartMember`) whose recorded endpoint is within a few metres of an existing landed
-vessel that stood there when it was placed, or skip the de-overlap for ground parts outright
-(a ground part is a static single-part vessel, it cannot explode on load the way two stacked
-rovers do). Lane: EVA-10 already reads the nudge lines; forbid them there once ruled.
+**Fix direction (needs a ruling).** Call `RecordingStore.RunOptimizationPass()` in
+`CommitTreeFlight` after `RecordingStore.CommitTree`, as `MergeCommit` does after
+`CommitPendingTree` (the committed-list notifications exist so that flight-scene index state
+follows any mid-list mutation, an optimizer merge or split included). Check the leaves
+`SpawnTreeLeaves` just adopted keep their spawn stamps across a split / trim. Lanes: EVA-9 and
+EVA-10 now commit through `ExitToSpaceCenter` (the player's own path) and so no longer witness
+this; a regression lane would commit with the seam `CommitTree`, idle past 30 s, and require
+the trim line.
 
 ## GROUND-SCIENCE-CLUSTER-FIVE-PART-HOST: no committed fixture can host a cluster with three or more experiments inside stock inventory limits [FILED 2026-09-28, branch `deployables-lanes`]
 
