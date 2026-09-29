@@ -649,13 +649,16 @@ namespace Parsek
 
         private static readonly Color DimColor = new Color(1f, 1f, 1f, 0.45f);
 
-        // Mission-header summary line (T1.1): quieter than the bold title above it, so the line
-        // reads as annotation rather than a second heading.
-        private static readonly Color MissionSummaryColor = new Color(1f, 1f, 1f, 0.75f);
+        // Mission-header summary line (T1.1): a muted grey, quieter than the bold title above
+        // it, so the line reads as annotation rather than a second heading. A text colour on
+        // the style, never an alpha on GUI.color (see EnsureStyles).
+        private static readonly Color MissionSummaryTextColor = new Color(0.78f, 0.78f, 0.78f);
 
         // Tint for a loop-period value that the overlap cap raised above what was requested
-        // (so the cell shows the real effective cadence in a distinct colour). Soft amber.
-        private static readonly Color LoopPeriodClampColor = new Color(1f, 0.8f, 0.4f);
+        // (so the cell shows the real effective cadence in a distinct colour), and the colour
+        // of the summary line's countdown (MissionPresentation.SummaryCountdownColorHex, held
+        // equal to this by a unit test). Soft amber.
+        internal static readonly Color LoopPeriodClampColor = new Color(1f, 0.8f, 0.4f);
 
         // -- Recreated styles --
         // RecordingsTableUI builds these privately inside EnsurePhaseStyles();
@@ -825,16 +828,21 @@ namespace Parsek
                 stretchHeight = true
             };
 
-            // Mission summary line (T1.1): a thin non-wrapping second line under the title inside
-            // the same header bubble. Non-wrapping so a long summary clips rather than growing the
-            // header row (and shifting every mission below it) on a narrow window.
+            // Mission summary line (T1.1): a non-wrapping second line under the title inside the
+            // same header bubble, at the title's font size. Non-wrapping so a long summary clips
+            // rather than growing the header row (and shifting every mission below it) on a
+            // narrow window. It stays secondary to the bold title through weight and a muted
+            // text colour, set on the STYLE rather than through GUI.color: GUI.color multiplies
+            // every colour on the label, which would dim the amber countdown the rich text
+            // carries (MissionPresentation.BuildNarrativeSummaryLine).
             missionSummaryLabel = new GUIStyle(GUI.skin.label)
             {
                 alignment = TextAnchor.MiddleLeft,
-                fontSize = 11,
                 wordWrap = false,
+                richText = true,
                 clipping = TextClipping.Clip
             };
+            missionSummaryLabel.normal.textColor = MissionSummaryTextColor;
         }
 
         /// <summary>
@@ -2957,11 +2965,8 @@ namespace Parsek
             GUILayout.Label("", missionSummaryLabel, GUILayout.Width(ColW_Enable));
             GUILayout.Label("", missionSummaryLabel, GUILayout.Width(ColW_Index));
             GUILayout.Space(BodyCellTextIndent);
-            Color prev = GUI.color;
-            GUI.color = MissionSummaryColor;
             GUILayout.Label(new GUIContent(text, tooltip),
                 missionSummaryLabel, GUILayout.ExpandWidth(true));
-            GUI.color = prev;
             GUILayout.EndHorizontal();
         }
 

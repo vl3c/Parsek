@@ -379,13 +379,41 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The T2.1 narrative summary line:
+        /// The colour of the countdown segment on the summary line, as the rich-text hex of
+        /// the window's amber (<c>MissionsWindowUI.LoopPeriodClampColor</c>, 1 / 0.8 / 0.4;
+        /// a unit test holds the two together).
+        /// </summary>
+        internal const string SummaryCountdownColorHex = "#ffcc66";
+
+        // What a '<' in player-authored text becomes on the rich-text summary line. Unity's
+        // IMGUI rich text has no escape sequence, so a kerbal or body name spelling a real tag
+        // ("<b>", "<color=red>") would restyle the rest of the line. U+2039 (single
+        // left-pointing angle quotation mark) reads as the same character, is in every
+        // Windows-1252 font KSP ships with, and can never open a tag.
+        internal const char RichTextOpenReplacement = '‹';
+
+        /// <summary>
+        /// Makes text safe to place on a rich-text label: every '&lt;' becomes
+        /// <see cref="RichTextOpenReplacement"/>, so nothing in it can open a tag. Null in,
+        /// null out. Pure.
+        /// </summary>
+        internal static string EscapeRichText(string text)
+        {
+            if (string.IsNullOrEmpty(text) || text.IndexOf('<') < 0)
+                return text;
+            return text.Replace('<', RichTextOpenReplacement);
+        }
+
+        /// <summary>
+        /// The T2.1 narrative summary line, as RICH TEXT:
         /// <c>"Kerbin → Mun → Kerbin · 2d 3h · Jeb, Bob, Val · Landed
-        /// · Loops ~6.4d · Next launch T-2d 4h"</c>. The body path leads; when none is
-        /// derivable the span dates stand in (the T1.1 form), so the line never starts with a
-        /// bare duration. Crew renders as names when recorded, else as the bare count. Every
-        /// piece is omitted when it has no value. Pure - the caller supplies the already-
-        /// formatted date / duration / period / countdown strings.
+        /// · Loops ~6.4d · &lt;color=#ffcc66&gt;Next launch T- 2d 4h&lt;/color&gt;"</c>. The
+        /// body path leads; when none is derivable the span dates stand in (the T1.1 form), so
+        /// the line never starts with a bare duration. Crew renders as names when recorded,
+        /// else as the bare count. Every piece is omitted when it has no value. Every piece is
+        /// escaped (<see cref="EscapeRichText"/>) and only the countdown segment carries
+        /// markup, so the label that draws it must set <c>richText</c>. Pure - the caller
+        /// supplies the already-formatted date / duration / period / countdown strings.
         /// </summary>
         internal static string BuildNarrativeSummaryLine(
             string bodyPathText, string startDateText, string endDateText, string durationText,
@@ -397,36 +425,37 @@ namespace Parsek
 
             if (!string.IsNullOrEmpty(bodyPathText))
             {
-                Append(sb, bodyPathText);
+                Append(sb, EscapeRichText(bodyPathText));
             }
             else
             {
                 bool hasStart = !string.IsNullOrEmpty(startDateText);
                 bool hasEnd = !string.IsNullOrEmpty(endDateText);
                 if (hasStart && hasEnd)
-                    Append(sb, startDateText + SummarySpanArrow + endDateText);
+                    Append(sb, EscapeRichText(startDateText + SummarySpanArrow + endDateText));
                 else if (hasStart)
-                    Append(sb, startDateText);
+                    Append(sb, EscapeRichText(startDateText));
                 else if (hasEnd)
-                    Append(sb, endDateText);
+                    Append(sb, EscapeRichText(endDateText));
             }
 
             if (!string.IsNullOrEmpty(durationText))
-                Append(sb, durationText);
+                Append(sb, EscapeRichText(durationText));
 
             if (!string.IsNullOrEmpty(crewNamesText))
-                Append(sb, crewNamesText);
+                Append(sb, EscapeRichText(crewNamesText));
             else if (crewCount > 0)
                 Append(sb, crewCount.ToString(ic) + " crew");
 
             if (!string.IsNullOrEmpty(terminalWord))
-                Append(sb, terminalWord);
+                Append(sb, EscapeRichText(terminalWord));
 
             if (!string.IsNullOrEmpty(loopPeriodText))
-                Append(sb, loopPeriodText);
+                Append(sb, EscapeRichText(loopPeriodText));
 
             if (!string.IsNullOrEmpty(nextLaunchText))
-                Append(sb, "Next launch " + nextLaunchText);
+                Append(sb, "<color=" + SummaryCountdownColorHex + ">Next launch "
+                    + EscapeRichText(nextLaunchText) + "</color>");
 
             return sb.ToString();
         }

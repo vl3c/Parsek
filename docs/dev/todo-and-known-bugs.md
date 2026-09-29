@@ -15,6 +15,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MISSIONS-TAB-MODEL1: the Missions tab redesign, first slice ("Model 1") [OWNER-APPROVED 2026-09-29, branch `missions-model1`. IN PROGRESS]
+
+Presentation only (no recording data, schema or store change, no new UI surface, no new loop
+UX). Owner decisions 2026-09-29: Model 1 approved; keep the `Looped by route` label in Basic;
+no loop word in Basic; ship a clean first version, photograph it, iterate.
+
+- [x] Summary line at the title's font size, muted by colour instead of size and alpha; the
+  `Next launch T- ...` segment in amber (`#ffcc66`, the window's clamp amber) through rich
+  text, with every other piece escaped (`MissionPresentation.EscapeRichText`).
+
 ## KB-4-RND-PART-TOOLTIP-LOST: the R&D part tooltip closed between KB-4's hover and its capture [FILED 2026-09-29 from KB-4 `2026-09-29_1507`, branch `kb4-block-proof`. OPEN, not reproduced on the next flight]
 
 `KB-4-ksc-click-blocks-remaining` `2026-09-29_1507` (automation DLL sha256 `caf7091b...`,

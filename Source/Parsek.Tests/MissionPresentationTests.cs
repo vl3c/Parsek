@@ -663,12 +663,53 @@ namespace Parsek.Tests
             string line = MissionPresentation.BuildNarrativeSummaryLine(
                 "Kerbin → Mun", "Y1, D12", "Y1, D14", "2d 3h",
                 "Jeb, Bob", 2, "Landed", "Loops ~6.4d", "T- 2h 14m");
+            // The countdown is the ONE marked-up segment: amber, the window's clamp colour.
             Assert.Equal(
                 "Kerbin → Mun" + sep + "2d 3h" + sep + "Jeb, Bob" + sep + "Landed"
-                + sep + "Loops ~6.4d" + sep + "Next launch T- 2h 14m",
+                + sep + "Loops ~6.4d" + sep + "<color=#ffcc66>Next launch T- 2h 14m</color>",
                 line);
             // The span dates are the tooltip's job once a body path leads the line.
             Assert.DoesNotContain("Y1, D12", line);
+        }
+
+        // catches: the countdown colour drifting away from the amber the rest of the window
+        // uses for the loop schedule (the locked period cell, the overlap-cap clamp).
+        [Fact]
+        public void SummaryCountdownColor_IsTheWindowsAmber()
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            UnityEngine.Color c = MissionsWindowUI.LoopPeriodClampColor;
+            string hex = "#"
+                + ((int)Math.Round(c.r * 255)).ToString("x2", ic)
+                + ((int)Math.Round(c.g * 255)).ToString("x2", ic)
+                + ((int)Math.Round(c.b * 255)).ToString("x2", ic);
+            Assert.Equal(hex, MissionPresentation.SummaryCountdownColorHex);
+        }
+
+        // catches: a kerbal or body name that spells a real rich-text tag restyling the rest
+        // of the summary line (or hiding it) once the label renders rich text.
+        [Fact]
+        public void BuildNarrativeSummaryLine_EscapesTagsInPlayerText()
+        {
+            string line = MissionPresentation.BuildNarrativeSummaryLine(
+                "<b>Kerbin", null, null, null, "Jeb <color=red>Kerman", 1, "Landed",
+                null, "T- 5m 0s");
+            // The only '<' left on the line is the countdown's own markup.
+            string withoutCountdown = line.Replace(
+                "<color=#ffcc66>Next launch T- 5m 0s</color>", "");
+            Assert.DoesNotContain("<", withoutCountdown);
+            Assert.Contains(MissionPresentation.RichTextOpenReplacement + "b>Kerbin", line);
+            Assert.Contains(
+                "Jeb " + MissionPresentation.RichTextOpenReplacement + "color=red>Kerman", line);
+        }
+
+        [Fact]
+        public void EscapeRichText_ReplacesOnlyTheTagOpener()
+        {
+            Assert.Null(MissionPresentation.EscapeRichText(null));
+            Assert.Equal("", MissionPresentation.EscapeRichText(""));
+            Assert.Equal("Jeb Kerman", MissionPresentation.EscapeRichText("Jeb Kerman"));
+            Assert.Equal("a ‹b> c", MissionPresentation.EscapeRichText("a <b> c"));
         }
 
         [Fact]
