@@ -3437,7 +3437,10 @@ editor), and the GuiTree recorder cannot see them. This verb is the census route
 **Precondition.** `RequiresGameLoaded` (the `UiAction` row). The scene each call needs is
 the verb's own typed REJECTED `stockscreen-wrong-scene`: the Space Center for every screen
 but these - `astronaut` in both scenes, `crewdialog` and the editor's hover / close in the
-editor. A non-career save is `stockscreen-career-only`.
+editor. The mode gate is per screen (2026-09-28, so the Science and Sandbox census
+passes can photograph what those modes can open): `missioncontrol` and `administration` are
+Career-only, `rnd` needs Career or Science, every other screen opens in any mode
+(`TestCommandStockScreen.IsAvailableInMode`); a refused mode is `stockscreen-career-only`.
 
 **Phases.** TWO-PHASE on the 60 s default budget (NOT a `DEFERRED_SEAM_VERB`). Each call
 arms the screen's own readiness signal (the screen's singleton exists and its rows are

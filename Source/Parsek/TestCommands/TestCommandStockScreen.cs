@@ -249,6 +249,28 @@ namespace Parsek.TestCommands
             }
         }
 
+        /// <summary>
+        /// Whether the screen exists in the loaded game mode. Mission Control and
+        /// Administration are Career-only (stock locks both buildings outside Career), the
+        /// R&amp;D tree needs a mode with tech research (Career or Science), and the Astronaut
+        /// Complex, a facility menu, the VAB and its crew panel are in every mode, so a
+        /// Science or Sandbox census can photograph them (a mode with no contracts or
+        /// strategies must show no Parsek marks there).
+        /// </summary>
+        internal static bool IsAvailableInMode(StockScreenKind screen, bool career, bool science)
+        {
+            switch (screen)
+            {
+                case StockScreenKind.MissionControl:
+                case StockScreenKind.Administration:
+                    return career;
+                case StockScreenKind.RnD:
+                    return career || science;
+                default:
+                    return true;
+            }
+        }
+
         /// <summary>Parses the args. On failure <paramref name="rejectReason"/> is the
         /// typed reason and <paramref name="detail"/> names the offending value.</summary>
         internal static bool TryParse(

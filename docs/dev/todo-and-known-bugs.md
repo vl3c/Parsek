@@ -151,6 +151,42 @@ REFUSED), and the new `[[fixture.partInventory]]` surface (a FLIGHTSTATE contain
 `[[fixture.crewInventory]]`. The code comments in `savepatch.py` are the authority until the
 README is brought in line.
 
+## KB-4-RND-PART-TOOLTIP-LOST: the R&D part tooltip closed between KB-4's hover and its capture [FILED 2026-09-29 from KB-4 `2026-09-29_1507`, branch `kb4-block-proof`. OPEN, not reproduced on the next flight]
+
+`KB-4-ksc-click-blocks-remaining` `2026-09-29_1507` (automation DLL sha256 `caf7091b...`,
+the post-main-merge head) was PARSEK-FAIL(expectation) on three `logContracts.required`
+tokens, all of the `kb4-rnd-part` capture: no `record ... screen=PartTooltip ... why=`
+and no `control ... screen=PartTooltip name=buttonPurchase` line. The hover itself landed
+(`stockscreen ok screen=rnd act=hover ... part=probeCoreSphere.v2 frames=3
+tooltip=PartListTooltipController/direct/moved`, and `[PartPurchasePatch] Part tooltip
+purchase button disabled for 'probeCoreSphere.v2'` at +49 ms), but 240 ms later the
+capture shows the R&D tree with no tooltip (PNG 133080 bytes against 240273 on the PASS
+`2026-09-28_2031`, whose log order and timing are otherwise identical). Every block in the
+lane still fired and refused with nothing changed (both purchase dialogs present). The
+next flight on the same DLL, `2026-09-29_1514`, PASS attempt 1 with the tooltip in the
+photo. The cursor target (client 1111,490) is the partly clipped third row of the
+Available Parts grid, at the scroll view's bottom edge; an operator mouse move, or the
+pointer sitting on the mask edge, would close the tooltip the same way. Unknown which.
+Next step if it recurs: have the hover verb pick the part icon's visible centre (clipped
+by the viewport mask) and re-read the tooltip's presence at capture time, so a lost
+tooltip reads INVALID(pointer) instead of a missing product token.
+
+## STOCK-SCREEN-CENSUS-FUNDS-GUARD-CLAMPS: the census career's funds guard clamps both ways, and an allowed upgrade does not move the walk target [FILED 2026-09-28 from KB-4 `2026-09-28_2031`, branch `kb4-block-proof`. OPEN, not investigated, not gated]
+
+On `stock-screen-census` the funds patch clamps at load (`PatchFunds: GUARDED DRAWDOWN
+clamped resource=Funds running=244370.5 live=465808 wouldBeTarget=244370.5 clampedTo=465808`,
+also in KB-3's `2026-09-27_1240`), and the lanes then read live funds 236416.75. KB-4's
+allowed in-lane Administration upgrade (150000, one `FacilityUpgrade` KSC row, ledger 26 -> 27)
+is followed by `GUARDED UPLIFT clamped resource=Funds running=465808 live=86416.75
+wouldBeTarget=236416.75 clampedTo=86416.75 ... ledger may be missing a spending channel`, the
+same on the next scene loads (and a `Held your funds at the spent value` screen message). So
+the walk target after the upgrade still reads the pre-upgrade pool. The guard keeps the live
+value correct (86416.75, the stock debit), so no lane gates on it. Unknown whether this is
+the fixture (its ledger seed disagrees with its save pools: `running` 244370.5 vs `live`
+465808 at load) or a walk that does not charge a present-day upgrade on this host. Next
+step: read `FundsModule` over the census ledger headless (the committed rows plus one
+KSC FacilityUpgrade at UT 473) and compare the walk's running total with the save's pool.
+
 ## ~~BREAKUP-CONTINUOUS-LEAF-READERS: readers that took any `ChildBranchPointId` as "the vessel's flight ended here"~~ [FOUND 2026-09-28 by the audit that followed GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD; FIXED 2026-09-28, branch `breakup-continuous-leaf-audit`]
 
 **In gameplay terms.** Every staging or decouple of the focused vessel goes through the crash
@@ -602,7 +638,21 @@ the same frame. A row the Active rebuild itself lists for the contract is alive 
 frame, so the assertion still catches the product defect it exists for. Re-fly
 `2026-09-27_1235` PASS 10 / 0 / 2.
 
-## H45-HOST-LACKS-ACTIVE-CONTRACT-AND-RESEARCHABLE-NODE: two StockUiOverlay cells never run on `career-earned-ksc` [FILED 2026-09-27. OPEN, fixture gap, not a defect]
+## ~~H45-HOST-LACKS-ACTIVE-CONTRACT-AND-RESEARCHABLE-NODE: two StockUiOverlay cells never run on `career-earned-ksc`~~ [FILED 2026-09-27. CLOSED 2026-09-28, branch `kb4-block-proof`]
+
+**Resolution.** Half fixture, half test. H45 moved to `career-earned-pad`, the same career
+with the D8 splice's one Active contract (no new fixture; the pad craft is harmless under
+its `scene=spacecenter` boot). The researchable-node skip was NOT a fixture gap: the tree has
+researchable tier-1 nodes, and the cell read `RDNode.state` before stock's first
+`UpdateGraphics` (the R&D canvas was up 36 ms). Fixed test-only: the cell waits for the
+tree's states, and (found on its first execution, `2026-09-28_2034`, `passed=11 failed=1`)
+takes its stock-colour baseline on the selected node's panel rather than with no node
+selected. Re-fly `2026-09-28_2105`: `total=12 passed=12 failed=0 skipped=0`, PARSEK-FAIL
+(expectation) on the old `10 / 2` pin alone; the line was re-pinned whole to `12 / 0 / 0`
+and the re-pin's first flight, `2026-09-29_1506` on the post-main-merge head (automation DLL
+sha256 `caf7091b...`), PASS attempt 1 with exactly that line.
+
+Original filing:
 
 On H45's host both skip at run time (`RUNTIME_SKIPS` 2, run `2026-09-27_1235`):
 `MissionControlActiveRowLabelAndCancelBlockedWithReason` ("needs a career host with an

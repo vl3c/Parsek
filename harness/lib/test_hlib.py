@@ -4144,6 +4144,9 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # `RnDResearchButtonDisabledShowsItsReason` needs an unresearched RESEARCHABLE
         # node (the host's 145 unresearched nodes are all FADED). Todo
         # H45-HOST-LACKS-ACTIVE-CONTRACT-AND-RESEARCHABLE-NODE names the fixture.
+        # CLOSED 2026-09-28 (`2026-09-28_2105`, 12 / 0 / 0): the lane moved to
+        # `career-earned-pad` (one Active contract) and the R&D cell's pick was a TEST
+        # timing defect (it read RDNode.state before stock set any), so H45 owes nothing.
         # H53 (`gloops-airshow` + the 274-row corpus): "No ghost map PIDs - patch not
         # exercised" and "No live active tree to use as a synth source". BOTH ARE
         # DRIVER-STATE rather than fixture properties - the first wants playback armed
@@ -4164,7 +4167,6 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # a looped LANDING arrival) while naming an OPERATOR save, `s15`, that is not a
         # committed fixture. Each is satisfiable by its OWN harvest; none by this one.
         "H54-missions": 4,
-        "H45-stock-ui-overlay": 2,
     }
 
     # NOTE the asymmetry this leaves: for 13 of the 16, the skipped= floor is
@@ -4304,8 +4306,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     #      OPERATOR save (`s15`) that is not a committed fixture at all. Reading a guard
     #      string as a fixture spec is a hypothesis, not a derivation.
     #
-    # Only H53 / H54 / H45 owe a RUNTIME_SKIPS entry (2 / 4 / 2; H45's first 2 closed
-    # 2026-09-08, its current 2 are the twelve-cell shape's host gaps). H44's 16 and H46's 1
+    # Only H53 / H54 owe a RUNTIME_SKIPS entry (2 / 4; H45's first 2 closed 2026-09-08,
+    # its second 2 on 2026-09-28). H44's 16 and H46's 1
     # are PURE SCENE FILTERING - the runner's own `Scene eligibility skip summary` line
     # accounts for every one and neither run contains a single per-test `SKIPPED:` line -
     # and that distinction is the one to keep straight: a scene skip is a lane's SCOPE,
@@ -9728,6 +9730,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # lane carries; it additionally moves the operator's cursor (a pointer lane).
         "GUI-28-census-stock-screens.toml":
                                        "tier=operator by CADENCE (capture host) and a POINTER lane: its hovers move the operator's cursor. Hosted on the committed `stock-screen-census` fixture (Source/Parsek.Tests/StockScreenCensusFixture.cs). READING RUN `2026-09-25_2055` PASS attempt 1 (72 s, 25 PNG; earlier PASS flights `_2035` / `_2046` shaped the editor settle, the control readback and the fixture's funds pool). Per-screen findings filed as STOCK-UI-CENSUS-GUI-28-FINDINGS; nothing is armed (report-only: no marked or blocked count is pinned). Owed: the overlay findings its PNGs name go to the overlay session; the ordinary promotion call.",
+        "GUI-30-census-stock-screens-sandbox.toml": "tier=operator by CADENCE (capture host). Hosted on the committed `fresh-sandbox` fixture; the stock screens a Sandbox player can open, pinned to carry no Parsek mark (marked=0 / blocked=0 records). FLOWN PASS 2026-09-28 (run _2106, attempt 1, 3 PNG). Owed: the ordinary promotion call only.",
         "GUI-27-census-missions-include.toml":
                                        "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-22 (run _2304, attempt 1, 58 s, 3 PNG + 3 dumps) - the only lane of the wave whose FIRST flight is its record. Owed: the ordinary promotion call.",
     }

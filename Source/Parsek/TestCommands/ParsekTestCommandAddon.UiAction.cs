@@ -255,6 +255,24 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // `dismiss` presses a button on a live PopupDialog (uGUI, drawn outside either
+            // Parsek host), so it needs no host: a stock-control block refused in the editor
+            // raises the same Action Blocked dialog there, and it must be dismissable.
+            if (op == UiActionOp.Dismiss)
+            {
+                try
+                {
+                    UiActionDismissOp(cmd);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Error(Tag, $"uiaction op={TestCommandUiAction.OpToken(op)} threw "
+                        + $"{ex.GetType().Name}: {ex.Message}");
+                    SetExecResult("ERROR", null, TestCommandUiAction.ThrewReason);
+                }
+                return;
+            }
+
             // (2) The host. A PRE-CALL gate, so REJECTED (the map-view-unavailable class):
             // the Tracking Station and the editor host no Parsek UI at all, and the
             // dispatcher has already waited for a loaded game, so waiting longer could not
@@ -721,6 +739,14 @@ namespace Parsek.TestCommands
                 EmitExecutedTerminal(id, seq, verb, "ERROR", null,
                     $"{TestCommandUiAction.NotSettledReason} window={window}",
                     dequeueHead: true);
+                return;
+            }
+
+            // `dismiss` reads the live PopupDialog set and runs with no Parsek host (the
+            // execute path admits it in the editor), so it settles before the host lookup.
+            if (op == UiActionOp.Dismiss)
+            {
+                CompleteUiActionDismiss(id, seq, verb, pending);
                 return;
             }
 

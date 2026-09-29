@@ -101,6 +101,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsAvailableInMode_CareerOnlyBuildingsTreeNeedsResearchRestEveryMode()
+        {
+            // career, science, sandbox
+            Assert.True(TestCommandStockScreen.IsAvailableInMode(StockScreenKind.MissionControl, true, false));
+            Assert.False(TestCommandStockScreen.IsAvailableInMode(StockScreenKind.MissionControl, false, true));
+            Assert.False(TestCommandStockScreen.IsAvailableInMode(StockScreenKind.Administration, false, false));
+            Assert.True(TestCommandStockScreen.IsAvailableInMode(StockScreenKind.RnD, false, true));
+            Assert.False(TestCommandStockScreen.IsAvailableInMode(StockScreenKind.RnD, false, false));
+            foreach (var k in new[] { StockScreenKind.Astronaut, StockScreenKind.FacilityMenu,
+                         StockScreenKind.LaunchSite, StockScreenKind.Editor, StockScreenKind.CrewDialog })
+            {
+                Assert.True(TestCommandStockScreen.IsAvailableInMode(k, false, false), k.ToString());
+                Assert.True(TestCommandStockScreen.IsAvailableInMode(k, false, true), k.ToString());
+            }
+        }
+
+        [Fact]
         public void IsValidScene_KscEditorAndBoth()
         {
             StockScreenRequest Req(StockScreenKind s, StockScreenAct a) => new StockScreenRequest { Screen = s, Act = a };

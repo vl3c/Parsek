@@ -1,0 +1,121 @@
+schema = 1
+id = "KB-5-flight-eva-block-held-kerbal"
+# =====================================================================================
+# THE K2 EVA BLOCK, LIVE: a kerbal a committed flight holds, aboard a live vessel that
+# continues no committed flight, is refused EVA.
+#
+# WHY THIS LANE EXISTS. Block audit row K2
+# (docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md, section 4; PR #1917):
+# the portrait EVA button and the hatch dialog's EVA / Transfer are greyed with the
+# reason, and `FlightEVA.spawnEVA` / `CrewTransfer.Create` refuse, for a held kerbal
+# aboard a vessel that is not a Parsek-spawned or adopted continuation of a committed
+# flight (`StockUiFlightCrewDecoration.IsMoveRefused`). Headless-proven only: no committed
+# fixture booted a held kerbal aboard a live vessel (GUI-28 says so in its forbidden list).
+#
+# THE HOST. `k2-held-kerbal-pad` (harness/tools/build_k2_held_kerbal_pad.py) is
+# `career-earned-pad` plus a crewless rover clone on the runway at VESSEL index 0, which
+# the save focuses. Jebediah Kerman is held open-ended by the career's committed
+# `Jumping Flea` flight (KerbalsModule ReservedActive) and sits in the pad craft
+# (persistentId 1846203977), whose launch guid and pid were re-stamped away from the
+# recorded flight's, so it continues no committed flight. The boot focuses the rover, so
+# the flight-ready crew swap (which takes a held kerbal out of the ACTIVE vessel) has
+# nothing to do and Jeb stays aboard the pad craft.
+#
+# WHAT IT PROVES, each pinned below:
+#   (a) THE SWITCH. A stock map Switch-To onto the pad craft (1.8 km away, loaded, so no
+#       scene reload); the consume declines to start a recording on a PRELAUNCH target
+#       (on-surface defer), and no crew swap runs on a vessel switch, so Jeb is aboard the
+#       now-active pad craft.
+#   (b) THE REFUSED EVA. `EvaExit kerbal="Jebediah Kerman"` calls the real
+#       `FlightEVA.spawnEVA`; the backstop refuses it (`[CrewMove] Blocked EVA of
+#       'Jebediah Kerman' via FlightEVA.spawnEVA`), shows the blocked dialog, and the seam
+#       reads the null spawn (`REJECTED eva-refused`). The dialog body is the reservation
+#       sentence the crew dialog and the Astronaut Complex show for Jeb.
+#   (c) NOTHING MOVED. No EVA kerbal vessel, no crew-status change for Jeb, no recording.
+#
+# THE PORTRAIT. A pointer step moves the OS cursor onto the IVA portrait (bottom right;
+# the gallery is anchored ~75 px from the right edge and ~90 px from the bottom, so at the
+# harness's default 1280x720 frame it sits near 1205,630) and a capture follows; whether the hover lands is REPORT-ONLY
+# (the `Portrait EVA greyed for 'Jebediah Kerman'` line). The hatch dialog opens only from
+# a click on the hatch collider, which no seam verb drives, and no seam verb calls
+# `CrewTransfer.Create` either, so the transfer half of K2 stays headless-proven here.
+#
+# A POINTER LANE. The portrait step moves the operator's cursor machine-wide.
+tier = "nightly"
+description = "Career save whose committed flight holds Jebediah Kerman, with Jeb aboard a live pad craft that continues no committed flight and the save focused on a crewless runway rover: a stock map Switch-To onto the pad craft, then an EVA of Jeb through the real FlightEVA.spawnEVA is refused by the K2 backstop with the blocked dialog carrying the reservation sentence, and no EVA vessel spawns."
+instanceProfile = "stock-minimal"
+tags = ["stock-ui", "action-blocking", "career", "crew", "eva", "KB-5"]
+
+[fixture]
+saveTemplate = "fixtures/saves/k2-held-kerbal-pad"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # A focusable vessel, so the FLIGHT route on the rover (VESSEL index 0).
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "pointer", park = "true" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb5-rover" }, expect = "OK" },
+
+  # (a) the switch onto the pad craft carrying Jeb
+  { cmd = "SimulateStockSwitchClick", args = { pid = "1846203977" }, expect = "OK", budget = 120 },
+  { cmd = "CaptureScreenshot", args = { label = "kb5-padcraft" }, expect = "OK" },
+  # The IVA portrait hover (report-only).
+  { cmd = "UiAction", args = { op = "pointer", x = "1205", y = "630", focus = "true", nudge = "true" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb5-portrait-hover" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "pointer", park = "true" }, expect = "OK" },
+
+  # (b) the refused EVA through the real spawnEVA
+  { cmd = "EvaExit", args = { kerbal = "Jebediah Kerman" }, expect = "REJECTED", budget = 120 },
+  { cmd = "CaptureScreenshot", args = { label = "kb5-eva-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["kerbals", "action-blocking"]
+D14 = ["career"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's two committed recordings; nothing in this lane records.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # (a) the switch landed on the pad craft, and no recording started on it.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] switchclick complete site=map targetPid=1846203977 .*switched=true",
+  "\\[Parsek\\]\\[INFO\\]\\[SwitchIntent\\] refused: reason=on-surface-defer-to-trigger .*newVesselPid=1846203977",
+  # Jeb is held open-ended by the committed flight.
+  "\\[KerbalsModule\\] Reservation extended: 'Jebediah Kerman' endUT->Infinity",
+  # (b) the backstop on the real spawnEVA, the seam's null read, and the dialog.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] evaexit start kerbal=Jebediah Kerman fromPid=1846203977 ",
+  "\\[Parsek\\]\\[INFO\\]\\[CrewMove\\] Blocked EVA of 'Jebediah Kerman' via FlightEVA\\.spawnEVA - held by the committed timeline \\(kind=\\S+ vesselPid=1846203977\\)",
+  "evaexit refused reason=eva-refused \\(spawnEVA returned null\\)",
+  "\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot EVA \"Jebediah Kerman\" - Reserved by timeline for 'Jumping Flea'[^\\r\\n]*",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false",
+]
+forbidden = [
+  # (c) nothing moved: no crew swap on the switch, no status change, no EVA kerbal.
+  "Swapped 'Jebediah Kerman'",
+  "Game state: CrewStatusChanged 'Jebediah Kerman'",
+  "evaexit ok ",
+  "Re-Fly session active: EVA and crew transfer are not blocked",
+]
+
+[runtime]
+# One LoadGame into FLIGHT (~300 s ceiling), one switch, one EVA attempt.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

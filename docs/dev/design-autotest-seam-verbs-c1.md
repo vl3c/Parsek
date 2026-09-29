@@ -908,6 +908,39 @@ accounted whatever DID happen.
 > lane can read that a refused click changed nothing. First flown on
 > `KB-3-ksc-click-blocks-after-rewind`.
 
+> Update (2026-09-28, the remaining stock-control calls, KB-4 / branch `kb4-block-proof`).
+> Seven sub-actions, each the call a stock control makes and none asking a Parsek predicate
+> first (the backstop on that call is what a lane proves):
+> `decline-contract contract=<guid>` -> `Contract.Decline()` (Mission Control's Decline);
+> `cancel-contract contract=<guid>` -> `Contract.Cancel()` (Cancel);
+> `sack-kerbal kerbal=<name>` -> `KerbalRoster.SackAvailable` (the Astronaut Complex's
+> dismiss; unlike `dismiss-kerbal` there is no `kerbal-parsek-managed` pre-check);
+> `press-strategy strategy=<config name>` -> `Administration.BtnInputAccept("accept" |
+> "cancel")` on the OPEN Administration screen's selected strategy, with the state the
+> button shows (accept for an inactive strategy, cancel for an active one);
+> `purchase-part part=<name>` -> `RDTech.PurchasePart` on the OPEN R&D screen's own node for
+> the part's tech (both R&D purchase paths end there);
+> `purchase-all node=<techId>` -> `RDController.ActionButtonClick("purchase")` with that node
+> selected on the OPEN R&D screen;
+> `assign-crew kerbal=<name>` -> `BaseCrewAssignmentDialog.ListItemButtonClick(V, row)` in the
+> OPEN VAB / SPH crew dialog, after the dialog's own `ButtonClear` when no seat is empty
+> (stock's assign button does nothing without an empty seat).
+> Each confirms the effect (contract state, roster type, strategy `IsActive`, the part's
+> purchased state, the node's purchased count, the dialog manifest) and otherwise writes the
+> `not applied:` line (`AppendRepFields` adds `repBefore= repAfter= repDelta=` for the
+> contract and strategy calls; assign-crew adds `emptySeat= rosterBefore= rosterAfter=`) and
+> refuses `blocked-committed`, except `press-strategy`, whose allowed path opens stock's
+> confirmation dialog and so changes nothing either: it refuses `button-no-effect` and a lane
+> pins the backstop's own Blocking line. New refusals: `unknown-part`, `strategy-not-selected`
+> (arg class); `contract-not-active`, `part-tech-not-researched`, `part-already-purchased`,
+> `node-not-researched`, `nothing-to-purchase`, `kerbal-already-assigned`, `no-empty-seat`
+> (career class); `administration-not-open`, `rnd-not-open`, `crew-dialog-not-open`,
+> `button-not-found`, `button-no-effect` (gate class). Dispatch: CAREER + SPACECENTER for all
+> but `assign-crew`, which runs in the editor. `Strategy.Deactivate()` itself stays
+> unguarded by design (KSPCF's auto-expiry calls it), so no sub-action drives it for a
+> refusal. `UiAction op=dismiss` now runs with no Parsek UI host (the editor), so a blocked
+> dialog raised there can be dismissed. First flown on `KB-4-ksc-click-blocks-remaining`.
+
 **Payload.** `OK action=<action> target=<target> applied=true` plus an observed-after
 field for logging only (`scienceAfter` / `fundsAfter` / `level` / `crewCount`). The
 observed-after values are for the KSP.log / debugging; they are NEVER the oracle's
