@@ -182,6 +182,15 @@ _(unreleased — entries accumulate here per commit)_
   `scene-editor` (coverage unchanged at 238 of 247). Test staging now creates every staged save's
   `Ships/VAB` and `Ships/SPH` folders the way KSP does for a real save, without which the editor's Launch
   button failed to write its auto-saved ship.
+- **Automated testing: Breaking Ground clusters built the way a player builds them, in three lanes.**
+  A kerbal carries one deployable at a time, so a new test-seam action takes each part out of the
+  landed capsule's own inventory, and another walks him between the capsule and each part's own
+  spot (a distance and a compass bearing from the capsule). `EVA-8` places a four-part cluster on a
+  13 m ring round a landed capsule with the parts about 5 m apart, picks one up and places it again;
+  `EVA-9` rewinds such a cluster and checks every part comes back in flight beside its neighbours;
+  `EVA-10` does the same on the Mun with the parts coming back from the Space Center. EVA-9 and
+  EVA-10 commit by leaving for the Space Center, the way a player does: a tree committed without
+  leaving flight is not trimmed until the next load (filed, not changed here).
 - **Automated testing: a ground part left behind on EVA comes back after a rewind, in a lane.** A new
   lane has Jebediah step out of a capsule landed far from the Space Center, place a Breaking Ground
   seismometer and leave it, then rewinds to before the placement and checks that the Space Center
@@ -1276,8 +1285,9 @@ _(unreleased — entries accumulate here per commit)_
   it on leaving the scene. A kerbal who stepped out of a landed capsule and placed a Breaking
   Ground experiment, power, comms or Central Station part beside it counted as idle, so the
   flight, the placed parts' recordings and its rewind point were all deleted. A flight in which
-  a kerbal placed any ground part is now never idle (log: `IsTreeIdleOnPad: not idle - tree has
-  N placed ground part(s)`). A plain EVA with nothing placed is still idle, as before.
+  a kerbal placed any ground part or planted a flag is now never idle (log: `IsTreeIdleOnPad:
+  not idle - tree has N placed ground part(s)` / `... N planted flag(s)`). A plain EVA with
+  nothing placed and no flag is still idle, as before.
 
 - **The Space Center facility menu no longer shows `#autoLOC_900122` above Parsek's reason.**
   When the committed timeline upgrades a facility later, Parsek adds the reason under the
@@ -1333,6 +1343,13 @@ _(unreleased — entries accumulate here per commit)_
   contract whose committed outcome is its deadline running out read "fails" / "Fails on" in
   the row label, the detail panel and the Cancel refusal, while the Timeline says "Expired";
   it now reads "expired" / "Expired on".
+- **Ghosts on the ground no longer jump up and down while crew portraits are showing.** A replayed
+  EVA kerbal or a Breaking Ground part he placed, recorded standing slightly below the terrain height
+  KSP reports, is lifted just clear of the ground as it replays. On the frames where stock redrew a
+  crew portrait (about eight times a second), that lift was skipped and the ghost drew at its
+  recorded height, so it flickered between the two, about a metre apart. Every frame now shows the
+  same height. The log line `Ghost camera pre-cull before LateUpdate: kept N reapply entries for
+  LateUpdate` marks the frames that used to flicker.
 - **A cluster of ground parts an EVA kerbal placed now spawns whole after a rewind.** When a
   kerbal set out a Breaking Ground cluster a few metres apart (RTG, solar panels, experiments,
   Central Station), only the first part to finish replaying became a real vessel: every later

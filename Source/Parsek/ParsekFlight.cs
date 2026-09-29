@@ -599,6 +599,7 @@ namespace Parsek
 
         private readonly List<GhostPosEntry> ghostPosEntries = new List<GhostPosEntry>();
         private int ghostPreCullReapplyFrame = -1;
+        private int ghostLateUpdateReapplyFrame = -1;
 
         private void AddOrReplaceGhostPosEntry(GhostPosEntry entry)
         {
@@ -1473,6 +1474,7 @@ namespace Parsek
             ApplyGhostPosEntries(GhostPositionReapplyPhase.LateUpdate);
 
             ClampGhostsToTerrain(GhostPositionReapplyPhase.LateUpdate);
+            ghostLateUpdateReapplyFrame = Time.frameCount;
 
             LogReFlySettleActiveVesselPoseIfArmed("late-update", Time.frameCount);
 
@@ -1481,16 +1483,92 @@ namespace Parsek
 
         private void OnCameraPreCull(Camera camera)
         {
-            if (sceneChangeInProgress || ghostPosEntries.Count == 0)
-                return;
-            if (ghostPreCullReapplyFrame == Time.frameCount)
+            if (sceneChangeInProgress)
                 return;
 
-            ghostPreCullReapplyFrame = Time.frameCount;
+            int frame = Time.frameCount;
+            GhostCameraPreCullAction action = ResolveGhostCameraPreCullAction(
+                frame, ghostLateUpdateReapplyFrame, ghostPreCullReapplyFrame, ghostPosEntries.Count);
+            if (action == GhostCameraPreCullAction.KeepForLateUpdate)
+            {
+                // A camera rendered between Update and LateUpdate (stock crew portraits
+                // call Camera.Render() from a coroutine every 0.10-0.15 s). The entries
+                // still carry this frame's FloatingOrigin reapply and terrain clamp, so
+                // they must survive until LateUpdate consumes them.
+                if (ParsekLog.IsVerboseEnabled)
+                {
+                    ParsekLog.VerboseRateLimited(
+                        "Playback",
+                        "ghost-camera-pre-cull-before-late-update",
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Ghost camera pre-cull before LateUpdate: kept {0} reapply entries for LateUpdate (camera={1})",
+                            ghostPosEntries.Count,
+                            camera != null ? camera.name : "<null>"),
+                        5.0);
+                }
+                return;
+            }
+            if (action != GhostCameraPreCullAction.RunAndConsume)
+                return;
+
+            ghostPreCullReapplyFrame = frame;
             ApplyGhostPosEntries(GhostPositionReapplyPhase.CameraPreCull);
             ClampGhostsToTerrain(GhostPositionReapplyPhase.CameraPreCull);
             ghostPosEntries.Clear();
         }
+
+        internal enum GhostCameraPreCullAction
+        {
+            /// <summary>No pending entries, or this frame's post-LateUpdate pass already ran.</summary>
+            Nothing,
+
+            /// <summary>
+            /// A camera is rendering before this frame's LateUpdate ran (a manual
+            /// Camera.Render() from Update or a coroutine). LateUpdate has not yet
+            /// reapplied or terrain-clamped the entries, so they are left for it.
+            /// </summary>
+            KeepForLateUpdate,
+
+            /// <summary>First camera after this frame's LateUpdate: run the pass and consume the entries.</summary>
+            RunAndConsume,
+        }
+
+        /// <summary>
+        /// Decides what the Camera.onPreCull hook does with the frame's ghost reapply
+        /// entries. Every render after LateUpdate sees the same final pose only if the
+        /// entries reach LateUpdate intact: a pre-cull that fires earlier in the frame
+        /// (stock kerbal portraits, any mod camera rendered from a coroutine) must not
+        /// consume them, or that frame renders surface ghosts at the raw Update pose
+        /// without the terrain clamp while the neighbouring frames render them clamped.
+        /// </summary>
+        internal static GhostCameraPreCullAction ResolveGhostCameraPreCullAction(
+            int frameCount,
+            int lastLateUpdateReapplyFrame,
+            int lastPreCullReapplyFrame,
+            int pendingEntryCount)
+        {
+            if (pendingEntryCount <= 0)
+                return GhostCameraPreCullAction.Nothing;
+            if (lastLateUpdateReapplyFrame != frameCount)
+                return GhostCameraPreCullAction.KeepForLateUpdate;
+            if (lastPreCullReapplyFrame == frameCount)
+                return GhostCameraPreCullAction.Nothing;
+            return GhostCameraPreCullAction.RunAndConsume;
+        }
+
+        /// <summary>
+        /// In-game test seam: positions <paramref name="ghost"/> at a surface pose through
+        /// the production surface path, registering its LateUpdate reapply entry exactly as
+        /// playback does. Not called by any player path.
+        /// </summary>
+        internal void PositionGhostAtSurfaceForInGameTest(
+            GameObject ghost, SurfacePosition surfPos, string recordingId)
+        {
+            PositionGhostAtSurface(ghost, surfPos, allowActivation: false, recordingId: recordingId);
+        }
+
+        internal int PendingGhostPosEntryCountForInGameTest => ghostPosEntries.Count;
 
         private void ApplyGhostPosEntries(GhostPositionReapplyPhase phase)
         {
@@ -2461,6 +2539,10 @@ namespace Parsek
             // Flush live recorder data into the tree so subsequent walks
             // over rec.TrackSections / rec.Points see the in-flight data.
             FlushRecorderIntoActiveTreeForSerialization();
+
+            // After the flush: a flag planted this flight is still in the recorder buffer before it.
+            if (TreeHasPlantedFlagsForIdle(activeTree, "IsActiveTreeIdleOnPad"))
+                return false;
 
             bool anyHasPoints = false;
             foreach (var rec in activeTree.Recordings.Values)
@@ -20406,7 +20488,8 @@ namespace Parsek
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
                 return false;
 
-            if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreePadFailure"))
+            if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreePadFailure")
+                || TreeHasPlantedFlagsForIdle(tree, "IsTreePadFailure"))
                 return false;
 
             foreach (var rec in tree.Recordings.Values)
@@ -20436,6 +20519,39 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Counts the flags planted across every recording of <paramref name="tree"/>
+        /// (<see cref="Recording.FlagEvents"/>). Pure, null-safe.
+        /// </summary>
+        internal static int CountPlantedFlags(RecordingTree tree)
+        {
+            if (tree?.Recordings == null) return 0;
+            int count = 0;
+            foreach (Recording rec in tree.Recordings.Values)
+            {
+                if (rec?.FlagEvents != null)
+                    count += rec.FlagEvents.Count;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Idle-on-pad veto for a planted flag: the flag is a vessel the player made,
+        /// so the flight is player work even when nothing moved 30 m. Logs the veto;
+        /// returns true when the tree must not be classified idle. The live predicate
+        /// must call this after flushing the recorder, which buffers flag events.
+        /// </summary>
+        internal static bool TreeHasPlantedFlagsForIdle(RecordingTree tree, string caller)
+        {
+            int flags = CountPlantedFlags(tree);
+            if (flags <= 0) return false;
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "{0}: not idle - tree has {1} planted flag(s) tree='{2}'",
+                    caller, flags, tree?.TreeName ?? "<unnamed>"));
+            return true;
+        }
+
+        /// <summary>
         /// Idle-on-pad veto shared by <see cref="IsTreeIdleOnPad(RecordingTree)"/> and
         /// <see cref="IsActiveTreeIdleOnPad"/>: a tree whose kerbal placed ground parts
         /// created vessels, so it is player work even when nothing moved 30 m (a
@@ -20462,7 +20578,8 @@ namespace Parsek
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
                 return false;
 
-            if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreeIdleOnPad"))
+            if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreeIdleOnPad")
+                || TreeHasPlantedFlagsForIdle(tree, "IsTreeIdleOnPad"))
                 return false;
 
             bool anyHasPoints = false;
