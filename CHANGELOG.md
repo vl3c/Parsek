@@ -1273,6 +1273,18 @@ _(unreleased — entries accumulate here per commit)_
   one after another on a later rewind instead of all at the moment of the merge (the trim used
   to wait for the next time KSP loaded the save from cold). The vessel you are flying stays
   marked as the real vessel on the trimmed flight's last segment. Skipped during a Re-Fly.
+- **A rewind no longer spawns a second copy of a landed vessel on top of the one it kept.**
+  When a recording was stopped before the flight scene had finished loading and the scene then
+  reset, the next recording start kept the stopped recording's last few samples as a separate
+  recording outside any flight. That recording was never saved, and it did not carry the
+  vessel's identity, so a later Rewind-to-Launch kept the landed vessel as history while the
+  leftover recording replayed and spawned the same vessel again in the same spot; the two
+  collided and shed parts. The leftover samples of a flight the scene already dropped are now
+  discarded (log: `FallbackCommitSplitRecorder: discarded capture of dropped tree`), and a
+  recording kept outside a flight now carries its vessel's identity, so the rewind and the
+  spawn recognise the live vessel as the same launch (a rewind removes it when that recording
+  will replay, and a spawn adopts it instead of building a copy). Found by the automated tests;
+  ordinary play does not stop a recording that early.
 - **Setting up ground science next to a landed vessel no longer throws the flight away.** When
   nothing in a flight moved more than 30 m, Parsek treats it as "idle on the pad" and discards
   it on leaving the scene. A kerbal who stepped out of a landed capsule and placed a Breaking
