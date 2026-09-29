@@ -687,9 +687,9 @@ class RoverRouteEndpointMatrixTests(unittest.TestCase):
         self.assertEqual("clear", entries[int(self.SUBSTITUTE_PID)].get("inventory"))
 
     def test_rvr18s_removal_is_after_the_active_vessel(self):
-        """The applier REFUSES a removal at or before `activeVessel`, so a lane
-        declaring one would abort at staging on a prepared instance under the
-        machine lock. Caught here instead."""
+        """The applier re-points `activeVessel` after an EARLIER removal and
+        refuses the focused one; RVR-18's endpoint must sit AFTER the focus, so the
+        removal moves no index at all and the lane measures the scene it names."""
         vessels = savepatch.flightstate_vessels(self.lines)
         index = [i for i, (_n, vpid, _s) in enumerate(vessels)
                  if vpid == self.ENDPOINT_PID][0]
@@ -891,9 +891,9 @@ class RoverRouteEndpointMatrixTests(unittest.TestCase):
         self.assertNotIn(int(self.TRANSPORT_PID), entries)
 
     def test_rvr19s_removals_are_both_after_the_active_vessel(self):
-        """`savepatch._remove_vessel` REFUSES a removal at or before
-        `activeVessel`, so a lane declaring one aborts at staging on a prepared
-        instance under the machine lock. With TWO removals the check has to hold
+        """Both RVR-19 removals sit AFTER `activeVessel`, so neither re-points
+        the focus (`savepatch._remove_vessel` decrements it after an earlier
+        removal and refuses the focused vessel). With TWO removals this has to hold
         for both, in either application order - and it does trivially, because
         neither deletion moves an index at or below the active one."""
         vessels = savepatch.flightstate_vessels(self.lines)

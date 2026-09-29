@@ -407,6 +407,13 @@ required = [
   "Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=([0-9]+) partPid=[0-9]+ rec=([0-9a-f]+) parentRec=([0-9a-f]+) [\\s\\S]*invokerewindtolaunch complete [\\s\\S]*MISSIONMARK label=eva6-rewound-count-11-[^\\r\\n]*-\\2-false-0(?:-|\\s)",
   "startrecording recordingId=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva6-rewound-count-11-[^\\r\\n]*-\\1-false-0(?:-|\\s)[\\s\\S]*same-recording spawn suppression lifted for standalone rewind target rec=\\1 [\\s\\S]*\\[KSCSpawn\\] Attempting spawn for #([0-9]+) \\\"Jebediah Kerman\\\" \\(id=\\1\\)[\\s\\S]*\\[KSCSpawn\\] Vessel spawned for #\\2 \\\"Jebediah Kerman\\\" pid=([0-9]+) sit=LANDED [\\s\\S]*MISSIONMARK label=eva6-kscspawn-count-11-[^\\r\\n]*-\\1-true-\\3(?:-|\\s)",
   "Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=([0-9]+) partPid=[0-9]+ rec=([0-9a-f]+) parentRec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva6-rewound-count[\\s\\S]*\\[KSCSpawn\\] Attempting spawn for #([0-9]+) \\\"[^\\\"\\r\\n]*\\\" \\(id=\\2\\)[\\s\\S]*\\[KSCSpawn\\] Vessel spawned for #\\4 \\\"[^\\\"\\r\\n]*\\\" pid=([0-9]+) sit=LANDED [\\s\\S]*MISSIONMARK label=eva6-kscspawn-count-11-[^\\r\\n]*-\\2-true-\\5(?:-|\\s)",
+  # THE OTHER-TREE EXEMPTION (the #1920 follow-up, operator ruling 2026-09-29, todo
+  # KSC-DE-OVERLAP-MOVES-PLACED-PARTS-OFF-THEIR-SPOT). The fixture's Kerbal X capsule, from
+  # the EARLIER committed tree, stood beside the spot before this recording was made, so
+  # neither the placed part nor Jeb is pushed off it at the Space Center: each spawn logs the
+  # exemption against it (the de-overlap used to nudge both 15 m, EVA-6's `2026-09-27_1815`).
+  "Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=[0-9]+ partPid=[0-9]+ rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva6-rewound-count[\\s\\S]*Overlap exempt: other-tree vessel standing there first: site=[^\\r\\n]* rec=\\1 blocker=",
+  "startrecording recordingId=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva6-rewound-count[\\s\\S]*Overlap exempt: other-tree vessel standing there first: site=[^\\r\\n]* rec=\\1 blocker=",
   # The fixture's capsule is committed history and survives the rewind (PR #1891).
   "\\[Parsek\\]\\[INFO\\]\\[Rewind\\] Rewind strip scope: adjustedUT=[0-9.]+ stripPids=[0-9]+ keptHistoryPids=1 keptHolders=[0-9]+",
   "Rewind strip scope: keep spawned pid=([0-9]+) of 'Kerbal X' \\(id=[0-9a-f]{32}\\) as committed history[\\s\\S]*Keeping vessel '#autoLOC_501232' \\(pid=\\1, guid=[0-9a-f]{32}, situation=LANDED\\)[^\\r\\n]*pre-existing in launch/rewind quicksave",
@@ -427,6 +434,10 @@ forbidden = [
   "Spawn FAILED",
   "Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=([0-9]+) partPid=[0-9]+ rec=([0-9a-f]+) parentRec=([0-9a-f]+) [\\s\\S]*invokerewindtolaunch complete [\\s\\S]*source vessel pid=\\1 already exists",
   "Spawn not needed for #[0-9]+ \\\"Jebediah Kerman\\\": non-leaf in tree",
+  # Neither spawn is pushed off its spot by the capsule standing there first.
+  "De-overlap for #[0-9]+ \\\"Jebediah Kerman\\\": nudged",
+  "De-overlap for #[0-9]+ \\\"Grand Slam Passive Seismometer\\\": nudged",
+  "Overlap not exempt: other-tree vessel",
 ]
 
 [runtime]

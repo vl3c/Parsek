@@ -102,6 +102,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `CrewReservation` | 15 | 14 | 6 | 5 | 0 | 12 | H31 | A |
 | `CrewReservationLive` | 2 | 2 | 2 | 2 | 0 | 2 | LT-4-long-tail-route-flight (MULTI, added as a fourth constituent 2026-09-08, flown run `2026-09-08_1040`, executes 2 of 2 - the whole category at FLIGHT with zero skips. The census that found the host is CEN-9 (scratch, run `2026-09-08_1029`) on `depot-route-recorded`, whose store carries THREE committed recordings with a non-zero `SpawnedVesselPersistentId` that survives the load-time spawn reconcile - the one thing both cells short-circuit on, and the thing five earlier hosts did not have. CEN-10 (`2026-09-08_1030`) read the same 2 of 2 on `bdock-recorded`, so the property belongs to RECORDED stores rather than to `depot-route-recorded` alone. THE B1 READING WAS WRONG IN ITS SCOPE, not in its mechanism: the corpus writer still authors no spawned pid (`RecordingBuilder.WithSpawnedPid` has zero callers), but a recorded fixture is not an authored corpus, and the second census had only ever asked injected and career hosts. PROMOTED to bucket **A** (A3) by that flight, on the promotion rule below: the tally is pinned whole AND the lane drove the category whole at its own boot) | A |
 | `DataHealth` | 4 | 4 | 4 | 4 | 0 | 0 | H14 | A |
+| `DeployedScienceGhost` | 1 | 1 | 0 | 0 | 0 | 1 | NOT DRIVEN (branch `deployables-lanes`, 2026-09-28). One FLIGHT cell: every Breaking Ground deployed-science part (the eight `SquadExpansion/Serenity/Parts/DeployedScience` parts) builds a ghost from its PartLoader prefab whose deploy animation is sampled with at least one moving transform (the ladder the operator's run `logs/2026-09-28_2231_deployables` measured on all eight). Skips naming the reason when Serenity is not installed. Its OWN category so no pinned tally moves; a host is any FLIGHT lane (it needs no vessel), claim it when one is next re-pinned | B |
 | `DisabledHoverEcho` | 1 | 1 | 1 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, added as a 31st constituent 2026-09-08, flown run `2026-09-08_1041`, executes 1 of 1 - the whole category at FLIGHT with zero skips. Its cell measures an IMGUI hover, which Unity samples from the OS pointer, so nothing inside the engine can fake it and an unattended batch used to read "not measured" and skip; the cell now PARKS the OS pointer over its own probe button for the measurement (Windows `user32` `SetCursorPos` through a P/Invoke inside the test, previous position restored in the `finally`) and every failure mode - not Windows, no usable `user32`, no game window handle - degrades to "not placed" and leaves the original skip. Measured 1 of 1 by census CEN-12 (scratch, run `2026-09-08_1035`) on `gloops-airshow`, the lane's own host. THE B5 READING - "interactive-only, nothing available" - was a bound on the SEAM, and the seam was the wrong place to look: no harness verb can move the pointer, but the test process is inside the same window and can. PROMOTED to bucket **A** (A3) by that flight, on the promotion rule below. The self-skip column stays 1: the placement can still fail and the skip is what it falls back to) | A |
 | `Diagnostics` | 6 | 6 | 3 | 3 | 0 | 1 | H27 | A |
 | `EvaSpawnPosition` | 2 | 2 | 0 | 0 | 0 | 2 | H20 | A |
@@ -217,8 +218,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **123 categories / 658 declarations**. Buckets **A 92 categories
-(366 declarations)**, **B 30 categories (288 declarations)**, **C 1 category (4
+Totals, re-derived: **124 categories / 659 declarations**. Buckets **A 92 categories
+(366 declarations)**, **B 31 categories (289 declarations)**, **C 1 category (4
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
@@ -335,7 +336,8 @@ nothing has ever exercised the fixed producer live.
 Driven by a committed spec: **120 of 123 categories**, covering **652 of 658
 declarations** (re-derived mechanically the same way: count the table rows whose
 Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 658 declarations in
-123 categories over `Source/Parsek`. The 2026-09-28 surface-ghost flicker fix
+124 categories over `Source/Parsek`. The 2026-09-28 ground-science cluster lanes opened a 124th row,
+`DeployedScienceGhost` (one FLIGHT cell, bucket **B**), UNCLAIMED. The 2026-09-28 surface-ghost flicker fix
 (GHOST-SURFACE-HEIGHT-FLICKER-ON-PORTRAIT-FRAMES) opened a 123rd row, `GhostReapplyFrame`, UNCLAIMED
 (one FLIGHT cell, no lane yet). The 2026-09-27 auto-hire live check opened a 122nd row,
 `AutoHireReservation`, already driven by AH-1 (not yet flown). The 2026-09-27 chain-state removal deleted

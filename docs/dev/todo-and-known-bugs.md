@@ -15,6 +15,247 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~EVA-STEP-TRANSLATED-BACK: every `EvaGroundScience action=step` from a standing kerbal was put straight back by the collision guard~~ [FILED AND FIXED 2026-09-29 from EVA-8 `2026-09-29_1618`, branch `deployables-lanes`, harness seam only, no product change]
+
+EVA-8's re-cut first flight (integration DLL; INVALID driver-verdict-mismatch): each `step start`
+was followed within 11 ms by `[Collision Enhancer] TRANSLATE_BACK on "kerbalEVA" (vel: 0)`. The
+first step (Jeb still falling off the ladder, `from=1.12 to=13.00 bearing=60`) stopped at
+horizontal 9.79 m, and every later step was put straight back to 9.79, so all seven timed out
+`step-timeout ... horizontal=9.79 situation=LANDED`, the places then failed
+`placement-not-accepted` and `${seis.vesselPid}` never resolved. Cause (decompiled stock
+`CollisionEnhancer.FixedUpdate` and the KSPCommunityFixes `CollisionEnhancerFastUpdate` override
+the harness instance runs): a part that moved more than 0.1 m in one physics frame is linecast
+from its last position to the new one against the terrain layer and put back at the hit point; a
+teleport from a kerbal standing on the ground starts that segment at the terrain. Fix: the move
+sets `framesToSkip` on every part's `CollisionEnhancer` first (both implementations re-read
+`lastPos` on a skipped frame, before the linecast), completion is measured against the target
+spot itself rather than the distance from the anchor, and a kerbal still more than 1.5 m off it
+20 frames after a move is moved again (at most 3 moves). Pure `ShouldReapplyStep` /
+`DecideStepCompletion` xUnit-covered; the three cluster lanes require `step move ... move=1
+collisionEnhancersSkipped=[1-9]`.
+
+SECOND CAUSE, found by the re-flight `2026-09-29_1711_a2` (DLL `0bf23b867`): TRANSLATE_BACK was
+gone, the first step (seconds after the ladder release) landed `offTarget=0.03`, and every later
+step left Jeb at the same 13.04 m for all three moves. Decompiled `KerbalEVA.AnchorUpdate`
+(LateUpdate): a kerbal standing landed, slow and idle for 0.5 s is held by a `FixedJoint` to the
+world (`AddRBAnchor`), which pulls a transform teleport straight back. The move now calls the
+private `RemoveRBAnchor` by reflection first (stock re-anchors him at the new spot) and writes
+every rigidbody pose with the transforms; the line names `method=anchor-release+rb-pose
+wasAnchored= anchorReleased=`, and EVA-8 requires a move that released an anchor
+(`wasAnchored=true anchorReleased=true`).
+
+THIRD CAUSE, found by the anchor-release flight `2026-09-29_1729` (automation DLL sha256
+`037c5f14...`): every step now landed on its first move (`offTarget` 0.02-0.35), until the Go-ob
+step down to a spot 0.60 m lower than the one Jeb left: `Vessel Jebediah Kerman crashed through
+terrain` 0.33 s after the move and he died. Decompiled `Vessel` (1.12.5): a vessel that is not
+landed is destroyed once `altitude < terrainAltitude`, and that cached value was still the old
+spot's (151.02 m) while he was set down at 150.42 + 0.5 m. The set-down height is now 0.5 m above
+the higher of the two (`StepSetDownAltitude`, xUnit-covered), the move line logs `terrain=` and
+`setDownAlt=`, and the cluster lanes forbid `Vessel Jebediah Kerman crashed through terrain`.
+
+FOURTH CAUSE, found by `2026-09-29_1759` / `_1807_a2` (DLL sha256 `10ac8af0...`): no crash on the
+downhill step any more, but the 1.1 m drop landed him faster than `stumbleThreshold` (3.5 m/s)
+and he ragdolled; decompiled `KerbalEVA.CanRecover` gets the ACTIVE kerbal up only on a movement
+input, so the Go-ob place waited 120 s on `standing=false`, and the later steps moved a ragdolled
+kerbal (one of several jointed bodies), which killed him on `_1807_a2`. Step completion now needs
+him standing; the seam runs stock's `On_recover_start` FSM event once he lies landed and still for
+0.5 s (`ShouldRecoverFromRagdoll`, xUnit-covered, at most 3) and never moves him while ragdolled.
+
+FIFTH CAUSE, found on the integration flights EVA-9 `2026-09-29_1931` / NEGCTL `_1944`: the
+set-down height was relative to the analytic PQS height, which is not the ground a kerbal stands
+on. The last step (bearing 270, 4 m) logged `terrain=151.36 setDownAlt=151.89` and completed
+LANDED, but his recorded standing altitude there is 152.0 (standing kerbals elsewhere read
+1.08-1.17 m above the verb's terrain value), so he ended about 0.5 m inside the ground (the
+operator watched it); the downhill step had the opposite error (`setDownAlt=152.35` over
+`terrain=150.42`, a fall and a stumble). The set-down now raycasts onto the ground collider
+(layer 15) at the target and puts his lowest collider point 0.05 m above it (the cached terrain
+and the PQS height kept only as a crash-guard floor), and completion requires his feet within
+0.25 m of the ground under him (`step ground ... ok=true`, required by the cluster lanes).
+
+VERIFIED (causes one to four): EVA-8 `2026-09-29_1819` (automation DLL sha256 `707f46be...`, provisioned from this
+branch) PASS attempt 1. All nine steps completed on their first move (`offTarget` 0.01-0.18 m, the
+anchor released on every step after the first), two stumbles (the 1.95 m downhill set-down to the
+Go-ob spot, and the last step back beside the capsule) were got up by `step ragdoll-recover ...
+event=On_recover_start`, no crash, all five placements and the pick-up completed, committed count 15.
+
+## REWIND-KEPT-VESSEL-RESPAWNED-BY-STANDALONE-SEGMENT: after a Rewind-to-Launch a standalone 2-point segment of the kept lander replays and spawns a second lander on top of it [FILED 2026-09-29 from EVA-10 `2026-09-29_2012` / `_2018`, branch `deployables-lanes`. OPEN, not investigated, no product change]
+
+**In gameplay terms.** After rewinding, the lander the rewind kept as history gets a twin
+spawned into the same spot; the two collide and shed parts. Reached here through the harness
+boot; unknown whether a player reaches the standalone segment that causes it.
+
+**Evidence** (`Parsek-deployables-integration/harness/results/2026-09-29_2018_EVA-10-..._shots/KSP.log`,
+integration DLL sha256 `528011dd...`): after the boot's StopRecording + DiscardTree the lander is
+recorded standalone (`mode=sa`) and committed straight to the list outside any tree
+(`RecordingStore.CommitRecordingDirect`: `Created recording: 2 points, 1 orbit segments from Kerbal X`,
+`Committed recording from Kerbal X (2 points). Total committed: 12`, rec `4d86f58c...`,
+startUT=23258.4 endUT=23258.5). The later Rewind-to-Launch keeps the lander (`Rewind strip scope:
+keep spawned pid=2708531065 of 'Kerbal X' ... as committed history (no recording that replays
+after adjustedUT=23248.6 re-produces it)`), yet after the reload into FLIGHT that standalone
+segment, which starts AFTER the rewind UT, replays and spawns `Vessel spawn for #11 (Kerbal X)
+pid=330096422 sit=LANDED` at the kept lander's exact lat/lon/alt; within 0.25 s seven
+`decouple-created` vessels appear (four from the twin), `Crew dedup: 'Jebediah Kerman' is already
+aboard "Kerbal X"`, and Jeb's own spawn is walked back off the twin. The keep scope evidently
+does not see standalone recordings. Also measured: `ListHandles kind=committed` lists 17 rows
+(tree members) while the store holds 18 (`memoryRecordings=18`), and the produced save holds 19
+`.prec` sidecars (the 19th not identified).
+
+**Next step.** Check whether the rewind strip scope's "replays after adjustedUT" walk includes
+standalone committed recordings, and whether `CommitRecordingDirect` should ever commit outside a
+tree in always-tree mode. EVA-10 carries this: its count window and ListHandles rows are derived
+from it, and its lander twin is not forbidden yet (a forbid would red every flight until fixed).
+
+## IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS: a tree committed in flight is never optimized (no boring-tail trim, no split / merge) until the next cold load [FILED 2026-09-29 from EVA-9 `2026-09-29_1528`, branch `deployables-lanes`. OPEN, product inconsistency, needs a ruling; no product change made]
+
+**In gameplay terms.** When a tree is committed WITHOUT leaving the flight scene - the
+pre-switch Merge / Discard dialog's Merge (Case A / Case B of
+`Patches/MapFocusObjectOnSelectPatch.cs`) - its recordings keep their idle tails, so the
+vessels they end with appear later than they would after a Space Center exit, and all at the
+same moment instead of one after another. The same flight committed by leaving for the Space
+Center is trimmed at once. Nothing in the saved data is wrong; the difference lasts until KSP
+next loads the save from cold, which trims it.
+
+**Evidence.** EVA-9 `2026-09-29_1528` (automation DLL = main + #1920 + #1921 + #1923,
+`Parsek-deployables-integration/harness/results/..._shots/KSP.log`): four placed members lived
+41-65 s (placed 18:29:29-18:29:53, `StopRecording` + seam `CommitTree` at 18:30:34, whose
+`CommitTreeFlight: committed tree "Jebediah Kerman"` is at 18:30:34.744), yet the log holds
+ZERO `TrimBoringTail: trimmed` lines, and after the rewind all four chain tips spawned within
+5 ms (18:32:01.804-.809). The only `Optimization pass` lines are the boot's cold load
+(18:29:24, `TrimBoringTail skipped 9 recording(s)`). The operator's run
+`logs/2026-09-28_2231_deployables/KSP.log` trimmed 11 recordings at 22:24:33.5, inside
+`Silent full-fidelity auto-commit (scene-exit): tree='rover science'`.
+
+**Cause (from source).** `RecordingStore.RunOptimizationPass` (the only caller of the tail
+trim, `RecordingStore.Optimization.cs` `TrimBoringTailsForOptimization`) is called by
+`MergeDialog.MergeCommit` (`MergeDialog.Commit.cs:86`, which the scene-exit auto-commit
+`ParsekScenario` "pending-outside-flight" route and the merge dialog both use) and by the cold
+`OnLoad` (`ParsekScenario.cs:4548`, phase `optimization`). `ParsekFlight.CommitTreeFlight`
+(`ParsekFlight.cs:13406`, reached from the pre-switch dialog and the seam `CommitTree`) marks the
+tree applied, commits, recalculates the ledger and spawns the leaves, but runs no optimization
+pass, and an in-session scene load returns at `phase=rewind-point-reap
+status=returned-scene-change` (`ParsekScenario.cs:4316`) before the optimization phase, so
+nothing optimizes that tree until a cold load. The Phase C comment in `MergeDialog.Commit.cs`
+records that the two commit paths were brought into parity for `MarkTreeAsApplied`; the
+optimization pass was not.
+
+**Fix direction (needs a ruling).** Call `RecordingStore.RunOptimizationPass()` in
+`CommitTreeFlight` after `RecordingStore.CommitTree`, as `MergeCommit` does after
+`CommitPendingTree` (the committed-list notifications exist so that flight-scene index state
+follows any mid-list mutation, an optimizer merge or split included). Check the leaves
+`SpawnTreeLeaves` just adopted keep their spawn stamps across a split / trim. Lanes: EVA-9 and
+EVA-10 now commit through `ExitToSpaceCenter` (the player's own path) and so no longer witness
+this; a regression lane would commit with the seam `CommitTree`, idle past 30 s, and require
+the trim line.
+
+## GROUND-SCIENCE-CLUSTER-FIVE-PART-HOST: no committed fixture can host a cluster with three or more experiments inside stock inventory limits [FILED 2026-09-28, branch `deployables-lanes`]
+
+**Why.** A stock EVA kerbal carries 2 slots / 40 L / 0.065 t
+(`GameData/Squad/Parts/Prebuilt/kerbalEVA.cfg`) and every Breaking Ground part is 25-35 L
+(`SquadExpansion/Serenity/Parts/DeployedScience/*.cfg`), so one kerbal carries ONE part at a
+time; a cluster is carried in containers and taken out one by one (the operator's run did
+exactly this from a rover). EVA-8 / EVA-9 / EVA-10 use the only container their hosts have,
+the landed Kerbal X's Mk1-3 pod (3 slots / 200 L), plus the kerbal's own slot: 4 parts,
+Central Station + RTG + TWO experiments. Surveyed 2026-09-28: every committed fixture's
+landed crewed vessel off the pad is a one-kerbal Kerbal X capsule
+(`kerbin-splashdown-recorded`, `mun-landing-recorded`); `duna-one-recorded` has two crew and
+an EVA kerbal but is on Duna; nothing else lands crew off the pad.
+
+**The Mun geometry (EVA-10).** Its first flights (`2026-09-28_2048`, `_2053_a2`) left Jeb
+standing ON the lander after the ladder release, where every placement preview hit its hull;
+the lane now runs `EvaGroundScience action=step distance=4.5` off the lander first. The pod
+sits about 4 m above the ground (VESSEL `hgt = 4.18`), so from 4.5 m out it is ~4.4 m away,
+inside stock's `EVA_INVENTORY_RANGE = 5` but not by much. If a reading refuses `take ...
+reason=out-of-range`, the Mun lane needs the same fixture as below.
+
+**Costed plan.** One forge flight builds a recorded host with a ground-level container: a
+small crewed rover (Mk1 lander can or Mk2 pod on wheels) carrying two stock inventory
+containers (`ConformalStorageUnit`, 3 slots / 300 L each) is launched from the runway with
+`LaunchFromEditor`, driven by a new kRPC mission shell (`wheel_throttle` / `wheel_steering`,
+about 150 lines plus its schema TOML and mlib tests) 300 m off the runway end so the KSC
+exclusion zone cannot retire what it leaves, stopped, and harvested `--keep-parsek` as
+`kerbin-rover-containers-recorded` with a builder under `harness/tools/` and a
+`RECORDED_FIXTURES` pin. Its containers then take `[[fixture.partInventory]]` (6 slots:
+CS + RTG + solar + seismic + Go-ob + ion/weather), and EVA-8/9's recipe runs unchanged with
+two more takes. Estimate: one flight for the shell, one harvest, about half a session of
+authoring. A Mun variant needs the same rover landed on the Mun (a B13-style delivery), which
+is a second, longer forge flight; defer it until the Kerbin one has flown.
+
+**The operator's own save is not the host (decided 2026-09-28).** `logs/2026-09-28_2231_
+deployables` is a post-replay state: ten of its eleven members were refused by the defect
+(PLACED-PART-CLUSTER-SPAWN-BLOCKED-BY-SIBLING), the rover and Bob were abandoned, and no clean
+post-commit / pre-rewind save survives (the quicksave `1.sfs` is post-replay too). A committed
+fixture must be a reproducible harvest with a builder and pins (the `refly-a-recorded`
+precedent requires a clean seed session), and an operator-local fixture may only assert that
+a window drew, which none of these lanes needs. Nothing from that save is committed or
+staged.
+
+## HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE: a recorded-fixture lane's boot `DiscardTree` can be undone by the 1 Hz restore retry [FILED 2026-09-29 from EVA-6's `2026-09-28_2059` attempt 1 (INVALID, passed on retry), branch `deployables-lanes`]
+
+**Evidence.** On `kerbin-splashdown-recorded` the boot promotes the committed Kerbal X tip
+(`TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'Kerbal X' ... via
+ResumeActiveRecording`), and every EVA-6 / EVA-7 / EVA-8 / EVA-9 lane stops and discards it
+(`StopRecording`, `DiscardTree`). In `_2059` the discard at 23:59:55.078 was followed 28 ms
+later by the SAME restore line again, so the tree was live when the kerbal's `StartRecording`
+ran and it was refused (`StartRecording: refused to bind recorder to invalid active tree head
+(reason=active-recording-id-missing ...)`). The green `2026-09-27_1815` run shows one restore
+only.
+
+**Cause (from source).** `ParsekFlight.HandleMissedVesselSwitchRecovery` retries
+`TryRestoreCommittedTreeForSpawnedActiveVessel` once a second whenever there is no active
+tree and no recorder (`ShouldAttemptCommittedSpawnedRestoreInUpdate`,
+`CommittedSpawnedRestoreRetryIntervalSeconds = 1`). `DiscardTree` leaves exactly that state
+while the capsule, a committed tip, is still the active vessel, so the retry re-adopts it
+whenever its timer is due; whether it is due depends on where the boot left
+`nextCommittedSpawnedRestoreRetryAt` (the green run's boot left the recorder not live at
+`OnFlightReady`, the red one left it live).
+
+**Why no spec change.** No preamble ordering avoids it: the capsule stays the active vessel
+until `EvaExit`, and discarding after the exit would discard a live tree the EVA has already
+branched. A deterministic fix is seam-side: make the `DiscardTree` verb push
+`nextCommittedSpawnedRestoreRetryAt` out for the rest of the scene (or until the next
+`StartRecording`), with a pure cell for the decision. Until then these lanes carry `retry
+policy = "once"`, which absorbed it in `_2059`.
+
+## DEPLOYED-SCIENCE-FLOW-LANE-NEEDS-A-HOST: no committed science or career fixture can place a powered Breaking Ground cluster [FILED 2026-09-28, branch `deployables-lanes`]
+
+**What is wanted.** A lane that places a powered cluster (Central Station + RTG or solar +
+experiments), warps while it transmits, and checks the ledger rows: every deployed subject
+is an UNTAGGED row even with a live recorder (todo DEPLOYED-SCIENCE-IS-ALWAYS-UNTAGGED,
+`GameStateRecorder.IsDeployedScienceSubjectId`, `TryRecordKscScienceSubject`), survives a
+Re-Fly (never tombstoned), and is dropped by a Revert with the other untagged post-launch rows.
+Sandbox (every EVA-* host) awards no science, so it cannot host it.
+
+**Survey (2026-09-28).** SCIENCE / CAREER fixtures: `fresh-science` (SCIENCE_SANDBOX, no
+vessels), `career-*-pad` (one PRELAUNCH vessel on the pad), `career-earned-*`,
+`rover-route-career` (probe-only rovers), `strategy-career`, `stock-screen-census*`. In every
+one the R&D tree holds only `start` (no `spaceExploration`, `electrics`, `electronics`,
+`miniaturization`, `experimentalElectrics`, the nodes the eight deployables require), so
+stock drops the parts from a crew inventory CSV silently, and none has a crewed vessel off
+the pad. A cluster placed ON the pad is fine for science (nothing spawns), but it still needs
+the tech.
+
+**Costed plan.** (1) A builder `harness/tools/build_science_bg_pad.py` derives
+`science-bg-pad` from `career-science-pad` offline: R&D `Tech` nodes for the five nodes
+above (stock's own `state = Available` + `part = ...` entries, read from a stock
+tech-tree save rather than hand-written), plus `[[fixture.crewInventory]]` /
+`[[fixture.partInventory]]` for the parts (the pad pod must carry an inventory; a Mk1-3 pod
+does). About 200 lines with its test and README row. (2) Lane: boot, EvaExit, place the four
+parts beside the pod, board, `WarpToUT` about 10 game minutes (ten 60 s transmissions),
+`SaveGame`, then the ledger: `[expectations.ledger]` / oracle rows for the deployed subject
+ids with an empty recording tag, and the log line of the untagged route. Estimate: one
+reading flight after the builder; no product change expected.
+
+## HARNESS-README-SAVEPATCH-SURFACES-STALE: harness/README.md does not describe the 2026-09-28 savepatch changes [FILED 2026-09-28, branch `deployables-lanes`]
+
+Two savepatch changes landed with the ground-science cluster lanes without their
+`harness/README.md` paragraphs: `[[fixture.liveState]] remove` now RE-POINTS `activeVessel`
+after removing an earlier vessel (only the focused vessel itself is refused; the README's
+liveState paragraph, around line 1368, still says a removal at or before `activeVessel` is
+REFUSED), and the new `[[fixture.partInventory]]` surface (a FLIGHTSTATE container part's
+`inventory` CSV, contract in `harness/lib/savepatch.py`) has no README row beside
+`[[fixture.crewInventory]]`. The code comments in `savepatch.py` are the authority until the
+README is brought in line.
+
 ## ~~IDLE-ON-PAD-DISCARDS-PLACED-GROUND-PARTS: a tree whose EVA kerbal placed ground parts within 30 m was auto-discarded as idle on pad~~ [FILED AND FIXED 2026-09-29 from the deployables flights `2026-09-29_1856` / `_1901` / `_1905` / `_1916` (EVA-9 / EVA-10), branch `placed-parts-not-idle`]
 
 `ParsekFlight.IsTreeIdleOnPad` (and its live-tree mirror `IsActiveTreeIdleOnPad`, read by

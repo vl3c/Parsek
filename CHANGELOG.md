@@ -182,6 +182,15 @@ _(unreleased — entries accumulate here per commit)_
   `scene-editor` (coverage unchanged at 238 of 247). Test staging now creates every staged save's
   `Ships/VAB` and `Ships/SPH` folders the way KSP does for a real save, without which the editor's Launch
   button failed to write its auto-saved ship.
+- **Automated testing: Breaking Ground clusters built the way a player builds them, in three lanes.**
+  A kerbal carries one deployable at a time, so a new test-seam action takes each part out of the
+  landed capsule's own inventory, and another walks him between the capsule and each part's own
+  spot (a distance and a compass bearing from the capsule). `EVA-8` places a four-part cluster on a
+  13 m ring round a landed capsule with the parts about 5 m apart, picks one up and places it again;
+  `EVA-9` rewinds such a cluster and checks every part comes back in flight beside its neighbours;
+  `EVA-10` does the same on the Mun with the parts coming back from the Space Center. EVA-9 and
+  EVA-10 commit by leaving for the Space Center, the way a player does: a tree committed without
+  leaving flight is not trimmed until the next load (filed, not changed here).
 - **Automated testing: a ground part left behind on EVA comes back after a rewind, in a lane.** A new
   lane has Jebediah step out of a capsule landed far from the Space Center, place a Breaking Ground
   seismometer and leave it, then rewinds to before the placement and checks that the Space Center
