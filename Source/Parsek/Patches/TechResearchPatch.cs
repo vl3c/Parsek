@@ -59,8 +59,7 @@ namespace Parsek.Patches
 
                     CommittedActionDialog.ShowBlocked(
                         "Cannot research \"" + (tech.title ?? techId) + "\"",
-                        "Insufficient science. Other committed tech unlocks have reserved " +
-                        "your science budget.",
+                        "Not enough science: tech unlocks later on timeline need it, blocked by timeline.",
                         $"{sciCostCheck:F1} science required");
 
                     return true;

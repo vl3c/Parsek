@@ -124,7 +124,9 @@ namespace Parsek.Tests
             // hovers became runtime-composed on 2026-09-27 (the Career-mode slot counts
             // appended to a const base), so the scan no longer sees those two; their
             // worst case is pinned by CareerSlotHovers_FitTheTimelineStrip below.
-            yield return new object[] { "UI/TimelineWindowUI.cs", 820f, 18, TooltipEchoBox.SingleLine };
+            // Floor 19 (2026-09-28): the "now" divider label carries NowDividerTooltip. The
+            // row hovers are runtime-built; TimelineRowHovers_FitTheTimelineStrip pins them.
+            yield return new object[] { "UI/TimelineWindowUI.cs", 820f, 19, TooltipEchoBox.SingleLine };
             // Recordings: DefaultWindowWidth = 1355, held by this budget: wider columns come out
             // of the expanding Name column, never out of a wider window (2026-09-26).
             // Single-line strip: the window's whole help corpus was trimmed to fit one
@@ -264,6 +266,66 @@ namespace Parsek.Tests
                             + "single-line Timeline help-strip budget: \"{2}\"",
                             tip.Length, budget, tip));
                 }
+            }
+        }
+
+        // catches: a Timeline row hover growing past the SINGLE-line Timeline strip. The row
+        // hovers are composed at runtime (ReservationExplanation.ForTimelineRow and the
+        // TimelineRowHover builders), so the literal scan cannot see them; each builder's
+        // worst realistic case is pinned here: a four-digit year and three-digit day, the
+        // longest held control, six-digit rewards, three crew plus "+N", a long biome. A
+        // hover that stacks several of these (a future contract accept: hold + terms) is
+        // the one composition allowed to run into the marquee; each part reads alone.
+        [Fact]
+        public void TimelineRowHovers_FitTheTimelineStrip()
+        {
+            int budget = BudgetChars(TimelineWindowUI.DefaultWindowWidth, TooltipEchoBox.SingleLine);
+            System.Func<double, string> worstDate = ut => "Y1234, D426, 23:59";
+            var tips = new List<string>();
+
+            foreach (GameActionNotCountedReason r in System.Enum.GetValues(typeof(GameActionNotCountedReason)))
+                if (r != GameActionNotCountedReason.None)
+                    tips.Add(TimelineRowHover.NotCounted(r));
+
+            var rows = new[]
+            {
+                new GameAction { UT = 600, Type = GameActionType.StrategyActivate, StrategyId = "s" },
+                new GameAction { UT = 600, Type = GameActionType.ContractAccept, ContractId = "c" },
+                new GameAction { UT = 600, Type = GameActionType.KerbalHire, KerbalName = "k" },
+            };
+            var index = CommittedFutureIndex.Build(rows, id => true, id => null, null);
+            foreach (var a in rows)
+                tips.Add(ReservationExplanation.ForTimelineRow(
+                    new TimelineEntry { UT = a.UT, Action = a }, index, 0, worstDate));
+
+            tips.Add(TimelineRowHover.ContractAccept(
+                new GameAction { DeadlineUT = 900, AdvanceFunds = 123456f },
+                new GameAction { FundsReward = 987654f, RepReward = 150f },
+                "C7 Aerospace Division", worstDate));
+            tips.Add(TimelineRowHover.ContractOutcome(
+                new GameAction { Type = GameActionType.ContractComplete, RepReward = 150f, ScienceReward = 99.5f },
+                "Kerbal X Mun Lander"));
+            tips.Add(TimelineRowHover.ContractOutcome(
+                new GameAction { Type = GameActionType.ContractFail, FundsPenalty = 123456f, RepPenalty = 150f },
+                "Kerbal X Mun Lander"));
+            tips.Add(TimelineRowHover.Launch(
+                new[] { "Valentina Kerman", "Jebediah Kerman", "Bartbro Kerman", "Bill Kerman" },
+                TimelineRowHover.LaunchEnd(new Recording
+                {
+                    TerminalStateValue = TerminalState.Splashed,
+                    TerminalPosition = new SurfacePosition { body = "Kerbin" },
+                    EndBiome = "Northern Ice Shelf"
+                }),
+                "Mun Landing 2"));
+            tips.Add(TimelineWindowUI.NowDividerTooltip);
+
+            foreach (string tip in tips)
+            {
+                Assert.False(string.IsNullOrEmpty(tip));
+                Assert.DoesNotContain("\n", tip);
+                Assert.True(tip.Length <= budget,
+                    string.Format("a Timeline row hover is {0} chars, over the {1}-char single-line "
+                        + "Timeline help-strip budget: \"{2}\"", tip.Length, budget, tip));
             }
         }
 

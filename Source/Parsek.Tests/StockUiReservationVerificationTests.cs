@@ -145,10 +145,10 @@ namespace Parsek.Tests
             string Fmt(double ut) => "D" + ((long)(ut / 100)).ToString(System.Globalization.CultureInfo.InvariantCulture);
             var both = StockUiReservationPredicates.ExplainFacilityUpgrade(
                 CommittedFutureIndexCache.Current, LaunchPadId, 500, Fmt);
-            Assert.StartsWith("Upgraded to level 2 on D10 and to level 3 on D20 on your committed timeline.", both.Body);
+            Assert.Equal("Upgraded to level 2 on D10 and to level 3 on D20, blocked by timeline until then.", both.Body);
             var later = StockUiReservationPredicates.ExplainFacilityUpgrade(
                 CommittedFutureIndexCache.Current, LaunchPadId, 1500, Fmt);
-            Assert.StartsWith("Upgraded to level 3 on D20 on your committed timeline.", later.Body);
+            Assert.Equal("Upgraded to level 3 on D20, blocked by timeline until then.", later.Body);
         }
 
         [Fact]

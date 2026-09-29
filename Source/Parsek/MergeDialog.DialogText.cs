@@ -88,7 +88,7 @@ namespace Parsek
                 // names what each one does to the re-fly slot.
                 return headline +
                     "<align=\"left\">Do you want to commit this Re-Fly attempt " +
-                    "to the timeline?\n\n" +
+                    "to timeline?\n\n" +
                     "Commit (don't seal) keeps this Re-Fly slot open. " +
                     "Merge & Seal permanently closes it — you cannot Re-Fly " +
                     "this line again.</align>";

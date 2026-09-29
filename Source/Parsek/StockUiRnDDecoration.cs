@@ -159,6 +159,42 @@ namespace Parsek
         }
 
         /// <summary>
+        /// After every <c>RDController.UpdatePanel</c>: the reason on the side panel's action
+        /// button's stock tooltip while Parsek disables it (Research: the node's explanation;
+        /// purchase-all: one line per blocked part, the purchase-all dialog's text), else the
+        /// stock tooltip back.
+        /// </summary>
+        internal static void SyncActionButtonReason(RDController controller, bool disabledByParsek)
+        {
+            if (controller == null || controller.actionButton == null) return;
+            string why = null;
+            if (disabledByParsek)
+            {
+                RDNode node = controller.node_selected;
+                if (node != null && node.IsResearched)
+                {
+                    var skipped = new List<KeyValuePair<string, ReservationText>>();
+                    var index = CommittedFutureIndexCache.Current;
+                    double now = CommittedFutureIndexCache.CurrentUT();
+                    foreach (var pair in StockUiPartPurchase.UnpurchasedDecisions(node.tech))
+                    {
+                        if (!pair.Value.Blocked) continue;
+                        skipped.Add(new KeyValuePair<string, ReservationText>(pair.Key.title ?? pair.Key.name,
+                            StockUiReservationPredicates.ExplainPartPurchase(index, pair.Key.name, now,
+                                ReservationExplanation.DefaultDateFormatter)));
+                    }
+                    why = StockUiPartPurchase.BuildPurchaseAllSkipReason(skipped);
+                }
+                else
+                {
+                    string techId = TechIdOf(node);
+                    if (!string.IsNullOrEmpty(techId)) why = StockUiLiveSnapshot.Current.Tech(techId).Why;
+                }
+            }
+            StockUiReasonTooltip.Sync(controller.actionButton, disabledByParsek, why, controller, "R&D actionButton");
+        }
+
+        /// <summary>
         /// <c>RDController.ShowNodePanel</c> postfix: stock rewrites the side panel's
         /// description on every show, then the explanation is appended beside the disabled
         /// Research button.

@@ -3093,8 +3093,13 @@ namespace Parsek
                     if (!string.IsNullOrEmpty(rec.ChildBranchPointId)
                         && sessionAuthoredBpIds.Contains(rec.ChildBranchPointId))
                     {
-                        rec.ChildBranchPointId = null;
+                        string removedBpId = rec.ChildBranchPointId;
+                        rec.ChildBranchPointId = FindOverwrittenContinuingBranchPointId(segmentTree, rec);
                         rec.MarkFilesDirty();
+                        if (rec.ChildBranchPointId != null)
+                            ParsekLog.Info("SwitchSegment",
+                                $"Discard: restored rec={rec.RecordingId} childBranchPointId={rec.ChildBranchPointId} " +
+                                $"(the removed session branch {removedBpId} had overwritten it)");
                     }
                 }
             }
@@ -3380,10 +3385,12 @@ namespace Parsek
                     continue;
                 if (!tree.Recordings.TryGetValue(id, out Recording rec) || rec == null)
                     continue;
-                // A ground part placed by this recording's kerbal hangs off a
-                // GroundPartPlaced point the (still recording) parent does NOT
-                // reference through ChildBranchPointId, so it is found by parent id.
-                EnqueueGroundPartPlacedChildren(tree, id, ids, queue);
+                // A branch point the (still recording) parent does NOT reference
+                // through ChildBranchPointId is found by parent id: a ground part
+                // placed by this recording's kerbal (GroundPartPlaced), and an
+                // earlier breakup or decouple of a breakup-continuous recording
+                // whose ChildBranchPointId a later split overwrote.
+                EnqueueParentedBranchChildren(tree, id, ids, queue);
                 if (string.IsNullOrEmpty(rec.ChildBranchPointId))
                     continue;
                 BranchPoint bp = FindSwitchSegmentBranchPointById(tree, rec.ChildBranchPointId);
@@ -3401,14 +3408,38 @@ namespace Parsek
             return ids;
         }
 
-        private static void EnqueueGroundPartPlacedChildren(
+        /// <summary>
+        /// The branch point a later split overwrote on <paramref name="rec"/>: the latest
+        /// surviving Breakup / JointBreak / Launch branch that still lists the recording as a
+        /// parent (a breakup-continuous recording keeps flying past those, so a switch
+        /// continuation attached under it replaced the link). Null when there is none.
+        /// </summary>
+        internal static string FindOverwrittenContinuingBranchPointId(RecordingTree tree, Recording rec)
+        {
+            if (tree?.BranchPoints == null || rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return null;
+            BranchPoint best = null;
+            for (int b = 0; b < tree.BranchPoints.Count; b++)
+            {
+                BranchPoint bp = tree.BranchPoints[b];
+                if (bp == null || bp.ParentRecordingIds == null
+                    || !RecordingTree.BranchTypeCanLeaveParentRecording(bp.Type)
+                    || !bp.ParentRecordingIds.Contains(rec.RecordingId))
+                    continue;
+                if (best == null || bp.UT > best.UT)
+                    best = bp;
+            }
+            return best?.Id;
+        }
+
+        internal static void EnqueueParentedBranchChildren(
             RecordingTree tree, string parentId, HashSet<string> ids, Queue<string> queue)
         {
             if (tree.BranchPoints == null) return;
             for (int b = 0; b < tree.BranchPoints.Count; b++)
             {
                 BranchPoint bp = tree.BranchPoints[b];
-                if (bp == null || bp.Type != BranchPointType.GroundPartPlaced) continue;
+                if (bp == null) continue;
                 if (bp.ParentRecordingIds == null || !bp.ParentRecordingIds.Contains(parentId)) continue;
                 if (bp.ChildRecordingIds == null) continue;
                 for (int i = 0; i < bp.ChildRecordingIds.Count; i++)
@@ -5219,7 +5250,7 @@ namespace Parsek
                     CommittedRecordings,
                     object.ReferenceEquals(null, scenario) ? null : scenario.RecordingRewindRetirements))
             {
-                reason = "Recording was rewound out of the active timeline";
+                reason = "Recording was rewound out of timeline";
                 return false;
             }
 

@@ -270,7 +270,7 @@ namespace Parsek
             if (plan.LandsAtTimelineStart)
             {
                 return $"Rewind to the earliest launch \"{ownerName}\" at {launchDate} " +
-                       "(the start of your timeline)?\n\nAny uncommitted progress will be lost.";
+                       "(where timeline starts)?\n\nAny uncommitted progress will be lost.";
             }
 
             return $"Rewind to \"{ownerName}\" launch at {launchDate}, then fast-forward to " +

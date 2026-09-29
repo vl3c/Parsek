@@ -299,8 +299,8 @@ namespace Parsek.Tests
             Assert.True(!d[1].Marked && d[1].Blocked);
             Assert.Equal(StockUiDecorationKind.ContractResolution, d[2].Kind);
             Assert.True(d[2].Marked && d[2].Blocked);
-            Assert.StartsWith("Completes on ", d[2].Why);
-            Assert.Contains(StockScreenCensusFixture.FlightName, d[2].Why);
+            Assert.StartsWith("Completed on ", d[2].Why);
+            Assert.EndsWith(", blocked by timeline until then.", d[2].Why);
         }
 
         [Fact]
