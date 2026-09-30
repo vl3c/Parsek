@@ -56,10 +56,22 @@ tier = "nightly"
 #     the clear and before the ghosts are rebuilt. Filed as todo
 #     INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS (test runner only; no player path calls it).
 #     The RunTests step is therefore dropped from this lane.
+#
+# READING 2, `2026-09-30_1837`, PASS attempt 1, the first flight of THIS shape (budget 10, no
+# batch): eight `Created ghost vessel 'Ghost: VB Probe N'` lines, then BOTH save builds (the
+# SaveGame and FlushAndQuit's) logged `excluded 8 ghost map vessel(s) ... MAX_VESSELS_BUDGET
+# 10 -> 18` and stock printed no `Too many vessels` line. The produced FLIGHTSTATE holds nine
+# real vessels (two asteroids - stock spawned a second at the load again - the upper stage and
+# all six `Kerbal X Debris`) and no ghost; without the patch 17 vessels against 10 would have
+# dropped all six debris. The harness applied MAX_VESSELS_BUDGET=10 / DECLUTTER_KSC=False and
+# restored 250 / True at teardown. `recordings.structure` ARMED off this reading (its windows
+# are the measured values). ARMED RE-FLIGHT `2026-09-30_1902` PASS attempt 1 (saveParse
+# gating=True), same lines; offline negative control over it 9 of 9 seeds red on exactly their
+# token or window. Claims D14 `vessel-budget`.
 description = "The stock vessel budget vs ghost map vessels, in the Tracking Station: mun-park-kerbalx (eight real vessels, six of them Debris) plus eight in-window probe ghosts, flown at MAX_VESSELS_BUDGET = 10 via a per-run settings delta. Every save build must drop nothing (the ghosts are excluded by FlightStateGhostBudgetPatch) and the produced save keeps all six debris."
 instanceProfile = "stock-minimal"
 tags = ["settings-axis", "vessel-budget", "ghost-map", "injected-recordings", "tracking-station",
-        "VB-1"]
+        "VB-1", "flown", "D14", "armed"]
 
 [fixture]
 saveTemplate = "fixtures/saves/mun-park-kerbalx"
@@ -88,7 +100,7 @@ steps = [
 ]
 
 [dimensionsCovered]
-D14 = ["sandbox", "scene-ts"]
+D14 = ["sandbox", "scene-ts", "vessel-budget"]
 
 [expectations]
 allowedAnomalies = []
@@ -97,6 +109,7 @@ allowedAnomalies = []
 count = { min = 8, max = 8 }
 
 [expectations.recordings.structure]
+gating = true
 committedTrees = { min = 8, max = 8 }
 vesselNames    = { "Kerbal X Debris" = { min = 6, max = 6 }, "#autoLOC_501232" = { min = 1, max = 1 }, "Ghost: VB Probe 1" = { min = 0, max = 0 } }
 
