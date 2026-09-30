@@ -849,10 +849,16 @@ namespace Parsek
 
             // Inline header-bar label (non-bold), vertically centered + stretched so "Loop" and the
             // read-only locked period label share a baseline with each other and the centered buttons.
+            // Non-wrapping: on a mission's second line these labels ("Loop", "Looped by route",
+            // the locked "~13d-19d (Mun window, varies)" period) share the name cell with the
+            // wrapping summary, and a wrapping label there was squeezed into two clipped lines
+            // (GUI-17, 2026-09-30). Non-wrapping, each takes its one-line width and the summary
+            // (MinWidth 0) wraps into what is left.
             missionHeaderInlineLabel = new GUIStyle(GUI.skin.label)
             {
                 alignment = TextAnchor.MiddleLeft,
-                stretchHeight = true
+                stretchHeight = true,
+                wordWrap = false
             };
 
             // Mission summary (T1.1): the left cell of the mission bar's second line, at the
