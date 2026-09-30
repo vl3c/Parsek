@@ -25,6 +25,13 @@ _(unreleased — entries accumulate here per commit)_
   timeline, so no reward was paid.`), and the "now" divider says the rows below happen on
   their date and hold stock controls until then. The text is built only for the hovered
   row.
+- **Dev: harness missions detect a stage separation by the active vessel part count too.** A mission
+  confirmed a decouple or undock only by the game-wide vessel count rising. When the split made
+  Parsek write a rewind-point save, stock removed launch-clamp debris at KSC in the same moment, the
+  count fell instead, and `BDOCK-1-station-interceptor` gave up with "no separation observed". The
+  missions now also accept the active vessel having fewer parts than at phase entry, and log both
+  counts (`vessels=` / `parts=`). Not yet re-flown (`harness/missions/lib/mlib.py`,
+  `split_bump_observed`).
 - **Dev: a game-settings test axis.** Every harness lane had run at the Normal preset with
   the instance's `settings.cfg`; lanes can now fly at other stock settings. A spec may declare
   `[runtime] kspSettings = { MAX_VESSELS_BUDGET = N, DECLUTTER_KSC = true|false }`: the run

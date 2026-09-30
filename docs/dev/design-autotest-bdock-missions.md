@@ -328,8 +328,14 @@ STATION-CIRCULARIZE -> STATION-SEPARATE   (post-circularize two-step separation)
   (Two evidence-chained steps. STEP 1 (drop the core): the entry
    ACTION_ACTIVATE_STAGE drops the spent Mainsail core; step-1 done evidence =
    vessel_count INCREASES past the phase-entry baseline (the spent core spawns as
-   a NEW vessel), debounced K consecutive frames; fail closed on an unread
-   vessel_count (default 0). STEP 2 (ignite the orbital engine): the LV-T45 sits
+   a NEW vessel) OR the active vessel's own part_count falls below its phase-entry
+   baseline, debounced K consecutive frames on which either holds; fail closed on
+   an unread vessel_count or part_count (both default 0, and the part channel
+   needs the current AND the baseline reading positive). The part channel is the
+   one an unrelated vessel removal cannot mask: the split's own rewind-point save
+   triggers the stock KSC debris declutter, which removed three launch-clamp
+   debris vessels 0.7 s after the decouple on flight 2026-09-29_2135 (count
+   4 -> 5 -> 2) (`mlib.split_bump_observed`). STEP 2 (ignite the orbital engine): the LV-T45 sits
    in a LATER stage than the separation decoupler, so AFTER the split -- if
    available_thrust is not already debounced-positive -- emit EXACTLY ONE more
    ACTION_ACTIVATE_STAGE to light it; phase done evidence = available_thrust > 0
@@ -337,7 +343,8 @@ STATION-CIRCULARIZE -> STATION-SEPARATE   (post-circularize two-step separation)
    most 2 activations per SEPARATE phase -- a THIRD would fire the istg=0
    heat-shield Decoupler.2. Bounded give-up (separationTimeoutSeconds spans BOTH
    steps) -> a named FLAKE that distinguishes "no separation observed (vessel_count
-   did not increase)" from "separated but no ignition (available_thrust stayed 0)",
+   N never held above baseline B and active part_count M never fell below
+   baseline P)" from "separated but no ignition (available_thrust stayed 0)",
    retryable. available_thrust also rides the phase-transition log line. On
    completion the machine emits the ATTITUDE HOLD (ACTION_SET_SAS +
    ACTION_SET_RCS on, flight-10) so the dropped mass does not tumble the stage.
@@ -466,8 +473,9 @@ DOCK -> TRANSFER
 TRANSFER -> UNDOCK
   (ACTION_UNDOCK the Clamp-O-Tron. KSP fires onPartUndock then, authoritatively,
    onVesselsUndocking(oldVessel, newVessel) -> Parsek authors the Undock split
-   branch in TA and completes the RouteConnectionWindow. Done evidence: vessel_count
-   INCREASED by one AND the port state != Docked - Ready alone is only SOFT evidence
+   branch in TA and completes the RouteConnectionWindow. Done evidence: (vessel_count
+   INCREASED, or the active vessel's part_count fell below its pre-undock
+   baseline) AND the port state != Docked - Ready alone is only SOFT evidence
    because the port lingers in Undocking while the halves are still inside
    ReengageDistance.)
 
@@ -710,6 +718,10 @@ reading the persisted recordings.
 - `vessel_count: int = 0` - `len(sc.vessels)`; the UNDOCK split gate reads its
   INCREASE (a split raises the count) - load-bearing, with `docking_state != Docked`;
   `Ready` alone is only soft evidence (MINOR 10).
+- `part_count: int = 0` - `len(vessel.parts.all)` of the ACTIVE vessel, 0 = unread;
+  the second split channel (`mlib.split_bump_observed`: `0 < part_count <
+  baseline`), which a removal of some OTHER vessel cannot cancel. Logged with
+  vessel_count as ` vessels=N parts=M` on the transition, gate and telemetry lines.
 - `transfer_complete: bool = False` + `transfer_amount: float = nan` - the active
   `ResourceTransfer` poll (the runner owns the handle).
 - `monopropellant: float = nan` - vessel-total MonoPropellant (the P2 channel).
