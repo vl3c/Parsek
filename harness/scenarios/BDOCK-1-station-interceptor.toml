@@ -272,7 +272,18 @@ allowedAnomalies = []
 # moved between the armed run and the control (Destroyed 12 against Destroyed 11 +
 # Landed 1, same count and branch points), which is why no terminalStates window is
 # declared here.
-count = { min = 19, max = 20 }
+#
+# MAX RAISED 20 -> 22 ON 2026-09-30 off `2026-09-30_1732_BDOCK-1-station-interceptor`
+# (main + the STATION-SEPARATE part-count fix, PR #1934; MISSION-OK; count 21): the FIRST
+# completed run of the NO-DIALOG shape (`showing tree merge dialog (fallback)` 0,
+# `StashActiveTreeAsPendingLimbo` 3), and the first since PR #1931 made the in-flight
+# `CommitTreeFlight` run the optimization pass. Each of the two seam commits split one
+# ascent recording at its atmosphere exit (`CommitTreeFlight: optimization pass ran
+# committed=8->9` at UT 196.1 and `committed=20->21` at UT 567.2), so the measured 19
+# members plus 2 optimizer splits = 21; debris 12 and the 5.0 Hz token 15 are unchanged.
+# The min stays 19 (the dialog shape's measured count); the max is the new measurement
+# plus one, the same slack the old 20 carried over 19.
+count = { min = 19, max = 22 }
 
 [expectations.logContracts]
 # Required: the recording lifecycle, the cross-tree Dock branch + the authoritative

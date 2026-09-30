@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## BDOCK-1-STATION-SEPARATE-NOT-OBSERVED: the BDOCK-1 mission never sees the station separation it just performed [FILED 2026-09-30 from the #1931 / #1932 verification flights. OPEN, harness mission, pre-existing]
+## ~~BDOCK-1-STATION-SEPARATE-NOT-OBSERVED: the BDOCK-1 mission never sees the station separation it just performed~~ [FILED 2026-09-30 from the #1931 / #1932 verification flights. FIXED 2026-09-30, PR #1934, flight-proven]
 
 `BDOCK-1-station-interceptor` classifies INVALID(autopilot-flake) twice on a build of main + #1931 + #1932
 (`Parsek-verify-1931-1932/harness/results/2026-09-29_2135`, `_2141_a2`) AND twice on plain origin/main
@@ -57,6 +57,15 @@ same way. GS-2 is untouched: its split evidence is the named sibling watch, with
 report-only fallback. What a flight should now show: `vessels=N parts=M` on the phase-transition,
 gate and telemetry lines, `sepBaseVessels=` / `sepBaseParts=` (and `undockBaseParts=`) on the
 machine line, and a give-up reason that prints both counts against both baselines.
+
+Flight proof: `2026-09-30_1732_BDOCK-1-station-interceptor` reached MISSION-OK (every mission
+assertion met, the first completed BDOCK-1 mission since 2026-09-10). STATION-SEPARATE read
+exactly the failure shape and passed on the new channel: `vessels=4 parts=39` at entry, then
+`vessels=2 parts=28` at STATION-ORBIT (the vessel count FELL, the part count certified the
+split); INT-SEPARATE likewise (`vessels=7 parts=41` -> `vessels=5 parts=28`). The run's only
+remaining mismatch was `recordings.count 21 > max 20`: the first completed NO-DIALOG shape, whose
+two in-flight commits each ran the PR #1931 optimization pass and split one ascent recording
+(`committed=8->9`, `committed=20->21`); the lane's window is widened to 19..22 in the same PR.
 
 
 ## ~~IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS: a tree committed in flight is never optimized (no boring-tail trim, no split / merge) until the next cold load~~ [FILED 2026-09-29 from EVA-9 `2026-09-29_1528`, branch `deployables-lanes`; FIXED 2026-09-29, branch `inflight-commit-optimize`. DEDUPE: the OPEN entry with this id lives on `deployables-lanes`; when both branches land keep this closed entry and drop the open one]
