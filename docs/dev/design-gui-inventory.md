@@ -440,64 +440,82 @@ the New Group footer button (the Info button was removed 2026-09-26), and every 
 `MissionVesselRowBuilder.Build` (`MissionVesselRows.cs:59`); depth is SEPARATION LINEAGE only,
 never time (`:118-123`); roster atoms are not rows (`:99-101`).
 
-| # | header | width const | value on the mission bar's first line | on a vessel row |
-|---|---|---|---|---|
-| 1 | (blank enable slot) | `ColW_Enable` 20 | blank | blank |
-| 2 | `#` (sortable) | `ColW_Index` 30 | per-TREE index | include checkbox (Advanced) or blank |
-| 3 | `Missions and vessels` (sortable) | expand | mission title button (double-click renames) | connector + caret + name + `EventPhrase` |
-| 4 | `Start time` (sortable) | `ColW_StartTime` 120 | the mission span's start date | `PrintDateCompact` |
-| 5 | `Start event` | `ColW_StartEvent` 110 | the first vessel row's start event (`Launch` on an ordinary mission; `MissionPresentation.MissionStartEventText`) | event word, dock-partner named when resolvable (`:1937`) |
-| 6 | `End event` | `ColW_EndEvent` 85 | the primary vessel's outcome (the summary facts' terminal word) | terminal word |
-| 7 | `End time` | `ColW_EndTime` 120 | the mission span's end date | date |
-| 8 | `Re-Fly` | `ColW_ReFly` 90 | blank (Re-Fly is per vessel) | Fly / Seal cell (`UI/RecordingsTableUI.cs:3411`) |
-| 9 | `Archive` + global toggle | `ColW_Archive` 80 | per-mission checkbox | margin-0 spacer |
+| # | header | width const | mission bar line 1 | mission bar line 2 | vessel / interval / partner / chapter rows |
+|---|---|---|---|---|---|
+| 1 | (blank enable slot) | `ColW_Enable` 20 | blank | blank | blank |
+| 2 | `#` (sortable) | `ColW_Index` 30 | per-TREE index | blank | include checkbox (Advanced) or blank |
+| 3 | `Missions and vessels` (sortable) | expand | bold title (double-click renames) + `Log` right-aligned (`DrawMissionNameCell`) | the summary, then the Advanced loop group right-aligned (`DrawMissionSummaryNameCell`) | connector + caret + name + `EventPhrase` |
+| 4 | `Start time` (sortable) | `ColW_StartTime` 120 | the mission span's start date | blank | `PrintDateCompact` |
+| 5 | `Start event` | `ColW_StartEvent` 110 | the first vessel row's start event (`MissionPresentation.MissionStartEventText`) | blank | event word, dock-partner named when resolvable |
+| 6 | `End event` | `ColW_EndEvent` 85 | the primary vessel's outcome | blank | terminal word |
+| 7 | `End time` | `ColW_EndTime` 120 | the mission span's end date | blank | date |
+| 8 | `Interact` (plain label) | `ColW_Interact` 116 | `Watch` (+ `Rewind` / `Forward` as a pair) | `Collapse` / `Expand` toggle button | Fly / Stash + Seal (vessel, interval rows), `Go to` (Docked partner rows), blank (chapter rows) |
 
-Missions Model 1 (2026-09-29) made the mission bar a TABLE ROW: its first line lays out the
-same columns as a vessel row (`DrawMissionValueRow`), so every heading describes the first row
-under it, and `MissionsTabColumnSequenceTests` pins the column sequence of the header against
-the mission row, the vessel row, the interval row, the chapter header row and the Docked
-partner row. The `Next launch` column (`ColW_TMinus` 105, a countdown on each mission's launch
-row) is GONE: the countdown lives in the summary line, amber, and the warning its amber tint
-carried (station drift, arrival refusal, a launch outside its alignment tolerance) rides the
-summary's tooltip with the two state words' explanations. The bar's second line is the summary
-on the left (the title's font size, muted colour, wrapping rather than clipping) and the
-buttons right-aligned on the right: Basic `[Log] [Looped by route] [Watch] [Rewind/Forward]`,
-Advanced `[Log] [Clone] [Delete] [Warp to... or a same-width space] [Loop x] [Looped by route]
-[period] [Watch] [Rewind/Forward]`.
+Missions Model 1 (2026-09-29, Interact column and Collapse 2026-09-30 from the owner's mock-up)
+made the mission bar TWO TABLE ROWS: both lines lay out the same columns as every row under
+them (`DrawMissionValueRow` / `DrawMissionActionLine`), so every heading describes the first
+row under it. `MissionsTabColumnSequenceTests` pins the column sequence of the header against
+both bar lines, the vessel row, the interval row, the chapter header row and both Docked
+partner row kinds, in both modes. The Re-Fly and Archive columns merged into the ONE right-hand
+`Interact` column, which carries every per-row action. Its buttons share one width system:
+`InteractButtonWidth` 100 for a single (Watch alone, Collapse / Expand, Go to, and Log in the
+name cell), `InteractPairButtonWidth` 48 for each half of a pair (Fly / Stash + Seal, Watch +
+Rewind), `InteractButtonGap` 4, pinned `2 * pair + gap == single`; the column is the single
+plus an 8 px inset each side. (The owner asked for single = old Watch 70 + 10 and pairs wider
+than today's; at 80 a pair half is 38, exactly today's cramped Stash, so the single is 100.)
+The Re-Fly pair is the Recordings tab's own cell drawn at that geometry
+(`RecordingsTableUI.DrawReFlyColumnCell(rec, ri, now, cellWidth, leftInset)`). The `Next
+launch` column (`ColW_TMinus` 105) is GONE: the countdown lives in the summary line, amber, and
+the warning its amber tint carried (station drift, arrival refusal, a launch outside its
+alignment tolerance) rides the summary's tooltip with the two state words' explanations. The
+summary is the title's font size, muted colour, and wraps rather than clipping.
 
-Mission bar controls (`DrawMissionValueRow` / `DrawMissionActionLine`), with their gates:
+**Collapse replaces Archive.** `Mission.Collapsed` (saved as `collapsed`; an older save's
+per-mission `archived` loads as collapsed) hides a mission's vessel, interval, chapter and
+partner rows; the whole two-line bar stays. The draw loop reads the flag once before the bar
+draws, so a click lands next frame. The list's "hide archived missions" filter
+(`MissionStore.HideArchived`, saved `missionHideArchived`, purged on save) and its header
+checkbox are REMOVED; the header reads a plain `Interact`. The Timeline GoTo cross-link, which
+cleared that filter, now QUEUES expanding a collapsed target and applies it on a Layout pass.
+Seam: `op=state key=archivedMissions` is gone; `op=expand window=missions key=mission:<id>`
+drives Collapse / Expand (expanded = not collapsed), and `key=all` / `key=none` include it.
+The Recordings tab's per-recording Archive (`rec.Hidden`) and the Timeline's `Archived` filter
+are a different mechanism and are unchanged.
 
-| control | backend | disabled / hidden |
-|---|---|---|
-| title double-click | `CommitMissionRename` (`:3859`) -> `MissionGroupLink.RenameMissionGroup` (`MissionGroupLink.cs:57`) for an original, `MissionStore.RenameMission` for a clone | a group-name collision refuses the whole rename, Warn-only (`:3879`) |
-| `Log` | `ParsekUI.OpenStructureWindowForMission` (`ParsekUI.cs:1057`) | never |
-| `Clone` | `MissionStore.Clone` | HIDDEN in Basic (`:2505-2509`) |
-| `Delete` | `MissionStore.Delete` | greyed by `CanDelete`; reason is the constant `A flight always keeps its first mission` (`:2908`). HIDDEN in Basic since Missions Model 1 (2026-09-29) |
-| `Warp to...` | confirm dialog then a forward jump (`:2993`) | drawn ONLY while the mission loops (a same-width space otherwise), HIDDEN in Basic since Missions Model 1; `ShouldEnableWarpToWindow` (`:3055`); three ordered reasons (`MissionWarpToDisabledReason`: scene, schedule, launch ahead) |
-| `Loop` + toggle | `CommitMissionLoopToggle` (`:2756`) -> `MissionStore.SetLoopEnabled` | HIDDEN in Basic; greyed when `RouteTreeGuard.RouteBindingFor(treeId)` |
-| loop-period cell | `CommitMissionLoopPeriod` (`:4208`), four states (locked / auto / manual / editing) at `:3995` | HIDDEN in Basic; an open edit is DROPPED uncommitted on a Basic switch (`:772-784`) |
-| `Watch` / `W*` | `flight.EnterWatchMode` / `ExitWatchMode` | two reasons at `:2918`. Not Basic-gated |
-| `Rewind` / `Forward` | `UI/RecordingsTableUI.cs:3363` over the mission root recording | greys on `CanRewind` / `CanFastForward` with the store's reason |
-| Archive checkbox | writes `mission.Archived` | never |
+Mission bar controls, with their gates:
 
-The rest of the tab: expanded per-vessel interval rows (Advanced only, `:1547`), chapter group
-header rows (their tri-state toggle, the `[~]` marker and the dimming are Advanced-only: the
-P21 fix gated the toggle, and Missions Model 1 gated the styling), `Docked partner:` rows plus
-the foreign partner-journey staircase (`:2032`; Basic draws the row plain and never the
-journey). Every Docked partner row carries a `Go to` in the Re-Fly slot that opens the
-partner's mission (`DrawPartnerGoToCell` -> `ShowMissionForRecording`), and a dock THIS mission
-recorded with another mission's vessel draws a Docked partner row of its own
-(`DrawRecordedDockPartnerRow`, no include toggle). The `Events (N)` digest foldout is REMOVED
-(Missions Model 1): its only unique content, the other-mission partner naming and its `Go
-to`, is on those rows; `MissionEventDigest` survives only as their source.
+| control | where | backend | disabled / hidden |
+|---|---|---|---|
+| title double-click | line 1 name cell | `CommitMissionRename` -> `MissionGroupLink.RenameMissionGroup` (`MissionGroupLink.cs:57`) for an original, `MissionStore.RenameMission` for a clone | a group-name collision refuses the whole rename, Warn-only |
+| `Log` | line 1 name cell, right-aligned | `ParsekUI.OpenStructureWindowForMission` | never |
+| `Watch` / `W*` | line 1 Interact | `flight.EnterWatchMode` / `ExitWatchMode` | two reasons (`MissionWatchDisabledReason`). Not Basic-gated |
+| `Rewind` / `Forward` | line 1 Interact, paired with Watch when shown | `RecordingsTableUI.DrawMissionRewindForwardButton` over the mission root recording | greys on `CanRewind` / `CanFastForward` with the store's reason; not drawn when neither applies (Watch then takes the full width) |
+| `Collapse` / `Expand` | line 2 Interact | writes `Mission.Collapsed` | never |
+| `Clone` | line 2 name cell, Advanced | `MissionStore.Clone` | HIDDEN in Basic |
+| `Delete` | line 2 name cell, Advanced | `MissionStore.Delete` | greyed by `CanDelete` (`A flight always keeps its first mission`). HIDDEN in Basic since Missions Model 1 |
+| `Warp to...` | line 2 name cell, Advanced | confirm dialog then a forward jump | drawn ONLY while the mission loops (a same-width space otherwise), HIDDEN in Basic; three ordered reasons (`MissionWarpToDisabledReason`: scene, schedule, launch ahead) |
+| `Loop` + toggle | line 2 name cell, Advanced | `CommitMissionLoopToggle` -> `MissionStore.SetLoopEnabled` | HIDDEN in Basic; greyed when `RouteTreeGuard.RouteBindingFor(treeId)` |
+| `Looped by route` | line 2 name cell, both modes | label (route name in the hover) | only on a route-bound tree |
+| loop-period cell | line 2 name cell, Advanced | `CommitMissionLoopPeriod`, four states (locked / auto / manual / editing) | HIDDEN in Basic; an open edit is DROPPED uncommitted on a Basic switch |
 
-Missions Model 1 (2026-09-29) made every loop surface Advanced-only: Clone, Delete, `Warp
-to...`, the `Next launch` column (header and row cells together; the column itself was then
-retired, see above), the summary line's `Loops ~P`
-and `Next launch T- ...` pieces, and the loop-selection styling (dimmed excluded vessels, the
-`(partial)` suffix). Basic keeps Log, Watch, Rewind / Forward, Archive, Re-Fly, the chapter
-headers, the Docked partner rows and the `Looped by route` label. The summary line is the
-title's font size with a muted colour; its countdown is amber rich text.
+The rest of the tab: expanded per-vessel interval rows (Advanced only), chapter group header
+rows (their tri-state toggle, the `[~]` marker and the dimming are Advanced-only: the P21 fix
+gated the toggle, and Missions Model 1 gated the styling), `Docked partner:` rows plus the
+foreign partner-journey staircase (Basic draws the row plain and never the journey). Every
+Docked partner row carries a `Go to` in the Interact column that opens the partner's mission
+(`DrawInteractGoTo` -> `ShowMissionForRecording`), and a dock THIS mission recorded with
+another mission's vessel draws a Docked partner row of its own (`DrawRecordedDockPartnerRow`,
+no include toggle). The `Events (N)` digest foldout is REMOVED: its only unique content, the
+other-mission partner naming and its `Go to`, is on those rows; `MissionEventDigest` survives
+only as their source. Vessel and interval rows' single-line data cells no longer clip
+descenders (`compositionCellLabel.clipping = Overflow`: its 5 px bottom padding, kept for the
+wrapped name cell, left a 17 px content rect in a 22 px row).
+
+Missions Model 1 made every loop surface Advanced-only: Clone, Delete, `Warp to...`, the
+summary line's `Loops ~P` and `Next launch T- ...` pieces, and the loop-selection styling
+(dimmed excluded vessels, the `(partial)` suffix). Basic keeps Log, Watch, Rewind / Forward,
+Collapse, Fly / Seal, Go to, the chapter headers, the Docked partner rows and the `Looped by
+route` label.
 
 Pictures: `ksc-missions-missions-advanced` (922 nodes, 18 missions, every Loop off, every
 period `10` / `sec`), `ksc-missions-basic` (813 - no tab bar, no Clone, no Loop, no period, no
@@ -743,7 +761,8 @@ control a Basic player can reach**. What it governs: whether recordings with
 their flight rows (launch, separation, spawn, crew death), each marked `[archived]`
 (`TimelineBuilder.CollectRecordingEntries`). It is in force in every view; the Career views
 list ledger rows only, which archiving never hides, so there it changes nothing. The Missions
-window's own Archive box (`Mission.Archived` / `MissionStore.HideArchived`) is a different
+window's own Archive box (`Mission.Archived` / `MissionStore.HideArchived`, replaced by the
+per-mission Collapse / Expand in Missions Model 1, 2026-09-30) was a different
 flag and does not reach the Timeline. Hover: "Lists archived flights, marked [archived], in
 all views. Same switch as the recordings list's Archive filter."
 
@@ -1327,7 +1346,7 @@ control count (`ParsekUI.cs:294-297`, `:246`).
 | `MainButtonSettings` | `:72` | KEEP (`:174`) | **none** | nothing |
 | `TabRecordings` | `:75` | HIDE (`:183`) | `UI/RecordingsTableUI.cs:189` | the Recordings tab and its whole body |
 | `TabMissions` | `:78` | KEEP (`:175`) | `UI/TimelineWindowUI.cs:1265` | nothing today; the GoTo button is gated by its TARGET's key by design (`:35-41`) |
-| `MissionsLoopControls` | `:95` | HIDE (`:184`) | `UI/MissionsWindowUI.cs:735` (+7 consumers) | the Loop toggle, the period cell, Clone, Delete, `Warp to...`, the summary's loop pieces, the loop-selection styling and every interval / partner checkbox (Missions Model 1, 2026-09-29). NOT the route label, Watch, Rewind / Forward, Log, Archive or Re-Fly |
+| `MissionsLoopControls` | `:95` | HIDE (`:184`) | `UI/MissionsWindowUI.cs:735` (+7 consumers) | the Loop toggle, the period cell, Clone, Delete, `Warp to...`, the summary's loop pieces, the loop-selection styling and every interval / partner checkbox (Missions Model 1, 2026-09-29). NOT the route label, Watch, Rewind / Forward, Log, Collapse, Fly / Seal or Go to |
 | `SettingsSectionLooping` | `:110` | HIDE (`:185`) | `UI/SettingsWindowUI.cs:345`, `:378` | the Looping section |
 | `SettingsSectionDiagnostics` | `:113` | HIDE (`:186`) | `UI/SettingsWindowUI.cs:393` | the Diagnostics section, and with it the only reopen path to `TestRunnerUI` |
 | `SettingsSectionSampleDensity` | `:116` | HIDE (`:187`) | `UI/SettingsWindowUI.cs:401` | the sample-density section |
@@ -1662,7 +1681,7 @@ wave-6 lane plan, the grammar and refusals in
 | `op=state key=customRange` + `key=preset` | the Custom range (the window's only two sliders; between 2026-09-24 PR #1792 and the preset-row revert the key opened a Time fold), the `From:` / `To:` labels (zero hits), the four ranged presets and the active-range readout (that readout was removed 2026-09-25) | Timeline |
 | `op=state key=scrollY` | the window's first scrolled PNG. Note the dump already carried below-fold content with full rects, so this buys the PICTURE, not the data | Timeline |
 | `op=state key=expandedStats` | (REMOVED 2026-09-26 with the Recordings tab's Info toggle; the key no longer exists) | - |
-| `op=state key=archivedMissions` | whole missions dropping out; the only way to exercise `DisplayBlockRendersAnything` and the corner-connector precedence table | Missions (Missions tab) |
+| ~~`op=state key=archivedMissions`~~ (removed 2026-09-30; the archive filter became per-mission Collapse, `op=expand key=mission:<id>`) | whole missions dropping out; the only way to exercise `DisplayBlockRendersAnything` and the corner-connector precedence table | Missions (Missions tab) |
 | `op=sort` | 20 Missions sort states, 16 Logistics, 8 Spawn Control - all zero captured, and each is materially different (the arrow moves AND the row order does, including group-vs-recording interleaving) | Missions, Logistics, Spawn Control |
 | `op=select key=vessel:` | the greyed include-OFF row and the `" (partial)"` suffix, which test the non-cascading `ExcludedIntervalKeys` contract | Missions |
 | `op=select key=link:` | the foreign partner-journey subtree - an entire recursive renderer with zero coverage | Missions |

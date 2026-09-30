@@ -2155,24 +2155,30 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
-- **Missions window, first redesign slice.** The mission summary line under each title is
-  now the title's size (it was a smaller grey line) and stays quieter through a muted
-  colour; its next-launch countdown (`Next launch T- 5h 47m`) is drawn in the window's
-  amber. Everything that exists only because of mission looping is now Advanced-only:
-  Clone, Delete, "Warp to..." (now shown only while the mission loops), the Next launch
-  column, the summary's `Loops ~P` and countdown pieces, and the greyed / `(partial)`
-  styling of rows left out of a loop. Basic keeps Log, Watch, Rewind / Forward, Archive,
-  Re-Fly, the chapter headers, the Docked partner rows and `Looped by route`. Each mission's
-  bar is now a row of the table: its first line puts the mission's start time, start event,
-  outcome and end time under the column headings (with the Archive box), and its second line
-  is the summary on the left with the buttons on the right. The Next launch column is gone:
-  the countdown lives in the summary, and the warning its amber tint used to carry (a drifted
-  station, a refused arrival, a launch outside its alignment tolerance) is in the summary's
-  hover. The `Events (N)` list under each mission is gone: its one unique piece, naming the
-  other mission a dock connects to with a Go to button, is on the Docked partner rows now
-  (`Docked partner: CD (mission 'CD Freighter')` + Go to), including a row for a dock this
-  mission recorded with another mission's vessel. The window the Missions `Log` and the
-  Logistics `Log (Route)` / `Log (Mission)` buttons open is titled `Parsek - Log: <name>`.
+- **Missions window redesign, first slice.** The columns are `#`, Missions and vessels,
+  Start time, Start event, End event, End time and **Interact**, one right-hand column that
+  holds every per-row button at one shared width (a two-button pair spans one button). Each
+  mission's dark bar is two rows of the table: the first puts the mission's start time,
+  start event, outcome and end time under the headings, with Log beside the title and Watch
+  (plus Rewind / Forward) in Interact; the second is a one-line story (where it went, how
+  long, who flew, how it ended) with a Collapse / Expand button in Interact. The story is
+  now the title's size, and in Advanced its next-launch countdown (`Next launch T- 5h 47m`)
+  is amber. Collapse hides a mission's vessel rows; its title bar stays. It replaces the
+  per-mission Archive box and the list's "hide archived" filter; a mission archived in an
+  older save loads collapsed. Stash / Fly + Seal and the Docked partner's Go to sit in
+  Interact too. Everything that exists only because of mission looping is Advanced-only
+  (Clone, Delete, "Warp to..." shown only while the mission loops, the Loop toggle and
+  period, the `Loops ~P` and countdown pieces, and the greyed / `(partial)` styling of rows
+  left out of a loop); Advanced puts them on the story line beside the story. The Next
+  launch column is gone: the countdown lives in the story, and the warning its amber tint
+  used to carry (a drifted station, a refused arrival, a launch outside its alignment
+  tolerance) is in the story's hover. The `Events (N)` list under each mission is gone: its
+  one unique piece, naming the other mission a dock connects to with a Go to button, is on
+  the Docked partner rows (`Docked partner: CD (mission 'CD Freighter')`), including a row
+  for a dock this mission recorded with another mission's vessel. Vessel and interval rows
+  no longer cut off the bottom of letters like `g` and `p`. The window the Missions `Log`
+  and the Logistics `Log (Route)` / `Log (Mission)` buttons open is titled
+  `Parsek - Log: <name>`.
 - **Parsek's own windows say "timeline", not "your timeline", "the timeline" or
   "committed".** The Kerbals launcher hover, the Kerbals window's Reserved and Lost hovers
   (`Held on timeline by the flight ...`, `Lost on a flight on timeline.`), the reserved-crew

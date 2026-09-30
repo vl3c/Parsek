@@ -57,13 +57,13 @@ namespace Parsek
         private int pendingRevealScrollFrame = -1;
         private const int RevealScrollMaxAgeFrames = 4;
 
-        // Queued by the cross-link when the Archive filter would hide its target; applied by the
-        // draw on a LAYOUT pass only (see RevealMissionForRecording for why it cannot be written
-        // from the click handler).
-        private bool pendingClearArchiveFilter;
+        // Queued by the cross-link when its target mission is collapsed: the mission to EXPAND,
+        // applied by the draw on a LAYOUT pass only (see RevealMissionForRecording for why it
+        // cannot be written from the click handler).
+        private string pendingExpandMissionId;
 
-        // For tests: the queued filter clear, whose application is draw-loop-only.
-        internal bool PendingClearArchiveFilterForTesting => pendingClearArchiveFilter;
+        // For tests: the queued expand, whose application is draw-loop-only.
+        internal string PendingExpandMissionIdForTesting => pendingExpandMissionId;
 
         // The scheduled cross-link target, for tests: the draw loop that consumes it is an
         // IMGUI callback with no headless seam, so this is the only observable outcome of
@@ -89,9 +89,9 @@ namespace Parsek
 
         // ----- GUI-census seam accessors (UiAction op=expand) -----
         //
-        // Two INDEPENDENT expansion collections back this tab (vessel rows and interval
-        // legs), and the seam addresses both through one namespaced key grammar
-        // (TestCommandUiState). They are exposed
+        // Three INDEPENDENT expansion collections back this tab (vessel rows, interval legs
+        // and each mission's Collapse / Expand), and the seam addresses them through one
+        // namespaced key grammar (TestCommandUiState). They are exposed
         // rather than driven by a synthesised click for the reason the UiAction applier's
         // header gives: every click handler's whole body IS one of these writes, so the
         // seam does the same write and reads it back.
@@ -123,6 +123,41 @@ namespace Parsek
         }
 
         internal int ExpandedVesselCountForTesting => expandedVessels.Count;
+
+        /// <summary>Every mission id: the key a mission's Collapse / Expand is driven by.</summary>
+        internal List<string> EnumerateMissionExpandKeysForTesting()
+        {
+            var keys = new List<string>();
+            var missions = MissionStore.Missions;
+            for (int i = 0; i < missions.Count; i++)
+                if (missions[i] != null && !string.IsNullOrEmpty(missions[i].Id))
+                    keys.Add(missions[i].Id);
+            return keys;
+        }
+
+        /// <summary>Writes a mission's Collapse / Expand the way its Interact button does,
+        /// with the same log line. True when the flag changed.</summary>
+        internal bool SetMissionExpandedForTesting(string missionId, bool expanded)
+        {
+            Mission m = FindMissionById(missionId);
+            if (m == null || m.Collapsed == !expanded)
+                return false;
+            m.Collapsed = !expanded;
+            ParsekLog.Info("Mission", $"Mission '{m.Name}' collapsed={m.Collapsed}");
+            return true;
+        }
+
+        internal int ExpandedMissionCountForTesting
+        {
+            get
+            {
+                int n = 0;
+                var missions = MissionStore.Missions;
+                for (int i = 0; i < missions.Count; i++)
+                    if (missions[i] != null && !missions[i].Collapsed) n++;
+                return n;
+            }
+        }
 
         internal int CollapsedLegCountForTesting => collapsedLegs.Count;
 
@@ -423,12 +458,29 @@ namespace Parsek
         private const float ColW_StartEvent = 110f;
         private const float ColW_EndEvent = 85f;
         private const float ColW_EndTime = 120f;
-        // Uniform width for the mission bar's buttons (Log, Clone, Delete, Warp to..., Watch,
-        // Rewind/Forward): the old Clone width (60) + 10 px, so they all read as one button group.
+        // Width of the Advanced loop buttons on a mission's second line (Clone, Delete, Warp
+        // to...): the old Clone width (60) + 10 px, so they read as one group.
         private const float ColW_HeaderButton = 70f;
-        // Re-Fly column (mirrors the recordings window's Re-Fly/Fly-Seal column width): a per-vessel
-        // Fly / Seal cell for unfinished-flight recordings, drawn by reusing RecordingsTableUI.
-        private const float ColW_ReFly = 90f;
+        // ----- the Interact column (Missions Model 1, owner mock-up 2026-09-30) -----
+        //
+        // ONE right-hand column carries every per-row action: Watch (+ Rewind / Forward) on a
+        // mission's first line, the Archive toggle button on its second, Stash / Fly + Seal on
+        // vessel and interval rows, Go to on Docked partner rows. Every button in it is either a
+        // SINGLE (full width) or half of a PAIR, and a pair spans exactly one single, so the
+        // column's button edges line up on every row. Log (in the name cell of a mission's first
+        // line) takes the single width too. MissionsTabColumnSequenceTests pins
+        // 2 * InteractPairButtonWidth + InteractButtonGap == InteractButtonWidth.
+        //
+        // Sizing: the owner asked for the single width at the old Watch width (70) + 10 and for
+        // the pairs to span one single with wider buttons than today's cramped Stash. Those two
+        // cannot both hold at 80 (a pair of 80 is 38 + 4 + 38, exactly today's Stash), so the
+        // single is 100 and each pair half 48 - wide enough for "Forward" and "Stash".
+        internal const float InteractButtonWidth = 100f;
+        internal const float InteractButtonGap = 4f;
+        internal const float InteractPairButtonWidth = (InteractButtonWidth - InteractButtonGap) / 2f;
+        // Space inside the column either side of its buttons.
+        internal const float InteractCellInset = 8f;
+        internal const float ColW_Interact = InteractButtonWidth + 2f * InteractCellInset;
         // Fixed column-header height so every Missions header cell is the same height (matches
         // RecordingsTableUI.ColHeaderHeight); the toggle-bearing Archive cell would otherwise be
         // taller than the plain-label cells.
@@ -438,10 +490,6 @@ namespace Parsek
         // labels, which alone measure shorter than a recordings row; without this floor the rows
         // pack too tightly and leave no room for the per-row Fly / Seal button.
         private const float CompositionRowMinHeight = 22f;
-        // Rightmost Archive column (mirrors the recordings window's Archive/Hide column): the
-        // header carries the global "hide archived" toggle, each mission row a per-mission check.
-        // Width matches RecordingsTableUI.ColW_Hide (80) so the column reads the same on both tabs.
-        private const float ColW_Archive = 80f;
 
         // Mission-header loop-period cell width (lives on the header row, not the table columns).
         // The "Loop" label + checkbox are emitted as bare siblings (no fixed width), so the only
@@ -632,6 +680,9 @@ namespace Parsek
         // box and unit button render the same as RecordingsTableUI.DrawLoopPeriodCell.
         private GUIStyle bodyCellTextFieldFlush;
         private GUIStyle bodyCellButtonFlush;
+        private GUIStyle interactButtonStyle;
+        private GUIStyle interactPairButtonStyle;
+        private GUIStyle interactToggleButtonStyle;
         // Boxed header-cell container + bold inner label for a header cell that shares its
         // dark box with a toggle (Archive), mirroring RecordingsTableUI.colHdrCellContainerStyle
         // / boldHeaderInnerLabel. The container's left/right margin is zeroed (so its footprint
@@ -690,11 +741,18 @@ namespace Parsek
             // short and the last line's descenders clip (owner playtest 2026-08-20). Padding
             // grows the computed height only past what the row's MinHeight already grants, so
             // single-line rows render exactly as before (label ~16+5 px < the 22 px row floor).
+            //
+            // clipping = Overflow: the 5 px bottom padding shrinks a single-line cell's content
+            // rect to 17 px in a 22 px row, and the default Clip then cut every descender
+            // ("Orbitinq", "Decounled"). The text keeps its position; it is simply not clipped
+            // to the padded rect. Horizontal overflow cannot happen here - the style wraps, and
+            // the one non-wrapping variant below sets Clip back explicitly.
             compositionCellLabel = new GUIStyle(bodyCellLabel)
             {
                 alignment = TextAnchor.MiddleLeft,
                 stretchHeight = true,
-                padding = new RectOffset(BodyCellTextIndent, 0, 0, 5)
+                padding = new RectOffset(BodyCellTextIndent, 0, 0, 5),
+                clipping = TextClipping.Overflow
             };
 
             // Non-wrapping variant for the dock-partner "Start event" cell (T1.4): a long partner
@@ -720,6 +778,28 @@ namespace Parsek
                     0, 0,
                     GUI.skin.button.margin.top, GUI.skin.button.margin.bottom)
             };
+            // Interact column buttons: zero horizontal margin, so a button's rect starts exactly
+            // at the column's inset on every row (a skin button's 4 px margin would shift a
+            // single button against a pair drawn with explicit gaps). The pair halves take the
+            // compact 2 px text padding the Recordings tab's Fly / Seal use.
+            interactButtonStyle = new GUIStyle(GUI.skin.button)
+            {
+                margin = new RectOffset(
+                    0, 0, GUI.skin.button.margin.top, GUI.skin.button.margin.bottom)
+            };
+            interactPairButtonStyle = new GUIStyle(interactButtonStyle)
+            {
+                padding = new RectOffset(
+                    2, 2, GUI.skin.button.padding.top, GUI.skin.button.padding.bottom)
+            };
+            // The Archive toggle BUTTON: pressed look while archived, the house toggle-button
+            // shape (the Timeline filter buttons: onNormal / onHover take the pressed background).
+            interactToggleButtonStyle = new GUIStyle(interactButtonStyle);
+            interactToggleButtonStyle.onNormal.background = GUI.skin.button.active.background;
+            interactToggleButtonStyle.onHover.background = GUI.skin.button.active.background;
+            interactToggleButtonStyle.onNormal.textColor = Color.white;
+            interactToggleButtonStyle.onHover.textColor = Color.white;
+
             bodyCellTextFieldFlush = new GUIStyle(GUI.skin.textField)
             {
                 margin = new RectOffset(
@@ -862,21 +942,18 @@ namespace Parsek
                 return;
             }
 
-            // The Archive filter is the one thing that would drop the destination's whole block
-            // out of the list. Clear the GLOBAL filter (reversible with one click on the tab's
-            // own Archive checkbox), never the mission's own Archived flag - that is a player
-            // decision this navigation has no business overwriting.
-            // DEFERRED, not written here: this runs inside the Timeline's button handler, i.e.
-            // mid-frame, and the filter decides whether a whole mission block (a header row plus
-            // every composition row under it) draws at all. Flipping it between a frame's Layout
-            // and Repaint passes changes the control count and throws
-            // "Getting control N's position in a group with only M controls". The draw consumes
-            // the request on its own Layout pass, where both passes of that frame agree.
-            if (MissionStore.HideArchived && mission.Archived)
+            // A collapsed destination still lists its bar, but the rows the player navigated to
+            // see are hidden, so the reveal EXPANDS it (one click on its Collapse button folds it
+            // back). DEFERRED, not written here: this runs inside the Timeline's button handler,
+            // i.e. mid-frame, and the flag decides how many rows the mission's block draws.
+            // Flipping it between a frame's Layout and Repaint passes changes the control count
+            // and throws "Getting control N's position in a group with only M controls". The
+            // draw consumes the request on its own Layout pass, where both passes agree.
+            if (mission.Collapsed)
             {
-                pendingClearArchiveFilter = true;
+                pendingExpandMissionId = mission.Id;
                 ParsekLog.Verbose("UI",
-                    $"Cross-link: queued an Archive-filter clear to show archived mission '{mission.Name}'");
+                    $"Cross-link: queued expanding collapsed mission '{mission.Name}' id={mission.Id}");
             }
 
             pendingRevealMissionId = mission.Id;
@@ -1029,17 +1106,19 @@ namespace Parsek
                 CommitMissionLoopPeriodEdit(FindMissionById(loopPeriodFocusedMissionId));
             }
 
-            // Consume a queued cross-link Archive-filter clear. LAYOUT-pass only: this changes
-            // how many mission blocks the loop below draws, so applying it on any other pass
-            // would desync that pass from this frame's solved layout.
-            if (pendingClearArchiveFilter && Event.current.type == EventType.Layout)
+            // Consume a queued cross-link expand. LAYOUT-pass only: this changes how many rows
+            // the mission's block draws, so applying it on any other pass would desync that pass
+            // from this frame's solved layout.
+            if (pendingExpandMissionId != null && Event.current.type == EventType.Layout)
             {
-                pendingClearArchiveFilter = false;
-                if (MissionStore.HideArchived)
+                Mission toExpand = FindMissionById(pendingExpandMissionId);
+                pendingExpandMissionId = null;
+                if (toExpand != null && toExpand.Collapsed)
                 {
-                    MissionStore.HideArchived = false;
+                    toExpand.Collapsed = false;
                     ParsekLog.Info("UI",
-                        "Cross-link: cleared the Archive filter so the revealed mission is listed");
+                        $"Cross-link: expanded collapsed mission '{toExpand.Name}' id={toExpand.Id} " +
+                        "so the revealed rows are listed");
                 }
             }
 
@@ -1115,12 +1194,12 @@ namespace Parsek
                 RecordingTree tree = FindTree(trees, mission.TreeId);
                 if (tree == null)
                     continue;
-                // Archive: when the Archive toggle is on, archived missions drop out of the
-                // list (mirrors the recordings tab hiding Hidden rows). Their loop / ghost
-                // state is untouched; un-archive or toggle off to see them again.
-                if (MissionStore.HideArchived && mission.Archived)
-                    continue;
                 missionCount++;
+                // Collapse: read ONCE, before the bar draws. The bar's own Collapse / Expand
+                // button writes the flag mid-pass, and the rows below it must follow the value
+                // this pass's Layout used, or the control count desyncs; the click shows next
+                // frame. A collapsed mission keeps its whole two-line bar.
+                bool collapsed = mission.Collapsed;
 
                 var (structure, view) = GetMissionView(tree);
 
@@ -1136,8 +1215,11 @@ namespace Parsek
                 // cell is the first vessel's start event.
                 var vesselRows = GetVesselRows(tree);
                 DrawMissionHeader(mission, ordered[i].index, view, periodicity,
-                    GetSummaryFacts(tree), MissionPresentation.MissionStartEventText(vesselRows));
+                    GetSummaryFacts(tree), MissionPresentation.MissionStartEventText(vesselRows),
+                    collapsed);
                 CaptureRevealAnchor(mission);
+                if (collapsed)
+                    continue;
 
                 // T2.2: the FLATTENED per-vessel rows - one row per physical vessel / EVA
                 // kerbal, depth = separation lineage only, the event chain inline; each
@@ -1725,22 +1807,13 @@ namespace Parsek
 
             GUI.color = prevColor;
 
-            // Re-Fly cell: the vessel's head recording (the only interval key that IS a real
-            // recording id - same resolution the first interval row had in the staircase).
+            // Interact: the vessel's head recording's Fly / Stash + Seal (the only interval key
+            // that IS a real recording id - same resolution the first interval row had in the
+            // staircase), or a blank cell.
             if (TryResolveCommittedRecording(row.OwnerHeadId, out int reFlyIdx, out Recording reFlyRec))
-            {
-                parentUI.GetRecordingsTableUI().DrawReFlyColumnCell(
-                    reFlyRec, reFlyIdx, Planetarium.GetUniversalTime());
-            }
+                DrawInteractReFly(reFlyRec, reFlyIdx);
             else
-            {
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
-            }
-
-            // Margin-0 trailing cell (see DrawCompositionRow's Archive-column note).
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
+                DrawInteractBlank();
             GUILayout.EndHorizontal();
             int rows = 1;
 
@@ -1906,31 +1979,16 @@ namespace Parsek
             // recording's re-fly state is independent of whether the interval is looped).
             GUI.color = prevColor;
 
-            // Re-Fly cell (per-vessel Fly / Seal for unfinished-flight recordings), left of Archive.
-            // Only real (non-atom) rows map to a recording; resolve node.HeadLegId to its committed
-            // recording and reuse the recordings tab's Re-Fly cell (it shows Fly / Seal only when the
-            // recording is an unfinished flight, otherwise a blank cell). Atoms + unresolved rows get
-            // a blank ColW_ReFly cell so the Archive column stays aligned.
+            // Interact (per-vessel Fly / Seal for unfinished-flight recordings). Only real
+            // (non-atom) rows map to a recording; resolve node.HeadLegId to its committed recording
+            // and reuse the recordings tab's Re-Fly cell (it shows Fly / Seal only when the
+            // recording is an unfinished flight, otherwise a blank cell). Atoms + unresolved rows
+            // get a blank Interact cell so the column stays aligned.
             if (!node.IsAtom
                 && TryResolveCommittedRecording(node.HeadLegId, out int reFlyIdx, out Recording reFlyRec))
-            {
-                parentUI.GetRecordingsTableUI().DrawReFlyColumnCell(
-                    reFlyRec, reFlyIdx, Planetarium.GetUniversalTime());
-            }
+                DrawInteractReFly(reFlyRec, reFlyIdx);
             else
-            {
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
-            }
-
-            // Empty trailing cell so the vessel rows' right edge lines up with the Archive
-            // column header above (the Archive checkbox itself lives only on the mission row).
-            // This MUST be a margin-0 container (not a bodyCellLabel, which carries a 4px right
-            // margin the header's margin-0 Archive cell lacks): the last cell's right margin
-            // sets where the whole right-side column block sits relative to the scrollbar, so a
-            // mismatch here drifts every time/event column ~4px left of its header.
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
+                DrawInteractBlank();
 
             GUILayout.EndHorizontal();
         }
@@ -2339,11 +2397,8 @@ namespace Parsek
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
                 GUI.color = prevColor;
-                DrawPartnerGoToCell(mission, goToRecordingId, partnerMission,
+                DrawInteractGoTo(mission, goToRecordingId, partnerMission,
                     link.ForeignVesselName, link.LinkId);
-                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
-                GUILayout.FlexibleSpace();
-                GUILayout.EndHorizontal();
                 GUILayout.EndHorizontal();
                 rows++;
 
@@ -2405,39 +2460,118 @@ namespace Parsek
                 compositionCellLabel, GUILayout.Width(ColW_StartEvent));
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
-            DrawPartnerGoToCell(mission, row.GoToRecordingId, null, row.PartnerText,
+            DrawInteractGoTo(mission, row.GoToRecordingId, null, row.PartnerText,
                 row.SourceBranchPointId);
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
             GUILayout.EndHorizontal();
             return 1;
         }
 
-        // The Re-Fly-slot "Go to" on a Docked partner row: opens the Missions tab on the
-        // partner's mission through the same call the Timeline's GoTo makes (the Recordings
-        // window opens itself on the Missions tab and delegates the scroll to
-        // RevealMissionForRecording, which only QUEUES the archive-filter clear, so a mid-frame
-        // click is safe). A blank cell of the same width when there is nothing to go to, so the
-        // Archive column stays aligned.
-        private void DrawPartnerGoToCell(Mission mission, string goToRecordingId,
+        // ---- the Interact column's cells ----
+        //
+        // Each draws ONE margin-0 container of exactly ColW_Interact (the header's cell is the
+        // same width with the same zero horizontal margin, so the column's right edge and the
+        // data columns left of it line up with the header), the inset, its buttons, and a
+        // FlexibleSpace. A row draws exactly one of them.
+
+        private void BeginInteractCell()
+        {
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Interact));
+            GUILayout.Space(InteractCellInset);
+        }
+
+        private static void EndInteractCell()
+        {
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawInteractBlank()
+        {
+            BeginInteractCell();
+            EndInteractCell();
+        }
+
+        // Fly / Stash + Seal for an unfinished-flight recording, drawn by the Recordings tab's
+        // own Re-Fly cell at the Interact geometry: the pair spans one single button width.
+        private void DrawInteractReFly(Recording rec, int committedIndex)
+        {
+            BeginInteractCell();
+            parentUI.GetRecordingsTableUI().DrawReFlyColumnCell(
+                rec, committedIndex, Planetarium.GetUniversalTime(), InteractButtonWidth, 0f);
+            EndInteractCell();
+        }
+
+        // The Docked partner row's "Go to": opens the Missions tab on the partner's mission
+        // through the same call the Timeline's GoTo makes (the Recordings window opens itself on
+        // the Missions tab and delegates the scroll to RevealMissionForRecording, which only
+        // QUEUES the archive-filter clear, so a mid-frame click is safe). Blank when there is
+        // nothing to go to.
+        private void DrawInteractGoTo(Mission mission, string goToRecordingId,
             string partnerMission, string partnerText, string branchPointId)
         {
-            if (string.IsNullOrEmpty(goToRecordingId))
-            {
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
-                return;
-            }
-            if (GUILayout.Button(
+            BeginInteractCell();
+            if (!string.IsNullOrEmpty(goToRecordingId)
+                && GUILayout.Button(
                     new GUIContent("Go to",
                         MissionPresentation.BuildPartnerGoToTooltip(partnerMission, partnerText)),
-                    GUILayout.Width(ColW_ReFly)))
+                    interactButtonStyle, GUILayout.Width(InteractButtonWidth)))
             {
                 ParsekLog.Info("UI",
                     $"Mission partner GoTo: mission='{mission?.Name}' " +
                     $"recording={goToRecordingId} partnerMission='{partnerMission ?? "<unresolved>"}' " +
                     $"bp={branchPointId ?? "<none>"}");
                 parentUI.GetRecordingsTableUI().ShowMissionForRecording(goToRecordingId);
+            }
+            EndInteractCell();
+        }
+
+        // A mission's first line: Watch, and Rewind / Forward beside it when it applies. Watch
+        // takes the full single width when it is alone and a pair half when Rewind / Forward
+        // draws, so the pair spans exactly one single.
+        // [ERS-exempt] reason: the rewind/forward path is keyed on the RAW committed index (it
+        // takes a committed index + recording and resolves the rewind owner / save by
+        // identity), not the ERS index; same rationale as the watch button.
+        private void DrawInteractWatchRewind(Mission mission, MissionThroughLineView view)
+        {
+            var rewindCommitted = RecordingStore.CommittedRecordings;
+            int rootIdx = ResolveMissionRootRecordingIndex(view, rewindCommitted);
+            Recording rootRec = rootIdx >= 0 ? rewindCommitted[rootIdx] : null;
+            double now = Planetarium.GetUniversalTime();
+            RecordingsTableUI table = parentUI.GetRecordingsTableUI();
+            bool rewindShown = table.MissionRewindForwardVisible(rootRec, now);
+
+            BeginInteractCell();
+            if (rewindShown)
+            {
+                DrawMissionWatchButton(mission, view, InteractPairButtonWidth, interactPairButtonStyle);
+                GUILayout.Space(InteractButtonGap);
+                table.DrawMissionRewindForwardButton(rootRec, rootIdx, now, parentUI.Flight,
+                    InteractPairButtonWidth, interactPairButtonStyle);
+            }
+            else
+            {
+                DrawMissionWatchButton(mission, view, InteractButtonWidth, interactButtonStyle);
+            }
+            EndInteractCell();
+        }
+
+        // A mission's second line: the Collapse / Expand toggle BUTTON, "Collapse" while the
+        // mission's rows show and "Expand" (pressed) while they are hidden. `collapsed` is the
+        // value the draw loop latched before the bar drew, so the label matches the rows this
+        // pass draws; the click writes Mission.Collapsed and takes effect next frame.
+        private void DrawInteractCollapse(Mission mission, bool collapsed)
+        {
+            BeginInteractCell();
+            bool nowCollapsed = GUILayout.Toggle(collapsed,
+                new GUIContent(collapsed ? "Expand" : "Collapse",
+                    collapsed ? MissionPresentation.ExpandButtonTooltip
+                              : MissionPresentation.CollapseButtonTooltip),
+                interactToggleButtonStyle, GUILayout.Width(InteractButtonWidth));
+            EndInteractCell();
+            if (nowCollapsed != collapsed)
+            {
+                mission.Collapsed = nowCollapsed;
+                ParsekLog.Info("Mission", $"Mission '{mission.Name}' collapsed={nowCollapsed}");
             }
         }
 
@@ -2535,17 +2669,14 @@ namespace Parsek
         }
 
         // The data columns a label-only row leaves blank (a chapter header's title lives in the
-        // name column), plus the trailing margin-0 Archive spacer every row in this tab ends with.
+        // name column), plus a blank Interact cell.
         private void DrawBlankDataCells()
         {
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartTime));
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartEvent));
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
-            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
+            DrawInteractBlank();
         }
 
         // Digest rows for a mission, rebuilt only when the dock-event graph instance changes (a
@@ -2621,33 +2752,33 @@ namespace Parsek
             return false;
         }
 
-        // Mission bar (Missions Model 1, 2026-09-29): a dark section-header bubble holding TWO
-        // lines. Line 1 is a table row like every vessel row under it - index, bold title, then
-        // the MISSION-level values under the column headings (Start time, Start event, End
-        // event, End time), a blank Re-Fly cell and the Archive checkbox - so the headers
-        // describe the first row beneath them. Line 2 is the narrative summary on the left and
-        // the action buttons on the right. Clone/Delete mutate MissionStore; the draw loop
-        // iterates a snapshot so that is safe. The loop toggle goes through
-        // MissionStore.SetLoopEnabled, which allows concurrent looping across trees but at most
-        // one looping mission per tree (it only flips bools on same-tree siblings, never
-        // adds/removes, so it is safe to call from inside the draw loop).
+        // Mission bar (Missions Model 1; owner mock-up 2026-09-30): a dark section-header bubble
+        // holding TWO table rows, each laying out the same columns as every vessel row under it
+        // (MissionsTabColumnSequenceTests holds both to the column header's sequence).
+        //   Line 1: index | bold title + Log (right-aligned in the name cell) | the mission's
+        //           start time, start event, outcome, end time | Interact: Watch (+ Rewind /
+        //           Forward).
+        //   Line 2: blank | the summary, then (Advanced) the loop group right-aligned in the name
+        //           cell | four blank data cells | Interact: Collapse / Expand.
+        // Clone/Delete mutate MissionStore; the draw loop iterates a snapshot so that is safe. The
+        // loop toggle goes through MissionStore.SetLoopEnabled, which allows concurrent looping
+        // across trees but at most one looping mission per tree (it only flips bools on same-tree
+        // siblings, never adds/removes, so it is safe to call from inside the draw loop).
         private void DrawMissionHeader(Mission mission, int index, MissionThroughLineView view,
             MissionPeriodicityDisplay periodicity, MissionPresentation.MissionSummaryFacts summary,
-            string startEvent)
+            string startEvent, bool collapsed)
         {
-            // The style's left/right margin + padding are zeroed, so line 1's cells land at the
+            // The style's left/right margin + padding are zeroed, so both lines' cells land at the
             // same x as the vessel rows' cells; the caller's CaptureRevealAnchor measures this
             // group's rect, whose y is the block top.
             GUILayout.BeginVertical(missionHeaderRowStyle);
-            DrawMissionValueRow(mission, index, summary, startEvent);
-            DrawMissionActionLine(mission, view, periodicity, summary);
+            DrawMissionValueRow(mission, index, view, summary, startEvent);
+            DrawMissionActionLine(mission, view, periodicity, summary, collapsed);
             GUILayout.EndVertical();
         }
 
-        // Line 1 of the mission bar: the mission as a table row. Same leading cells, same
-        // expanding name column and same fixed data columns as a vessel row
-        // (MissionsTabColumnSequenceTests holds the sequence equal to the column header's).
-        private void DrawMissionValueRow(Mission mission, int index,
+        // Line 1 of the mission bar: the mission as a table row.
+        private void DrawMissionValueRow(Mission mission, int index, MissionThroughLineView view,
             MissionPresentation.MissionSummaryFacts summary, string startEvent)
         {
             GUILayout.BeginHorizontal(GUILayout.MinHeight(CompositionRowMinHeight));
@@ -2668,38 +2799,38 @@ namespace Parsek
 
             // Small left inset on the title so its text starts at the same x as the "Missions and
             // vessels" column header text (the header box insets its label; the bare title label
-            // does not), then the title expands to fill the name column. Double-click renames.
+            // does not).
             GUILayout.Space(BodyCellTextIndent);
-            DrawMissionTitleOrRename(mission);
+            DrawMissionNameCell(mission);
 
             // The mission-level values, under their headings: the span's first and last dates
             // (the same pre-stamped strings the summary tooltip carries), the first vessel's
             // start event ("Launch" on an ordinary mission) and the primary vessel's outcome.
-            // Non-wrapping cells with the full value as the tooltip, so a long event word clips
-            // rather than growing the bar.
+            // Non-wrapping cells, so a long event word clips rather than growing the bar.
             DrawMissionValueCell(summary.StartDateText, ColW_StartTime);
             DrawMissionValueCell(startEvent, ColW_StartEvent);
             DrawMissionValueCell(summary.TerminalWord, ColW_EndEvent);
             DrawMissionValueCell(summary.EndDateText, ColW_EndTime);
 
-            // Re-Fly is per vessel: the mission row leaves its cell blank.
-            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
+            DrawInteractWatchRewind(mission, view);
 
-            // Rightmost Archive checkbox: marks this mission for the list-hiding the Archive header
-            // toggle controls. Centered in the column like the recordings window's cell, and under
-            // the Archive column header.
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
-            GUILayout.FlexibleSpace();
-            bool archived = GUILayout.Toggle(mission.Archived,
-                new GUIContent("", MissionPresentation.ArchiveCheckboxTooltip));
-            GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
-            if (archived != mission.Archived)
-            {
-                mission.Archived = archived;
-                ParsekLog.Info("Mission", $"Mission '{mission.Name}' archived={archived}");
-            }
+        }
 
+        // The name cell of line 1: the bold title (double-click renames), which expands, then
+        // Log right-aligned beside it at the Interact single-button width.
+        private void DrawMissionNameCell(Mission mission)
+        {
+            GUILayout.BeginHorizontal(GUILayout.ExpandWidth(true));
+            DrawMissionTitleOrRename(mission);
+            // "Log": opens the chronological step-list window for this mission (launch,
+            // staging, dock / undock, terminal).
+            if (GUILayout.Button("Log", interactButtonStyle, GUILayout.Width(InteractButtonWidth)))
+            {
+                ParsekLog.Info("UI",
+                    $"Mission Log button: tree={mission.TreeId ?? "<null>"} name='{mission.Name ?? ""}'");
+                parentUI.OpenStructureWindowForMission(mission.TreeId, mission.Name);
+            }
             GUILayout.EndHorizontal();
         }
 
@@ -2714,38 +2845,43 @@ namespace Parsek
             GUILayout.Label(content, compositionCellLabelNoWrap, GUILayout.Width(width));
         }
 
-        // Line 2 of the mission bar: the summary on the left, the actions on the right.
-        //   Basic:    [Log] [Looped by route] [Watch] [Rewind/Forward]
-        //   Advanced: [Log] [Clone] [Delete] [Warp to... | space] [Loop x] [Looped by route]
-        //             [period] [Watch] [Rewind/Forward]
-        // The buttons are right-aligned against the row's end, so Watch / Rewind sit at the same
-        // x on every mission row in both modes; what Basic hides only widens the summary.
+        // Line 2 of the mission bar: the summary (+ the Advanced loop group) in the name cell,
+        // blank data cells, and Collapse / Expand in the Interact column.
         private void DrawMissionActionLine(Mission mission, MissionThroughLineView view,
-            MissionPeriodicityDisplay periodicity, MissionPresentation.MissionSummaryFacts summary)
+            MissionPeriodicityDisplay periodicity, MissionPresentation.MissionSummaryFacts summary,
+            bool collapsed)
         {
-            bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
-
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(GUILayout.MinHeight(CompositionRowMinHeight));
             // Same leading cells as line 1, so the summary starts under the title.
             GUILayout.Label("", missionHeaderInlineLabel, GUILayout.Width(ColW_Enable));
             GUILayout.Label("", missionHeaderInlineLabel, GUILayout.Width(ColW_Index));
             GUILayout.Space(BodyCellTextIndent);
+            DrawMissionSummaryNameCell(mission, view, periodicity, summary);
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartTime));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartEvent));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
+            DrawInteractCollapse(mission, collapsed);
+            GUILayout.EndHorizontal();
+        }
+
+        // The name cell of line 2: the summary on the left (it expands and wraps), then the
+        // loop group right-aligned beside it, mirroring Log on line 1:
+        //   Basic:    [Looped by route, when route-bound]
+        //   Advanced: [Clone] [Delete] [Warp to... | same-width space] [Loop x]
+        //             [Looped by route] [period]
+        private void DrawMissionSummaryNameCell(Mission mission, MissionThroughLineView view,
+            MissionPeriodicityDisplay periodicity, MissionPresentation.MissionSummaryFacts summary)
+        {
+            bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
+
+            GUILayout.BeginHorizontal(GUILayout.ExpandWidth(true));
             DrawMissionSummaryCell(mission, periodicity, summary, loopAuthoring);
 
-            // "Log" first: opens the chronological step-list window for this mission (launch,
-            // staging, dock / undock, terminal). Log, Clone, Delete, Warp to, Watch, and
-            // Rewind/Forward all share ColW_HeaderButton so they read as one group.
-            if (GUILayout.Button("Log", GUILayout.Width(ColW_HeaderButton)))
-            {
-                ParsekLog.Info("UI",
-                    $"Mission Log button: tree={mission.TreeId ?? "<null>"} name='{mission.Name ?? ""}'");
-                parentUI.OpenStructureWindowForMission(mission.TreeId, mission.Name);
-            }
-
-            // Clone / Delete / Warp to... next, all three Advanced-only (owner ruling 2026-09-29:
-            // they depend on Advanced mission looping). Clone is loop AUTHORING (a clone exists to
-            // carry a second include set / loop period over the same recordings); Delete removes
-            // a clone, so it has nothing to act on without one (CanDelete keeps the tree's first
+            // Clone / Delete / Warp to..., all three Advanced-only (owner ruling 2026-09-29: they
+            // depend on Advanced mission looping). Clone is loop AUTHORING (a clone exists to carry
+            // a second include set / loop period over the same recordings); Delete removes a
+            // clone, so it has nothing to act on without one (CanDelete keeps the tree's first
             // mission safe either way); Warp to... jumps to the next launch of a LOOPING mission.
             if (loopAuthoring)
             {
@@ -2763,19 +2899,17 @@ namespace Parsek
                 // "Warp to..." (after Delete, before Loop): jumps the game clock to this
                 // mission's next relaunch (the countdown target = periodicity.NextRelaunchUT)
                 // through the in-place forward jump the Forward button uses. Drawn ONLY while
-                // the mission loops; otherwise the same-width Space holds its slot, so Log /
-                // Clone / Delete do not move when the loop is switched, and the layout entry
-                // count stays the same (a Space is one entry, like the button) should another
-                // mission's Loop click clear this one's loop mid-pass.
+                // the mission loops; otherwise the same-width Space holds its slot, so the
+                // group's other controls do not move when the loop is switched, and the layout
+                // entry count stays the same (a Space is one entry, like the button) should
+                // another mission's Loop click clear this one's loop mid-pass.
                 if (mission.LoopPlayback)
                     DrawMissionWarpToWindowButton(mission, periodicity);
                 else
                     GUILayout.Space(ColW_HeaderButton);
             }
 
-            // "Loop [x]": label then checkbox (bare siblings, normal ~4 px margins; a fixed-width
-            // wrapper left slack that widened the gap before the period field). The label uses the
-            // vertically-centered inline style so it lines up with the centered period label/buttons.
+            // "Loop [x]": label then checkbox (bare siblings, normal ~4 px margins).
             //
             // Mutual exclusion (design section 0.6): when this tree is bound to a supply route, the
             // manual Loop toggle is greyed OFF (a tree is EITHER a route OR a manually looped
@@ -2793,8 +2927,8 @@ namespace Parsek
                 bool prevGuiEnabled = GUI.enabled;
                 if (missionRouteBound)
                     GUI.enabled = false;
-                // ExpandWidth(false) on both: a label and a toggle stretch by default, and on
-                // this line the slack belongs to the summary cell alone.
+                // ExpandWidth(false) on both: a label and a toggle stretch by default, and in this
+                // cell the slack belongs to the summary alone.
                 GUILayout.Label(new GUIContent("Loop", MissionPresentation.LoopToggleTooltip),
                     missionHeaderInlineLabel, GUILayout.ExpandWidth(false));
                 bool missionLoopDrawnEnabled = GUI.enabled;
@@ -2829,22 +2963,6 @@ namespace Parsek
             // control as the only surviving loop control.
             if (loopAuthoring)
                 DrawMissionLoopPeriodCell(mission, view, periodicity);
-
-            DrawMissionWatchButton(mission, view);
-
-            // Rewind / Forward button (right of Watch): a plain fixed-width button (matching the
-            // other header buttons) labelled "Rewind" / "Forward", scoped to the mission's root
-            // (launch) recording, so it rewinds the game to the mission's launch (or fast-forwards
-            // to it when the launch is still in the future). Reuses the recordings-tab rewind/forward
-            // decision + confirmation logic via DrawMissionRewindForwardButton.
-            // [ERS-exempt] reason: the rewind/forward path is keyed on the RAW committed index (it
-            // takes a committed index + recording and resolves the rewind owner / save by
-            // identity), not the ERS index; same rationale as the watch button above.
-            var rewindCommitted = RecordingStore.CommittedRecordings;
-            int rootIdx = ResolveMissionRootRecordingIndex(view, rewindCommitted);
-            parentUI.GetRecordingsTableUI().DrawMissionRewindForwardButton(
-                rootIdx >= 0 ? rewindCommitted[rootIdx] : null,
-                rootIdx, Planetarium.GetUniversalTime(), parentUI.Flight, ColW_HeaderButton);
 
             GUILayout.EndHorizontal();
         }
@@ -3116,13 +3234,14 @@ namespace Parsek
         // the mission's live member and enters watch on it; for a looping mission the engine's
         // unit handoff then carries the camera across stages as the shared clock advances. "W*"
         // when already watching one of this mission's members.
-        private void DrawMissionWatchButton(Mission mission, MissionThroughLineView view)
+        private void DrawMissionWatchButton(Mission mission, MissionThroughLineView view,
+            float width, GUIStyle style)
         {
             if (!parentUI.InFlightMode || parentUI.Flight == null)
             {
                 // Keep the column width stable when not in flight (greyed placeholder).
                 GUI.enabled = false;
-                GUILayout.Button("Watch", GUILayout.Width(ColW_HeaderButton));
+                GUILayout.Button("Watch", style, GUILayout.Width(width));
                 DisabledHoverEcho.CarryLastControl(false, MissionWatchDisabledReason(false, false));
                 GUI.enabled = true;
                 return;
@@ -3140,7 +3259,7 @@ namespace Parsek
             bool canWatch = watchTarget >= 0 || isWatchingThisMission;
             GUI.enabled = canWatch;
             string label = isWatchingThisMission ? "W*" : "Watch";
-            bool missionWatchClicked = GUILayout.Button(label, GUILayout.Width(ColW_HeaderButton));
+            bool missionWatchClicked = GUILayout.Button(label, style, GUILayout.Width(width));
             DisabledHoverEcho.CarryLastControl(canWatch, MissionWatchDisabledReason(true, canWatch));
             if (missionWatchClicked)
             {
@@ -4517,26 +4636,16 @@ namespace Parsek
             GUILayout.Label("End event", colHdr, GUILayout.Width(ColW_EndEvent), GUILayout.Height(ColHeaderHeight));
             GUILayout.Label("End time", colHdr, GUILayout.Width(ColW_EndTime), GUILayout.Height(ColHeaderHeight));
 
-            // Re-Fly column header (left of Archive): the per-vessel rows show Fly / Seal for
-            // unfinished-flight recordings (reusing the recordings tab's Re-Fly cell).
-            GUILayout.Label("Re-Fly", colHdr, GUILayout.Width(ColW_ReFly), GUILayout.Height(ColHeaderHeight));
-
-            // Archive column header + global toggle (mirrors the recordings window): label +
-            // a checkbox bound to MissionStore.HideArchived. When on, archived missions drop
-            // out of the list; the per-mission Archive checkbox lives on each mission's row.
-            // The dark box (colHdrCellContainerStyle) wraps the WHOLE cell, label + checkbox,
-            // matching RecordingsTableUI; boldHeaderInnerLabel keeps the label unboxed inside.
-            GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Archive), GUILayout.Height(ColHeaderHeight));
+            // Interact column header: a plain label over the one right-hand column that carries
+            // every per-row action (Watch / Rewind, Collapse, Fly / Stash + Seal, Go to). The
+            // dark box (colHdrCellContainerStyle, zero horizontal margin) spans exactly
+            // ColW_Interact, like each row's margin-0 Interact cell below it, so the data columns
+            // left of it line up with their headers.
+            GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Interact), GUILayout.Height(ColHeaderHeight));
             GUILayout.FlexibleSpace();
-            GUILayout.Label("Archive", boldHeaderInnerLabel);
-            bool newHide = GUILayout.Toggle(MissionStore.HideArchived, "");
+            GUILayout.Label("Interact", boldHeaderInnerLabel);
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
-            if (newHide != MissionStore.HideArchived)
-            {
-                MissionStore.HideArchived = newHide;
-                ParsekLog.Info("UI", $"Missions Archive toggle: hideArchived={newHide}");
-            }
 
             // Reserve the vertical-scrollbar column so the fixed header's right edge
             // aligns with the row cells' right edges (the scroll view always shows a

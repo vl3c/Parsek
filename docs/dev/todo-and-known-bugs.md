@@ -46,6 +46,16 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   `MissionEventDigest` stays as the partner-text / Go to source.
 - [x] The Log window (StructureListWindowUI) is titled `Parsek - Log: <mission or route name>`
   (bare `Parsek - Log` untargeted); the seam window token stays `structure`.
+- [x] Iteration 2 (owner mock-up 2026-09-30): the Re-Fly and Archive columns merge into ONE
+  `Interact` column carrying every per-row button (Watch + Rewind / Forward, Collapse /
+  Expand, Fly / Stash + Seal, Go to); one width system (`InteractButtonWidth` 100 single, pair
+  halves 48, gap 4, pinned 2 * pair + gap == single; Log uses the single width). Log moves
+  into line 1's name cell, the Advanced loop group into line 2's. Archive becomes Collapse /
+  Expand (`Mission.Collapsed`, an older save's `archived` loads as collapsed); the "hide
+  archived missions" filter, its header checkbox and the seam key `archivedMissions` are
+  removed, `op=expand key=mission:<id>` drives Collapse. The owner's "+10 px" single width (80)
+  would leave pair halves at 38, exactly today's cramped Stash, so the single is 100 - flagged
+  for the owner. Descender clipping on single-line row cells fixed at the style.
 
 ## MISSION-EVENT-DIGEST-DUPLICATE-LAUNCHED-ROW: the digest builds a second "launched" row for one flight [FILED 2026-09-29 from MISSIONS-TAB-MODEL1. OPEN, low, not player-visible]
 

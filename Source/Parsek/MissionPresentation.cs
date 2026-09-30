@@ -72,9 +72,12 @@ namespace Parsek
             "(its own include set, loop period, and Archive flag). A looping mission's copy " +
             "starts with Loop off.";
 
-        internal const string ArchiveCheckboxTooltip =
-            "Hide this mission from the list while the Archive filter is on. Does not change " +
-            "looping or ghost playback.";
+        internal const string CollapseButtonTooltip =
+            "Hide this mission's vessel rows; its title bar stays. Does not change looping or " +
+            "ghost playback.";
+
+        internal const string ExpandButtonTooltip =
+            "Show this mission's vessel rows again.";
 
         internal const string WarpToButtonTooltip =
             "Fast-forward the game clock to just before this mission's next launch.";

@@ -84,19 +84,15 @@ namespace Parsek.Tests
             Assert.Equal(UiStateKeyKind.Bool, onTimeline.Kind);
         }
 
+        // catches: the retired "hide archived missions" filter key coming back. Missions
+        // Model 1 turned the per-mission mark into Collapse / Expand (op=expand key=mission:).
         [Fact]
-        public void TheMissionsOwnArchiveFilterIsASeparateKey()
+        public void TheRetiredMissionsArchiveFilterKeyIsRejected()
         {
-            // MissionStore.HideArchived is a different flag over a different list, so it is
-            // a different key - and it keeps the store's own HIDE sense, there being no
-            // second control to disagree with.
-            Assert.True(TestCommandUiWindowState.TryResolveKey(
-                TestCommandUiAction.MissionsWindow,
-                TestCommandUiWindowState.ArchivedMissionsKey, out UiStateKeySpec spec,
-                out string reject));
-            Assert.Null(reject);
-            Assert.Equal(UiStateKeyKind.Bool, spec.Kind);
-            Assert.NotEqual(TestCommandUiWindowState.ArchivedKey, spec.Key);
+            Assert.False(TestCommandUiWindowState.TryResolveKey(
+                TestCommandUiAction.MissionsWindow, "archivedMissions",
+                out UiStateKeySpec _, out string reject));
+            Assert.Equal(TestCommandUiWindowState.StateKeyInvalidReason, reject);
         }
 
         [Theory]
@@ -140,23 +136,6 @@ namespace Parsek.Tests
             Assert.False(TestCommandUiWindowState.TryResolveKey(
                 TestCommandUiAction.TimelineWindow, TestCommandUiWindowState.ScrollXKey,
                 out UiStateKeySpec _, out string reject));
-            Assert.Equal(TestCommandUiWindowState.StateKeyInvalidReason, reject);
-        }
-
-        [Fact]
-        public void ArchivedMissionsIsAMissionsKeyAndNotATimelineOne()
-        {
-            Assert.True(TestCommandUiWindowState.TryResolveKey(
-                TestCommandUiAction.MissionsWindow,
-                TestCommandUiWindowState.ArchivedMissionsKey, out UiStateKeySpec spec,
-                out string ok));
-            Assert.Null(ok);
-            Assert.Equal(UiStateKeyKind.Bool, spec.Kind);
-
-            Assert.False(TestCommandUiWindowState.TryResolveKey(
-                TestCommandUiAction.TimelineWindow,
-                TestCommandUiWindowState.ArchivedMissionsKey, out UiStateKeySpec _,
-                out string reject));
             Assert.Equal(TestCommandUiWindowState.StateKeyInvalidReason, reject);
         }
 

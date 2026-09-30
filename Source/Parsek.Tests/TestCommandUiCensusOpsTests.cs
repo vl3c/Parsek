@@ -769,20 +769,20 @@ namespace Parsek.Tests
             Assert.Equal(TestCommandUiState.ExpandKeyInvalidReason, reason);
             string prefixes = TestCommandUiState.ExpandPrefixNamesFor(
                 TestCommandUiAction.MissionsWindow);
-            Assert.Equal(4, prefixes.Split(',').Length);
+            Assert.Equal(5, prefixes.Split(',').Length);
         }
 
         [Fact]
         public void Expand_TheMissionsWindowCoversBothOfItsTabs()
         {
-            // ONE window token, four collections: the Recordings tab's group folders and
-            // chain blocks, and the Missions tab's vessel / leg rows. (The Missions tab's
-            // Events foldout, and with it the `digest` prefix, was removed by Missions
-            // Model 1.)
+            // ONE window token, five collections: the Recordings tab's group folders and
+            // chain blocks, and the Missions tab's vessel / leg rows and each mission's
+            // Collapse / Expand. (Missions Model 1 removed the Events foldout's `digest`
+            // prefix and added `mission`.)
             string[] prefixes = TestCommandUiState.ExpandPrefixesFor(
                 TestCommandUiAction.MissionsWindow);
             Assert.Equal(
-                new[] { "group", "chain", "vessel", "leg" }, prefixes);
+                new[] { "group", "chain", "vessel", "leg", "mission" }, prefixes);
         }
 
         [Fact]

@@ -51,6 +51,7 @@ namespace Parsek.Tests
                 { "ChainKeyPrefix", TestCommandUiState.ChainKeyPrefix },
                 { "VesselKeyPrefix", TestCommandUiState.VesselKeyPrefix },
                 { "LegKeyPrefix", TestCommandUiState.LegKeyPrefix },
+                { "MissionKeyPrefix", TestCommandUiState.MissionKeyPrefix },
                 { "RowKeyPrefix", TestCommandUiState.RowKeyPrefix },
                 { "RosterKeyPrefix", TestCommandUiState.RosterKeyPrefix },
                 { "FlightsKeyPrefix", TestCommandUiState.FlightsKeyPrefix },

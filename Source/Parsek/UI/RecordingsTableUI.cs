@@ -82,6 +82,14 @@ namespace Parsek
         private const float ColW_Watch = 50f;
         private const float ColW_Rewind = 60f;
         private const float ColW_ReFly = 90f;
+
+        // The width and left inset the Re-Fly cell (Fly / Seal, Stash / Seal) draws at. The
+        // Recordings tab always uses ColW_ReFly / BodyCellButtonLeftInset; the Missions tab's
+        // Interact column overrides both for the span of ONE DrawReFlyColumnCell call (the
+        // width-taking overload below), so its button pair spans the column's single-button
+        // width with the edges every other Interact button has.
+        private float reFlyCellWidth = ColW_ReFly;
+        private float reFlyCellLeftInset = BodyCellButtonLeftInset;
         private const float ColW_Hide = 80f;
         // The width the window opens at, and its minimum. Held by the WINDOW, not by the
         // Recordings columns: the window is shared with the Missions tab (its default tab,
@@ -1482,13 +1490,15 @@ namespace Parsek
             GUIContent firstContent, bool firstEnabled,
             GUIContent secondContent, bool secondEnabled,
             float cellWidth,
-            out bool firstClicked, out bool secondClicked)
+            out bool firstClicked, out bool secondClicked,
+            float leftInset = BodyCellButtonLeftInset)
         {
             bool priorEnabled = GUI.enabled;
-            float innerW = cellWidth - BodyCellButtonLeftInset;
+            float innerW = cellWidth - leftInset;
             float halfInner = (innerW - 4f) * 0.5f;
             GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(cellWidth));
-            GUILayout.Space(BodyCellButtonLeftInset);
+            if (leftInset > 0f)
+                GUILayout.Space(leftInset);
             bool firstDrawnEnabled = priorEnabled && firstEnabled;
             GUI.enabled = firstDrawnEnabled;
             firstClicked = GUILayout.Button(firstContent, bodyCellButtonCompact, GUILayout.Width(halfInner));
@@ -3793,13 +3803,15 @@ namespace Parsek
         // recordings-tab R/FF cell; only the rendering (plain button, full-word labels, caller-set
         // width) differs. rec == null draws a blank cell of the given width.
         internal void DrawMissionRewindForwardButton(
-            Recording rec, int ri, double now, ParsekFlight flight, float width)
+            Recording rec, int ri, double now, ParsekFlight flight, float width,
+            GUIStyle buttonStyle = null)
         {
             if (rec == null)
             {
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(width));
                 return;
             }
+            GUIStyle style = buttonStyle ?? GUI.skin.button;
 
             bool isRecording = parentUI.InFlightMode && flight != null && flight.IsRecording;
 
@@ -3809,7 +3821,7 @@ namespace Parsek
                 GUI.enabled = canFF;
                 if (GUILayout.Button(
                         new GUIContent("Forward", canFF ? "Fast-forward to this launch" : ffReason),
-                        GUILayout.Width(width)))
+                        style, GUILayout.Width(width)))
                 {
                     ParsekLog.Info("UI", $"Mission Forward button clicked: #{ri} \"{rec.VesselName}\"");
                     ShowFastForwardConfirmation(rec);
@@ -3825,7 +3837,7 @@ namespace Parsek
                 GUI.enabled = canRewind;
                 if (GUILayout.Button(
                         new GUIContent("Rewind", canRewind ? "Rewind to this launch" : rewindReason),
-                        GUILayout.Width(width)))
+                        style, GUILayout.Width(width)))
                 {
                     ParsekLog.Info("UI", $"Mission Rewind button clicked: #{ri} \"{rec.VesselName}\"");
                     ShowRewindConfirmation(rec);
@@ -3835,6 +3847,18 @@ namespace Parsek
             }
 
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(width));
+        }
+
+        /// <summary>
+        /// Whether <see cref="DrawMissionRewindForwardButton"/> draws a button (Rewind or
+        /// Forward) for this recording right now, rather than its blank cell - the same two
+        /// predicates, in the same order. The Missions tab's Interact column reads it before
+        /// drawing Watch, so Watch takes the full button width when it is alone.
+        /// </summary>
+        internal bool MissionRewindForwardVisible(Recording rec, double now)
+        {
+            return rec != null
+                && (ShouldShowForwardButton(rec, now) || ShouldShowLegacyRewindButton(rec, now));
         }
 
         // internal so the Missions tab (MissionsWindowUI) can reuse the exact Re-Fly (Fly / Seal)
@@ -3853,7 +3877,31 @@ namespace Parsek
                 && DrawStashSealUnfinishedFlightButtons(rec, ri))
                 return;
 
-            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(reFlyCellWidth));
+        }
+
+        /// <summary>
+        /// The Re-Fly cell drawn at a caller-set width and left inset, for the Missions tab's
+        /// Interact column (whose buttons all share one width and one left edge). The same
+        /// decision, dialogs and log lines as <see cref="DrawReFlyColumnCell(Recording, int, double)"/>;
+        /// only the geometry differs, and it is restored before this returns.
+        /// </summary>
+        internal void DrawReFlyColumnCell(Recording rec, int ri, double now,
+            float cellWidth, float leftInset)
+        {
+            float prevWidth = reFlyCellWidth;
+            float prevInset = reFlyCellLeftInset;
+            reFlyCellWidth = cellWidth;
+            reFlyCellLeftInset = leftInset;
+            try
+            {
+                DrawReFlyColumnCell(rec, ri, now);
+            }
+            finally
+            {
+                reFlyCellWidth = prevWidth;
+                reFlyCellLeftInset = prevInset;
+            }
         }
 
         /// <summary>
@@ -3887,7 +3935,7 @@ namespace Parsek
             {
                 if (reserveCellWhenUnavailable)
                 {
-                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
+                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(reFlyCellWidth));
                     return true;
                 }
 
@@ -3945,7 +3993,7 @@ namespace Parsek
             DrawBodyCenteredTwoButtons(
                 new GUIContent(kReFlyLabel, tooltip), canInvoke,
                 new GUIContent("Seal", "Close this re-fly slot permanently without changing the recording"), true,
-                ColW_ReFly, out flyClicked, out sealClicked);
+                reFlyCellWidth, out flyClicked, out sealClicked, reFlyCellLeftInset);
             if (flyClicked)
             {
                 ParsekLog.Info("RewindUI",
@@ -3979,7 +4027,7 @@ namespace Parsek
             DrawBodyCenteredTwoButtons(
                 new GUIContent("Fly", reason), false,
                 new GUIContent("Seal", reason), false,
-                ColW_ReFly, out ignoredFlyClicked, out ignoredSealClicked);
+                reFlyCellWidth, out ignoredFlyClicked, out ignoredSealClicked, reFlyCellLeftInset);
         }
 
         private void ClearLegacyRewindSuppressionForOwnerRow(Recording rec, int ri)
@@ -4038,7 +4086,7 @@ namespace Parsek
             DrawBodyCenteredTwoButtons(
                 new GUIContent("Stash", StashUnfinishedFlightTooltip), true,
                 new GUIContent("Seal", SealStableSlotTooltip), true,
-                ColW_ReFly, out stashClicked, out sealClicked);
+                reFlyCellWidth, out stashClicked, out sealClicked, reFlyCellLeftInset);
 
             if (stashClicked)
                 HandleStashUnfinishedFlightClick(rec, rp, slotListIndex);

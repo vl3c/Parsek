@@ -346,28 +346,53 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SaveLoad_RoundTripsArchivedFlag_AndHideArchivedToggle()
+        public void SaveLoad_RoundTripsCollapsedFlag_UnderItsOwnName()
         {
             MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
-            First().Archived = true;
-            MissionStore.HideArchived = true;
+            First().Collapsed = true;
 
             var node = new ConfigNode("PARSEK");
             MissionStore.Save(node);
+            ConfigNode saved = node.GetNodes("MISSION")[0];
+            Assert.Equal("True", saved.GetValue("collapsed"));
+            Assert.Null(saved.GetValue("archived"));
+            // The retired list filter is not written.
+            Assert.Null(node.GetValue("missionHideArchived"));
+
             MissionStore.ResetForTesting();
-            Assert.False(MissionStore.HideArchived); // reset cleared it
+            MissionStore.Load(node);
+            Assert.True(First().Collapsed);
+        }
+
+        // catches: a save written before Missions Model 1 losing each mission's mark. The
+        // per-mission "archived" flag of the retired Archive filter IS the collapsed flag now,
+        // so an older save's value must come back as Collapsed; the global filter key it also
+        // carried is dropped on the next save.
+        [Fact]
+        public void Load_AnOlderSavesArchivedValue_ReadsAsCollapsed()
+        {
+            var node = new ConfigNode("PARSEK");
+            node.AddValue("missionHideArchived", "True");
+            ConfigNode mNode = node.AddNode("MISSION");
+            mNode.AddValue("id", "m1");
+            mNode.AddValue("treeId", "t1");
+            mNode.AddValue("name", "Kerbal X");
+            mNode.AddValue("archived", "True");
 
             MissionStore.Load(node);
-            Assert.True(First().Archived);
-            Assert.True(MissionStore.HideArchived);
+            Assert.True(First().Collapsed);
+
+            var resaved = new ConfigNode("PARSEK");
+            resaved.AddValue("missionHideArchived", "True");
+            MissionStore.Save(resaved);
+            Assert.Null(resaved.GetValue("missionHideArchived"));
         }
 
         [Fact]
-        public void Load_MissingArchiveValues_DefaultToNotArchived()
+        public void Load_MissingCollapseValues_DefaultToExpanded()
         {
-            // Older saves (before the Archive column) carry no archive fields: the mission must
-            // load as not-archived and the global toggle off, not throw or stay stale.
-            MissionStore.HideArchived = true; // pre-existing stale state
+            // Older saves (before the Archive column) carry neither key: the mission must load
+            // expanded, not throw.
             var node = new ConfigNode("PARSEK");
             ConfigNode mNode = node.AddNode("MISSION");
             mNode.AddValue("id", "m1");
@@ -375,8 +400,7 @@ namespace Parsek.Tests
             mNode.AddValue("name", "Kerbal X");
 
             MissionStore.Load(node);
-            Assert.False(MissionStore.HideArchived);
-            Assert.False(First().Archived);
+            Assert.False(First().Collapsed);
         }
 
         [Fact]
@@ -406,15 +430,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Clone_CopiesArchivedFlag()
+        public void Clone_CopiesCollapsedFlag()
         {
             MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
-            First().Archived = true;
+            First().Collapsed = true;
             MissionStore.Clone(First());
 
             var all = new List<Mission>(MissionStore.Missions);
             Assert.Equal(2, all.Count);
-            Assert.True(all[1].Archived); // the copy (inserted right after the source) carries it
+            Assert.True(all[1].Collapsed); // the copy (inserted right after the source) carries it
         }
 
         [Fact]

@@ -17056,7 +17056,7 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                 "state": "false"})
         self.assertEqual([], ok)
         errors = hlib.validate_ui_action_step(
-            0, {"op": "state", "window": "timeline", "key": "archivedMissions",
+            0, {"op": "state", "window": "timeline", "key": "scrollX",
                 "state": "true"})
         self.assertTrue(any("is not a state key of window" in e for e in errors), errors)
         # A window with no scalar state names the two that have it.
@@ -17334,7 +17334,7 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
 
     def test_the_state_key_table_mirrors_the_c_sharp_one_PER_WINDOW(self):
         """Reads OUTSIDE harness/. The union cell above cannot see a key MOVING between
-        windows - `archivedMissions` migrating from missions to timeline keeps the union
+        windows - `scrollX` migrating from missions to timeline keeps the union
         identical - and a key on the wrong window is a typed REJECTED after a whole KSP
         boot. So this cell parses the two per-window ARRAYS out of the C# and compares each
         one ordered.

@@ -51,7 +51,6 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             MissionStore.SuppressLogging = true;
-            MissionStore.HideArchived = false;
             MissionStore.ResetForTesting();
             GroupHierarchyStore.ResetGroupsForTesting();
             EffectiveState.ResetCachesForTesting();
@@ -142,60 +141,40 @@ namespace Parsek.Tests
             Assert.Equal(original.Id, ui.GetMissionsUI().PendingRevealMissionIdForTesting);
         }
 
-        // --- The Archive filter ---
+        // --- Collapse ---
 
-        // The Archive filter drops an archived mission's whole block from the list, so a
-        // reveal aimed at one would scroll to a row that is never drawn. The clear is QUEUED,
-        // never written here: the click lands mid-frame inside the Timeline's handler, and this
-        // filter decides how many mission blocks the Missions tab draws - writing it now would
-        // desync that frame's Layout and Repaint control counts and throw. The draw applies it
-        // on its own Layout pass. Clearing the GLOBAL filter is reversible with one click on
-        // the tab's own checkbox.
+        // A collapsed mission still lists its bar but hides the rows the player navigated to
+        // see, so a reveal aimed at one EXPANDS it. The expand is QUEUED, never written here:
+        // the click lands mid-frame inside the Timeline's handler, and the flag decides how
+        // many rows the mission's block draws - writing it now would desync that frame's
+        // Layout and Repaint control counts and throw. The draw applies it on its own Layout
+        // pass.
         [Fact]
-        public void GoToQueuesTheArchiveFilterClearWhenItWouldHideTheTarget()
+        public void GoToQueuesExpandingACollapsedTarget()
         {
             Mission mission = CommitTreeWithMission("tree-1", "Munshot", "rec-1");
-            mission.Archived = true;
-            MissionStore.HideArchived = true;
+            mission.Collapsed = true;
 
             var ui = new ParsekUI(UIMode.KSC);
             ui.GetRecordingsTableUI().ShowMissionForRecording("rec-1");
 
-            Assert.True(ui.GetMissionsUI().PendingClearArchiveFilterForTesting);
-            Assert.True(MissionStore.HideArchived);   // the draw clears it, not the click
+            Assert.Equal(mission.Id, ui.GetMissionsUI().PendingExpandMissionIdForTesting);
+            Assert.True(mission.Collapsed);   // the draw expands it, not the click
             Assert.Equal(mission.Id, ui.GetMissionsUI().PendingRevealMissionIdForTesting);
             Assert.Contains(logLines, l =>
-                l.Contains("[UI]") && l.Contains("Cross-link: queued an Archive-filter clear"));
+                l.Contains("[UI]") && l.Contains("Cross-link: queued expanding collapsed mission"));
         }
 
-        // ...but the mission's own Archived flag is a player decision. Navigating to a mission
-        // must never un-archive it.
+        // An expanded target is left alone - nothing queued.
         [Fact]
-        public void GoToNeverUnarchivesTheMission()
-        {
-            Mission mission = CommitTreeWithMission("tree-1", "Munshot", "rec-1");
-            mission.Archived = true;
-            MissionStore.HideArchived = true;
-
-            var ui = new ParsekUI(UIMode.KSC);
-            ui.GetRecordingsTableUI().ShowMissionForRecording("rec-1");
-
-            Assert.True(mission.Archived);
-        }
-
-        // A filter that is not hiding the target is left exactly as the player set it - not
-        // even queued for clearing.
-        [Fact]
-        public void GoToLeavesTheArchiveFilterAloneForANonArchivedTarget()
+        public void GoToQueuesNothingForAnExpandedTarget()
         {
             CommitTreeWithMission("tree-1", "Munshot", "rec-1");
-            MissionStore.HideArchived = true;
 
             var ui = new ParsekUI(UIMode.KSC);
             ui.GetRecordingsTableUI().ShowMissionForRecording("rec-1");
 
-            Assert.True(MissionStore.HideArchived);
-            Assert.False(ui.GetMissionsUI().PendingClearArchiveFilterForTesting);
+            Assert.Null(ui.GetMissionsUI().PendingExpandMissionIdForTesting);
         }
 
         // --- Failure paths: land on the tab, warn, schedule nothing ---

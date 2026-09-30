@@ -229,6 +229,15 @@ namespace Parsek.TestCommands
                         mw.EnumerateLegExpandKeysForTesting().Count
                             - mw.CollapsedLegCountForTesting),
                 });
+                sets.Add(new UiExpandSet
+                {
+                    // A mission's Collapse / Expand: the SAME field its Interact button
+                    // writes, INVERTED like the leg set (the store holds what is collapsed).
+                    Prefix = TestCommandUiState.MissionKeyPrefix,
+                    Enumerate = mw.EnumerateMissionExpandKeysForTesting,
+                    Set = mw.SetMissionExpandedForTesting,
+                    Count = () => mw.ExpandedMissionCountForTesting,
+                });
                 return sets;
             }
             if (window == TestCommandUiAction.KerbalsWindow)

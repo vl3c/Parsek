@@ -39,8 +39,12 @@ namespace Parsek.Tests
             new Dictionary<string, string>
             {
                 { "DrawStartEventCell(", "ColW_StartEvent" },
-                { "DrawReFlyColumnCell(", "ColW_ReFly" },
-                { "DrawPartnerGoToCell(", "ColW_ReFly" },
+                // The Interact column's cells: each draws exactly one ColW_Interact container.
+                { "DrawInteractBlank(", "ColW_Interact" },
+                { "DrawInteractReFly(", "ColW_Interact" },
+                { "DrawInteractGoTo(", "ColW_Interact" },
+                { "DrawInteractWatchRewind(", "ColW_Interact" },
+                { "DrawInteractCollapse(", "ColW_Interact" },
             };
 
         private static readonly string[] GuardOpeners =
@@ -55,7 +59,8 @@ namespace Parsek.Tests
         private static readonly Regex NameMarker = new Regex(
             @"DrawSortableHeaderCore\([^;]*?MissionSortColumn\.Name\b"
             + @"|DrawWideRowCell\("
-            + @"|DrawMissionTitleOrRename\("
+            + @"|DrawMissionNameCell\("
+            + @"|DrawMissionSummaryNameCell\("
             + @"|GUILayout\.ExpandWidth\(\s*true\s*\)",
             RegexOptions.Compiled);
 
@@ -65,6 +70,7 @@ namespace Parsek.Tests
         public static IEnumerable<object[]> RowMethods()
         {
             yield return new object[] { "DrawMissionValueRow" };
+            yield return new object[] { "DrawMissionActionLine" };
             yield return new object[] { "DrawVesselRow" };
             yield return new object[] { "DrawCompositionRow" };
             yield return new object[] { "DrawChapterHeaderRow" };
@@ -82,7 +88,9 @@ namespace Parsek.Tests
             // Non-vacuous: the header carries the name column and the date columns.
             Assert.Contains(NameToken, header);
             Assert.Contains("ColW_StartTime", header);
-            Assert.Contains("ColW_Archive", header);
+            Assert.Contains("ColW_Interact", header);
+            Assert.DoesNotContain("ColW_ReFly", header);
+            Assert.DoesNotContain("ColW_Archive", header);
 
             string row = RowSpan(MethodBody(prepared, method), RowOpener, method);
             List<string> actual = ColumnSequence(prepared, row);
@@ -103,6 +111,34 @@ namespace Parsek.Tests
             Assert.DoesNotContain("ColW_TMinus", prepared);
             Assert.DoesNotContain("DrawTMinusVesselCell", prepared);
             Assert.DoesNotContain(AdvancedTag + "ColW_", string.Join(",", HeaderSequence(prepared)));
+        }
+
+        // The owner's Interact sizing rule (2026-09-30): Watch, Collapse, Go to and Log share
+        // ONE single-button width; each two-button pair (Fly / Stash + Seal, Watch + Rewind)
+        // spans exactly one single with the usual gap, so the column's button edges line up on
+        // every row; and the column is that single plus its inset on both sides.
+        [Fact]
+        public void InteractButtonWidthsFormOneSystem()
+        {
+            Assert.Equal(MissionsWindowUI.InteractButtonWidth,
+                2f * MissionsWindowUI.InteractPairButtonWidth + MissionsWindowUI.InteractButtonGap);
+            Assert.Equal(MissionsWindowUI.ColW_Interact,
+                MissionsWindowUI.InteractButtonWidth + 2f * MissionsWindowUI.InteractCellInset);
+
+            // Every single-width button in the file names the one constant: Log, Go to,
+            // Watch alone and Collapse, and nothing spells a literal Interact width.
+            string prepared = ReadPreparedSource();
+            string nameCell = MethodBody(prepared, "DrawMissionNameCell");
+            Assert.Contains("GUILayout.Width(InteractButtonWidth)", nameCell);
+            foreach (string method in new[] { "DrawInteractGoTo", "DrawInteractCollapse",
+                                              "DrawInteractWatchRewind" })
+                Assert.Contains("InteractButtonWidth", MethodBody(prepared, method));
+            string pair = MethodBody(prepared, "DrawInteractWatchRewind");
+            Assert.Contains("InteractPairButtonWidth", pair);
+            Assert.Contains("GUILayout.Space(InteractButtonGap)", pair);
+            // The Re-Fly pair is drawn by the Recordings tab's cell at the single width with
+            // no inset of its own, which splits it into two pair halves.
+            Assert.Contains("InteractButtonWidth, 0f", MethodBody(prepared, "DrawInteractReFly"));
         }
 
         // The mutation this gate exists for, run against a synthetic pair so the cell above

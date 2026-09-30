@@ -2765,11 +2765,11 @@ write the SAME persisted bool (`GroupHierarchyStore.HideActive`, reached through
 senses. So the wire carries the key exactly once, valid on both windows, always in the
 Timeline's positive sense - `state=true` means archived rows contribute. Two keys with
 opposite polarities for one flag would have made every lane that touched it read the source
-to find out which it had. The Missions tab's OWN archive filter
-(`MissionStore.HideArchived`) is a genuinely different flag over a different list, so it is
-a different key (`archivedMissions`) and keeps the store's HIDE sense, there being no
-second control to disagree with. Both of those are PERSISTED, so a lane that sets either
-runs on a throwaway staged save - the op cannot enforce that and does not pretend to.
+to find out which it had. (The Missions tab's own "hide archived missions" filter, once the
+key `archivedMissions`, was removed by Missions Model 1 on 2026-09-30: the per-mission mark
+became Collapse / Expand, which `op=expand key=mission:<id>` drives.) `archived` is
+PERSISTED, so a lane that sets it runs on a throwaway staged save - the op cannot enforce
+that and does not pretend to.
 
 ONE COMBINATION IS REFUSED PRE-WRITE RATHER THAN WRITTEN AND REPORTED.
 `key=srcRecordings state=false` while the Timeline's tier filter is Rewind/FF or Re-Fly:
