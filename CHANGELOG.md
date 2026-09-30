@@ -39,7 +39,8 @@ _(unreleased — entries accumulate here per commit)_
   back afterwards (restore marker, healed by the next run if a harness process dies; a delta
   that cannot be applied, or a failed heal of a leftover marker, refuses the run pre-boot). A new `vessel-budget` injection preset
   (eight in-window probe ghosts) and two lanes: `VB-1-ghost-vessel-budget` flies ghost map
-  vessels against a binding stock vessel budget in the Tracking Station, and
+  vessels against a binding stock vessel budget in the Tracking Station (flown green and armed
+  2026-09-30: no real vessel is dropped from the save because of ghosts), and
   `HC-1-hard-career-ledger` runs LedgerGroundTruth, a record, a commit and a Rewind-to-Launch
   on `career-pad-craft-hard`, the first career fixture at KSP's Hard preset (x0.6 gains, x2
   losses, quickload and restart off), derived from `career-pad-craft` by a builder with a

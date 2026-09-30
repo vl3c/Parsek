@@ -11769,7 +11769,13 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        "RF-7T-predicted-tail-ts-render.toml",
                        "RF-12-concluded-refly-batch.toml",
                        "RF-12W-rewind-batch-after-warp-crash.toml",
-                       "V7T-minmus-ts-arrival.toml"}
+                       "V7T-minmus-ts-arrival.toml",
+                       # VB-1: `recordings.structure` armed 2026-09-30 (branch `vb1-final`) off
+                       # its first reading on the budget-10 shape, `2026-09-30_1837` (PASS
+                       # attempt 1: committedTrees 8, vesselNames Kerbal X Debris 6 /
+                       # #autoLOC_501232 1 / Ghost: VB Probe 1 0); every bound inverted
+                       # offline red on exactly its window.
+                       "VB-1-ghost-vessel-budget.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []

@@ -1700,6 +1700,11 @@ Bugs (no ruling needed):
   gap: INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS below (unregistered ghosts still count, and the
   in-game `VesselBudget` cell skips in every Tracking Station batch). No product defect: with
   the patch no real vessel is lost because of ghosts.
+  ARMED 2026-09-30 (branch `vb1-final`): the re-shaped lane (budget 10, no in-game batch) flew
+  its reading `2026-09-30_1837` and armed re-flight `_1902`, both PASS attempt 1: `excluded 8
+  ghost map vessel(s) ... 10 -> 18` on both save builds, no stock prune, all six debris in the
+  produced save, settings restored. Its `recordings.structure` block gates, and D14
+  `vessel-budget` is claimed.
 
 Owner rulings (2026-09-26):
 
