@@ -2213,6 +2213,120 @@ class ContainerSamplingTests(unittest.TestCase):
                          "the Kerbals window is still painting its box's colour")
 
 
+class ScrollViewClipSamplingTests(unittest.TestCase):
+    """A node inside a scroll view is sampled only where the viewport shows it.
+
+    The defect this pins: IMGUI lays out a whole list and the scroll view clips
+    the drawing, so the rows below the viewport are in the dump at a screen
+    position the photo fills with something else. On the Missions tab of
+    `ksc-missions-missions-advanced` missions 7 onwards sampled the window
+    footer and the terrain and rendered in their colours.
+
+    The frame: a #444444 window, a scroll view whose viewport is y 40..140,
+    rows painted #191919 with a white glyph run inside the viewport, and a red
+    field below it where the scrolled-out rows sit in the dump.
+    """
+
+    W, H = 400, 300
+    WIN = (0x44, 0x44, 0x44)
+    ROW = (0x19, 0x19, 0x19)
+    INK = (0xe6, 0xe6, 0xe6)
+    FAR = (0xaa, 0x20, 0x20)
+    VIEW = [10, 40, 300, 100]
+
+    def frame(self):
+        px = bytearray(bytes(self.WIN) * (self.W * self.H))
+
+        def fill(x0, y0, x1, y1, rgb):
+            for y in range(y0, y1):
+                for x in range(x0, x1):
+                    o = (y * self.W + x) * 3
+                    px[o:o + 3] = bytes(rgb)
+
+        fill(10, 140, 310, 300, self.FAR)       # under the viewport: not the list
+        fill(10, 40, 310, 80, self.ROW)         # row 1, fully visible
+        fill(20, 57, 50, 62, self.INK)          # its label's glyphs
+        fill(10, 124, 310, 140, self.ROW)       # row 2's visible slice
+        return self.W, self.H, 3, bytes(px)
+
+    def sampler(self):
+        w, h, bpp, px = self.frame()
+
+        def sample(rect, exclude=()):
+            return gmi.sample_colors(w, h, bpp, px, rect, exclude=exclude)
+        return sample
+
+    def row(self, y, text):
+        return node("layoutgroup", [10, y, 300, 40], None, style="box", children=[
+            node("box", [10, y, 300, 40], None, style="box"),
+            node("label", [20, y + 15, 60, 10], text, style="label")])
+
+    def tree(self, rows):
+        return node("window", [0, 0, 400, 300], "W", style="window", children=[
+            node("scrollview", list(self.VIEW), None, style="scrollview",
+                 children=rows)])
+
+    def rows_of(self, out):
+        return out["c"][0]["c"]
+
+    def test_the_fixture_reproduces_the_defect(self):
+        # Sampling a scrolled-out row's rect reads the field under the viewport.
+        w, h, bpp, px = self.frame()
+        bg, _ = gmi.sample_colors(w, h, bpp, px, [10, 200, 300, 40])
+        self.assertEqual(bg, "#aa2020")
+
+    def test_an_offscreen_row_borrows_the_visible_rows_colours(self):
+        out = gmi.compact_tree(
+            self.tree([self.row(40, "one"), self.row(200, "two")]), [0, 0],
+            self.sampler())
+        visible, hidden = self.rows_of(out)
+        self.assertEqual(visible["bg"], "#191919")
+        self.assertEqual(visible["c"][1]["fg"], "#e6e6e6")
+        self.assertEqual(hidden["bg"], "#191919",
+                         "the scrolled-out row painted the field under it")
+        self.assertEqual(hidden["c"][1]["fg"], "#e6e6e6",
+                         "the scrolled-out label did not take the visible ink")
+
+    def test_a_partially_visible_row_samples_only_its_visible_slice(self):
+        w, h, bpp, px = self.frame()
+        whole, _ = gmi.sample_colors(w, h, bpp, px, [10, 124, 300, 40])
+        self.assertEqual(whole, "#aa2020",
+                         "the fixture's clipped row is not mostly off-screen")
+        out = gmi.compact_tree(self.tree([self.row(124, "two")]), [0, 0],
+                               self.sampler())
+        self.assertEqual(self.rows_of(out)[0]["bg"], "#191919")
+
+    def test_nothing_visible_to_borrow_falls_back_to_the_parent(self):
+        out = gmi.compact_tree(self.tree([self.row(200, "two")]), [0, 0],
+                               self.sampler())
+        hidden = self.rows_of(out)[0]
+        self.assertNotIn("bg", hidden, "a colour was read off the photo")
+        self.assertNotIn("fg", hidden["c"][1])
+
+    def test_an_empty_label_does_not_lend_its_ink(self):
+        # The empty label sits nearer the scrolled-out one; its "ink" is only the
+        # extreme tail of its background, so the text label lends instead.
+        rows = [self.row(40, "one"),
+                node("label", [100, 120, 60, 10], "", style="label"),
+                node("label", [20, 250, 60, 10], "far", style="label")]
+        out = gmi.compact_tree(self.tree(rows), [0, 0], self.sampler())
+        self.assertEqual(self.rows_of(out)[2].get("fg"), None)
+        rows = [self.row(40, "one"),
+                node("label", [20, 55, 60, 10], "near", style="label"),
+                node("label", [100, 120, 60, 10], "", style="label"),
+                node("label", [20, 250, 60, 10], "far", style="label")]
+        out = gmi.compact_tree(self.tree(rows), [0, 0], self.sampler())
+        self.assertEqual(self.rows_of(out)[3]["fg"], "#e6e6e6")
+
+    def test_a_node_outside_any_scroll_view_samples_as_before(self):
+        sample = self.sampler()
+        n = node("box", [10, 200, 300, 40], None, style="box")
+        out = gmi.compact_tree(
+            node("window", [0, 0, 400, 300], "W", style="window", children=[n]),
+            [0, 0], sample)
+        self.assertEqual(out["c"][0]["bg"], sample([10, 200, 300, 40], ())[0])
+
+
 class MutationPinningTests(unittest.TestCase):
     """One cell per mutation that survived the first pass. Each pins a decision
     the suite could not previously tell from its opposite."""
