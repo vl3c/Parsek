@@ -16281,7 +16281,8 @@ def evaluate_bdock_assertions(frames, params: BDockParams,
       (UNDOCK/TERMINAL reached AND undock_confirmed evidence).
 
     A SEPARATE phase is only entered after its circularize completes and only
-    LEFT on a confirmed vessel_count increase, so reaching the phase AFTER it
+    LEFT on a confirmed split (``split_bump_observed``: a vessel_count increase or
+    the active vessel's part_count falling below its entry baseline), so reaching the phase AFTER it
     (STATION-ORBIT / INT-PHASING-ORBIT) is proof the separation was observed;
     requiring the SEPARATE phase itself in ``phases`` too keeps the row honest if
     the flow is ever reordered (a run that entered SEPARATE but flaked before the
