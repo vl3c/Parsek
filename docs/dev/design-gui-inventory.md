@@ -478,7 +478,9 @@ draws, so a click lands next frame. The list's "hide archived missions" filter
 checkbox are REMOVED; the header reads a plain `Interact`. The Timeline GoTo cross-link, which
 cleared that filter, now QUEUES expanding a collapsed target and applies it on a Layout pass.
 Seam: `op=state key=archivedMissions` is gone; `op=expand window=missions key=mission:<id>`
-drives Collapse / Expand (expanded = not collapsed), and `key=all` / `key=none` include it.
+drives Collapse / Expand (expanded = not collapsed). It is a NAMED-KEYS-ONLY set: `key=all` /
+`key=none` skip it and its counts, so the tab's "collapsed" / "expanded" census pictures keep
+every mission's rows.
 The Recordings tab's per-recording Archive (`rec.Hidden`) and the Timeline's `Archived` filter
 are a different mechanism and are unchanged.
 

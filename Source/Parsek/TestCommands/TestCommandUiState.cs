@@ -170,7 +170,7 @@ namespace Parsek.TestCommands
         internal const string LegKeyPrefix = "leg";
         /// <summary>A Missions-tab mission's Collapse / Expand (<c>Mission.Collapsed</c>),
         /// keyed by mission id. Expanded = not collapsed, so the wire speaks "expanded" like
-        /// every other set.</summary>
+        /// every other set. Named keys only: `key=all` / `key=none` skip it.</summary>
         internal const string MissionKeyPrefix = "mission";
         internal const string RowKeyPrefix = "row";
         internal const string RosterKeyPrefix = "roster";
