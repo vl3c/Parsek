@@ -1100,11 +1100,129 @@ def compact_font(node):
     return out
 
 
+def _clip_rect(rect, clip):
+    """The part of `rect` ([x, y, w, h]) inside `clip` ((x0, y0, x1, y1)), as
+    [x, y, w, h], or None when nothing of it is inside."""
+    x0 = max(rect[0], clip[0])
+    y0 = max(rect[1], clip[1])
+    x1 = min(rect[0] + rect[2], clip[2])
+    y1 = min(rect[1] + rect[3], clip[3])
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return [x0, y0, x1 - x0, y1 - y0]
+
+
+class _ClipScope(object):
+    """One scroll view's viewport while its subtree is flattened: the visible
+    rect in screen coordinates, and the colours its VISIBLE nodes sampled, keyed
+    by (kind, style, depth below the scroll view)."""
+
+    __slots__ = ("clip", "bank")
+
+    def __init__(self, clip):
+        self.clip = clip
+        self.bank = {}
+
+    def remember(self, key, whole, cx, cy, bg, fg, inks):
+        # Ink is only worth lending from a node that has some: an empty
+        # label's "ink" is the extreme tail of its background.
+        self.bank.setdefault(key, []).append(
+            (cy, cx, whole, bg, fg if inks else None))
+
+    def borrow(self, key, cx, cy):
+        """The colours of the nearest visible node with the same key: nearest by
+        vertical distance, then horizontal, then first recorded. A fully visible
+        node is preferred over a clipped one, whose slice may be a sliver of its
+        border. Background and ink are picked separately, so an empty label
+        nearest to a text one does not blank the ink."""
+        rows = self.bank.get(key)
+        if not rows:
+            return None, None
+        pool = [r for r in rows if r[2]] or rows
+
+        def nearest(i):
+            best = None
+            for n, r in enumerate(pool):
+                if r[i] is None:
+                    continue
+                rank = (abs(r[0] - cy), abs(r[1] - cx), n)
+                if best is None or rank < best[0]:
+                    best = (rank, r[i])
+            return best[1] if best else None
+
+        return nearest(3), nearest(4)
+
+
+def _node_paints(kind, style):
+    """Whether the page paints this node's background (and so whether a sibling
+    drawn after it hides what is under it)."""
+    # A toggle in the BUTTON style is painted like a button, so its fill is
+    # worth storing; the 7000 checkbox-styled ones draw no surface of their
+    # own and storing a colour for them was only payload.
+    return (kind in BG_KINDS or style == "box"
+            or (kind == "toggle" and style == "button")
+            # A slider's GROOVE is a surface like any other, and the page
+            # was drawing a 3 px line at #666 (luminance 102) where KSP
+            # fills the whole 15 px width at 45. Measured on the
+            # ib-structure-mission scroll bar.
+            or kind == "slider")
+
+
+def _clipped_exclusions(rect, children, later):
+    """What hides a CLIPPED node's own surface inside the viewport: its painting
+    children (not a child with its very rect, which is how the dump records a
+    styled group's own background draw) and the painting siblings drawn after
+    it. The scroll content's background box is overdrawn by every row, so the
+    whole-node rule (children only, whole rect when they cover it) read the
+    rows' fill for it once the offscreen junk no longer outvoted them."""
+    out = []
+    for c in children or ():
+        cr = [int(v) for v in (c.get("rect") or [0, 0, 0, 0])]
+        if cr != rect and _node_paints(c.get("kind") or "label", c.get("style")):
+            out.append(cr)
+    for c in later or ():
+        if _node_paints(c.get("kind") or "label", c.get("style")):
+            out.append([int(v) for v in (c.get("rect") or [0, 0, 0, 0])])
+    return out
+
+
+def _effective_bg(entry):
+    # What `bg or parent_bg` would have handed this node's children.
+    while entry is not None:
+        if entry["bg"]:
+            return entry["bg"]
+        if entry["parent"] is None:
+            return entry["parent_bg"]
+        entry = entry["parent"]
+    return None
+
+
 def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
-                 grid_runs=None, thumb_runs=None, text_offsets=None):
+                 grid_runs=None, thumb_runs=None, text_offsets=None,
+                 _scope=None, _depth=0, _parent_entry=None, _pending=None,
+                 _later=None):
     """One dump node -> the page's compact node: rect made parent-relative (so a
-    scroll view clips its own children), plus the colours sampled off the frame."""
+    scroll view clips its own children), plus the colours sampled off the frame.
+
+    A node inside a scroll view is sampled only where the viewport shows it.
+    IMGUI lays out the whole list and the scroll view clips the drawing, so a
+    row below the viewport is in the dump at a screen position the photo fills
+    with something else (the window footer, the terrain). A clipped node samples
+    its visible slice, where its painting children and the painting siblings
+    drawn after it do not cover it; a node with no visible part reads nothing
+    off the photo and borrows the colours of the nearest visible node of the
+    same kind and style at the same depth in the same scroll view, falling back
+    to its parent's background (nothing stored, so the page inherits it)."""
+    top = _pending is None
+    if top:
+        _pending = []
     rect = [int(v) for v in (node.get("rect") or [0, 0, 0, 0])]
+    visible = rect
+    if _scope is not None:
+        visible = _clip_rect(rect, _scope.clip)
+    # Shape measurements (grid labels, box text offsets, slider thumbs) read the
+    # photo over the node's whole rect, so they run only when all of it shows.
+    whole = visible == rect
     px, py = parent_rect[0], parent_rect[1]
     out = {
         "k": node.get("kind") or "label",
@@ -1138,7 +1256,7 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
         # seam's tab token, which only covers the windows the seam names as
         # tabbed - and only while its `tab=` line and the dump agree.
         out["si"] = sel
-    if out["k"] == "buttongrid" and grid_runs is not None:
+    if out["k"] == "buttongrid" and grid_runs is not None and whole:
         runs = grid_runs(rect)
         if runs:
             # Stored relative to the grid, so the page places each label where the
@@ -1157,7 +1275,7 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
                     cells.append(cbg)
                 if all(cells):
                     out["gc"] = cells
-    if (style == "box" and text and text_offsets is not None
+    if (style == "box" and text and text_offsets is not None and whole
             and out["k"] in ("label", "button")):
         # Only the box style: the ordinary label and button alignments agree with
         # the frame to a pixel or three, and storing an offset for all 71 000
@@ -1167,7 +1285,7 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
             out["tx"] = off
     thumb_rect = None
     if out["k"] == "slider" and thumb_runs is not None:
-        run = thumb_runs(rect)
+        run = thumb_runs(rect) if whole else None
         if run:
             # Start and length along the control's own long axis, plus which axis
             # that is. Read off THIS frame, so the page draws the handle where
@@ -1194,9 +1312,26 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
     if node.get("horizontal") is not None:
         out["hz"] = 1 if node["horizontal"] else 0
     bg = None
-    if sampler is not None and out["w"] > 0 and out["h"] > 0:
-        kid_rects = [c.get("rect") or [0, 0, 0, 0]
-                     for c in (node.get("children") or ())]
+    entry = None
+    paints = _node_paints(out["k"], style)
+    inks = bool(text or out["k"] in ("box", "toggle"))
+    key = (out["k"], style or "", _depth)
+    cx, cy = rect[0] + rect[2] // 2, rect[1] + rect[3] // 2
+    if (sampler is not None and out["w"] > 0 and out["h"] > 0
+            and visible is None):
+        # Scrolled out of view: resolved once the whole tree has been walked,
+        # when every visible node of its scroll view has been sampled.
+        entry = {"out": out, "scope": _scope, "key": key, "cx": cx, "cy": cy,
+                 "paints": paints, "inks": inks, "parent": _parent_entry,
+                 "parent_bg": parent_bg, "bg": None}
+        _pending.append(entry)
+    elif sampler is not None and out["w"] > 0 and out["h"] > 0:
+        if whole:
+            kid_rects = [c.get("rect") or [0, 0, 0, 0]
+                         for c in (node.get("children") or ())]
+        else:
+            kid_rects = _clipped_exclusions(rect, node.get("children"),
+                                            _later() if _later else ())
         if thumb_rect is not None:
             # The groove is the slider's surface MINUS its thumb, the same rule
             # a container's colour follows. Sampling the whole rect took the
@@ -1204,28 +1339,48 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
             # painted the groove in the thumb's own colour - and then drawing the
             # thumb on top of it changed nothing a measurement could see.
             kid_rects = list(kid_rects) + [thumb_rect]
-        bg, fg = sampler(rect, kid_rects)
+        bg, fg = sampler(visible, kid_rects)
         # A background identical to the parent's is what CSS already inherits,
         # so storing it again would only make the page bigger.
-        # A toggle in the BUTTON style is painted like a button, so its fill is
-        # worth storing; the 7000 checkbox-styled ones draw no surface of their
-        # own and storing a colour for them was only payload.
-        paints = (out["k"] in BG_KINDS or style == "box"
-                  or (out["k"] == "toggle" and style == "button")
-                  # A slider's GROOVE is a surface like any other, and the page
-                  # was drawing a 3 px line at #666 (luminance 102) where KSP
-                  # fills the whole 15 px width at 45. Measured on the
-                  # ib-structure-mission scroll bar.
-                  or out["k"] == "slider")
         if bg and bg != parent_bg and paints:
             out["bg"] = bg
-        if fg and (text or out["k"] in ("box", "toggle")):
+        if fg and inks:
             out["fg"] = fg
+        if _scope is not None:
+            _scope.remember(key, whole, cx, cy, bg, fg, inks)
+    if out["k"] == "scrollview":
+        clip = (rect[0], rect[1], rect[0] + rect[2], rect[1] + rect[3])
+        if _scope is not None:
+            clip = (max(clip[0], _scope.clip[0]), max(clip[1], _scope.clip[1]),
+                    min(clip[2], _scope.clip[2]), min(clip[3], _scope.clip[3]))
+        kid_scope, kid_depth = _ClipScope(clip), 0
+    else:
+        kid_scope, kid_depth = _scope, _depth + 1
+    # A child of a scrolled-out node inherits a background that is only known
+    # after the walk, so it keeps a link to that node's pending entry.
+    kid_entry = entry if entry is not None else (
+        _parent_entry if bg is None else None)
+    children = node.get("children") or ()
     kids = [compact_tree(ch, rect, sampler, bg or parent_bg, grid_runs,
-                         thumb_runs, text_offsets)
-            for ch in (node.get("children") or ())]
+                         thumb_runs, text_offsets, kid_scope, kid_depth,
+                         kid_entry, _pending,
+                         # Only a clipped child reads it, so it is built lazily.
+                         (lambda i=i: children[i + 1:]))
+            for i, ch in enumerate(children)]
     if kids:
         out["c"] = kids
+    if top:
+        # Pre-order, so a parent is always resolved before its children read
+        # its background.
+        for e in _pending:
+            ebg, efg = e["scope"].borrow(e["key"], e["cx"], e["cy"])
+            e["bg"] = ebg
+            pbg = (_effective_bg(e["parent"]) if e["parent"] is not None
+                   else e["parent_bg"])
+            if ebg and ebg != pbg and e["paints"]:
+                e["out"]["bg"] = ebg
+            if efg and e["inks"]:
+                e["out"]["fg"] = efg
     return out
 
 

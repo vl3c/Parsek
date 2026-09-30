@@ -39,7 +39,8 @@ _(unreleased — entries accumulate here per commit)_
   back afterwards (restore marker, healed by the next run if a harness process dies; a delta
   that cannot be applied, or a failed heal of a leftover marker, refuses the run pre-boot). A new `vessel-budget` injection preset
   (eight in-window probe ghosts) and two lanes: `VB-1-ghost-vessel-budget` flies ghost map
-  vessels against a binding stock vessel budget in the Tracking Station, and
+  vessels against a binding stock vessel budget in the Tracking Station (flown green and armed
+  2026-09-30: no real vessel is dropped from the save because of ghosts), and
   `HC-1-hard-career-ledger` runs LedgerGroundTruth, a record, a commit and a Rewind-to-Launch
   on `career-pad-craft-hard`, the first career fixture at KSP's Hard preset (x0.6 gains, x2
   losses, quickload and restart off), derived from `career-pad-craft` by a builder with a
@@ -1274,6 +1275,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Dev: the GUI mirror no longer paints scrolled-out rows in the colours of whatever is
+  under them.** A scroll view's rows below (or above) its viewport are in the control-tree
+  dump but not in the photo, so their colours were sampled off the window footer or the
+  terrain (Missions tab, mission 7 onwards). A scrolled-out node now reads no pixels and
+  borrows the colours of the nearest visible node of the same kind and style at the same
+  depth, and a row the viewport cuts through samples only its visible part
+  (`harness/tools/gui_mirror.py`; `docs/dev/design-gui-mirror.md`, "A scrolled-out row is
+  not sampled").
 - **A flight merged without leaving the flight scene is tidied at once.** Merging from the
   Switch-To Merge / Discard dialog now trims idle tails and splits the flight into its phases
   right away, as leaving for the Space Center already did, so the vessels it ends with appear

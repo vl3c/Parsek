@@ -90,6 +90,32 @@ one capture painted `#292929` while every other Kerbals capture painted `#444444
 and the same mechanism waited for any container whose sample point fell inside an
 opaque child. A leaf has no children, so nothing about labels or buttons changed.
 
+### A scrolled-out row is not sampled
+
+IMGUI lays out a scroll view's whole list and the scroll view clips the drawing,
+so the dump carries every row, including the ones below (or above) the viewport,
+at screen positions the photo fills with something else. On the Missions tab of
+`ksc-missions-missions-advanced` missions 7 onwards read the window footer and the
+terrain and rendered in their colours. So `compact_tree` intersects each node
+inside a scroll view with the viewport (the scroll view's rect, nested scroll
+views intersected):
+
+* fully visible: sampled exactly as above, nothing changes;
+* clipped: only the visible slice is probed, and what hides the node's own surface
+  there is its painting children (not a child with its very rect, which is how the
+  dump records a styled group's own background draw) plus the painting siblings
+  drawn after it. Without the siblings the list's background box read the rows'
+  `#191919` fill for its `#292929`, once the off-screen pixels no longer outvoted
+  them;
+* scrolled out: no pixel is read. After the walk the node borrows the colours of
+  the nearest visible node with the same kind, style and depth below the same
+  scroll view (vertical distance first, then horizontal, a fully visible node
+  before a clipped one; ink only from a node that has text), and with none it
+  stores nothing and inherits its parent's background.
+
+Shape measurements (tab-label runs, box text offsets, slider thumbs) run only on a
+node the viewport shows whole.
+
 ### Rich text
 
 KSP draws a Unity rich-text subset in labels and the dump carries the raw markup -

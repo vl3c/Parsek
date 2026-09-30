@@ -211,6 +211,8 @@ half of the Q4 ruling. Re-derivation from a fresh decompile (KSP 1.12.5 Assembly
   excess (nine real against eight), not nine. The same run's in-game batch reproduced the
   pre-fix world by accident: with the eight ghosts orphaned by the runner's cleanup, the next
   two saves dropped all six debris. The armed lane flies at budget 10 (slack for the asteroid
-  spawner) and must drop nothing; see autotest-status for its runs.
+  spawner) and must drop nothing. It did (2026-09-30, branch `vb1-final`): reading
+  `2026-09-30_1837` and armed `_1902`, both PASS attempt 1, `excluded 8 ... 10 -> 18` on both
+  save builds, no stock prune, all six debris kept; D14 `vessel-budget` claimed.
 - Harness: a spec now declares a per-run delta, `[runtime] kspSettings`, so the line above
   ("no per-scenario settings override") is no longer true.
