@@ -444,7 +444,7 @@ never time (`:118-123`); roster atoms are not rows (`:99-101`).
 |---|---|---|---|---|---|
 | 1 | (blank enable slot) | `ColW_Enable` 20 | blank | blank | blank |
 | 2 | `#` (sortable) | `ColW_Index` 30 | per-TREE index | blank | include checkbox (Advanced) or blank |
-| 3 | `Missions and vessels` (sortable) | expand | bold title (double-click renames) + `Log` right-aligned (`DrawMissionNameCell`) | the summary, then the Advanced loop group right-aligned (`DrawMissionSummaryNameCell`) | connector + caret + name + `EventPhrase` |
+| 3 | `Missions and vessels` (sortable) | expand | bold title (double-click renames), then (Advanced) `Clone` and `Warp to...` and `Log`, right-aligned (`DrawMissionNameCell`) | the summary, then (Advanced) `Delete` and the loop cell, right-aligned (`DrawMissionSummaryNameCell`) | connector + caret + name + `EventPhrase` |
 | 4 | `Start time` (sortable) | `ColW_StartTime` 120 | the mission span's start date | blank | `PrintDateCompact` |
 | 5 | `Start event` | `ColW_StartEvent` 110 | the first vessel row's start event (`MissionPresentation.MissionStartEventText`) | blank | event word, dock-partner named when resolvable |
 | 6 | `End event` | `ColW_EndEvent` 85 | the primary vessel's outcome | blank | terminal word |
@@ -461,7 +461,13 @@ partner row kinds, in both modes. The Re-Fly and Archive columns merged into the
 `InteractButtonWidth` 100 for a single (Watch alone, Collapse / Expand, Go to, and Log in the
 name cell), `InteractPairButtonWidth` 48 for each half of a pair (Fly / Stash + Seal, Watch +
 Rewind), `InteractButtonGap` 4, pinned `2 * pair + gap == single`; the column is the single
-plus an 8 px inset each side. (The owner asked for single = old Watch 70 + 10 and pairs wider
+plus an 8 px inset each side. The Advanced loop controls form a fixed 2x2 grid inside the name cell,
+right-aligned (owner mock-up 2026-09-30): column A (`LoopGridColumnAWidth` 70) holds Clone over
+Delete, column B (`LoopGridColumnBWidth` 164) holds `Warp to...` (or a same-width space when not
+looping), and line 2's loop cell (`LoopCellWidth` 264 = column B + the Log slot, every control
+centred on one 22 px line) holds `Loop x`, the period cell and `Looped by route` when route-bound;
+`MissionsTabColumnSequenceTests` pins the widths. Basic draws no grid: the summary takes the whole
+name cell and `Looped by route` sits right-aligned after it. (The owner asked for single = old Watch 70 + 10 and pairs wider
 than today's; at 80 a pair half is 38, exactly today's cramped Stash, so the single is 100.)
 The Re-Fly pair is the Recordings tab's own cell drawn at that geometry
 (`RecordingsTableUI.DrawReFlyColumnCell(rec, ri, now, cellWidth, leftInset)`). The `Next
@@ -489,16 +495,16 @@ Mission bar controls, with their gates:
 | control | where | backend | disabled / hidden |
 |---|---|---|---|
 | title double-click | line 1 name cell | `CommitMissionRename` -> `MissionGroupLink.RenameMissionGroup` (`MissionGroupLink.cs:57`) for an original, `MissionStore.RenameMission` for a clone | a group-name collision refuses the whole rename, Warn-only |
-| `Log` | line 1 name cell, right-aligned | `ParsekUI.OpenStructureWindowForMission` | never |
+| `Log` | line 1 name cell, right-aligned (right of the Advanced loop grid) | `ParsekUI.OpenStructureWindowForMission` | never |
 | `Watch` / `W*` | line 1 Interact | `flight.EnterWatchMode` / `ExitWatchMode` | two reasons (`MissionWatchDisabledReason`). Not Basic-gated |
 | `Rewind` / `Forward` | line 1 Interact, paired with Watch when shown | `RecordingsTableUI.DrawMissionRewindForwardButton` over the mission root recording | greys on `CanRewind` / `CanFastForward` with the store's reason; not drawn when neither applies (Watch then takes the full width) |
 | `Collapse` / `Expand` | line 2 Interact | writes `Mission.Collapsed` | never |
-| `Clone` | line 2 name cell, Advanced | `MissionStore.Clone` | HIDDEN in Basic |
-| `Delete` | line 2 name cell, Advanced | `MissionStore.Delete` | greyed by `CanDelete` (`A flight always keeps its first mission`). HIDDEN in Basic since Missions Model 1 |
-| `Warp to...` | line 2 name cell, Advanced | confirm dialog then a forward jump | drawn ONLY while the mission loops (a same-width space otherwise), HIDDEN in Basic; three ordered reasons (`MissionWarpToDisabledReason`: scene, schedule, launch ahead) |
-| `Loop` + toggle | line 2 name cell, Advanced | `CommitMissionLoopToggle` -> `MissionStore.SetLoopEnabled` | HIDDEN in Basic; greyed when `RouteTreeGuard.RouteBindingFor(treeId)` |
-| `Looped by route` | line 2 name cell, both modes | label (route name in the hover) | only on a route-bound tree |
-| loop-period cell | line 2 name cell, Advanced | `CommitMissionLoopPeriod`, four states (locked / auto / manual / editing) | HIDDEN in Basic; an open edit is DROPPED uncommitted on a Basic switch |
+| `Clone` | loop grid column A, line 1, Advanced | `MissionStore.Clone` | HIDDEN in Basic |
+| `Delete` | loop grid column A, line 2, Advanced | `MissionStore.Delete` | greyed by `CanDelete` (`A flight always keeps its first mission`). HIDDEN in Basic since Missions Model 1 |
+| `Warp to...` | loop grid column B, line 1, Advanced | confirm dialog then a forward jump | drawn ONLY while the mission loops (a same-width space otherwise), HIDDEN in Basic; three ordered reasons (`MissionWarpToDisabledReason`: scene, schedule, launch ahead) |
+| `Loop` + toggle | loop cell (column B + the Log slot), line 2, Advanced; label and checkbox centred on one line | `CommitMissionLoopToggle` -> `MissionStore.SetLoopEnabled` | HIDDEN in Basic; greyed when `RouteTreeGuard.RouteBindingFor(treeId)` |
+| `Looped by route` | line 2: in the loop cell (Advanced) or right-aligned after the summary (Basic) | label (route name in the hover) | only on a route-bound tree |
+| loop-period cell | loop cell, line 2, Advanced | `CommitMissionLoopPeriod`, four states (locked / auto / manual / editing) | HIDDEN in Basic; an open edit is DROPPED uncommitted on a Basic switch |
 
 The rest of the tab: expanded per-vessel interval rows (Advanced only), chapter group header
 rows (their tri-state toggle, the `[~]` marker and the dimming are Advanced-only: the P21 fix

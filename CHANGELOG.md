@@ -2260,7 +2260,9 @@ _(unreleased — entries accumulate here per commit)_
   Interact too. Everything that exists only because of mission looping is Advanced-only
   (Clone, Delete, "Warp to..." shown only while the mission loops, the Loop toggle and
   period, the `Loops ~P` and countdown pieces, and the greyed / `(partial)` styling of rows
-  left out of a loop); Advanced puts them on the story line beside the story. The Next
+  left out of a loop); Advanced shows them as a two-by-two grid beside Log (Clone and "Warp
+  to..." on the title line, Delete and the Loop toggle with its period on the story line), so
+  the story keeps most of the width. The Next
   launch column is gone: the countdown lives in the story, and the warning its amber tint
   used to carry (a drifted station, a refused arrival, a launch outside its alignment
   tolerance) is in the story's hover. The `Events (N)` list under each mission is gone: its

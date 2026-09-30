@@ -141,6 +141,29 @@ namespace Parsek.Tests
             Assert.Contains("InteractButtonWidth, 0f", MethodBody(prepared, "DrawInteractReFly"));
         }
 
+        // The Advanced loop grid (owner mock-up 2026-09-30): Clone / Delete share column A,
+        // "Warp to..." (or its same-width space) sits in column B, and the line-2 loop cell spans
+        // column B plus the Log slot, so both lines end at the same x and the grid never shifts.
+        [Fact]
+        public void TheLoopGridColumnsAreFixedAndLineUpAcrossBothLines()
+        {
+            Assert.Equal(MissionsWindowUI.LoopCellWidth,
+                MissionsWindowUI.LoopGridColumnBWidth + MissionsWindowUI.InteractButtonWidth);
+
+            string prepared = ReadPreparedSource();
+            string line1 = MethodBody(prepared, "DrawMissionNameCell");
+            string line2 = MethodBody(prepared, "DrawMissionSummaryNameCell");
+            Assert.Contains("GUILayout.Width(LoopGridColumnAWidth)", line1);   // Clone
+            Assert.Contains("GUILayout.Width(LoopGridColumnBWidth)", line1);   // Warp slot
+            Assert.Contains("GUILayout.Space(LoopGridColumnAWidth)", line1);   // hidden Warp
+            Assert.Contains("GUILayout.Width(InteractButtonWidth)", line1);    // Log
+            Assert.Contains("GUILayout.Width(LoopGridColumnAWidth)", line2);   // Delete
+            Assert.Contains("GUILayout.Width(LoopCellWidth)", line2);          // loop cell
+            // The hidden-Warp space is exactly the Warp button's width.
+            Assert.Contains("GUILayout.Width(LoopGridColumnAWidth)",
+                MethodBody(prepared, "DrawMissionWarpToWindowButton"));
+        }
+
         // The mutation this gate exists for, run against a synthetic pair so the cell above
         // cannot pass by reading nothing: a row that draws a column unconditionally under a
         // header that draws it only in Advanced must read as a different sequence.
