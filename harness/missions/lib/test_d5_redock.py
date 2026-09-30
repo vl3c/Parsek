@@ -119,6 +119,24 @@ class RDockMachineTests(unittest.TestCase):
         self.assertEqual(st.undock_baseline_vessel_count, 12)
         self.assertIn(mlib.ACTION_UNDOCK, [a.kind for a in actions])
 
+    def test_the_undock_is_confirmed_by_the_active_part_count(self):
+        # The global vessel count can be cancelled by an unrelated removal; the
+        # active vessel's own part count falling is the channel that cannot.
+        st = mlib.rdock_initial_state(mlib.RDockParams(start_settle_seconds=0.0))
+        st, _ = mlib.rdock_decide(st, snap(ut=500.0, docking_state="Docked",
+                                           vessel_count=12, part_count=56))
+        self.assertEqual(st.phase, mlib.RDOCK_UNDOCK)
+        self.assertEqual(st.undock_baseline_part_count, 56)
+        for parts, state in ((28, "Docked"), (56, "Ready"), (0, "Ready"),
+                             (70, "Ready")):
+            st, _ = mlib.rdock_decide(st, snap(ut=501.0, docking_state=state,
+                                               vessel_count=12, part_count=parts))
+            self.assertEqual(st.phase, mlib.RDOCK_UNDOCK, (parts, state))
+        st, _ = mlib.rdock_decide(st, snap(ut=502.0, docking_state="Ready",
+                                           vessel_count=11, part_count=28))
+        self.assertEqual(st.phase, mlib.RDOCK_BACKOFF)
+        self.assertTrue(st.undock_confirmed)
+
     def test_backoff_waits_its_full_dwell(self):
         st, _ = _walk(HAPPY[:3])
         self.assertEqual(st.phase, mlib.RDOCK_BACKOFF)

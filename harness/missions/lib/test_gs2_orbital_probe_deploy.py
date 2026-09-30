@@ -682,9 +682,10 @@ def at_circularize(state, vessel_count=5):
                                    mlib.FLKO_ASCENT))
 
 
-def ascent_done(ut, vessel_count=5, periapsis=0.0):
+def ascent_done(ut, vessel_count=5, periapsis=0.0, part_count=0):
     return mlib.TelemetrySnapshot(ut=ut, apoapsis=100000.0, periapsis=periapsis,
                                   mj_ascent_complete=True, vessel_count=vessel_count,
+                                  part_count=part_count,
                                   situation="SUB_ORBITAL")
 
 
@@ -738,6 +739,24 @@ class ForgeLkoParkAttachedTests(unittest.TestCase):
         st, _ = mlib.forge_lko_decide(st, ascent_done(11.0, vessel_count=6))
         self.assertTrue(st.attached_split_seen)
         self.assertEqual(6, st.attached_peak_vessel_count)
+
+    def test_a_part_count_drop_latches_the_split_when_the_vessel_count_is_masked(self):
+        """The mirror of the BDOCK-1 masked bump: an autostage split whose own
+        save declutters other vessels leaves the count BELOW the baseline, so only
+        the active vessel's part count shows it."""
+        _p, st = forge_state(parkAttached=True)
+        st = at_circularize(st)
+        st, _ = mlib.forge_lko_decide(st, ascent_done(10.0, vessel_count=5,
+                                                      part_count=40))
+        self.assertEqual(40, st.attached_baseline_part_count)
+        st, _ = mlib.forge_lko_decide(st, ascent_done(11.0, vessel_count=2,
+                                                      part_count=40))
+        self.assertFalse(st.attached_split_seen)
+        st, _ = mlib.forge_lko_decide(st, ascent_done(12.0, vessel_count=2))
+        self.assertFalse(st.attached_split_seen)      # unread is not a drop
+        st, _ = mlib.forge_lko_decide(st, ascent_done(13.0, vessel_count=2,
+                                                      part_count=28))
+        self.assertTrue(st.attached_split_seen)
 
     def test_the_latch_is_inert_when_park_attached_is_off(self):
         _p, st = forge_state()

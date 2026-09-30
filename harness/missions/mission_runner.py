@@ -715,6 +715,7 @@ class KrpcMissionControl(MissionControl):
             mj_rv_enabled = False
             mj_dock_enabled = False
             vessel_count = 0
+            part_count = 0
             transfer_complete = False
             transfer_amount = float("nan")
             monopropellant = float("nan")
@@ -731,6 +732,14 @@ class KrpcMissionControl(MissionControl):
                     vessel_count = len(sc.vessels)
                 except Exception:
                     vessel_count = 0
+                # The active vessel's OWN part count: the split signal another
+                # vessel's removal cannot mask (mlib.split_bump_observed). One
+                # parts-list call per frame, cheap beside the reads around it;
+                # own try/except so a fault degrades to the 0 unread sentinel.
+                try:
+                    part_count = len(v.parts.all)
+                except Exception:
+                    part_count = 0
                 transfer_complete, transfer_amount = self._read_active_transfer()
                 try:
                     monopropellant = float(resources.amount("MonoPropellant"))
@@ -961,6 +970,7 @@ class KrpcMissionControl(MissionControl):
                 mj_rendezvous_enabled=mj_rv_enabled,
                 mj_docking_enabled=mj_dock_enabled,
                 vessel_count=vessel_count,
+                part_count=part_count,
                 transfer_complete=transfer_complete,
                 transfer_amount=transfer_amount,
                 monopropellant=monopropellant,
@@ -4363,25 +4373,32 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             # SEPARATE->PHASING handoff must show the orbital stage still has
             # thrust for the rendezvous (available_thrust > 0), and it is a cheap
             # diagnosability channel for every other transition too.
-            log.info(state.phase, "phase %s -> %s ut=%s alt=%s ap=%s vsurf=%s avThr=%s"
+            log.info(state.phase, "phase %s -> %s ut=%s alt=%s ap=%s vsurf=%s avThr=%s%s"
                      % (prev_phase, state.phase, _fmt(snapshot.ut), _fmt(snapshot.altitude),
                         _fmt(snapshot.apoapsis), _fmt(snapshot.vertical_speed),
-                        _fmt(snapshot.available_thrust)))
+                        _fmt(snapshot.available_thrust),
+                        mlib.format_split_channels(snapshot)))
         # GATE-EVIDENCE lines (design-live-observability 2b): every sparse
         # machine latch/gate flip logs the exact values that decided it, on
         # the frame it happened -- a single-frame transient (e.g. the
         # attitude-error dip that opens the throttle gate between telemetry
         # samples) is loud by definition, independent of any rate limit.
         gate_changes = mlib.diff_machine_state(prev_state, state)
+        # The two split channels (vessels= / parts=) ride the gate, telemetry
+        # and transition lines whenever they were read, so a separation that
+        # did not certify shows both counts next to the baselines the machine
+        # line carries. Empty when unread: a mission that does not opt in to
+        # read_docking keeps byte-identical lines.
+        split_token = mlib.format_split_channels(snapshot)
         for change in gate_changes:
             log.info(state.phase,
                      "gate %s | ut=%s alt=%s nodeDv=%s apErr=%s thr=%s avThr=%s "
-                     "nextPe=%s warp=%sx%s"
+                     "nextPe=%s warp=%sx%s%s"
                      % (change, _fmt(snapshot.ut), _fmt(snapshot.altitude),
                         _fmt(snapshot.node_dv), _fmt(snapshot.ap_error),
                         _fmt(snapshot.throttle), _fmt(snapshot.available_thrust),
                         _fmt(snapshot.next_pe), snapshot.warp_mode,
-                        _fmt(snapshot.warp_rate)))
+                        _fmt(snapshot.warp_rate), split_token))
         for action in actions:
             if action.kind in (mlib.ACTION_WARP_TO_UT, mlib.ACTION_CANCEL_WARP,
                                mlib.ACTION_SET_RAILS_WARP):
@@ -4584,6 +4601,7 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             opt_token += " landAP=%d" % snapshot.landing_ap_enabled
         if math.isfinite(snapshot.horizontal_speed):
             opt_token += " hspd=%s" % _fmt(snapshot.horizontal_speed)
+        opt_token += split_token
         log.verbose_rate_limited(
             "telemetry", state.phase,
             "telemetry ap=%s pe=%s ecc=%s inc=%s alt=%s vspd=%s body=%s nodes=%d "

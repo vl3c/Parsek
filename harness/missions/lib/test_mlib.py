@@ -5710,6 +5710,112 @@ class SeparationEvidenceTests(unittest.TestCase):
         self.assertEqual(settle, 0)
         self.assertFalse(confirmed)
 
+    # -- the part-count channel (BDOCK-1-STATION-SEPARATE-NOT-OBSERVED) --------
+    # Flight 2026-09-29_2135: baseline 4 vessels, the decouple made it 5, and
+    # 0.7 s later the rewind-point quicksave's stock KSC declutter removed three
+    # launch-clamp debris vessels, so the count read 5 for one frame and 2 after.
+    # The active vessel went 40 -> 28 parts and stayed there.
+
+    def _run(self, frames, base_vessels, base_parts, debounce=3):
+        settle, confirmed = 0, False
+        for vessels, parts in frames:
+            settle, _, confirmed, _ = mlib.separation_evidence(
+                vessels, 0.0, base_vessels, settle, 0, confirmed,
+                debounce=debounce, part_count=parts,
+                baseline_part_count=base_parts)
+        return settle, confirmed
+
+    def test_the_measured_declutter_sequence_confirms_the_split(self):
+        frames = [(5, 28), (2, 28), (2, 28), (2, 28)]
+        _, confirmed = self._run(frames, base_vessels=4, base_parts=40)
+        self.assertTrue(confirmed)
+
+    def test_the_measured_sequence_without_the_part_channel_never_confirms(self):
+        # The pre-fix reading: same vessel counts, part channel unread.
+        frames = [(5, 0), (2, 0), (2, 0), (2, 0)]
+        settle, confirmed = self._run(frames, base_vessels=4, base_parts=0)
+        self.assertFalse(confirmed)
+        self.assertEqual(settle, 0)
+
+    def test_flat_vessels_and_flat_parts_never_confirm(self):
+        settle, confirmed = self._run([(4, 40)] * 10, 4, 40)
+        self.assertEqual((settle, confirmed), (0, False))
+
+    def test_an_unread_part_count_never_certifies(self):
+        # Current count unread (0) against a real baseline: 0 is NOT "fewer".
+        settle, confirmed = self._run([(4, 0)] * 10, 4, 40)
+        self.assertEqual((settle, confirmed), (0, False))
+
+    def test_an_unread_part_baseline_never_certifies(self):
+        settle, confirmed = self._run([(4, 28)] * 10, 4, 0)
+        self.assertEqual((settle, confirmed), (0, False))
+
+    def test_a_part_count_increase_is_not_a_split(self):
+        # A dock: the active vessel GAINS parts and the vessel count falls.
+        settle, confirmed = self._run([(3, 52)] * 10, 4, 40)
+        self.assertEqual((settle, confirmed), (0, False))
+
+    def test_a_vessel_removal_alone_is_not_a_split(self):
+        # The declutter with no decouple: count falls, parts flat.
+        settle, confirmed = self._run([(1, 40)] * 10, 4, 40)
+        self.assertEqual((settle, confirmed), (0, False))
+
+    def test_the_part_channel_still_needs_the_debounce(self):
+        settle, confirmed = self._run([(2, 28), (2, 28)], 4, 40, debounce=3)
+        self.assertEqual((settle, confirmed), (2, False))
+        # ...and a frame on which neither channel holds resets the streak.
+        settle, confirmed = self._run([(2, 28), (2, 28), (4, 40)], 4, 40)
+        self.assertEqual((settle, confirmed), (0, False))
+
+    def test_split_bump_observed_truth_table(self):
+        f = mlib.split_bump_observed
+        self.assertTrue(f(5, 4))                 # vessel channel, parts unread
+        self.assertTrue(f(2, 4, 28, 40))         # part channel alone
+        self.assertFalse(f(4, 4, 40, 40))
+        self.assertFalse(f(0, 4, 0, 40))         # both unread
+        self.assertFalse(f(4, 4, 28, 0))         # baseline unread
+        self.assertFalse(f(4, 4, 52, 40))        # dock
+        self.assertFalse(f(4, 4, -1, 40))        # a negative read is not a count
+
+    def test_format_split_channels_is_empty_when_unread(self):
+        self.assertEqual("", mlib.format_split_channels(snap()))
+        self.assertEqual(" vessels=5 parts=28", mlib.format_split_channels(
+            snap(vessel_count=5, part_count=28)))
+        self.assertEqual(" vessels=0 parts=28", mlib.format_split_channels(
+            snap(part_count=28)))
+
+    def test_forge_separate_confirms_on_the_part_channel(self):
+        state = mlib.forge_lko_initial_state(FLKO_PARAMS)
+        frames = [
+            snap(ut=0.0, situation="FLYING"),
+            snap(ut=5.0, situation="PRE_LAUNCH", crew_count=2),
+            snap(ut=10.0, situation="PRE_LAUNCH", crew_count=2),
+            snap(ut=300.0, apoapsis=99000.0, mj_ascent_complete=True),
+            snap(ut=400.0, periapsis=99000.0, vessel_count=4, part_count=40),
+            snap(ut=401.0, vessel_count=5, part_count=28, available_thrust=0.0),
+        ] + [snap(ut=402.0 + i, vessel_count=2, part_count=28,
+                  available_thrust=0.0) for i in range(4)]
+        state, _ = drive_flko(state, frames)
+        self.assertEqual(state.separate_baseline_part_count, 40)
+        self.assertTrue(state.split_ever_confirmed)
+
+    def test_forge_separate_flake_names_both_channels(self):
+        state = mlib.forge_lko_initial_state(FLKO_PARAMS)
+        frames = [
+            snap(ut=0.0, situation="FLYING"),
+            snap(ut=5.0, situation="PRE_LAUNCH", crew_count=2),
+            snap(ut=10.0, situation="PRE_LAUNCH", crew_count=2),
+            snap(ut=300.0, apoapsis=99000.0, mj_ascent_complete=True),
+            snap(ut=400.0, periapsis=99000.0, vessel_count=4, part_count=40),
+            snap(ut=401.0, vessel_count=2, part_count=40),
+            snap(ut=4000.0, vessel_count=2, part_count=40),
+        ]
+        state, _ = drive_flko(state, frames)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("no separation observed", state.flake_reason)
+        self.assertIn("vessel_count 2", state.flake_reason)
+        self.assertIn("part_count 40", state.flake_reason)
+
     def test_nan_thrust_is_never_ignited(self):
         _, thrust, _, ignited = mlib.separation_evidence(
             2, float("nan"), 1, 0, 5, True, debounce=3)
@@ -6248,6 +6354,91 @@ class BDockSeparateTests(unittest.TestCase):
             state, _ = mlib.bdock_decide(
                 state, snap(ut=460.0 + i, vessel_count=3, available_thrust=1.8e5))
         self.assertEqual(state.phase, mlib.BDOCK_INT_PHASING_ORBIT)
+
+    def _at_station_separate_measured(self):
+        # The measured phase entry: 4 vessels (the craft, an asteroid and the
+        # launch-clamp debris), 40 parts on the active vessel.
+        state, _ = _bdock_walk_to(mlib.BDOCK_STATION_CIRCULARIZE)
+        return mlib.bdock_decide(state, snap(
+            ut=382.134, periapsis=109000.0, vessel_count=4, part_count=40))
+
+    def test_the_measured_declutter_sequence_completes_station_separate(self):
+        # BDOCK-1-STATION-SEPARATE-NOT-OBSERVED, flight 2026-09-29_2135: the
+        # decouple bumped 4 -> 5, the rewind-point save's KSC declutter removed
+        # three debris vessels 0.7 s later (-> 2), and the vessel-count channel
+        # never held K frames. The active vessel's 40 -> 28 parts must carry it.
+        state, actions = self._at_station_separate_measured()
+        self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
+        self.assertEqual(state.separate_baseline_vessel_count, 4)
+        self.assertEqual(state.separate_baseline_part_count, 40)
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=382.6, vessel_count=5, part_count=28, available_thrust=0.0))
+        ut = 383.1
+        while not state.separate_split_confirmed and ut < 390.0:
+            state, actions = mlib.bdock_decide(state, snap(
+                ut=ut, vessel_count=2, part_count=28, available_thrust=0.0))
+            ut += 0.5
+        self.assertTrue(state.separate_split_confirmed)
+        # The confirming frame lights the orbital stage: activation 2, never 3.
+        self.assertEqual(actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(state.separate_activations, 2)
+        for i in range(self.K):
+            state, _ = mlib.bdock_decide(state, snap(
+                ut=ut + i, vessel_count=2, part_count=28, available_thrust=6.0e4))
+        self.assertEqual(state.phase, mlib.BDOCK_STATION_ORBIT)
+
+    def test_a_declutter_without_a_decouple_never_certifies(self):
+        # Vessels fall, the active vessel keeps every part: no split, and the
+        # give-up reason prints both channels against both baselines.
+        state, _ = self._at_station_separate_measured()
+        for i in range(10):
+            state, actions = mlib.bdock_decide(state, snap(
+                ut=383.0 + i, vessel_count=1, part_count=40, available_thrust=0.0))
+            self.assertFalse(state.separate_split_confirmed)
+            self.assertEqual(actions, [])
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=382.134 + 121.0, vessel_count=1, part_count=40))
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        _, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertIn("no separation observed", reason)
+        self.assertIn("vessel_count 1", reason)
+        self.assertIn("baseline 4", reason)
+        self.assertIn("part_count 40", reason)
+        self.assertIn("baseline 40", reason)
+
+    def test_an_unread_part_channel_never_certifies_in_the_machine(self):
+        # part_count left at its 0 sentinel on every frame (baseline included).
+        state, _ = _bdock_walk_to(mlib.BDOCK_STATION_CIRCULARIZE)
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=382.0, periapsis=109000.0, vessel_count=4))
+        self.assertEqual(state.separate_baseline_part_count, 0)
+        for i in range(10):
+            state, _ = mlib.bdock_decide(state, snap(
+                ut=383.0 + i, vessel_count=2, available_thrust=0.0))
+        self.assertFalse(state.separate_split_confirmed)
+        # Baseline read, current frames unread: still nothing.
+        state, _ = self._at_station_separate_measured()
+        for i in range(10):
+            state, _ = mlib.bdock_decide(state, snap(
+                ut=383.0 + i, vessel_count=2, available_thrust=0.0))
+        self.assertFalse(state.separate_split_confirmed)
+
+    def test_int_separate_baselines_and_reads_the_part_channel(self):
+        state, _ = _bdock_walk_to(mlib.BDOCK_INT_CIRCULARIZE)
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=450.0, periapsis=89000.0, vessel_count=5, part_count=40))
+        self.assertEqual(state.phase, mlib.BDOCK_INT_SEPARATE)
+        self.assertEqual(state.separate_baseline_part_count, 40)
+        for i in range(self.K):
+            state, _ = mlib.bdock_decide(state, snap(
+                ut=451.0 + i, vessel_count=3, part_count=28, available_thrust=0.0))
+        self.assertTrue(state.separate_split_confirmed)
+
+    def test_the_machine_state_line_carries_both_baselines(self):
+        state, _ = self._at_station_separate_measured()
+        line = mlib.format_machine_state(state, 383.0)
+        self.assertIn("sepBaseVessels=4", line)
+        self.assertIn("sepBaseParts=40", line)
 
     def test_no_separation_within_budget_flakes_with_named_reason(self):
         state, _ = self._at_station_separate(entry_count=1)
@@ -6939,6 +7130,33 @@ class BDockTransferUndockTests(unittest.TestCase):
         self.assertEqual(state.phase, mlib.BDOCK_TERMINAL)
         self.assertTrue(state.undock_confirmed)
         self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP)])
+
+    def test_undock_split_is_confirmed_by_the_part_channel(self):
+        # An unrelated vessel vanishing on the undock frame cancels the count
+        # bump; the active vessel's own part count still fell.
+        state = self._at_transfer()
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=525.0, transfer_complete=True, vessel_count=3, part_count=56))
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=530.0, transfer_complete=True, vessel_count=3, part_count=56))
+        self.assertEqual(state.phase, mlib.BDOCK_UNDOCK)
+        self.assertEqual(state.undock_baseline_part_count, 56)
+        # Fewer parts but the port still reads Docked -> not yet.
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=531.0, vessel_count=3, part_count=28, docking_state="Docked"))
+        self.assertEqual(state.phase, mlib.BDOCK_UNDOCK)
+        # Parts flat, port Ready -> the soft-evidence rule is unchanged.
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=532.0, vessel_count=3, part_count=56, docking_state="Ready"))
+        self.assertEqual(state.phase, mlib.BDOCK_UNDOCK)
+        # Unread part count -> never.
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=533.0, vessel_count=3, docking_state="Ready"))
+        self.assertEqual(state.phase, mlib.BDOCK_UNDOCK)
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=534.0, vessel_count=3, part_count=28, docking_state="Ready"))
+        self.assertEqual(state.phase, mlib.BDOCK_TERMINAL)
+        self.assertTrue(state.undock_confirmed)
 
     def test_undock_ready_alone_is_soft_evidence(self):
         # Ready with NO count increase is soft evidence only (the port lingers
@@ -10812,6 +11030,48 @@ class B5PreTransferJettisonTests(unittest.TestCase):
         self.assertEqual(mlib.B5_JETTISON, out.phase)
         self.assertEqual(3, out.jettison_baseline_vessel_count)
         self.assertEqual([mlib.ACTION_CUT_THROTTLE], [a.kind for a in actions])
+
+    def test_armed_orbit_baselines_the_part_count_too(self):
+        st = self._at_orbit(B19_JETTISON_PARAMS)
+        out, _ = mlib.b5_decide(st, snap(ut=200.0, vessel_count=3, part_count=90))
+        self.assertEqual(90, out.jettison_baseline_part_count)
+
+    def _jettison_split(self, st, frames):
+        for i, (vessels, parts) in enumerate(frames):
+            st, _ = mlib.b5_decide(st, snap(
+                ut=200.0 + i, vessel_count=vessels, part_count=parts,
+                throttle=0.0, apoapsis=700000.0 + i, periapsis=690000.0 + i,
+                available_thrust=0.0))
+        return st
+
+    def test_jettison_split_is_confirmed_by_the_part_channel(self):
+        # The same exposure as BDOCK-1: the pop's own save declutters other
+        # vessels, so the count never holds above the baseline.
+        k = mlib.BDOCK_SEPARATION_DEBOUNCE
+        st = self._in_jettison(baseline=4, jettison_baseline_part_count=90)
+        st = self._jettison_split(st, [(5, 60)] + [(2, 60)] * k)
+        self.assertTrue(st.jettison_split_confirmed)
+
+    def test_jettison_part_channel_fails_closed(self):
+        k = mlib.BDOCK_SEPARATION_DEBOUNCE
+        for label, base_parts, parts in (("flat", 90, 90), ("unread", 90, 0),
+                                         ("no-baseline", 0, 60),
+                                         ("grew", 90, 120)):
+            with self.subTest(label):
+                st = self._in_jettison(baseline=4,
+                                       jettison_baseline_part_count=base_parts)
+                st = self._jettison_split(st, [(2, parts)] * (k + 3))
+                self.assertFalse(st.jettison_split_confirmed)
+
+    def test_jettison_part_channel_is_off_when_more_than_one_split_is_asked(self):
+        # A part drop proves ONE split; it cannot count two.
+        k = mlib.BDOCK_SEPARATION_DEBOUNCE
+        st = self._in_jettison(baseline=4, jettison_baseline_part_count=90)
+        st = replace(st, params=replace(st.params, jettison_min_splits=2))
+        st = self._jettison_split(st, [(5, 60)] * (k + 3))
+        self.assertFalse(st.jettison_split_confirmed)
+        st = self._jettison_split(st, [(6, 60)] * k)
+        self.assertTrue(st.jettison_split_confirmed)
 
     def _in_jettison(self, baseline=3, done=0, **over):
         st = mlib.b5_initial_state(B19_JETTISON_PARAMS)
