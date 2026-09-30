@@ -1275,6 +1275,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Dev: the GUI mirror no longer paints scrolled-out rows in the colours of whatever is
+  under them.** A scroll view's rows below (or above) its viewport are in the control-tree
+  dump but not in the photo, so their colours were sampled off the window footer or the
+  terrain (Missions tab, mission 7 onwards). A scrolled-out node now reads no pixels and
+  borrows the colours of the nearest visible node of the same kind and style at the same
+  depth, and a row the viewport cuts through samples only its visible part
+  (`harness/tools/gui_mirror.py`; `docs/dev/design-gui-mirror.md`, "A scrolled-out row is
+  not sampled").
 - **A flight merged without leaving the flight scene is tidied at once.** Merging from the
   Switch-To Merge / Discard dialog now trims idle tails and splits the flight into its phases
   right away, as leaving for the Space Center already did, so the vessels it ends with appear
