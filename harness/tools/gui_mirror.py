@@ -126,8 +126,8 @@ LAYOUT_EPOCHS = {
     # First run on it: GUI-14-census-settings-and-facility 2026-09-26_1009.
     "settings": {"utc": "2026-09-26T10:10:05Z", "pr": 1867},
     # PR #1927: the mission bar is a table row (values under the headings, buttons on
-    # line 2), no Next launch column, no Events foldout. First run on it: GUI-17 2026-09-29_1748.
-    "missions": {"utc": "2026-09-29T17:49:25Z", "pr": 1927},
+    # line 2), no Next launch column, no Events foldout. First run on it (iteration 2: Interact column, Collapse): GUI-17 2026-09-30_1846.
+    "missions": {"utc": "2026-09-30T18:47:29Z", "pr": 1927},
 }
 
 
