@@ -2254,15 +2254,18 @@ _(unreleased — entries accumulate here per commit)_
   (plus Rewind / Forward) in Interact; the second is a one-line story (where it went, how
   long, who flew, how it ended) with a Collapse / Expand button in Interact. The story is
   now the title's size, and in Advanced its next-launch countdown (`Next launch T- 5h 47m`)
-  is amber. Collapse hides a mission's vessel rows; its title bar stays. It replaces the
+  is amber; it no longer repeats the loop period (`Loops ~P`), which the period cell beside
+  it shows. Collapse hides a mission's vessel rows; its title bar stays. It replaces the
   per-mission Archive box and the list's "hide archived" filter; a mission archived in an
   older save loads collapsed. Stash / Fly + Seal and the Docked partner's Go to sit in
   Interact too. Everything that exists only because of mission looping is Advanced-only
   (Clone, Delete, "Warp to..." shown only while the mission loops, the Loop toggle and
-  period, the `Loops ~P` and countdown pieces, and the greyed / `(partial)` styling of rows
-  left out of a loop); Advanced shows them as a two-by-two grid beside Log (Clone and "Warp
-  to..." on the title line, Delete and the Loop toggle with its period on the story line), so
-  the story keeps most of the width. The Next
+  period, the countdown, and the greyed / `(partial)` styling of rows left out of a loop);
+  Advanced shows them as a compact two-by-two grid beside Log (Clone and "Warp to..." on the
+  title line, Delete and the Loop toggle with its period on the story line; a route-bound
+  mission shows "Looped by route" in the toggle's place), so the story keeps most of the
+  width. A physics-locked period shows its value only (`~13d-19d`, `~6h`); what sets it
+  (`Mun window, varies`, `Kerbin rot`) is in its hover. The Next
   launch column is gone: the countdown lives in the story, and the warning its amber tint
   used to carry (a drifted station, a refused arrival, a launch outside its alignment
   tolerance) is in the story's hover. The `Events (N)` list under each mission is gone: its

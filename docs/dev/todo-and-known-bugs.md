@@ -56,6 +56,13 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   removed, `op=expand key=mission:<id>` drives Collapse. The owner's "+10 px" single width (80)
   would leave pair halves at 38, exactly today's cramped Stash, so the single is 100 - flagged
   for the owner. Descender clipping on single-line row cells fixed at the style.
+- [x] Iteration 3: the Advanced loop controls are a fixed 2x2 grid beside Log (Clone / Warp
+  to... on line 1, Delete / Loop + period on line 2), both lines ending at the same x.
+- [x] Iteration 4 (owner, 2026-09-30): the locked period cell shows the value only
+  (`~13d-19d`), the qualifier moves into its hover (`BuildLockedPeriodTooltip`, one line,
+  inside the tooltip-echo budget); a route-bound mission draws `Looped by route` in the
+  toggle's place; the grid shrinks from A 70 / B 164 / cell 264 to A 70 / B 92 / cell 192
+  with `Warp to...` filling column B (no gap before Log). The summary drops `Loops ~P`.
 
 ## MISSION-EVENT-DIGEST-DUPLICATE-LAUNCHED-ROW: the digest builds a second "launched" row for one flight [FILED 2026-09-29 from MISSIONS-TAB-MODEL1. OPEN, low, not player-visible]
 
@@ -5747,7 +5754,9 @@ relaunch cadence range, the basis names the dominant celestial event, and
 `BuildScheduledPeriodCellDisplay`'s own comment says so - but `~57d 5h` is neither end of
 `13d-19d`, so nothing on the row explains the third number. **Fix:** name what `Loops ~P`
 is measuring, or show the same quantity in both places. Recorded as a legibility finding
-rather than an arithmetic one: no number here has been shown to be wrong.
+rather than an arithmetic one: no number here has been shown to be wrong. **Resolved
+2026-09-30 (MISSIONS-TAB-MODEL1 iteration 4):** the summary no longer carries `Loops ~P`, so
+the period cell is the only period on the row.
 
 **18. The main window's root rect reports `height = 0` in every dump,** across all 20
 runs. This is WINDOW-side and by design, not a recorder defect: both hosts zero the height

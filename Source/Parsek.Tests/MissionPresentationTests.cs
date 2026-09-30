@@ -532,8 +532,11 @@ namespace Parsek.Tests
         /// </summary>
         internal static bool DrawsThePeriodTooltipLockedConstant(string src)
         {
-            return SourceScanText.StripCSharpComments(src)
-                .IndexOf("MissionPresentation.PeriodTooltipLocked", StringComparison.Ordinal) >= 0;
+            // The locked cell draws the constant through BuildLockedPeriodTooltip (which appends
+            // it after the qualified period), so either spelling is a live consumer.
+            string code = SourceScanText.StripCSharpComments(src);
+            return code.IndexOf("MissionPresentation.PeriodTooltipLocked", StringComparison.Ordinal) >= 0
+                || code.IndexOf("MissionPresentation.BuildLockedPeriodTooltip(", StringComparison.Ordinal) >= 0;
         }
 
         [Fact]
@@ -779,12 +782,14 @@ namespace Parsek.Tests
             string sep = MissionPresentation.SummarySeparator;
             string line = MissionPresentation.BuildNarrativeSummaryLine(
                 "Kerbin → Mun", "Y1, D12", "Y1, D14", "2d 3h",
-                "Jeb, Bob", 2, "Landed", "Loops ~6.4d", "T- 2h 14m");
-            // The countdown is the ONE marked-up segment: amber, the window's clamp colour.
+                "Jeb, Bob", 2, "Landed", "T- 2h 14m");
+            // The countdown is the ONE marked-up segment: amber, the window's clamp colour. No
+            // "Loops ~P" piece: the period cell beside the line shows the loop period.
             Assert.Equal(
                 "Kerbin → Mun" + sep + "2d 3h" + sep + "Jeb, Bob" + sep + "Landed"
-                + sep + "Loops ~6.4d" + sep + "<color=#ffcc66>Next launch T- 2h 14m</color>",
+                + sep + "<color=#ffcc66>Next launch T- 2h 14m</color>",
                 line);
+            Assert.DoesNotContain("Loops", line);
             // The span dates are the tooltip's job once a body path leads the line.
             Assert.DoesNotContain("Y1, D12", line);
         }
@@ -810,7 +815,7 @@ namespace Parsek.Tests
         {
             string line = MissionPresentation.BuildNarrativeSummaryLine(
                 "<b>Kerbin", null, null, null, "Jeb <color=red>Kerman", 1, "Landed",
-                null, "T- 5m 0s");
+                "T- 5m 0s");
             // The only '<' left on the line is the countdown's own markup.
             string withoutCountdown = line.Replace(
                 "<color=#ffcc66>Next launch T- 5m 0s</color>", "");
@@ -818,6 +823,26 @@ namespace Parsek.Tests
             Assert.Contains(MissionPresentation.RichTextOpenReplacement + "b>Kerbin", line);
             Assert.Contains(
                 "Jeb " + MissionPresentation.RichTextOpenReplacement + "color=red>Kerman", line);
+        }
+
+        // catches: the locked period cell's qualifier being lost when the cell went value-only
+        // (owner decision 2026-09-30): it must ride the hover, ahead of the locked-state
+        // sentence, on ONE line that fits the Missions help strip.
+        [Fact]
+        public void BuildLockedPeriodTooltip_CarriesTheQualifierOnOneLine()
+        {
+            string full = MissionsWindowUI.BuildScheduledPeriodCellDisplay(
+                13 * 21600.0, 19 * 21600.0, ConstraintKind.Orbital, "Mun");
+            string tip = MissionPresentation.BuildLockedPeriodTooltip(full);
+            Assert.StartsWith(full, tip);
+            Assert.Contains("(Mun window, varies)", tip);
+            Assert.EndsWith(MissionPresentation.PeriodTooltipLocked, tip);
+            Assert.DoesNotContain("\n", tip);
+            Assert.True(tip.Length
+                <= TooltipEchoBudgetTests.BudgetChars(1355f, TooltipEchoBox.SingleLine),
+                "locked period tooltip is " + tip.Length + " chars");
+            Assert.Equal(MissionPresentation.PeriodTooltipLocked,
+                MissionPresentation.BuildLockedPeriodTooltip(null));
         }
 
         [Fact]
@@ -834,7 +859,7 @@ namespace Parsek.Tests
         {
             // Fails if a mission with no derivable body path leads with a bare duration.
             string line = MissionPresentation.BuildNarrativeSummaryLine(
-                null, "Y1, D12", "Y1, D14", "2d 3h", null, 0, "", null, null);
+                null, "Y1, D12", "Y1, D14", "2d 3h", null, 0, "", null);
             Assert.Equal(
                 "Y1, D12" + MissionPresentation.SummarySpanArrow + "Y1, D14"
                 + MissionPresentation.SummarySeparator + "2d 3h",
@@ -845,7 +870,7 @@ namespace Parsek.Tests
         public void BuildNarrativeSummaryLine_UnnamedCrewFallsBackToTheCount()
         {
             string line = MissionPresentation.BuildNarrativeSummaryLine(
-                "Kerbin", null, null, null, null, 3, null, null, null);
+                "Kerbin", null, null, null, null, 3, null, null);
             Assert.Equal("Kerbin" + MissionPresentation.SummarySeparator + "3 crew", line);
         }
 

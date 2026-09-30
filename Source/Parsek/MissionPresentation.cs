@@ -99,6 +99,18 @@ namespace Parsek
         internal const string PeriodTooltipLocked =
             "Period locked to the launch / transfer window - set by physics, not editable.";
 
+        /// <summary>
+        /// The hover of the locked period cell, which shows the value only: the full display
+        /// with its qualifier ("~13d-19d (Mun window, varies)") and then the locked-state
+        /// sentence, on ONE line (the help strip it echoes in is one line tall). Pure.
+        /// </summary>
+        internal static string BuildLockedPeriodTooltip(string fullPeriodDisplay)
+        {
+            return string.IsNullOrEmpty(fullPeriodDisplay)
+                ? PeriodTooltipLocked
+                : fullPeriodDisplay + DetailFragmentSeparator + PeriodTooltipLocked;
+        }
+
         // The two "Next launch" (formerly TTL) state words (T1.5).
         internal const string NextLaunchTooltipNotAligned =
             "Not aligned: this mission is not on a faithful launch schedule (its shape cannot be " +
@@ -419,7 +431,8 @@ namespace Parsek
         /// <summary>
         /// The T2.1 narrative summary line, as RICH TEXT:
         /// <c>"Kerbin → Mun → Kerbin · 2d 3h · Jeb, Bob, Val · Landed
-        /// · Loops ~6.4d · &lt;color=#ffcc66&gt;Next launch T- 2d 4h&lt;/color&gt;"</c>. The
+        /// · &lt;color=#ffcc66&gt;Next launch T- 2d 4h&lt;/color&gt;"</c> (no "Loops ~P" piece:
+        /// the period cell beside the line shows the loop period). The
         /// body path leads; when none is derivable the span dates stand in (the T1.1 form), so
         /// the line never starts with a bare duration. Crew renders as names when recorded,
         /// else as the bare count. Every piece is omitted when it has no value. Every piece is
@@ -429,8 +442,7 @@ namespace Parsek
         /// </summary>
         internal static string BuildNarrativeSummaryLine(
             string bodyPathText, string startDateText, string endDateText, string durationText,
-            string crewNamesText, int crewCount, string terminalWord, string loopPeriodText,
-            string nextLaunchText)
+            string crewNamesText, int crewCount, string terminalWord, string nextLaunchText)
         {
             var ic = CultureInfo.InvariantCulture;
             var sb = new StringBuilder();
@@ -461,9 +473,6 @@ namespace Parsek
 
             if (!string.IsNullOrEmpty(terminalWord))
                 Append(sb, EscapeRichText(terminalWord));
-
-            if (!string.IsNullOrEmpty(loopPeriodText))
-                Append(sb, EscapeRichText(loopPeriodText));
 
             if (!string.IsNullOrEmpty(nextLaunchText))
                 Append(sb, "<color=" + SummaryCountdownColorHex + ">Next launch "

@@ -154,14 +154,18 @@ namespace Parsek.Tests
             string line1 = MethodBody(prepared, "DrawMissionNameCell");
             string line2 = MethodBody(prepared, "DrawMissionSummaryNameCell");
             Assert.Contains("GUILayout.Width(LoopGridColumnAWidth)", line1);   // Clone
-            Assert.Contains("GUILayout.Width(LoopGridColumnBWidth)", line1);   // Warp slot
-            Assert.Contains("GUILayout.Space(LoopGridColumnAWidth)", line1);   // hidden Warp
+            Assert.Contains("GUILayout.Space(LoopGridColumnBWidth)", line1);   // hidden Warp
             Assert.Contains("GUILayout.Width(InteractButtonWidth)", line1);    // Log
             Assert.Contains("GUILayout.Width(LoopGridColumnAWidth)", line2);   // Delete
             Assert.Contains("GUILayout.Width(LoopCellWidth)", line2);          // loop cell
-            // The hidden-Warp space is exactly the Warp button's width.
-            Assert.Contains("GUILayout.Width(LoopGridColumnAWidth)",
+            // "Warp to..." FILLS column B, so there is no gap between it and Log, and its
+            // hidden-slot space is exactly the button's width.
+            Assert.Contains("GUILayout.Width(LoopGridColumnBWidth)",
                 MethodBody(prepared, "DrawMissionWarpToWindowButton"));
+            // Iteration 4 (value-only period cell): the grid's right column shrank to the new
+            // widest line-2 content, "Looped by route [10] [sec]".
+            Assert.Equal(192f, MissionsWindowUI.LoopCellWidth);
+            Assert.Equal(92f, MissionsWindowUI.LoopGridColumnBWidth);
         }
 
         // The mutation this gate exists for, run against a synthetic pair so the cell above

@@ -463,10 +463,16 @@ name cell), `InteractPairButtonWidth` 48 for each half of a pair (Fly / Stash + 
 Rewind), `InteractButtonGap` 4, pinned `2 * pair + gap == single`; the column is the single
 plus an 8 px inset each side. The Advanced loop controls form a fixed 2x2 grid inside the name cell,
 right-aligned (owner mock-up 2026-09-30): column A (`LoopGridColumnAWidth` 70) holds Clone over
-Delete, column B (`LoopGridColumnBWidth` 164) holds `Warp to...` (or a same-width space when not
-looping), and line 2's loop cell (`LoopCellWidth` 264 = column B + the Log slot, every control
-centred on one 22 px line) holds `Loop x`, the period cell and `Looped by route` when route-bound;
-`MissionsTabColumnSequenceTests` pins the widths. Basic draws no grid: the summary takes the whole
+Delete, column B (`LoopGridColumnBWidth` 92) holds `Warp to...` at its full width, so no gap
+opens before Log (or a same-width space when not looping), and line 2's loop cell (`LoopCellWidth`
+192 = column B + the Log slot, every control centred on one 22 px line) holds `Loop x` and the
+period cell, or `Looped by route` and the period cell when route-bound (the route label takes the
+greyed toggle's place). The locked period cell shows the value only (`~13d-19d`, `~6h`); the
+qualifier (`Mun window, varies`, `Kerbin rot`) and the locked-state sentence ride its hover
+(`MissionPresentation.BuildLockedPeriodTooltip`). Iteration 4 (2026-09-30) shrank the grid from
+A 70 / B 164 / cell 264 to A 70 / B 92 / cell 192 on those two changes, 72 px handed to the
+summary; `MissionsTabColumnSequenceTests` pins the widths. The summary line no longer carries
+`Loops ~P`: the period cell beside it shows the period. Basic draws no grid: the summary takes the whole
 name cell and `Looped by route` sits right-aligned after it. (The owner asked for single = old Watch 70 + 10 and pairs wider
 than today's; at 80 a pair half is 38, exactly today's cramped Stash, so the single is 100.)
 The Re-Fly pair is the Recordings tab's own cell drawn at that geometry
@@ -520,7 +526,8 @@ descenders (`compositionCellLabel.clipping = Overflow`: its 5 px bottom padding,
 wrapped name cell, left a 17 px content rect in a 22 px row).
 
 Missions Model 1 made every loop surface Advanced-only: Clone, Delete, `Warp to...`, the
-summary line's `Loops ~P` and `Next launch T- ...` pieces, and the loop-selection styling
+summary line's `Next launch T- ...` piece (its `Loops ~P` piece is gone since iteration 4),
+and the loop-selection styling
 (dimmed excluded vessels, the `(partial)` suffix). Basic keeps Log, Watch, Rewind / Forward,
 Collapse, Fly / Seal, Go to, the chapter headers, the Docked partner rows and the `Looped by
 route` label.
