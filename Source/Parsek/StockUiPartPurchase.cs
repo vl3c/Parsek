@@ -202,7 +202,7 @@ namespace Parsek
             if (behaviour != null && !behaviour.enabled)
                 behaviour.enabled = true;
             string existing = StockUiText.Get(label);
-            StockUiText.Set(label, StockUiRnDDecoration.AppendReason(existing, d.Why));
+            StockUiText.Set(label, StockUiRnDDecoration.AppendReason(existing, d.Why, "part tooltip greyout message"));
         }
 
         // ---------------- R&D "purchase all parts" ----------------

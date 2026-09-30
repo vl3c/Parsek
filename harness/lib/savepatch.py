@@ -129,12 +129,21 @@ ENTRY_KEYS = ("pid", "resources", "inventory", "remove", "fill")
 # `remove = true` DELETES the vessel's whole FLIGHTSTATE `VESSEL` node, which is
 # the only way to author "the endpoint this route names is no longer in the save"
 # without a second harvest. It is exclusive with `resources` / `inventory` (both
-# would patch a node that is about to be deleted) and it is REFUSED for any
-# vessel at or before the save's `activeVessel` index: `activeVessel` is an INDEX
-# into the FLIGHTSTATE vessel list in file order, so removing an earlier vessel
-# silently re-points the focus at a different craft and every token the lane
-# derives becomes a token about a different scene. Removing a LATER one leaves
-# the index naming the same vessel it named before.
+# would patch a node that is about to be deleted). `activeVessel` is an INDEX into
+# the FLIGHTSTATE vessel list in file order, so the removal keeps the focus on the
+# SAME craft: removing a LATER vessel leaves the index alone, removing an EARLIER
+# one decrements it (the note says `activeVessel=<old>-><new>`), and removing the
+# FOCUSED vessel itself is REFUSED, since no index names "the craft that is gone".
+#
+# WHY AN EARLIER REMOVAL IS ALLOWED (2026-09-28, the EVA-9 / EVA-10 ground-science
+# cluster lanes). Removing the index-0 asteroid of a recorded fixture is how a lane
+# makes its landed craft vessel 0, and vessel 0 is what a Space Center save
+# focuses (`activeVessel = 0`, measured in EX-1): a Rewind-to-Launch lands at the
+# Space Center, and a SaveGame + LoadGame straight after it then boots FLIGHT on
+# that craft instead of on an asteroid a million kilometres away, so the replayed
+# ghosts end - and spawn, against the collision checks - inside the physics
+# bubble. The earlier refusal protected the focus by refusing; re-pointing
+# protects it without refusing, and the note names both indices.
 #
 # WHAT IT DOES NOT DO, and the distinction matters when reading a lane header: it
 # does not by itself produce an `EndpointLost` hold.
@@ -658,6 +667,176 @@ def apply_crew_inventory(text: str, entries: Sequence[Dict]) -> Tuple[str, List[
                 "crewInventory: kerbal %r's `inventory` key could not be rewritten" % kerbal)
         notes.append("kerbal=%r inventory %s->%s storedPartsDropped=%d"
                      % (kerbal, before, csv, len(stored)))
+    return ("\r\n" if crlf else "\n").join(lines), notes
+
+
+# ---------------------------------------------------------------------------
+# The part-inventory spec surface: `[[fixture.partInventory]]`.
+# ---------------------------------------------------------------------------
+
+# `[[fixture.partInventory]]` - one table per inventory CONTAINER PART on a
+# FLIGHTSTATE vessel whose stored parts the lane needs to start from:
+#
+#     [[fixture.partInventory]]
+#     pid       = 2708531065                  # the vessel's persistentId
+#     part      = "mk1-3pod"                  # the container part, by its save name
+#     inventory = "DeployedRTG,DeployedSeismicSensor,DeployedGoExOb"
+#
+# WHY IT EXISTS. A stock kerbal carries 2 slots, 40 L and 0.065 t, and every
+# Breaking Ground deployable is 25-35 L, so a kerbal can carry ONE at a time. A
+# multi-part cluster is built the way a player builds it: the parts ride in a
+# container, and the kerbal takes them out one by one (the `EvaGroundScience
+# action=take` seam step) and places each. This surface seeds that container.
+#
+# THE WRITTEN FORM IS THE crewInventory ONE, for the same decompiled reason:
+# `ModuleInventoryPart.OnLoad` reads the module node's lowercase `inventory` key
+# and, when no `STOREDPARTS` built any stored part, stores each CSV name from the
+# part prefab into `FirstEmptySlot()`. The patch therefore sets (or inserts) the
+# module's `inventory = <csv>` and DROPS its `STOREDPARTS` child; nothing
+# authors a PART snapshot by hand. The same silent drops apply (an unavailable
+# name, a name past the container's slot count), so a lane witnesses the result
+# through the take step's `sourceInventory=` read-back rather than trusting the
+# declaration. The container's slot count and volume are PART-CONFIG properties
+# the save does not carry (`mk1-3pod`: 3 slots, 200 L), which is why the patch
+# does not try to check them.
+#
+# FLIGHTSTATE-only, like liveState, and addressed the same way (the vessel's
+# `persistentId`); the part name must match exactly ONE `PART` of that vessel
+# and that part must carry exactly ONE `ModuleInventoryPart` MODULE.
+PART_INVENTORY_KEY = "partInventory"
+PART_INVENTORY_ENTRY_KEYS = ("pid", "part", "inventory")
+
+
+def validate_part_inventory(fixture: Any) -> List[str]:
+    """Validate the `[[fixture.partInventory]]` spec surface. Pure; pre-launch.
+    Shape only: whether the vessel, the part and its inventory module exist is the
+    applier's assertion against the bytes."""
+    errs: List[str] = []
+    if not isinstance(fixture, dict) or PART_INVENTORY_KEY not in fixture:
+        return errs
+    entries = fixture[PART_INVENTORY_KEY]
+    where0 = "fixture.%s" % PART_INVENTORY_KEY
+    if not isinstance(entries, list):
+        return ["%s: must be an array of tables ([[%s]])" % (where0, where0)]
+    if not entries:
+        return ["%s: declared but empty; omit the key instead" % where0]
+    seen: Dict[Tuple[str, str], int] = {}
+    for i, entry in enumerate(entries):
+        where = "%s[%d]" % (where0, i)
+        if not isinstance(entry, dict):
+            errs.append("%s: must be a table" % where)
+            continue
+        unknown = sorted(k for k in entry if k not in PART_INVENTORY_ENTRY_KEYS)
+        if unknown:
+            errs.append("%s: unknown key(s) %s (accepted: %s)"
+                        % (where, unknown, list(PART_INVENTORY_ENTRY_KEYS)))
+        pid = entry.get("pid")
+        if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+            errs.append("%s.pid: %r must be a positive integer persistentId" % (where, pid))
+        part = entry.get("part")
+        if not isinstance(part, str) or not part or part != part.strip() or " " in part:
+            errs.append("%s.part: %r must be a part name as the save spells it" % (where, part))
+        if isinstance(pid, int) and isinstance(part, str):
+            key = (str(pid), part)
+            if key in seen:
+                errs.append("%s: pid %s part %r is already declared by entry %d"
+                            % (where, pid, part, seen[key]))
+            else:
+                seen[key] = i
+        inventory = entry.get("inventory")
+        if not isinstance(inventory, str) or not inventory:
+            errs.append("%s.inventory: %r must be a non-empty comma-separated part list"
+                        % (where, inventory))
+        else:
+            names = inventory.split(",")
+            if any(not n or n != n.strip() or " " in n for n in names):
+                errs.append("%s.inventory: %r must be part names separated by bare commas "
+                            "(no blanks, no spaces) - stock splits on ',' alone"
+                            % (where, inventory))
+    return errs
+
+
+def declared_part_inventory(fixture: Any) -> List[Dict]:
+    """The declared entries, or [] when the key is absent. Called after validation."""
+    if not isinstance(fixture, dict):
+        return []
+    entries = fixture.get(PART_INVENTORY_KEY)
+    if not isinstance(entries, list):
+        return []
+    return [e for e in entries if isinstance(e, dict)]
+
+
+def _part_inventory_module(lines: List[str], pid: str,
+                           part: str) -> Tuple[Tuple[int, int], str]:
+    """(module span, vessel name) for the one inventory module the entry names."""
+    vessels = [(name, span) for name, vpid, span in flightstate_vessels(lines)
+               if vpid == pid]
+    if len(vessels) != 1:
+        raise LiveStatePatchError(
+            "partInventory: expected exactly one FLIGHTSTATE vessel with persistentId "
+            "%s, found %d" % (pid, len(vessels)))
+    vessel_name, vspan = vessels[0]
+    parts = [pp for pp in child_nodes(lines, vspan, "PART")
+             if get_value(lines, pp, "name") == part]
+    if len(parts) != 1:
+        raise LiveStatePatchError(
+            "partInventory: vessel %r carries %d PART(s) named %r, expected exactly 1"
+            % (vessel_name, len(parts), part))
+    modules = [m for m in child_nodes(lines, parts[0], "MODULE")
+               if get_value(lines, m, "name") == "ModuleInventoryPart"]
+    if len(modules) != 1:
+        raise LiveStatePatchError(
+            "partInventory: part %r on %r carries %d ModuleInventoryPart module(s), "
+            "expected exactly 1" % (part, vessel_name, len(modules)))
+    return modules[0], vessel_name
+
+
+def apply_part_inventory(text: str, entries: Sequence[Dict]) -> Tuple[str, List[str]]:
+    """Apply the declared `[[fixture.partInventory]]` entries to a save's text. Pure.
+
+    Returns (patchedText, notes). No entries returns the text UNCHANGED. Fails
+    closed on a vessel pid matching zero or several FLIGHTSTATE vessels, a part
+    name matching zero or several of its PARTs, or a part without exactly one
+    ModuleInventoryPart. Idempotent."""
+    if not entries:
+        return text, []
+    crlf = "\r\n" in text
+    lines = text.replace("\r\n", "\n").split("\n")
+    notes: List[str] = []
+    for entry in entries:
+        pid = str(entry["pid"])
+        part = entry["part"]
+        csv = entry["inventory"]
+        module, vessel_name = _part_inventory_module(lines, pid, part)
+        before = get_value(lines, module, "inventory")
+        stored = child_nodes(lines, module, "STOREDPARTS")
+        dropped = 0
+        for span in stored:
+            dropped += len(child_nodes(lines, span, "STOREDPART"))
+        # Bottom-up so an earlier splice cannot shift a later span.
+        for span in reversed(stored):
+            del lines[span[0]:span[1]]
+        module, _ = _part_inventory_module(lines, pid, part)
+        if before is None:
+            # Insert beside the module's own `name` line, at its key indent.
+            name_at = None
+            for i in range(module[0] + 2, module[1] - 1):
+                if lines[i].strip() == "name = ModuleInventoryPart":
+                    name_at = i
+                    break
+            if name_at is None:
+                raise LiveStatePatchError(
+                    "partInventory: part %r on %r has no `name = ModuleInventoryPart` "
+                    "line to insert beside" % (part, vessel_name))
+            indent = lines[name_at][:len(lines[name_at]) - len(lines[name_at].lstrip())]
+            lines.insert(name_at + 1, "%sinventory = %s" % (indent, csv))
+        elif not set_value(lines, module, "inventory", csv):
+            raise LiveStatePatchError(
+                "partInventory: part %r on %r: the `inventory` key could not be rewritten"
+                % (part, vessel_name))
+        notes.append("pid=%s name=%s part=%s inventory %s->%s storedPartsDropped=%d"
+                     % (pid, vessel_name, part, before if before is not None else "-",
+                        csv, dropped))
     return ("\r\n" if crlf else "\n").join(lines), notes
 
 
@@ -1275,14 +1454,22 @@ def _remove_vessel(lines: List[str], pid: str) -> Tuple[List[str], str]:
             "%s to remove, found %d" % (pid, len(matches)))
     index, vessel_name, span = matches[0]
     active = _active_vessel_index(lines)
-    if index <= active:
+    if index == active:
         raise LiveStatePatchError(
-            "liveState: refusing to remove vessel %r at FLIGHTSTATE index %d - "
-            "activeVessel is %d, and removing a vessel at or before it re-points "
-            "the focus at a different craft; a lane needing that must move the "
-            "focus explicitly" % (vessel_name, index, active))
+            "liveState: refusing to remove vessel %r at FLIGHTSTATE index %d - it "
+            "is the focused vessel (activeVessel = %d), and no index names a craft "
+            "that is gone" % (vessel_name, index, active))
     out = list(lines)
     del out[span[0]:span[1]]
+    if index < active:
+        # Keep the focus on the same craft: every vessel after the removed one
+        # moved up by one, including the focused one.
+        fs = flightstate_node(out)
+        if fs is None or not set_value(out, fs, "activeVessel", str(active - 1)):
+            raise LiveStatePatchError(
+                "liveState: removed vessel %r before the focused one but could not "
+                "re-point FLIGHTSTATE's activeVessel" % (vessel_name,))
+        return out, "%s activeVessel=%d->%d" % (vessel_name, active, active - 1)
     return out, vessel_name
 
 

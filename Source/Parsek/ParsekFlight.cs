@@ -599,6 +599,7 @@ namespace Parsek
 
         private readonly List<GhostPosEntry> ghostPosEntries = new List<GhostPosEntry>();
         private int ghostPreCullReapplyFrame = -1;
+        private int ghostLateUpdateReapplyFrame = -1;
 
         private void AddOrReplaceGhostPosEntry(GhostPosEntry entry)
         {
@@ -1473,6 +1474,7 @@ namespace Parsek
             ApplyGhostPosEntries(GhostPositionReapplyPhase.LateUpdate);
 
             ClampGhostsToTerrain(GhostPositionReapplyPhase.LateUpdate);
+            ghostLateUpdateReapplyFrame = Time.frameCount;
 
             LogReFlySettleActiveVesselPoseIfArmed("late-update", Time.frameCount);
 
@@ -1481,16 +1483,92 @@ namespace Parsek
 
         private void OnCameraPreCull(Camera camera)
         {
-            if (sceneChangeInProgress || ghostPosEntries.Count == 0)
-                return;
-            if (ghostPreCullReapplyFrame == Time.frameCount)
+            if (sceneChangeInProgress)
                 return;
 
-            ghostPreCullReapplyFrame = Time.frameCount;
+            int frame = Time.frameCount;
+            GhostCameraPreCullAction action = ResolveGhostCameraPreCullAction(
+                frame, ghostLateUpdateReapplyFrame, ghostPreCullReapplyFrame, ghostPosEntries.Count);
+            if (action == GhostCameraPreCullAction.KeepForLateUpdate)
+            {
+                // A camera rendered between Update and LateUpdate (stock crew portraits
+                // call Camera.Render() from a coroutine every 0.10-0.15 s). The entries
+                // still carry this frame's FloatingOrigin reapply and terrain clamp, so
+                // they must survive until LateUpdate consumes them.
+                if (ParsekLog.IsVerboseEnabled)
+                {
+                    ParsekLog.VerboseRateLimited(
+                        "Playback",
+                        "ghost-camera-pre-cull-before-late-update",
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Ghost camera pre-cull before LateUpdate: kept {0} reapply entries for LateUpdate (camera={1})",
+                            ghostPosEntries.Count,
+                            camera != null ? camera.name : "<null>"),
+                        5.0);
+                }
+                return;
+            }
+            if (action != GhostCameraPreCullAction.RunAndConsume)
+                return;
+
+            ghostPreCullReapplyFrame = frame;
             ApplyGhostPosEntries(GhostPositionReapplyPhase.CameraPreCull);
             ClampGhostsToTerrain(GhostPositionReapplyPhase.CameraPreCull);
             ghostPosEntries.Clear();
         }
+
+        internal enum GhostCameraPreCullAction
+        {
+            /// <summary>No pending entries, or this frame's post-LateUpdate pass already ran.</summary>
+            Nothing,
+
+            /// <summary>
+            /// A camera is rendering before this frame's LateUpdate ran (a manual
+            /// Camera.Render() from Update or a coroutine). LateUpdate has not yet
+            /// reapplied or terrain-clamped the entries, so they are left for it.
+            /// </summary>
+            KeepForLateUpdate,
+
+            /// <summary>First camera after this frame's LateUpdate: run the pass and consume the entries.</summary>
+            RunAndConsume,
+        }
+
+        /// <summary>
+        /// Decides what the Camera.onPreCull hook does with the frame's ghost reapply
+        /// entries. Every render after LateUpdate sees the same final pose only if the
+        /// entries reach LateUpdate intact: a pre-cull that fires earlier in the frame
+        /// (stock kerbal portraits, any mod camera rendered from a coroutine) must not
+        /// consume them, or that frame renders surface ghosts at the raw Update pose
+        /// without the terrain clamp while the neighbouring frames render them clamped.
+        /// </summary>
+        internal static GhostCameraPreCullAction ResolveGhostCameraPreCullAction(
+            int frameCount,
+            int lastLateUpdateReapplyFrame,
+            int lastPreCullReapplyFrame,
+            int pendingEntryCount)
+        {
+            if (pendingEntryCount <= 0)
+                return GhostCameraPreCullAction.Nothing;
+            if (lastLateUpdateReapplyFrame != frameCount)
+                return GhostCameraPreCullAction.KeepForLateUpdate;
+            if (lastPreCullReapplyFrame == frameCount)
+                return GhostCameraPreCullAction.Nothing;
+            return GhostCameraPreCullAction.RunAndConsume;
+        }
+
+        /// <summary>
+        /// In-game test seam: positions <paramref name="ghost"/> at a surface pose through
+        /// the production surface path, registering its LateUpdate reapply entry exactly as
+        /// playback does. Not called by any player path.
+        /// </summary>
+        internal void PositionGhostAtSurfaceForInGameTest(
+            GameObject ghost, SurfacePosition surfPos, string recordingId)
+        {
+            PositionGhostAtSurface(ghost, surfPos, allowActivation: false, recordingId: recordingId);
+        }
+
+        internal int PendingGhostPosEntryCountForInGameTest => ghostPosEntries.Count;
 
         private void ApplyGhostPosEntries(GhostPositionReapplyPhase phase)
         {
@@ -2455,9 +2533,16 @@ namespace Parsek
                 return false;
             }
 
+            if (TreeHasPlacedGroundPartsForIdle(activeTree, "IsActiveTreeIdleOnPad"))
+                return false;
+
             // Flush live recorder data into the tree so subsequent walks
             // over rec.TrackSections / rec.Points see the in-flight data.
             FlushRecorderIntoActiveTreeForSerialization();
+
+            // After the flush: a flag planted this flight is still in the recorder buffer before it.
+            if (TreeHasPlantedFlagsForIdle(activeTree, "IsActiveTreeIdleOnPad"))
+                return false;
 
             bool anyHasPoints = false;
             foreach (var rec in activeTree.Recordings.Values)
@@ -4836,12 +4921,25 @@ namespace Parsek
         /// <summary>
         /// Copies a stopped split capture onto the standalone fallback recording when no
         /// active tree accepts the capture.
+        /// <para>The recorded vessel pid is stamped too. The capture itself does not carry
+        /// it (<c>FlightRecorder.BuildCaptureRecording</c> leaves
+        /// <c>VesselPersistentId</c> at 0), and every launch-identity guard keys on it: the
+        /// rewind strip scope's same-vessel route, spawn adoption in FLIGHT / KSC /
+        /// Tracking Station (<c>VesselSpawner.MaterializedSourceVesselExists(Recording)</c>)
+        /// and the live-vessel ghost skip. A standalone recording without it reads as "no
+        /// vessel", so a rewind keeps the live vessel it records and its terminal spawn
+        /// builds a second copy of that vessel on top of it.</para>
         /// </summary>
-        internal static void ApplyCapturedSplitStateToStandaloneRecording(Recording rec, Recording captured)
+        /// <param name="recordedVesselPid">The recorder's <c>RecordingVesselId</c>; 0 falls
+        /// back to the capture snapshot's <c>persistentId</c>.</param>
+        internal static void ApplyCapturedSplitStateToStandaloneRecording(
+            Recording rec, Recording captured, uint recordedVesselPid = 0)
         {
             if (rec == null || captured == null)
                 return;
 
+            rec.VesselPersistentId = ResolveStandaloneRecordedVesselPid(
+                recordedVesselPid, captured);
             rec.VesselSnapshot = captured.VesselSnapshot;
             rec.GhostVisualSnapshot = captured.GhostVisualSnapshot;
             // The capture already carries the launch guid (FlightRecorder stamps it in
@@ -4871,6 +4969,59 @@ namespace Parsek
                 rec.StampTerminalState(TerminalState.Destroyed, "FallbackCommitSplitRecorder");
                 ParsekLog.Verbose("Flight", "FallbackCommitSplitRecorder: set TerminalState=Destroyed");
             }
+        }
+
+        /// <summary>
+        /// The recorded vessel pid for a standalone fallback recording: the recorder's own
+        /// <c>RecordingVesselId</c> when known, else the capture snapshot's top-level
+        /// <c>persistentId</c>, else 0.
+        /// </summary>
+        internal static uint ResolveStandaloneRecordedVesselPid(uint recordedVesselPid, Recording captured)
+        {
+            if (recordedVesselPid != 0)
+                return recordedVesselPid;
+            if (captured?.VesselSnapshot == null)
+                return 0u;
+            uint snapshotPid;
+            string raw = captured.VesselSnapshot.GetValue("persistentId");
+            if (!string.IsNullOrEmpty(raw)
+                && uint.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out snapshotPid))
+                return snapshotPid;
+            return 0u;
+        }
+
+        /// <summary>
+        /// Always-tree mode: every recorder is bound to a tree (<c>StartRecording</c> wraps a
+        /// lone recording in a single-node tree and every resume sets
+        /// <c>recorder.ActiveTree</c>). A stopped capture whose recorder was bound to a tree
+        /// while NO tree is active belongs to a tree the scene already dropped. Every
+        /// tree-drop site except <c>ResetFlightReadyState</c> drops the recorder with it;
+        /// that one keeps a stopped recorder, and the next <c>StartRecording</c> resolves its
+        /// capture here. A standalone commit of it is never written by OnSave (only
+        /// RECORDING_TREE nodes are saved), so it would live until the next cold load only
+        /// while replaying the dropped session's tail: after a Rewind-to-Launch that kept
+        /// the vessel it records, its terminal spawn would build a second copy of that
+        /// vessel on the same spot. Returns true (and logs) when the capture must be
+        /// discarded instead of committed.
+        /// </summary>
+        internal static bool TryDiscardCaptureOfDroppedTree(
+            RecordingTree liveActiveTree,
+            RecordingTree recorderTree,
+            Recording captured,
+            uint recordedVesselPid)
+        {
+            if (liveActiveTree != null || recorderTree == null)
+                return false;
+
+            ParsekLog.Info("Flight", string.Format(CultureInfo.InvariantCulture,
+                "FallbackCommitSplitRecorder: discarded capture of dropped tree '{0}' (id={1}) " +
+                "vessel='{2}' pid={3} points={4} - no standalone commit outside a tree",
+                recorderTree.TreeName ?? "<unnamed>",
+                recorderTree.Id ?? "<no-id>",
+                captured?.VesselName ?? "<unnamed>",
+                recordedVesselPid,
+                captured?.Points?.Count ?? 0));
+            return true;
         }
 
         /// <summary>
@@ -6807,6 +6958,10 @@ namespace Parsek
             if (TryAppendCapturedToTree(activeTree, captured))
                 return;
 
+            if (TryDiscardCaptureOfDroppedTree(
+                    activeTree, splitRec.ActiveTree, captured, splitRec.RecordingVesselId))
+                return;
+
             var rec = RecordingStore.CreateRecordingFromFlightData(
                 captured.Points, captured.VesselName,
                 orbitSegments: captured.OrbitSegments,
@@ -6820,7 +6975,7 @@ namespace Parsek
             }
 
             // Copy snapshot/vessel state and location context to the recording.
-            ApplyCapturedSplitStateToStandaloneRecording(rec, captured);
+            ApplyCapturedSplitStateToStandaloneRecording(rec, captured, splitRec.RecordingVesselId);
 
             // Tag segment phase if untagged
             TagSegmentPhaseIfMissing(rec, FlightGlobals.ActiveVessel);
@@ -13170,11 +13325,13 @@ namespace Parsek
             // Commit orphaned CaptureAtStop from a previous recorder that was stopped
             // by vessel switch but never committed (e.g., auto-record started on new
             // vessel before scene change). Without this, the old recording data is lost.
+            // A capture of a tree the scene already dropped is discarded, not committed
+            // (TryDiscardCaptureOfDroppedTree).
             if (recorder != null && !recorder.IsRecording && recorder.CaptureAtStop != null
                 && activeTree == null)
             {
                 FallbackCommitSplitRecorder(recorder);
-                ParsekLog.Info("Flight", "Committed orphaned recording before starting new one");
+                ParsekLog.Info("Flight", "Resolved orphaned recorder capture before starting new one");
             }
 
             uint activePid = FlightGlobals.ActiveVessel?.persistentId ?? 0u;
@@ -13402,6 +13559,10 @@ namespace Parsek
         /// <c>CommitTree</c> seam verb (<c>TestCommands/ParsekTestCommandAddon.cs:2016</c>).
         /// The merge DIALOG's own commit is a different path
         /// (<c>MergeDialog.MergeCommit</c>) and does not come through here.</para>
+        /// <para>Both paths run <see cref="RecordingStore.RunOptimizationPass"/> after the
+        /// commit. This one spawns / adopts the leaves AFTER the pass, so the spawn stamps land
+        /// on the post-split chain tips, and moves the live active vessel's stamp onto its tip
+        /// (<see cref="InFlightCommitOptimization"/>).</para>
         /// </summary>
         public void CommitTreeFlight()
         {
@@ -13456,23 +13617,24 @@ namespace Parsek
             // Commit tree to storage
             RecordingStore.CommitTree(activeTree);
 
+            // Same position as MergeDialog.MergeCommit: after the commit + MarkTreeAsApplied,
+            // before the ledger notify. Without it a tree committed in flight kept its idle
+            // tails (and unsplit / unmerged segments) until the next cold load.
+            string activeTipId = RunInFlightCommitOptimizationPass(activeRec, activeRecId);
+
             // Recalculate crew reservations (replaces ReserveCrewForLeaves)
             LedgerOrchestrator.NotifyLedgerTreeCommitted(activeTree);
 
             // Spawn all non-active leaf vessels
-            SpawnTreeLeaves(activeTree, activeRecId);
+            SpawnTreeLeaves(activeTree, activeTipId);
 
             // Crew swap on active vessel
             int swapped = CrewReservationManager.SwapReservedCrewInFlight();
             if (swapped > 0)
                 ParsekLog.Info("Flight", $"CommitTreeFlight: swapped {swapped} crew on active vessel");
 
-            int spawnCount = 0;
-            foreach (var leaf in spawnableLeaves)
-            {
-                if (leaf.RecordingId != activeRecId && leaf.VesselSpawned)
-                    spawnCount++;
-            }
+            int spawnCount = InFlightCommitOptimization.CountSpawnedLeafTips(
+                spawnableLeaves, RecordingStore.CommittedRecordings, activeTipId);
 
             // Clear state
             var treeName = activeTree.TreeName;
@@ -13503,6 +13665,54 @@ namespace Parsek
             // hooks in MergeDialog.MergeCommit. Internally gated (test batch,
             // restore window, prompted-once, dismissed) and never throws.
             Logistics.RouteRunPrompt.NotifyTreeCommitted(committedTreeForPrompt);
+        }
+
+        /// <summary>
+        /// Runs <see cref="RecordingStore.RunOptimizationPass"/> for an in-flight tree commit
+        /// (boring-tail trim, env splits, chain merges) and moves the live active vessel's
+        /// spawn stamp onto its post-pass chain tip. Returns the id the rest of the commit
+        /// must treat as the active vessel's recording. Skipped (the next cold load optimizes
+        /// instead) while a Re-Fly session or a merge journal is live; see
+        /// <see cref="InFlightCommitOptimization.DecideSkipReason"/>.
+        /// </summary>
+        private string RunInFlightCommitOptimizationPass(Recording activeRec, string activeRecId)
+        {
+            var scenario = ParsekScenario.Instance;
+            bool reFly = !object.ReferenceEquals(null, scenario)
+                && scenario.ActiveReFlySessionMarker != null;
+            bool journal = !object.ReferenceEquals(null, scenario)
+                && scenario.ActiveMergeJournal != null;
+            string skipReason = InFlightCommitOptimization.DecideSkipReason(reFly, journal);
+            if (skipReason != null)
+            {
+                ParsekLog.Info("Flight",
+                    $"CommitTreeFlight: optimization pass skipped reason={skipReason} " +
+                    "(the next cold load optimizes this tree)");
+                return activeRecId;
+            }
+
+            int before = RecordingStore.CommittedRecordings.Count;
+            bool stampMoved = false;
+            // Guarded: a throw is logged as an Error and the commit continues to the ledger
+            // notify and leaf spawn with whatever the committed list holds.
+            string activeTipId = InFlightCommitOptimization.RunPassAndResolveActiveTip(
+                RecordingStore.RunOptimizationPass,
+                () =>
+                {
+                    Recording activeTip = InFlightCommitOptimization.ResolveChainTip(
+                        activeRec, RecordingStore.CommittedRecordings);
+                    stampMoved = InFlightCommitOptimization.CarrySpawnStampToTip(activeRec, activeTip);
+                    return activeTip?.RecordingId;
+                },
+                activeRecId,
+                out bool passThrew,
+                out bool stampMoveThrew);
+            int after = RecordingStore.CommittedRecordings.Count;
+            ParsekLog.Info("Flight",
+                $"CommitTreeFlight: optimization pass ran committed={before}->{after} " +
+                $"activeRec={activeRecId ?? "<none>"} activeTip={activeTipId ?? "<none>"} " +
+                $"spawnStampMoved={stampMoved} passThrew={passThrew} stampMoveThrew={stampMoveThrew}");
+            return activeTipId;
         }
 
         /// <summary>
@@ -20331,11 +20541,84 @@ namespace Parsek
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
                 return false;
 
+            if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreePadFailure")
+                || TreeHasPlantedFlagsForIdle(tree, "IsTreePadFailure"))
+                return false;
+
             foreach (var rec in tree.Recordings.Values)
             {
                 if (!IsPadFailure(rec))
                     return false;
             }
+            return true;
+        }
+
+        /// <summary>
+        /// Counts the <see cref="BranchPointType.GroundPartPlaced"/> branch points of
+        /// <paramref name="tree"/>: each one is a vessel an EVA kerbal created by placing
+        /// a ground part (Breaking Ground science, deployables). Pure, null-safe.
+        /// </summary>
+        internal static int CountPlacedGroundParts(RecordingTree tree)
+        {
+            if (tree?.BranchPoints == null) return 0;
+            int count = 0;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                BranchPoint bp = tree.BranchPoints[i];
+                if (bp != null && bp.Type == BranchPointType.GroundPartPlaced)
+                    count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Counts the flags planted across every recording of <paramref name="tree"/>
+        /// (<see cref="Recording.FlagEvents"/>). Pure, null-safe.
+        /// </summary>
+        internal static int CountPlantedFlags(RecordingTree tree)
+        {
+            if (tree?.Recordings == null) return 0;
+            int count = 0;
+            foreach (Recording rec in tree.Recordings.Values)
+            {
+                if (rec?.FlagEvents != null)
+                    count += rec.FlagEvents.Count;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Idle-on-pad veto for a planted flag: the flag is a vessel the player made,
+        /// so the flight is player work even when nothing moved 30 m. Logs the veto;
+        /// returns true when the tree must not be classified idle. The live predicate
+        /// must call this after flushing the recorder, which buffers flag events.
+        /// </summary>
+        internal static bool TreeHasPlantedFlagsForIdle(RecordingTree tree, string caller)
+        {
+            int flags = CountPlantedFlags(tree);
+            if (flags <= 0) return false;
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "{0}: not idle - tree has {1} planted flag(s) tree='{2}'",
+                    caller, flags, tree?.TreeName ?? "<unnamed>"));
+            return true;
+        }
+
+        /// <summary>
+        /// Idle-on-pad veto shared by <see cref="IsTreeIdleOnPad(RecordingTree)"/> and
+        /// <see cref="IsActiveTreeIdleOnPad"/>: a tree whose kerbal placed ground parts
+        /// created vessels, so it is player work even when nothing moved 30 m (a
+        /// science cluster set up beside a lander). Logs the veto; returns true when
+        /// the tree must not be classified idle.
+        /// </summary>
+        internal static bool TreeHasPlacedGroundPartsForIdle(RecordingTree tree, string caller)
+        {
+            int placed = CountPlacedGroundParts(tree);
+            if (placed <= 0) return false;
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "{0}: not idle - tree has {1} placed ground part(s) tree='{2}'",
+                    caller, placed, tree?.TreeName ?? "<unnamed>"));
             return true;
         }
 
@@ -20346,6 +20629,10 @@ namespace Parsek
         internal static bool IsTreeIdleOnPad(RecordingTree tree)
         {
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return false;
+
+            if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreeIdleOnPad")
+                || TreeHasPlantedFlagsForIdle(tree, "IsTreeIdleOnPad"))
                 return false;
 
             bool anyHasPoints = false;

@@ -3548,7 +3548,8 @@ kRPC 0.5.4 has no inventory or construction API, so nothing unattended could rea
 The verb drives the stock player actions that make stock fire those events. It fires no
 GameEvent itself.
 
-**Grammar.** `cmd=EvaGroundScience action=<place|pickup> part=<name> [faceAway=true]`.
+**Grammar.** `cmd=EvaGroundScience action=<place|pickup|take> part=<name> [faceAway=true]`, or
+`cmd=EvaGroundScience action=step anchor=<vessel pid> distance=<metres> [bearing=<degrees>]` (no `part`).
 `part` is the cfg part name (underscores become the runtime dots).
 
 **Place** (decompiled KSP 1.12.5). The inventory PAW slot icon calls
@@ -3579,16 +3580,109 @@ the PAW button does. Stock fires `onGroundSciencePartRemoved` inside it (and aga
 `OnRetractCompleted`), then kills the ground vessel. OK once the vessel is gone and the
 inventory holds the part again, held 30 frames.
 
+**Take** (added 2026-09-28 for the ground-science cluster lanes EVA-8 / EVA-9 / EVA-10). A
+stock kerbal carries 2 slots / 40 L / 0.065 t and every Breaking Ground part is 25-35 L, so a
+cluster rides in a container and the kerbal takes each part out before placing it. The verb
+moves the part named `part` from the NEAREST loaded non-EVA vessel's `ModuleInventoryPart`
+slot holding it (lowest slot on a tie) into the kerbal's first empty slot, through the two
+calls stock's `UIPartActionInventorySlot` makes at the ends of that drag: `ClearPartAtSlot` on
+the source, then `StoreCargoPartAtSlot` on the kerbal with the source's own stored
+`ProtoPartSnapshot` (so the part keeps its identity; a refused store puts it back). Gated by
+stock's own limits: the container part (measured to the nearest point of its colliders) must
+be within `GameSettings.EVA_INVENTORY_RANGE` (5 m in `settings.cfg`), and the kerbal needs a
+free slot and `HasCapacity` for the part's prefab. Logs `evagroundscience take start ...
+source=<vessel> sourcePart=<part> sourceSlot=<i> sourceInventory=<slots> kerbalSlot=<j>
+inventory=<slots> distance=<m> range=<m>` and, once the kerbal holds the part and the source
+slot is empty for 30 frames, `evagroundscience take complete ... inventory=<slots>
+sourceInventory=<slots>`; payload `action=take part partPid vesselPid=<source vessel> slot
+presses=0 distance`. No GameEvent is involved and the recorder records nothing for a take.
+Pure half `TestCommandEvaGroundScience.ChooseTakeSource` / `DecideTakeCompletion`.
+
+**Step** (added 2026-09-29 for EVA-10; `bearing=` added the same day for the spread-out
+cluster layouts of EVA-8 / EVA-9 / EVA-10). A kerbal off a Mun lander's ladder stands ON the
+lander, where every placement preview hits its hull (EVA-10's first flights: `placement-timeout
+... reTurns=8`), and a cluster built from a container needs the kerbal to walk between the
+container and each part's own spot. The verb sets the EVA kerbal down on the terrain at
+`distance` metres (horizontal, `(0, 30]`, InvariantCulture) from the loaded anchor vessel's
+origin. With `bearing=<degrees>` (unsigned InvariantCulture, `[0, 360)`, 0 north, 90 east) the
+spot is that compass bearing from the anchor on the body's latitude / longitude grid
+(`OffsetLatLonAlongBearing`, the local tangent-plane offset), so a lane's layout does not depend
+on which way the anchor or the kerbal faces; without it he moves straight out along his own
+horizontal bearing from the anchor (an anchor-local east/north basis; no bearing falls back to
+the anchor's right axis). The move (logged `method=anchor-release+rb-pose`) first releases
+KerbalEVA's ground anchor, then sets `framesToSkip` (5) on every part's `CollisionEnhancer`,
+then `IgnoreGForces(240)`, `SetPosition` at the PQS `TerrainAltitude` + 0.5 m,
+`SetWorldVelocity(zero)`, and writes every rigidbody's pose to its transform with velocities
+zeroed; gravity settles him. THE ANCHOR (decompiled KSP 1.12.5 `KerbalEVA.AnchorUpdate`, run
+from `LateUpdate`): a kerbal landed, slower than ~0.3 m/s and in an idle ground state
+(`st_idle_gr` / `st_idle_b_gr`, construction, weld) for 0.5 s (`kerbalAnchorTimeThreshold`)
+gets a `FixedJoint` with no connected body - a joint to the world at his pose - via the private
+`AddRBAnchor`; the private `RemoveRBAnchor` destroys it and resets the counter. A transform
+teleport of an anchored kerbal is pulled straight back by that joint (EVA-8
+`2026-09-29_1711_a2`: the first step, taken seconds after the ladder release, landed; every later
+step left him at the same 13.04 m for all three moves). The seam calls `RemoveRBAnchor` by
+reflection (`wasAnchored=` / `anchorReleased=` on the move line); stock re-anchors him at the
+new spot once he stands idle there. THE SET-DOWN HEIGHT puts his feet on the GROUND COLLIDER,
+not on the analytic PQS height (EVA-9 `2026-09-29_1931`: set 0.53 m over PQS 151.36 he ended
+half inside the ground; 1.93 m over PQS 150.42 elsewhere he fell and stumbled): a ray cast down
+onto layer 15 (the terrain collider the placement preview hits) at the target gives the ground,
+and the origin goes the kerbal's measured feet depth (origin to his lowest collider point,
+measured before the move) + 0.05 m above it (`StepSetDownAltitude`; a missed ray falls back to
+the PQS height, an unbelievable depth to a 0.5 m lift). CRASH GUARD: stock destroys a vessel that
+is not landed once its `altitude` reads below its cached `terrainAltitude` ("crashed through
+terrain"; EVA-8 `2026-09-29_1729`), so the origin is never set below the target's PQS height or
+the cached value + 0.05 m. The move line carries `terrain= setDownAlt= groundAlt= feetDepth=
+groundSource= crashGuard=`. Completion also requires his feet within 0.25 m of the ground
+collider under him (a landed kerbal outside that is moved again), logged once as
+`evagroundscience step ground kerbal=<name> feetClearance=<m> originClearance=<m>
+tolerance=0.25 groundSource=<raycast|pqs> ok=<bool>`. A set-down that drops him more
+than ~0.6 m lands faster than `stumbleThreshold` (3.5 m/s) and ragdolls him, and decompiled
+`KerbalEVA.CanRecover` lets the ACTIVE kerbal up only on a movement input (`tgtRpos != 0`), so
+he would lie there for good (EVA-8 `2026-09-29_1759`: the Go-ob place waited 120 s on
+`standing=false`). Completion therefore requires him STANDING (landed and not ragdolled); a
+ragdolled kerbal lying landed, slower than 0.6 m/s, for 0.5 s is got up by stock's own
+`On_recover_start` FSM event, the transition that input triggers (`ShouldRecoverFromRagdoll`, at
+most 3, logged `evagroundscience step ragdoll-recover ...`); a step that starts on a ragdolled
+kerbal defers the move until he is up (`step deferred ... reason=ragdolled`), since moving one of
+his jointed bodies tore him apart and killed him (`_1807_a2`). The collision skip is load-bearing too: every
+`FixedUpdate` in which a part moved more than 0.1 m, `CollisionEnhancer` (stock, and the
+KSPCommunityFixes `CollisionEnhancerFastUpdate` override the harness instance runs, which logs
+`[Collision Enhancer] TRANSLATE_BACK on "kerbalEVA"`) linecasts old -> new position against the
+terrain layer and puts the part back at the hit point; a kerbal standing on the ground starts
+that segment at the terrain, so without the skip every step from a standing kerbal was put
+straight back (EVA-8 `2026-09-29_1618`: all seven steps stuck at 9.79 m, `step-timeout`). A
+skipped frame only re-reads `lastPos`, and both implementations honour `framesToSkip` before
+the linecast. Completion is measured against the TARGET SPOT (horizontal distance within 1.5 m,
+landed, held 30 frames), not the distance from the anchor; a kerbal still more than 1.5 m off
+it 20 frames after a move is moved again, at most 3 moves (`ShouldReapplyStep`), each logged
+`evagroundscience step move kerbal=<name> move=<n> collisionEnhancersSkipped=<k> skipFrames=5`
+(and `step off-target ... moving again` before a repeat). KSP has no walk API a seam can
+drive, so this is a teleport. Inside a live recording it leaves a jump in the kerbal's
+trajectory, replayed by the ghost as a fast slide; no recorder path or analyzer rule reads a
+same-body position jump as a boundary or a defect, and the 0.5 m drop is a brief airborne run
+the optimizer's surface-graze rule should suppress (the lanes' recording-count pins would show a
+split). The `anchor=` may be a `${label.vesselPid}`
+capture of an earlier place step (a lane steps up to the part it is about to pick up). Logs
+`evagroundscience step start ... anchorPid=<pid> from=<m> to=<m> lat= lon= terrain= situation=
+bearing=<deg|own>` and, once he is landed within 1.5 m of the target spot for 30 frames,
+`evagroundscience step complete kerbal=<name> anchor=<name> horizontal=<m> situation=<sit>
+offTarget=<m> moves=<n>` (a timeout carries the same `offTarget=` / `moves=`). Pure half
+`TryParseStepArgs` / `TryParseStepBearing` / `OffsetLatLonAlongBearing` /
+`StepHorizontalOffset` / `ShouldReapplyStep` / `DecideStepCompletion`.
+
 **Phases.** TWO-PHASE on a 120 s budget (the EvaExit size), NOT a `DEFERRED_SEAM_VERB`;
 `RequiresFlight` plus the EVA family's `not-eva` defer. hlib tail role world-mutating,
 post-mission role `outcome`.
 
 **Refusals.** REJECTED `bad-action`, `missing-part`, `not-eva`, `no-inventory`,
 `part-not-in-inventory`, `not-deployable`, `no-ground-part`, `no-retrieve-event`,
-`out-of-range`, `inventory-full`; ERROR `place-gate-timeout`, `inventory-window-timeout`,
+`out-of-range`, `inventory-full`, and for a take `not-stored-nearby`, `over-capacity`,
+`no-stored-snapshot`, `take-store-refused`, and for a step `step-anchor-invalid`,
+`step-distance-invalid`, `step-bearing-invalid`, `step-anchor-not-loaded`, `step-body-mismatch`; ERROR `place-gate-timeout`, `inventory-window-timeout`,
 `placement-mode-refused`, `key-injection-unavailable`, `placement-not-accepted`,
 `placement-timeout`, `preview-timeout`, `placed-vessel-timeout`, `pickup-threw`,
-`pickup-timeout`, `kerbal-lost`, each with an `evagroundscience failed reason=` Error line.
+`pickup-timeout`, `take-threw`, `take-timeout`, `step-threw`, `step-timeout`, `kerbal-lost`, each with an
+`evagroundscience failed reason=` Error line.
 
 **Known product consequence.** The recorder keys the Placed event to the placed part's pid,
 which is its OWN vessel, so the kerbal's recording carries a pid its snapshot lacks

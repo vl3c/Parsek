@@ -999,16 +999,18 @@ def _clear_screen_restore_marker(ctx) -> None:
     that died before teardown describes a file that no longer exists; keeping it
     would make the next run "restore" old values over the profile's. Clearing it
     here also makes re-provisioning the operator's way to drop a leaked marker."""
-    marker = os.path.join(ctx.instance_dir, provlib.KSP_SCREEN_RESTORE_MARKER)
-    if not os.path.exists(marker):
-        return
-    try:
-        os.remove(marker)
-    except OSError as exc:
-        log(ctx, "Warn", "Settings", "could not delete the leftover screen restore marker %s (%s)"
-            % (marker, exc))
-        return
-    log(ctx, "Info", "Settings", "deleted the leftover screen restore marker %s" % marker)
+    for label, name in (("screen", provlib.KSP_SCREEN_RESTORE_MARKER),
+                        ("gameplay", provlib.KSP_GAMEPLAY_RESTORE_MARKER)):
+        marker = os.path.join(ctx.instance_dir, name)
+        if not os.path.exists(marker):
+            continue
+        try:
+            os.remove(marker)
+        except OSError as exc:
+            log(ctx, "Warn", "Settings", "could not delete the leftover %s restore marker %s (%s)"
+                % (label, marker, exc))
+            continue
+        log(ctx, "Info", "Settings", "deleted the leftover %s restore marker %s" % (label, marker))
 
 
 def phase_settings(ctx: ProvisionContext) -> Dict[str, str]:

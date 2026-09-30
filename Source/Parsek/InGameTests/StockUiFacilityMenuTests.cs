@@ -66,6 +66,10 @@ namespace Parsek.InGameTests
                 string shown = FacilityMenuReasonText(menu);
                 InGameAssert.IsTrue(shown.Contains("Upgraded to level " + toLevel),
                     $"The reason should name the committed level {toLevel}; got '{shown}'");
+                // Stock localizes a key only when it is the whole text, so text appended
+                // onto a raw key renders the key: the stock part must be localized first.
+                InGameAssert.IsFalse(shown.IndexOf("#autoLOC", System.StringComparison.OrdinalIgnoreCase) >= 0,
+                    $"Decorated stock text should carry no raw localization key; got '{shown}'");
                 var state = StockUiFacilityDecoration.StateOf(menu);
                 if (state != null && state.Tooltip != null && state.Tooltip.prefab != null)
                 {

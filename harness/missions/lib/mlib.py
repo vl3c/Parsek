@@ -2723,6 +2723,17 @@ class TelemetrySnapshot:
     # consumer, either keep the `> same-field baseline` shape or gate on the flag
     # first.
     vessel_count: int = 0
+    # The ACTIVE vessel's own part count (len(vessel.parts.all)), read under the
+    # same read_docking opt-in as vessel_count. 0 = unread (fail closed). It is
+    # the split signal unrelated vessels cannot mask: the global vessel_count
+    # falls when stock removes other vessels (the KSC debris declutter that runs
+    # on a game save deleted three launch-clamp debris vessels 0.7 s after a
+    # BDOCK-1 decouple, so the count went 4 -> 5 -> 2 and never held above its
+    # baseline), while a decouple / undock always leaves the active vessel with
+    # FEWER parts than it had. Consumers ask `0 < current < same-field baseline`
+    # via `split_bump_observed`, so an unread channel on either side never
+    # certifies and a part count INCREASE (a dock) never reads as a split.
+    part_count: int = 0
     # The active ResourceTransfer poll (the runner owns the handle): complete
     # flag + amount transferred so far. transfer_amount NaN = unread (fail
     # closed for the transfer-stall no-progress detector).
@@ -10376,6 +10387,9 @@ class B5State:
     # K-consecutive settle idiom via `separation_evidence`; split_confirmed
     # LATCHES so a later count blip cannot un-confirm a real split.
     jettison_baseline_vessel_count: int = 0
+    # The active vessel's own part count at the same phase entry (0 = unread),
+    # the second split channel (`split_bump_observed`).
+    jettison_baseline_part_count: int = 0
     jettison_activations_done: int = 0
     jettison_split_streak: int = 0
     jettison_thrust_streak: int = 0
@@ -10956,7 +10970,10 @@ def _b5_jettison_step(state: B5State, snapshot: TelemetrySnapshot,
               ``jettison_activations`` is the MAX, a safety rail -- the phase
               normally stops earlier, on evidence.
       step 2  CERTIFY. ``vessel_count`` above the phase-entry baseline by
-              ``jettison_min_splits``, debounced -> the spent stack really did
+              ``jettison_min_splits`` (or, when one split is asked for, the
+              active vessel's ``part_count`` below its phase-entry baseline:
+              the channel a stock debris removal cannot mask), debounced ->
+              the spent stack really did
               become its own vessel; AND available thrust strictly positive,
               debounced -> an engine is live. When
               ``jettison_max_live_thrust`` > 0 the live thrust must ALSO be at or
@@ -10981,7 +10998,13 @@ def _b5_jettison_step(state: B5State, snapshot: TelemetrySnapshot,
         snapshot.vessel_count, snapshot.available_thrust,
         state.jettison_baseline_vessel_count + (p.jettison_min_splits - 1),
         state.jettison_split_streak, state.jettison_thrust_streak,
-        state.jettison_split_confirmed)
+        state.jettison_split_confirmed,
+        # The part channel proves "the active vessel shed parts", which is ONE
+        # split. It cannot count splits, so it is offered only when one split is
+        # all the lane asks for (every committed lane: jettisonMinSplits = 1); a
+        # lane demanding more keeps the vessel-count channel alone.
+        part_count=(snapshot.part_count if p.jettison_min_splits <= 1 else 0),
+        baseline_part_count=state.jettison_baseline_part_count)
     st = replace(state, jettison_split_streak=settle,
                  jettison_thrust_streak=thrust_streak,
                  jettison_split_confirmed=split_confirmed,
@@ -11034,9 +11057,11 @@ def _b5_jettison_step(state: B5State, snapshot: TelemetrySnapshot,
     if stayed.done:
         if not split_confirmed:
             why = ("no separation observed (vessel_count %d never exceeded the "
-                   "phase-entry baseline %d by %d)"
+                   "phase-entry baseline %d by %d and active part_count %d "
+                   "never fell below baseline %d)"
                    % (snapshot.vessel_count, st.jettison_baseline_vessel_count,
-                      p.jettison_min_splits))
+                      p.jettison_min_splits, snapshot.part_count,
+                      st.jettison_baseline_part_count))
         elif not ignited:
             why = ("separated but nothing is lit (available_thrust %r stayed at "
                    "or below zero after %d stage pops)"
@@ -13435,6 +13460,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             entered = replace(
                 entered,
                 jettison_baseline_vessel_count=snapshot.vessel_count,
+                jettison_baseline_part_count=snapshot.part_count,
                 jettison_activations_done=0,
                 jettison_split_streak=0,
                 jettison_thrust_streak=0,
@@ -15512,12 +15538,16 @@ class BDockState:
     # to each SEPARATE phase (the two legs are sequential, never concurrent, so
     # one set of fields serves both).
     separate_baseline_vessel_count: int = 0
+    # The active vessel's own part count at the same phase entry (0 = unread):
+    # the second split channel, see `split_bump_observed`.
+    separate_baseline_part_count: int = 0
     separate_settle_streak: int = 0
     separate_thrust_streak: int = 0
     separate_split_confirmed: bool = False
     separate_activations: int = 0
     # UNDOCK split evidence.
     undock_baseline_vessel_count: int = 0
+    undock_baseline_part_count: int = 0
     # Carried evidence for the evaluator.
     docked_confirmed: bool = False
     undock_confirmed: bool = False
@@ -15643,10 +15673,52 @@ def _bdock_dock_progress(state: BDockState, snapshot: TelemetrySnapshot,
     return st, None
 
 
+def split_bump_observed(vessel_count: int, baseline_vessel_count: int,
+                        part_count: int = 0,
+                        baseline_part_count: int = 0) -> bool:
+    """One frame of split evidence, from EITHER of two channels:
+
+    - the global ``vessel_count`` above its phase-entry baseline (the shed piece
+      spawned as a NEW vessel), or
+    - the ACTIVE vessel's own ``part_count`` strictly below its phase-entry
+      baseline (the active vessel lost parts to that piece).
+
+    The second channel exists because the first is a count over EVERY vessel in
+    the game, so an unrelated removal cancels the bump: stock declutters KSC
+    debris on a game save, and the save a split itself triggers removed three
+    launch-clamp debris vessels 0.7 s after a BDOCK-1 decouple (4 -> 5 -> 2).
+
+    Both channels fail closed. ``vessel_count`` 0 (unread) never exceeds a
+    baseline. The part channel needs BOTH readings positive, so an unread
+    current count (0) is not "fewer parts" and an unread baseline (0) certifies
+    nothing; a part count that ROSE (a dock) is not a split. Known limit, stated
+    rather than hidden: a part DESTROYED in place also lowers the part count, so
+    this channel says "the active vessel is smaller", which every caller pairs
+    with a second observation (lit thrust, or a port no longer Docked)."""
+    if vessel_count > baseline_vessel_count:
+        return True
+    return bool(part_count > 0 and baseline_part_count > 0
+                and part_count < baseline_part_count)
+
+
+def format_split_channels(snapshot) -> str:
+    """The two split channels as one optional log token, `` vessels=N parts=M``
+    (leading space), or the empty string when NEITHER was read. Pure, so the fly
+    loop can append it to a line without changing that line for a mission that
+    does not opt in to the docking telemetry."""
+    vessels = int(getattr(snapshot, "vessel_count", 0) or 0)
+    parts = int(getattr(snapshot, "part_count", 0) or 0)
+    if vessels <= 0 and parts <= 0:
+        return ""
+    return " vessels=%d parts=%d" % (vessels, parts)
+
+
 def separation_evidence(vessel_count: int, available_thrust: float,
                         baseline_vessel_count: int, settle_streak: int,
                         thrust_streak: int, split_confirmed: bool,
-                        debounce: int = BDOCK_SEPARATION_DEBOUNCE
+                        debounce: int = BDOCK_SEPARATION_DEBOUNCE,
+                        part_count: int = 0,
+                        baseline_part_count: int = 0
                         ) -> Tuple[int, int, bool, bool]:
     """The pure evidence half of the TWO-STEP separation contract (flight-3 /
     flight-4 lessons), shared by every machine that must leave a craft as its
@@ -15656,18 +15728,24 @@ def separation_evidence(vessel_count: int, available_thrust: float,
     Returns ``(settle_streak, thrust_streak, split_confirmed, ignited)`` for this
     frame:
 
-    - step 1 (drop the spent core): ``vessel_count`` above the phase-entry
-      ``baseline_vessel_count`` (the core spawned as a NEW vessel), debounced
-      ``debounce`` consecutive frames -> ``split_confirmed`` LATCHES True.
+    - step 1 (drop the spent core): ``split_bump_observed`` -- ``vessel_count``
+      above the phase-entry ``baseline_vessel_count`` (the core spawned as a NEW
+      vessel) OR the active vessel's ``part_count`` below the phase-entry
+      ``baseline_part_count`` (the signal an unrelated vessel removal cannot
+      mask) -- debounced ``debounce`` consecutive frames -> ``split_confirmed``
+      LATCHES True. The two channels may alternate between frames: the streak
+      counts frames on which EITHER holds.
     - step 2 (ignite the orbital engine): ``available_thrust > 0`` debounced
       ``debounce`` consecutive frames -> ``ignited`` True for this frame.
 
     Fail closed on both: ``vessel_count`` defaults 0 (unread) so an unreadable
-    count never bumps past a baseline, and a NaN ``available_thrust`` is never
-    treated as ignited. The CALLER owns the phase/budget/flake wrapping and the
+    count never bumps past a baseline, ``part_count`` / ``baseline_part_count``
+    default 0 (unread) and the part channel needs both positive, and a NaN
+    ``available_thrust`` is never treated as ignited. The CALLER owns the phase/budget/flake wrapping and the
     at-most-two stage activations (a third would fire the istg=0 heat-shield
     decoupler) -- this helper only counts evidence."""
-    split_bumped = vessel_count > baseline_vessel_count
+    split_bumped = split_bump_observed(vessel_count, baseline_vessel_count,
+                                       part_count, baseline_part_count)
     settle = settle_streak + 1 if split_bumped else 0
     thrust_up = _is_finite(available_thrust) and available_thrust > 0.0
     thrust = thrust_streak + 1 if thrust_up else 0
@@ -15705,7 +15783,9 @@ def _bdock_separate_step(state: BDockState, snapshot: TelemetrySnapshot,
     settle, thrust_streak, split_confirmed, ignited = separation_evidence(
         snapshot.vessel_count, snapshot.available_thrust,
         state.separate_baseline_vessel_count, state.separate_settle_streak,
-        state.separate_thrust_streak, state.separate_split_confirmed)
+        state.separate_thrust_streak, state.separate_split_confirmed,
+        part_count=snapshot.part_count,
+        baseline_part_count=state.separate_baseline_part_count)
     st = replace(state, separate_settle_streak=settle,
                  separate_thrust_streak=thrust_streak,
                  separate_split_confirmed=split_confirmed)
@@ -15714,8 +15794,12 @@ def _bdock_separate_step(state: BDockState, snapshot: TelemetrySnapshot,
         # Step 1: still waiting for the spent core to spawn.
         if _bdock_over_budget(st, snapshot):
             return replace(_bdock_flake(st), flake_reason=(
-                "phase %s: no separation observed (vessel_count did not increase)"
-                % st.phase)), []
+                "phase %s: no separation observed (vessel_count %d never held "
+                "above baseline %d and active part_count %d never fell below "
+                "baseline %d)"
+                % (st.phase, snapshot.vessel_count,
+                   st.separate_baseline_vessel_count, snapshot.part_count,
+                   st.separate_baseline_part_count))), []
         return st, []
 
     # Step 2: the split is confirmed -> ensure the orbital engine is lit.
@@ -15792,6 +15876,7 @@ def bdock_decide(state: BDockState,
             # activation, cap 2). Baseline the pre-split vessel count.
             return (_bdock_enter(state, BDOCK_STATION_SEPARATE, snapshot.ut,
                                  separate_baseline_vessel_count=snapshot.vessel_count,
+                                 separate_baseline_part_count=snapshot.part_count,
                                  separate_settle_streak=0,
                                  separate_thrust_streak=0,
                                  separate_split_confirmed=False,
@@ -15854,6 +15939,7 @@ def bdock_decide(state: BDockState,
             # orbital stage only.
             return (_bdock_enter(state, BDOCK_INT_SEPARATE, snapshot.ut,
                                  separate_baseline_vessel_count=snapshot.vessel_count,
+                                 separate_baseline_part_count=snapshot.part_count,
                                  separate_settle_streak=0,
                                  separate_thrust_streak=0,
                                  separate_split_confirmed=False,
@@ -16120,7 +16206,9 @@ def bdock_decide(state: BDockState,
             if done_n >= 2:
                 # Both transfers done -> undock (baseline the pre-split count).
                 base = snapshot.vessel_count
-                return (_bdock_enter(replace(st, undock_baseline_vessel_count=base),
+                return (_bdock_enter(replace(st, undock_baseline_vessel_count=base,
+                                             undock_baseline_part_count=(
+                                                 snapshot.part_count)),
                                      BDOCK_UNDOCK, snapshot.ut),
                         [Action(ACTION_UNDOCK)])
             # Start T2 (MonoPropellant pickup, station -> transport); reset the
@@ -16154,7 +16242,13 @@ def bdock_decide(state: BDockState,
         # onVesselsUndocking -> Parsek authors the Undock split + completes the
         # RouteConnectionWindow. Done evidence: vessel_count INCREASED by one
         # AND docking_state != Docked (MINOR 10: Ready alone is soft evidence).
-        split = (snapshot.vessel_count > state.undock_baseline_vessel_count
+        # The split half is `split_bump_observed`: the vessel count rose OR the
+        # active vessel now has fewer parts than the docked pair had (the
+        # channel an unrelated vessel removal cannot cancel).
+        split = (split_bump_observed(snapshot.vessel_count,
+                                     state.undock_baseline_vessel_count,
+                                     snapshot.part_count,
+                                     state.undock_baseline_part_count)
                  and snapshot.docking_state != DOCKING_STATE_DOCKED)
         if split:
             return (_bdock_enter(replace(state, undock_confirmed=True),
@@ -16187,7 +16281,8 @@ def evaluate_bdock_assertions(frames, params: BDockParams,
       (UNDOCK/TERMINAL reached AND undock_confirmed evidence).
 
     A SEPARATE phase is only entered after its circularize completes and only
-    LEFT on a confirmed vessel_count increase, so reaching the phase AFTER it
+    LEFT on a confirmed split (``split_bump_observed``: a vessel_count increase or
+    the active vessel's part_count falling below its entry baseline), so reaching the phase AFTER it
     (STATION-ORBIT / INT-PHASING-ORBIT) is proof the separation was observed;
     requiring the SEPARATE phase itself in ``phases`` too keeps the row honest if
     the flow is ever reordered (a run that entered SEPARATE but flaked before the
@@ -16575,6 +16670,7 @@ class RDockState:
     # Evidence for the assertions.
     started_docked: bool = False
     undock_baseline_vessel_count: int = 0
+    undock_baseline_part_count: int = 0
     undock_confirmed: bool = False
     redock_confirmed: bool = False
 
@@ -16617,7 +16713,8 @@ def rdock_decide(state: RDockState,
         if docked and snapshot.vessel_count > 0 and settled:
             return (_rdock_enter(state, RDOCK_UNDOCK, snapshot.ut,
                                  started_docked=True,
-                                 undock_baseline_vessel_count=snapshot.vessel_count),
+                                 undock_baseline_vessel_count=snapshot.vessel_count,
+                                 undock_baseline_part_count=snapshot.part_count),
                     [Action(ACTION_SET_SAS), Action(ACTION_SET_RCS, value=1.0),
                      Action(ACTION_UNDOCK)])
         if _rdock_elapsed(state, snapshot) > p.start_timeout:
@@ -16628,7 +16725,10 @@ def rdock_decide(state: RDockState,
         return state, []
 
     if state.phase == RDOCK_UNDOCK:
-        split = (snapshot.vessel_count > state.undock_baseline_vessel_count
+        split = (split_bump_observed(snapshot.vessel_count,
+                                     state.undock_baseline_vessel_count,
+                                     snapshot.part_count,
+                                     state.undock_baseline_part_count)
                  and snapshot.docking_state != DOCKING_STATE_DOCKED)
         if split:
             return _rdock_enter(state, RDOCK_BACKOFF, snapshot.ut,
@@ -16636,9 +16736,10 @@ def rdock_decide(state: RDockState,
         if _rdock_elapsed(state, snapshot) > p.undock_timeout:
             return _rdock_flake(state, (
                 "no undock split observed (vessel_count=%d baseline=%d "
-                "docking_state=%r)" % (snapshot.vessel_count,
-                                        state.undock_baseline_vessel_count,
-                                        snapshot.docking_state))), []
+                "part_count=%d baseline=%d docking_state=%r)"
+                % (snapshot.vessel_count, state.undock_baseline_vessel_count,
+                   snapshot.part_count, state.undock_baseline_part_count,
+                   snapshot.docking_state))), []
         return state, []
 
     if state.phase == RDOCK_BACKOFF:
@@ -16874,6 +16975,7 @@ class ForgeLkoState:
     launch_crew_short_seen: bool = False
     # SEPARATE evidence (the shared two-step contract).
     separate_baseline_vessel_count: int = 0
+    separate_baseline_part_count: int = 0
     separate_settle_streak: int = 0
     separate_thrust_streak: int = 0
     separate_split_confirmed: bool = False
@@ -16891,6 +16993,11 @@ class ForgeLkoState:
     # spawning during the coast also raises it).
     attached_baseline_vessel_count: int = 0
     attached_peak_vessel_count: int = 0
+    # The same watch through the active vessel's own part count (0 = unread):
+    # an autostage split's rewind-point save can declutter other vessels and
+    # pull the global count back under the baseline inside one frame, which
+    # would hide the very split this row exists to condemn.
+    attached_baseline_part_count: int = 0
     attached_split_seen: bool = False
     # PARK stability debounce.
     park_stable_streak: int = 0
@@ -17032,7 +17139,10 @@ def forge_lko_decide(state: ForgeLkoState, snapshot: TelemetrySnapshot
             attached_peak_vessel_count=max(state.attached_peak_vessel_count, count),
             attached_split_seen=(state.attached_split_seen
                                  or (state.attached_baseline_vessel_count > 0
-                                     and count > state.attached_baseline_vessel_count)))
+                                     and count > state.attached_baseline_vessel_count)
+                                 or split_bump_observed(
+                                     0, 0, snapshot.part_count,
+                                     state.attached_baseline_part_count)))
 
     if state.phase == FLKO_PRELAUNCH:
         return (_flko_enter(state, FLKO_LAUNCH, snapshot.ut),
@@ -17078,7 +17188,9 @@ def forge_lko_decide(state: ForgeLkoState, snapshot: TelemetrySnapshot
                                 attached_baseline_vessel_count=int(
                                     snapshot.vessel_count or 0),
                                 attached_peak_vessel_count=int(
-                                    snapshot.vessel_count or 0)),
+                                    snapshot.vessel_count or 0),
+                                attached_baseline_part_count=int(
+                                    snapshot.part_count or 0)),
                     [Action(ACTION_MJ_EXECUTE_NODES)])
         return _flko_stay_or_flake(state, snapshot), []
 
@@ -17105,6 +17217,7 @@ def forge_lko_decide(state: ForgeLkoState, snapshot: TelemetrySnapshot
             # the istg=0 heat-shield decoupler).
             return (_flko_enter(state, FLKO_SEPARATE, snapshot.ut,
                                 separate_baseline_vessel_count=snapshot.vessel_count,
+                                separate_baseline_part_count=snapshot.part_count,
                                 separate_settle_streak=0,
                                 separate_thrust_streak=0,
                                 separate_split_confirmed=False,
@@ -17116,7 +17229,9 @@ def forge_lko_decide(state: ForgeLkoState, snapshot: TelemetrySnapshot
         settle, thrust, split_confirmed, ignited = separation_evidence(
             snapshot.vessel_count, snapshot.available_thrust,
             state.separate_baseline_vessel_count, state.separate_settle_streak,
-            state.separate_thrust_streak, state.separate_split_confirmed)
+            state.separate_thrust_streak, state.separate_split_confirmed,
+            part_count=snapshot.part_count,
+            baseline_part_count=state.separate_baseline_part_count)
         st = replace(state, separate_settle_streak=settle,
                      separate_thrust_streak=thrust,
                      separate_split_confirmed=split_confirmed,
@@ -17127,8 +17242,12 @@ def forge_lko_decide(state: ForgeLkoState, snapshot: TelemetrySnapshot
         if not split_confirmed:
             if _flko_over_budget(st, snapshot):
                 return _flko_flake(st, (
-                    "phase %s: no separation observed (vessel_count did not "
-                    "increase)" % FLKO_SEPARATE)), []
+                    "phase %s: no separation observed (vessel_count %d never "
+                    "held above baseline %d and active part_count %d never fell "
+                    "below baseline %d)"
+                    % (FLKO_SEPARATE, snapshot.vessel_count,
+                       st.separate_baseline_vessel_count, snapshot.part_count,
+                       st.separate_baseline_part_count))), []
             return st, []
         if ignited:
             # ORBITAL STAGE, engine LIT -> park it: cut throttle, clear nodes,
@@ -17240,7 +17359,9 @@ def evaluate_forge_lko_assertions(frames, params: ForgeLkoParams,
              "baselineVesselCount": int(
                  getattr(state, "attached_baseline_vessel_count", 0)),
              "peakVesselCount": int(
-                 getattr(state, "attached_peak_vessel_count", 0))})
+                 getattr(state, "attached_peak_vessel_count", 0)),
+             "baselinePartCount": int(
+                 getattr(state, "attached_baseline_part_count", 0))})
     else:
         sep_met = ((FLKO_SEPARATE in phases) and (FLKO_PARK in phases)
                    and split_ev and ignition_ev)
@@ -18767,7 +18888,9 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("docked_confirmed", "docked"),
     ("undock_confirmed", "undocked"),
     ("undock_baseline_vessel_count", "undockBaseVessels"),
+    ("undock_baseline_part_count", "undockBaseParts"),
     ("separate_baseline_vessel_count", "sepBaseVessels"),
+    ("separate_baseline_part_count", "sepBaseParts"),
     ("separate_settle_streak", "sepSettleStreak"),
     ("separate_thrust_streak", "sepThrustStreak"),
     ("separate_split_confirmed", "sepSplitOk"),

@@ -27,6 +27,7 @@ import time
 import tomllib
 import unittest
 from dataclasses import replace
+from unittest import mock
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _MISSIONS = os.path.dirname(_HERE)                       # harness/missions
@@ -1220,6 +1221,25 @@ class DownTerminalShellTests(unittest.TestCase):
         off = mission_runner.KrpcMissionControl(read_chute=False)
         off._conn = _FakeConn([True])
         self.assertEqual(off.read_snapshot().craft_chute_state, "")
+
+    def test_read_docking_populates_the_active_part_count(self):
+        """The second split channel (mlib.split_bump_observed) is read from the
+        ACTIVE vessel under the read_docking opt-in, and stays at its 0 unread
+        sentinel both when the opt-in is off and when the read faults."""
+        class _Parts:
+            parachutes = []
+            all = [object()] * 28
+        with mock.patch.object(_FakeVessel, "parts", _Parts()):
+            on = mission_runner.KrpcMissionControl(read_docking=True)
+            on._conn = _FakeConn([True])
+            self.assertEqual(on.read_snapshot().part_count, 28)
+            off = mission_runner.KrpcMissionControl(read_docking=False)
+            off._conn = _FakeConn([True])
+            self.assertEqual(off.read_snapshot().part_count, 0)
+        # _FakeParts has no `all`: the read faults and degrades to unread.
+        faulted = mission_runner.KrpcMissionControl(read_docking=True)
+        faulted._conn = _FakeConn([True])
+        self.assertEqual(faulted.read_snapshot().part_count, 0)
 
     def test_b1_control_opts_into_the_chute_read(self):
         """read_chute=True is the single line that makes the observed-canopy chain

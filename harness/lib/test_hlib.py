@@ -8633,6 +8633,10 @@ class UnityExceptionScanTests(unittest.TestCase):
             # its own three driver-valid runs 2026-09-09 (_1813 / _1815 / _1817), every one
             # total=0; gating on its first flight was therefore a re-measurement, not a bet.
             "CL-4-refly-crew-standin.toml": 0,
+            # HC-1: L2's boot shape on L2's host with the Hard preset values, plus a pad
+            # record / commit / Rewind-to-Launch; its three driver-valid runs 2026-09-29
+            # (_1745 / _1821 / _1831) all read total=0 in every counted class.
+            "HC-1-hard-career-ledger.toml": 0,
             "L1-dismiss-kerbal-career.toml": 0,
             "L1-hire-kerbal-career.toml": 0,
             "L1-passive-sandbox.toml": 0,
@@ -24007,6 +24011,31 @@ class ScreenResolutionSpecTests(unittest.TestCase):
         res = hlib.validate_spec(spec, load_registry())
         self.assertTrue(any("runtime.screenResolution" in e for e in res.errors),
                         res.errors)
+
+    def test_ksp_gameplay_settings_validation(self):
+        ok = {"kspSettings": {"MAX_VESSELS_BUDGET": 7, "DECLUTTER_KSC": False}}
+        self.assertEqual([], hlib.validate_screen_resolution(ok))
+        self.assertEqual([], hlib.validate_screen_resolution(
+            {"kspSettings": {"MAX_VESSELS_BUDGET": -1}}))
+        for bad in ({"MAX_VESSELS_BUDGET": -2}, {"MAX_VESSELS_BUDGET": "7"},
+                    {"MAX_VESSELS_BUDGET": True}, {"DECLUTTER_KSC": "True"},
+                    {"PHYSICS_FRAME_DT_LIMIT": 0.04}, {}):
+            errs = hlib.validate_screen_resolution({"kspSettings": bad})
+            self.assertEqual(1, len(errs), (bad, errs))
+            self.assertIn("runtime.kspSettings", errs[0])
+        self.assertEqual(1, len(hlib.validate_screen_resolution({"kspSettings": 5})))
+
+    def test_spec_ksp_gameplay_settings(self):
+        self.assertEqual({}, hlib.spec_ksp_gameplay_settings({}))
+        self.assertEqual({}, hlib.spec_ksp_gameplay_settings({"runtime": {"budgetSeconds": 5}}))
+        self.assertEqual({}, hlib.spec_ksp_gameplay_settings(
+            {"runtime": {"kspSettings": {"MAX_VESSELS_BUDGET": -5}}}))
+        self.assertEqual({"MAX_VESSELS_BUDGET": "7", "DECLUTTER_KSC": "False"},
+                         hlib.spec_ksp_gameplay_settings({"runtime": {"kspSettings": {
+                             "DECLUTTER_KSC": False, "MAX_VESSELS_BUDGET": 7}}}))
+        self.assertEqual("MAX_VESSELS_BUDGET = 250\nDECLUTTER_KSC = True\n",
+                         hlib.render_gameplay_restore_marker(
+                             {"DECLUTTER_KSC": "True", "MAX_VESSELS_BUDGET": "250"}))
 
     def test_spec_screen_resolution(self):
         self.assertIsNone(hlib.spec_screen_resolution({}))

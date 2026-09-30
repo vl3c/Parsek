@@ -15,6 +15,26 @@
 //   PICKUP - the ground part's own "Pick Up" KSPEvent (ModuleGroundPart.RetrievePart),
 //            invoked through its BaseEvent exactly as the PAW button does. Stock fires
 //            onGroundSciencePartRemoved from inside it and then kills the ground vessel.
+//   TAKE   - the inventory window drag from a nearby container into the kerbal's own
+//            inventory: the two calls stock's UIPartActionInventorySlot makes at the ends
+//            of that drag, ClearPartAtSlot on the source slot and StoreCargoPartAtSlot on
+//            the destination slot (here with the source's own stored ProtoPartSnapshot, so
+//            the part keeps its identity). Gated by stock's own limits: the container must
+//            be within GameSettings.EVA_INVENTORY_RANGE and the kerbal's inventory must
+//            have a free slot and HasCapacity for the part (40 L / 0.065 t on a stock
+//            kerbal), so a take never carries more than a player could.
+//   STEP   - the strides a player walks between a container and the spot a part goes: the
+//            kerbal is set down on the terrain at a requested horizontal distance from an
+//            anchor vessel, along an explicit compass bearing from it (bearing=) or else
+//            straight out along his own bearing (Vessel.SetPosition to the PQS terrain
+//            height plus a small lift, velocity zeroed, g-forces ignored for the move), then
+//            left to settle by gravity. KSP has no walk API a seam can drive, so the move is
+//            a teleport; each part's CollisionEnhancer skips its next frames first, or its
+//            anti-tunnelling linecast puts a standing kerbal straight back. Completion is the
+//            kerbal landed on the target spot (bounded re-moves while he is off it). Inside a
+//            live recording it leaves a jump in the kerbal's trajectory (the ghost slides
+//            between the two spots); no recorder path or analyzer rule treats a same-body
+//            position jump as a boundary or a defect.
 //
 // The seam fires NO GameEvent itself: the recorder witness is whatever stock fires.
 // Private stock fields (selectedPart, partFullyCreated, placementonTerrain,
@@ -151,6 +171,20 @@ namespace Parsek.TestCommands
         private Vector3 groundSciHeadingBodyLocal;
         private bool groundSciHeadingChosen;
         private int groundSciHeadingHolds;
+        // Take only: the container the part comes out of and its slot.
+        private ModuleInventoryPart groundSciTakeSource;
+        private int groundSciTakeSourceSlot;
+        // Step only: the anchor vessel and the requested horizontal distance from it.
+        private Vessel groundSciStepAnchor;
+        private double groundSciStepDistance;
+        // Step only: the target spot on the body's grid (the floating origin moves world
+        // positions between frames), and the moves made toward it.
+        private double groundSciStepTargetLat;
+        private double groundSciStepTargetLon;
+        private int groundSciStepMoves;
+        private int groundSciStepLastMoveFrame;
+        private int groundSciStepRecovers;
+        private string groundSciStepGroundSource;
 
         private void EvaGroundScienceImpl(ParsedCommand cmd)
         {
@@ -163,6 +197,26 @@ namespace Parsek.TestCommands
             }
             string part = TestCommandEvaGroundScience.NormalizePartName(
                 ArgOrNull(cmd, TestCommandEvaGroundScience.PartArg));
+            uint stepAnchorPid = 0;
+            double stepDistance = 0;
+            bool stepHasBearing = false;
+            double stepBearing = 0;
+            if (action == EvaGroundScienceAction.Step)
+            {
+                if (!TestCommandEvaGroundScience.TryParseStepArgs(
+                        ArgOrNull(cmd, TestCommandEvaGroundScience.AnchorArg),
+                        ArgOrNull(cmd, TestCommandEvaGroundScience.DistanceArg),
+                        out stepAnchorPid, out stepDistance, out string stepError)
+                    || !TestCommandEvaGroundScience.TryParseStepBearing(
+                        ArgOrNull(cmd, TestCommandEvaGroundScience.BearingArg),
+                        out stepHasBearing, out stepBearing, out stepError))
+                {
+                    ParsekLog.Warn(Tag, $"evagroundscience refused reason={stepError}");
+                    SetExecResult("REJECTED", null, stepError);
+                    return;
+                }
+                if (string.IsNullOrEmpty(part)) part = "-";
+            }
             if (string.IsNullOrEmpty(part))
             {
                 ParsekLog.Warn(Tag, "evagroundscience refused reason=missing-part");
@@ -210,13 +264,512 @@ namespace Parsek.TestCommands
             groundSciHeadingBodyLocal = Vector3.zero;
             groundSciHeadingChosen = false;
             groundSciHeadingHolds = 0;
+            groundSciTakeSource = null;
+            groundSciTakeSourceSlot = -1;
+            groundSciStepAnchor = null;
+            groundSciStepDistance = stepDistance;
+            groundSciStepTargetLat = 0;
+            groundSciStepTargetLon = 0;
+            groundSciStepMoves = 0;
+            groundSciStepLastMoveFrame = -1;
+            groundSciStepRecovers = 0;
+            groundSciStepGroundSource = null;
             EvaJumpKeyPressInjection.Remove();
             EvaJumpKeyPressInjection.AnsweredCount = 0;
 
             if (action == EvaGroundScienceAction.Place)
                 StartGroundPlace(active, inv, part);
+            else if (action == EvaGroundScienceAction.Take)
+                StartGroundTake(active, inv, part);
+            else if (action == EvaGroundScienceAction.Step)
+                StartGroundStep(active, stepAnchorPid, stepDistance, stepHasBearing, stepBearing);
             else
                 StartGroundPickup(active, inv, part);
+        }
+
+        private void StartGroundStep(Vessel kerbal, uint anchorPid, double distance,
+            bool hasBearing, double bearingDegrees)
+        {
+            Vessel anchor = null;
+            foreach (Vessel v in FlightGlobals.VesselsLoaded)
+                if (v != null && v != kerbal && v.persistentId == anchorPid) { anchor = v; break; }
+            if (anchor == null)
+            {
+                ParsekLog.Warn(Tag, $"evagroundscience refused reason=step-anchor-not-loaded anchor={anchorPid}");
+                SetExecResult("REJECTED", null, "step-anchor-not-loaded");
+                return;
+            }
+            CelestialBody body = kerbal.mainBody;
+            if (body == null || anchor.mainBody != body)
+            {
+                ParsekLog.Warn(Tag, $"evagroundscience refused reason=step-body-mismatch anchor={anchorPid}");
+                SetExecResult("REJECTED", null, "step-body-mismatch");
+                return;
+            }
+            Vector3d anchorPos = anchor.transform.position;
+            Vector3d up = (anchorPos - body.position).normalized;
+            Vector3d kerbalOffset = Vector3d.Exclude(up, (Vector3d)kerbal.transform.position - anchorPos);
+            double lat;
+            double lon;
+            if (hasBearing)
+            {
+                // A compass bearing from the anchor, on the body's own latitude / longitude
+                // grid, so a lane's layout does not depend on which way the anchor or the
+                // kerbal happens to face.
+                TestCommandEvaGroundScience.OffsetLatLonAlongBearing(
+                    body.GetLatitude(anchorPos), body.GetLongitude(anchorPos), bearingDegrees,
+                    distance, (anchorPos - body.position).magnitude, out lat, out lon);
+            }
+            else
+            {
+                Vector3d east = Vector3d.Exclude(up, (Vector3d)anchor.transform.right).normalized;
+                if (east.sqrMagnitude < 1e-6) east = Vector3d.Cross(up, Vector3d.forward).normalized;
+                Vector3d north = Vector3d.Cross(up, east).normalized;
+                TestCommandEvaGroundScience.StepHorizontalOffset(
+                    Vector3d.Dot(kerbalOffset, east), Vector3d.Dot(kerbalOffset, north), distance,
+                    1.0, 0.0, out double ox, out double oz);
+                Vector3d target = anchorPos + east * ox + north * oz;
+                lat = body.GetLatitude(target);
+                lon = body.GetLongitude(target);
+            }
+            double terrain = body.TerrainAltitude(lat, lon, false);
+            double before = kerbalOffset.magnitude;
+
+            groundSciStepAnchor = anchor;
+            groundSciStepTargetLat = lat;
+            groundSciStepTargetLon = lon;
+            ParsekLog.Info(Tag, $"evagroundscience step start kerbal={kerbal.vesselName} anchor={anchor.vesselName} "
+                + $"anchorPid={anchorPid} from={before.ToString("F2", CultureInfo.InvariantCulture)} "
+                + $"to={distance.ToString("F2", CultureInfo.InvariantCulture)} "
+                + $"lat={lat.ToString("F6", CultureInfo.InvariantCulture)} lon={lon.ToString("F6", CultureInfo.InvariantCulture)} "
+                + $"terrain={terrain.ToString("F2", CultureInfo.InvariantCulture)} situation={kerbal.situation} "
+                + $"bearing={(hasBearing ? bearingDegrees.ToString("F1", CultureInfo.InvariantCulture) : "own")}");
+            KerbalEVA startEva = kerbal.FindPartModuleImplementing<KerbalEVA>();
+            if (startEva != null && startEva.isRagdoll)
+            {
+                // A ragdolled kerbal is several jointed bodies; moving one of them tears him
+                // apart. The completion poll gets him up first, then makes the move.
+                ParsekLog.Info(Tag, $"evagroundscience step deferred kerbal={kerbal.vesselName} reason=ragdolled");
+                SetExecResult(PendingVerdict, null, null);
+                return;
+            }
+            if (!TryMoveKerbalToStepTarget(kerbal))
+            {
+                SetExecResult("ERROR", null, "step-threw");
+                return;
+            }
+            SetExecResult(PendingVerdict, null, null);
+        }
+
+        // KerbalEVA's private ground anchor (decompiled KSP 1.12.5): AnchorUpdate, run from
+        // KerbalEVA.LateUpdate, adds a FixedJoint with no connected body (a joint to the world
+        // at the kerbal's pose) once he has stood landed, slow and idle for 0.5 s
+        // (kerbalAnchorTimeThreshold), and RemoveRBAnchor destroys it and resets the counter.
+        private static readonly MethodInfo EvaRemoveAnchorMethod =
+            AccessTools.Method(typeof(KerbalEVA), "RemoveRBAnchor");
+        private static readonly FieldInfo EvaIsAnchoredField =
+            AccessTools.Field(typeof(KerbalEVA), "isAnchored");
+
+        /// <summary>
+        /// One step move. (1) Release KerbalEVA's ground anchor: an idle kerbal is held by a
+        /// FixedJoint to the world, which pulled every teleport of a standing kerbal straight
+        /// back (EVA-8 `2026-09-29_1711_a2`: every step after the first read the same 13.04 m);
+        /// stock re-anchors him at the new spot once he stands idle there. (2) Tell every
+        /// part's CollisionEnhancer to skip its next physics frames (see
+        /// <see cref="TestCommandEvaGroundScience.StepCollisionSkipFrames"/>). (3) Set him down
+        /// at the target's PQS terrain height plus the lift and write every rigidbody's pose to
+        /// match its transform, velocities zeroed, so the physics pose and the transform agree.
+        /// </summary>
+        private bool TryMoveKerbalToStepTarget(Vessel kerbal)
+        {
+            CelestialBody body = kerbal != null ? kerbal.mainBody : null;
+            if (body == null) return false;
+            try
+            {
+                KerbalEVA eva = kerbal.FindPartModuleImplementing<KerbalEVA>();
+                bool wasAnchored = false;
+                bool anchorReleased = false;
+                if (eva != null && EvaIsAnchoredField != null)
+                    wasAnchored = (bool)EvaIsAnchoredField.GetValue(eva);
+                if (eva != null && EvaRemoveAnchorMethod != null)
+                {
+                    EvaRemoveAnchorMethod.Invoke(eva, null);
+                    anchorReleased = EvaIsAnchoredField == null || !(bool)EvaIsAnchoredField.GetValue(eva);
+                }
+                int enhancers = 0;
+                foreach (Part p in kerbal.parts)
+                {
+                    if (p == null) continue;
+                    foreach (CollisionEnhancer ce in p.GetComponents<CollisionEnhancer>())
+                    {
+                        if (ce == null) continue;
+                        ce.framesToSkip = Math.Max(ce.framesToSkip,
+                            TestCommandEvaGroundScience.StepCollisionSkipFrames);
+                        enhancers++;
+                    }
+                }
+                double terrain = body.TerrainAltitude(groundSciStepTargetLat, groundSciStepTargetLon, false);
+                double feetDepth = MeasureKerbalFeetDepth(kerbal);
+                double groundAlt = RaycastGroundAltitude(body, groundSciStepTargetLat, groundSciStepTargetLon, terrain);
+                double setDownAlt = TestCommandEvaGroundScience.StepSetDownAltitude(
+                    groundAlt, terrain, feetDepth, kerbal.terrainAltitude, out string groundSource, out bool guarded);
+                groundSciStepGroundSource = groundSource;
+                Vector3d world = body.GetWorldSurfacePosition(groundSciStepTargetLat, groundSciStepTargetLon,
+                    setDownAlt);
+                kerbal.IgnoreGForces(240);
+                kerbal.SetPosition(world);
+                kerbal.SetWorldVelocity(Vector3d.zero);
+                int bodies = 0;
+                foreach (Part p in kerbal.parts)
+                {
+                    if (p == null) continue;
+                    foreach (Rigidbody rb in p.GetComponentsInChildren<Rigidbody>())
+                    {
+                        if (rb == null) continue;
+                        rb.position = rb.transform.position;
+                        rb.rotation = rb.transform.rotation;
+                        if (!rb.isKinematic)
+                        {
+                            rb.velocity = Vector3.zero;
+                            rb.angularVelocity = Vector3.zero;
+                        }
+                        bodies++;
+                    }
+                }
+                groundSciStepMoves++;
+                groundSciStepLastMoveFrame = Time.frameCount;
+                groundSciSettledFrames = 0;
+                ParsekLog.Info(Tag, TestCommandEvaGroundScience.FormatStepMoveLine(
+                    kerbal.vesselName, groundSciStepMoves, enhancers, eva != null, wasAnchored,
+                    anchorReleased, bodies, terrain, setDownAlt, groundAlt, feetDepth, groundSource, guarded));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(Tag, $"evagroundscience step threw: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
+        }
+
+        // Layer 15 ("Local Scenery"): the PQS terrain colliders, the layer the placement
+        // preview's terrain ray hits (`hit=Kerbin Zp.../layer15`).
+        private const int GroundColliderLayerMask = 1 << 15;
+
+        /// <summary>How far below the kerbal's origin his lowest collider point is (his feet
+        /// while he stands upright), NaN when no usable collider is found.</summary>
+        private static double MeasureKerbalFeetDepth(Vessel kerbal)
+        {
+            if (kerbal == null || kerbal.mainBody == null) return double.NaN;
+            Vector3d pos = kerbal.transform.position;
+            Vector3d up = (pos - kerbal.mainBody.position).normalized;
+            Vector3 probe = (Vector3)(pos - up * 10.0);
+            double best = double.NaN;
+            foreach (Part p in kerbal.parts)
+            {
+                if (p == null) continue;
+                foreach (Collider col in p.GetComponentsInChildren<Collider>())
+                {
+                    if (col == null || !col.enabled || col.isTrigger || !col.gameObject.activeInHierarchy)
+                        continue;
+                    MeshCollider mesh = col as MeshCollider;
+                    if (mesh != null && !mesh.convex) continue;
+                    Vector3 cp = col.ClosestPoint(probe);
+                    double depth = Vector3d.Dot(pos - (Vector3d)cp, up);
+                    if (double.IsNaN(best) || depth > best) best = depth;
+                }
+            }
+            return best;
+        }
+
+        /// <summary>Altitude of the ground collider straight below (lat, lon), from a ray cast
+        /// down from 30 m above the PQS height; NaN when nothing is hit.</summary>
+        private static double RaycastGroundAltitude(CelestialBody body, double lat, double lon, double pqsTerrain)
+        {
+            if (body == null) return double.NaN;
+            Vector3d origin = body.GetWorldSurfacePosition(lat, lon, pqsTerrain + 30.0);
+            Vector3d up = (origin - body.position).normalized;
+            RaycastHit hit;
+            if (!Physics.Raycast((Vector3)origin, -(Vector3)up, out hit, 60f, GroundColliderLayerMask,
+                    QueryTriggerInteraction.Ignore))
+                return double.NaN;
+            return body.GetAltitude(hit.point);
+        }
+
+        /// <summary>The kerbal's feet (lowest collider point) and origin heights above the
+        /// ground collider straight below him; NaN when the ray finds no ground.</summary>
+        private static void MeasureGroundClearance(Vessel kerbal, out double feetClearance, out double originClearance)
+        {
+            feetClearance = double.NaN;
+            originClearance = double.NaN;
+            if (kerbal == null || kerbal.mainBody == null) return;
+            Vector3d pos = kerbal.transform.position;
+            Vector3d up = (pos - kerbal.mainBody.position).normalized;
+            RaycastHit hit;
+            if (!Physics.Raycast((Vector3)(pos + up * 3.0), -(Vector3)up, out hit, 10f, GroundColliderLayerMask,
+                    QueryTriggerInteraction.Ignore))
+                return;
+            originClearance = Vector3d.Dot(pos - (Vector3d)hit.point, up);
+            double feetDepth = MeasureKerbalFeetDepth(kerbal);
+            if (!double.IsNaN(feetDepth)) feetClearance = originClearance - feetDepth;
+        }
+
+        /// <summary>The kerbal's horizontal distance from the step's target spot.</summary>
+        private double StepOffTarget(Vessel kerbal)
+        {
+            CelestialBody body = kerbal != null ? kerbal.mainBody : null;
+            if (body == null) return double.NaN;
+            Vector3d pos = kerbal.transform.position;
+            Vector3d up = (pos - body.position).normalized;
+            Vector3d target = body.GetWorldSurfacePosition(groundSciStepTargetLat, groundSciStepTargetLon,
+                body.GetAltitude(pos));
+            return Vector3d.Exclude(up, pos - target).magnitude;
+        }
+
+        private static string Fmt2(double v)
+            => double.IsNaN(v) ? "nan" : v.ToString("F2", CultureInfo.InvariantCulture);
+
+        private double StepHorizontalDistance(Vessel kerbal)
+        {
+            Vessel anchor = groundSciStepAnchor;
+            if (kerbal == null || anchor == null || kerbal.mainBody == null) return double.NaN;
+            Vector3d anchorPos = anchor.transform.position;
+            Vector3d up = (anchorPos - kerbal.mainBody.position).normalized;
+            return Vector3d.Exclude(up, (Vector3d)kerbal.transform.position - anchorPos).magnitude;
+        }
+
+        private void TryCompleteGroundStep(double now)
+        {
+            double elapsed = now - completionStartedAt;
+            double budget = DeferralBudget.BudgetSeconds("EvaGroundScience");
+            Vessel kerbal = groundSciKerbal;
+            if (kerbal == null || groundSciStepAnchor == null)
+            {
+                FinishGroundScience("ERROR", null, "kerbal-lost", elapsed);
+                return;
+            }
+            double horizontal = StepHorizontalDistance(kerbal);
+            double offTarget = StepOffTarget(kerbal);
+            bool landed = kerbal.Landed;
+            KerbalEVA eva = kerbal.FindPartModuleImplementing<KerbalEVA>();
+            bool ragdoll = eva != null && eva.isRagdoll;
+            if (eva != null && eva.fsm != null)
+            {
+                bool inRagdollState = eva.fsm.CurrentState == eva.st_ragdoll;
+                double inState = eva.fsm.TimeAtCurrentState;
+                if (TestCommandEvaGroundScience.ShouldRecoverFromRagdoll(
+                        ragdoll, inRagdollState, landed, kerbal.srfSpeed, inState, groundSciStepRecovers))
+                {
+                    groundSciStepRecovers++;
+                    groundSciSettledFrames = 0;
+                    ParsekLog.Info(Tag, $"evagroundscience step ragdoll-recover kerbal={kerbal.vesselName} "
+                        + $"recover={groundSciStepRecovers.ToString(CultureInfo.InvariantCulture)} "
+                        + $"speed={Fmt2(kerbal.srfSpeed)} secondsInState={Fmt2(inState)} "
+                        + $"offTarget={Fmt2(offTarget)} event=On_recover_start");
+                    eva.fsm.RunEvent(eva.On_recover_start);
+                    return;
+                }
+            }
+            int framesSinceMove = groundSciStepLastMoveFrame < 0
+                ? int.MaxValue : Time.frameCount - groundSciStepLastMoveFrame;
+            MeasureGroundClearance(kerbal, out double feetClearance, out double originClearance);
+            bool groundOk = TestCommandEvaGroundScience.IsGroundClearanceOk(feetClearance);
+            if (!ragdoll
+                && TestCommandEvaGroundScience.ShouldReapplyStep(
+                    offTarget, landed && !groundOk, framesSinceMove, groundSciStepMoves))
+            {
+                ParsekLog.Info(Tag, $"evagroundscience step off-target kerbal={kerbal.vesselName} "
+                    + $"offTarget={Fmt2(offTarget)} horizontal={Fmt2(horizontal)} landed={Bool(landed)} "
+                    + $"feetClearance={Fmt2(feetClearance)} "
+                    + $"moves={groundSciStepMoves.ToString(CultureInfo.InvariantCulture)}: moving again");
+                if (!TryMoveKerbalToStepTarget(kerbal))
+                    FinishGroundScience("ERROR", null, "step-threw", elapsed);
+                return;
+            }
+            bool at = !double.IsNaN(offTarget) && offTarget <= TestCommandEvaGroundScience.StepToleranceMeters
+                && groundOk;
+            // Standing, not just landed: a ragdolled kerbal is landed but cannot place.
+            bool standing = landed && !ragdoll;
+            groundSciSettledFrames = standing && at ? groundSciSettledFrames + 1 : 0;
+            GroundScienceCompletionDecision done = TestCommandEvaGroundScience.DecideStepCompletion(
+                elapsed, budget, standing, offTarget, groundSciSettledFrames);
+            if (done == GroundScienceCompletionDecision.StillWaiting) return;
+            string h = Fmt2(horizontal);
+            string off = Fmt2(offTarget);
+            string moves = groundSciStepMoves.ToString(CultureInfo.InvariantCulture);
+            ParsekLog.Info(Tag, TestCommandEvaGroundScience.FormatStepGroundLine(
+                kerbal.vesselName, feetClearance, originClearance, groundSciStepGroundSource, groundOk));
+            if (done == GroundScienceCompletionDecision.Timeout)
+            {
+                FinishGroundScience("ERROR", null, "step-timeout", elapsed,
+                    $"landed={Bool(landed)} ragdoll={Bool(ragdoll)} horizontal={h} offTarget={off} moves={moves} "
+                    + $"recovers={groundSciStepRecovers.ToString(CultureInfo.InvariantCulture)} situation={kerbal.situation}");
+                return;
+            }
+            ParsekLog.Info(Tag, $"evagroundscience step complete kerbal={kerbal.vesselName} "
+                + $"anchor={groundSciStepAnchor.vesselName} horizontal={h} situation={kerbal.situation} "
+                + $"offTarget={off} moves={moves}");
+            FinishGroundScience("OK", TestCommandEvaGroundScience.BuildCompletePayload(
+                EvaGroundScienceAction.Step, groundSciPart, 0u, groundSciStepAnchor.persistentId,
+                -1, 0, double.IsNaN(horizontal) ? 0 : horizontal), null, elapsed);
+        }
+
+        private void StartGroundTake(Vessel active, ModuleInventoryPart inv, string part)
+        {
+            // Every loaded container slot storing the part, with the kerbal's distance to
+            // the container's part (the nearest point of its colliders when it has any,
+            // so a tall part is measured to its surface rather than its origin).
+            var containers = new List<ModuleInventoryPart>();
+            var candidates = new List<GroundTakeCandidate>();
+            foreach (Vessel v in FlightGlobals.VesselsLoaded)
+            {
+                if (v == null || v == active || v.isEVA || v.parts == null) continue;
+                for (int i = 0; i < v.parts.Count; i++)
+                {
+                    Part p = v.parts[i];
+                    if (p == null) continue;
+                    ModuleInventoryPart src = p.FindModuleImplementing<ModuleInventoryPart>();
+                    if (src == null || src.storedParts == null) continue;
+                    double d = DistanceToPart(p, active.transform.position);
+                    int containerIndex = containers.Count;
+                    containers.Add(src);
+                    foreach (var kv in InventorySlotNames(src))
+                        candidates.Add(new GroundTakeCandidate
+                        {
+                            ContainerIndex = containerIndex,
+                            Slot = kv.Key,
+                            PartName = kv.Value,
+                            DistanceMeters = d,
+                        });
+                }
+            }
+            double reach = GameSettings.EVA_INVENTORY_RANGE;
+            GroundTakeSourceChoice choice = TestCommandEvaGroundScience.ChooseTakeSource(candidates, part, reach);
+            if (choice.Decision == GroundTakeSourceDecision.NotStored)
+            {
+                ParsekLog.Warn(Tag, $"evagroundscience refused reason=not-stored-nearby part={part} "
+                    + $"containers={containers.Count}");
+                SetExecResult("REJECTED", null, "not-stored-nearby");
+                return;
+            }
+            if (choice.Decision == GroundTakeSourceDecision.OutOfRange)
+            {
+                ParsekLog.Warn(Tag, $"evagroundscience refused reason=out-of-range part={part} "
+                    + $"distance={choice.NearestDistanceMeters.ToString("F2", CultureInfo.InvariantCulture)} "
+                    + $"range={reach.ToString("F2", CultureInfo.InvariantCulture)}");
+                SetExecResult("REJECTED", null, "out-of-range");
+                return;
+            }
+            ModuleInventoryPart source = containers[choice.Candidate.ContainerIndex];
+            int sourceSlot = choice.Candidate.Slot;
+            int destSlot = inv.FirstEmptySlot();
+            if (destSlot < 0)
+            {
+                ParsekLog.Warn(Tag, $"evagroundscience refused reason=inventory-full part={part} "
+                    + $"inventory={DescribeInventory(inv)}");
+                SetExecResult("REJECTED", null, "inventory-full");
+                return;
+            }
+            AvailablePart info = PartLoader.getPartInfoByName(part);
+            if (info == null || info.partPrefab == null || !inv.HasCapacity(info.partPrefab))
+            {
+                ParsekLog.Warn(Tag, $"evagroundscience refused reason=over-capacity part={part} "
+                    + $"inventory={DescribeInventory(inv)}");
+                SetExecResult("REJECTED", null, "over-capacity");
+                return;
+            }
+            StoredPart stored = source.storedParts.ContainsKey(sourceSlot) ? source.storedParts[sourceSlot] : null;
+            if (stored == null || stored.snapshot == null)
+            {
+                ParsekLog.Warn(Tag, $"evagroundscience refused reason=no-stored-snapshot part={part} slot={sourceSlot}");
+                SetExecResult("REJECTED", null, "no-stored-snapshot");
+                return;
+            }
+
+            groundSciSlot = destSlot;
+            groundSciTakeSource = source;
+            groundSciTakeSourceSlot = sourceSlot;
+            groundSciDistance = choice.Candidate.DistanceMeters;
+            groundSciTarget = source.part != null ? source.part.vessel : null;
+            groundSciTargetVesselPid = groundSciTarget != null ? groundSciTarget.persistentId : 0u;
+            ProtoPartSnapshot snapshot = stored.snapshot;
+            groundSciTargetPartPid = snapshot.persistentId;
+            string sourceName = groundSciTarget != null ? groundSciTarget.vesselName : "<none>";
+            string sourcePart = source.part != null && source.part.partInfo != null ? source.part.partInfo.name : "<none>";
+            ParsekLog.Info(Tag, $"evagroundscience take start kerbal={active.vesselName} part={part} "
+                + $"source={sourceName} sourcePart={sourcePart} sourceSlot={sourceSlot} "
+                + $"sourceInventory={DescribeInventory(source)} kerbalSlot={destSlot} "
+                + $"inventory={DescribeInventory(inv)} "
+                + $"distance={groundSciDistance.ToString("F2", CultureInfo.InvariantCulture)} "
+                + $"range={reach.ToString("F2", CultureInfo.InvariantCulture)}");
+            try
+            {
+                // Stock's drag order: the source slot is emptied when the part is picked
+                // up, then the held part is stored into the clicked destination slot.
+                source.ClearPartAtSlot(sourceSlot);
+                if (!inv.StoreCargoPartAtSlot(snapshot, destSlot))
+                {
+                    // Put it back rather than lose it; the refusal is the verdict.
+                    source.StoreCargoPartAtSlot(snapshot, sourceSlot);
+                    ParsekLog.Warn(Tag, $"evagroundscience refused reason=take-store-refused part={part} "
+                        + $"kerbalSlot={destSlot} inventory={DescribeInventory(inv)}");
+                    SetExecResult("REJECTED", null, "take-store-refused");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(Tag, $"evagroundscience take threw: {ex.GetType().Name}: {ex.Message}");
+                SetExecResult("ERROR", null, "take-threw");
+                return;
+            }
+            SetExecResult(PendingVerdict, null, null);
+        }
+
+        private static double DistanceToPart(Part p, Vector3 from)
+        {
+            double best = Vector3d.Distance(p.transform.position, from);
+            Collider[] colliders = p.GetComponentsInChildren<Collider>(false);
+            if (colliders == null) return best;
+            for (int i = 0; i < colliders.Length; i++)
+            {
+                Collider c = colliders[i];
+                if (c == null || !c.enabled || c.isTrigger) continue;
+                // Part transforms nest (a child part hangs under its parent's transform),
+                // so keep only this part's own colliders, never its children's.
+                if (c.GetComponentInParent<Part>() != p) continue;
+                double d = Vector3d.Distance(c.ClosestPoint(from), from);
+                if (d < best) best = d;
+            }
+            return best;
+        }
+
+        private void TryCompleteGroundTake(double now)
+        {
+            double elapsed = now - completionStartedAt;
+            double budget = DeferralBudget.BudgetSeconds("EvaGroundScience");
+            ModuleInventoryPart inv = groundSciInventory;
+            ModuleInventoryPart src = groundSciTakeSource;
+            bool holds = inv != null && TestCommandEvaGroundScience.FindSlotHolding(
+                InventorySlotNames(inv), groundSciPart) >= 0;
+            bool cleared = src == null || src.IsSlotEmpty(groundSciTakeSourceSlot);
+            groundSciSettledFrames = holds && cleared ? groundSciSettledFrames + 1 : 0;
+            GroundScienceCompletionDecision done = TestCommandEvaGroundScience.DecideTakeCompletion(
+                elapsed, budget, holds, cleared, groundSciSettledFrames);
+            if (done == GroundScienceCompletionDecision.StillWaiting) return;
+            if (done == GroundScienceCompletionDecision.Timeout)
+            {
+                FinishGroundScience("ERROR", null, "take-timeout", elapsed,
+                    $"kerbalHoldsPart={Bool(holds)} sourceSlotCleared={Bool(cleared)} "
+                    + $"inventory={(inv != null ? DescribeInventory(inv) : "<none>")}");
+                return;
+            }
+            ParsekLog.Info(Tag, $"evagroundscience take complete part={groundSciPart} "
+                + $"partPid={groundSciTargetPartPid} sourceVesselPid={groundSciTargetVesselPid} "
+                + $"kerbalSlot={groundSciSlot} inventory={DescribeInventory(inv)} "
+                + $"sourceInventory={(src != null ? DescribeInventory(src) : "<none>")}");
+            FinishGroundScience("OK", TestCommandEvaGroundScience.BuildCompletePayload(
+                EvaGroundScienceAction.Take, groundSciPart, groundSciTargetPartPid, groundSciTargetVesselPid,
+                groundSciSlot, 0, groundSciDistance), null, elapsed);
         }
 
         private void StartGroundPlace(Vessel active, ModuleInventoryPart inv, string part)
@@ -325,6 +878,10 @@ namespace Parsek.TestCommands
         {
             if (groundSciAction == EvaGroundScienceAction.Place)
                 TryCompleteGroundPlace(now);
+            else if (groundSciAction == EvaGroundScienceAction.Take)
+                TryCompleteGroundTake(now);
+            else if (groundSciAction == EvaGroundScienceAction.Step)
+                TryCompleteGroundStep(now);
             else
                 TryCompleteGroundPickup(now);
         }

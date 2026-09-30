@@ -34,10 +34,10 @@ namespace Parsek
 
         /// <summary>What the tooltip must read: the reason alone on an added controller,
         /// else stock's text with the reason appended on its own line. Pure.</summary>
-        internal static string Compose(bool owned, string stockText, string why)
+        internal static string Compose(bool owned, string stockText, string why, string site = null)
         {
             return StockUiFacilityDecoration.ComposeTooltipText(owned, stockText,
-                StockUiFacilityDecoration.WrapTooltipText(why));
+                StockUiFacilityDecoration.WrapTooltipText(why), site);
         }
 
         /// <summary>
@@ -88,7 +88,7 @@ namespace Parsek
                     tip.prefab = prefab;
                 }
                 tip.RequireInteractable = false;
-                tip.SetText(Compose(state.Owned, state.StockText, why));
+                tip.SetText(Compose(state.Owned, state.StockText, why, surface + " tooltip"));
                 tip.enabled = true;
                 if (!string.Equals(state.Why, why, StringComparison.Ordinal))
                     ParsekLog.Verbose(Tag, surface + ": reason shown on the disabled button's stock tooltip: " + why);

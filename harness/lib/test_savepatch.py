@@ -648,14 +648,15 @@ _SYNTHETIC_CAREER = "\n".join([
 
 
 class SyntheticRemovalTests(unittest.TestCase):
-    """`remove = true` - whole-VESSEL deletion, and the one refusal that makes it
+    """`remove = true` - whole-VESSEL deletion, and the focus rule that makes it
     safe to ship.
 
-    The refusal is not defensive tidiness: `activeVessel` is a POSITIONAL index
-    into the FLIGHTSTATE vessel list, so removing a vessel at or before it
-    re-points the focus at a different craft and every token the lane derives
-    becomes a statement about a different scene - silently, on a run that boots
-    and looks healthy."""
+    `activeVessel` is a POSITIONAL index into the FLIGHTSTATE vessel list, so a
+    removal must keep it naming the same craft: a later removal leaves it alone,
+    an earlier one decrements it, and removing the focused vessel itself is
+    refused. Getting it wrong re-points the focus at a different craft and every
+    token the lane derives becomes a statement about a different scene -
+    silently, on a run that boots and looks healthy."""
 
     def test_a_later_vessel_is_removed_whole(self):
         out, notes = savepatch.apply_live_state(
@@ -673,14 +674,29 @@ class SyntheticRemovalTests(unittest.TestCase):
     def test_removing_the_active_vessel_is_refused(self):
         with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
             savepatch.apply_live_state(_SYNTHETIC, [{"pid": 111, "remove": True}])
-        self.assertIn("activeVessel is 0", str(ctx.exception))
+        self.assertIn("focused vessel (activeVessel = 0)", str(ctx.exception))
 
-    def test_removing_a_vessel_before_the_active_one_is_refused(self):
-        # Same save with the focus on Beta: Alpha is now the one that must not go.
+    def test_removing_a_vessel_before_the_active_one_keeps_the_same_focus(self):
+        # Same save with the focus on Beta: removing Alpha moves Beta to index 0,
+        # so activeVessel must follow it there.
+        text = _SYNTHETIC.replace("activeVessel = 0", "activeVessel = 1")
+        out, notes = savepatch.apply_live_state(text, [{"pid": 111, "remove": True}])
+        self.assertEqual(["pid=111 name=Alpha activeVessel=1->0 removed=1"], notes)
+        lines = _lines(out)
+        vessels = savepatch.flightstate_vessels(lines)
+        self.assertEqual([("Beta", "222")], [(n, p) for n, p, _s in vessels])
+        focused = vessels[savepatch._active_vessel_index(lines)]
+        self.assertEqual("Beta", focused[0])
+        self.assertNotIn("name = Alpha", out)
+
+    def test_removing_the_focused_vessel_after_a_repoint_is_still_refused(self):
+        # Two entries: the first re-points the focus onto Beta at index 0, and the
+        # second, naming Beta, must then be refused as the focused vessel.
         text = _SYNTHETIC.replace("activeVessel = 0", "activeVessel = 1")
         with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
-            savepatch.apply_live_state(text, [{"pid": 111, "remove": True}])
-        self.assertIn("index 0", str(ctx.exception))
+            savepatch.apply_live_state(
+                text, [{"pid": 111, "remove": True}, {"pid": 222, "remove": True}])
+        self.assertIn("'Beta'", str(ctx.exception))
 
     def test_a_save_without_an_active_vessel_index_is_refused(self):
         text = _SYNTHETIC.replace("\t\tactiveVessel = 0\n", "")
@@ -1404,6 +1420,16 @@ class CommittedSpecUsageTests(unittest.TestCase):
         "rover-route-recorded": (
             2123618197,   # `rover fuel 0`, the window's transferTargetPid
             2875537755,   # `A`, the rover that physically docked
+        ),
+        # EVA-9 removes the index-0 asteroid `Ast. MII-526` so the landed Kerbal X
+        # capsule (2708531065) is vessel 0, what a Space Center save focuses.
+        "kerbin-splashdown-recorded": (
+            2815888106,   # `Ast. MII-526`, FLIGHTSTATE index 0
+        ),
+        # EVA-10 removes the same index-0 asteroid so the landed Kerbal X lander
+        # (2708531065) is what the Space Center save it reloads into FLIGHT focuses.
+        "mun-landing-recorded": (
+            2815888106,   # `Ast. MII-526`, FLIGHTSTATE index 0
         ),
     }
 
