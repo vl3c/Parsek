@@ -185,8 +185,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Recalculate_SkipsLoopRecordings()
+        public void Recalculate_LoopRecording_ReservesCrewLikeANonLoopedOne()
         {
+            // LOOP-RECORDING-CREW-NEVER-RESERVED: the Loop toggle is visual only (design
+            // 12.7), so a looped recording's crew are held for its real first run.
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
             rec.LoopPlayback = true;
@@ -194,7 +196,8 @@ namespace Parsek.Tests
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
-            Assert.True(kerbals.IsKerbalAvailable("Jeb"));
+            Assert.False(kerbals.IsKerbalAvailable("Jeb"));
+            Assert.Equal(2000.0, kerbals.Reservations["Jeb"].ReservedUntilUT);
         }
 
         [Fact]
@@ -751,7 +754,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsKerbalInAnyRecording_SkipsLoopRecordings()
+        public void IsKerbalInAnyRecording_IncludesLoopRecordings()
         {
             var rec = MakeRecording("Ship", new[] { "Jeb" },
                 TerminalState.Recovered, 2000);
@@ -759,7 +762,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
-            Assert.False(kerbals.IsKerbalInAnyRecording("Jeb"));
+            Assert.True(kerbals.IsKerbalInAnyRecording("Jeb"));
         }
 
         [Fact]

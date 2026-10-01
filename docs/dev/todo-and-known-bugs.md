@@ -4797,7 +4797,7 @@ its crew forever). `KerbalsModule.ProcessAction` dropped `chainHasLoop` (Recover
 +inf, the split-handoff and recovery / KSC-retirement closures skipped, a respawn-on death made
 permanent); `loopingChainIds` stays only as the PrePass summary count.
 `CrewRecoveryReservationClose` dropped the mirrored `IsInLoopingChain` skip. The looped
-segment's own rows are still skipped (`meta.IsLoop`, see LOOP-RECORDING-CREW-NEVER-RESERVED).
+segment's own rows were still skipped (`meta.IsLoop`; fixed 2026-10-01, see LOOP-RECORDING-CREW-NEVER-RESERVED).
 The tooltip's "Held while X loops" branches were dead and are gone, with the
 `KerbalHold.IsLooping` / `FlightEndUT`, `AstronautComplexContext.IsLoopingRecording` and
 `StockUiOverlayController.IsRecordingInLoopingChain` plumbing that fed only them. Tests flipped:
@@ -4816,7 +4816,7 @@ where the #573 block does not hold it (a chain of ANOTHER tree ahead of the rewi
 future-dated chain), so a lane needs a new automation verb plus a two-tree chain fixture. The
 decision is shared by every scene's gate and pinned in xUnit above.
 
-## LOOP-RECORDING-CREW-NEVER-RESERVED: ticking Loop on a recording frees its crew for other flights [FILED 2026-09-27 from LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS. OPEN; NOT TRACED]
+## ~~LOOP-RECORDING-CREW-NEVER-RESERVED: ticking Loop on a recording frees its crew for other flights~~ [FILED 2026-09-27 from LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS. **FIXED 2026-10-01** on branch `fix-loop-crew-reservation`; see "Fix" below]
 
 The operator ruling of 2026-09-27 says the per-recording Loop checkbox is visual only. One
 gameplay effect remains: `KerbalsModule.ProcessAction` returns early for a loop recording
@@ -4828,6 +4828,50 @@ further: what the stock crew dialogs and the stand-in slots do with such a kerba
 the early return guards something else (the walk's retired / all-crew sets are also built
 after it). Fix direction if confirmed: hold a loop recording's crew exactly like a
 non-looping recording's for its real first run.
+
+**Trace (2026-10-01).** Confirmed. The only readers of the per-recording flag on the crew side
+were four skips, all keyed on `Recording.LoopPlayback` through `RecordingMeta.IsLoop` or
+directly: `KerbalsModule.ProcessAction`'s early return (no reservation, and the kerbal missing
+from `allRecordingCrew`, so a stand-in who flew only a looped flight read as never used and
+could be deleted instead of retired), `CollectSplitHandoffs` (a looped child never ended its
+parent's Aboard / Unknown hold at the split), the PrePass KSC-retirement collection, and
+`CrewRecoveryReservationClose.BuildClosureRows`. The committed-future index
+(`CommittedFutureIndex`, the Astronaut Complex marks and hire block) indexes every
+`KerbalAssignment` row with no loop test, so it already disagreed with the walk for a looped
+flight. Mission loops (`Mission.LoopPlayback`, including Logistics route backing missions,
+which set only the mission flag and clear any per-recording flag on a route tree through
+`RouteTreeGuard.ForceClearManualLoopForRouteTree`) never touched a member recording's flag,
+so their crew were always held. Ghost-only recordings (Gloops) file no `KerbalAssignment`
+rows at all (`LedgerOrchestrator.CreateKerbalAssignmentActions`), so they stay crewless.
+The design (12.7, "the first run of a looped recording is the real run"; operator ruling
+2026-09-27, "the Loop checkbox is visual only") already settles the semantics; no new ruling
+was needed.
+
+**Fix (2026-10-01).** All four skips are gone: a looped recording's crew rows build the same
+hold as a non-looping recording's, from the recording's own StartUT / EndUT and end state, once
+per row and never per loop cycle (a Recovered end frees at EndUT, Aboard / Unknown stay open
+until a split handoff, a recovery or a KSC retirement closes them, a death follows the stock
+respawn). Un-ticking Loop therefore changes nothing either. `RecordingMeta.IsLoop` remains for
+the new one-shot Verbose `Loop recording holds crew like its real first run: '<kerbal>'
+recording '<id>' span=... endState=...` and the PrePass looping-chain count. Left alone on
+purpose: `ParsekScenario`'s OnLoad crew-auto-unreserve still skips a looped recording, because
+nulling its snapshot would pre-empt the loop first-run spawn seams. Unit tests:
+`LoopRecordingCrewReservationTests` (the repro: a looped Recovered flight held through its
+window and free after it; an Aboard looped flight held open-ended; Loop off / on / off yields
+an identical hold for Recovered, Aboard, Dead and Unknown; the kerbal counts as flown; a looped
+split child ends the parent's hold; a recovery closes a looped Aboard hold), plus
+`KscPadRetirementTests.Crew_AboardALoopedPadRetiredFlight_IsHeldThenFreedAtEndUT`; flipped
+`KerbalReservationTests.Recalculate_LoopRecording_ReservesCrewLikeANonLoopedOne` /
+`IsKerbalInAnyRecording_IncludesLoopRecordings`,
+`KerbalDismissalTests.IsManaged_LoopRecording_IsReservedLikeAnyFlight` and
+`KerbalRecoveryReservationCloseTests.BuildClosureRows_OnlyRecoveredCrewWithAnOpenEndedHoldInScope` /
+`BuildClosureRows_ClosesAHoldInAChainWithALoopingSegment` (the looped recording's hold now
+closes too). All new cells red against `origin/main`'s
+`KerbalsModule`.
+
+**No harness lane.** No seam verb sets a single recording's loop toggle (`MissionConfig`
+loops a whole mission, the unaffected shape), so a live proof needs a new automation verb.
+The decision is a pure ledger walk and pinned in xUnit above.
 
 ## ~~LOOP-ARMED-REWIND-FIRST-RUN-NOT-RENDERED: with a mission loop armed, a Rewind-to-Launch shows no ghost for the whole first run~~ [FILED 2026-09-24 from the #1808 review. PRODUCT DEFECT, operator ruling. **FIXED 2026-09-25** on branch `loop-first-run-visible`; see "Fix" below]
 

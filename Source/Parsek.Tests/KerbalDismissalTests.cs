@@ -165,9 +165,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsManaged_LoopRecording_NotReserved()
+        public void IsManaged_LoopRecording_IsReservedLikeAnyFlight()
         {
-            // Arrange: loop recordings should be skipped
+            // LOOP-RECORDING-CREW-NEVER-RESERVED: the Loop toggle is visual only (design
+            // 12.7); a looped recording's first run is real and holds its crew.
             var rec = MakeRecording("Loop Ship", new[] { "Jeb" },
                 TerminalState.Landed, 1000);
             rec.LoopPlayback = true;
@@ -175,9 +176,8 @@ namespace Parsek.Tests
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
-            // Act + Assert: Jeb should not be managed (loop recordings are skipped)
-            Assert.False(kerbals.IsManaged("Jeb"),
-                "Crew in loop recordings should not be reserved");
+            Assert.True(kerbals.IsManaged("Jeb"),
+                "Crew in loop recordings must be reserved like any flight's");
         }
 
         [Fact]

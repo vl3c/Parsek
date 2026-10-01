@@ -403,8 +403,8 @@ namespace Parsek
         /// A kerbal a flight on timeline holds: <c>Reserved by timeline for 'X' until DATE.</c>
         /// A finite hold names its end; an open-ended one (aboard / unknown) ends when the
         /// flight's vessel is recovered. A stand-in held in another kerbal's seat names that
-        /// seat. A looped segment never holds anyone open-ended: the loop is visual only
-        /// (design 12.7, operator ruling 2026-09-27).
+        /// seat. A loop never changes the hold: the loop is visual only and a looped
+        /// recording holds its crew like any flight (design 12.7, operator ruling 2026-09-27).
         /// </summary>
         internal static ReservationText KerbalOnFlight(KerbalHold hold, Func<double, string> formatDate)
         {

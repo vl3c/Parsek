@@ -687,6 +687,27 @@ namespace Parsek.Tests
                 && l.Contains("1 KSC-retired recording(s) free 1 aboard crew hold(s)"));
         }
 
+        // LOOP-RECORDING-CREW-NEVER-RESERVED: a looped pad flight's first run is the real
+        // flight (design 12.7), so its crew are held through it and freed by the same
+        // retirement as a non-looped one; the loop replays hold nobody.
+        [Fact]
+        public void Crew_AboardALoopedPadRetiredFlight_IsHeldThenFreedAtEndUT()
+        {
+            var rec = MakeOnPad("rec-crew-pad-loop", Jeb);
+            rec.LoopPlayback = true;
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            Ledger.AddAction(Assignment(rec.RecordingId, Jeb, 100.0, 200.0, KerbalEndState.Aboard, 1));
+
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(150.0, "ksc-retire-test");
+            Assert.Equal(200.0, Kerbals.Reservations[Jeb].ReservedUntilUT);
+            Assert.True(Kerbals.IsReservedNow(Jeb));
+
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(250.0, "ksc-retire-test");
+            Assert.False(Kerbals.IsReservedNow(Jeb));
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("Reservation bounded by KSC retirement: 'Jebediah Kerman' recording 'rec-crew-pad-loop'"));
+        }
+
         [Fact]
         public void Crew_AboardAMidRunwayFlight_StaysReservedOpenEnded()
         {

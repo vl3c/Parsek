@@ -1275,6 +1275,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Ticking Loop on a recording no longer frees its crew for other flights.** The Loop
+  checkbox is meant to be visual only: the first run is the real flight and only the replays
+  after it are ghosts. But the crew bookkeeping ignored a looped recording entirely, so its
+  kerbals read as free for the whole recorded flight and could be put on another vessel over
+  the same span (a double booking), and unticking Loop took them back. A looped recording now
+  holds its crew exactly like any other committed flight: until the end of a recovered
+  flight, until the vessel is recovered or retired at the Space Center, or by the stock
+  respawn rules after a death. The replays reserve nobody. Its kerbals also count as flown
+  for the stand-in rules, and a split whose continuing phase is looped now ends the earlier
+  phase's hold at the split. A looped mission (which loops a whole mission, including supply
+  route missions) never had this problem. The log line is `Loop recording holds crew like
+  its real first run:` (`KerbalsModule.ProcessAction`, `CrewRecoveryReservationClose`).
+
 - **Dev: the GUI mirror no longer paints scrolled-out rows in the colours of whatever is
   under them.** A scroll view's rows below (or above) its viewport are in the control-tree
   dump but not in the photo, so their colours were sampled off the window footer or the
@@ -1444,7 +1457,8 @@ _(unreleased — entries accumulate here per commit)_
   flight, at the Space Center and in the Tracking Station. The crew of its other phases are
   freed exactly as for any flight: at the end of a recovered flight, when the vessel is
   recovered, or when a flight that ends parked at the Space Center is retired (the looped
-  phase's own crew are still not reserved, a known gap). A death follows stock respawn. Phases before the
+  phase's own crew are held the same way since the LOOP-RECORDING-CREW-NEVER-RESERVED fix).
+  A death follows stock respawn. Phases before the
   end still never spawn a vessel, and a looped mission (which loops the whole mission) is
   unchanged. A kerbal's hover no longer says a loop holds him. The log names the spawn with
   `Chain loop first-run spawn:`.
