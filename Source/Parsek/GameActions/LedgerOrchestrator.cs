@@ -1140,17 +1140,58 @@ namespace Parsek
         /// via OnKscSpending but also fall within a recording's time range.
         /// KerbalAssignment rows match on their (RecordingId, KerbalName) key alone, with
         /// no UT window (see the comment in the loop).
+        /// A ScienceEarning candidate that carries a capture identity
+        /// (<see cref="GameAction.HasScienceCaptureIdentity"/>) matches ONLY a row with
+        /// the same <see cref="GameAction.ActionId"/> (or an earlier candidate with that id
+        /// in the same batch), never by subject + capture moment: stock fires one callback
+        /// per data item, so two canisters of one subject recovered together, or two
+        /// deployed stations sending one subject in one frame, are two awards at the same
+        /// instant and both stay (SCIENCE-SAME-SUBJECT-SAME-INSTANT-ROW-DROPPED). Every
+        /// re-file of a capture is a conversion of the same pending subject, so it carries
+        /// the filed row's id. A candidate without a capture identity (no production
+        /// producer builds one today) keeps the legacy subject + capture-moment match.
         /// </summary>
         internal static List<GameAction> DeduplicateAgainstLedger(List<GameAction> candidates)
         {
             var existing = Ledger.Actions;
-            if (existing.Count == 0) return candidates;
+            if (existing.Count == 0 && !HasScienceCaptureIdentityCandidate(candidates))
+                return candidates;
 
             var result = new List<GameAction>(candidates.Count);
+            HashSet<string> batchCaptureIds = null;
+            int captureIdMatches = 0;
+            int captureIdBatchRepeats = 0;
             for (int i = 0; i < candidates.Count; i++)
             {
                 var c = candidates[i];
                 bool isDuplicate = false;
+
+                if (IsScienceCaptureIdentified(c))
+                {
+                    // One capture converts to one row. A second candidate with the same id
+                    // in this batch is the same capture presented twice, not an award.
+                    if (batchCaptureIds == null)
+                        batchCaptureIds = new HashSet<string>(StringComparer.Ordinal);
+                    if (!batchCaptureIds.Add(c.ActionId))
+                    {
+                        captureIdBatchRepeats++;
+                        continue;
+                    }
+
+                    for (int j = 0; j < existing.Count; j++)
+                    {
+                        if (string.Equals(existing[j].ActionId, c.ActionId, StringComparison.Ordinal))
+                        {
+                            isDuplicate = true;
+                            captureIdMatches++;
+                            break;
+                        }
+                    }
+
+                    if (!isDuplicate)
+                        result.Add(c);
+                    continue;
+                }
 
                 for (int j = 0; j < existing.Count; j++)
                 {
@@ -1188,10 +1229,35 @@ namespace Parsek
             {
                 ParsekLog.Verbose(Tag,
                     $"DeduplicateAgainstLedger: removed {candidates.Count - result.Count} duplicates " +
-                    $"from {candidates.Count} candidates");
+                    $"from {candidates.Count} candidates " +
+                    $"(scienceCaptureIdMatches={captureIdMatches.ToString(CultureInfo.InvariantCulture)} " +
+                    $"scienceCaptureIdBatchRepeats={captureIdBatchRepeats.ToString(CultureInfo.InvariantCulture)})");
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Pure: a ScienceEarning candidate whose ActionId is a capture identity
+        /// (see <see cref="GameAction.HasScienceCaptureIdentity"/>).
+        /// </summary>
+        internal static bool IsScienceCaptureIdentified(GameAction action)
+        {
+            return action != null
+                && action.Type == GameActionType.ScienceEarning
+                && action.HasScienceCaptureIdentity
+                && !string.IsNullOrEmpty(action.ActionId);
+        }
+
+        private static bool HasScienceCaptureIdentityCandidate(List<GameAction> candidates)
+        {
+            if (candidates == null) return false;
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                if (IsScienceCaptureIdentified(candidates[i]))
+                    return true;
+            }
+            return false;
         }
 
         internal static double GetDedupOccurrenceUt(GameAction action)

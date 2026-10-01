@@ -555,6 +555,18 @@ namespace Parsek
         /// </summary>
         public float ScienceGainMultiplier = 1f;
 
+        /// <summary>
+        /// TRANSIENT, never serialized: true on a freshly converted <c>ScienceEarning</c>
+        /// candidate whose <see cref="ActionId"/> is the per-callback capture identity
+        /// (<see cref="PendingScienceSubject.captureActionId"/>). The ledger dedup then
+        /// treats it as a re-file only of a row with the SAME <see cref="ActionId"/>, so a
+        /// second award of one subject at the same instant is kept
+        /// (SCIENCE-SAME-SUBJECT-SAME-INSTANT-ROW-DROPPED). False on every row read from
+        /// disk and on any candidate built without a capture id, which keep the legacy
+        /// subject + capture-moment match.
+        /// </summary>
+        internal bool HasScienceCaptureIdentity;
+
         // ---- Science spending fields ----
 
         /// <summary>Tech tree node ID, e.g. "survivability".</summary>

@@ -550,5 +550,19 @@ namespace Parsek
         /// captured" and reads as 1 through <see cref="GameAction.NormalizeScienceGainMultiplier"/>.
         /// </summary>
         public float scienceGainMultiplier;
+
+        /// <summary>
+        /// Identity of the ONE stock callback that produced this subject, minted at capture
+        /// (<see cref="GameStateRecorder.CaptureScienceSubject"/>) in the
+        /// <see cref="GameAction.ActionId"/> format. The <c>ScienceEarning</c> row converted
+        /// from it takes this as its <c>ActionId</c>, so a later re-presentation of the same
+        /// capture (a commit retry, a discard re-home, a second routing) carries the id of
+        /// the row already filed, while a second genuine award of the same subject at the
+        /// same instant carries a fresh one (SCIENCE-SAME-SUBJECT-SAME-INSTANT-ROW-DROPPED).
+        /// Null on a subject built anywhere else; such a subject keeps the legacy
+        /// subject + capture-moment dedup. In memory only, like the pending list itself;
+        /// the row's <c>ActionId</c> is what persists.
+        /// </summary>
+        public string captureActionId;
     }
 }

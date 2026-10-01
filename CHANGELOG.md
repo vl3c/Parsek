@@ -1275,6 +1275,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A second science award for the same experiment at the same moment is no longer lost.**
+  Recovering two canisters of the same experiment together (stock pays each one separately),
+  or two Breaking Ground stations sending the same result in the same moment, credited only
+  the first one: Parsek took the second for a copy of the first and dropped it, so your
+  science total came out lower than stock's. Each payout now keeps its own identity, so both
+  count, while a genuine copy of one payout reaching the ledger a second time is still
+  dropped. Science already in your save is unchanged.
 - **Ticking Loop on a recording no longer frees its crew for other flights.** The Loop
   checkbox is meant to be visual only: the first run is the real flight and only the replays
   after it are ghosts. But the crew bookkeeping ignored a looped recording entirely, so its

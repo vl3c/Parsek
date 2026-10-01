@@ -1522,7 +1522,7 @@ over-credited: a second transmission, a transmit then a recovery, and a subject 
 `subject.science` already carried committed science injected by `ScienceSubjectPatch`. (Two
 canisters of the same subject in ONE recovery did not over-credit: the second row is dropped by
 `LedgerOrchestrator.DeduplicateAgainstLedger`, which is the separate under-credit
-SCIENCE-SAME-SUBJECT-SAME-INSTANT-ROW-DROPPED.) Breaking Ground deployed experiments hit it
+SCIENCE-SAME-SUBJECT-SAME-INSTANT-ROW-DROPPED, fixed since.) Breaking Ground deployed experiments hit it
 hardest: they send about ten chunks per subject, so a subject reached its cap after three or
 four sends while stock was at a third of it, and in the KSC scene the patch-back of the
 inflated credit into `subject.science` compounded each later send.
@@ -1572,7 +1572,7 @@ at multiplier 1, 2 and 0.6 through the capture core and the real commit paths, a
 credit, subject credit and cache against modelled stock totals; the multiplier-applied-once
 cell; the old-running-total row and the dedup-duplicate cache cells).
 
-## SCIENCE-SAME-SUBJECT-SAME-INSTANT-ROW-DROPPED: a second science award for the same subject within 0.1 s is dropped from the ledger [FILED 2026-09-26 from the PR #1883 review. OPEN, under-credit, pre-existing]
+## ~~SCIENCE-SAME-SUBJECT-SAME-INSTANT-ROW-DROPPED: a second science award for the same subject within 0.1 s is dropped from the ledger~~ [FILED 2026-09-26 from the PR #1883 review. FIXED 2026-10-01, branch `fix-science-same-instant`]
 
 `LedgerOrchestrator.DeduplicateAgainstLedger` treats two `ScienceEarning` rows with the same
 `SubjectId` whose capture moments are within 0.1 s as one row and drops the second. That guard
@@ -1586,6 +1586,30 @@ each row an independent increment, so a distinguishing key (for example the stoc
 or a per-burst sequence number) would let the guard tell a re-filed row from a second award. Not
 measured on a flight. Fix direction: key science dedup on the live-row identity (the row a KSC
 write already filed, by action id or capture sequence) rather than on subject + time window.
+
+**Fix.** Each stock callback gets its own identity at capture:
+`GameStateRecorder.CaptureScienceSubject` mints `PendingScienceSubject.captureActionId` (the
+`ActionId` format), and `GameStateEventConverter.ConvertScienceSubjects` makes it the row's
+`ActionId` and sets the transient `GameAction.HasScienceCaptureIdentity`. For such a candidate
+`DeduplicateAgainstLedger` drops only a row with the SAME `ActionId` (or an earlier candidate
+with that id in the same batch), never by subject + capture moment. Every path that re-presents
+a capture converts the same pending subject, so it carries the filed row's id: the commit retry
+after a post-ledger failure (pending subjects are kept), the tree commit's per-recording routing,
+the discard re-home (`PreserveIrreversibleLiveGameplayOnDiscard` copies the struct), and the
+re-fly bundle restore of the pending list. `TryRecordKscScienceSubject` is only reached from the
+capture core, so its dedup now fires only on the same capture presented twice. Not touched by the
+dedup: `LedgerLoadMigration`'s gap synthesis (fills a per-subject total, UT 0 rows) and
+`OnKscSpending` (writes no `ScienceEarning`). No new persisted field: `ActionId` is already saved,
+and the pending list is in memory only. A candidate without a capture identity (no production
+producer builds one) and every other action type keep the old matching, and rows already in a
+save are untouched, so the C1 / C2 fixture pins do not move. A multiset match on (subject,
+moment, amount) was rejected: a KSC callback reaches the dedup alone, and two equal awards
+(5 + 5) are indistinguishable from a re-file there. Re-Fly tombstones key on `ActionId` and now
+retire exactly one of two same-instant rows. Tests: `ScienceSameInstantAwardTests` (two KSC
+awards of one subject credit 10, a recovery burst with repeats, two deployed sends in one frame
+during a flight, two same-instant awards in one recording, a fresh capture beside a legacy row,
+a KSC-filed capture re-filed at commit, both same-instant rows re-filed at commit, a commit
+retry, the discard re-home, the id surviving save/load, and the dedup rule cells).
 
 ## DEPLOYED-SCIENCE-IS-ALWAYS-UNTAGGED: Breaking Ground deployed-experiment science is never tagged to the flown recording [OPERATOR RULING 2026-09-26; IMPLEMENTED 2026-09-26, branch `fix-deployed-science-ledger`]
 
