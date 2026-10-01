@@ -81,10 +81,12 @@ Presentation only (no recording data or schema change, no new window). The docke
 subject is `bdock-recorded`'s "Kerbal X #2" (GUI-4), whose Log read 31 rows; it now reads 11,
 pinned row by row in `StructureListBdockFixtureTests` against the committed fixture.
 
-- [x] Part 1, builder correctness (`MissionStructureListBuilder`): part-state seeds at a
-  continuing recording's start (chain split `ForwardPermanentStateEvents`, the background
-  recorder's loaded-physics seed, a repeat of an ancestor's event) and a root's start-UT
-  jettison seeds are not events; debris recordings contribute no part rows; a split branch
+- [x] Part 1, builder correctness (`MissionStructureListBuilder`): part-state seeds are not
+  events - a permanent event at a continuing recording's exact start (chain split
+  `ForwardPermanentStateEvents`), a re-statement of a state an ancestor already recorded for
+  the same part (the background recorder's loaded-physics seed, ~0.5 s after a split), and a
+  root's start-UT jettison seeds; there is no time window, so a real jettison a moment after a
+  split stays a row; debris recordings contribute no part rows; a split branch
   point IS the stage and absorbs its same-moment parts (its coalesce window, else 0.1 s),
   symmetric partner included, while distinct branch points stay distinct rows (ripple
   staging); part events within 0.5 s of a Dock / Undock / Board on a participating recording
