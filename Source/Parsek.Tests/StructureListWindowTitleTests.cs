@@ -4,9 +4,9 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// The Log window's title. The Missions "Log" button and the Logistics "Log (Route)" /
-    /// "Log (Mission)" buttons all open <see cref="StructureListWindowUI"/>, so its title
-    /// says "Log" and names what it is the log of; the seam token stays <c>structure</c>
+    /// The Log window's title. The Missions "Log" button and the Logistics route "Log"
+    /// button both open <see cref="StructureListWindowUI"/> on a mission, so its title says
+    /// "Log" and names the mission; the seam token stays <c>structure</c>
     /// (<c>GuiCensusSeamVerbTests</c> pins it).
     /// </summary>
     public class StructureListWindowTitleTests
@@ -15,7 +15,7 @@ namespace Parsek.Tests
         public void TheTitleNamesTheLogAndItsTarget()
         {
             Assert.Equal("Parsek - Log: Kerbal X", StructureListWindowUI.BuildWindowTitle("Kerbal X"));
-            Assert.Equal("Parsek - Log: Mun Supply", StructureListWindowUI.BuildWindowTitle("Mun Supply"));
+            Assert.Equal("Parsek - Log: Duna Supply 1", StructureListWindowUI.BuildWindowTitle("Duna Supply 1"));
         }
 
         // catches: an untargeted window (the census opens it bare) reading "Parsek - Log: "

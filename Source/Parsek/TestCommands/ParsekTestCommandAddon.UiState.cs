@@ -30,9 +30,9 @@ namespace Parsek.TestCommands
     /// WHY <c>op=target</c> EXISTS ALONGSIDE <c>op=open</c>. <c>op=open window=structure</c>
     /// raises <c>IsOpen</c> and nothing else, so the window draws the "Nothing to show."
     /// chrome: the census's <c>ksc-structure-advanced</c> label is a picture of an empty
-    /// box. The populated forms are built by <c>OpenForMission</c> / <c>OpenForRoute</c>,
-    /// which set the target AND rebuild before raising the flag. So the op calls those, and
-    /// reports the row count they produced.
+    /// box. The populated form is built by <c>OpenForMission</c>, which sets the target AND
+    /// rebuilds before raising the flag. So the op calls it, and reports the row count it
+    /// produced.
     /// </para>
     /// </summary>
     public partial class ParsekTestCommandAddon
@@ -352,7 +352,9 @@ namespace Parsek.TestCommands
                 string detail = reject == TestCommandUiState.TargetUnsupportedWindowReason
                     ? $"{reject} window={spec.Name} "
                       + $"valid={TestCommandUiAction.StructureWindow}"
-                    : $"{reject} window={spec.Name}";
+                    : reject == TestCommandUiState.TargetRouteRetiredReason
+                        ? $"{reject} window={spec.Name} use=mission"
+                        : $"{reject} window={spec.Name}";
                 ParsekLog.Warn(Tag, $"uiaction rejected reason={reject} "
                     + $"window={spec.Name}");
                 SetExecResult("REJECTED", null, detail);
@@ -360,29 +362,13 @@ namespace Parsek.TestCommands
             }
 
             StructureListWindowUI structure = ui.GetStructureListUI();
-            string resolvedId;
-            string title;
-            List<string> candidates;
-            if (kind == UiTargetKind.Mission)
+            if (!TryResolveMissionTarget(wanted, out string resolvedId, out string missionId,
+                                         out string title, out List<string> candidates))
             {
-                if (!TryResolveMissionTarget(wanted, out resolvedId, out title,
-                                             out candidates))
-                {
-                    RejectTargetNotFound(kind, wanted, candidates);
-                    return;
-                }
-                structure.OpenForMission(resolvedId, title);
+                RejectTargetNotFound(kind, wanted, candidates);
+                return;
             }
-            else
-            {
-                if (!TryResolveRouteTarget(wanted, out resolvedId, out title,
-                                           out candidates))
-                {
-                    RejectTargetNotFound(kind, wanted, candidates);
-                    return;
-                }
-                structure.OpenForRoute(resolvedId, title);
-            }
+            structure.OpenForMission(resolvedId, missionId, title);
 
             uiActionPending = new UiActionPending
             {
@@ -447,22 +433,36 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
-        /// Resolves a <c>mission=</c> value to the TREE ID the Structure window's opener
-        /// takes. Three rungs, in this order: the tree id itself, the Mission's display
-        /// NAME, then the tree's own name. A census spec names what a reviewer can read off
-        /// the window, which is the mission name; the id rung exists so a
-        /// <c>${step.field}</c> chain from a handle listing works unchanged.
+        /// Resolves a <c>mission=</c> value to the TREE ID and the Mission the Log's opener
+        /// takes. Four rungs, in this order: the Mission's own id (the R10 capture of an
+        /// <c>op=clone</c> payload's <c>copy=</c>, the only way to name a clone, whose name
+        /// may repeat its source's), the tree id (its first, original mission), the Mission's
+        /// display NAME, then the tree's own name (no Mission: the whole tree). A census spec
+        /// names what a reviewer can read off the window, which is the mission name; the id
+        /// rungs exist so a <c>${step.field}</c> chain works unchanged.
         /// </summary>
         private static bool TryResolveMissionTarget(string wanted, out string treeId,
+                                                    out string missionId,
                                                     out string title,
                                                     out List<string> candidates)
         {
             treeId = null;
+            missionId = null;
             title = null;
             candidates = new List<string>();
             IReadOnlyList<RecordingTree> trees = RecordingStore.CommittedTrees;
             IReadOnlyList<Mission> missions = MissionStore.Missions;
 
+            for (int i = 0; i < missions.Count; i++)
+            {
+                Mission m = missions[i];
+                if (m == null || !string.Equals(m.Id, wanted, StringComparison.Ordinal))
+                    continue;
+                treeId = m.TreeId;
+                missionId = m.Id;
+                title = string.IsNullOrEmpty(m.Name) ? m.TreeId : m.Name;
+                return true;
+            }
             for (int i = 0; i < missions.Count; i++)
             {
                 Mission m = missions[i];
@@ -472,6 +472,7 @@ namespace Parsek.TestCommands
                     || string.Equals(m.Name, wanted, StringComparison.Ordinal))
                 {
                     treeId = m.TreeId;
+                    missionId = m.Id;
                     title = string.IsNullOrEmpty(m.Name) ? m.TreeId : m.Name;
                     return true;
                 }
@@ -492,7 +493,7 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>Resolves a <c>route=</c> value to a route id: the id itself, then the
-        /// route's display name.</summary>
+        /// route's display name. Read by <c>op=picker window=logistics</c>.</summary>
         private static bool TryResolveRouteTarget(string wanted, out string routeId,
                                                   out string title,
                                                   out List<string> candidates)

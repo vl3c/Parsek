@@ -599,7 +599,8 @@ namespace Parsek
         /// plain label). Pure.
         /// </summary>
         internal static string ResolvePeeledSiblingVesselName(
-            MissionCompositionNode parent, MissionCompositionNode node)
+            MissionCompositionNode parent, MissionCompositionNode node,
+            IReadOnlyDictionary<string, string> vesselNames = null)
         {
             if (parent == null || node == null)
                 return null;
@@ -623,6 +624,12 @@ namespace Parsek
                     continue;
                 if (System.Math.Abs(c.StartUT - node.StartUT) > PeelUtEpsilon)
                     continue;
+                // The shared mission vessel name (MissionVesselNaming), keyed by the peel's
+                // through-line head, when given.
+                if (vesselNames != null && !string.IsNullOrEmpty(c.OwnerHeadId)
+                    && vesselNames.TryGetValue(c.OwnerHeadId, out string named)
+                    && !string.IsNullOrEmpty(named))
+                    return named;
                 if (!string.IsNullOrEmpty(c.VesselName))
                     return c.VesselName;
             }
@@ -709,7 +716,8 @@ namespace Parsek
         /// </summary>
         internal static string ResolveSameTreeDockPartnerVesselName(
             MissionStructure structure, MissionThroughLineView view,
-            string ownerHeadId, double intervalStartUT)
+            string ownerHeadId, double intervalStartUT,
+            IReadOnlyDictionary<string, string> vesselNames = null)
         {
             if (structure == null || view == null || string.IsNullOrEmpty(ownerHeadId))
                 return null;
@@ -742,7 +750,14 @@ namespace Parsek
                         continue;
                     if (structure.LegsById.TryGetValue(parentId, out MissionLeg partner)
                         && partner != null && !string.IsNullOrEmpty(partner.VesselName))
+                    {
+                        // The shared mission vessel name (MissionVesselNaming) when given.
+                        if (vesselNames != null
+                            && vesselNames.TryGetValue(parentId, out string named)
+                            && !string.IsNullOrEmpty(named))
+                            return named;
                         return partner.VesselName;
+                    }
                 }
             }
             return null;

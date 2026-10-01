@@ -81,7 +81,7 @@ $allowedTypes = @(
     'GuiMockSession', 'GuiMockCatalogue', 'GuiMockState', 'GuiMockPayload',
     'GuiMockStructure', 'GuiMockWitness', 'GuiMockSuppressionSite',
     'GuiMockKerbalsStates', 'GuiMockStructureStates',
-    'MissionInputs', 'RosterInputs', 'RouteShape', 'FlightShape',
+    'MissionInputs', 'RosterInputs', 'FlightShape',
 
     # --- the seam halves this op is part of ---
     'TestCommandUiMock', 'TestCommandUiAction', 'TestCommandUiState',
@@ -104,8 +104,6 @@ $allowedTypes = @(
     'PartEventType', 'TerminalState', 'StructureStep', 'StructureStepKind',
     'MissionStructure', 'MissionStructureBuilder', 'MissionStructureListBuilder',
     'MissionCompositionBuilder', 'StructureLocationFormatter',
-    'Route', 'RouteStop', 'RouteEndpoint', 'RouteConnectionWindow',
-    'RouteStructureListBuilder', 'RouteEndpointLocationFormatter',
 
     # --- the observability + capture surfaces (read-only, or write ONE artifact) ---
     'ParsekLog', 'GuiTreeRecorder', 'GuiTreeResult', 'GuiTreeNode', 'GuiTreeAssembler',

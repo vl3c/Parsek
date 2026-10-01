@@ -553,8 +553,8 @@ namespace Parsek
         // and the expand-panel detail line.
         private const float ColW_Cycles = 80f;     // "3 / 1 skipped" fits without clipping (QW5)
         private const float ColW_NextDelivery = 135f; // H1 "Next delivery" countdown ("T-12m 5s"); +50% for room
-        // Uniform width for the route-detail Name-row buttons (Rename / Log (Route) /
-        // Log (Mission)) so they read as one group; sized for the widest label.
+        // Uniform width for the route-detail Name-row buttons (Rename / Log / Link
+        // round-trip... / Unlink) so they read as one group; sized for the widest label.
         private const float RouteDetailButtonWidth = 104f;
         private const float ColW_Status = 240f;     // plain-English reason text; H3 badge now carries the at-a-glance verdict so the reason can wrap
         private const float ColW_Badge = 120f;      // H3 "Flying, not delivering" / "Delivering" badge
@@ -1600,9 +1600,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Why "Log (Mission)" is greyed out. The button opens the mission a route was
-        /// built from, so a route created by hand rather than from a flown mission has
-        /// nothing to open. Pure for unit testing.
+        /// Why the route's "Log" is greyed out. The button opens the Log of the mission a
+        /// route was built from, so a route created by hand rather than from a flown mission
+        /// has nothing to open. Pure for unit testing.
         /// </summary>
         internal static string MissionLogButtonDisabledReason(string sourceTreeId)
         {
@@ -2218,7 +2218,7 @@ namespace Parsek
         /// non-empty <c>SourceRefs[].TreeId</c>, falling back to
         /// <see cref="Route.BackingMissionTreeId"/>. Returns null when neither is set.
         /// </summary>
-        private static string ResolveRouteSourceTreeId(Route route)
+        internal static string ResolveRouteSourceTreeId(Route route)
         {
             if (route == null)
                 return null;
@@ -2299,30 +2299,29 @@ namespace Parsek
                         $"Logistics: rename started route={ShortId(route.Id)} current='{route.Name}'");
                 }
 
-                // Two log buttons next to Rename: the route's own step log, and the source
-                // mission's step log (identical to the Missions-tab Log for that tree).
-                if (GUILayout.Button(new GUIContent("Log (Route)",
-                        "Step-by-step log of this route: origin, dock, delivery, undock"),
-                        GUILayout.Width(RouteDetailButtonWidth)))
-                {
-                    ParsekLog.Info("UI",
-                        $"Route Log (Route) button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} name='{route.Name ?? ""}'");
-                    parentUI.OpenStructureWindowForRoute(route.Id, route.Name);
-                }
-
+                // The route's Log is the Log of the mission it was built from (the same
+                // window the Missions-tab Log opens). The route's own origin, destination,
+                // per-cycle delivery and transit are already on this panel.
                 string sourceTreeId = ResolveRouteSourceTreeId(route);
                 bool hasSourceMission = !string.IsNullOrEmpty(sourceTreeId);
                 GUI.enabled = hasSourceMission;
-                bool missionLogClicked = GUILayout.Button(new GUIContent("Log (Mission)",
-                        "Step-by-step log of the source mission this route was built from"),
+                bool missionLogClicked = GUILayout.Button(new GUIContent("Log",
+                        "Step-by-step log of the mission this route was built from"),
                         GUILayout.Width(RouteDetailButtonWidth));
                 DisabledHoverEcho.CarryLastControl(
                     hasSourceMission, MissionLogButtonDisabledReason(sourceTreeId));
                 if (missionLogClicked)
                 {
+                    // The source tree's ORIGINAL mission: clones share the tree, and the
+                    // route was built from the flight the original stands for.
+                    Mission sourceMission = MissionStore.FindOriginalMission(sourceTreeId);
                     ParsekLog.Info("UI",
-                        $"Route Log (Mission) button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} tree={sourceTreeId ?? "<null>"}");
-                    parentUI.OpenStructureWindowForMission(sourceTreeId, ResolveTreeDisplayName(sourceTreeId));
+                        $"Route Log button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} tree={sourceTreeId ?? "<null>"} " +
+                        $"mission={sourceMission?.Id ?? "<none>"}");
+                    parentUI.OpenStructureWindowForMission(sourceTreeId, sourceMission?.Id,
+                        !string.IsNullOrEmpty(sourceMission?.Name)
+                            ? sourceMission.Name
+                            : ResolveTreeDisplayName(sourceTreeId));
                 }
                 GUI.enabled = true;
 

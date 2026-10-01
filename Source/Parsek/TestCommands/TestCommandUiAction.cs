@@ -48,7 +48,7 @@ namespace Parsek.TestCommands
         /// logistics route / candidate / section rows).</summary>
         Expand = 9,
 
-        /// <summary><c>op=target window=structure mission=|route=</c>: open a window ON a
+        /// <summary><c>op=target window=structure mission=</c>: open a window ON a
         /// target through its own production opener, rather than raising a bare
         /// <c>IsOpen</c> that leaves the window empty.</summary>
         Target = 10,
@@ -650,11 +650,10 @@ namespace Parsek.TestCommands
             // a WindowHasNoTabsReason rather than a silently ignored arg.
             NewSpec(LogisticsWindow, true, true),
 
-            // StructureListWindowUI, titled "Parsek - Log" (plus ": <mission or route>"
-            // once targeted) though its token stays `structure`. Opening it with no target
-            // shows the empty chrome; the populated forms are reached from a
-            // Missions / Logistics row, which no seam op drives today (noted in the
-            // census spec's header as a follow-up rather than faked here).
+            // StructureListWindowUI, titled "Parsek - Log" (plus ": <mission>" once
+            // targeted) though its token stays `structure`. Opening it with no target
+            // shows the empty chrome; the populated form is reached through
+            // `op=target`, which calls the production opener.
             NewSpec(StructureWindow, true, true),
 
             // SettingsWindowUI. NO tabs: its six sections all draw in one pass, and three
@@ -868,9 +867,8 @@ namespace Parsek.TestCommands
         /// <c>RecordingsTableUI.ShowMissionForRecording</c> / <c>ScrollToRecording</c>
         /// (<c>RecordingsTableUI.cs:467</c> / <c>:521</c>), reached from the Missions
         /// Docked partner rows' Go to and the two Timeline GoTo buttons; and
-        /// <c>StructureListWindowUI.OpenForMission</c> / <c>OpenForRoute</c>
-        /// (<c>StructureListWindowUI.cs:89</c> / <c>:100</c>), reached from the Missions
-        /// "Log" and Logistics "Log (Route)" / "Log (Mission)" buttons. The seam
+        /// <c>StructureListWindowUI.OpenForMission</c>, reached from the Missions "Log"
+        /// and the Logistics route "Log" buttons. The seam
         /// synthesises no clicks (see the applier's file header), so no drawn frame in an
         /// unattended run can raise a flag it just lowered and a settled close read-back
         /// has nothing to catch.

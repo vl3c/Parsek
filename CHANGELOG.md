@@ -1331,6 +1331,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Dev: a harness mission that ends early writes its result file again.** A mission's
+  assertion rows could carry a reading still at its "not yet measured" NaN default (the
+  `kx_rewind_watch` core discard altitude and time, peak booster thrust and rewind times, on
+  any flight lost before the core discard), and the result writer refuses NaN. The write ran
+  outside the mission's error handling, so the mission died with no result file and the run
+  read INVALID(tooling-mission) instead of INVALID(mission), losing every assertion row. This
+  hit all 13 lanes that fly `kx_rewind_watch`. Every row now writes such a reading as null,
+  for every mission, and if the result still cannot be written a reduced result keeping the
+  verdict, reason and assertion names is written instead (`serializationFallback: true`).
 - **A vessel whose return is blocked by another vessel stays visible until it can appear.**
   When a replayed vessel that later flights build on (a ghost-chain tip) reaches the moment it
   becomes real, and a vessel you have parked in its spot blocks it, its ghost used to stand
@@ -2430,9 +2439,43 @@ _(unreleased — entries accumulate here per commit)_
   moment, or the body alone - an in-flight decouple no longer reads the launch pad. The first
   row's Time is the date, every later row `T+h:mm:ss` since it. A piece list too long for the
   Event cell is shortened there and shown whole in a new hover line at the bottom of the window.
-  An empty mission Log reads "This mission has no recorded flight." Route Logs keep their rows;
-  an orbital route endpoint reads `Mun orbit`. Presentation only: no recording data changed
+  An empty mission Log reads "This mission has no recorded flight." Presentation only: no
+  recording data changed
   (`MissionStructureList.cs`, `StructureListWindowUI.cs`).
+
+- **The mission Log follows its mission, not the recording tree.** A mission's Log was built
+  from the whole tree, so a clone that leaves a vessel out read the same Log as its original.
+  It now drops the rows of the stretches the mission leaves out, by the same include check the
+  Missions tab's vessel rows use: a row stays when any stretch it falls in is included, so a
+  separation or dock on the boundary of a kept stretch stays. An open Log also follows the
+  mission while it is open: ticking or unticking a vessel, renaming the mission, or a new
+  commit rebuilds it (checked once per frame from a cheap signature, rebuilt only when it
+  moves). The Logistics window's mission Log button opens the source tree's original mission.
+  Presentation only (`MissionStructureList.cs`, `MissionIntervalSelection.IsIntervalIncluded`,
+  `StructureListWindowUI.cs`).
+- **Same-named vessels are numbered in the Log and the Missions rows.** Two genuinely
+  different vessels of one mission that share a name read `Kerbal X` and `Kerbal X [2]` (the
+  later one numbered; EVA kerbals keep their names), in the Log's Event and Vessel cells, the
+  Missions tab's vessel rows, their event phrases and the expanded `after undock: X left`
+  lines, from one shared naming rule. One vessel keeps one name across its chain segments and
+  across the new id KSP gives a ship every time it undocks (a later piece of the mission that
+  carries on the ship's parts after the ship itself stopped is that ship, the best match when
+  several pieces could be). The Missions tab works the names out once per change to the
+  recordings, a recording rename or a mission name, not every frame. A vessel that belongs to
+  another mission, such as a docking partner or the half of a docked stack that keeps the
+  partner's identity after undocking, is never numbered: it reads `Kerbal X (mission 'Kerbal
+  X')`. The docking test mission's Log now reads `Undocked (Kerbal X)` with the partner in the
+  Vessel cell, and its three End rows name `Kerbal X`, the partner and `Kerbal X Probe`.
+  Presentation only (`MissionVesselNaming.cs`).
+- **The Log draws a vessel's ending once, from its last segment.** A launch whose recording
+  the optimizer split at the atmosphere exit carried the state it had at the cut on the first
+  segment, so the Log showed a mid-flight `End: Suborbital` row. Only a vessel's last segment
+  draws an End row now.
+- **A supply route has one Log button, and it opens the mission's Log.** The route Log (an
+  origin / dock / delivery / undock step list behind `Log (Route)`) is gone: the route's detail
+  panel already shows its origin, destination, per-cycle delivery and transit. The remaining
+  button, renamed from `Log (Mission)` to `Log`, opens the Log of the mission the route was
+  built from (greyed with its reason when the route was not built from a recorded mission).
 
 - **Missions window redesign, first slice.** The columns are `#`, Missions and vessels,
   Start time, Start event, End event, End time and **Interact**, one right-hand column that

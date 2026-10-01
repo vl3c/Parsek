@@ -2,25 +2,24 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using ClickThroughFix;
-using Parsek.Logistics;
 using UnityEngine;
 
 namespace Parsek
 {
     /// <summary>
-    /// Log window: a flat, chronological step list of one mission or supply route
-    /// (launch, staging, dock / undock, deliveries, terminal), each with its time,
-    /// location and vessel. Opened from a mission's "Log" button (Missions tab) or a
-    /// route's "Log (Route)" / "Log (Mission)" buttons (Logistics window). One reusable
+    /// Log window: a flat, chronological step list of one mission (launch, staging,
+    /// dock / undock, terminal), each with its time, location and vessel. Opened from a
+    /// mission's "Log" button (Missions tab) or a supply route's "Log" button (Logistics
+    /// window), which opens the Log of the mission the route was built from. One reusable
     /// instance owned by <see cref="ParsekUI"/>; reopening retargets it. Read-only over
     /// already-recorded data; the ordered step list comes from the pure
-    /// <see cref="MissionStructureListBuilder"/> / <see cref="Logistics.RouteStructureListBuilder"/>.
+    /// <see cref="MissionStructureListBuilder"/>.
     /// </summary>
     internal class StructureListWindowUI
     {
         /// <summary>Internal rather than private because the gallery snapshot below
         /// carries one, and an internal struct cannot have a private-typed field.</summary>
-        internal enum TargetMode { None, Mission, Route }
+        internal enum TargetMode { None, Mission }
 
         private readonly ParsekUI parentUI;
 
@@ -49,10 +48,16 @@ namespace Parsek
         private const string InputLockId = "Parsek_StructureListWindow";
 
         // Current target + cached built step list (rebuilt when the target changes). `title`
-        // is the TARGET's name (the mission or route); the window title is built from it by
+        // is the TARGET's name (the mission); the window title is built from it by
         // BuildWindowTitle.
         private TargetMode mode = TargetMode.None;
         private string targetId;
+        // The viewed Mission (a mission Log follows ITS include set, so two missions over one
+        // tree read two Logs). Null for a gallery mock or a tree with no Mission.
+        private string missionId;
+        // The mission-Log change signature the current `steps` were built against
+        // (ComputeChangeSignature); re-read on Layout events only, never rebuilt per frame.
+        private int changeSignature;
         private string title = "";
         private List<StructureStep> steps = new List<StructureStep>();
         // Time cells, derived once whenever `steps` is (re)assigned, never per frame: the
@@ -96,15 +101,12 @@ namespace Parsek
 
         /// <summary>The empty-state line of a mission Log.</summary>
         internal const string EmptyMissionText = "This mission has no recorded flight.";
-        /// <summary>The empty-state line of a route Log.</summary>
-        internal const string EmptyRouteText = "Nothing to show (source recording unavailable).";
         /// <summary>The empty-state line before any target was given (the bare seam open).</summary>
         internal const string EmptyNoTargetText = "Nothing to show.";
 
         /// <summary>The empty-state line for a target mode. Pure.</summary>
         internal static string EmptyText(TargetMode targetMode)
         {
-            if (targetMode == TargetMode.Route) return EmptyRouteText;
             if (targetMode == TargetMode.Mission) return EmptyMissionText;
             return EmptyNoTargetText;
         }
@@ -113,14 +115,13 @@ namespace Parsek
         internal const float MinWindowHeight = 160f;
 
         /// <summary>The window title's fixed part: this window is the Log both the Missions
-        /// "Log" button and the Logistics "Log (Route)" / "Log (Mission)" buttons open. (Its
-        /// seam token stays <c>structure</c>, the name of the class it draws from.)</summary>
+        /// "Log" button and the Logistics route "Log" button open. (Its seam token stays
+        /// <c>structure</c>, the name of the class it draws from.)</summary>
         internal const string WindowTitlePrefix = "Parsek - Log";
 
         /// <summary>
         /// The window title for a target name: <c>"Parsek - Log: Kerbal X"</c> for a mission,
-        /// <c>"Parsek - Log: Mun Supply"</c> for a route, the bare <c>"Parsek - Log"</c> when
-        /// there is no name. Pure.
+        /// the bare <c>"Parsek - Log"</c> when there is no name. Pure.
         /// </summary>
         internal static string BuildWindowTitle(string targetName)
         {
@@ -155,35 +156,32 @@ namespace Parsek
         /// has never been opened on a target.</summary>
         internal string TargetModeForTesting => mode.ToString();
 
-        internal void OpenForMission(string treeId, string displayTitle)
+        /// <summary>
+        /// Opens the Log on one Mission: its tree's events, minus the rows of intervals the
+        /// mission excludes. <paramref name="missionIdOrNull"/> null opens the whole tree (a
+        /// tree with no Mission). While open, the Log rebuilds when the mission's include set,
+        /// its name or the committed recordings move (<see cref="RefreshIfChanged"/>).
+        /// </summary>
+        internal void OpenForMission(string treeId, string missionIdOrNull, string displayTitle)
         {
             mode = TargetMode.Mission;
             targetId = treeId;
+            missionId = missionIdOrNull;
             title = displayTitle ?? "";
             Rebuild();
             isOpen = true;
             ParsekLog.Info("UI",
-                $"Structure window opened: mode=Mission tree={treeId ?? "<null>"} steps={steps.Count} " +
-                $"title='{BuildWindowTitle(title)}'");
-        }
-
-        internal void OpenForRoute(string routeId, string displayTitle)
-        {
-            mode = TargetMode.Route;
-            targetId = routeId;
-            title = displayTitle ?? "";
-            Rebuild();
-            isOpen = true;
-            ParsekLog.Info("UI",
-                $"Structure window opened: mode=Route route={routeId ?? "<null>"} steps={steps.Count} " +
+                $"Structure window opened: mode=Mission tree={treeId ?? "<null>"} " +
+                $"mission={missionId ?? "<none>"} steps={steps.Count} " +
                 $"title='{BuildWindowTitle(title)}'");
         }
 
         // ------------------------- the GUI state gallery seam -------------------------
         //
-        // This window has NO invalidation key at all - `steps` is rebuilt only by
-        // OpenForMission / OpenForRoute - so a mocked step list survives indefinitely and
-        // needs no cache suppression. What it does need is a way IN that does not resolve
+        // A mocked step list carries no target (targetId null), and the only invalidation
+        // this window has - the mission-Log change signature, RefreshIfChanged - skips a
+        // window with no target, so a mocked step list survives indefinitely and needs no
+        // cache suppression. What it does need is a way IN that does not resolve
         // a target out of the store, which is what these three give the automation-only
         // `UiAction op=mock` applier. They are unreachable in a player build: nothing
         // calls them but that applier, which is inert unless PARSEK_TEST_COMMANDS=1.
@@ -194,6 +192,8 @@ namespace Parsek
         {
             internal TargetMode Mode;
             internal string TargetId;
+            internal string MissionId;
+            internal int ChangeSignature;
             internal string Title;
             internal List<StructureStep> Steps;
             internal bool IsOpen;
@@ -205,6 +205,8 @@ namespace Parsek
             {
                 Mode = mode,
                 TargetId = targetId,
+                MissionId = missionId,
+                ChangeSignature = changeSignature,
                 Title = title,
                 Steps = steps,
                 IsOpen = isOpen,
@@ -215,6 +217,8 @@ namespace Parsek
         {
             mode = snapshot.Mode;
             targetId = snapshot.TargetId;
+            missionId = snapshot.MissionId;
+            changeSignature = snapshot.ChangeSignature;
             title = snapshot.Title ?? "";
             SetSteps(snapshot.Steps ?? new List<StructureStep>());
             isOpen = snapshot.IsOpen;
@@ -228,11 +232,11 @@ namespace Parsek
         /// other field the draw method reads - the mode (which picks the empty-list
         /// wording), the title and the steps - is supplied.</para>
         /// </summary>
-        internal void OpenWithGallerySteps(bool routeMode, string displayTitle,
-                                           List<StructureStep> mockedSteps)
+        internal void OpenWithGallerySteps(string displayTitle, List<StructureStep> mockedSteps)
         {
-            mode = routeMode ? TargetMode.Route : TargetMode.Mission;
+            mode = TargetMode.Mission;
             targetId = null;
+            missionId = null;
             title = displayTitle ?? "";
             SetSteps(mockedSteps ?? new List<StructureStep>());
             isOpen = true;
@@ -248,30 +252,105 @@ namespace Parsek
         internal string[] TimeCellsForTesting => timeCells;
 
         // Resolves the target's data and (re)builds the step list. Kept off the per-frame
-        // path: only called on open (reopening retargets and rebuilds).
+        // path: called on open (reopening retargets and rebuilds) and by RefreshIfChanged
+        // when the mission-Log change signature moved.
         private void Rebuild()
         {
             var built = new List<StructureStep>();
             if (mode == TargetMode.Mission)
             {
+                Mission mission = FindMission(missionId);
+                changeSignature = ComputeChangeSignature(
+                    RecordingStore.StateVersion, mission != null, mission?.Name,
+                    mission?.ExcludedIntervalKeys);
                 RecordingTree tree = FindTree(targetId);
                 if (tree != null)
                 {
                     MissionStructure structure = MissionStructureBuilder.Build(tree);
                     string treeId = tree.Id;
+                    // The names the Missions vessel rows use (numbered same-named vessels,
+                    // another mission's vessel as its partner phrase), one helper for both.
+                    Dictionary<string, string> vesselNames = MissionVesselNaming.Build(
+                        tree, structure,
+                        MissionVesselNaming.LaunchIndex.Build(RecordingStore.CommittedTrees),
+                        otherTreeId => MissionsWindowUI.ResolvePartnerMissionName(otherTreeId, null),
+                        out MissionVesselNaming.Tally naming);
                     built = MissionStructureListBuilder.Build(
                         tree, structure, ResolvePartTitle,
-                        (bp, viewerId) => ResolveMergePartner(treeId, bp, viewerId));
+                        (bp, viewerId) => ResolveMergePartner(treeId, bp, viewerId),
+                        mission?.ExcludedIntervalKeys, vesselNames);
+                    ParsekLog.Verbose("UI",
+                        $"Structure window vessel names: tree={treeId} legs={naming.Legs} " +
+                        $"partners={naming.Partners} numbered={naming.Numbered} " +
+                        $"continuations={naming.Continuations}");
                 }
-            }
-            else if (mode == TargetMode.Route)
-            {
-                if (Logistics.RouteStore.TryGetRoute(targetId, out Logistics.Route route))
-                    built = RouteStructureListBuilder.Build(
-                        route, FindCommittedRecording, VesselSpawner.TryResolveBiome);
             }
             SetSteps(built);
         }
+
+        /// <summary>
+        /// Rebuilds a mission Log whose inputs moved: the committed recordings
+        /// (<see cref="RecordingStore.StateVersion"/>), the mission's name (the title follows a
+        /// rename) or its include set (an include toggle on the Missions tab). Called on Layout
+        /// events only, so the Layout and Repaint passes of one frame draw the same rows. Inert
+        /// for a gallery mock (no target).
+        /// </summary>
+        private void RefreshIfChanged()
+        {
+            if (mode != TargetMode.Mission || string.IsNullOrEmpty(targetId))
+                return;
+            Mission mission = FindMission(missionId);
+            int signature = ComputeChangeSignature(
+                RecordingStore.StateVersion, mission != null, mission?.Name,
+                mission?.ExcludedIntervalKeys);
+            if (signature == changeSignature)
+                return;
+            int before = steps.Count;
+            if (mission != null && !string.IsNullOrEmpty(mission.Name))
+                title = mission.Name;
+            Rebuild();
+            ParsekLog.Info("UI",
+                $"Structure window rebuilt on change: tree={targetId} mission={missionId ?? "<none>"} " +
+                $"found={(mission != null ? "yes" : "no")} " +
+                $"excludedKeys={(mission != null ? mission.ExcludedIntervalKeys.Count : 0)} " +
+                $"steps={before}->{steps.Count} title='{BuildWindowTitle(title)}'");
+        }
+
+        /// <summary>
+        /// The mission-Log change signature: the committed-recordings version, whether the
+        /// mission still resolves, its name, and its excluded interval keys as an
+        /// order-independent set hash. Pure; an in-memory compare value, never persisted.
+        /// </summary>
+        internal static int ComputeChangeSignature(
+            int stateVersion, bool missionFound, string missionName,
+            ICollection<string> excludedIntervalKeys)
+        {
+            unchecked
+            {
+                int h = 17;
+                h = h * 31 + stateVersion;
+                h = h * 31 + (missionFound ? 1 : 0);
+                h = h * 31 + (missionName != null ? StringComparer.Ordinal.GetHashCode(missionName) : 0);
+                int setHash = 0;
+                int count = 0;
+                if (excludedIntervalKeys != null)
+                {
+                    foreach (string key in excludedIntervalKeys)
+                    {
+                        // Summed, so the order a HashSet enumerates in does not matter.
+                        int k = key != null ? StringComparer.Ordinal.GetHashCode(key) : 0;
+                        setHash += (k * 0x2F0B3A49) ^ (k >> 7);
+                        count++;
+                    }
+                }
+                h = h * 31 + count;
+                h = h * 31 + setHash;
+                return h;
+            }
+        }
+
+        private static Mission FindMission(string id)
+            => string.IsNullOrEmpty(id) ? null : MissionStore.FindById(id);
 
         // Internal part name -> the player-facing part title. Part names in recordings are
         // already the runtime dot-form; the replace keeps a cfg-form name resolving too.
@@ -302,20 +381,6 @@ namespace Parsek
             return null;
         }
 
-        private static Recording FindCommittedRecording(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId)) return null;
-            // [ERS-exempt] Physical by-id resolve of a route's bound dock-member recording
-            // to read its immutable RouteConnectionWindow proof, not a visibility / supersede
-            // scoped enumeration. Same physical-data-lookup rationale as MissionsWindowUI /
-            // TimelineWindowUI / RecordingsTableUI (see scripts/ers-els-audit-allowlist.txt).
-            var committed = RecordingStore.CommittedRecordings;
-            for (int i = 0; i < committed.Count; i++)
-                if (committed[i] != null && string.Equals(committed[i].RecordingId, recordingId, StringComparison.Ordinal))
-                    return committed[i];
-            return null;
-        }
-
         public void DrawIfOpen(Rect mainWindowRect)
         {
             if (!isOpen)
@@ -323,6 +388,9 @@ namespace Parsek
                 ReleaseInputLock();
                 return;
             }
+
+            if (Event.current != null && Event.current.type == EventType.Layout)
+                RefreshIfChanged();
 
             if (windowRect.width < 1f)
             {

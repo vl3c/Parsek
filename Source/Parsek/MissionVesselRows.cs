@@ -54,22 +54,46 @@ namespace Parsek
         /// Dock / Board boundary in the event phrase reads <c>"Docked (Munport Station)"</c>
         /// instead of the bare word - without it (T1.4) the partner would be unreachable on
         /// the default collapsed surface. Pure apart from whatever the resolver captures.</para>
+        /// <para><paramref name="vesselNames"/> (optional) is
+        /// <see cref="MissionVesselNaming.Build"/>'s map, keyed by the row's head leg: a
+        /// vessel row reads that name (<c>"Kerbal X [2]"</c>, or another mission's vessel as
+        /// <c>"Kerbal X (mission 'Kerbal X')"</c>), and so does every phrase piece that names
+        /// a child row. A kerbal's row keeps the kerbal's name.</para>
         /// </summary>
         internal static List<MissionVesselRow> Build(
             List<MissionCompositionNode> roots,
-            System.Func<string, double, string> dockPartnerResolver = null)
+            System.Func<string, double, string> dockPartnerResolver = null,
+            IReadOnlyDictionary<string, string> vesselNames = null)
         {
             var rows = new List<MissionVesselRow>();
             if (roots == null)
                 return rows;
             for (int i = 0; i < roots.Count; i++)
             {
-                MissionVesselRow row = BuildRow(roots[i], dockPartnerResolver);
+                MissionVesselRow row = BuildRow(roots[i], dockPartnerResolver, vesselNames);
                 if (row != null)
                     rows.Add(row);
             }
             return rows;
         }
+
+        /// <summary>
+        /// The start event of the first row <see cref="Build"/> would produce, without building
+        /// any row: what a collapsed mission's bar shows. Pure.
+        /// </summary>
+        internal static string FirstRowStartEvent(List<MissionCompositionNode> roots)
+        {
+            if (roots == null) return "";
+            for (int i = 0; i < roots.Count; i++)
+                if (IsRowHead(roots[i]))
+                    return roots[i].StartEvent ?? "";
+            return "";
+        }
+
+        // A node that heads a row: a selectable, non-atom interval with a through-line head.
+        private static bool IsRowHead(MissionCompositionNode node)
+            => node != null && !node.IsAtom && node.IsSelectable
+               && !string.IsNullOrEmpty(node.OwnerHeadId);
 
         // One vessel's row: walk the same-owner survivor chain (the builder chains interval
         // i+1 as a child of interval i), collecting different-owner selectable children as
@@ -77,16 +101,21 @@ namespace Parsek
         // interval rows already carry the composition label, and the crew are named on the
         // header's narrative line.
         private static MissionVesselRow BuildRow(
-            MissionCompositionNode head, System.Func<string, double, string> dockPartnerResolver)
+            MissionCompositionNode head, System.Func<string, double, string> dockPartnerResolver,
+            IReadOnlyDictionary<string, string> vesselNames)
         {
-            if (head == null || head.IsAtom || !head.IsSelectable
-                || string.IsNullOrEmpty(head.OwnerHeadId))
+            if (!IsRowHead(head))
                 return null;
 
+            string vesselName = head.VesselName;
+            if (!head.IsPerson && vesselNames != null
+                && vesselNames.TryGetValue(head.OwnerHeadId, out string named)
+                && !string.IsNullOrEmpty(named))
+                vesselName = named;
             var row = new MissionVesselRow
             {
                 OwnerHeadId = head.OwnerHeadId,
-                VesselName = head.VesselName,
+                VesselName = vesselName,
                 IsPerson = head.IsPerson,
             };
 
@@ -117,7 +146,7 @@ namespace Parsek
                     }
                     else
                     {
-                        MissionVesselRow child = BuildRow(c, dockPartnerResolver);
+                        MissionVesselRow child = BuildRow(c, dockPartnerResolver, vesselNames);
                         if (child != null)
                             row.Children.Add(child);
                     }
@@ -232,8 +261,8 @@ namespace Parsek
             int excluded = 0;
             for (int i = 0; i < row.Intervals.Count; i++)
             {
-                if (excludedIntervalKeys != null
-                    && excludedIntervalKeys.Contains(row.Intervals[i].HeadLegId))
+                if (!MissionIntervalSelection.IsIntervalIncluded(
+                        row.Intervals[i], excludedIntervalKeys))
                     excluded++;
             }
             if (excluded == 0)

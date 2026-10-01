@@ -549,7 +549,7 @@ namespace Parsek.Tests
             GuiTreeCaptureHeader header = Header();
             header.Mock = new GuiTreeMockProvenance
             {
-                StateId = "structure.route.pickup",
+                StateId = "structure.mission.breakup",
                 Window = "structure",
                 Catalogue = "gui-mock/1",
                 States = 46,

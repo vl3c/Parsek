@@ -2119,8 +2119,8 @@ def window_vocabulary(window_tokens, window_titles, window_tabs=None):
 
     * `record` - what the CHANGELOG and the todo call this window. A window whose
       captured title is stable contributes its words; a window whose title VARIES
-      with its subject (the Structure window is titled by the route or mission it
-      is showing) has no stable name at all, so only the seam token is used - the
+      with its subject (the Structure window is titled by the mission it is
+      showing) has no stable name at all, so only the seam token is used - the
       alternative attached every record mentioning a kerbal to the Structure
       window. The product's own name is never a record word: it appears in every
       entry in the file.
@@ -3667,7 +3667,7 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
 /* A row container is a `box` with no text: KSP draws it in the panel colour, so
    a border here would invent a grid the game does not draw. */
 .gn.k-box.notext{border-color:transparent;background:none;padding-left:0}
-/* Measured on the ib-logistics-basic frame (Rename / Log (Route) / Logistics /
+/* Measured on the ib-logistics-basic frame (Rename / Log / Logistics /
    Timeline): KSP draws a button as a NEAR-BLACK outline - grey 5 to 25 - with a
    light top bevel inside it (88, 71, 61, fading) over a fill of 25 to 76. A
    uniform #5a5a5a line is brighter than the fill on every one of them, which is

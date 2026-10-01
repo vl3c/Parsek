@@ -43,6 +43,21 @@ namespace Parsek
             return windows;
         }
 
+        /// <summary>
+        /// THE include predicate of a composition interval: included unless its
+        /// <see cref="MissionCompositionNode.HeadLegId"/> is in the mission's excluded-key set.
+        /// The render windows, the Missions vessel rows and the mission Log all read this one
+        /// method, so no surface can disagree with another about what a mission keeps. Pure.
+        /// </summary>
+        internal static bool IsIntervalIncluded(
+            MissionCompositionNode node, ICollection<string> excludedIntervalKeys)
+        {
+            if (node == null || excludedIntervalKeys == null || excludedIntervalKeys.Count == 0)
+                return true;
+            return string.IsNullOrEmpty(node.HeadLegId)
+                || !excludedIntervalKeys.Contains(node.HeadLegId);
+        }
+
         private static void Accumulate(
             MissionCompositionNode node, ICollection<string> excluded,
             Dictionary<string, RenderWindow> windows)
@@ -53,7 +68,7 @@ namespace Parsek
             // Only real intervals / branches count toward a window; roster atoms are not selectable
             // and carry no span. An interval is included unless its key is in the excluded set.
             if (node.IsSelectable && !string.IsNullOrEmpty(node.OwnerHeadId)
-                && (excluded == null || !excluded.Contains(node.HeadLegId)))
+                && IsIntervalIncluded(node, excluded))
             {
                 if (!windows.TryGetValue(node.OwnerHeadId, out RenderWindow w))
                 {

@@ -438,7 +438,12 @@ the New Group footer button (the Info button was removed 2026-09-26), and every 
 
 **Missions tab.** Row model: one row per physical vessel or EVA kerbal, built by
 `MissionVesselRowBuilder.Build` (`MissionVesselRows.cs:59`); depth is SEPARATION LINEAGE only,
-never time (`:118-123`); roster atoms are not rows (`:99-101`).
+never time (`:118-123`); roster atoms are not rows (`:99-101`). Vessel names (2026-10-01) come
+from `MissionVesselNaming`, shared with the Log: another mission's vessel reads
+`X (mission 'Y')`, and two genuinely different own vessels with one name are numbered
+`Kerbal X [2]` in the row, in every phrase piece that names it and in the expanded
+`after undock: X left` line (a ship KSP re-pidded at an undock is the same vessel and keeps
+its name).
 
 | # | header | width const | mission bar line 1 | mission bar line 2 | vessel / interval / partner / chapter rows |
 |---|---|---|---|---|---|
@@ -960,7 +965,8 @@ docks, transfers cargo to the destination, and undocks, then commit and seal the
 (`:743`).
 
 The expanded route detail panel (`:1554-1670`) is where most of the window's real controls
-live: `Rename`, `Log (Route)`, `Log (Mission)`, `Link round-trip...` / `Unlink`, cadence and
+live: `Rename`, `Log` (the source mission's Log; `Log (Route)` and its route step list were
+retired 2026-10-01), `Link round-trip...` / `Unlink`, cadence and
 priority steppers, `Re-scan for endpoint`, plus up to fourteen conditional readout lines
 (hold, partial, capacity, countdown branch, five recent-cycle flow lines, cost/run, source
 recordings). The candidate detail panel (`:2300`) is three or four lines with NO controls.
@@ -980,18 +986,22 @@ the link picker, any of the four dialogs.
 
 ### 3.7 Parsek - Log (the Structure window)
 
-Purpose: a read-only step list for one mission or one route. No sorting, no filters, no per-row
-controls (`UI/StructureListWindowUI.cs:14-16`). Title (Missions Model 1, 2026-09-29):
-`Parsek - Log: <mission name>` from the Missions `Log` button and the Logistics `Log (Mission)`
-button, `Parsek - Log: <route name>` from `Log (Route)`, and the bare `Parsek - Log` when opened
-with no target (the census's empty chrome). It read `Parsek - <name>` before, with a
+Purpose: a read-only step list for one mission. No sorting, no filters, no per-row controls
+(`UI/StructureListWindowUI.cs:14-16`). Title (Missions Model 1, 2026-09-29):
+`Parsek - Log: <mission name>` from the Missions `Log` button and the Logistics route `Log`
+button (the route's source mission), and the bare `Parsek - Log` when opened with no target
+(the census's empty chrome). The route mode (`Log (Route)`, origin / dock / delivery / undock
+rows) was retired 2026-10-01 (MISSION-LOG-REWORK part 4): the route detail panel already shows
+origin, destination, per-cycle delivery and transit. It read `Parsek - <name>` before, with a
 `Mission structure` / `Route structure` fallback. The class, its log lines and the seam window
 token keep the name `structure` (`GuiCensusSeamVerbTests` pins the token), so `structure` is
 the seam's alias for the Log.
 
-Opened by `OpenForMission` (`:83`, from the Missions tab `Log` button) or `OpenForRoute`
-(`:94`, from the Logistics detail panel); one reusable instance, retargeted and rebuilt on each
-open (`:107`). No complexity gate.
+Opened by `OpenForMission` (from the Missions tab `Log` button, or the Logistics detail
+panel's `Log`, which resolves the route's source tree to its ORIGINAL mission); one reusable
+instance, retargeted and rebuilt on each open, and rebuilt while open when its mission's
+include set, name or the committed recordings move (a Layout-only change signature). No
+complexity gate.
 
 Columns (Log rework, 2026-10-01): `Time` 110, `Event` expand, `Location` 185, `Vessel` 160,
 plus a reserved scrollbar gutter; first-open width 900 (`DefaultWindowWidth`). The `#` and
@@ -1002,7 +1012,9 @@ row per real event (`MissionStructureListBuilder`): `Launch`, one `Staged: N pie
 title> xK, ...)` row per recorded separation, `Decoupled (<piece>)` / `Docked (<partner>)` /
 `Undocked (<piece>)` naming the other vessel (cross-mission partners as
 `X (mission 'Y')`), and `End: <terminal word>` (no End row for a leg that ended Docked or
-Boarded). Location: `<body> orbit` only for an orbital ending or a separation whose piece
+Boarded; and only from a vessel's last chain segment). Vessel names in the Event and Vessel
+cells are the Missions rows' own (`MissionVesselNaming`): another mission's vessel reads
+`X (mission 'Y')`, two genuinely different own vessels with one name `Kerbal X [2]`. Location: `<body> orbit` only for an orbital ending or a separation whose piece
 recorded an orbit, else body and biome where recorded at that moment, else the body, else `-`.
 An Event list longer than `EventCellCharBudget` (60) is shortened in the cell and carried whole
 as the cell's tooltip, read in a single-line `TooltipEchoBox` strip above `Close` (the window's
@@ -1012,13 +1024,13 @@ header too, and the row labels are the shared table cell style (`ParsekUI.GetTab
 the boxed header's own horizontal padding) with the vertical padding dropped for this log's
 compact pitch. Before, the rows had no box and a hand-set 5 px indent, so body text sat 1 px
 right of the header text (GUI-4 `2026-09-24_2041`, `bd-structure-mission-advanced`). Empty state is a single label (`This mission has no recorded flight.` for a
-mission target, `Nothing to show (source recording unavailable).` for a route, `Nothing to
-show.` with no target; `EmptyText`) plus `Close`, then an early return that suppresses the
+mission target, `Nothing to show.` with no target; `EmptyText`) plus `Close`, then an early
+return that suppresses the
 header, the scroll view, the hover strip and the resize handle.
 
 Picture: `ksc-structure-advanced`, 3 nodes - window, label, button. That is the no-target
 wording, because `op=open window=structure` raises `IsOpen` without ever calling
-`OpenForMission` / `OpenForRoute`, so `targetId` stays null and `Rebuild` never runs. The census
+`OpenForMission`, so `targetId` stays null and `Rebuild` never runs. The census
 spec files that as a follow-up rather than faking it
 (`TestCommands/TestCommandUiAction.cs:414-418`).
 
@@ -1483,7 +1495,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | D6 | `MissionSelection` (whole file) and `Mission.ExcludedThroughLineHeadIds`: persisted, cloned, stale-dropped, folded into the change signature, never written | `MissionSelection.cs:23`, `:41`; `Mission.cs:18` |
 | D14 | `DrawCompositionNode` as a mission-row renderer, reachable only inside an included foreign partner journey (off by default) | `UI/MissionsWindowUI.cs:1578`, `:1682`; `Mission.cs:40` |
 | D16 | `BuildPeriodStateTooltip(locked: true)` cannot fire | `MissionPresentation.cs:651-652`, sole call `UI/MissionsWindowUI.cs:4156` |
-| P10 | The mission `Log` is titled with the mission but built from the TREE, so two clones with different include sets render byte-identical logs | title `UI/MissionsWindowUI.cs:2492`, build `UI/StructureListWindowUI.cs:110-117` |
+| P10 | ~~The mission `Log` is titled with the mission but built from the TREE, so two clones with different include sets render byte-identical logs~~ FIXED 2026-10-01 (MISSION-LOG-REWORK): the Log opens on a Mission and drops the rows of its excluded intervals through `MissionIntervalSelection.IsIntervalIncluded`, the vessel rows' predicate, and rebuilds on a change signature | title `UI/MissionsWindowUI.cs:2492`, build `UI/StructureListWindowUI.cs:110-117` |
 | P21 | The chapter tri-state toggle carries no tooltip and escapes the Basic gate | `UI/MissionsWindowUI.cs:1885`, marker `:1920` |
 | - | `MissionDeleteDisabledReason()` takes no arguments and returns a constant | `UI/MissionsWindowUI.cs:2908` |
 | - | Header summary, `Events (N)`, chapter titles, Start/End cells and the `#` index are all keyed by TREE id, so every clone shows identical values | `UI/MissionsWindowUI.cs:1255`, `:2272`, `:1770`, `:1515-1520`, `:2467` |
@@ -1702,7 +1714,7 @@ One line each for the rest:
 | P3 | The route Interval field snaps to `N x transit` and overwrites the typed value: show the snapped value and why in the existing tooltip, or accept the silent rewrite? |
 | P4 | `Warp to Spawn` has 15 silent refusals behind it: put the refusal reason in the existing disabled-hover echo, or rename the button to the action it performs? |
 | P9 | Rename refusals (mission, group, re-parent) discard the typed name with a Warn: keep the field content and show the reason in the row tooltip, or leave it? |
-| P10 | The mission `Log` is built from the tree and ignores the mission's include set, so clones render identical logs under different titles: is that the intended contract? |
+| P10 | The mission `Log` is built from the tree and ignores the mission's include set, so clones render identical logs under different titles: is that the intended contract? DECIDED + FIXED 2026-10-01: no; the Log follows the mission's include set (MISSION-LOG-REWORK) |
 | P11 | `Merged, but could not seal - seal it from the Timeline window` names a control that cannot exist in exactly that state: reword, or make the control exist? |
 | P19 | The Candidates empty-state sentence tells the player to do what the near-miss list below shows they already did: reword, or suppress it when near-misses exist? |
 | P20 | Four route cells read `Stops[0]` only while `RouteBuilder` builds multi-stop routes: is multi-stop display in scope, or should the labels be scoped to the first stop? |
@@ -1951,7 +1963,7 @@ actually bought, against what this table predicted:
 | `pointer` (park the IMGUI mouse over a named control's rect for one Repaint) | PREDICTED: EVERY populated `TooltipEchoBox` strip (11 windows), every `DisabledHoverEcho` reason (the five rewind refusals, the three spawn refusals, the two warp refusals, the four `Warp to...` reasons, the two Watch reasons, the route stepper floors, `Pick a route above...`, `This route was not built from a recorded mission`), marquee mode, and every hover-only marker label. DELIVERED: NONE OF IT, and that is measured rather than pending - the op parks the OS CURSOR, not the IMGUI mouse, and IMGUI's hover did not follow it on any of wave 2's four hover captures. Everything in this cell stays unphotographed until GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT is closed; the hover-only marker label is the same miss one surface over (`MapMarkerRenderer.ShouldDrawLabel(sticky, hover)` had neither on `play-mapview-ghostmarkers-advanced`). STILL DELIVERED: NONE OF IT after the 2026-09-15 flight either, and the finding is no longer OPEN but REFUTED-WITH-A-CAUSE: the two opt-in flags `focus=true` / `nudge=true` were both applied and measured (`fgOutcome=attached` / `already`, `fg=true`, the `SendInput` pair accepted) and the strip still read `tooltip=-`, because `Event.current.mousePosition` inside Parsek's own Repaint stays at the screen origin (`eventScreen=0.0,0.0`) while `Input.mousePosition` follows the commanded point. Whatever closes this cell has to move the position IMGUI hit-tests against, which neither foreground nor a synthetic move does - see the `pointer` row above for the numbers |
 | `find` (resolve a control by label or `ref` from a prior `.gui.json`) | the addressing layer every other op needs; without it a click op can only take indices |
 | `expand` (toggle a disclosure or caret by key) | all 21 Recordings-tab leaf-row cells with their phase colours, status words and tree connectors; chain and grouped blocks; STASH member rows; expanded per-vessel interval rows; the `Events (N)` digest and its `Go to` (the digest is removed since Missions Model 1; the `Go to` is on the Docked partner rows); the Logistics route and candidate detail panels (the largest un-photographed control cluster in the mod); the near-miss, dismissed and dormant disclosures; expanded Kerbals owner chains and folded outcome headers; the Career `Pending in timeline` fold |
-| `target` (invoke a typed entry point rather than synthesising a click: `OpenStructureWindowForMission`, `OpenStructureWindowForRoute`, `ShowWipeRecordingsConfirmation`, `SetUiComplexityMode`-style setters for `showExpandedStats`, `TimeRangeFilterState`, `showCustomRange`, `sortColumn`, `foldedKerbals`) | the populated Structure window in both modes, the Info-expanded stats columns, the time-range filter indicator and every non-default Timeline preset, the custom sliders, every non-default sort direction, the folded Kerbals summary |
+| `target` (invoke a typed entry point rather than synthesising a click: `OpenStructureWindowForMission`, `OpenStructureWindowForRoute` (retired 2026-10-01 with the route Log), `ShowWipeRecordingsConfirmation`, `SetUiComplexityMode`-style setters for `showExpandedStats`, `TimeRangeFilterState`, `showCustomRange`, `sortColumn`, `foldedKerbals`) | the populated Structure window in both modes, the Info-expanded stats columns, the time-range filter indicator and every non-default Timeline preset, the custom sliders, every non-default sort direction, the folded Kerbals summary |
 | `picker` (arm a popup over a row selection) | the Group picker in both its titles, and the Logistics link picker - the two windows the seam excludes today by name (`TestCommandUiAction.cs:369-377`) |
 | `dialog` (raise a `PopupDialog` and HOLD it open for a capture, then answer it) | PREDICTED: all 21 dialogs, behind two prerequisites - `AnswerMergeDialog` needing a surface-only mode (it finds and immediately invokes today, `ParsekTestCommandAddon.cs:2260`) and a path not requiring a live Re-Fly marker (`:2258-2260`), plus the three test hooks that short-circuit a spawn being left null. DELIVERED 2026-09-15, THROUGH A DIFFERENT DOOR and with neither prerequisite met: `op=dialog` stays read-only and the raising is a separate pair, `op=raise popup=<name>` / `op=dismiss popup=<name> [press=<button>]`, each calling ONE dialog's own production spawn site and leaving the modal standing. SIX of the 21 have a picture (`GUI-10-census-dialogs`), the seventh raisable one is refused by name on that host (`dialog-target-unavailable popup=rewind`), and 14 stay filed with the state each would need - section 2's dialog row names all three sets. The two prerequisites above therefore remain the route to the MERGE dialog specifically, not to the family |
 | `rect` clamping (refuse or warn when a commanded rect is below the window's own minimum) | prevents a repeat of the shipped Logistics capture, which was forced to 1280 against a 1410 minimum and photographed a layout no player can produce |

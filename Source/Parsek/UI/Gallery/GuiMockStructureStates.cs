@@ -1,18 +1,16 @@
 using System;
 using System.Collections.Generic;
-using Parsek.Logistics;
 
 namespace Parsek.UI.Gallery
 {
     /// <summary>
-    /// Catalogue states for the Structure List ("Log") window, in both target modes.
+    /// Catalogue states for the Structure List ("Log") window.
     ///
     /// <para><b>EVERY ROW HERE IS REAL-BUILDER OUTPUT.</b> A state assembles DETACHED
-    /// in-memory inputs - <see cref="Recording"/> objects, a <see cref="RecordingTree"/>
-    /// with its <see cref="BranchPoint"/>s, or a <see cref="Logistics.Route"/> with its
-    /// stops and one connection window - and then runs
-    /// <c>MissionStructureBuilder.Build</c> + <c>MissionStructureListBuilder.Build</c>, or
-    /// <c>RouteStructureListBuilder.Build</c>. Not one label or location string is typed.
+    /// in-memory inputs - <see cref="Recording"/> objects and a <see cref="RecordingTree"/>
+    /// with its <see cref="BranchPoint"/>s - and then runs
+    /// <c>MissionStructureBuilder.Build</c> + <c>MissionStructureListBuilder.Build</c>.
+    /// Not one label or location string is typed.
     /// That is the only way this window can be mocked honestly, because it draws
     /// <c>step.Label</c> / <c>step.Location</c> / <c>step.VesselName</c> VERBATIM: a typed
     /// row is a picture of nothing. The one other input is <see cref="PartTitles"/>, the
@@ -20,17 +18,15 @@ namespace Parsek.UI.Gallery
     /// DATA the builder lists, like a vessel name, not a rendered row.</para>
     ///
     /// <para>The first version of this file DID type rows, and they were wrong in ways
-    /// only the builders know about - a route's dock rows read <c>"Dock"</c> /
-    /// <c>"Undock"</c> rather than the branch-event <c>"Docked"</c> / <c>"Undocked"</c>,
-    /// every route row's Vessel cell is empty, and a terminal row's wording is the
-    /// builder's (<c>"End: Orbiting"</c>, with no row at all for a leg that ended Docked or
-    /// Boarded). Running the builders is what makes those facts the catalogue's rather than
-    /// a reviewer's.</para>
+    /// only the builders know about - a terminal row's wording is the builder's
+    /// (<c>"End: Orbiting"</c>, with no row at all for a leg that ended Docked or Boarded).
+    /// Running the builders is what makes those facts the catalogue's rather than a
+    /// reviewer's.</para>
     ///
     /// <para><b>DETACHED means detached.</b> Nothing built here is added to
-    /// <c>RecordingStore</c>, to a tree the store holds, to <c>RouteStore</c>, or to any
-    /// collection outside the local graph; <c>Recording</c> and <c>RecordingTree</c> are
-    /// plain objects with no self-registering constructor, and both builders are pure
+    /// <c>RecordingStore</c>, to a tree the store holds, or to any collection outside the
+    /// local graph; <c>Recording</c> and <c>RecordingTree</c> are plain objects with no
+    /// self-registering constructor, and both builders are pure
     /// functions of their arguments. The write-set grep gate
     /// (<c>scripts/grep-audit-gui-mock-writeset.ps1</c>) allowlists exactly the types
     /// below and fails the build on any store or writer reference.</para>
@@ -132,40 +128,16 @@ namespace Parsek.UI.Gallery
             // state claiming one would be a picture of nothing. Recorded in
             // design-gui-state-gallery.md section 18 and pinned by
             // GuiMockStructureBuilderFidelityTests.
-
-            // ---------- Route mode ----------
-
-            into.Add(Route("structure.route.pickup",
-                "A PURE-pickup stop: 'Pick up (...)', which no relay fixture has "
-                + "photographed.",
-                new string[0],
-                () => RouteRun(RouteShape.Pickup)));
-
-            into.Add(Route("structure.route.mixed",
-                "A mixed stop: 'Deliver (...) / Pick up (...)' at one dock.",
-                new string[0],
-                () => RouteRun(RouteShape.Mixed)));
-
-            into.Add(Route("structure.route.origin-depot",
-                "'Origin: depot' with a surface endpoint - every capture reads "
-                + "'Origin: KSC'.",
-                new[] { "StructureStep.RouteOrigin" },
-                () => RouteRun(RouteShape.DepotOrigin)));
         }
 
         // ----- state factories -----
 
         private static GuiMockState Mission(string id, string note, string[] covers,
                                             Func<List<StructureStep>> build)
-            => New(id, note, covers, build, routeMode: false, title: "Mock mission");
-
-        private static GuiMockState Route(string id, string note, string[] covers,
-                                          Func<List<StructureStep>> build)
-            => New(id, note, covers, build, routeMode: true, title: "Mock route");
+            => New(id, note, covers, build, title: "Mock mission");
 
         private static GuiMockState New(string id, string note, string[] covers,
-                                        Func<List<StructureStep>> build,
-                                        bool routeMode, string title)
+                                        Func<List<StructureStep>> build, string title)
         {
             return new GuiMockState
             {
@@ -181,7 +153,6 @@ namespace Parsek.UI.Gallery
                     Window = GuiMockSession.StructureWindow,
                     Structure = new GuiMockStructure
                     {
-                        RouteMode = routeMode,
                         Title = title,
                         Steps = build(),
                     },
@@ -463,92 +434,6 @@ namespace Parsek.UI.Gallery
             inputs.Staging("root", PartEventType.FairingJettisoned, 600_080.0, "fairingSize1");
             inputs.Staging("root", PartEventType.Decoupled, 600_112.0, "Decoupler.1");
             return inputs.Rows();
-        }
-
-        // ----- route mode -----
-
-        internal enum RouteShape { Pickup, Mixed, DepotOrigin }
-
-        /// <summary>
-        /// Builds a detached <see cref="Logistics.Route"/> plus the one dock-member
-        /// recording that carries its <see cref="RouteConnectionWindow"/>, and runs the
-        /// REAL route builder. The recording lookup is a LOCAL closure over that one
-        /// object, not a store read: the production window passes its own by-id resolve,
-        /// and this is the same shape with a one-entry source.
-        /// </summary>
-        internal static List<StructureStep> RouteRun(RouteShape shape)
-        {
-            bool kscOrigin = shape != RouteShape.DepotOrigin;
-            RouteEndpoint origin = kscOrigin
-                ? new RouteEndpoint { BodyName = "Kerbin", IsSurface = true }
-                : new RouteEndpoint
-                {
-                    BodyName = "Mun",
-                    Latitude = 0.68,
-                    Longitude = -23.41,
-                    IsSurface = true,
-                };
-            var dockEndpoint = new RouteEndpoint { BodyName = "Mun", IsSurface = false };
-
-            var dockRecording = new Recording
-            {
-                RecordingId = "gallery-dock-member",
-                VesselName = "Supply Tug",
-                RouteConnectionWindows = new List<RouteConnectionWindow>
-                {
-                    new RouteConnectionWindow
-                    {
-                        WindowId = "gallery-window",
-                        DockUT = 700_000.0,
-                        UndockUT = 701_200.0,
-                        EndpointAtDock = dockEndpoint,
-                    },
-                },
-            };
-
-            var route = new Logistics.Route
-            {
-                Id = "gallery-route",
-                Name = "Mun Station Supply",
-                Origin = origin,
-                IsKscOrigin = kscOrigin,
-                DockMemberRecordingId = dockRecording.RecordingId,
-                RecordedDockUT = 700_600.0,
-            };
-            route.Stops.Add(BuildStop(shape, dockEndpoint));
-
-            // biomeResolver is null: it is a live KSP call (VesselSpawner.TryResolveBiome),
-            // and the builder's own documented fallback is the surface coordinates - which
-            // is a real form the window draws on any save whose biome does not resolve.
-            return RouteStructureListBuilder.Build(
-                route,
-                id => string.Equals(id, dockRecording.RecordingId, StringComparison.Ordinal)
-                    ? dockRecording
-                    : null,
-                null);
-        }
-
-        private static RouteStop BuildStop(RouteShape shape, RouteEndpoint endpoint)
-        {
-            var stop = new RouteStop { Endpoint = endpoint };
-            if (shape != RouteShape.Pickup)
-            {
-                stop.DeliveryManifest = new Dictionary<string, double>
-                {
-                    { "LiquidFuel", 282.0 },
-                    { "Oxidizer", 345.0 },
-                };
-            }
-            // Both the pure-pickup and the mixed shape carry a pickup manifest; the
-            // depot-origin shape carries a delivery only, which is the ordinary form.
-            if (shape == RouteShape.Pickup || shape == RouteShape.Mixed)
-            {
-                stop.PickupManifest = new Dictionary<string, double>
-                {
-                    { "Ore", 1500.0 },
-                };
-            }
-            return stop;
         }
     }
 }

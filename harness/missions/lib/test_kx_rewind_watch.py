@@ -4210,5 +4210,67 @@ class LoopArmTests(unittest.TestCase):
                          schema["params"]["loopWarpIndex"]["max"])
         self.assertEqual(mlib.KXRW_LOOP_STAGES_MAX, 3)
 
+class EarlyEndResultSerializationTests(unittest.TestCase):
+    """KXRW-RESULT-NAN-DETAIL. A flight that ends before the core discard leaves
+    `core_discard_ut` / `core_discard_altitude` / `ascent_peak_thrust` (and the
+    rewind stamps) at their NaN defaults, and the evaluator copies them into the
+    row DETAIL. The result is serialized with allow_nan=False after run_mission's
+    try block, so before the fix the shell died with no result file and the run
+    read INVALID(tooling-mission) with every assertion row lost."""
+
+    def _early_end_result(self):
+        st = dataclasses.replace(
+            mlib.kxrw_initial_state(mlib.kxrw_params_from_dict({})),
+            phase=mlib.KXRW_ASCENT,
+            phases_reached=(mlib.KXRW_ROLLOUT, mlib.KXRW_ASCENT),
+            loss_reason="vessel lost during ascent")
+        # The cell exercises the SCRUB, not a changed default: the stamps are
+        # still NaN on the state the evaluator reads.
+        self.assertTrue(math.isnan(st.core_discard_ut))
+        self.assertTrue(math.isnan(st.core_discard_altitude))
+        self.assertTrue(math.isnan(st.ascent_peak_thrust))
+        outcomes = kx_rewind_watch.evaluate([], {}, st)
+        verdict, reason = mlib.resolve_flight_verdict(st, outcomes)
+        result = mlib.build_mission_result(
+            mission=kx_rewind_watch.MISSION_NAME, verdict=verdict, reason=reason,
+            phases_reached=list(st.phases_reached), connect_attempts=1,
+            connected_seconds=12.5, rpc_port=50000, assertions=outcomes,
+            wall_seconds=40.0, krpc_client_version="0.5.4",
+            krpc_server_version="0.5.4")
+        return outcomes, result
+
+    def test_an_early_end_serializes_and_reads_back_as_invalid_mission(self):
+        import tempfile
+        _harness = os.path.dirname(_MISSIONS)
+        if _harness not in sys.path:
+            sys.path.insert(0, _harness)
+        import hlib
+        import run
+        outcomes, result = self._early_end_result()
+        # MUTATION: drop the detail scrub from AssertionOutcome.to_dict and this
+        # raises ValueError("Out of range float values are not JSON compliant").
+        text = mlib.serialize_mission_result(result)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "mission-result.json")
+            with open(path, "w", encoding="ascii", newline="\n") as fh:
+                fh.write(text)
+            obj = run._read_mission_result(path)
+            self.assertIsNotNone(obj, "run.py must read the result, not <no-result>")
+            verdict = run._read_mission_verdict(path)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, verdict)
+        self.assertEqual((False, "mission"), hlib.classify_mission_step(verdict))
+        # Every assertion row survives, in order, with the NaN stamps as null.
+        self.assertEqual([o.name for o in outcomes],
+                         [row["name"] for row in obj["assertions"]])
+        rows = {row["name"]: row for row in obj["assertions"]}
+        self.assertIsNone(rows["coreDiscardedWithEnginesOff"]["discardUT"])
+        self.assertIsNone(rows["coreDiscardedWithEnginesOff"]["discardAltitude"])
+        self.assertIsNone(rows["boosterStagesDropped"]["peakThrustNewtons"])
+        self.assertIsNone(rows["rewoundToLaunch"]["preRewindUT"])
+        self.assertIsNone(rows["rewoundToLaunch"]["postRewindUT"])
+        self.assertIsNone(rows["playbackWatchedOut"]["targetUT"])
+        self.assertNotIn("serializationFallback", obj)
+
+
 if __name__ == "__main__":
     unittest.main()

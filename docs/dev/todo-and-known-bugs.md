@@ -15,25 +15,38 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## KXRW-RESULT-NAN-DETAIL: a kx_rewind_watch flight that ends early writes no mission result at all [FILED 2026-10-01 from the mutation checker's blind replay, branch `mutation-phase2-pr3`. OPEN, low; mission library]
+## ~~KXRW-RESULT-NAN-DETAIL: a kx_rewind_watch flight that ends early writes no mission result at all~~ [FILED 2026-10-01 from the mutation checker's blind replay, branch `mutation-phase2-pr3`. FIXED 2026-10-01, branch `fix-kxrw-nan`]
 
 `mlib.evaluate_kxrw_assertions` copies raw state floats into assertion DETAIL dicts:
 `coreDiscardedWithEnginesOff` carries `discardUT` / `discardAltitude` (`KxrwState`
 defaults `core_discard_ut = nan`), `boosterStagesDropped` carries `peakThrustNewtons`
-(`ascent_peak_thrust = nan`), and on the rewind profile `rewoundToLaunch` /
-`playbackWatchedOut` carry `preRewindUT` / `postRewindUT` / `targetUT`.
-`AssertionOutcome.to_dict` scrubs a non-finite VALUE but not the detail, and
-`serialize_mission_result` renders with `allow_nan=False`, so any flight that ends before
-the core discard (or before thrust is read) raises `ValueError` in
-`mission_runner.run_mission` AFTER its try block: the subprocess dies with no result file,
-and the harness reads `<no-result>` -> INVALID(tooling-mission) instead of
-INVALID(mission), losing every assertion row the operator needs. Same verdict class
-(retryable driver-INVALID), wrong subkind, no evidence. Found by
-`mutation_check.py --mission-only`: the blind replay's outcomes hit it on all 13 lanes that
-fly `kx_rewind_watch` (GS-4, GS-6 to GS-12, MC-4, RF-9, RF-13H, RF-14, RF-15).
-Fix: scrub non-finite detail floats to None in the evaluator (the `_is_finite(...) else
-None` idiom `span_detail` already uses), or in `AssertionOutcome.to_dict`; either way add a
-cell that serializes the evaluator's outcomes over an initial state.
+(`ascent_peak_thrust = nan`), and `rewoundToLaunch` / `playbackWatchedOut` carry
+`preRewindUT` / `postRewindUT` / `targetUT`. `AssertionOutcome.to_dict` scrubbed a
+non-finite VALUE but not the detail, and `serialize_mission_result` renders with
+`allow_nan=False`, so any flight that ends before the core discard (or before thrust is
+read) raised `ValueError` in `mission_runner.run_mission` AFTER its try block: the
+subprocess died with no result file, and the harness read `<no-result>` ->
+INVALID(tooling-mission) instead of INVALID(mission), losing every assertion row. Same
+verdict class (retryable driver-INVALID), wrong subkind, no evidence. Found by
+`mutation_check.py --mission-only` on all 13 lanes that fly `kx_rewind_watch` (GS-4, GS-6 to
+GS-12, MC-4, RF-9, RF-13H, RF-14, RF-15).
+
+Fix: at the shared layer rather than in the kxrw evaluator, so every mission shell is
+covered. `AssertionOutcome.to_dict` runs the detail through the new `mlib.scrub_non_finite`
+(recursive over dicts / lists / tuples; NaN / Inf -> None, the null the value scrub already
+used; a clean container is returned as the same object, so clean rows stay byte-identical),
+and `build_mission_result` applies the same scrub to pre-shaped dict rows. The readers only
+consume `verdict` / `schema` / `wallSeconds` from the result, and null was already a legal
+detail value. Second layer: `run_mission` and the bad-`--params` path serialize through
+`mlib.serialize_mission_result_failsafe`, which on any serializer fault writes
+`mlib.minimal_mission_result` (schema, verdict, reason, phases, each assertion's `name` /
+`met`, the exception appended to `error`, `serializationFallback: true`) instead of
+crashing outside the try. Mirror check: every shell's evaluator was run over its initial
+state; only `kx_rewind_watch` carried a non-finite detail float (`rf12s_refly_orbit_insert`
+already scrubbed its own via a local `num`). Cells:
+`test_kx_rewind_watch.EarlyEndResultSerializationTests` (an early-end state serializes and
+reads back through `run._read_mission_result` as ASSERT-FAIL -> `(False, "mission")` with
+all 8 rows), `test_mlib.NonFiniteDetailScrubTests`, `test_shells.ResultSerializerFailureTests`.
 
 ## MUTATION-CHECK-RESIDUE: what the mutation checker still leaves to the operator [FILED 2026-10-01 when MUTATION-CHECK-PHASE-2 closed, branch `mutation-phase2-pr3`. OPEN; harness, spec rulings]
 
@@ -159,7 +172,7 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   policy), so `GetRewindRecording` is null in every scene (GUI-4 is a Space Center capture
   and draws no Rewind either); GUI-1's operator career has launch saves and draws it.
 
-## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branch `log-rework`. PARTS 1-2 DONE]
+## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branches `log-rework` (parts 1-2) and `log-rework-2` (part 3 on). PARTS 1-6 DONE]
 
 Presentation only (no recording data or schema change, no new window). The docked-mission
 subject is `bdock-recorded`'s "Kerbal X #2" (GUI-4), whose Log read 31 rows; it now reads 11,
@@ -192,11 +205,56 @@ pinned row by row in `StructureListBdockFixtureTests` against the committed fixt
   separation at UT 692.77 names `5157d655`, which now ends at 568.23; its parts sit on the tail
   `d60398f6`). The Log tolerates it (stage ownership follows the parent's chain); other
   consumers of `BranchPoint.ParentRecordingIds` may not. Not investigated beyond the Log.
-- [ ] Later PR: the per-mission include set (the Log ignores a mission's excluded intervals).
-- [ ] Later PR: retire the route Log (it keeps working; its Status column folded into Location,
-  an orbital endpoint reads `Mun orbit`).
-- [ ] Later PR: number same-named vessels (`Kerbal X [2]`); today the docking mission's two
-  `End: Orbiting | Kerbal X` rows are told apart only by their recording.
+- [x] Part 3, the Log follows the mission (inventory P10): the window opens on a Mission (the
+  Logistics button resolves the source tree's ORIGINAL mission) and
+  `MissionStructureListBuilder.DropExcludedSteps` drops a row only when every composition
+  interval covering it (each through-line holding its leg, span closed at both ends) is
+  excluded by `MissionIntervalSelection.IsIntervalIncluded`, the one predicate the vessel rows
+  and render windows read. An open Log rebuilds on a Layout-only change signature
+  (`RecordingStore.StateVersion`, the mission's name, an order-free hash of its excluded keys);
+  a gallery mock has no target and stays inert.
+- [x] Part 4, the route Log is retired: `RouteStructureListBuilder`, `TargetMode.Route`, the
+  route-only step kinds (Origin / Delivery / Stop), the Logistics `Log (Route)` button, the
+  three route gallery states and the seam's `op=target route=` (now `REJECTED
+  target-route-retired`, hlib mirrored) are gone. The route's one `Log` button opens its source
+  tree's original mission (`LogisticsWindowUI.ResolveRouteSourceTreeId` +
+  `MissionStore.FindOriginalMission`); the in-game `Structure` route cell now proves that
+  resolution (`RouteLog_OpensTheSourceMissionLog`, same cell count, so LT-4's pin holds), and
+  GUI-3 photographs the Mun route's source mission (`ib-structure-route-log-advanced`).
+  `StructureListWindowUI` no longer reads `CommittedRecordings`, so its ERS exemption is gone.
+- [x] Part 5, same-named vessels are numbered (`Kerbal X [2]`) by one helper,
+  `MissionVesselNaming`, that the Log and the Missions vessel rows (names and phrases) both
+  read. A leg whose launch identity matches a vessel ANOTHER mission recorded EARLIER is that
+  mission's vessel and keeps the partner phrase `Kerbal X (mission 'Kerbal X')`, never a
+  number (never for a leg sharing launch with this mission's own root). Own non-EVA legs group
+  into vessels by ChainId or launch identity, plus a RE-PIDDED CONTINUATION: KSP gives a ship
+  a fresh pid (and guid) when it undocks, so a leg descending from an own vessel whose own legs
+  have all ended, and sharing part pids with it, joins that vessel - one hop at a time. A
+  candidate pairs a vessel with a leg whose NEAREST own ancestor (walking up through partner
+  legs) is in it; each round the best pair overall merges (most shared pids, then the
+  later-ending vessel, then the ids) against the CURRENT grouping, so the ship's real undock
+  half wins over a smaller own piece that left the partner's stack a moment earlier, and a
+  ship re-pidded twice (dock, undock, dock, undock) chains whatever its recording ids. The
+  guard is only "no leg of the vessel still running when the leg starts", which keeps a
+  genuine same-named twin numbered and stops both halves of an own stack joining one vessel.
+  The Missions tab caches the pass ACROSS frames (`MissionVesselNaming.Cache`: per-tree names,
+  the launch index and per-recording part pids, keyed on `RecordingStore.StateVersion`, a
+  dedicated `MissionVesselNaming.NameVersion` that a recording rename and a hydration repair
+  bump, and the missions' names; a collapsed mission builds no named rows). Per name,
+  order is first appearance UT, then the vessel whose first leg shares part pids with its
+  parent, then RecordingId; numbering is per tree, so clones agree. The first cut numbered the
+  re-pidded own ship (`4af6cfd7`, 7 part pids shared with the root `5157d655`; GUI-3's
+  `1331a21b`, fresh pid AND guid, 17 shared with `36c7688b`) as `[2]`; both are now the same
+  vessel. In GUI-4 the undocked half `37d0dc07` and the docked stack `f049901e` carry the
+  first mission's launch (pid 3620499050, guid 97813bb6) and read the partner phrase; the Log
+  reads `Undocked (Kerbal X)` and no `[2]` anywhere. The expanded interval line names its
+  peel through the same map. `MissionVesselNamingTests` pins both fixtures and the synthetic
+  shapes (re-pidded own ship, genuine twin, chain, tie, partner direction, guid mismatch).
+- [x] Part 6, an End row only from a vessel's last segment: the optimizer's chain head keeps
+  the terminal state the vessel had at the cut (GUI-3's Kerbal X #4: `c549ef6e` ends
+  `SubOrbital` at its atmosphere exit while the chain continues on `04177024`), which drew a
+  mid-flight `End: Suborbital | Kerbin, Grasslands` row. A leg with a sequence successor or a
+  later ChainIndex in its chain draws none (`continuedEndsSkipped=` in the build summary).
 
 ## ~~MISSION-EVENT-DIGEST-DUPLICATE-LAUNCHED-ROW: the digest builds a second "launched" row for one flight~~ [FILED 2026-09-29 from MISSIONS-TAB-MODEL1. FIXED 2026-10-01, branch `missions-followups`]
 

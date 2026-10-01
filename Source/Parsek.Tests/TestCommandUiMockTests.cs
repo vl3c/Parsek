@@ -171,14 +171,14 @@ namespace Parsek.Tests
         {
             Assert.Equal("mock-kerbals-roster-lost-advanced",
                 TestCommandUiMock.DeriveLabel("mock", "kerbals.roster.lost", false));
-            Assert.Equal("mock-structure-route-pickup-basic",
-                TestCommandUiMock.DeriveLabel("mock", "structure.route.pickup", true));
+            Assert.Equal("mock-structure-mission-breakup-basic",
+                TestCommandUiMock.DeriveLabel("mock", "structure.mission.breakup", true));
             // The default host is what makes a mocked capture file under the mirror's
             // `mock` dataset rather than under a real fixture's name.
             Assert.Equal("mock", TestCommandUiMock.DefaultLabelPrefix);
             Assert.Equal(
-                TestCommandUiMock.DeriveLabel("mock", "structure.route.pickup", false),
-                TestCommandUiMock.DeriveLabel(null, "structure.route.pickup", false));
+                TestCommandUiMock.DeriveLabel("mock", "structure.mission.breakup", false),
+                TestCommandUiMock.DeriveLabel(null, "structure.mission.breakup", false));
         }
 
         // ----- the draw-produced read-back -----

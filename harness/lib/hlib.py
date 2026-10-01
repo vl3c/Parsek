@@ -3811,16 +3811,16 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
                 "opener, so op=target against %r answers REJECTED "
                 "target-unsupported-window"
                 % (index, UIACTION_WINDOW_KEY, window_name))
-        named = [k for k in ("mission", "route") if step_args.get(k) is not None]
-        if not named:
+        if step_args.get("route") is not None:
             errors.append(
-                "driver.steps[%d].args: op=target REQUIRES exactly one of mission= or "
-                "route=; the seam answers REJECTED target-arg-missing" % index)
-        elif len(named) > 1:
+                "driver.steps[%d].args.route: the route Log is retired - a route's Log "
+                "button opens the Log of the mission it was built from, so name that "
+                "mission (mission= takes its tree id); the seam answers REJECTED "
+                "target-route-retired" % index)
+        elif step_args.get("mission") is None:
             errors.append(
-                "driver.steps[%d].args: op=target takes exactly ONE of mission= / "
-                "route= (both given). They open different lists, so the seam refuses "
-                "rather than picking: REJECTED target-arg-conflict" % index)
+                "driver.steps[%d].args: op=target REQUIRES mission=; the seam answers "
+                "REJECTED target-arg-missing" % index)
 
     if op == "picker":
         window_name = str(window) if window is not None else None

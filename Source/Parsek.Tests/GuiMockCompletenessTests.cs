@@ -151,9 +151,6 @@ namespace Parsek.Tests
                 { "StructureStep.CollapsedRun",
                   () => AnyStructure(steps => steps.Any(
                       st => st.Label != null && st.Label.Contains(" x"))) },
-                { "StructureStep.RouteOrigin",
-                  () => AnyStructure(steps => steps.Any(
-                      st => st.Kind == StructureStepKind.Origin)) },
             };
 
         /// <summary>The bool-branch keys, so the cover-key validity cell accepts them

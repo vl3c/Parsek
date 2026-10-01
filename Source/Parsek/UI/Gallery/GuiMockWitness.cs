@@ -286,15 +286,6 @@ namespace Parsek.UI.Gallery
                         return;
                     }
                     return;
-                case "StructureStep.RouteOrigin":
-                    for (int i = 0; i < steps.Count; i++)
-                    {
-                        if (steps[i].Kind != StructureStepKind.Origin) continue;
-                        Add(into, steps[i].Label);
-                        Add(into, steps[i].Location);
-                        return;
-                    }
-                    return;
             }
         }
 

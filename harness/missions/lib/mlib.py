@@ -17901,8 +17901,12 @@ class AssertionOutcome:
     """One telemetry assertion's result (design mission-result "assertions").
     ``value`` is the evidence reading (a float, a situation string, or None when
     no finite reading exists); ``detail`` carries the window / tolerance / accepted
-    set for the serialized row. ``to_dict`` scrubs a non-finite value to JSON
-    ``null`` so the result JSON is always valid + deterministic."""
+    set for the serialized row. ``to_dict`` scrubs every non-finite float, in the
+    value AND anywhere inside the detail (nested dicts / lists included), to JSON
+    ``null`` so the result JSON is always valid + deterministic: an evaluator may
+    copy a machine stamp that is still at its NaN default (a flight that ended
+    before the stamping event) straight into the detail, and
+    ``serialize_mission_result`` renders with ``allow_nan=False``."""
     name: str
     met: bool
     value: object
@@ -17913,8 +17917,34 @@ class AssertionOutcome:
         if isinstance(v, float) and not math.isfinite(v):
             v = None
         row: Dict = {"name": self.name, "met": bool(self.met), "value": v}
-        row.update(self.detail)
+        row.update(scrub_non_finite(self.detail))
         return row
+
+
+def scrub_non_finite(obj):
+    """``obj`` with every non-finite float (NaN / +Inf / -Inf) replaced by None,
+    recursing into dicts, lists and tuples; the same null representation
+    ``AssertionOutcome.to_dict`` uses for a non-finite value. Pure and
+    non-mutating: a container that holds no non-finite float is returned as the
+    SAME object, so a clean row stays byte-identical, and a changed container is
+    rebuilt (a tuple as a plain tuple, which json renders as a list anyway).
+    A bool is never touched (it is an int subclass, not a float)."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        out = {}
+        changed = False
+        for k, item in obj.items():
+            new_item = scrub_non_finite(item)
+            changed = changed or new_item is not item
+            out[k] = new_item
+        return out if changed else obj
+    if isinstance(obj, (list, tuple)):
+        items = [scrub_non_finite(item) for item in obj]
+        if all(a is b for a, b in zip(items, obj)):
+            return obj
+        return items if isinstance(obj, list) else tuple(items)
+    return obj
 
 
 def _debounced_window_met(frames, getter, lo: float, hi: float, k: int) -> bool:
@@ -18610,9 +18640,9 @@ def evaluate_b5_assertions(frames, params: B5Params,
                    and 0.0 < cap_ap <= params.park_max_apoapsis
                    and cap_pe >= params.park_min_periapsis
                    and cap_ecc <= params.park_max_eccentricity)
-        # Carried readings ride the row as None (never NaN) when absent:
-        # AssertionOutcome.to_dict scrubs a non-finite VALUE but NOT the detail
-        # dict, and serialize_mission_result renders with allow_nan=False.
+        # Carried readings ride the row as None (never NaN) when absent.
+        # AssertionOutcome.to_dict also scrubs a non-finite detail float to None
+        # (serialize_mission_result renders with allow_nan=False).
         captured = AssertionOutcome(
             "capturedInTargetOrbit", cap_met, cap_ecc,
             {"required": B5_PARK, "body": params.target_body,
@@ -19167,7 +19197,9 @@ def build_mission_result(
         conn_s = None
     rows = []
     for a in (assertions or []):
-        rows.append(a.to_dict() if isinstance(a, AssertionOutcome) else dict(a))
+        # A pre-shaped dict row gets the same non-finite scrub to_dict applies.
+        rows.append(a.to_dict() if isinstance(a, AssertionOutcome)
+                    else scrub_non_finite(dict(a)))
     # Handoff disclosure (EVA-4). The REASON is extended by the caller
     # (mission_runner.run_mission), immediately before the `[Verdict]` log emit, because
     # that log line - not this dict - is what a human and `harness/status.py` read;
@@ -19220,6 +19252,66 @@ def serialize_mission_result(result: Dict) -> str:
     """
     text = json.dumps(result, sort_keys=True, indent=2, ensure_ascii=True, allow_nan=False)
     return text.replace("\r\n", "\n") + "\n"
+
+
+def minimal_mission_result(result: Dict, failure: str) -> Dict:
+    """The fallback mission-result dict for a ``result`` that would not serialize.
+
+    Keeps exactly what the harness and the operator need and nothing that could
+    fail again: the schema (so run.py's schema gate still reads it), the mission,
+    the VERDICT and reason (so the run classifies by the real verdict, not as a
+    missing result -> INVALID(tooling-mission)), the phases, and every assertion
+    row reduced to its ``name`` and ``met`` (value nulled). Every field is coerced
+    to a str / bool / int / None, so the minimal dict always serializes. The
+    original ``error`` is kept and ``failure`` (the serialization exception) is
+    appended; ``serializationFallback`` marks the file as the reduced shape."""
+    src = result if isinstance(result, dict) else {}
+
+    def text(value) -> Optional[str]:
+        return None if value is None else str(value)
+
+    rows = []
+    for row in (src.get("assertions") or []):
+        if isinstance(row, dict):
+            rows.append({"name": text(row.get("name")), "met": bool(row.get("met")),
+                         "value": None})
+    connect = src.get("connect") if isinstance(src.get("connect"), dict) else {}
+
+    def as_int(value) -> Optional[int]:
+        return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+    error = text(src.get("error"))
+    error = failure if not error else error + "\n" + failure
+    return {
+        "schema": MISSION_RESULT_SCHEMA,
+        "mission": text(src.get("mission")),
+        "verdict": text(src.get("verdict")),
+        "reason": text(src.get("reason")),
+        "phasesReached": [str(p) for p in (src.get("phasesReached") or [])],
+        "connect": {"attempts": as_int(connect.get("attempts")),
+                    "connectedSeconds": None,
+                    "rpcPort": as_int(connect.get("rpcPort"))},
+        "assertions": rows,
+        "wallSeconds": scrub_non_finite(src.get("wallSeconds"))
+        if isinstance(src.get("wallSeconds"), (int, float)) else None,
+        "krpcClientVersion": text(src.get("krpcClientVersion")),
+        "krpcServerVersion": text(src.get("krpcServerVersion")),
+        "serializationFallback": True,
+        "error": error,
+    }
+
+
+def serialize_mission_result_failsafe(result: Dict) -> Tuple[str, Optional[str]]:
+    """``serialize_mission_result(result)``, or, when that raises (a non-finite
+    float that escaped every scrub, an unserializable object), the serialized
+    ``minimal_mission_result`` instead. Returns ``(text, failure)``: ``failure`` is
+    None on the normal path and the exception text on the fallback, for the caller
+    to log. Never raises, so the mission shell always writes a result file."""
+    try:
+        return serialize_mission_result(result), None
+    except Exception as exc:  # noqa: BLE001 -- any serializer fault takes the fallback
+        failure = "result serialization failed: %s: %s" % (type(exc).__name__, exc)
+        return serialize_mission_result(minimal_mission_result(result, failure)), failure
 
 
 def parse_mission_result(text: str) -> Dict:
