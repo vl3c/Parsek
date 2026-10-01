@@ -10,6 +10,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: a flight-efficiency analyzer for harness runs.** `harness/tools/flight_efficiency.py`
+  (pure core `harness/lib/flighteff.py`) reads finished run artifacts and reports where the
+  WALL time went: 1x seconds outside the atmosphere with a static orbit, split by cause
+  (waiting for a node, a dwell phase, an autopilot slew, coasting to apoapsis or to entry),
+  rails warp below the altitude-legal factor, real 1x burns, and the harness overhead outside
+  the mission (KSP boot, each seam verb, quit, the post-quit verifier tail). Each finding
+  carries an estimated recoverable figure and the mission phase, mlib state machine and spec
+  `missionParams` keys that control it, per run or aggregated over every worktree's results.
+  It only measures; no mission, verifier or result changes. Over the 2026-10-01 nightly runs
+  about 39% of mission wall time was idle at 1x (B11's capture-node wait alone: ~600 s).
 - **Timeline rows explain themselves on hover.** Hovering a row's description in the
   Timeline now explains it in the window's bottom help line. A future row that holds a stock
   control names it, from the same check the stock screen's block uses: `Holds Research in R&D
@@ -70,6 +80,12 @@ _(unreleased — entries accumulate here per commit)_
   which splits the probe where it leaves the atmosphere (B17 had been failing on this). RF-2
   and RF-3 now move the clock past their second rewind point before re-flying it, since a
   point in the future cannot be re-flown.
+- **Dev: four more ascent missions expect the extra recording from the atmosphere-exit
+  split.** The same optimization of a flight committed in the flight scene adds one recording
+  where the ascent leaves the atmosphere. B7, B11, B12 and B15 failed on that alone, and each
+  now expects 9 recordings instead of 8. B2, B5 and B6 already allowed it. GS-8, B4, B13 and
+  B14 get more than one extra recording (a second stage leaving the atmosphere, a reentry, a
+  landing approach and touchdown), so their counts wait for a ruling.
 - **Dev: 15 more save-structure checks now gate the automated tests.** GS-1, GS-2, GS-3, GS-7,
   GS-9, V3F, V3R, RF-1, RF-4, RF-9 and CL-3 each had a report-only check on the saved game read
   correctly by a fresh run, and each check was shown to fail when its window was moved. 180 of

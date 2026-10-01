@@ -724,7 +724,19 @@ allowedAnomalies = []
 # min=8 is NOT a floor - it is the same number as max, and a run that produces
 # 7 or 9 has changed the recording TOPOLOGY and must be investigated, not
 # accommodated by widening this back out.
-count = { min = 8, max = 8 }
+#
+# RE-PINNED 8 -> 9 on 2026-10-01 (branch `split-count-repin`, todo
+# INFLIGHT-COMMIT-SPLIT-STALE-RECORDING-COUNTS). Since #1931 the in-flight seam
+# CommitTree runs the recording optimizer, which splits the ascent core at its
+# atmosphere exit, so the 8 recordings above commit as 9. Reading run
+# `2026-10-01_1253_B15-eve-flyby` was PARSEK-FAIL on `recordings.count 9 > max 8`
+# alone, and its KSP.log carries exactly one split:
+#   Split candidate (PersistedPhaseChange): rec=ac3aa7cc... sec=6 splitUT=186.96
+#   prev=Atmospheric next=ExoBallistic
+#   CommitTreeFlight: optimization pass ran committed=8->9
+# Re-flown on the new pin: `2026-10-01_1521_B15-eve-flyby` PASS attempt 1, count 9.
+# Still exact: 8 (the split missing) and 10 (a second split) both red.
+count = { min = 9, max = 9 }
 
 [expectations.logContracts]
 # Every token is sourced from its ACTUAL emitting ParsekLog call site.

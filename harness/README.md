@@ -162,6 +162,62 @@ the full phase history with durations, and a heuristic WHAT IS IT DOING line
 like a silent 1x hang in game -- and predicts the fall-through time).
 Stdlib only; parsers are pure functions tested in `lib/test_status.py`.
 
+## Flight efficiency (where the wall time goes)
+
+`tools/flight_efficiency.py` measures the REAL-TIME cost of finished runs: how
+much mission wall time ran at 1x while nothing happened, how much ran at a rails
+factor below the altitude-legal one, which 1x stretches were real burns, and what
+the harness spent outside the mission. It only reads run artifacts (no flight,
+no KSP, no change to any result); pure core `lib/flighteff.py`, thin shell
+`tools/flight_efficiency.py`, tests `lib/test_flighteff.py`.
+
+```
+python tools/flight_efficiency.py                                  # this worktree's results/
+python tools/flight_efficiency.py --run-id 2026-10-01_1231_B11-mun-orbit
+python tools/flight_efficiency.py --results-glob "C:/.../Parsek-*/harness/results" \
+    --since 2026-10-01 [--scenario B11-mun-orbit] [--per-run] [--top 10] [--json-out eff.json]
+```
+
+Inputs per run, each optional: `<runId>_mission.stdout.log` (telemetry, phase
+changes, warp actions), `<runId>_mission.json` (`warpUtilisation` calibrates the
+wall clock per phase visit), `<runId>.json` (startedUtc / endedUtc / attempts /
+driver steps), `<runId>_shots/KSP.log` (local wall stamps of boot, scene changes
+and every seam command), and the `<stamp>_harness.log` that wrote the result
+(lock, retry and `[Cost]` facts; run.py logs no wall stamps). A run with neither
+a mission log nor a KSP.log is skipped with a reason; a run seen in several
+worktrees is analysed once (the copy with the most artifacts wins).
+
+The estimation contract (full text in the `lib/flighteff.py` docstring):
+
+- Each telemetry interval lands in exactly one bucket: `idle` (1x, orbit static
+  within 1 m, outside any atmosphere and off the ground), `lowWarp` (rails below
+  the legal factor from mlib's `STOCK_WARP_ALTITUDE_LIMITS`, or physics warp on a
+  static orbit), `burn` (1x with a changing orbit; `thr=` is never read, MechJeb
+  owns the throttle), `atmoOrGround`, `warped`, `unclassified`.
+- Idle is split by a deterministic cause: dwell phase, attitude-align (apErr
+  above 5 deg), waiting-for-node, soi-approach, coast-to-apoapsis,
+  coast-to-entry, coast-to-periapsis, other-coast.
+- Recoverable per contiguous idle / lowWarp run = wall - game / best legal rate
+  (at the run's minimum altitude) - a fixed 10 s ramp-and-settle overhead,
+  floored at 0. Attitude-align uses the 4x physics rate, because rails warp
+  freezes rotation. The ideal assumes a warp-to that lands exactly on the next
+  event, so treat the figure as an upper bound on what a warp policy can win.
+- Long burns (60 s or more of 1x with a changing orbit) are reported as
+  physics-warp candidates with an optional x2 saving that never enters a total.
+- Blocking `warp_to` hops emit no telemetry; such a gap is bucketed `warped` and
+  given the wall its visit leaves over, and a hop whose effective rate is below
+  half the legal one is flagged `slow-warp-to-gap`.
+- Overhead rows tile startedUtc..endedUtc (the KSP.log local clock is aligned to
+  UTC by an offset rounded to the quarter hour, out-of-order mod stamps are
+  skipped): preLaunch, kspBoot, seamSteps (per verb), seamGaps, missionEnvelope
+  and its spawn/connect residue, quit, postQuitTail. A missing anchor reports
+  unknown, never a guess; run.py never waits on the machine lock, so there is no
+  lock-wait row.
+
+Each recommendation names its code site: the mission shell and the mlib state
+machine that drives the phase, plus the spec `missionParams` keys that control it
+(`lib/test_flighteff.py` pins every named key to a `params.get` in mlib).
+
 ## Contact sheets (V3): what a run leaves for the human eye
 
 Every attempt - PASS included - runs a light UNCONDITIONAL artifact step in
