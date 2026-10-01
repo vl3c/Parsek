@@ -163,13 +163,16 @@ namespace Parsek
         internal const double StartContextSeconds = 0.5;
 
         /// <summary>
-        /// A permanent part event this close after the start of a recording that continues
-        /// another (a split child or a chain segment) is a SEED: the recorder re-states the
-        /// part state a new segment starts in (RecordingOptimizer.ForwardPermanentStateEvents
-        /// at the split UT, the background recorder's loaded-physics seed a moment later),
-        /// so the ghost draws correctly. It is not a new event.
+        /// A recording that continues another (a split child or a chain segment) starts with
+        /// SEEDS: the recorder re-states the part state the segment starts in so the ghost
+        /// draws correctly (RecordingOptimizer.ForwardPermanentStateEvents at exactly the split
+        /// UT; the background recorder's loaded-physics seed a moment later). A seed is a
+        /// permanent event either AT the segment's start (within this epsilon, which absorbs
+        /// only serialization noise) or one an ancestor recording already had for the same
+        /// part. No time window beyond that: a REAL jettison a moment after a split (a
+        /// scripted fairing deploy at an atmosphere-exit chain split) must stay a row.
         /// </summary>
-        internal const double ContinuationSeedSeconds = 1.0;
+        internal const double ContinuationSeedEpsilonSeconds = 1e-3;
 
         /// <summary>The active recorder seeds the jettison state a ROOT recording starts in
         /// at its exact start UT; a root's start-UT Decoupled is real (launch clamps).</summary>
@@ -536,11 +539,15 @@ namespace Parsek
             if (rec == null) return false;
             double sinceStart = pe.ut - rec.StartUT;
             if (continuation)
-                return sinceStart <= ContinuationSeedSeconds;
+                return Math.Abs(sinceStart) <= ContinuationSeedEpsilonSeconds;
             return pe.eventType != PartEventType.Decoupled
                    && Math.Abs(sinceStart) <= RootSeedSeconds;
         }
 
+        // Seed = at the continuing segment's exact start, a root's start-UT jettison, or a
+        // re-statement of a state an ancestor already recorded for the same part (the
+        // background recorder's loaded-physics seed lands a fraction of a second after the
+        // split, and only this lineage check tells it from a real jettison).
         private static bool IsSeed(BuildContext ctx, Recording rec, PartEvent pe, bool continuation)
         {
             if (IsSeedEvent(rec, pe, continuation)) return true;

@@ -188,10 +188,46 @@ namespace Parsek.Tests
                 new PartEvent { ut = 10, eventType = PartEventType.Decoupled }, continuation: false));
             Assert.False(MissionStructureListBuilder.IsSeedEvent(r,
                 new PartEvent { ut = 10.5, eventType = PartEventType.ShroudJettisoned }, continuation: false));
+            // A continuing segment: only its exact start is a seed by time alone.
             Assert.True(MissionStructureListBuilder.IsSeedEvent(r,
-                new PartEvent { ut = 10.6, eventType = PartEventType.Decoupled }, continuation: true));
+                new PartEvent { ut = 10, eventType = PartEventType.Decoupled }, continuation: true));
             Assert.False(MissionStructureListBuilder.IsSeedEvent(r,
-                new PartEvent { ut = 12, eventType = PartEventType.Decoupled }, continuation: true));
+                new PartEvent { ut = 10.4, eventType = PartEventType.FairingJettisoned }, continuation: true));
+        }
+
+        // catches: a time window after a continuation's start swallowing a REAL jettison
+        // (a scripted fairing deploy right at an atmosphere-exit chain split), while the
+        // background loaded-physics seed of an ancestor's part, the same distance after a
+        // split, still drops.
+        [Fact]
+        public void RealJettisonJustAfterAChainSplit_IsARow_AncestorRestatementIsNot()
+        {
+            var head = new Recording
+            {
+                RecordingId = "head", VesselName = "Stack", ChainId = "c", ChainIndex = 0,
+                ExplicitStartUT = 0, ExplicitEndUT = 180, StartBodyName = "Kerbin",
+            };
+            var tail = new Recording
+            {
+                RecordingId = "tail", VesselName = "Stack", ChainId = "c", ChainIndex = 1,
+                ExplicitStartUT = 180, ExplicitEndUT = 600, StartBodyName = "Kerbin",
+                TerminalStateValue = TerminalState.Orbiting,
+            };
+            head.PartEvents.Add(new PartEvent { ut = 0, eventType = PartEventType.ShroudJettisoned, partPersistentId = 5, partName = "liquidEngine2" });
+            // A seed of the ancestor's shroud 0.52 s after the split (the BG load shape)...
+            tail.PartEvents.Add(new PartEvent { ut = 180.52, eventType = PartEventType.ShroudJettisoned, partPersistentId = 5, partName = "liquidEngine2" });
+            // ...and a real fairing deploy 0.4 s after the split, a part no ancestor jettisoned.
+            tail.PartEvents.Add(new PartEvent { ut = 180.4, eventType = PartEventType.FairingJettisoned, partPersistentId = 9, partName = "fairingSize1" });
+            var tree = new RecordingTree { Id = "t", RootRecordingId = "head" };
+            tree.Recordings["head"] = head;
+            tree.Recordings["tail"] = tail;
+
+            List<StructureStep> steps = MissionStructureListBuilder.Build(
+                tree, MissionStructureBuilder.Build(tree), StockTitles);
+
+            Assert.Single(steps, s => s.Kind == StructureStepKind.Staging
+                && s.Label == "Fairing jettisoned (fairingSize1)" && Math.Abs(s.UT - 180.4) < 1e-9);
+            Assert.DoesNotContain(steps, s => s.Label.StartsWith("Shroud", StringComparison.Ordinal));
         }
 
         // catches (b): a debris piece's own breakup at its end UT ("Staged fuelTank x2",
@@ -230,8 +266,10 @@ namespace Parsek.Tests
             r.PartEvents.Add(new PartEvent { ut = 50.5, eventType = PartEventType.Decoupled, partPersistentId = 2, partName = "radialDecoupler1-2" });
             var tree = new RecordingTree { Id = "t", RootRecordingId = "r" };
             tree.Recordings["r"] = r;
-            tree.BranchPoints.Add(new BranchPoint { Id = "b1", Type = BranchPointType.JointBreak, UT = 50.0, SplitCause = "DECOUPLE", DebrisCount = 1, CoalesceWindow = 0.1, ParentRecordingIds = { "r" } });
-            tree.BranchPoints.Add(new BranchPoint { Id = "b2", Type = BranchPointType.JointBreak, UT = 50.5, SplitCause = "DECOUPLE", DebrisCount = 1, CoalesceWindow = 0.1, ParentRecordingIds = { "r" } });
+            // CoalesceWindow 0.5 is the recorder's production value: each event lies inside
+            // BOTH branch points' windows, so this exercises the nearest-branch-point rule.
+            tree.BranchPoints.Add(new BranchPoint { Id = "b1", Type = BranchPointType.JointBreak, UT = 50.0, SplitCause = "DECOUPLE", DebrisCount = 1, CoalesceWindow = 0.5, ParentRecordingIds = { "r" } });
+            tree.BranchPoints.Add(new BranchPoint { Id = "b2", Type = BranchPointType.JointBreak, UT = 50.5, SplitCause = "DECOUPLE", DebrisCount = 1, CoalesceWindow = 0.5, ParentRecordingIds = { "r" } });
 
             List<StructureStep> steps = MissionStructureListBuilder.Build(
                 tree, MissionStructureBuilder.Build(tree), StockTitles);

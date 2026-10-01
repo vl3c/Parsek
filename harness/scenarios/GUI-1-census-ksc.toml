@@ -188,7 +188,7 @@ tier = "operator"
 # to close it is a wider instance profile.
 #
 # KNOWN THIN CAPTURE: `structure` opens with no target, so it photographs the empty
-# "Parsek - Structure" chrome. Its populated forms are reached from a Missions or
+# "Parsek - Log" chrome. Its populated forms are reached from a Missions or
 # Logistics ROW, which no seam op drives today - a follow-up, named here rather than
 # faked (GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET).
 #
