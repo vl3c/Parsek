@@ -3756,24 +3756,38 @@ descent; noted on the spec and its status row, not re-harvested (operator ruling
 2. The readiness check tests `Administration.Instance != null`, set in `Awake`, while the slot limit and commitment ceiling are read in `Start`; safe today only because `Pump` runs once per frame. Gate on a field `Start` sets, or compare the slot limit with `GameVariables`.
 3. `StrategyDisplayNames`' production cache is not exercised by the unit tests (the test hook bypasses it).
 
-## MUTATION-CHECK-PHASE-2: the mutation checker does not yet reach saves, the ledger or mission assertions [FILED 2026-09-24 with phase 1 (branch `mutation-check`). OPEN; harness]
+## MUTATION-CHECK-PHASE-2: the mutation checker does not yet reach the ledger or mission assertions [FILED 2026-09-24 with phase 1 (branch `mutation-check`). OPEN; harness. PR 1 (save perturbation) DONE 2026-10-01, branch `mutation-phase2`]
 
 Phase 1 (`harness/tools/mutation_check.py`, known-gate 17 in `autotest-status.md`) replays
 the gating evaluators that are pure over an archived KSP.log, plus the ARMED save-parse
-windows at the facet level (the measured count moved by one and to zero). Still unchecked,
-so a cell there can go vacuous with nothing noticing:
+windows at the facet level (the measured count moved by one and to zero). Phase 2 is
+planned as three PRs: (1) save perturbation, (2) ledger perturbation, (3) mission
+assertions and forbidden-token injection. Still unchecked after PR 1, so a cell there can
+go vacuous with nothing noticing: the ledger, mission and forbidden-pattern items below.
 
-- Save perturbation below the facet: edit the archived `persistent.sfs` itself (drop a
-  `RECORDING` node, a supersede row, a tombstone, a rewind point, a route stop) and re-run
-  `saveparse.parse_parsek_scenario` + `evaluate_save_structure`, so a window whose parser
-  path is dead is caught, not only a window that is too wide.
-- Ledger perturbation: the ledger oracle needs the run's seed capture; archive it (or
+- ~~Save perturbation below the facet~~ DONE (PR 1, `harness/lib/mutsave.py`): for every
+  window of every ARMED save-parse block the checker edits the archived `persistent.sfs`
+  itself so the measured value crosses each declared bound (drop or clone `RECORDING`,
+  `RECORDING_TREE`, supersede / tombstone / rewind-point rows, `BRANCH_POINT`, FLIGHTSTATE
+  `VESSEL`, `ROUTE`, `STOP`, `SOURCE`; clear or set `terminalState`; rewrite `pointCount`,
+  the route cycle counters, statuses, connection kinds and body names; re-point a route id
+  or endpoint pid), writes the tree back and re-runs the real
+  `saveparse.parse_parsek_scenario` + `evaluate_save_structure`. Each armed block also
+  gets fault edits (a torn save, no ParsekScenario node, a missing `pointCount`, a route the
+  codec would drop, a missing `completedCycles`). A window no crossing edit reds is
+  VACUOUS (spec and block named in the report). `mutation_check.py --save-only` runs it
+  without a KSP.log, over the newest archived produced save whose armed blocks pass, else
+  the spec's committed fixture template. First sweep (2026-10-01, every archive under the
+  umbrella root): all 124 specs with an armed block had a green archived save; 1802
+  edits, all killed; 1308 gates PROVEN, 0 VACUOUS, 0 UNCHECKED. Over committed fixtures
+  alone, 54 of the 124 baselines pass and all their gates are PROVEN.
+- Ledger perturbation (PR 2): the ledger oracle needs the run's seed capture; archive it (or
   re-derive it from the archived save) so `oracle.build_oracle_result` can replay with an
   award removed or a pool moved.
-- Mission assertions: replay a mission's recorded verdict with its sensor reads removed
-  (the kRPC telemetry lines it gates on), so a mission check that no longer reads what it
-  claims is caught.
-- Forbidden patterns: phase 1 cannot synthesize a line a forbidden regex would match; a
+- Mission assertions (PR 3): replay a mission's recorded verdict with its sensor reads
+  removed (the kRPC telemetry lines it gates on), so a mission check that no longer reads
+  what it claims is caught.
+- Forbidden patterns (PR 3): phase 1 cannot synthesize a line a forbidden regex would match; a
   literal-shaped forbidden token (`\[Parsek\]\[ERROR\]`) could be injected directly.
 
 Also open from the first sweep: the 723 triage survivors (96 lanes) listed by group in known-gate 17
