@@ -93,6 +93,45 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   policy), so `GetRewindRecording` is null in every scene (GUI-4 is a Space Center capture
   and draws no Rewind either); GUI-1's operator career has launch saves and draws it.
 
+## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branch `log-rework`. PARTS 1-2 DONE]
+
+Presentation only (no recording data or schema change, no new window). The docked-mission
+subject is `bdock-recorded`'s "Kerbal X #2" (GUI-4), whose Log read 31 rows; it now reads 11,
+pinned row by row in `StructureListBdockFixtureTests` against the committed fixture.
+
+- [x] Part 1, builder correctness (`MissionStructureListBuilder`): part-state seeds are not
+  events - a permanent event at a continuing recording's exact start (chain split
+  `ForwardPermanentStateEvents`) or at the exact UT of the branch point that created it (a
+  vessel's recording can start earlier than the moment the recorder attached and seeded), a
+  re-statement of a state an ancestor already recorded for
+  the same part (the background recorder's loaded-physics seed, ~0.5 s after a split), and a
+  root's start-UT jettison seeds; there is no time window, so a real jettison a moment after a
+  split stays a row; debris recordings contribute no part rows; a split branch
+  point IS the stage and absorbs its same-moment parts (its coalesce window, else 0.1 s) on
+  its parent or any segment of the parent's chain, symmetric partner included, while distinct branch points stay distinct rows (ripple
+  staging); part events within 0.5 s of a Dock / Undock / Board on a participating recording
+  are the coupling change, not staging; the simultaneous collapse compares the owning
+  recording, so same-named vessels no longer merge into `End x2`; a row past its recording's
+  start keeps only the body (no launch-pad location on an in-flight decouple).
+- [x] Part 2, presentation (`StructureListWindowUI`): columns Time | Event | Location |
+  Vessel; `End: <word>` and no End row for a Docked / Boarded leg; `<body> orbit` only for an
+  orbital ending or a separation whose piece recorded an orbit; Time = the date on row 1, then
+  `T+h:mm:ss`; `Staged: N pieces (<title> xK, ...)` with titles through PartLoader, resolved
+  once per build; Separation / Dock / Undock rows name the other vessel (the Missions
+  `X (mission 'Y')` spelling, shared as `MissionChapters.FormatPartnerWithMission`); empty
+  state `This mission has no recorded flight.`; a shortened Event cell carries the full list in
+  its tooltip, read in a single-line hover strip the window now hosts.
+- [ ] Look into: the optimizer's atmosphere-exit chain split leaves split branch points that fall
+  AFTER the cut naming the HEAD segment as parent (bdock-recorded after load: the probe
+  separation at UT 692.77 names `5157d655`, which now ends at 568.23; its parts sit on the tail
+  `d60398f6`). The Log tolerates it (stage ownership follows the parent's chain); other
+  consumers of `BranchPoint.ParentRecordingIds` may not. Not investigated beyond the Log.
+- [ ] Later PR: the per-mission include set (the Log ignores a mission's excluded intervals).
+- [ ] Later PR: retire the route Log (it keeps working; its Status column folded into Location,
+  an orbital endpoint reads `Mun orbit`).
+- [ ] Later PR: number same-named vessels (`Kerbal X [2]`); today the docking mission's two
+  `End: Orbiting | Kerbal X` rows are told apart only by their recording.
+
 ## ~~MISSION-EVENT-DIGEST-DUPLICATE-LAUNCHED-ROW: the digest builds a second "launched" row for one flight~~ [FILED 2026-09-29 from MISSIONS-TAB-MODEL1. FIXED 2026-10-01, branch `missions-followups`]
 
 `MissionEventDigest.AddLaunchRows` (`Source/Parsek/MissionEventDigest.cs`) emits one
@@ -5619,7 +5658,7 @@ vocabulary stops claiming a word nothing renders. NOT fixed here: which way it g
 product decision about whether an observation boundary belongs in a chronological log, and
 that is exactly the kind of question the owner's iteration loop exists to answer.
 
-**3. PRODUCT: `MissionStructureListBuilder`'s terminal row makes the Event column
+**3. RESOLVED 2026-10-01 (MISSION-LOG-REWORK: the Status column is gone and a terminal row reads `End: <word>`). PRODUCT: `MissionStructureListBuilder`'s terminal row makes the Event column
 redundant on a one-leg run.** Its terminal pass writes `Label = "End"` always and puts the
 terminal word in STATUS - which is the right split when several legs end differently, and
 reads as a wasted column on a single-leg mission whose last two rows are `End | Splashed`

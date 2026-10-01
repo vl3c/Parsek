@@ -109,7 +109,9 @@ tier = "operator"
 #     Group` over the non-self rows plus `(None / Root level)`), and BOTH QUESTIONS answered
 #     yes: `mission=Kerbal X #2` and `group=Kerbal X` resolved off
 #     `MissionStore.EnsureDefaultsForTrees`' seeding, with the Structure opener reporting
-#     `steps=31`.
+#     `steps=31`. After the Log rework (2026-10-01, PR #1945) the same opener reports
+#     `steps=11` - one row per real event (`2026-10-01_1630`, `bd-structure-mission-advanced`;
+#     rows pinned in `StructureListBdockFixtureTests`).
 #
 # WHAT THE RUN REFUTED, and this header claimed it: the THREE `REWIND_POINTS/POINT` entries
 # do NOT populate `Rewind/FF`. They are SEPARATION RewindPoints and they populate `Re-Fly`

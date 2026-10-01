@@ -195,16 +195,16 @@ namespace Parsek.UI.Gallery
             if (enumName != "TerminalState") return;
             TerminalState want;
             if (!TryParseEnum(out want, member)) return;
-            string status = MissionCompositionBuilder.TerminalName(want);
+            string label = MissionStructureListBuilder.FormatEndLabel(want);
             List<StructureStep> steps = structure.Steps;
             if (steps == null) return;
             for (int i = 0; i < steps.Count; i++)
             {
-                if (!string.Equals(steps[i].Status, status, StringComparison.Ordinal))
+                if (!string.Equals(steps[i].Label, label, StringComparison.Ordinal))
                     continue;
-                // The terminal word lives in the STATUS column - the Event cell is the
-                // generic "End" - so that is what a TerminalState cover must witness.
-                Add(into, steps[i].Status);
+                // The terminal word lives in the Event cell ("End: Orbiting"), so that is
+                // what a TerminalState cover must witness.
+                Add(into, steps[i].Label);
                 Add(into, steps[i].Location);
                 return;
             }
@@ -372,13 +372,11 @@ namespace Parsek.UI.Gallery
             if (steps == null) return;
             // BACKWARDS, because what makes a structure state distinctive is its ENDING -
             // a forward scan witnessed only the launch row, which every mission run draws,
-            // and that was one of the review's findings. The Status cell leads for the same
-            // reason: a launch row's "Prelaunch" is the least discriminating string in the
-            // window.
+            // and that was one of the review's findings.
             for (int i = steps.Count - 1; i >= 0 && into.Count < MaxWitnesses; i--)
             {
-                Add(into, steps[i].Status);
                 Add(into, steps[i].Label);
+                Add(into, steps[i].Location);
             }
         }
 
