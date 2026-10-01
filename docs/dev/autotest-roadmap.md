@@ -6309,18 +6309,19 @@ Remaining fail-open surfaces, ranked:
    readings are confirmed live. S4.1-rewind-merge is armed (runs `2026-07-31_1628`
    read-only / `_1635` armed / `_1637` negative control). STATE 2026-10-01 (branch
    `arm-last19`, re-derived from the specs with `saveparse.declared_structure_blocks` /
-   `armed_structure_blocks` over rewind + structure + points + routes): 192 of the 200
-   declared blocks are armed across 117 specs. The 2026-09-27 arming pass (`arm-save-checks`)
+   `armed_structure_blocks` over rewind + structure + points + routes): ALL 200 declared
+   blocks are armed, across 124 specs. The 2026-09-27 arming pass (`arm-save-checks`)
    armed 37 off matching readings, then RVR-8 `structure` and GS-8 both followed their green
    re-flies, and batch 2 armed 15 more (GS-1 / GS-2 / GS-3 `structure`; GS-7, GS-9, V3F,
    V3R both; RF-4 `rewind`; RF-1, RF-9, CL-3 `structure`), each off its own PASS reading
    with every bound inverted offline against that save and red on exactly its window.
    VB-1 `structure` followed on 2026-09-30, and the last pass (`arm-last19`, 2026-10-01)
-   armed 11 more on 9 specs: RF-16, RF-17, RF-20, RR-1 and EVA-7 off existing readings,
-   RF-12L, RF-2, RF-3 and V3C off fresh ones (V3C's recordings window re-pinned for #1931's
-   in-flight optimizer split, RF-2 / RF-3 after a future-point lane fix). What stays
-   ADDRESSED-REPORT-ONLY is 8 blocks on 8 specs, listed in todo
-   SAVE-BLOCKS-AWAITING-READINGS: the long harvest missions (B17 `points`, B23-B30 `rewind`).
+   armed the remaining 19 on 17 specs: RF-16, RF-17, RF-20, RR-1 and EVA-7 off existing
+   readings; RF-12L, RF-2, RF-3, V3C, B17 `points` and B23-B30 `rewind` off fresh ones
+   (V3C's and B17's recordings windows re-pinned for #1931's in-flight optimizer split,
+   RF-2 / RF-3 after a future-point lane fix). Nothing stays ADDRESSED-REPORT-ONLY on the
+   save surface (todo SAVE-BLOCKS-AWAITING-READINGS closed); a block declared from now on
+   arms off its own reading run as before.
 3. **Three expectation verifier families were declared and inert** (`route`,
    `rewind`, `loop`). PARTIALLY CLOSED by R9 2026-07-31: `rewind` is now evaluated
    AND ARMED on its one declarer - S4.1's asserts stopped being comments and became

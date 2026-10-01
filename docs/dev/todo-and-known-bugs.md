@@ -1194,6 +1194,26 @@ recording (`Built 8 ... engineSentinels=8 visualStates=0`; `2026-09-15_1546` rea
 `2026-09-29_1538` PASS attempt 1. All three armed `rewind` blocks met; RF-4 `rewind` and RF-1 /
 RF-9 `structure` armed off these readings (SAVE-BLOCKS-AWAITING-READINGS).
 
+## INFLIGHT-COMMIT-SPLIT-STALE-RECORDING-COUNTS: #1931 adds a chain segment to every in-flight-committed flight that leaves an atmosphere, and lane count pins written before it go red [FILED 2026-10-01, branch `arm-last19`. LANE WINDOWS, not a Parsek defect. OPEN for the lanes not re-read]
+
+#1931 (IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS, merged 2026-09-30) made the seam / mission
+`CommitTree` run `RecordingStore.RunOptimizationPass`, as the merge dialog and the scene-exit
+commit always did. A launch that climbs out of an atmosphere for more than the 120 s
+persistence window now commits as TWO chain segments (`Split candidate (PersistedPhaseChange)
+... prev=Atmospheric next=ExoBallistic`), the terminal and spawn stamp on the second. #1931
+changed no spec, so every lane whose `recordings.count` or structure `recordings` window was
+measured on an in-flight commit before 2026-09-30 and whose flight has such an ascent reads one
+recording too many. Seen and re-pinned on `arm-last19`: V3C `2026-10-01_0732` (3 -> 4) and B17
+`2026-10-01_0835` (2 -> 3, its ARMED structure block, so B17 was red on main). The lanes that
+start in orbit (B23, B24, B25, B26, B28, B29, B30) flew green on 2026-10-01 with their count
+windows unchanged. Candidates still unread
+on a post-#1931 DLL, by grep (specs driving `CommitTree` as a seam step, 35, plus the mission
+shells that commit through the seam): the pad and LKO ascents with exact or tight count windows,
+e.g. B2, B4, B5, B6, B7, B15, B18, L5, L6, CA-1, EVA-4, BDOCK-1. Already green on a #1931 DLL
+(the verification flights under `Parsek-verify-1931-1932`, 2026-09-29): S0.6, EVA-2, EVA-3,
+EX-1, RR-1, SE-1, L3, H58 (BDOCK-1 was INVALID autopilot-flake twice there). Fix: re-read each on the
+next tier run and re-pin a count only with the split line in its own KSP.log as the evidence.
+
 ## ~~RF-LANES-SECOND-REWIND-INTO-A-FUTURE-RP: RF-2 and RF-3 cannot reach their later rewind point since the future-rewind-point gate (#1788)~~ [FILED AND FIXED 2026-10-01, branch `arm-last19`. LANE SPEC DEFECT, not a Parsek defect. RE-FLOWN GREEN 2026-10-01]
 
 Both lanes reload the save their first merge wrote (clock ~UT 500) and then Re-Fly
@@ -1229,7 +1249,7 @@ without a jump or a flown ascent first. Re-flown 2026-09-29 (DLL `ee677200...`):
 `2026-09-29_1535` and CL-4 `_1536` PASS attempt 1, both armed `rewind` blocks met (supersedeRows 1,
 tombstones 2 on each); CL-3 `structure` armed off `_1535`.
 
-## SAVE-BLOCKS-AWAITING-READINGS: 8 report-only save-structure blocks on 8 specs (the B-series harvest missions) still wait for a matching reading [FILED 2026-09-27 from the arming pass, branch `arm-save-checks`; BATCH 2 2026-09-27 / 2026-09-29, branch `arm-batch2`; LAST PASS 2026-10-01, branch `arm-last19`. OPEN]
+## ~~SAVE-BLOCKS-AWAITING-READINGS: report-only save-structure blocks waiting for a matching reading~~ [FILED 2026-09-27 from the arming pass, branch `arm-save-checks`; BATCH 2 2026-09-27 / 2026-09-29, branch `arm-batch2`; CLOSED 2026-10-01 by the last pass, branch `arm-last19`: 200 of 200 declared blocks armed]
 
 The operator's 2026-09-27 arming pass armed every report-only `rewind` /
 `recordings.structure` / `recordings.points` block that had a matching reading (37 blocks,
@@ -1261,9 +1281,9 @@ seals a re-flown booster, rewinding the whole flight to launch does not offer th
 separation's Re-Fly again. The supervisor agreed on 2026-09-27, and `2026-09-29_1516` read
 rewindPoints 0, so the block is armed.
 
-**Last pass (2026-10-01, branch `arm-last19`).** 11 more blocks on 9 specs armed, each off a
-PASS reading with every window met and every bound inverted offline against that save, red
-on exactly its window (35 of 35):
+**Last pass (2026-10-01, branch `arm-last19`), batch A.** 11 more blocks on 9 specs armed, each
+off a PASS reading with every window met and every bound inverted offline against that save,
+red on exactly its window (35 of 35):
 - Off existing readings, no flight: RF-16 `rewind` (`2026-09-27_1341`), RF-17 `rewind`
   (`2026-09-27_1343`), RF-20 both (`2026-09-27_1838`), RR-1 `structure` (`2026-09-29_2151`,
   a DLL carrying #1931), EVA-7 `structure` (`2026-09-29_1652`; re-flown armed on current main
@@ -1279,9 +1299,20 @@ on exactly its window (35 of 35):
   structure `recordings` window were re-pinned 3 -> 4; every other window is the _1906 integer.
 - RF-2 / RF-3 needed a lane fix first (todo RF-LANES-SECOND-REWIND-INTO-A-FUTURE-RP).
 
-Re-derived from the specs the same way: 192 of 200 declared blocks armed across 117 specs.
-Still report-only, 8 blocks on 8 specs: B17 `points`; B23, B24, B25, B26, B28, B29, B30
-`rewind` (the long harvest missions, flying as Batch B).
+**Batch B (same branch and DLL).** The eight harvest-mission blocks, each lane flown for its
+reading run only (no fixture harvest, no committed fixture touched), all PASS attempt 1 except
+B17: B23 `2026-10-01_0806`, B28 `_0813`, B25 `_0822`, B24 `_0850`, B26 `_0909`, B29 `_0933`,
+B30 `_1009`, each `rewind` 0 / 0 / 0 and armed off it. B17 `_0835` was PARSEK-FAIL(expectation)
+on `recordings.count 3 > max 2` and its ARMED structure `recordings 3 > max 2`: the same #1931
+split as V3C (`Split candidate (PersistedPhaseChange) ... prev=Atmospheric next=ExoBallistic`,
+147 + 365 points), so B17 was red on main. Both windows re-pinned 2 -> 3 with that evidence
+(todo INFLIGHT-COMMIT-SPLIT-STALE-RECORDING-COUNTS), and `points` armed off `_0835` (total 574,
+trivial 0; the variance base is 574 / 574 / 582 across three flights of this mission). 23 of 23
+inverted bounds red on exactly their window. Batch B wall: 2 h 48 min including batch A's
+re-flights, inside the 3 h estimate (sum of past mission walls plus boot, about 3 h 20 min).
+
+Re-derived from the specs the same way: 200 of 200 declared blocks armed across 124 specs. No
+report-only save block remains; the next declared block arms off its own reading as before.
 
 ---
 

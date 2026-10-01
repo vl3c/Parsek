@@ -11405,6 +11405,9 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # 2026-08-06 on the three-run discipline; reading run
                        # 2026-08-06_0007 (every window already met), armed +
                        # negative-control runs cited in the status doc row.
+                       # 2026-10-01 (`arm-last19`): `points` armed too, and the
+                       # structure `recordings` window re-pinned 2 -> 3 (#1931's
+                       # in-flight optimizer split), both off `2026-10-01_0835`.
                        "B17-duna-direct-orbit.toml",
                        # V2: rewind (all max 0 - the dwell authors nothing
                        # durable) + structure (exactly one committed tree; the
@@ -11802,7 +11805,19 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        "RF-12L-rewind-batch-after-landing.toml",
                        "V3C-flight-arrival-companion.toml",
                        "RF-2-two-reflies-in-sequence.toml",
-                       "RF-3-refly-discard-then-commit.toml"}
+                       "RF-3-refly-discard-then-commit.toml",
+                       # Same pass, batch B: the B-series harvest missions flown for their reading only (no
+                       # fixture harvest), every run PASS attempt 1 with rewindPoints / supersedeRows /
+                       # tombstones all 0, `rewind` armed off it: B23 `2026-10-01_0806`, B28 `_0813`, B25
+                       # `_0822`, B24 `_0850`, B26 `_0909`, B29 `_0933`, B30 `_1009`. B17 `points` (listed
+                       # above) off `_0835`. Every bound inverted offline red on exactly its window (23 of 23).
+                       "B23-ike-orbit.toml",
+                       "B24-gilly-orbit.toml",
+                       "B25-laythe-orbit.toml",
+                       "B26-laythe-vall-transfer.toml",
+                       "B28-laythe-jool-return.toml",
+                       "B29-jool-kerbin-return.toml",
+                       "B30-mun-minmus-transfer.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []

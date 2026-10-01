@@ -619,6 +619,9 @@ forbidden = [
 ]
 
 [expectations.rewind]
+# ARMED 2026-10-01 off its reading `2026-10-01_0806` (PASS attempt 1: rewindPoints 0, supersedeRows 0, tombstones 0); every bound
+# inverted offline red on exactly its window. The history below is kept.
+gating        = true
 # REPORT-ONLY (no `gating` key - the ARMED_ALLOWLIST discipline: arming happens
 # later, off real bytes, through the reading / armed / negative-control
 # sequence). The three windows ARE the reading: a clean single-craft flight with
