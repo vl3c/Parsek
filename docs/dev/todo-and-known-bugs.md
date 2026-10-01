@@ -7761,7 +7761,10 @@ lands each stop's own manifest every cycle) and appends `across N stops` when mo
 stop receives cargo; Destination names the first stop that RECEIVES cargo (not stop 0: the
 only committed multi-stop host, the rover relay, visits its pickup source first, so the old
 cell named the pickup rover and read `(nothing)`) plus `(+N stops)`, with the visit-ordered
-stop list and each stop's pickup / delivery role in the cell's existing tooltip; the
+stop list and each stop's pickup / delivery role in the cell's existing tooltip, capped to
+the single-line strip budget (`TooltipEchoBox.BudgetChars`, now the one formula the
+`TooltipEchoBudgetTests` gate also reads) by keeping the leading stops that fit and ending
+`... +N more` (worst case, eight coords-fallback stops, pinned in that gate); the
 DestinationFull capacity line replays `RouteDestinationCapacityCheck.HasCapacityForAllStops`
 over the resolved stop vessels and names the stop it refuses, comparing against that stop's
 manifest plus earlier stops to the same vessel (the gate's own accounting); and the single

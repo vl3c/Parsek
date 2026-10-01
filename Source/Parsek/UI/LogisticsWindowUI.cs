@@ -589,6 +589,13 @@ namespace Parsek
         // for a further fold in a later pass; this L2 step does a conservative one-column
         // compression that is safe without in-game validation.
         internal const float MinWindowWidth = 1410f;
+
+        /// <summary>
+        /// First-open window width (px), which also sizes the single-line hover strip's
+        /// text budget (<see cref="TooltipEchoBox.BudgetChars"/>).
+        /// </summary>
+        internal const float DefaultWindowWidth = 1556f;
+
         internal const float MinWindowHeight = 500f;
 
         public bool IsOpen
@@ -628,7 +635,7 @@ namespace Parsek
                 // playtest-preferred width (2026-06-10 log: last resize ended w=1556 h=500),
                 // which also fits the widened Next column.
                 float x = mainWindowRect.x + mainWindowRect.width + 10;
-                windowRect = new Rect(x, mainWindowRect.y, 1556, 500);
+                windowRect = new Rect(x, mainWindowRect.y, DefaultWindowWidth, 500);
                 ParsekLog.Verbose("UI",
                     $"Logistics window initial position: x={windowRect.x.ToString("F0", CultureInfo.InvariantCulture)} y={windowRect.y.ToString("F0", CultureInfo.InvariantCulture)}");
             }
@@ -4003,7 +4010,8 @@ namespace Parsek
                 ? LogisticsDeliveryPresentation.FormatMultiStopDestination(
                     stopTexts[shown], LogisticsDeliveryPresentation.CountStops(route.Stops))
                 : "-";
-            tooltip = LogisticsDeliveryPresentation.FormatStopListTooltip(stopTexts, roles);
+            tooltip = LogisticsDeliveryPresentation.FormatStopListTooltip(stopTexts, roles,
+                TooltipEchoBox.BudgetChars(DefaultWindowWidth, TooltipEchoBox.SingleLine));
 
             ParsekLog.VerboseRateLimited("UI", "dest-resolve-" + route.Id,
                 $"Logistics: destination route={ShortId(route.Id)} stops={count.ToString(CultureInfo.InvariantCulture)} " +

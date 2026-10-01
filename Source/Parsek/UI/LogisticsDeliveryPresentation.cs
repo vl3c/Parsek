@@ -780,22 +780,50 @@ namespace Parsek
         /// stop is the resolved vessel name or the coords fallback, supplied by the
         /// caller; a null entry renders "-". Returns empty for fewer than two entries
         /// (the single-stop tooltip keeps its own coords contract).
+        /// <para>Capped to <paramref name="maxChars"/> (the window passes its strip
+        /// budget, <see cref="TooltipEchoBox.BudgetChars"/>; 0 or less means no cap):
+        /// when the whole list does not fit it keeps as many leading stops as fit and
+        /// ends with ", ... +N more". If not even the first stop fits beside that
+        /// suffix, it renders "Stops in order: ... +N more" alone, so the result never
+        /// runs past the strip for any realistic budget.</para>
         /// </summary>
         internal static string FormatStopListTooltip(
-            IReadOnlyList<string> stopTexts, IReadOnlyList<string> stopRoles)
+            IReadOnlyList<string> stopTexts, IReadOnlyList<string> stopRoles, int maxChars)
         {
             if (stopTexts == null || stopTexts.Count < 2) return string.Empty;
-            var sb = new StringBuilder("Stops in order: ");
-            for (int i = 0; i < stopTexts.Count; i++)
+            const string Prefix = "Stops in order: ";
+            int count = stopTexts.Count;
+            var entries = new string[count];
+            for (int i = 0; i < count; i++)
             {
-                if (i > 0) sb.Append(", ");
-                sb.Append((i + 1).ToString(CultureInfo.InvariantCulture)).Append(". ")
-                  .Append(string.IsNullOrEmpty(stopTexts[i]) ? "-" : stopTexts[i]);
+                var e = new StringBuilder();
+                e.Append((i + 1).ToString(CultureInfo.InvariantCulture)).Append(". ")
+                 .Append(string.IsNullOrEmpty(stopTexts[i]) ? "-" : stopTexts[i]);
                 string role = stopRoles != null && i < stopRoles.Count ? stopRoles[i] : null;
                 if (!string.IsNullOrEmpty(role))
-                    sb.Append(" (").Append(role).Append(')');
+                    e.Append(" (").Append(role).Append(')');
+                entries[i] = e.ToString();
             }
-            return sb.ToString();
+
+            string full = Prefix + string.Join(", ", entries);
+            if (maxChars <= 0 || full.Length <= maxChars)
+                return full;
+
+            for (int shown = count - 1; shown >= 0; shown--)
+            {
+                var sb = new StringBuilder(Prefix);
+                for (int i = 0; i < shown; i++)
+                {
+                    if (i > 0) sb.Append(", ");
+                    sb.Append(entries[i]);
+                }
+                if (shown > 0) sb.Append(", ");
+                sb.Append("... +").Append((count - shown).ToString(CultureInfo.InvariantCulture))
+                  .Append(" more");
+                if (sb.Length <= maxChars || shown == 0)
+                    return sb.ToString();
+            }
+            return full; // unreachable: shown == 0 always returns
         }
 
         /// <summary>

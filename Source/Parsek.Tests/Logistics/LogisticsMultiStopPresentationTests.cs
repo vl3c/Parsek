@@ -189,13 +189,50 @@ namespace Parsek.Tests.Logistics
             foreach (RouteStop s in stops) roles.Add(LogisticsDeliveryPresentation.StopRoleLabel(s));
 
             string tooltip = LogisticsDeliveryPresentation.FormatStopListTooltip(
-                new[] { "B", "A", "Mun (surface) 1.00,2.00", null }, roles);
+                new[] { "B", "A", "Mun (surface) 1.00,2.00", null }, roles, LogisticsBudget);
 
             Assert.Equal(
                 "Stops in order: 1. B (pickup), 2. A (delivery), 3. Mun (surface) 1.00,2.00 (pickup + delivery), 4. - (no cargo)",
                 tooltip);
             Assert.DoesNotContain("\n", tooltip);
-            Assert.Equal(string.Empty, LogisticsDeliveryPresentation.FormatStopListTooltip(new[] { "A" }, null));
+            Assert.Equal(string.Empty,
+                LogisticsDeliveryPresentation.FormatStopListTooltip(new[] { "A" }, null, LogisticsBudget));
+        }
+
+        private static int LogisticsBudget =>
+            TooltipEchoBox.BudgetChars(LogisticsWindowUI.DefaultWindowWidth, TooltipEchoBox.SingleLine);
+
+        // Two stops always fit the strip, so the cap leaves the text exactly as the
+        // uncapped form.
+        [Fact]
+        public void Destination_StopListTooltip_TwoStopsAreUnchangedByTheCap()
+        {
+            var texts = new[] { "Kerbin (surface) -89.99,-179.99", "Kerbin (surface) 89.99,179.99" };
+            var roles = new[] { "pickup + delivery", "pickup + delivery" };
+            string capped = LogisticsDeliveryPresentation.FormatStopListTooltip(texts, roles, LogisticsBudget);
+            Assert.Equal(LogisticsDeliveryPresentation.FormatStopListTooltip(texts, roles, 0), capped);
+            Assert.Equal(
+                "Stops in order: 1. Kerbin (surface) -89.99,-179.99 (pickup + delivery), "
+                + "2. Kerbin (surface) 89.99,179.99 (pickup + delivery)",
+                capped);
+        }
+
+        [Fact]
+        public void Destination_StopListTooltip_OverBudget_KeepsLeadingStopsAndCountsTheRest()
+        {
+            var texts = new[] { "Alpha", "Bravo", "Charlie", "Delta" };
+            var roles = new[] { "pickup", "delivery", "delivery", "delivery" };
+            // Full form is 94 chars; 60 holds "1. Alpha (pickup), 2. Bravo (delivery)" plus the suffix.
+            string capped = LogisticsDeliveryPresentation.FormatStopListTooltip(texts, roles, 60);
+            Assert.Equal("Stops in order: 1. Alpha (pickup), ... +3 more", capped);
+            Assert.True(capped.Length <= 60);
+
+            string wider = LogisticsDeliveryPresentation.FormatStopListTooltip(texts, roles, 72);
+            Assert.Equal("Stops in order: 1. Alpha (pickup), 2. Bravo (delivery), ... +2 more", wider);
+
+            // Not even one stop fits beside the suffix: the bare count.
+            Assert.Equal("Stops in order: ... +4 more",
+                LogisticsDeliveryPresentation.FormatStopListTooltip(texts, roles, 30));
         }
 
         // ------------------------------------------------------------------

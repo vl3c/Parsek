@@ -68,6 +68,25 @@ namespace Parsek
         internal const int SingleLine = 1;
         internal const int DoubleLine = 2;
 
+        /// <summary>Window chrome (skin window padding) plus the strip box's own padding, in px.</summary>
+        internal const float StripPaddingPx = 30f;
+
+        /// <summary>Pessimistic average character advance for the default IMGUI label font, in px.</summary>
+        internal const float AvgCharWidthPx = 7f;
+
+        /// <summary>
+        /// How many characters a strip of <paramref name="stripLines"/> lines holds in a
+        /// window <paramref name="windowWidthPx"/> wide:
+        /// <c>floor(L * (W - StripPaddingPx) / AvgCharWidthPx)</c>. An upper bound (word
+        /// wrap can only end a line early). The single source for
+        /// <c>TooltipEchoBudgetTests</c> and for any runtime-composed tooltip that caps
+        /// itself to fit (the Logistics multi-stop Destination list).
+        /// </summary>
+        internal static int BudgetChars(float windowWidthPx, int stripLines)
+        {
+            return (int)(stripLines * (windowWidthPx - StripPaddingPx) / AvgCharWidthPx);
+        }
+
         /// <summary>
         /// Explicit probe lines measured at a width nothing can wrap at, so the fixed
         /// height is exactly N lines of the box style plus its own padding.
