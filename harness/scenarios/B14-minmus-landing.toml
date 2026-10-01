@@ -416,7 +416,25 @@ allowedAnomalies = []
 # as B11/B12: the count is COMMIT-BLIND (sidecars are written for the active tree
 # too), so it guards recording TOPOLOGY while the log tokens guard the landed
 # terminal.
-count = { min = 8, max = 8 }
+# RE-PINNED on 2026-10-01 (branch `mission-warp-fix`, todo
+# INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS, closed by the operator ruling of
+# 2026-10-01: the extra splits are the intended in-flight commit shape).
+# Since #1931 the mid-mission seam CommitTree runs the recording optimizer,
+# which splits where the scene-exit commit always did: atmosphere exit,
+# reentry, approach, touchdown.
+# Reading run `2026-10-01_1334_B14-minmus-landing` read 11 (the 8 above plus
+# three splits), and its KSP.log carries:
+#   Split candidate (PersistedPhaseChange): rec=88bc0613... sec=6
+#   splitUT=212.18 prev=Atmospheric next=ExoBallistic   (ascent exit)
+#   Split candidate (PersistedPhaseChange): rec=7b4951cd... sec=38
+#   splitUT=278163.85 prev=ExoBallistic next=Approach    (Minmus approach)
+#   Split candidate (SurfaceInvolved): rec=d8b27ea7... sec=2
+#   splitUT=278432.07 prev=Approach next=SurfaceMobile   (touchdown)
+#   CommitTreeFlight: optimization pass ran committed=8->11
+# Still exact: 10 and 12 both red.
+# Confirmed on the new pin (mission warp policy flights): `2026-10-01_1938_B14-minmus-landing` PASS
+# attempt 1, same splits.
+count = { min = 11, max = 11 }
 
 [expectations.logContracts]
 # Sourced from the ACTUAL emitting ParsekLog call sites; identical set to B13

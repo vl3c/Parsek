@@ -340,7 +340,10 @@ SPEC = mission_runner.MissionSpec(
     # 10x rails warp itself, so its four phases alone permit it
     # (`mlib.kxrw_rails_warp_permitted`); a lane with no stages never enters them.
     allow_rails_warp=mlib.kxrw_rails_warp_permitted,
-    max_physics_warp=0.0,
+    # PHYSICS warp only inside the COAST wait (mission warp policy,
+    # 2026-10-01): the machine runs that wait at 4x once the stack is above the
+    # atmosphere, and `mlib.kxrw_max_physics_warp` keeps 0.0 everywhere else.
+    max_physics_warp=mlib.kxrw_max_physics_warp,
     # No settle tail (the R1 precedent, sharpened by this lane's reload straddle):
     # every assertion is machine-carried evidence, and the frames AFTER the terminal
     # are read in a scene that has already been torn down and rebuilt once.

@@ -218,6 +218,61 @@ Each recommendation names its code site: the mission shell and the mlib state
 machine that drives the phase, plus the spec `missionParams` keys that control it
 (`lib/test_flighteff.py` pins every named key to a `params.get` in mlib).
 
+### The mission warp policy (what a mission warps, and why)
+
+Operator ruling 2026-10-01: burns stay at 1x, so their precision never changes;
+the idle 1x stretches around them are warped. The pure decisions live in
+`missions/lib/mlib.py` (section "MISSION WARP POLICY", tests
+`missions/lib/test_mission_warp_policy.py`); the runner only reads three inputs
+the decisions need: the vessel mass, and the body's atmosphere depth and surface
+gravity from the game's `CelestialBody` (cached per body). An unread input fails
+every decision closed, which is the pre-policy 1x behaviour.
+
+- **Capture-node waits (rails).** MechJeb 2.15.1's NodeExecutor warps to 600 s
+  before ignition, then aligns at 1x until it is within 1 deg AND turning slower
+  than 0.001 rad/s, calling `MinimumWarp` every tick while it does, so a craft
+  that never settles idles the whole 600 s (B11's and B13's capture: ~590 s).
+  The b5 machine therefore HOLDS the CAPTURE-BURN hand-off (`node_wait_ut`),
+  rails-warps itself to node UT - half the burn (`dv * m / 2F`, an
+  over-estimate) - `NODE_WAIT_ORIENT_LEAD_SECONDS` (120 s), landing before any
+  predicted SOI change, and only then engages the (autowarping) executor, which
+  aligns and burns exactly as before. No burn watchdog runs during the hold (the
+  executor was never engaged). The transfer, the ejection and the park round-out
+  are NOT held: there the executor settles inside its own lead, so a hold saves
+  nothing, and a held TLI measurably moved the burn (it ended 3.7 s earlier on
+  all three Mun verification flights, which re-timed the arrival). Nor is the
+  ascent's circularization node: MechJeb's ascent engages the executor
+  internally and the 1x there is its align-and-settle, which needs physics. The
+  executor's autowarp flag is never turned off: it is MechJeb GLOBAL persistent
+  state and would outlive the run.
+- **Vacuum landing coasts (rails).** MechJeb's untargeted landing never warps,
+  so DESCENT rails-warps an airless-body impact coast (periapsis below 0,
+  descending, orbit static for 2 frames, landing autopilot observed engaged)
+  down to a floor of `max(1.5 x approach altitude, approach + 10 km)` (Mun
+  37.5 km, Minmus 22 km), so the recorder's Approach crossing and the braking
+  burn run at 1x physics.
+- **Physics dwells (physics warp, 4x).** A dwell whose check needs physics
+  runs under physics warp instead of rails, which would freeze the attitude,
+  pack every loaded vessel and turn the recorded coverage into on-rails
+  checkpoint sections: the PARK dwell (tumble ceiling + recorded parked
+  coverage; warped only while in-gate) and the kx COAST wait (post-separation
+  coverage; above the atmosphere with the throttle read zero; the kx shell's
+  `max_physics_warp` is a per-state callable that allows 4x in COAST only). Each
+  drops to 1x 15 s before it can end, so a commit or seam step never runs warped.
+  Physics warp keeps every physics frame, so the recorded sections stay per-frame
+  physics sections; the lanes' count, structure and log expectations all passed
+  on the verification flights.
+- **B4's REENTRY exo coast** hops while still ascending after the cutoff, not only
+  while descending (`ascending_coast_hops`).
+
+Not warped by design: B4's retrograde slew (an attitude slew, outside the
+ruling's coasts and node waits; rails freezes rotation), the ascent's
+circularization align-and-settle (MechJeb-internal), the landed settle.
+Never warped: a commanded burn, the inside of an atmosphere, a pending stage or
+seam step, a real-time replay (GS-8's WATCH / PLAYBACK-WAIT stay 1x by design).
+Every warp the policy emits carries its reason in the action's text, so the
+mission log line reads `action warp_to_ut value=... text=node-wait: ...`.
+
 ## Contact sheets (V3): what a run leaves for the human eye
 
 Every attempt - PASS included - runs a light UNCONDITIONAL artifact step in

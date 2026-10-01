@@ -170,7 +170,23 @@ allowedAnomalies = []
 # this floor and lowering it would re-open the exact one-below-population hole
 # B11/B12 reject.
 # Never widen back toward 1.
-count = { min = 9, max = 10 }
+# RE-PINNED on 2026-10-01 (branch `mission-warp-fix`, todo
+# INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS, closed by the operator ruling of
+# 2026-10-01: the extra splits are the intended in-flight commit shape).
+# Since #1931 the mid-mission seam CommitTree runs the recording optimizer,
+# which splits where the scene-exit commit always did: atmosphere exit,
+# reentry, approach, touchdown.
+# Reading run `2026-10-01_1143_B4-reentry-splashdown` read 11 (the 9 above
+# plus two splits), and its KSP.log carries:
+#   Split candidate (PersistedPhaseChange): rec=7c6bdf2f... sec=6
+#   splitUT=212.20 prev=Atmospheric next=ExoBallistic   (ascent exit)
+#   Split candidate (PersistedPhaseChange): rec=35326eaa... sec=17
+#   splitUT=916.94 prev=ExoBallistic next=Atmospheric   (reentry)
+#   CommitTreeFlight: optimization pass ran committed=9->11
+# EXACT now (was 9..10): 10 (a split missing) and 12 both red.
+# Confirmed on the new pin (mission warp policy flights): `2026-10-01_2023_B4-reentry-splashdown` PASS
+# attempt 1, same splits.
+count = { min = 11, max = 11 }
 
 [expectations.logContracts]
 # POPULATION gate: the count window cannot be one (it is COMMIT-BLIND, and a

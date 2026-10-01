@@ -20990,7 +20990,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
     # floored B4 at 7 by keying on _b5_flameout_stage alone.
     GATED = {
         "B2-lko-ascent.toml":         (7, 8, "b2_decide", False),
-        "B4-reentry-splashdown.toml": (9, 10, "b4_decide", True),
+        "B4-reentry-splashdown.toml": (11, 11, "b4_decide", True),
         "B5-mun-flyby.toml":          (8, 9, "b5_decide", True),
         "B6-minmus-flyby.toml":       (8, 9, "b5_decide", True),
         "B7-duna-flyby.toml":         (9, 9, "b5_decide", True),
@@ -21009,9 +21009,10 @@ class DebrisPopulationGateTests(unittest.TestCase):
     # ExoBallistic). B7's exact window took that +1 on 2026-10-01 (reading
     # 2026-10-01_1310 red on 9 > max 8 alone, re-flight 2026-10-01_1508 PASS at 9). B2,
     # B5 and B6 read the same +1 inside their existing max (2026-10-01_1127 / _1201 /
-    # _1210) and B4 reads two splits (ascent exit plus reentry), so it is not re-pinned
-    # (todo INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS).
-    OPTIMIZER_SPLITS = {"B7-duna-flyby.toml": 1}
+    # _1210). B4 reads two splits (ascent exit plus reentry): re-pinned 9..10 -> 11 exact
+    # by the 2026-10-01 operator ruling that closed todo INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS
+    # (reading 2026-10-01_1143, confirmed 2026-10-01_2023 PASS at 11).
+    OPTIMIZER_SPLITS = {"B7-duna-flyby.toml": 1, "B4-reentry-splashdown.toml": 2}
 
     # spec -> (measured count, the PASS run ids it was read from). Every value is
     # `verifiers.expectations.observed.recordings.count` off a verdict=PASS result
@@ -21029,7 +21030,8 @@ class DebrisPopulationGateTests(unittest.TestCase):
         "B2-lko-ascent.toml":         (7, ("2026-07-25_0824_B2-lko-ascent",)),
         # 9 since 2026-09-24: the flight now drops the core AND the Poodle stack
         # (reentryStageCount = 3) so the pod reenters alone and its chute can open.
-        "B4-reentry-splashdown.toml": (9, ("2026-09-24_1820_B4-reentry-splashdown",)),
+        # 11 since 2026-10-01: plus #1931's two in-flight optimizer splits.
+        "B4-reentry-splashdown.toml": (11, ("2026-10-01_2023_B4-reentry-splashdown",)),
         "B5-mun-flyby.toml":          (8, ("2026-07-25_0643_B5-mun-flyby",
                                            "2026-07-25_0847_B5-mun-flyby")),
         "B6-minmus-flyby.toml":       (8, ("2026-07-25_0636_B6-minmus-flyby",

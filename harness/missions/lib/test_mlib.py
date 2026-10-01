@@ -7349,6 +7349,9 @@ B11_PARAMS = mlib.B5Params(
     park_debounce=3,
     park_timeout=600.0,
     commit_timeout=300.0,
+    # Pre-policy shape: the mission warp policy (2026-10-01) is pinned by its
+    # own cells (MissionWarpPolicy*Tests), so these fixtures keep the 1x park.
+    park_physics_warp=False,
 )
 
 
@@ -9489,6 +9492,9 @@ B13_PARAMS = mlib.B5Params(
     landed_dwell=120.0,
     landed_debounce=3,
     landed_timeout=600.0,
+    # Pre-policy shape (see B11_PARAMS); the policy cells flip these on.
+    park_physics_warp=False,
+    descent_coast_warp=False,
 )
 
 

@@ -2021,6 +2021,212 @@ def max_legal_rails_factor(body: str, altitude_m: float) -> int:
 
 
 # ---------------------------------------------------------------------------
+# MISSION WARP POLICY (operator ruling 2026-10-01). Burns stay at 1x, so their
+# precision is unchanged; the idle 1x stretches AROUND them are warped. A log
+# analysis of the 2026-10-01 runs measured them (telemetry is ~1 Hz of wall
+# time, and an unchanged ap/pe at 1x is idle): B11 CAPTURE-BURN ~580 s waiting
+# for MechJeb's executor, the ~175 s PARK dwell, B4's ~340 s retrograde slew,
+# GS-8's ~125 s suborbital coast, and B13/B14's ~1,250 s landing coast.
+#
+# Three mechanisms, chosen by WHAT the stretch needs:
+#   - CAPTURE-NODE WAITS (rails): MechJeb 2.15.1's NodeExecutor (decompiled
+#     StateWarpAlign) rails-warps to ignition - 600 s, then aligns at 1x until
+#     AlignedAndSettled (1 deg AND |omega| < 0.001 rad/s, roll included) before
+#     warping on, and while it aligns it calls MinimumWarp every tick, so a
+#     second warp writer is cancelled. A vessel that never settles idles the
+#     whole 600 s. The machine therefore HOLDS the CAPTURE hand-off, rails-warps
+#     itself to NODE_WAIT_ORIENT_LEAD_SECONDS before ignition, and only then
+#     engages the executor, which aligns and burns exactly as before (see
+#     _B5_NODE_WAIT_PHASES for why transfers are not held).
+#   - VACUUM DESCENT COASTS (rails): MechJeb's untargeted landing never warps
+#     (FinalDescent has no warp call), so the machine rails-warps the coast down
+#     to a floor above the airless body's approach altitude.
+#   - PHYSICS DWELLS (physics warp): a dwell whose check needs physics -- a
+#     tumble ceiling, or recorded per-frame coverage -- runs at
+#     PHYSICS_DWELL_WARP_INDEX instead. Rails would freeze the attitude, pack
+#     every loaded vessel (debris in the atmosphere included) and turn the
+#     recorded coverage into on-rails checkpoint sections.
+#   - B4's REENTRY exo coast hops while still ascending, not only descending.
+# NOT warped: B4's ~340 s retrograde slew. It is an attitude slew, not a coast or
+# a node wait (the ruling's scope), and rails would freeze the rotation.
+# Never warped: a commanded burn, the inside of an atmosphere, a pending stage
+# or seam step. Every warp the policy emits carries its reason in Action.text,
+# so the runner's action line names it.
+# ---------------------------------------------------------------------------
+
+# Game seconds before MechJeb's ignition (node UT minus half the burn) at which
+# a held executor hand-off releases. The executor then has this long at 1x to
+# align (it ignites only once within 1 deg). The 2026-10-01 runs measured its
+# align-and-settle at 52 s (B11 transfer), 79 s (B15 transfer), 80 s (B15
+# ascent) and 93 s (B7 transfer); settling is the slower half, and a burn only
+# needs alignment, so 120 s keeps every measured flip inside the lead.
+NODE_WAIT_ORIENT_LEAD_SECONDS = 120.0
+# A hold is only worth it when the warp spans at least this much game time.
+NODE_WAIT_MIN_WARP_SECONDS = 60.0
+# The node-wait warp lands this far before a predicted SOI change.
+NODE_WAIT_SOI_MARGIN_SECONDS = 60.0
+# A held hand-off releases once UT is within this many game seconds of target.
+NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS = 5.0
+
+# Vacuum descent coast: the rails floor sits at max(1.5 x approach altitude,
+# approach altitude + this margin). The approach altitude is the stock rails
+# limit at index 4, the same value Parsek's recorder splits on
+# (FlightRecorder.ComputeApproachAltitude), so the Approach crossing and the
+# braking burn both happen at 1x physics. Mun: 37.5 km. Minmus: 22 km.
+DESCENT_WARP_FLOOR_MARGIN_M = 10000.0
+# Fraction of the predicted fall time to the floor that one warp covers.
+# The prediction uses SURFACE gravity, an upper bound on the pull at altitude,
+# so it already arrives early; the fraction adds a second margin.
+DESCENT_WARP_TIME_FRACTION = 0.8
+DESCENT_WARP_MIN_SECONDS = 60.0
+# Consecutive frames the orbit must read static (no thrust) before a coast warp.
+COAST_STATIC_FRAMES = 2
+# ap/pe drift (m) between frames that still counts as static at 1x.
+COAST_STATIC_TOLERANCE_M = 5.0
+
+# kRPC PhysicsWarpFactor index for a physics dwell: 3 = 4x, the stock ceiling
+# and the value every rails-allowed shell's max_physics_warp already permits.
+PHYSICS_DWELL_WARP_INDEX = 3
+# A physics dwell drops back to 1x this many game seconds before it ends, so
+# the exit frame (a commit, a burn gate, a seam step) always runs at 1x.
+PHYSICS_DWELL_TAIL_SECONDS = 15.0
+
+
+def orbit_static(prev_ap: Optional[float], prev_pe: Optional[float],
+                 ap: float, pe: float,
+                 tolerance_m: float = COAST_STATIC_TOLERANCE_M) -> bool:
+    """True iff apoapsis and periapsis both moved at most ``tolerance_m``
+    since the previous frame -- the no-thrust evidence a coast warp needs.
+    The commanded throttle is no evidence (it reads 0 under MechJeb), the
+    orbit is. Fails closed on any unread value."""
+    if prev_ap is None or prev_pe is None:
+        return False
+    if not (_is_finite(ap) and _is_finite(pe)
+            and _is_finite(prev_ap) and _is_finite(prev_pe)):
+        return False
+    return abs(ap - prev_ap) <= tolerance_m and abs(pe - prev_pe) <= tolerance_m
+
+
+def half_burn_seconds(node_dv: float, available_thrust: float,
+                      vessel_mass: float) -> float:
+    """Upper bound on half the burn time of a node: dv * m / (2 F). The linear
+    form ignores the mass the burn sheds, so it OVER-estimates, which moves
+    the node-wait landing earlier -- the safe direction. NaN when any input is
+    unread or the thrust is zero."""
+    if not (_is_finite(node_dv) and _is_finite(available_thrust)
+            and _is_finite(vessel_mass)):
+        return float("nan")
+    if available_thrust <= 0.0 or vessel_mass <= 0.0 or node_dv < 0.0:
+        return float("nan")
+    return node_dv * vessel_mass / (2.0 * available_thrust)
+
+
+def node_wait_warp_plan(now_ut: float, node_ut: float, node_dv: float,
+                        available_thrust: float, vessel_mass: float,
+                        time_to_soi: float, altitude: float, periapsis: float,
+                        atmosphere_depth: float,
+                        lead_seconds: float = NODE_WAIT_ORIENT_LEAD_SECONDS,
+                        min_window: float = NODE_WAIT_MIN_WARP_SECONDS
+                        ) -> Tuple[Optional[float], str]:
+    """Where to rails-warp before handing a node to MechJeb's executor.
+
+    Returns ``(target_ut, reason)``; ``target_ut`` is None when the hand-off
+    should go straight to the executor (the pre-policy behaviour), and the
+    reason then says why. The target is node UT - half burn - lead, pulled in
+    to land NODE_WAIT_SOI_MARGIN_SECONDS before a predicted SOI change.
+    Refused when any input is unread (fail closed to the executor's own
+    warp), when the vessel or its periapsis is inside an atmosphere, or when
+    the warp would span less than ``min_window``."""
+    if not (_is_finite(now_ut) and _is_finite(node_ut)):
+        return None, "node clock unread"
+    half = half_burn_seconds(node_dv, available_thrust, vessel_mass)
+    if not _is_finite(half):
+        return None, "burn time unknown (dv/thrust/mass unread)"
+    if not _is_finite(atmosphere_depth):
+        return None, "atmosphere depth unread"
+    if atmosphere_depth > 0.0:
+        if not _is_finite(altitude) or altitude <= atmosphere_depth:
+            return None, "vessel inside the atmosphere"
+        if not _is_finite(periapsis) or periapsis <= atmosphere_depth:
+            return None, "periapsis inside the atmosphere"
+    target = node_ut - half - lead_seconds
+    why = ("node-wait: nodeUt=%.1f halfBurn=%.1f lead=%.0f"
+           % (node_ut, half, lead_seconds))
+    if _is_finite(time_to_soi) and time_to_soi > 0.0:
+        soi_limit = now_ut + time_to_soi - NODE_WAIT_SOI_MARGIN_SECONDS
+        if soi_limit < target:
+            target = soi_limit
+            why += " soi-clamped tts=%.1f" % time_to_soi
+    if target - now_ut < min_window:
+        return None, ("warp window %.0f s < %.0f s (%s)"
+                      % (target - now_ut, min_window, why))
+    return float(target), why
+
+
+def descent_warp_floor(body: str) -> Optional[float]:
+    """The rails floor of a vacuum descent coast over ``body`` (metres above
+    the surface): max(1.5 x approach altitude, approach + margin), where the
+    approach altitude is the body's stock rails limit at index 4. None for a
+    body outside the committed table (fail closed: no warp)."""
+    limits = STOCK_WARP_ALTITUDE_LIMITS.get(body)
+    if limits is None or len(limits) < 5:
+        return None
+    approach = float(limits[4])
+    return max(1.5 * approach, approach + DESCENT_WARP_FLOOR_MARGIN_M)
+
+
+def descent_coast_warp_plan(now_ut: float, altitude: float,
+                            vertical_speed: float, body: str,
+                            atmosphere_depth: float, surface_gravity: float,
+                            static_frames: int) -> Tuple[Optional[float], str]:
+    """Where to rails-warp a vacuum descent coast, or why not.
+
+    Fall time to the floor under constant SURFACE gravity (an upper bound on
+    the pull at altitude, so the prediction arrives early) solves
+    ``d + vz t - g t^2 / 2 = 0`` for ``t``; one warp covers
+    DESCENT_WARP_TIME_FRACTION of it. Refused on an atmospheric body (the
+    reentry machines own those), on any unread input, while the orbit is
+    still changing (a burn), below the floor, or when the window is short."""
+    if not _is_finite(atmosphere_depth):
+        return None, "atmosphere depth unread"
+    if atmosphere_depth > 0.0:
+        return None, "atmospheric body"
+    floor = descent_warp_floor(body)
+    if floor is None:
+        return None, "no rails table for body %r" % (body,)
+    if static_frames < COAST_STATIC_FRAMES:
+        return None, "orbit not static (burning)"
+    if not (_is_finite(now_ut) and _is_finite(altitude)
+            and _is_finite(vertical_speed) and _is_finite(surface_gravity)
+            and surface_gravity > 0.0):
+        return None, "descent inputs unread"
+    drop = altitude - floor
+    if drop <= 0.0:
+        return None, "at or below the %.0f m floor" % floor
+    g = surface_gravity
+    fall = (vertical_speed + math.sqrt(vertical_speed * vertical_speed
+                                       + 2.0 * g * drop)) / g
+    window = fall * DESCENT_WARP_TIME_FRACTION
+    why = ("descent-coast: floor=%.0f alt=%.0f vspd=%.1f g=%.3f fall=%.0f"
+           % (floor, altitude, vertical_speed, g, fall))
+    if window < DESCENT_WARP_MIN_SECONDS:
+        return None, "warp window %.0f s < %.0f s (%s)" % (
+            window, DESCENT_WARP_MIN_SECONDS, why)
+    return float(now_ut + window), why
+
+
+def physics_dwell_warp_index(remaining_seconds: float) -> int:
+    """The physics-warp factor index for a dwell with ``remaining_seconds``
+    of game time left: PHYSICS_DWELL_WARP_INDEX until the last
+    PHYSICS_DWELL_TAIL_SECONDS, then 0, so the dwell's exit frame runs at 1x.
+    0 on an unread clock (fail closed)."""
+    if not _is_finite(remaining_seconds):
+        return 0
+    return (PHYSICS_DWELL_WARP_INDEX
+            if remaining_seconds > PHYSICS_DWELL_TAIL_SECONDS else 0)
+
+
+# ---------------------------------------------------------------------------
 # Stock heliocentric ephemeris (PAD-ALIGN's pure window math). COMMITTED DATA,
 # the STOCK_WARP_ALTITUDE_LIMITS precedent: KSP's planets are on rails with
 # elements that never change, so the phase angle between two planets is a pure
@@ -2991,6 +3197,14 @@ class TelemetrySnapshot:
     # rule the chute / science channels follow, and the opposite of the roster /
     # career channels, which outlive the craft.
     vessel_name: str = ""
+    # MISSION WARP POLICY inputs (2026-10-01), all NaN when unread so every
+    # policy decision fails closed to the pre-policy 1x behaviour:
+    # ``vessel_mass`` (kg) sizes a node's half burn; ``atmosphere_depth`` (m,
+    # 0.0 on an airless body) and ``surface_gravity`` (m/s^2) are read from the
+    # game's CelestialBody, cached per body by the runner.
+    vessel_mass: float = float("nan")
+    atmosphere_depth: float = float("nan")
+    surface_gravity: float = float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -3471,6 +3685,10 @@ class B4Params:
                                            # can blow through the chute gate (Fable review
                                            # of PR #1335, SF-3); hops are EXO-ONLY.
     warp_hop_seconds: float = 120.0        # one WARP_TO hop = now + this many seconds
+    ascending_coast_hops: bool = True      # MISSION WARP POLICY (2026-10-01): hop
+                                           # the exo coast while still ascending
+                                           # after the cutoff too (it polled at 1x
+                                           # until vspd < 0). No spec key.
     chute_deploy_alt: float = 3000.0       # deploy chutes at/below this altitude
     deorbit_timeout: float = 300.0
     reentry_timeout: float = 3600.0        # game-time; rails hops advance it fast
@@ -4115,6 +4333,12 @@ class B5Params:
                                            # a settled stage reads ~0; NaN
                                            # (unread) fails closed (spec key
                                            # parkMaxAngularVelocityRadPerSec).
+    # MISSION WARP POLICY switches (2026-10-01), ON for every lane; tests flip
+    # them to pin the pre-policy shape. No spec key: the policy is the
+    # library's, not a lane's.
+    node_wait_warp: bool = True            # hold + rails-warp a far executor node
+    park_physics_warp: bool = True         # PARK dwell under physics warp
+    descent_coast_warp: bool = True        # rails-warp a vacuum landing coast
     park_situations: Tuple[str, ...] = ("ORBITING",)
                                            # PARK gate: accepted kRPC situations
                                            # (spec key parkSituations).
@@ -10042,9 +10266,10 @@ def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, Lis
         atmosphere-entry UT. Below the threshold: plain polling; at/below
         chuteDeployAltMeters deploy the chutes and enter SPLASHDOWN (the chute
         descent wait). Bounded by reentryTimeoutSeconds (game time; the hops
-        advance it fast). NOTE: a still-ASCENDING exo coast (the burn ended
-        before apoapsis) polls at 1x until vertical_speed goes negative, per the
-        warp condition -- the wall budget must absorb that stretch.
+        advance it fast). A still-ASCENDING exo coast (the burn ended before
+        apoapsis) hops too since the 2026-10-01 mission warp policy
+        (``ascending_coast_hops``); before it polled at 1x until
+        vertical_speed went negative.
       - SPLASHDOWN: situation in landedSituations -> terminal (done, verdict
         None; the settle tail RUNS so the assertions have settled evidence).
         Bounded by descentTimeoutSeconds. Every live SPLASHDOWN frame also feeds
@@ -10195,9 +10420,16 @@ def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, Lis
             return stayed, []
         actions: List[Action] = []
         if (alt_finite and snapshot.altitude > state.params.warp_above_alt
-                and _is_finite(snapshot.vertical_speed) and snapshot.vertical_speed < 0.0
-                and _is_finite(snapshot.ut)):
+                and _is_finite(snapshot.ut)
+                and (state.params.ascending_coast_hops
+                     or (_is_finite(snapshot.vertical_speed)
+                         and snapshot.vertical_speed < 0.0))):
             # One bounded hop per decision frame; never computes atmosphere-entry UT.
+            # MISSION WARP POLICY (2026-10-01): an exo coast still ASCENDING after
+            # the cutoff (the burn ended before apoapsis) hops too; it used to
+            # poll at 1x until vertical speed went negative. A hop that starts
+            # ascending has further to fall to the atmosphere than one that
+            # starts descending at the same altitude, so the 70 km gate covers it.
             actions.append(Action(ACTION_WARP_TO, snapshot.ut + state.params.warp_hop_seconds))
         return stayed, actions
 
@@ -10317,6 +10549,19 @@ class B5State:
     # Cleared on arrival (ut >= target), on cancel, and on every phase exit
     # that cancels. While set, the machine never emits set_rails_warp.
     warp_to_cmd: Optional[float] = None
+    # MISSION WARP POLICY (2026-10-01) node-wait hold: the UT the machine is
+    # rails-warping to before it hands a far node to MechJeb's executor, and
+    # the hand-off action kind it owes on release. None / "" = no hold. While
+    # set, the hold step owns the frame (see _b5_node_wait_step), so no
+    # executor supervision runs against an executor that was never engaged.
+    node_wait_ut: Optional[float] = None
+    node_wait_handoff: str = ""
+    # Vacuum descent coast: the previous frame's apsides and the consecutive
+    # static-orbit frames (orbit_static), the no-thrust evidence a coast warp
+    # needs. Inert outside DESCENT.
+    coast_prev_ap: Optional[float] = None
+    coast_prev_pe: Optional[float] = None
+    coast_static_frames: int = 0
     # TARGET-SOI APPROACH LATCH (B20 flight 3, 2026-08-12). True once the craft
     # has been OBSERVED inside approachWindowSeconds of the target SOI. The
     # approach clamp is a PURE, STATELESS predicate and fails OPEN on an unread
@@ -11945,6 +12190,106 @@ def _b5_flameout_stage(state: B5State,
                                               FLAMEOUT_DEBOUNCE_FRAMES)), []
 
 
+# Bounded native warp issues for one node-wait hold (initial + self-heals).
+# Past it the hold releases to the executor, which then warps itself exactly
+# as it did before the policy: slower, never wrong.
+NODE_WAIT_MAX_ISSUES = 5
+# The ONE phase a held executor hand-off lives in: CAPTURE-BURN, where the
+# executor's never-settling 1x align ate ~590 s on B11 and B13. NOT the
+# transfer, the ejection or the park round-out: there the executor settles
+# within its own lead (2026-10-01 B11 / B13 / B15 transfers: 52-93 s), so a
+# hold saves nothing, and flying it MOVED THE BURN. The first verification
+# flights ended the TLI 3.7 s earlier with apoapsis 11.503 Mm instead of
+# 11.480 Mm on all three Mun runs (the executor's own warp to ignition - 3 s,
+# started from 600 s out, lands late; from a 120 s hold it does not), which
+# re-timed the whole arrival and moved B13's landing site onto a slope.
+_B5_NODE_WAIT_PHASES = (B5_CAPTURE_BURN,)
+
+
+def _b5_node_wait_begin(state: B5State, snapshot: TelemetrySnapshot,
+                        handoff: Action) -> Tuple[B5State, List[Action]]:
+    """Hand a node to MechJeb's executor, or HOLD the hand-off and rails-warp
+    toward it first (mission warp policy, node waits).
+
+    Only the executor hand-off is ever held; any other hand-off (the DIY
+    correction burner's ap_point_node) passes through untouched. With the
+    vessel mass unread the hand-off is the pre-policy action byte for byte; a
+    readable refusal rides the hand-off's text so the action line names it."""
+    if (handoff.kind != ACTION_MJ_EXECUTE_NODES or not state.params.node_wait_warp
+            or state.phase not in _B5_NODE_WAIT_PHASES):
+        return state, [handoff]
+    target, why = node_wait_warp_plan(
+        snapshot.ut, snapshot.node_ut, snapshot.node_dv,
+        snapshot.available_thrust, snapshot.vessel_mass, snapshot.time_to_soi,
+        snapshot.altitude, snapshot.periapsis, snapshot.atmosphere_depth)
+    if target is None:
+        if not _is_finite(snapshot.vessel_mass):
+            return state, [handoff]
+        return state, [replace(handoff, text="node-wait declined: %s" % why)]
+    held = replace(state, node_wait_ut=target, node_wait_handoff=handoff.kind,
+                   warp_to_cmd=target, warp_cmd=0,
+                   last_warp_issue_ut=(float(snapshot.ut)
+                                       if _is_finite(snapshot.ut) else 0.0),
+                   phase_warp_issues=state.phase_warp_issues + 1)
+    return held, [Action(ACTION_WARP_TO_UT, target, text=why)]
+
+
+def _b5_node_wait_step(state: B5State, snapshot: TelemetrySnapshot,
+                       peak: Optional[float]
+                       ) -> Optional[Tuple[B5State, List[Action]]]:
+    """One frame of a held executor hand-off, or None when no hold is armed.
+
+    While the hold is armed it OWNS the frame: the burn phase's executor
+    supervision, no-start and stagnation watchdogs all read an executor that
+    was deliberately never engaged, so none of them may run yet. Releases
+    (cancel any live warp, then the owed hand-off) on: arrival inside
+    NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS of the target, the node vanishing
+    (no hand-off then; the phase's own logic judges an empty node list), the
+    phase budget expiring (the phase's own give-up runs next frame), or
+    NODE_WAIT_MAX_ISSUES warp issues without arriving. The release re-arms
+    the burn-static clock so the executor's own 1x alignment earns a full
+    no-start window."""
+    if state.node_wait_ut is None:
+        return None
+    target = state.node_wait_ut
+    if state.phase not in _B5_NODE_WAIT_PHASES:
+        return None
+    ut = snapshot.ut
+    release = ""
+    if snapshot.node_count < 1:
+        release = "node gone"
+    elif _is_finite(ut) and ut >= target - NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS:
+        release = "arrived ut=%.1f target=%.1f" % (ut, target)
+    elif _b5_over_budget(state, snapshot):
+        release = "phase budget expired"
+    elif state.phase_warp_issues >= NODE_WAIT_MAX_ISSUES:
+        release = "warp not taking after %d issues" % state.phase_warp_issues
+    if release:
+        actions: List[Action] = []
+        if state.warp_to_cmd is not None and _is_finite(snapshot.warping_to):
+            actions.append(Action(ACTION_CANCEL_WARP,
+                                  text="node-wait release: %s" % release))
+        if snapshot.node_count >= 1:
+            # The autowarping executor, exactly as before the policy. Its
+            # autowarp flag is MechJeb GLOBAL persistent state (decompiled
+            # 2.15.1: [Persistent(pass = 4)]), so it is never turned off here:
+            # a False would outlive the run in mechjeb_settings_global.cfg.
+            actions.append(Action(state.node_wait_handoff or ACTION_MJ_EXECUTE_NODES,
+                                  text="node-wait released: %s" % release))
+        cleared = replace(state, node_wait_ut=None, node_wait_handoff="",
+                          warp_to_cmd=None, warp_cmd=0,
+                          burn_static_since=None, burn_prev_ap=None,
+                          burn_prev_pe=None, capture_exec_disabled_streak=0,
+                          peak_apoapsis=peak)
+        return cleared, actions
+    healed, actions = _b5_native_warp(state, snapshot, target)
+    if any(a.kind == ACTION_WARP_TO_UT for a in actions):
+        healed = replace(healed, phase_warp_issues=healed.phase_warp_issues + 1)
+        actions = [replace(a, text="node-wait re-issue toward %.1f" % target)
+                   if a.kind == ACTION_WARP_TO_UT else a for a in actions]
+    return replace(healed, peak_apoapsis=peak), actions
+
+
 def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[float],
                    plan_action: Optional[Action], burn_phase: str,
                    on_timeout_phase: Optional[str],
@@ -11986,7 +12331,9 @@ def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[f
             # latch are per-ROUND, so a fresh burn phase starts with neither.
             # Inert for TRANSFER-BURN / CAPTURE-BURN (neither reads them).
             corr_budget_anchor_ut=None, corr_giveup=CORR_GIVEUP_NONE)
-        return entered, [handoff_action]
+        # Mission warp policy: a far CAPTURE node is HELD and warped toward
+        # first (a pass-through everywhere else and on unread inputs).
+        return _b5_node_wait_begin(entered, snapshot, handoff_action)
     if _b5_over_budget(state, snapshot) and on_timeout_phase is not None:
         return _b5_enter(state, on_timeout_phase, snapshot.ut, peak), []
     stayed = _b5_stay_or_flake(state, snapshot, peak)
@@ -12798,6 +13145,14 @@ def _b5_park_stable(params: B5Params, snapshot: TelemetrySnapshot) -> bool:
             and snapshot.angular_velocity <= params.park_max_angular_velocity)
 
 
+def _b5_park_phys_warp_down(state: B5State) -> List[Action]:
+    """The physics-warp teardown a PARK exit owes: drop a commanded physics
+    factor back to 1x, or nothing when none is held."""
+    if state.phys_warp_cmd == 0:
+        return []
+    return [Action(ACTION_SET_PHYSICS_WARP, 0.0, text="park exit: physics warp off")]
+
+
 def _b5_park_entry_actions() -> List[Action]:
     """The vehicle configuration the PARKED, COMMITTED recording must capture:
     throttle CUT (nothing is burning when the tree closes), every maneuver node
@@ -13103,8 +13458,72 @@ def _b5_enter_descent(state: B5State, snapshot: TelemetrySnapshot,
                          if _is_finite(snapshot.altitude) else None),
         landing_alt_ref_ut=(float(snapshot.ut) if _is_finite(snapshot.ut)
                             else None),
-        warp_cmd=0, warp_to_cmd=None)
+        warp_cmd=0, warp_to_cmd=None, phys_warp_cmd=0,
+        coast_prev_ap=None, coast_prev_pe=None, coast_static_frames=0)
     return entered, _b5_descent_entry_actions(state.params)
+
+
+# Bounded native warp issues for the vacuum descent coast in one DESCENT
+# phase. A healthy coast needs one or two (the first warp, maybe a shorter
+# second one); past the cap the coast simply stays at 1x.
+DESCENT_WARP_MAX_ISSUES = 6
+
+
+def _b5_descent_coast_warp(state: B5State, snapshot: TelemetrySnapshot
+                           ) -> Tuple[B5State, List[Action]]:
+    """MISSION WARP POLICY: rails-warp the vacuum part of a landing coast.
+
+    Gated on every frame by: an airless body, the landing autopilot OBSERVED
+    engaged, an impact trajectory that is descending (periapsis < 0 and
+    vertical speed < 0, so the deorbit burn is done), and the orbit static
+    for COAST_STATIC_FRAMES (no thrust; the commanded throttle reads 0 under
+    MechJeb, the orbit does not lie). ``descent_coast_warp_plan`` then sizes
+    one warp that lands above the body's descent floor; an in-flight warp is
+    cancelled the moment any gate stops holding."""
+    static = orbit_static(state.coast_prev_ap, state.coast_prev_pe,
+                          snapshot.apoapsis, snapshot.periapsis)
+    frames = (min(state.coast_static_frames + 1, COAST_STATIC_FRAMES)
+              if static else 0)
+    st = replace(state,
+                 coast_prev_ap=(float(snapshot.apoapsis)
+                                if _is_finite(snapshot.apoapsis) else None),
+                 coast_prev_pe=(float(snapshot.periapsis)
+                                if _is_finite(snapshot.periapsis) else None),
+                 coast_static_frames=frames)
+    gates_hold = (snapshot.landing_ap_enabled == 1
+                  and _is_finite(snapshot.periapsis) and snapshot.periapsis < 0.0
+                  and _is_finite(snapshot.vertical_speed)
+                  and snapshot.vertical_speed < 0.0)
+    floor = descent_warp_floor(snapshot.body)
+    ut = snapshot.ut
+    if st.warp_to_cmd is not None:
+        below = (floor is not None and _is_finite(snapshot.altitude)
+                 and snapshot.altitude <= floor)
+        arrived = (_is_finite(ut)
+                   and ut >= st.warp_to_cmd - NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS)
+        if arrived or below or not gates_hold:
+            if arrived:
+                reason = "arrived"
+            elif below:
+                reason = "below the %.0f m floor" % floor
+            else:
+                reason = "a coast gate stopped holding"
+            actions = ([Action(ACTION_CANCEL_WARP,
+                               text="descent-coast warp end: %s" % reason)]
+                       if _is_finite(snapshot.warping_to) else [])
+            return replace(st, warp_to_cmd=None, warp_cmd=0), actions
+        return st, []
+    if not gates_hold or st.phase_warp_issues >= DESCENT_WARP_MAX_ISSUES:
+        return st, []
+    target, why = descent_coast_warp_plan(
+        ut, snapshot.altitude, snapshot.vertical_speed, snapshot.body,
+        snapshot.atmosphere_depth, snapshot.surface_gravity, frames)
+    if target is None:
+        return st, []
+    issued = replace(st, warp_to_cmd=target, warp_cmd=0,
+                     last_warp_issue_ut=(float(ut) if _is_finite(ut) else 0.0),
+                     phase_warp_issues=st.phase_warp_issues + 1)
+    return issued, [Action(ACTION_WARP_TO_UT, target, text=why)]
 
 
 def _b5_enter_landed_settle(state: B5State, snapshot: TelemetrySnapshot,
@@ -13355,6 +13774,12 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         prev = state.min_target_altitude
         if prev is None or snapshot.altitude < prev:
             state = replace(state, min_target_altitude=float(snapshot.altitude))
+
+    # Mission warp policy: a held executor hand-off owns the frame until it
+    # releases (see _b5_node_wait_step for why no burn watchdog may run first).
+    held = _b5_node_wait_step(state, snapshot, peak)
+    if held is not None:
+        return held
 
     if state.phase == B5_PRELAUNCH:
         if state.params.start_in_orbit:
@@ -14701,10 +15126,16 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             # the craft descends and the commit happens on the SURFACE instead.
             # This is the ONLY door into the landing tail, which is why
             # landingEnabled without captureEnabled is inert by construction.
+            # A physics-warped dwell drops to 1x PHYSICS_DWELL_TAIL_SECONDS
+            # before it can end, so this is normally empty; it stays as the
+            # backstop that no commit or descent ever starts warped.
+            phys_down = _b5_park_phys_warp_down(st)
+            st = replace(st, phys_warp_cmd=0)
             if state.params.landing_enabled:
-                return _b5_enter_descent(st, snapshot, peak)
+                entered, actions = _b5_enter_descent(st, snapshot, peak)
+                return entered, phys_down + actions
             return (_b5_enter(st, B5_ORBIT_COMMIT, snapshot.ut, peak),
-                    [Action(ACTION_PARSEK_COMMIT_TREE)])
+                    phys_down + [Action(ACTION_PARSEK_COMMIT_TREE)])
         # PARK is the RECORDED in-foreign-SOI coverage this lane exists for, so
         # it deliberately runs at 1x: self-heal any warp the node executor (or a
         # leftover native warp) left running, on-change only -- a settled 1x park
@@ -14717,7 +15148,30 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         elif st.warp_cmd != 0 or snapshot.warp_mode == WARP_RAILS:
             st = replace(st, warp_cmd=0)
             warp_actions.append(Action(ACTION_SET_RAILS_WARP, 0.0))
+        elif state.params.park_physics_warp:
+            # MISSION WARP POLICY (2026-10-01): the dwell checks a tumble
+            # ceiling (angular velocity, a physics reading) and IS the
+            # recorded parked coverage, so rails would break both: it freezes
+            # the attitude and turns the recorded park into on-rails
+            # checkpoints. PHYSICS warp keeps every physics frame and the
+            # SAS+RCS hold, so the dwell keeps its semantics and runs 4x
+            # faster. Warped only while this frame is in-gate (a tumbling
+            # craft settles at 1x) and never in the last
+            # PHYSICS_DWELL_TAIL_SECONDS, so the commit frame is at 1x.
+            remaining = ((state.params.park_dwell
+                          - (snapshot.ut - st.phase_entry_ut))
+                         if _is_finite(snapshot.ut) else float("nan"))
+            desired = physics_dwell_warp_index(remaining) if stable else 0
+            if desired != st.phys_warp_cmd:
+                warp_actions.append(Action(
+                    ACTION_SET_PHYSICS_WARP, float(desired),
+                    text=("park dwell: physics warp %s (remaining=%.0f s, "
+                          "in-gate=%s)" % ("on" if desired else "off",
+                                           remaining, stable))))
+                st = replace(st, phys_warp_cmd=desired)
         if _b5_over_budget(st, snapshot):
+            warp_actions = warp_actions + _b5_park_phys_warp_down(st)
+            st = replace(st, phys_warp_cmd=0)
             # CARRY the teardown out with the give-up (2026-07-28 review). The
             # self-heal above already mutated `st` to say the warp is down, so
             # returning [] here would ship a state that LIES: a PARK that times
@@ -14932,10 +15386,14 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                    _obs_fmt(snapshot.vertical_speed), snapshot.situation or "?",
                    snapshot.landing_ap_enabled,
                    snapshot.landing_ap_status or "?")), []
-        # NO warp actions and NO attitude actions: MechJeb owns both here (see
-        # _b5_descent_entry_actions). A second writer on either is the thrash
-        # class this suite has already paid for twice.
-        return stayed, []
+        # NO attitude actions: MechJeb owns attitude here (see
+        # _b5_descent_entry_actions). Warp is the one exception, and it is a
+        # SINGLE writer: MechJeb's untargeted landing never warps (decompiled
+        # 2.15.1 FinalDescent has no warp call), so it sat out the whole
+        # vacuum coast at 1x (~1,250 wall-s on B13 and B14).
+        if not state.params.descent_coast_warp:
+            return stayed, []
+        return _b5_descent_coast_warp(stayed, snapshot)
 
     if state.phase == B5_LANDED_SETTLE:
         left = _b5_left_target_soi(state, snapshot)
@@ -19002,6 +19460,9 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("warp_cmd", "warpCmd"),
     ("phys_warp_cmd", "physWarpCmd"),
     ("warp_to_cmd", "warpToCmd"),
+    # Mission warp policy (2026-10-01): a held executor hand-off. One line when
+    # the hold arms (the target UT) and one when it releases (-> None).
+    ("node_wait_ut", "nodeWaitUt"),
     ("planned_node_count", "plannedNodes"),
     # Twenty-second flight additions, both bounded by their debounce depths:
     # a flameout-stage pop and the impact-certain countdown are exactly the
@@ -22743,6 +23204,41 @@ KXRW_LOOP_PHASES: Tuple[str, ...] = (KXRW_LOOP_HANDLES, KXRW_LOOP_CONFIG,
                                      KXRW_LOOP_WATCH, KXRW_LOOP_WAIT)
 
 
+def _kxrw_coast_warp(state: "KxrwState", snapshot: TelemetrySnapshot
+                     ) -> Tuple["KxrwState", List[Action]]:
+    """MISSION WARP POLICY: one COAST frame's physics-warp decision.
+
+    PHYSICS_DWELL_WARP_INDEX while the stack is above the atmosphere (depth
+    read from the game; unread fails closed), the throttle reads zero (the
+    readback, never the command) and more than PHYSICS_DWELL_TAIL_SECONDS of
+    the wait remain; 1x otherwise. On-change emission, reason in the text."""
+    p = state.params
+    remaining = (p.coast_seconds - (snapshot.ut - state.phase_entry_ut)
+                 if _is_finite(snapshot.ut) else float("nan"))
+    desired = 0
+    if (p.coast_physics_warp
+            and _is_finite(snapshot.atmosphere_depth)
+            and _is_finite(snapshot.altitude)
+            and snapshot.altitude > snapshot.atmosphere_depth
+            and kxrw_throttle_is_zero(snapshot.throttle, p.throttle_zero_epsilon)):
+        desired = physics_dwell_warp_index(remaining)
+    if desired == state.coast_phys_warp_cmd:
+        return state, []
+    text = ("coast: physics warp %s (alt=%s remaining=%s)"
+            % ("on" if desired else "off", _obs_fmt(snapshot.altitude),
+               _obs_fmt(remaining)))
+    return (replace(state, coast_phys_warp_cmd=desired),
+            [Action(ACTION_SET_PHYSICS_WARP, float(desired), text=text)])
+
+
+def kxrw_max_physics_warp(state) -> float:
+    """The kx shell's per-frame physics-warp ceiling (``MissionSpec.
+    max_physics_warp`` as a callable): the stock 4x inside COAST, where the
+    mission warp policy runs the wait under physics warp, and 0.0 (any
+    physics warp is a flake, GS-4's contract) everywhere else."""
+    return 4.0 if getattr(state, "phase", None) == KXRW_COAST else 0.0
+
+
 def kxrw_rails_warp_permitted(state) -> bool:
     """The kx shell's per-frame rails-warp permission (``MissionSpec.
     allow_rails_warp`` as a callable): True ONLY inside the loop-arm block, where
@@ -23247,6 +23743,12 @@ class KxrwParams:
     # deliberately never presses istg=1) before the seam bridge runs, so the
     # recorder authors real post-separation coverage on both halves.
     coast_seconds: float = 20.0
+    # MISSION WARP POLICY (2026-10-01): run the COAST wait under physics warp
+    # once the stack is above the atmosphere with its throttle OBSERVED zero.
+    # The wait exists so the recorder authors post-separation coverage, so it
+    # stays physics (rails would pack the falling core in the atmosphere and
+    # turn the coverage into on-rails checkpoints). No spec key.
+    coast_physics_warp: bool = True
     # GS-6 PART SWEEP. An EMPTY tuple is the default and it is load-bearing: it
     # keeps COAST advancing straight to TREE-STATE, so every spec authored before
     # this feature existed runs the identical phase graph.
@@ -23596,6 +24098,9 @@ class KxrwState:
     # equal to this one is a duplicate that can drift.
     phase_frames: int = 0
     phases_reached: Tuple[str, ...] = (KXRW_ROLLOUT,)
+    # Last COMMANDED physics-warp factor of the COAST wait (mission warp
+    # policy, 2026-10-01). Non-zero only inside COAST; every COAST exit drops it.
+    coast_phys_warp_cmd: int = 0
 
     # --- rollout: getting the RIGHT craft onto the pad -----------------------
     rollout_launch_commanded: bool = False
@@ -24492,7 +24997,18 @@ def kxrw_decide(state: KxrwState,
 
     # ---- COAST: let the recorder author post-separation coverage -----------
     if state.phase == KXRW_COAST:
-        if _is_finite(snapshot.ut)                 and (snapshot.ut - state.phase_entry_ut) >= p.coast_seconds:
+        coast_done = (_is_finite(snapshot.ut)
+                      and (snapshot.ut - state.phase_entry_ut) >= p.coast_seconds)
+        if not coast_done:
+            return _kxrw_coast_warp(state, snapshot)
+        # The physics-warped wait drops to 1x PHYSICS_DWELL_TAIL_SECONDS before
+        # it ends, so this is normally a no-op; it is the backstop that every
+        # exit below starts at 1x.
+        if state.coast_phys_warp_cmd != 0:
+            return (replace(state, coast_phys_warp_cmd=0),
+                    [Action(ACTION_SET_PHYSICS_WARP, 0.0,
+                            text="coast exit: physics warp off")])
+        if coast_done:
             # RF-9: the SECOND branch this phase gained, and it is taken before the
             # sweep decision because the two are mutually exclusive by the conflict
             # gate above - reading it here keeps that exclusion in one place rather

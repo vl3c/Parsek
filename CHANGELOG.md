@@ -2353,6 +2353,21 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Dev: harness missions warp through their idle 1x waits.** Operator ruling 2026-10-01:
+  burns stay at 1x, the idle stretches around them are warped (`harness/missions/lib/mlib.py`
+  section MISSION WARP POLICY, `harness/README.md` "The mission warp policy"). A capture
+  node is now held and rails-warped to 120 s before ignition before MechJeb's executor
+  engages (the executor parks at 1x for up to 600 s when the craft never settles; transfer
+  nodes stay unheld, since holding them saved nothing and moved the TLI by 3.7 s);
+  an airless-body landing coast is rails-warped down to a floor above the approach altitude;
+  the dwells that need physics (the PARK dwell, the kx COAST wait) run under 4x physics
+  warp, dropping to 1x 15 s before they end; and B4's exo coast hops while still ascending.
+  B4's retrograde slew stays 1x (an attitude slew, not a coast). An unread input (vessel
+  mass, the body's atmosphere depth and gravity, now read from the game) keeps the old 1x
+  path. Measured wall time per run: B13 2815 -> 1254 s (DESCENT 1361 -> 392, CAPTURE-BURN
+  644 -> 164, PARK 181 -> 57), B14 2141 -> 1405, B11 1324 -> 731, GS-8 652 -> 559, B4
+  1103 -> 1100. No mission outcome changed. The same commit re-pins GS-8 (10), B4 (11), B13 (11) and B14 (11) to the
+  recording counts #1931's in-flight optimizer split produces, per the same day's ruling.
 - **Missions window redesign, first slice.** The columns are `#`, Missions and vessels,
   Start time, Start event, End event, End time and **Interact**, one right-hand column that
   holds every per-row button at one shared width (a two-button pair spans one button). Each

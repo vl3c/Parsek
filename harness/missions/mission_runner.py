@@ -621,6 +621,10 @@ class KrpcMissionControl(MissionControl):
         self._warp: Optional[WarpService] = None
         self._warp_stall = WarpStallTracker()
         self._addr: Optional[Tuple[str, int, int]] = None
+        # Mission warp policy: per-body (atmosphere_depth, surface_gravity)
+        # read once from the game, and the channels already reported unreadable.
+        self._body_constants: Dict[str, Tuple[float, float]] = {}
+        self._warp_input_failed: set = set()
 
     def open(self, host: str, rpc_port: int, stream_port: int) -> None:
         import krpc  # LAZY: the base interpreter must import this shell with no krpc.
@@ -901,6 +905,12 @@ class KrpcMissionControl(MissionControl):
                     self._read_science_channels(v)
                 vessel_recoverable = self._read_vessel_recoverable(v)
                 career_funds, career_science = self._read_career_pools(sc)
+            # MISSION WARP POLICY inputs (2026-10-01). Own try/except inside
+            # the helper: an unread value degrades to NaN, which fails every
+            # policy decision CLOSED (no warp), and never counts toward the
+            # vessel-lost read-fail streak.
+            vessel_mass, atmosphere_depth, surface_gravity = (
+                self._read_warp_policy_inputs(v, body))
             snapshot = mlib.TelemetrySnapshot(
                 ut=float(sc.ut),
                 altitude=float(flight_srf.surface_altitude),
@@ -1023,6 +1033,9 @@ class KrpcMissionControl(MissionControl):
                 # what its last attempt did) and it stays "" for every mission
                 # that never emits the action, so no other snapshot moves.
                 recover_request_result=self._recover_request_result,
+                vessel_mass=vessel_mass,
+                atmosphere_depth=atmosphere_depth,
+                surface_gravity=surface_gravity,
             )
             self._read_fail_streak = 0
             self._warp_watchdog(sc, snapshot.ut)
@@ -2359,6 +2372,43 @@ class KrpcMissionControl(MissionControl):
             return mlib.RECOVERABLE_YES if bool(vessel.recoverable) else mlib.RECOVERABLE_NO
         except Exception:
             return mlib.RECOVERABLE_UNREAD
+
+    def _read_warp_policy_inputs(self, vessel, body):
+        """``(vessel_mass kg, atmosphere_depth m, surface_gravity m/s^2)`` for
+        the mission warp policy. The two body constants come from the GAME's
+        CelestialBody (not a committed table) and are cached per body name, so
+        a steady poll costs one RPC (the mass) plus the name read. Any failure
+        degrades that value to NaN, which every policy decision treats as
+        "do not warp"; a failure is logged once per channel per run."""
+        mass = float("nan")
+        try:
+            mass = float(vessel.mass)
+        except Exception as exc:
+            self._warp_input_fail_once("mass", exc)
+        atmo = float("nan")
+        gravity = float("nan")
+        try:
+            name = str(body.name)
+            cached = self._body_constants.get(name)
+            if cached is None:
+                depth = (float(body.atmosphere_depth)
+                         if bool(body.has_atmosphere) else 0.0)
+                cached = (depth, float(body.surface_gravity))
+                self._body_constants[name] = cached
+            atmo, gravity = cached
+        except Exception as exc:
+            self._warp_input_fail_once("body", exc)
+        return mass, atmo, gravity
+
+    def _warp_input_fail_once(self, channel: str, exc: Exception) -> None:
+        if channel in self._warp_input_failed:
+            return
+        self._warp_input_failed.add(channel)
+        _stdout_sink(mlib.format_mission_log_line(
+            "Warn", "Warp",
+            "warp-policy input %s UNREADABLE (%s: %s); it reads NaN and every "
+            "warp decision that needs it fails closed to 1x. Logged once per "
+            "run." % (channel, type(exc).__name__, str(exc)[:160])))
 
     def _read_career_pools(self, sc):
         """(funds, science) from SpaceCenter.Funds / .Science, or (NaN, NaN).
@@ -4054,7 +4104,7 @@ def fly_loop(
     poll_interval: float = POLL_INTERVAL_SECONDS,
     settle_frames: int = DEFAULT_SETTLE_FRAMES,
     allow_rails_warp: Union[bool, Callable[[object], bool]] = False,
-    max_physics_warp: float = 0.0,
+    max_physics_warp: Union[float, Callable[[object], float]] = 0.0,
     status_writer: Optional[StatusFileWriter] = None,
     wall_budget: Optional[float] = None,
 ):
@@ -4345,8 +4395,13 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         # loop-arm block and keeps GS-4's no-warp contract everywhere else.
         allow_rails_now = (allow_rails_warp(state) if callable(allow_rails_warp)
                            else allow_rails_warp)
+        # `max_physics_warp` may likewise be a PER-STATE callable: the kx shell
+        # permits the stock 4x only inside its COAST wait (mission warp policy,
+        # 2026-10-01) and keeps physics warp a flake everywhere else.
+        max_physics_now = (max_physics_warp(state) if callable(max_physics_warp)
+                           else max_physics_warp)
         if mlib.is_unexpected_warp(snapshot.warp_mode, snapshot.warp_rate, allow_rails_now,
-                                   max_physics_warp=max_physics_warp):
+                                   max_physics_warp=max_physics_now):
             warp_violations += 1
             log.warn(state.phase, "unexpected %s-warp x%s in phase %s (allow_rails=%s) strike %d/2"
                      % (snapshot.warp_mode, _fmt(snapshot.warp_rate), state.phase,
@@ -4780,7 +4835,7 @@ class MissionSpec:
     # during ascent and KRPC.MechJeb 0.8.1 exposes no toggle for it (observed
     # live 2026-07-20). Above the bound (plus the ramp allowance) the warp
     # guard still flakes the mission.
-    max_physics_warp: float = 0.0
+    max_physics_warp: Union[float, Callable[[object], float]] = 0.0
     # Settle-tail frames sampled after a real terminal (review SF-4). B1/B2/B4
     # keep the default: their assertion evaluators run K-consecutive debounce
     # windows over the FRAMES and need settled post-terminal samples. B5/B6
