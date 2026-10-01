@@ -112,7 +112,9 @@ forbidden = [
 ]
 
 [expectations.rewind]
-gating        = false
+# ARMED 2026-10-01 off the reading `2026-09-27_1341` (PASS: rewindPoints 1, supersedeRows 0,
+# tombstones 0).
+gating        = true
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 

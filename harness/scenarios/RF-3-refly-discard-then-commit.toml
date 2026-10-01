@@ -100,9 +100,14 @@ steps = [
   { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "StopRecording",                                                          expect = "OK" },
   { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles3", expect = "OK" },
+  # The reload lands at UT ~500 (act 2's merge save) and `handles3.rp0` is the point at
+  # UT 693.29: since #1788 the Re-Fly gate refuses a separation in the future
+  # (`refly-gate This separation is in your future`, `2026-10-01_0754` step 0020), so
+  # the clock is moved past it first (the CL-LANES-INJECTED-RP-IN-THE-FUTURE fix).
+  { cmd = "TimeJump",          args = { ut = "700" },                                expect = "OK", budget = 120 },
   { cmd = "InvokeRewind",      args = { rp = "${handles3.rp0}", slot = "1" },        expect = "OK", budget = 300 },
-  # rp1's UT is 693.29 and `TimeJump` is FORWARD-ONLY, so 500 would REJECT
-  # `backward-jump`; 800 clears it by the same ~107 s margin the first two acts use.
+  # rp1's UT is 693.29 and `TimeJump` is FORWARD-ONLY from the rewound clock; 800
+  # clears it by the same ~107 s margin the first two acts use.
   { cmd = "TimeJump",          args = { ut = "800" },                                expect = "OK", budget = 120 },
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },                          expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                          expect = "OK" },
@@ -182,7 +187,10 @@ forbidden = [
 # RF-2 measured none. Pinned as a floor rather than at 5 on one sample, and the
 # asymmetry with RF-2 is recorded rather than explained - which of the two subtrees
 # carries the deaths is a reading nobody has taken.
+# ARMED 2026-10-01 off `2026-10-01_0802` (PASS attempt 1 after the act-3 TimeJump fix:
+# rewindPoints 1, supersedeRows 2, tombstones 5 - run 1's integers again).
 [expectations.rewind]
+gating        = true
 rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { min = 2 }
 tombstones    = { min = 1 }
@@ -190,9 +198,9 @@ tombstones    = { min = 1 }
 [runtime]
 # Budget arithmetic: LoadGame x3 1980 + SetSetting x5 600 + StopRecording x3 360 +
 # ListHandles x3 360 + InvokeRewind x3 1980 + TimeJump x3 (deferred) 1980 +
-# AnswerMergeDialog x3 540 + RecordingState 120 + FlushAndQuit 120 = 8040.
-# 8400 clears it by 360.
-budgetSeconds = 8400
+# AnswerMergeDialog x3 540 + RecordingState 120 + FlushAndQuit 120 = 8040, plus act
+# 3's pre-rewind TimeJump (deferred) 660 = 8700. 9000 clears it by 300.
+budgetSeconds = 9000
 
 [retry]
 policy = "once"

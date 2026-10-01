@@ -124,11 +124,11 @@ allowedAnomalies = []
 [expectations.recordings]
 count = { min = 10, max = 10 }
 
-# REPORT-ONLY (never flown): the produced save holds the fixture's capsule once and no
+# ARMED 2026-10-01 off the reading `2026-09-29_2151` (PASS, every window met): the produced save holds the fixture's capsule once and no
 # relaunched Kerbal X (stripped, and saved before its replay starts); one fixture tree
 # plus the relaunch tree, 10 recordings (SE-1's measured facets for the same shape).
 [expectations.recordings.structure]
-gating         = false
+gating         = true
 trees          = { min = 2, max = 2 }
 committedTrees = { min = 2, max = 2 }
 recordings     = { min = 10, max = 10 }

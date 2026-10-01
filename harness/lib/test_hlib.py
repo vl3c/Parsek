@@ -11775,7 +11775,34 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # attempt 1: committedTrees 8, vesselNames Kerbal X Debris 6 /
                        # #autoLOC_501232 1 / Ghost: VB Probe 1 0); every bound inverted
                        # offline red on exactly its window.
-                       "VB-1-ghost-vessel-budget.toml"}
+                       "VB-1-ghost-vessel-budget.toml",
+                       # The last report-only pass (2026-10-01, branch `arm-last19`), first half: five
+                       # specs armed WITHOUT a flight off existing readings on DLLs from 2026-09-27 or later,
+                       # each re-evaluated against the committed windows: EVA-7 `structure`
+                       # `2026-09-29_1652` (and `2026-09-28_2103`), RF-16 `rewind` `2026-09-27_1341`, RF-17
+                       # `rewind` `2026-09-27_1343`, RF-20 both blocks `2026-09-27_1838` (PASS; the first
+                       # reading `_1832` read the same facets), RR-1 `structure` `2026-09-29_2151`. Every
+                       # armed bound inverted offline against its own produced save red on exactly its
+                       # window (19 of 19). EVA-7 was re-flown armed on current main because both readings
+                       # predate #1931 (the in-flight CommitTree now runs the optimizer): `2026-10-01_0804`
+                       # PASS, gating PASS.
+                       "EVA-7-crew-inventory-spawn-after-rewind.toml",
+                       "RF-16-hard-preset-refly-exit-merge.toml",
+                       "RF-17-hard-preset-refly-exit-discard.toml",
+                       "RF-20-stashed-eva-slot-refly.toml",
+                       "RR-1-relaunch-rewind-keeps-earlier-launch.toml",
+                       # Same pass, read on current main (automation DLL sha256 `ba44d55f...`, origin/main
+                       # `3ae8bbaef`): RF-12L `rewind` off `2026-10-01_0727`; V3C both blocks off `_0732`
+                       # after its recordings window was re-pinned 3 -> 4 (#1931 splits the live DD1 at its
+                       # atmosphere exit, so `_0732` red only on that count); RF-2 `rewind` off `_0801` and
+                       # RF-3 `rewind` off `_0802`, both PASS after a pre-rewind TimeJump past the later
+                       # point (the #1788 future-point gate had refused their second / third rewind,
+                       # `_0748` / `_0754`). Every bound inverted offline red on exactly its window
+                       # (16 of 16).
+                       "RF-12L-rewind-batch-after-landing.toml",
+                       "V3C-flight-arrival-companion.toml",
+                       "RF-2-two-reflies-in-sequence.toml",
+                       "RF-3-refly-discard-then-commit.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []

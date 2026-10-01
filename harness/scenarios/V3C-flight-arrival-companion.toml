@@ -194,7 +194,7 @@ id = "V3C-flight-arrival-companion"
 #   same change; the committed token is the defect-class one above.
 # =====================================================================================
 tier = "nightly"  # PROMOTED 2026-09-08 by operator decision (was "operator", the calibration discipline; the three-run discipline is discharged, see the status row)
-description = "COMPANION FLIGHT: the flown B17 pad-align Duna mission flies a fresh DD1 while the injected looped-interplanetary recording replays ENGAGED re-aim alongside, with the MAP OPEN for the whole flight (EnterMapView before the mission phase) so the flight engine keeps the far loop ghost positioned through the Sun->Duna seam instant under rails warp (map view lifts the >50x warp hide, the #171 warp exemption lifts the 120 km zone hide - the 2026-09-07 co-location decision, roadmap section). ghostRenderTracing + the loop-seam-teleport Tier-C instrument armed; ARMED 2026-09-07 off reading run 2026-09-07_1906 (PASS attempt 1, wall 953 s), which observed the seam for the first time from any unattended run: [ReaimSeam] SEAM member=0 seg#3->4 body=Duna jump=47431188m, 0.990 x Duna's SOI radius - the 2026-06-15 teleport reproduced. The required token pins that DEFECT CLASS (jump >= 1,000 km; the GS-3 inversion: this lane reds when the teleport is fixed), loop-seam-teleport is tolerated because its raise is rate-dependent (silent at the 100,000x the seam frame rode), the recordings census is pinned at 3."
+description = "COMPANION FLIGHT: the flown B17 pad-align Duna mission flies a fresh DD1 while the injected looped-interplanetary recording replays ENGAGED re-aim alongside, with the MAP OPEN for the whole flight (EnterMapView before the mission phase) so the flight engine keeps the far loop ghost positioned through the Sun->Duna seam instant under rails warp (map view lifts the >50x warp hide, the #171 warp exemption lifts the 120 km zone hide - the 2026-09-07 co-location decision, roadmap section). ghostRenderTracing + the loop-seam-teleport Tier-C instrument armed; ARMED 2026-09-07 off reading run 2026-09-07_1906 (PASS attempt 1, wall 953 s), which observed the seam for the first time from any unattended run: [ReaimSeam] SEAM member=0 seg#3->4 body=Duna jump=47431188m, 0.990 x Duna's SOI radius - the 2026-06-15 teleport reproduced. The required token pins that DEFECT CLASS (jump >= 1,000 km; the GS-3 inversion: this lane reds when the teleport is fixed), loop-seam-teleport is tolerated because its raise is rate-dependent (silent at the 100,000x the seam frame rode), the recordings census is pinned at 4 (since #1931 the in-flight CommitTree runs the optimizer, which splits the live DD1 at its atmosphere exit)."
 instanceProfile = "stock-minimal"
 tags = ["V3", "flight-arrival", "companion", "reaim", "interplanetary", "flown", "armed"]
 
@@ -425,23 +425,33 @@ D14 = ["scene-flight", "sandbox"]
 allowedAnomalies = ["loop-seam-teleport"]
 
 [expectations.recordings]
-# PINNED off _1906: the injected synthetic recording + the live DD1's main
-# recording + its one JointBreak debris (the hot-staged booster) = 3.
-count = { min = 3, max = 3 }
+# RE-PINNED 2026-10-01 from 3 to 4 off `2026-10-01_0732`: the injected synthetic
+# recording + the live DD1's TWO chain segments + its one JointBreak debris (the
+# hot-staged booster). The extra segment is intended behaviour, not drift: #1931
+# (2026-09-30, IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS) made the seam `CommitTree`
+# run `RecordingStore.RunOptimizationPass`, and the pass splits the DD1 at its
+# atmosphere exit (`Split candidate (PersistedPhaseChange) ... prev=Atmospheric
+# next=ExoBallistic`, 146 + 369 points, chainIndex 0 / 1, the terminal and the spawn
+# stamp on the second half). _0732 red only on this count; every other expectation
+# and the seam token were met.
+count = { min = 4, max = 4 }
 
 [expectations.recordings.structure]
-# REPORT-ONLY (gating stays false): the observed integers from _1906, so a
-# drift in the topology is reported without gating a lane whose contract is
-# the seam token. Arming waits for a second matching reading, per the
-# saveParse discipline.
+# ARMED 2026-10-01 off `2026-10-01_0732` with `recordings` re-pinned 3 -> 4 for the
+# #1931 split above (the chain's first segment carries no terminal state, so the
+# terminal and branch-point windows are the _1906 integers unchanged). Every bound
+# inverted offline against that save red on exactly its window.
+gating         = true
 trees          = { min = 2, max = 2 }
 committedTrees = { min = 2, max = 2 }
-recordings     = { min = 3, max = 3 }
+recordings     = { min = 4, max = 4 }
 terminalStates = { Orbiting = { min = 2, max = 2 }, Destroyed = { min = 1, max = 1 } }
 branchPoints   = { JointBreak = { min = 1, max = 1 } }
 
 [expectations.rewind]
-# REPORT-ONLY on the reading run.
+# ARMED 2026-10-01 off `2026-10-01_0732` (rewindPoints / supersedeRows / tombstones
+# all 0, as on _1906).
+gating        = true
 rewindPoints  = { max = 0 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
