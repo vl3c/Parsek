@@ -317,16 +317,19 @@ namespace Parsek.Tests
                 "rec-launch-A",
                 LedgerOrchestrator.PickRecoveryRecordingId("Hopper", 1000.0));
 
-            // With the recovering vessel's launch guid, A drops out of the candidate set.
+            // With the recovering vessel's launch guid, A never enters the candidate set.
+            // Since stage 3 that is the LAUNCH-GUID path (B carries the guid, so names are
+            // not consulted at all); the stage-1 filter itself is pinned on the name
+            // fallback by RecoveryPickIdentityFirstTests.
             string pick = LedgerOrchestrator.PickRecoveryRecordingId(
                 RecoveredVesselIdentity.FromRawName("Hopper", GuidB), 1000.0);
             Assert.Equal("rec-launch-B", pick);
 
             Assert.Contains(logLines, l =>
-                l.Contains("PickRecoveryRecordingId guid filter") &&
-                l.Contains("dropped=1") &&
-                l.Contains("remaining=1") &&
-                l.Contains("reason=guid-conclusive-mismatch"));
+                l.Contains("PickRecoveryRecordingId path:") &&
+                l.Contains("path=launch-guid") &&
+                l.Contains("identityMatches=1") &&
+                l.Contains("nameOnlyIgnored=1"));
         }
 
         [Fact]
@@ -346,11 +349,14 @@ namespace Parsek.Tests
             Assert.Equal(before, after);
             Assert.DoesNotContain(logLines, l => l.Contains("reason=guid-conclusive-mismatch"));
 
-            // The filter ran and AGREED - a distinct log state from "the filter never ran",
-            // which is what a live-proof run reads to know it was active on this leg.
+            // Stage 3: both segments carry the launch guid, so the launch-guid path decided
+            // and named both of them - a distinct log state from the name fallback.
             Assert.Contains(logLines, l =>
-                l.Contains("PickRecoveryRecordingId guid filter") &&
-                l.Contains("reason=no-conclusive-mismatch"));
+                l.Contains("PickRecoveryRecordingId path:") &&
+                l.Contains("path=launch-guid") &&
+                l.Contains("identityMatches=2") &&
+                l.Contains("identityNameMismatch=0") &&
+                l.Contains("nameOnlyIgnored=0"));
         }
 
         [Fact]

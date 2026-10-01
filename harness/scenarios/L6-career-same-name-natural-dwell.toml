@@ -209,8 +209,12 @@ count = { min = 3, max = 4 }
 # per-run generated STAND-IN kerbal's name (see the sibling's header for why the
 # recovered kerbal is not Jebediah).
 required = [
-  "PickRecoveryRecordingId guid filter: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ dropped=2 remaining=[12] reason=guid-conclusive-mismatch",
-  "PickRecoveryRecordingId: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ nameMatches=[34] survivors=[12] guidDropped=2 skippedZombieNotCommitted=0 sessionProvisionalAdmitted=False tier=most-recent-ended bracketTie=n/a pick=[0-9a-f]{32}",
+  # RE-CUT 2026-10-01 FOR KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY STAGE 3 (identity
+  # first), NOT YET RE-READ: the launch-guid path picks over this flight's own segments
+  # and ignores the fixture's two prior-launch recordings by construction
+  # (`nameOnlyIgnored=2`); see the sibling L6-career-same-name-recover.
+  "PickRecoveryRecordingId path: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ path=launch-guid identityMatches=[12] identityNameMismatch=0 nameOnlyIgnored=2 unknownGuidSessionProvisionalAdmitted=False",
+  "PickRecoveryRecordingId: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ path=launch-guid nameMatches=[34] survivors=[12] guidDropped=n/a skippedZombieNotCommitted=0 sessionProvisionalAdmitted=False tier=most-recent-ended bracketTie=n/a pick=[0-9a-f]{32}",
   "Recovery kerbal XP recorded: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ recordingId=[0-9a-f]{32} rows=1 deduped=0 noAction=0 kerbals='[A-Za-z]+ Kerman'",
 ]
 forbidden = [
@@ -219,6 +223,7 @@ forbidden = [
   # one whose landed tail fell BELOW the floor, which is the point worth keeping: the
   # split outcome moved and the pick was consumed either way.
   "Recovery kerbal XP refused:",
+  "PickRecoveryRecordingId path: .* path=name-fallback",
 ]
 
 [runtime]

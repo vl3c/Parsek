@@ -442,15 +442,18 @@ count = { min = 4, max = 4 }
 # shape. Under the ranges the second of those passed silently; under these literals it
 # reds, which is the point of the dwell.
 required = [
-  # THE FILTER ITSELF, and it was not pinned before because it had never been seen. This
-  # is the line that says the drop HAPPENED and why - a pick line alone cannot tell a
-  # filter that dropped two from one that never ran.
-  "PickRecoveryRecordingId guid filter: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ dropped=2 remaining=2 reason=guid-conclusive-mismatch",
-  # THE PICK. The fixture's two prior-launch recordings name-match and are dropped by guid
-  # - `guidDropped=2` is the literal this lane exists for - and the tier walk runs over
-  # THIS flight's survivors alone, landing on `most-recent-ended`, the weakest tier and the
-  # one the todo entry says a driven career recovery reaches.
-  "PickRecoveryRecordingId: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ nameMatches=4 survivors=2 guidDropped=2 skippedZombieNotCommitted=0 sessionProvisionalAdmitted=False tier=most-recent-ended bracketTie=n/a pick=[0-9a-f]{32}",
+  # RE-CUT 2026-10-01 FOR KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY STAGE 3 (identity
+  # first), NOT YET RE-READ. This flight's own two segments carry the recovering vessel's
+  # launch guid (9b3c71e4...), so every leg now takes the LAUNCH-GUID path: the candidate
+  # set is those two recordings, chosen without consulting names, and the fixture's two
+  # prior-launch recordings (f77e4207...) never enter it - `nameOnlyIgnored=2` is the
+  # literal this lane exists for, replacing stage 1's `guidDropped=2` / `dropped=2`. The
+  # stage-1 guid filter runs only on the name fallback, so its line no longer prints here.
+  "PickRecoveryRecordingId path: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ path=launch-guid identityMatches=2 identityNameMismatch=0 nameOnlyIgnored=2 unknownGuidSessionProvisionalAdmitted=False",
+  # THE PICK. The tier walk runs over THIS flight's two segments alone, landing on
+  # `most-recent-ended`. `nameMatches=4` is diagnostic on this path and `guidDropped=n/a`
+  # says the filter did not run.
+  "PickRecoveryRecordingId: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ path=launch-guid nameMatches=4 survivors=2 guidDropped=n/a skippedZombieNotCommitted=0 sessionProvisionalAdmitted=False tier=most-recent-ended bracketTie=n/a pick=[0-9a-f]{32}",
   # THE XP ROW: the pick was CONSUMED. `rows=1 deduped=0 noAction=0` is the measured shape;
   # the kerbal is a per-run generated STAND-IN (see the header), so only its Kerman suffix
   # is pinned.
@@ -477,6 +480,9 @@ forbidden = [
   # recovery is crewed by construction (the pad craft carries a pod and a kerbal, stand-in
   # or not), which `CareerSameNamePadFixtureDriftTests` asserts.
   "Recovery kerbal XP refused:",
+  # Stage 3: every leg carries the live launch guid and the flight's recordings carry it,
+  # so no pick may fall back to the name walk.
+  "PickRecoveryRecordingId path: .* path=name-fallback",
 ]
 
 [runtime]

@@ -7885,8 +7885,10 @@ namespace Parsek
             // payout-context lookup below still pairs by name; the pending-tree terminal
             // update and the pending-owner check additionally gate on pid + this guid
             // (MatchesVessel), degrading to name-only when either side is unknown.
+            // Stage 3: the pid rides along too, read by the picker ONLY as a genuine Parsek
+            // spawn identity (a spawned vessel's fresh guid matches no recording).
             RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(
-                pv.vesselName, VesselLaunchIdentity.ReadLaunchGuid(pv));
+                pv.vesselName, VesselLaunchIdentity.ReadLaunchGuid(pv), pv.persistentId);
             if (!identity.HasName) return;
 
             double now = Planetarium.GetUniversalTime();
