@@ -281,7 +281,8 @@ namespace Parsek
                         mission?.ExcludedIntervalKeys, vesselNames);
                     ParsekLog.Verbose("UI",
                         $"Structure window vessel names: tree={treeId} legs={naming.Legs} " +
-                        $"partners={naming.Partners} numbered={naming.Numbered}");
+                        $"partners={naming.Partners} numbered={naming.Numbered} " +
+                        $"continuations={naming.Continuations}");
                 }
             }
             SetSteps(built);

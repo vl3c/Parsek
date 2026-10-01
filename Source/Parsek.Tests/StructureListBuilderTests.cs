@@ -264,6 +264,25 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[Mission]") && l.Contains("BuildStructureList:") && l.Contains("steps="));
         }
 
+        // catches: an optimizer chain head carrying the terminal state the vessel had at the
+        // cut (Kerbal X #4 in interbody-route-recorded: the launch head ends SubOrbital at its
+        // atmosphere exit) drawing a mid-flight "End: Suborbital" row. Only a vessel's LAST
+        // segment ends it.
+        [Fact]
+        public void Mission_ChainHeadTerminal_IsNotAnEndRow()
+        {
+            var head = Rec("head", 0, 100, vessel: "Kerbal X", terminal: TerminalState.SubOrbital, launchSite: "LaunchPad");
+            head.ChainId = "c"; head.ChainIndex = 0;
+            var tail = Rec("tail", 100, 500, vessel: "Kerbal X", terminal: TerminalState.Orbiting);
+            tail.ChainId = "c"; tail.ChainIndex = 1;
+            var steps = BuildMission(Tree(new[] { head, tail }));
+            var ends = steps.Where(x => x.Kind == StructureStepKind.Terminal).ToList();
+            Assert.Single(ends);
+            Assert.Equal("End: Orbiting", ends[0].Label);
+            Assert.Equal("tail", ends[0].RecordingId);
+            Assert.Contains(logLines, l => l.Contains("[Mission]") && l.Contains("continuedEndsSkipped=1"));
+        }
+
         // --- Location formatter tests ---
 
         [Fact]

@@ -266,6 +266,7 @@ namespace Parsek
                     $"dockCoupling={ctx.SkippedDockCoupling} duplicates={ctx.SkippedDuplicates} " +
                     $"absorbed={ctx.AbsorbedCount} loose={loose.Count} " +
                     $"mergedEndsSkipped={ctx.SkippedMergedEnds} " +
+                    $"continuedEndsSkipped={ctx.SkippedContinuedEnds} " +
                     $"excludedKeys={(excludedIntervalKeys != null ? excludedIntervalKeys.Count : 0)} " +
                     $"excludedRows={excludedRows}");
             return steps;
@@ -386,6 +387,7 @@ namespace Parsek
             internal int SkippedDuplicates;
             internal int AbsorbedCount;
             internal int SkippedMergedEnds;
+            internal int SkippedContinuedEnds;
 
             internal BuildContext(RecordingTree tree, MissionStructure structure,
                 Func<string, string> partTitleResolver,
@@ -1064,6 +1066,14 @@ namespace Parsek
             foreach (MissionLeg leg in ctx.Structure.LegsById.Values)
             {
                 if (!leg.TerminalStateValue.HasValue) continue;
+                // Only a vessel's LAST segment ends it: a chain segment the optimizer split
+                // off can carry the terminal state the vessel had at the cut (a launch
+                // head's SubOrbital at an atmosphere exit), and that is no ending.
+                if (ContinuesInChain(ctx, leg))
+                {
+                    ctx.SkippedContinuedEnds++;
+                    continue;
+                }
                 TerminalState term = leg.TerminalStateValue.Value;
                 // A leg that ended by joining another already has its Docked / Boarded row.
                 if (term == TerminalState.Docked || term == TerminalState.Boarded)
@@ -1082,6 +1092,23 @@ namespace Parsek
                     RecordingId = leg.RecordingId
                 });
             }
+        }
+
+        // True when a later segment of the same vessel exists in the tree: the leg's sequence
+        // successor, or a higher ChainIndex of its ChainId.
+        private static bool ContinuesInChain(BuildContext ctx, MissionLeg leg)
+        {
+            if (!string.IsNullOrEmpty(leg.SequenceNextId)) return true;
+            Recording rec = ctx.Rec(leg.RecordingId);
+            if (rec == null || string.IsNullOrEmpty(rec.ChainId) || rec.ChainIndex < 0
+                || ctx.Tree.Recordings == null)
+                return false;
+            foreach (Recording other in ctx.Tree.Recordings.Values)
+                if (other != null && !other.IsDebris
+                    && string.Equals(other.ChainId, rec.ChainId, StringComparison.Ordinal)
+                    && other.ChainIndex > rec.ChainIndex)
+                    return true;
+            return false;
         }
 
         /// <summary>"End: Orbiting" - the terminal word the Missions End column reads.</summary>

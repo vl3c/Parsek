@@ -93,7 +93,7 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   policy), so `GetRewindRecording` is null in every scene (GUI-4 is a Space Center capture
   and draws no Rewind either); GUI-1's operator career has launch saves and draws it.
 
-## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branches `log-rework` (parts 1-2) and `log-rework-2` (part 3 on). PARTS 1-5 DONE]
+## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branches `log-rework` (parts 1-2) and `log-rework-2` (part 3 on). PARTS 1-6 DONE]
 
 Presentation only (no recording data or schema change, no new window). The docked-mission
 subject is `bdock-recorded`'s "Kerbal X #2" (GUI-4), whose Log read 31 rows; it now reads 11,
@@ -148,14 +148,25 @@ pinned row by row in `StructureListBdockFixtureTests` against the committed fixt
   read. A leg whose launch identity matches a vessel ANOTHER mission recorded EARLIER is that
   mission's vessel and keeps the partner phrase `Kerbal X (mission 'Kerbal X')`, never a
   number (never for a leg sharing launch with this mission's own root). Own non-EVA legs group
-  into vessels by ChainId or launch identity; per name, order is first appearance UT, then the
-  vessel whose first leg shares part pids with its parent, then RecordingId; numbering is per
-  tree, so clones agree. In the GUI-4 docking mission the undocked half `37d0dc07` and the
-  docked stack `f049901e` carry the first mission's launch (pid 3620499050, guid 97813bb6), so
-  they read the partner phrase, and `4af6cfd7` - this mission's own ship, re-pidded by KSP at
-  the undock - is the one numbered `Kerbal X [2]`: `Undocked (Kerbal X [2])` with the docked
-  stack (the partner) in the Vessel column, and three End rows told apart by name.
-  `MissionVesselNamingTests` pins both trees and the synthetic shapes.
+  into vessels by ChainId or launch identity, plus a RE-PIDDED CONTINUATION: KSP gives a ship
+  a fresh pid (and guid) when it undocks, so a leg descending from an own vessel whose own legs
+  have all ended, and sharing part pids with it, joins that vessel (one continuation per
+  vessel, best shared-pid count first; a vessel that carries on past a split is never
+  continued by the piece that left, so a genuine same-named twin stays numbered). Per name,
+  order is first appearance UT, then the vessel whose first leg shares part pids with its
+  parent, then RecordingId; numbering is per tree, so clones agree. The first cut numbered the
+  re-pidded own ship (`4af6cfd7`, 7 part pids shared with the root `5157d655`; GUI-3's
+  `1331a21b`, fresh pid AND guid, 17 shared with `36c7688b`) as `[2]`; both are now the same
+  vessel. In GUI-4 the undocked half `37d0dc07` and the docked stack `f049901e` carry the
+  first mission's launch (pid 3620499050, guid 97813bb6) and read the partner phrase; the Log
+  reads `Undocked (Kerbal X)` and no `[2]` anywhere. The expanded interval line names its
+  peel through the same map. `MissionVesselNamingTests` pins both fixtures and the synthetic
+  shapes (re-pidded own ship, genuine twin, chain, tie, partner direction, guid mismatch).
+- [x] Part 6, an End row only from a vessel's last segment: the optimizer's chain head keeps
+  the terminal state the vessel had at the cut (GUI-3's Kerbal X #4: `c549ef6e` ends
+  `SubOrbital` at its atmosphere exit while the chain continues on `04177024`), which drew a
+  mid-flight `End: Suborbital | Kerbin, Grasslands` row. A leg with a sequence successor or a
+  later ChainIndex in its chain draws none (`continuedEndsSkipped=` in the build summary).
 
 ## ~~MISSION-EVENT-DIGEST-DUPLICATE-LAUNCHED-ROW: the digest builds a second "launched" row for one flight~~ [FILED 2026-09-29 from MISSIONS-TAB-MODEL1. FIXED 2026-10-01, branch `missions-followups`]
 

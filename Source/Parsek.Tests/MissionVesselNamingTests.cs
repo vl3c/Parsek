@@ -58,10 +58,11 @@ namespace Parsek.Tests
         // The GUI-4 docking mission. Verified against the fixture: the undocked half 37d0dc07
         // and the docked stack f049901e carry the FIRST mission's launch identity (pid
         // 3620499050, guid 97813bb6...), so they are that mission's Kerbal X; 4af6cfd7 is this
-        // mission's own ship, which KSP re-pidded at the undock, so it is this mission's
-        // second same-named vessel and the one that gets the number.
+        // mission's own ship, which KSP re-pidded at the undock (fresh pid, no guid) and which
+        // shares 7 part pids with the root 5157d655 - the SAME vessel, so no number anywhere.
+        // catches: the first cut of the rule, which numbered it "Kerbal X [2]".
         [Fact]
-        public void DockingMission_PartnerHalvesKeepThePhrase_OwnSecondKerbalXIsNumbered()
+        public void DockingMission_PartnerHalvesKeepThePhrase_RepiddedOwnShipIsNotNumbered()
         {
             List<RecordingTree> trees = StructureListBdockFixtureTests.LoadBdockTrees();
             RecordingTree tree = trees.Single(t => t.Id == DockingTreeId);
@@ -73,10 +74,11 @@ namespace Parsek.Tests
             Assert.Equal("Kerbal X Probe", names[DockingProbe]);
             Assert.Equal(Partner, names[DockedStack]);
             Assert.Equal(Partner, names[PartnerHalf]);
-            Assert.Equal("Kerbal X [2]", names[OwnHalf]);
+            Assert.Equal("Kerbal X", names[OwnHalf]);
             Assert.Equal(5, tally.Legs);
             Assert.Equal(2, tally.Partners);
-            Assert.Equal(1, tally.Numbered);
+            Assert.Equal(0, tally.Numbered);
+            Assert.Equal(1, tally.Continuations);
         }
 
         // The mirror direction: the FIRST mission's own Kerbal X matches the docking tree's
@@ -118,11 +120,12 @@ namespace Parsek.Tests
                 "Staged: 2 pieces (Hydraulic Detachment Manifold x2) | Kerbin | Kerbal X",
                 "Decoupled (Kerbal X Probe) | Kerbin | Kerbal X",
                 "Docked (" + Partner + ") | Kerbin orbit | Kerbal X",
-                "Undocked (Kerbal X [2]) | Kerbin orbit | " + Partner,
+                "Undocked (Kerbal X) | Kerbin orbit | " + Partner,
+                "End: Orbiting | Kerbin orbit | Kerbal X",
                 "End: Orbiting | Kerbin orbit | " + Partner,
                 "End: Orbiting | Kerbin orbit | Kerbal X Probe",
-                "End: Orbiting | Kerbin orbit | Kerbal X [2]",
             };
+            Assert.DoesNotContain(rows, r => r.Contains("["));
             Assert.Equal(expected, rows);
         }
 
@@ -147,9 +150,60 @@ namespace Parsek.Tests
                 output.WriteLine("  " + c.VesselName + " | " + c.EventPhrase);
             Assert.Equal("Kerbal X", main.VesselName);
             Assert.Equal("Launch" + a + "Decoupled (Kerbal X Probe)" + a + "Docked" + a
-                + "Undocked (Kerbal X [2])" + a + "Orbiting", main.EventPhrase);
-            Assert.Equal(new[] { "Kerbal X Probe", "Kerbal X [2]" },
+                + "Undocked (Kerbal X)" + a + "Orbiting", main.EventPhrase);
+            Assert.Equal(new[] { "Kerbal X Probe", "Kerbal X" },
                 main.Children.Select(c => c.VesselName).ToArray());
+            // The expanded interval line names the peel with the same helper.
+            MissionCompositionNode root = MissionCompositionBuilder.Build(structure)[0];
+            MissionCompositionNode undockInterval = FindInterval(root, n => n.StartEvent == "Undocked");
+            MissionCompositionNode undockParent = FindParent(root, undockInterval);
+            Assert.Equal("Kerbal X", MissionPresentation.ResolvePeeledSiblingVesselName(
+                undockParent, undockInterval, names));
+        }
+
+        private static MissionCompositionNode FindInterval(
+            MissionCompositionNode n, Func<MissionCompositionNode, bool> match)
+        {
+            if (n == null) return null;
+            if (match(n)) return n;
+            foreach (MissionCompositionNode c in n.Children)
+            {
+                MissionCompositionNode hit = FindInterval(c, match);
+                if (hit != null) return hit;
+            }
+            return null;
+        }
+
+        private static MissionCompositionNode FindParent(
+            MissionCompositionNode n, MissionCompositionNode target)
+        {
+            if (n == null) return null;
+            foreach (MissionCompositionNode c in n.Children)
+            {
+                if (ReferenceEquals(c, target)) return n;
+                MissionCompositionNode hit = FindParent(c, target);
+                if (hit != null) return hit;
+            }
+            return null;
+        }
+
+        // GUI-3's Duna mission had the same shape: its own ship 1331a21b got a fresh pid AND
+        // a fresh launch guid at the undock from the depot, and shares 17 part pids with its
+        // own chain segment 36c7688b, so it is the same Duna Supply 1, not a second one.
+        [Fact]
+        public void DunaMission_RepiddedOwnShipWithFreshGuid_IsTheSameVessel()
+        {
+            List<RecordingTree> trees =
+                StructureListBdockFixtureTests.LoadFixtureTrees("interbody-route-recorded", 4);
+            RecordingTree tree = trees.Single(t => t.Id == "3daf0cff159d413794c626137cd81002");
+            Dictionary<string, string> names = MissionVesselNaming.Build(
+                tree, MissionStructureBuilder.Build(tree),
+                MissionVesselNaming.LaunchIndex.Build(trees), id => "M", out MissionVesselNaming.Tally tally);
+            string ownHalf = names.Keys.Single(k => k.StartsWith("1331a21b", StringComparison.Ordinal));
+            Assert.Equal("Duna Supply 1", names[ownHalf]);
+            Assert.Equal(1, tally.Continuations);
+            Assert.Equal(0, tally.Numbered);
+            Assert.DoesNotContain(names.Values, v => v.Contains("["));
         }
 
         // ---------------------------------------------------------------- synthetic shapes
@@ -236,6 +290,48 @@ namespace Parsek.Tests
             Dictionary<string, string> names = Names(tree);
             Assert.Equal("Probe", names["a"]);
             Assert.Equal("Probe [2]", names["b"]);
+        }
+
+        // catches: a ship re-pidded at an undock (fresh pid, fresh guid) numbered as a second
+        // vessel of its own mission. It descends from the own ship after that ship's legs
+        // ended (it docked into a partner's stack) and shares its part pids.
+        [Fact]
+        public void RepiddedOwnShipAfterUndock_KeepsItsName()
+        {
+            RecordingTree station = Tree("S", new[] { Rec("s1", "Station", 0, 500, pid: 100, guid: "GS") });
+            Recording ship = Rec("ship", "Ship", 10, 50, pid: 200, guid: "G2", partPids: new uint[] { 11, 12, 13 });
+            Recording stack = Rec("stack", "Station", 50, 60, pid: 100, guid: "GS", partPids: new uint[] { 11, 900 });
+            Recording stationHalf = Rec("halfS", "Station", 60, 90, pid: 100, guid: "GS", partPids: 900);
+            Recording shipHalf = Rec("halfA", "Ship", 60, 90, pid: 201, guid: "G3", partPids: new uint[] { 12, 13 });
+            RecordingTree mission = Tree("A", new[] { ship, stack, stationHalf, shipHalf },
+                BP("d", BranchPointType.Dock, 50, new[] { "ship" }, new[] { "stack" }),
+                BP("u", BranchPointType.Undock, 60, new[] { "stack" }, new[] { "halfS", "halfA" }));
+            ship.TerminalStateValue = TerminalState.Docked;
+            Dictionary<string, string> names = MissionVesselNaming.Build(
+                mission, MissionStructureBuilder.Build(mission),
+                MissionVesselNaming.LaunchIndex.Build(new[] { mission, station }), id => "M-" + id,
+                out MissionVesselNaming.Tally tally);
+            Assert.Equal("Ship", names["ship"]);
+            Assert.Equal("Ship", names["halfA"]);
+            Assert.Equal("Station (mission 'M-S')", names["stack"]);
+            Assert.Equal("Station (mission 'M-S')", names["halfS"]);
+            Assert.Equal(1, tally.Continuations);
+            Assert.Equal(0, tally.Numbered);
+        }
+
+        // catches: the continuation rule swallowing a genuine twin - a same-named piece that
+        // decouples from a ship that carries on is a second vessel even though it shares the
+        // parent's part pids.
+        [Fact]
+        public void SameNamedPieceDecoupledFromAShipThatCarriesOn_IsStillNumbered()
+        {
+            Recording root = Rec("root", "Ship", 0, 300, pid: 1, guid: "g1", partPids: new uint[] { 5, 6 });
+            Recording piece = Rec("piece", "Ship", 100, 200, pid: 2, partPids: 6);
+            RecordingTree tree = Tree("t", new[] { root, piece },
+                BP("s", BranchPointType.JointBreak, 100, new[] { "root" }, new[] { "piece" }));
+            Dictionary<string, string> names = Names(tree);
+            Assert.Equal("Ship", names["root"]);
+            Assert.Equal("Ship [2]", names["piece"]);
         }
 
         // catches: an optimizer chain split or a same-launch continuation numbered as a second

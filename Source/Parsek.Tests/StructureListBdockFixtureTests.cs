@@ -627,6 +627,21 @@ namespace Parsek.Tests
             Assert.Null(MissionChapters.FormatPartnerWithMission(null, "M"));
         }
 
+        // catches: GUI-3's Kerbal X #4 Log showing "End: Suborbital | Kerbin, Grasslands" at
+        // T+0:04:33 - the launch chain head c549ef6e carries terminal SubOrbital while its
+        // chain continues on 04177024; the vessel's only ending is the chain tip's.
+        [Fact]
+        public void InterbodyMunMission_ChainHeadSubOrbital_IsNoEndRow()
+        {
+            List<RecordingTree> trees = StructureListBdockFixtureTests.LoadFixtureTrees("interbody-route-recorded", 4);
+            RecordingTree tree = trees.Single(t => t.Id == "02382fcdcb1a465388529350c0879cd6");
+            Recording head = tree.Recordings.Values.Single(r => r.RecordingId.StartsWith("c549ef6e", StringComparison.Ordinal));
+            Assert.Equal(TerminalState.SubOrbital, head.TerminalStateValue);
+            List<StructureStep> steps = MissionStructureListBuilder.Build(tree, MissionStructureBuilder.Build(tree));
+            Assert.DoesNotContain(steps, s => s.Label == "End: Suborbital");
+            Assert.DoesNotContain(steps, s => s.Kind == StructureStepKind.Terminal && s.RecordingId == head.RecordingId);
+        }
+
         [Fact]
         public void EmptyMission_HasTheOwnerWording()
         {

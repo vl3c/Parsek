@@ -599,7 +599,8 @@ namespace Parsek
         /// plain label). Pure.
         /// </summary>
         internal static string ResolvePeeledSiblingVesselName(
-            MissionCompositionNode parent, MissionCompositionNode node)
+            MissionCompositionNode parent, MissionCompositionNode node,
+            IReadOnlyDictionary<string, string> vesselNames = null)
         {
             if (parent == null || node == null)
                 return null;
@@ -623,6 +624,12 @@ namespace Parsek
                     continue;
                 if (System.Math.Abs(c.StartUT - node.StartUT) > PeelUtEpsilon)
                     continue;
+                // The shared mission vessel name (MissionVesselNaming), keyed by the peel's
+                // through-line head, when given.
+                if (vesselNames != null && !string.IsNullOrEmpty(c.OwnerHeadId)
+                    && vesselNames.TryGetValue(c.OwnerHeadId, out string named)
+                    && !string.IsNullOrEmpty(named))
+                    return named;
                 if (!string.IsNullOrEmpty(c.VesselName))
                     return c.VesselName;
             }
