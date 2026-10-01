@@ -1246,8 +1246,9 @@ An operator tool (trust risk 8, phases 1 and 2): it answers "would this lane red
 the thing its gate watches stopped happening?" over runs ALREADY archived on this
 machine. It launches nothing and never fails anything; survivors are listed for
 triage. Pure cores `lib/mutlib.py` (log, count, exception, anomaly and facet-level
-save mutations) and `lib/mutsave.py` (save-level edits, phase 2), thin shell
-`tools/mutation_check.py`, tests `lib/test_mutlib.py` and `lib/test_mutsave.py`.
+save mutations), `lib/mutsave.py` (save-level edits, phase 2) and `lib/mutledger.py`
+(ledger-oracle edits, phase 2), thin shell `tools/mutation_check.py`, tests
+`lib/test_mutlib.py`, `lib/test_mutsave.py` and `lib/test_mutledger.py`.
 
 ```
 python tools/mutation_check.py                    # every gating spec, newest green archive each
@@ -1255,6 +1256,7 @@ python tools/mutation_check.py --spec B1-pad-hop  # one lane
 python tools/mutation_check.py --archive ../../logs/<stamp>_<specId>   # one run folder
 python tools/mutation_check.py --list-archives --spec B1-pad-hop
 python tools/mutation_check.py --save-only        # save-level edits only, no KSP.log needed
+python tools/mutation_check.py --ledger-only      # ledger-oracle edits only
 ```
 
 Archives: every `<umbrella>/*/harness/results` (`<runId>.json` +
@@ -1278,6 +1280,7 @@ What it replays - only the gating evaluators that are pure over an archive:
 | the anomaly sweep | one raise of each gated token |
 | `saveparse` windows (armed blocks only) | the measured facet +1 / -1 / 0 against the evaluator's own window rule |
 | `saveparse.parse_parsek_scenario` + `evaluate_save_structure` (armed blocks only; `mutsave`) | edits to the archived `persistent.sfs` that push each window across each declared bound, plus per-block faults (torn save, no ParsekScenario node, a missing `pointCount`, a route the codec drops, a missing `completedCycles`) |
+| `ledgerverify.evaluate` (the ledger oracle as `run.py` calls it; `mutledger`) | each hard pool moved just past its tolerance (produced value and seed, both sides), each declared manifest amount moved across and each non-zero entry removed, an armed `captureCrossCheck` fed an unexplained award and shifted captured awards, each roster claim broken, plus faults (torn analysis, no careerSave block, `parsed = false`, no seed, an unknown-kind entry, a missing pool, a missing roster facet) |
 
 Phases come from the log itself: `boot` is before the first seam `exec ... start`
 line, `teardown` after the `flushandquit: Application.Quit` marker. A required
@@ -1325,10 +1328,49 @@ armed blocks pass, then the spec's committed `fixture.saveTemplate` when that pa
 (`--no-fixtures` skips it; an operator-local template is never read). A full run (no
 `--save-only`) adds the same edits to any lane whose archive carries a save.
 
-Not replayed (later phase-2 PRs, todo MUTATION-CHECK-PHASE-2): the ledger oracle, the
-mission verdict, driver validity, the C# log validator, the offline recording
-analyzer, the in-game `testResults` / batch tally row, the ghost-lifecycle row
-(`ghostlife`), render composition, ledger perturbation, and forbidden-token injection.
+Ledger-oracle edits (phase 2 PR 2, `lib/mutledger.py`). The ledger verifier needs the
+run's seed, and the archive already carries it: `run.py` writes the seed's careerSave-shaped
+audit copy into `results/<runId>.manifest.json`, and the produced save's careerSave block is
+in the snapshot's `analysis/*.analysis.json`. The verifier's decisions live in
+`lib/ledgerverify.py` (`run._run_ledger_oracle` only adds the logger and the manifest
+write), and the checker calls that same function over edited inputs, so it cannot drift from
+a flight. For every spec with `[expectations.ledger]` or `[expectations.world]`:
+
+- each hard pool the seed carries (`funds`, `sciencePool`, `reputation`) has its produced
+  value set just past the facet tolerance either side of the expected value, and its seed
+  value moved so the expected value crosses (gates `ledger.<pool>:produced` /
+  `ledger.<pool>:seed`), plus a `ledger:drop-<pool>` fault;
+- each declared manifest amount is moved until the expected value crosses
+  (`manifest[i].<facet>`; the reputation curve is non-linear, so the shift is doubled up to
+  12 times, PLANNED with `oracle.compute_expected` but decided by the full verifier), and
+  each entry with a non-zero amount is removed (`manifest[i]:removed`);
+- with `captureCrossCheck = "gate"`, a stock award line no entry explains is appended to
+  the log and each captured award's amount is moved past the tolerance
+  (`ledger.captureCrossCheck`);
+- each `[expectations.world.roster]` `present` name is dropped from the produced roster and
+  each `absent` name added (`world.roster.present[<name>]` / `world.roster.absent[<name>]`);
+  world vessel resources are reported UNCHECKED (no committed spec declares one);
+- faults: a torn analysis file, no careerSave block, `parsed = false`, no seed and a
+  missing roster facet must route to INVALID(tooling); an unknown-kind manifest entry must
+  red as a dropped expected effect.
+
+A kill counts only on the gate's own facet (a pool edit needs a hard divergence on that
+pool, a roster edit one naming that kerbal, a capture edit a hard `unexpected-award`). A
+gate is `PROVEN` when every crossing edit is killed (a tolerance has two sides, so a
+one-sided compare leaves a survivor), `VACUOUS` when one survives (the reason names the
+side, and whether the planned expected value even moved), `UNCHECKED` when no edit could be
+built. Edits run over the log with every line the stock-award capture cannot read blanked
+(line ordinals kept), but only when that log captures exactly what the full log does.
+
+`--ledger-only` runs just these edits over the newest `--max-tries` results archives that
+carry a `<runId>.manifest.json` and a snapshot analysis file, the first whose verifier
+passes being the baseline. Collect-logs folders carry no seed and never serve. A full run
+(no `--ledger-only`) adds the same edits to a lane whose archive carries them.
+
+Not replayed (phase 2 PR 3, todo MUTATION-CHECK-PHASE-2): the mission verdict, driver
+validity, the C# log validator, the offline recording analyzer, the in-game
+`testResults` / batch tally row, the ghost-lifecycle row (`ghostlife`), render
+composition, and forbidden-token injection.
 
 ## Fixture saves and the shared craft library
 

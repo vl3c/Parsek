@@ -6419,8 +6419,26 @@ six publish or compare numbers the runner already measured.
     umbrella root): 124 of the 124 specs with an armed block have a green archived
     produced save; 1802 edits, 1802 killed; 1308 gates PROVEN, 0 VACUOUS, 0 UNCHECKED
     (608 down-crossings, 741 up-crossings, 449 faults, 4 set re-points). Committed fixture
-    templates alone give a green baseline for 54 of the 124, all PROVEN. Still open
-    (PRs 2 and 3): ledger perturbation, mission sensor reads, forbidden-token injection.
+    templates alone give a green baseline for 54 of the 124, all PROVEN.
+    PHASE 2 PR 2, LEDGER PERTURBATION (branch `mutation-phase2-pr2`, 2026-10-01; pure core
+    `harness/lib/mutledger.py`, `mutation_check.py --ledger-only`): the ledger-oracle
+    verifier's decisions moved from `run.py` into `harness/lib/ledgerverify.py`, which both
+    `run.py` and the checker call. Inputs are the archived seed (the audit copy in
+    `<runId>.manifest.json`), the produced careerSave block (the snapshot's
+    `analysis/*.analysis.json`) and the KSP.log. Each hard pool is moved just past its
+    tolerance on both sides (produced value and seed), each declared manifest amount is
+    moved until the expected value crosses and each non-zero entry is removed, an armed
+    `captureCrossCheck` gets an injected unexplained award and each captured award moved
+    past the tolerance, each roster claim is broken, and faults are planted (torn analysis,
+    no careerSave block, `parsed = false`, no seed, an unknown-kind entry, a missing pool,
+    a missing roster facet). A kill counts only on the gate's own facet; a gate is PROVEN
+    only when every crossing edit (both sides of a tolerance) is killed. FIRST SWEEP: 8 of
+    the 11 ledger specs have a green archive (L2-ledger-groundtruth-career and the two L3
+    strategy lanes have no seed-bearing archive on this machine); 177 edits, 177 killed;
+    122 gates PROVEN, 0 VACUOUS, 0 UNCHECKED (19 produced-pool, 19 seed-pool, 11
+    manifest-amount, 8 entry-removal, 1 cross-check, 4 roster, 60 faults).
+    L1-passive-sandbox carries no pool gate by design (pool-less seed). Still open (PR 3):
+    mission sensor reads, forbidden-token injection.
     NUMERIC RULE (after the #1801 review): an identifier-shaped field (`pid`, `id`,
     `idx`, `index`, `inst`, `rec`, `slot`, `dist`, the UT fields, `frame=`, a `...Root`
     part pid, an unlabelled number) is `info`; EVERY other field that moves between zero
