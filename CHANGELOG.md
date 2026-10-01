@@ -1317,6 +1317,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Dev: a harness mission that ends early writes its result file again.** A mission's
+  assertion rows could carry a reading still at its "not yet measured" NaN default (the
+  `kx_rewind_watch` core discard altitude and time, peak booster thrust and rewind times, on
+  any flight lost before the core discard), and the result writer refuses NaN. The write ran
+  outside the mission's error handling, so the mission died with no result file and the run
+  read INVALID(tooling-mission) instead of INVALID(mission), losing every assertion row. This
+  hit all 13 lanes that fly `kx_rewind_watch`. Every row now writes such a reading as null,
+  for every mission, and if the result still cannot be written a reduced result keeping the
+  verdict, reason and assertion names is written instead (`serializationFallback: true`).
 - **A vessel whose return is blocked by another vessel stays visible until it can appear.**
   When a replayed vessel that later flights build on (a ghost-chain tip) reaches the moment it
   becomes real, and a vessel you have parked in its spot blocks it, its ghost used to stand

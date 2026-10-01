@@ -11223,5 +11223,87 @@ class B5PreTransferJettisonTests(unittest.TestCase):
         self.assertFalse(out.jettison_split_confirmed)
 
 
+class NonFiniteDetailScrubTests(unittest.TestCase):
+    """KXRW-RESULT-NAN-DETAIL. AssertionOutcome.to_dict scrubs a non-finite float
+    anywhere in the detail (not only the value) to None, the representation the
+    value scrub already uses, so every shell's result serializes under
+    allow_nan=False; and the failsafe serializer never raises."""
+
+    def test_nested_non_finite_detail_is_scrubbed_to_none(self):
+        row = mlib.AssertionOutcome(
+            "r", False, float("nan"),
+            {"top": float("nan"), "ok": 2.5, "flag": True, "count": 3,
+             "nested": {"inf": float("inf"), "list": [1.0, float("-inf"), "x"],
+                        "tup": (float("nan"), 4.0)}}).to_dict()
+        self.assertIsNone(row["value"])
+        self.assertIsNone(row["top"])
+        self.assertEqual(2.5, row["ok"])
+        self.assertIs(True, row["flag"])
+        self.assertEqual(3, row["count"])
+        self.assertIsNone(row["nested"]["inf"])
+        self.assertEqual([1.0, None, "x"], row["nested"]["list"])
+        self.assertEqual((None, 4.0), row["nested"]["tup"])
+        # MUTATION: row.update(self.detail) unscrubbed and this raises ValueError.
+        text = mlib.serialize_mission_result({"assertions": [row]})
+        self.assertNotIn("NaN", text)
+        self.assertNotIn("Infinity", text)
+
+    def test_a_clean_detail_is_returned_unchanged_and_not_mutated(self):
+        nested = {"window": [1.0, 2.0], "pair": (3.0, 4.0)}
+        detail = {"a": 1.0, "nested": nested}
+        self.assertIs(detail, mlib.scrub_non_finite(detail))
+        dirty = {"a": float("nan"), "nested": nested}
+        out = mlib.scrub_non_finite(dirty)
+        self.assertIsNot(dirty, out)
+        self.assertTrue(math.isnan(dirty["a"]), "the input must not be mutated")
+        self.assertIs(nested, out["nested"], "a clean sub-container is shared")
+
+    def test_a_pre_shaped_dict_row_is_scrubbed_too(self):
+        result = mlib.build_mission_result(
+            mission="m", verdict=mlib.MISSION_ASSERT_FAIL, reason="r",
+            phases_reached=[], connect_attempts=1, connected_seconds=1.0,
+            rpc_port=50000, assertions=[{"name": "d", "met": False,
+                                         "value": None, "ut": float("nan")}],
+            wall_seconds=1.0, krpc_client_version="", krpc_server_version="")
+        self.assertIsNone(result["assertions"][0]["ut"])
+        mlib.serialize_mission_result(result)
+
+    def test_failsafe_is_the_plain_serializer_on_a_clean_result(self):
+        result = {"schema": mlib.MISSION_RESULT_SCHEMA, "verdict": mlib.MISSION_OK}
+        text, failure = mlib.serialize_mission_result_failsafe(result)
+        self.assertIsNone(failure)
+        self.assertEqual(mlib.serialize_mission_result(result), text)
+
+    def test_failsafe_writes_the_minimal_result_keeping_verdict_and_ids(self):
+        result = {
+            "schema": mlib.MISSION_RESULT_SCHEMA, "mission": "kx_rewind_watch",
+            "verdict": mlib.MISSION_ASSERT_FAIL, "reason": "vessel lost",
+            "phasesReached": ["ROLLOUT", "ASCENT"],
+            "connect": {"attempts": 2, "connectedSeconds": float("nan"),
+                        "rpcPort": 50000},
+            "assertions": [{"name": "a", "met": True, "value": object()},
+                           {"name": "b", "met": False, "value": float("nan")}],
+            "wallSeconds": float("inf"), "krpcClientVersion": "0.5.4",
+            "krpcServerVersion": "0.5.4", "error": "earlier error",
+        }
+        text, failure = mlib.serialize_mission_result_failsafe(result)
+        self.assertIsNotNone(failure)
+        self.assertIn("result serialization failed", failure)
+        obj = mlib.parse_mission_result(text)
+        self.assertEqual(mlib.MISSION_RESULT_SCHEMA, obj["schema"])
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, obj["verdict"])
+        self.assertEqual("vessel lost", obj["reason"])
+        self.assertEqual(["ROLLOUT", "ASCENT"], obj["phasesReached"])
+        self.assertEqual([{"name": "a", "met": True, "value": None},
+                          {"name": "b", "met": False, "value": None}],
+                         obj["assertions"])
+        self.assertIsNone(obj["wallSeconds"])
+        self.assertEqual({"attempts": 2, "connectedSeconds": None, "rpcPort": 50000},
+                         obj["connect"])
+        self.assertTrue(obj["serializationFallback"])
+        self.assertTrue(obj["error"].startswith("earlier error\n"))
+        self.assertIn(failure, obj["error"])
+
+
 if __name__ == "__main__":
     unittest.main()

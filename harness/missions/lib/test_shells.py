@@ -440,6 +440,76 @@ class HappyPathTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+class ResultSerializerFailureTests(unittest.TestCase):
+    """KXRW-RESULT-NAN-DETAIL, the runner half. The result is serialized AFTER
+    run_mission's try/finally, so a serializer fault used to kill the shell with
+    no result file: run.py then read a missing result -> INVALID(tooling-mission)
+    and the real verdict and every assertion row were lost. The failsafe writes a
+    minimal result that keeps the verdict and the assertion names."""
+
+    B1_FRAMES = [
+        snap(ut=0.0, stage_solid_fuel=1.0, apoapsis=14000, situation="PRE_LAUNCH"),
+        snap(ut=1.0, stage_solid_fuel=0.5, apoapsis=14000, situation="FLYING"),
+        snap(ut=2.0, stage_solid_fuel=0.0, apoapsis=14000, situation="FLYING"),
+        snap(ut=3.0, vertical_speed=5.0, apoapsis=14000, situation="FLYING"),
+        snap(ut=4.0, vertical_speed=-5.0, apoapsis=14000, situation="FLYING"),
+        snap(ut=5.0, altitude=5000, apoapsis=14000, situation="FLYING",
+             craft_chute_state=mlib.CHUTE_STATE_SEMI_DEPLOYED),
+        snap(ut=6.0, altitude=2000, apoapsis=14000, situation="FLYING",
+             craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+        snap(ut=7.0, altitude=100, apoapsis=14000, situation="LANDED",
+             craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+    ]
+
+    def test_an_unserializable_row_still_writes_a_result_with_the_verdict(self):
+        real_evaluate = b1_pad_hop.SPEC.evaluate
+
+        def evaluate(frames, params, state=None):
+            rows = list(real_evaluate(frames, params, state))
+            # json cannot render an object(): the serializer raises TypeError,
+            # which no non-finite scrub can catch.
+            rows.append(mlib.AssertionOutcome("unserializableRow", True, None,
+                                              {"blob": object()}))
+            return rows
+
+        spec = replace(b1_pad_hop.SPEC, evaluate=evaluate)
+        sink = ResultSink()
+        # MUTATION: call mlib.serialize_mission_result directly in run_mission and
+        # this raises TypeError out of run() with sink.text never written.
+        code, result = run(spec, B1_PARAMS, FakeMissionControl(self.B1_FRAMES),
+                           writer=sink)
+        self.assertIsNotNone(sink.text)
+        self.assertEqual(mlib.MISSION_OK, result["verdict"], result)
+        self.assertEqual(0, code)
+        self.assertTrue(result["serializationFallback"])
+        self.assertEqual(mlib.MISSION_RESULT_SCHEMA, result["schema"])
+        names = [row["name"] for row in result["assertions"]]
+        self.assertIn("unserializableRow", names)
+        self.assertEqual(len(names), len(evaluate([], B1_PARAMS, None)))
+        self.assertIn("result serialization failed: TypeError", result["error"])
+
+    def test_a_non_finite_detail_float_no_longer_reaches_the_fallback(self):
+        # Both AssertionOutcome.to_dict and build_mission_result's pre-shaped-row
+        # path scrub it, so the normal (non-fallback) result is written.
+        real_evaluate = b1_pad_hop.SPEC.evaluate
+
+        def evaluate(frames, params, state=None):
+            rows = list(real_evaluate(frames, params, state))
+            rows.append(mlib.AssertionOutcome(
+                "nanDetailRow", True, None,
+                {"stamp": float("nan"), "nested": {"ut": float("inf"),
+                                                   "pair": [1.0, float("-inf")]}}))
+            return rows
+
+        spec = replace(b1_pad_hop.SPEC, evaluate=evaluate)
+        code, result = run(spec, B1_PARAMS, FakeMissionControl(self.B1_FRAMES))
+        self.assertEqual(mlib.MISSION_OK, result["verdict"], result)
+        self.assertNotIn("serializationFallback", result)
+        row = [r for r in result["assertions"] if r["name"] == "nanDetailRow"][0]
+        self.assertIsNone(row["stamp"])
+        self.assertEqual({"ut": None, "pair": [1.0, None]}, row["nested"])
+
+
 class ConnectFailureTests(unittest.TestCase):
     def test_connect_refused_times_out_nonzero(self):
         """The fake refuses every connect; the shell exhausts the bounded retry and

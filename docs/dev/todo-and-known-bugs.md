@@ -15,6 +15,39 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~KXRW-RESULT-NAN-DETAIL: a kx_rewind_watch flight that ends early writes no mission result at all~~ [FILED 2026-10-01 from the mutation checker's blind replay, branch `mutation-phase2-pr3`. FIXED 2026-10-01, branch `fix-kxrw-nan`. DEDUPE: the OPEN filing entry lives on `mutation-phase2-pr3`; when both land keep this closed entry and drop the open one]
+
+`mlib.evaluate_kxrw_assertions` copies raw state floats into assertion DETAIL dicts:
+`coreDiscardedWithEnginesOff` carries `discardUT` / `discardAltitude` (`KxrwState`
+defaults `core_discard_ut = nan`), `boosterStagesDropped` carries `peakThrustNewtons`
+(`ascent_peak_thrust = nan`), and `rewoundToLaunch` / `playbackWatchedOut` carry
+`preRewindUT` / `postRewindUT` / `targetUT`. `AssertionOutcome.to_dict` scrubbed a
+non-finite VALUE but not the detail, and `serialize_mission_result` renders with
+`allow_nan=False`, so any flight that ends before the core discard (or before thrust is
+read) raised `ValueError` in `mission_runner.run_mission` AFTER its try block: the
+subprocess died with no result file, and the harness read `<no-result>` ->
+INVALID(tooling-mission) instead of INVALID(mission), losing every assertion row. Same
+verdict class (retryable driver-INVALID), wrong subkind, no evidence. Found by
+`mutation_check.py --mission-only` on all 13 lanes that fly `kx_rewind_watch` (GS-4, GS-6 to
+GS-12, MC-4, RF-9, RF-13H, RF-14, RF-15).
+
+Fix: at the shared layer rather than in the kxrw evaluator, so every mission shell is
+covered. `AssertionOutcome.to_dict` runs the detail through the new `mlib.scrub_non_finite`
+(recursive over dicts / lists / tuples; NaN / Inf -> None, the null the value scrub already
+used; a clean container is returned as the same object, so clean rows stay byte-identical),
+and `build_mission_result` applies the same scrub to pre-shaped dict rows. The readers only
+consume `verdict` / `schema` / `wallSeconds` from the result, and null was already a legal
+detail value. Second layer: `run_mission` and the bad-`--params` path serialize through
+`mlib.serialize_mission_result_failsafe`, which on any serializer fault writes
+`mlib.minimal_mission_result` (schema, verdict, reason, phases, each assertion's `name` /
+`met`, the exception appended to `error`, `serializationFallback: true`) instead of
+crashing outside the try. Mirror check: every shell's evaluator was run over its initial
+state; only `kx_rewind_watch` carried a non-finite detail float (`rf12s_refly_orbit_insert`
+already scrubbed its own via a local `num`). Cells:
+`test_kx_rewind_watch.EarlyEndResultSerializationTests` (an early-end state serializes and
+reads back through `run._read_mission_result` as ASSERT-FAIL -> `(False, "mission")` with
+all 8 rows), `test_mlib.NonFiniteDetailScrubTests`, `test_shells.ResultSerializerFailureTests`.
+
 ## HARNESS-FLIGHT-WALL-TIME: auto-flights spend ~40% of their mission wall time idle at 1x [FILED 2026-10-01, branch `flight-efficiency`. MEASURED; the warp-policy fix is a separate session]
 
 `harness/tools/flight_efficiency.py` (pure core `harness/lib/flighteff.py`, contract in its
