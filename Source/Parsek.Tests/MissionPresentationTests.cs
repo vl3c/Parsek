@@ -432,6 +432,24 @@ namespace Parsek.Tests
             Assert.Equal("", MissionPresentation.BuildDockPartnerStartEventText("", "Munport Station"));
         }
 
+        // catches: an event cell that clips its text with no hover carrying it ("Docked with
+        // Depo..."), and the opposite noise of a tooltip that only repeats a fully visible word.
+        [Fact]
+        public void BuildEventCellTooltip_CarriesTheFullPhraseOrTheClippedWord()
+        {
+            // The cell shows the bare word; the named partner rides the hover, clipped or not.
+            Assert.Equal("Docked with Depot Station Duna I",
+                MissionPresentation.BuildEventCellTooltip(
+                    "Docked", "Docked with Depot Station Duna I", shownClips: false));
+            // A word that measures wider than its cell carries itself.
+            Assert.Equal("Disassembled",
+                MissionPresentation.BuildEventCellTooltip("Disassembled", null, shownClips: true));
+            // Fits, and nothing fuller: no tooltip.
+            Assert.Null(MissionPresentation.BuildEventCellTooltip("Launch", null, shownClips: false));
+            Assert.Null(MissionPresentation.BuildEventCellTooltip("Docked", "Docked", shownClips: false));
+            Assert.Null(MissionPresentation.BuildEventCellTooltip("", null, shownClips: true));
+        }
+
         [Fact]
         public void IsDockEventWord_OnlyTheTwoMergeWords()
         {
@@ -792,6 +810,49 @@ namespace Parsek.Tests
             Assert.DoesNotContain("Loops", line);
             // The span dates are the tooltip's job once a body path leads the line.
             Assert.DoesNotContain("Y1, D12", line);
+        }
+
+        // catches: a warned countdown (drift / arrival / out-of-tolerance launch) reading exactly
+        // like a plain one until hovered, now that every countdown is amber; and the marker
+        // leaking onto a plain countdown or escaping the one coloured segment.
+        [Fact]
+        public void BuildNarrativeSummaryLine_WarnedCountdownCarriesTheMarker()
+        {
+            string sep = MissionPresentation.SummarySeparator;
+            string plain = MissionPresentation.BuildNarrativeSummaryLine(
+                "Kerbin → Mun", null, null, "2d 3h", null, 0, "Landed", "T- 2h 14m",
+                nextLaunchWarned: false);
+            string warned = MissionPresentation.BuildNarrativeSummaryLine(
+                "Kerbin → Mun", null, null, "2d 3h", null, 0, "Landed", "T- 2h 14m",
+                nextLaunchWarned: true);
+
+            Assert.Equal("Kerbin → Mun" + sep + "2d 3h" + sep + "Landed"
+                + sep + "<color=#ffcc66>Next launch T- 2h 14m</color>", plain);
+            Assert.Equal("Kerbin → Mun" + sep + "2d 3h" + sep + "Landed"
+                + sep + "<color=#ffcc66>Next launch T- 2h 14m (!)</color>", warned);
+            Assert.Equal(" (!)", MissionPresentation.SummaryCountdownWarningMarker);
+
+            // No countdown, no marker, even when a warning is set.
+            string none = MissionPresentation.BuildNarrativeSummaryLine(
+                "Kerbin", null, null, "2d", null, 0, "Landed", null, nextLaunchWarned: true);
+            Assert.DoesNotContain("(!)", none);
+        }
+
+        // catches: the warned-countdown log firing every frame (or never), instead of once per
+        // transition of a mission's marker.
+        [Fact]
+        public void RecordCountdownWarnedState_ReportsOnlyTransitions()
+        {
+            var last = new Dictionary<string, bool>();
+            Assert.False(MissionPresentation.RecordCountdownWarnedState(last, "m1", false));
+            Assert.False(MissionPresentation.RecordCountdownWarnedState(last, "m1", false));
+            Assert.True(MissionPresentation.RecordCountdownWarnedState(last, "m1", true));
+            Assert.False(MissionPresentation.RecordCountdownWarnedState(last, "m1", true));
+            Assert.True(MissionPresentation.RecordCountdownWarnedState(last, "m1", false));
+            // A first sighting already warned is a transition; another mission is its own key.
+            Assert.True(MissionPresentation.RecordCountdownWarnedState(last, "m2", true));
+            Assert.False(MissionPresentation.RecordCountdownWarnedState(last, null, true));
+            Assert.False(MissionPresentation.RecordCountdownWarnedState(null, "m3", true));
         }
 
         // catches: the countdown colour drifting away from the amber the rest of the window

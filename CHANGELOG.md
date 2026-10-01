@@ -2329,7 +2329,11 @@ _(unreleased — entries accumulate here per commit)_
   (`Mun window, varies`, `Kerbin rot`) is in its hover. The Next
   launch column is gone: the countdown lives in the story, and the warning its amber tint
   used to carry (a drifted station, a refused arrival, a launch outside its alignment
-  tolerance) is in the story's hover. The `Events (N)` list under each mission is gone: its
+  tolerance) is in the story's hover, with the countdown itself ending in `(!)`
+  (`Next launch T- 5h 47m (!)`) so a warned launch reads differently before it is hovered.
+  The Start and End event cells show the event word only; the docked partner's name
+  (`Docked with Munport Station`) and any word too wide for its cell are in the cell's
+  hover, so no event cell cuts off a name mid-word. The `Events (N)` list under each mission is gone: its
   one unique piece, naming the other mission a dock connects to with a Go to button, is on
   the Docked partner rows (`Docked partner: CD (mission 'CD Freighter')`), including a row
   for a dock this mission recorded with another mission's vessel. Vessel and interval rows

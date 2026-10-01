@@ -111,7 +111,7 @@ namespace Parsek
             int gaps = 0;
             int skippedFlagged = 0;
 
-            AddLaunchRows(tree, rows);
+            int skippedContinuations = AddLaunchRows(tree, rows);
 
             if (graph != null)
             {
@@ -163,7 +163,8 @@ namespace Parsek
                     + " docks=" + docks.ToString(ic)
                     + " undocks=" + undocks.ToString(ic)
                     + " gaps=" + gaps.ToString(ic)
-                    + " skippedFlagged=" + skippedFlagged.ToString(ic));
+                    + " skippedFlagged=" + skippedFlagged.ToString(ic)
+                    + " skippedChainContinuations=" + skippedContinuations.ToString(ic));
             }
             return rows;
         }
@@ -193,9 +194,13 @@ namespace Parsek
         // One row per ROOT: a recording with no incoming branch-point edge. Membership is decided
         // by the CHILD lists rather than Recording.ParentBranchPointId so a stale/dangling parent
         // field cannot mint a phantom launch, and so a genuinely disconnected root (the post-switch
-        // shape of edge case 13, and the A->D fixture's D line) gets its own row.
-        private static void AddLaunchRows(RecordingTree tree, List<MissionEventRow> rows)
+        // shape of edge case 13, and the A->D fixture's D line) gets its own row. A chain
+        // continuation (an optimizer split's later segment, a re-fly TIP) is not a branch-point
+        // child either, but it continues an earlier segment of the same flight, so it is skipped
+        // when that earlier segment is in the tree (IsChainContinuationInTree).
+        private static int AddLaunchRows(RecordingTree tree, List<MissionEventRow> rows)
         {
+            int continuations = 0;
             var attached = new HashSet<string>(StringComparer.Ordinal);
             if (tree.BranchPoints != null)
             {
@@ -217,6 +222,11 @@ namespace Parsek
                     continue;
                 if (attached.Contains(rec.RecordingId))
                     continue;
+                if (IsChainContinuationInTree(tree, rec))
+                {
+                    continuations++;
+                    continue;
+                }
                 rows.Add(new MissionEventRow
                 {
                     UT = rec.StartUT,
@@ -224,6 +234,33 @@ namespace Parsek
                     SubjectName = rec.VesselName,
                 });
             }
+            return continuations;
+        }
+
+        /// <summary>
+        /// True when <paramref name="rec"/> is a later segment of a chain whose earlier segment
+        /// (same <c>ChainId</c>, lower <c>ChainIndex</c>) is also in <paramref name="tree"/>: it
+        /// continues that flight rather than launching one. A chain head, an unchained recording,
+        /// and a continuation whose earlier segments are not in this tree are not continuations
+        /// here, so a line that genuinely begins in this tree keeps its launch row. Pure.
+        /// </summary>
+        internal static bool IsChainContinuationInTree(RecordingTree tree, Recording rec)
+        {
+            if (tree?.Recordings == null || rec == null)
+                return false;
+            if (string.IsNullOrEmpty(rec.ChainId) || rec.ChainIndex <= 0)
+                return false;
+            foreach (KeyValuePair<string, Recording> entry in tree.Recordings)
+            {
+                Recording other = entry.Value;
+                if (other == null || ReferenceEquals(other, rec))
+                    continue;
+                if (string.Equals(other.ChainId, rec.ChainId, StringComparison.Ordinal)
+                    && other.ChainIndex >= 0
+                    && other.ChainIndex < rec.ChainIndex)
+                    return true;
+            }
+            return false;
         }
 
         // ---- merge rows (design 7.1 step 2, both columns of the 1.2 worked example) ----

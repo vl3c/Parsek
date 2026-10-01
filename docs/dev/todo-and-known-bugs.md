@@ -64,8 +64,18 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   inside the tooltip-echo budget); a route-bound mission draws `Looped by route` in the
   toggle's place; the grid shrinks from A 70 / B 164 / cell 264 to A 70 / B 92 / cell 192
   with `Warp to...` filling column B (no gap before Log). The summary drops `Loops ~P`.
+- [x] Follow-ups (2026-10-01, branch `missions-followups`): a warned countdown ends in `(!)`
+  inside its amber segment (`SummaryCountdownWarningMarker`; the window has no warning
+  colour to reuse), logged once per transition. The Start / End event cells and the bar's
+  value cells draw through one `DrawEventCell`: the cell shows the event word, and the
+  dock partner phrase (`Docked with Depot Station Duna I`, which clipped mid-name in the
+  110 px cell) or a word wider than its cell rides the cell's hover
+  (`BuildEventCellTooltip`). Rewind / Forward missing on GUI-4 / GUI-17 / GUI-18 is BY
+  DESIGN: those committed fixtures carry no launch save (`CommittedFixtureRewindSaveTests`
+  policy), so `GetRewindRecording` is null in every scene (GUI-4 is a Space Center capture
+  and draws no Rewind either); GUI-1's operator career has launch saves and draws it.
 
-## MISSION-EVENT-DIGEST-DUPLICATE-LAUNCHED-ROW: the digest builds a second "launched" row for one flight [FILED 2026-09-29 from MISSIONS-TAB-MODEL1. OPEN, low, not player-visible]
+## ~~MISSION-EVENT-DIGEST-DUPLICATE-LAUNCHED-ROW: the digest builds a second "launched" row for one flight~~ [FILED 2026-09-29 from MISSIONS-TAB-MODEL1. FIXED 2026-10-01, branch `missions-followups`]
 
 `MissionEventDigest.AddLaunchRows` (`Source/Parsek/MissionEventDigest.cs`) emits one
 `Launched` row per recording with no incoming branch-point child edge. On the owner's
@@ -78,6 +88,12 @@ duplicate is not visible anywhere. The builder and its tests still produce it. F
 consumer of the launch rows returns: skip a recording whose chain predecessor exists
 (`ChainId` / `ChainIndex > 0`), or key launch rows on through-line heads rather than on
 branch-point roots. Not investigated further.
+
+Fix: `AddLaunchRows` skips a recording that `MissionEventDigest.IsChainContinuationInTree`
+names a continuation - same `ChainId`, and an earlier `ChainIndex` of that chain is in the
+same tree (an optimizer split's later segment, a re-fly TIP). A chained recording whose
+earlier segments are NOT in the tree keeps its launch row. The digest's summary line counts
+them (`skippedChainContinuations=N`); `MissionEventDigestTests.Digest_ChainContinuation_IsNotASecondLaunch`.
 
 ## ~~BDOCK-1-STATION-SEPARATE-NOT-OBSERVED: the BDOCK-1 mission never sees the station separation it just performed~~ [FILED 2026-09-30 from the #1931 / #1932 verification flights. FIXED 2026-09-30, PR #1934, flight-proven]
 
