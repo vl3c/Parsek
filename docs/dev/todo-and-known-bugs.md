@@ -4922,11 +4922,31 @@ release scratch list, a real-time throttled position log). Pure decisions in
 chain-closed, unblocked, index-shifted, hold-ended, ghost-gone), `ShouldCapture`,
 `IsExemptFromHeldGhostTimeout`. Logged as `[ChainTipGhost] Blocked chain tip ghost held: #<i>
 "<name>" rec=<id> chainPid=<pid> source=<orbit|hold> ...` and `Blocked chain tip ghost released:
-... reason=<...> heldFor=<s>`. Walkback exhaustion does not end the hold (the chain keeps
-re-checking the overlap). Tests: `ChainTipBlockedGhostTests` (pure cells, the policy exemption,
+... reason=<...> heldFor=<s>`. Walkback exhaustion does not end the hold (operator ruling
+2026-10-01: keep the ghost and keep retrying quietly for the rest of the scene; the vessel appears
+the moment the spot clears, nothing disappears silently; design 13.7 carries the chain-tip
+carve-out). The retry is quiet: every log line on the 1 s retry path is `VerboseRateLimited`,
+keyed by recording id (`GhostExtender.StrategyLogKey`: strategy choice, surface / orbital
+propagation, endpoint position) or by the deciding values (the #226 bypass verdicts keyed by
+branch + source / scene-entry / active pid, the walkback trigger by its verdict, the bounds and
+part-parse lines by part counts), so a first or changed verdict prints at once. A walkback that
+finds a clear point whose spawn then fails backs the full-trajectory rescan off to once per 10 s
+of real time (`VesselGhoster.WalkbackRescanBackoffSeconds`, logged once per chain); a backoff,
+not a cached result, because the scan answer depends on every loaded vessel's position. A
+failure that is not the collision (tip recording or snapshot gone, spawn failed at a clear
+position) ends the collision block (`EndCollisionBlockForNonCollisionFailure`) so the ghost takes
+the ordinary bounded hold instead of an endless retry. The chain status now reads `Spawn blocked
+-- spot occupied, appears when it clears` and the label `Ghost -- spawn blocked` (was "manual
+placement required" / "spawn abandoned"; there is no placement UI since 2026-09-23). Tests: `ChainTipBlockedGhostTests` (pure cells, the policy exemption,
 the host predicate, real-policy cells driving `RetryHeldGhostSpawns` past the window and through
-the spawn), in-game category `ChainTipBlockedGhost` (2 FLIGHT cells over the production
-positioning, never flown, no lane).
+the spawn, the retry-path log lines over 60 simulated retries, the walkback backoff), in-game
+category `ChainTipBlockedGhost` (2 FLIGHT cells over the production positioning, never flown, no
+lane).
+
+Known gap, not fixed here: a warp-deferred hold (`Ghost held during warp-deferred spawn`) is not
+yet a blocked-tip hold, so it still times out after 5 s of real time during a long warp. If the
+deferred spawn at warp end is then blocked, no hold remains to retry it and the tip stays
+unspawned for the scene.
 
 Still unproven live: no committed lane blocks a chain-tip spawn (the D18 spawn-blocked lanes
 EX-1 and EX-2 are non-chain: the KSC retirement and the single-point hold, whose recordings are no

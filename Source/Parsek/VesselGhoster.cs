@@ -341,6 +341,7 @@ namespace Parsek
             {
                 ParsekLog.Warn(Tag,
                     string.Format(ic, "TrySpawnBlockedChain: tip recording '{0}' not found", tipId));
+                EndCollisionBlockForNonCollisionFailure(chain, "tip-recording-not-found");
                 return 0;
             }
             allowExistingSourceDuplicate = allowExistingSourceDuplicate
@@ -363,6 +364,7 @@ namespace Parsek
             {
                 ParsekLog.Warn(Tag,
                     string.Format(ic, "TrySpawnBlockedChain: tip '{0}' has no VesselSnapshot", tipId));
+                EndCollisionBlockForNonCollisionFailure(chain, "no-vessel-snapshot");
                 return 0;
             }
 
@@ -384,7 +386,7 @@ namespace Parsek
                 // walk backward along the recorded trajectory to find a valid spawn position.
                 // Skip walkback if already exhausted (entire trajectory was scanned with no valid spot).
                 float distanceChange = Math.Abs(distance - chain.BlockedInitialDistance);
-                if (!chain.WalkbackExhausted
+                if (ShouldRunWalkbackRescan(chain, CurrentRealTime())
                     && SpawnCollisionDetector.ShouldTriggerWalkback(
                         chain.BlockedSinceUT, currentUT, 5.0, distanceChange, 1.0f)
                     && tipRecording.Points != null && tipRecording.Points.Count > 1)
@@ -534,6 +536,7 @@ namespace Parsek
                     string.Format(ic,
                         "TrySpawnBlockedChain: spawn path returned pid=0 for tip '{0}' — spawn failed",
                         tipId));
+                EndCollisionBlockForNonCollisionFailure(chain, "spawn-failed-at-clear-position");
                 return 0;
             }
 
@@ -875,7 +878,7 @@ namespace Parsek
                     ParsekLog.Warn("SpawnCollision",
                         string.Format(ic,
                             "Trajectory walkback EXHAUSTED: vessel={0} — entire trajectory overlaps with {1}. " +
-                            "Manual placement required. Walkback will not re-scan.",
+                            "Walkback will not re-scan; the ghost stays and the spawn retries until the spot clears.",
                             tipRecording.VesselName ?? "(unknown)", blockerName ?? "(unknown)"));
                     return 0;
                 }
@@ -920,7 +923,7 @@ namespace Parsek
                     ParsekLog.Warn("SpawnCollision",
                         string.Format(ic,
                             "Trajectory walkback EXHAUSTED: vessel={0} — entire trajectory overlaps with {1}. " +
-                            "Manual placement required. Walkback will not re-scan.",
+                            "Walkback will not re-scan; the ghost stays and the spawn retries until the spot clears.",
                             tipRecording.VesselName ?? "(unknown)", blockerName ?? "(unknown)"));
                     return 0;
                 }
@@ -962,6 +965,18 @@ namespace Parsek
                 return walkbackPid;
             }
 
+            // The tip position is still blocked (the direct retry keeps running every 1 s), but
+            // a rescan would find the same point and fail the same way: back it off.
+            if (RecordWalkbackSpawnFailure(chain, CurrentRealTime()))
+            {
+                ParsekLog.Info("SpawnCollision",
+                    string.Format(ic,
+                        "Trajectory walkback spawn failed at the clear point: vessel={0} rec={1} - " +
+                        "walkback rescans throttled to every {2}s, the retry at the tip position stays at 1s",
+                        tipRecording.VesselName ?? "(unknown)",
+                        tipRecording.RecordingId ?? "(none)",
+                        WalkbackRescanBackoffSeconds.ToString("F0", ic)));
+            }
             return 0;
         }
 
@@ -998,7 +1013,7 @@ namespace Parsek
                 if (body != null)
                 {
                     Vector3d pos = body.GetWorldSurfacePosition(latitude, longitude, altitude);
-                    ParsekLog.Verbose(Tag,
+                    ParsekLog.VerboseRateLimited(Tag, GhostExtender.StrategyLogKey(rec, "spawn-world-endpoint"),
                         string.Format(ic, "ComputeSpawnWorldPosition: from recording endpoint " +
                             "lat={0} lon={1} alt={2}",
                             latitude.ToString("F4", ic),
@@ -1068,7 +1083,7 @@ namespace Parsek
                         currentUT);
 
                     Vector3d pos = body.GetWorldSurfacePosition(lat, lon, alt);
-                    ParsekLog.Verbose(Tag,
+                    ParsekLog.VerboseRateLimited(Tag, GhostExtender.StrategyLogKey(rec, "propagated-orbit"),
                         string.Format(ic,
                             "ComputePropagatedPosition: orbital propagation lat={0} lon={1} alt={2}",
                             lat.ToString("F4", ic), lon.ToString("F4", ic), alt.ToString("F0", ic)));
@@ -1091,7 +1106,7 @@ namespace Parsek
                             string.Format(ic, "ComputePropagatedPosition: body '{0}' not found", bodyName));
                         return Vector3d.zero;
                     }
-                    ParsekLog.Verbose(Tag,
+                    ParsekLog.VerboseRateLimited(Tag, GhostExtender.StrategyLogKey(rec, "propagated-surface"),
                         string.Format(ic,
                             "ComputePropagatedPosition: surface hold lat={0} lon={1} alt={2}",
                             lat, lon, alt));
@@ -1262,6 +1277,76 @@ namespace Parsek
             chain.SpawnBlocked = true;
             chain.BlockedSinceUT = currentUT;
             chain.BlockedInitialDistance = distance;
+        }
+
+        /// <summary>
+        /// Real seconds between two full-trajectory walkback rescans after a walkback found a
+        /// clear point but the spawn there failed. The rescan is the expensive part of a blocked
+        /// retry (an overlap check per sub-step of the whole trajectory) and its answer only
+        /// changes when a loaded vessel moves, which the 1 s direct retry at the tip position
+        /// already notices. A plain backoff is used instead of caching the scan result because
+        /// that result depends on every loaded vessel's position, so a cache would need world
+        /// invalidation to be correct; the backoff bounds the cost with no such coupling.
+        /// </summary>
+        internal const double WalkbackRescanBackoffSeconds = 10.0;
+
+        /// <summary>Pure: may the full-trajectory walkback rescan run at <paramref name="nowRealTime"/>?</summary>
+        internal static bool ShouldRunWalkbackRescan(GhostChain chain, double nowRealTime)
+        {
+            return chain != null
+                && !chain.WalkbackExhausted
+                && nowRealTime >= chain.WalkbackRescanNotBeforeRealTime;
+        }
+
+        /// <summary>
+        /// Pure: a walkback found a clear point but the spawn there returned no vessel. Backs the
+        /// rescan off by <see cref="WalkbackRescanBackoffSeconds"/>; returns true the first time
+        /// for this chain, so the caller logs the throttle decision once.
+        /// </summary>
+        internal static bool RecordWalkbackSpawnFailure(GhostChain chain, double nowRealTime)
+        {
+            if (chain == null)
+                return false;
+            chain.WalkbackRescanNotBeforeRealTime = nowRealTime + WalkbackRescanBackoffSeconds;
+            if (chain.WalkbackBackoffLogged)
+                return false;
+            chain.WalkbackBackoffLogged = true;
+            return true;
+        }
+
+        /// <summary>
+        /// The blocked-tip retry failed for a reason that is not the collision (tip recording
+        /// gone, no snapshot, or the spawn itself failed at a clear position). The chain stops
+        /// counting as collision-blocked, so its held ghost falls back to the ordinary bounded
+        /// hold instead of retrying a failure no blocker can clear; a later spawn attempt runs
+        /// the full chain-tip path again (and re-blocks on a real overlap).
+        /// </summary>
+        internal static void EndCollisionBlockForNonCollisionFailure(GhostChain chain, string reason)
+        {
+            if (chain == null || !chain.SpawnBlocked)
+                return;
+            chain.SpawnBlocked = false;
+            ParsekLog.Info(Tag,
+                string.Format(ic,
+                    "Blocked chain tip no longer collision-blocked: originalPid={0} tip={1} reason={2} - " +
+                    "the held ghost takes the ordinary bounded hold",
+                    chain.OriginalVesselPid, chain.TipRecordingId ?? "(null)", reason ?? "(none)"));
+        }
+
+        /// <summary>Real-time clock seam for the walkback backoff (headless tests).</summary>
+        internal static Func<double> RealTimeOverrideForTesting;
+
+        private static double CurrentRealTime()
+        {
+            return RealTimeOverrideForTesting != null
+                ? RealTimeOverrideForTesting()
+                : CurrentUnityRealTime();
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double CurrentUnityRealTime()
+        {
+            return Time.realtimeSinceStartup;
         }
 
         /// <summary>

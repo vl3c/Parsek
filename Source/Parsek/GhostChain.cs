@@ -51,6 +51,10 @@ namespace Parsek
         public double BlockedSinceUT;
         public float BlockedInitialDistance;  // distance to blocker when first blocked
         public bool WalkbackExhausted;        // true after walkback scanned entire trajectory with no valid position
+        // Real time before which the full-trajectory walkback rescan is skipped, set after a
+        // walkback found a clear point but the spawn there failed (0 = no backoff).
+        public double WalkbackRescanNotBeforeRealTime;
+        public bool WalkbackBackoffLogged;    // the backoff decision is logged once per chain
 
         public GhostChain()
         {

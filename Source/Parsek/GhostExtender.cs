@@ -24,6 +24,17 @@ namespace Parsek
         /// <summary>
         /// Pure decision: which propagation strategy to use based on recording terminal state.
         /// </summary>
+        /// <summary>
+        /// Rate-limit key for the per-recording strategy / propagation lines. They run on
+        /// every 1 s retry of a spawn-blocked chain tip, so they are throttled per recording;
+        /// the branch is part of the key, so a changed decision prints at once.
+        /// </summary>
+        internal static string StrategyLogKey(Recording rec, string branch)
+        {
+            return "extend|" + (rec != null && rec.RecordingId != null ? rec.RecordingId : "(none)")
+                + "|" + branch;
+        }
+
         internal static GhostExtensionStrategy ChooseStrategy(Recording rec)
         {
             if (rec == null)
@@ -40,7 +51,7 @@ namespace Parsek
             if (surfaceTerminal && rec.TerminalPosition.HasValue)
             {
                 var tp = rec.TerminalPosition.Value;
-                ParsekLog.Verbose(Tag,
+                ParsekLog.VerboseRateLimited(Tag, StrategyLogKey(rec, "surface-terminal"),
                     string.Format(ic,
                         "ChooseStrategy: Surface (surface terminal, body={0} lat={1:F4} lon={2:F4} alt={3:F1})",
                         tp.body, tp.latitude, tp.longitude, tp.altitude));
@@ -51,7 +62,7 @@ namespace Parsek
             if (!string.IsNullOrEmpty(rec.TerminalOrbitBody) &&
                 rec.TerminalOrbitSemiMajorAxis > 0)
             {
-                ParsekLog.Verbose(Tag,
+                ParsekLog.VerboseRateLimited(Tag, StrategyLogKey(rec, "orbital"),
                     string.Format(ic,
                         "ChooseStrategy: Orbital (body={0} sma={1:F0} ecc={2:F4})",
                         rec.TerminalOrbitBody, rec.TerminalOrbitSemiMajorAxis, rec.TerminalOrbitEccentricity));
@@ -62,7 +73,7 @@ namespace Parsek
             if (rec.TerminalPosition.HasValue)
             {
                 var tp = rec.TerminalPosition.Value;
-                ParsekLog.Verbose(Tag,
+                ParsekLog.VerboseRateLimited(Tag, StrategyLogKey(rec, "surface"),
                     string.Format(ic,
                         "ChooseStrategy: Surface (body={0} lat={1:F4} lon={2:F4} alt={3:F1})",
                         tp.body, tp.latitude, tp.longitude, tp.altitude));
@@ -73,7 +84,7 @@ namespace Parsek
             if (rec.Points != null && rec.Points.Count > 0)
             {
                 var last = rec.Points[rec.Points.Count - 1];
-                ParsekLog.Verbose(Tag,
+                ParsekLog.VerboseRateLimited(Tag, StrategyLogKey(rec, "last-recorded"),
                     string.Format(ic,
                         "ChooseStrategy: LastRecordedPosition (last point UT={0:F1} lat={1:F4} lon={2:F4} alt={3:F1})",
                         last.ut, last.latitude, last.longitude, last.altitude));
@@ -81,7 +92,7 @@ namespace Parsek
             }
 
             // 5. None
-            ParsekLog.Verbose(Tag,
+            ParsekLog.VerboseRateLimited(Tag, StrategyLogKey(rec, "none"),
                 string.Format(ic,
                     "ChooseStrategy: None (no terminal orbit, no surface position, no trajectory points for rec={0})",
                     rec.RecordingId));
@@ -150,7 +161,7 @@ namespace Parsek
             if (rec.TerminalPosition.HasValue)
             {
                 var tp = rec.TerminalPosition.Value;
-                ParsekLog.Verbose(Tag,
+                ParsekLog.VerboseRateLimited(Tag, StrategyLogKey(rec, "propagate-surface-terminal"),
                     string.Format(ic,
                         "PropagateSurface: returning terminal position lat={0:F4} lon={1:F4} alt={2:F1}",
                         tp.latitude, tp.longitude, tp.altitude));
@@ -158,7 +169,7 @@ namespace Parsek
             }
 
             // Fallback to last recorded position
-            ParsekLog.Verbose(Tag,
+            ParsekLog.VerboseRateLimited(Tag, StrategyLogKey(rec, "propagate-surface-fallback"),
                 "PropagateSurface: no terminal position, falling back to LastRecordedPosition");
             return LastRecordedPosition(rec);
         }
@@ -177,7 +188,7 @@ namespace Parsek
             }
 
             var last = rec.Points[rec.Points.Count - 1];
-            ParsekLog.Verbose(Tag,
+            ParsekLog.VerboseRateLimited(Tag, StrategyLogKey(rec, "last-recorded-position"),
                 string.Format(ic,
                     "LastRecordedPosition: UT={0:F1} lat={1:F4} lon={2:F4} alt={3:F1}",
                     last.ut, last.latitude, last.longitude, last.altitude));

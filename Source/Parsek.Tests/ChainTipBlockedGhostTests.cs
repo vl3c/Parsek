@@ -328,6 +328,145 @@ namespace Parsek.Tests
             Assert.False(unblocked.IsSpawnBlockedChainTipFromPolicy(null));
         }
 
+        // ---- quiet indefinite retry: the 1 s retry path's log lines are rate-limited ----
+
+        private int Count(string needle)
+        {
+            int n = 0;
+            for (int i = 0; i < logLines.Count; i++)
+                if (logLines[i].Contains(needle)) n++;
+            return n;
+        }
+
+        [Fact]
+        public void RetryPathLogLines_AreRateLimitedOverManySimulatedRetries()
+        {
+            double clock = 1000.0;
+            ParsekLog.ClockOverrideForTesting = () => clock;
+            var orbitRec = new Recording
+            {
+                RecordingId = "rec-tip-orbit",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000.0,
+            };
+            var surfaceRec = new Recording
+            {
+                RecordingId = "rec-tip-surface",
+                TerminalStateValue = TerminalState.Landed,
+                TerminalPosition = new SurfacePosition { body = "Kerbin", latitude = 1, longitude = 2, altitude = 3 },
+            };
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddNode("PART").AddValue("pos", "0,0,0");
+            snapshot.AddNode("PART").AddValue("pos", "0,2,0");
+
+            const int retries = 60; // one minute of 1 s retries
+            for (int k = 0; k < retries; k++)
+            {
+                GhostExtender.ChooseStrategy(orbitRec);
+                GhostExtender.ChooseStrategy(surfaceRec);
+                GhostExtender.PropagateSurface(surfaceRec);
+                SpawnCollisionDetector.ComputeVesselBounds(snapshot);
+                SpawnCollisionDetector.ShouldTriggerWalkback(clock - 1.0, clock, 5.0, 0.5f, 1.0f);
+                VesselSpawner.ShouldAllowExistingSourceDuplicateForReplay(4242u, 4242u, 0u);
+                clock += 1.0;
+            }
+
+            // 60 s at the 5 s default interval: at most 13 lines each, never one per retry.
+            int maxLines = (int)(retries / ParsekLog.DefaultRateLimitSeconds) + 1;
+            foreach (string needle in new[]
+            {
+                "ChooseStrategy: Orbital",
+                "ChooseStrategy: Surface (surface terminal",
+                "PropagateSurface: returning terminal position",
+                "ComputeVesselBounds: parsed 2/2 parts",
+                "ParsePartPositions: parsed 2/2 parts",
+                "ShouldTriggerWalkback:",
+                "ShouldAllowExistingSourceDuplicate=true",
+            })
+            {
+                int n = Count(needle);
+                Assert.True(n >= 1, needle + " never logged");
+                Assert.True(n <= maxLines, needle + " logged " + n + " times over " + retries + " retries");
+            }
+        }
+
+        [Fact]
+        public void RetryPathLogLines_AChangedVerdictPrintsAtOnce()
+        {
+            double clock = 1000.0;
+            ParsekLog.ClockOverrideForTesting = () => clock;
+
+            SpawnCollisionDetector.ShouldTriggerWalkback(999.0, 1000.0, 5.0, 0.5f, 1.0f);
+            clock += 0.5;
+            SpawnCollisionDetector.ShouldTriggerWalkback(999.0, 1000.5, 5.0, 0.5f, 1.0f); // same verdict: throttled
+            Assert.Equal(1, Count("ShouldTriggerWalkback:"));
+
+            clock += 0.5;
+            SpawnCollisionDetector.ShouldTriggerWalkback(990.0, 1001.0, 5.0, 0.5f, 1.0f); // timeout reached
+            Assert.Equal(2, Count("ShouldTriggerWalkback:"));
+
+            VesselSpawner.ShouldAllowExistingSourceDuplicateForReplay(7u, 7u, 1u);
+            VesselSpawner.ShouldAllowExistingSourceDuplicateForReplay(7u, 7u, 1u);
+            Assert.Equal(1, Count("ShouldAllowExistingSourceDuplicate=true"));
+            VesselSpawner.ShouldAllowExistingSourceDuplicateForReplay(7u, 7u, 2u); // active vessel changed
+            Assert.Equal(2, Count("ShouldAllowExistingSourceDuplicate=true"));
+        }
+
+        [Fact]
+        public void StrategyLogKey_SeparatesRecordingsAndBranches()
+        {
+            var a = new Recording { RecordingId = "a" };
+            var b = new Recording { RecordingId = "b" };
+            Assert.NotEqual(GhostExtender.StrategyLogKey(a, "propagated-orbit"),
+                GhostExtender.StrategyLogKey(b, "propagated-orbit"));
+            Assert.NotEqual(GhostExtender.StrategyLogKey(a, "propagated-orbit"),
+                GhostExtender.StrategyLogKey(a, "propagated-surface"));
+            Assert.Equal("extend|(none)|x", GhostExtender.StrategyLogKey(null, "x"));
+        }
+
+        // ---- bounded walkback rescan ----
+
+        [Fact]
+        public void WalkbackRescan_BacksOffAfterASpawnFailureAndLogsOnce()
+        {
+            var chain = MakeChain("rec-tip", blocked: true);
+            Assert.True(VesselGhoster.ShouldRunWalkbackRescan(chain, 100.0));
+
+            Assert.True(VesselGhoster.RecordWalkbackSpawnFailure(chain, 100.0));
+            Assert.False(VesselGhoster.ShouldRunWalkbackRescan(chain, 101.0));
+            Assert.False(VesselGhoster.ShouldRunWalkbackRescan(
+                chain, 100.0 + VesselGhoster.WalkbackRescanBackoffSeconds - 0.01));
+            Assert.True(VesselGhoster.ShouldRunWalkbackRescan(
+                chain, 100.0 + VesselGhoster.WalkbackRescanBackoffSeconds));
+
+            // A second failure backs off again but is not logged again.
+            Assert.False(VesselGhoster.RecordWalkbackSpawnFailure(chain, 110.0));
+            Assert.False(VesselGhoster.ShouldRunWalkbackRescan(chain, 115.0));
+            Assert.True(VesselGhoster.ShouldRunWalkbackRescan(chain, 120.0));
+        }
+
+        [Fact]
+        public void WalkbackRescan_NeverRunsOnceExhausted_NullChainNever()
+        {
+            var chain = MakeChain("rec-tip", blocked: true);
+            chain.WalkbackExhausted = true;
+            Assert.False(VesselGhoster.ShouldRunWalkbackRescan(chain, 1e9));
+            Assert.False(VesselGhoster.ShouldRunWalkbackRescan(null, 1e9));
+            Assert.False(VesselGhoster.RecordWalkbackSpawnFailure(null, 1.0));
+        }
+
+        [Fact]
+        public void EndCollisionBlock_NonCollisionFailure_UnblocksOnceAndLogs()
+        {
+            var chain = MakeChain("rec-tip", blocked: true);
+            VesselGhoster.EndCollisionBlockForNonCollisionFailure(chain, "spawn-failed-at-clear-position");
+            Assert.False(chain.SpawnBlocked);
+            VesselGhoster.EndCollisionBlockForNonCollisionFailure(chain, "spawn-failed-at-clear-position");
+            Assert.Equal(1, Count("Blocked chain tip no longer collision-blocked"));
+            Assert.Contains(logLines, l => l.Contains("[Ghoster]")
+                && l.Contains("originalPid=4242") && l.Contains("reason=spawn-failed-at-clear-position"));
+        }
+
         // ---- real policy: the blocked tip's ghost outlives the 5 s window, then the spawn releases it ----
 
         private static GhostPlaybackEngine MakeEngine()
