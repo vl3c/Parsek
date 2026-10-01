@@ -1317,6 +1317,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel whose return is blocked by another vessel stays visible until it can appear.**
+  When a replayed vessel that later flights build on (a ghost-chain tip) reaches the moment it
+  becomes real, and a vessel you have parked in its spot blocks it, its ghost used to stand
+  still for five seconds and then vanish, and the vessel did not come back for the rest of the
+  scene. Its ghost now stays for as long as the spot is blocked, even when no clear spot can be
+  found nearby, keeps moving along its orbit (or stays where it landed), and turns into the real
+  vessel the moment you move the blocker away or Parsek finds a clear spot just behind it. Its
+  status in the recordings list now reads "Spawn blocked -- spot occupied, appears when it
+  clears" instead of asking for a manual placement that does not exist.
 - **A vessel you recover from flight is saved as Recovered, and its replay ends with no
   vessel.** Pressing Recover in flight leaves the flight scene before the game pays out the
   recovery at the Space Center, so with auto-merge on (and with the Merge button of the merge

@@ -55,6 +55,10 @@ Source/Parsek/InGameTests/
 Source/Parsek/GhostMapPresence.cs
 Source/Parsek/WatchModeController.cs
 Source/Parsek/ParsekFlight.cs
+# The blocked chain tip ghost partial reads the committed list by INDEX to pair a
+# policy-held slot with its engine ghost (the engine's index-keyed contract), not to
+# decide visibility; supersede is honoured through the policy's hold release.
+Source/Parsek/ParsekFlight.BlockedChainTipGhost.cs
 Source/Parsek/ParsekPlaybackPolicy.cs
 Source/Parsek/ParsekTrackingStation.cs
 Source/Parsek/Diagnostics/DiagnosticsComputation.cs
