@@ -275,6 +275,9 @@ namespace Parsek
             private readonly Dictionary<string, string> titleCache =
                 new Dictionary<string, string>(StringComparer.Ordinal);
 
+            internal readonly Dictionary<string, BranchPoint> BranchPointsById =
+                new Dictionary<string, BranchPoint>(StringComparer.Ordinal);
+
             // recording id -> the recordings it continues (branch parents + chain predecessor).
             internal readonly Dictionary<string, List<string>> Predecessors =
                 new Dictionary<string, List<string>>(StringComparer.Ordinal);
@@ -339,6 +342,8 @@ namespace Parsek
                 {
                     foreach (BranchPoint bp in Tree.BranchPoints)
                     {
+                        if (bp != null && !string.IsNullOrEmpty(bp.Id))
+                            BranchPointsById[bp.Id] = bp;
                         if (bp?.ChildRecordingIds == null || bp.ParentRecordingIds == null) continue;
                         foreach (string child in bp.ChildRecordingIds)
                         {
@@ -544,14 +549,21 @@ namespace Parsek
                    && Math.Abs(sinceStart) <= RootSeedSeconds;
         }
 
-        // Seed = at the continuing segment's exact start, a root's start-UT jettison, or a
-        // re-statement of a state an ancestor already recorded for the same part (the
+        // Seed = at the continuing segment's exact start, at the exact UT of the branch point
+        // that created it (the recorder seeds when it attaches, and a recording's start can be
+        // backfilled to an earlier trajectory point than that), a root's start-UT jettison, or
+        // a re-statement of a state an ancestor already recorded for the same part (the
         // background recorder's loaded-physics seed lands a fraction of a second after the
         // split, and only this lineage check tells it from a real jettison).
         private static bool IsSeed(BuildContext ctx, Recording rec, PartEvent pe, bool continuation)
         {
             if (IsSeedEvent(rec, pe, continuation)) return true;
-            return continuation && ctx.AncestorAlreadyHad(rec, pe);
+            if (!continuation) return false;
+            if (!string.IsNullOrEmpty(rec.ParentBranchPointId)
+                && ctx.BranchPointsById.TryGetValue(rec.ParentBranchPointId, out BranchPoint origin)
+                && Math.Abs(pe.ut - origin.UT) <= ContinuationSeedEpsilonSeconds)
+                return true;
+            return ctx.AncestorAlreadyHad(rec, pe);
         }
 
         private static bool IsDockCoupling(List<BranchPoint> mergeBps, Recording rec, PartEvent pe)
@@ -578,6 +590,25 @@ namespace Parsek
         // these into it), or the branch point whose stored decoupler PID it is. A branch
         // point is one physics moment, so two ripple stages half a second apart stay two
         // branch points and two rows.
+        // The recording an event sits on owns the stage when it is one of the branch point's
+        // parents, or another segment of a parent's chain: the optimizer splits a recording
+        // into chain segments (at an atmosphere exit, for one) without re-pointing the split
+        // branch points that fall after the cut, so a branch point can name the HEAD while its
+        // same-moment part events sit on the TAIL.
+        private static bool IsStageOwner(BuildContext ctx, BranchPoint bp, Recording rec)
+        {
+            if (rec == null || bp.ParentRecordingIds == null) return false;
+            if (Contains(bp.ParentRecordingIds, rec.RecordingId)) return true;
+            if (string.IsNullOrEmpty(rec.ChainId)) return false;
+            for (int i = 0; i < bp.ParentRecordingIds.Count; i++)
+            {
+                Recording parent = ctx.Rec(bp.ParentRecordingIds[i]);
+                if (parent != null && string.Equals(parent.ChainId, rec.ChainId, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
         private static void AssignToStages(BuildContext ctx, List<CandidateEvent> candidates,
             Dictionary<BranchPoint, List<CandidateEvent>> absorbed, List<CandidateEvent> loose)
         {
@@ -594,7 +625,7 @@ namespace Parsek
                 {
                     BranchPoint bp = splits[i];
                     double dt = Math.Abs(c.Event.ut - bp.UT);
-                    bool onOwner = Contains(bp.ParentRecordingIds, c.Rec.RecordingId)
+                    bool onOwner = IsStageOwner(ctx, bp, c.Rec)
                                    && dt <= StageMomentSeconds(bp);
                     bool ownDecoupler = c.Event.eventType == PartEventType.Decoupled
                                         && bp.DecouplerPartId != 0

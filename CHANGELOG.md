@@ -2328,10 +2328,12 @@ _(unreleased — entries accumulate here per commit)_
 
 - **The mission Log lists one row per real event.** A docked test mission's Log read 31 rows,
   mostly noise; it now reads 11. Part-state seeds the recorder writes so a ghost starts in the
-  right state (at a recording's start, at a chain split, when a separated piece loads) are no
+  right state (at a recording's start, at a chain split, when a separated piece loads, when a
+  vessel joins the mission) are no
   longer listed as staging; a debris piece's own breakup is never listed; a stage is ONE row per
   recorded separation, absorbing every part that let go in that moment, symmetric partner
-  included (`Staged: 2 pieces (TT-38K Radial Decoupler x2)`, part titles from the game, the
+  included (also when the optimizer has since split the vessel's recording at an atmosphere
+  exit and the parts sit on the later segment) (`Staged: 2 pieces (TT-38K Radial Decoupler x2)`, part titles from the game, the
   internal name when a title is unknown); the docking port and pod events of an undock are not
   staging; two different vessels that share a name and end together are two rows. Columns are
   now Time, Event, Location and Vessel: the step number and the Status column are gone, an ending

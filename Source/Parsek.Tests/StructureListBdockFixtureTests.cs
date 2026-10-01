@@ -45,16 +45,19 @@ namespace Parsek.Tests
             switch (partName)
             {
                 case "launchClamp1": return "TT18-A Launch Stability Enhancer";
-                case "radialDecoupler1-2": return "TT-38K Radial Decoupler";
+                case "radialDecoupler1-2": return "Hydraulic Detachment Manifold";
                 default: return null;
             }
         }
 
         internal static List<RecordingTree> LoadBdockTrees()
+            => LoadFixtureTrees("bdock-recorded", 2);
+
+        internal static List<RecordingTree> LoadFixtureTrees(string fixture, int expectedTrees)
         {
             string saveDir = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
-                "harness", "fixtures", "saves", "bdock-recorded"));
+                "harness", "fixtures", "saves", fixture));
             Assert.True(Directory.Exists(saveDir), "fixture missing: " + saveDir);
             ConfigNode root = ConfigNode.Load(Path.Combine(saveDir, "persistent.sfs"));
             ConfigNode game = root.GetNode("GAME") ?? root;
@@ -77,7 +80,7 @@ namespace Parsek.Tests
                     trees.Add(tree);
                 }
             }
-            Assert.Equal(2, trees.Count);
+            Assert.Equal(expectedTrees, trees.Count);
             return trees;
         }
 
@@ -111,9 +114,9 @@ namespace Parsek.Tests
             {
                 "Launch | Kerbin, Launch Pad | Kerbal X",
                 "Staged: 3 pieces (TT18-A Launch Stability Enhancer x3) | Kerbin, Launch Pad | Kerbal X",
-                "Staged: 2 pieces (TT-38K Radial Decoupler x2) | Kerbin | Kerbal X",
-                "Staged: 2 pieces (TT-38K Radial Decoupler x2) | Kerbin | Kerbal X",
-                "Staged: 2 pieces (TT-38K Radial Decoupler x2) | Kerbin | Kerbal X",
+                "Staged: 2 pieces (Hydraulic Detachment Manifold x2) | Kerbin | Kerbal X",
+                "Staged: 2 pieces (Hydraulic Detachment Manifold x2) | Kerbin | Kerbal X",
+                "Staged: 2 pieces (Hydraulic Detachment Manifold x2) | Kerbin | Kerbal X",
                 "Decoupled (Kerbal X Probe) | Kerbin | Kerbal X",
                 "Docked (Kerbal X (mission 'Kerbal X')) | Kerbin orbit | Kerbal X",
                 "Undocked (Kerbal X) | Kerbin orbit | Kerbal X",
@@ -123,6 +126,53 @@ namespace Parsek.Tests
             };
             Assert.Equal(expected, steps.Select(Row).ToArray());
             Assert.All(steps, s => Assert.Null(s.Tooltip));
+        }
+
+        // catches: the in-game shape of this fixture. On load the optimizer splits the
+        // docking mission's root at its atmosphere exit (UT 568.23, GUI-4 2026-10-01_1603)
+        // into chain segments, forwarding every permanent part event as seeds at the cut,
+        // and leaves the probe separation's branch point (UT 692.77) naming the HEAD while
+        // the Poodle shroud that drops with it sits on the TAIL. The flight drew a stray
+        // "Shroud jettisoned" row there; the Log must read exactly as before the split.
+        [Fact]
+        public void DockingMission_AfterTheOptimizerSplit_ReadsTheSameRows()
+        {
+            List<RecordingTree> trees = LoadBdockTrees();
+            RecordingTree tree = trees.Single(t => t.Id == DockingTreeId);
+            Recording head = tree.Recordings["5157d6555bd3499592c46d8508dbedf4"];
+            Recording tail = RecordingOptimizer.SplitAtUT(head, 568.23160278301521);
+            Assert.NotNull(tail);
+            tail.RecordingId = "d60398f6229c4e669e8dcee87ffcf698";
+            tail.VesselName = head.VesselName;
+            tail.VesselPersistentId = head.VesselPersistentId;
+            tail.StartBodyName = head.StartBodyName;
+            head.ChainId = tail.ChainId = "091139ec254d446e93cbf89b26d975d1";
+            head.ChainIndex = 0;
+            tail.ChainIndex = 1;
+            tail.ChildBranchPointId = head.ChildBranchPointId;
+            head.ChildBranchPointId = null;
+            tail.TerminalStateValue = head.TerminalStateValue;
+            head.TerminalStateValue = null;
+            tree.Recordings[tail.RecordingId] = tail;
+            BranchPoint dock = tree.BranchPoints.Single(b => b.Type == BranchPointType.Dock);
+            dock.ParentRecordingIds[0] = tail.RecordingId;
+            // The cut really did forward the launch's part state onto the tail.
+            Assert.Contains(tail.PartEvents, e => Math.Abs(e.ut - 568.23160278301521) < 1e-6
+                && e.eventType == PartEventType.ShroudJettisoned);
+
+            DockEventGraph graph = DockEventGraph.Build(trees, id => true, "test");
+            Func<string, string, string> missionNames = (treeId, recId) =>
+                treeId == FirstTreeId ? "Kerbal X" : treeId == DockingTreeId ? "Kerbal X #2" : null;
+            List<StructureStep> steps = MissionStructureListBuilder.Build(
+                tree, MissionStructureBuilder.Build(tree), StockTitles,
+                (bp, viewer) => MissionStructureListBuilder.DescribeMergePartnerFromGraph(
+                    graph, tree.Id, bp, viewer, missionNames));
+            foreach (StructureStep s in steps)
+                output.WriteLine(s.UT.ToString("F2", CultureInfo.InvariantCulture) + "  " + Row(s));
+
+            Assert.DoesNotContain(steps, s => s.Label.StartsWith("Shroud", StringComparison.Ordinal));
+            Assert.Equal(11, steps.Count);
+            Assert.Contains(steps, s => s.Label == "Decoupled (Kerbal X Probe)");
         }
 
         // catches (a): the shroud seeds a root records at its first frame, and the seed the
@@ -274,7 +324,7 @@ namespace Parsek.Tests
             List<StructureStep> steps = MissionStructureListBuilder.Build(
                 tree, MissionStructureBuilder.Build(tree), StockTitles);
 
-            Assert.Equal(2, steps.Count(s => s.Label == "Staged: 1 piece (TT-38K Radial Decoupler)"));
+            Assert.Equal(2, steps.Count(s => s.Label == "Staged: 1 piece (Hydraulic Detachment Manifold)"));
         }
 
         // catches (d): the docking port and pod "Decoupled" at the undock UT on the docked
@@ -328,14 +378,53 @@ namespace Parsek.Tests
                 "Launch | Kerbin, Launch Pad | Kerbal X",
                 "Staged: 3 pieces (TT18-A Launch Stability Enhancer x3) | Kerbin, Launch Pad | Kerbal X",
                 "Staged: 1 piece (R8winglet) | Kerbin | Kerbal X",
-                "Staged: 2 pieces (TT-38K Radial Decoupler x2) | Kerbin | Kerbal X",
-                "Staged: 2 pieces (TT-38K Radial Decoupler x2) | Kerbin | Kerbal X",
-                "Staged: 2 pieces (TT-38K Radial Decoupler x2) | Kerbin | Kerbal X",
+                "Staged: 2 pieces (Hydraulic Detachment Manifold x2) | Kerbin | Kerbal X",
+                "Staged: 2 pieces (Hydraulic Detachment Manifold x2) | Kerbin | Kerbal X",
+                "Staged: 2 pieces (Hydraulic Detachment Manifold x2) | Kerbin | Kerbal X",
                 "Decoupled (Kerbal X Probe) | Kerbin | Kerbal X",
                 "End: Orbiting | Kerbin orbit | Kerbal X",
                 "End: Orbiting | Kerbin orbit | Kerbal X Probe",
             };
             Assert.Equal(expected, steps.Select(Row).ToArray());
+        }
+
+        // catches: GUI-3's mission (interbody-route-recorded, "Duna Supply 1", 38 rows before
+        // the rework): the chain tail's launch re-statement at its cut, the depot vessel's
+        // seeds at the UT of the branch point that created its recording (10.9 s after its
+        // backfilled start), the Poodle shroud on the chain tail beside the probe separation
+        // whose branch point names the head, and the dock / undock coupling parts.
+        [Fact]
+        public void DunaSupplyMission_LogIsOneRowPerRealEvent()
+        {
+            List<RecordingTree> trees = LoadFixtureTrees("interbody-route-recorded",
+                CountTrees("interbody-route-recorded"));
+            RecordingTree tree = trees.Single(t => t.Id == "3daf0cff159d413794c626137cd81002");
+            List<StructureStep> steps = MissionStructureListBuilder.Build(
+                tree, MissionStructureBuilder.Build(tree), StockTitles);
+            foreach (StructureStep s in steps)
+                output.WriteLine(Row(s));
+
+            var expected = new[]
+            {
+                "Launch | Kerbin, Launch Pad | Duna Supply 1",
+                "Staged: 3 pieces (TT18-A Launch Stability Enhancer x3) | Kerbin, Launch Pad | Duna Supply 1",
+                "Staged: 2 pieces (Hydraulic Detachment Manifold x2) | Kerbin | Duna Supply 1",
+                "Staged: 2 pieces (Hydraulic Detachment Manifold x2) | Kerbin | Duna Supply 1",
+                "Staged: 2 pieces (Hydraulic Detachment Manifold x2) | Kerbin | Duna Supply 1",
+                "Decoupled (Duna Supply 1 Probe) | Kerbin | Duna Supply 1",
+                "Docked (Depot Station Duna I) | Duna orbit | Duna Supply 1",
+                "Undocked (Duna Supply 1) | Duna orbit | Depot Station Duna I",
+                "End: Orbiting | Duna orbit | Depot Station Duna I",
+                "End: Orbiting | Duna orbit | Duna Supply 1",
+                "End: Orbiting | Kerbin orbit | Duna Supply 1 Probe",
+            };
+            Assert.Equal(expected, steps.Select(Row).ToArray());
+        }
+
+        private static int CountTrees(string fixture)
+        {
+            string saveDir = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "harness", "fixtures", "saves", fixture));
+            return File.ReadAllLines(Path.Combine(saveDir, "persistent.sfs")).Count(l => l.Trim() == "RECORDING_TREE");
         }
 
         // catches: the Time column - first row the date, later rows elapsed whole seconds.

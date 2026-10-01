@@ -83,12 +83,14 @@ pinned row by row in `StructureListBdockFixtureTests` against the committed fixt
 
 - [x] Part 1, builder correctness (`MissionStructureListBuilder`): part-state seeds are not
   events - a permanent event at a continuing recording's exact start (chain split
-  `ForwardPermanentStateEvents`), a re-statement of a state an ancestor already recorded for
+  `ForwardPermanentStateEvents`) or at the exact UT of the branch point that created it (a
+  vessel's recording can start earlier than the moment the recorder attached and seeded), a
+  re-statement of a state an ancestor already recorded for
   the same part (the background recorder's loaded-physics seed, ~0.5 s after a split), and a
   root's start-UT jettison seeds; there is no time window, so a real jettison a moment after a
   split stays a row; debris recordings contribute no part rows; a split branch
-  point IS the stage and absorbs its same-moment parts (its coalesce window, else 0.1 s),
-  symmetric partner included, while distinct branch points stay distinct rows (ripple
+  point IS the stage and absorbs its same-moment parts (its coalesce window, else 0.1 s) on
+  its parent or any segment of the parent's chain, symmetric partner included, while distinct branch points stay distinct rows (ripple
   staging); part events within 0.5 s of a Dock / Undock / Board on a participating recording
   are the coupling change, not staging; the simultaneous collapse compares the owning
   recording, so same-named vessels no longer merge into `End x2`; a row past its recording's
@@ -101,6 +103,11 @@ pinned row by row in `StructureListBdockFixtureTests` against the committed fixt
   `X (mission 'Y')` spelling, shared as `MissionChapters.FormatPartnerWithMission`); empty
   state `This mission has no recorded flight.`; a shortened Event cell carries the full list in
   its tooltip, read in a single-line hover strip the window now hosts.
+- [ ] Look into: the optimizer's atmosphere-exit chain split leaves split branch points that fall
+  AFTER the cut naming the HEAD segment as parent (bdock-recorded after load: the probe
+  separation at UT 692.77 names `5157d655`, which now ends at 568.23; its parts sit on the tail
+  `d60398f6`). The Log tolerates it (stage ownership follows the parent's chain); other
+  consumers of `BranchPoint.ParentRecordingIds` may not. Not investigated beyond the Log.
 - [ ] Later PR: the per-mission include set (the Log ignores a mission's excluded intervals).
 - [ ] Later PR: retire the route Log (it keeps working; its Status column folded into Location,
   an orbital endpoint reads `Mun orbit`).
