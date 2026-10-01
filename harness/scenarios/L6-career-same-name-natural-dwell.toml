@@ -223,7 +223,7 @@ forbidden = [
   # one whose landed tail fell BELOW the floor, which is the point worth keeping: the
   # split outcome moved and the pick was consumed either way.
   "Recovery kerbal XP refused:",
-  "PickRecoveryRecordingId path: .* path=name-fallback",
+  "PickRecoveryRecordingId path: vessel='Jumping Flea' .* path=name-fallback",
 ]
 
 [runtime]

@@ -457,6 +457,102 @@ namespace Parsek.Tests
                 l.Contains("bracketTie=session-provisional") && l.Contains("pick=rec-provisional"));
         }
 
+        [Fact]
+        public void RecoveryAfterReFlyMerge_CreditsTheLiveFork_NotTheSupersededTipOrOrigin()
+        {
+            // After a Re-Fly merge the split HEAD stays visible, the TIP and the original
+            // origin are superseded by the fork, and all of them carry the launch guid (the
+            // fork restored the origin's Vessel.id). The TIP ended LATER than the fork, so a
+            // raw committed-list walk hands most-recent-ended to the superseded TIP. The
+            // effective-timeline gate keeps only HEAD and the fork, and the fork wins.
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rel-tip", OldRecordingId = "rec-tip",
+                        NewRecordingId = "rec-fork", UT = 500.0
+                    },
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rel-origin", OldRecordingId = "rec-origin",
+                        NewRecordingId = "rec-fork", UT = 500.0
+                    },
+                },
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            AddRec("rec-head", "Hopper", 100.0, 500.0, GuidA);
+            AddRec("rec-origin", "Hopper", 100.0, 960.0, GuidA);
+            AddRec("rec-tip", "Hopper", 500.0, 950.0, GuidA);
+            AddRec("rec-fork", "Hopper", 500.0, 800.0, GuidA);
+            var identity = RecoveredVesselIdentity.FromRawName("Hopper", GuidA, 2905720181u);
+
+            var picked = LedgerOrchestrator.PickRecoveryRecording(identity, 1000.0);
+            Assert.Equal("rec-fork", picked.RecordingId);
+            Assert.Equal(RecoveryPickPath.LaunchGuid, picked.Path);
+            Assert.Equal(2, picked.SurvivorCount);
+            Assert.DoesNotContain(picked.Survivors, r =>
+                r.RecordingId == "rec-tip" || r.RecordingId == "rec-origin");
+            Assert.Contains(logLines, l =>
+                l.Contains("PickRecoveryRecordingId effective filter")
+                && l.Contains("skippedNotEffective=2"));
+
+            // All three legs agree.
+            Assert.Equal("rec-fork", RecoverFunds(identity, 1000.0));
+            Assert.Equal("rec-fork", RecoverXp(identity, 1000.0));
+        }
+
+        [Fact]
+        public void RewindRetiredRecording_IsNeverPicked()
+        {
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>
+                {
+                    new RecordingRewindRetirement
+                    {
+                        RetirementId = "ret-1", RecordingId = "rec-retired", RewindUT = 400.0
+                    },
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            AddRec("rec-kept", "Hopper", 100.0, 400.0, GuidA);
+            AddRec("rec-retired", "Hopper", 400.0, 900.0, GuidA);
+
+            Assert.Equal("rec-kept", LedgerOrchestrator.PickRecoveryRecordingId(
+                RecoveredVesselIdentity.FromRawName("Hopper", GuidA, 2905720181u), 1000.0));
+        }
+
+        [Fact]
+        public void ActiveSessionProvisional_WithInheritedGuid_StillWinsTheBracketTie()
+        {
+            // The live session's provisional is NotCommitted (never in ERS) and its origin is
+            // in the session-suppressed subtree (also hidden by ERS). Both stay admissible:
+            // the provisional by id, the origin as a not-yet-superseded subtree member, so
+            // the TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT tie-break is exactly as before.
+            InstallReFlySession("rec-provisional", "rec-origin");
+            AddRec("rec-origin", "Reusable", 100.0, 900.0, GuidA, TerminalState.Destroyed);
+            var provisional = AddRec("rec-provisional", "Reusable", 500.0, 700.0, GuidA,
+                TerminalState.Orbiting);
+            provisional.MergeState = MergeState.NotCommitted;
+
+            var picked = LedgerOrchestrator.PickRecoveryRecording(
+                RecoveredVesselIdentity.FromRawName("Reusable", GuidA, 2905720181u), 600.0);
+            Assert.Equal("rec-provisional", picked.RecordingId);
+            Assert.Equal(2, picked.SurvivorCount);
+            Assert.Contains(logLines, l =>
+                l.Contains("path=launch-guid")
+                && l.Contains("sessionProvisionalAdmitted=True")
+                && l.Contains("bracketTie=session-provisional")
+                && l.Contains("pick=rec-provisional"));
+        }
+
         private static void InstallReFlySession(string provisionalId, string originId)
         {
             var scenario = new ParsekScenario

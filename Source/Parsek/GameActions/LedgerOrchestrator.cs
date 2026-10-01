@@ -6250,6 +6250,62 @@ namespace Parsek
                 && spawnedPid != rec.VesselPersistentId;
         }
 
+        /// <summary>
+        /// The recording ids a recovery may be credited to: the Effective Recording Set
+        /// (<see cref="EffectiveState.ComputeERS"/> - committed, not superseded, not
+        /// rewind-retired) plus, during a live Re-Fly session, the members of the session's
+        /// suppressed subtree that are themselves neither superseded nor retired.
+        ///
+        /// <para>
+        /// [ERS-exempt file, ERS read here on purpose] This file is allowlisted for raw
+        /// committed-list reads, but the recovery picker must not credit a recording that
+        /// left the effective timeline: after a Re-Fly merge the superseded origin and its
+        /// TIP still carry the fork's launch guid. ERS alone is not quite the set, because
+        /// it also hides the live session's suppressed subtree - the origin being re-flown,
+        /// which is not superseded until the merge. That subtree is re-admitted so the
+        /// pre-existing mid-session behaviour holds, including the
+        /// TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT tie-break in which the session
+        /// provisional beats a bracketing origin. The provisional itself is NotCommitted and
+        /// so never in ERS; the caller admits it by id.
+        /// </para>
+        /// </summary>
+        internal static HashSet<string> ResolveRecoveryAdmissibleRecordingIds()
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            var ers = EffectiveState.ComputeERS();
+            for (int i = 0; i < ers.Count; i++)
+            {
+                var rec = ers[i];
+                if (rec != null && !string.IsNullOrEmpty(rec.RecordingId))
+                    ids.Add(rec.RecordingId);
+            }
+
+            var scenario = ParsekScenario.Instance;
+            if (ReferenceEquals(null, scenario)) return ids;
+            var marker = scenario.ActiveReFlySessionMarker;
+            if (marker == null) return ids;
+
+            var suppressed = EffectiveState.ComputeSessionSuppressedSubtree(marker);
+            if (suppressed.Count == 0) return ids;
+            var recordings = RecordingStore.CommittedRecordings;
+            if (recordings == null) return ids;
+            var retired = EffectiveState.ComputeRewindRetiredRecordingIds(
+                recordings, scenario.RecordingRewindRetirements);
+            var suppressedSet = suppressed as HashSet<string>
+                ?? new HashSet<string>(suppressed, StringComparer.Ordinal);
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
+                if (!suppressedSet.Contains(rec.RecordingId)) continue;
+                if (rec.MergeState == MergeState.NotCommitted) continue;
+                if (!EffectiveState.IsVisible(rec, scenario.RecordingSupersedes)) continue;
+                if (retired.Contains(rec.RecordingId)) continue;
+                ids.Add(rec.RecordingId);
+            }
+            return ids;
+        }
+
         internal static string PickRecoveryRecordingId(RecoveredVesselIdentity identity, double ut)
         {
             return PickRecoveryRecording(identity, ut).RecordingId;
@@ -6329,6 +6385,8 @@ namespace Parsek
             var spawnMatches = new List<Recording>();
             Recording unknownGuidSessionProvisional = null;
             int zombieByName = 0, zombieByGuid = 0, zombieBySpawn = 0;
+            var admissible = ResolveRecoveryAdmissibleRecordingIds();
+            int skippedNotEffective = 0;
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
@@ -6348,6 +6406,15 @@ namespace Parsek
                     if (spawnMatch) zombieBySpawn++;
                     continue;
                 }
+                // Superseded and rewind-retired recordings are off the effective timeline.
+                // After a Re-Fly merge the superseded origin and its TIP keep the fork's
+                // launch guid, so without this gate a later recovery could credit them.
+                if (!isSessionProvisional
+                    && (string.IsNullOrEmpty(rec.RecordingId) || !admissible.Contains(rec.RecordingId)))
+                {
+                    if (nameMatch || guidMatch || spawnMatch) skippedNotEffective++;
+                    continue;
+                }
                 if (nameMatch) nameMatches.Add(rec);
                 if (guidMatch) guidMatches.Add(rec);
                 if (spawnMatch) spawnMatches.Add(rec);
@@ -6356,6 +6423,15 @@ namespace Parsek
                 {
                     unknownGuidSessionProvisional = rec;
                 }
+            }
+
+            if (skippedNotEffective > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PickRecoveryRecordingId effective filter: {identity.FormatForLog()} " +
+                    $"ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"skippedNotEffective={skippedNotEffective.ToString(CultureInfo.InvariantCulture)} " +
+                    "reason=superseded-or-rewind-retired");
             }
 
             RecoveryPickPath path;

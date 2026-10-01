@@ -1302,8 +1302,9 @@ _(unreleased — entries accumulate here per commit)_
   vessel Parsek spawned at the end of a replay was treated as a stranger. Parsek now matches
   the vessel's unique launch identity first, then the identity of a vessel it spawned, and
   uses the name only for old recordings that carry no identity. Two launches of the same
-  craft never share a recovery, and among the segments of one flight the one that ends last
-  is still the one credited.
+  craft never share a recovery, a recording replaced by a Re-Fly or undone by a rewind is
+  never credited, and among the segments of one flight the one that ends last is still the
+  one credited.
 - **Debris rows in Recordings no longer report impossible speeds and distances.** The
   Max Speed and Distance on a recording's hover are computed from its samples and orbit
   segments. A destroyed vessel's last moments are kept as a ballistic arc whose lowest point

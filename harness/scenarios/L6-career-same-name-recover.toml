@@ -481,8 +481,9 @@ forbidden = [
   # or not), which `CareerSameNamePadFixtureDriftTests` asserts.
   "Recovery kerbal XP refused:",
   # Stage 3: every leg carries the live launch guid and the flight's recordings carry it,
-  # so no pick may fall back to the name walk.
-  "PickRecoveryRecordingId path: .* path=name-fallback",
+  # so no pick of THIS vessel may fall back to the name walk. Scoped to the lane's vessel
+  # because the path line also prints for an unrecorded vessel (debris) with a launch guid.
+  "PickRecoveryRecordingId path: vessel='Jumping Flea' .* path=name-fallback",
 ]
 
 [runtime]

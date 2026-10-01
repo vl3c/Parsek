@@ -20897,7 +20897,15 @@ the identity paths. Two same-name launches with distinct guids were already reso
 stage 1; identity-first gets the same answer without consulting names.
 
 **What changed.** `LedgerOrchestrator.PickRecoveryRecording` walks the store once and
-chooses the candidate set by path, then runs the UNCHANGED tier walk:
+chooses the candidate set by path, then runs the UNCHANGED tier walk. Every path first
+restricts to the EFFECTIVE timeline (`ResolveRecoveryAdmissibleRecordingIds`):
+`EffectiveState.ComputeERS()` (committed, not superseded, not rewind-retired), plus the
+live Re-Fly session's suppressed subtree members that are neither superseded nor retired
+(the origin being re-flown is not superseded until the merge, and the bracket tie-break
+needs it), plus the session provisional by id. Without this a recovery after a Re-Fly
+merge could credit the superseded origin or TIP, which keep the fork's launch guid; skips
+log once as `PickRecoveryRecordingId effective filter: ... skippedNotEffective=N
+reason=superseded-or-rewind-retired`. Then:
 
 1. `path=launch-guid`: every eligible recording (not ghost-only, not a zombie
    NotCommitted) whose `RecordedVesselGuid` is known and equals the recovery's
@@ -20925,6 +20933,13 @@ and are unchanged in mechanism; the Re-Fly provisional keeps its admission. A sp
 vessel the player then FLIES gets a recording under its own fresh guid, and the launch-guid
 path prefers it over the spawn source.
 
+**Rare residual, NOT fixed (review item 3).** If a launch's TERMINAL segment never got a
+guid (a switch-continuation whose recorder failed to bind, or a breakup child destroyed
+before any snapshot - the blanks the writer audit names) while earlier segments are
+stamped, the launch-guid path cannot see the terminal segment and credits the last
+STAMPED segment of the same launch. Same launch, so never a cross-launch mis-scope, and
+current writers stamp every segment they can.
+
 **Two shapes that change, named here rather than discovered later.** (a) A recovery whose
 launch has a stamped segment plus a legacy id-less segment credits the stamped one (the
 id-less segment is unreachable by identity), where main refused the XP row as
@@ -20949,10 +20964,15 @@ unknownGuidSessionProvisionalAdmitted=False` and `PickRecoveryRecordingId: ...
 path=launch-guid nameMatches=4 survivors=2 guidDropped=n/a skippedZombieNotCommitted=0
 sessionProvisionalAdmitted=False tier=most-recent-ended bracketTie=n/a pick=<id>`
 (natural-dwell: `identityMatches=[12]`, `nameMatches=[34]`, `survivors=[12]`). The old
-`guid filter: ... dropped=2` line no longer prints, and `path=name-fallback` is forbidden.
+`guid filter: ... dropped=2` line no longer prints, and `path=name-fallback` is forbidden
+for the lane's vessel only (`vessel='Jumping Flea' .* path=name-fallback`), since an
+unrecorded debris recovery with a launch guid legitimately prints it.
 
-**Headless cover:** `RecoveryPickIdentityFirstTests` (14 cells, 9 of them red with the
-identity paths disabled): renamed vessel on all three legs with a no-identity negative
+**Headless cover:** `RecoveryPickIdentityFirstTests` (17 cells; 9 red with the identity
+paths disabled, 2 red with the effective-timeline gate disabled): a recovery after a
+Re-Fly merge credits the live fork over the superseded TIP and origin; a rewind-retired
+recording is never picked; the active-session provisional with an inherited guid still
+wins the bracket tie; renamed vessel on all three legs with a no-identity negative
 control; rename onto an older launch's name; two same-name launches in both UT orders with
 the other launch bracketing; chained segments (last-ended and bracketing) beside a
 same-name debris recording; the stage-2-cannot-fire proof over a mixed stamped/id-less set;
