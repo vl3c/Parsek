@@ -4934,8 +4934,9 @@ finds a clear point whose spawn then fails backs the full-trajectory rescan off 
 of real time (`VesselGhoster.WalkbackRescanBackoffSeconds`, logged once per chain); a backoff,
 not a cached result, because the scan answer depends on every loaded vessel's position. A
 failure that is not the collision (tip recording or snapshot gone, spawn failed at a clear
-position) ends the collision block (`EndCollisionBlockForNonCollisionFailure`) so the ghost takes
-the ordinary bounded hold instead of an endless retry. The chain status now reads `Spawn blocked
+position) ends the collision block (`EndCollisionBlockForNonCollisionFailure`), so the ghost loses
+the timeout exemption and is released on the next held-ghost tick (its hold window started at the
+original block) instead of retrying endlessly. The chain status now reads `Spawn blocked
 -- spot occupied, appears when it clears` and the label `Ghost -- spawn blocked` (was "manual
 placement required" / "spawn abandoned"; there is no placement UI since 2026-09-23). Tests: `ChainTipBlockedGhostTests` (pure cells, the policy exemption,
 the host predicate, real-policy cells driving `RetryHeldGhostSpawns` past the window and through

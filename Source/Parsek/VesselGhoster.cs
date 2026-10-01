@@ -1317,9 +1317,9 @@ namespace Parsek
         /// <summary>
         /// The blocked-tip retry failed for a reason that is not the collision (tip recording
         /// gone, no snapshot, or the spawn itself failed at a clear position). The chain stops
-        /// counting as collision-blocked, so its held ghost falls back to the ordinary bounded
-        /// hold instead of retrying a failure no blocker can clear; a later spawn attempt runs
-        /// the full chain-tip path again (and re-blocks on a real overlap).
+        /// counting as collision-blocked, so its held ghost loses the timeout exemption and is
+        /// released on the next held-ghost tick (the hold's start time is the original one, so
+        /// its window has already passed) instead of retrying a failure no blocker can clear.
         /// </summary>
         internal static void EndCollisionBlockForNonCollisionFailure(GhostChain chain, string reason)
         {
