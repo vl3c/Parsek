@@ -8418,7 +8418,15 @@ rather than re-discovered.
 should be named `*ForTesting` (as the watch-mode one is) so a grep can tell the two
 populations apart.
 
-## GUI-EXPOSURE-1-THE-TRACKING-STATION-HAS-FULL-GHOST-PRESENCE-AND-NO-CONTROL-SURFACE [FILED 2026-09-11 by the GUI fix batch; the census's biggest structural question]
+## ~~GUI-EXPOSURE-1-THE-TRACKING-STATION-HAS-FULL-GHOST-PRESENCE-AND-NO-CONTROL-SURFACE~~ [FILED 2026-09-11 by the GUI fix batch; the census's biggest structural question. CLOSED 2026-10-01 by OPERATOR RULING: user guide corrected; no TS control surface]
+
+**Ruling (2026-10-01, branch `l7-nightly-residue`).** Option (a): add no controls. `docs/user-guide.md` now says the
+Tracking Station has no Parsek window or toolbar button, describes what it shows for ghosts (a
+vessel-list row, a map icon, a stock orbit line, selection and targeting, and the selected-ghost
+popup's single Warp to Spawn button), and names where the controls live (the Parsek window in
+Flight / KSC); the mission Loop bullet says the TS shows the replay while the loop is set from
+Flight / KSC. `docs/dev/design-gui-inventory.md` H1 and its open-question paragraph record the
+ruling.
 
 **Evidence.** `ParsekTrackingStation.cs:26`, `:350` draws markers only, and says so at
 `:394-395`. The only `AddToAllToolbars` calls are `ParsekFlight.cs:1351` and
