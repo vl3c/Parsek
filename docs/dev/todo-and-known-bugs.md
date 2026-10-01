@@ -4886,7 +4886,7 @@ sections 13.5 and 13.7 should be rewritten to match it and the catalog's D18 wor
 narrowed. If the design is the intent, the non-chain blocked spawn needs a real
 extension state.
 
-## D18-CHAIN-SPAWN-BLOCKED-GHOST-6B4-NOOP: a spawn-blocked chain tip keeps no visible ghost past its tip UT [FILED 2026-09-23 with the D18 spawn-in-run wave, PR-E (EX-1). OPEN]
+## ~~D18-CHAIN-SPAWN-BLOCKED-GHOST-6B4-NOOP: a spawn-blocked chain tip keeps no visible ghost past its tip UT~~ [FILED 2026-09-23 with the D18 spawn-in-run wave, PR-E (EX-1). FIXED 2026-10-01, branch `chain-blocked-ghost` (operator decision 2026-10-01: build 6b-4 to design 12.9.2 / 13.5)]
 
 `ParsekFlight.PositionChainGhosts`'s doc says it: "For spawn-blocked chains, the ghost
 continues at its propagated position (ghost GO creation deferred to 6b-4 - currently a
@@ -4896,6 +4896,45 @@ SpawnVesselOrChainTip)". So when `VesselGhoster.SpawnAtChainTip` refuses the spa
 (`TrySpawnBlockedChain`) runs, but no ghost is drawn at the propagated position meanwhile.
 This is the chain half of design section 13.5 and of the catalog's
 `ghost-extension-past-endut` cell. EX-1 does not claim it and no lane can until 6b-4 lands.
+
+**Measured shape before the fix (code reading, 2026-10-01).** Since #1776 the policy did hold
+the tip recording's own playback ghost on the blocked completion (`Ghost held pending spawn
+retry`), but only through the generic 5 s hold: the ghost froze at its end point (an orbiting
+tip stood still while its orbit moved on, and no FloatingOrigin reapply entry was registered
+after the completion frame), the hold timed out at 5 s and destroyed it, and with no hold left
+nothing retried `TrySpawnBlockedChain`, so the vessel vanished for the rest of the scene. The
+chain's 5 s walkback trigger (UT-based) could not fire inside a 5 s real-time hold either.
+
+**Fix.** A collision-blocked chain tip's hold is exempt from the timeout
+(`ParsekPlaybackPolicy.DecideHeldGhostAction(..., spawnBlockedChainTip)`, fed by
+`ParsekFlight.IsSpawnBlockedChainTipFromPolicy`), so the spawn keeps retrying every 1 s (and the
+5 s walkback can run) until the overlap clears. Every other release still applies first
+(spawned, superseded, rewind-retired, invalid index, a permanent `CannotSpawnSafely`), so the
+2026-09-27 ruling is untouched: only a block that can clear is held. Each frame after the held
+retries, `ParsekFlight.UpdateSpawnBlockedChainTipGhosts` (new partial
+`ParsekFlight.BlockedChainTipGhost.cs`) draws the held ghost where the vessel would appear now:
+an Orbiting tip with a recorded terminal orbit follows that orbit (built once with
+`VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn`, the orbit the blocked-tip spawn uses),
+any other tip holds its end pose body-fixed; both register the SinglePoint FloatingOrigin
+reapply entry. The per-frame path allocates nothing (state resolved once at capture, reusable
+release scratch list, a real-time throttled position log). Pure decisions in
+`ChainTipBlockedGhost.cs`: `ResolvePoseSource`, `DecideReleaseReason` (spawned first, then
+chain-closed, unblocked, index-shifted, hold-ended, ghost-gone), `ShouldCapture`,
+`IsExemptFromHeldGhostTimeout`. Logged as `[ChainTipGhost] Blocked chain tip ghost held: #<i>
+"<name>" rec=<id> chainPid=<pid> source=<orbit|hold> ...` and `Blocked chain tip ghost released:
+... reason=<...> heldFor=<s>`. Walkback exhaustion does not end the hold (the chain keeps
+re-checking the overlap). Tests: `ChainTipBlockedGhostTests` (pure cells, the policy exemption,
+the host predicate, real-policy cells driving `RetryHeldGhostSpawns` past the window and through
+the spawn), in-game category `ChainTipBlockedGhost` (2 FLIGHT cells over the production
+positioning, never flown, no lane).
+
+Still unproven live: no committed lane blocks a chain-tip spawn (the D18 spawn-blocked lanes
+EX-1 and EX-2 are non-chain: the KSC retirement and the single-point hold, whose recordings are no
+chain tip, so the exemption does not reach them; CI-2 forbids `Chain tip spawn blocked by
+collision`). A proof lane needs a loaded vessel parked on a
+chain tip's end position at the tip UT, and would require `Chain tip spawn blocked by collision`,
+`Blocked chain tip ghost held: ` and, after moving the blocker, `Blocked chain tip ghost released:
+... reason=spawned` with no `Held ghost timed out` for that index.
 
 ## ~~LOOP-ARMED-REWIND-LEAVES-ZERO-VESSELS: a Rewind-to-Launch while the mission loop is armed would strip the real vessel and nothing re-spawns it~~ [FILED 2026-09-23 from the #1771 review. RULED 2026-09-23: the first run is real. MEASURED + FIXED 2026-09-23 on branch `loop-first-run-real`]
 
