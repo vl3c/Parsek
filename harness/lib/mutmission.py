@@ -148,11 +148,12 @@ def _response_line(row: Dict, verdict: Optional[str], msg: str = "") -> Optional
 
 def build_result_text(base: MissionBaseline, outcomes, state) -> Tuple[Optional[str], str, str]:
     """Resolve + build + serialize, exactly as ``mission_runner.run_mission`` does
-    after its fly loop. Returns (text, verdict, reason). ``serialize_mission_result``
-    refuses a non-finite float (``allow_nan=False``); ``run_mission`` calls it outside
-    its try, so the subprocess dies with no result file and the harness reads that
-    as tooling-mission. The text is None there, which ``run_chain`` reads the same
-    way."""
+    after its fly loop. Returns (text, verdict, reason). Like ``run_mission`` it
+    writes through ``serialize_mission_result_failsafe``: non-finite floats in an
+    assertion's value or detail are scrubbed to null by ``AssertionOutcome.to_dict``,
+    and a serializer fault that still escapes falls back to the minimal result, so a
+    result file always exists (todo KXRW-RESULT-NAN-DETAIL). The fallback reason is
+    appended to the returned reason."""
     verdict, reason = mlib.resolve_flight_verdict(state, outcomes)
     if verdict == mlib.MISSION_OK:
         reason = mlib.handoff_ok_reason(base.mission, reason)
@@ -171,10 +172,10 @@ def build_result_text(base: MissionBaseline, outcomes, state) -> Tuple[Optional[
         krpc_server_version=str(obj.get("krpcServerVersion") or ""),
         error=obj.get("error"),
         warp_utilisation=obj.get("warpUtilisation"))
-    try:
-        return mlib.serialize_mission_result(result), verdict, reason
-    except ValueError as exc:
-        return None, verdict, "%s [serialize_mission_result raised: %s]" % (reason, exc)
+    text, failure = mlib.serialize_mission_result_failsafe(result)
+    if failure:
+        reason = "%s [%s]" % (reason, failure)
+    return text, verdict, reason
 
 
 def run_chain(base: MissionBaseline, result_text: Optional[str],
