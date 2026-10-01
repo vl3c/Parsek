@@ -4921,12 +4921,9 @@ namespace Parsek
                 return;
             }
 
-            string trimmed = renamingRecordingText.Trim();
-            if (!string.IsNullOrEmpty(trimmed) && trimmed != committed[ri].VesselName)
-            {
-                ParsekLog.Info("UI", $"Recording '{committed[ri].VesselName}' renamed to '{trimmed}'");
-                committed[ri].VesselName = trimmed;
-            }
+            // Sets the name, logs it and invalidates the shared vessel names the Missions tab
+            // and the Log cache (a rename moves no StateVersion).
+            MissionVesselNaming.ApplyRecordingRename(committed[ri], renamingRecordingText);
         }
 
         private void CommitGroupRename(string oldName)

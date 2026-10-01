@@ -125,7 +125,7 @@ The Career window's four `Button(` hits are two `Close` and the two row name cel
 
 | Surface | File | Opened from |
 |---------|------|-------------|
-| Log window (mission / route step list) | `UI/StructureListWindowUI.cs` | Missions row `Log`, Logistics `Log (Route)` / `Log (Mission)` |
+| Log window (mission step list) | `UI/StructureListWindowUI.cs` | Missions row `Log`, Logistics route `Log` (the source mission's Log) |
 | Group picker popup | `UI/GroupPickerUI.cs` | Recordings tab group assignment |
 | Route creation dialog | `UI/RouteCreationDialog.cs` | Logistics `Create` |
 | Logistics link picker (second top-level IMGUI window) | `UI/LogisticsWindowUI.cs:1707` | Logistics |

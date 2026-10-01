@@ -6,12 +6,11 @@ namespace Parsek
 {
     // Pure read model + mission builder for the Log window (StructureListWindowUI;
     // roadmap.md Phase 13 Tier-1; docs/dev/plan-structure-list-window.md). A Log is a
-    // flat, chronological "what happened, step by step" view of one run, complementing
+    // flat, chronological "what happened, step by step" view of one mission, complementing
     // the Missions tab's composition-over-time tree. The builder is pure (no Unity
     // calls, no shared mutable state, no recording mutation) and reads ONLY
-    // already-recorded data, so it is headless-testable. The route side of the window
-    // is the Logistics-side RouteStructureListBuilder: Missions code must not reference
-    // Logistics, so the route-reading builder lives with the routes it reads.
+    // already-recorded data, so it is headless-testable. A supply route has no Log of its
+    // own: its Log button opens the Log of the mission it was built from.
 
     internal enum StructureStepKind
     {
@@ -21,29 +20,24 @@ namespace Parsek
         Dock       = 3,
         Undock     = 4,
         Eva        = 5,
-        Origin     = 6,  // route only
-        Delivery   = 7,  // route only
-        Stop       = 8,  // route only (reserved for multi-stop)
-        Terminal   = 9
+        Terminal   = 6
     }
 
     /// <summary>One row of a Log: a single event with its time, location and vessel.</summary>
     internal struct StructureStep
     {
-        public double UT;            // event time; NaN for the route Origin pseudo-step (rendered first)
+        public double UT;            // event time
         public StructureStepKind Kind;
         public string Label;         // "Launch", "Staged: 2 pieces (...)", "Docked (CD)", "End: Orbiting"
         public string Tooltip;       // full label when Label had to be shortened for the cell; else null
         public string Location;      // "Kerbin, Launch Pad", "Kerbin orbit", "Mun, Midlands", "Kerbin", "-"
-        public string VesselName;    // the vessel this step concerns (may be empty on route rows)
+        public string VesselName;    // the vessel this step concerns
         public string RecordingId;   // the owning recording / leg; identity for the simultaneous collapse
         public uint SortPid;         // a part PID or 0, for a deterministic tiebreak only (not rendered)
     }
 
     /// <summary>
-    /// Pure location text helpers shared by the mission builder and the Logistics-side
-    /// route builder, which formats its route endpoints on top of these. All output is
-    /// culture-free text.
+    /// Pure location text helpers of the mission Log. All output is culture-free text.
     /// </summary>
     internal static class StructureLocationFormatter
     {
@@ -122,7 +116,7 @@ namespace Parsek
         /// <summary>
         /// One Time cell per step: the first finite-UT step gets
         /// <paramref name="dateFormatter"/>(UT), every later one its elapsed time from
-        /// that step, and a NaN step (the route origin) the missing-value text.
+        /// that step, and a NaN step (a step with no time) the missing-value text.
         /// </summary>
         internal static string[] FormatStepTimes(
             List<StructureStep> steps, Func<double, string> dateFormatter)
@@ -202,12 +196,21 @@ namespace Parsek
         /// <paramref name="mergePartnerResolver"/> names the other side of a Dock / Board
         /// branch point for a viewer recording, already formatted
         /// ("CD" or "CD (mission 'CD Freighter')"); null when it cannot.
+        /// <paramref name="excludedIntervalKeys"/> is the viewed mission's
+        /// <c>Mission.ExcludedIntervalKeys</c>: a row that falls only inside intervals the
+        /// mission excludes is dropped (<see cref="DropExcludedSteps"/>), so two missions over
+        /// one tree read two different Logs. Null or empty keeps every row (the whole tree).
+        /// <paramref name="vesselNames"/> is <see cref="MissionVesselNaming.Build"/>'s map
+        /// (RecordingId -> "Kerbal X [2]" / the partner phrase), the names the Missions vessel
+        /// rows use; a leg it does not name reads its own vessel or kerbal name.
         /// </summary>
         internal static List<StructureStep> Build(
             RecordingTree tree,
             MissionStructure structure,
             Func<string, string> partTitleResolver = null,
-            Func<BranchPoint, string, string> mergePartnerResolver = null)
+            Func<BranchPoint, string, string> mergePartnerResolver = null,
+            ICollection<string> excludedIntervalKeys = null,
+            IReadOnlyDictionary<string, string> vesselNames = null)
         {
             var steps = new List<StructureStep>();
             if (tree == null || structure == null || structure.LegsById.Count == 0)
@@ -218,7 +221,8 @@ namespace Parsek
                 return steps;
             }
 
-            var ctx = new BuildContext(tree, structure, partTitleResolver, mergePartnerResolver);
+            var ctx = new BuildContext(tree, structure, partTitleResolver, mergePartnerResolver,
+                vesselNames);
 
             // 1. Launch: one per root leg.
             AddLaunchSteps(steps, ctx);
@@ -241,7 +245,10 @@ namespace Parsek
             // 6. Terminal: one per controlled leg that ends in a state of its own.
             AddTerminalSteps(steps, ctx);
 
-            // 7. Deterministic chronological sort, then the simultaneous collapse.
+            // 7. The mission's include set: rows of intervals it excludes are not its story.
+            steps = DropExcludedSteps(steps, structure, excludedIntervalKeys, out int excludedRows);
+
+            // 8. Deterministic chronological sort, then the simultaneous collapse.
             steps.Sort(CompareStep);
             steps = CollapseSimultaneous(steps);
 
@@ -258,8 +265,99 @@ namespace Parsek
                     $"partEvents: seeds={ctx.SkippedSeeds} debris={ctx.SkippedDebris} " +
                     $"dockCoupling={ctx.SkippedDockCoupling} duplicates={ctx.SkippedDuplicates} " +
                     $"absorbed={ctx.AbsorbedCount} loose={loose.Count} " +
-                    $"mergedEndsSkipped={ctx.SkippedMergedEnds}");
+                    $"mergedEndsSkipped={ctx.SkippedMergedEnds} " +
+                    $"continuedEndsSkipped={ctx.SkippedContinuedEnds} " +
+                    $"excludedKeys={(excludedIntervalKeys != null ? excludedIntervalKeys.Count : 0)} " +
+                    $"excludedRows={excludedRows}");
             return steps;
+        }
+
+        /// <summary>
+        /// Drops the rows a mission excludes. A row concerns one leg (its
+        /// <see cref="StructureStep.RecordingId"/>) at one UT; the composition intervals that
+        /// cover it are the intervals of every through-line holding that leg whose span holds
+        /// the UT (closed at both ends, so a row on an interval boundary - a separation, a dock
+        /// - is covered by the interval on each side). The row stays when ANY covering interval
+        /// is included (<see cref="MissionIntervalSelection.IsIntervalIncluded"/>, the predicate
+        /// the Missions vessel rows read) and when nothing covers it (a row the selection cannot
+        /// speak about is never hidden). Pure apart from the composition / through-line builders
+        /// it calls, which are themselves pure.
+        /// </summary>
+        internal static List<StructureStep> DropExcludedSteps(
+            List<StructureStep> steps, MissionStructure structure,
+            ICollection<string> excludedIntervalKeys, out int dropped)
+        {
+            dropped = 0;
+            if (steps == null || steps.Count == 0 || structure == null
+                || excludedIntervalKeys == null || excludedIntervalKeys.Count == 0)
+                return steps;
+
+            var intervals = new List<MissionCompositionNode>();
+            List<MissionCompositionNode> roots = MissionCompositionBuilder.Build(structure);
+            for (int i = 0; i < roots.Count; i++)
+                CollectSelectableIntervals(roots[i], intervals);
+
+            // One leg can sit on two through-lines (a same-tree dock's merged child is walked by
+            // both parents), and the composition awards its intervals to only one of them, so
+            // every containing head is a candidate owner.
+            MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
+            var headsByLeg = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            foreach (MissionThroughLine line in view.ByHeadId.Values)
+            {
+                for (int m = 0; m < line.MemberLegIds.Count; m++)
+                {
+                    string legId = line.MemberLegIds[m];
+                    if (legId == null) continue;
+                    if (!headsByLeg.TryGetValue(legId, out List<string> heads))
+                    {
+                        heads = new List<string>(1);
+                        headsByLeg[legId] = heads;
+                    }
+                    heads.Add(line.HeadLegId);
+                }
+            }
+
+            var kept = new List<StructureStep>(steps.Count);
+            for (int i = 0; i < steps.Count; i++)
+            {
+                if (IsStepIncluded(steps[i], headsByLeg, intervals, excludedIntervalKeys))
+                    kept.Add(steps[i]);
+                else
+                    dropped++;
+            }
+            return kept;
+        }
+
+        private static bool IsStepIncluded(
+            StructureStep step, Dictionary<string, List<string>> headsByLeg,
+            List<MissionCompositionNode> intervals, ICollection<string> excludedIntervalKeys)
+        {
+            if (string.IsNullOrEmpty(step.RecordingId)
+                || !headsByLeg.TryGetValue(step.RecordingId, out List<string> heads))
+                return true;
+            bool covered = false;
+            for (int i = 0; i < intervals.Count; i++)
+            {
+                MissionCompositionNode node = intervals[i];
+                if (!heads.Contains(node.OwnerHeadId)) continue;
+                if (step.UT < node.StartUT - MissionPresentation.PeelUtEpsilon
+                    || step.UT > node.EndUT + MissionPresentation.PeelUtEpsilon)
+                    continue;
+                covered = true;
+                if (MissionIntervalSelection.IsIntervalIncluded(node, excludedIntervalKeys))
+                    return true;
+            }
+            return !covered;
+        }
+
+        private static void CollectSelectableIntervals(
+            MissionCompositionNode node, List<MissionCompositionNode> into)
+        {
+            if (node == null) return;
+            if (node.IsSelectable && !string.IsNullOrEmpty(node.OwnerHeadId))
+                into.Add(node);
+            for (int i = 0; i < node.Children.Count; i++)
+                CollectSelectableIntervals(node.Children[i], into);
         }
 
         // ------------------------------------------------------------------
@@ -272,6 +370,7 @@ namespace Parsek
             internal readonly MissionStructure Structure;
             private readonly Func<string, string> partTitleResolver;
             internal readonly Func<BranchPoint, string, string> MergePartnerResolver;
+            private readonly IReadOnlyDictionary<string, string> vesselNames;
             private readonly Dictionary<string, string> titleCache =
                 new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -288,15 +387,18 @@ namespace Parsek
             internal int SkippedDuplicates;
             internal int AbsorbedCount;
             internal int SkippedMergedEnds;
+            internal int SkippedContinuedEnds;
 
             internal BuildContext(RecordingTree tree, MissionStructure structure,
                 Func<string, string> partTitleResolver,
-                Func<BranchPoint, string, string> mergePartnerResolver)
+                Func<BranchPoint, string, string> mergePartnerResolver,
+                IReadOnlyDictionary<string, string> vesselNames)
             {
                 Tree = tree;
                 Structure = structure;
                 this.partTitleResolver = partTitleResolver;
                 MergePartnerResolver = mergePartnerResolver;
+                this.vesselNames = vesselNames;
                 IndexPredecessors();
             }
 
@@ -307,10 +409,15 @@ namespace Parsek
             internal MissionLeg Leg(string id)
                 => id != null && Structure.LegsById.TryGetValue(id, out MissionLeg l) ? l : null;
 
-            // The vessel name a row about this recording shows: the leg label for a
-            // controlled leg, else the recording's own vessel name.
+            // The vessel name a row about this recording shows: the shared mission vessel
+            // name (numbered, or the partner phrase) when the naming pass gave one, the leg
+            // label for any other controlled leg, else the recording's own vessel name.
             internal string VesselOf(string recordingId)
             {
+                if (recordingId != null && vesselNames != null
+                    && vesselNames.TryGetValue(recordingId, out string named)
+                    && !string.IsNullOrEmpty(named))
+                    return named;
                 MissionLeg leg = Leg(recordingId);
                 if (leg != null) return LegLabel(leg);
                 Recording rec = Rec(recordingId);
@@ -459,7 +566,7 @@ namespace Parsek
                     Kind = StructureStepKind.Launch,
                     Label = !string.IsNullOrEmpty(leg.EvaCrewName) ? "EVA " + leg.EvaCrewName : "Launch",
                     Location = location,
-                    VesselName = LegLabel(leg),
+                    VesselName = ctx.VesselOf(rootId),
                     RecordingId = rootId
                 });
             }
@@ -959,6 +1066,14 @@ namespace Parsek
             foreach (MissionLeg leg in ctx.Structure.LegsById.Values)
             {
                 if (!leg.TerminalStateValue.HasValue) continue;
+                // Only a vessel's LAST segment ends it: a chain segment the optimizer split
+                // off can carry the terminal state the vessel had at the cut (a launch
+                // head's SubOrbital at an atmosphere exit), and that is no ending.
+                if (ContinuesInChain(ctx, leg))
+                {
+                    ctx.SkippedContinuedEnds++;
+                    continue;
+                }
                 TerminalState term = leg.TerminalStateValue.Value;
                 // A leg that ended by joining another already has its Docked / Boarded row.
                 if (term == TerminalState.Docked || term == TerminalState.Boarded)
@@ -973,10 +1088,27 @@ namespace Parsek
                     Kind = StructureStepKind.Terminal,
                     Label = FormatEndLabel(term),
                     Location = TerminalLocation(rec, term),
-                    VesselName = LegLabel(leg),
+                    VesselName = ctx.VesselOf(leg.RecordingId),
                     RecordingId = leg.RecordingId
                 });
             }
+        }
+
+        // True when a later segment of the same vessel exists in the tree: the leg's sequence
+        // successor, or a higher ChainIndex of its ChainId.
+        private static bool ContinuesInChain(BuildContext ctx, MissionLeg leg)
+        {
+            if (!string.IsNullOrEmpty(leg.SequenceNextId)) return true;
+            Recording rec = ctx.Rec(leg.RecordingId);
+            if (rec == null || string.IsNullOrEmpty(rec.ChainId) || rec.ChainIndex < 0
+                || ctx.Tree.Recordings == null)
+                return false;
+            foreach (Recording other in ctx.Tree.Recordings.Values)
+                if (other != null && !other.IsDebris
+                    && string.Equals(other.ChainId, rec.ChainId, StringComparison.Ordinal)
+                    && other.ChainIndex > rec.ChainIndex)
+                    return true;
+            return false;
         }
 
         /// <summary>"End: Orbiting" - the terminal word the Missions End column reads.</summary>

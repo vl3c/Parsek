@@ -33,10 +33,12 @@ tier = "operator"
 #     disclosure open (`op=expand window=logistics key=all` walks the route rows, the
 #     `cand:` candidate rows AND the three fixed section keys, so one step opens the
 #     largest un-photographed control cluster in the mod);
-#   - the Structure window (`Parsek - Log: <name>`) on a ROUTE and on a MISSION.
+#   - the Structure window (`Parsek - Log: <name>`) on the two routes' SOURCE MISSIONS.
+#     The route Log is retired (MISSION-LOG-REWORK part 4): a route's `Log` button opens
+#     the Log of the mission it was built from, so the route half is now that mission.
 #     GUI-1's `ksc-structure-advanced` is a picture of the empty "Nothing to show."
 #     chrome because `op=open window=structure` raises a flag and nothing else; `op=target`
-#     calls the production `StructureListWindowUI.OpenForRoute` / `OpenForMission`, which
+#     calls the production `StructureListWindowUI.OpenForMission`, which
 #     set the target and REBUILD before raising it. That closes
 #     GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET for the KSC half;
 #   - the Missions tab and the Recordings tab over a four-mission corpus, collapsed and
@@ -141,6 +143,13 @@ tier = "operator"
 #   - The Structure openers reported `steps=4` on the route and `steps=38` on the mission
 #     (`steps=11` on the mission since the Log rework: `2026-10-01_1633`, PR #1945),
 #     and the windows are titled after their subjects rather than reading "Nothing to show.".
+#     Since the route Log was retired the first opener is the Mun route's source mission:
+#     FLOWN `2026-10-01_2004`, PASS attempt 1, then re-flown `2026-10-01_2045`, PASS
+#     attempt 1, after the End-row and vessel-name fixes: `Kerbal X #4` `steps=11`
+#     (`ib-structure-route-log-advanced`; the chain head's mid-flight `End: Suborbital` row
+#     is gone), `Duna Supply 1` `steps=11` reading `Undocked (Duna Supply 1)` (its re-pidded
+#     own ship is the same vessel, not `[2]`), and the expanded route panels carry one `Log`
+#     button each where `Log (Route)` / `Log (Mission)` stood.
 #   - The `Candidates` section is present and EMPTY (`No eligible Supply Runs...`): this host
 #     carries a DISMISSED list, not live candidates, which the inventory's 6.1 row already
 #     says. A populated Candidates picture still wants a `rover-route-recorded` lane.
@@ -205,20 +214,25 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "ib-logistics-expanded-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },
 
-  # --- the Structure window, POPULATED, both target modes ---
+  # --- the Structure window, POPULATED, on each route's source mission ---
   # `op=target` is the whole difference from GUI-1's `ksc-structure-advanced`: it calls the
   # production opener, which sets the target and rebuilds the step list BEFORE raising the
   # flag, and reports the row count it produced as `steps=`.
-  { cmd = "UiAction", args = { op = "target", window = "structure", route = "8f644e71b1164df3bb735330127d2ee7" }, expect = "OK" },
+  # The `Route: KSC -> Mun` route's `Log` button opens the ORIGINAL mission of its source
+  # tree (`LogisticsWindowUI.ResolveRouteSourceTreeId` + `MissionStore.FindOriginalMission`).
+  # The seam drives no click, so the step names that tree id: `mission=` resolves a tree id
+  # to the tree's original mission, the same rule (this fixture: `Kerbal X #4`).
+  { cmd = "UiAction", args = { op = "target", window = "structure", mission = "02382fcdcb1a465388529350c0879cd6" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "structure", x = "270", y = "8", w = "1000", h = "520" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "ib-structure-route-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "ib-structure-route-advanced" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ib-structure-route-log-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ib-structure-route-log-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "structure" }, expect = "OK" },
 
-  # The mission form of the same window. `mission=` resolves on three rungs (tree id,
-  # Mission display NAME, tree name); `Duna Supply 1` is the display name this fixture's
-  # MISSION node carries, which is what a reviewer reads off the window.
+  # The mission form of the same window, by NAME. `mission=` resolves on four rungs (Mission
+  # id, tree id, Mission display NAME, tree name); `Duna Supply 1` is the display name this
+  # fixture's MISSION node carries, which is what a reviewer reads off the window, and it is
+  # also the source mission of the second route (`Route: KSC -> Duna`).
   { cmd = "UiAction", args = { op = "target", window = "structure", mission = "Duna Supply 1" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "structure", x = "270", y = "8", w = "1000", h = "520" }, expect = "OK" },
@@ -340,7 +354,7 @@ allowedAnomalies = []
 # THE FIVE CENSUS-OP LINES ARE PINNED WITH THEIR VALUE FIELDS REGEXED. `changed=` /
 # `expanded=` / `total=` / `steps=` are counts of whatever the save happened to hold, so a
 # literal would pin the fixture's row arithmetic rather than the op's behaviour; the
-# TOKENS (`key=all`, `state=true`, `target=route`, `picker=manage`) are literal, because
+# TOKENS (`key=all`, `state=true`, `target=mission`, `picker=manage`) are literal, because
 # those are the claim.
 required = [
   # --- describe echoes, in step order ---
@@ -358,7 +372,7 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=logistics key=all state=true changed=[0-9]+ expanded=[0-9]+ total=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=all state=true changed=[0-9]+ expanded=[0-9]+ total=[0-9]+",
   # --- the two targeted Structure opens, which is what makes the window non-empty ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction target window=structure target=route id=8f644e71b1164df3bb735330127d2ee7 .*steps=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction target window=structure target=mission id=02382fcdcb1a465388529350c0879cd6 .*steps=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction target window=structure target=mission id=.* steps=[0-9]+",
   # --- the three popups the window table excludes, each reporting open=true ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction picker window=logistics picker=link target=71a983a16dc04d78bc2a2b90f1d184b0 open=true",
@@ -373,7 +387,7 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-main-tooltip-logistics-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-logistics-collapsed-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-logistics-expanded-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-structure-route-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-structure-route-log-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-structure-mission-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-missions-missions-collapsed-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-missions-missions-expanded-advanced .*patched=17/17",

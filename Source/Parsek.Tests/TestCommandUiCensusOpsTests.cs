@@ -854,23 +854,34 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Target_NeedsExactlyOneSelector()
+        public void Target_NeedsAMission()
         {
             Assert.False(TestCommandUiState.TryParseTarget(
                 TestCommandUiAction.StructureWindow, null, null, out _, out _,
                 out string missing));
             Assert.Equal(TestCommandUiState.TargetArgMissingReason, missing);
+        }
 
-            // BOTH is refused rather than resolved by precedence: the two open different
-            // lists, and guessing would photograph the wrong one under the caller's label.
+        // catches: a lane still naming a route on op=target after the route Log was
+        // retired - refused by name, with or without a mission beside it, rather than
+        // ignored (an ignored selector photographs something else under its label).
+        [Fact]
+        public void Target_RouteIsRetired()
+        {
+            Assert.False(TestCommandUiState.TryParseTarget(
+                TestCommandUiAction.StructureWindow, null, "Mun Depot", out _, out _,
+                out string routeOnly));
+            Assert.Equal(TestCommandUiState.TargetRouteRetiredReason, routeOnly);
+            Assert.Equal("target-route-retired", routeOnly);
+
             Assert.False(TestCommandUiState.TryParseTarget(
                 TestCommandUiAction.StructureWindow, "Apollo", "R-1", out _, out _,
-                out string conflict));
-            Assert.Equal(TestCommandUiState.TargetArgConflictReason, conflict);
+                out string both));
+            Assert.Equal(TestCommandUiState.TargetRouteRetiredReason, both);
         }
 
         [Fact]
-        public void Target_ResolvesEachSelectorToItsOwnKind()
+        public void Target_ResolvesTheMissionSelector()
         {
             Assert.True(TestCommandUiState.TryParseTarget(
                 TestCommandUiAction.StructureWindow, "Apollo", null,
@@ -878,13 +889,6 @@ namespace Parsek.Tests
             Assert.Equal(UiTargetKind.Mission, mission);
             Assert.Equal("Apollo", missionValue);
             Assert.Equal("mission", TestCommandUiState.TargetKindToken(mission));
-
-            Assert.True(TestCommandUiState.TryParseTarget(
-                TestCommandUiAction.StructureWindow, null, "Mun Depot",
-                out UiTargetKind route, out string routeValue, out _));
-            Assert.Equal(UiTargetKind.Route, route);
-            Assert.Equal("Mun Depot", routeValue);
-            Assert.Equal("route", TestCommandUiState.TargetKindToken(route));
         }
 
         [Fact]
@@ -1675,7 +1679,7 @@ namespace Parsek.Tests
                 TestCommandUiState.ExpandStateWithBulkKeyReason,
                 TestCommandUiState.TargetUnsupportedWindowReason,
                 TestCommandUiState.TargetArgMissingReason,
-                TestCommandUiState.TargetArgConflictReason,
+                TestCommandUiState.TargetRouteRetiredReason,
                 TestCommandUiState.TargetNotFoundReason,
                 TestCommandUiState.TargetNotOpenedReason,
                 TestCommandUiState.PickerUnsupportedWindowReason,

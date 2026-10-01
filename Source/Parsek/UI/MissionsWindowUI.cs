@@ -341,6 +341,17 @@ namespace Parsek
         // Per-frame cache of the T2.2 flattened per-vessel rows, keyed by TREE id (derived from
         // the composition roots, so every Mission over one tree shares them). Cleared alongside
         // missionViewCache on the first lookup of a new frame.
+        // Cross-frame: keyed on RecordingStore.StateVersion + the missions' names, so a
+        // steady frame reads it and computes nothing (MissionVesselNaming.Cache).
+        private readonly MissionVesselNaming.Cache vesselNamingCache = new MissionVesselNaming.Cache();
+        private int vesselNamingRebuildsLogged;
+        // Held in fields so a cache hit allocates no closure; the mission signature is read
+        // once per frame, not per tree.
+        private System.Func<RecordingTree, MissionStructure> vesselNamingStructure;
+        private static readonly System.Func<string, string> VesselNamingMissionName =
+            otherTreeId => ResolvePartnerMissionName(otherTreeId, null);
+        private int vesselNamingSignature;
+        private int vesselNamingSignatureFrame = -1;
         private readonly Dictionary<string, List<MissionVesselRow>> vesselRowsCache =
             new Dictionary<string, List<MissionVesselRow>>();
 
@@ -1276,15 +1287,18 @@ namespace Parsek
                     ? ComputeMissionPeriodicity(mission, view)
                     : default;
 
-                // The vessel rows are built before the mission bar because the bar's Start event
-                // cell is the first vessel's start event.
-                var vesselRows = GetVesselRows(tree);
+                // The bar's Start event cell is the first vessel row's start event. A collapsed
+                // mission draws only its bar and needs no names, so it reads that event off the
+                // composition roots instead of building the named rows.
+                string startEventText = collapsed
+                    ? MissionVesselRowBuilder.FirstRowStartEvent(GetCompositionRoots(tree))
+                    : MissionPresentation.MissionStartEventText(GetVesselRows(tree));
                 DrawMissionHeader(mission, ordered[i].index, view, periodicity,
-                    GetSummaryFacts(tree), MissionPresentation.MissionStartEventText(vesselRows),
-                    collapsed);
+                    GetSummaryFacts(tree), startEventText, collapsed);
                 CaptureRevealAnchor(mission);
                 if (collapsed)
                     continue;
+                var vesselRows = GetVesselRows(tree);
 
                 // T2.2: the FLATTENED per-vessel rows - one row per physical vessel / EVA
                 // kerbal, depth = separation lineage only, the event chain inline; each
@@ -1293,7 +1307,11 @@ namespace Parsek
                 // no cascade (the per-vessel checkbox expands to the vessel's own explicit
                 // keys). The row derivations (T1.3 delta labels, T1.4 dock-partner naming)
                 // read this tree's own structure / through-line view.
-                var rowCtx = new RowDeriveContext { Structure = structure, View = view, Mission = mission };
+                var rowCtx = new RowDeriveContext
+                {
+                    Structure = structure, View = view, Mission = mission,
+                    VesselNames = GetVesselNames(tree),
+                };
                 // Chapter grouping (design 7.2): armed only for this mission's own rows, so a
                 // header appears above the vessel row that carries a chapter's first interval.
                 // Cleared in finally so a mid-draw exception cannot leak one mission's chapters
@@ -1600,14 +1618,47 @@ namespace Parsek
             if (!vesselRowsCache.TryGetValue(tree.Id, out var rows))
             {
                 var (structure, view) = GetMissionView(tree);
+                Dictionary<string, string> vesselNames = GetVesselNames(tree);
                 rows = MissionVesselRowBuilder.Build(
                     GetCompositionRoots(tree),
                     (ownerHeadId, boundaryUT) =>
                         MissionPresentation.ResolveSameTreeDockPartnerVesselName(
-                            structure, view, ownerHeadId, boundaryUT));
+                            structure, view, ownerHeadId, boundaryUT, vesselNames),
+                    vesselNames);
                 vesselRowsCache[tree.Id] = rows;
             }
             return rows;
+        }
+
+        // The vessel names the mission Log uses too (MissionVesselNaming): numbered same-named
+        // vessels, another mission's vessel as its partner phrase. Cached ACROSS frames
+        // (MissionVesselNaming.Cache, keyed on StateVersion + the missions' names): a steady
+        // frame is one dictionary read per tree.
+        private Dictionary<string, string> GetVesselNames(RecordingTree tree)
+        {
+            if (vesselNamingStructure == null)
+                vesselNamingStructure = t => GetMissionView(t).structure;
+            int frame = Time.frameCount;
+            if (frame != vesselNamingSignatureFrame)
+            {
+                vesselNamingSignature = MissionVesselNaming.Cache.MissionSignature(MissionStore.Missions);
+                vesselNamingSignatureFrame = frame;
+            }
+            Dictionary<string, string> names = vesselNamingCache.GetOrBuild(
+                tree, vesselNamingStructure, RecordingStore.CommittedTrees,
+                RecordingStore.StateVersion, vesselNamingSignature, VesselNamingMissionName);
+            int rebuilds = vesselNamingCache.Rebuilds;
+            if (rebuilds != vesselNamingRebuildsLogged)
+            {
+                vesselNamingRebuildsLogged = rebuilds;
+                MissionVesselNaming.Tally t = vesselNamingCache.LastTally;
+                int hits = vesselNamingCache.Hits;
+                ParsekLog.VerboseRateLimited("Mission", "missions-vessel-names",
+                    () => $"Missions vessel names rebuilt: tree={tree.Id} rebuilds={rebuilds} " +
+                    $"hits={hits} legs={t.Legs} partners={t.Partners} numbered={t.Numbered} " +
+                    $"continuations={t.Continuations}", 5.0);
+            }
+            return names;
         }
 
         // Returns the header summary-line facts for a tree (T1.1), derived at most once per frame
@@ -1763,6 +1814,9 @@ namespace Parsek
             // mission's OWN tree, so on a foreign partner-journey subtree it resolves
             // nothing and the bare event word stands, exactly as before.
             public Mission Mission;
+            // The tree's shared vessel names (MissionVesselNaming), for the interval rows'
+            // "after undock: X left" peel name; null on a foreign partner-journey subtree.
+            public IReadOnlyDictionary<string, string> VesselNames;
         }
 
         // T2.2: one FLATTENED row per physical vessel / EVA kerbal. Depth encodes separation
@@ -2007,7 +2061,7 @@ namespace Parsek
                 || string.Equals(node.HeadLegId, node.OwnerHeadId, System.StringComparison.Ordinal);
             string peeledSibling = isFirstInterval
                 ? null
-                : MissionPresentation.ResolvePeeledSiblingVesselName(parent, node);
+                : MissionPresentation.ResolvePeeledSiblingVesselName(parent, node, ctx.VesselNames);
             string label = MissionPresentation.BuildIntervalRowLabel(
                 node.VesselName, node.CompositionLabel, isFirstInterval,
                 node.StartEvent, peeledSibling);
@@ -2926,8 +2980,9 @@ namespace Parsek
             if (GUILayout.Button("Log", interactButtonStyle, GUILayout.Width(InteractButtonWidth)))
             {
                 ParsekLog.Info("UI",
-                    $"Mission Log button: tree={mission.TreeId ?? "<null>"} name='{mission.Name ?? ""}'");
-                parentUI.OpenStructureWindowForMission(mission.TreeId, mission.Name);
+                    $"Mission Log button: tree={mission.TreeId ?? "<null>"} mission={mission.Id ?? "<null>"} " +
+                    $"name='{mission.Name ?? ""}'");
+                parentUI.OpenStructureWindowForMission(mission.TreeId, mission.Id, mission.Name);
             }
             GUILayout.EndHorizontal();
         }

@@ -61,10 +61,10 @@ namespace Parsek.Tests
             // A count FLOOR rather than an exact number: states are added by later
             // phases and a pinned total would be a merge conflict on every one. The
             // floor is what stops the loop below going vacuous.
-            // 27 as of the 2026-09-27 removal of the Career window, which took its nine
-            // states with it.
-            Assert.True(GuiMockCatalogue.All.Count >= 25,
-                "the P1 catalogue is ~27 states across two windows; found "
+            // 24 as of the 2026-10-01 retirement of the route Log, which took its three
+            // route states with it (27 after the Career window's removal before that).
+            Assert.True(GuiMockCatalogue.All.Count >= 22,
+                "the P1 catalogue is ~24 states across two windows; found "
                 + GuiMockCatalogue.All.Count);
 
             Assert.Equal(
@@ -444,37 +444,12 @@ namespace Parsek.Tests
         // asserted that a step's Label came from MissionCompositionBuilder's branch-event
         // or terminal namer, which encoded the SAME misreading the catalogue had: the
         // terminal pass writes Label = "End" and puts the terminal word in STATUS, staging
-        // rows read "Staged <part>" / "Fairing jettisoned", and route rows read "Dock" /
-        // "Undock". A cell built on a wrong premise agreed with wrong data. The mechanical
+        // rows read "Staged <part>" / "Fairing jettisoned". A cell built on a wrong
+        // premise agreed with wrong data. The mechanical
         // replacement is GuiMockStructureBuilderFidelityTests, which asserts every state's
         // rows EQUAL real-builder output for its OWN inputs and fails on any string literal
         // assigned to a drawn StructureStep field - a property no vocabulary list can be
         // wrong about.
-
-        [Fact]
-        public void TheRouteStatesProduceTheRealStopLabels()
-        {
-            GuiMockStructure pickup =
-                GuiMockCatalogue.ById("structure.route.pickup").Build().Structure;
-            Assert.True(pickup.RouteMode);
-            StructureStep pickupStep =
-                pickup.Steps.Single(s => s.Kind == StructureStepKind.Delivery);
-            Assert.StartsWith("Pick up", pickupStep.Label, StringComparison.Ordinal);
-
-            GuiMockStructure mixed =
-                GuiMockCatalogue.ById("structure.route.mixed").Build().Structure;
-            StructureStep mixedStep =
-                mixed.Steps.Single(s => s.Kind == StructureStepKind.Delivery);
-            Assert.Contains(" / Pick up", mixedStep.Label, StringComparison.Ordinal);
-
-            GuiMockStructure depot =
-                GuiMockCatalogue.ById("structure.route.origin-depot").Build().Structure;
-            StructureStep origin =
-                depot.Steps.Single(s => s.Kind == StructureStepKind.Origin);
-            Assert.Equal("Origin: depot", origin.Label);
-            // The Origin pseudo-step has no single UT; the window renders NaN as "-".
-            Assert.True(double.IsNaN(origin.UT));
-        }
 
         [Fact]
         public void EveryNumberInABuiltPayloadIsInvariantCultureRendered()

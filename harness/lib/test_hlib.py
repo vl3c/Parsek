@@ -16928,7 +16928,7 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
 
         errors = hlib.validate_ui_action_step(
             2, {"op": "mock", "window": "kerbals",
-                "mockState": "structure.route.pickup"})
+                "mockState": "structure.mission.breakup"})
         self.assertTrue(any("mock-state-window-mismatch" in e for e in errors), errors)
 
         # The Career window was removed 2026-09-27: no table may still offer it, so a
@@ -17678,14 +17678,18 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertEqual([], hlib.validate_ui_action_step(
             2, {"op": "playback", "state": "true", "recording": "first"}))
 
-    def test_uiaction_target_takes_exactly_one_selector_on_the_structure_window(self):
+    def test_uiaction_target_takes_a_mission_on_the_structure_window(self):
         self.assertTrue(any(
             "target-arg-missing" in e for e in hlib.validate_ui_action_step(
                 0, {"op": "target", "window": "structure"})))
-        self.assertTrue(any(
-            "target-arg-conflict" in e for e in hlib.validate_ui_action_step(
-                1, {"op": "target", "window": "structure", "mission": "A",
-                    "route": "B"})))
+        # The route Log is retired: route= is refused by name, alone or beside mission=.
+        for args in ({"op": "target", "window": "structure", "route": "B"},
+                     {"op": "target", "window": "structure", "mission": "A",
+                      "route": "B"}):
+            with self.subTest(args=args):
+                self.assertTrue(any(
+                    "target-route-retired" in e
+                    for e in hlib.validate_ui_action_step(1, args)))
         self.assertTrue(any(
             "target-unsupported-window" in e for e in hlib.validate_ui_action_step(
                 2, {"op": "target", "window": "missions", "mission": "A"})))

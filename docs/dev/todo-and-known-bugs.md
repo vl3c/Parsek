@@ -172,7 +172,7 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   policy), so `GetRewindRecording` is null in every scene (GUI-4 is a Space Center capture
   and draws no Rewind either); GUI-1's operator career has launch saves and draws it.
 
-## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branch `log-rework`. PARTS 1-2 DONE]
+## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branches `log-rework` (parts 1-2) and `log-rework-2` (part 3 on). PARTS 1-6 DONE]
 
 Presentation only (no recording data or schema change, no new window). The docked-mission
 subject is `bdock-recorded`'s "Kerbal X #2" (GUI-4), whose Log read 31 rows; it now reads 11,
@@ -205,11 +205,56 @@ pinned row by row in `StructureListBdockFixtureTests` against the committed fixt
   separation at UT 692.77 names `5157d655`, which now ends at 568.23; its parts sit on the tail
   `d60398f6`). The Log tolerates it (stage ownership follows the parent's chain); other
   consumers of `BranchPoint.ParentRecordingIds` may not. Not investigated beyond the Log.
-- [ ] Later PR: the per-mission include set (the Log ignores a mission's excluded intervals).
-- [ ] Later PR: retire the route Log (it keeps working; its Status column folded into Location,
-  an orbital endpoint reads `Mun orbit`).
-- [ ] Later PR: number same-named vessels (`Kerbal X [2]`); today the docking mission's two
-  `End: Orbiting | Kerbal X` rows are told apart only by their recording.
+- [x] Part 3, the Log follows the mission (inventory P10): the window opens on a Mission (the
+  Logistics button resolves the source tree's ORIGINAL mission) and
+  `MissionStructureListBuilder.DropExcludedSteps` drops a row only when every composition
+  interval covering it (each through-line holding its leg, span closed at both ends) is
+  excluded by `MissionIntervalSelection.IsIntervalIncluded`, the one predicate the vessel rows
+  and render windows read. An open Log rebuilds on a Layout-only change signature
+  (`RecordingStore.StateVersion`, the mission's name, an order-free hash of its excluded keys);
+  a gallery mock has no target and stays inert.
+- [x] Part 4, the route Log is retired: `RouteStructureListBuilder`, `TargetMode.Route`, the
+  route-only step kinds (Origin / Delivery / Stop), the Logistics `Log (Route)` button, the
+  three route gallery states and the seam's `op=target route=` (now `REJECTED
+  target-route-retired`, hlib mirrored) are gone. The route's one `Log` button opens its source
+  tree's original mission (`LogisticsWindowUI.ResolveRouteSourceTreeId` +
+  `MissionStore.FindOriginalMission`); the in-game `Structure` route cell now proves that
+  resolution (`RouteLog_OpensTheSourceMissionLog`, same cell count, so LT-4's pin holds), and
+  GUI-3 photographs the Mun route's source mission (`ib-structure-route-log-advanced`).
+  `StructureListWindowUI` no longer reads `CommittedRecordings`, so its ERS exemption is gone.
+- [x] Part 5, same-named vessels are numbered (`Kerbal X [2]`) by one helper,
+  `MissionVesselNaming`, that the Log and the Missions vessel rows (names and phrases) both
+  read. A leg whose launch identity matches a vessel ANOTHER mission recorded EARLIER is that
+  mission's vessel and keeps the partner phrase `Kerbal X (mission 'Kerbal X')`, never a
+  number (never for a leg sharing launch with this mission's own root). Own non-EVA legs group
+  into vessels by ChainId or launch identity, plus a RE-PIDDED CONTINUATION: KSP gives a ship
+  a fresh pid (and guid) when it undocks, so a leg descending from an own vessel whose own legs
+  have all ended, and sharing part pids with it, joins that vessel - one hop at a time. A
+  candidate pairs a vessel with a leg whose NEAREST own ancestor (walking up through partner
+  legs) is in it; each round the best pair overall merges (most shared pids, then the
+  later-ending vessel, then the ids) against the CURRENT grouping, so the ship's real undock
+  half wins over a smaller own piece that left the partner's stack a moment earlier, and a
+  ship re-pidded twice (dock, undock, dock, undock) chains whatever its recording ids. The
+  guard is only "no leg of the vessel still running when the leg starts", which keeps a
+  genuine same-named twin numbered and stops both halves of an own stack joining one vessel.
+  The Missions tab caches the pass ACROSS frames (`MissionVesselNaming.Cache`: per-tree names,
+  the launch index and per-recording part pids, keyed on `RecordingStore.StateVersion`, a
+  dedicated `MissionVesselNaming.NameVersion` that a recording rename and a hydration repair
+  bump, and the missions' names; a collapsed mission builds no named rows). Per name,
+  order is first appearance UT, then the vessel whose first leg shares part pids with its
+  parent, then RecordingId; numbering is per tree, so clones agree. The first cut numbered the
+  re-pidded own ship (`4af6cfd7`, 7 part pids shared with the root `5157d655`; GUI-3's
+  `1331a21b`, fresh pid AND guid, 17 shared with `36c7688b`) as `[2]`; both are now the same
+  vessel. In GUI-4 the undocked half `37d0dc07` and the docked stack `f049901e` carry the
+  first mission's launch (pid 3620499050, guid 97813bb6) and read the partner phrase; the Log
+  reads `Undocked (Kerbal X)` and no `[2]` anywhere. The expanded interval line names its
+  peel through the same map. `MissionVesselNamingTests` pins both fixtures and the synthetic
+  shapes (re-pidded own ship, genuine twin, chain, tie, partner direction, guid mismatch).
+- [x] Part 6, an End row only from a vessel's last segment: the optimizer's chain head keeps
+  the terminal state the vessel had at the cut (GUI-3's Kerbal X #4: `c549ef6e` ends
+  `SubOrbital` at its atmosphere exit while the chain continues on `04177024`), which drew a
+  mid-flight `End: Suborbital | Kerbin, Grasslands` row. A leg with a sequence successor or a
+  later ChainIndex in its chain draws none (`continuedEndsSkipped=` in the build summary).
 
 ## ~~MISSION-EVENT-DIGEST-DUPLICATE-LAUNCHED-ROW: the digest builds a second "launched" row for one flight~~ [FILED 2026-09-29 from MISSIONS-TAB-MODEL1. FIXED 2026-10-01, branch `missions-followups`]
 

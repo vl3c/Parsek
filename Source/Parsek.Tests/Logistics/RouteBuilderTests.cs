@@ -2073,8 +2073,8 @@ namespace Parsek.Tests.Logistics
             // LAST stop, producing an incoherent (last-UT, first-recording) pair
             // for a CROSS-recording multi-stop route (AnalyzeTree collects windows
             // across different member recordings). The route-span pair must point
-            // at the SAME leaf - the run-end dock - because A4's end-trim and
-            // RouteStructureListBuilder resolve the dock window through
+            // at the SAME leaf - the run-end dock - because A4's end-trim
+            // resolves the dock window through
             // DockMemberRecordingId. The existing same-source TwoStopAnalysis
             // fixture cannot catch this (anchor == last there).
             Recording anchor = MakeKscSource(

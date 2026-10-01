@@ -7,8 +7,9 @@
 **Amendment 2026-09-27:** the Career State window was removed (owner decision), and with it
 the `career` mock window, `GuiMockCareerStates.cs`, its two suppression sites
 (`career-vm-rebuild`, `career-invalidate`), the Career in-game apply cell and
-`GuiMockCareerIdShapeTests`. The catalogue now covers Kerbals and Structure List (27 states,
-four `GuiMock` cells). The Career passages below are the record of the design and its bugs.
+`GuiMockCareerIdShapeTests`. The catalogue now covers Kerbals and Structure List (24 states
+since the 2026-10-01 route-Log retirement removed the three `structure.route.*` states, four
+`GuiMock` cells; the Structure payload lost its `RouteMode` flag with them). The Career passages below are the record of the design and its bugs.
 
 **Status:** P1 + P1b BUILT, NEVER RUN IN KSP (2026-09-22). The `op=mock` primitive, the
 compiled catalogue (43 states across Kerbals / Career State / Structure List), the session
@@ -336,7 +337,7 @@ Section 6 shows three different cache behaviours. One mechanism covers all of th
 | Timeline | `ShouldRebuildTimeline` `:771` returns false; `InvalidateCache` `:366` is suppressed |
 | Logistics | the three wall-clock refreshers `:2993/:3043/:3071` return early, and `legibilityCache.Clear()` `:3076` is skipped |
 | Spawn Control | the generation/count gate `:269-282` is satisfied naturally by a constant-count list; the UT read `:240` goes through the session's pinned UT |
-| Structure List, Settings, Group Picker | nothing: no invalidation key to fight |
+| Structure List, Settings, Group Picker | nothing: no invalidation key to fight (since 2026-10-01 the mission Log rebuilds on a change signature, `StructureListWindowUI.RefreshIfChanged`, which skips a window with no target, and a mock sets none) |
 
 The suppression is one predicate read per rebuild site, `GuiMockSession.Owns("<window>")`, which is false in every player build because the session can only be created by the armed seam. A unit test asserts that each suppressed site is inert when no session exists, and a source gate asserts the set of suppressed sites equals the set the applier claims to support (the `GuiCensusApplierSourceGateTests` shape, over comment-stripped source).
 
@@ -867,7 +868,8 @@ word in STATUS; a route's dock rows read `"Dock"` / `"Undock"` rather than the b
 The shipped form builds DETACHED inputs - `Recording` objects, a `RecordingTree` with its
 `BranchPoint`s, or a `Route` with its stops and one `RouteConnectionWindow` - and runs
 `MissionStructureBuilder.Build` + `MissionStructureListBuilder.Build`, or
-`RouteStructureListBuilder.Build`. Detached means detached: nothing is added to any store,
+`RouteStructureListBuilder.Build` (the route states and that builder were retired with the
+route Log on 2026-10-01). Detached means detached: nothing is added to any store,
 both builders are pure functions of their arguments, and the write-set gate allowlists
 exactly the types involved.
 

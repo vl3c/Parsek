@@ -18,11 +18,13 @@ namespace Parsek.TestCommands
         None = 2,
     }
 
-    /// <summary>Which production opener an <c>op=target</c> call resolves to.</summary>
+    /// <summary>Which production opener an <c>op=target</c> call resolves to. One kind
+    /// since the route Log was retired (a route's Log opens its source mission's Log, so
+    /// a lane names that mission); the enum stays so the payload's <c>target=</c> token
+    /// keeps one source.</summary>
     internal enum UiTargetKind
     {
         Mission = 0,
-        Route = 1,
     }
 
     /// <summary>Which popup an <c>op=picker</c> call opens, and therefore which production
@@ -269,15 +271,17 @@ namespace Parsek.TestCommands
         /// <c>structure</c> has one today.</summary>
         internal const string TargetUnsupportedWindowReason = "target-unsupported-window";
 
-        /// <summary>Neither <c>mission=</c> nor <c>route=</c>.</summary>
+        /// <summary>No <c>mission=</c>.</summary>
         internal const string TargetArgMissingReason = "target-arg-missing";
 
-        /// <summary>BOTH <c>mission=</c> and <c>route=</c>. Refused rather than resolved by
-        /// precedence: the two open different lists, and guessing would photograph the
-        /// wrong one under the caller's label.</summary>
-        internal const string TargetArgConflictReason = "target-arg-conflict";
+        /// <summary>A <c>route=</c> on <c>op=target</c>. The route Log is retired: a route's
+        /// Log button opens the Log of the mission it was built from, so a lane names that
+        /// mission (<c>mission=</c> takes its tree id). Refused rather than ignored, because
+        /// an ignored selector would photograph something else under the caller's
+        /// label.</summary>
+        internal const string TargetRouteRetiredReason = "target-route-retired";
 
-        /// <summary>The named mission / route does not exist. The message lists what
+        /// <summary>The named mission does not exist. The message lists what
         /// does.</summary>
         internal const string TargetNotFoundReason = "target-not-found";
 
@@ -415,7 +419,8 @@ namespace Parsek.TestCommands
             return false;
         }
 
-        /// <summary>Parses <c>op=target</c>'s selector. Exactly one of the two.</summary>
+        /// <summary>Parses <c>op=target</c>'s selector: <c>mission=</c>, and a
+        /// <c>route=</c> refused as retired.</summary>
         internal static bool TryParseTarget(string window, string rawMission, string rawRoute,
                                             out UiTargetKind kind, out string value,
                                             out string rejectReason)
@@ -427,27 +432,23 @@ namespace Parsek.TestCommands
                 rejectReason = TargetUnsupportedWindowReason;
                 return false;
             }
-            bool hasMission = !string.IsNullOrEmpty(rawMission);
-            bool hasRoute = !string.IsNullOrEmpty(rawRoute);
-            if (hasMission && hasRoute)
+            if (!string.IsNullOrEmpty(rawRoute))
             {
-                rejectReason = TargetArgConflictReason;
+                rejectReason = TargetRouteRetiredReason;
                 return false;
             }
-            if (!hasMission && !hasRoute)
+            if (string.IsNullOrEmpty(rawMission))
             {
                 rejectReason = TargetArgMissingReason;
                 return false;
             }
-            kind = hasMission ? UiTargetKind.Mission : UiTargetKind.Route;
-            value = hasMission ? rawMission : rawRoute;
+            value = rawMission;
             rejectReason = null;
             return true;
         }
 
         /// <summary>The wire token for a target kind.</summary>
-        internal static string TargetKindToken(UiTargetKind kind)
-            => kind == UiTargetKind.Mission ? "mission" : "route";
+        internal static string TargetKindToken(UiTargetKind kind) => "mission";
 
         /// <summary>
         /// Parses <c>op=picker</c>'s selector, which is per-window: the Missions window

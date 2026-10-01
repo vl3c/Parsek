@@ -275,7 +275,7 @@ namespace Parsek.InGameTests
             }
             StructureListWindowUI s = ui.GetStructureListUI();
             StructureListWindowUI.GalleryTargetSnapshot prev = s.CaptureGalleryTarget();
-            s.OpenWithGallerySteps(payload.Structure.RouteMode, payload.Structure.Title,
+            s.OpenWithGallerySteps(payload.Structure.Title,
                                    payload.Structure.Steps);
             return () => s.RestoreGalleryTarget(prev);
         }

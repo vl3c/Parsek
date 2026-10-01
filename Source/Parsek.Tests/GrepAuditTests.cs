@@ -390,7 +390,7 @@ namespace Parsek.Tests
             "GuiMockSession", "GuiMockCatalogue", "GuiMockState", "GuiMockPayload",
             "GuiMockStructure", "GuiMockWitness", "GuiMockSuppressionSite",
             "GuiMockKerbalsStates", "GuiMockStructureStates",
-            "MissionInputs", "RosterInputs", "RouteShape", "FlightShape",
+            "MissionInputs", "RosterInputs", "FlightShape",
 
             "TestCommandUiMock", "TestCommandUiAction", "TestCommandUiState",
             "TestCommandUiFind", "TestCommandCaptureScreenshot", "TestCommandDumpGuiTree",
@@ -410,8 +410,6 @@ namespace Parsek.Tests
             "PartEventType", "TerminalState", "StructureStep", "StructureStepKind",
             "MissionStructure", "MissionStructureBuilder", "MissionStructureListBuilder",
             "MissionCompositionBuilder", "StructureLocationFormatter",
-            "Route", "RouteStop", "RouteEndpoint", "RouteConnectionWindow",
-            "RouteStructureListBuilder", "RouteEndpointLocationFormatter",
 
             "ParsekLog", "GuiTreeRecorder", "GuiTreeResult", "GuiTreeNode",
             "GuiTreeAssembler",

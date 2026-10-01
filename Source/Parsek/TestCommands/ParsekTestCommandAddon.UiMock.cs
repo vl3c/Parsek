@@ -884,7 +884,7 @@ namespace Parsek.TestCommands
             // nulling it. That asymmetry with the other two arms is the window's, not the
             // gallery's.
             StructureListWindowUI.GalleryTargetSnapshot prev = w.CaptureGalleryTarget();
-            w.OpenWithGallerySteps(payload.Structure.RouteMode, payload.Structure.Title,
+            w.OpenWithGallerySteps(payload.Structure.Title,
                                    payload.Structure.Steps);
             undo.Add(() => w.RestoreGalleryTarget(prev));
         }

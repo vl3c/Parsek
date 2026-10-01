@@ -61,15 +61,6 @@ namespace Parsek.Tests
                 { "structure.mission.breakup", GuiMockStructureStates.BuildBreakupRun },
                 { "structure.mission.staging-collapse",
                   GuiMockStructureStates.BuildStagingRun },
-                { "structure.route.pickup",
-                  () => GuiMockStructureStates.RouteRun(
-                      GuiMockStructureStates.RouteShape.Pickup) },
-                { "structure.route.mixed",
-                  () => GuiMockStructureStates.RouteRun(
-                      GuiMockStructureStates.RouteShape.Mixed) },
-                { "structure.route.origin-depot",
-                  () => GuiMockStructureStates.RouteRun(
-                      GuiMockStructureStates.RouteShape.DepotOrigin) },
             };
 
         [Fact]
@@ -171,28 +162,6 @@ namespace Parsek.Tests
                 .Select(r => r.Label).ToList();
             Assert.Contains(rootLabels,
                 l => l.StartsWith("EVA ", StringComparison.Ordinal));
-        }
-
-        [Fact]
-        public void TheRouteRowsUseTheBuildersOwnDockWordsAndLeaveEveryVesselCellEmpty()
-        {
-            foreach (GuiMockStructureStates.RouteShape shape in new[]
-                     {
-                         GuiMockStructureStates.RouteShape.Pickup,
-                         GuiMockStructureStates.RouteShape.Mixed,
-                         GuiMockStructureStates.RouteShape.DepotOrigin,
-                     })
-            {
-                List<StructureStep> rows = GuiMockStructureStates.RouteRun(shape);
-                var labels = rows.Select(r => r.Label).ToList();
-                Assert.Contains("Dock", labels);
-                Assert.Contains("Undock", labels);
-                // The branch-event spellings the first version used are NOT route rows.
-                Assert.DoesNotContain("Docked", labels);
-                Assert.DoesNotContain("Undocked", labels);
-                foreach (StructureStep row in rows)
-                    Assert.Equal("", row.VesselName ?? "");
-            }
         }
 
         [Fact]
