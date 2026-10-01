@@ -1275,6 +1275,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **The Logistics window describes a supply route with several stops as a whole.** A route
+  built from a Supply Run that docked at more than one vessel delivers at every stop each
+  cycle, but four cells read only its first stop. A relay that picked up cargo at one rover
+  and delivered it to another showed the pickup rover as its Destination and "(nothing)" as
+  what it delivers per cycle. Now Delivers per cycle adds up every stop's delivery (with
+  "across N stops" when more than one stop receives cargo), Destination names the first stop
+  that receives cargo plus the others (`Mun Base (+2 stops)`) and lists every stop in order
+  with its pickup or delivery role on hover, the "tanks full" line names the stop that is
+  actually full, and Re-scan for endpoint searches for every stop and retries delivery only
+  once all of them are found. Routes with one stop look exactly as before.
 - **A second science award for the same experiment at the same moment is no longer lost.**
   Recovering two canisters of the same experiment together (stock pays each one separately),
   or two Breaking Ground stations sending the same result in the same moment, credited only

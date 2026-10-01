@@ -58,12 +58,6 @@ namespace Parsek.Tests
     /// </summary>
     public class TooltipEchoBudgetTests
     {
-        /// <summary>Window chrome (skin window padding) plus the strip box's own padding, in px.</summary>
-        private const float StripPaddingPx = 30f;
-
-        /// <summary>Pessimistic average character advance for the default IMGUI label font, in px.</summary>
-        private const float AvgCharWidthPx = 7f;
-
         /// <summary>
         /// The strip-hosting windows: source path, the window's first-open width in
         /// px, the minimum number of literal GUIContent tooltips the scan must find
@@ -156,7 +150,7 @@ namespace Parsek.Tests
 
         internal static int BudgetChars(float windowWidthPx, int stripLines)
         {
-            return (int)(stripLines * (windowWidthPx - StripPaddingPx) / AvgCharWidthPx);
+            return TooltipEchoBox.BudgetChars(windowWidthPx, stripLines);
         }
 
         // catches: a hover help text growing past what its own window's strip holds
@@ -410,6 +404,34 @@ namespace Parsek.Tests
             string reservedTip = LogisticsHoldPresentation.StatusCellTooltip(
                 RouteStatus.Active, reservedClause);
             Assert.DoesNotContain("\n", reservedTip);
+
+            // GUI-P20 multi-stop Destination tooltip: a list composed per stop, so its
+            // length grows with the route. Worst case: every stop in the coords
+            // fallback (an EndpointLost route resolves no names) with the longest
+            // role, eight stops - it must cap itself to the strip with "... +N more".
+            Assert.Equal(1556f, LogisticsWindowUI.DefaultWindowWidth);
+            var coordTexts = new List<string>();
+            var longRoles = new List<string>();
+            for (int i = 0; i < 8; i++)
+            {
+                coordTexts.Add(LogisticsDeliveryPresentation.FormatEndpointCoords(new RouteEndpoint
+                {
+                    BodyName = "Kerbin",
+                    IsSurface = true,
+                    Latitude = -89.99 + i,
+                    Longitude = -179.99 + i,
+                }));
+                longRoles.Add("pickup + delivery");
+            }
+            string stopList = LogisticsDeliveryPresentation.FormatStopListTooltip(
+                coordTexts, longRoles,
+                TooltipEchoBox.BudgetChars(LogisticsWindowUI.DefaultWindowWidth, TooltipEchoBox.SingleLine));
+            Assert.DoesNotContain("\n", stopList);
+            Assert.Contains("more", stopList);
+            Assert.True(stopList.Length <= budget,
+                string.Format("FormatStopListTooltip(8 coords stops) is {0} chars, over the {1}-char "
+                    + "single-line Logistics help-strip budget: \"{2}\"",
+                    stopList.Length, budget, stopList));
         }
 
         // catches: a Recordings sort-header tooltip growing past that window's SINGLE-line

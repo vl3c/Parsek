@@ -589,6 +589,13 @@ namespace Parsek
         // for a further fold in a later pass; this L2 step does a conservative one-column
         // compression that is safe without in-game validation.
         internal const float MinWindowWidth = 1410f;
+
+        /// <summary>
+        /// First-open window width (px), which also sizes the single-line hover strip's
+        /// text budget (<see cref="TooltipEchoBox.BudgetChars"/>).
+        /// </summary>
+        internal const float DefaultWindowWidth = 1556f;
+
         internal const float MinWindowHeight = 500f;
 
         public bool IsOpen
@@ -628,7 +635,7 @@ namespace Parsek
                 // playtest-preferred width (2026-06-10 log: last resize ended w=1556 h=500),
                 // which also fits the widened Next column.
                 float x = mainWindowRect.x + mainWindowRect.width + 10;
-                windowRect = new Rect(x, mainWindowRect.y, 1556, 500);
+                windowRect = new Rect(x, mainWindowRect.y, DefaultWindowWidth, 500);
                 ParsekLog.Verbose("UI",
                     $"Logistics window initial position: x={windowRect.x.ToString("F0", CultureInfo.InvariantCulture)} y={windowRect.y.ToString("F0", CultureInfo.InvariantCulture)}");
             }
@@ -2087,9 +2094,18 @@ namespace Parsek
         /// dispatch evaluator re-resolves the endpoint every retry tick and recovers
         /// the status itself. A re-scan miss just re-logs and leaves the route
         /// EndpointLost (the orchestrator keeps retrying on its own clock).
+        /// A multi-stop route (GUI-P20) keeps the ONE button: it is offered when any
+        /// stop is a recoverable surface endpoint, the click re-scans EVERY stop (the
+        /// dispatch gate needs all of them to resolve), logs each stop's outcome on one
+        /// line, and clears the retry gate only when every stop resolved.
         /// </summary>
         private void DrawEndpointRescan(Route route)
         {
+            if (route?.Stops != null && route.Stops.Count > 1)
+            {
+                DrawMultiStopEndpointRescan(route);
+                return;
+            }
             RouteStop stop = route?.Stops != null && route.Stops.Count > 0 ? route.Stops[0] : null;
             if (stop == null)
                 return;
@@ -2136,6 +2152,62 @@ namespace Parsek
                 GUI.enabled = prevEnabled;
                 GUILayout.Label(LogisticsDeliveryPresentation.RescanIneligibleReason(endpoint),
                     detailStyle, GUILayout.ExpandWidth(true));
+            }
+
+            GUILayout.EndHorizontal();
+        }
+
+        /// <summary>
+        /// The multi-stop form of <see cref="DrawEndpointRescan"/>: the same single
+        /// button and the same disabled-with-note fallback, decided over every stop
+        /// (<see cref="LogisticsDeliveryPresentation.ShouldOfferRouteEndpointRescan"/>).
+        /// The click re-scans every non-null stop, logs one summary line naming each
+        /// stop's outcome (<see cref="LogisticsDeliveryPresentation.FormatRescanOutcome"/>),
+        /// and clears the retry gate only when every stop resolved, because the
+        /// dispatch gate refuses the cycle while any stop is lost.
+        /// </summary>
+        private void DrawMultiStopEndpointRescan(Route route)
+        {
+            if (LogisticsDeliveryPresentation.CountStops(route.Stops) == 0)
+                return;
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(24f);
+
+            if (LogisticsDeliveryPresentation.ShouldOfferRouteEndpointRescan(route.Status, route.Stops))
+            {
+                if (GUILayout.Button(new GUIContent("Re-scan for endpoint",
+                        "Search each stop's body for a surface vessel near its recorded endpoint, then retry delivery immediately if every stop is found."),
+                        GUILayout.Width(180f)))
+                {
+                    var results = new List<LogisticsDeliveryPresentation.RescanStopResult>(route.Stops.Count);
+                    for (int i = 0; i < route.Stops.Count; i++)
+                    {
+                        RouteStop s = route.Stops[i];
+                        if (s == null) continue;
+                        bool ok = RouteEndpointResolver.TryResolveEndpoint(s.Endpoint, out Vessel v, out string reason);
+                        results.Add(new LogisticsDeliveryPresentation.RescanStopResult(
+                            i, ok && v != null, ok && v != null ? v.vesselName : null, reason));
+                    }
+                    bool allResolved = LogisticsDeliveryPresentation.AllStopsResolved(results);
+                    if (allResolved)
+                        route.NextEligibilityCheckUT = null;
+                    ParsekLog.Info("UI",
+                        $"Logistics: endpoint re-scan route={ShortId(route.Id)} " +
+                        LogisticsDeliveryPresentation.FormatRescanOutcome(results) +
+                        (allResolved ? " (cleared retry gate)" : " (still EndpointLost)"));
+                    lastLegibilityComputeRealtime = -1f;
+                }
+            }
+            else
+            {
+                string reason = LogisticsDeliveryPresentation.RouteRescanIneligibleReason(route.Stops);
+                bool prevEnabled = GUI.enabled;
+                GUI.enabled = false;
+                GUILayout.Button(new GUIContent("Re-scan for endpoint", reason), GUILayout.Width(180f));
+                DisabledHoverEcho.CarryLastControl(false, reason);
+                GUI.enabled = prevEnabled;
+                GUILayout.Label(reason, detailStyle, GUILayout.ExpandWidth(true));
             }
 
             GUILayout.EndHorizontal();
@@ -3294,7 +3366,8 @@ namespace Parsek
             // reads the cached strings. The resolved Vessel is surfaced too so the M4
             // capacity probe below reuses this single TryResolveEndpoint pass instead
             // of a second O(vessels) scan.
-            ResolveDestinationCell(route, out string destText, out string destTooltip, out Vessel destVessel);
+            ResolveDestinationCell(route, out string destText, out string destTooltip, out Vessel destVessel,
+                out Vessel[] stopVessels, out string[] stopTexts);
             leg.DestinationText = destText;
             leg.DestinationTooltip = destTooltip;
 
@@ -3304,7 +3377,7 @@ namespace Parsek
             // the ~1 Hz pass (never per IMGUI frame) and only for the DestinationFull
             // status; every other status leaves CapacityContext null.
             if (route.Status == RouteStatus.DestinationFull)
-                leg.CapacityContext = ResolveCapacityContext(route, destVessel, destText);
+                leg.CapacityContext = ResolveCapacityContext(route, destVessel, destText, stopVessels, stopTexts);
 
             // L1: for a Paused route, classify the Status cell as never-run "New" vs
             // deliberately-paused "Paused" from the completed-cycle count, and decide
@@ -3491,13 +3564,45 @@ namespace Parsek
         /// refresh; the draw path reads the cached string. Logs the probe decision
         /// (rate-limited per route).
         /// </summary>
-        private string ResolveCapacityContext(Route route, Vessel destVessel, string destName)
+        private string ResolveCapacityContext(Route route, Vessel destVessel, string destName,
+            Vessel[] stopVessels, string[] stopTexts)
         {
             var entries = new List<LogisticsDeliveryPresentation.CapacityEntry>();
-            Dictionary<string, double> manifest =
-                route?.Stops != null && route.Stops.Count > 0 && route.Stops[0] != null
+            Dictionary<string, double> manifest;
+            int capacityStop = 0;
+            int fullStop = -1;
+            if (route?.Stops != null && route.Stops.Count > 1 && stopVessels != null && stopTexts != null)
+            {
+                // GUI-P20: name and probe the stop the capacity gate refuses (its
+                // requested amounts include earlier stops delivering to the same
+                // vessel, as the gate counts them); when every stop fits now, fall
+                // back to the stop the Destination cell names.
+                fullStop = FindFullStopIndex(route, stopVessels);
+                capacityStop = fullStop >= 0
+                    ? fullStop
+                    : LogisticsDeliveryPresentation.ResolveDestinationStopIndex(route.Stops);
+                if (capacityStop >= 0)
+                {
+                    destVessel = stopVessels[capacityStop];
+                    destName = stopTexts[capacityStop];
+                    Vessel target = destVessel;
+                    manifest = LogisticsDeliveryPresentation.CombineRequestedForFullStop(
+                        route.Stops, capacityStop,
+                        i => target != null && stopVessels[i] != null
+                            && stopVessels[i].persistentId == target.persistentId);
+                }
+                else
+                {
+                    destVessel = null;
+                    manifest = null;
+                }
+            }
+            else
+            {
+                manifest = route?.Stops != null && route.Stops.Count > 0 && route.Stops[0] != null
                     ? route.Stops[0].DeliveryManifest
                     : null;
+            }
 
             if (destVessel != null && manifest != null && manifest.Count > 0)
             {
@@ -3513,7 +3618,10 @@ namespace Parsek
 
             ParsekLog.VerboseRateLimited("UI", "dest-capacity-" + route.Id,
                 $"Logistics: capacity context route={ShortId(route.Id)} dest='{destName}' " +
-                $"resolved={(destVessel != null ? "true" : "false")} resources={entries.Count.ToString(CultureInfo.InvariantCulture)}",
+                $"resolved={(destVessel != null ? "true" : "false")} resources={entries.Count.ToString(CultureInfo.InvariantCulture)}" +
+                (route.Stops != null && route.Stops.Count > 1
+                    ? $" stop={(capacityStop + 1).ToString(CultureInfo.InvariantCulture)}/{route.Stops.Count.ToString(CultureInfo.InvariantCulture)} gateFull={(fullStop >= 0 ? "true" : "false")}"
+                    : string.Empty),
                 5.0);
 
             return LogisticsDeliveryPresentation.FormatCapacityContext(destName, entries);
@@ -3819,9 +3927,18 @@ namespace Parsek
         /// <see cref="LogisticsDeliveryPresentation.FormatDestinationDisplay"/> picks
         /// name-vs-coords. Logs the resolve decision (rate-limited per route).
         /// </summary>
-        private void ResolveDestinationCell(Route route, out string text, out string tooltip, out Vessel resolvedVessel)
+        private void ResolveDestinationCell(Route route, out string text, out string tooltip,
+            out Vessel resolvedVessel, out Vessel[] stopVessels, out string[] stopTexts)
         {
             resolvedVessel = null;
+            stopVessels = null;
+            stopTexts = null;
+            if (route?.Stops != null && route.Stops.Count > 1)
+            {
+                ResolveMultiStopDestinationCell(route, out text, out tooltip,
+                    out resolvedVessel, out stopVessels, out stopTexts);
+                return;
+            }
             if (route?.Stops == null || route.Stops.Count == 0 || route.Stops[0] == null)
             {
                 text = "-";
@@ -3852,6 +3969,86 @@ namespace Parsek
                     ? $"Logistics: destination route={ShortId(route.Id)} resolved=true name='{resolvedName}'"
                     : $"Logistics: destination route={ShortId(route.Id)} resolved=false reason='{reason}' (showing coords)",
                 5.0);
+        }
+
+        /// <summary>
+        /// GUI-P20 multi-stop Destination cell: resolves EVERY stop's endpoint (the
+        /// dispatch gate resolves every stop each tick too, so this is the same set of
+        /// lookups at ~1 Hz), names the stop
+        /// <see cref="LogisticsDeliveryPresentation.ResolveDestinationStopIndex"/> picks
+        /// plus "(+N stops)", and puts the whole visit-ordered stop list with each
+        /// stop's cargo direction in the cell's hover tooltip. The per-stop vessels and
+        /// display texts are surfaced so the DestinationFull capacity line can name and
+        /// probe the stop that is actually full without a second resolve pass.
+        /// </summary>
+        private void ResolveMultiStopDestinationCell(Route route, out string text, out string tooltip,
+            out Vessel resolvedVessel, out Vessel[] stopVessels, out string[] stopTexts)
+        {
+            int count = route.Stops.Count;
+            stopVessels = new Vessel[count];
+            stopTexts = new string[count];
+            var roles = new string[count];
+            int resolvedCount = 0;
+            for (int i = 0; i < count; i++)
+            {
+                RouteStop stop = route.Stops[i];
+                if (stop == null) continue;
+                string name = null;
+                if (RouteEndpointResolver.TryResolveEndpoint(stop.Endpoint, out Vessel v, out _) && v != null)
+                {
+                    name = v.vesselName;
+                    stopVessels[i] = v;
+                    resolvedCount++;
+                }
+                stopTexts[i] = LogisticsDeliveryPresentation.FormatDestinationDisplay(name, stop.Endpoint);
+                roles[i] = LogisticsDeliveryPresentation.StopRoleLabel(stop);
+            }
+
+            int shown = LogisticsDeliveryPresentation.ResolveDestinationStopIndex(route.Stops);
+            resolvedVessel = shown >= 0 ? stopVessels[shown] : null;
+            text = shown >= 0
+                ? LogisticsDeliveryPresentation.FormatMultiStopDestination(
+                    stopTexts[shown], LogisticsDeliveryPresentation.CountStops(route.Stops))
+                : "-";
+            tooltip = LogisticsDeliveryPresentation.FormatStopListTooltip(stopTexts, roles,
+                TooltipEchoBox.BudgetChars(DefaultWindowWidth, TooltipEchoBox.SingleLine));
+
+            ParsekLog.VerboseRateLimited("UI", "dest-resolve-" + route.Id,
+                $"Logistics: destination route={ShortId(route.Id)} stops={count.ToString(CultureInfo.InvariantCulture)} " +
+                $"resolved={resolvedCount.ToString(CultureInfo.InvariantCulture)}/{count.ToString(CultureInfo.InvariantCulture)} " +
+                $"shownStop={(shown + 1).ToString(CultureInfo.InvariantCulture)} text='{text}'",
+                5.0);
+        }
+
+        /// <summary>
+        /// Replays the destination capacity gate over the already-resolved stop vessels
+        /// to find which stop it refuses, so the DestinationFull capacity line names the
+        /// stop that is actually full. Mirrors
+        /// <c>LiveRouteRuntimeEnvironment.DestinationHasCapacity</c>: one
+        /// <see cref="LiveDeliveryCapacityProbe"/> per resolved vessel pid, shared by every
+        /// stop delivering there, and an unresolved stop fails open (null probe). Returns
+        /// -1 when every stop fits now (capacity freed since the hold) or none resolved.
+        /// </summary>
+        private static int FindFullStopIndex(Route route, Vessel[] stopVessels)
+        {
+            if (route?.Stops == null || stopVessels == null)
+                return -1;
+            var probeByPid = new Dictionary<uint, IDeliveryCapacityProbe>();
+            bool fits = RouteDestinationCapacityCheck.HasCapacityForAllStops(
+                route,
+                stopIndex =>
+                {
+                    Vessel v = stopIndex < stopVessels.Length ? stopVessels[stopIndex] : null;
+                    if (v == null) return null;
+                    if (probeByPid.TryGetValue(v.persistentId, out IDeliveryCapacityProbe cached))
+                        return cached;
+                    var probe = new LiveDeliveryCapacityProbe(v, RouteOrchestrator.EndpointStoreIsLiveParts(v));
+                    probeByPid[v.persistentId] = probe;
+                    return probe;
+                },
+                out _,
+                out int fullStopIndex);
+            return fits ? -1 : fullStopIndex;
         }
 
         // ------------------------------------------------------------------
@@ -3966,12 +4163,12 @@ namespace Parsek
             return completed.ToString(CultureInfo.InvariantCulture);
         }
 
+        // "Delivers per cycle": every stop's delivery lands each cycle, so a
+        // multi-stop route shows the summed manifest (GUI-P20); a single-stop route
+        // renders exactly that stop's manifest, as before.
         private static string FormatRouteDelivery(Route route)
         {
-            if (route.Stops == null || route.Stops.Count == 0) return "-";
-            RouteStop stop = route.Stops[0];
-            if (stop == null) return "-";
-            return FormatManifest(stop.DeliveryManifest, stop.InventoryDeliveryManifest);
+            return LogisticsDeliveryPresentation.FormatRouteDeliveryPerCycle(route?.Stops);
         }
 
         // L3: the manifest formatting moved to the pure

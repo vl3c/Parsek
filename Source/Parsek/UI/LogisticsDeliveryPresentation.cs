@@ -636,5 +636,313 @@ namespace Parsek
             return "Endpoint has no body reference to re-scan. "
                 + "Re-create the route to point at a new vessel.";
         }
+
+        // ------------------------------------------------------------------
+        // GUI-P20: multi-stop routes. A route built from a multi-window Supply
+        // Run carries one RouteStop per dock window (RouteBuilder), and the
+        // engine fires EVERY stop each cycle: each stop's own DeliveryManifest
+        // lands at that stop's endpoint (RouteDeliveryPlanner per stop index),
+        // the capacity gate checks every stop (RouteDestinationCapacityCheck),
+        // and the endpoint gate resolves every stop (RouteDispatchEvaluator).
+        // These helpers make the window cells say the same thing. A single-stop
+        // route takes the exact pre-P20 path in every helper, so its text is
+        // byte-identical.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The route detail panel's "Delivers per cycle" value. A single-stop route
+        /// renders <see cref="FormatWouldDeliver"/> over that stop's own manifests
+        /// (null stop: "-"), exactly as before. A multi-stop route SUMS each resource
+        /// across every stop's delivery manifest (each stop's amount really lands each
+        /// cycle, so the per-cycle total is the sum) in first-seen key order, counts
+        /// the inventory items of every stop, and appends " across N stops" when more
+        /// than one stop receives cargo. Pickup manifests are not deliveries and are
+        /// not counted, matching the single-stop cell. No non-null stop: "-".
+        /// </summary>
+        internal static string FormatRouteDeliveryPerCycle(IReadOnlyList<RouteStop> stops)
+        {
+            if (stops == null || stops.Count == 0) return "-";
+            if (stops.Count == 1)
+            {
+                RouteStop only = stops[0];
+                if (only == null) return "-";
+                return FormatWouldDeliver(only.DeliveryManifest, only.InventoryDeliveryManifest);
+            }
+
+            // Insert-only dictionary: enumeration follows first-seen key order.
+            var resources = new Dictionary<string, double>();
+            var inventory = new List<InventoryPayloadItem>();
+            int nonNullStops = 0;
+            int deliveringStops = 0;
+            for (int i = 0; i < stops.Count; i++)
+            {
+                RouteStop stop = stops[i];
+                if (stop == null) continue;
+                nonNullStops++;
+                if (StopDelivers(stop)) deliveringStops++;
+                if (stop.DeliveryManifest != null)
+                {
+                    foreach (KeyValuePair<string, double> kv in stop.DeliveryManifest)
+                    {
+                        if (kv.Key == null) continue;
+                        resources.TryGetValue(kv.Key, out double sum);
+                        resources[kv.Key] = sum + kv.Value;
+                    }
+                }
+                if (stop.InventoryDeliveryManifest != null)
+                    inventory.AddRange(stop.InventoryDeliveryManifest);
+            }
+            if (nonNullStops == 0) return "-";
+
+            string text = FormatWouldDeliver(resources, inventory);
+            if (deliveringStops > 1)
+                text += " across " + deliveringStops.ToString(CultureInfo.InvariantCulture) + " stops";
+            return text;
+        }
+
+        /// <summary>True when the stop carries any resource or inventory delivery.</summary>
+        internal static bool StopDelivers(RouteStop stop)
+        {
+            return stop != null
+                && ((stop.DeliveryManifest != null && stop.DeliveryManifest.Count > 0)
+                    || (stop.InventoryDeliveryManifest != null && stop.InventoryDeliveryManifest.Count > 0));
+        }
+
+        /// <summary>True when the stop carries any resource or inventory pickup.</summary>
+        internal static bool StopPicksUp(RouteStop stop)
+        {
+            return stop != null
+                && ((stop.PickupManifest != null && stop.PickupManifest.Count > 0)
+                    || (stop.InventoryPickupManifest != null && stop.InventoryPickupManifest.Count > 0));
+        }
+
+        /// <summary>Number of non-null stops on a route.</summary>
+        internal static int CountStops(IReadOnlyList<RouteStop> stops)
+        {
+            if (stops == null) return 0;
+            int n = 0;
+            for (int i = 0; i < stops.Count; i++)
+                if (stops[i] != null) n++;
+            return n;
+        }
+
+        /// <summary>
+        /// Which stop the Destination cell names. A single-stop route: index 0 (or -1
+        /// when that stop is null), as before. A multi-stop route: the first stop that
+        /// RECEIVES cargo, because the column is where the cargo goes and a relay run
+        /// commonly visits its pickup source first (the rover-relay route is
+        /// pickup-at-B then deliver-at-A); with no delivering stop, the first non-null
+        /// stop. -1 when there is no non-null stop.
+        /// </summary>
+        internal static int ResolveDestinationStopIndex(IReadOnlyList<RouteStop> stops)
+        {
+            if (stops == null || stops.Count == 0) return -1;
+            if (stops.Count == 1) return stops[0] != null ? 0 : -1;
+            int firstNonNull = -1;
+            for (int i = 0; i < stops.Count; i++)
+            {
+                if (stops[i] == null) continue;
+                if (firstNonNull < 0) firstNonNull = i;
+                if (StopDelivers(stops[i])) return i;
+            }
+            return firstNonNull;
+        }
+
+        /// <summary>
+        /// The Destination cell text: the named stop's text, plus "(+N stops)" for
+        /// the route's other stops when it has more than one ("Mun Base (+2 stops)",
+        /// "Mun Base (+1 stop)"). A single-stop route returns the text unchanged.
+        /// </summary>
+        internal static string FormatMultiStopDestination(string primaryText, int stopCount)
+        {
+            if (stopCount <= 1) return primaryText;
+            string text = string.IsNullOrEmpty(primaryText) ? "-" : primaryText;
+            int others = stopCount - 1;
+            return text + " (+" + others.ToString(CultureInfo.InvariantCulture)
+                + (others == 1 ? " stop)" : " stops)");
+        }
+
+        /// <summary>The cargo direction of one stop for the stop-list tooltip.</summary>
+        internal static string StopRoleLabel(RouteStop stop)
+        {
+            bool delivers = StopDelivers(stop);
+            bool picksUp = StopPicksUp(stop);
+            if (delivers && picksUp) return "pickup + delivery";
+            if (delivers) return "delivery";
+            if (picksUp) return "pickup";
+            return "no cargo";
+        }
+
+        /// <summary>
+        /// The multi-stop Destination cell tooltip: every stop in visit order on ONE
+        /// line (the Logistics hover strip is single-line and rejects hard newlines),
+        /// e.g. "Stops in order: 1. B (pickup), 2. A (delivery)". The display text per
+        /// stop is the resolved vessel name or the coords fallback, supplied by the
+        /// caller; a null entry renders "-". Returns empty for fewer than two entries
+        /// (the single-stop tooltip keeps its own coords contract).
+        /// <para>Capped to <paramref name="maxChars"/> (the window passes its strip
+        /// budget, <see cref="TooltipEchoBox.BudgetChars"/>; 0 or less means no cap):
+        /// when the whole list does not fit it keeps as many leading stops as fit and
+        /// ends with ", ... +N more". If not even the first stop fits beside that
+        /// suffix, it renders "Stops in order: ... +N more" alone, so the result never
+        /// runs past the strip for any realistic budget.</para>
+        /// </summary>
+        internal static string FormatStopListTooltip(
+            IReadOnlyList<string> stopTexts, IReadOnlyList<string> stopRoles, int maxChars)
+        {
+            if (stopTexts == null || stopTexts.Count < 2) return string.Empty;
+            const string Prefix = "Stops in order: ";
+            int count = stopTexts.Count;
+            var entries = new string[count];
+            for (int i = 0; i < count; i++)
+            {
+                var e = new StringBuilder();
+                e.Append((i + 1).ToString(CultureInfo.InvariantCulture)).Append(". ")
+                 .Append(string.IsNullOrEmpty(stopTexts[i]) ? "-" : stopTexts[i]);
+                string role = stopRoles != null && i < stopRoles.Count ? stopRoles[i] : null;
+                if (!string.IsNullOrEmpty(role))
+                    e.Append(" (").Append(role).Append(')');
+                entries[i] = e.ToString();
+            }
+
+            string full = Prefix + string.Join(", ", entries);
+            if (maxChars <= 0 || full.Length <= maxChars)
+                return full;
+
+            for (int shown = count - 1; shown >= 0; shown--)
+            {
+                var sb = new StringBuilder(Prefix);
+                for (int i = 0; i < shown; i++)
+                {
+                    if (i > 0) sb.Append(", ");
+                    sb.Append(entries[i]);
+                }
+                if (shown > 0) sb.Append(", ");
+                sb.Append("... +").Append((count - shown).ToString(CultureInfo.InvariantCulture))
+                  .Append(" more");
+                if (sb.Length <= maxChars || shown == 0)
+                    return sb.ToString();
+            }
+            return full; // unreachable: shown == 0 always returns
+        }
+
+        /// <summary>
+        /// The requested amounts the DestinationFull capacity line compares against
+        /// for the stop the capacity gate found full. Mirrors
+        /// <see cref="RouteDestinationCapacityCheck.HasCapacityForAllStops"/>: stops
+        /// that resolve to the SAME destination vessel share capacity, and the gate
+        /// accumulates every such stop up to and including the full one, so the line
+        /// sums each resource over stops 0..<paramref name="fullStopIndex"/> for which
+        /// <paramref name="sharesDestination"/> is true (the full stop itself always
+        /// counts). Null when the index is out of range or nothing is requested.
+        /// </summary>
+        internal static Dictionary<string, double> CombineRequestedForFullStop(
+            IReadOnlyList<RouteStop> stops, int fullStopIndex, System.Func<int, bool> sharesDestination)
+        {
+            if (stops == null || fullStopIndex < 0 || fullStopIndex >= stops.Count)
+                return null;
+            var combined = new Dictionary<string, double>();
+            for (int i = 0; i <= fullStopIndex; i++)
+            {
+                RouteStop stop = stops[i];
+                if (stop?.DeliveryManifest == null) continue;
+                bool counts = i == fullStopIndex || (sharesDestination != null && sharesDestination(i));
+                if (!counts) continue;
+                foreach (KeyValuePair<string, double> kv in stop.DeliveryManifest)
+                {
+                    if (string.IsNullOrEmpty(kv.Key)) continue;
+                    combined.TryGetValue(kv.Key, out double sum);
+                    combined[kv.Key] = sum + kv.Value;
+                }
+            }
+            return combined.Count > 0 ? combined : null;
+        }
+
+        /// <summary>
+        /// Whether the EndpointLost re-scan button is offered for the whole route: true
+        /// when any stop's endpoint is a recoverable surface endpoint
+        /// (<see cref="ShouldOfferEndpointRescan"/>). For a single-stop route this is
+        /// exactly the per-endpoint decision. The click re-scans every stop.
+        /// </summary>
+        internal static bool ShouldOfferRouteEndpointRescan(RouteStatus status, IReadOnlyList<RouteStop> stops)
+        {
+            if (stops == null) return false;
+            for (int i = 0; i < stops.Count; i++)
+            {
+                RouteStop stop = stops[i];
+                if (stop != null && ShouldOfferEndpointRescan(status, stop.Endpoint))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The disabled-note explanation when no stop is re-scannable: the first
+        /// non-null stop's <see cref="RescanIneligibleReason"/> (a single-stop route
+        /// gets exactly its own reason). Null when there is no non-null stop.
+        /// </summary>
+        internal static string RouteRescanIneligibleReason(IReadOnlyList<RouteStop> stops)
+        {
+            if (stops == null) return null;
+            for (int i = 0; i < stops.Count; i++)
+                if (stops[i] != null) return RescanIneligibleReason(stops[i].Endpoint);
+            return null;
+        }
+
+        /// <summary>One stop's outcome from a multi-stop endpoint re-scan.</summary>
+        internal readonly struct RescanStopResult
+        {
+            internal RescanStopResult(int stopIndex, bool resolved, string vesselName, string reason)
+            {
+                StopIndex = stopIndex;
+                Resolved = resolved;
+                VesselName = vesselName;
+                Reason = reason;
+            }
+
+            internal int StopIndex { get; }
+            internal bool Resolved { get; }
+            internal string VesselName { get; }
+            internal string Reason { get; }
+        }
+
+        /// <summary>True when every re-scanned stop resolved (and at least one was scanned).</summary>
+        internal static bool AllStopsResolved(IReadOnlyList<RescanStopResult> results)
+        {
+            if (results == null || results.Count == 0) return false;
+            for (int i = 0; i < results.Count; i++)
+                if (!results[i].Resolved) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// The per-stop body of the multi-stop re-scan log line, 1-based stop numbers:
+        /// "stops=2 resolved=1/2 [1:'Mun Base' 2:unresolved('no-vessel-near')]".
+        /// </summary>
+        internal static string FormatRescanOutcome(IReadOnlyList<RescanStopResult> results)
+        {
+            int total = results?.Count ?? 0;
+            int resolved = 0;
+            var sb = new StringBuilder();
+            for (int i = 0; i < total; i++)
+            {
+                RescanStopResult r = results[i];
+                if (i > 0) sb.Append(' ');
+                sb.Append((r.StopIndex + 1).ToString(CultureInfo.InvariantCulture)).Append(':');
+                if (r.Resolved)
+                {
+                    resolved++;
+                    sb.Append('\'').Append(r.VesselName ?? string.Empty).Append('\'');
+                }
+                else
+                {
+                    sb.Append("unresolved('").Append(r.Reason ?? string.Empty).Append("')");
+                }
+            }
+            return "stops=" + total.ToString(CultureInfo.InvariantCulture)
+                + " resolved=" + resolved.ToString(CultureInfo.InvariantCulture)
+                + "/" + total.ToString(CultureInfo.InvariantCulture)
+                + " [" + sb + "]";
+        }
     }
 }

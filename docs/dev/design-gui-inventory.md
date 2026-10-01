@@ -917,7 +917,7 @@ both sections share one sort state, `:118-119`):
 | 1 | `#` | 30 | display position; not sortable |
 | 2 | Name | expand | caret + `route.Name` |
 | 3 | Origin | 95 | `FormatOrigin` `:3664` |
-| 4 | Destination | 180 | cached `leg.DestinationText`; coords in the tooltip |
+| 4 | Destination | 180 | cached `leg.DestinationText`; coords in the tooltip. A multi-stop route names its first receiving stop plus `(+N stops)` and lists every stop with its cargo direction in the tooltip |
 | 5 | Interval | 150 | inline `[-] field [+] Nx` stepper (`:1163`); an EMPTY cell of the same width while Send-Once-armed (`:1012`) |
 | 6 | Cycle | 80 | `"3"` or `"3 / 1 skipped"` (`:3738`) |
 | 7 | Next | 135 | bare `T-` countdown or `-` (`:3586`) |
@@ -1460,7 +1460,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | D4 | The whole post-commit `RouteCreationDialog`; its live `DismissIfOpen` can only no-op | `UI/RouteCreationDialog.cs:81`, `:136`, `:147`, `:241`, `:448` |
 | P3 | The Interval field accepts `30m` / `2h` / `1d`, then ceil-snaps to `N x transit` and overwrites the typed value; on a windowed-basis route it is dead input | `UI/LogisticsWindowUI.cs:1197`, `Logistics/RouteCadence.cs:100`, `:199` |
 | P19 | The Candidates empty sentence draws over a full near-miss list | `UI/LogisticsWindowUI.cs:743` |
-| P20 | Four cells read `route.Stops[0]` only while `RouteBuilder` builds multi-stop routes | `UI/LogisticsWindowUI.cs:1564`, `:1002`, `:1871`, `:3275`; `Logistics/RouteBuilder.cs:353` |
+| P20 | ~~Four cells read `route.Stops[0]` only while `RouteBuilder` builds multi-stop routes~~ FIXED 2026-10-01: on a route with more than one stop, Delivers per cycle sums every stop's delivery, Destination names the first receiving stop plus `(+N stops)` with the stop list in its tooltip, the DestinationFull capacity line names the stop the capacity gate refuses, and the one Re-scan button re-scans every stop; single-stop text is unchanged (pure helpers in `UI/LogisticsDeliveryPresentation.cs`) | `UI/LogisticsWindowUI.cs`; `Logistics/RouteBuilder.cs:353` |
 | - | The `Next` countdown cell renders identically for three different branches; only the expanded detail line disambiguates | `UI/LogisticsCountdownPresentation.cs:163` |
 
 **5. Career ledger, game actions, kerbals, crew reservation** (17 HIDDEN, 3 DEAD, 3 promised, 1 no-backend-truth)
