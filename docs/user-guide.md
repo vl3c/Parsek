@@ -10,7 +10,7 @@ Parsek lets you record missions, revert to launch, and merge them into the timel
 | **V** | Toggle watch camera between Free Orbit and Horizon-Locked (watch mode only) |
 | **Ctrl+Shift+T** | Open the in-game Test Runner (any scene) |
 
-The Parsek window is available from the toolbar button in Flight, Map, and KSC views. Recording is triggered automatically on launch/EVA; there is no start/stop hotkey.
+The Parsek window is available from the toolbar button in Flight, Map, and KSC views. The Tracking Station has no Parsek window and no toolbar button: every recording, mission, loop and watch control lives in the Parsek window in Flight or at the Space Center. Recording is triggered automatically on launch/EVA; there is no start/stop hotkey.
 
 ## How It Works
 
@@ -169,7 +169,7 @@ Click the "Missions" button in the main Parsek window to open the Missions windo
 - Each mission starts with a two-line bar. The first line is the mission itself under the table's column headings: its number, name (double-click to rename) with **Log** beside it, start time, how it started, how it ended, end time, and **Watch** (plus Rewind / Forward) in the right-hand Interact column. The second line is a one-line story (where it went, how long, who flew, how it ended and, in Advanced mode when it loops, the next launch in amber) with **Collapse** / **Expand** in the Interact column. Collapse hides a mission's vessel rows; its title bar stays.
 - The Interact column holds every button a row has: Watch and Rewind / Forward, Collapse, Fly or Stash with Seal on an unfinished flight, and Go to on a docked partner.
 - Each row under the bar is one continuous vessel through the tree. Branches (a booster, a separated probe, a docked partner) show as child rows with checkboxes; uncheck one to leave it out of the mission's render and loop.
-- **Loop** a mission and the whole thing replays together on one shared clock - in flight, the Space Center, and the Tracking Station - handing the camera from stage to stage as the shared clock crosses each boundary when you watch it.
+- **Loop** a mission and the whole thing replays together on one shared clock - in flight, the Space Center, and the Tracking Station (the Tracking Station shows the replay; you set the loop, and watch it, from the Parsek window in Flight or at the Space Center) - handing the camera from stage to stage as the shared clock crosses each boundary when you watch it.
 - If the loop period is shorter than the mission's length, the mission overlaps itself: it relaunches every period so several staggered replays of the whole mission fly at once.
 - Looped missions relaunch at the right time so the replay lines up with the live sky. A launch-and-orbit mission relaunches when the pad has rotated back under the recorded orbit; a Mun, Minmus, or interplanetary mission reschedules each relaunch to a real transfer or rendezvous window and re-times any parking loiter so it still reaches its target. A "Warp to..." button jumps to the next window; until the mission loops it stays greyed, and hovering it says what is missing. Atmospheric-only and surface missions loop continuously.
 - A mission that rendezvous with a station relaunches phase-locked to the station's live orbit; a mission to a re-aimable destination re-aims its transfer each cycle so the icon flies a real trajectory to the destination's current position, and one that both lands and docks aligns both. A shape that cannot align (for example a non-resonant multi-moon pack) loops at its faithful recorded cadence with an amber reason explaining why.
@@ -357,6 +357,7 @@ are drawn nowhere and cannot be turned off.
 - **SOI changes** - Recordings that cross SOI boundaries (e.g. Kerbin to Mun) play back correctly. Each trajectory point references its own celestial body.
 - **Ghost distance tiers** - As a ghost moves away from the camera it drops to a reduced visual tier around 2.3 km, and its mesh unloads entirely beyond 50 km (still logically playing, just not drawn). Watching a ghost overrides the visual cutoff until the fixed 300 km watch range is reached.
 - **Map and Tracking Station icons** - Ghost vessels use the stock icon matching their vessel type (Ship, Plane, Probe, Station, etc.). Icon labels are hidden by default, appear on hover, and pin on RIGHT-click; a LEFT-click opens the icon's own menu instead. There is no setting that hides ghosts from the Tracking Station.
+- **What the Tracking Station shows** - Ghosts are present there like real vessels: a row in the vessel list, a map icon, a stock orbit line, and they can be selected and targeted. Selecting a ghost opens a small popup whose one button warps to the moment its vessel spawns (Warp to Spawn). That is all: there are no recording or mission controls in the Tracking Station (no loop, watch, playback toggle, rename or Fly). Use the Parsek window in Flight or at the Space Center for those.
 
 ### Vessel Spawning
 

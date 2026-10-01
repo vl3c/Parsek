@@ -1446,7 +1446,7 @@ the full rows; the per-subsystem row counts are in the table above.
 
 | id | item | file:line |
 |---|---|---|
-| H1 | No Parsek window or toolbar button in the TRACKING STATION, while the guide advertises that missions and routes loop there (`docs/user-guide.md:160`) | `ParsekTrackingStation.cs:26`, `:350`; the only `AddToAllToolbars` calls are `ParsekFlight.cs:1351`, `ParsekKSC.cs:153` |
+| H1 | No Parsek window or toolbar button in the TRACKING STATION, while the guide advertised that missions and routes loop there (`docs/user-guide.md:160`). RULED 2026-10-01 (operator): option (a), no TS control surface; the user guide now says the TS shows ghost presence, orbit lines, targeting and the Warp to Spawn popup, and that every control lives in the Parsek window in Flight / KSC | `ParsekTrackingStation.cs:26`, `:350`; the only `AddToAllToolbars` calls are `ParsekFlight.cs:1351`, `ParsekKSC.cs:153` |
 | D1 | The main-window Gloops launcher block never draws in either mode | `ParsekUI.cs:941-951`, gate `UI/UiComplexityMode.cs:140-143` |
 | P7 | ~~The stock Difficulty screen draws 5 Parsek settings whose edits the sidecar silently reverts~~ FIXED 2026-09-14: `ParsekSettings.GameMode` returns `GameParameters.GameMode.NONE`, so the stock screen builds no Parsek section at all (see 5.2) | `ParsekSettings.cs:22-56` |
 | P18 | The Settings launcher tooltip advertises four topics, three of which can be absent | `ParsekUI.cs:957` |
@@ -1599,7 +1599,7 @@ fixed on the sibling branch `gui-census-ops`; and `DrawRecordingTooltip` is held
 These change no behavior on `gui-fixes-1`. Each needs an operator answer before it can be
 scoped; the five below carry the weight.
 
-**Should the Tracking Station have a Parsek control surface at all?** Ghosts get full TS
+**Should the Tracking Station have a Parsek control surface at all? ANSWERED 2026-10-01 (operator): (a) - no TS control surface, add no controls; the user guide was corrected to describe what the TS shows (presence, orbit lines, targeting, the Warp to Spawn popup) and where the controls live (the Parsek window in Flight / KSC).** The question as filed: Ghosts get full TS
 presence - list rows, orbit lines, markers, a selection popup, targeting - and the scene hosts
 no Parsek window, no toolbar button and no launcher; `ParsekTrackingStation.cs:390-391` states
 the consequence in place, and `UIMode.TrackingStation` exists as an enum member nothing
