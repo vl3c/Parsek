@@ -237,7 +237,19 @@ allowedAnomalies = []
 # 2026-07-25_0916_B7-duna-flyby_a2 (verdict PASS) carries
 # `verifiers.expectations.observed.recordings.count = 8`.
 # Never widen back toward 1.
-count = { min = 8, max = 8 }
+#
+# RE-PINNED 8 -> 9 on 2026-10-01 (branch `split-count-repin`, todo
+# INFLIGHT-COMMIT-SPLIT-STALE-RECORDING-COUNTS). Since #1931 the in-flight seam
+# CommitTree runs the recording optimizer, which splits the ascent core at its
+# atmosphere exit, so the 8 recordings above commit as 9. Reading run
+# `2026-10-01_1310_B7-duna-flyby` was PARSEK-FAIL on `recordings.count 9 > max 8`
+# alone, and its KSP.log carries exactly one split:
+#   Split candidate (PersistedPhaseChange): rec=1813d310... sec=6 splitUT=186.98
+#   prev=Atmospheric next=ExoBallistic
+#   CommitTreeFlight: optimization pass ran committed=8->9
+# Re-flown on the new pin: `2026-10-01_1508_B7-duna-flyby` PASS attempt 1, count 9.
+# Still exact: 8 (the split missing) and 10 (a second split) both red.
+count = { min = 9, max = 9 }
 
 [expectations.logContracts]
 # POPULATION gate: the count window cannot be one (it is COMMIT-BLIND, and a
