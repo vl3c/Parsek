@@ -6408,6 +6408,19 @@ six publish or compare numbers the runner already measured.
     Operator rulings 2026-09-24: an operator tool run over local archives (CI cannot see
     them), and survivors are listed, never failing a run. Phase 2 is todo
     MUTATION-CHECK-PHASE-2.
+    PHASE 2 PR 1, SAVE PERTURBATION (branch `mutation-phase2`, 2026-10-01; pure core
+    `harness/lib/mutsave.py`, `mutation_check.py --save-only`): every window of every
+    ARMED save-parse block is pushed across each declared bound by editing the archived
+    `persistent.sfs` itself (nodes dropped or cloned, keys cleared or rewritten), and the
+    edited bytes go through the real `parse_parsek_scenario` + `evaluate_save_structure`;
+    each armed block also gets fault edits (torn save, no ParsekScenario node, missing
+    `pointCount`, a codec-rejected route, a missing `completedCycles`). A window no edit
+    reds is reported VACUOUS by spec and block. FIRST SWEEP (every archive under the
+    umbrella root): 124 of the 124 specs with an armed block have a green archived
+    produced save; 1802 edits, 1802 killed; 1308 gates PROVEN, 0 VACUOUS, 0 UNCHECKED
+    (608 down-crossings, 741 up-crossings, 449 faults, 4 set re-points). Committed fixture
+    templates alone give a green baseline for 54 of the 124, all PROVEN. Still open
+    (PRs 2 and 3): ledger perturbation, mission sensor reads, forbidden-token injection.
     NUMERIC RULE (after the #1801 review): an identifier-shaped field (`pid`, `id`,
     `idx`, `index`, `inst`, `rec`, `slot`, `dist`, the UT fields, `frame=`, a `...Root`
     part pid, an unlabelled number) is `info`; EVERY other field that moves between zero

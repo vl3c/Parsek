@@ -10,6 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: the mutation checker now edits archived saves to prove the save-structure checks
+  read what they claim.** `harness/tools/mutation_check.py` (new pure core
+  `harness/lib/mutsave.py`; `--save-only` runs it without a log) removes, clones and
+  rewrites recordings, trees, rewind rows, branch points, vessels and supply routes in each
+  archived produced save until every armed save-structure window should fail, then runs the
+  real save parser and check over the edited file. A window that still passes is reported as
+  vacuous, naming the spec and the block. The first sweep over every local archive checked
+  1308 windows and faults on 124 lanes and found none vacuous. Report-only; no run changes.
 - **Dev: a flight-efficiency analyzer for harness runs.** `harness/tools/flight_efficiency.py`
   (pure core `harness/lib/flighteff.py`) reads finished run artifacts and reports where the
   WALL time went: 1x seconds outside the atmosphere with a static orbit, split by cause

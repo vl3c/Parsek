@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Report-only mutation checker over archived harness runs (trust risk 8, phase 1).
+"""Report-only mutation checker over archived harness runs (trust risk 8, phases 1-2).
 
 Thin I/O shell: finds archived runs on this machine, reads each one's KSP.log,
 recording count and produced save, and hands them to ``lib/mutlib.py``, which
@@ -21,6 +21,12 @@ them under the umbrella root):
     python tools/mutation_check.py --spec B1-pad-hop     # one lane
     python tools/mutation_check.py --archive ../logs/2026-09-24_0041_SD-1-same-tree-redock
     python tools/mutation_check.py --list-archives --spec B1-pad-hop
+    python tools/mutation_check.py --save-only           # save-level edits only (phase 2)
+
+``--save-only`` runs only the save-structure checks (``lib/mutsave.py``): for every
+spec with an ARMED save-parse block, the newest archived produced save whose armed
+blocks pass, else the spec's committed ``fixture.saveTemplate`` when that passes;
+no KSP.log is needed, so it also reaches lanes whose logs no longer replay green.
 
 Writes ``results/mutation-check/<stamp>.md`` (gitignored) unless ``--out``.
 """
@@ -166,14 +172,68 @@ def read_inputs(ref: mutlib.ArchiveRef) -> mutlib.ArchiveInputs:
     count: Optional[int] = None
     if ref.recordings_dir and os.path.isdir(ref.recordings_dir):
         count = sum(1 for f in os.listdir(ref.recordings_dir) if f.endswith(".prec"))
-    snapshot = None
-    if ref.save_dir:
-        sfs = os.path.join(ref.save_dir, "persistent.sfs")
-        if os.path.isfile(sfs):
-            with open(sfs, "r", encoding="utf-8", errors="replace") as fh:
-                snapshot = saveparse.parse_parsek_scenario(fh.read())
+    save_text = read_save_text(ref)
+    snapshot = saveparse.parse_parsek_scenario(save_text) if save_text is not None else None
     label = "%s:%s%s" % (ref.source, ref.run_id, " (log truncated)" if ref.truncated else "")
-    return mutlib.ArchiveInputs(label, text, count, snapshot)
+    return mutlib.ArchiveInputs(label, text, count, snapshot, save_text)
+
+
+def read_save_text(ref: mutlib.ArchiveRef) -> Optional[str]:
+    if not ref.save_dir:
+        return None
+    sfs = os.path.join(ref.save_dir, "persistent.sfs")
+    if not os.path.isfile(sfs):
+        return None
+    with open(sfs, "r", encoding="utf-8", errors="replace") as fh:
+        return fh.read()
+
+
+def fixture_save_text(spec: Dict) -> Optional[str]:
+    """The spec's committed fixture template (never an operator-local one)."""
+    template = (spec.get("fixture") or {}).get("saveTemplate")
+    if not template or mutlib.hlib.is_local_fixture_template(template):
+        return None
+    sfs = os.path.join(HARNESS_ROOT, template, "persistent.sfs")
+    if not os.path.isfile(sfs):
+        return None
+    with open(sfs, "r", encoding="utf-8", errors="replace") as fh:
+        return fh.read()
+
+
+def run_save_only(specs: Dict[str, Dict], wanted: List[str], refs: List[mutlib.ArchiveRef],
+                  max_tries: int, use_fixtures: bool):
+    lanes: List[mutlib.LaneReport] = []
+    no_archive: List[str] = []
+    for sid in wanted:
+        spec = specs[sid]
+        if not saveparse.armed_structure_blocks(spec.get("expectations", {}) or {}):
+            continue
+        cands = [r for r in mutlib.order_candidates(refs, sid) if r.save_dir][:max(1, max_tries)]
+        sources = [("%s:%s" % (r.source, r.run_id), r) for r in cands]
+        if use_fixtures:
+            sources.append(("fixture:%s" % (spec.get("fixture") or {}).get("saveTemplate"), None))
+        lane: Optional[mutlib.LaneReport] = None
+        first_red: Optional[mutlib.LaneReport] = None
+        for label, ref in sources:
+            try:
+                text = read_save_text(ref) if ref is not None else fixture_save_text(spec)
+            except OSError as exc:
+                print("skip %s: %s" % (label, exc), file=sys.stderr)
+                continue
+            if text is None:
+                continue
+            lane = mutlib.check_save_lane(spec, label, text)
+            if lane.baseline == mutlib.BASELINE_GREEN:
+                break
+            first_red = first_red or lane
+            lane = None
+        lane = lane or first_red
+        if lane is None:
+            no_archive.append(sid)
+            continue
+        lanes.append(lane)
+        print(mutlib.summary_line(lane), flush=True)
+    return lanes, no_archive
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -188,6 +248,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--json", help="also write the per-lane records as JSON")
     ap.add_argument("--include-info", action="store_true", help="list free-field survivors too")
     ap.add_argument("--list-archives", action="store_true")
+    ap.add_argument("--save-only", action="store_true",
+                    help="only the save-level edits over archived saves / committed fixtures")
+    ap.add_argument("--no-fixtures", action="store_true",
+                    help="with --save-only: do not fall back to the committed fixture template")
     args = ap.parse_args(argv)
 
     specs = load_specs()
@@ -209,9 +273,13 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print("%s  %s  %s  verdict=%s  %s" % (sid, r.source, r.run_id, r.verdict, r.log_path))
         return 0
 
+    started = time.time()
+    if args.save_only:
+        lanes, no_archive = run_save_only(specs, wanted, refs, args.max_tries,
+                                          not args.no_fixtures)
+        return finish(args, roots, started, lanes, no_archive)
     lanes: List[mutlib.LaneReport] = []
     no_archive: List[str] = []
-    started = time.time()
     for sid in wanted:
         cands = mutlib.order_candidates(refs, sid)[:max(1, args.max_tries)]
         if not cands:
@@ -236,7 +304,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             continue
         lanes.append(lane)
         print(mutlib.summary_line(lane), flush=True)
+    return finish(args, roots, started, lanes, no_archive)
 
+
+def finish(args, roots: List[str], started: float, lanes: List[mutlib.LaneReport],
+           no_archive: List[str]) -> int:
     stamp = time.strftime("%Y-%m-%d_%H%M%S")
     header = "Generated %s over %d archive root(s) in %.0f s; specs from `%s`." % (
         stamp, len(roots), time.time() - started, os.path.relpath(SCENARIOS_DIR, REPO_ROOT).replace(os.sep, "/"))
@@ -250,13 +322,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             json.dump([{"spec": l.spec_id, "archive": l.archive, "baseline": l.baseline,
                         "baselineReasons": l.baseline_reasons, "notes": l.notes,
                         "mutations": [m.__dict__ for m in l.mutations],
-                        "patterns": [p.__dict__ for p in l.patterns]} for l in lanes],
+                        "patterns": [p.__dict__ for p in l.patterns],
+                        "saveGates": [g.__dict__ for g in l.save_gates]} for l in lanes],
                       fh, indent=1)
     t = mutlib.sweep_totals(lanes, len(no_archive))
     print("sweep: lanes green=%d not-green=%d no-archive=%d mutations=%d killed=%d "
-          "survived=%d triage=%d -> %s" % (t.lanes_green, t.lanes_not_green,
-                                           t.lanes_no_archive, t.mutations, t.killed,
-                                           t.survived, t.triage, out))
+          "survived=%d triage=%d saveGates proven=%d vacuous=%d unchecked=%d -> %s" % (
+              t.lanes_green, t.lanes_not_green, t.lanes_no_archive, t.mutations, t.killed,
+              t.survived, t.triage, t.gates_proven, t.gates_vacuous, t.gates_unchecked, out))
     return 0
 
 
