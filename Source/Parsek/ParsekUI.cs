@@ -1067,12 +1067,6 @@ namespace Parsek
             structureListUI.OpenForMission(treeId, missionId, title);
         }
 
-        /// <summary>Opens the structure-list window for a supply route (Logistics window button).</summary>
-        internal void OpenStructureWindowForRoute(string routeId, string title)
-        {
-            structureListUI.OpenForRoute(routeId, title);
-        }
-
         // ════════════════════════════════════════════════════════════════
         //  Recordings table (extracted to RecordingsTableUI)
         // ════════════════════════════════════════════════════════════════

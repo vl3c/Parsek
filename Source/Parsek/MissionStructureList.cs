@@ -6,12 +6,11 @@ namespace Parsek
 {
     // Pure read model + mission builder for the Log window (StructureListWindowUI;
     // roadmap.md Phase 13 Tier-1; docs/dev/plan-structure-list-window.md). A Log is a
-    // flat, chronological "what happened, step by step" view of one run, complementing
+    // flat, chronological "what happened, step by step" view of one mission, complementing
     // the Missions tab's composition-over-time tree. The builder is pure (no Unity
     // calls, no shared mutable state, no recording mutation) and reads ONLY
-    // already-recorded data, so it is headless-testable. The route side of the window
-    // is the Logistics-side RouteStructureListBuilder: Missions code must not reference
-    // Logistics, so the route-reading builder lives with the routes it reads.
+    // already-recorded data, so it is headless-testable. A supply route has no Log of its
+    // own: its Log button opens the Log of the mission it was built from.
 
     internal enum StructureStepKind
     {
@@ -21,29 +20,24 @@ namespace Parsek
         Dock       = 3,
         Undock     = 4,
         Eva        = 5,
-        Origin     = 6,  // route only
-        Delivery   = 7,  // route only
-        Stop       = 8,  // route only (reserved for multi-stop)
-        Terminal   = 9
+        Terminal   = 6
     }
 
     /// <summary>One row of a Log: a single event with its time, location and vessel.</summary>
     internal struct StructureStep
     {
-        public double UT;            // event time; NaN for the route Origin pseudo-step (rendered first)
+        public double UT;            // event time
         public StructureStepKind Kind;
         public string Label;         // "Launch", "Staged: 2 pieces (...)", "Docked (CD)", "End: Orbiting"
         public string Tooltip;       // full label when Label had to be shortened for the cell; else null
         public string Location;      // "Kerbin, Launch Pad", "Kerbin orbit", "Mun, Midlands", "Kerbin", "-"
-        public string VesselName;    // the vessel this step concerns (may be empty on route rows)
+        public string VesselName;    // the vessel this step concerns
         public string RecordingId;   // the owning recording / leg; identity for the simultaneous collapse
         public uint SortPid;         // a part PID or 0, for a deterministic tiebreak only (not rendered)
     }
 
     /// <summary>
-    /// Pure location text helpers shared by the mission builder and the Logistics-side
-    /// route builder, which formats its route endpoints on top of these. All output is
-    /// culture-free text.
+    /// Pure location text helpers of the mission Log. All output is culture-free text.
     /// </summary>
     internal static class StructureLocationFormatter
     {
@@ -122,7 +116,7 @@ namespace Parsek
         /// <summary>
         /// One Time cell per step: the first finite-UT step gets
         /// <paramref name="dateFormatter"/>(UT), every later one its elapsed time from
-        /// that step, and a NaN step (the route origin) the missing-value text.
+        /// that step, and a NaN step (a step with no time) the missing-value text.
         /// </summary>
         internal static string[] FormatStepTimes(
             List<StructureStep> steps, Func<double, string> dateFormatter)

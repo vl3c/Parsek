@@ -2,25 +2,24 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using ClickThroughFix;
-using Parsek.Logistics;
 using UnityEngine;
 
 namespace Parsek
 {
     /// <summary>
-    /// Log window: a flat, chronological step list of one mission or supply route
-    /// (launch, staging, dock / undock, deliveries, terminal), each with its time,
-    /// location and vessel. Opened from a mission's "Log" button (Missions tab) or a
-    /// route's "Log (Route)" / "Log (Mission)" buttons (Logistics window). One reusable
+    /// Log window: a flat, chronological step list of one mission (launch, staging,
+    /// dock / undock, terminal), each with its time, location and vessel. Opened from a
+    /// mission's "Log" button (Missions tab) or a supply route's "Log" button (Logistics
+    /// window), which opens the Log of the mission the route was built from. One reusable
     /// instance owned by <see cref="ParsekUI"/>; reopening retargets it. Read-only over
     /// already-recorded data; the ordered step list comes from the pure
-    /// <see cref="MissionStructureListBuilder"/> / <see cref="Logistics.RouteStructureListBuilder"/>.
+    /// <see cref="MissionStructureListBuilder"/>.
     /// </summary>
     internal class StructureListWindowUI
     {
         /// <summary>Internal rather than private because the gallery snapshot below
         /// carries one, and an internal struct cannot have a private-typed field.</summary>
-        internal enum TargetMode { None, Mission, Route }
+        internal enum TargetMode { None, Mission }
 
         private readonly ParsekUI parentUI;
 
@@ -49,12 +48,12 @@ namespace Parsek
         private const string InputLockId = "Parsek_StructureListWindow";
 
         // Current target + cached built step list (rebuilt when the target changes). `title`
-        // is the TARGET's name (the mission or route); the window title is built from it by
+        // is the TARGET's name (the mission); the window title is built from it by
         // BuildWindowTitle.
         private TargetMode mode = TargetMode.None;
         private string targetId;
         // The viewed Mission (a mission Log follows ITS include set, so two missions over one
-        // tree read two Logs). Null for a route, a gallery mock, or a tree with no Mission.
+        // tree read two Logs). Null for a gallery mock or a tree with no Mission.
         private string missionId;
         // The mission-Log change signature the current `steps` were built against
         // (ComputeChangeSignature); re-read on Layout events only, never rebuilt per frame.
@@ -102,15 +101,12 @@ namespace Parsek
 
         /// <summary>The empty-state line of a mission Log.</summary>
         internal const string EmptyMissionText = "This mission has no recorded flight.";
-        /// <summary>The empty-state line of a route Log.</summary>
-        internal const string EmptyRouteText = "Nothing to show (source recording unavailable).";
         /// <summary>The empty-state line before any target was given (the bare seam open).</summary>
         internal const string EmptyNoTargetText = "Nothing to show.";
 
         /// <summary>The empty-state line for a target mode. Pure.</summary>
         internal static string EmptyText(TargetMode targetMode)
         {
-            if (targetMode == TargetMode.Route) return EmptyRouteText;
             if (targetMode == TargetMode.Mission) return EmptyMissionText;
             return EmptyNoTargetText;
         }
@@ -119,14 +115,13 @@ namespace Parsek
         internal const float MinWindowHeight = 160f;
 
         /// <summary>The window title's fixed part: this window is the Log both the Missions
-        /// "Log" button and the Logistics "Log (Route)" / "Log (Mission)" buttons open. (Its
-        /// seam token stays <c>structure</c>, the name of the class it draws from.)</summary>
+        /// "Log" button and the Logistics route "Log" button open. (Its seam token stays
+        /// <c>structure</c>, the name of the class it draws from.)</summary>
         internal const string WindowTitlePrefix = "Parsek - Log";
 
         /// <summary>
         /// The window title for a target name: <c>"Parsek - Log: Kerbal X"</c> for a mission,
-        /// <c>"Parsek - Log: Mun Supply"</c> for a route, the bare <c>"Parsek - Log"</c> when
-        /// there is no name. Pure.
+        /// the bare <c>"Parsek - Log"</c> when there is no name. Pure.
         /// </summary>
         internal static string BuildWindowTitle(string targetName)
         {
@@ -178,19 +173,6 @@ namespace Parsek
             ParsekLog.Info("UI",
                 $"Structure window opened: mode=Mission tree={treeId ?? "<null>"} " +
                 $"mission={missionId ?? "<none>"} steps={steps.Count} " +
-                $"title='{BuildWindowTitle(title)}'");
-        }
-
-        internal void OpenForRoute(string routeId, string displayTitle)
-        {
-            mode = TargetMode.Route;
-            targetId = routeId;
-            missionId = null;
-            title = displayTitle ?? "";
-            Rebuild();
-            isOpen = true;
-            ParsekLog.Info("UI",
-                $"Structure window opened: mode=Route route={routeId ?? "<null>"} steps={steps.Count} " +
                 $"title='{BuildWindowTitle(title)}'");
         }
 
@@ -250,10 +232,9 @@ namespace Parsek
         /// other field the draw method reads - the mode (which picks the empty-list
         /// wording), the title and the steps - is supplied.</para>
         /// </summary>
-        internal void OpenWithGallerySteps(bool routeMode, string displayTitle,
-                                           List<StructureStep> mockedSteps)
+        internal void OpenWithGallerySteps(string displayTitle, List<StructureStep> mockedSteps)
         {
-            mode = routeMode ? TargetMode.Route : TargetMode.Mission;
+            mode = TargetMode.Mission;
             targetId = null;
             missionId = null;
             title = displayTitle ?? "";
@@ -293,12 +274,6 @@ namespace Parsek
                         mission?.ExcludedIntervalKeys);
                 }
             }
-            else if (mode == TargetMode.Route)
-            {
-                if (Logistics.RouteStore.TryGetRoute(targetId, out Logistics.Route route))
-                    built = RouteStructureListBuilder.Build(
-                        route, FindCommittedRecording, VesselSpawner.TryResolveBiome);
-            }
             SetSteps(built);
         }
 
@@ -307,7 +282,7 @@ namespace Parsek
         /// (<see cref="RecordingStore.StateVersion"/>), the mission's name (the title follows a
         /// rename) or its include set (an include toggle on the Missions tab). Called on Layout
         /// events only, so the Layout and Repaint passes of one frame draw the same rows. Inert
-        /// for a route and for a gallery mock (no target).
+        /// for a gallery mock (no target).
         /// </summary>
         private void RefreshIfChanged()
         {
@@ -392,20 +367,6 @@ namespace Parsek
             for (int i = 0; i < trees.Count; i++)
                 if (trees[i] != null && string.Equals(trees[i].Id, treeId, StringComparison.Ordinal))
                     return trees[i];
-            return null;
-        }
-
-        private static Recording FindCommittedRecording(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId)) return null;
-            // [ERS-exempt] Physical by-id resolve of a route's bound dock-member recording
-            // to read its immutable RouteConnectionWindow proof, not a visibility / supersede
-            // scoped enumeration. Same physical-data-lookup rationale as MissionsWindowUI /
-            // TimelineWindowUI / RecordingsTableUI (see scripts/ers-els-audit-allowlist.txt).
-            var committed = RecordingStore.CommittedRecordings;
-            for (int i = 0; i < committed.Count; i++)
-                if (committed[i] != null && string.Equals(committed[i].RecordingId, recordingId, StringComparison.Ordinal))
-                    return committed[i];
             return null;
         }
 

@@ -632,8 +632,6 @@ namespace Parsek.Tests
         {
             Assert.Equal("This mission has no recorded flight.",
                 StructureListWindowUI.EmptyText(StructureListWindowUI.TargetMode.Mission));
-            Assert.Equal(StructureListWindowUI.EmptyRouteText,
-                StructureListWindowUI.EmptyText(StructureListWindowUI.TargetMode.Route));
             Assert.Equal("Nothing to show.",
                 StructureListWindowUI.EmptyText(StructureListWindowUI.TargetMode.None));
             Assert.Empty(MissionStructureListBuilder.Build(new RecordingTree { Id = "e" },

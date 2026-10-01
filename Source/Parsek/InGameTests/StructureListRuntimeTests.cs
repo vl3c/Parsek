@@ -1,14 +1,13 @@
 using System;
 using System.Collections.Generic;
-using Parsek.Logistics;
 
 namespace Parsek.InGameTests
 {
     /// <summary>
-    /// Exercises the mission / route structure-list builders against LIVE committed
-    /// recording data, catching anything the synthetic xUnit fixtures miss (real
-    /// terminal states, branch-point shapes, connection windows). The builders are pure,
-    /// so this needs no scene; it just needs committed data to be present.
+    /// Exercises the mission Log builder against LIVE committed recording data, catching
+    /// anything the synthetic xUnit fixtures miss (real terminal states, branch-point
+    /// shapes), and the Logistics route Log button's resolution to its source mission.
+    /// The builders are pure, so this needs no scene; it just needs committed data.
     /// </summary>
     public class StructureListRuntimeTests
     {
@@ -35,7 +34,7 @@ namespace Parsek.InGameTests
                     treesWithSteps++;
                 }
 
-                // Steps must be UT-ordered (NaN UTs only appear on the route path, not here).
+                // Steps must be UT-ordered.
                 for (int i = 1; i < steps.Count; i++)
                 {
                     InGameAssert.IsTrue(steps[i].UT >= steps[i - 1].UT,
@@ -48,34 +47,39 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "Structure",
-            Description = "Route structure list builds an origin-first step list for live committed routes")]
-        public void RouteStructureList_BuildsOriginFirst()
+            Description = "A committed route's Log button resolves to its source mission, whose Log builds steps")]
+        public void RouteLog_OpensTheSourceMissionLog()
         {
             var routes = Logistics.RouteStore.CommittedRoutes;
             if (routes.Count == 0)
                 InGameAssert.Skip("No committed routes");
 
-            Func<string, Recording> lookup = id =>
-            {
-                if (string.IsNullOrEmpty(id)) return null;
-                var committed = RecordingStore.CommittedRecordings;
-                for (int i = 0; i < committed.Count; i++)
-                    if (committed[i] != null && string.Equals(committed[i].RecordingId, id, StringComparison.Ordinal))
-                        return committed[i];
-                return null;
-            };
-
+            int resolved = 0;
             foreach (var route in routes)
             {
                 if (route == null) continue;
-                List<StructureStep> steps = RouteStructureListBuilder.Build(route, lookup);
-                InGameAssert.IsTrue(steps.Count > 0, $"Route {route.Id} built 0 structure steps");
-                InGameAssert.AreEqual(StructureStepKind.Origin, steps[0].Kind,
-                    $"Route {route.Id} first step is {steps[0].Kind}, expected Origin");
+                string treeId = LogisticsWindowUI.ResolveRouteSourceTreeId(route);
+                if (string.IsNullOrEmpty(treeId)) continue; // a hand-made route: the button greys out
+                Mission mission = MissionStore.FindOriginalMission(treeId);
+                InGameAssert.IsTrue(mission != null,
+                    $"Route {route.Id} source tree {treeId} has no mission for its Log button to open");
+                RecordingTree tree = null;
+                var trees = RecordingStore.CommittedTrees;
+                for (int i = 0; i < trees.Count; i++)
+                    if (trees[i] != null && string.Equals(trees[i].Id, treeId, StringComparison.Ordinal))
+                        tree = trees[i];
+                InGameAssert.IsTrue(tree != null, $"Route {route.Id} source tree {treeId} is not committed");
+                List<StructureStep> steps = MissionStructureListBuilder.Build(
+                    tree, MissionStructureBuilder.Build(tree), null, null, mission.ExcludedIntervalKeys);
+                InGameAssert.IsTrue(steps.Count > 0,
+                    $"Route {route.Id} source mission '{mission.Name}' built 0 Log steps");
+                resolved++;
             }
+            if (resolved == 0)
+                InGameAssert.Skip("No committed route names a source mission");
 
             ParsekLog.Info("TestRunner",
-                $"Route structure list: built origin-first step lists for {routes.Count} committed route(s)");
+                $"Route Log: {resolved}/{routes.Count} committed route(s) resolved to a source mission with Log steps");
         }
     }
 }

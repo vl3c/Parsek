@@ -508,8 +508,8 @@ namespace Parsek.Logistics
                 // carries none). For a single-stop route lastAnalysisStop's
                 // source IS `source`, so this is byte-identical; for a
                 // cross-recording multi-stop route it keeps the pair coherent
-                // (A4 end-trim + RouteStructureListBuilder resolve the dock
-                // window through DockMemberRecordingId).
+                // (A4's end-trim resolves the dock window through
+                // DockMemberRecordingId).
                 DockMemberRecordingId = (lastAnalysisStop.SourceRecording ?? source).RecordingId,
                 // (M-MIS-5 P2b) Persisted origin-undock span start; -1 on
                 // launch-rooted routes (sparse in the codec). Anchors the

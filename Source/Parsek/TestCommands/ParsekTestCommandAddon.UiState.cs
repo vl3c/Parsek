@@ -30,9 +30,9 @@ namespace Parsek.TestCommands
     /// WHY <c>op=target</c> EXISTS ALONGSIDE <c>op=open</c>. <c>op=open window=structure</c>
     /// raises <c>IsOpen</c> and nothing else, so the window draws the "Nothing to show."
     /// chrome: the census's <c>ksc-structure-advanced</c> label is a picture of an empty
-    /// box. The populated forms are built by <c>OpenForMission</c> / <c>OpenForRoute</c>,
-    /// which set the target AND rebuild before raising the flag. So the op calls those, and
-    /// reports the row count they produced.
+    /// box. The populated form is built by <c>OpenForMission</c>, which sets the target AND
+    /// rebuilds before raising the flag. So the op calls it, and reports the row count it
+    /// produced.
     /// </para>
     /// </summary>
     public partial class ParsekTestCommandAddon
@@ -352,7 +352,9 @@ namespace Parsek.TestCommands
                 string detail = reject == TestCommandUiState.TargetUnsupportedWindowReason
                     ? $"{reject} window={spec.Name} "
                       + $"valid={TestCommandUiAction.StructureWindow}"
-                    : $"{reject} window={spec.Name}";
+                    : reject == TestCommandUiState.TargetRouteRetiredReason
+                        ? $"{reject} window={spec.Name} use=mission"
+                        : $"{reject} window={spec.Name}";
                 ParsekLog.Warn(Tag, $"uiaction rejected reason={reject} "
                     + $"window={spec.Name}");
                 SetExecResult("REJECTED", null, detail);
@@ -360,29 +362,13 @@ namespace Parsek.TestCommands
             }
 
             StructureListWindowUI structure = ui.GetStructureListUI();
-            string resolvedId;
-            string title;
-            List<string> candidates;
-            if (kind == UiTargetKind.Mission)
+            if (!TryResolveMissionTarget(wanted, out string resolvedId, out string missionId,
+                                         out string title, out List<string> candidates))
             {
-                if (!TryResolveMissionTarget(wanted, out resolvedId, out string missionId,
-                                             out title, out candidates))
-                {
-                    RejectTargetNotFound(kind, wanted, candidates);
-                    return;
-                }
-                structure.OpenForMission(resolvedId, missionId, title);
+                RejectTargetNotFound(kind, wanted, candidates);
+                return;
             }
-            else
-            {
-                if (!TryResolveRouteTarget(wanted, out resolvedId, out title,
-                                           out candidates))
-                {
-                    RejectTargetNotFound(kind, wanted, candidates);
-                    return;
-                }
-                structure.OpenForRoute(resolvedId, title);
-            }
+            structure.OpenForMission(resolvedId, missionId, title);
 
             uiActionPending = new UiActionPending
             {
@@ -507,7 +493,7 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>Resolves a <c>route=</c> value to a route id: the id itself, then the
-        /// route's display name.</summary>
+        /// route's display name. Read by <c>op=picker window=logistics</c>.</summary>
         private static bool TryResolveRouteTarget(string wanted, out string routeId,
                                                   out string title,
                                                   out List<string> candidates)

@@ -3,17 +3,10 @@ using System.Collections.Generic;
 namespace Parsek.UI.Gallery
 {
     /// <summary>
-    /// The Structure List window's whole mocked target: the step rows plus the two
-    /// fields that decide its title and its empty-state wording.
+    /// The Structure List window's whole mocked target: the step rows plus the title.
     /// </summary>
     internal sealed class GuiMockStructure
     {
-        /// <summary>True for <c>TargetMode.Route</c>, false for
-        /// <c>TargetMode.Mission</c>. It is not cosmetic: the empty-list message differs
-        /// between the two, and the route mode is the one that draws Origin / Deliver /
-        /// Pick up rows.</summary>
-        internal bool RouteMode;
-
         /// <summary>The window title's tail (the window draws "Parsek - Log: " + this).</summary>
         internal string Title;
 

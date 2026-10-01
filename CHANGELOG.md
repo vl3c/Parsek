@@ -2373,8 +2373,8 @@ _(unreleased — entries accumulate here per commit)_
   moment, or the body alone - an in-flight decouple no longer reads the launch pad. The first
   row's Time is the date, every later row `T+h:mm:ss` since it. A piece list too long for the
   Event cell is shortened there and shown whole in a new hover line at the bottom of the window.
-  An empty mission Log reads "This mission has no recorded flight." Route Logs keep their rows;
-  an orbital route endpoint reads `Mun orbit`. Presentation only: no recording data changed
+  An empty mission Log reads "This mission has no recorded flight." Presentation only: no
+  recording data changed
   (`MissionStructureList.cs`, `StructureListWindowUI.cs`).
 
 - **The mission Log follows its mission, not the recording tree.** A mission's Log was built
@@ -2387,6 +2387,11 @@ _(unreleased — entries accumulate here per commit)_
   moves). The Logistics window's mission Log button opens the source tree's original mission.
   Presentation only (`MissionStructureList.cs`, `MissionIntervalSelection.IsIntervalIncluded`,
   `StructureListWindowUI.cs`).
+- **A supply route has one Log button, and it opens the mission's Log.** The route Log (an
+  origin / dock / delivery / undock step list behind `Log (Route)`) is gone: the route's detail
+  panel already shows its origin, destination, per-cycle delivery and transit. The remaining
+  button, renamed from `Log (Mission)` to `Log`, opens the Log of the mission the route was
+  built from (greyed with its reason when the route was not built from a recorded mission).
 
 - **Missions window redesign, first slice.** The columns are `#`, Missions and vessels,
   Start time, Start event, End event, End time and **Interact**, one right-hand column that

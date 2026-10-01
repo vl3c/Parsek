@@ -1842,9 +1842,9 @@ can LOWER its own flag UNPROMPTED, while nothing raises one WITHOUT A PLAYER CLI
 paths DO raise open flags - the RouteRunPrompt banner's "Open Logistics" button inside
 `ParsekUI.DrawWindow` (`ParsekUI.cs:809`), `RecordingsTableUI.ShowMissionForRecording` /
 `ScrollToRecording` (`:467` / `:521`, reached from the Missions Docked partner rows' Go to
-and the two Timeline GoTo buttons), and `StructureListWindowUI.OpenForMission` / `OpenForRoute`
-(`:89` / `:100`, reached from the Missions "Log" and Logistics "Log (Route)" /
-"Log (Mission)" buttons) - but every one of those sites is a `GUILayout.Button` handler,
+and the two Timeline GoTo buttons), and `StructureListWindowUI.OpenForMission` (reached from
+the Missions "Log" and the Logistics route "Log" buttons) - but every one of those sites is a
+`GUILayout.Button` handler,
 and the seam synthesises no clicks. So no drawn frame in an unattended run raises a flag
 the seam just lowered, and there is no self-opening window a settled close read-back could
 catch. `tab` is out because its one
@@ -2177,17 +2177,19 @@ tail, because the list is unbounded in the save and the response is one line).
 **`op=target` opens a window ON a target.** `op=open window=structure` raises `IsOpen` and
 nothing else, so the window draws its "Nothing to show." chrome - the census's
 `ksc-structure-advanced` label is a picture of an empty box. The populated forms are built
-by `StructureListWindowUI.OpenForMission` / `OpenForRoute`, which set the target AND rebuild
-before raising the flag, so the op calls those and reports the row count they produced
-(`steps=`). `mission=` / `route=` resolve on three rungs - the id itself, the display NAME,
-then the tree's own name - because a census spec names what a reviewer can read off the
-window while a `${step.field}` chain carries an id. `mission=` tries the Mission's OWN id
+by `StructureListWindowUI.OpenForMission`, which sets the target AND rebuilds before raising
+the flag, so the op calls it and reports the row count it produced (`steps=`). `mission=`
+resolves on rungs - the id itself, the display NAME, then the tree's own name - because a
+census spec names what a reviewer can read off the window while a `${step.field}` chain
+carries an id. `mission=` tries the Mission's OWN id
 first, the only name a clone has that its source does not share (the `copy=` an
 `op=clone` payload returns), then the tree id (the tree's original mission); the Log it
 opens is that ONE mission's, its excluded intervals' rows dropped, and the reported `id=`
-stays the tree id. Exactly one selector: both is a
-REJECTED rather than a precedence, since the two open different lists and guessing would
-photograph the wrong one under the caller's label.
+stays the tree id. `route=` is REFUSED as `target-route-retired` (alone or beside
+`mission=`): the route Log was retired 2026-10-01 and a route's `Log` button opens the Log of
+its source tree's original mission, so a lane names that mission by its tree id. Refused
+rather than ignored, since an ignored selector would photograph something else under the
+caller's label.
 
 **`op=picker` opens a popup a ROW arms.** The three windows the original table named as
 deliberate exclusions were excluded because they are popups over a SELECTION, and raising
@@ -2402,7 +2404,7 @@ searched, so "0" - a window drawn but empty - reads differently from "231" - a t
 rather than resolved by precedence, the `op=pointer` park-versus-coordinates rule, because
 letting the token win silently would make a step reading "collapse everything" expand
 everything). `op=target`:
-`REJECTED target-unsupported-window` / `target-arg-missing` / `target-arg-conflict` /
+`REJECTED target-unsupported-window` / `target-arg-missing` / `target-route-retired` /
 `target-not-found` (message lists the missions or routes that exist);
 `ERROR target-not-opened`. `op=picker`: `REJECTED picker-unsupported-window` /
 `picker-arg-missing` / `picker-arg-conflict` / `picker-target-not-found`;
@@ -3821,7 +3823,7 @@ parsed, N deferred), with bounded per-command Info lines (command counts are sma
 | `LoadGame` | any scene incl. MAINMENU (the BOOT CHANNEL); Reject if a recorder is live (`msg=recording-active`, unless `allowLiveRecorder=refly` is passed AND a re-fly session marker is live - RF-3/A1) or a load is already in flight (`msg=load-in-flight`) | long-running two-phase (like `RunTests`): journal `CLAIMED` -> initiate load (`HighLogic.SaveFolder = dir`; `GamePersistence.LoadGame(...)`; `FlightDriver.StartAndFocusVessel(...)` - the same Assembly-CSharp-only sequence as v0.5.4 `TestingTools.LoadSave`, no kRPC types); response deferred until the new scene settles (pure `TestCommandLoadGame.DecideLoadCompletion`): a settled FLIGHT scene with `HighLogic.CurrentGame != null` -> journal `EXECUTED` + terminal `OK`; a settle-back to MAINMENU -> `ERROR msg=load-failed-returned-to-menu` (a failed flight boot, e.g. an NRE in `FlightDriver.Start` on an incompatible save); the LoadGame budget expiring -> `ERROR msg=load-timeout`. A null / incompatible game detected up front (before two-phase) is still `ERROR msg=load-failed` | `scene`, `save`, `allowLiveRecorder` |
 | `MissionMark` | any scene | emit a stable `[Parsek][Info][TestCommands] MISSIONMARK label=<label> ut=<ut>` log line (H3-style correlation) | `label` echoed |
 | `CaptureScreenshot` | any scene (the `ExportRenderManifest` row; the safe-point gate already excludes LOADING / a transition / the settle window, which is when a capture would photograph a black frame) | pre-delete a colliding target, then the reflectively-resolved `UnityEngine.ScreenCapture.CaptureScreenshot(<KSP root>/Screenshots/<label>.png, superSize)`; TWO-PHASE, holding the head until the file reports the same non-zero size on two consecutive polls | `label`, `path` (relative), `bytes` (settled), `superSize`, `overwrote` |
-| `UiAction` | game loaded, any scene that HOSTS the Parsek UI (FLIGHT / SPACECENTER); a scene with no host is `REJECTED ui-host-unavailable`, never a defer | per `op`: write a window's `IsOpen`, write a tab selector, `ParsekUI.SetUiComplexityMode` + the production `Update` latch, write a window rect (CLAMPED to that window's own resize floor), walk the window table read-only, move the OS cursor (`user32!SetCursorPos` after `ClientToScreen`), capture one in-memory GUI tree and locate a control by text, drive a window's set-of-expanded-keys, call `StructureListWindowUI.OpenForMission` / `OpenForRoute`, open `GroupPickerUI` / the Logistics link picker the way a row's button does, or report the live `PopupDialog`. Every op read-back-verified - and every op that changes drawn state TWO-PHASE, holding the head for one DRAWN frame (or, for `find`, for one CAPTURE) so the read-back describes what the game did rather than the value just written | per op: `op window open already` / `op window tab index already` / `op mode already` / `op window rect clamped minW minH` / the describe inventory (`scene complexity count` + seven keys per window) / `op x y park sx sy via` / `op window text ctrl match matches x y w h cx cy` / `op window key state changed expanded total` / `op window target id title steps open` / `op window picker target open` / `op open count name title buttons nbuttons` |
+| `UiAction` | game loaded, any scene that HOSTS the Parsek UI (FLIGHT / SPACECENTER); a scene with no host is `REJECTED ui-host-unavailable`, never a defer | per `op`: write a window's `IsOpen`, write a tab selector, `ParsekUI.SetUiComplexityMode` + the production `Update` latch, write a window rect (CLAMPED to that window's own resize floor), walk the window table read-only, move the OS cursor (`user32!SetCursorPos` after `ClientToScreen`), capture one in-memory GUI tree and locate a control by text, drive a window's set-of-expanded-keys, call `StructureListWindowUI.OpenForMission`, open `GroupPickerUI` / the Logistics link picker the way a row's button does, or report the live `PopupDialog`. Every op read-back-verified - and every op that changes drawn state TWO-PHASE, holding the head for one DRAWN frame (or, for `find`, for one CAPTURE) so the read-back describes what the game did rather than the value just written | per op: `op window open already` / `op window tab index already` / `op mode already` / `op window rect clamped minW minH` / the describe inventory (`scene complexity count` + seven keys per window) / `op x y park sx sy via` / `op window text ctrl match matches x y w h cx cy` / `op window key state changed expanded total` / `op window target id title steps open` / `op window picker target open` / `op open count name title buttons nbuttons` |
 | `DumpGuiTree` | any scene (the `CaptureScreenshot` row) | `GuiTreeRecorder.ArmForNextRepaint(label)` from the Update-phase pump (the recorder REFUSES to arm from inside an IMGUI pass), then TWO-PHASE, holding the head until the recorder reports THIS arm's dump written to `<KSP root>/Screenshots/<label>.gui.json` | `label`, `path` (relative), `bytes`, `windows`, `nodes`, `patched` (`<ok>/<of>`, the arm-time reading), `hits` |
 | `GloopsStart` | FLIGHT; else Defer | `ParsekFlight.StartGloopsRecording()` driven unconditionally, then RE-SAMPLE `IsGloopsRecording` - the production guards decide and log, the verb reports what it observed | `started`, `vessel` |
 | `GloopsStop` | FLIGHT; else Defer | `ParsekFlight.StopGloopsRecording()`; a take under two points is DROPPED by production and reported OK with `committed=false`, not REJECTED | `committed`, `points`, and `recordingId` XOR `dropped` |

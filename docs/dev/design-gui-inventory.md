@@ -960,7 +960,8 @@ docks, transfers cargo to the destination, and undocks, then commit and seal the
 (`:743`).
 
 The expanded route detail panel (`:1554-1670`) is where most of the window's real controls
-live: `Rename`, `Log (Route)`, `Log (Mission)`, `Link round-trip...` / `Unlink`, cadence and
+live: `Rename`, `Log` (the source mission's Log; `Log (Route)` and its route step list were
+retired 2026-10-01), `Link round-trip...` / `Unlink`, cadence and
 priority steppers, `Re-scan for endpoint`, plus up to fourteen conditional readout lines
 (hold, partial, capacity, countdown branch, five recent-cycle flow lines, cost/run, source
 recordings). The candidate detail panel (`:2300`) is three or four lines with NO controls.
@@ -980,18 +981,22 @@ the link picker, any of the four dialogs.
 
 ### 3.7 Parsek - Log (the Structure window)
 
-Purpose: a read-only step list for one mission or one route. No sorting, no filters, no per-row
-controls (`UI/StructureListWindowUI.cs:14-16`). Title (Missions Model 1, 2026-09-29):
-`Parsek - Log: <mission name>` from the Missions `Log` button and the Logistics `Log (Mission)`
-button, `Parsek - Log: <route name>` from `Log (Route)`, and the bare `Parsek - Log` when opened
-with no target (the census's empty chrome). It read `Parsek - <name>` before, with a
+Purpose: a read-only step list for one mission. No sorting, no filters, no per-row controls
+(`UI/StructureListWindowUI.cs:14-16`). Title (Missions Model 1, 2026-09-29):
+`Parsek - Log: <mission name>` from the Missions `Log` button and the Logistics route `Log`
+button (the route's source mission), and the bare `Parsek - Log` when opened with no target
+(the census's empty chrome). The route mode (`Log (Route)`, origin / dock / delivery / undock
+rows) was retired 2026-10-01 (MISSION-LOG-REWORK part 4): the route detail panel already shows
+origin, destination, per-cycle delivery and transit. It read `Parsek - <name>` before, with a
 `Mission structure` / `Route structure` fallback. The class, its log lines and the seam window
 token keep the name `structure` (`GuiCensusSeamVerbTests` pins the token), so `structure` is
 the seam's alias for the Log.
 
-Opened by `OpenForMission` (`:83`, from the Missions tab `Log` button) or `OpenForRoute`
-(`:94`, from the Logistics detail panel); one reusable instance, retargeted and rebuilt on each
-open (`:107`). No complexity gate.
+Opened by `OpenForMission` (from the Missions tab `Log` button, or the Logistics detail
+panel's `Log`, which resolves the route's source tree to its ORIGINAL mission); one reusable
+instance, retargeted and rebuilt on each open, and rebuilt while open when its mission's
+include set, name or the committed recordings move (a Layout-only change signature). No
+complexity gate.
 
 Columns (Log rework, 2026-10-01): `Time` 110, `Event` expand, `Location` 185, `Vessel` 160,
 plus a reserved scrollbar gutter; first-open width 900 (`DefaultWindowWidth`). The `#` and
@@ -1012,13 +1017,13 @@ header too, and the row labels are the shared table cell style (`ParsekUI.GetTab
 the boxed header's own horizontal padding) with the vertical padding dropped for this log's
 compact pitch. Before, the rows had no box and a hand-set 5 px indent, so body text sat 1 px
 right of the header text (GUI-4 `2026-09-24_2041`, `bd-structure-mission-advanced`). Empty state is a single label (`This mission has no recorded flight.` for a
-mission target, `Nothing to show (source recording unavailable).` for a route, `Nothing to
-show.` with no target; `EmptyText`) plus `Close`, then an early return that suppresses the
+mission target, `Nothing to show.` with no target; `EmptyText`) plus `Close`, then an early
+return that suppresses the
 header, the scroll view, the hover strip and the resize handle.
 
 Picture: `ksc-structure-advanced`, 3 nodes - window, label, button. That is the no-target
 wording, because `op=open window=structure` raises `IsOpen` without ever calling
-`OpenForMission` / `OpenForRoute`, so `targetId` stays null and `Rebuild` never runs. The census
+`OpenForMission`, so `targetId` stays null and `Rebuild` never runs. The census
 spec files that as a follow-up rather than faking it
 (`TestCommands/TestCommandUiAction.cs:414-418`).
 

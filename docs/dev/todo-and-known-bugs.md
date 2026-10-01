@@ -93,7 +93,7 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   policy), so `GetRewindRecording` is null in every scene (GUI-4 is a Space Center capture
   and draws no Rewind either); GUI-1's operator career has launch saves and draws it.
 
-## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branches `log-rework` (parts 1-2) and `log-rework-2` (part 3 on). PARTS 1-3 DONE]
+## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branches `log-rework` (parts 1-2) and `log-rework-2` (part 3 on). PARTS 1-4 DONE]
 
 Presentation only (no recording data or schema change, no new window). The docked-mission
 subject is `bdock-recorded`'s "Kerbal X #2" (GUI-4), whose Log read 31 rows; it now reads 11,
@@ -134,8 +134,15 @@ pinned row by row in `StructureListBdockFixtureTests` against the committed fixt
   and render windows read. An open Log rebuilds on a Layout-only change signature
   (`RecordingStore.StateVersion`, the mission's name, an order-free hash of its excluded keys);
   a gallery mock has no target and stays inert.
-- [ ] Later PR: retire the route Log (it keeps working; its Status column folded into Location,
-  an orbital endpoint reads `Mun orbit`).
+- [x] Part 4, the route Log is retired: `RouteStructureListBuilder`, `TargetMode.Route`, the
+  route-only step kinds (Origin / Delivery / Stop), the Logistics `Log (Route)` button, the
+  three route gallery states and the seam's `op=target route=` (now `REJECTED
+  target-route-retired`, hlib mirrored) are gone. The route's one `Log` button opens its source
+  tree's original mission (`LogisticsWindowUI.ResolveRouteSourceTreeId` +
+  `MissionStore.FindOriginalMission`); the in-game `Structure` route cell now proves that
+  resolution (`RouteLog_OpensTheSourceMissionLog`, same cell count, so LT-4's pin holds), and
+  GUI-3 photographs the Mun route's source mission (`ib-structure-route-log-advanced`).
+  `StructureListWindowUI` no longer reads `CommittedRecordings`, so its ERS exemption is gone.
 - [ ] Later PR: number same-named vessels (`Kerbal X [2]`); today the docking mission's two
   `End: Orbiting | Kerbal X` rows are told apart only by their recording.
 

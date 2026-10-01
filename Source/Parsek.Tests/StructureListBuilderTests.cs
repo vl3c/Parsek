@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Parsek.Logistics;
 using Parsek.Tests.Generators;
 using Xunit;
 
@@ -20,7 +19,6 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             MissionStructureBuilder.SuppressLogging = false;
             MissionStructureListBuilder.SuppressLogging = false;
-            RouteStructureListBuilder.SuppressLogging = false;
         }
 
         public void Dispose()
@@ -29,7 +27,6 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
             MissionStructureBuilder.SuppressLogging = false;
             MissionStructureListBuilder.SuppressLogging = false;
-            RouteStructureListBuilder.SuppressLogging = false;
         }
 
         // --- Helpers ---
@@ -267,92 +264,6 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[Mission]") && l.Contains("BuildStructureList:") && l.Contains("steps="));
         }
 
-        // --- Route builder tests ---
-
-        [Fact]
-        public void Route_KscOrigin_OneStop_EmitsOrderedSteps()
-        {
-            var dockRec = new Recording
-            {
-                RecordingId = "rDock",
-                RouteConnectionWindows = new List<RouteConnectionWindow>
-                {
-                    new RouteConnectionWindow
-                    {
-                        DockUT = 100,
-                        UndockUT = 200,
-                        EndpointAtDock = new RouteEndpoint { BodyName = "Mun", IsSurface = false }
-                    }
-                }
-            };
-            var route = new RouteFixtureBuilder()
-                .WithKscOrigin(true)
-                .WithOrigin(new RouteEndpoint { BodyName = "Kerbin" })
-                .WithDockBinding(150, "rDock")
-                .WithStop(new RouteStop
-                {
-                    Endpoint = new RouteEndpoint { BodyName = "Mun", IsSurface = false },
-                    DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 50 } }
-                })
-                .Build();
-
-            var steps = RouteStructureListBuilder.Build(route, id => id == "rDock" ? dockRec : null);
-
-            Assert.Equal(4, steps.Count);
-            Assert.Equal(StructureStepKind.Origin, steps[0].Kind);
-            Assert.Equal("Origin: KSC", steps[0].Label);
-            Assert.Equal("Kerbin, KSC", steps[0].Location);   // body, biome-slot (KSC)
-            Assert.Equal(StructureStepKind.Dock, steps[1].Kind);
-            Assert.Equal("Mun orbit", steps[1].Location);     // orbital endpoint
-            Assert.Equal(100, steps[1].UT);
-            Assert.Equal(StructureStepKind.Delivery, steps[2].Kind);
-            Assert.Equal(150, steps[2].UT);
-            Assert.Contains("50 LiquidFuel", steps[2].Label);
-            Assert.Equal(StructureStepKind.Undock, steps[3].Kind);
-            Assert.Equal(200, steps[3].UT);
-        }
-
-        [Fact]
-        public void Route_VesselOrigin_LabelsDepot()
-        {
-            var route = new RouteFixtureBuilder()
-                .WithKscOrigin(false)
-                .WithOrigin(new RouteEndpoint { BodyName = "Minmus", IsSurface = true, Latitude = 10, Longitude = 20 })
-                .WithStop(new RouteStop { Endpoint = new RouteEndpoint { BodyName = "Mun" } })
-                .Build();
-
-            var steps = RouteStructureListBuilder.Build(route, id => null);
-
-            Assert.Equal("Origin: depot", steps[0].Label);
-            Assert.StartsWith("Minmus (", steps[0].Location); // body first, with surface coords
-        }
-
-        [Fact]
-        public void Route_MissingSourceRecording_NoWindowSteps_NoThrow()
-        {
-            var route = new RouteFixtureBuilder()
-                .WithKscOrigin(true)
-                .WithOrigin(new RouteEndpoint { BodyName = "Kerbin" })
-                .WithDockBinding(150, "missing")
-                .WithStop(new RouteStop { Endpoint = new RouteEndpoint { BodyName = "Mun" } })
-                .Build();
-
-            var steps = RouteStructureListBuilder.Build(route, id => null);
-
-            Assert.DoesNotContain(steps, s => s.Kind == StructureStepKind.Dock);
-            Assert.DoesNotContain(steps, s => s.Kind == StructureStepKind.Undock);
-            Assert.Contains(steps, s => s.Kind == StructureStepKind.Origin);
-            // Delivery still emitted at the recorded dock UT even without the window.
-            Assert.Contains(steps, s => s.Kind == StructureStepKind.Delivery && s.UT == 150);
-        }
-
-        [Fact]
-        public void Route_NullRoute_ReturnsEmpty()
-        {
-            var steps = RouteStructureListBuilder.Build(null, id => null);
-            Assert.Empty(steps);
-        }
-
         // --- Location formatter tests ---
 
         [Fact]
@@ -362,110 +273,6 @@ namespace Parsek.Tests
             Assert.Equal("Mun", StructureLocationFormatter.BodyBiome("Mun", null));
             Assert.Equal("Shores", StructureLocationFormatter.BodyBiome(null, "Shores"));
             Assert.Equal("-", StructureLocationFormatter.BodyBiome(null, null));
-        }
-
-        [Fact]
-        public void LocationFormatter_Endpoint_KscSurfaceOrbit()
-        {
-            // KSC: body first, "KSC" in the biome slot.
-            Assert.Equal("Kerbin, KSC",
-                RouteEndpointLocationFormatter.EndpointLocation(new RouteEndpoint { BodyName = "Kerbin" }, true));
-
-            // Surface: body first + coords (InvariantCulture).
-            RouteEndpoint surf = new RouteEndpoint { BodyName = "Mun", IsSurface = true, Latitude = 1, Longitude = 2 };
-            Assert.Equal("Mun (1.00, 2.00)", RouteEndpointLocationFormatter.EndpointLocation(surf, false));
-
-            // Orbit: "<body> orbit" - the endpoint is recorded as orbital.
-            RouteEndpoint orb = new RouteEndpoint { BodyName = "Duna", IsSurface = false };
-            Assert.Equal("Duna orbit", RouteEndpointLocationFormatter.EndpointLocation(orb, false));
-
-            // Nothing recorded: the one missing-value text.
-            Assert.Equal(StructureLocationFormatter.Missing,
-                RouteEndpointLocationFormatter.EndpointLocation(new RouteEndpoint(), false));
-        }
-
-        [Fact]
-        public void LocationFormatter_SurfaceEndpoint_BiomeResolverReplacesCoordinates()
-        {
-            RouteEndpoint surf = new RouteEndpoint { BodyName = "Mun", IsSurface = true, Latitude = 1, Longitude = 2 };
-
-            // With a resolver: "body, biome" replaces the coordinate fallback.
-            Assert.Equal("Mun, Midlands",
-                RouteEndpointLocationFormatter.EndpointLocation(surf, false, (body, lat, lon) => "Midlands"));
-            // Resolver yielding nothing -> coordinate fallback survives.
-            Assert.StartsWith("Mun (",
-                RouteEndpointLocationFormatter.EndpointLocation(surf, false, (body, lat, lon) => null));
-            // KSC ignores the resolver (keeps "KSC" in the biome slot).
-            Assert.Equal("Kerbin, KSC",
-                RouteEndpointLocationFormatter.EndpointLocation(
-                    new RouteEndpoint { BodyName = "Kerbin" }, true, (body, lat, lon) => "Shores"));
-        }
-
-        [Fact]
-        public void Route_SurfaceEndpoint_UsesInjectedBiomeResolver()
-        {
-            var route = new RouteFixtureBuilder()
-                .WithKscOrigin(true)
-                .WithOrigin(new RouteEndpoint { BodyName = "Kerbin" })
-                .WithDockBinding(150, "missing")
-                .WithStop(new RouteStop
-                {
-                    Endpoint = new RouteEndpoint { BodyName = "Kerbin", IsSurface = true, Latitude = -0.04, Longitude = -74.72 }
-                })
-                .Build();
-
-            var steps = RouteStructureListBuilder.Build(route, id => null, (body, lat, lon) => "Shores");
-
-            StructureStep delivery = steps.Single(s => s.Kind == StructureStepKind.Delivery);
-            Assert.Equal("Kerbin, Shores", delivery.Location);
-        }
-
-        // ==================================================================
-        // M3 Phase 4: direction-aware stop label (Phase-2 deferred UI obligation)
-        // ==================================================================
-
-        // catches: a pure-pickup stop rendering a "Deliver" label describing
-        // nothing (the deferred Phase-2 UI obligation, now user-reachable since
-        // Phase 4 makes pickup routes dispatchable).
-        [Fact]
-        public void FormatStopLabel_PurePickup_RendersPickUp()
-        {
-            var stop = new RouteStop
-            {
-                PickupManifest = new Dictionary<string, double> { { "Ore", 50.0 } },
-            };
-            string label = RouteStructureListBuilder.FormatStopLabel(stop, "");
-            Assert.Equal("Pick up (50 Ore)", label);
-        }
-
-        [Fact]
-        public void FormatStopLabel_DeliveryOnly_RendersDeliver()
-        {
-            var stop = new RouteStop
-            {
-                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
-            };
-            string label = RouteStructureListBuilder.FormatStopLabel(stop, "");
-            Assert.Equal("Deliver (100 LiquidFuel)", label);
-        }
-
-        [Fact]
-        public void FormatStopLabel_Mixed_RendersBothDirections()
-        {
-            var stop = new RouteStop
-            {
-                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
-                PickupManifest = new Dictionary<string, double> { { "Ore", 50.0 } },
-            };
-            string label = RouteStructureListBuilder.FormatStopLabel(stop, "");
-            Assert.Equal("Deliver (100 LiquidFuel) / Pick up (50 Ore)", label);
-        }
-
-        [Fact]
-        public void FormatStopLabel_Empty_FallsBackToBareDeliver()
-        {
-            string label = RouteStructureListBuilder.FormatStopLabel(new RouteStop(), " #2");
-            Assert.Equal("Deliver #2", label);
         }
     }
 }
