@@ -103,6 +103,9 @@ class LedgerInputs:
     seed_block: Optional[Dict]
     analysis_text: Optional[str]
     log_text: str
+    # Set when the shell could not read the archive's ledger inputs (OSError); the
+    # baseline then reports the archive unreadable instead of the sweep aborting.
+    read_error: str = ""
 
 
 def blocks(expectations: Dict) -> Tuple[Optional[Dict], Optional[Dict]]:
@@ -217,6 +220,9 @@ def prepare_baseline(expectations: Dict, inputs: LedgerInputs,
     log the edits run over: the reduced log when it captures exactly what the full
     log captures and the verdict is identical, else the full log."""
     led, _world = blocks(expectations)
+    if inputs.read_error:
+        return LedgerBaseline(None, None, None, None, inputs.log_text, None,
+                              ["unreadable archive: %s" % inputs.read_error])
     if inputs.analysis_text is None:
         return LedgerBaseline(None, None, None, None, inputs.log_text, None,
                               ["no archived .analysis.json (the produced careerSave block)"])

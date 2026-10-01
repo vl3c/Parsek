@@ -46,6 +46,7 @@ for _p in (LIB_DIR, PROVISION_DIR):
 import ghostlife  # noqa: E402  (the pure sibling behind the ghostLifecycle row)
 import hlib  # noqa: E402
 import ledgerverify  # noqa: E402  (the ledger-oracle verifier's decision core, shared with mutledger)
+import missionverify  # noqa: E402  (the mission-verdict decision core, shared with mutmission)
 import machinelock  # noqa: E402  (shared lock I/O; pure decisions live in provlib)
 import oracle  # noqa: E402
 import provlib  # noqa: E402
@@ -93,9 +94,9 @@ REQUIREMENTS_PATH = os.path.join(MISSIONS_DIR, "requirements.txt")
 # The mission-result JSON schema run.py accepts (design Data Model "Mission
 # result": schema = 1). run.py must NOT import mlib (it stays stdlib + hlib/provlib
 # only, never links the mission package), so this is an INLINE mirror of
-# mlib.MISSION_RESULT_SCHEMA; a result carrying a different schema is treated as
-# unreadable (fail-closed), never mis-parsed.
-MISSION_RESULT_SCHEMA = 1
+# mlib.MISSION_RESULT_SCHEMA, defined in missionverify; a result carrying a
+# different schema is treated as unreadable (fail-closed), never mis-parsed.
+MISSION_RESULT_SCHEMA = missionverify.MISSION_RESULT_SCHEMA
 
 # Default kRPC endpoint (design "Connection lifecycle" item 1): the stamped kRPC
 # settings bind 127.0.0.1:50000 (RPC) / 50001 (stream). v1 uses these defaults;
@@ -1562,30 +1563,24 @@ def _read_mission_result(result_path: str) -> Optional[Dict]:
     Compatibility: "a schema bump makes the harness refuse an old artifact ...
     rather than mis-parse") makes run.py refuse a result whose top-level
     ``schema`` is not the one it understands, so a future/legacy mission-result
-    shape is treated as unreadable rather than silently mis-read."""
+    shape is treated as unreadable rather than silently mis-read. The parse and
+    the gate are ``missionverify.parse_mission_result_text`` (shared with the
+    mission mutation checker); this shell owns the file read."""
     if not os.path.isfile(result_path):
         return None
     try:
         with open(result_path, "r", encoding="utf-8", errors="replace") as fh:
-            obj = json.load(fh)
-    except (OSError, ValueError):
+            text = fh.read()
+    except OSError:
         return None
-    if not isinstance(obj, dict):
-        return None
-    if obj.get("schema") != MISSION_RESULT_SCHEMA:
-        return None
-    return obj
+    return missionverify.parse_mission_result_text(text)
 
 
 def _read_mission_verdict(result_path: str) -> Optional[str]:
     """The mission result's ``verdict`` string, or None when the result is
     absent / unreadable / carries no string verdict (design edge 12: a missing
     or unreadable result fails closed via hlib.classify_mission_step(None))."""
-    obj = _read_mission_result(result_path)
-    if obj is None:
-        return None
-    v = obj.get("verdict")
-    return v if isinstance(v, str) else None
+    return missionverify.mission_verdict_of(_read_mission_result(result_path))
 
 
 def _read_mission_wall_seconds(result_path: str) -> Optional[float]:
@@ -1601,13 +1596,7 @@ def _read_mission_wall_seconds(result_path: str) -> Optional[float]:
     a permanent maintenance cost for a quantity that does not move. If the
     residue ever climbs past ~120 s, THAT is the signal to go instrument the
     call sites -- not before."""
-    obj = _read_mission_result(result_path)
-    if obj is None:
-        return None
-    wall = obj.get("wallSeconds")
-    if isinstance(wall, (int, float)) and not isinstance(wall, bool):
-        return float(wall)
-    return None
+    return missionverify.mission_wall_seconds_of(_read_mission_result(result_path))
 
 
 def _forward_mission_stdout(stdout_path: str, logger: HarnessLogger) -> None:
@@ -2369,88 +2358,26 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # 1. Driver validity (from the response stream + the mission step, M-B1).
     ev = hlib.evaluate_response_stream(drive.response_lines, drive.steps_with_ids)
     mission = drive.mission_step
-    mission_outcome_unmet = False
-    if mission is None:
-        # Seam-only driver: every seam step gates validity (unchanged M-A5).
-        driver_valid = ev.all_expected_met and not drive.boot_crashed and not drive.batch_crashed
-        stage_subkind = _stage_subkind_for(ev.first_unmet)
-    else:
-        # Autopilot driver (design classification carve-out): validity is gated by
-        # the steps UP TO AND INCLUDING the mission handoff -- LoadGame/SetSetting
-        # (pre-mission seam steps) plus the mission verdict. Post-mission seam steps
-        # (CommitTree/FlushAndQuit) are RECORDED but NON-gating on a MISSION-OK run:
-        # a good flight Parsek then failed to record is a PARSEK-FAIL(expectation),
-        # NOT a driver-INVALID a retry would paper over. When the mission itself did
-        # NOT return MISSION-OK, its subkind drives the driver-INVALID.
-        mission_id = mission["id"]
-        pre_steps = [s for s in ev.steps if s.step_id < mission_id]
-        pre_unmet = next((s for s in pre_steps if not s.met), None)
-        pre_met = pre_unmet is None
-        driver_valid = (pre_met and mission["met"]
-                        and not drive.boot_crashed and not drive.batch_crashed)
-        if not pre_met:
-            stage_subkind = _stage_subkind_for(pre_unmet)
-        elif not mission["met"]:
-            stage_subkind = mission["subkind"]
-        else:
-            stage_subkind = ""
-        detail["mission"] = {
-            "status": "PASS" if mission["met"] else "FAIL",
-            "missionVerdict": mission["missionVerdict"], "subkind": mission["subkind"],
-        }
-        # The EVA-4 fail-open closure (2026-07-25). The carve-out above keeps every
-        # post-mission RECORDING step non-gating on driver validity; what it must NOT
-        # do is drop a post-mission OUTCOME step's verdict on the floor. That verdict
-        # is the run's only channel onto the world state the mission handed off, and
-        # on EVA-4 flight 3 it was the ONLY thing that saw the kerbal die. Recorded as
-        # its own verifier row and classified PARSEK-FAIL(mission-outcome) so it reds
-        # structurally, with no dependence on the spec author's log-token regexes.
-        outcome_unmet = hlib.first_unmet_post_mission_outcome(ev.steps, mission_id)
-        gating_verbs = [o.cmd for o in ev.steps
-                        if str(o.step_id) > str(mission_id)
-                        and hlib.post_mission_step_gates(o.cmd)]
-        # Only a MET mission reaches the classifier: an unmet mission is already
-        # driver-INVALID with its own subkind, and re-reporting its skipped/failed tail
-        # as an outcome miss would mask the mission's own reason.
-        is_flight_outcome, outcome_driver_subkind = (
-            hlib.classify_post_mission_outcome_miss(outcome_unmet)
-            if (outcome_unmet is not None and mission["met"]) else (False, ""))
-        mission_outcome_unmet = is_flight_outcome
-        # A refusal / tooling / never-answered miss is a DRIVER fault, classified exactly
-        # as the same fault would be pre-mission, rather than being blamed on the mod.
-        if outcome_driver_subkind:
-            driver_valid = False
-            stage_subkind = outcome_driver_subkind
-        if not mission["met"]:
-            outcome_status = "SKIPPED"
-        elif outcome_unmet is not None:
-            outcome_status = "FAIL"
-        elif not gating_verbs:
-            # NOT "PASS": this row checked nothing. Every autopilot scenario but EVA-4
-            # lands here, and reading a blank check as a pass is how a future edit that
-            # DROPS the gating step (disarming the gate entirely) goes unnoticed.
-            outcome_status = "SKIPPED"
-        else:
-            outcome_status = "PASS"
-        detail["missionOutcome"] = {
-            "status": outcome_status,
-            "reason": "" if gating_verbs else "no-gating-verbs",
-            "gatingVerbs": gating_verbs,
-            "firstUnmet": (None if outcome_unmet is None else {
-                "id": outcome_unmet.step_id, "cmd": outcome_unmet.cmd,
-                "expect": outcome_unmet.expect, "verdict": outcome_unmet.verdict,
-                "msg": outcome_unmet.msg,
-                "flightOutcome": is_flight_outcome,
-                "driverSubkind": outcome_driver_subkind}),
-        }
+    # The composition (seam-only vs autopilot carve-out, the EVA-4 missionOutcome
+    # row) is missionverify.compose_driver_validity, which the mission mutation
+    # checker replays; this shell keeps the log line and the R10 override below.
+    dv = missionverify.compose_driver_validity(ev, mission, drive.boot_crashed,
+                                               drive.batch_crashed)
+    driver_valid = dv.driver_valid
+    stage_subkind = dv.stage_subkind
+    mission_outcome_unmet = dv.mission_outcome_unmet
+    if mission is not None:
+        detail["mission"] = dv.detail_mission
+        detail["missionOutcome"] = dv.detail_mission_outcome
+        outcome_unmet = dv.outcome_unmet
         logger.info("Verify", "verify missionOutcome status=%s gating=%d firstUnmet=%s"
-                    % (outcome_status, len(gating_verbs),
+                    % (dv.detail_mission_outcome["status"], len(dv.gating_verbs),
                        "-" if outcome_unmet is None
                        else "%s(%s) verdict=%s msg=%s -> %s"
                             % (outcome_unmet.cmd, outcome_unmet.step_id,
                                outcome_unmet.verdict, outcome_unmet.msg or "-",
-                               "mission-outcome" if is_flight_outcome
-                               else "driver:%s" % outcome_driver_subkind)))
+                               "mission-outcome" if dv.is_flight_outcome
+                               else "driver:%s" % dv.outcome_driver_subkind)))
     # R10: an unresolved ${step.field} always invalidates the driver stage, but it
     # OWNS the subkind only when it is the FIRST thing that went wrong.
     #   no-such-field: the producer answered OK and simply emits no such key. Its own
@@ -3152,23 +3079,9 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
             "recordingCount": recording_count}
 
 
-def _stage_subkind_for(fu) -> str:
-    """Map the first unmet seam-step outcome to a driver-stage subkind (design
-    driver-validity taxonomy). None (no unmet step) -> "" (met). An M-C1 verb refusal
-    carrying a recognized `msg=` reason maps to the finer driver-* subkind (item 6);
-    an unrecognized reason falls back to driver-verdict-mismatch."""
-    if fu is None:
-        return ""
-    if not fu.found:
-        return "driver-stage"
-    if fu.verdict == "TIMEOUT":
-        return "seam-timeout"
-    if fu.cmd == "LoadGame" and fu.verdict == "ERROR":
-        return "load-failed"
-    refusal = hlib.classify_seam_refusal_subkind(getattr(fu, "msg", ""))
-    if refusal:
-        return refusal
-    return "driver-verdict-mismatch"
+# Map the first unmet seam-step outcome to a driver-stage subkind; the decision
+# lives in missionverify (shared with the mission mutation checker).
+_stage_subkind_for = missionverify.stage_subkind_for
 
 
 def _driven_category(spec: Dict) -> Optional[str]:

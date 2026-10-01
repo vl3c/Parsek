@@ -6364,9 +6364,12 @@ Remaining fail-open surfaces, ranked:
    (`harness/lib/mutsave.py`, `--save-only`); its first sweep found no vacuous
    save-parse gate. PR 2 (branch `mutation-phase2-pr2`) adds ledger-oracle perturbation
    (`harness/lib/mutledger.py`, `--ledger-only`); its first sweep found no vacuous ledger
-   gate. Still open (todo MUTATION-CHECK-PHASE-2, PR 3): replaying mission assertions with
-   sensor reads removed, and forbidden-token injection. Until then a mission-side cell can
-   still go vacuous without anything noticing.
+   gate. PR 3 (branch `mutation-phase2-pr3`) replays the mission verdict chain
+   (`harness/lib/mutmission.py`, `--mission-only`, decisions shared through
+   `harness/lib/missionverify.py`) and injects a line for every forbidden token
+   (`harness/lib/mutforbid.py`, `--forbidden-only`); its first sweep found one vacuous
+   mission gate (CA-1 `craftChuteNeverArmed`, an absence claim) and no vacuous forbidden
+   token. Phase 2 is closed; what it leaves to the operator is todo MUTATION-CHECK-RESIDUE.
 9. **The near-vacuous batch is admitted by design.** The gate blocks only
    `passed == 0`, so `total=42 passed=1 failed=0 skipped=41` satisfies every rule. Pin
    whole tallies.
