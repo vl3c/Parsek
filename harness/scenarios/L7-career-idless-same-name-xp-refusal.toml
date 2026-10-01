@@ -1,9 +1,10 @@
 schema = 1
 id = "L7-career-idless-same-name-xp-refusal"
-# `operator`: a NEVER-FLOWN reading run. It is the live proof owed by
+# `nightly`: promoted by operator decision 2026-10-01. It is the live proof of
 # KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2 (the XP-leg
-# `ambiguous-recovery-recording` refusal), authorized by the operator 2026-10-01.
-# Nothing here is armed; promotion is an operator call after the reading run.
+# `ambiguous-recovery-recording` refusal), authorized by the operator 2026-10-01,
+# flown GREEN on its reading run `2026-10-01_1614`, with its offline negative control
+# recorded in docs/dev/autotest-status.md.
 #
 # ######################## WHAT SHAPE REACHES STAGE 2 NOW ########################
 #
@@ -98,8 +99,8 @@ id = "L7-career-idless-same-name-xp-refusal"
 #
 # L6 stays unchanged as the OVER-FIRE control: its survivors are the flight's own
 # chained segments under one known guid, so the refusal must NOT print there.
-tier = "operator"
-description = "NEVER FLOWN: the stage-2 live proof of KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY. science_bench_recover flown UNRECORDED (auto-record off) over career-idless-same-name-pad: two id-less legacy Jumping Flea recordings (guid and snapshot pid stripped) and a pad craft whose guid and pid no recording carries. Every recovery leg must take path=name-fallback; funds and science credit the most-recent-ended pick 5436a7e8; the XP leg must refuse reason=ambiguous-recovery-recording corroboration=unknown-launch-guid and write no row."
+tier = "nightly"
+description = "Nightly (promoted 2026-10-01; reading run 2026-10-01_1614 GREEN): the stage-2 live proof of KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY. science_bench_recover flown UNRECORDED (auto-record off) over career-idless-same-name-pad: two id-less legacy Jumping Flea recordings (guid and snapshot pid stripped) and a pad craft whose guid and pid no recording carries. Every recovery leg must take path=name-fallback; funds and science credit the most-recent-ended pick 5436a7e8; the XP leg must refuse reason=ambiguous-recovery-recording corroboration=unknown-launch-guid and write no row."
 instanceProfile = "stock-minimal"
 tags = ["ledger", "L7", "recovery", "correlator", "same-name", "career", "reading-run", "kerbal-xp", "legacy-idless"]
 
