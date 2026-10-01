@@ -258,7 +258,10 @@ every decision closed, which is the pre-policy 1x behaviour.
   coverage; warped only while in-gate) and the kx COAST wait (post-separation
   coverage; above the atmosphere with the throttle read zero; the kx shell's
   `max_physics_warp` is a per-state callable that allows 4x in COAST only). Each
-  drops to 1x 15 s before it can end, so a commit or seam step never runs warped.
+  drops to 1x 15 s before it can end, so a commit or seam step never runs warped,
+  and a decorator on `b5_decide` / `kxrw_decide` drops any warp the policy still
+  holds on the frame the machine turns terminal (vessel lost, left the SOI, a
+  give-up), so the cleanup tail never runs warped.
   Physics warp keeps every physics frame, so the recorded sections stay per-frame
   physics sections; the lanes' count, structure and log expectations all passed
   on the verification flights.

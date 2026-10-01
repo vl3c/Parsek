@@ -1149,7 +1149,17 @@ allowedAnomalies = []
 # which separates the pod and destroys this lane's product. A future flight spending
 # ~430 m/s more in corrections than this one is the case that would shed; that is the
 # number to check before treating {5,5} as unconditional.
-count = { min = 5, max = 5 }
+# RE-PINNED 5 -> 6 on 2026-10-02 (branch `mission-warp-fix`, todo
+# INFLIGHT-COMMIT-SPLIT-STALE-RECORDING-COUNTS): since #1931 the mid-mission seam
+# CommitTree runs the recording optimizer, which splits the ascent at its atmosphere
+# exit. Reading run `2026-10-01_2135_B22-jool-orbit` (MISSION-OK, a circular Jool park,
+# every other verifier PASS) read 6 on `recordings.count 6 > max 5` alone, and its
+# KSP.log carries exactly one split:
+#   Split candidate (PersistedPhaseChange): rec=5c9dcdab... sec=4 splitUT=224.50
+#   prev=Atmospheric next=ExoBallistic
+#   CommitTreeFlight: optimization pass ran committed=5->6
+# Not yet re-flown on the new pin. Still exact: 5 and 7 both red.
+count = { min = 6, max = 6 }
 
 [expectations.logContracts]
 # Every token sourced from its ACTUAL emitting call site; the interplanetary format is

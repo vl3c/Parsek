@@ -1377,7 +1377,10 @@ count. Flown once each on current main:
   inverted offline against its reading's produced save: 8 and 10 both red.
 - Findings, NOT re-pinned (more than one split): GS-8, B4, B13, B14, filed as
   INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS below.
-- Not flown (operator tier, over the 3 h budget): B16, B18, B19, B20, B21, B22.
+- Not flown (operator tier, over the 3 h budget): B16, B18, B19, B20, B21. B22 flew on
+  2026-10-01 for the mission warp policy (`2026-10-01_2135`, MISSION-OK, a circular Jool park)
+  and read 6 on `recordings.count 6 > max 5` alone with exactly one ascent-exit split
+  (`committed=5->6`): re-pinned 5 -> 6 on branch `mission-warp-fix`, not yet re-flown on the pin.
 
 ## ~~INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS: four lanes commit more than one extra recording since #1931, so their count windows were not re-pinned~~ [FILED 2026-10-01, branch `split-count-repin`. LANE WINDOWS, no Parsek defect. RULED AND RE-PINNED 2026-10-01, branch `mission-warp-fix`]
 
@@ -1450,6 +1453,22 @@ action line. Residual, not filed: the capture hold still idles ~120 s when the e
 settles (the lead is sized to the slowest measured flip); the descent coast takes 5-6 warp hops
 because the fall estimate uses surface gravity and ignores the horizontal speed (safe: it always
 lands early).
+
+Review follow-up (2026-10-02, same branch). (1) Terminal teardown: the PARK exit through
+`_b5_left_target_soi`, and the generic vessel-lost / frozen terminals, returned a terminal
+with the dwell's physics warp still held. A decorator on `b5_decide` / `kxrw_decide` now drops
+a held policy physics warp (and cancels a policy-owned native warp) on the frame either machine
+turns terminal; `TerminalTeardownTests` pin it. (2) The capture-hold lanes not yet flown, on the
+merged head (automation DLL sha256 `7bbf19ce...`), each PASS attempt 1 with its mission outcome
+unchanged: V3C `2026-10-01_2109` (count 4; its rate-independent seam tokens all met; wall
+937 -> 802 s vs `_0732`, PARK 180 -> 55), B17 `_2122` (count 3; 916 -> 783 s vs `_0835`,
+PARK 180 -> 55). The circular park altitudes differ from the before runs (V3C 3,863 vs
+7,036 km, B17 503 vs 1,128 km) because the arrival periapsis differed on PLAN-CAPTURE entry,
+before the policy acts; the two before runs differ from each other as much. (3) The long-burn
+check, B22 `_2135` (Jool, 1,292 m/s on 60 kN): the hold estimated a 149.1 s half burn, MechJeb
+ignited at node - 137.3 s, so the release came 136 s before ignition and the 120 s lead was not
+shrunk (the linear estimate over-reads the rocket equation). B22 was MISSION-OK with a circular
+park, red only on the stale #1931 count (re-pinned above).
 
 ## ~~RF-LANES-SECOND-REWIND-INTO-A-FUTURE-RP: RF-2 and RF-3 cannot reach their later rewind point since the future-rewind-point gate (#1788)~~ [FILED AND FIXED 2026-10-01, branch `arm-last19`. LANE SPEC DEFECT, not a Parsek defect. RE-FLOWN GREEN 2026-10-01]
 

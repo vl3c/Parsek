@@ -2407,7 +2407,9 @@ _(unreleased — entries accumulate here per commit)_
   mass, the body's atmosphere depth and gravity, now read from the game) keeps the old 1x
   path. Measured wall time per run: B13 2815 -> 1254 s (DESCENT 1361 -> 392, CAPTURE-BURN
   644 -> 164, PARK 181 -> 57), B14 2141 -> 1405, B11 1324 -> 731, GS-8 652 -> 559, B4
-  1103 -> 1100. No mission outcome changed. The same commit re-pins GS-8 (10), B4 (11), B13 (11) and B14 (11) to the
+  1103 -> 1100, V3C 937 -> 802, B17 916 -> 783. No mission outcome changed. Any terminal
+  frame drops a warp the policy still holds, so the cleanup tail never runs warped. B22 is
+  re-pinned 5 -> 6 for #1931's single ascent-exit split. The same commit re-pins GS-8 (10), B4 (11), B13 (11) and B14 (11) to the
   recording counts #1931's in-flight optimizer split produces, per the same day's ruling.
 - **The mission Log lists one row per real event.** A docked test mission's Log read 31 rows,
   mostly noise; it now reads 11. Part-state seeds the recorder writes so a ghost starts in the
