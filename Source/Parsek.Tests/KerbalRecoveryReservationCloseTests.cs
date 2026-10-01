@@ -287,9 +287,9 @@ namespace Parsek.Tests
             Assert.True(Kerbals.IsReservedNow(Jeb));
         }
 
-        // catches: a looped segment elsewhere in the chain exempting the tip's open-ended
-        // hold from a recovery. The loop is visual only (design 12.7, operator ruling
-        // 2026-09-27); only the looped segment's own rows are exempt, like any loop's.
+        // catches: a looped segment exempting any open-ended hold from a recovery, the tip's
+        // or its own. The loop is visual only (design 12.7, operator ruling 2026-09-27), so
+        // both holds close (LOOP-RECORDING-CREW-NEVER-RESERVED).
         [Fact]
         public void BuildClosureRows_ClosesAHoldInAChainWithALoopingSegment()
         {
@@ -308,7 +308,7 @@ namespace Parsek.Tests
                 new List<Recording> { tip }, new List<string> { Jeb }, actions,
                 new List<Recording> { tip, loopSegment }, 250.0);
             Assert.Single(rows);
-            Assert.Equal(1, rows[0].ClosedHolds);
+            Assert.Equal(2, rows[0].ClosedHolds);    // the tip and the looped segment
         }
 
         // catches: the craft-baked pid alone identifying the vessel. A fresh launch of the
@@ -508,11 +508,15 @@ namespace Parsek.Tests
             var rows = CrewRecoveryReservationClose.BuildClosureRows(
                 new List<Recording> { tip }, names, actions, recs, 250.0);
 
-            Assert.Equal(2, rows.Count);
+            // A looped recording in the owner's tree is closed like any flight
+            // (LOOP-RECORDING-CREW-NEVER-RESERVED: the loop is visual only, design 12.7).
+            Assert.Equal(3, rows.Count);
             Assert.Equal(Bill, rows[0].Action.KerbalName);   // name order
             Assert.Equal(1, rows[0].ClosedHolds);
-            Assert.Equal(Jeb, rows[1].Action.KerbalName);
-            Assert.Equal(2, rows[1].ClosedHolds);            // the TIP and the EVA
+            Assert.Equal("Bob Kerman", rows[1].Action.KerbalName);
+            Assert.Equal(1, rows[1].ClosedHolds);            // the looped recording
+            Assert.Equal(Jeb, rows[2].Action.KerbalName);
+            Assert.Equal(2, rows[2].ClosedHolds);            // the TIP and the EVA
             foreach (var r in rows)
             {
                 Assert.Equal(GameActionType.KerbalRecovered, r.Action.Type);

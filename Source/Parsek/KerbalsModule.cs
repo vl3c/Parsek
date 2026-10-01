@@ -60,7 +60,9 @@ namespace Parsek
         /// <summary>
         /// Set of all crew names appearing in any active committed recording.
         /// Built during ProcessAction for O(1) lookups in ComputeRetiredSet
-        /// and IsKerbalInAnyRecording. Excludes loop recordings.
+        /// and IsKerbalInAnyRecording. Includes loop recordings: the per-recording Loop
+        /// toggle is visual only and a looped recording's first run is a real flight
+        /// (design 12.7).
         /// </summary>
         private HashSet<string> allRecordingCrew = new HashSet<string>();
         private Dictionary<string, HashSet<string>> rawRecordingCrew
@@ -115,7 +117,7 @@ namespace Parsek
 
         /// <summary>
         /// Split handoffs: <see cref="SplitHandoffKey"/> (tree, branch point, kerbal) -> the
-        /// earliest non-loop child recording of that branch point whose own KerbalAssignment
+        /// earliest child recording of that branch point (looped or not) whose own KerbalAssignment
         /// row carries the kerbal. A recording that ENDED at that branch point handed the
         /// kerbal to the child, so its open-ended (Aboard / Unknown) row ends at its EndUT
         /// and the child's row decides the rest (a death after staging respawns or not by
@@ -930,9 +932,10 @@ namespace Parsek
 
                 // KSC retirement (operator ruling 2026-09-23): a final segment whose flight
                 // ended parked in the KSC exclusion zone never becomes a real vessel, so its
-                // aboard crew are freed at its EndUT as if recovered. A loop recording holds
-                // no reservation, and a crewless one has nobody to free.
-                if (!isLoop && rawCrew.Count > 0 && VesselSpawner.IsKscRetiredFinalFlight(rec))
+                // aboard crew are freed at its EndUT as if recovered. A looped recording's
+                // first run is the real flight (design 12.7), so it retires like any other;
+                // a crewless one has nobody to free.
+                if (rawCrew.Count > 0 && VesselSpawner.IsKscRetiredFinalFlight(rec))
                 {
                     kscRetiredEndUTs[rec.RecordingId] = rec.EndUT;
                     kscRetiredRecordingIds.Add(rec.RecordingId);
@@ -982,7 +985,7 @@ namespace Parsek
 
         /// <summary>
         /// Fills <see cref="splitHandoffs"/> from the walk's KerbalAssignment rows whose
-        /// recording is a non-loop child of a branch point (the child row is what carries
+        /// recording is a child of a branch point, looped or not (the child row is what carries
         /// the kerbal on, under the same reverse-mapped name the parent's row uses). Tourist
         /// rows hold nothing and are skipped. Returns the rows recorded.
         /// </summary>
@@ -999,7 +1002,7 @@ namespace Parsek
 
                 RecordingMeta meta;
                 if (!recordingMeta.TryGetValue(a.RecordingId, out meta)) continue;
-                if (meta.IsLoop || string.IsNullOrEmpty(meta.ParentBranchPointId)
+                if (string.IsNullOrEmpty(meta.ParentBranchPointId)
                     || string.IsNullOrEmpty(meta.TreeId))
                     continue;
 
@@ -1057,11 +1060,21 @@ namespace Parsek
             if (!recordingMeta.TryGetValue(recordingId, out meta))
                 return;
 
-            // Skip loop recordings
-            if (meta.IsLoop) return;
-
             string name = action.KerbalName;
             if (string.IsNullOrEmpty(name)) return;
+
+            // A looped recording holds its crew exactly like a non-looping one, for the span
+            // its real first run occupied (LOOP-RECORDING-CREW-NEVER-RESERVED; design 12.7,
+            // operator ruling 2026-09-27: the per-recording Loop toggle is visual only). The
+            // later loop replays are ghosts and reserve nobody: the hold is built once from
+            // this row and the recording's own StartUT / EndUT, never per cycle.
+            if (meta.IsLoop)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Loop recording holds crew like its real first run: '{name}' recording '{recordingId}' " +
+                    $"span={FormatClockUT(meta.StartUT)}..{FormatClockUT(meta.EndUT)} " +
+                    $"endState={action.KerbalEndStateField} (loop replays are ghost-only, no per-cycle hold)");
+            }
 
             // Build the all-crew set for O(1) lookup in ComputeRetiredSet
             allRecordingCrew.Add(name);
@@ -1084,10 +1097,9 @@ namespace Parsek
             //   Aboard    -> open-ended temporary, endUT = infinity (crew still on vessel)
             //   Unknown   -> open-ended temporary (conservative); Aboard / Unknown end at
             //                the split when a child of this recording carries the kerbal on
-            // A looped segment elsewhere in the chain changes none of this: the loop is
-            // visual only, the chain's first run is the real flight and its tip spawns
-            // (design 12.7, operator ruling 2026-09-27). The looped segment's own rows are
-            // skipped above like any loop recording's.
+            // A loop changes none of this, on this recording or elsewhere in its chain: the
+            // loop is visual only, the first run is the real flight and its tip spawns
+            // (design 12.7, operator ruling 2026-09-27).
             bool dead = endState == KerbalEndState.Dead;
             double deathRespawnUT = double.NaN;
             string deathPolicy = null;

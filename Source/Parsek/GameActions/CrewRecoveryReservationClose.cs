@@ -11,9 +11,10 @@ namespace Parsek
     /// until a rescue recording closes it").
     ///
     /// <para>The live shell is <c>LedgerOrchestrator.OnRealVesselCrewRecovered</c>; the walk
-    /// side is <c>KerbalsModule.RecoveryClosesHold</c>, which this class reuses, plus the
-    /// walk's open-ended-hold exemption it mirrors (a loop recording), so the write decision
-    /// and the reservation derivation do not disagree about which holds a row closes.</para>
+    /// side is <c>KerbalsModule.RecoveryClosesHold</c>, which this class reuses, so the
+    /// write decision and the reservation derivation do not disagree about which holds a
+    /// row closes. A looped recording is no exemption on either side: its first run is a
+    /// real flight and it holds its crew like any other (design 12.7).</para>
     ///
     /// <para><b>Identity is POSITIVE.</b> Closing a hold RELEASES a kerbal, and before this
     /// row existed the answer was to leave the hold alone, so an unknown launch guid must
@@ -103,8 +104,8 @@ namespace Parsek
         /// kerbal) that closes at least one open-ended hold: an effective
         /// <see cref="GameActionType.KerbalAssignment"/> row for that kerbal whose end state is
         /// <see cref="KerbalEndState.Aboard"/> or <see cref="KerbalEndState.Unknown"/>, on a
-        /// non-tourist flight that is not a loop recording (the walk holds nothing for one; a
-        /// looped segment elsewhere in its chain changes nothing, design 12.7), and that
+        /// non-tourist flight (looped or not: the loop is visual only and the walk holds a
+        /// looped recording's crew like any flight's, design 12.7), and that
         /// <see cref="KerbalsModule.RecoveryClosesHold"/> puts in the owner's scope. A kerbal with nothing open-ended in scope (a
         /// Recovered flight, a death, a hold from another mission) gets no row.
         ///
@@ -155,7 +156,6 @@ namespace Parsek
 
                     Recording held;
                     if (!recordingsById.TryGetValue(action.RecordingId, out held)) continue;
-                    if (held.LoopPlayback) continue;
                     if (!KerbalsModule.RecoveryClosesHold(
                             held.RecordingId, held.TreeId, held.EndUT,
                             owner.RecordingId, owner.TreeId, recoveryUT))
