@@ -112,14 +112,16 @@ tier = "operator"
 #     `steps=31`. After the Log rework (2026-10-01, PR #1945) the same opener reports
 #     `steps=11` - one row per real event (`2026-10-01_1630`, `bd-structure-mission-advanced`;
 #     rows pinned in `StructureListBdockFixtureTests`).
-#   - FLOWN `2026-10-01_2002` (MISSION-LOG-REWORK parts 3-5), PASS attempt 1: the docking
-#     mission's Log reads `Undocked (Kerbal X [2]) | Kerbin orbit | Kerbal X (mission
-#     'Kerbal X')` and three End rows named `Kerbal X (mission 'Kerbal X')`, `Kerbal X Probe`,
-#     `Kerbal X [2]`; its Missions row reads `Kerbal X   Launch -> Decoupled (Kerbal X Probe)
-#     -> Docked -> Undocked (Kerbal X [2]) -> Orbiting` over `Kerbal X Probe` and
-#     `Kerbal X [2]`. The clone pair opened `steps=9` (`Kerbal X`) and `steps=8`
-#     (`Kerbal X copy`, its probe excluded) - `bd-structure-cloneoriginal-advanced` /
-#     `bd-structure-clone-advanced`, the measured counts the pins below carry.
+#   - FLOWN `2026-10-01_2044` (MISSION-LOG-REWORK parts 3-6), PASS attempt 1: the docking
+#     mission's Log reads `Undocked (Kerbal X) | Kerbin orbit | Kerbal X (mission
+#     'Kerbal X')` and three End rows named `Kerbal X`, `Kerbal X (mission 'Kerbal X')`,
+#     `Kerbal X Probe` - the ship KSP re-pidded at the undock is the mission's own Kerbal X,
+#     not a second one, so no `[2]` anywhere (`continuations=1 numbered=0`); its Missions row
+#     reads `Kerbal X   Launch -> Decoupled (Kerbal X Probe) -> Docked -> Undocked (Kerbal X)
+#     -> Orbiting` over `Kerbal X Probe` and `Kerbal X`. The clone pair opened `steps=9`
+#     (`Kerbal X`) and `steps=8` (`Kerbal X copy`, its probe excluded) -
+#     `bd-structure-cloneoriginal-advanced` / `bd-structure-clone-advanced`, the measured
+#     counts the pins below carry (also on `2026-10-01_2002`).
 #
 # WHAT THE RUN REFUTED, and this header claimed it: the THREE `REWIND_POINTS/POINT` entries
 # do NOT populate `Rewind/FF`. They are SEPARATION RewindPoints and they populate `Re-Fly`
@@ -288,7 +290,7 @@ steps = [
   # capture `${clone.copy}`). The copy then drops its probe (`vessel:` + the probe's head
   # recording id, the Missions vessel-row toggle's own body), and the Log opens on the
   # ORIGINAL and on the COPY: same tree, two include sets, two Logs (9 rows and 8 rows,
-  # predicted from the committed bytes and measured on `2026-10-01_2002`; the copy has no
+  # predicted from the committed bytes and measured on `2026-10-01_2002` and `_2044`; the copy has no
   # `End: Orbiting | Kerbal X Probe`).
   { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "clone", window = "missions" }, label = "clone", expect = "OK" },

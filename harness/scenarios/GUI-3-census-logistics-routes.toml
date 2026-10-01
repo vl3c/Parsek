@@ -144,9 +144,12 @@ tier = "operator"
 #     (`steps=11` on the mission since the Log rework: `2026-10-01_1633`, PR #1945),
 #     and the windows are titled after their subjects rather than reading "Nothing to show.".
 #     Since the route Log was retired the first opener is the Mun route's source mission:
-#     FLOWN `2026-10-01_2004`, PASS attempt 1, `Kerbal X #4` `steps=12`
-#     (`ib-structure-route-log-advanced`), `Duna Supply 1` `steps=11`, and the expanded
-#     route panels carry one `Log` button each where `Log (Route)` / `Log (Mission)` stood.
+#     FLOWN `2026-10-01_2004`, PASS attempt 1, then re-flown `2026-10-01_2045`, PASS
+#     attempt 1, after the End-row and vessel-name fixes: `Kerbal X #4` `steps=11`
+#     (`ib-structure-route-log-advanced`; the chain head's mid-flight `End: Suborbital` row
+#     is gone), `Duna Supply 1` `steps=11` reading `Undocked (Duna Supply 1)` (its re-pidded
+#     own ship is the same vessel, not `[2]`), and the expanded route panels carry one `Log`
+#     button each where `Log (Route)` / `Log (Mission)` stood.
 #   - The `Candidates` section is present and EMPTY (`No eligible Supply Runs...`): this host
 #     carries a DISMISSED list, not live candidates, which the inventory's 6.1 row already
 #     says. A populated Candidates picture still wants a `rover-route-recorded` lane.
