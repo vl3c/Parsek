@@ -409,6 +409,14 @@ namespace Parsek
         /// </summary>
         internal const string SummaryCountdownColorHex = "#ffcc66";
 
+        /// <summary>
+        /// The suffix a WARNED countdown carries on the summary line ("Next launch T- 2d 4h (!)"):
+        /// every countdown is amber, so without it a launch with a warning (station drift, an
+        /// arrival refusal, a launch outside its alignment tolerance) reads exactly like a plain
+        /// one until hovered. The warning's words stay in the summary tooltip.
+        /// </summary>
+        internal const string SummaryCountdownWarningMarker = " (!)";
+
         // What a '<' in player-authored text becomes on the rich-text summary line. Unity's
         // IMGUI rich text has no escape sequence, so a kerbal or body name spelling a real tag
         // ("<b>", "<color=red>") would restyle the rest of the line. U+2039 (single
@@ -437,12 +445,15 @@ namespace Parsek
         /// the line never starts with a bare duration. Crew renders as names when recorded,
         /// else as the bare count. Every piece is omitted when it has no value. Every piece is
         /// escaped (<see cref="EscapeRichText"/>) and only the countdown segment carries
-        /// markup, so the label that draws it must set <c>richText</c>. Pure - the caller
-        /// supplies the already-formatted date / duration / period / countdown strings.
+        /// markup, so the label that draws it must set <c>richText</c>. A countdown that
+        /// carries a warning (<paramref name="nextLaunchWarned"/>) ends in
+        /// <see cref="SummaryCountdownWarningMarker"/> inside the same coloured segment. Pure -
+        /// the caller supplies the already-formatted date / duration / period / countdown strings.
         /// </summary>
         internal static string BuildNarrativeSummaryLine(
             string bodyPathText, string startDateText, string endDateText, string durationText,
-            string crewNamesText, int crewCount, string terminalWord, string nextLaunchText)
+            string crewNamesText, int crewCount, string terminalWord, string nextLaunchText,
+            bool nextLaunchWarned = false)
         {
             var ic = CultureInfo.InvariantCulture;
             var sb = new StringBuilder();
@@ -476,7 +487,9 @@ namespace Parsek
 
             if (!string.IsNullOrEmpty(nextLaunchText))
                 Append(sb, "<color=" + SummaryCountdownColorHex + ">Next launch "
-                    + EscapeRichText(nextLaunchText) + "</color>");
+                    + EscapeRichText(nextLaunchText)
+                    + (nextLaunchWarned ? SummaryCountdownWarningMarker : "")
+                    + "</color>");
 
             return sb.ToString();
         }
@@ -625,9 +638,10 @@ namespace Parsek
         // ===================== T1.4 - naming the same-tree dock partner =====================
 
         /// <summary>
-        /// The Start-event cell text for a same-tree dock / board boundary once the partner is
-        /// known: <c>"Docked with Munport Station"</c>. Falls back to the bare event word when no
-        /// partner resolved (a single-parent / cross-tree dock keeps today's text). Pure.
+        /// The full phrase for a same-tree dock / board boundary once the partner is known:
+        /// <c>"Docked with Munport Station"</c>. The Start event cell shows only the event word
+        /// (the phrase does not fit its column), and this phrase is that cell's tooltip. Falls
+        /// back to the bare event word when no partner resolved. Pure.
         /// </summary>
         internal static string BuildDockPartnerStartEventText(string eventWord, string partnerVesselName)
         {
@@ -636,6 +650,40 @@ namespace Parsek
             return string.IsNullOrEmpty(partnerVesselName)
                 ? eventWord
                 : eventWord + " with " + partnerVesselName;
+        }
+
+        /// <summary>
+        /// The tooltip of a Missions-tab event cell (Start event / End event, and the mission
+        /// bar's value cells), which never clips its text silently: the fuller phrase when one
+        /// exists and differs from what the cell shows (<c>"Docked with Depot Station Duna I"</c>
+        /// behind a <c>"Docked"</c> cell), else the shown text itself when it is wider than the
+        /// cell, else null - a tooltip repeating a fully visible word would only echo it in the
+        /// help strip. Pure.
+        /// </summary>
+        internal static string BuildEventCellTooltip(string shownText, string fullText, bool shownClips)
+        {
+            if (!string.IsNullOrEmpty(fullText)
+                && !string.Equals(fullText, shownText, System.StringComparison.Ordinal))
+                return fullText;
+            if (shownClips && !string.IsNullOrEmpty(shownText))
+                return shownText;
+            return null;
+        }
+
+        /// <summary>
+        /// Stores a mission's summary-countdown warned state and reports whether it CHANGED
+        /// (first sighting of a warned countdown included; first sighting of a plain one is not
+        /// a change), so the per-frame summary draw logs only transitions. A null / empty key
+        /// is never recorded. Pure apart from the dictionary it is handed.
+        /// </summary>
+        internal static bool RecordCountdownWarnedState(
+            Dictionary<string, bool> lastByMission, string missionId, bool warned)
+        {
+            if (lastByMission == null || string.IsNullOrEmpty(missionId))
+                return false;
+            bool known = lastByMission.TryGetValue(missionId, out bool last);
+            lastByMission[missionId] = warned;
+            return known ? last != warned : warned;
         }
 
         /// <summary>

@@ -446,7 +446,7 @@ never time (`:118-123`); roster atoms are not rows (`:99-101`).
 | 2 | `#` (sortable) | `ColW_Index` 30 | per-TREE index | blank | include checkbox (Advanced) or blank |
 | 3 | `Missions and vessels` (sortable) | expand | bold title (double-click renames), then (Advanced) `Clone` and `Warp to...` and `Log`, right-aligned (`DrawMissionNameCell`) | the summary, then (Advanced) `Delete` and the loop cell, right-aligned (`DrawMissionSummaryNameCell`) | connector + caret + name + `EventPhrase` |
 | 4 | `Start time` (sortable) | `ColW_StartTime` 120 | the mission span's start date | blank | `PrintDateCompact` |
-| 5 | `Start event` | `ColW_StartEvent` 110 | the first vessel row's start event (`MissionPresentation.MissionStartEventText`) | blank | event word, dock-partner named when resolvable |
+| 5 | `Start event` | `ColW_StartEvent` 110 | the first vessel row's start event (`MissionPresentation.MissionStartEventText`) | blank | event word; a resolvable dock partner (`Docked with <partner>`) rides the cell's hover, never the cell |
 | 6 | `End event` | `ColW_EndEvent` 85 | the primary vessel's outcome | blank | terminal word |
 | 7 | `End time` | `ColW_EndTime` 120 | the mission span's end date | blank | date |
 | 8 | `Interact` (plain label) | `ColW_Interact` 116 | `Watch` (+ `Rewind` / `Forward` as a pair) | `Collapse` / `Expand` toggle button | Fly / Stash + Seal (vessel, interval rows), `Go to` (Docked partner rows), blank (chapter rows) |
@@ -479,8 +479,23 @@ The Re-Fly pair is the Recordings tab's own cell drawn at that geometry
 (`RecordingsTableUI.DrawReFlyColumnCell(rec, ri, now, cellWidth, leftInset)`). The `Next
 launch` column (`ColW_TMinus` 105) is GONE: the countdown lives in the summary line, amber, and
 the warning its amber tint carried (station drift, arrival refusal, a launch outside its
-alignment tolerance) rides the summary's tooltip with the two state words' explanations. The
-summary is the title's font size, muted colour, and wraps rather than clipping.
+alignment tolerance) rides the summary's tooltip with the two state words' explanations. A
+WARNED countdown ends in `(!)` inside the same amber segment
+(`MissionPresentation.SummaryCountdownWarningMarker`, `Next launch T- 5h 47m (!)`), so it reads
+differently from a plain one before the hover; the window has no warning colour of its own to
+reuse, so the marker is text, not a second tint. The marker's appearance and clearing are logged
+once per transition (`next-launch countdown warned=`). The summary is the title's font size,
+muted colour, and wraps rather than clipping.
+
+**Event cells never clip silently.** Every Start event / End event cell, and the mission bar's
+four value cells, draws through `DrawEventCell`: the cell shows the event word, and its hover
+(`MissionPresentation.BuildEventCellTooltip`) is the fuller phrase when one exists - the
+same-tree dock partner (`Docked with Depot Station Duna I`) or the dock-graph partner with its
+mission - else the word itself when it measures wider than the cell, else nothing. Until
+2026-10-01 the dock partner was printed in the 110 px cell and clipped mid-name (`Docked with
+Depo...`). All event words are single short words (`Launch`, `Decoupled`, `Undocked`, `Docked`,
+`Boarded`, `EVA`, `Broke off`, `Broke up`, `Placed`, `Switch`, and the terminal words up to
+`Disassembled`), so in practice only the dock phrase needed the hover.
 
 **Collapse replaces Archive.** `Mission.Collapsed` (saved as `collapsed`; an older save's
 per-mission `archived` loads as collapsed) hides a mission's vessel, interval, chapter and
@@ -503,7 +518,7 @@ Mission bar controls, with their gates:
 | title double-click | line 1 name cell | `CommitMissionRename` -> `MissionGroupLink.RenameMissionGroup` (`MissionGroupLink.cs:57`) for an original, `MissionStore.RenameMission` for a clone | a group-name collision refuses the whole rename, Warn-only |
 | `Log` | line 1 name cell, right-aligned (right of the Advanced loop grid) | `ParsekUI.OpenStructureWindowForMission` | never |
 | `Watch` / `W*` | line 1 Interact | `flight.EnterWatchMode` / `ExitWatchMode` | two reasons (`MissionWatchDisabledReason`). Not Basic-gated |
-| `Rewind` / `Forward` | line 1 Interact, paired with Watch when shown | `RecordingsTableUI.DrawMissionRewindForwardButton` over the mission root recording | greys on `CanRewind` / `CanFastForward` with the store's reason; not drawn when neither applies (Watch then takes the full width) |
+| `Rewind` / `Forward` | line 1 Interact, paired with Watch when shown | `RecordingsTableUI.DrawMissionRewindForwardButton` over the mission root recording | greys on `CanRewind` / `CanFastForward` with the store's reason; not drawn when neither applies (Watch then takes the full width). Not drawn at all when the mission's root recording owns no launch save (`RecordingStore.GetRewindRecording` null): the same rule as the Recordings tab's blank Rewind cell, in every scene. The committed harness fixtures carry no launch save by policy (`CommittedFixtureRewindSaveTests`), so GUI-4 / GUI-17 / GUI-18 (`bdock-recorded`, `mun-orbit-recorded`, `duna-direct-recorded`) draw Watch alone, while GUI-1's operator career (`c1-gui`, 18 `rewindSave` hints) draws Watch + Rewind; checked 2026-10-01, not a flight gate. No hover words: a blank Rewind cell is what the Recordings tab already shows for the same state |
 | `Collapse` / `Expand` | line 2 Interact | writes `Mission.Collapsed` | never |
 | `Clone` | loop grid column A, line 1, Advanced | `MissionStore.Clone` | HIDDEN in Basic |
 | `Delete` | loop grid column A, line 2, Advanced | `MissionStore.Delete` | greyed by `CanDelete` (`A flight always keeps its first mission`). HIDDEN in Basic since Missions Model 1 |
@@ -542,7 +557,7 @@ once) and `ksc-missions-missions-events-advanced` (999 - ONE mission's `Events (
 with everything else shut; that label is RETIRED with the foldout, GUI-1 no longer takes it). No picture:
 loop ON with a phase-locked read-only period, `Looped by route`, `Forward` instead of `Rewind`,
 `W*`, inline rename, `(partial)` / dimmed rows, `Docked with <partner>` in the Start event
-cell, Fly/Seal, chapter headers, partner rows.
+cell's hover, Fly/Seal, chapter headers, partner rows.
 
 **Recordings tab.** A fixed 21-cell header (`:1196`) outside the scroll view, then a body of
 four row kinds. Columns, left to right, with the shared header/body width constants: merged
@@ -1859,7 +1874,7 @@ These need only a different `saveTemplate` and the existing `open` / `rect` / `t
 | Logistics Candidates populated + run-cost suffix | `rover-route-recorded`, or `rover-route-career` for the Career + KSC cost | none | UNCLAIMED. `interbody-route-recorded` carries a DISMISSED list rather than live candidates, so GUI-3's expanded capture shows the candidate SECTION and not a populated one. Wants a `rover-route-recorded` lane of its own |
 | Mission header `Looped by route` + greyed Loop | `depot-route-recorded` / `interbody-route-recorded` / `rover-route-recorded` | none; the label draws with no click | GUI-3 `ib-missions-missions-collapsed-advanced` / `ib-missions-missions-expanded-advanced` |
 | Recordings route-bound greyed Loop toggles (header level) | same three | none; `AnyRecordingRouteBound` scans all committed | GUI-3 `ib-missions-recordings-expanded-advanced` |
-| `Docked with <partner>` in the Start event cell; chapter header rows; `Docked partner:` rows | `bdock-recorded` (or `bdock-station-craft` + `bdock-station-pad`, or `bdock-forge-base`) | none; all three draw with no click | GUI-4 `bd-missions-missions-expanded-advanced` / `bd-missions-recordings-expanded-advanced` |
+| `Docked with <partner>` in the Start event cell's hover; chapter header rows; `Docked partner:` rows | `bdock-recorded` (or `bdock-station-craft` + `bdock-station-pad`, or `bdock-forge-base`) | none; all three draw with no click | GUI-4 `bd-missions-missions-expanded-advanced` / `bd-missions-recordings-expanded-advanced` |
 | Vessel-row Fly / Seal | `refly-a-recorded` | none | UNCLAIMED. `refly-a-recorded` is a fourth `saveTemplate` and therefore a seventh lane; GUI-4's `bdock-recorded` corpus has RewindPoints but its rows are not the Unfinished-Flights shape this needs |
 | Kerbals reserved / active owner statuses | `eva2-lko-crewed` | none | UNCLAIMED. `eva2-lko-crewed` is a fifth `saveTemplate`. GUI-5 shoots both Kerbals tabs on a career with a real roster, which is the row below this one rather than this one |
 | Kerbals and Career empty states | `fresh-career` | none | GUI-8 `fs-kerbals-outcomes-empty-advanced`; the Career empty state (`No active contracts.` / `No active strategies.`) is GUI-5's `cek-career-*` pair since 2026-09-24, and GUI-8 no longer opens Career (see the science row below) |

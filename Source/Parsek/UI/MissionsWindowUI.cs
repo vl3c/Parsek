@@ -364,6 +364,11 @@ namespace Parsek
         private readonly Dictionary<string, float> missionSummaryCellWidth =
             new Dictionary<string, float>();
 
+        // The last logged warned state of each mission's summary countdown, keyed by Mission.Id,
+        // so the per-frame summary draw logs the "(!)" marker only when it appears or clears.
+        private readonly Dictionary<string, bool> lastCountdownWarnedByMission =
+            new Dictionary<string, bool>();
+
         // Draws the expanding name cell (label, or caret button when asButton) at the explicit
         // wrapped height described above. Returns true when the button was clicked.
         private bool DrawWideRowCell(GUIContent content, int depth, bool asButton)
@@ -451,10 +456,10 @@ namespace Parsek
         private const float ColW_Enable = 20f;
         private const float ColW_Index = 30f;
         private const float ColW_StartTime = 120f;
-        // "Start event" is wider than the other event cell because it also carries the named
-        // same-tree dock partner ("Docked with Munport Station", T1.4); the name still clips on a
-        // long station name, so that cell renders non-wrapping with the full phrase as its tooltip
-        // (a wrapping cell would grow the row's height instead).
+        // Both event cells show a bare event word ("Docked", "Decoupled"); a fuller phrase (the
+        // named dock partner, "Docked with Munport Station", T1.4) is the cell's tooltip, and a
+        // word wider than its cell carries itself as the tooltip (DrawEventCell). The Start event
+        // column keeps its wider width so the header row does not move.
         private const float ColW_StartEvent = 110f;
         private const float ColW_EndEvent = 85f;
         private const float ColW_EndTime = 120f;
@@ -688,10 +693,9 @@ namespace Parsek
         // fill the row height via the row's buttons). The include checkbox is centered separately
         // (ExpandHeight on the toggle).
         private GUIStyle compositionCellLabel;
-        // Same cell label, but NON-wrapping: used only by the "Start event" cell when it names a
-        // same-tree dock partner ("Docked with Munport Station", T1.4). A long partner name in a
-        // wrapping cell would grow the row's height (and every aligned column with it), so the
-        // text clips inside the cell and the full phrase rides as the cell's tooltip.
+        // Same cell label, but NON-wrapping: used by the mission bar's value cells
+        // (DrawMissionValueCell), where a long value must not grow the bar's height; a value that
+        // clips carries itself as the cell's tooltip.
         private GUIStyle compositionCellLabelNoWrap;
         // The mission-header summary line (T1.1): a thin, non-bold, non-wrapping second line inside
         // the header bubble carrying span / duration / vessel + crew counts / outcome / next launch.
@@ -778,8 +782,8 @@ namespace Parsek
                 clipping = TextClipping.Overflow
             };
 
-            // Non-wrapping variant for the dock-partner "Start event" cell (T1.4): a long partner
-            // name clips instead of wrapping the row taller (the full phrase is the tooltip).
+            // Non-wrapping variant for the mission bar's value cells: a long value clips instead
+            // of wrapping the bar taller (the clipped value is the tooltip).
             // Keeps the ORIGINAL padding - it is single-line by construction, and the wrapped-crop
             // bottom padding above would push its centered text off-baseline.
             compositionCellLabelNoWrap = new GUIStyle(compositionCellLabel)
@@ -1833,7 +1837,7 @@ namespace Parsek
             GUILayout.Label(KSPUtil.PrintDateCompact(row.StartUT, true), compositionCellLabel,
                 GUILayout.Width(ColW_StartTime));
             DrawStartEventCell(row.Intervals[0], ctx);
-            GUILayout.Label(row.EndEvent ?? "", compositionCellLabel, GUILayout.Width(ColW_EndEvent));
+            DrawEventCell(row.EndEvent, null, compositionCellLabel, ColW_EndEvent);
             GUILayout.Label(KSPUtil.PrintDateCompact(row.EndUT, true), compositionCellLabel,
                 GUILayout.Width(ColW_EndTime));
 
@@ -1995,7 +1999,7 @@ namespace Parsek
             {
                 GUILayout.Label(KSPUtil.PrintDateCompact(node.StartUT, true), compositionCellLabel, GUILayout.Width(ColW_StartTime));
                 DrawStartEventCell(node, ctx);
-                GUILayout.Label(node.EndEvent ?? "", compositionCellLabel, GUILayout.Width(ColW_EndEvent));
+                DrawEventCell(node.EndEvent, null, compositionCellLabel, ColW_EndEvent);
                 GUILayout.Label(KSPUtil.PrintDateCompact(node.EndUT, true), compositionCellLabel, GUILayout.Width(ColW_EndTime));
             }
             else
@@ -2222,16 +2226,17 @@ namespace Parsek
         // joined ("Docked with Munport Station", T1.4) - the rendezvous is the most narratively
         // important moment in a station mission and the row used to present it as an unexplained
         // inventory jump. The partner is derived from the merge leg's two branch parents (the one
-        // that is not this vessel's own line); a cross-tree / single-parent dock resolves to nothing
-        // and keeps the bare event word, which is what the "Partner journey" rows already cover.
-        // The named phrase does not fit the cell, so it renders non-wrapping (clipped) with the full
-        // text as its tooltip - a wrapping cell would grow the row height and every column with it.
+        // that is not this vessel's own line); a cross-tree / single-parent dock falls back to the
+        // dock event graph, which also names the partner's mission. The cell itself shows only
+        // the event word, like the End event cell beside it: a named phrase ("Docked with Depot
+        // Station Duna I") does not fit the column and used to clip mid-name, so the full phrase
+        // is the cell's tooltip instead.
         private void DrawStartEventCell(MissionCompositionNode node, RowDeriveContext ctx)
         {
             string eventWord = node.StartEvent ?? "";
             if (!MissionPresentation.IsDockEventWord(eventWord))
             {
-                GUILayout.Label(eventWord, compositionCellLabel, GUILayout.Width(ColW_StartEvent));
+                DrawEventCell(eventWord, null, compositionCellLabel, ColW_StartEvent);
                 return;
             }
 
@@ -2242,17 +2247,12 @@ namespace Parsek
                 // Dock-event-graph fallback (design-dock-event-graph.md 6.5): the two-parent
                 // walk above cannot name a CROSS-TREE partner or a RECOVERED same-tree
                 // single-parent dock (the A->D shape); the graph resolves both, with the
-                // partner's mission name. Tooltip-first, inline when it measures inside the
-                // cell (the visible-label rework of this column stays issue-1's concern).
+                // partner's mission name.
                 string graphText = GetIntervalDockPartnerText(ctx.Mission, node);
                 if (!string.IsNullOrEmpty(graphText))
                 {
-                    string full = eventWord + " " + graphText;
-                    var graphContent = new GUIContent(eventWord, full);
-                    if (compositionCellLabel.CalcSize(new GUIContent(full)).x <= ColW_StartEvent)
-                        graphContent.text = full;
-                    GUILayout.Label(graphContent, compositionCellLabelNoWrap,
-                        GUILayout.Width(ColW_StartEvent));
+                    DrawEventCell(eventWord, eventWord + " " + graphText, compositionCellLabel,
+                        ColW_StartEvent);
                     return;
                 }
                 // Fallback (a merge neither resolver can name): the bare word, exactly as
@@ -2262,13 +2262,28 @@ namespace Parsek
                     () => $"Missions row: dock boundary '{eventWord}' at interval '{node.HeadLegId}' " +
                     "named no partner (two-parent walk and dock graph both silent); " +
                     "showing the bare event word", 30.0);
-                GUILayout.Label(eventWord, compositionCellLabel, GUILayout.Width(ColW_StartEvent));
+                DrawEventCell(eventWord, null, compositionCellLabel, ColW_StartEvent);
                 return;
             }
 
-            string text = MissionPresentation.BuildDockPartnerStartEventText(eventWord, partner);
-            GUILayout.Label(new GUIContent(text, text), compositionCellLabelNoWrap,
-                GUILayout.Width(ColW_StartEvent));
+            DrawEventCell(eventWord,
+                MissionPresentation.BuildDockPartnerStartEventText(eventWord, partner),
+                compositionCellLabel, ColW_StartEvent);
+        }
+
+        // One event cell (Start event / End event) of a Missions-tab row: the event word in the
+        // given style at the given width, with MissionPresentation.BuildEventCellTooltip's
+        // tooltip - the fuller phrase when one exists, or the shown text when it measures wider
+        // than the cell - so no event cell clips its text without the hover carrying it.
+        private void DrawEventCell(string shown, string full, GUIStyle style, float width)
+        {
+            string text = shown ?? "";
+            var content = new GUIContent(text);
+            bool clips = text.Length > 0 && style.CalcSize(content).x > width;
+            string tip = MissionPresentation.BuildEventCellTooltip(text, full, clips);
+            if (tip != null)
+                content.tooltip = tip;
+            GUILayout.Label(content, style, GUILayout.Width(width));
         }
 
         // ---- M-MIS-8: cross-tree partner-journey rows ----
@@ -2425,7 +2440,7 @@ namespace Parsek
                     1, false);
                 GUILayout.Label(KSPUtil.PrintDateCompact(link.DockUT, true),
                     compositionCellLabel, GUILayout.Width(ColW_StartTime));
-                GUILayout.Label(eventWord, compositionCellLabel, GUILayout.Width(ColW_StartEvent));
+                DrawEventCell(eventWord, null, compositionCellLabel, ColW_StartEvent);
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
                 GUI.color = prevColor;
@@ -2488,8 +2503,8 @@ namespace Parsek
                 1, false);
             GUILayout.Label(KSPUtil.PrintDateCompact(row.UT, true),
                 compositionCellLabel, GUILayout.Width(ColW_StartTime));
-            GUILayout.Label(MissionPresentation.RecordedDockEventWord(row.Verb),
-                compositionCellLabel, GUILayout.Width(ColW_StartEvent));
+            DrawEventCell(MissionPresentation.RecordedDockEventWord(row.Verb), null,
+                compositionCellLabel, ColW_StartEvent);
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
             DrawInteractGoTo(mission, row.GoToRecordingId, null, row.PartnerText,
@@ -2896,11 +2911,7 @@ namespace Parsek
         {
             // The full value rides the tooltip only when the cell clips it; a tooltip that
             // repeats a fully visible word would just echo it in the help strip.
-            string text = value ?? "";
-            var content = new GUIContent(text);
-            if (text.Length > 0 && compositionCellLabelNoWrap.CalcSize(content).x > width)
-                content.tooltip = text;
-            GUILayout.Label(content, compositionCellLabelNoWrap, GUILayout.Width(width));
+            DrawEventCell(value, null, compositionCellLabelNoWrap, width);
         }
 
         // Line 2 of the mission bar: the summary (+ the Advanced loop grid's second row) in the
@@ -3079,19 +3090,32 @@ namespace Parsek
                     ? ParsekTimeFormat.FormatDuration(summary.EndUT - summary.StartUT)
                     : "";
 
+                // The warning the old Next launch cell carried as an amber tint (D3 drift, M4c
+                // arrival, a launch outside its alignment tolerance): its words ride this
+                // tooltip, as do the explanations of the two state words the line itself does
+                // not print, and a warned countdown carries a "(!)" marker on the line so it
+                // reads differently from a plain one before it is hovered.
+                string warning = !loopAuthoring ? null : NextLaunchWarningText(periodicity);
+                bool countdownWarned = nextLaunch != null && warning != null;
+                if (MissionPresentation.RecordCountdownWarnedState(
+                        lastCountdownWarnedByMission, mission != null ? mission.Id : null,
+                        countdownWarned))
+                {
+                    ParsekLog.Verbose("Mission",
+                        $"Missions summary: mission '{mission?.Name}' next-launch countdown " +
+                        $"warned={countdownWarned}" +
+                        (countdownWarned ? $" reason='{warning}'" : ""));
+                }
+
                 // No "Loops ~P" piece: the period cell beside the summary already shows the loop
                 // period (owner decision 2026-09-30).
                 text = MissionPresentation.BuildNarrativeSummaryLine(
                     summary.BodyPath, startText, endText, durationText,
                     MissionPresentation.BuildCrewNamesText(summary.CrewNames), summary.CrewCount,
-                    summary.TerminalWord, nextLaunch);
+                    summary.TerminalWord, nextLaunch, countdownWarned);
 
-                // The warning the old Next launch cell carried as an amber tint (D3 drift, M4c
-                // arrival, a launch outside its alignment tolerance) now rides this tooltip, as do
-                // the explanations of its two state words, which the line itself does not print.
                 string nextLaunchNote = !loopAuthoring ? null
-                    : MissionPresentation.BuildNextLaunchCellTooltip(
-                        cellText, NextLaunchWarningText(periodicity));
+                    : MissionPresentation.BuildNextLaunchCellTooltip(cellText, warning);
                 tooltip = MissionPresentation.BuildSummaryTooltip(
                     summary.DetailTooltip ?? MissionPresentation.MissionSummaryTooltip,
                     nextLaunchNote);

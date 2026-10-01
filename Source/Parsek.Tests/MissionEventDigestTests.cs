@@ -227,6 +227,54 @@ namespace Parsek.Tests
             Assert.Contains(launches, r => r.SubjectName == "Depot D" && r.UT == 320);
         }
 
+        // An optimizer split's later segment shares the head's ChainId at a higher ChainIndex and
+        // is no branch point's child, so it used to read as a SECOND launch of the same flight.
+        // A chained recording whose earlier segment is NOT in the tree still begins a line here.
+        private static RecordingTree ChainSplitTree()
+        {
+            var head = CrossTreeDockFixture.Rec("S0", 700, "s0s0s0s0s0s0s0s0s0s0s0s0s0s0s0s0",
+                "CS", 0, 0, 100, vessel: "Split Ship");
+            var tail = CrossTreeDockFixture.Rec("S1", 700, "s0s0s0s0s0s0s0s0s0s0s0s0s0s0s0s0",
+                "CS", 1, 100, 250, vessel: "Split Ship");
+            var orphan = CrossTreeDockFixture.Rec("O2", 701, "o2o2o2o2o2o2o2o2o2o2o2o2o2o2o2o2",
+                "CO", 2, 300, 400, vessel: "Orphan Tail");
+            return CrossTreeDockFixture.Tree("ts", new[] { head, tail, orphan });
+        }
+
+        // catches: MISSION-EVENT-DIGEST-DUPLICATE-LAUNCHED-ROW - a chain continuation minting a
+        // second "launched" row for one flight; and the opposite over-fix that drops the launch
+        // of a line whose earlier chain segments live outside this tree.
+        [Fact]
+        public void Digest_ChainContinuation_IsNotASecondLaunch()
+        {
+            RecordingTree tree = ChainSplitTree();
+            var rows = MissionEventDigest.Build(null, tree, MissionFor("ts"), MissionName, MissionId);
+            var launches = rows.FindAll(r => r.Verb == MissionEventDigest.VerbLaunched);
+
+            Assert.Equal(2, launches.Count);
+            Assert.Contains(launches, r => r.SubjectName == "Split Ship" && r.UT == 0);
+            Assert.DoesNotContain(launches, r => r.SubjectName == "Split Ship" && r.UT == 100);
+            Assert.Contains(launches, r => r.SubjectName == "Orphan Tail" && r.UT == 300);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Mission]") && l.Contains("EventDigest: tree=ts")
+                && l.Contains("skippedChainContinuations=1"));
+        }
+
+        [Fact]
+        public void IsChainContinuationInTree_NeedsAnEarlierSegmentOfTheSameChain()
+        {
+            RecordingTree tree = ChainSplitTree();
+            Assert.False(MissionEventDigest.IsChainContinuationInTree(tree, tree.Recordings["S0"]));
+            Assert.True(MissionEventDigest.IsChainContinuationInTree(tree, tree.Recordings["S1"]));
+            Assert.False(MissionEventDigest.IsChainContinuationInTree(tree, tree.Recordings["O2"]));
+
+            // Unchained: ChainIndex -1 / no ChainId never counts.
+            var loose = CrossTreeDockFixture.Rec("L", 702, "l0l0l0l0l0l0l0l0l0l0l0l0l0l0l0l0",
+                null, -1, 0, 10);
+            Assert.False(MissionEventDigest.IsChainContinuationInTree(tree, loose));
+            Assert.False(MissionEventDigest.IsChainContinuationInTree(null, tree.Recordings["S1"]));
+        }
+
         [Fact]
         public void Digest_SameTreeRecoveredDock_IsNamedOnceWithNoCrossMissionGoTo()
         {
