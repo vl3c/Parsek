@@ -1571,6 +1571,17 @@ namespace Parsek
                             $"has non-positive delta {pairedRecoveryAmount.ToString("F1", CultureInfo.InvariantCulture)} — skipping");
                     }
                 }
+                else if (InFlightRecoveryRequest.TryConsumeAwaitingStockPayout(recordingId))
+                {
+                    // Stamped Recovered by the in-flight Recover request: stock pays at the
+                    // Space Center AFTER this commit, and the #444 path
+                    // (OnVesselRecoveryFunds) writes that payout when onVesselRecovered
+                    // fires. The last-two-points heuristic would read an in-flight funds
+                    // change (a contract paid on landing) as a second recovery payout.
+                    ParsekLog.Verbose(Tag,
+                        $"CreateVesselCostActions: '{recordingId}' recovered in flight - " +
+                        "payout not yet paid, the stock recovery writes it (no heuristic row)");
+                }
                 else if (rec.Points.Count >= 2)
                 {
                     double lastFunds = rec.Points[rec.Points.Count - 1].funds;

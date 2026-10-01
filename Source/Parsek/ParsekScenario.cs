@@ -3515,6 +3515,9 @@ namespace Parsek
                 return;
             }
             inertGameModePassthroughNode = null;
+            // An in-flight recovery request is consumed by the scene-exit finalize that
+            // precedes this load; any leftover belongs to no live flight.
+            InFlightRecoveryRequest.Clear("OnLoad");
 
             DiagnosticsState.ResetSessionCounters();
             IncompleteBallisticSceneExitFinalizer.ResetLifecycleDiagnostics();
@@ -5358,6 +5361,8 @@ namespace Parsek
             GameEvents.onVesselRecoveryProcessingComplete.Add(OnVesselRecoveryProcessingComplete);
             GameEvents.onVesselRecovered.Remove(OnVesselRecovered);
             GameEvents.onVesselRecovered.Add(OnVesselRecovered);
+            GameEvents.OnVesselRecoveryRequested.Remove(OnVesselRecoveryRequested);
+            GameEvents.OnVesselRecoveryRequested.Add(OnVesselRecoveryRequested);
             GameEvents.onVesselTerminated.Remove(OnVesselTerminated);
             GameEvents.onVesselTerminated.Add(OnVesselTerminated);
             GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
@@ -7824,6 +7829,40 @@ namespace Parsek
                 $"payout expectation now known");
         }
 
+        /// <summary>
+        /// The flight-scene Recover button (and kRPC's <c>Vessel.Recover</c>): stock fires
+        /// this in FLIGHT before it saves and loads the Space Center, where the vessel is
+        /// actually recovered. Arms <see cref="InFlightRecoveryRequest"/> so the scene-exit
+        /// finalize commits the recording Recovered (operator ruling 2026-10-01). When
+        /// stock's own listener ran first, the tree is already finalized and pending, so
+        /// the request is applied to it here.
+        /// </summary>
+        private void OnVesselRecoveryRequested(Vessel v)
+        {
+            if (v == null) return;
+            if (HighLogic.LoadedScene != GameScenes.FLIGHT) return;
+            if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+            if (RewindContext.IsRewinding)
+            {
+                ParsekLog.Info("Scenario",
+                    $"Ignoring recovery request for '{v.vesselName}' during rewind");
+                return;
+            }
+
+            string guid = v.id != Guid.Empty
+                ? v.id.ToString("N", CultureInfo.InvariantCulture)
+                : null;
+            InFlightRecoveryRequest.Arm(
+                v.persistentId, guid, v.vesselName, Planetarium.GetUniversalTime());
+
+            if (RecordingStore.HasPendingTree
+                && RecordingStore.PendingTreeStateValue == PendingTreeState.Finalized)
+            {
+                InFlightRecoveryRequest.TryApplyToFinalizedPendingTree(
+                    RecordingStore.PendingTree, "recovery-request pending tree");
+            }
+        }
+
         private void OnVesselRecovered(ProtoVessel pv, bool fromTrackingStation)
         {
             if (pv == null) return;
@@ -7883,8 +7922,8 @@ namespace Parsek
                     payoutContext);
 
             // KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL: the committed flight this
-            // vessel continues may hold its crew open-ended (with auto-merge on, an in-flight
-            // Recover commits the flight Landed BEFORE this event fires). Parsek's own
+            // vessel continues may hold its crew open-ended (a Tracking Station recovery of an
+            // older flight, or a pre-2026-10-01 in-flight Recover committed Landed). Parsek's own
             // housekeeping recoveries run crew-suppressed and are not a kerbal coming home.
             if (GameStateRecorder.SuppressCrewEvents)
             {
@@ -8003,16 +8042,7 @@ namespace Parsek
                         continue;
                     }
 
-                    rec.ExplicitEndUT = ut;
-                    CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                    // Snapshot first, stamp second: CanOverwriteTerminalState
-                    // deliberately allows Landed/Orbiting/Splashed/SubOrbital ->
-                    // Recovered|Destroyed, and that is exactly the transition the
-                    // crew-end-state seam must re-infer against — it has to judge
-                    // re-derivability against the surface that survives this block
-                    // (the ghost snapshot), not the snapshot being dropped here.
-                    rec.VesselSnapshot = null;
-                    rec.StampTerminalState(state, "UpdateRecordingsForTerminalEvent");
+                    ApplyTerminalEventStamp(rec, state, ut, "UpdateRecordingsForTerminalEvent");
                     anyUpdated = true;
                     stampedCount++;
                     ParsekLog.Verbose("Scenario", $"Updated pending tree recording '{rec.VesselName}' with {state}");
@@ -8034,6 +8064,29 @@ namespace Parsek
             // any mutation persists through reverts, permanently preventing re-spawn.
 
             return anyUpdated;
+        }
+
+        /// <summary>
+        /// The stamp a recovery / termination event applies to a NOT-YET-COMMITTED
+        /// recording: end at the event UT, release the snapshot's crew, drop the vessel
+        /// snapshot, stamp the terminal. Shared by the pending-tree path above and the
+        /// in-flight Recover path (<see cref="InFlightRecoveryRequest"/>), so a recording
+        /// committed after either reads exactly the same.
+        /// </summary>
+        internal static void ApplyTerminalEventStamp(
+            Recording rec, TerminalState state, double ut, string source)
+        {
+            if (rec == null) return;
+            rec.ExplicitEndUT = ut;
+            CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+            // Snapshot first, stamp second: CanOverwriteTerminalState
+            // deliberately allows Landed/Orbiting/Splashed/SubOrbital ->
+            // Recovered|Destroyed, and that is exactly the transition the
+            // crew-end-state seam must re-infer against - it has to judge
+            // re-derivability against the surface that survives this block
+            // (the ghost snapshot), not the snapshot being dropped here.
+            rec.VesselSnapshot = null;
+            rec.StampTerminalState(state, source);
         }
 
         /// <summary>
@@ -8287,6 +8340,7 @@ namespace Parsek
             GameEvents.onVesselRecoveryProcessing.Remove(OnVesselRecoveryProcessing);
             GameEvents.onVesselRecoveryProcessingComplete.Remove(OnVesselRecoveryProcessingComplete);
             GameEvents.onVesselRecovered.Remove(OnVesselRecovered);
+            GameEvents.OnVesselRecoveryRequested.Remove(OnVesselRecoveryRequested);
             GameEvents.onVesselTerminated.Remove(OnVesselTerminated);
             GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
             // M4b Phase B2: drop the scene-switch escrow-clear subscription on

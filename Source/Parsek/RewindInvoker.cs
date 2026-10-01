@@ -1326,8 +1326,8 @@ namespace Parsek
                 // craft the player had RECOVERED after the rewind point is now flying again
                 // while its recovery funds/science/crew rows are still banked. The recovery
                 // is proven by the recording's Recovered terminal OR by its post-cutoff
-                // ledger recovery row: with auto-merge on, the flight commits before stock
-                // fires onVesselRecovered, so the committed terminal reads Landed. Retiring them
+                // ledger recovery row (RecoveredRecordingEvidence): a recording committed
+                // before its vessel was recovered keeps its situation terminal. Retiring them
                 // here — after the post-strip reconcile, so the surviving identities are
                 // settled, and BEFORE the marker write and the Step-5
                 // RecalculateAndPatch(double.MaxValue) with authoritativeReduction=true, so

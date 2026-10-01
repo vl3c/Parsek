@@ -1283,6 +1283,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel you recover from flight is saved as Recovered, and its replay ends with no
+  vessel.** Pressing Recover in flight leaves the flight scene before the game pays out the
+  recovery at the Space Center, so with auto-merge on (and with the Merge button of the merge
+  window) the flight was saved as Landed. After a rewind to before that flight, its replay
+  then put the vessel back at the landing site while the recovery still paid out, so you
+  could recover it a second time; the flight could also be stashed and re-flown. The flight is
+  now saved as Recovered, its replay ends with no vessel, and the recovery is paid once.
+  Flights already saved as Landed whose vessel was recovered (including a recovery from the
+  Tracking Station of an older flight) are recognised by their recovery payout or crew
+  return: their replay no longer spawns the vessel, and they are not offered for Stash or
+  Re-Fly. A flight that landed and was never recovered still leaves its vessel in the world.
 - **Debris rows in Recordings no longer report impossible speeds and distances.** The
   Max Speed and Distance on a recording's hover are computed from its samples and orbit
   segments. A destroyed vessel's last moments are kept as a ballistic arc whose lowest point

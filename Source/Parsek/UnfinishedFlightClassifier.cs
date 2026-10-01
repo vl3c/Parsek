@@ -395,7 +395,7 @@ namespace Parsek
                 }
             }
 
-            if (slot?.Stashed == true && StashedTerminalQualifies(terminal.Value))
+            if (slot?.Stashed == true && StashedTerminalQualifies(chainTip))
             {
                 int stashedSlotListIndex = ResolveSlotListIndexByReference(rp, slot);
                 int focusSlotIndex = rp != null ? rp.FocusSlotIndex : -1;
@@ -622,9 +622,11 @@ namespace Parsek
                 return false;
             }
 
-            if (!StashedTerminalQualifies(terminal.Value))
+            if (!StashedTerminalQualifies(chainTip))
             {
-                reason = "unsafeTerminal:" + terminal.Value;
+                reason = StashedTerminalQualifies(terminal.Value)
+                    ? "unsafeTerminal:recoveredAfterCommit"
+                    : "unsafeTerminal:" + terminal.Value;
                 rp = null;
                 slotListIndex = -1;
                 return false;
@@ -1038,7 +1040,7 @@ namespace Parsek
                 return false;
             return terminalRec != null
                 && terminalRec.TerminalStateValue.HasValue
-                && StashedTerminalQualifies(terminalRec.TerminalStateValue.Value);
+                && StashedTerminalQualifies(terminalRec);
         }
 
         /// <summary>
@@ -1107,6 +1109,30 @@ namespace Parsek
             // CommittedProvisional / Immutable / NotCommitted state directly.
             Recording tip = EffectiveState.FindCommittedRecordingByIdRaw(tipId);
             return tip != null && tip.MergeState == MergeState.CommittedProvisional;
+        }
+
+        /// <summary>
+        /// <see cref="StashedTerminalQualifies(TerminalState)"/> over the recording that
+        /// carries the terminal, plus the recovered-after-commit rule (operator ruling
+        /// 2026-10-01: a recovered flight is never offered for Stash / Re-Fly): a
+        /// Landed / Splashed / Orbiting / SubOrbital recording whose vessel a recovery row
+        /// says was recovered (committed before the recovery fired) does not qualify.
+        /// </summary>
+        private static bool StashedTerminalQualifies(Recording terminalRec)
+        {
+            if (terminalRec == null || !terminalRec.TerminalStateValue.HasValue)
+                return false;
+            if (!StashedTerminalQualifies(terminalRec.TerminalStateValue.Value))
+                return false;
+            if (RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive(terminalRec))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Stash terminal rejected: rec={terminalRec.RecordingId} " +
+                    $"terminal={terminalRec.TerminalStateValue.Value} recoveredAfterCommit=true " +
+                    "(recovery ledger row)");
+                return false;
+            }
+            return true;
         }
 
         private static bool StashedTerminalQualifies(TerminalState terminal)

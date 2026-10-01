@@ -2427,6 +2427,10 @@ namespace Parsek
                     $"with no active tree dest={scene} reason='{suppressReason ?? "<unspecified>"}'");
             }
 
+            // No recovery request survives the scene change that should have consumed it
+            // (no active tree, a suppressed exit, or a FLIGHT destination).
+            InFlightRecoveryRequest.Clear("scene change requested dest=" + scene);
+
             // Stop manual playback
             StopPlayback();
             DestroyAllTimelineGhosts();
@@ -3205,6 +3209,12 @@ namespace Parsek
                 // so the dialog and spawn-at-end safety check see the correct sit field.
                 FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: true);
 
+                // In-flight Recover (operator ruling 2026-10-01): the merge dialog commits
+                // before stock recovers the vessel at the Space Center, so stamp the
+                // recovered launch's tip Recovered here, while the tree is not committed.
+                InFlightRecoveryRequest.ApplyAtSceneExit(
+                    activeTree, scene, "scene-exit autoMerge-off");
+
                 // #289: KSP's auto-save fired BEFORE this code path runs (it ran inside
                 // OnSceneChangeRequested, before our scene-exit cleanup). Any sidecar files
                 // dirtied by FinalizeTreeRecordings (e.g. fresh snapshots from the #289
@@ -3239,8 +3249,12 @@ namespace Parsek
             else
             {
                 // Scene exit: null snapshots (ghost-only, no spawning outside Flight)
-                CommitTreeSceneExit(commitUT);
+                CommitTreeSceneExit(commitUT, scene);
             }
+
+            // A recovery request this exit did not consume (FLIGHT destination, or no
+            // tree finalized above) must not outlive the transition.
+            InFlightRecoveryRequest.Clear("scene-exit finalize dest=" + scene);
 
             // Clean up tree state
             recorder = null;
@@ -15675,7 +15689,7 @@ namespace Parsek
         /// full-fidelity commit) and force-writes dirty sidecars so they are durable;
         /// nulls non-spawnable snapshots (ghost visual + crew reservation released).
         /// </summary>
-        void CommitTreeSceneExit(double commitUT)
+        void CommitTreeSceneExit(double commitUT, GameScenes scene)
         {
             if (activeTree == null) return;
 
@@ -15684,6 +15698,12 @@ namespace Parsek
 
             // Finalize all recordings
             FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: true);
+
+            // In-flight Recover (operator ruling 2026-10-01): the auto-merge commit runs in
+            // the Space Center's OnLoad, before stock recovers the vessel there, so stamp
+            // the recovered launch's tip Recovered now, while the tree is not committed.
+            InFlightRecoveryRequest.ApplyAtSceneExit(
+                activeTree, scene, "scene-exit autoMerge-on");
 
             // Null vessel snapshots for recordings that don't need spawn-at-end.
             // Preserve snapshots for stable-terminal recordings (Landed/Splashed/Orbiting)
