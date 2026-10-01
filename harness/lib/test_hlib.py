@@ -20993,7 +20993,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
         "B4-reentry-splashdown.toml": (9, 10, "b4_decide", True),
         "B5-mun-flyby.toml":          (8, 9, "b5_decide", True),
         "B6-minmus-flyby.toml":       (8, 9, "b5_decide", True),
-        "B7-duna-flyby.toml":         (8, 8, "b5_decide", True),
+        "B7-duna-flyby.toml":         (9, 9, "b5_decide", True),
     }
 
     # Stacks a spec drops BEYOND the one extra stage the GATED flag counts. B4's
@@ -21002,6 +21002,16 @@ class DebrisPopulationGateTests(unittest.TestCase):
     # site count cannot see the second dropped stack; measured 9 on
     # 2026-09-24_1820_B4-reentry-splashdown.
     EXTRA_DROPS = {"B4-reentry-splashdown.toml": 1}
+
+    # Recordings the optimizer adds at the in-flight commit, not debris. Since #1931 the
+    # seam CommitTree runs RecordingStore.RunOptimizationPass, which splits the ascent
+    # core where it leaves the atmosphere (PersistedPhaseChange Atmospheric ->
+    # ExoBallistic). B7's exact window took that +1 on 2026-10-01 (reading
+    # 2026-10-01_1310 red on 9 > max 8 alone, re-flight 2026-10-01_1508 PASS at 9). B2,
+    # B5 and B6 read the same +1 inside their existing max (2026-10-01_1127 / _1201 /
+    # _1210) and B4 reads two splits (ascent exit plus reentry), so it is not re-pinned
+    # (todo INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS).
+    OPTIMIZER_SPLITS = {"B7-duna-flyby.toml": 1}
 
     # spec -> (measured count, the PASS run ids it was read from). Every value is
     # `verifiers.expectations.observed.recordings.count` off a verdict=PASS result
@@ -21024,7 +21034,8 @@ class DebrisPopulationGateTests(unittest.TestCase):
                                            "2026-07-25_0847_B5-mun-flyby")),
         "B6-minmus-flyby.toml":       (8, ("2026-07-25_0636_B6-minmus-flyby",
                                            "2026-07-25_0856_B6-minmus-flyby")),
-        "B7-duna-flyby.toml":         (8, ("2026-07-25_0916_B7-duna-flyby_a2",)),
+        # 9 since 2026-10-01: #1931's in-flight optimizer split (OPTIMIZER_SPLITS).
+        "B7-duna-flyby.toml":         (9, ("2026-10-01_1508_B7-duna-flyby",)),
     }
 
     CELL = "parent-anchored-debris"
@@ -21219,7 +21230,8 @@ class DebrisPopulationGateTests(unittest.TestCase):
                 count = load_spec(name)["expectations"]["recordings"]["count"]
                 self.assertEqual(cmin, count["min"])
                 self.assertEqual(cmax, count["max"])
-                self.assertEqual((8 if extra_stage else 7) + self.EXTRA_DROPS.get(name, 0),
+                self.assertEqual((8 if extra_stage else 7) + self.EXTRA_DROPS.get(name, 0)
+                                 + self.OPTIMIZER_SPLITS.get(name, 0),
                                  cmin,
                                  "a spec that commands a debris-producing stage drop "
                                  "beyond ignition floors at 8, the others at 7, plus "

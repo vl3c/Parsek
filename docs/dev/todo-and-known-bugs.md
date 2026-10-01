@@ -1228,7 +1228,7 @@ recording (`Built 8 ... engineSentinels=8 visualStates=0`; `2026-09-15_1546` rea
 `2026-09-29_1538` PASS attempt 1. All three armed `rewind` blocks met; RF-4 `rewind` and RF-1 /
 RF-9 `structure` armed off these readings (SAVE-BLOCKS-AWAITING-READINGS).
 
-## INFLIGHT-COMMIT-SPLIT-STALE-RECORDING-COUNTS: #1931 adds a chain segment to every in-flight-committed flight that leaves an atmosphere, and lane count pins written before it go red [FILED 2026-10-01, branch `arm-last19`. LANE WINDOWS, not a Parsek defect. OPEN for the lanes not re-read]
+## INFLIGHT-COMMIT-SPLIT-STALE-RECORDING-COUNTS: #1931 adds a chain segment to every in-flight-committed flight that leaves an atmosphere, and lane count pins written before it go red [FILED 2026-10-01, branch `arm-last19`. LANE WINDOWS, not a Parsek defect. NIGHTLY SET RE-READ 2026-10-01 on branch `split-count-repin` (see the update below); OPEN for the six operator lanes not flown and for the four multi-split findings filed as INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS]
 
 #1931 (IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS, merged 2026-09-30) made the seam / mission
 `CommitTree` run `RecordingStore.RunOptimizationPass`, as the merge dialog and the scene-exit
@@ -1247,6 +1247,56 @@ e.g. B2, B4, B5, B6, B7, B15, B18, L5, L6, CA-1, EVA-4, BDOCK-1. Already green o
 (the verification flights under `Parsek-verify-1931-1932`, 2026-09-29): S0.6, EVA-2, EVA-3,
 EX-1, RR-1, SE-1, L3, H58 (BDOCK-1 was INVALID autopilot-flake twice there). Fix: re-read each on the
 next tier run and re-pin a count only with the split line in its own KSP.log as the evidence.
+
+UPDATE 2026-10-01 (branch `split-count-repin`, automation DLL sha256 `fb772f3a...`, origin/main
+`b11dd15c8`). The affected set, derived mechanically: of the 90 specs naming `CommitTree`, 35
+drive it as a seam step, plus the lanes whose mission commits mid-flight through the seam
+(`ACTION_PARSEK_COMMIT_TREE`: the b5-family machine and `bdock_decide`). Kept only those whose
+flight leaves an atmosphere before that commit AND whose `recordings.count` max a +1 would cross:
+the b2-lko-craft MechJeb lanes B2, B4, B5, B6, B7, B11, B12, B13, B14, B15 and GS-8 (its 160 km
+core discard), plus the Duna Rocket operator lanes B16, B18, B19, B20, B21, B22. Dropped with the
+reason: apoapsis under 70 km (B1, EVA-4, M3, L3 / L5 / L6, CA-1, CL-1 / CL-2, and the default
+60 km KerbalX `kx_rewind_watch` lanes GS-4 / GS-6 / GS-9 / GS-12 / MC-4 / RF-14 / RF-15), impact
+profiles (GS-7 / GS-10 / GS-11), commit by `ExitToSpaceCenter`, which always optimized (RF-9,
+RF-13H), orbit or pad starts (B23-B35, SD-1, MC-3 / MC-5, the seam pad / orbit lanes), min-only
+windows (V1, R1, RF-12L, BAY-1), and BDOCK-1 (re-pinned 19..22 off its post-#1931 reading
+`2026-09-30_1732`, count 21). No points block or `Total committed` token on the kept set pins a
+count. Flown once each on current main:
+- Already green: B2 `2026-10-01_1127` (8 in 7..8), B5 `_1201` (9 in 8..9), B6 `_1210` (9 in
+  8..9), each with exactly one atmosphere-exit split.
+- Re-pinned 8 -> 9, each red on `recordings.count 9 > max 8` alone with exactly one split
+  (`Split candidate (PersistedPhaseChange) ... prev=Atmospheric next=ExoBallistic`, then
+  `CommitTreeFlight: optimization pass ran committed=8->9`): B11 `_1231`, B12 `_1323`, B7 `_1310`,
+  B15 `_1253`. Re-flown green on the new pin, PASS attempt 1 at count 9: B12 `_1457`, B7 `_1508`, B15
+  `_1521`, B11 `_1538`. Each window stays exact and was
+  inverted offline against its reading's produced save: 8 and 10 both red.
+- Findings, NOT re-pinned (more than one split): GS-8, B4, B13, B14, filed as
+  INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS below.
+- Not flown (operator tier, over the 3 h budget): B16, B18, B19, B20, B21, B22.
+
+## INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS: four lanes commit more than one extra recording since #1931, so their count windows were not re-pinned [FILED 2026-10-01, branch `split-count-repin`. LANE WINDOWS pending an operator ruling; no Parsek defect shown. OPEN]
+
+Found while re-reading INFLIGHT-COMMIT-SPLIT-STALE-RECORDING-COUNTS. The re-pin rule there takes
+a count only when it is exactly one higher with one atmosphere-exit split behind it. These four
+read more, every extra recording backed by its own split line in the run's KSP.log and by
+`CommitTreeFlight: optimization pass ran committed=N->M`. Nothing else failed in any of them
+(every other verifier PASS), and each split is one `RecordingOptimizer` already makes on the
+merge-dialog and scene-exit commits:
+- GS-8 `2026-10-01_1132`: `recordings.count 10 > max 8`, `committed=8->10`. Two atmosphere-exit
+  splits at UT 161.8: the live pod stack (`rec=33aa03d4...`) AND the core probe child
+  (`rec=43f8b571...`), which also climbs past 70 km after its 160 km-apoapsis discard.
+- B4 `2026-10-01_1143`: `recordings.count 11 > max 10` (last pre-#1931 PASS read 9),
+  `committed=9->11`. The ascent exit at UT 212.2 plus the reentry, `prev=ExoBallistic
+  next=Atmospheric` at UT 916.9.
+- B14 `2026-10-01_1334`: `recordings.count 11 > max 8`, `committed=8->11`. The ascent exit, the
+  Minmus approach (`prev=ExoBallistic next=Approach`, UT 278163.9) and the touchdown
+  (`Split candidate (SurfaceInvolved) ... prev=Approach next=SurfaceMobile`, UT 278432.1).
+- B13 `2026-10-01_1410`: `recordings.count 11 > max 8`, `committed=8->11`. The same three on the
+  Mun: ascent exit, approach (UT 22957.8), touchdown (`prev=Approach next=SurfaceStationary`,
+  UT 23129.7).
+Fix: an operator ruling that these splits are the intended in-flight commit shape (they match
+the scene-exit commit's), then re-pin each window to its read value (GS-8 10, B4 11, B13 11,
+B14 11), exact, off these runs, and re-fly once.
 
 ## ~~RF-LANES-SECOND-REWIND-INTO-A-FUTURE-RP: RF-2 and RF-3 cannot reach their later rewind point since the future-rewind-point gate (#1788)~~ [FILED AND FIXED 2026-10-01, branch `arm-last19`. LANE SPEC DEFECT, not a Parsek defect. RE-FLOWN GREEN 2026-10-01]
 

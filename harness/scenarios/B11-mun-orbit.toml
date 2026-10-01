@@ -420,7 +420,19 @@ allowedAnomalies = []
 # this spec can count anything. Re-pin from a measured
 # observed.recordings.count if a later run legitimately differs; never widen it
 # blindly.
-count = { min = 8, max = 8 }
+#
+# RE-PINNED 8 -> 9 on 2026-10-01 (branch `split-count-repin`, todo
+# INFLIGHT-COMMIT-SPLIT-STALE-RECORDING-COUNTS). Since #1931 the mid-mission seam
+# CommitTree runs the recording optimizer, which splits the ascent core at its
+# atmosphere exit, so the 8 recordings above commit as 9. Reading run
+# `2026-10-01_1231_B11-mun-orbit` was PARSEK-FAIL on `recordings.count 9 > max 8`
+# alone, and its KSP.log carries exactly one split:
+#   Split candidate (PersistedPhaseChange): rec=e860696a... sec=6 splitUT=212.18
+#   prev=Atmospheric next=ExoBallistic
+#   CommitTreeFlight: optimization pass ran committed=8->9
+# Re-flown on the new pin: `2026-10-01_1538_B11-mun-orbit` PASS attempt 1, count 9.
+# Still exact: 8 (the split missing) and 10 (a second split) both red.
+count = { min = 9, max = 9 }
 
 [expectations.logContracts]
 # Every token below is sourced from the ACTUAL emitting ParsekLog call site:
