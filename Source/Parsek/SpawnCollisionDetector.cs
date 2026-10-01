@@ -104,7 +104,11 @@ namespace Parsek
                 return new Bounds(Vector3.zero, Vector3.one * FallbackBoundsSize);
             }
 
-            ParsekLog.Verbose(Tag, $"ComputeVesselBounds: parsed {parts.Count}/{partNodes.Length} parts");
+            // Runs on every 1 s retry of a spawn-blocked chain tip: rate-limited, keyed by the
+            // part counts so a different vessel still prints at once.
+            ParsekLog.VerboseRateLimited(Tag,
+                "vessel-bounds|" + parts.Count.ToString(IC) + "|" + partNodes.Length.ToString(IC),
+                $"ComputeVesselBounds: parsed {parts.Count}/{partNodes.Length} parts");
             return ComputeBoundsFromParts(parts);
         }
 
@@ -137,7 +141,9 @@ namespace Parsek
                 parts.Add((new Vector3(x, y, z), DefaultPartHalfExtent));
             }
 
-            ParsekLog.Verbose(Tag, $"ParsePartPositions: parsed {parts.Count}/{partNodes.Length} parts from snapshot");
+            ParsekLog.VerboseRateLimited(Tag,
+                "part-positions|" + parts.Count.ToString(IC) + "|" + partNodes.Length.ToString(IC),
+                $"ParsePartPositions: parsed {parts.Count}/{partNodes.Length} parts from snapshot");
             return parts;
         }
 
@@ -540,7 +546,10 @@ namespace Parsek
             bool timeoutReached = elapsed >= timeoutSeconds;
             bool blockerStationary = blockerDistanceChangeMeters < movementThreshold;
 
-            ParsekLog.Verbose(Tag,
+            // Called on every 1 s retry of a spawn-blocked chain tip: rate-limited, keyed by
+            // the verdict so a change (timeout reached, blocker moved) prints at once.
+            ParsekLog.VerboseRateLimited(Tag,
+                "walkback-trigger|" + timeoutReached + "|" + blockerStationary,
                 string.Format(IC,
                     "ShouldTriggerWalkback: elapsed={0}s timeout={1}s blockerMoved={2}m threshold={3}m → timeout={4} stationary={5} → {6}",
                     elapsed.ToString("F2", IC),

@@ -40,7 +40,7 @@ namespace Parsek.Tests
         ///
         /// <para><b>Why a SCOPE and not just a file.</b> The Kerbals draw switches on its
         /// three enums in place, so the whole file is the scope. <c>TerminalState</c> is
-        /// different: the Structure window draws a terminal STATUS cell but branches on
+        /// different: the Structure window draws a terminal "End: <word>" cell but branches on
         /// nothing - the vocabulary is produced one layer up by
         /// <c>MissionCompositionBuilder.TerminalName</c>, so THAT method's body is the
         /// scope. Scoping to the method is what keeps the guard about the words the window
@@ -88,7 +88,7 @@ namespace Parsek.Tests
                 ShortName = "TerminalState",
                 RelativePath = "MissionComposition.cs",
                 MethodMarker = "internal static string TerminalName(TerminalState? t)",
-                Why = "the Structure window's terminal Event / Status cell draws exactly "
+                Why = "the Structure window's terminal Event cell draws exactly "
                       + "this vocabulary, and six of its words have no capture",
             },
         };
@@ -113,6 +113,16 @@ namespace Parsek.Tests
                 { "ChainMemberStatus.Unknown",
                   "BuildChainMembers emits only Retired / Active / Displaced, so no "
                   + "recording can produce an Unknown chain member" },
+                // The Log draws no End row for a leg that ended by joining another vessel:
+                // its Docked / Boarded branch row already says it
+                // (MissionStructureListBuilder's terminal pass skips both words). The
+                // structure.mission.terminal-docked state photographs that absence.
+                { "TerminalState.Docked",
+                  "the Log's terminal pass skips a leg that ended Docked; its Docked branch "
+                  + "row carries the event" },
+                { "TerminalState.Boarded",
+                  "the Log's terminal pass skips a leg that ended Boarded; its Boarded branch "
+                  + "row carries the event" },
             };
 
         /// <summary>

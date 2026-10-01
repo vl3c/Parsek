@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Report-only mutation checker over archived harness runs (trust risk 8, phase 1).
+"""Report-only mutation checker over archived harness runs (trust risk 8, phases 1-2).
 
 Thin I/O shell: finds archived runs on this machine, reads each one's KSP.log,
 recording count and produced save, and hands them to ``lib/mutlib.py``, which
@@ -21,6 +21,32 @@ them under the umbrella root):
     python tools/mutation_check.py --spec B1-pad-hop     # one lane
     python tools/mutation_check.py --archive ../logs/2026-09-24_0041_SD-1-same-tree-redock
     python tools/mutation_check.py --list-archives --spec B1-pad-hop
+    python tools/mutation_check.py --save-only           # save-level edits only (phase 2)
+    python tools/mutation_check.py --ledger-only         # ledger-oracle edits only (phase 2)
+    python tools/mutation_check.py --mission-only        # mission-chain edits only (phase 2)
+    python tools/mutation_check.py --forbidden-only      # forbidden-token injection only (phase 2)
+
+``--save-only`` runs only the save-structure checks (``lib/mutsave.py``): for every
+spec with an ARMED save-parse block, the newest archived produced save whose armed
+blocks pass, else the spec's committed ``fixture.saveTemplate`` when that passes;
+no KSP.log is needed, so it also reaches lanes whose logs no longer replay green.
+
+``--ledger-only`` runs only the ledger-oracle checks (``lib/mutledger.py``): for every
+spec with an ``[expectations.ledger]`` or ``[expectations.world]`` block, the newest
+results archive whose verifier passes over its archived seed (``<runId>.manifest.json``),
+produced careerSave (the snapshot's ``analysis/*.analysis.json``) and KSP.log.
+Collect-logs folders carry no seed, so they never serve.
+
+``--mission-only`` runs only the mission-chain checks (``lib/mutmission.py``): for every
+autopilot spec, the newest results archive whose run record (``<runId>.json``) and
+mission result (``<runId>_mission.json``) replay green through the real chain. The
+mission shell module (``missions/<mission>.py``) is imported for the blind replay; it
+never connects to kRPC.
+
+``--forbidden-only`` runs only the forbidden-token injection (``lib/mutforbid.py``):
+for every spec with a forbidden list, the newest archived KSP.log no forbidden pattern
+already matches (results or collect-logs; the other gates need not replay green).
+Both it and a full run read ``Source/Parsek/**/*.cs`` once for the emitter triage list.
 
 Writes ``results/mutation-check/<stamp>.md`` (gitignored) unless ``--out``.
 """
@@ -41,8 +67,14 @@ LIB_DIR = os.path.join(HARNESS_ROOT, "lib")
 if LIB_DIR not in sys.path:
     sys.path.insert(0, LIB_DIR)
 
+import mutledger  # noqa: E402
 import mutlib  # noqa: E402
 import saveparse  # noqa: E402
+
+MISSIONS_DIR = os.path.join(HARNESS_ROOT, "missions")
+for _p in (MISSIONS_DIR, os.path.join(MISSIONS_DIR, "lib")):
+    if _p not in sys.path:
+        sys.path.append(_p)
 
 SCENARIOS_DIR = os.path.join(HARNESS_ROOT, "scenarios")
 DEFAULT_OUT_DIR = os.path.join(HARNESS_ROOT, "results", "mutation-check")
@@ -95,9 +127,14 @@ def _results_refs(results_dir: str) -> List[mutlib.ArchiveRef]:
         if not os.path.isdir(save_dir):
             save_dir = None
         rec_dir = os.path.join(save_dir, "Parsek", "Recordings") if save_dir else None
+        manifest = os.path.join(results_dir, "%s.manifest.json" % run_id)
+        mission = os.path.join(results_dir, "%s_mission.json" % run_id)
         out.append(mutlib.ArchiveRef(parsed[0], str(data["scenarioId"]), "results", run_id,
                                      log_path, save_dir, rec_dir, data.get("verdict"),
-                                     bool(art.get("kspLogTruncated"))))
+                                     bool(art.get("kspLogTruncated")),
+                                     manifest if os.path.isfile(manifest) else None,
+                                     os.path.join(results_dir, name),
+                                     mission if os.path.isfile(mission) else None))
     return out
 
 
@@ -160,20 +197,274 @@ def default_archive_roots(umbrella: str) -> List[str]:
     return roots
 
 
-def read_inputs(ref: mutlib.ArchiveRef) -> mutlib.ArchiveInputs:
+def read_inputs(ref: mutlib.ArchiveRef, spec: Optional[Dict] = None) -> mutlib.ArchiveInputs:
     with open(ref.log_path, "r", encoding="utf-8", errors="replace") as fh:
         text = fh.read()
     count: Optional[int] = None
     if ref.recordings_dir and os.path.isdir(ref.recordings_dir):
         count = sum(1 for f in os.listdir(ref.recordings_dir) if f.endswith(".prec"))
-    snapshot = None
-    if ref.save_dir:
-        sfs = os.path.join(ref.save_dir, "persistent.sfs")
-        if os.path.isfile(sfs):
-            with open(sfs, "r", encoding="utf-8", errors="replace") as fh:
-                snapshot = saveparse.parse_parsek_scenario(fh.read())
+    save_text = read_save_text(ref)
+    snapshot = saveparse.parse_parsek_scenario(save_text) if save_text is not None else None
     label = "%s:%s%s" % (ref.source, ref.run_id, " (log truncated)" if ref.truncated else "")
-    return mutlib.ArchiveInputs(label, text, count, snapshot)
+    return mutlib.ArchiveInputs(label, text, count, snapshot, save_text,
+                                read_ledger_inputs(ref, text),
+                                read_mission_inputs(ref, spec) if spec else None,
+                                source_corpus())
+
+
+_CORPUS: List[Optional[str]] = []
+
+
+def source_corpus() -> Optional[str]:
+    """The lower-cased text of every ``Source/Parsek/**/*.cs`` (read once), for the
+    forbidden-token emitter triage list; None when the source tree is absent."""
+    if _CORPUS:
+        return _CORPUS[0]
+    root = os.path.join(REPO_ROOT, "Source", "Parsek")
+    parts: List[str] = []
+    for dirpath, _dirs, files in os.walk(root):
+        for f in files:
+            if f.endswith(".cs"):
+                try:
+                    with open(os.path.join(dirpath, f), "r", encoding="utf-8",
+                              errors="replace") as fh:
+                        parts.append(fh.read())
+                except OSError:
+                    continue
+    _CORPUS.append("\n".join(parts).lower() if parts else None)
+    return _CORPUS[0]
+
+
+_EVALUATORS: Dict[str, tuple] = {}
+
+
+def load_evaluator(mission: str):
+    """(SPEC, error) for ``missions/<mission>.py``. The import runs no kRPC code (each
+    shell imports krpc lazily inside its control's ``open``)."""
+    if mission in _EVALUATORS:
+        return _EVALUATORS[mission]
+    import importlib
+    try:
+        mod = importlib.import_module(mission)
+        out = (getattr(mod, "SPEC"), "")
+    except Exception as exc:  # noqa: BLE001 - reported on the lane, never raised
+        out = (None, "missions/%s.py did not import: %s: %s" % (mission, type(exc).__name__, exc))
+    _EVALUATORS[mission] = out
+    return out
+
+
+def read_mission_inputs(ref: mutlib.ArchiveRef, spec: Dict):
+    """Run record + mission result text + mission shell SPEC, or None when the
+    archive carries no mission result (collect-logs folders never do)."""
+    import mutmission
+    if not mutmission.is_mission_spec(spec) or not ref.mission_result_path:
+        return None
+    record = _read_json(ref.record_path) if ref.record_path else None
+    evaluator, err = load_evaluator(str(spec["driver"]["mission"]))
+    try:
+        with open(ref.mission_result_path, "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError as exc:
+        return mutmission.MissionInputs(record, None, evaluator, err,
+                                        "%s: %s" % (type(exc).__name__, exc))
+    return mutmission.MissionInputs(record, text, evaluator, err)
+
+
+def read_analysis_text(ref: mutlib.ArchiveRef) -> Optional[str]:
+    """The produced save's single ``analysis/*.analysis.json`` (None when absent or
+    ambiguous)."""
+    if not ref.save_dir:
+        return None
+    adir = os.path.join(ref.save_dir, "analysis")
+    if not os.path.isdir(adir):
+        return None
+    names = [n for n in os.listdir(adir) if n.endswith(".analysis.json")]
+    if len(names) != 1:
+        return None
+    with open(os.path.join(adir, names[0]), "r", encoding="utf-8", errors="replace") as fh:
+        return fh.read()
+
+
+def read_ledger_inputs(ref: mutlib.ArchiveRef, log_text: str) -> Optional[mutledger.LedgerInputs]:
+    """Seed (the archived manifest's audit copy) + produced careerSave + log, or None
+    when the archive carries no analysis file."""
+    try:
+        analysis = read_analysis_text(ref)
+    except OSError as exc:
+        # One unreadable archive must not abort the sweep: the lane reports its ledger
+        # gate UNCHECKED with the reason and every other check still runs.
+        return mutledger.LedgerInputs(None, None, log_text, "%s: %s" % (type(exc).__name__, exc))
+    if analysis is None:
+        return None
+    seed = None
+    if ref.manifest_path:
+        data = _read_json(ref.manifest_path)
+        if isinstance(data, dict) and isinstance(data.get("seed"), dict):
+            seed = data["seed"]
+    return mutledger.LedgerInputs(seed, analysis, log_text)
+
+
+def _first_green(sid: str, sources, check) -> Optional[mutlib.LaneReport]:
+    """Run ``check(label, ref)`` over the candidate sources until one baseline is green
+    (the first red lane is kept when none is; None when nothing was checkable)."""
+    first_red: Optional[mutlib.LaneReport] = None
+    for label, ref in sources:
+        try:
+            lane = check(label, ref)
+        except OSError as exc:
+            print("skip %s: %s" % (label, exc), file=sys.stderr)
+            continue
+        if lane is None:
+            continue
+        if lane.baseline == mutlib.BASELINE_GREEN:
+            return lane
+        first_red = first_red or lane
+    return first_red
+
+
+def run_mission_only(specs: Dict[str, Dict], wanted: List[str], refs: List[mutlib.ArchiveRef],
+                     max_tries: int):
+    import mutmission
+    lanes: List[mutlib.LaneReport] = []
+    no_archive: List[str] = []
+    for sid in wanted:
+        spec = specs[sid]
+        if not mutmission.is_mission_spec(spec):
+            continue
+        cands = [r for r in mutlib.order_candidates(refs, sid)
+                 if r.mission_result_path][:max(1, max_tries)]
+
+        def check(label, ref, spec=spec):
+            inputs = read_mission_inputs(ref, spec)
+            return None if inputs is None else mutlib.check_mission_lane(spec, label, inputs)
+
+        lane = _first_green(sid, [("%s:%s" % (r.source, r.run_id), r) for r in cands], check)
+        if lane is None:
+            no_archive.append(sid)
+            continue
+        lanes.append(lane)
+        print(mutlib.summary_line(lane), flush=True)
+    return lanes, no_archive
+
+
+def run_forbidden_only(specs: Dict[str, Dict], wanted: List[str], refs: List[mutlib.ArchiveRef],
+                       max_tries: int):
+    lanes: List[mutlib.LaneReport] = []
+    no_archive: List[str] = []
+    corpus = source_corpus()
+    for sid in wanted:
+        spec = specs[sid]
+        if not ((spec.get("expectations", {}) or {}).get("logContracts", {}) or {}).get("forbidden"):
+            continue
+        cands = mutlib.order_candidates(refs, sid)[:max(1, max_tries)]
+
+        def check(label, ref, spec=spec):
+            with open(ref.log_path, "r", encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+            return mutlib.check_forbidden_lane(spec, label, text, corpus)
+
+        lane = _first_green(sid, [("%s:%s" % (r.source, r.run_id), r) for r in cands], check)
+        if lane is None:
+            no_archive.append(sid)
+            continue
+        lanes.append(lane)
+        print(mutlib.summary_line(lane), flush=True)
+    return lanes, no_archive
+
+
+def run_ledger_only(specs: Dict[str, Dict], wanted: List[str], refs: List[mutlib.ArchiveRef],
+                    max_tries: int):
+    lanes: List[mutlib.LaneReport] = []
+    no_archive: List[str] = []
+    for sid in wanted:
+        spec = specs[sid]
+        if not mutledger.is_ledger_spec(spec.get("expectations", {}) or {}):
+            continue
+        cands = [r for r in mutlib.order_candidates(refs, sid)
+                 if r.manifest_path and r.save_dir][:max(1, max_tries)]
+        lane: Optional[mutlib.LaneReport] = None
+        first_red: Optional[mutlib.LaneReport] = None
+        for ref in cands:
+            label = "%s:%s" % (ref.source, ref.run_id)
+            try:
+                with open(ref.log_path, "r", encoding="utf-8", errors="replace") as fh:
+                    log_text = fh.read()
+                inputs = read_ledger_inputs(ref, log_text)
+            except OSError as exc:
+                print("skip %s: %s" % (label, exc), file=sys.stderr)
+                continue
+            if inputs is None:
+                continue
+            lane = mutlib.check_ledger_lane(spec, label, inputs)
+            if lane.baseline == mutlib.BASELINE_GREEN:
+                break
+            first_red = first_red or lane
+            lane = None
+        lane = lane or first_red
+        if lane is None:
+            no_archive.append(sid)
+            continue
+        lanes.append(lane)
+        print(mutlib.summary_line(lane), flush=True)
+    return lanes, no_archive
+
+
+def read_save_text(ref: mutlib.ArchiveRef) -> Optional[str]:
+    if not ref.save_dir:
+        return None
+    sfs = os.path.join(ref.save_dir, "persistent.sfs")
+    if not os.path.isfile(sfs):
+        return None
+    with open(sfs, "r", encoding="utf-8", errors="replace") as fh:
+        return fh.read()
+
+
+def fixture_save_text(spec: Dict) -> Optional[str]:
+    """The spec's committed fixture template (never an operator-local one)."""
+    template = (spec.get("fixture") or {}).get("saveTemplate")
+    if not template or mutlib.hlib.is_local_fixture_template(template):
+        return None
+    sfs = os.path.join(HARNESS_ROOT, template, "persistent.sfs")
+    if not os.path.isfile(sfs):
+        return None
+    with open(sfs, "r", encoding="utf-8", errors="replace") as fh:
+        return fh.read()
+
+
+def run_save_only(specs: Dict[str, Dict], wanted: List[str], refs: List[mutlib.ArchiveRef],
+                  max_tries: int, use_fixtures: bool):
+    lanes: List[mutlib.LaneReport] = []
+    no_archive: List[str] = []
+    for sid in wanted:
+        spec = specs[sid]
+        if not saveparse.armed_structure_blocks(spec.get("expectations", {}) or {}):
+            continue
+        cands = [r for r in mutlib.order_candidates(refs, sid) if r.save_dir][:max(1, max_tries)]
+        sources = [("%s:%s" % (r.source, r.run_id), r) for r in cands]
+        if use_fixtures:
+            sources.append(("fixture:%s" % (spec.get("fixture") or {}).get("saveTemplate"), None))
+        lane: Optional[mutlib.LaneReport] = None
+        first_red: Optional[mutlib.LaneReport] = None
+        for label, ref in sources:
+            try:
+                text = read_save_text(ref) if ref is not None else fixture_save_text(spec)
+            except OSError as exc:
+                print("skip %s: %s" % (label, exc), file=sys.stderr)
+                continue
+            if text is None:
+                continue
+            lane = mutlib.check_save_lane(spec, label, text)
+            if lane.baseline == mutlib.BASELINE_GREEN:
+                break
+            first_red = first_red or lane
+            lane = None
+        lane = lane or first_red
+        if lane is None:
+            no_archive.append(sid)
+            continue
+        lanes.append(lane)
+        print(mutlib.summary_line(lane), flush=True)
+    return lanes, no_archive
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -188,6 +479,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--json", help="also write the per-lane records as JSON")
     ap.add_argument("--include-info", action="store_true", help="list free-field survivors too")
     ap.add_argument("--list-archives", action="store_true")
+    ap.add_argument("--save-only", action="store_true",
+                    help="only the save-level edits over archived saves / committed fixtures")
+    ap.add_argument("--no-fixtures", action="store_true",
+                    help="with --save-only: do not fall back to the committed fixture template")
+    ap.add_argument("--ledger-only", action="store_true",
+                    help="only the ledger-oracle edits over archived seed + careerSave + log")
+    ap.add_argument("--mission-only", action="store_true",
+                    help="only the mission-chain edits over archived run record + mission result")
+    ap.add_argument("--forbidden-only", action="store_true",
+                    help="only the forbidden-token injection over archived KSP.logs")
     args = ap.parse_args(argv)
 
     specs = load_specs()
@@ -209,9 +510,22 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print("%s  %s  %s  verdict=%s  %s" % (sid, r.source, r.run_id, r.verdict, r.log_path))
         return 0
 
+    started = time.time()
+    if args.save_only:
+        lanes, no_archive = run_save_only(specs, wanted, refs, args.max_tries,
+                                          not args.no_fixtures)
+        return finish(args, roots, started, lanes, no_archive)
+    if args.ledger_only:
+        lanes, no_archive = run_ledger_only(specs, wanted, refs, args.max_tries)
+        return finish(args, roots, started, lanes, no_archive)
+    if args.mission_only:
+        lanes, no_archive = run_mission_only(specs, wanted, refs, args.max_tries)
+        return finish(args, roots, started, lanes, no_archive)
+    if args.forbidden_only:
+        lanes, no_archive = run_forbidden_only(specs, wanted, refs, args.max_tries)
+        return finish(args, roots, started, lanes, no_archive)
     lanes: List[mutlib.LaneReport] = []
     no_archive: List[str] = []
-    started = time.time()
     for sid in wanted:
         cands = mutlib.order_candidates(refs, sid)[:max(1, args.max_tries)]
         if not cands:
@@ -221,7 +535,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         first_red: Optional[mutlib.LaneReport] = None
         for ref in cands:
             try:
-                inputs = read_inputs(ref)
+                inputs = read_inputs(ref, specs[sid])
             except OSError as exc:
                 print("skip %s: %s" % (ref.log_path, exc), file=sys.stderr)
                 continue
@@ -236,7 +550,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             continue
         lanes.append(lane)
         print(mutlib.summary_line(lane), flush=True)
+    return finish(args, roots, started, lanes, no_archive)
 
+
+def finish(args, roots: List[str], started: float, lanes: List[mutlib.LaneReport],
+           no_archive: List[str]) -> int:
     stamp = time.strftime("%Y-%m-%d_%H%M%S")
     header = "Generated %s over %d archive root(s) in %.0f s; specs from `%s`." % (
         stamp, len(roots), time.time() - started, os.path.relpath(SCENARIOS_DIR, REPO_ROOT).replace(os.sep, "/"))
@@ -250,13 +568,24 @@ def main(argv: Optional[List[str]] = None) -> int:
             json.dump([{"spec": l.spec_id, "archive": l.archive, "baseline": l.baseline,
                         "baselineReasons": l.baseline_reasons, "notes": l.notes,
                         "mutations": [m.__dict__ for m in l.mutations],
-                        "patterns": [p.__dict__ for p in l.patterns]} for l in lanes],
+                        "patterns": [p.__dict__ for p in l.patterns],
+                        "saveGates": [g.__dict__ for g in l.save_gates],
+                        "ledgerGates": [g.__dict__ for g in l.ledger_gates],
+                        "missionGates": [g.__dict__ for g in l.mission_gates],
+                        "forbiddenGates": [g.__dict__ for g in l.forbidden_gates],
+                        "unemitted": [list(u) for u in l.unemitted]} for l in lanes],
                       fh, indent=1)
     t = mutlib.sweep_totals(lanes, len(no_archive))
     print("sweep: lanes green=%d not-green=%d no-archive=%d mutations=%d killed=%d "
-          "survived=%d triage=%d -> %s" % (t.lanes_green, t.lanes_not_green,
-                                           t.lanes_no_archive, t.mutations, t.killed,
-                                           t.survived, t.triage, out))
+          "survived=%d triage=%d saveGates proven=%d vacuous=%d unchecked=%d "
+          "ledgerGates proven=%d vacuous=%d unchecked=%d "
+          "missionGates proven=%d vacuous=%d unchecked=%d "
+          "forbiddenGates proven=%d vacuous=%d unchecked=%d unemitted=%d -> %s" % (
+              t.lanes_green, t.lanes_not_green, t.lanes_no_archive, t.mutations, t.killed,
+              t.survived, t.triage, t.gates_proven, t.gates_vacuous, t.gates_unchecked,
+              t.ledger_proven, t.ledger_vacuous, t.ledger_unchecked,
+              t.mission_proven, t.mission_vacuous, t.mission_unchecked,
+              t.forbidden_proven, t.forbidden_vacuous, t.forbidden_unchecked, t.unemitted, out))
     return 0
 
 

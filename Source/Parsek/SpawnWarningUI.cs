@@ -28,7 +28,7 @@ namespace Parsek
         /// Active chain: "Ghosted -- spawns at UT={SpawnUT:F0}"
         /// Terminated chain: "Ghosted -- chain terminated"
         /// Blocked chain: "Spawn blocked -- waiting for clearance"
-        /// Walkback exhausted: "Spawn blocked -- walkback exhausted, manual placement required"
+        /// Walkback exhausted: "Spawn blocked -- spot occupied, appears when it clears"
         /// </summary>
         internal static string FormatChainStatus(GhostChain chain, string vesselName)
         {
@@ -43,7 +43,9 @@ namespace Parsek
 
             if (chain.SpawnBlocked && chain.WalkbackExhausted)
             {
-                status = "Spawn blocked -- walkback exhausted, manual placement required";
+                // Operator ruling 2026-10-01: an exhausted chain-tip walkback keeps the ghost
+                // and keeps retrying, so nothing is abandoned and there is no placement UI.
+                status = "Spawn blocked -- spot occupied, appears when it clears";
             }
             else if (chain.SpawnBlocked)
             {
@@ -77,7 +79,7 @@ namespace Parsek
         /// Normal chain:         "{vesselName}\nGhost -- spawns at UT={spawnUT:F0}"
         /// Terminated:           "{vesselName}\nGhost -- chain terminated"
         /// Blocked:              "{vesselName}\nGhost -- spawn blocked"
-        /// Walkback exhausted:   "{vesselName}\nGhost -- spawn abandoned"
+        /// Walkback exhausted:   "{vesselName}\nGhost -- spawn blocked" (still retrying, 2026-10-01)
         /// </summary>
         internal static string ComputeGhostLabelText(string vesselName, double spawnUT,
             bool isTerminated, bool isBlocked, bool isWalkbackExhausted = false)
@@ -85,11 +87,7 @@ namespace Parsek
             string name = string.IsNullOrEmpty(vesselName) ? "(unknown)" : vesselName;
             string line2;
 
-            if (isBlocked && isWalkbackExhausted)
-            {
-                line2 = "Ghost -- spawn abandoned";
-            }
-            else if (isBlocked)
+            if (isBlocked)
             {
                 line2 = "Ghost -- spawn blocked";
             }

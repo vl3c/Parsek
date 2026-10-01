@@ -10,6 +10,37 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: the mutation checker now proves the mission checks and the forbidden log tokens
+  red.** `harness/tools/mutation_check.py --mission-only` (new pure core
+  `harness/lib/mutmission.py`) replays each archived mission result through the real
+  verdict chain with every telemetry assertion's reading removed, runs each mission's
+  assertion code with no telemetry at all, fails each post-mission outcome step, and plants
+  result-file faults; `--forbidden-only` (`harness/lib/mutforbid.py`) injects a line each
+  forbidden log token matches into the archived log. The mission-result read and the
+  driver-validity decisions moved out of `harness/run.py` into
+  `harness/lib/missionverify.py` unchanged, so the checker runs the same code a flight
+  does. The first sweep proved 1214 mission gates on 65 lanes and 1001 forbidden tokens on
+  265 lanes, and found one vacuous mission check (an absence claim on CA-1) plus a
+  mission-library defect (`kx_rewind_watch` can fail to write its result). An unreadable
+  archive now reads as an unchecked ledger or mission gate instead of dropping the lane.
+  Report-only; no run changes.
+- **Dev: the mutation checker now proves the ledger checks red when the career numbers
+  drift.** `harness/tools/mutation_check.py --ledger-only` (new pure core
+  `harness/lib/mutledger.py`) replays the ledger oracle over each archived run's seed,
+  produced career totals and log, with every checked pool, declared award, armed stock-award
+  cross-check and roster claim pushed just past its tolerance, plus planted faults. A check
+  that stays green is reported as vacuous, naming the spec and the check. The oracle's
+  decision code moved out of `harness/run.py` into `harness/lib/ledgerverify.py` unchanged,
+  so the checker runs the same code a flight does. The first sweep checked 122 gates on 8
+  lanes and found none vacuous. Report-only; no run changes.
+- **Dev: the mutation checker now edits archived saves to prove the save-structure checks
+  read what they claim.** `harness/tools/mutation_check.py` (new pure core
+  `harness/lib/mutsave.py`; `--save-only` runs it without a log) removes, clones and
+  rewrites recordings, trees, rewind rows, branch points, vessels and supply routes in each
+  archived produced save until every armed save-structure window should fail, then runs the
+  real save parser and check over the edited file. A window that still passes is reported as
+  vacuous, naming the spec and the block. The first sweep over every local archive checked
+  1308 windows and faults on 124 lanes and found none vacuous. Report-only; no run changes.
 - **Dev: a flight-efficiency analyzer for harness runs.** `harness/tools/flight_efficiency.py`
   (pure core `harness/lib/flighteff.py`) reads finished run artifacts and reports where the
   WALL time went: 1x seconds outside the atmosphere with a static orbit, split by cause
@@ -56,6 +87,7 @@ _(unreleased — entries accumulate here per commit)_
   losses, quickload and restart off), derived from `career-pad-craft` by a builder with a
   byte-identity drift test.
 - **Dev: the automated tests can press Stash, and a lane re-flies a stashed slot whose flight went EVA.** A new test command, `StashSlot`, presses the Recordings table's per-row Stash button (the same handler) and checks that the slot now shows as an Unfinished Flight. `RF-20-stashed-eva-slot-refly` (flown green 2026-09-27) uses it: a staged orbital flight where a kerbal steps out and back in is committed, the crewed stage (a stable orbit, so not an Unfinished Flight on its own) is stashed, re-flown from the separation and merged, and the merge must replace the old flight including the kerbal's EVA and close the slot
+- **Dev: a lane for the refused recovery XP row.** `L7-career-idless-same-name-xp-refusal` (flown green 2026-10-01, nightly tier) flies the pad craft unrecorded over a new career fixture, `career-idless-same-name-pad`, that carries two older same-name recordings with no launch identity, recovers it, and checks that the kerbal XP row is refused as ambiguous (`reason=ambiguous-recovery-recording`, `corroboration=unknown-launch-guid`) while the recovery funds and science still credit the later of the two recordings. Since recovery matches by launch identity first, this refusal is only reachable with recordings that predate the launch identity field.
 - **Dev: a lane for rewinding a relaunch of a craft.** `RR-1-relaunch-rewind-keeps-earlier-launch` (never flown) relaunches the stock Kerbal X on `kerbin-splashdown-recorded`, whose earlier Kerbal X capsule is still landed, commits, rewinds that flight and checks the rewind keeps the earlier capsule while removing the relaunched vessel.
 
 - **Dev: two lanes for the crew inventory restore at spawn.** `H72-kerbal-inventory-spawn` (flown green 2026-09-27) runs the in-game `KerbalInventorySpawn` category over the pad craft's seated Jeb, whose roster carries a two-part inventory, and checks the capture, the roster applier and the rollback lines. `EVA-7-crew-inventory-spawn-after-rewind` (flown green 2026-09-27) replays EVA-6's chain: Jeb carries a parachute and a seismometer, places the seismometer on EVA, the recording commits, Rewind-to-Launch, and the Space Center spawns him. It checks that his spawn restores the recorded one-part inventory rather than the two-part one the rewind put back on the roster, and that the restore runs exactly once.
@@ -1299,6 +1331,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel whose return is blocked by another vessel stays visible until it can appear.**
+  When a replayed vessel that later flights build on (a ghost-chain tip) reaches the moment it
+  becomes real, and a vessel you have parked in its spot blocks it, its ghost used to stand
+  still for five seconds and then vanish, and the vessel did not come back for the rest of the
+  scene. Its ghost now stays for as long as the spot is blocked, even when no clear spot can be
+  found nearby, keeps moving along its orbit (or stays where it landed), and turns into the real
+  vessel the moment you move the blocker away or Parsek finds a clear spot just behind it. Its
+  status in the recordings list now reads "Spawn blocked -- spot occupied, appears when it
+  clears" instead of asking for a manual placement that does not exist.
 - **A vessel you recover from flight is saved as Recovered, and its replay ends with no
   vessel.** Pressing Recover in flight leaves the flight scene before the game pays out the
   recovery at the Space Center, so with auto-merge on (and with the Merge button of the merge
@@ -2368,6 +2409,29 @@ _(unreleased — entries accumulate here per commit)_
   644 -> 164, PARK 181 -> 57), B14 2141 -> 1405, B11 1324 -> 731, GS-8 652 -> 559, B4
   1103 -> 1100. No mission outcome changed. The same commit re-pins GS-8 (10), B4 (11), B13 (11) and B14 (11) to the
   recording counts #1931's in-flight optimizer split produces, per the same day's ruling.
+- **The mission Log lists one row per real event.** A docked test mission's Log read 31 rows,
+  mostly noise; it now reads 11. Part-state seeds the recorder writes so a ghost starts in the
+  right state (at a recording's start, at a chain split, when a separated piece loads, when a
+  vessel joins the mission) are no
+  longer listed as staging; a debris piece's own breakup is never listed; a stage is ONE row per
+  recorded separation, absorbing every part that let go in that moment, symmetric partner
+  included (also when the optimizer has since split the vessel's recording at an atmosphere
+  exit and the parts sit on the later segment) (`Staged: 2 pieces (TT-38K Radial Decoupler x2)`, part titles from the game, the
+  internal name when a title is unknown); the docking port and pod events of an undock are not
+  staging; two different vessels that share a name and end together are two rows. Columns are
+  now Time, Event, Location and Vessel: the step number and the Status column are gone, an ending
+  reads `End: Orbiting` and a leg that ended Docked or Boarded draws no End row (its Docked or
+  Boarded row says it). Separation, dock and undock rows name the other vessel like the Missions
+  tab does (`Decoupled (Kerbal X Probe)`, `Docked (Kerbal X (mission 'Kerbal X'))`, `Undocked
+  (Kerbal X)`). Location reads `Kerbin orbit` only for an orbital ending or a separation whose
+  piece recorded an orbit, otherwise body and biome where the flight recorded them at that
+  moment, or the body alone - an in-flight decouple no longer reads the launch pad. The first
+  row's Time is the date, every later row `T+h:mm:ss` since it. A piece list too long for the
+  Event cell is shortened there and shown whole in a new hover line at the bottom of the window.
+  An empty mission Log reads "This mission has no recorded flight." Route Logs keep their rows;
+  an orbital route endpoint reads `Mun orbit`. Presentation only: no recording data changed
+  (`MissionStructureList.cs`, `StructureListWindowUI.cs`).
+
 - **Missions window redesign, first slice.** The columns are `#`, Missions and vessels,
   Start time, Start event, End event, End time and **Interact**, one right-hand column that
   holds every per-row button at one shared width (a two-button pair spans one button). Each
@@ -5326,6 +5390,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: the D18 player-action seam pair.** Two new automation-only seam
+  verbs. `RealSpawn rec=<id>` presses the Real Spawn Control row's "Warp to Spawn" for one
+  committed recording through the button's own click body and answers with the spawned
+  vessel's pid once the playback loop has spawned it; it refuses (pressing nothing) when the
+  table draws no row for the recording, the button is greyed, or the row would warp to a
+  departure instead. `Recover pid=<pid>` presses the flight scene's stock Recover button for
+  the active vessel, so stock saves, loads the Space Center and recovers it exactly as for a
+  player; it refuses a locked button, a vessel that is not the active one, and a recovery
+  whose Space Center load would raise a merge dialog. Mirrored in the harness tables; no
+  lane yet.
 - **Automated testing: the wide windows at 1280x720.** New automation-only `UiAction op=state
   window=missions key=scrollX value=<px>` drives the Missions window's horizontal scroll
   (read back as the settled, clamped offset; 0 while the window fits), mirrored in hlib. The

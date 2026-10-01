@@ -18225,9 +18225,10 @@ namespace Parsek
         /// <summary>
         /// Positions all chain ghosts each frame using background recording trajectory data.
         /// For UTs outside recorded range, falls back to orbital propagation or surface hold.
-        /// For spawn-blocked chains, the ghost continues at its propagated position
-        /// (ghost GO creation deferred to 6b-4 — currently a no-op for visual positioning,
-        /// but the blocked chain retry logic runs in SpawnVesselOrChainTip).
+        /// Spawn-blocked chains are skipped here: the visible ghost of a blocked chain is the
+        /// tip recording's own playback ghost, held by the policy past its end UT and drawn at
+        /// the tip's propagated position by <see cref="UpdateSpawnBlockedChainTipGhosts"/>
+        /// (phase 6b-4, design 12.9.2); the spawn retry runs in SpawnVesselOrChainTip.
         /// </summary>
         private void PositionChainGhosts(double currentUT)
         {
@@ -18238,20 +18239,10 @@ namespace Parsek
             {
                 GhostChain chain = kvp.Value;
 
-                // Spawn-blocked chains: ghost should continue to be visible at propagated position.
-                // Ghost GO is currently null (deferred to 6b-4), so visual positioning is a no-op.
-                // The blocked chain spawn retry happens in SpawnVesselOrChainTip during the
-                // per-recording iteration. Here we just log the blocked state for diagnostics.
+                // Spawn-blocked chains: the tip's held playback ghost is drawn by
+                // UpdateSpawnBlockedChainTipGhosts after the policy's held-ghost retries.
                 if (chain.SpawnBlocked)
-                {
-                    ParsekLog.VerboseRateLimited("Flight", "chain-ghost-blocked-" + chain.OriginalVesselPid,
-                        string.Format(CultureInfo.InvariantCulture,
-                            "Chain ghost spawn-blocked: pid={0} blockedSince={1:F1} UT={2:F1}",
-                            chain.OriginalVesselPid, chain.BlockedSinceUT, currentUT));
-                    // When ghost GO creation is implemented (6b-4), position the ghost GO
-                    // at the propagated position here using GhostExtender.
                     continue;
-                }
 
                 var info = vesselGhoster.GetGhostedInfo(chain.OriginalVesselPid);
                 if (info == null || info.ghostGO == null) continue;
@@ -19329,6 +19320,7 @@ namespace Parsek
             {
                 // Removes any ghost CommNet node left over from a deleted recording.
                 DriveGhostCommNet(committed, currentUT);
+                UpdateSpawnBlockedChainTipGhosts(currentUT);
                 return;
             }
 
@@ -19427,6 +19419,10 @@ namespace Parsek
             // Retry held ghost spawns (#96): ghosts held at final position while
             // waiting for a blocked/deferred spawn to resolve
             policy.RetryHeldGhostSpawns();
+
+            // Spawn-blocked chain tips (phase 6b-4, design 12.9.2): draw each held tip ghost
+            // at the tip's propagated position, or release it once the tip spawned.
+            UpdateSpawnBlockedChainTipGhosts(currentUT);
 
             // Create deferred ghost map ProtoVessels when ghosts enter orbital segments.
             // Phase 8d.0: routed through the scene adapter; MapViewScene.DriveMapPresence delegates

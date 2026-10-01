@@ -768,9 +768,138 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("reason=ambiguous-recovery-recording"));
         }
 
+        [Fact]
+        public void IdlessSameNameHarnessFixture_SnapshotsCarryNoGuidForTheLoadBackfill()
+        {
+            // harness/fixtures/saves/career-idless-same-name-pad is the host of the stage-2
+            // live proof (L7). Its builder strips the snapshot `pid` by re-encoding the PSN0
+            // sidecars in Python; this cell is the cross-check that the PRODUCTION codec
+            // accepts those bytes and that RecordingSidecarStore's load-time backfill
+            // (TryReadVesselGuid over the vessel, then the ghost snapshot) finds nothing to
+            // restore. The base fixture is the negative control: the same snapshots before
+            // the strip DO hand the backfill the recorded launch guid.
+            string idless = ResolveHarnessFixtureDir("career-idless-same-name-pad");
+            string baseline = ResolveHarnessFixtureDir("career-same-name-pad");
+            foreach (string id in new[] { "1d611e7533a64508ae6f3b305a51615e", IdlessFixtureExpectedPick })
+            {
+                foreach (string suffix in new[] { "_vessel.craft", "_ghost.craft" })
+                {
+                    string file = id + suffix;
+                    Assert.True(
+                        SnapshotSidecarCodec.TryLoad(
+                            Path.Combine(idless, "Parsek", "Recordings", file),
+                            out ConfigNode node, out SnapshotSidecarProbe probe),
+                        $"{file}: {SnapshotSidecarCodec.DescribeProbe(probe)}");
+                    Assert.Null(VesselLaunchIdentity.TryReadVesselGuid(node));
+                    Assert.Equal("Jumping Flea", node.GetValue("name"));
+
+                    Assert.True(SnapshotSidecarCodec.TryLoad(
+                        Path.Combine(baseline, "Parsek", "Recordings", file),
+                        out ConfigNode baseNode, out _));
+                    Assert.Equal("f77e42072e3d4c59b04581daba628b55",
+                        VesselLaunchIdentity.TryReadVesselGuid(baseNode));
+                }
+            }
+        }
+
+        [Fact]
+        public void IdlessSameNameHarnessFixture_RecoveryRefusesXpOnTheNameFallback()
+        {
+            // The pre-flight prediction for L7-career-idless-same-name-xp-refusal, driven off
+            // the committed fixture bytes through the real picker and the real XP leg. The
+            // recovered vessel's guid and pid are read off the fixture's own VESSEL, so the
+            // cell measures what the flight will hand the seam rather than a typed copy.
+            string dir = ResolveHarnessFixtureDir("career-idless-same-name-pad");
+            var recordings = LoadSaveRecordings(Path.Combine(dir, "persistent.sfs"));
+            Assert.Equal(2, recordings.Count);
+            Assert.All(recordings, r => Assert.True(string.IsNullOrEmpty(r.RecordedVesselGuid)));
+            foreach (var rec in recordings)
+                RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            ReadFixtureVessel(Path.Combine(dir, "persistent.sfs"),
+                out string liveGuid, out uint livePid, out double clockUt);
+            Assert.False(string.IsNullOrEmpty(liveGuid));
+            Assert.All(recordings, r => Assert.NotEqual(livePid, r.VesselPersistentId));
+
+            // Recovery some minutes after the craft rolled out (the hop lasts ~6 min).
+            double recoveryUt = clockUt + 400.0;
+            var identity = RecoveredVesselIdentity.FromRawName("Jumping Flea", liveGuid, livePid);
+
+            // Funds and science use this pick: the stage-1 result, unchanged.
+            var picked = LedgerOrchestrator.PickRecoveryRecording(identity, recoveryUt);
+            Assert.Equal(RecoveryPickPath.NameFallback, picked.Path);
+            Assert.Equal(2, picked.NameMatchCount);
+            Assert.Equal(0, picked.GuidDropped);
+            Assert.Equal(2, picked.Survivors.Count);
+            Assert.Equal(RecoveryPickTier.MostRecentEnded, picked.Tier);
+            Assert.Equal(IdlessFixtureExpectedPick, picked.RecordingId);
+            Assert.Contains(logLines, l => l.Contains(
+                "path=name-fallback reason=no-recording-carries-launch-guid nameMatches=2"));
+
+            logLines.Clear();
+            Ledger.Clear();
+            int rows = LedgerOrchestrator.TryRecordRecoveryKerbalExperience(
+                new List<GameStateEvent> { XpEvent("Jebediah Kerman", recoveryUt) },
+                identity,
+                recoveryUt);
+
+            Assert.Equal(0, rows);
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.KerbalExperience);
+            Assert.DoesNotContain(logLines, l => l.Contains("Recovery kerbal XP recorded:"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Recovery kerbal XP refused: vessel='Jumping Flea'")
+                && l.Contains(" kerbals=1 reason=ambiguous-recovery-recording survivors=2 "
+                    + "nameMatches=2 guidDropped=0 tier=most-recent-ended "
+                    + "corroboration=unknown-launch-guid wouldHavePicked=" + IdlessFixtureExpectedPick
+                    + " survivorIds="));
+        }
+
         // ----------------------------------------------------------------
         // Committed-career-fixture loaders
         // ----------------------------------------------------------------
+
+        private const string IdlessFixtureExpectedPick = "5436a7e8840b4c5885afcbaedc9dc037";
+
+        private static string ResolveHarnessFixtureDir(string name)
+        {
+            string root = SyntheticRecordingTests.ResolveProjectRoot();
+            string dir = Path.Combine(root, "harness", "fixtures", "saves", name);
+            Assert.True(Directory.Exists(dir), $"harness fixture dir not found at '{dir}'");
+            return dir;
+        }
+
+        private static List<Recording> LoadSaveRecordings(string sfsPath)
+        {
+            ConfigNode root = ConfigNode.Load(sfsPath);
+            Assert.NotNull(root);
+            var result = new List<Recording>();
+            foreach (ConfigNode game in root.GetNodes("GAME"))
+                foreach (ConfigNode scenario in game.GetNodes("SCENARIO"))
+                {
+                    if (scenario.GetValue("name") != "ParsekScenario") continue;
+                    foreach (ConfigNode tree in scenario.GetNodes("RECORDING_TREE"))
+                        foreach (ConfigNode recNode in tree.GetNodes("RECORDING"))
+                        {
+                            var rec = new Recording();
+                            RecordingTreeRecordCodec.LoadRecordingFrom(recNode, rec);
+                            RecordingTreeRecordCodec.LoadRecordingResourceAndState(recNode, rec);
+                            result.Add(rec);
+                        }
+                }
+            return result;
+        }
+
+        private static void ReadFixtureVessel(
+            string sfsPath, out string guid, out uint pid, out double clockUt)
+        {
+            ConfigNode root = ConfigNode.Load(sfsPath);
+            ConfigNode fs = root.GetNodes("GAME").Single().GetNode("FLIGHTSTATE");
+            Assert.NotNull(fs);
+            clockUt = double.Parse(fs.GetValue("UT"), System.Globalization.CultureInfo.InvariantCulture);
+            ConfigNode vessel = fs.GetNodes("VESSEL").Single();
+            guid = VesselLaunchIdentity.TryReadVesselGuid(vessel);
+            pid = uint.Parse(vessel.GetValue("persistentId"), System.Globalization.CultureInfo.InvariantCulture);
+        }
 
         private static string ResolveCareerFixtureDir()
         {

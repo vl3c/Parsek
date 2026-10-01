@@ -1297,17 +1297,25 @@ deleting one lets a future run overwrite an earlier run's records.
 
 ## Checking that the gates bite (`tools/mutation_check.py`)
 
-An operator tool (trust risk 8, phase 1): it answers "would this lane red if the
-thing its gate watches stopped happening?" over runs ALREADY archived on this
+An operator tool (trust risk 8, phases 1 and 2): it answers "would this lane red if
+the thing its gate watches stopped happening?" over runs ALREADY archived on this
 machine. It launches nothing and never fails anything; survivors are listed for
-triage. Pure core `lib/mutlib.py`, thin shell `tools/mutation_check.py`, tests
-`lib/test_mutlib.py`.
+triage. Pure cores `lib/mutlib.py` (log, count, exception, anomaly and facet-level
+save mutations), `lib/mutsave.py` (save-level edits, phase 2), `lib/mutledger.py`
+(ledger-oracle edits, phase 2), `lib/mutmission.py` (mission-chain edits, phase 2) and
+`lib/mutforbid.py` (forbidden-token injection, phase 2), thin shell
+`tools/mutation_check.py`, tests `lib/test_mutlib.py`, `lib/test_mutsave.py`,
+`lib/test_mutledger.py`, `lib/test_mutmission.py` and `lib/test_mutforbid.py`.
 
 ```
 python tools/mutation_check.py                    # every gating spec, newest green archive each
 python tools/mutation_check.py --spec B1-pad-hop  # one lane
 python tools/mutation_check.py --archive ../../logs/<stamp>_<specId>   # one run folder
 python tools/mutation_check.py --list-archives --spec B1-pad-hop
+python tools/mutation_check.py --save-only        # save-level edits only, no KSP.log needed
+python tools/mutation_check.py --ledger-only      # ledger-oracle edits only
+python tools/mutation_check.py --mission-only     # mission-chain edits only
+python tools/mutation_check.py --forbidden-only   # forbidden-token injection only
 ```
 
 Archives: every `<umbrella>/*/harness/results` (`<runId>.json` +
@@ -1330,6 +1338,10 @@ What it replays - only the gating evaluators that are pure over an archive:
 | `hlib.scan_unity_exception_stacks` + `evaluate_unity_exceptions` | inject a Parsek throw-site exception, and a stock throw with a Parsek caller |
 | the anomaly sweep | one raise of each gated token |
 | `saveparse` windows (armed blocks only) | the measured facet +1 / -1 / 0 against the evaluator's own window rule |
+| `saveparse.parse_parsek_scenario` + `evaluate_save_structure` (armed blocks only; `mutsave`) | edits to the archived `persistent.sfs` that push each window across each declared bound, plus per-block faults (torn save, no ParsekScenario node, a missing `pointCount`, a route the codec drops, a missing `completedCycles`) |
+| `hlib.evaluate_expectations`, forbidden list (`mutforbid`) | a line each forbidden regex itself matches, injected framed (`[LOG hh:mm:ss.mmm] `) and then bare, just before the quit marker |
+| the mission chain (`mlib.resolve_flight_verdict` / `build_mission_result`, `missionverify`, `hlib.classify_mission_step` / `classify_verdict`; `mutmission`) | each archived assertion with its reading removed, a blind replay of the shell's `evaluate` with no telemetry, each post-mission outcome step answered ERROR / REJECTED / never, result-file faults |
+| `ledgerverify.evaluate` (the ledger oracle as `run.py` calls it; `mutledger`) | each hard pool moved just past its tolerance (produced value and seed, both sides), each declared manifest amount moved across and each non-zero entry removed, an armed `captureCrossCheck` fed an unexplained award and shifted captured awards, each roster claim broken, plus faults (torn analysis, no careerSave block, `parsed = false`, no seed, an unknown-kind entry, a missing pool, a missing roster facet) |
 
 Phases come from the log itself: `boot` is before the first seam `exec ... start`
 line, `teardown` after the `flushandquit: Application.Quit` marker. A required
@@ -1349,11 +1361,135 @@ Every triage survivor is re-decided by the real `hlib.evaluate_expectations` ove
 the full mutated text; the cheaper incremental re-check used for the rest is held
 equal to it by `LaneEvaluatorTests`.
 
-Not replayed (phase 2, todo MUTATION-CHECK-PHASE-2): the ledger oracle, the
-mission verdict, driver validity, the C# log validator, the offline recording
-analyzer, the in-game `testResults` / batch tally row, the ghost-lifecycle row
-(`ghostlife`), render composition, and save / ledger perturbation below the facet
-level.
+Save-level edits (phase 2 PR 1, `lib/mutsave.py`). The facet-level row above proves a
+window is not too wide; it cannot prove the number is READ. A window whose parser path
+is dead (a renamed node, a key the writer stopped emitting) measures a constant, and a
+`max = 0` tripwire reads a dead path's zero as a pass. So for every window of every
+ARMED block the checker edits the save itself: just below a `min` (or an exact pin) it
+removes contributors - drop `RECORDING` / `RECORDING_TREE` / supersede / tombstone /
+rewind-point / `BRANCH_POINT` / FLIGHTSTATE `VESSEL` / `ROUTE` / `STOP` / `SOURCE` nodes,
+clear a `terminalState`, relabel a route status, connection kind or body name, lower
+`pointCount` or a cycle counter; just above a `max` it adds them (clones, or a minimal
+synthesized node when the save has none). Route `ids` / `destinationVesselPids` get a
+re-pointed id. The edited tree is written back as ConfigNode text and read by the REAL
+parser and evaluator, so the plan never decides the outcome: an edit kills only when the
+window's own label appears in the armed mismatches. Per window the report gives
+`PROVEN` (a crossing edit red it), `VACUOUS` (an edit was built and the window stayed
+green: the re-measured value never moved - a dead path - or moved without crossing, or
+crossed and the evaluator still passed) or `UNCHECKED` (a bare `min = 0`, a `max` more
+than 256 additions away, or no constructible edit: a checker limit, not a finding). The
+"Vacuous save-parse gates" section names the spec, the block and the window. Edits run
+over the save cut down to `GAME` values, the ParsekScenario node and FLIGHTSTATE vessel
+values, but only when that reduced tree measures exactly what the full save measures;
+otherwise over the full save (the lane notes it).
+
+`--save-only` runs just the save-level edits, with the ARMED save-parse blocks as the
+whole baseline (no KSP.log), over the newest `--max-tries` archived produced saves whose
+armed blocks pass, then the spec's committed `fixture.saveTemplate` when that passes
+(`--no-fixtures` skips it; an operator-local template is never read). A full run (no
+`--save-only`) adds the same edits to any lane whose archive carries a save.
+
+Ledger-oracle edits (phase 2 PR 2, `lib/mutledger.py`). The ledger verifier needs the
+run's seed, and the archive already carries it: `run.py` writes the seed's careerSave-shaped
+audit copy into `results/<runId>.manifest.json`, and the produced save's careerSave block is
+in the snapshot's `analysis/*.analysis.json`. The verifier's decisions live in
+`lib/ledgerverify.py` (`run._run_ledger_oracle` only adds the logger and the manifest
+write), and the checker calls that same function over edited inputs, so it cannot drift from
+a flight. For every spec with `[expectations.ledger]` or `[expectations.world]`:
+
+- each hard pool the seed carries (`funds`, `sciencePool`, `reputation`) has its produced
+  value set just past the facet tolerance either side of the expected value, and its seed
+  value moved so the expected value crosses (gates `ledger.<pool>:produced` /
+  `ledger.<pool>:seed`), plus a `ledger:drop-<pool>` fault;
+- each declared manifest amount is moved until the expected value crosses
+  (`manifest[i].<facet>`; the reputation curve is non-linear, so the shift is doubled up to
+  12 times, PLANNED with `oracle.compute_expected` but decided by the full verifier), and
+  each entry with a non-zero amount is removed (`manifest[i]:removed`);
+- with `captureCrossCheck = "gate"`, a stock award line no entry explains is appended to
+  the log and each captured award's amount is moved past the tolerance
+  (`ledger.captureCrossCheck`);
+- each `[expectations.world.roster]` `present` name is dropped from the produced roster and
+  each `absent` name added (`world.roster.present[<name>]` / `world.roster.absent[<name>]`);
+  world vessel resources are reported UNCHECKED (no committed spec declares one);
+- faults: a torn analysis file, no careerSave block, `parsed = false`, no seed and a
+  missing roster facet must route to INVALID(tooling); an unknown-kind manifest entry must
+  red as a dropped expected effect.
+
+A kill counts only on the gate's own facet (a pool edit needs a hard divergence on that
+pool, a roster edit one naming that kerbal, a capture edit a hard `unexpected-award`). A
+gate is `PROVEN` when every crossing edit is killed (a tolerance has two sides, so a
+one-sided compare leaves a survivor), `VACUOUS` when one survives (the reason names the
+side, and whether the planned expected value even moved), `UNCHECKED` when no edit could be
+built. Edits run over the log with every line the stock-award capture cannot read blanked
+(line ordinals kept), but only when that log captures exactly what the full log does.
+
+`--ledger-only` runs just these edits over the newest `--max-tries` results archives that
+carry a `<runId>.manifest.json` and a snapshot analysis file, the first whose verifier
+passes being the baseline. Collect-logs folders carry no seed and never serve. A full run
+(no `--ledger-only`) adds the same edits to a lane whose archive carries them.
+
+Forbidden-token injection (phase 2 PR 3, `lib/mutforbid.py`). Phase 1 never injected a
+forbidden line; its evaluator only notices a forbidden pattern one of its required-pattern
+edits happens to create. For every pattern in `[expectations.logContracts] forbidden`,
+`sample_match` generates a string the regex itself matches (a walk over the parsed regex:
+literals, classes, branches, repeats at their minimum, back-references; lookarounds and
+anchors are left to a final `re.search`, and up to 12 passes rotate the choices). The line
+is injected framed as a KSP log line, then bare at line start, and the real
+`hlib.evaluate_expectations` (with the spec's forbidden list) must report THAT pattern
+matched. Gates `forbidden[<pattern>]`: `PROVEN` (red on the framed or bare line),
+`VACUOUS` (a self-matching line injected both ways stayed green, e.g. `^` without
+`(?m)`), `UNCHECKED` (the archived log already matches it, or no self-matching string could
+be generated). A heuristic list beside it names patterns carrying a word (four or more
+letters, no digits) that appears in no `Source/Parsek/**/*.cs`: a renamed message leaves
+its forbidden token unable to fire. It is triage only (a stock part, tech or fixture name
+reads the same). `--forbidden-only` runs just this over the newest archived KSP.log that no
+forbidden pattern already matches; the other gates need not replay green.
+
+Mission-chain edits (phase 2 PR 3, `lib/mutmission.py`). The mission's verdict is decided
+in the mission subprocess and read back by `run.py`. The read (JSON parse plus the `schema`
+gate), the driver-stage subkind map and the driver-validity composition (the autopilot
+carve-out and the `missionOutcome` row) moved out of `run.py` into `lib/missionverify.py`
+unchanged; `run.py` keeps the file read, the log line and the R10 override. Inputs are the
+archived run record (`<runId>.json`), the mission result (`<runId>_mission.json`) and the
+mission shell module (`missions/<mission>.py`, imported without kRPC). The baseline must
+replay green: verdict MISSION-OK, the real `resolve_flight_verdict` reproducing the archived
+verdict and reason from the archived rows, `validate_mission_result` clean, the composed
+`mission` / `missionOutcome` rows equal to the archived ones, and `hlib.classify_verdict`
+PASS. Then:
+
+- each assertion row with its reading removed (`value` None, unmet) goes back through
+  `resolve_flight_verdict`, `build_mission_result`, `serialize_mission_result`, the shared
+  read, `classify_mission_step`, the composition and `classify_verdict`; the kill is
+  INVALID(mission) with the mission reason naming THAT assertion (`mission.assert[<name>]`).
+  An unmet mission is a driver-INVALID by design (mission-vs-Parsek orthogonality), so a
+  PARSEK-FAIL or a PASS is a survivor;
+- the blind replay: the shell's real `evaluate` over the machine's initial state
+  (`build_state` on the spec's `missionParams`) with no frames, and with frames whose every
+  field reads unread (NaN, "", -1, False). Each archived assertion must be unmet
+  (`mission.blind[<name>]`; met with no telemetry is VACUOUS) and the blind outcomes must
+  not classify PASS (`mission:blind-verdict`). An evaluator that raises on blind input is
+  UNCHECKED (the runner would write MISSION-ERROR, but the row is not attributable);
+- each post-mission outcome step (`hlib.post_mission_step_gates`) answered ERROR must
+  classify PARSEK-FAIL(mission-outcome), REJECTED INVALID(driver-verdict-mismatch), and
+  never answered INVALID(driver-stage) (`missionOutcome[<cmd>#<id>]`);
+- faults: a torn result, a bumped `schema` and no `verdict` must classify
+  INVALID(tooling-mission); an empty assertion list and a vessel-lost terminal
+  INVALID(mission); a phase timeout INVALID(autopilot-flake).
+
+A result the writer cannot serialize (a NaN in an assertion's detail; `allow_nan=False`)
+is read the way the harness reads a missing result file: INVALID(tooling-mission).
+`--mission-only` runs just these edits over the newest results archives carrying a mission
+result; a full run adds them to a lane whose archive carries one. Not reached: a threshold
+pushed across its bound inside an evaluator (the telemetry frames are not archived), so the
+blind replay proves an assertion reads telemetry, not which side of its bound it compares.
+
+An archive whose ledger inputs or mission result cannot be read (OSError) no longer drops
+the lane: its `ledger:inputs` / `mission:inputs` gate reads UNCHECKED with the reason and
+the lane's other checks still run.
+
+Not replayed: the C# log validator, the offline recording analyzer, the in-game
+`testResults` / batch tally row, the ghost-lifecycle row (`ghostlife`) and render
+composition.
 
 ## Fixture saves and the shared craft library
 

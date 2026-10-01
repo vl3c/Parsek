@@ -1,0 +1,186 @@
+schema = 1
+id = "L7-career-idless-same-name-xp-refusal"
+# `nightly`: promoted by operator decision 2026-10-01. It is the live proof of
+# KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2 (the XP-leg
+# `ambiguous-recovery-recording` refusal), authorized by the operator 2026-10-01,
+# flown GREEN on its reading run `2026-10-01_1614`, with its offline negative control
+# recorded in docs/dev/autotest-status.md.
+#
+# ######################## WHAT SHAPE REACHES STAGE 2 NOW ########################
+#
+# Since stage 3 (PR #1947, identity first) `LedgerOrchestrator.PickRecoveryRecording`
+# chooses the candidate set by path, in order:
+#
+#   1. path=launch-guid  - every admissible recording whose `recordedVesselGuid` is
+#      KNOWN and EQUALS the recovering vessel's (`IsPositiveLaunchGuidMatch`). Stage 2
+#      cannot fire here: every member carries one known guid, so the corroboration
+#      clause reads one-known-launch.
+#   2. path=spawn-pid    - else every recording whose `spawnedPid` equals the vessel's
+#      pid and is not an adoption stamp (`IsGenuineSpawnPidMatch`).
+#   3. path=name-fallback - else the stage-1 walk: vessel NAME, the guid filter, the UT
+#      tiers, and on the XP leg the stage-2 refusal.
+#
+# So the 2026-09-15 recommendation (strip the guids off the spliced PRIOR launch and
+# fly a recorded second launch) no longer reaches stage 2: the flight's OWN recordings
+# carry the live guid and path 1 decides. Stage 2 is reached only when (a) NO
+# admissible recording carries the live guid, (b) no genuine spawn-pid match exists,
+# and (c) two or more same-name survivors remain after the filter on a weak tier. The
+# recovery seam always supplies a live guid (`ProtoVessel.vesselID`), and the filter
+# drops every survivor whose guid conclusively differs, so on the fallback EVERY
+# survivor is id-LESS. Every current write site stamps a guid (the stage-2 writer
+# audit), so (c) is LEGACY DATA: generation-4 recordings from before the key existed,
+# with no snapshot to backfill from. The refusal is legacy-data-only in current builds.
+#
+# ######################## HOW THIS LANE BUILDS THAT SHAPE ########################
+#
+# FIXTURE `career-idless-same-name-pad` (`harness/tools/build_career_idless_same_name_pad.py`,
+# drift-gated by `harness/lib/test_career_idless_same_name_pad.py`): the base
+# `career-same-name-pad` (the two chained `Jumping Flea` recordings spliced onto the
+# pre-flight career, launchpad science UN-banked) plus three edits:
+#   - both recordings' `recordedVesselGuid` stripped -> id-less legacy recordings;
+#   - the top-level `pid` stripped from all four snapshot sidecars, or the OnLoad
+#     backfill (`RecordingSidecarStore`, `VesselLaunchIdentity.TryReadVesselGuid`)
+#     restores the guid and the filter drops both (`no-recovery-recording` instead);
+#   - the live craft's `persistentId` re-stamped to 3141592653, away from the
+#     recordings' 2905720181: with id-less recordings every guid-gated pid site falls
+#     back to pid-only, and a colliding pid would let the committed-tree restore path
+#     resume a recording on the pad craft and stamp the live guid onto it.
+# The two recordings ended at 342.06 and 347.02, both before the 409.56 clock, so the
+# tier is `most-recent-ended` and the pick is the later one, `5436a7e8...`.
+#
+# THE FLIGHT DOES NOT RECORD. All three auto-record settings are pinned OFF (the
+# hidden-settings clamp is disarmed under the automation env, and `SettingWhitelist`
+# carries all three), so no recording of this run carries the live guid either: the
+# recovered vessel is known to no recording by guid or pid, and its NAME is the only
+# link - a player's vessel launched before Parsek, or one whose recording was
+# discarded, recovered over legacy same-name recordings. `recordings.count = 2` is the
+# fixture's two and nothing else.
+#
+# THE MISSION is `science_bench_recover` with L3's / L6's flight-leg params verbatim
+# (no dwell param: with nothing recorded there is no split floor to clear). It ends
+# in kRPC `Vessel.Recover` from FLIGHT, so `ShipConstruction.RecoverVesselFromFlight`
+# fires `onVesselRecovered` / `onVesselRecoveryProcessing` with the live ProtoVessel.
+# With no live recorder and no active tree, the funds, science and XP legs all take
+# the direct-ledger road and all pick through the fallback.
+#
+# ############################# THE TOKENS #############################
+#
+# Every literal is copied from the C# format strings; ids and numbers are regexed
+# except the expected pick, which the fixture fixes. The funds / science / XP line
+# shapes were checked against the collected KSP.log of L3 run `2026-09-29_2153`
+# (the same craft over the same career half, pre-stage-3 build): the science
+# subjects that pick at recovery are `mysteryGoo@...` and `recovery@KerbinFlew`
+# (`method=Recovered`); `crewReport` is transmitted in flight.
+#
+#   path line (Info, every leg):    `PickRecoveryRecordingId path: ... path=name-fallback
+#                                    reason=no-recording-carries-launch-guid nameMatches=2`
+#   filter line (Verbose):          `... guid filter: ... dropped=0 remaining=2
+#                                    reason=no-conclusive-mismatch` - it RAN and dropped
+#                                    nothing, because unknown guids are never conclusive
+#   pick summary (Verbose):         `path=name-fallback nameMatches=2 survivors=2
+#                                    guidDropped=0 ... tier=most-recent-ended ... pick=5436a7e8...`
+#   THE SUBJECT (Info):             `Recovery kerbal XP refused: ... kerbals=1
+#                                    reason=ambiguous-recovery-recording survivors=2
+#                                    nameMatches=2 guidDropped=0 tier=most-recent-ended
+#                                    corroboration=unknown-launch-guid wouldHavePicked=5436a7e8...`
+#   XP summary (Info):              `ledgerRows=0 untaggedNoLedgerRow=1`
+#   funds + science keep the pick:  `VesselRecovery funds patched: ... recordingId=5436a7e8...`
+#                                    and `KSC science recorded: subject='recovery@KerbinFlew'
+#                                    ... recordingId=5436a7e8...` - stage 2 is XP-only
+#
+# FORBIDDEN: any `Recovery kerbal XP recorded:` row (the refusal must hold), the
+# launch-guid and spawn-pid paths for the lane vessel (they would mean a recording
+# carried an identity), any snapshot guid backfill, any recorder start, and ERROR.
+#
+# Pre-flight headless proof of the same prediction off the committed bytes:
+# `RecoveryPickAmbiguityTests.IdlessSameNameHarnessFixture_*` (the production codec
+# accepts the Python re-encoded sidecars, the backfill finds no guid, the real picker
+# takes the fallback and the real XP leg refuses with this exact line).
+#
+# L6 stays unchanged as the OVER-FIRE control: its survivors are the flight's own
+# chained segments under one known guid, so the refusal must NOT print there.
+tier = "nightly"
+description = "Nightly (promoted 2026-10-01; reading run 2026-10-01_1614 GREEN): the stage-2 live proof of KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY. science_bench_recover flown UNRECORDED (auto-record off) over career-idless-same-name-pad: two id-less legacy Jumping Flea recordings (guid and snapshot pid stripped) and a pad craft whose guid and pid no recording carries. Every recovery leg must take path=name-fallback; funds and science credit the most-recent-ended pick 5436a7e8; the XP leg must refuse reason=ambiguous-recovery-recording corroboration=unknown-launch-guid and write no row."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "L7", "recovery", "correlator", "same-name", "career", "reading-run", "kerbal-xp", "legacy-idless"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-idless-same-name-pad"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind    = "autopilot"
+mission = "science_bench_recover"
+# No CommitTree: nothing records, so there is no tree to commit (the verb answers
+# ERROR msg=no-active-tree). RB-1 flies the same mission without one.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },                         expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch",                       value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",                          value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",                           value = "true" },  expect = "OK" },
+  { phase = "mission",                                                                                 expect = "MISSION-OK", budget = 1320 },
+  { cmd = "RecordingState",                                                                            expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                              expect = "OK" },
+]
+
+[driver.missionParams]
+# L3's / L6's flight-leg values verbatim: the career half of this fixture IS
+# career-science-pad, the save L3 flies.
+throttle                 = 1.0
+apoapsisWindowMeters     = { min = 6000, max = 30000 }
+chuteArmMaxRateMps       = 30
+chuteFullDeployAltMeters = 2500
+landedSituations         = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds     = 90
+coastTimeoutSeconds      = 180
+descentTimeoutSeconds    = 360
+collectMinExperiments = 1
+collectTimeoutSeconds = 120
+transmitMinScienceGain = 0.5
+transmitTimeoutSeconds = 120
+recoverMinFundsGain = 1.0
+recoverTimeoutSeconds = 180
+
+[dimensionsCovered]
+# Conservative: only what the required tokens back. No D1 cell - the run records
+# nothing by design.
+D8  = ["kerbals"]
+D14 = ["kerbin", "career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's two id-less recordings and NOTHING from this flight: a third would
+# carry the live guid and move the pick onto path=launch-guid.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  "PickRecoveryRecordingId path: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ path=name-fallback reason=no-recording-carries-launch-guid nameMatches=2",
+  "PickRecoveryRecordingId guid filter: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ dropped=0 remaining=2 reason=no-conclusive-mismatch",
+  "PickRecoveryRecordingId: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ path=name-fallback nameMatches=2 survivors=2 guidDropped=0 skippedZombieNotCommitted=0 sessionProvisionalAdmitted=False tier=most-recent-ended bracketTie=n/a pick=5436a7e8840b4c5885afcbaedc9dc037",
+  "Recovery kerbal XP refused: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ kerbals=1 reason=ambiguous-recovery-recording survivors=2 nameMatches=2 guidDropped=0 tier=most-recent-ended corroboration=unknown-launch-guid wouldHavePicked=5436a7e8840b4c5885afcbaedc9dc037 survivorIds=[0-9a-f]{32},[0-9a-f]{32}",
+  "Game state: ExperienceGained crew=1 emitted=1 noEntries=0 ledgerRows=0 untaggedNoLedgerRow=1",
+  "VesselRecovery funds patched: vessel='Jumping Flea' amount=[0-9]+ ut=[0-9.]+ recordingId=5436a7e8840b4c5885afcbaedc9dc037 fromTrackingStation=False",
+  "KSC science recorded: subject='recovery@KerbinFlew' science=[0-9.]+ method=Recovered ut=[0-9.]+ recordingId=5436a7e8840b4c5885afcbaedc9dc037 vessel='#autoLOC_501224'",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Recovery kerbal XP recorded:",
+  "PickRecoveryRecordingId path: vessel='Jumping Flea' .* path=launch-guid",
+  "PickRecoveryRecordingId path: vessel='Jumping Flea' .* path=spawn-pid",
+  "Backfilled launch guid [0-9a-f]{32} from snapshot",
+  "Recording started: vessel=",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

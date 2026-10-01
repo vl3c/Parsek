@@ -26,11 +26,33 @@ Evaluators replayed, each verified pure over an archived artifact:
 - ``saveparse`` window checks (``_check_window``, the evaluator's own window
   rule) over the facets of the archived save: each ARMED window's measured value
   is perturbed by one either side and to zero.
+- ``saveparse.parse_parsek_scenario`` + ``evaluate_save_structure`` over EDITED
+  copies of the archived save itself (phase 2, ``mutsave``): every armed window
+  gets edits that push it across each declared bound, so a window whose parser
+  path is dead is caught, not only one that is too wide.
 
-NOT replayed (not pure over an archive, or phase 2): the ledger oracle (needs the
-seed capture), the mission verdict, the response-stream driver validity, the
-log validator and the offline recording analyzer (C# subprocesses), the in-game
-testResults / batch tally row, the ghost-lifecycle row and render composition.
+- the ledger oracle (``ledgerverify.evaluate``, the function ``run.py`` calls)
+  over PERTURBED copies of the archived seed (``<runId>.manifest.json``), the
+  produced careerSave block (the snapshot's ``.analysis.json``), the spec's
+  manifest and the KSP.log (phase 2 PR 2, ``mutledger``): every hard pool,
+  declared amount, armed cross-check and roster claim is pushed past its
+  tolerance and must red on its own facet.
+
+- the forbidden log contracts (phase 2 PR 3, ``mutforbid``): a line each forbidden
+  regex itself matches is generated, injected into the archived KSP.log, and the
+  real ``hlib.evaluate_expectations`` must red on exactly that token.
+
+- the mission verdict chain (phase 2 PR 3, ``mutmission``): the archived mission
+  result's assertions, each with its reading removed, through the real
+  ``mlib.resolve_flight_verdict`` / ``build_mission_result``, the shared
+  ``missionverify`` read + driver-validity composition and ``hlib.classify_verdict``;
+  a blind replay of the mission shell's real ``evaluate`` with no telemetry; each
+  post-mission outcome step answered ERROR / REJECTED / never; result-file faults.
+
+NOT replayed (not pure over an archive): the log validator and the offline
+recording analyzer (C# subprocesses), the in-game testResults / batch tally row,
+the ghost-lifecycle row and render composition, and a threshold pushed across its
+bound inside a mission evaluator (the frames it reads are not archived).
 
 Pure: no file I/O, no clock. ``harness/tools/mutation_check.py`` is the shell.
 """
@@ -588,6 +610,19 @@ class LaneReport:
     mutations: List[Mutation] = field(default_factory=list)
     patterns: List[PatternFacts] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
+    # mutsave.GateVerdict per armed save-parse window / set / block fault.
+    save_gates: list = field(default_factory=list)
+    # mutsave.GateVerdict per ledger-oracle gate (mutledger): pool, manifest
+    # amount, cross-check, roster claim, fault.
+    ledger_gates: list = field(default_factory=list)
+    # mutsave.GateVerdict per mission gate (mutmission): assertion, blind row,
+    # blind verdict, post-mission outcome step, result fault.
+    mission_gates: list = field(default_factory=list)
+    # mutsave.GateVerdict per forbidden pattern (mutforbid).
+    forbidden_gates: list = field(default_factory=list)
+    # (pattern, words): forbidden patterns naming a word no mod source carries
+    # (mutforbid's heuristic triage list).
+    unemitted: list = field(default_factory=list)
 
     def count(self, outcome: Optional[str] = None, triage: Optional[str] = None) -> int:
         return sum(1 for m in self.mutations
@@ -602,6 +637,14 @@ class ArchiveInputs:
     log_text: str
     recording_count: Optional[int]
     snapshot: Optional["saveparse.ParsekSaveSnapshot"]
+    # The archived persistent.sfs text, for the save-level edits (mutsave).
+    save_text: Optional[str] = None
+    # The archived seed + produced careerSave, for the ledger edits (mutledger).
+    ledger: Optional["mutledger.LedgerInputs"] = None
+    # The archived run record + mission result + shell module (mutmission).
+    mission: Optional["mutmission.MissionInputs"] = None
+    # The lower-cased mod source, for mutforbid's emitter triage list.
+    source_corpus: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -1170,6 +1213,11 @@ def spec_gating_surfaces(spec: Dict) -> List[str]:
         out.append("unityExceptions")
     if saveparse.armed_structure_blocks(exp):
         out.append("saveParse")
+    if (exp.get("logContracts", {}) or {}).get("forbidden"):
+        out.append("logContracts.forbidden")
+    driver = spec.get("driver") or {}
+    if driver.get("kind") == "autopilot" and driver.get("mission"):
+        out.append("mission")
     return out
 
 
@@ -1231,6 +1279,178 @@ def check_lane(spec: Dict, inputs: ArchiveInputs) -> LaneReport:
             lane.notes.append("saveParse armed but no archived save: window mutations skipped")
         else:
             lane.mutations.extend(mutate_save_windows(expectations, inputs.snapshot))
+            if inputs.save_text is not None:
+                _add_save_edits(lane, expectations, inputs.save_text)
+    _add_ledger_edits(lane, expectations, inputs)
+    _add_forbidden_edits(lane, expectations, inputs.log_text, inputs.source_corpus,
+                         _forbidden_inserter(model))
+    _add_mission_edits(lane, spec, inputs.mission)
+    return lane
+
+
+def _forbidden_inserter(model: LogModel):
+    import mutforbid  # local: mutforbid imports this module
+    return mutforbid.lane_inserter(model)
+
+
+def _add_forbidden_edits(lane: LaneReport, expectations: Dict, log_text: str,
+                         corpus: Optional[str], inserter=None) -> None:
+    """Inject a self-matching line for every forbidden pattern (``mutforbid``)."""
+    import mutforbid  # local: mutforbid imports this module
+    if not (expectations.get("logContracts", {}) or {}).get("forbidden"):
+        return
+    check = mutforbid.check_forbidden(expectations, log_text, corpus, inserter)
+    lane.mutations.extend(check.mutations)
+    lane.forbidden_gates.extend(check.gates)
+    lane.unemitted.extend(check.unemitted)
+    lane.notes.extend(check.notes)
+
+
+def _add_mission_edits(lane: LaneReport, spec: Dict,
+                       inputs: Optional["mutmission.MissionInputs"]) -> None:
+    """Run the mission edits (``mutmission``) when the spec flies a mission and the
+    archive carries its result."""
+    d = spec.get("driver") or {}
+    if not (d.get("kind") == "autopilot" and d.get("mission")):
+        return
+    if inputs is None:
+        lane.notes.append("mission declared but the archive has no mission result: "
+                          "mission edits skipped")
+        return
+    import mutmission  # local: needs harness/missions/lib on sys.path
+    base = mutmission.prepare_baseline(spec, inputs)
+    if inputs.read_error:
+        _add_unreadable_gate(lane.mission_gates, "mission:inputs", "mission", base.reasons)
+    if base.reasons:
+        lane.notes.append("mission edits skipped: %s" % "; ".join(base.reasons))
+        return
+    check = mutmission.mutate_mission(spec, base, inputs)
+    lane.mutations.extend(check.mutations)
+    lane.mission_gates.extend(check.gates)
+    lane.notes.extend(check.notes)
+
+
+def _add_unreadable_gate(gates: list, label: str, block: str, reasons: List[str]) -> None:
+    """An archive whose inputs could not be read: one UNCHECKED gate naming why, so
+    the lane's other checks still run and the report still says what was skipped."""
+    import mutsave
+    gates.append(mutsave.GateVerdict(label, block, "read", "", mutsave.UNCHECKED,
+                                     "; ".join(reasons)))
+
+
+def check_mission_lane(spec: Dict, label: str, inputs: "mutmission.MissionInputs") -> LaneReport:
+    """The mission-only lane (``mutation_check.py --mission-only``): the baseline is
+    the mission chain alone over one archived run (record + mission result), then the
+    mission edits."""
+    import mutmission
+    spec_id = str(spec.get("id", "?"))
+    base = mutmission.prepare_baseline(spec, inputs)
+    if base.reasons:
+        return LaneReport(spec_id, label, BASELINE_NOT_GREEN, list(base.reasons))
+    lane = LaneReport(spec_id, label, BASELINE_GREEN)
+    check = mutmission.mutate_mission(spec, base, inputs)
+    lane.mutations.extend(check.mutations)
+    lane.mission_gates.extend(check.gates)
+    lane.notes.extend(check.notes)
+    return lane
+
+
+def check_forbidden_lane(spec: Dict, label: str, log_text: str,
+                         corpus: Optional[str] = None) -> LaneReport:
+    """The forbidden-only lane (``mutation_check.py --forbidden-only``): the baseline
+    is that no forbidden pattern already matches the archived log (the other gates
+    need not replay green); then one injection per pattern."""
+    import mutforbid
+    spec_id = str(spec.get("id", "?"))
+    expectations = spec.get("expectations", {}) or {}
+    hits = mutforbid.forbidden_hits(expectations, log_text)
+    if hits:
+        return LaneReport(spec_id, label, BASELINE_NOT_GREEN,
+                          ["forbidden already matched: %s" % h for h in sorted(hits)])
+    lane = LaneReport(spec_id, label, BASELINE_GREEN)
+    model = build_log_model(log_text)
+    _add_forbidden_edits(lane, expectations, log_text, corpus, _forbidden_inserter(model))
+    return lane
+
+
+def _add_ledger_edits(lane: LaneReport, expectations: Dict, inputs: ArchiveInputs) -> None:
+    """Run the ledger-oracle edits (``mutledger``) when the spec declares a ledger
+    or world block and the archive carries the seed + careerSave they need."""
+    import mutledger  # local: mutledger imports this module
+    if not mutledger.is_ledger_spec(expectations):
+        return
+    if inputs.ledger is None:
+        lane.notes.append("ledger declared but the archive has no seed / careerSave: "
+                          "ledger edits skipped")
+        return
+    base = mutledger.prepare_baseline(expectations, inputs.ledger)
+    if inputs.ledger.read_error:
+        _add_unreadable_gate(lane.ledger_gates, "ledger:inputs", "ledger", base.reasons)
+    if base.verdict is None or base.reasons:
+        lane.notes.append("ledger edits skipped: %s" % "; ".join(base.reasons))
+        return
+    if base.note:
+        lane.notes.append(base.note)
+    check = mutledger.mutate_ledger(expectations, base)
+    lane.mutations.extend(check.mutations)
+    lane.ledger_gates.extend(check.gates)
+    lane.notes.extend(check.notes)
+
+
+def check_ledger_lane(spec: Dict, label: str, inputs: "mutledger.LedgerInputs") -> LaneReport:
+    """The ledger-only lane (``mutation_check.py --ledger-only``): the baseline is
+    the ledger-oracle verdict alone over one archived run (seed, produced
+    careerSave, KSP.log), then the ledger edits."""
+    import mutledger
+    spec_id = str(spec.get("id", "?"))
+    expectations = spec.get("expectations", {}) or {}
+    base = mutledger.prepare_baseline(expectations, inputs)
+    if base.verdict is None or base.reasons:
+        return LaneReport(spec_id, label, BASELINE_NOT_GREEN, list(base.reasons))
+    lane = LaneReport(spec_id, label, BASELINE_GREEN)
+    if base.note:
+        lane.notes.append(base.note)
+    check = mutledger.mutate_ledger(expectations, base)
+    lane.mutations.extend(check.mutations)
+    lane.ledger_gates.extend(check.gates)
+    lane.notes.extend(check.notes)
+    return lane
+
+
+def _add_save_edits(lane: LaneReport, expectations: Dict, save_text: str) -> bool:
+    """Run the save-level edits (``mutsave``) over a save whose armed blocks pass.
+    Returns False (with the reasons on the lane) when that baseline is not green."""
+    import mutsave  # local: mutsave imports this module
+    base = mutsave.prepare_baseline(expectations, save_text)
+    if base.root is None:
+        lane.notes.append("save edits skipped: %s" % "; ".join(base.reasons))
+        return False
+    if base.note:
+        lane.notes.append(base.note)
+    check = mutsave.mutate_save_structure(expectations, base.root)
+    lane.mutations.extend(check.mutations)
+    lane.save_gates.extend(check.gates)
+    lane.notes.extend(check.notes)
+    return True
+
+
+def check_save_lane(spec: Dict, label: str, save_text: Optional[str]) -> LaneReport:
+    """The save-only lane (``mutation_check.py --save-only``): the baseline is the
+    ARMED save-parse blocks alone over one save (an archived produced save or a
+    committed fixture template), then the save-level edits. No KSP.log needed."""
+    import mutsave
+    spec_id = str(spec.get("id", "?"))
+    expectations = spec.get("expectations", {}) or {}
+    base = mutsave.prepare_baseline(expectations, save_text)
+    if base.root is None:
+        return LaneReport(spec_id, label, BASELINE_NOT_GREEN, list(base.reasons))
+    lane = LaneReport(spec_id, label, BASELINE_GREEN)
+    if base.note:
+        lane.notes.append(base.note)
+    check = mutsave.mutate_save_structure(expectations, base.root)
+    lane.mutations.extend(check.mutations)
+    lane.save_gates.extend(check.gates)
+    lane.notes.extend(check.notes)
     return lane
 
 
@@ -1258,6 +1478,12 @@ class ArchiveRef:
     recordings_dir: Optional[str]
     verdict: Optional[str]
     truncated: bool = False
+    # <runId>.manifest.json (the archived ledger seed), results archives only.
+    manifest_path: Optional[str] = None
+    # <runId>.json (the run record) and <runId>_mission.json (the mission result),
+    # results archives only.
+    record_path: Optional[str] = None
+    mission_result_path: Optional[str] = None
 
 
 def order_candidates(refs: Sequence[ArchiveRef], spec_id: str) -> List[ArchiveRef]:
@@ -1294,11 +1520,36 @@ def summary_line(lane: LaneReport) -> str:
             lane.spec_id, lane.archive, _clip(lane.baseline_reasons[0], 120)
             if lane.baseline_reasons else "?")
     multi = sum(1 for p in lane.patterns if p.multi_phase)
+    gates = ""
+    if lane.save_gates:
+        g = gate_counts(lane.save_gates)
+        gates = " saveGates(proven=%d vacuous=%d unchecked=%d)" % (
+            g["PROVEN"], g["VACUOUS"], g["UNCHECKED"])
+    if lane.ledger_gates:
+        g = gate_counts(lane.ledger_gates)
+        gates += " ledgerGates(proven=%d vacuous=%d unchecked=%d)" % (
+            g["PROVEN"], g["VACUOUS"], g["UNCHECKED"])
+    if lane.mission_gates:
+        g = gate_counts(lane.mission_gates)
+        gates += " missionGates(proven=%d vacuous=%d unchecked=%d)" % (
+            g["PROVEN"], g["VACUOUS"], g["UNCHECKED"])
+    if lane.forbidden_gates:
+        g = gate_counts(lane.forbidden_gates)
+        gates += " forbiddenGates(proven=%d vacuous=%d unchecked=%d)" % (
+            g["PROVEN"], g["VACUOUS"], g["UNCHECKED"])
     return ("%s: archive=%s baseline=PASS mutations=%d killed=%d survived=%d "
-            "(triage=%d intended=%d info=%d) multiPhasePatterns=%d" % (
+            "(triage=%d intended=%d info=%d) multiPhasePatterns=%d%s" % (
                 lane.spec_id, lane.archive, len(lane.mutations), lane.count(KILLED),
                 lane.count(SURVIVED), lane.count(SURVIVED, TRIAGE),
-                lane.count(SURVIVED, INTENDED), lane.count(SURVIVED, INFO), multi))
+                lane.count(SURVIVED, INTENDED), lane.count(SURVIVED, INFO), multi, gates))
+
+
+def gate_counts(gates) -> Dict[str, int]:
+    """PROVEN / VACUOUS / UNCHECKED tallies over ``mutsave.GateVerdict`` rows."""
+    out = {"PROVEN": 0, "VACUOUS": 0, "UNCHECKED": 0}
+    for g in gates:
+        out[g.verdict] = out.get(g.verdict, 0) + 1
+    return out
 
 
 @dataclass
@@ -1312,6 +1563,19 @@ class SweepTotals:
     triage: int = 0
     intended: int = 0
     info: int = 0
+    gates_proven: int = 0
+    gates_vacuous: int = 0
+    gates_unchecked: int = 0
+    ledger_proven: int = 0
+    ledger_vacuous: int = 0
+    ledger_unchecked: int = 0
+    mission_proven: int = 0
+    mission_vacuous: int = 0
+    mission_unchecked: int = 0
+    forbidden_proven: int = 0
+    forbidden_vacuous: int = 0
+    forbidden_unchecked: int = 0
+    unemitted: int = 0
 
 
 def sweep_totals(lanes: Sequence[LaneReport], no_archive: int) -> SweepTotals:
@@ -1327,6 +1591,23 @@ def sweep_totals(lanes: Sequence[LaneReport], no_archive: int) -> SweepTotals:
         t.triage += lane.count(SURVIVED, TRIAGE)
         t.intended += lane.count(SURVIVED, INTENDED)
         t.info += lane.count(SURVIVED, INFO)
+        g = gate_counts(lane.save_gates)
+        t.gates_proven += g["PROVEN"]
+        t.gates_vacuous += g["VACUOUS"]
+        t.gates_unchecked += g["UNCHECKED"]
+        g = gate_counts(lane.ledger_gates)
+        t.ledger_proven += g["PROVEN"]
+        t.ledger_vacuous += g["VACUOUS"]
+        t.ledger_unchecked += g["UNCHECKED"]
+        g = gate_counts(lane.mission_gates)
+        t.mission_proven += g["PROVEN"]
+        t.mission_vacuous += g["VACUOUS"]
+        t.mission_unchecked += g["UNCHECKED"]
+        g = gate_counts(lane.forbidden_gates)
+        t.forbidden_proven += g["PROVEN"]
+        t.forbidden_vacuous += g["VACUOUS"]
+        t.forbidden_unchecked += g["UNCHECKED"]
+        t.unemitted += len(lane.unemitted)
     return t
 
 
@@ -1336,13 +1617,22 @@ def render_report(lanes: Sequence[LaneReport], no_archive: Sequence[str],
     out: List[str] = ["# Mutation check report", ""]
     if header:
         out += [header, ""]
-    out += ["Report-only (trust risk 8, phase 1): survivors are listed for triage and "
+    out += ["Report-only (trust risk 8, phases 1 and 2): survivors are listed for triage and "
             "never fail anything.", "",
             "- lanes with a green baseline: %d" % t.lanes_green,
             "- lanes whose newest archives were not green: %d" % t.lanes_not_green,
             "- lanes with no archive on this machine: %d" % t.lanes_no_archive,
             "- mutations: %d, killed %d, survived %d (triage %d, intended %d, info %d)"
-            % (t.mutations, t.killed, t.survived, t.triage, t.intended, t.info), "",
+            % (t.mutations, t.killed, t.survived, t.triage, t.intended, t.info),
+            "- save-parse gates (save-level edits): proven %d, vacuous %d, unchecked %d"
+            % (t.gates_proven, t.gates_vacuous, t.gates_unchecked),
+            "- ledger-oracle gates (ledger edits): proven %d, vacuous %d, unchecked %d"
+            % (t.ledger_proven, t.ledger_vacuous, t.ledger_unchecked),
+            "- mission gates (mission chain edits): proven %d, vacuous %d, unchecked %d"
+            % (t.mission_proven, t.mission_vacuous, t.mission_unchecked),
+            "- forbidden tokens (line injection): proven %d, vacuous %d, unchecked %d; "
+            "%d name a word no mod source carries (heuristic)"
+            % (t.forbidden_proven, t.forbidden_vacuous, t.forbidden_unchecked, t.unemitted), "",
             "## One line per lane", ""]
     out += ["- " + summary_line(l) for l in lanes]
     if no_archive:
@@ -1361,6 +1651,68 @@ def render_report(lanes: Sequence[LaneReport], no_archive: Sequence[str],
         out.append("")
     if not any_triage:
         out.append("(none)")
+    out += ["", "## Vacuous save-parse gates", ""]
+    any_vac = False
+    for lane in lanes:
+        for g in lane.save_gates:
+            if g.verdict == "VACUOUS":
+                any_vac = True
+                out.append("- %s (%s): block `%s` `%s %s` measured=%s -- %s" % (
+                    lane.spec_id, lane.archive, g.block, g.label, g.window, g.measured,
+                    _clip(g.reason, 240)))
+    if not any_vac:
+        out.append("(none)")
+    out += ["", "## Unchecked save-parse gates", ""]
+    any_unc = False
+    for lane in lanes:
+        for g in lane.save_gates:
+            if g.verdict == "UNCHECKED":
+                any_unc = True
+                out.append("- %s: `%s %s` measured=%s -- %s" % (
+                    lane.spec_id, g.label, g.window, g.measured, _clip(g.reason, 200)))
+    if not any_unc:
+        out.append("(none)")
+    out += ["", "## Vacuous ledger-oracle gates", ""]
+    any_lv = False
+    for lane in lanes:
+        for g in lane.ledger_gates:
+            if g.verdict == "VACUOUS":
+                any_lv = True
+                out.append("- %s (%s): `%s` `%s` %s %s -- %s" % (
+                    lane.spec_id, lane.archive, g.block, g.label, g.window, g.measured,
+                    _clip(g.reason, 240)))
+    if not any_lv:
+        out.append("(none)")
+    out += ["", "## Unchecked ledger-oracle gates", ""]
+    any_lu = False
+    for lane in lanes:
+        for g in lane.ledger_gates:
+            if g.verdict == "UNCHECKED":
+                any_lu = True
+                out.append("- %s: `%s` %s %s -- %s" % (
+                    lane.spec_id, g.label, g.window, g.measured, _clip(g.reason, 200)))
+    if not any_lu:
+        out.append("(none)")
+    for title, attr in (("mission gates", "mission_gates"),
+                        ("forbidden tokens", "forbidden_gates")):
+        for verdict, word in (("VACUOUS", "Vacuous"), ("UNCHECKED", "Unchecked")):
+            out += ["", "## %s %s" % (word, title), ""]
+            rows = ["- %s (%s): `%s` %s %s -- %s" % (
+                        lane.spec_id, lane.archive, _clip(g.label, 160), g.window, g.measured,
+                        _clip(g.reason, 240))
+                    for lane in lanes for g in getattr(lane, attr) if g.verdict == verdict]
+            out += rows or ["(none)"]
+    out += ["", "## Forbidden tokens naming a word no mod source carries (heuristic triage)", ""]
+    seen_unemitted = set()
+    rows = []
+    for lane in lanes:
+        for pat, words in lane.unemitted:
+            if pat in seen_unemitted:
+                continue
+            seen_unemitted.add(pat)
+            rows.append("- `%s` (first in %s): %s" % (_clip(pat, 160), lane.spec_id,
+                                                      ", ".join(words)))
+    out += rows or ["(none)"]
     out += ["", "## Multi-phase required patterns", ""]
     any_multi = False
     for lane in lanes:

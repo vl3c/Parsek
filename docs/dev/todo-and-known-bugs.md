@@ -15,6 +15,53 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## KXRW-RESULT-NAN-DETAIL: a kx_rewind_watch flight that ends early writes no mission result at all [FILED 2026-10-01 from the mutation checker's blind replay, branch `mutation-phase2-pr3`. OPEN, low; mission library]
+
+`mlib.evaluate_kxrw_assertions` copies raw state floats into assertion DETAIL dicts:
+`coreDiscardedWithEnginesOff` carries `discardUT` / `discardAltitude` (`KxrwState`
+defaults `core_discard_ut = nan`), `boosterStagesDropped` carries `peakThrustNewtons`
+(`ascent_peak_thrust = nan`), and on the rewind profile `rewoundToLaunch` /
+`playbackWatchedOut` carry `preRewindUT` / `postRewindUT` / `targetUT`.
+`AssertionOutcome.to_dict` scrubs a non-finite VALUE but not the detail, and
+`serialize_mission_result` renders with `allow_nan=False`, so any flight that ends before
+the core discard (or before thrust is read) raises `ValueError` in
+`mission_runner.run_mission` AFTER its try block: the subprocess dies with no result file,
+and the harness reads `<no-result>` -> INVALID(tooling-mission) instead of
+INVALID(mission), losing every assertion row the operator needs. Same verdict class
+(retryable driver-INVALID), wrong subkind, no evidence. Found by
+`mutation_check.py --mission-only`: the blind replay's outcomes hit it on all 13 lanes that
+fly `kx_rewind_watch` (GS-4, GS-6 to GS-12, MC-4, RF-9, RF-13H, RF-14, RF-15).
+Fix: scrub non-finite detail floats to None in the evaluator (the `_is_finite(...) else
+None` idiom `span_detail` already uses), or in `AssertionOutcome.to_dict`; either way add a
+cell that serializes the evaluator's outcomes over an initial state.
+
+## MUTATION-CHECK-RESIDUE: what the mutation checker still leaves to the operator [FILED 2026-10-01 when MUTATION-CHECK-PHASE-2 closed, branch `mutation-phase2-pr3`. OPEN; harness, spec rulings]
+
+- The phase 1 triage survivors (moved from MUTATION-CHECK-PHASE-2): the 723 triage
+  survivors (96 lanes) listed by group in known-gate 17 (spec tightening; each group is a
+  spec change or a recorded ruling). FIRST PASS DONE 2026-09-24 (branch
+  `tighten-survivors`): 26 specs tightened, 723 -> 700, of which 391 are recorded as
+  intended and 309 remain (known-gate 17 lists them). Still owed from the pass: the
+  teardown `Recording stopped` fix on the 25 lanes it could not verify offline - B4 now
+  that #1806 (`b4-chute`) has landed, and the 24 whose archives are missing or no longer
+  replay green (re-run `mutation_check.py` after their next tier, then apply the same
+  per-lane anchor).
+- One VACUOUS mission gate needs a ruling: `CA-1-commit-abort-booster-live`'s
+  `craftChuteNeverArmed` (mission `gs1_auto_chute_booster`, abort profile) is met by the
+  blind replay, because it is an ABSENCE claim about the machine's own command latch
+  (`not state.chute_commanded`): it reads no telemetry by construction and reds only if
+  the machine itself arms the chute. Either record it as intended, or re-derive it from an
+  observed read (the craft chute state staying un-deployed across DESCENT).
+- Ledger lanes with no seed-bearing archive on this machine
+  (`L2-ledger-groundtruth-career`, `L3-strategy-currency-conversion`,
+  `L3-strategy-exchanger-floor`): re-run `mutation_check.py --ledger-only` after their
+  next tier.
+- A threshold pushed across its bound INSIDE a mission evaluator is not reached: the
+  telemetry frames the evaluators read are not archived (the mission stdout is
+  rate-limited), so the blind replay proves an assertion reads telemetry, not which side
+  of its bound it compares. Reaching it needs the mission to archive its frames (or the
+  per-assertion evidence the compare reads).
+
 ## HARNESS-FLIGHT-WALL-TIME: auto-flights spend ~40% of their mission wall time idle at 1x [FILED 2026-10-01, branch `flight-efficiency`. MEASURED; the warp-policy fix is a separate session]
 
 `harness/tools/flight_efficiency.py` (pure core `harness/lib/flighteff.py`, contract in its
@@ -32,6 +79,25 @@ the m3 HOLD-* observation windows (deliberate). The mission warp policy itself i
 changed in a separate session; re-run the tool over the next nightly to measure that fix.
 
 - [ ] Re-measure after the warp-policy change lands (`--since <date> --json-out`).
+
+## RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON: the recording stats frame lookup matches a section end exactly, with no tolerance [FILED 2026-10-01 from the PR #1943 review, branch `l7-nightly-residue`. OPEN, low, pre-existing]
+
+`TrajectoryMath.ResolvePointFrameForStats` (`Source/Parsek/TrajectoryMath.Stats.cs:147`) finds a
+point's section with the strict lookup and then falls back to a section whose `endUT` EQUALS the
+point's UT (`:154`, `sections[i].endUT == ut`). The playback-side lookup,
+`RelativeAnchorResolver.FindTrackSectionForUT` (`Source/Parsek/RelativeAnchorResolver.cs:854`),
+also accepts a start or end within `SectionBoundaryEpsilonSeconds` (`:93`). So a Relative sample a
+hair past its section's `endUT`, or a boundary sample shared by two sections and carrying Relative
+units, resolves to no section in the stats path, reads as Absolute, and its anchor-local metres
+are measured as degrees again (the ~1000 km Dist the debris fix removed for the exact-match case).
+Not seen on a fixture: the committed `interbody-route-recorded` rows all read 1 to 3 km after the
+fix. Fix direction: share the epsilon helper (move it to `TrajectoryMath` or call it) instead of
+keeping a second, stricter copy, and add a cell with a Relative sample at `endUT + 1e-10`.
+
+Related, already filed: points inside some Relative sections carry body-fixed lat/lon/alt rather
+than metres (recording #27 on that fixture), while in-section Relative distance is always measured
+as metres. See the "Not fixed here" sentence at the end of
+RECORDINGS-STATS-DEBRIS-MAXSPD-IMPLAUSIBLE.
 
 ## MISSIONS-TAB-MODEL1: the Missions tab redesign, first slice ("Model 1") [OWNER-APPROVED 2026-09-29, branch `missions-model1`. IN PROGRESS]
 
@@ -92,6 +158,45 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   DESIGN: those committed fixtures carry no launch save (`CommittedFixtureRewindSaveTests`
   policy), so `GetRewindRecording` is null in every scene (GUI-4 is a Space Center capture
   and draws no Rewind either); GUI-1's operator career has launch saves and draws it.
+
+## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branch `log-rework`. PARTS 1-2 DONE]
+
+Presentation only (no recording data or schema change, no new window). The docked-mission
+subject is `bdock-recorded`'s "Kerbal X #2" (GUI-4), whose Log read 31 rows; it now reads 11,
+pinned row by row in `StructureListBdockFixtureTests` against the committed fixture.
+
+- [x] Part 1, builder correctness (`MissionStructureListBuilder`): part-state seeds are not
+  events - a permanent event at a continuing recording's exact start (chain split
+  `ForwardPermanentStateEvents`) or at the exact UT of the branch point that created it (a
+  vessel's recording can start earlier than the moment the recorder attached and seeded), a
+  re-statement of a state an ancestor already recorded for
+  the same part (the background recorder's loaded-physics seed, ~0.5 s after a split), and a
+  root's start-UT jettison seeds; there is no time window, so a real jettison a moment after a
+  split stays a row; debris recordings contribute no part rows; a split branch
+  point IS the stage and absorbs its same-moment parts (its coalesce window, else 0.1 s) on
+  its parent or any segment of the parent's chain, symmetric partner included, while distinct branch points stay distinct rows (ripple
+  staging); part events within 0.5 s of a Dock / Undock / Board on a participating recording
+  are the coupling change, not staging; the simultaneous collapse compares the owning
+  recording, so same-named vessels no longer merge into `End x2`; a row past its recording's
+  start keeps only the body (no launch-pad location on an in-flight decouple).
+- [x] Part 2, presentation (`StructureListWindowUI`): columns Time | Event | Location |
+  Vessel; `End: <word>` and no End row for a Docked / Boarded leg; `<body> orbit` only for an
+  orbital ending or a separation whose piece recorded an orbit; Time = the date on row 1, then
+  `T+h:mm:ss`; `Staged: N pieces (<title> xK, ...)` with titles through PartLoader, resolved
+  once per build; Separation / Dock / Undock rows name the other vessel (the Missions
+  `X (mission 'Y')` spelling, shared as `MissionChapters.FormatPartnerWithMission`); empty
+  state `This mission has no recorded flight.`; a shortened Event cell carries the full list in
+  its tooltip, read in a single-line hover strip the window now hosts.
+- [ ] Look into: the optimizer's atmosphere-exit chain split leaves split branch points that fall
+  AFTER the cut naming the HEAD segment as parent (bdock-recorded after load: the probe
+  separation at UT 692.77 names `5157d655`, which now ends at 568.23; its parts sit on the tail
+  `d60398f6`). The Log tolerates it (stage ownership follows the parent's chain); other
+  consumers of `BranchPoint.ParentRecordingIds` may not. Not investigated beyond the Log.
+- [ ] Later PR: the per-mission include set (the Log ignores a mission's excluded intervals).
+- [ ] Later PR: retire the route Log (it keeps working; its Status column folded into Location,
+  an orbital endpoint reads `Mun orbit`).
+- [ ] Later PR: number same-named vessels (`Kerbal X [2]`); today the docking mission's two
+  `End: Orbiting | Kerbal X` rows are told apart only by their recording.
 
 ## ~~MISSION-EVENT-DIGEST-DUPLICATE-LAUNCHED-ROW: the digest builds a second "launched" row for one flight~~ [FILED 2026-09-29 from MISSIONS-TAB-MODEL1. FIXED 2026-10-01, branch `missions-followups`]
 
@@ -1834,6 +1939,18 @@ awards of one subject credit 10, a recovery burst with repeats, two deployed sen
 during a flight, two same-instant awards in one recording, a fresh capture beside a legacy row,
 a KSC-filed capture re-filed at commit, both same-instant rows re-filed at commit, a commit
 retry, the discard re-home, the id surviving save/load, and the dedup rule cells).
+
+**Residual, open, low and transient (PR #1939 review).** Both rows now reach the ledger, but the
+committed-science cache write `GameStateStore.CommitScienceActions`
+(`Source/Parsek/GameStateStore.cs:847`) still keeps the MAX per subject rather than summing, so
+two same-instant rows of one subject leave the cache at one row's value until the next recalc,
+whose `LedgerOrchestrator.RebuildCommittedScienceFromSurvivingLedger`
+(`Source/Parsek/GameActions/LedgerOrchestrator.cs:3652`, called at `:3057`) replaces it with the
+capped per-subject sum. The ledger and the pool are right throughout; only a reader of the cache
+between the commit and that recalc sees the lower value. The max merge is deliberate (see the
+"Committed-science cache" paragraph of SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT: it keeps a
+mirrored duplicate from over-stating a subject), so a fix would have to sum by capture identity,
+not drop the max.
 
 ## DEPLOYED-SCIENCE-IS-ALWAYS-UNTAGGED: Breaking Ground deployed-experiment science is never tagged to the flown recording [OPERATOR RULING 2026-09-26; IMPLEMENTED 2026-09-26, branch `fix-deployed-science-ledger`]
 
@@ -3804,34 +3921,81 @@ descent; noted on the spec and its status row, not re-harvested (operator ruling
 2. The readiness check tests `Administration.Instance != null`, set in `Awake`, while the slot limit and commitment ceiling are read in `Start`; safe today only because `Pump` runs once per frame. Gate on a field `Start` sets, or compare the slot limit with `GameVariables`.
 3. `StrategyDisplayNames`' production cache is not exercised by the unit tests (the test hook bypasses it).
 
-## MUTATION-CHECK-PHASE-2: the mutation checker does not yet reach saves, the ledger or mission assertions [FILED 2026-09-24 with phase 1 (branch `mutation-check`). OPEN; harness]
+## ~~MUTATION-CHECK-PHASE-2: the mutation checker does not yet reach the ledger or mission assertions~~ [FILED 2026-09-24 with phase 1 (branch `mutation-check`). **DONE 2026-10-01**; harness. PR 1 (save perturbation) branch `mutation-phase2`; PR 2 (ledger perturbation) branch `mutation-phase2-pr2`; PR 3 (mission chain + forbidden injection) branch `mutation-phase2-pr3`. What it still leaves to the operator is MUTATION-CHECK-RESIDUE]
 
 Phase 1 (`harness/tools/mutation_check.py`, known-gate 17 in `autotest-status.md`) replays
 the gating evaluators that are pure over an archived KSP.log, plus the ARMED save-parse
-windows at the facet level (the measured count moved by one and to zero). Still unchecked,
-so a cell there can go vacuous with nothing noticing:
+windows at the facet level (the measured count moved by one and to zero). Phase 2 is
+planned as three PRs: (1) save perturbation, (2) ledger perturbation, (3) mission
+assertions and forbidden-token injection. All three landed.
 
-- Save perturbation below the facet: edit the archived `persistent.sfs` itself (drop a
-  `RECORDING` node, a supersede row, a tombstone, a rewind point, a route stop) and re-run
-  `saveparse.parse_parsek_scenario` + `evaluate_save_structure`, so a window whose parser
-  path is dead is caught, not only a window that is too wide.
-- Ledger perturbation: the ledger oracle needs the run's seed capture; archive it (or
-  re-derive it from the archived save) so `oracle.build_oracle_result` can replay with an
-  award removed or a pool moved.
-- Mission assertions: replay a mission's recorded verdict with its sensor reads removed
-  (the kRPC telemetry lines it gates on), so a mission check that no longer reads what it
-  claims is caught.
-- Forbidden patterns: phase 1 cannot synthesize a line a forbidden regex would match; a
-  literal-shaped forbidden token (`\[Parsek\]\[ERROR\]`) could be injected directly.
-
-Also open from the first sweep: the 723 triage survivors (96 lanes) listed by group in known-gate 17
-(spec tightening; each group is a spec change or a recorded ruling). FIRST PASS DONE
-2026-09-24 (branch `tighten-survivors`): 26 specs tightened, 723 -> 700, of which 391 are
-recorded as intended and 309 remain (known-gate 17 lists them). Still owed from the pass:
-the teardown `Recording stopped` fix on the 25 lanes it could not verify offline - B4
-now that #1806 (`b4-chute`) has landed, and the 24 whose archives are missing or no longer replay
-green (re-run `mutation_check.py` after their next tier, then apply the same per-lane
-anchor).
+- ~~Save perturbation below the facet~~ DONE (PR 1, `harness/lib/mutsave.py`): for every
+  window of every ARMED save-parse block the checker edits the archived `persistent.sfs`
+  itself so the measured value crosses each declared bound (drop or clone `RECORDING`,
+  `RECORDING_TREE`, supersede / tombstone / rewind-point rows, `BRANCH_POINT`, FLIGHTSTATE
+  `VESSEL`, `ROUTE`, `STOP`, `SOURCE`; clear or set `terminalState`; rewrite `pointCount`,
+  the route cycle counters, statuses, connection kinds and body names; re-point a route id
+  or endpoint pid), writes the tree back and re-runs the real
+  `saveparse.parse_parsek_scenario` + `evaluate_save_structure`. Each armed block also
+  gets fault edits (a torn save, no ParsekScenario node, a missing `pointCount`, a route the
+  codec would drop, a missing `completedCycles`). A window no crossing edit reds is
+  VACUOUS (spec and block named in the report). `mutation_check.py --save-only` runs it
+  without a KSP.log, over the newest archived produced save whose armed blocks pass, else
+  the spec's committed fixture template. First sweep (2026-10-01, every archive under the
+  umbrella root): all 124 specs with an armed block had a green archived save; 1802
+  edits, all killed; 1308 gates PROVEN, 0 VACUOUS, 0 UNCHECKED. Over committed fixtures
+  alone, 54 of the 124 baselines pass and all their gates are PROVEN.
+- ~~Ledger perturbation~~ DONE (PR 2, `harness/lib/mutledger.py`). The seed was already
+  archived: `run.py` writes its careerSave-shaped audit copy into `<runId>.manifest.json`,
+  and the produced careerSave block travels in the snapshot's `analysis/*.analysis.json`.
+  The verifier's composition moved out of `run.py` into `harness/lib/ledgerverify.py`
+  (unchanged; `run._run_ledger_oracle` now only supplies the logger and the manifest write),
+  so the checker replays the same function a flight runs. Per ledger spec it moves each
+  hard pool just past its tolerance on both sides, on the produced value and on the seed;
+  moves each declared manifest amount until the expected value crosses (planned through the
+  reputation curve) and removes each non-zero entry; where `captureCrossCheck = "gate"`,
+  injects an unexplained stock award line and moves each captured award past the
+  tolerance; drops each roster `present` name and adds each `absent` one; and plants
+  faults (torn analysis file, no careerSave block, `parsed = false`, no seed, an
+  unknown-kind manifest entry, a missing pool, a missing roster facet). A kill counts only
+  on the gate's own facet. `mutation_check.py --ledger-only` runs it; a full run adds it to
+  any lane whose archive carries the seed. First sweep (2026-10-01, every archive under the
+  umbrella root): 8 of the 11 ledger specs have a green archive; 177 edits, all killed;
+  122 gates PROVEN, 0 VACUOUS, 0 UNCHECKED. No archive on this machine carries a seed for
+  `L2-ledger-groundtruth-career`, `L3-strategy-currency-conversion` or
+  `L3-strategy-exchanger-floor` (their only local runs are collect-logs folders); re-run
+  after their next tier. `L1-passive-sandbox` has no pool gate by design (its seed carries
+  no pools, so the oracle skips every pool); only its faults are checked.
+- ~~Mission assertions~~ DONE (PR 3, `harness/lib/mutmission.py`). The mission-result
+  read, the driver-stage subkind map and the driver-validity composition (the autopilot
+  carve-out and the `missionOutcome` row) moved out of `run.py` into
+  `harness/lib/missionverify.py` unchanged, so the checker replays the same code a flight
+  runs. Over each autopilot lane's archived run record, mission result and mission shell
+  module: each assertion with its reading removed goes back through the real
+  `resolve_flight_verdict` / `build_mission_result` / `serialize_mission_result`, the
+  shared read, `classify_mission_step`, the composition and `classify_verdict`, and must
+  classify INVALID(mission) naming that assertion (orthogonality: an unmet mission is a
+  driver-INVALID, never PARSEK-FAIL); a BLIND replay runs the shell's real `evaluate` over
+  the machine's initial state with no frames and with all-unread frames, and every
+  archived assertion must be unmet there; each post-mission outcome step answered ERROR /
+  REJECTED / never must classify PARSEK-FAIL(mission-outcome) / INVALID(driver-verdict-
+  mismatch) / INVALID(driver-stage); and result faults (torn, bumped schema, no verdict,
+  no assertions, vessel lost, flake) must route as designed. `mutation_check.py
+  --mission-only`. First sweep (2026-10-01, every archive under the umbrella root): 65 of
+  the 86 autopilot specs have a green archive (21 carry no mission result here); 1604
+  edits, 1602 killed; 1214 gates PROVEN, 1 VACUOUS (CA-1 `craftChuteNeverArmed`, an
+  absence claim, see MUTATION-CHECK-RESIDUE), 0 UNCHECKED. Found on the way:
+  KXRW-RESULT-NAN-DETAIL.
+- ~~Forbidden patterns~~ DONE (PR 3, `harness/lib/mutforbid.py`; phase 1 never injected a
+  forbidden line). For each forbidden regex a string the regex itself matches is generated
+  from the parsed pattern, injected into the archived KSP.log framed as a KSP line and then
+  bare, and the real `hlib.evaluate_expectations` must report that pattern matched.
+  `mutation_check.py --forbidden-only`. First sweep: 265 lanes with a log no forbidden
+  pattern already matches, 1001 injections, all PROVEN on the framed line, 0 VACUOUS,
+  0 UNCHECKED; a unit cell holds all 398 distinct committed patterns injectable. The
+  heuristic emitter list (a literal word no `Source/Parsek` file carries) names 5
+  patterns, all runtime data (a stock part, a building, a tech id, a synthetic recording
+  id), so no renamed message.
 
 ## ~~GHOSTLIFE-V2-FIRST-LIVE-READING: the v2 ghost-lifecycle surfaces have never read a live log~~ [FILED 2026-09-24, ghost-replay Tier C item 10, branch `ghostlife-v2`. **DISCHARGED 2026-09-24 by GS-12** (branch `gs12-loop`): the first live reading `2026-09-24_1911` read `MeshDestroyed reason=overlap expired` x27 (Kerbal X 14, Kerbal X Probe 13), `overlap cleared` x2, `engine teardown` x13 at quit, `LoopCycle` x40 - every one `mode=overlap-demote`, ZERO `unit` and ZERO `reuse` - and spawnLines = destroyLines = 57 with unbalanced 0, so the two line counts close on a looping lane as designed. The `unit` mode did not fire because the one-copy-at-a-time stage runs with an inter-cycle tail (period 150 s > span 109 s): the member is destroyed at its window end (`chain-loop unit member outside its window` / `chain-loop unit cycle change`) and respawned, never carried across the boundary. GS-12 ARMS `destroyedReasons.required`, `vessels` (`Kerbal X Debris` spawned >= 6) and `cycleLines` (>= 10); armed re-flight `_1934` PASS. Adding the `vessels` window to GS-4 stays open as its own arming change.]
 
@@ -4934,7 +5098,7 @@ sections 13.5 and 13.7 should be rewritten to match it and the catalog's D18 wor
 narrowed. If the design is the intent, the non-chain blocked spawn needs a real
 extension state.
 
-## D18-CHAIN-SPAWN-BLOCKED-GHOST-6B4-NOOP: a spawn-blocked chain tip keeps no visible ghost past its tip UT [FILED 2026-09-23 with the D18 spawn-in-run wave, PR-E (EX-1). OPEN]
+## ~~D18-CHAIN-SPAWN-BLOCKED-GHOST-6B4-NOOP: a spawn-blocked chain tip keeps no visible ghost past its tip UT~~ [FILED 2026-09-23 with the D18 spawn-in-run wave, PR-E (EX-1). FIXED 2026-10-01, branch `chain-blocked-ghost` (operator decision 2026-10-01: build 6b-4 to design 12.9.2 / 13.5)]
 
 `ParsekFlight.PositionChainGhosts`'s doc says it: "For spawn-blocked chains, the ghost
 continues at its propagated position (ghost GO creation deferred to 6b-4 - currently a
@@ -4944,6 +5108,66 @@ SpawnVesselOrChainTip)". So when `VesselGhoster.SpawnAtChainTip` refuses the spa
 (`TrySpawnBlockedChain`) runs, but no ghost is drawn at the propagated position meanwhile.
 This is the chain half of design section 13.5 and of the catalog's
 `ghost-extension-past-endut` cell. EX-1 does not claim it and no lane can until 6b-4 lands.
+
+**Measured shape before the fix (code reading, 2026-10-01).** Since #1776 the policy did hold
+the tip recording's own playback ghost on the blocked completion (`Ghost held pending spawn
+retry`), but only through the generic 5 s hold: the ghost froze at its end point (an orbiting
+tip stood still while its orbit moved on, and no FloatingOrigin reapply entry was registered
+after the completion frame), the hold timed out at 5 s and destroyed it, and with no hold left
+nothing retried `TrySpawnBlockedChain`, so the vessel vanished for the rest of the scene. The
+chain's 5 s walkback trigger (UT-based) could not fire inside a 5 s real-time hold either.
+
+**Fix.** A collision-blocked chain tip's hold is exempt from the timeout
+(`ParsekPlaybackPolicy.DecideHeldGhostAction(..., spawnBlockedChainTip)`, fed by
+`ParsekFlight.IsSpawnBlockedChainTipFromPolicy`), so the spawn keeps retrying every 1 s (and the
+5 s walkback can run) until the overlap clears. Every other release still applies first
+(spawned, superseded, rewind-retired, invalid index, a permanent `CannotSpawnSafely`), so the
+2026-09-27 ruling is untouched: only a block that can clear is held. Each frame after the held
+retries, `ParsekFlight.UpdateSpawnBlockedChainTipGhosts` (new partial
+`ParsekFlight.BlockedChainTipGhost.cs`) draws the held ghost where the vessel would appear now:
+an Orbiting tip with a recorded terminal orbit follows that orbit (built once with
+`VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn`, the orbit the blocked-tip spawn uses),
+any other tip holds its end pose body-fixed; both register the SinglePoint FloatingOrigin
+reapply entry. The per-frame path allocates nothing (state resolved once at capture, reusable
+release scratch list, a real-time throttled position log). Pure decisions in
+`ChainTipBlockedGhost.cs`: `ResolvePoseSource`, `DecideReleaseReason` (spawned first, then
+chain-closed, unblocked, index-shifted, hold-ended, ghost-gone), `ShouldCapture`,
+`IsExemptFromHeldGhostTimeout`. Logged as `[ChainTipGhost] Blocked chain tip ghost held: #<i>
+"<name>" rec=<id> chainPid=<pid> source=<orbit|hold> ...` and `Blocked chain tip ghost released:
+... reason=<...> heldFor=<s>`. Walkback exhaustion does not end the hold (operator ruling
+2026-10-01: keep the ghost and keep retrying quietly for the rest of the scene; the vessel appears
+the moment the spot clears, nothing disappears silently; design 13.7 carries the chain-tip
+carve-out). The retry is quiet: every log line on the 1 s retry path is `VerboseRateLimited`,
+keyed by recording id (`GhostExtender.StrategyLogKey`: strategy choice, surface / orbital
+propagation, endpoint position) or by the deciding values (the #226 bypass verdicts keyed by
+branch + source / scene-entry / active pid, the walkback trigger by its verdict, the bounds and
+part-parse lines by part counts), so a first or changed verdict prints at once. A walkback that
+finds a clear point whose spawn then fails backs the full-trajectory rescan off to once per 10 s
+of real time (`VesselGhoster.WalkbackRescanBackoffSeconds`, logged once per chain); a backoff,
+not a cached result, because the scan answer depends on every loaded vessel's position. A
+failure that is not the collision (tip recording or snapshot gone, spawn failed at a clear
+position) ends the collision block (`EndCollisionBlockForNonCollisionFailure`), so the ghost loses
+the timeout exemption and is released on the next held-ghost tick (its hold window started at the
+original block) instead of retrying endlessly. The chain status now reads `Spawn blocked
+-- spot occupied, appears when it clears` and the label `Ghost -- spawn blocked` (was "manual
+placement required" / "spawn abandoned"; there is no placement UI since 2026-09-23). Tests: `ChainTipBlockedGhostTests` (pure cells, the policy exemption,
+the host predicate, real-policy cells driving `RetryHeldGhostSpawns` past the window and through
+the spawn, the retry-path log lines over 60 simulated retries, the walkback backoff), in-game
+category `ChainTipBlockedGhost` (2 FLIGHT cells over the production positioning, never flown, no
+lane).
+
+Known gap, not fixed here: a warp-deferred hold (`Ghost held during warp-deferred spawn`) is not
+yet a blocked-tip hold, so it still times out after 5 s of real time during a long warp. If the
+deferred spawn at warp end is then blocked, no hold remains to retry it and the tip stays
+unspawned for the scene.
+
+Still unproven live: no committed lane blocks a chain-tip spawn (the D18 spawn-blocked lanes
+EX-1 and EX-2 are non-chain: the KSC retirement and the single-point hold, whose recordings are no
+chain tip, so the exemption does not reach them; CI-2 forbids `Chain tip spawn blocked by
+collision`). A proof lane needs a loaded vessel parked on a
+chain tip's end position at the tip UT, and would require `Chain tip spawn blocked by collision`,
+`Blocked chain tip ghost held: ` and, after moving the blocker, `Blocked chain tip ghost released:
+... reason=spawned` with no `Held ghost timed out` for that index.
 
 ## ~~LOOP-ARMED-REWIND-LEAVES-ZERO-VESSELS: a Rewind-to-Launch while the mission loop is armed would strip the real vessel and nothing re-spawns it~~ [FILED 2026-09-23 from the #1771 review. RULED 2026-09-23: the first run is real. MEASURED + FIXED 2026-09-23 on branch `loop-first-run-real`]
 
@@ -5119,7 +5343,12 @@ closes too). All new cells red against `origin/main`'s
 
 **No harness lane.** No seam verb sets a single recording's loop toggle (`MissionConfig`
 loops a whole mission, the unaffected shape), so a live proof needs a new automation verb.
-The decision is a pure ledger walk and pinned in xUnit above.
+The decision is a pure ledger walk and pinned in xUnit above. Status: an open COVERAGE GAP, not
+a defect - the fix has no live proof lane until a verb toggles one recording's Loop flag. The
+PR #1938 review also checked the one skip left in place, `ParsekScenario`'s OnLoad crew
+auto-unreserve loop (`Source/Parsek/ParsekScenario.cs:4564`, `if (rec.LoopPlayback) continue;`),
+and judged it consistent with the fix (nulling a looped recording's snapshot would pre-empt
+the loop first-run spawn seams, as above), so it is not a defect either.
 
 ## ~~LOOP-ARMED-REWIND-FIRST-RUN-NOT-RENDERED: with a mission loop armed, a Rewind-to-Launch shows no ghost for the whole first run~~ [FILED 2026-09-24 from the #1808 review. PRODUCT DEFECT, operator ruling. **FIXED 2026-09-25** on branch `loop-first-run-visible`; see "Fix" below]
 
@@ -5304,7 +5533,37 @@ and consider a second, pre-filter view (`ComputeAllGhostChains`' full output, or
 `digest=6ad6ec1c` (a fixture-derived literal in two required tokens), so it needs CI-3
 re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
 (`bbd83d3b`, `8952919c`) recomputed.
-## D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR: the player-action half of D18 needs a RealSpawn / Recover seam verb pair [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A, on the operator ruling that no player-action verbs are built in that wave. OPEN; a follow-on design item]
+## D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR: the player-action half of D18 needs a RealSpawn / Recover seam verb pair [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A, on the operator ruling that no player-action verbs are built in that wave. VERBS BUILT 2026-10-01 on branch `realspawn-recover-verbs` (operator decision 2026-10-01, the second half of the chain-tip track after PR #1953); LANES OWED]
+
+**Status 2026-10-01: both verbs built, no lane flown.** Contract in
+`design-autotest-command-seam.md` `#### RealSpawn / Recover`. `RealSpawn rec=<id>` finds the
+recording's Real Spawn Control row (the draw pass's own candidate list and row model) and
+presses it through `SpawnControlUI.ExecuteRowWarp` -> `ParsekFlight.WarpToRecordingEnd`,
+then waits for `Recording.VesselSpawned` + `SpawnedVesselPersistentId` and answers
+`OK rec= pid= vessel= endUT= loaded=`. `Recover pid=<pid>` invokes the stock
+`AltimeterSliderButtons.vesselRecoveryButton.onClick` for the ACTIVE vessel (stock fires
+`OnVesselRecoveryRequested`, saves, loads the Space Center, fires `onVesselRecovered` 8
+frames later) and answers `OK pid= vessel= scene= recovered=true` once it has observed that
+last event. Both two-phase, `RequiresFlight`, 120 s; refusals typed and mirrored in hlib.
+
+**Lanes owed (a later PR authors and flies them):**
+
+- A RealSpawn row exists only while the active vessel is within 1000 m of the recording's
+  live ghost, and its button is live only within 250 m and 2 m/s. Every lane must first put
+  the active vessel beside the ghost (a fixture whose active vessel is parked next to the
+  chain tip's end position, or a rendezvous mission).
+- `chain-terminated-destruction-recovery`, the Recovered half (with
+  D18-TERMINATED-CHAIN-RECOVERY-HALF-AND-SPAWN-SUPPRESSION-UNWITNESSED): RealSpawn a chain
+  tip, `SimulateStockSwitchClick pid=${spawn.pid}`, record its continuation, `Recover
+  pid=${spawn.pid}` (a landed Kerbin tip, so the button unlocks), let the auto-commit stamp
+  the continuation `Recovered`; then a rewind to before the tip's spawn UT so the walker
+  reads `terminalState=Recovered`, and the scene reaches the spawn decision with the tip
+  in the future so `Terminated chain spawn suppressed:` fires.
+- The chain-tip spawn itself (`chain-tip-original-pid`, re-claim): RealSpawn on a
+  `ListHandles kind=chains` tip with the requirement that the answered pid equals the
+  chain's original pid.
+- The docking cell the original entry names stays a mission, not a verb: RealSpawn hands
+  the pid to a dock mission.
 
 D18 is at 6 of 12 after PR-A. The cells still open are the ones where the PLAYER acts on a
 ghost chain: spawning a ghost as a real vessel through Real Spawn Control
@@ -5326,7 +5585,7 @@ Both need the M-A2 design pass (design-autotest-command-seam.md), the pure / app
 split, the dispatch rows, the hlib verb and role tables and `GuiCensusSeamVerbTests`'s
 vocabulary sync, before any lane can use them.
 
-## D18-TERMINATED-CHAIN-RECOVERY-HALF-AND-SPAWN-SUPPRESSION-UNWITNESSED: the recovery half of `chain-terminated-destruction-recovery` and the spawn-side suppression line have no driven subject [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A. OPEN; needs D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR or a harvested save with a Recovered chain tip]
+## D18-TERMINATED-CHAIN-RECOVERY-HALF-AND-SPAWN-SUPPRESSION-UNWITNESSED: the recovery half of `chain-terminated-destruction-recovery` and the spawn-side suppression line have no driven subject [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A. OPEN; the RealSpawn / Recover verbs it needed were built 2026-10-01 (D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR), the lane is owed]
 
 PR-A claims `chain-terminated-destruction-recovery` on V26T for the DESTROYED half only,
 off the walker's `ResolveTermination: ... terminalState=Destroyed` and
@@ -5653,7 +5912,7 @@ vocabulary stops claiming a word nothing renders. NOT fixed here: which way it g
 product decision about whether an observation boundary belongs in a chronological log, and
 that is exactly the kind of question the owner's iteration loop exists to answer.
 
-**3. PRODUCT: `MissionStructureListBuilder`'s terminal row makes the Event column
+**3. RESOLVED 2026-10-01 (MISSION-LOG-REWORK: the Status column is gone and a terminal row reads `End: <word>`). PRODUCT: `MissionStructureListBuilder`'s terminal row makes the Event column
 redundant on a one-leg run.** Its terminal pass writes `Label = "End"` always and puts the
 terminal word in STATUS - which is the right split when several legs end differently, and
 reads as a wasted column on a single-leg mission whose last two rows are `End | Splashed`
@@ -7975,6 +8234,7 @@ The candidate fix is one shared predicate, "recovered by the Recovered terminal 
 - Mirror directions: a Landed flight with no recovery row still spawns and still stashes; pad / runway retirement (#1783) is unchanged (its crew side, `VesselSpawner.IsKscRetiredFinalFlight`, reads the recording, not the spawn decision, and a recovered pad flight ends with no vessel either way); a Recovered commit closes its crew hold at the recording end, so the later crew-close produces no row; the Missions wording reads Recovered for new in-flight recoveries and keeps the stored terminal for older saves; Logistics reads no terminal state.
 - Tests: `RecoveredAfterCommitTests` (24 cases; mutation-checked: disabling the predicate or the scene-exit stamp fails 8).
 - Live proof still to run: `RB-1-rewind-readback-divergence` / `RB-2-rewind-readback-within-range` recover the Flea in flight with auto-merge on. Expect `In-flight recovery: recording '...' ... terminal Landed -> Recovered`, Step 3b's `evidence=terminal-recovered` instead of `recovery-row`, `terminalState = 5` (Recovered) on the Flea's recording in the produced save, and no change to the `VesselRecovery funds patched ... amount=4558` line (both lanes' log contracts already accept either evidence).
+- Open after the PR #1946 review: the live proof above is still owed (RB-1 / RB-2; the expected log line is `[Recovery] In-flight recovery: recording ... terminal Landed -> Recovered`). The stamp's WIRING has no unit test (`RecoveredAfterCommitTests` calls `Arm` / `ApplyAtSceneExit` / `TryApplyToFinalizedPendingTree` directly): the event handler (`ParsekScenario.OnVesselRecoveryRequested`, `Source/Parsek/ParsekScenario.cs:7840`, arm at `:7855`), the two `InFlightRecoveryRequest.ApplyAtSceneExit` call sites (`Source/Parsek/ParsekFlight.cs:3215` and `:15705`; method at `Source/Parsek/InFlightRecoveryRequest.cs:102`), and the clear ordering (`ParsekFlight.cs:2432`, `:3257`, `ParsekScenario.cs:3520`) - so the RB lanes are the only proof that they fire in that order. Known, accepted: a save written before #1946 still holds Landed on a recovered flight, so its Missions wording still reads "Landed" (the spawn and Stash readers use the shared predicate and are right there).
 
 ## ~~REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE~~ [FILED 2026-09-14 by the guard-retire decision. UPDATED 2026-09-27: the lane exists (RB-1) and found that its designed cause cannot happen in the shipping configuration. CLOSED 2026-09-27 (branch `recovered-after-commit`): with REFLY-RESURRECTED-RECOVERY-STAYS-BANKED fixed, RB-1 `2026-09-27_1423` is the first live `FLAGGED DIVERGENCE` and RB-2 `2026-09-27_1431` its within-range control. The A7 strategy / mod-grant follow-up below stays OPEN]
 
@@ -8035,6 +8295,10 @@ cycle change; no lane pins window text. The capacity line stays unreachable ther
 the loop path never assigns `DestinationFull` as a route status, and the re-scan button
 needs an `EndpointLost` multi-stop route (the loop path can reach it at delivery,
 `endpoint-lost-at-delivery`), which no committed lane drives (RVR-18 is single-stop).
+Status (2026-10-01, from PR #1941): both are an open COVERAGE GAP - no committed lane can reach
+the multi-stop "tanks full" capacity line or the multi-stop Re-scan. Owed and cheap: a re-read of
+GUI-20 / GUI-21 / GUI-22 on `rover-relay-c-recorded` with a DLL carrying the fix would photograph
+the new Destination and Delivers per cycle cells.
 
 **Evidence.** `Logistics/RouteBuilder.cs:353` genuinely builds multi-stop routes. Four
 window cells read `route.Stops[0]` only: "Delivers per cycle"
@@ -8425,7 +8689,15 @@ rather than re-discovered.
 should be named `*ForTesting` (as the watch-mode one is) so a grep can tell the two
 populations apart.
 
-## GUI-EXPOSURE-1-THE-TRACKING-STATION-HAS-FULL-GHOST-PRESENCE-AND-NO-CONTROL-SURFACE [FILED 2026-09-11 by the GUI fix batch; the census's biggest structural question]
+## ~~GUI-EXPOSURE-1-THE-TRACKING-STATION-HAS-FULL-GHOST-PRESENCE-AND-NO-CONTROL-SURFACE~~ [FILED 2026-09-11 by the GUI fix batch; the census's biggest structural question. CLOSED 2026-10-01 by OPERATOR RULING: user guide corrected; no TS control surface]
+
+**Ruling (2026-10-01, branch `l7-nightly-residue`).** Option (a): add no controls. `docs/user-guide.md` now says the
+Tracking Station has no Parsek window or toolbar button, describes what it shows for ghosts (a
+vessel-list row, a map icon, a stock orbit line, selection and targeting, and the selected-ghost
+popup's single Warp to Spawn button), and names where the controls live (the Parsek window in
+Flight / KSC); the mission Loop bullet says the TS shows the replay while the loop is set from
+Flight / KSC. `docs/dev/design-gui-inventory.md` H1 and its open-question paragraph record the
+ruling.
 
 **Evidence.** `ParsekTrackingStation.cs:26`, `:350` draws markers only, and says so at
 `:394-395`. The only `AddToAllToolbars` calls are `ParsekFlight.cs:1351` and
@@ -20561,7 +20833,7 @@ reading ranged), the four `RecordingOptimizerTests.CanAutoSplitIgnoringGhostTrig
 cells that pin the sub-floor side no flight can produce, and
 `SbrDwellCompatibilityTests`, which keeps the default provably inert for L3.
 
-## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN - **STAGE 3 (IDENTITY FIRST) SHIPPED HEADLESS 2026-10-01 (branch `fix-recovery-id-first`), L6 RE-READ OWED, STAGE-2 LIVE PROOF STILL OWED** - see the stage-3 section at the end; **STAGE 1 LIVE-PROVEN 2026-09-02**, shipped headless 2026-08-28 (branch `kerbal-xp-guid-filter`), STAGE 2 OUTSTANDING but NO LONGER GATE-BLOCKED; filed 2026-08-20 with the correlation fix above. **A REPRO LANE WAS AUTHORED AND FLOWN, AND FOUND THE PRODUCED-SAVE SHORTCUT CANNOT REACH THE CORRELATOR: `harness/scenarios/L6-career-same-name-recover.toml`, reading run 1 `2026-09-02_1137` (INVALID(driver) MISSION-ASSERT-FAIL).** The idea was `science_bench_recover` flown a second time over `career-earned-pad` (L3's produced save, which already carries the pad craft's TWO chained same-name recordings under a different launch guid), so the recovery correlator would see two same-name candidates and stage 1's guid filter would resolve them live (expected `nameMatches>=3 guidDropped=2 survivors>=1`). The flight FLEW - landed, collected 2 experiments, recorded a third same-name recording - but TRANSMIT credited ZERO career science because L3 already banked that launchpad biome's science, so the mission's structural transmit->recover gate (`_sbr_transmit` needs a strictly positive pool rise; the schema forbids a floor below 0.001) failed the flight BEFORE recovery, the phase the correlator fires in. **THE BANKED-SCIENCE CONFLICT IS INTRINSIC TO REUSING A PRODUCED SAVE**, so this shortcut does not work. Closing stage 2 needs either a recover mission with NO transmit-science gate (none in the library today) or a purpose-built fixture carrying two same-name launches whose flight science is un-banked. **UNBLOCKED 2026-09-02 BY THE PURPOSE-BUILT FIXTURE** `harness/fixtures/saves/career-same-name-pad`: `harness/tools/build_career_same_name_pad.py` splices `C2CareerPostFix`'s RECORDING_TREE (the two chained same-name recordings, launch guid `f77e4207...`) into `career-science-pad`, the PRE-FLIGHT save L3 actually flies - two moments of one timeline, which is why those recordings' `preLaunchFunds = 500000` / `preLaunchScience = 100` are that host's live pools. The career therefore carries the prior launch with ZERO banked `Science` subjects, so the same mission transmits exactly as it does for L3; the host vessel's `pid` is re-stamped to `9b3c71e4...` so the filter has two conclusive mismatches to drop, while its craft-baked `persistentId` is deliberately left colliding at `2905720181` - the trap this entry names. The earned ledger is NOT copied (its rows credit the science the fixture must leave un-banked, and the recalc engine patches state from the ledger). Gated by `CareerSameNamePadFixtureDriftTests`. L6 now stages that fixture; its expected shape came back EXACTLY on reading run 2 (`2026-09-02_1328`, PASS attempt 1, 470 s): four identical pairs of `PickRecoveryRecordingId guid filter: ... dropped=2 remaining=2 reason=guid-conclusive-mismatch` + `PickRecoveryRecordingId: ... nameMatches=4 survivors=2 guidDropped=2 ... tier=most-recent-ended bracketTie=n/a pick=0d74e88c...`, with `Recovery kerbal XP recorded: ... rows=1 deduped=0 noAction=0` PRESENT (its first observation anywhere) and no refused line. **THE LIVE-PROOF GATE STAGE 2 WAS BLOCKED ON IS THEREFORE DISCHARGED**: the filter is proven active, dropping exactly the two prior-launch candidates, over every leg that picked, without disturbing a correct pick - and re-proven on two further flights the same day (`2026-09-02_1402` and `2026-09-02_1411`), which measured `guidDropped=2` identically while the flight's OWN recording count moved (see L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR: an optimizer split floor against the mission's landed dwell, not a correlator behaviour). **STAGE 2 IS NOW BUILT AND HEADLESS-PROVEN (branch `kerbal-xp-stage2`), WITH ITS OWN LIVE PROOF STILL OWED** - see the stage-2 section at the end of this entry for the predicate, what measurement changed it, and the lane shape the live proof needs]
+## ~~KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible~~ [CLOSED 2026-10-01 - **STAGE 2 LIVE-PROVEN: `L7-career-idless-same-name-xp-refusal` `2026-10-01_1614` PASS attempt 1, AND THE L6 RE-READ GREEN: `L6-career-same-name-recover` `2026-10-01_1621` PASS attempt 1** (branch `lane-xp-refusal`, automation DLL sha256 `36131012...821977`, origin/main with #1947); **STAGE 3 (IDENTITY FIRST) SHIPPED 2026-10-01** (PR #1947) - see the stage-3 section and the stage-2 proof-lane section at the end; **STAGE 1 LIVE-PROVEN 2026-09-02**, shipped headless 2026-08-28 (branch `kerbal-xp-guid-filter`), STAGE 2 OUTSTANDING but NO LONGER GATE-BLOCKED; filed 2026-08-20 with the correlation fix above. **A REPRO LANE WAS AUTHORED AND FLOWN, AND FOUND THE PRODUCED-SAVE SHORTCUT CANNOT REACH THE CORRELATOR: `harness/scenarios/L6-career-same-name-recover.toml`, reading run 1 `2026-09-02_1137` (INVALID(driver) MISSION-ASSERT-FAIL).** The idea was `science_bench_recover` flown a second time over `career-earned-pad` (L3's produced save, which already carries the pad craft's TWO chained same-name recordings under a different launch guid), so the recovery correlator would see two same-name candidates and stage 1's guid filter would resolve them live (expected `nameMatches>=3 guidDropped=2 survivors>=1`). The flight FLEW - landed, collected 2 experiments, recorded a third same-name recording - but TRANSMIT credited ZERO career science because L3 already banked that launchpad biome's science, so the mission's structural transmit->recover gate (`_sbr_transmit` needs a strictly positive pool rise; the schema forbids a floor below 0.001) failed the flight BEFORE recovery, the phase the correlator fires in. **THE BANKED-SCIENCE CONFLICT IS INTRINSIC TO REUSING A PRODUCED SAVE**, so this shortcut does not work. Closing stage 2 needs either a recover mission with NO transmit-science gate (none in the library today) or a purpose-built fixture carrying two same-name launches whose flight science is un-banked. **UNBLOCKED 2026-09-02 BY THE PURPOSE-BUILT FIXTURE** `harness/fixtures/saves/career-same-name-pad`: `harness/tools/build_career_same_name_pad.py` splices `C2CareerPostFix`'s RECORDING_TREE (the two chained same-name recordings, launch guid `f77e4207...`) into `career-science-pad`, the PRE-FLIGHT save L3 actually flies - two moments of one timeline, which is why those recordings' `preLaunchFunds = 500000` / `preLaunchScience = 100` are that host's live pools. The career therefore carries the prior launch with ZERO banked `Science` subjects, so the same mission transmits exactly as it does for L3; the host vessel's `pid` is re-stamped to `9b3c71e4...` so the filter has two conclusive mismatches to drop, while its craft-baked `persistentId` is deliberately left colliding at `2905720181` - the trap this entry names. The earned ledger is NOT copied (its rows credit the science the fixture must leave un-banked, and the recalc engine patches state from the ledger). Gated by `CareerSameNamePadFixtureDriftTests`. L6 now stages that fixture; its expected shape came back EXACTLY on reading run 2 (`2026-09-02_1328`, PASS attempt 1, 470 s): four identical pairs of `PickRecoveryRecordingId guid filter: ... dropped=2 remaining=2 reason=guid-conclusive-mismatch` + `PickRecoveryRecordingId: ... nameMatches=4 survivors=2 guidDropped=2 ... tier=most-recent-ended bracketTie=n/a pick=0d74e88c...`, with `Recovery kerbal XP recorded: ... rows=1 deduped=0 noAction=0` PRESENT (its first observation anywhere) and no refused line. **THE LIVE-PROOF GATE STAGE 2 WAS BLOCKED ON IS THEREFORE DISCHARGED**: the filter is proven active, dropping exactly the two prior-launch candidates, over every leg that picked, without disturbing a correct pick - and re-proven on two further flights the same day (`2026-09-02_1402` and `2026-09-02_1411`), which measured `guidDropped=2` identically while the flight's OWN recording count moved (see L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR: an optimizer split floor against the mission's landed dwell, not a correlator behaviour). **STAGE 2 IS NOW BUILT AND HEADLESS-PROVEN (branch `kerbal-xp-stage2`), WITH ITS OWN LIVE PROOF STILL OWED** - see the stage-2 section at the end of this entry for the predicate, what measurement changed it, and the lane shape the live proof needs]
 
 `LedgerOrchestrator.PickRecoveryRecordingId` matches candidate recordings by vessel NAME
 (`RecoveredVesselIdentity.MatchesName`, raw or localized) and then ranks them by a UT
@@ -21072,7 +21344,7 @@ nameMatches=K`. The summary line gains `path=` after `ut=`, and on the identity 
 reads `guidDropped=n/a` (the filter did not run; `nameMatches` is diagnostic). The
 `guid filter:` line prints only on the name fallback.
 
-**L6 re-read owed (not flown).** Both L6 specs were re-cut: the flight's own two segments
+**L6 re-read DONE 2026-10-01 for `L6-career-same-name-recover`** (`2026-10-01_1621`, PASS attempt 1, 463 s, every re-cut token as written; the natural-dwell sibling stays an unflown A/B control and its row in `autotest-status.md` still owes its own re-read, which does not gate this entry). Both L6 specs were re-cut: the flight's own two segments
 carry the recovering guid, so every leg takes the launch-guid path and should print
 `PickRecoveryRecordingId path: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=<t>
 path=launch-guid identityMatches=2 identityNameMismatch=0 nameOnlyIgnored=2
@@ -21101,9 +21373,65 @@ struct. Updated: `RecoveryPickAmbiguityTests.Picker_ReportsTheTierAndThePostFilt
 (now shows shape (a) on the guid path and the refusal on the fallback), and two
 `RecoveryPickLaunchGuidFilterTests` picker cells now assert the path line.
 
-**Still owed:** the L6 re-read, and stage 2's own live proof (the operator authorized the
+**Discharged 2026-10-01:** the L6 re-read and stage 2's own live proof (the operator authorized the
 fixture variant plus flight; it recovers with no recording carrying the live guid, so it
-exercises the name fallback this stage keeps).
+exercises the name fallback this stage keeps). See the flight record at the end of the entry.
+
+### STAGE-2 PROOF LANE AUTHORED AND FLOWN GREEN (2026-10-01, branch `lane-xp-refusal`)
+
+**Reachability after stage 3, re-derived from the code.** `PickRecoveryRecording` takes the
+launch-guid path whenever ANY admissible recording positively carries the live guid
+(`IsPositiveLaunchGuidMatch`), and stage 2 cannot fire there (one known guid). So the
+2026-09-15 recommendation above - strip the guids off the spliced PRIOR launch and fly a
+recorded second launch - no longer reaches stage 2: the flight's own recordings carry the live
+guid. Stage 2 now needs (a) no admissible recording carrying the live guid, (b) no genuine
+spawn-pid match (`IsGenuineSpawnPidMatch`), and (c) two or more same-name survivors on a weak
+tier. The recovery seam always supplies a live guid (`ReadLaunchGuid(pv)`), so the stage-1 filter
+drops every conclusive mismatch and every fallback survivor is id-LESS; with every current write
+site stamping a guid, (c) is legacy data only (gen-4 recordings from before the key existed,
+with no snapshot for `RecordingSidecarStore`'s load-time backfill). `distinct-known-launches` is
+unreachable from a stock recovery for the same reason.
+
+**The lane.** `L7-career-idless-same-name-xp-refusal` (operator and unflown when written; flown green `2026-10-01_1614` and promoted to nightly the same day) flies
+`science_bench_recover` with all three auto-record settings off (so no recording of the run
+carries the guid; `recordings.count` 2..2) over `career-idless-same-name-pad`, built by
+`harness/tools/build_career_idless_same_name_pad.py` from the `career-same-name-pad` build plus
+three edits: both recordings' `recordedVesselGuid` stripped; the top-level `pid` stripped from
+the four PSN0 snapshot sidecars (otherwise the OnLoad backfill restores the guid and the filter
+drops both, giving `no-recovery-recording`); and the live craft's `persistentId` re-stamped away
+from the recordings' (with id-less recordings every guid-gated pid site falls back to pid-only,
+so a colliding pid could let the committed-tree restore resume a recording on the pad craft and
+stamp the live guid). Drift cells: `harness/lib/test_career_idless_same_name_pad.py`. Gated:
+`path=name-fallback reason=no-recording-carries-launch-guid nameMatches=2`, the filter's
+`dropped=0 remaining=2 reason=no-conclusive-mismatch`, the pick summary at
+`tier=most-recent-ended ... pick=5436a7e8...`, the refusal `reason=ambiguous-recovery-recording
+survivors=2 nameMatches=2 guidDropped=0 tier=most-recent-ended corroboration=unknown-launch-guid
+wouldHavePicked=5436a7e8...`, `ExperienceGained ... ledgerRows=0 untaggedNoLedgerRow=1`, and the
+funds and `recovery@KerbinFlew` science rows still tagged `5436a7e8...`; forbidden: any `Recovery
+kerbal XP recorded:`, the launch-guid / spawn-pid paths for the lane vessel, a snapshot backfill,
+a recorder start. Headless pre-proof off the committed bytes:
+`RecoveryPickAmbiguityTests.IdlessSameNameHarnessFixture_SnapshotsCarryNoGuidForTheLoadBackfill`
+and `..._RecoveryRefusesXpOnTheNameFallback`. L6 stays the over-fire control. **The entry closes
+on L7's first green run** (and the L6 re-read above).
+
+**Flown 2026-10-01, entry CLOSED.** Automation DLL sha256 `36131012981650fec51f925c111224452719ec7031d09283cbe9e31445821977`
+(built from `lane-xp-refusal` at `bb608b2fb`, which carries #1947; markers `IsPositiveLaunchGuidMatch`
+UTF-8 and `PickRecoveryRecordingId path: ` UTF-16 both present). `L7-career-idless-same-name-xp-refusal`
+`2026-10-01_1614`: PASS attempt 1, 397 s, `recordings.count=2`, every source-written token matched first
+time with no spec change. All five recovery picks (three science subjects, XP, funds) printed
+`path=name-fallback reason=no-recording-carries-launch-guid nameMatches=2`, the filter `dropped=0
+remaining=2 reason=no-conclusive-mismatch` and `tier=most-recent-ended ... pick=5436a7e8...`; the XP leg
+printed `Recovery kerbal XP refused: ... ut=753.3 kerbals=1 reason=ambiguous-recovery-recording survivors=2
+nameMatches=2 guidDropped=0 tier=most-recent-ended corroboration=unknown-launch-guid
+wouldHavePicked=5436a7e8...` with `ExperienceGained ... ledgerRows=0 untaggedNoLedgerRow=1`, while funds
+(`amount=4523`) and `recovery@KerbinFlew` science kept `recordingId=5436a7e8...`. No `Recovery kerbal XP
+recorded:` line. Offline negative control through `hlib.evaluate_expectations`: green over the real
+log; a copy with the refusal line removed and a `Recovery kerbal XP recorded:` row added reds on exactly
+those two (the required refusal token unmet, the forbidden row matched). The over-fire control
+`L6-career-same-name-recover` `2026-10-01_1621` (PASS attempt 1, 463 s, `recordings.count=4`): every leg
+took `path=launch-guid identityMatches=2 identityNameMismatch=0 nameOnlyIgnored=2`, the summary read
+`nameMatches=4 survivors=2 guidDropped=n/a ... tier=most-recent-ended`, the XP row was written (`rows=1
+deduped=0 noAction=0`), and the log carries zero `path=name-fallback` and zero refusal lines.
 
 ## ~~ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one~~ [FOUND 2026-08-11 while wiring `H35-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct. **CLOSED 2026-08-30 by fix road (1)**: `SealSlot` and `RouteCommand` are both promoted out of `ReservedVerbs` and implemented against the production paths - see the closure note at the end of this entry]
 

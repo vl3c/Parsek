@@ -103,9 +103,9 @@ namespace Parsek.Tests
             // Location is "body, biome/site" order; the launch site fills the biome slot.
             Assert.Equal("Kerbin, LaunchPad", steps[0].Location);
             Assert.Equal(StructureStepKind.Terminal, steps[1].Kind);
-            // Terminal: Event = "End", Status carries the situation.
-            Assert.Equal("End", steps[1].Label);
-            Assert.Equal("Landed", steps[1].Status);
+            // Terminal: Event = "End: <terminal word>", the Missions End column's word.
+            Assert.Equal("End: Landed", steps[1].Label);
+            Assert.Equal("Kerbin", steps[1].Location);
             Assert.Equal(300, steps[1].UT);
         }
 
@@ -125,12 +125,15 @@ namespace Parsek.Tests
                 splitCause: "DECOUPLE", decouplerPid: 42);
             var steps = BuildMission(Tree(new[] { r1, r2 }, new[] { bp }));
 
-            // The controlled decouple is a Separation step; its mirroring pid-42 part event is gone.
-            Assert.Contains(steps, s => s.Kind == StructureStepKind.Separation && s.UT == 100 && s.Label == "Decoupled");
+            // The controlled decouple is a Separation step naming the piece that left; its
+            // mirroring pid-42 part event is absorbed into it.
+            Assert.Contains(steps, s => s.Kind == StructureStepKind.Separation && s.UT == 100
+                && s.Label == "Decoupled (Lander)" && s.VesselName == "Stack");
             Assert.DoesNotContain(steps, s => s.Kind == StructureStepKind.Staging && s.SortPid == 42);
-            // Debris staging (pid 99) and fairing pass through.
-            Assert.Contains(steps, s => s.Kind == StructureStepKind.Staging && s.SortPid == 99);
-            Assert.Contains(steps, s => s.Kind == StructureStepKind.Staging && s.Label == "Fairing jettisoned");
+            // A decouple no branch point covers (pid 99) and the fairing pass through.
+            Assert.Contains(steps, s => s.Kind == StructureStepKind.Staging && s.SortPid == 99
+                && s.Label == "Staged: 1 piece (booster)" && s.VesselName == "Stack");
+            Assert.Contains(steps, s => s.Kind == StructureStepKind.Staging && s.Label == "Fairing jettisoned (fairing)");
             // Both legs' terminals present.
             Assert.Equal(2, steps.Count(s => s.Kind == StructureStepKind.Terminal));
         }
@@ -169,35 +172,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Mission_StaleStagingContext_BlanksStatusKeepsBody()
+        public void Mission_StagingLocation_StartContextOnlyAtTheRecordingStart()
         {
-            // The owning recording starts on the pad (Prelaunch); the fairing jettisons
-            // 120s later. The start context is stale at the event, so Status blanks and
-            // Location keeps only the segment-stable body (no launch-pad biome).
+            // The owning recording starts on the pad; its start-captured biome / site is
+            // true ONLY at that moment. A decouple at the start (launch clamps) reads the
+            // launch site; a fairing 10 s later keeps only the segment-stable body.
             var r1 = Rec("r1", 0, 300, vessel: "Stack", terminal: TerminalState.Orbiting,
                 body: "Kerbin", launchSite: "LaunchPad");
             r1.StartSituation = "Prelaunch";
             r1.StartBiome = "Shores";
-            r1.PartEvents.Add(new PartEvent { ut = 120.0, eventType = PartEventType.FairingJettisoned, partPersistentId = 60, partName = "fairing" });
-            r1.PartEvents.Add(new PartEvent { ut = 10.0, eventType = PartEventType.ShroudJettisoned, partPersistentId = 61, partName = "shroud" });
+            r1.PartEvents.Add(new PartEvent { ut = 10.0, eventType = PartEventType.FairingJettisoned, partPersistentId = 60, partName = "fairing" });
+            r1.PartEvents.Add(new PartEvent { ut = 0.0, eventType = PartEventType.Decoupled, partPersistentId = 61, partName = "launchClamp1" });
 
             var steps = BuildMission(Tree(new[] { r1 }));
 
-            StructureStep stale = steps.Single(s => s.Kind == StructureStepKind.Staging && s.SortPid == 60);
-            Assert.Equal("", stale.Status);
-            Assert.Equal("Kerbin", stale.Location);
-            // Within the freshness window the full start context is kept.
-            StructureStep fresh = steps.Single(s => s.Kind == StructureStepKind.Staging && s.SortPid == 61);
-            Assert.Equal("Prelaunch", fresh.Status);
-            Assert.Equal("Kerbin, Shores", fresh.Location);
+            StructureStep later = steps.Single(s => s.Kind == StructureStepKind.Staging && s.SortPid == 60);
+            Assert.Equal("Kerbin", later.Location);
+            StructureStep atStart = steps.Single(s => s.Kind == StructureStepKind.Staging && s.SortPid == 61);
+            Assert.Equal("Kerbin, LaunchPad", atStart.Location);
         }
 
         [Fact]
         public void Mission_SimultaneousIdenticalStaging_CollapsesToCountedRow()
         {
-            // Four engine shrouds jettison in the same frame (same label + UT, distinct PIDs);
-            // they must collapse to one "Shroud jettisoned x4" row. A lone fairing 80s later
-            // stays its own row.
+            // Four engine shrouds jettison in the same frame (distinct PIDs, no branch point);
+            // they group into one row naming the part. A lone fairing 80s later stays its
+            // own row.
             var r1 = Rec("r1", 0, 300, vessel: "Stack", terminal: TerminalState.Orbiting);
             for (uint pid = 50; pid < 54; pid++)
                 r1.PartEvents.Add(new PartEvent { ut = 120.0, eventType = PartEventType.ShroudJettisoned, partPersistentId = pid, partName = "engineShroud" });
@@ -205,9 +205,9 @@ namespace Parsek.Tests
 
             var steps = BuildMission(Tree(new[] { r1 }));
 
-            Assert.Single(steps, s => s.Kind == StructureStepKind.Staging && s.Label == "Shroud jettisoned x4");
-            Assert.DoesNotContain(steps, s => s.Label == "Shroud jettisoned"); // no un-collapsed singletons
-            Assert.Single(steps, s => s.Kind == StructureStepKind.Staging && s.Label == "Fairing jettisoned");
+            Assert.Single(steps, s => s.Kind == StructureStepKind.Staging && s.Label == "Shroud jettisoned (engineShroud x4)");
+            Assert.Equal(2, steps.Count(s => s.Kind == StructureStepKind.Staging)); // no singletons
+            Assert.Single(steps, s => s.Kind == StructureStepKind.Staging && s.Label == "Fairing jettisoned (fairing)");
         }
 
         [Fact]
@@ -302,9 +302,8 @@ namespace Parsek.Tests
             Assert.Equal(StructureStepKind.Origin, steps[0].Kind);
             Assert.Equal("Origin: KSC", steps[0].Label);
             Assert.Equal("Kerbin, KSC", steps[0].Location);   // body, biome-slot (KSC)
-            Assert.Equal("Prelaunch", steps[0].Status);
             Assert.Equal(StructureStepKind.Dock, steps[1].Kind);
-            Assert.Equal("Orbiting", steps[1].Status);        // orbital endpoint
+            Assert.Equal("Mun orbit", steps[1].Location);     // orbital endpoint
             Assert.Equal(100, steps[1].UT);
             Assert.Equal(StructureStepKind.Delivery, steps[2].Kind);
             Assert.Equal(150, steps[2].UT);
@@ -325,8 +324,7 @@ namespace Parsek.Tests
             var steps = RouteStructureListBuilder.Build(route, id => null);
 
             Assert.Equal("Origin: depot", steps[0].Label);
-            Assert.Contains("Minmus", steps[0].Location);   // body first, with surface coords
-            Assert.Equal("Landed", steps[0].Status);         // surface endpoint
+            Assert.StartsWith("Minmus (", steps[0].Location); // body first, with surface coords
         }
 
         [Fact]
@@ -369,21 +367,21 @@ namespace Parsek.Tests
         [Fact]
         public void LocationFormatter_Endpoint_KscSurfaceOrbit()
         {
-            // KSC: body first, "KSC" in the biome slot; status Prelaunch.
+            // KSC: body first, "KSC" in the biome slot.
             Assert.Equal("Kerbin, KSC",
                 RouteEndpointLocationFormatter.EndpointLocation(new RouteEndpoint { BodyName = "Kerbin" }, true));
-            Assert.Equal("Prelaunch",
-                RouteEndpointLocationFormatter.EndpointStatus(new RouteEndpoint { BodyName = "Kerbin" }, true));
 
-            // Surface: body first + coords; status Landed.
+            // Surface: body first + coords (InvariantCulture).
             RouteEndpoint surf = new RouteEndpoint { BodyName = "Mun", IsSurface = true, Latitude = 1, Longitude = 2 };
-            Assert.StartsWith("Mun", RouteEndpointLocationFormatter.EndpointLocation(surf, false));
-            Assert.Equal("Landed", RouteEndpointLocationFormatter.EndpointStatus(surf, false));
+            Assert.Equal("Mun (1.00, 2.00)", RouteEndpointLocationFormatter.EndpointLocation(surf, false));
 
-            // Orbit: body only; status Orbiting.
+            // Orbit: "<body> orbit" - the endpoint is recorded as orbital.
             RouteEndpoint orb = new RouteEndpoint { BodyName = "Duna", IsSurface = false };
-            Assert.Equal("Duna", RouteEndpointLocationFormatter.EndpointLocation(orb, false));
-            Assert.Equal("Orbiting", RouteEndpointLocationFormatter.EndpointStatus(orb, false));
+            Assert.Equal("Duna orbit", RouteEndpointLocationFormatter.EndpointLocation(orb, false));
+
+            // Nothing recorded: the one missing-value text.
+            Assert.Equal(StructureLocationFormatter.Missing,
+                RouteEndpointLocationFormatter.EndpointLocation(new RouteEndpoint(), false));
         }
 
         [Fact]

@@ -2038,6 +2038,30 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "5436a7e8840b4c5885afcbaedc9dc037"],
             "schemaGeneration": 4,
         },
+        # --- THE ID-LESS SAME-NAME SUBJECT (STAGE-2 XP REFUSAL) ----------
+        # PROVENANCE: derived BY CONSTRUCTION by
+        # `harness/tools/build_career_idless_same_name_pad.py` from exactly the
+        # `career-same-name-pad` build above, plus three edits: both recordings'
+        # `recordedVesselGuid` stripped, the top-level `pid` stripped from all
+        # four snapshot sidecars (or the OnLoad backfill restores the guid), and
+        # the live craft's `persistentId` re-stamped away from the recordings'.
+        # The result is a vessel NO recording knows by identity beside two id-less
+        # same-name recordings: the only shape that reaches the recovery picker's
+        # name fallback and its stage-2 XP refusal since stage 3 (identity first).
+        # Drift-gated by `harness/lib/test_career_idless_same_name_pad.py`; flown by
+        # `L7-career-idless-same-name-xp-refusal`. Same 1/1/2 topology and the same
+        # recording ids as its base, which is the check it spliced the same tree.
+        "career-idless-same-name-pad": {
+            "trees": 1, "committedTrees": 1, "recordings": 2,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 8,
+            "recordingIds": ["1d611e7533a64508ae6f3b305a51615e",
+                             "5436a7e8840b4c5885afcbaedc9dc037"],
+            "schemaGeneration": 4,
+        },
         "career-earned-pad": {
             "trees": 1, "committedTrees": 1, "recordings": 2,
             "supersedes": 0, "tombstones": 0, "rewind_points": 0,

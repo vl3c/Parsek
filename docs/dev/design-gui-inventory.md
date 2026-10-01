@@ -993,17 +993,30 @@ Opened by `OpenForMission` (`:83`, from the Missions tab `Log` button) or `OpenF
 (`:94`, from the Logistics detail panel); one reusable instance, retargeted and rebuilt on each
 open (`:107`). No complexity gate.
 
-Columns: `#` 28, `Time` 110, `Event` expand, `Status` 95, `Location` 185, `Vessel` 140, plus a
-reserved scrollbar gutter. Layout (2026-09-25): ONE dark body box holds the pinned header row
+Columns (Log rework, 2026-10-01): `Time` 110, `Event` expand, `Location` 185, `Vessel` 160,
+plus a reserved scrollbar gutter; first-open width 900 (`DefaultWindowWidth`). The `#` and
+`Status` columns are gone. Time: the first row shows the date (`KSPUtil.PrintDateCompact`, the
+Missions start-time cell's formatter), every later row `T+h:mm:ss` since it
+(`StructureTimeFormatter`, computed once when the rows are set, never per frame). Event: one
+row per real event (`MissionStructureListBuilder`): `Launch`, one `Staged: N pieces (<part
+title> xK, ...)` row per recorded separation, `Decoupled (<piece>)` / `Docked (<partner>)` /
+`Undocked (<piece>)` naming the other vessel (cross-mission partners as
+`X (mission 'Y')`), and `End: <terminal word>` (no End row for a leg that ended Docked or
+Boarded). Location: `<body> orbit` only for an orbital ending or a separation whose piece
+recorded an orbit, else body and biome where recorded at that moment, else the body, else `-`.
+An Event list longer than `EventCellCharBudget` (60) is shortened in the cell and carried whole
+as the cell's tooltip, read in a single-line `TooltipEchoBox` strip above `Close` (the window's
+first strip). Layout (2026-09-25): ONE dark body box holds the pinned header row
 and the forced-vertical-bar scroll view of step rows (`DrawStepTable`), so the box frames the
 header too, and the row labels are the shared table cell style (`ParsekUI.GetTableCellStyle`,
 the boxed header's own horizontal padding) with the vertical padding dropped for this log's
 compact pitch. Before, the rows had no box and a hand-set 5 px indent, so body text sat 1 px
-right of the header text (GUI-4 `2026-09-24_2041`, `bd-structure-mission-advanced`). Empty state is a single label (`Nothing to show.` for a mission
-target, `Nothing to show (source recording unavailable).` for a route) plus `Close`, then an
-early return that suppresses the header, the scroll view and the resize handle (`:223-232`).
+right of the header text (GUI-4 `2026-09-24_2041`, `bd-structure-mission-advanced`). Empty state is a single label (`This mission has no recorded flight.` for a
+mission target, `Nothing to show (source recording unavailable).` for a route, `Nothing to
+show.` with no target; `EmptyText`) plus `Close`, then an early return that suppresses the
+header, the scroll view, the hover strip and the resize handle.
 
-Picture: `ksc-structure-advanced`, 3 nodes - window, label, button. That is the empty MISSION
+Picture: `ksc-structure-advanced`, 3 nodes - window, label, button. That is the no-target
 wording, because `op=open window=structure` raises `IsOpen` without ever calling
 `OpenForMission` / `OpenForRoute`, so `targetId` stays null and `Rebuild` never runs. The census
 spec files that as a follow-up rather than faking it
@@ -1298,15 +1311,16 @@ MEASURED EXCEPTION, and TWO now have a picture (updated 2026-09-11 off the wave-
 | Stock-UI annotations (the badges until 2026-09-25) | Harmony postfixes: `Patches/RnDStockDecorationPatches.cs`, `Patches/AstronautComplexDecorationPatches.cs`, `Patches/MissionControlStockUiPatches.cs`; refresh host `StockUiOverlayController.cs`. No Parsek-drawn object: `OverlayBadge.cs` is deleted | R&D and Mission Control (SPACECENTER); Astronaut Complex in any scene that opens it (also from the VAB/SPH) | the tint, row labels and greyed buttons are always visible; the explanation is in the stock hover tooltip / description | a tinted R&D node icon, the stock row label of a kerbal or contract, stock's disabled Research / hire / dismiss / Accept / Decline buttons, and the explanation text (fact, rule, when it frees up) appended to the stock tooltip or detail text |
 | Ghost map markers (flight map) | `MapMarkerRenderer.cs:208` via `ParsekUI.cs:1901` | FLIGHT map | LEFT click falls through to stock (no handler is supplied, `ParsekUI.cs:2763`); RIGHT click toggles a sticky label | a marker for a ghost with no ProtoVessel; eight distinct skip conditions decide absence (`ParsekUI.cs:2021-2296`) |
 | Ghost map markers (Tracking Station) | `ParsekTrackingStation.cs:364` | TRACKSTATION | LEFT click opens the ghost popup; RIGHT click pins | the same, plus a click-block while the popup is open (`:380-388`) |
-| In-world ghost labels | `ParsekFlight.cs:27052`, call `:2106` | FLIGHT | none | a 250x40 two-line label per chain ghost: `Ghost -- spawn abandoned` / `spawn blocked` / `chain terminated` / `spawns at UT=n` (`SpawnWarningUI.cs:130-147`) |
+| In-world ghost labels | `ParsekFlight.cs:27052`, call `:2106` | FLIGHT | none | a 250x40 two-line label per chain ghost: `Ghost -- spawn blocked` (also after an exhausted walkback, 2026-10-01) / `chain terminated` / `spawns at UT=n` (`SpawnWarningUI.cs:130-147`) |
 | Logistics launcher tint | `ParsekUI.cs:874-884` | wherever the main window draws | none | the ONLY at-a-glance broken-route signal |
 
 Two tooltip-infrastructure surfaces sit behind all of the above. `TooltipEchoBox`
 (`UI/TooltipEchoBox.cs:215`) is the permanently visible one- or two-line help strip in 11
 windows; it draws exactly one `Space` plus one `Label` per pass so the control count and the
 window height never move on hover (`:233-250`, probe `:78-79`), and it marquee-scrolls
-overflowing text at 60 px/s rather than clipping (`UI/TooltipMarquee.cs:20`). Three windows have
-NO strip: `GroupPickerUI`, `StructureListWindowUI`, and the link picker. `DisabledHoverEcho`
+overflowing text at 60 px/s rather than clipping (`UI/TooltipMarquee.cs:20`). Two windows have
+NO strip: `GroupPickerUI` and the link picker (`StructureListWindowUI` gained a single-line one
+on 2026-10-01 for its shortened Event cells). `DisabledHoverEcho`
 (`UI/DisabledHoverEcho.cs:92`) paints an invisible zero-layout `GUI.Label` over a DISABLED
 control's rect on Repaint so its reason reaches that strip; it exists because in KSP 1.12.5's
 Unity build only `GUI.DoLabel` and `GUI.DoButtonGrid` publish a tooltip from managed code and
@@ -1432,7 +1446,7 @@ the full rows; the per-subsystem row counts are in the table above.
 
 | id | item | file:line |
 |---|---|---|
-| H1 | No Parsek window or toolbar button in the TRACKING STATION, while the guide advertises that missions and routes loop there (`docs/user-guide.md:160`) | `ParsekTrackingStation.cs:26`, `:350`; the only `AddToAllToolbars` calls are `ParsekFlight.cs:1351`, `ParsekKSC.cs:153` |
+| H1 | No Parsek window or toolbar button in the TRACKING STATION, while the guide advertised that missions and routes loop there (`docs/user-guide.md:160`). RULED 2026-10-01 (operator): option (a), no TS control surface; the user guide now says the TS shows ghost presence, orbit lines, targeting and the Warp to Spawn popup, and that every control lives in the Parsek window in Flight / KSC | `ParsekTrackingStation.cs:26`, `:350`; the only `AddToAllToolbars` calls are `ParsekFlight.cs:1351`, `ParsekKSC.cs:153` |
 | D1 | The main-window Gloops launcher block never draws in either mode | `ParsekUI.cs:941-951`, gate `UI/UiComplexityMode.cs:140-143` |
 | P7 | ~~The stock Difficulty screen draws 5 Parsek settings whose edits the sidecar silently reverts~~ FIXED 2026-09-14: `ParsekSettings.GameMode` returns `GameParameters.GameMode.NONE`, so the stock screen builds no Parsek section at all (see 5.2) | `ParsekSettings.cs:22-56` |
 | P18 | The Settings launcher tooltip advertises four topics, three of which can be absent | `ParsekUI.cs:957` |
@@ -1585,7 +1599,7 @@ fixed on the sibling branch `gui-census-ops`; and `DrawRecordingTooltip` is held
 These change no behavior on `gui-fixes-1`. Each needs an operator answer before it can be
 scoped; the five below carry the weight.
 
-**Should the Tracking Station have a Parsek control surface at all?** Ghosts get full TS
+**Should the Tracking Station have a Parsek control surface at all? ANSWERED 2026-10-01 (operator): (a) - no TS control surface, add no controls; the user guide was corrected to describe what the TS shows (presence, orbit lines, targeting, the Warp to Spawn popup) and where the controls live (the Parsek window in Flight / KSC).** The question as filed: Ghosts get full TS
 presence - list rows, orbit lines, markers, a selection popup, targeting - and the scene hosts
 no Parsek window, no toolbar button and no launcher; `ParsekTrackingStation.cs:390-391` states
 the consequence in place, and `UIMode.TrackingStation` exists as an enum member nothing
