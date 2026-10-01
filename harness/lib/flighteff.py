@@ -726,18 +726,26 @@ MISSION_MACHINES = {
 # (cause, phase) -> (what controls it, spec missionParams keys that exist in
 # mlib). Phase "*" is the cause's fallback. test_flighteff pins every key to a
 # params.get("<key>") in mlib, so no hint names a knob that does not exist.
+# Verified against the shipped MechJeb2 DLL in the automation install.
+NE_HINT = ("its NodeExecutor warps only to 600 s before "
+           "ignition unless the craft is aligned; inside that it holds 1x until "
+           "it is within 1 deg of the burn AND turning slower than 0.001 rad/s "
+           "(decompiled MechJeb2 2.15.1 MechJebModuleNodeExecutor.StateWarpAlign "
+           "/ AlignedAndSettled), so a slow-settling craft waits at 1x")
+
 SITE_HINTS: Dict[Tuple[str, str], Tuple[str, Tuple[str, ...]]] = {
     ("dwell", "PARK"): (
-        "PARK holds its dwell at 1x; the dwell is GAME seconds, so rails warp "
-        "would cover it in seconds", ("parkDwellSeconds",)),
+        "PARK holds parkDwellSeconds of GAME time at 1x by design (the recording "
+        "must carry parked coverage); check that coverage survives rails warp "
+        "before warping it", ("parkDwellSeconds",)),
     ("dwell", "HOLD-DEPART"): (
-        "a fixed real-time observation hold at 1x; deliberate for render "
+        "a deliberate 1x hold of dwellHoldSeconds game time for render "
         "observation, so shorten it rather than warp", ("dwellHoldSeconds",)),
     ("dwell", "HOLD-ARRIVE"): (
-        "a fixed real-time observation hold at 1x; deliberate for render "
+        "a deliberate 1x hold of dwellHoldSeconds game time for render "
         "observation, so shorten it rather than warp", ("dwellHoldSeconds",)),
     ("dwell", "HOLD-PARK"): (
-        "a fixed real-time observation hold at 1x; deliberate for render "
+        "a deliberate 1x hold of dwellHoldSeconds game time for render "
         "observation, so shorten it rather than warp", ("dwellHoldSeconds",)),
     ("dwell", "*"): ("deliberate hold phase run at 1x; check whether it must be "
                      "real time before warping it", ()),
@@ -753,9 +761,9 @@ SITE_HINTS: Dict[Tuple[str, str], Tuple[str, Tuple[str, ...]]] = {
         "1x while the autopilot slews; rails warp freezes rotation, so the lever "
         "is the autopilot or physics warp", ()),
     ("waiting-for-node", "MJ-ASCENT"): (
-        "MechJeb AscentAutopilot coasts at 1x to its circularization node at "
-        "apoapsis (mission_runner.py ACTION_MJ_ENGAGE_ASCENT does not enable "
-        "ascent autowarp)", ()),
+        "MechJeb's ascent (mission_runner.py ACTION_MJ_ENGAGE_ASCENT) places a "
+        "circularization node and runs it through ExecuteOneNode with autowarp "
+        "on by default; " + NE_HINT, ()),
     ("waiting-for-node", "CIRCULARIZE"): (
         "1x coast to the circularization node "
         "(mission_runner.py ACTION_MJ_EXECUTE_CIRCULARIZATION)", ()),
@@ -763,15 +771,14 @@ SITE_HINTS: Dict[Tuple[str, str], Tuple[str, Tuple[str, ...]]] = {
         "the DIY burner holds 1x before ignition (settle AND attitude gate)",
         ("correctionSettleSeconds",)),
     ("waiting-for-node", "*"): (
-        "MechJeb NodeExecutor autowarp drops to 1x long before the node "
-        "(mission_runner.py ACTION_MJ_EXECUTE_NODES; the KRPC.MechJeb wrapper "
-        "exposes only leadTime)", ()),
+        "mission_runner.py ACTION_MJ_EXECUTE_NODES hands the node to MechJeb "
+        "with autowarp on; " + NE_HINT, ()),
     ("soi-approach", "*"): (
         "1x around the SOI boundary; the machine stairs down inside soiLeadSeconds",
         ("soiLeadSeconds", "coastWarpFactor", "approachMaxWarpFactor")),
     ("coast-to-apoapsis", "MJ-ASCENT"): (
-        "MechJeb AscentAutopilot coasts to apoapsis at 1x "
-        "(mission_runner.py ACTION_MJ_ENGAGE_ASCENT does not enable ascent autowarp)", ()),
+        "MechJeb's ascent (mission_runner.py ACTION_MJ_ENGAGE_ASCENT) coasts to "
+        "its circularization node with autowarp on by default; " + NE_HINT, ()),
     ("coast-to-apoapsis", "*"): ("1x coast toward apoapsis with no node", ()),
     ("coast-to-entry", "*"): (
         "1x coast on a trajectory into the atmosphere or the surface; a warp-to "
@@ -779,7 +786,9 @@ SITE_HINTS: Dict[Tuple[str, str], Tuple[str, Tuple[str, ...]]] = {
     ("coast-to-periapsis", "*"): ("1x coast toward periapsis with no node", ()),
     ("other-coast", "*"): ("1x coast with no node and no vertical-speed reading", ()),
     ("coast-to-apoapsis", "COAST"): (
-        "COAST holds coastSeconds of GAME time at 1x on the top stack", ("coastSeconds",)),
+        "COAST holds coastSeconds of GAME time with no warp so the recorder "
+        "authors post-separation coverage; shorten it or check coverage under "
+        "rails warp", ("coastSeconds",)),
     ("coast-to-apoapsis", "REENTRY"): (
         "an ASCENDING exo coast polls at 1x until vertical speed goes negative "
         "(rails hops only while descending)", ("warpAboveAltMeters", "warpHopSeconds")),

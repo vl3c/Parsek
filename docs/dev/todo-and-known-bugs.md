@@ -21,9 +21,12 @@ When referencing prior item numbers from source comments or plans, consult the r
 docstring and `harness/README.md` "Flight efficiency") now measures where a run's wall time
 goes. Over the 2026-10-01 nightly runs 39% of mission wall was 1x with a static orbit outside
 the atmosphere; over all 165 mission runs in every worktree's results, 38%. The largest
-recoverable causes: MechJeb NodeExecutor node waits that drop to 1x long before the node
-(B11 CAPTURE-BURN ~600 s, TRANSFER-BURN 30-100 s on most B lanes, BDOCK RENDEZVOUS), the
-real-time PARK dwells (`parkDwellSeconds`, ~170 s each), B4's DEORBIT retrograde slew at 1x
+recoverable causes: MechJeb NodeExecutor node waits (B11 CAPTURE-BURN ~600 s, TRANSFER-BURN
+30-100 s on most B lanes, BDOCK RENDEZVOUS; with autowarp on, the executor warps only to
+600 s before ignition and then holds 1x until the craft is within 1 deg AND turning slower
+than 0.001 rad/s, decompiled MechJeb2 2.15.1 `StateWarpAlign` / `AlignedAndSettled`), the
+1x PARK dwells (`parkDwellSeconds` of game time, ~170 s each, 1x by design so the recording
+carries parked coverage), B4's DEORBIT retrograde slew at 1x
 (~340 s per run; `apErr` is the autopilot pointing error, so rails warp cannot help it), and
 the m3 HOLD-* observation windows (deliberate). The mission warp policy itself is being
 changed in a separate session; re-run the tool over the next nightly to measure that fix.
