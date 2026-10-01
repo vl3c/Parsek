@@ -37,6 +37,7 @@ namespace Parsek
 
             ApplyTrackSectionAltitudeMetadata(rec.TrackSections, ref stats);
 
+            int skippedFrameChangePairs = 0;
             for (int i = 0; i < rec.Points.Count; i++)
             {
                 var pt = rec.Points[i];
@@ -71,13 +72,17 @@ namespace Parsek
                             bool inOrbitSegment = FindOrbitSegment(rec.OrbitSegments, midUT) != null;
                             if (!inOrbitSegment)
                             {
-                                int sectionIdx = FindTrackSectionForUT(rec.TrackSections, midUT);
-                                ReferenceFrame frame = sectionIdx >= 0
-                                    ? rec.TrackSections[sectionIdx].referenceFrame
-                                    : ReferenceFrame.Absolute;
-
-                                stats.distanceTravelled += ComputePairwiseTravelDistance(
-                                    prev, pt, frame, bodyRadius);
+                                ReferenceFrame frame;
+                                if (TryResolvePairTravelFrame(
+                                        rec.TrackSections, prev.ut, pt.ut, out frame))
+                                {
+                                    stats.distanceTravelled += ComputePairwiseTravelDistance(
+                                        prev, pt, frame, bodyRadius);
+                                }
+                                else
+                                {
+                                    skippedFrameChangePairs++;
+                                }
                             }
                         }
 
@@ -103,9 +108,57 @@ namespace Parsek
             ParsekLog.Verbose("TrajectoryMath",
                 $"ComputeStats complete: points={stats.pointCount} segments={stats.orbitSegmentCount} " +
                 $"events={stats.partEventCount} maxAlt={stats.maxAltitude:F0} maxSpeed={stats.maxSpeed:F1} " +
-                $"dist={stats.distanceTravelled:F0} range={stats.maxRange:F0} body={stats.primaryBody}");
+                $"dist={stats.distanceTravelled:F0} range={stats.maxRange:F0} body={stats.primaryBody} " +
+                $"skippedFrameChangePairs={skippedFrameChangePairs}");
 
             return stats;
+        }
+
+        /// <summary>
+        /// PURE: resolves the reference frame a consecutive point pair is measured in, or
+        /// returns false when the pair is not a travel step and contributes no distance.
+        ///
+        /// <para>Each endpoint resolves its own section: the strict lookup, then an exact
+        /// match on a section's exclusive end, because a section's last sample sits at its
+        /// endUT and the strict lookup misses it when a gap follows. A Relative point stores
+        /// anchor-local metres in latitude/longitude/altitude while any other frame stores
+        /// body-fixed degrees, so a pair whose endpoints disagree has no common unit:
+        /// measuring the metre offsets as degrees turned a parent-anchored debris
+        /// Relative-to-Absolute hand-off (a 0.06 s section gap, where the old mid-UT lookup
+        /// found no section and defaulted to Absolute) into a ~1000 km step. A pair with no
+        /// elapsed time is a seam duplicate, not travel, and is skipped for the same reason
+        /// (a duplicated boundary sample can carry either frame's units). A point outside
+        /// every section reads as Absolute, as before.</para>
+        /// </summary>
+        internal static bool TryResolvePairTravelFrame(
+            List<TrackSection> sections, double prevUT, double curUT, out ReferenceFrame frame)
+        {
+            frame = ReferenceFrame.Absolute;
+            if (!(curUT > prevUT))
+                return false;
+            ReferenceFrame prevFrame = ResolvePointFrameForStats(sections, prevUT);
+            ReferenceFrame curFrame = ResolvePointFrameForStats(sections, curUT);
+            if ((prevFrame == ReferenceFrame.Relative) != (curFrame == ReferenceFrame.Relative))
+                return false;
+            frame = curFrame;
+            return true;
+        }
+
+        private static ReferenceFrame ResolvePointFrameForStats(List<TrackSection> sections, double ut)
+        {
+            int idx = FindTrackSectionForUT(sections, ut);
+            if (idx < 0 && sections != null)
+            {
+                for (int i = sections.Count - 1; i >= 0; i--)
+                {
+                    if (sections[i].endUT == ut)
+                    {
+                        idx = i;
+                        break;
+                    }
+                }
+            }
+            return idx >= 0 ? sections[idx].referenceFrame : ReferenceFrame.Absolute;
         }
 
         /// <summary>
@@ -190,7 +243,8 @@ namespace Parsek
 
         /// <summary>
         /// Accumulates orbit segment contributions into recording stats: apoapsis altitude,
-        /// periapsis speed (vis-viva), and mean-speed distance for each segment.
+        /// max speed (vis-viva, see <see cref="TryComputeSegmentMaxSpeed"/>), and mean-speed
+        /// distance for each segment.
         /// </summary>
         internal static void AccumulateOrbitSegmentStats(
             List<OrbitSegment> segments,
@@ -213,23 +267,68 @@ namespace Parsek
                 if (apoAlt > stats.maxAltitude)
                     stats.maxAltitude = apoAlt;
 
-                // Periapsis speed (max orbital speed via vis-viva)
-                double periRadius = seg.semiMajorAxis * (1.0 - seg.eccentricity);
-                if (periRadius > 0 && seg.semiMajorAxis > 0)
-                {
-                    double periSpeed = System.Math.Sqrt(
-                        gm * (2.0 / periRadius - 1.0 / seg.semiMajorAxis));
-                    if (periSpeed > stats.maxSpeed)
-                        stats.maxSpeed = periSpeed;
-                }
+                // Max orbital speed via vis-viva at the lowest radius the arc can reach.
+                double segMaxSpeed;
+                bool haveSegMaxSpeed = TryComputeSegmentMaxSpeed(
+                    seg.semiMajorAxis, seg.eccentricity, bodyRadius, gm, out segMaxSpeed);
+                if (haveSegMaxSpeed && segMaxSpeed > stats.maxSpeed)
+                    stats.maxSpeed = segMaxSpeed;
 
-                // Mean orbital speed * duration
+                // Mean orbital speed * duration. The mean speed over an arc cannot exceed the
+                // arc's own max speed. On a real orbit sqrt(gm / sma) is always below the
+                // periapsis speed, so the cap binds only on a sub-orbital arc, where the
+                // circular speed at sma is far above anything the arc flew.
                 if (seg.semiMajorAxis > 0)
                 {
                     double meanSpeed = System.Math.Sqrt(gm / seg.semiMajorAxis);
+                    if (haveSegMaxSpeed && meanSpeed > segMaxSpeed)
+                        meanSpeed = segMaxSpeed;
                     stats.distanceTravelled += meanSpeed * (seg.endUT - seg.startUT);
                 }
             }
+        }
+
+        /// <summary>
+        /// PURE: the highest speed an elliptic orbit segment's arc can reach, by vis-viva at
+        /// <c>max(periapsis radius, body radius)</c>. Returns false for a non-elliptic or
+        /// degenerate element set, or an ellipse lying wholly inside the body.
+        ///
+        /// <para>Vis-viva speed falls monotonically with radius, so an arc's top speed is at
+        /// its lowest radius. A real orbit's lowest radius is its periapsis and the result is
+        /// the plain periapsis speed. A sub-orbital arc (a ballistic fall, the predicted
+        /// impact tail of a destroyed vessel) ends where it meets the surface and never
+        /// reaches its periapsis, which can sit metres from the body centre: an e=0.99977
+        /// debris impact segment had a periapsis radius of 69.7 m, and vis-viva there read
+        /// 318 km/s. Clamping the radius at the body's sea-level radius gives the speed at
+        /// the surface, an upper bound on what the arc flew. No Kepler solve is involved,
+        /// which matters because the near-radial impact orbits this guards are exactly where
+        /// an eccentric-anomaly solve stops converging.</para>
+        /// </summary>
+        internal static bool TryComputeSegmentMaxSpeed(
+            double semiMajorAxis, double eccentricity, double bodyRadius, double gm,
+            out double maxSpeed)
+        {
+            maxSpeed = 0.0;
+            if (!(semiMajorAxis > 0.0) || double.IsInfinity(semiMajorAxis)) return false;
+            if (!(eccentricity >= 0.0) || eccentricity >= 1.0) return false;
+            if (!(gm > 0.0) || double.IsInfinity(gm)) return false;
+
+            double periRadius = semiMajorAxis * (1.0 - eccentricity);
+            double apoRadius = semiMajorAxis * (1.0 + eccentricity);
+            if (!(periRadius > 0.0)) return false;
+
+            double lowestRadius = periRadius;
+            if (bodyRadius > periRadius && !double.IsInfinity(bodyRadius))
+            {
+                // The whole ellipse lies inside the body: no reachable point exists.
+                if (bodyRadius > apoRadius) return false;
+                lowestRadius = bodyRadius;
+            }
+
+            double v2 = gm * (2.0 / lowestRadius - 1.0 / semiMajorAxis);
+            if (!(v2 >= 0.0) || double.IsInfinity(v2)) return false;
+            maxSpeed = System.Math.Sqrt(v2);
+            return true;
         }
 
         /// <summary>

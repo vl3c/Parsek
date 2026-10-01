@@ -1402,7 +1402,7 @@ padding kept at 0, the table's row pitch). The header's merged toggle + `#` cont
 STASH rows to the header's column sequence including the Info and flight-only guards
 (mutation-checked: an unguarded Watch cell in the block row reds it).
 
-## RECORDINGS-STATS-DEBRIS-MAXSPD-IMPLAUSIBLE: a debris row's MaxSpd reads 318.4 km/s over a 1.9 km flight [FILED 2026-09-26 from the recordings-tab round (census run `2026-09-21_2316_GUI-25-census-missions-state-sort-edit`, capture `ib-missions-recordings-expandedstats-advanced`). OPEN, not fixed]
+## ~~RECORDINGS-STATS-DEBRIS-MAXSPD-IMPLAUSIBLE: a debris row's MaxSpd reads 318.4 km/s over a 1.9 km flight~~ [FILED 2026-09-26 from the recordings-tab round (census run `2026-09-21_2316_GUI-25-census-missions-state-sort-edit`, capture `ib-missions-recordings-expandedstats-advanced`). FIXED 2026-10-01, branch `fix-debris-maxspd`; headless-proven against the committed fixture]
 
 The Info columns of recording #27 `Kerbal X Debris` on the `interbody-route-recorded` host
 read MaxAlt `5.8km`, MaxSpd `318.4km/s`, Dist `1.9km`, 54 points, 48 s, `Destroyed, Kerbin`.
@@ -1415,6 +1415,34 @@ sub-orbital debris segment's periapsis sits deep inside Kerbin (radius near zero
 `sqrt(gm * (2 / periRadius - 1 / sma))` runs away. The mean-speed distance term uses the same
 segment and may be similarly off. A fix would skip, or clamp at the surface, a segment whose
 periapsis lies below the body's radius; verify against the fixture's sidecar first.
+
+**Verified cause** (decoded from the fixture's sidecar via `SaveDirectoryLoader`). Row #27 is
+recording `fd43bae4daf24db998848bc83e1436d8`. Its one orbit segment is the predicted impact tail
+(`isPredicted=True`, 0.02 s long at the end of the flight): Kerbin, sma 302932.67 m, ecc
+0.99976998, so the periapsis radius is 69.7 m. Vis-viva there is 318362.7 m/s, exactly the
+displayed 318.4 km/s; the 54 point speeds peak at 259.1 m/s. The segment's mean-speed term
+(sqrt(gm / sma) = 3414 m/s) was off the same way but only over 0.02 s.
+
+Found during the same decode: the SIBLING debris rows (Relative section, a 0.06 s gap, then an
+Absolute section) read Dist 900 to 1200 km. The pair across the gap had its frame looked up at
+the mid-UT, found no section, defaulted to Absolute, and ran a haversine over the Relative
+point's anchor-local metres (`lat=69.4 lon=-545.6`) as degrees: 1024 km from one pair on
+`395e8cbb`. Row #27 escaped it only because its Relative-section points happen to carry
+body-fixed values.
+
+Fix: `TrajectoryMath.TryComputeSegmentMaxSpeed` (`TrajectoryMath.Stats.cs`) takes vis-viva at
+`max(periapsis radius, body radius)`: speed falls monotonically with radius and a sub-orbital
+arc ends at the surface, so the surface speed bounds what it flew (row #27 now reads 337.6 m/s).
+No Kepler solve, which fails to converge on exactly these near-radial orbits. A real orbit's
+periapsis is above the surface and its value is unchanged. The segment mean speed is capped at
+that max speed (never binds on a real orbit, since sqrt(gm / sma) is below the periapsis
+speed). `TryResolvePairTravelFrame` resolves each endpoint's own section (strict, then the
+section's exclusive end) and skips a pair whose endpoints differ in Relative-ness, or with no
+elapsed time; the ComputeStats summary logs `skippedFrameChangePairs=`. Every debris row on the
+fixture now reads 1 to 3 km. Tests: `RecordingStatsSubOrbitalTests` (pure cells plus two over
+the committed fixture). Not fixed here: Relative-section flat points are not uniformly metres
+(row #27's carry body-fixed values), so the in-section Relative distance is still measured as
+metres either way.
 
 ---
 ## ~~REWIND-NAME-STRIP-TAKES-EARLIER-SAME-CRAFT-VESSEL: rewinding a relaunch of a craft strips the earlier launch of that craft from the rewind save~~ [FILED AND FIXED 2026-09-27, branch `fix-rewind-name-strip`; the open half of REWIND-STRIPS-RESUMED-COMMITTED-TIP. Headless-proven; NOT yet live-proven]
