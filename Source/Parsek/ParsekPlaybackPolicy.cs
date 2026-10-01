@@ -41,6 +41,7 @@ namespace Parsek
         internal Action<Recording, int> SpawnVesselOrChainTipOverrideForTesting;
         internal Action<uint> DeferredActivateVesselOverrideForTesting;
         internal Action<int, string> DestroyGhostOverrideForTesting;
+        internal Func<Recording, bool> IsSpawnBlockedChainTipOverrideForTesting;
         internal const int FlagReplayWarnRetryThreshold = 3;
 
         // Deferred spawn queue: recording IDs queued during warp, flushed when warp ends
@@ -874,11 +875,14 @@ namespace Parsek
                 int index = kvp.Key;
                 HeldGhostInfo info = kvp.Value;
 
+                bool spawnBlockedChainTip = index >= 0 && index < committed.Count
+                    && IsSpawnBlockedChainTipForHold(committed[index]);
                 var decision = DecideHeldGhostAction(
                     index, info, committed, now, HeldGhostTimeoutSeconds,
                     HeldGhostRetryIntervalSeconds,
                     timelineInactiveIds,
-                    currentUT);
+                    currentUT,
+                    spawnBlockedChainTip);
 
                 switch (decision)
                 {
@@ -1016,6 +1020,17 @@ namespace Parsek
             return GhostPlaybackEngine.IsAnyWarpActiveFromGlobals();
         }
 
+        /// <summary>
+        /// True when the held recording is the tip of an active ghost chain whose spawn is
+        /// collision-blocked (design 12.9.2): its hold is exempt from the timeout.
+        /// </summary>
+        private bool IsSpawnBlockedChainTipForHold(Recording rec)
+        {
+            if (IsSpawnBlockedChainTipOverrideForTesting != null)
+                return IsSpawnBlockedChainTipOverrideForTesting(rec);
+            return host.IsSpawnBlockedChainTipFromPolicy(rec);
+        }
+
         /// <summary>Real time stamped on a new hold; the same clock RetryHeldGhostSpawns reads.</summary>
         private float CurrentHoldRealTime()
         {
@@ -1052,7 +1067,8 @@ namespace Parsek
             float currentTime, float timeoutSeconds,
             float retryIntervalSeconds = 1.0f,
             IReadOnlyDictionary<string, TimelineInactiveReason> timelineInactiveIds = null,
-            double currentUT = double.NaN)
+            double currentUT = double.NaN,
+            bool spawnBlockedChainTip = false)
         {
             // Invalid index — recording list may have changed
             if (index < 0 || index >= committed.Count)
@@ -1092,10 +1108,14 @@ namespace Parsek
             if (terminalDeferredState == TerminalOrbitDeferredSpawnState.Hold)
                 return HeldGhostAction.Hold;
 
-            // Timeout check
+            // Timeout check. A collision-blocked chain tip is exempt: its blocker can move away
+            // at any time, so the ghost stays (following the tip's propagated position, drawn
+            // by ParsekFlight) and the spawn keeps retrying until the overlap clears (design
+            // 12.9.2, phase 6b-4). Every release above still applies to it.
             float elapsed = currentTime - info.holdStartTime;
             if (terminalDeferredState != TerminalOrbitDeferredSpawnState.Ready
-                && elapsed >= timeoutSeconds)
+                && elapsed >= timeoutSeconds
+                && !ChainTipBlockedGhost.IsExemptFromHeldGhostTimeout(spawnBlockedChainTip))
                 return HeldGhostAction.Timeout;
 
             // Throttle retry attempts — avoid hammering spawn every frame

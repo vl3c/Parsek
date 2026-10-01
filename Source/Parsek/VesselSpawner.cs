@@ -137,9 +137,13 @@ namespace Parsek
             if (sourcePid == 0)
                 return false;
 
+            // The bypass checks run on every spawn attempt, including the 1 s retry of a
+            // spawn-blocked chain tip, so each verdict is rate-limited per source pid with the
+            // deciding pids in the key: a first or CHANGED verdict prints at once.
             if (replayTargetSourcePid != 0 && sourcePid != replayTargetSourcePid)
             {
-                ParsekLog.Verbose("Spawner",
+                ParsekLog.VerboseRateLimited("Spawner",
+                    BuildExistingSourceDuplicateLogKey("outside-target", sourcePid, replayTargetSourcePid, activeVesselPid),
                     $"ShouldAllowExistingSourceDuplicate=false sourcePid={sourcePid.ToString(CultureInfo.InvariantCulture)} " +
                     $"outside rewind replay target sourcePid={replayTargetSourcePid.ToString(CultureInfo.InvariantCulture)} " +
                     $"(sceneEntryActiveVesselPid={sceneEntryActiveVesselPid.ToString(CultureInfo.InvariantCulture)}, " +
@@ -155,7 +159,8 @@ namespace Parsek
             // legible in KSP.log (follow-up to PR #505 review).
             if (sourcePid == sceneEntryActiveVesselPid)
             {
-                ParsekLog.Verbose("Spawner",
+                ParsekLog.VerboseRateLimited("Spawner",
+                    BuildExistingSourceDuplicateLogKey("scene-entry", sourcePid, sceneEntryActiveVesselPid, activeVesselPid),
                     $"ShouldAllowExistingSourceDuplicate=true sourcePid={sourcePid.ToString(CultureInfo.InvariantCulture)} " +
                     $"matched sceneEntryActiveVesselPid={sceneEntryActiveVesselPid.ToString(CultureInfo.InvariantCulture)} " +
                     $"(activeVesselPid={activeVesselPid.ToString(CultureInfo.InvariantCulture)}) " +
@@ -164,7 +169,8 @@ namespace Parsek
             }
             if (sourcePid == activeVesselPid)
             {
-                ParsekLog.Verbose("Spawner",
+                ParsekLog.VerboseRateLimited("Spawner",
+                    BuildExistingSourceDuplicateLogKey("active", sourcePid, sceneEntryActiveVesselPid, activeVesselPid),
                     $"ShouldAllowExistingSourceDuplicate=true sourcePid={sourcePid.ToString(CultureInfo.InvariantCulture)} " +
                     $"matched activeVesselPid={activeVesselPid.ToString(CultureInfo.InvariantCulture)} " +
                     $"(sceneEntryActiveVesselPid={sceneEntryActiveVesselPid.ToString(CultureInfo.InvariantCulture)}) " +
@@ -172,6 +178,19 @@ namespace Parsek
                 return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Rate-limit key for the #226 bypass verdict lines: the verdict branch and every pid
+        /// that decides it, so a repeated identical verdict is throttled while a changed one
+        /// (another active vessel, another replay target) prints at once.
+        /// </summary>
+        internal static string BuildExistingSourceDuplicateLogKey(
+            string branch, uint sourcePid, uint otherPid, uint activeVesselPid)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "existing-source-dup|{0}|{1}|{2}|{3}",
+                branch, sourcePid, otherPid, activeVesselPid);
         }
 
         internal static bool ShouldAllowExistingSourceDuplicateForCurrentFlight(uint sourcePid)
@@ -196,7 +215,9 @@ namespace Parsek
                 RecordingStore.RewindReplayTargetSourcePid);
             if (allow)
             {
-                ParsekLog.Verbose("Spawner",
+                ParsekLog.VerboseRateLimited("Spawner",
+                    BuildExistingSourceDuplicateLogKey(
+                        "current-flight", sourcePid, RecordingStore.SceneEntryActiveVesselPid, activeVesselPid),
                     $"ShouldAllowExistingSourceDuplicateForCurrentFlight=true sourcePid={sourcePid.ToString(CultureInfo.InvariantCulture)} " +
                     $"sceneEntryActiveVesselPid={RecordingStore.SceneEntryActiveVesselPid.ToString(CultureInfo.InvariantCulture)} " +
                     $"activeVesselPid={activeVesselPid.ToString(CultureInfo.InvariantCulture)}");

@@ -1098,7 +1098,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # 43 / 5 after DeleteRecording's removal (2026-09-26), a REMOVAL by one.
         # 44 / 4 after StashSlot, a PROMOTION by one (both numbers move, in opposite
         # directions): the Recordings table's Stash button, consumed by RF-20.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 44)
+        # 46 / 4 after the D18 player-action pair (RealSpawn / Recover), an ADDITION
+        # by two: the reserved envelope never carried a spawn or a recovery verb.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 46)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -16056,6 +16058,65 @@ class SafeWriteCrashSourceSyncTests(unittest.TestCase):
         self.assertIn("phase-arg-missing", v(0, {})[0])
         self.assertIn("recording-arg-missing", v(0, {"phase": "arm"})[0])
         self.assertIn("only phase=arm", v(0, {"phase": "probe", "recording": "abc"})[0])
+
+
+class RealSpawnRecoverSourceSyncTests(unittest.TestCase):
+    """The D18 player-action pair (`RealSpawn` / `Recover`). Reads OUTSIDE harness/: the
+    arg key and the refusal reasons (the `Reasons` array, IN ORDER) of the
+    comment-stripped TestCommands/TestCommandRealSpawn.cs and TestCommandRecover.cs."""
+
+    def _source(self, name):
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", name)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# %s tables moved; this mirror is vacuous: %s" % (name, path))
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_keys_and_reasons_mirror_the_c_sharp(self):
+        for name, verb, key_const, key, reasons in (
+                ("TestCommandRealSpawn.cs", hlib.REALSPAWN_VERB, "RecKey",
+                 hlib.REALSPAWN_REC_KEY, hlib.REALSPAWN_REASONS),
+                ("TestCommandRecover.cs", hlib.RECOVER_VERB, "PidKey",
+                 hlib.RECOVER_PID_KEY, hlib.RECOVER_REASONS)):
+            with self.subTest(verb=verb):
+                text = self._source(name)
+                self.assertIn('internal const string Verb = "%s";' % verb, text)
+                self.assertIn('internal const string %s = "%s";' % (key_const, key), text)
+                self.assertEqual(list(reasons),
+                                 StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+                for reason in reasons:
+                    self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason),
+                                  ("driver-arg", "driver-gate"))
+
+    def test_the_verbs_are_registered_on_every_axis(self):
+        for verb in (hlib.REALSPAWN_VERB, hlib.RECOVER_VERB):
+            with self.subTest(verb=verb):
+                self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+                # Two-phase on a 120 s budget, under the 540 s cap: a dispatch row, not
+                # a DEFERRED_SEAM_VERB.
+                self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+                self.assertEqual(120.0, hlib.dispatch_deferral_budget(verb))
+                self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+                self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                                 hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+                self.assertFalse(hlib.post_mission_step_gates(verb))
+        # Recover's wedge refusal is ExitToSpaceCenter's token, already a gate.
+        self.assertEqual("driver-gate",
+                         hlib.classify_seam_refusal_subkind("dialog-required%20variant=X"))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_real_spawn_recover_step
+        self.assertEqual([], v(0, "RealSpawn", {"rec": "6f1c"}))
+        self.assertEqual([], v(0, "RealSpawn", {"rec": "${chains.chain0tip}"}))
+        self.assertIn("realspawn-rec-arg-missing", v(0, "RealSpawn", {})[0])
+        self.assertIn("realspawn-rec-arg-missing", v(0, "RealSpawn", {"rec": ""})[0])
+        self.assertEqual([], v(0, "Recover", {"pid": "4000000001"}))
+        self.assertEqual([], v(0, "Recover", {"pid": "${spawn.pid}"}))
+        self.assertIn("recover-pid-arg-missing", v(0, "Recover", {})[0])
+        self.assertIn("recover-pid-arg-invalid", v(0, "Recover", {"pid": "0"})[0])
+        self.assertIn("recover-pid-arg-invalid", v(0, "Recover", {"pid": "abc"})[0])
+        self.assertEqual([], v(0, "SpinVessel", {}))
 
 
 class GuiCensusSeamVerbTests(unittest.TestCase):

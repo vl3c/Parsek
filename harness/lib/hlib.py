@@ -609,6 +609,20 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # consumer is RF-20: the live re-fly of a focus slot that went EVA and re-boarded,
     # which ends Orbiting and is never an Unfinished Flight until stashed.
     "StashSlot",
+    # The D18 player-action pair. ADDITIVE (44 -> 46 implemented, reserved unchanged at
+    # 4): the reserved envelope never carried a spawn or a recovery verb. Both TWO-PHASE
+    # on a 120 s budget (DISPATCH_DEFERRAL_BUDGET_SECONDS), so NOT DEFERRED_SEAM_VERBS.
+    #   RealSpawn rec=<id> presses the Real Spawn Control row's "Warp to Spawn" for one
+    #     recording through the button's own click body (SpawnControlUI.ExecuteRowWarp ->
+    #     ParsekFlight.WarpToRecordingEnd) and answers OK `rec= pid= vessel= endUT=
+    #     loaded=` once the playback loop has spawned the real vessel; `pid` is the handle
+    #     a following SimulateStockSwitchClick / Recover consumes.
+    #   Recover pid=<pid> invokes the flight scene's stock Recover button for the ACTIVE
+    #     vessel (AltimeterSliderButtons.vesselRecoveryButton.onClick): stock fires
+    #     OnVesselRecoveryRequested, saves, loads the Space Center and fires
+    #     onVesselRecovered, and the verb answers OK `pid= vessel= scene= recovered=true`
+    #     once it has observed that last event.
+    "RealSpawn", "Recover",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -950,6 +964,12 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # flight bootstrap before the seam's own verdict surfaced.
     "GoToEditor": 120.0,
     "LaunchFromEditor": 180.0,
+    # The D18 player-action pair, mirroring DeferralBudget.RealSpawnSeconds /
+    # RecoverSeconds. RealSpawn is the TimeJump size (the same synchronous epoch-shift
+    # jump plus the spawn settle); Recover is the ExitToSpaceCenter size (the same scene
+    # exit plus stock's 8-frame delay before it recovers the vessel).
+    "RealSpawn": 120.0,
+    "Recover": 120.0,
 }
 
 # Per-verb TAIL ROLE: what a seam verb DOES, used to decide whether it may still be
@@ -1177,6 +1197,11 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     "SafeWriteCrash": TAIL_ROLE_WORLD_MUTATING,
     # SpinVessel changes the live vessel's attitude motion (and turns SAS off).
     "SpinVessel": TAIL_ROLE_WORLD_MUTATING,
+    # RealSpawn moves the clock and puts a real vessel in the world; Recover removes one,
+    # pays the recovery into the career and changes scene. Both irreversible in-world
+    # actions an unmet tail must not take.
+    "RealSpawn": TAIL_ROLE_WORLD_MUTATING,
+    "Recover": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1364,6 +1389,14 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # SpinVessel is `recording`: it sets up the subject a recording claim is about; its OK
     # is "the rigidbodies were given a spin", which the recorder's own lines re-derive.
     "SpinVessel": POST_MISSION_ROLE_RECORDING,
+    # RealSpawn is `recording`: its OK is a read-back of Parsek's own spawn bookkeeping
+    # (VesselSpawned + SpawnedVesselPersistentId), a Parsek claim. Recover is `recording`
+    # too: its OK means "stock fired onVesselRecovered for the pid and the Space Center
+    # settled", harness plumbing; whether Parsek then stamped the recording Recovered is
+    # asserted from the terminal-state log lines a spec pins, the ExitToSpaceCenter
+    # carve-out.
+    "RealSpawn": POST_MISSION_ROLE_RECORDING,
+    "Recover": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -3133,6 +3166,53 @@ SAFEWRITECRASH_REASONS: Tuple[str, ...] = (
     "safewritecrash-no-sidecar", "safewritecrash-already-armed",
     "safewritecrash-arm-refused", "safewritecrash-no-baseline",
 )
+
+
+# The D18 player-action pair: mirrored from TestCommands/TestCommandRealSpawn.cs and
+# TestCommandRecover.cs (RealSpawnRecoverSourceSyncTests keeps them byte-equal). Each
+# verb takes ONE required open arg - a committed-recording id, or a vessel persistentId -
+# usually a ${step.field} handle from ListHandles or an earlier RealSpawn.
+REALSPAWN_VERB = "RealSpawn"
+REALSPAWN_REC_KEY = "rec"
+REALSPAWN_REASONS: Tuple[str, ...] = (
+    "realspawn-rec-arg-missing", "realspawn-host-unavailable",
+    "realspawn-unknown-recording", "realspawn-already-spawned",
+    "realspawn-not-a-candidate", "realspawn-button-disabled",
+    "realspawn-row-warps-to-departure",
+)
+RECOVER_VERB = "Recover"
+RECOVER_PID_KEY = "pid"
+RECOVER_REASONS: Tuple[str, ...] = (
+    "recover-pid-arg-missing", "recover-pid-arg-invalid",
+    "recover-no-active-vessel", "recover-not-active-vessel",
+    "recover-button-unavailable", "recover-button-locked",
+    "recover-not-clear-to-save", "recover-cannot-leave-to-space-center",
+)
+
+
+def validate_real_spawn_recover_step(index: int, cmd: str, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``RealSpawn`` / ``Recover`` step: the verb's one
+    required arg (``rec=`` / ``pid=``) must be present and non-empty. A literal Recover
+    pid must be a positive decimal; a ``${step.field}`` handle is checked by the R10
+    static tier and resolved at run time."""
+    errors: List[str] = []
+    if cmd == REALSPAWN_VERB:
+        key, reason = REALSPAWN_REC_KEY, "realspawn-rec-arg-missing"
+    elif cmd == RECOVER_VERB:
+        key, reason = RECOVER_PID_KEY, "recover-pid-arg-missing"
+    else:
+        return errors
+    raw = step_args.get(key)
+    if raw is None or str(raw) == "":
+        errors.append(
+            "driver.steps[%d].args.%s: %s REQUIRES it; the seam answers REJECTED %s"
+            % (index, key, cmd, reason))
+    elif cmd == RECOVER_VERB and "${" not in str(raw) and not (
+            str(raw).isdigit() and int(str(raw)) > 0):
+        errors.append(
+            "driver.steps[%d].args.%s: %r is not a positive decimal persistentId; the "
+            "seam answers REJECTED recover-pid-arg-invalid" % (index, key, raw))
+    return errors
 
 
 def validate_safe_write_crash_step(index: int, step_args: Dict) -> List[str]:
@@ -6031,6 +6111,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_go_to_editor_step(i, step_args))
         elif cmd == SAFEWRITECRASH_VERB:
             errors.extend(validate_safe_write_crash_step(i, step_args))
+        elif cmd in (REALSPAWN_VERB, RECOVER_VERB):
+            errors.extend(validate_real_spawn_recover_step(i, cmd, step_args))
         # R10 STATIC tier, pass 2 of 2: every ${ref.field} in this step's args must
         # be well-formed AND name an EARLIER seam step that expects OK. A fault here
         # would otherwise put a literal ${...} on the wire, where the seam resolves an
@@ -9619,6 +9701,27 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # ExitToSpaceCenter: the wedge guard declined because a merge modal would spawn. A
     # GATE decline, not a bad arg - the spec must set autoMerge (v1 supported shape).
     "dialog-required": "driver-gate",
+    # The D18 player-action pair (RealSpawn / Recover). The missing / malformed arg and the
+    # unknown recording are the SPEC's fault (arg-class); every other refusal is a live
+    # state the click would not act in - no row, a greyed or departure button, a vessel
+    # that is not the active one, a locked Recover button - so a gate. Recover's wedge
+    # guard reuses `dialog-required` above. Mirrored from the C# `Reasons` arrays
+    # (RealSpawnRecoverSourceSyncTests).
+    "realspawn-rec-arg-missing": "driver-arg",
+    "realspawn-host-unavailable": "driver-gate",
+    "realspawn-unknown-recording": "driver-arg",
+    "realspawn-already-spawned": "driver-gate",
+    "realspawn-not-a-candidate": "driver-gate",
+    "realspawn-button-disabled": "driver-gate",
+    "realspawn-row-warps-to-departure": "driver-gate",
+    "recover-pid-arg-missing": "driver-arg",
+    "recover-pid-arg-invalid": "driver-arg",
+    "recover-no-active-vessel": "driver-gate",
+    "recover-not-active-vessel": "driver-gate",
+    "recover-button-unavailable": "driver-gate",
+    "recover-button-locked": "driver-gate",
+    "recover-not-clear-to-save": "driver-gate",
+    "recover-cannot-leave-to-space-center": "driver-gate",
     # SimulateStockSwitchClick, arg half: site / selector spellings and target resolution.
     # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
     # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.

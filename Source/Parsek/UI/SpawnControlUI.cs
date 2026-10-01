@@ -481,6 +481,46 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Automation-only (the <c>RealSpawn</c> seam verb): find the table row of ONE
+        /// recording by id and build its presentation exactly as the draw pass does (same
+        /// candidate list, same <see cref="SpawnControlPresentation.BuildRowPresentation"/>
+        /// gates). Presses nothing; false when the table draws no row for the recording.
+        /// </summary>
+        internal static bool TryFindRowForRecordingForTesting(ParsekFlight flight,
+            string recordingId, double currentUT,
+            out NearbySpawnCandidate cand, out SpawnCandidateRowPresentation row,
+            out int candidateCount)
+        {
+            cand = default(NearbySpawnCandidate);
+            row = default(SpawnCandidateRowPresentation);
+            var candidates = flight?.NearbySpawnCandidates;
+            candidateCount = candidates?.Count ?? 0;
+            if (candidates == null || string.IsNullOrEmpty(recordingId))
+                return false;
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                if (candidates[i].recordingId != recordingId)
+                    continue;
+                cand = candidates[i];
+                row = SpawnControlPresentation.BuildRowPresentation(
+                    cand, currentUT,
+                    ParsekFlight.NearbySpawnRadius,
+                    ParsekFlight.MaxRelativeSpeed);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Automation-only: press one row's warp button through its own click body
+        /// (<see cref="ExecuteRowWarp"/>). The caller has already refused a disabled
+        /// button, as <see cref="TryPressFirstRowWarpForTesting"/> does.
+        /// </summary>
+        internal static void PressRowWarpForTesting(NearbySpawnCandidate cand,
+            SpawnCandidateRowPresentation row, ParsekFlight flight)
+            => ExecuteRowWarp(cand, row, flight);
+
         // Kept out of TryPressFirstRowWarpForTesting's body so the headless no-row path
         // never JITs a Planetarium reference (mono runs a failing KSP static initializer at
         // JIT of the CALLING method).

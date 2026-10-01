@@ -76,7 +76,7 @@ namespace Parsek.Tests
         // ────────────────────────────────────────────────────────────
 
         [Fact]
-        public void FormatChainStatus_BlockedAndWalkbackExhausted_ShowsExhaustedMessage()
+        public void FormatChainStatus_BlockedAndWalkbackExhausted_SaysItAppearsWhenTheSpotClears()
         {
             var chain = new GhostChain
             {
@@ -90,8 +90,9 @@ namespace Parsek.Tests
 
             string status = SpawnWarningUI.FormatChainStatus(chain, "TestVessel");
 
-            Assert.Contains("walkback exhausted", status);
-            Assert.Contains("manual placement required", status);
+            // Operator ruling 2026-10-01: an exhausted chain-tip walkback keeps retrying.
+            Assert.Equal("Spawn blocked -- spot occupied, appears when it clears", status);
+            Assert.DoesNotContain("manual placement", status);
             Assert.Contains(logLines, l => l.Contains("[SpawnWarning]") && l.Contains("FormatChainStatus")
                 && l.Contains("walkbackExhausted=True"));
         }
@@ -140,13 +141,14 @@ namespace Parsek.Tests
         // ────────────────────────────────────────────────────────────
 
         [Fact]
-        public void ComputeGhostLabelText_BlockedAndWalkbackExhausted_ShowsAbandoned()
+        public void ComputeGhostLabelText_BlockedAndWalkbackExhausted_ShowsBlockedNotAbandoned()
         {
             string label = SpawnWarningUI.ComputeGhostLabelText(
                 "TestVessel", 18500.0, false, true, true);
 
-            Assert.Contains("spawn abandoned", label);
-            Assert.DoesNotContain("spawn blocked\n", label);
+            // Operator ruling 2026-10-01: the spawn is still retrying, nothing is abandoned.
+            Assert.Equal("TestVessel\nGhost -- spawn blocked", label);
+            Assert.DoesNotContain("abandoned", label);
             Assert.Contains(logLines, l => l.Contains("[SpawnWarning]")
                 && l.Contains("ComputeGhostLabelText")
                 && l.Contains("walkbackExhausted=True"));
