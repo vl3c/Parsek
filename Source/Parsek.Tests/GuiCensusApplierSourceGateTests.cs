@@ -51,7 +51,7 @@ namespace Parsek.Tests
                 { "ChainKeyPrefix", TestCommandUiState.ChainKeyPrefix },
                 { "VesselKeyPrefix", TestCommandUiState.VesselKeyPrefix },
                 { "LegKeyPrefix", TestCommandUiState.LegKeyPrefix },
-                { "DigestKeyPrefix", TestCommandUiState.DigestKeyPrefix },
+                { "MissionKeyPrefix", TestCommandUiState.MissionKeyPrefix },
                 { "RowKeyPrefix", TestCommandUiState.RowKeyPrefix },
                 { "RosterKeyPrefix", TestCommandUiState.RosterKeyPrefix },
                 { "FlightsKeyPrefix", TestCommandUiState.FlightsKeyPrefix },
@@ -106,7 +106,7 @@ namespace Parsek.Tests
                 string.Join("\n", new[]
                 {
                     "// if (window == TestCommandUiAction.TimelineWindow)",
-                    "// Prefix = TestCommandUiState.DigestKeyPrefix,",
+                    "// Prefix = TestCommandUiState.RosterKeyPrefix,",
                     "if (window == TestCommandUiAction.MissionsWindow)",
                     "{",
                     "    sets.Add(new UiExpandSet { Prefix = TestCommandUiState.GroupKeyPrefix, });",

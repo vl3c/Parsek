@@ -2255,6 +2255,35 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Missions window redesign, first slice.** The columns are `#`, Missions and vessels,
+  Start time, Start event, End event, End time and **Interact**, one right-hand column that
+  holds every per-row button at one shared width (a two-button pair spans one button). Each
+  mission's dark bar is two rows of the table: the first puts the mission's start time,
+  start event, outcome and end time under the headings, with Log beside the title and Watch
+  (plus Rewind / Forward) in Interact; the second is a one-line story (where it went, how
+  long, who flew, how it ended) with a Collapse / Expand button in Interact. The story is
+  now the title's size, and in Advanced its next-launch countdown (`Next launch T- 5h 47m`)
+  is amber; it no longer repeats the loop period (`Loops ~P`), which the period cell beside
+  it shows. Collapse hides a mission's vessel rows; its title bar stays. It replaces the
+  per-mission Archive box and the list's "hide archived" filter; a mission archived in an
+  older save loads collapsed. Stash / Fly + Seal and the Docked partner's Go to sit in
+  Interact too. Everything that exists only because of mission looping is Advanced-only
+  (Clone, Delete, "Warp to..." shown only while the mission loops, the Loop toggle and
+  period, the countdown, and the greyed / `(partial)` styling of rows left out of a loop);
+  Advanced shows them as a compact two-by-two grid beside Log (Clone and "Warp to..." on the
+  title line, Delete and the Loop toggle with its period on the story line; a route-bound
+  mission shows "Looped by route" in the toggle's place), so the story keeps most of the
+  width. A physics-locked period shows its value only (`~13d-19d`, `~6h`); what sets it
+  (`Mun window, varies`, `Kerbin rot`) is in its hover. The Next
+  launch column is gone: the countdown lives in the story, and the warning its amber tint
+  used to carry (a drifted station, a refused arrival, a launch outside its alignment
+  tolerance) is in the story's hover. The `Events (N)` list under each mission is gone: its
+  one unique piece, naming the other mission a dock connects to with a Go to button, is on
+  the Docked partner rows (`Docked partner: CD (mission 'CD Freighter')`), including a row
+  for a dock this mission recorded with another mission's vessel. Vessel and interval rows
+  no longer cut off the bottom of letters like `g` and `p`. The window the Missions `Log`
+  and the Logistics `Log (Route)` / `Log (Mission)` buttons open is titled
+  `Parsek - Log: <name>`.
 - **Parsek's own windows say "timeline", not "your timeline", "the timeline" or
   "committed".** The Kerbals launcher hover, the Kerbals window's Reserved and Lost hovers
   (`Held on timeline by the flight ...`, `Lost on a flight on timeline.`), the reserved-crew

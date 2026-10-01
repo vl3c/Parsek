@@ -56,11 +56,12 @@ namespace Parsek
         // playback from the recording's start instead of resuming mid-mission.
         public double LoopAnchorUT = double.NaN;
 
-        // Archived = removed from the Missions window list when the window's "Archive" toggle is
-        // on (purely a list-management flag for long lists, mirroring a recording's Hidden flag).
-        // It does not change looping or ghost playback - a still-looping archived mission keeps
-        // looping; un-archive (or turn the Archive toggle off) to see it again.
-        public bool Archived;
+        // Collapsed = the Missions tab draws only this mission's two-line bar (title, values,
+        // summary, buttons) and hides the rows below it (vessel, interval detail, chapter and
+        // Docked partner rows). Missions-tab view state only: it does not change looping or ghost
+        // playback. Saved as "collapsed"; a save written before the rename carries the same flag
+        // as "archived" (the retired Archive list filter's per-mission mark), which Load reads.
+        public bool Collapsed;
 
         // M-MIS-5 (D3): the interval-key SCHEMA GENERATION this selection was last authored /
         // reconciled under. 0 = pre-M-MIS-5 (dock edges did not exist, so an excluded structural
@@ -99,7 +100,7 @@ namespace Parsek
             copy.LoopIntervalSeconds = LoopIntervalSeconds;
             copy.LoopTimeUnit = LoopTimeUnit;
             copy.LoopAnchorUT = LoopAnchorUT;
-            copy.Archived = Archived;
+            copy.Collapsed = Collapsed;
             // The clone's selection was authored under the SAME schema generation as its source
             // (a not-yet-reconciled generation-0 copy must still receive the @dock extension).
             copy.SelectionSchemaGeneration = SelectionSchemaGeneration;
@@ -117,7 +118,7 @@ namespace Parsek
             node.AddValue("loopTimeUnit", LoopTimeUnit.ToString());
             node.AddValue("loopAnchorUT",
                 LoopAnchorUT.ToString("R", CultureInfo.InvariantCulture));
-            node.AddValue("archived", Archived);
+            node.AddValue("collapsed", Collapsed);
             node.AddValue("selectionSchemaGeneration",
                 SelectionSchemaGeneration.ToString(CultureInfo.InvariantCulture));
             foreach (string h in ExcludedThroughLineHeadIds)
@@ -163,8 +164,10 @@ namespace Parsek
             if (double.TryParse(node.GetValue("loopAnchorUT"),
                     NumberStyles.Float, CultureInfo.InvariantCulture, out double loopAnchor))
                 m.LoopAnchorUT = loopAnchor;
-            if (bool.TryParse(node.GetValue("archived"), out bool archived))
-                m.Archived = archived;
+            // "collapsed" first; an older save's "archived" carries the same per-mission flag.
+            string collapsedValue = node.GetValue("collapsed") ?? node.GetValue("archived");
+            if (bool.TryParse(collapsedValue, out bool collapsed))
+                m.Collapsed = collapsed;
 
             // M-MIS-5 (D3): the ONLY path that yields generation 0 - a save written before the
             // key existed (or a malformed value). The field initializer defaults every freshly

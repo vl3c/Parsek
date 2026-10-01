@@ -98,15 +98,11 @@ namespace Parsek.InGameTests
             UnityEngine.Vector2 originalScroll = missions.ScrollPosForTesting;
             bool originalShowUI = flight.ShowUIForTesting;
             int originalTab = table.SelectedTabForTesting;
-            bool originalHideArchived = MissionStore.HideArchived;
             string treeA = SeedTreeIdPrefix + "a";
             string treeB = SeedTreeIdPrefix + "b";
 
             try
             {
-                // The Archive filter would drop a seeded block out of the list entirely.
-                MissionStore.HideArchived = false;
-
                 SeedTree(treeA, "Parsek Reveal Probe A");
                 SeedTree(treeB, "Parsek Reveal Probe B");
 
@@ -182,7 +178,6 @@ namespace Parsek.InGameTests
                     "MissionRevealInGameTests");
                 PruneSeededMissions(treeA, treeB);
                 missions.ScrollPosForTesting = originalScroll;
-                MissionStore.HideArchived = originalHideArchived;
                 table.SelectedTabForTesting = originalTab;
                 table.IsOpen = originalOpen;
                 flight.ShowUIForTesting = originalShowUI;

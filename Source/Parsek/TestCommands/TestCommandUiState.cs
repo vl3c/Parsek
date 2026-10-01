@@ -57,8 +57,8 @@ namespace Parsek.TestCommands
     /// several independent expansion collections with overlapping key shapes - the Missions
     /// window alone has <c>expandedGroups</c> (group NAMES), <c>expandedChains</c> (block
     /// ids), <c>expandedVessels</c> and <c>collapsedLegs</c> (both
-    /// <c>missionId:headId</c>), and <c>digestExpanded</c> (mission ids). A flat key could
-    /// not say which one it meant, and two of them share a shape exactly. So the wire key
+    /// <c>missionId:headId</c>), and each mission's <c>Collapsed</c> flag (mission ids). A
+    /// flat key could not say which one it meant, and two of them share a shape exactly. So the wire key
     /// is <c>&lt;prefix&gt;:&lt;value&gt;</c>, split at the FIRST colon (the value may
     /// carry more).</para>
     ///
@@ -168,7 +168,10 @@ namespace Parsek.TestCommands
         internal const string ChainKeyPrefix = "chain";
         internal const string VesselKeyPrefix = "vessel";
         internal const string LegKeyPrefix = "leg";
-        internal const string DigestKeyPrefix = "digest";
+        /// <summary>A Missions-tab mission's Collapse / Expand (<c>Mission.Collapsed</c>),
+        /// keyed by mission id. Expanded = not collapsed, so the wire speaks "expanded" like
+        /// every other set. Named keys only: `key=all` / `key=none` skip it.</summary>
+        internal const string MissionKeyPrefix = "mission";
         internal const string RowKeyPrefix = "row";
         internal const string RosterKeyPrefix = "roster";
         internal const string FlightsKeyPrefix = "flights";
@@ -180,7 +183,7 @@ namespace Parsek.TestCommands
 
         private static readonly string[] MissionsExpandPrefixes = new[]
         {
-            GroupKeyPrefix, ChainKeyPrefix, VesselKeyPrefix, LegKeyPrefix, DigestKeyPrefix,
+            GroupKeyPrefix, ChainKeyPrefix, VesselKeyPrefix, LegKeyPrefix, MissionKeyPrefix,
         };
 
         private static readonly string[] LogisticsExpandPrefixes = new[] { RowKeyPrefix };

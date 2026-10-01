@@ -72,9 +72,12 @@ namespace Parsek
             "(its own include set, loop period, and Archive flag). A looping mission's copy " +
             "starts with Loop off.";
 
-        internal const string ArchiveCheckboxTooltip =
-            "Hide this mission from the list while the Archive filter is on. Does not change " +
-            "looping or ghost playback.";
+        internal const string CollapseButtonTooltip =
+            "Hide this mission's vessel rows; its title bar stays. Does not change looping or " +
+            "ghost playback.";
+
+        internal const string ExpandButtonTooltip =
+            "Show this mission's vessel rows again.";
 
         internal const string WarpToButtonTooltip =
             "Fast-forward the game clock to just before this mission's next launch.";
@@ -96,12 +99,33 @@ namespace Parsek
         internal const string PeriodTooltipLocked =
             "Period locked to the launch / transfer window - set by physics, not editable.";
 
+        /// <summary>
+        /// The hover of the locked period cell, which shows the value only: the full display
+        /// with its qualifier ("~13d-19d (Mun window, varies)") and then the locked-state
+        /// sentence, on ONE line (the help strip it echoes in is one line tall). Pure.
+        /// </summary>
+        internal static string BuildLockedPeriodTooltip(string fullPeriodDisplay)
+        {
+            return string.IsNullOrEmpty(fullPeriodDisplay)
+                ? PeriodTooltipLocked
+                : fullPeriodDisplay + DetailFragmentSeparator + PeriodTooltipLocked;
+        }
+
         // The two "Next launch" (formerly TTL) state words (T1.5).
         internal const string NextLaunchTooltipNotAligned =
             "Not aligned: this mission is not on a faithful launch schedule (its shape cannot be " +
             "phase-locked, or no loop unit was built for it).";
         internal const string NextLaunchTooltipContinuous =
             "Continuous: the loop has no window to line up with, so it relaunches on its own cadence.";
+
+        /// <summary>
+        /// The next-launch warning for a launch outside its alignment tolerance when no named
+        /// reason (station drift, arrival) is set. Until Missions Model 1 that case was an amber
+        /// tint on the Next launch cell with no words at all; the column is gone and the warning
+        /// rides the summary line's tooltip instead.
+        /// </summary>
+        internal const string NextLaunchToleranceWarning =
+            "The next launch misses its alignment tolerance; the replay may not line up.";
 
         // The state words BuildTMinusCellText emits; matched here so the tooltip picker never
         // needs to re-derive the state.
@@ -379,54 +403,80 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The T2.1 narrative summary line:
+        /// The colour of the countdown segment on the summary line, as the rich-text hex of
+        /// the window's amber (<c>MissionsWindowUI.LoopPeriodClampColor</c>, 1 / 0.8 / 0.4;
+        /// a unit test holds the two together).
+        /// </summary>
+        internal const string SummaryCountdownColorHex = "#ffcc66";
+
+        // What a '<' in player-authored text becomes on the rich-text summary line. Unity's
+        // IMGUI rich text has no escape sequence, so a kerbal or body name spelling a real tag
+        // ("<b>", "<color=red>") would restyle the rest of the line. U+2039 (single
+        // left-pointing angle quotation mark) reads as the same character, is in every
+        // Windows-1252 font KSP ships with, and can never open a tag.
+        internal const char RichTextOpenReplacement = '‹';
+
+        /// <summary>
+        /// Makes text safe to place on a rich-text label: every '&lt;' becomes
+        /// <see cref="RichTextOpenReplacement"/>, so nothing in it can open a tag. Null in,
+        /// null out. Pure.
+        /// </summary>
+        internal static string EscapeRichText(string text)
+        {
+            if (string.IsNullOrEmpty(text) || text.IndexOf('<') < 0)
+                return text;
+            return text.Replace('<', RichTextOpenReplacement);
+        }
+
+        /// <summary>
+        /// The T2.1 narrative summary line, as RICH TEXT:
         /// <c>"Kerbin → Mun → Kerbin · 2d 3h · Jeb, Bob, Val · Landed
-        /// · Loops ~6.4d · Next launch T-2d 4h"</c>. The body path leads; when none is
-        /// derivable the span dates stand in (the T1.1 form), so the line never starts with a
-        /// bare duration. Crew renders as names when recorded, else as the bare count. Every
-        /// piece is omitted when it has no value. Pure - the caller supplies the already-
-        /// formatted date / duration / period / countdown strings.
+        /// · &lt;color=#ffcc66&gt;Next launch T- 2d 4h&lt;/color&gt;"</c> (no "Loops ~P" piece:
+        /// the period cell beside the line shows the loop period). The
+        /// body path leads; when none is derivable the span dates stand in (the T1.1 form), so
+        /// the line never starts with a bare duration. Crew renders as names when recorded,
+        /// else as the bare count. Every piece is omitted when it has no value. Every piece is
+        /// escaped (<see cref="EscapeRichText"/>) and only the countdown segment carries
+        /// markup, so the label that draws it must set <c>richText</c>. Pure - the caller
+        /// supplies the already-formatted date / duration / period / countdown strings.
         /// </summary>
         internal static string BuildNarrativeSummaryLine(
             string bodyPathText, string startDateText, string endDateText, string durationText,
-            string crewNamesText, int crewCount, string terminalWord, string loopPeriodText,
-            string nextLaunchText)
+            string crewNamesText, int crewCount, string terminalWord, string nextLaunchText)
         {
             var ic = CultureInfo.InvariantCulture;
             var sb = new StringBuilder();
 
             if (!string.IsNullOrEmpty(bodyPathText))
             {
-                Append(sb, bodyPathText);
+                Append(sb, EscapeRichText(bodyPathText));
             }
             else
             {
                 bool hasStart = !string.IsNullOrEmpty(startDateText);
                 bool hasEnd = !string.IsNullOrEmpty(endDateText);
                 if (hasStart && hasEnd)
-                    Append(sb, startDateText + SummarySpanArrow + endDateText);
+                    Append(sb, EscapeRichText(startDateText + SummarySpanArrow + endDateText));
                 else if (hasStart)
-                    Append(sb, startDateText);
+                    Append(sb, EscapeRichText(startDateText));
                 else if (hasEnd)
-                    Append(sb, endDateText);
+                    Append(sb, EscapeRichText(endDateText));
             }
 
             if (!string.IsNullOrEmpty(durationText))
-                Append(sb, durationText);
+                Append(sb, EscapeRichText(durationText));
 
             if (!string.IsNullOrEmpty(crewNamesText))
-                Append(sb, crewNamesText);
+                Append(sb, EscapeRichText(crewNamesText));
             else if (crewCount > 0)
                 Append(sb, crewCount.ToString(ic) + " crew");
 
             if (!string.IsNullOrEmpty(terminalWord))
-                Append(sb, terminalWord);
-
-            if (!string.IsNullOrEmpty(loopPeriodText))
-                Append(sb, loopPeriodText);
+                Append(sb, EscapeRichText(terminalWord));
 
             if (!string.IsNullOrEmpty(nextLaunchText))
-                Append(sb, "Next launch " + nextLaunchText);
+                Append(sb, "<color=" + SummaryCountdownColorHex + ">Next launch "
+                    + EscapeRichText(nextLaunchText) + "</color>");
 
             return sb.ToString();
         }
@@ -673,9 +723,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The "Next launch" cell tooltip: the state explanation for the two engine words, joined
-        /// with any amber reason(s) already carried by the cell. Null when there is nothing to
-        /// say (a blank cell, or a plain countdown with no amber). Pure.
+        /// The next-launch note: the state explanation for the two engine words, joined with any
+        /// warning. Null when there is nothing to say (no loop, or a plain countdown with no
+        /// warning). Since Missions Model 1 it is the tail of the summary line's tooltip
+        /// (<see cref="BuildSummaryTooltip"/>), not a cell's. Pure.
         /// </summary>
         internal static string BuildNextLaunchCellTooltip(string cellText, string amberReasons)
         {
@@ -691,6 +742,136 @@ namespace Parsek
             if (state != null)
                 return state;
             return hasAmber ? amberReasons : null;
+        }
+
+        /// <summary>
+        /// The mission summary line's tooltip: the detail fragments (span dates, vessel count,
+        /// roster) followed by the next-launch note when there is one, joined on ONE line with
+        /// <see cref="DetailFragmentSeparator"/> (the help strip it echoes in is one line tall).
+        /// Pure.
+        /// </summary>
+        internal static string BuildSummaryTooltip(string detailTooltip, string nextLaunchNote)
+        {
+            bool hasDetail = !string.IsNullOrEmpty(detailTooltip);
+            bool hasNote = !string.IsNullOrEmpty(nextLaunchNote);
+            if (hasDetail && hasNote)
+                return detailTooltip + DetailFragmentSeparator + nextLaunchNote;
+            return hasDetail ? detailTooltip : (hasNote ? nextLaunchNote : null);
+        }
+
+        /// <summary>
+        /// The mission bar's "Start event" value (Missions Model 1): the start event of the
+        /// mission's FIRST vessel row ("Launch" for an ordinary mission; whatever created the
+        /// first vessel otherwise). "" when there is no row. Pure.
+        /// </summary>
+        internal static string MissionStartEventText(IReadOnlyList<MissionVesselRow> vesselRows)
+        {
+            if (vesselRows == null || vesselRows.Count == 0 || vesselRows[0] == null)
+                return "";
+            return vesselRows[0].StartEvent ?? "";
+        }
+
+        // ===================== Docked partner rows (Missions Model 1) =====================
+        //
+        // The Events foldout is gone; its one unique piece of content - naming the OTHER
+        // mission a dock connects to, with a "Go to" that opens it - lives on the Docked
+        // partner rows. The digest (MissionEventDigest) stays the source of that naming.
+
+        internal const string DockedPartnerPrefix = "Docked partner: ";
+
+        /// <summary>
+        /// The name cell of a Docked partner row for a dock another mission recorded onto this
+        /// mission's vessel: <c>"Docked partner: CD (mission 'CD Freighter')"</c>, or without
+        /// the mission when none names it. Pure.
+        /// </summary>
+        internal static string BuildDockedPartnerLabel(string partnerVesselName, string partnerMissionName)
+        {
+            string vessel = string.IsNullOrEmpty(partnerVesselName) ? "?" : partnerVesselName;
+            return string.IsNullOrEmpty(partnerMissionName)
+                ? DockedPartnerPrefix + vessel
+                : DockedPartnerPrefix + vessel + " (mission '" + partnerMissionName + "')";
+        }
+
+        /// <summary>
+        /// The name cell of a Docked partner row for a dock THIS mission recorded with another
+        /// mission's vessel. The digest's partner text already reads <c>"CD (mission 'CD
+        /// Freighter')"</c> across a mission boundary. Pure.
+        /// </summary>
+        internal static string BuildRecordedDockPartnerLabel(string digestPartnerText)
+        {
+            return string.IsNullOrEmpty(digestPartnerText)
+                ? DockedPartnerPrefix + "?"
+                : DockedPartnerPrefix + digestPartnerText;
+        }
+
+        /// <summary>The Start event word for a recorded dock row: "Boarded" for a boarding
+        /// merge, "Docked" otherwise (the same words a foreign link row shows). Pure.</summary>
+        internal static string RecordedDockEventWord(string digestVerb)
+        {
+            return string.Equals(digestVerb, MissionEventDigest.VerbBoarded, System.StringComparison.Ordinal)
+                ? "Boarded"
+                : "Docked";
+        }
+
+        /// <summary>
+        /// The digest rows that become Docked partner rows of their OWN: docks this mission's
+        /// tree recorded (verb "Docked with" / "Boarded") whose partner lives in another
+        /// mission, i.e. rows with a Go to target. Docks another mission recorded onto this
+        /// tree ("Docked by" / "Boarded by") are not selected - each already has a row, the
+        /// derived foreign link's. Every other digest row (launches, undocks, terminals, gaps)
+        /// is not drawn at all. Order kept (the digest is chronological). Pure.
+        /// </summary>
+        internal static List<MissionEventRow> SelectRecordedCrossMissionDocks(
+            IReadOnlyList<MissionEventRow> digest)
+        {
+            var result = new List<MissionEventRow>();
+            if (digest == null)
+                return result;
+            for (int i = 0; i < digest.Count; i++)
+            {
+                MissionEventRow row = digest[i];
+                bool owned = string.Equals(row.Verb, MissionEventDigest.VerbDockedWith, System.StringComparison.Ordinal)
+                    || string.Equals(row.Verb, MissionEventDigest.VerbBoarded, System.StringComparison.Ordinal);
+                if (owned && !string.IsNullOrEmpty(row.GoToRecordingId))
+                    result.Add(row);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// The digest row a derived foreign dock link corresponds to: the one whose source
+        /// branch point IS the link (a foreign link's id is its claiming branch point's id).
+        /// False (and a default row) when the digest has none. Pure.
+        /// </summary>
+        internal static bool FindDigestRowForBranchPoint(
+            IReadOnlyList<MissionEventRow> digest, string branchPointId, out MissionEventRow row)
+        {
+            row = default(MissionEventRow);
+            if (digest == null || string.IsNullOrEmpty(branchPointId))
+                return false;
+            for (int i = 0; i < digest.Count; i++)
+            {
+                if (string.Equals(digest[i].SourceBranchPointId, branchPointId, System.StringComparison.Ordinal)
+                    && !string.Equals(digest[i].Verb, MissionEventDigest.VerbGap, System.StringComparison.Ordinal))
+                {
+                    row = digest[i];
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The Go to button's tooltip on a Docked partner row: the mission it opens when known,
+        /// else the partner it leads to. Pure.
+        /// </summary>
+        internal static string BuildPartnerGoToTooltip(string partnerMissionName, string partnerText)
+        {
+            if (!string.IsNullOrEmpty(partnerMissionName))
+                return "Show mission '" + partnerMissionName + "' in this list";
+            return string.IsNullOrEmpty(partnerText)
+                ? "Show the other side of this dock in this list"
+                : "Show the other side of this dock in this list: " + partnerText;
         }
 
         // ===================== T1.6 - the loop-conflict outcome =====================

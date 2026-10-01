@@ -14,7 +14,7 @@ namespace Parsek.UI.Gallery
         /// Pick up rows.</summary>
         internal bool RouteMode;
 
-        /// <summary>The window title's tail (the window draws "Parsek - " + this).</summary>
+        /// <summary>The window title's tail (the window draws "Parsek - Log: " + this).</summary>
         internal string Title;
 
         /// <summary>The rows, already in the order the builder would have produced.</summary>

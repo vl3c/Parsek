@@ -274,8 +274,6 @@ namespace Parsek.TestCommands
                 // flip. Valid on both windows and identical on both.
                 case TestCommandUiWindowState.ArchivedKey:
                     return TimelineWindowUI.ShowArchivedRecordings;
-                case TestCommandUiWindowState.ArchivedMissionsKey:
-                    return MissionStore.HideArchived;
                 default:
                     // Unreachable through the parse (the key came from that window's own
                     // table), so a miss here means the table and this switch have drifted.
@@ -303,9 +301,6 @@ namespace Parsek.TestCommands
                     return;
                 case TestCommandUiWindowState.ArchivedKey:
                     TimelineWindowUI.ShowArchivedRecordings = value;
-                    return;
-                case TestCommandUiWindowState.ArchivedMissionsKey:
-                    MissionStore.HideArchived = value;
                     return;
                 default:
                     throw new InvalidOperationException(

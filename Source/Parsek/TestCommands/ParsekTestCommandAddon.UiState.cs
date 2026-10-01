@@ -113,19 +113,19 @@ namespace Parsek.TestCommands
                 wantExpanded = scope == UiExpandScope.All;
                 for (int i = 0; i < sets.Count; i++)
                 {
+                    // A named-keys-only set (a mission's Collapse / Expand) is not a
+                    // disclosure a bulk op should flip: `key=none` would otherwise collapse
+                    // every mission and turn the tab's "collapsed" census pictures into a
+                    // list of bare title bars.
+                    if (sets[i].NamedKeysOnly)
+                        continue;
                     List<string> known = sets[i].Enumerate();
                     for (int k = 0; k < known.Count; k++)
                         if (sets[i].Set(known[k], wantExpanded)) changed++;
                 }
             }
 
-            int expandedCount = 0;
-            int total = 0;
-            for (int i = 0; i < sets.Count; i++)
-            {
-                expandedCount += sets[i].Count();
-                total += sets[i].Enumerate().Count;
-            }
+            CountExpandSets(sets, rawKey, out int expandedCount, out int total);
 
             uiActionPending = new UiActionPending
             {
@@ -153,13 +153,7 @@ namespace Parsek.TestCommands
             // from the executed one would be a genuine finding rather than noise, which is
             // what makes holding the frame worth it.
             List<UiExpandSet> sets = ResolveExpandSets(ctx.Ui, pending.Window);
-            int expandedCount = 0;
-            int total = 0;
-            for (int i = 0; i < sets.Count; i++)
-            {
-                expandedCount += sets[i].Count();
-                total += sets[i].Enumerate().Count;
-            }
+            CountExpandSets(sets, pending.ExpandKey, out int expandedCount, out int total);
 
             ParsekLog.Info(Tag, $"uiaction expand window={pending.Window} "
                 + $"key={pending.ExpandKey} state={Bool(pending.ExpandState)} "
@@ -182,6 +176,37 @@ namespace Parsek.TestCommands
             internal Func<List<string>> Enumerate;
             internal Func<string, bool, bool> Set;
             internal Func<int> Count;
+
+            /// <summary>Driven by a named key only: skipped by `key=all` / `key=none`,
+            /// and counted on its own when a named key targets it (so the bulk ops'
+            /// `expanded=` / `total=` echoes keep meaning what every pinned spec reads).</summary>
+            internal bool NamedKeysOnly;
+        }
+
+        /// <summary>The `expanded=` / `total=` pair an expand echoes: over the one set a
+        /// named key targets when that set is named-keys-only, else over every set that is
+        /// not.</summary>
+        private static void CountExpandSets(List<UiExpandSet> sets, string rawKey,
+            out int expandedCount, out int total)
+        {
+            string keyPrefix = null;
+            int colon = rawKey != null ? rawKey.IndexOf(':') : -1;
+            if (colon > 0)
+                keyPrefix = rawKey.Substring(0, colon);
+            UiExpandSet named = null;
+            for (int i = 0; i < sets.Count; i++)
+                if (sets[i].NamedKeysOnly && sets[i].Prefix == keyPrefix) { named = sets[i]; break; }
+
+            expandedCount = 0;
+            total = 0;
+            for (int i = 0; i < sets.Count; i++)
+            {
+                bool counted = named != null ? ReferenceEquals(sets[i], named) : !sets[i].NamedKeysOnly;
+                if (!counted)
+                    continue;
+                expandedCount += sets[i].Count();
+                total += sets[i].Enumerate().Count;
+            }
         }
 
         private static List<UiExpandSet> ResolveExpandSets(ParsekUI ui, string window)
@@ -231,10 +256,13 @@ namespace Parsek.TestCommands
                 });
                 sets.Add(new UiExpandSet
                 {
-                    Prefix = TestCommandUiState.DigestKeyPrefix,
-                    Enumerate = mw.EnumerateDigestKeysForTesting,
-                    Set = mw.SetDigestExpandedForTesting,
-                    Count = () => mw.ExpandedDigestCountForTesting,
+                    // A mission's Collapse / Expand: the SAME field its Interact button
+                    // writes, INVERTED like the leg set (the store holds what is collapsed).
+                    Prefix = TestCommandUiState.MissionKeyPrefix,
+                    Enumerate = mw.EnumerateMissionExpandKeysForTesting,
+                    Set = mw.SetMissionExpandedForTesting,
+                    Count = () => mw.ExpandedMissionCountForTesting,
+                    NamedKeysOnly = true,
                 });
                 return sets;
             }

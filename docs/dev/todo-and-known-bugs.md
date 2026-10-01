@@ -15,6 +15,70 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MISSIONS-TAB-MODEL1: the Missions tab redesign, first slice ("Model 1") [OWNER-APPROVED 2026-09-29, branch `missions-model1`. IN PROGRESS]
+
+Presentation only (no recording data, schema or store change, no new UI surface, no new loop
+UX). Owner decisions 2026-09-29: Model 1 approved; keep the `Looped by route` label in Basic;
+no loop word in Basic; ship a clean first version, photograph it, iterate.
+
+- [x] Summary line at the title's font size, muted by colour instead of size and alpha; the
+  `Next launch T- ...` segment in amber (`#ffcc66`, the window's clamp amber) through rich
+  text, with every other piece escaped (`MissionPresentation.EscapeRichText`).
+- [x] Loop surfaces Advanced-only (owner ruling: they depend on Advanced mission looping):
+  Clone, Delete, `Warp to...` (drawn only while looping, a same-width space otherwise; the
+  "Turn Loop on" refusal is gone), the `Next launch` header and row cells together, the
+  summary's `Loops ~P` / `Next launch T-` pieces, and the loop-selection styling (dimmed
+  excluded vessels, `(partial)`, the chapter `[~]` / dimming, partner-journey rows).
+  `MissionsTabColumnSequenceTests` pins that the header and every row kind draw the same
+  columns in both modes.
+- [x] The mission bar is a table row: line 1 = index, title, then the mission-level Start
+  time / Start event / End event / End time under their headings, a blank Re-Fly cell and the
+  Archive checkbox (`DrawMissionValueRow`; superseded by iteration 2: one Interact column,
+  Collapse / Expand instead of Archive); line 2 = the wrapping summary on the left and the
+  right-aligned buttons (`DrawMissionActionLine`). The `Next launch` column is deleted; its
+  amber warning reasons (plus a sentence for the tolerance-only case, which was tint alone)
+  ride the summary tooltip. Every countdown is amber now, so a warned launch no longer looks
+  different from a plain one until hovered - a candidate for the next iteration.
+- [x] The `Events (N)` foldout is removed (`DrawEventDigestRows`, its expansion state and the
+  seam's `digest:` expand key with it; GUI-1 drops its `ksc-missions-missions-events-advanced`
+  capture). Its unique content moved onto the Docked partner rows: `Docked partner: <vessel>
+  (mission '<name>')` plus a `Go to` in the Re-Fly slot (now the Interact column), and a new row of the same shape for a
+  dock this mission recorded with another mission's vessel (`DrawRecordedDockPartnerRow`).
+  `MissionEventDigest` stays as the partner-text / Go to source.
+- [x] The Log window (StructureListWindowUI) is titled `Parsek - Log: <mission or route name>`
+  (bare `Parsek - Log` untargeted); the seam window token stays `structure`.
+- [x] Iteration 2 (owner mock-up 2026-09-30): the Re-Fly and Archive columns merge into ONE
+  `Interact` column carrying every per-row button (Watch + Rewind / Forward, Collapse /
+  Expand, Fly / Stash + Seal, Go to); one width system (`InteractButtonWidth` 100 single, pair
+  halves 48, gap 4, pinned 2 * pair + gap == single; Log uses the single width). Log moves
+  into line 1's name cell, the Advanced loop group into line 2's. Archive becomes Collapse /
+  Expand (`Mission.Collapsed`, an older save's `archived` loads as collapsed); the "hide
+  archived missions" filter, its header checkbox and the seam key `archivedMissions` are
+  removed, `op=expand key=mission:<id>` drives Collapse. The owner's "+10 px" single width (80)
+  would leave pair halves at 38, exactly today's cramped Stash, so the single is 100 - flagged
+  for the owner. Descender clipping on single-line row cells fixed at the style.
+- [x] Iteration 3: the Advanced loop controls are a fixed 2x2 grid beside Log (Clone / Warp
+  to... on line 1, Delete / Loop + period on line 2), both lines ending at the same x.
+- [x] Iteration 4 (owner, 2026-09-30): the locked period cell shows the value only
+  (`~13d-19d`), the qualifier moves into its hover (`BuildLockedPeriodTooltip`, one line,
+  inside the tooltip-echo budget); a route-bound mission draws `Looped by route` in the
+  toggle's place; the grid shrinks from A 70 / B 164 / cell 264 to A 70 / B 92 / cell 192
+  with `Warp to...` filling column B (no gap before Log). The summary drops `Loops ~P`.
+
+## MISSION-EVENT-DIGEST-DUPLICATE-LAUNCHED-ROW: the digest builds a second "launched" row for one flight [FILED 2026-09-29 from MISSIONS-TAB-MODEL1. OPEN, low, not player-visible]
+
+`MissionEventDigest.AddLaunchRows` (`Source/Parsek/MissionEventDigest.cs`) emits one
+`Launched` row per recording with no incoming branch-point child edge. On the owner's
+screenshots the Events foldout showed two `launched` rows for one mission, most likely an
+optimizer continuation segment (a chain continuation is not a branch-point child) read as
+a second root. Since Missions Model 1 the digest is no longer drawn as a list: only its
+cross-tree merge rows (`Docked with` / `Boarded` with a Go to target, and the rows keyed by
+a foreign link's branch point) reach the screen, through the Docked partner rows, so the
+duplicate is not visible anywhere. The builder and its tests still produce it. Fix when a
+consumer of the launch rows returns: skip a recording whose chain predecessor exists
+(`ChainId` / `ChainIndex > 0`), or key launch rows on through-line heads rather than on
+branch-point roots. Not investigated further.
+
 ## ~~BDOCK-1-STATION-SEPARATE-NOT-OBSERVED: the BDOCK-1 mission never sees the station separation it just performed~~ [FILED 2026-09-30 from the #1931 / #1932 verification flights. FIXED 2026-09-30, PR #1934, flight-proven]
 
 `BDOCK-1-station-interceptor` classifies INVALID(autopilot-flake) twice on a build of main + #1931 + #1932
@@ -5696,7 +5760,9 @@ relaunch cadence range, the basis names the dominant celestial event, and
 `BuildScheduledPeriodCellDisplay`'s own comment says so - but `~57d 5h` is neither end of
 `13d-19d`, so nothing on the row explains the third number. **Fix:** name what `Loops ~P`
 is measuring, or show the same quantity in both places. Recorded as a legibility finding
-rather than an arithmetic one: no number here has been shown to be wrong.
+rather than an arithmetic one: no number here has been shown to be wrong. **Resolved
+2026-09-30 (MISSIONS-TAB-MODEL1 iteration 4):** the summary no longer carries `Loops ~P`, so
+the period cell is the only period on the row.
 
 **18. The main window's root rect reports `height = 0` in every dump,** across all 20
 runs. This is WINDOW-side and by design, not a recorder defect: both hosts zero the height

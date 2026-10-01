@@ -139,7 +139,10 @@ pointed at nothing and a reader could see that a row collapses but never what co
 hides. Six new labels, all Advanced, all inside the lane's existing missions open/close
 pair (no window is opened, so every pinned `describe` echo is untouched), driven by five
 `UiAction op=expand` steps: `key=none` -> `group:` + `chain:` -> `key=all` -> `key=none`
--> `digest:`. Spec-only: no C# changed.
+-> `digest:`. Spec-only: no C# changed. (2026-09-29, Missions Model 1: the Events foldout
+and the seam's `digest:` key were removed, so GUI-1 dropped its sixth fold capture,
+`ksc-missions-missions-events-advanced`, and the `digest:` expand step with its pin; the
+other five fold captures stand.)
 
 **THE READING RUN IS `2026-09-22_1631` (PASS, attempt 1, 87 s wall, 60 harvested files =
 29 PNG + 29 `<label>.gui.json` + the `GuiTree` probe's own dump + `KSP.log`), on a DLL

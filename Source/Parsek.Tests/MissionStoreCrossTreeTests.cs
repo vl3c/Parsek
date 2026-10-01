@@ -293,7 +293,7 @@ namespace Parsek.Tests
                 LoopIntervalSeconds = 42.5,
                 LoopTimeUnit = LoopTimeUnit.Min,
                 LoopAnchorUT = 1234.5,
-                Archived = true,
+                Collapsed = true,
             };
             m.ExcludedThroughLineHeadIds.Add("headX");
             m.ExcludedIntervalKeys.Add("intervalY");
@@ -311,7 +311,7 @@ namespace Parsek.Tests
             Assert.Equal(new[]
             {
                 "id", "treeId", "name", "loopPlayback", "loopIntervalSeconds", "loopTimeUnit",
-                "loopAnchorUT", "archived", "selectionSchemaGeneration",
+                "loopAnchorUT", "collapsed", "selectionSchemaGeneration",
                 "excludedHead", "excludedInterval",
             }, names);
             Assert.Equal(new[]

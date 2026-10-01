@@ -2585,7 +2585,8 @@ UIACTION_NUDGE_VALUES: Tuple[str, ...] = ("true", "false")
 # from this map keeps no expansion state the seam can drive, and `op=expand` against it
 # is the `expand-unsupported-window` REJECTED - so the absence is meaningful here too.
 # The `missions` row covers BOTH tabs of that one window: group folders and chain blocks
-# on the Recordings tab, vessel / leg / digest rows on the Missions tab. The `kerbals`
+# on the Recordings tab, vessel / leg rows and each mission's Collapse / Expand
+# (`mission:<id>`) on the Missions tab. The `kerbals`
 # row takes one prefix per TAB instead: `roster` drives a Roster row's replacement-chain
 # view plus that tab's plain-kerbal fold row (key `(available)`), `flights` drives a
 # Flights group's fold.
@@ -2595,7 +2596,7 @@ UIACTION_NUDGE_VALUES: Tuple[str, ...] = ("true", "false")
 # windows OPEN with every category expanded (each seeds its fold set from its own
 # discovery), so the collapsed list is the state no capture had.
 UIACTION_EXPAND_PREFIXES: Dict[str, Tuple[str, ...]] = {
-    "missions": ("group", "chain", "vessel", "leg", "digest"),
+    "missions": ("group", "chain", "vessel", "leg", "mission"),
     "logistics": ("row",),
     "kerbals": ("roster", "flights"),
     "testrunner": ("category",),
@@ -2617,13 +2618,13 @@ UIACTION_EXPAND_BULK_KEYS: Tuple[str, ...] = ("all", "none")
 # toggle and the Recordings tab's Archive header checkbox write the same persisted bool
 # (GroupHierarchyStore.HideActive) in opposite label senses; two keys with opposite
 # polarities for one flag would have made every lane read the source to learn which it
-# had. The Missions tab's OWN archive filter (MissionStore.HideArchived) is a different
-# flag over a different list, so it is `archivedMissions` and keeps the store's HIDE
-# sense.
+# had. (The Missions tab's own "hide archived missions" filter, once `archivedMissions`,
+# is gone: Missions Model 1 turned its per-mission mark into Collapse / Expand, driven by
+# the `op=expand` key `mission:<id>`.)
 UIACTION_STATE_KEYS: Dict[str, Tuple[str, ...]] = {
     "timeline": ("srcRecordings", "srcActions", "srcEvents", "archived", "customRange",
                  "preset", "scrollY"),
-    "missions": ("archived", "archivedMissions", "scrollX"),
+    "missions": ("archived", "scrollX"),
 }
 
 # Which half of `op=state`'s two-shaped grammar each key takes. A BOOL key takes

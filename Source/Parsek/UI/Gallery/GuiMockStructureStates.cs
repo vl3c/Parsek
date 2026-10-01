@@ -154,11 +154,11 @@ namespace Parsek.UI.Gallery
 
         private static GuiMockState Mission(string id, string note, string[] covers,
                                             Func<List<StructureStep>> build)
-            => New(id, note, covers, build, routeMode: false, title: "Mission structure");
+            => New(id, note, covers, build, routeMode: false, title: "Mock mission");
 
         private static GuiMockState Route(string id, string note, string[] covers,
                                           Func<List<StructureStep>> build)
-            => New(id, note, covers, build, routeMode: true, title: "Route structure");
+            => New(id, note, covers, build, routeMode: true, title: "Mock route");
 
         private static GuiMockState New(string id, string note, string[] covers,
                                         Func<List<StructureStep>> build,

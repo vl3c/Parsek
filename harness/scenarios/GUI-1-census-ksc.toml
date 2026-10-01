@@ -79,9 +79,9 @@ tier = "operator"
 # the count is the seam's whole TABLE, not the scene's drawn set.
 # The two flight-only windows - spawncontrol and gloops - belong to GUI-2; asking for
 # either here is a REJECTED (`window-not-in-scene`) by design rather than a capture of a
-# scene without them. Fourteen of the captures are TABS: missions x8 (its two tabs, each
-# in the restored, the collapsed and the fully expanded state, plus one deep fold
-# apiece), timeline x4 (its filter modes), kerbals x2. Settings has six SECTIONS rather than tabs (they
+# scene without them. Fourteen of the captures are TABS: missions x7 (its two tabs, each
+# in the restored, the collapsed and the fully expanded state, plus one deep fold on
+# the Recordings tab), timeline x4 (its filter modes), kerbals x2. Settings has six SECTIONS rather than tabs (they
 # all draw in one pass, and three are hidden in Basic), so the Advanced/Basic pair IS its
 # section coverage; Logistics' bubbles are expand-collapse, not a selector.
 #
@@ -104,14 +104,14 @@ tier = "operator"
 #   - `ksc-missions-{missions,recordings}-collapsed-advanced` - `key=none`, the floor;
 #   - `ksc-missions-{missions,recordings}-expanded-advanced`  - `key=all`, the ceiling;
 #   - `ksc-missions-recordings-chain-advanced` - ONE chain block, the rest shut;
-#   - `ksc-missions-missions-events-advanced`  - ONE mission's Events digest, ditto.
-# The two SINGLE-key steps are what `key=all` cannot buy: under `all`, a chain block and
-# an event digest are two open things among every other open thing, and the picture
-# stops saying which affordance drew what. Their ids are host-specific and the spec says
-# so at the pins below.
-# ORDERING IS DELIBERATE: none -> chain -> all -> (tab) -> none -> digest, which is four
-# expand ops for six pictures, because the expand sets are per WINDOW rather than per
-# TAB. The two pre-existing `ksc-missions-*-advanced` captures are KEPT and still come
+#   - (`ksc-missions-missions-events-advanced`, ONE mission's Events digest, was the
+#     sixth; Missions Model 1 (2026-09-29) removed the Events foldout and with it the
+#     seam's `digest:` key, so that capture is gone and the five remain.)
+# The SINGLE-key step is what `key=all` cannot buy: under `all`, a chain block is one
+# open thing among every other open thing, and the picture stops saying which affordance
+# drew what. Its id is host-specific and the spec says so at the pins below.
+# ORDERING IS DELIBERATE: none -> chain -> all -> (tab) -> none, which is three expand
+# ops for five pictures, because the expand sets are per WINDOW rather than per TAB. The two pre-existing `ksc-missions-*-advanced` captures are KEPT and still come
 # first: they photograph the state the window RESTORES, which is the state a player
 # actually opens it in, and none of the six replaces that.
 #
@@ -263,10 +263,10 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "ksc-missions-recordings-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-missions-recordings-advanced" }, expect = "OK" },
 
-  # --- THE SIX FOLD CAPTURES (added 2026-09-22) ---
+  # --- THE FIVE FOLD CAPTURES (added 2026-09-22 as six; the Events one went 2026-09-29) ---
   # Everything shut FIRST, so the two collapsed pictures are a COMMANDED state rather
   # than whatever the two captures above happened to restore. One `key=none` serves both
-  # tabs: the five expand sets this window resolves (group, chain, vessel, leg, digest)
+  # tabs: the four expand sets this window resolves (group, chain, vessel, leg)
   # are one collection per window, not per tab, so the state written here is still
   # standing when the tab flips.
   { cmd = "UiAction", args = { op = "expand", window = "missions", key = "none" }, expect = "OK" },
@@ -296,11 +296,6 @@ steps = [
   { cmd = "UiAction", args = { op = "expand", window = "missions", key = "none" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-missions-missions-collapsed-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-missions-missions-collapsed-advanced" }, expect = "OK" },
-  # ONE mission's Events digest, on its own. `digest:` is the Missions tab's event-digest
-  # foldout, keyed by MISSION ID (MissionsWindowUI.EnumerateDigestKeysForTesting).
-  { cmd = "UiAction", args = { op = "expand", window = "missions", key = "digest:6fab7338969f4bb2a6fcc7027a012bce" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "ksc-missions-missions-events-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "ksc-missions-missions-events-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
 
   # timeline (four filter modes, treated as tabs: four mutually exclusive views)
@@ -554,24 +549,22 @@ required = [
   # reds here rather than producing a picture of the collapsed section under the expanded
   # label. `expanded=` / `total=` are left open: they count this host's live row set. ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=logistics key=row:nearmiss:section state=true changed=1 expanded=[0-9]+ total=[0-9]+",
-  # --- the Missions window's four fold ops, which is what the six fold captures assert.
+  # --- the Missions window's fold ops, which is what the five fold captures assert.
   # `expanded=` is the WHOLE claim here and it is the only one a local-fixture lane may
   # make: `expanded=0` says the collapsed pictures really photograph a shut window, and
   # `expanded=[1-9][0-9]*` says the expanded ones really photograph an open one. The
   # counts themselves are this host's live row set and stay regexed.
-  # THE TWO NAMED KEYS PIN `changed=1`, for the reason the near-miss step above does: a
+  # THE NAMED KEYS PIN `changed=1`, for the reason the near-miss step above does: a
   # key the window no longer enumerates is REJECTED outright by `op=expand` (the run
   # would read INVALID at that step), and a key that resolves but changes nothing would
-  # otherwise produce a picture of a collapsed row under an expanded label. Both ids were
+  # otherwise produce a picture of a collapsed row under an expanded label. The ids were
   # read out of the staged host's own `persistent.sfs`
-  # (`chain:` from the RECORDING chainId with the most members, `digest:` from the
-  # MISSION whose tree carries the most recordings), so a RE-STAGE that drops either is
-  # meant to red here rather than to photograph nothing. ---
+  # (`chain:` from the RECORDING chainId with the most members), so a RE-STAGE that drops
+  # one is meant to red here rather than to photograph nothing. ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=none state=false changed=[0-9]+ expanded=0 total=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=group:R3-B2-U1-S7 state=true changed=1 expanded=1 total=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=chain:97aedc38ca2f46fca19adab0a569dbdc state=true changed=1 expanded=2 total=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=all state=true changed=[0-9]+ expanded=[1-9][0-9]* total=[0-9]+",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=digest:6fab7338969f4bb2a6fcc7027a012bce state=true changed=1 expanded=[1-9][0-9]* total=[0-9]+",
   # --- and one capture, proving the write-and-settle path end to end ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=ksc-main-advanced",
   # --- every dump, each pinning the arm-time funnel reading for its own frame ---
@@ -583,7 +576,6 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-missions-recordings-expanded-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-missions-missions-expanded-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-missions-missions-collapsed-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-missions-missions-events-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-overview-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-details-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-rewindff-advanced .*patched=17/17",

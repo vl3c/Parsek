@@ -532,8 +532,11 @@ namespace Parsek.Tests
         /// </summary>
         internal static bool DrawsThePeriodTooltipLockedConstant(string src)
         {
-            return SourceScanText.StripCSharpComments(src)
-                .IndexOf("MissionPresentation.PeriodTooltipLocked", StringComparison.Ordinal) >= 0;
+            // The locked cell draws the constant through BuildLockedPeriodTooltip (which appends
+            // it after the qualified period), so either spelling is a live consumer.
+            string code = SourceScanText.StripCSharpComments(src);
+            return code.IndexOf("MissionPresentation.PeriodTooltipLocked", StringComparison.Ordinal) >= 0
+                || code.IndexOf("MissionPresentation.BuildLockedPeriodTooltip(", StringComparison.Ordinal) >= 0;
         }
 
         [Fact]
@@ -551,6 +554,123 @@ namespace Parsek.Tests
                 MissionPresentation.BuildNextLaunchCellTooltip("T- 2h 14m", "station orbit drifted"));
             Assert.Null(MissionPresentation.BuildNextLaunchCellTooltip("T- 2h 14m", null));
             Assert.Null(MissionPresentation.BuildNextLaunchCellTooltip("", null));
+        }
+
+        // catches: the Next launch cell's warning being dropped when the column went away
+        // (Missions Model 1): it must ride the summary tooltip, after the detail, on ONE line.
+        [Fact]
+        public void BuildSummaryTooltip_AppendsTheNextLaunchNoteOnOneLine()
+        {
+            string sep = MissionPresentation.DetailFragmentSeparator;
+            Assert.Equal("Y1, D12 - 3 vessels" + sep + "station orbit drifted",
+                MissionPresentation.BuildSummaryTooltip("Y1, D12 - 3 vessels", "station orbit drifted"));
+            Assert.Equal("Y1, D12", MissionPresentation.BuildSummaryTooltip("Y1, D12", null));
+            Assert.Equal(MissionPresentation.NextLaunchToleranceWarning,
+                MissionPresentation.BuildSummaryTooltip(
+                    "", MissionPresentation.NextLaunchToleranceWarning));
+            Assert.Null(MissionPresentation.BuildSummaryTooltip(null, ""));
+            Assert.DoesNotContain("\n", MissionPresentation.BuildSummaryTooltip(
+                "a", MissionPresentation.NextLaunchTooltipNotAligned));
+        }
+
+        // The tolerance-only warning used to be an amber tint with no words; it is the one
+        // warning the tooltip spells itself, so pin that it says what it is about.
+        [Fact]
+        public void NextLaunchToleranceWarning_NamesTheLaunchAndTheTolerance()
+        {
+            Assert.Contains("next launch", MissionPresentation.NextLaunchToleranceWarning);
+            Assert.Contains("tolerance", MissionPresentation.NextLaunchToleranceWarning);
+            Assert.DoesNotContain("your timeline", MissionPresentation.NextLaunchToleranceWarning);
+            Assert.DoesNotContain("committed", MissionPresentation.NextLaunchToleranceWarning);
+        }
+
+        // ---- Docked partner rows (the Events foldout's cross-link, moved) ----
+
+        [Fact]
+        public void BuildDockedPartnerLabel_NamesTheVesselAndItsMission()
+        {
+            Assert.Equal("Docked partner: CD (mission 'CD Freighter')",
+                MissionPresentation.BuildDockedPartnerLabel("CD", "CD Freighter"));
+            Assert.Equal("Docked partner: CD", MissionPresentation.BuildDockedPartnerLabel("CD", null));
+            Assert.Equal("Docked partner: ?", MissionPresentation.BuildDockedPartnerLabel("", ""));
+            Assert.Equal("Docked partner: CD (mission 'CD Freighter')",
+                MissionPresentation.BuildRecordedDockPartnerLabel("CD (mission 'CD Freighter')"));
+            Assert.Equal("Docked partner: ?", MissionPresentation.BuildRecordedDockPartnerLabel(null));
+        }
+
+        // catches: the recorded-dock rows duplicating the foreign-link rows (a "Docked by"
+        // digest row already has its link's row), picking up a same-tree dock (no Go to, the
+        // player is already in that mission), or resurfacing the digest's other rows - the
+        // duplicate "launched" row among them.
+        [Fact]
+        public void SelectRecordedCrossMissionDocks_KeepsOnlyOwnedDocksWithAGoTo()
+        {
+            var digest = new List<MissionEventRow>
+            {
+                new MissionEventRow { UT = 1, Verb = MissionEventDigest.VerbLaunched, SubjectName = "A" },
+                new MissionEventRow { UT = 2, Verb = MissionEventDigest.VerbLaunched, SubjectName = "A" },
+                new MissionEventRow { UT = 3, Verb = MissionEventDigest.VerbDockedWith,
+                    PartnerText = "CD (mission 'CD Freighter')", GoToRecordingId = "rec-cd",
+                    SourceBranchPointId = "bp-1" },
+                new MissionEventRow { UT = 4, Verb = MissionEventDigest.VerbDockedWith,
+                    PartnerText = "B", GoToRecordingId = null, SourceBranchPointId = "bp-2" },
+                new MissionEventRow { UT = 5, Verb = MissionEventDigest.VerbDockedBy,
+                    PartnerText = "EF (mission 'EF')", GoToRecordingId = "rec-ef",
+                    SourceBranchPointId = "bp-3" },
+                new MissionEventRow { UT = 6, Verb = MissionEventDigest.VerbBoarded,
+                    PartnerText = "Jeb (mission 'J')", GoToRecordingId = "rec-j",
+                    SourceBranchPointId = "bp-4" },
+                new MissionEventRow { UT = 7, Verb = MissionEventDigest.VerbUndocked, SubjectName = "A" },
+            };
+            List<MissionEventRow> rows = MissionPresentation.SelectRecordedCrossMissionDocks(digest);
+            Assert.Equal(2, rows.Count);
+            Assert.Equal("rec-cd", rows[0].GoToRecordingId);
+            Assert.Equal("rec-j", rows[1].GoToRecordingId);
+            Assert.Equal("Docked", MissionPresentation.RecordedDockEventWord(rows[0].Verb));
+            Assert.Equal("Boarded", MissionPresentation.RecordedDockEventWord(rows[1].Verb));
+            Assert.Empty(MissionPresentation.SelectRecordedCrossMissionDocks(null));
+        }
+
+        [Fact]
+        public void FindDigestRowForBranchPoint_MatchesTheDockNotItsGapRow()
+        {
+            var digest = new List<MissionEventRow>
+            {
+                new MissionEventRow { Verb = MissionEventDigest.VerbGap, SourceBranchPointId = "bp-9",
+                    GapSeconds = 7200 },
+                new MissionEventRow { Verb = MissionEventDigest.VerbDockedBy, SourceBranchPointId = "bp-9",
+                    GoToRecordingId = "rec-x" },
+            };
+            Assert.True(MissionPresentation.FindDigestRowForBranchPoint(digest, "bp-9", out MissionEventRow row));
+            Assert.Equal("rec-x", row.GoToRecordingId);
+            Assert.False(MissionPresentation.FindDigestRowForBranchPoint(digest, "bp-1", out row));
+            Assert.Null(row.GoToRecordingId);
+            Assert.False(MissionPresentation.FindDigestRowForBranchPoint(null, "bp-9", out row));
+        }
+
+        [Fact]
+        public void BuildPartnerGoToTooltip_NamesTheMissionItOpens()
+        {
+            Assert.Equal("Show mission 'CD Freighter' in this list",
+                MissionPresentation.BuildPartnerGoToTooltip("CD Freighter", "CD"));
+            Assert.Contains("CD", MissionPresentation.BuildPartnerGoToTooltip(null, "CD"));
+            Assert.False(string.IsNullOrEmpty(MissionPresentation.BuildPartnerGoToTooltip(null, null)));
+        }
+
+        [Fact]
+        public void MissionStartEventText_IsTheFirstVesselRowsStartEvent()
+        {
+            Assert.Equal("", MissionPresentation.MissionStartEventText(null));
+            Assert.Equal("", MissionPresentation.MissionStartEventText(new List<MissionVesselRow>()));
+            Assert.Equal("Launch", MissionPresentation.MissionStartEventText(new List<MissionVesselRow>
+            {
+                new MissionVesselRow { StartEvent = "Launch" },
+                new MissionVesselRow { StartEvent = "Decoupled" },
+            }));
+            Assert.Equal("", MissionPresentation.MissionStartEventText(new List<MissionVesselRow>
+            {
+                new MissionVesselRow { StartEvent = null },
+            }));
         }
 
         [Fact]
@@ -662,13 +782,76 @@ namespace Parsek.Tests
             string sep = MissionPresentation.SummarySeparator;
             string line = MissionPresentation.BuildNarrativeSummaryLine(
                 "Kerbin → Mun", "Y1, D12", "Y1, D14", "2d 3h",
-                "Jeb, Bob", 2, "Landed", "Loops ~6.4d", "T- 2h 14m");
+                "Jeb, Bob", 2, "Landed", "T- 2h 14m");
+            // The countdown is the ONE marked-up segment: amber, the window's clamp colour. No
+            // "Loops ~P" piece: the period cell beside the line shows the loop period.
             Assert.Equal(
                 "Kerbin → Mun" + sep + "2d 3h" + sep + "Jeb, Bob" + sep + "Landed"
-                + sep + "Loops ~6.4d" + sep + "Next launch T- 2h 14m",
+                + sep + "<color=#ffcc66>Next launch T- 2h 14m</color>",
                 line);
+            Assert.DoesNotContain("Loops", line);
             // The span dates are the tooltip's job once a body path leads the line.
             Assert.DoesNotContain("Y1, D12", line);
+        }
+
+        // catches: the countdown colour drifting away from the amber the rest of the window
+        // uses for the loop schedule (the locked period cell, the overlap-cap clamp).
+        [Fact]
+        public void SummaryCountdownColor_IsTheWindowsAmber()
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            UnityEngine.Color c = MissionsWindowUI.LoopPeriodClampColor;
+            string hex = "#"
+                + ((int)Math.Round(c.r * 255)).ToString("x2", ic)
+                + ((int)Math.Round(c.g * 255)).ToString("x2", ic)
+                + ((int)Math.Round(c.b * 255)).ToString("x2", ic);
+            Assert.Equal(hex, MissionPresentation.SummaryCountdownColorHex);
+        }
+
+        // catches: a kerbal or body name that spells a real rich-text tag restyling the rest
+        // of the summary line (or hiding it) once the label renders rich text.
+        [Fact]
+        public void BuildNarrativeSummaryLine_EscapesTagsInPlayerText()
+        {
+            string line = MissionPresentation.BuildNarrativeSummaryLine(
+                "<b>Kerbin", null, null, null, "Jeb <color=red>Kerman", 1, "Landed",
+                "T- 5m 0s");
+            // The only '<' left on the line is the countdown's own markup.
+            string withoutCountdown = line.Replace(
+                "<color=#ffcc66>Next launch T- 5m 0s</color>", "");
+            Assert.DoesNotContain("<", withoutCountdown);
+            Assert.Contains(MissionPresentation.RichTextOpenReplacement + "b>Kerbin", line);
+            Assert.Contains(
+                "Jeb " + MissionPresentation.RichTextOpenReplacement + "color=red>Kerman", line);
+        }
+
+        // catches: the locked period cell's qualifier being lost when the cell went value-only
+        // (owner decision 2026-09-30): it must ride the hover, ahead of the locked-state
+        // sentence, on ONE line that fits the Missions help strip.
+        [Fact]
+        public void BuildLockedPeriodTooltip_CarriesTheQualifierOnOneLine()
+        {
+            string full = MissionsWindowUI.BuildScheduledPeriodCellDisplay(
+                13 * 21600.0, 19 * 21600.0, ConstraintKind.Orbital, "Mun");
+            string tip = MissionPresentation.BuildLockedPeriodTooltip(full);
+            Assert.StartsWith(full, tip);
+            Assert.Contains("(Mun window, varies)", tip);
+            Assert.EndsWith(MissionPresentation.PeriodTooltipLocked, tip);
+            Assert.DoesNotContain("\n", tip);
+            Assert.True(tip.Length
+                <= TooltipEchoBudgetTests.BudgetChars(1355f, TooltipEchoBox.SingleLine),
+                "locked period tooltip is " + tip.Length + " chars");
+            Assert.Equal(MissionPresentation.PeriodTooltipLocked,
+                MissionPresentation.BuildLockedPeriodTooltip(null));
+        }
+
+        [Fact]
+        public void EscapeRichText_ReplacesOnlyTheTagOpener()
+        {
+            Assert.Null(MissionPresentation.EscapeRichText(null));
+            Assert.Equal("", MissionPresentation.EscapeRichText(""));
+            Assert.Equal("Jeb Kerman", MissionPresentation.EscapeRichText("Jeb Kerman"));
+            Assert.Equal("a ‹b> c", MissionPresentation.EscapeRichText("a <b> c"));
         }
 
         [Fact]
@@ -676,7 +859,7 @@ namespace Parsek.Tests
         {
             // Fails if a mission with no derivable body path leads with a bare duration.
             string line = MissionPresentation.BuildNarrativeSummaryLine(
-                null, "Y1, D12", "Y1, D14", "2d 3h", null, 0, "", null, null);
+                null, "Y1, D12", "Y1, D14", "2d 3h", null, 0, "", null);
             Assert.Equal(
                 "Y1, D12" + MissionPresentation.SummarySpanArrow + "Y1, D14"
                 + MissionPresentation.SummarySeparator + "2d 3h",
@@ -687,7 +870,7 @@ namespace Parsek.Tests
         public void BuildNarrativeSummaryLine_UnnamedCrewFallsBackToTheCount()
         {
             string line = MissionPresentation.BuildNarrativeSummaryLine(
-                "Kerbin", null, null, null, null, 3, null, null, null);
+                "Kerbin", null, null, null, null, 3, null, null);
             Assert.Equal("Kerbin" + MissionPresentation.SummarySeparator + "3 crew", line);
         }
 

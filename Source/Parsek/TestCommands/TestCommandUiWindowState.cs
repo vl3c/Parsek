@@ -57,10 +57,10 @@ namespace Parsek.TestCommands
     /// carries the key exactly once, valid on BOTH windows, always in the Timeline's
     /// positive sense - <c>state=true</c> means archived rows contribute. Two keys with
     /// opposite polarities for one flag would have made every lane that touched it read the
-    /// source to find out which it had. The Missions window's OWN archive filter
-    /// (<c>MissionStore.HideArchived</c>) is a genuinely different flag over a different
-    /// list, so it is a different key (<c>archivedMissions</c>) - and it keeps the store's
-    /// own HIDE sense, because there is no second control to disagree with.</para>
+    /// source to find out which it had. (The Missions tab's own "hide archived missions"
+    /// filter, once the key <c>archivedMissions</c>, is gone: Missions Model 1 turned its
+    /// per-mission mark into Collapse / Expand, which the <c>op=expand</c> key
+    /// <c>mission:&lt;id&gt;</c> drives.)</para>
     ///
     /// <para><b>ONE KEY IS REFUSED RATHER THAN WRITTEN.</b> <c>srcRecordings state=false</c>
     /// while the Timeline's tier filter is Rewind/FF or Re-Fly: that tab's own draw pass
@@ -91,7 +91,6 @@ namespace Parsek.TestCommands
         internal const string PresetKey = "preset";
         internal const string ScrollYKey = "scrollY";
         internal const string ScrollXKey = "scrollX";
-        internal const string ArchivedMissionsKey = "archivedMissions";
 
         // ----- the time-range presets -----
         //
@@ -159,9 +158,6 @@ namespace Parsek.TestCommands
             // Same flag, same polarity, same key as the Timeline's. The Recordings tab's
             // Archive header checkbox is the other control over it.
             NewKey(ArchivedKey, UiStateKeyKind.Bool),
-
-            // The Missions tab's own archive filter, in MissionStore's HIDE sense.
-            NewKey(ArchivedMissionsKey, UiStateKeyKind.Bool),
 
             // The window's HORIZONTAL scroll offset in pixels (both tabs share it). It only
             // exists while a narrow screen caps the window below its natural width

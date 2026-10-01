@@ -776,11 +776,13 @@ namespace Parsek.Tests
         public void Expand_TheMissionsWindowCoversBothOfItsTabs()
         {
             // ONE window token, five collections: the Recordings tab's group folders and
-            // chain blocks, and the Missions tab's vessel / leg / digest rows.
+            // chain blocks, and the Missions tab's vessel / leg rows and each mission's
+            // Collapse / Expand. (Missions Model 1 removed the Events foldout's `digest`
+            // prefix and added `mission`.)
             string[] prefixes = TestCommandUiState.ExpandPrefixesFor(
                 TestCommandUiAction.MissionsWindow);
             Assert.Equal(
-                new[] { "group", "chain", "vessel", "leg", "digest" }, prefixes);
+                new[] { "group", "chain", "vessel", "leg", "mission" }, prefixes);
         }
 
         [Fact]

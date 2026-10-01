@@ -322,6 +322,13 @@ Surfaces: `MissionsWindowUI` interval rows and link rows ("Docked with CD (missi
 
 ### 7.1 Mission event digest (#4 = issue-1 T2.3, one feature)
 
+> **Rendering retired 2026-09-29 (Missions Model 1).** The collapsed "Events (N)" foldout
+> is gone from the Missions tab. Its only content no other row showed - the other mission a
+> dock connects to, and the Go to that opens it - moved onto the Docked partner rows, which
+> read `MissionEventDigest.Build`'s cross-tree merge rows for the partner naming and the Go
+> to target (a dock this mission recorded gets a Docked partner row of its own). The
+> launch, undock, gap and terminal rows below are still built but drawn nowhere.
+
 `DockEventGraph.BuildEventDigest(graph, tree, missionSelection, missionNameResolver) -> List<MissionEventRow>`, pure:
 
 1. Launch row from the tree root(s) (earliest recording per disconnected root).

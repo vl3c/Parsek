@@ -45,7 +45,7 @@ namespace Parsek.TestCommands
 
         /// <summary><c>op=expand window= key= [state=]</c>: drive a window's own
         /// set-of-expanded-keys (group folders, chain blocks, mission vessel / leg /
-        /// digest rows, logistics route / candidate / section rows).</summary>
+        /// logistics route / candidate / section rows).</summary>
         Expand = 9,
 
         /// <summary><c>op=target window=structure mission=|route=</c>: open a window ON a
@@ -650,8 +650,9 @@ namespace Parsek.TestCommands
             // a WindowHasNoTabsReason rather than a silently ignored arg.
             NewSpec(LogisticsWindow, true, true),
 
-            // StructureListWindowUI. Opening it with no target shows the empty
-            // "Parsek - Structure" chrome; the populated forms are reached from a
+            // StructureListWindowUI, titled "Parsek - Log" (plus ": <mission or route>"
+            // once targeted) though its token stays `structure`. Opening it with no target
+            // shows the empty chrome; the populated forms are reached from a
             // Missions / Logistics row, which no seam op drives today (noted in the
             // census spec's header as a follow-up rather than faked here).
             NewSpec(StructureWindow, true, true),
@@ -866,7 +867,7 @@ namespace Parsek.TestCommands
         /// button inside <c>ParsekUI.DrawWindow</c> (<c>ParsekUI.cs:809</c>);
         /// <c>RecordingsTableUI.ShowMissionForRecording</c> / <c>ScrollToRecording</c>
         /// (<c>RecordingsTableUI.cs:467</c> / <c>:521</c>), reached from the Missions
-        /// digest GoTo and the two Timeline GoTo buttons; and
+        /// Docked partner rows' Go to and the two Timeline GoTo buttons; and
         /// <c>StructureListWindowUI.OpenForMission</c> / <c>OpenForRoute</c>
         /// (<c>StructureListWindowUI.cs:89</c> / <c>:100</c>), reached from the Missions
         /// "Log" and Logistics "Log (Route)" / "Log (Mission)" buttons. The seam

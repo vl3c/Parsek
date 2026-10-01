@@ -110,7 +110,7 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "dd-missions-loopon-advanced" }, expect = "OK" },
 
   # --- STATE 3: loop ON with every addressable row open. The Missions window's expand
-  # prefixes are group / chain / vessel / leg / digest, and `key=all` opens all five
+  # prefixes are group / chain / vessel / leg, and `key=all` opens all four
   # families at once - which buys the per-vessel interval detail sub-rows (a different
   # label grammar, `BuildIntervalRowLabel`) that no capture expands, and any STASH
   # virtual group this host has, whose member rows suppress the loop UI entirely.

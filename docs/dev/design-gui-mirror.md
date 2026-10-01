@@ -1112,6 +1112,7 @@ branch without it - and are harmless only because later runs superseded them.
 | `spawncontrol` | 2026-09-25T18:38:07Z | #1828 | GUI-6-census-flight-playback 2026-09-25_1838 |
 | `structure` | 2026-09-25T18:39:56Z | #1828 | GUI-4-census-missions-docked 2026-09-25_1839 |
 | `settings` | 2026-09-26T10:10:05Z | #1867 | GUI-14-census-settings-and-facility 2026-09-26_1009 |
+| `missions` | 2026-09-30T20:17:21Z | #1927 | GUI-17-census-missions-loop-mun 2026-09-30_2016 |
 
 The `career` row (2026-09-25T20:21:53Z, #1834) was removed 2026-09-27 with the Career State
 window itself: `LayoutEpochTests` holds every key to the seam's window vocabulary, which no
