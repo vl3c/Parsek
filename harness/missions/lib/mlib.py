@@ -63,6 +63,7 @@ Resolved design-doc ambiguities (doc is authoritative; these fill the gaps):
 
 from __future__ import annotations
 
+import functools
 import json
 import math
 from dataclasses import dataclass, field, replace
@@ -13569,6 +13570,55 @@ def _b5_landing_loss_reason(state: B5State, snapshot: TelemetrySnapshot,
                _obs_fmt(snapshot.horizontal_speed), _obs_fmt(snapshot.ut)))
 
 
+def _policy_warp_terminal_teardown(policy_physics, policy_native):
+    """Decorator for a phase machine's ``decide``: on the frame the machine
+    turns TERMINAL, drop any warp the MISSION WARP POLICY still holds, so the
+    runner never drives the cleanup tail (StopRecording / FlushAndQuit) warped.
+
+    ``policy_physics(state)`` -> the physics-warp factor field name the policy
+    holds in this state (or "" for none); ``policy_native(state)`` -> True when
+    the policy owns an in-flight native warp_to_ut. Evaluated on the INPUT
+    state. A teardown action the terminal frame already carries (a cancel, a
+    physics 0) is not duplicated. Covers every terminal path at once, including
+    the generic ones that run before the phase dispatch (vessel lost, frozen
+    telemetry, left the target SOI)."""
+    def wrap(decide):
+        @functools.wraps(decide)
+        def decide_with_teardown(state, snapshot):
+            new_state, actions = decide(state, snapshot)
+            if state.done or not new_state.done:
+                return new_state, actions
+            kinds = [a.kind for a in actions]
+            extra: List[Action] = []
+            field_name = policy_physics(state)
+            if (field_name and getattr(state, field_name, 0) != 0
+                    and ACTION_SET_PHYSICS_WARP not in kinds
+                    and ACTION_CANCEL_WARP not in kinds):
+                extra.append(Action(ACTION_SET_PHYSICS_WARP, 0.0,
+                                    text="terminal: physics warp off"))
+                new_state = replace(new_state, **{field_name: 0})
+            if policy_native(state) and ACTION_CANCEL_WARP not in kinds:
+                extra.append(Action(ACTION_CANCEL_WARP,
+                                    text="terminal: policy warp cancelled"))
+                new_state = replace(new_state, warp_to_cmd=None)
+            return new_state, extra + actions
+        return decide_with_teardown
+    return wrap
+
+
+def _b5_policy_physics_field(state) -> str:
+    """The PARK dwell's physics warp is the policy's; CORRECTION-BURN's flip
+    keeps its own (pre-policy) teardown."""
+    return "phys_warp_cmd" if state.phase == B5_PARK else ""
+
+
+def _b5_policy_native_warp(state) -> bool:
+    """A held capture hand-off or a DESCENT coast warp is the policy's."""
+    return (state.warp_to_cmd is not None
+            and (state.node_wait_ut is not None or state.phase == B5_DESCENT))
+
+
+@_policy_warp_terminal_teardown(_b5_policy_physics_field, _b5_policy_native_warp)
 def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, List[Action]]:
     """Advance the B5 Mun-flyby machine one frame; return (new_state, actions).
 
@@ -24649,6 +24699,11 @@ def _kxrw_cycle_advance(state: KxrwState,
     return state, []
 
 
+def _kxrw_policy_physics_field(state) -> str:
+    return "coast_phys_warp_cmd" if state.phase == KXRW_COAST else ""
+
+
+@_policy_warp_terminal_teardown(_kxrw_policy_physics_field, lambda state: False)
 def kxrw_decide(state: KxrwState,
                 snapshot: TelemetrySnapshot) -> Tuple[KxrwState, List[Action]]:
     """Advance the kx_rewind_watch machine one frame; return (new_state, actions).

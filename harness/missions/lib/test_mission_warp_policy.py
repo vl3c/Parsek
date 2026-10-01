@@ -446,5 +446,60 @@ class KxCoastPhysicsWarpTests(unittest.TestCase):
             replace(_kx_coast(), phase=mlib.KXRW_TREE_STATE)))
 
 
+class TerminalTeardownTests(unittest.TestCase):
+    """Every TERMINAL frame drops a warp the policy still holds, so the runner's
+    cleanup tail never runs warped (review of #1958: the PARK exit through
+    _b5_left_target_soi returned a terminal at 4x)."""
+
+    def test_leaving_the_target_soi_in_park_drops_physics_warp(self):
+        """MUTATION: remove the decorator from b5_decide and this reds."""
+        state = _park_state(phys_warp_cmd=mlib.PHYSICS_DWELL_WARP_INDEX)
+        state, actions = mlib.b5_decide(state, _parked(ut=10.0, body="Kerbin"))
+        self.assertTrue(state.done)
+        self.assertEqual([(mlib.ACTION_SET_PHYSICS_WARP, 0.0)],
+                         [(a.kind, a.value) for a in actions])
+        self.assertEqual(0, state.phys_warp_cmd)
+
+    def test_a_lost_vessel_in_park_drops_physics_warp(self):
+        state = _park_state(phys_warp_cmd=mlib.PHYSICS_DWELL_WARP_INDEX)
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, vessel_lost=True))
+        self.assertTrue(state.done)
+        self.assertEqual([mlib.ACTION_SET_PHYSICS_WARP], kinds(actions))
+
+    def test_the_park_give_up_is_not_torn_down_twice(self):
+        state = _park_state(phys_warp_cmd=mlib.PHYSICS_DWELL_WARP_INDEX)
+        state, actions = mlib.b5_decide(state, _parked(
+            ut=B11_PARAMS.park_timeout + 1.0, angular_velocity=0.5))
+        self.assertTrue(state.done)
+        self.assertEqual(1, kinds(actions).count(mlib.ACTION_SET_PHYSICS_WARP))
+
+    def test_a_lost_vessel_under_a_descent_warp_cancels_it(self):
+        state = _descent_state(warp_to_cmd=900.0)
+        state, actions = mlib.b5_decide(state, snap(ut=500.0, vessel_lost=True))
+        self.assertTrue(state.done)
+        self.assertEqual([mlib.ACTION_CANCEL_WARP], kinds(actions))
+        self.assertIsNone(state.warp_to_cmd)
+
+    def test_a_held_capture_that_dies_cancels_its_warp(self):
+        base = mlib.b5_initial_state(B11_PARAMS)
+        state = replace(base, phase=mlib.B5_CAPTURE_BURN, phase_entry_ut=0.0,
+                        node_wait_ut=5000.0, warp_to_cmd=5000.0)
+        state, actions = mlib.b5_decide(state, snap(ut=100.0, vessel_lost=True))
+        self.assertTrue(state.done)
+        self.assertEqual([mlib.ACTION_CANCEL_WARP], kinds(actions))
+
+    def test_a_lost_vessel_in_the_kx_coast_drops_physics_warp(self):
+        state = _kx_coast(coast_phys_warp_cmd=mlib.PHYSICS_DWELL_WARP_INDEX)
+        state, actions = mlib.kxrw_decide(state, snap(ut=150.0, vessel_lost=True))
+        self.assertTrue(state.done)
+        self.assertEqual([(mlib.ACTION_SET_PHYSICS_WARP, 0.0)],
+                         [(a.kind, a.value) for a in actions])
+
+    def test_an_unwarped_terminal_emits_nothing_extra(self):
+        state, actions = mlib.b5_decide(_park_state(), snap(ut=10.0, vessel_lost=True))
+        self.assertTrue(state.done)
+        self.assertEqual([], actions)
+
+
 if __name__ == "__main__":
     unittest.main()
