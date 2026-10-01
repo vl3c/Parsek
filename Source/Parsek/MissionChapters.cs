@@ -259,7 +259,20 @@ namespace Parsek
                 return name;
             string mission = missionNameResolver(
                 dock.Partner.PartnerTreeId, dock.Partner.PartnerRecordingId);
-            return string.IsNullOrEmpty(mission) ? name : name + " (mission '" + mission + "')";
+            return FormatPartnerWithMission(name, mission);
+        }
+
+        /// <summary>
+        /// "CD" / "CD (mission 'CD Freighter')": a partner vessel named with the mission it
+        /// lives in, the one spelling the Missions tab and the Log share. The caller decides
+        /// whether the mission is worth naming (a same-tree partner passes null).
+        /// </summary>
+        internal static string FormatPartnerWithMission(string vesselName, string missionName)
+        {
+            if (string.IsNullOrEmpty(vesselName)) return null;
+            return string.IsNullOrEmpty(missionName)
+                ? vesselName
+                : vesselName + " (mission '" + missionName + "')";
         }
 
         // A chapter root must be a CONTROLLED recording of this tree: debris is never a leg (it

@@ -12,19 +12,20 @@ namespace Parsek.UI.Gallery
     /// with its <see cref="BranchPoint"/>s, or a <see cref="Logistics.Route"/> with its
     /// stops and one connection window - and then runs
     /// <c>MissionStructureBuilder.Build</c> + <c>MissionStructureListBuilder.Build</c>, or
-    /// <c>RouteStructureListBuilder.Build</c>. Not one label, status or location string is
-    /// typed. That is the only way this window can be mocked honestly, because it draws
-    /// <c>step.Label</c> / <c>step.Status</c> / <c>step.Location</c> VERBATIM: a typed row
-    /// is a picture of nothing.</para>
+    /// <c>RouteStructureListBuilder.Build</c>. Not one label or location string is typed.
+    /// That is the only way this window can be mocked honestly, because it draws
+    /// <c>step.Label</c> / <c>step.Location</c> / <c>step.VesselName</c> VERBATIM: a typed
+    /// row is a picture of nothing. The one other input is <see cref="PartTitles"/>, the
+    /// stock part titles the window resolves through <c>PartLoader</c> in game; titles are
+    /// DATA the builder lists, like a vessel name, not a rendered row.</para>
     ///
-    /// <para>The first version of this file DID type them, and the rows it produced were
-    /// wrong in ways only the builders know about - a terminal row's Event column is always
-    /// the generic <c>"End"</c> with the terminal word in STATUS
-    /// (<c>MissionStructureListBuilder</c>'s terminal pass), a route's dock rows read
-    /// <c>"Dock"</c> / <c>"Undock"</c> rather than the branch-event <c>"Docked"</c> /
-    /// <c>"Undocked"</c>, every route row's Vessel cell is empty, and a staging row reads
-    /// <c>"Staged &lt;part&gt;"</c> rather than a branch label. Running the builders is
-    /// what makes those facts the catalogue's rather than a reviewer's.</para>
+    /// <para>The first version of this file DID type rows, and they were wrong in ways
+    /// only the builders know about - a route's dock rows read <c>"Dock"</c> /
+    /// <c>"Undock"</c> rather than the branch-event <c>"Docked"</c> / <c>"Undocked"</c>,
+    /// every route row's Vessel cell is empty, and a terminal row's wording is the
+    /// builder's (<c>"End: Orbiting"</c>, with no row at all for a leg that ended Docked or
+    /// Boarded). Running the builders is what makes those facts the catalogue's rather than
+    /// a reviewer's.</para>
     ///
     /// <para><b>DETACHED means detached.</b> Nothing built here is added to
     /// <c>RecordingStore</c>, to a tree the store holds, to <c>RouteStore</c>, or to any
@@ -34,15 +35,17 @@ namespace Parsek.UI.Gallery
     /// (<c>scripts/grep-audit-gui-mock-writeset.ps1</c>) allowlists exactly the types
     /// below and fails the build on any store or writer reference.</para>
     ///
-    /// <para><b>The one live cell.</b> The Time column runs
-    /// <c>KSPUtil.PrintDateCompact</c> inside the draw method, so under a mock it is a real
-    /// calendar rendering of the mocked UT. Every state's UTs are therefore chosen to read
-    /// plausibly rather than arbitrarily.</para>
+    /// <para><b>The one live cell.</b> The Time column's FIRST row runs
+    /// <c>KSPUtil.PrintDateCompact</c> when the window takes the steps, so under a mock it
+    /// is a real calendar rendering of the mocked UT; every later row is the pure elapsed
+    /// "T+h:mm:ss" from it. Every state's UTs are therefore chosen to read plausibly
+    /// rather than arbitrarily.</para>
     /// </summary>
     internal static class GuiMockStructureStates
     {
-        // The window's own resize floor is 420x160; its six columns want ~800 before the
-        // Event column starts clipping. 900x420 fits every state's rows unscrolled.
+        // The window's own resize floor is 420x160 and its first-open width 900, where the
+        // Event column holds the builder's unshortened budget. 900x420 fits every state's
+        // rows unscrolled.
         private const int RectW = 900;
         private const int RectH = 420;
 
@@ -50,13 +53,12 @@ namespace Parsek.UI.Gallery
         {
             // ---------- Mission mode: the terminal vocabulary ----------
             //
-            // A terminal row is "End" in Event and the terminal word in STATUS, so these
-            // states are about the Status column - which is exactly where the six
-            // unphotographed words live.
+            // A terminal row's Event cell is "End: <terminal word>", so these states are
+            // about that cell - which is exactly where the unphotographed words live.
 
             into.Add(Mission("structure.mission.terminal-splashed",
-                "Splashed: one of the six terminal STATUS words with no picture. The Event "
-                + "cell reads the generic 'End' - that is what the builder emits.",
+                "Splashed: one of the terminal words with no picture, drawn as "
+                + "'End: Splashed' - that is what the builder emits.",
                 new[] { "TerminalState.Splashed" },
                 () => TerminalRun(TerminalState.Splashed, "Water",
                                   "Booster Recovery Test")));
@@ -84,9 +86,9 @@ namespace Parsek.UI.Gallery
                                   "Pad Teardown")));
 
             into.Add(Mission("structure.mission.terminal-docked",
-                "Docked and Boarded, the two terminal words that end a leg by joining "
-                + "another - each on its own leg, with the Dock and Board branch rows above.",
-                new[] { "TerminalState.Docked", "TerminalState.Boarded" },
+                "Docked and Boarded, the two endings that join another vessel: each leg "
+                + "draws NO End row, because its Docked / Boarded branch row already says it.",
+                new string[0],
                 BuildDockedAndBoardedTerminals));
 
             into.Add(Mission("structure.mission.terminal-orbiting-landed",
@@ -112,13 +114,14 @@ namespace Parsek.UI.Gallery
 
             into.Add(Mission("structure.mission.breakup",
                 "Crashed / Overheated / Broke up / Broke off - the four failure causes the "
-                + "branch-event namer distinguishes, none of them photographed.",
+                + "branch-event namer distinguishes, each naming the piece that left.",
                 new[] { "TerminalState.Destroyed" },
                 BuildBreakupRun));
 
             into.Add(Mission("structure.mission.staging-collapse",
-                "A dense launch: the xN collapse of simultaneous identical staging events "
-                + "beside the two named jettison forms and a 'Staged <part>' row.",
+                "A dense launch: one 'Staged: N pieces (title xN)' row per stage, eight "
+                + "simultaneous shrouds as one row, a fairing whose title list is shortened "
+                + "in the cell (full text in the hover strip) and a lone decouple.",
                 new[] { "StructureStep.CollapsedRun" },
                 BuildStagingRun));
 
@@ -198,6 +201,25 @@ namespace Parsek.UI.Gallery
             private readonly RecordingTree tree = new RecordingTree { Id = "gallery-tree" };
             private uint nextPid = 7000;
 
+            /// <summary>One debris piece (not a leg) dropped by <paramref name="parentId"/>.
+            /// Its own part events never reach the Log; it exists so a stage's branch point
+            /// has the child the recorder gives it.</summary>
+            internal MissionInputs Debris(string id, string parentId, double startUT,
+                                          double endUT)
+            {
+                var rec = new Recording
+                {
+                    RecordingId = id,
+                    VesselName = "Gallery Debris",
+                    IsDebris = true,
+                    ExplicitStartUT = startUT,
+                    ExplicitEndUT = endUT,
+                    ParentAnchorRecordingId = parentId,
+                };
+                tree.Recordings[id] = rec;
+                return this;
+            }
+
             /// <summary>One controlled leg. <paramref name="terminal"/> null means the leg
             /// has no ending, so the terminal pass emits no row for it.</summary>
             internal MissionInputs Leg(string id, string vesselName, double startUT,
@@ -238,7 +260,9 @@ namespace Parsek.UI.Gallery
             internal MissionInputs Branch(BranchPointType type, double ut, string parentId,
                                           string childId, string splitCause = null,
                                           string breakupCause = null,
-                                          uint decouplerPid = 0)
+                                          uint decouplerPid = 0,
+                                          int debrisCount = 0,
+                                          string secondChildId = null)
             {
                 var bp = new BranchPoint
                 {
@@ -249,9 +273,13 @@ namespace Parsek.UI.Gallery
                     SplitCause = splitCause,
                     BreakupCause = breakupCause,
                     DecouplerPartId = decouplerPid,
+                    DebrisCount = debrisCount,
+                    // The recorder's default grouping window for a split.
+                    CoalesceWindow = type == BranchPointType.JointBreak ? 0.5 : 0.0,
                 };
                 if (parentId != null) bp.ParentRecordingIds.Add(parentId);
                 if (childId != null) bp.ChildRecordingIds.Add(childId);
+                if (secondChildId != null) bp.ChildRecordingIds.Add(secondChildId);
                 tree.BranchPoints.Add(bp);
                 return this;
             }
@@ -282,7 +310,25 @@ namespace Parsek.UI.Gallery
             internal List<StructureStep> Rows()
             {
                 MissionStructure structure = MissionStructureBuilder.Build(tree);
-                return MissionStructureListBuilder.Build(tree, structure);
+                return MissionStructureListBuilder.Build(tree, structure, PartTitles);
+            }
+        }
+
+        /// <summary>
+        /// The stock part titles the states name, standing in for the in-game
+        /// <c>PartLoader</c> lookup the window passes. An unknown name returns null, which
+        /// the builder answers with the internal name - its own documented fallback.
+        /// </summary>
+        internal static string PartTitles(string partName)
+        {
+            switch (partName)
+            {
+                case "radialDecoupler1-2": return "TT-38K Radial Decoupler";
+                case "launchClamp1": return "TT18-A Launch Stability Enhancer";
+                case "liquidEngine2": return "LV-T45 \"Swivel\" Liquid Fuel Engine";
+                case "fairingSize1": return "AE-FF1 Airstream Protective Shell (1.25m)";
+                case "Decoupler.1": return "TD-12 Decoupler";
+                default: return null;
             }
         }
 
@@ -386,16 +432,36 @@ namespace Parsek.UI.Gallery
             var inputs = new MissionInputs()
                 .Leg("root", "Heavy Lifter", 600_000.0, 601_400.0, TerminalState.Orbiting,
                      "Kerbin", "LaunchPad", "Prelaunch", launchSite: "Launch Pad");
-            // EIGHT simultaneous shroud jettisons on eight different parts, which is what
-            // a real engine cluster produces and what the collapse walk turns into one
-            // "Shroud jettisoned x8" row. Different pids on purpose: the dedup is keyed on
-            // (eventType, pid) within a tolerance, so eight events on ONE part would be
-            // collapsed to one by the DEDUP rather than by the display collapse.
+            // The launch clamps: three Decoupled parts at the launch moment and the ONE
+            // debris-only branch point the recorder writes for them, which is the stage.
+            for (int i = 0; i < 3; i++)
+                inputs.Staging("root", PartEventType.Decoupled, 600_000.0, "launchClamp1");
+            inputs.Debris("clamp-a", "root", 600_000.0, 600_010.0)
+                  .Branch(BranchPointType.JointBreak, 600_000.0, "root", "clamp-a",
+                          splitCause: "DECOUPLE", debrisCount: 3);
+            // A symmetric pair of radial boosters: both decouplers fire in one physics
+            // moment and the recorder writes one branch point with two debris children.
+            // The second decoupler is the symmetric partner the branch point's single
+            // stored decoupler PID does not name; it still belongs to the stage.
+            inputs.Staging("root", PartEventType.Decoupled, 600_030.0, "radialDecoupler1-2");
+            inputs.Staging("root", PartEventType.Decoupled, 600_030.0, "radialDecoupler1-2");
+            inputs.Debris("booster-a", "root", 600_030.0, 600_090.0)
+                  .Debris("booster-b", "root", 600_030.0, 600_090.0)
+                  .Branch(BranchPointType.JointBreak, 600_030.0, "root", "booster-a",
+                          splitCause: "DECOUPLE", debrisCount: 2,
+                          secondChildId: "booster-b");
+            // A booster's own breakup on its way down: debris, so never a Log row.
+            inputs.Staging("booster-a", PartEventType.Decoupled, 600_088.0, "liquidEngine2");
+            // EIGHT simultaneous shroud jettisons on eight different parts with no branch
+            // point: ONE row naming the part, counted. Different pids on purpose: the dedup
+            // is keyed on (eventType, pid), so eight events on ONE part would be one event.
             for (int i = 0; i < 8; i++)
                 inputs.Staging("root", PartEventType.ShroudJettisoned, 600_046.0,
-                               "engineShroud");
-            inputs.Staging("root", PartEventType.FairingJettisoned, 600_080.0, "fairing.1");
-            inputs.Staging("root", PartEventType.Decoupled, 600_112.0, "decoupler.2");
+                               "liquidEngine2");
+            // A fairing whose full title list is too long for the Event cell: the cell
+            // shortens it and the hover strip carries the whole text.
+            inputs.Staging("root", PartEventType.FairingJettisoned, 600_080.0, "fairingSize1");
+            inputs.Staging("root", PartEventType.Decoupled, 600_112.0, "Decoupler.1");
             return inputs.Rows();
         }
 
