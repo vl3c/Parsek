@@ -1684,7 +1684,7 @@ namespace Parsek
                 ledgerRows = LedgerOrchestrator.TryRecordRecoveryKerbalExperience(
                     untaggedEvents,
                     RecoveredVesselIdentity.FromRawName(
-                        pv.vesselName, VesselLaunchIdentity.ReadLaunchGuid(pv)),
+                        pv.vesselName, VesselLaunchIdentity.ReadLaunchGuid(pv), pv.persistentId),
                     ut);
                 untaggedNoLedgerRow += untaggedEvents.Count - ledgerRows;
             }

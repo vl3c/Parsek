@@ -37,6 +37,26 @@ namespace Parsek
         /// </summary>
         public string LaunchGuid;
 
+        /// <summary>
+        /// KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY (stage 3): the recovering vessel's
+        /// <c>ProtoVessel.persistentId</c>, or 0 when the seam could not supply one.
+        ///
+        /// <para>
+        /// Read by the picker ONLY as a Parsek SPAWN identity: a genuine Parsek spawn
+        /// regenerates the vessel guid AND the pid (<c>VesselSpawner.RegenerateVesselIdentity</c>),
+        /// so the spawned vessel's launch guid matches no recording, but its KSP-unique spawn
+        /// pid equals the source recording's <c>SpawnedVesselPersistentId</c>. A bare
+        /// recorded-pid match is never used - <c>persistentId</c> is craft-baked and shared by
+        /// every launch of the craft.
+        /// </para>
+        ///
+        /// <para>
+        /// Like <see cref="LaunchGuid"/>, deliberately NOT part of <see cref="Matches"/> /
+        /// <see cref="MatchesName"/> / <see cref="FormatForLog"/>.
+        /// </para>
+        /// </summary>
+        public uint PersistentId;
+
         public bool HasName =>
             !string.IsNullOrEmpty(RawName) ||
             !string.IsNullOrEmpty(NormalizedName);
@@ -54,6 +74,18 @@ namespace Parsek
         public static RecoveredVesselIdentity FromRawName(string rawName, string launchGuid)
         {
             return FromNames(rawName, Recording.ResolveLocalizedName(rawName), launchGuid);
+        }
+
+        /// <summary>
+        /// The identity a recovery seam holding a <c>ProtoVessel</c> builds: name plus the
+        /// launch guid plus the vessel's persistentId (see <see cref="PersistentId"/>).
+        /// </summary>
+        public static RecoveredVesselIdentity FromRawName(
+            string rawName, string launchGuid, uint persistentId)
+        {
+            var identity = FromRawName(rawName, launchGuid);
+            identity.PersistentId = persistentId;
+            return identity;
         }
 
         public static RecoveredVesselIdentity FromNames(string rawName, string normalizedName)

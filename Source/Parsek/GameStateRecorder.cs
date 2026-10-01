@@ -978,7 +978,9 @@ namespace Parsek
                 // guid alongside the name so a recovery-science subject cannot be scoped to a
                 // DIFFERENT launch of the same craft. Null (no ProtoVessel, or no vessel guid)
                 // leaves the filter inert.
-                VesselLaunchIdentity.ReadLaunchGuid(vessel));
+                VesselLaunchIdentity.ReadLaunchGuid(vessel),
+                // Stage 3: the pid is the spawn identity for a Parsek-spawned vessel.
+                vessel != null ? vessel.persistentId : 0u);
         }
 
         /// <summary>
@@ -1045,7 +1047,8 @@ namespace Parsek
             float scienceGainMultiplier,
             double captureUt,
             string vesselName,
-            string launchGuid)
+            string launchGuid,
+            uint vesselPersistentId = 0)
         {
             if (string.IsNullOrEmpty(subjectId))
             {
@@ -1148,7 +1151,8 @@ namespace Parsek
                 directLedgerHandled = LedgerOrchestrator.TryRecordKscScienceSubject(
                     pendingSubject,
                     deployedScience ? null : vesselName,
-                    deployedScience ? null : launchGuid);
+                    deployedScience ? null : launchGuid,
+                    deployedScience ? 0u : vesselPersistentId);
             }
 
             if (!directLedgerHandled)

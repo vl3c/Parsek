@@ -218,10 +218,18 @@ class L6SpecFixtureSyncTests(unittest.TestCase):
         # The lane's whole value is these two lines. A future edit that drops
         # either turns a green run into "the mission flew", which several lanes
         # already prove.
+        # Since KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 3 (identity first) the
+        # prior launch is excluded by the LAUNCH-GUID path rather than dropped by the
+        # stage-1 filter, so the subject literal is `nameOnlyIgnored=2`.
         required = self.spec["expectations"]["logContracts"]["required"]
-        self.assertTrue(any("PickRecoveryRecordingId" in t and "guidDropped=2" in t
+        self.assertTrue(any("PickRecoveryRecordingId path:" in t
+                            and "path=launch-guid" in t
+                            and "nameOnlyIgnored=2" in t
                             for t in required),
-                        "the pick-line token with guidDropped=2 is gone: %r" % required)
+                        "the path-line token with nameOnlyIgnored=2 is gone: %r" % required)
+        self.assertTrue(any("PickRecoveryRecordingId:" in t and "path=launch-guid" in t
+                            for t in required),
+                        "the pick-line token on the launch-guid path is gone: %r" % required)
         self.assertTrue(any("Recovery kerbal XP recorded" in t for t in required),
                         "the XP-row token is gone: %r" % required)
 

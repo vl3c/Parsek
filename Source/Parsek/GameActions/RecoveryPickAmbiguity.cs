@@ -11,6 +11,35 @@ namespace Parsek
     /// <see cref="RecoveryPickAmbiguity.TierToken"/> so the pick summary line and the
     /// stage-2 refusal line cannot drift apart.
     /// </summary>
+    internal enum RecoveryPickPath
+    {
+        /// <summary>
+        /// The recovery carried no launch guid, or no eligible recording carries it (legacy
+        /// id-less data, or a vessel Parsek never recorded): vessel NAME, then the stage-1
+        /// guid filter, then the UT tiers, with the stage-2 refusal on the XP leg.
+        /// </summary>
+        NameFallback = 0,
+
+        /// <summary>
+        /// At least one eligible recording carries the recovering vessel's launch guid: the
+        /// candidate set is exactly those recordings (names ignored), plus the active Re-Fly
+        /// session's provisional when its own guid is still unknown and it name-matches.
+        /// Every identity match carries ONE known guid, so the stage-2 corroboration clause
+        /// reads one-known-launch and the refusal cannot fire on this path - except over an
+        /// admitted id-less provisional, which stage 2 reads as uncorroborated (the safe
+        /// direction).
+        /// </summary>
+        LaunchGuid,
+
+        /// <summary>
+        /// No recording carries the launch guid, but the recovering vessel is a genuine
+        /// Parsek spawn: its KSP-unique pid equals a recording's
+        /// <c>SpawnedVesselPersistentId</c> (adoption stamps, where that pid is the
+        /// craft-baked recorded pid, excluded).
+        /// </summary>
+        SpawnPid,
+    }
+
     internal enum RecoveryPickTier
     {
         /// <summary>No candidate survived; the picker returned null.</summary>
@@ -52,6 +81,13 @@ namespace Parsek
 
         /// <summary>How many candidates the stage-1 launch-guid filter dropped.</summary>
         public int GuidDropped;
+
+        /// <summary>
+        /// Which identity decided the candidate set (stage 3). On the identity paths
+        /// <see cref="NameMatchCount"/> is diagnostic only and <see cref="GuidDropped"/> is 0,
+        /// because the name walk and the stage-1 filter did not decide anything.
+        /// </summary>
+        public RecoveryPickPath Path;
 
         public int SurvivorCount => Survivors == null ? 0 : Survivors.Count;
     }
@@ -247,6 +283,17 @@ namespace Parsek
                 case RecoveryPickTier.MostRecentEnded: return "most-recent-ended";
                 case RecoveryPickTier.GlobalLatest: return "global-latest";
                 default: return "none";
+            }
+        }
+
+        /// <summary>Log token for <see cref="RecoveryPickPath"/>.</summary>
+        internal static string PathToken(RecoveryPickPath path)
+        {
+            switch (path)
+            {
+                case RecoveryPickPath.LaunchGuid: return "launch-guid";
+                case RecoveryPickPath.SpawnPid: return "spawn-pid";
+                default: return "name-fallback";
             }
         }
 

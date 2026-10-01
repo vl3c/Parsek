@@ -438,9 +438,27 @@ namespace Parsek.Tests
 
             Assert.Equal("rec-launch-B", picked.RecordingId);
             Assert.Equal(RecoveryPickTier.MostRecentEnded, picked.Tier);
+            // Stage 3: B carries the live guid, so the LAUNCH-GUID path decided. The name
+            // count is diagnostic only and the stage-1 filter did not run.
+            Assert.Equal(RecoveryPickPath.LaunchGuid, picked.Path);
             Assert.Equal(2, picked.NameMatchCount);
-            Assert.Equal(1, picked.GuidDropped);
+            Assert.Equal(0, picked.GuidDropped);
             Assert.Equal("rec-launch-B", Assert.Single(picked.Survivors).RecordingId);
+
+            // The name fallback still reports the filter's work when no recording carries
+            // the recovering guid (A legacy and id-less, B a different known launch).
+            RecordingStore.ResetForTesting();
+            AddRec("rec-legacy", "Hopper", 100.0, 500.0, null);
+            AddRec("rec-other", "Hopper", 600.0, 900.0, GuidA);
+            var fallback = LedgerOrchestrator.PickRecoveryRecording(
+                RecoveredVesselIdentity.FromRawName("Hopper", GuidB), 1000.0);
+            Assert.Equal(RecoveryPickPath.NameFallback, fallback.Path);
+            Assert.Equal(2, fallback.NameMatchCount);
+            Assert.Equal(1, fallback.GuidDropped);
+            Assert.Equal("rec-legacy", Assert.Single(fallback.Survivors).RecordingId);
+            RecordingStore.ResetForTesting();
+            AddRec("rec-launch-A", "Hopper", 100.0, 500.0, GuidA);
+            AddRec("rec-launch-B", "Hopper", 600.0, 900.0, GuidB);
 
             // The id-only overload is the same decision, so funds and science see no change.
             Assert.Equal(
@@ -583,15 +601,31 @@ namespace Parsek.Tests
 
             // AND THE PRE-FIX SHAPE, so the cell proves the write site is what saves this
             // recovery rather than something else in the chain: blank the continuation's guid
-            // - what a snapshot-less continuation used to persist - and the SAME recovery is
-            // refused as a mixed, uncorroborated set.
+            // - what a snapshot-less continuation used to persist.
+            //
+            // Stage 3 changed what that shape does WHEN THE RECOVERY CARRIES A GUID: the
+            // launch-guid path sees only the stamped pre-split segment, so the row is written
+            // to that segment of the SAME launch (never refused, never another launch) - the
+            // blank continuation is unreachable by identity, which is exactly why the write
+            // site must stamp it.
             Ledger.Clear();
             logLines.Clear();
             continuation.RecordedVesselGuid = null;
 
-            Assert.Equal(0, LedgerOrchestrator.TryRecordRecoveryKerbalExperience(
+            Assert.Equal(1, LedgerOrchestrator.TryRecordRecoveryKerbalExperience(
                 new List<GameStateEvent> { XpEvent("Bill Kerman", 1000.0) },
                 identity, 1000.0));
+            Assert.Equal(
+                "rec-pre-split",
+                Ledger.Actions.Single(a => a.Type == GameActionType.KerbalExperience).RecordingId);
+
+            // And on the NAME FALLBACK (a recovery with no live guid) the same blank
+            // continuation still makes the set mixed and uncorroborated, so stage 2 refuses.
+            Ledger.Clear();
+            logLines.Clear();
+            Assert.Equal(0, LedgerOrchestrator.TryRecordRecoveryKerbalExperience(
+                new List<GameStateEvent> { XpEvent("Bill Kerman", 1000.0) },
+                RecoveredVesselIdentity.FromRawName("Hopper"), 1000.0));
             Assert.Contains(logLines, l =>
                 l.Contains("reason=ambiguous-recovery-recording") &&
                 l.Contains("corroboration=unknown-launch-guid"));

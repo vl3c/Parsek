@@ -20445,7 +20445,7 @@ reading ranged), the four `RecordingOptimizerTests.CanAutoSplitIgnoringGhostTrig
 cells that pin the sub-floor side no flight can produce, and
 `SbrDwellCompatibilityTests`, which keeps the default provably inert for L3.
 
-## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN - **STAGE 1 LIVE-PROVEN 2026-09-02**, shipped headless 2026-08-28 (branch `kerbal-xp-guid-filter`), STAGE 2 OUTSTANDING but NO LONGER GATE-BLOCKED; filed 2026-08-20 with the correlation fix above. **A REPRO LANE WAS AUTHORED AND FLOWN, AND FOUND THE PRODUCED-SAVE SHORTCUT CANNOT REACH THE CORRELATOR: `harness/scenarios/L6-career-same-name-recover.toml`, reading run 1 `2026-09-02_1137` (INVALID(driver) MISSION-ASSERT-FAIL).** The idea was `science_bench_recover` flown a second time over `career-earned-pad` (L3's produced save, which already carries the pad craft's TWO chained same-name recordings under a different launch guid), so the recovery correlator would see two same-name candidates and stage 1's guid filter would resolve them live (expected `nameMatches>=3 guidDropped=2 survivors>=1`). The flight FLEW - landed, collected 2 experiments, recorded a third same-name recording - but TRANSMIT credited ZERO career science because L3 already banked that launchpad biome's science, so the mission's structural transmit->recover gate (`_sbr_transmit` needs a strictly positive pool rise; the schema forbids a floor below 0.001) failed the flight BEFORE recovery, the phase the correlator fires in. **THE BANKED-SCIENCE CONFLICT IS INTRINSIC TO REUSING A PRODUCED SAVE**, so this shortcut does not work. Closing stage 2 needs either a recover mission with NO transmit-science gate (none in the library today) or a purpose-built fixture carrying two same-name launches whose flight science is un-banked. **UNBLOCKED 2026-09-02 BY THE PURPOSE-BUILT FIXTURE** `harness/fixtures/saves/career-same-name-pad`: `harness/tools/build_career_same_name_pad.py` splices `C2CareerPostFix`'s RECORDING_TREE (the two chained same-name recordings, launch guid `f77e4207...`) into `career-science-pad`, the PRE-FLIGHT save L3 actually flies - two moments of one timeline, which is why those recordings' `preLaunchFunds = 500000` / `preLaunchScience = 100` are that host's live pools. The career therefore carries the prior launch with ZERO banked `Science` subjects, so the same mission transmits exactly as it does for L3; the host vessel's `pid` is re-stamped to `9b3c71e4...` so the filter has two conclusive mismatches to drop, while its craft-baked `persistentId` is deliberately left colliding at `2905720181` - the trap this entry names. The earned ledger is NOT copied (its rows credit the science the fixture must leave un-banked, and the recalc engine patches state from the ledger). Gated by `CareerSameNamePadFixtureDriftTests`. L6 now stages that fixture; its expected shape came back EXACTLY on reading run 2 (`2026-09-02_1328`, PASS attempt 1, 470 s): four identical pairs of `PickRecoveryRecordingId guid filter: ... dropped=2 remaining=2 reason=guid-conclusive-mismatch` + `PickRecoveryRecordingId: ... nameMatches=4 survivors=2 guidDropped=2 ... tier=most-recent-ended bracketTie=n/a pick=0d74e88c...`, with `Recovery kerbal XP recorded: ... rows=1 deduped=0 noAction=0` PRESENT (its first observation anywhere) and no refused line. **THE LIVE-PROOF GATE STAGE 2 WAS BLOCKED ON IS THEREFORE DISCHARGED**: the filter is proven active, dropping exactly the two prior-launch candidates, over every leg that picked, without disturbing a correct pick - and re-proven on two further flights the same day (`2026-09-02_1402` and `2026-09-02_1411`), which measured `guidDropped=2` identically while the flight's OWN recording count moved (see L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR: an optimizer split floor against the mission's landed dwell, not a correlator behaviour). **STAGE 2 IS NOW BUILT AND HEADLESS-PROVEN (branch `kerbal-xp-stage2`), WITH ITS OWN LIVE PROOF STILL OWED** - see the stage-2 section at the end of this entry for the predicate, what measurement changed it, and the lane shape the live proof needs]
+## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN - **STAGE 3 (IDENTITY FIRST) SHIPPED HEADLESS 2026-10-01 (branch `fix-recovery-id-first`), L6 RE-READ OWED, STAGE-2 LIVE PROOF STILL OWED** - see the stage-3 section at the end; **STAGE 1 LIVE-PROVEN 2026-09-02**, shipped headless 2026-08-28 (branch `kerbal-xp-guid-filter`), STAGE 2 OUTSTANDING but NO LONGER GATE-BLOCKED; filed 2026-08-20 with the correlation fix above. **A REPRO LANE WAS AUTHORED AND FLOWN, AND FOUND THE PRODUCED-SAVE SHORTCUT CANNOT REACH THE CORRELATOR: `harness/scenarios/L6-career-same-name-recover.toml`, reading run 1 `2026-09-02_1137` (INVALID(driver) MISSION-ASSERT-FAIL).** The idea was `science_bench_recover` flown a second time over `career-earned-pad` (L3's produced save, which already carries the pad craft's TWO chained same-name recordings under a different launch guid), so the recovery correlator would see two same-name candidates and stage 1's guid filter would resolve them live (expected `nameMatches>=3 guidDropped=2 survivors>=1`). The flight FLEW - landed, collected 2 experiments, recorded a third same-name recording - but TRANSMIT credited ZERO career science because L3 already banked that launchpad biome's science, so the mission's structural transmit->recover gate (`_sbr_transmit` needs a strictly positive pool rise; the schema forbids a floor below 0.001) failed the flight BEFORE recovery, the phase the correlator fires in. **THE BANKED-SCIENCE CONFLICT IS INTRINSIC TO REUSING A PRODUCED SAVE**, so this shortcut does not work. Closing stage 2 needs either a recover mission with NO transmit-science gate (none in the library today) or a purpose-built fixture carrying two same-name launches whose flight science is un-banked. **UNBLOCKED 2026-09-02 BY THE PURPOSE-BUILT FIXTURE** `harness/fixtures/saves/career-same-name-pad`: `harness/tools/build_career_same_name_pad.py` splices `C2CareerPostFix`'s RECORDING_TREE (the two chained same-name recordings, launch guid `f77e4207...`) into `career-science-pad`, the PRE-FLIGHT save L3 actually flies - two moments of one timeline, which is why those recordings' `preLaunchFunds = 500000` / `preLaunchScience = 100` are that host's live pools. The career therefore carries the prior launch with ZERO banked `Science` subjects, so the same mission transmits exactly as it does for L3; the host vessel's `pid` is re-stamped to `9b3c71e4...` so the filter has two conclusive mismatches to drop, while its craft-baked `persistentId` is deliberately left colliding at `2905720181` - the trap this entry names. The earned ledger is NOT copied (its rows credit the science the fixture must leave un-banked, and the recalc engine patches state from the ledger). Gated by `CareerSameNamePadFixtureDriftTests`. L6 now stages that fixture; its expected shape came back EXACTLY on reading run 2 (`2026-09-02_1328`, PASS attempt 1, 470 s): four identical pairs of `PickRecoveryRecordingId guid filter: ... dropped=2 remaining=2 reason=guid-conclusive-mismatch` + `PickRecoveryRecordingId: ... nameMatches=4 survivors=2 guidDropped=2 ... tier=most-recent-ended bracketTie=n/a pick=0d74e88c...`, with `Recovery kerbal XP recorded: ... rows=1 deduped=0 noAction=0` PRESENT (its first observation anywhere) and no refused line. **THE LIVE-PROOF GATE STAGE 2 WAS BLOCKED ON IS THEREFORE DISCHARGED**: the filter is proven active, dropping exactly the two prior-launch candidates, over every leg that picked, without disturbing a correct pick - and re-proven on two further flights the same day (`2026-09-02_1402` and `2026-09-02_1411`), which measured `guidDropped=2` identically while the flight's OWN recording count moved (see L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR: an optimizer split floor against the mission's landed dwell, not a correlator behaviour). **STAGE 2 IS NOW BUILT AND HEADLESS-PROVEN (branch `kerbal-xp-stage2`), WITH ITS OWN LIVE PROOF STILL OWED** - see the stage-2 section at the end of this entry for the predicate, what measurement changed it, and the lane shape the live proof needs]
 
 `LedgerOrchestrator.PickRecoveryRecordingId` matches candidate recordings by vessel NAME
 (`RecoveredVesselIdentity.MatchesName`, raw or localized) and then ranks them by a UT
@@ -20464,7 +20464,12 @@ entries are appended to a roster, nothing walks them back except a tombstone on 
 that put them there - and a row scoped to the WRONG recording is tombstoned by the wrong
 merge.
 
-**Fix:** tighten the pick to guid-positive identity where a guid is available -
+**Fix (as shipped, stage 3, 2026-10-01):** identity first - the candidate set is every
+eligible recording that POSITIVELY carries the recovering vessel's launch guid (names
+ignored), else the recording a genuine Parsek spawn came from (its KSP-unique spawn pid),
+else the stage-1 name walk + guid filter with the stage-2 XP refusal, for legacy id-less
+data only. The UT tiers then choose the segment. See the stage-3 section at the end.
+*Original proposal:* tighten the pick to guid-positive identity where a guid is available -
 `VesselLaunchIdentity.RecordingsShareLaunch` semantics, or the stricter
 `ResurrectionRetirementEligibility.IsPositivelySameLaunch` shape (pid equal AND both guids
 known AND equal) - falling back to the current name+tier walk only when no guid is
@@ -20851,6 +20856,138 @@ refused line) and NO `Recovery kerbal XP recorded` row, with L6 kept unchanged a
 over-fire control. `tier = "operator"` until flown, interim pins per the harness README.
 Decision owed: authorize the fixture-builder variant plus one flight; the entry closes on
 the first green run.
+
+### STAGE 3 - IDENTITY FIRST (2026-10-01, branch `fix-recovery-id-first`) - HEADLESS; L6 RE-READ OWED
+
+Operator principle 2026-10-01: "we should have unique identities". Match vessels and
+recordings by launch identity first; names and UT tiers are a fallback for legacy
+recordings with no id. Stages 1 and 2 kept NAME as the gate and only filtered or refused
+inside it, so a vessel whose name no longer matched its recording reached nothing.
+
+**What the recovery seam supplies (verified, decompiled KSP 1.12.5).**
+`GameEvents.onVesselRecovered` is `EventData<ProtoVessel, bool>` and every stock fire site
+hands a `ProtoVessel`: `ShipConstruction.RecoverVesselFromFlight` (the flight Recover after
+`VesselRetrieval`'s scene change, kRPC `Vessel.Recover`, the KSC marker) and
+`SpaceTracking` (Tracking Station). `ProtoVessel.vesselID` is the launch guid and
+`persistentId` the pid. All three Parsek legs read both from that `ProtoVessel`:
+`ParsekScenario.OnVesselRecovered` (funds, including the deferred pairing queue, which
+stores the identity struct verbatim), `GameStateRecorder.OnScienceReceived` (science) and
+`GameStateRecorder.OnVesselRecoveryProcessingForExperience` (XP).
+`RecoveredVesselIdentity` gained `PersistentId` for the spawn arm below.
+
+**Do recordings carry the guid?** The stage-2 writer audit above stands: every write site
+stamps `RecordedVesselGuid` (live `Vessel.id`, own-snapshot fallback, or a copy from the
+source recording), and chained segments of one launch - optimizer split tails, BG parent
+continuations, switch continuations, Re-Fly forks - share the launch's guid, while split
+children (debris, EVA, undock) carry their own. A genuine Parsek spawn does NOT carry the
+source's guid: `VesselSpawner.RegenerateVesselIdentity` writes a fresh vessel guid and pid
+(only the VesselGhoster chain-tip spawns preserve identity), and the source recording keeps
+the ORIGINAL launch guid plus the spawn's pid in `SpawnedVesselPersistentId`.
+
+**Name-first failures reproduced on main (headless).** A vessel renamed after its
+recording captured the name: zero name matches, so funds and science landed untagged and
+the XP leg refused `no-recovery-recording`. A rename onto an OLDER launch's name: the only
+name match was the other launch, stage 1 dropped it, same null outcome. A recovered
+Parsek-spawned vessel: its fresh guid conclusively differs from the source's, so stage 1
+dropped the source and every leg credited nothing (stage 1 named this for Real Spawn
+Control copies; it is also the ordinary end-of-replay spawn). A legacy id-less segment
+mixed with stamped segments of the same launch refused the XP row on main even with a live
+guid in hand. Localized vs raw names were already handled by `MatchesName` and are moot on
+the identity paths. Two same-name launches with distinct guids were already resolved by
+stage 1; identity-first gets the same answer without consulting names.
+
+**What changed.** `LedgerOrchestrator.PickRecoveryRecording` walks the store once and
+chooses the candidate set by path, then runs the UNCHANGED tier walk. Every path first
+restricts to the EFFECTIVE timeline (`ResolveRecoveryAdmissibleRecordingIds`):
+`EffectiveState.ComputeERS()` (committed, not superseded, not rewind-retired), plus the
+live Re-Fly session's suppressed subtree members that are neither superseded nor retired
+(the origin being re-flown is not superseded until the merge, and the bracket tie-break
+needs it), plus the session provisional by id. Without this a recovery after a Re-Fly
+merge could credit the superseded origin or TIP, which keep the fork's launch guid; skips
+log once as `PickRecoveryRecordingId effective filter: ... skippedNotEffective=N
+reason=superseded-or-rewind-retired`. Then:
+
+1. `path=launch-guid`: every eligible recording (not ghost-only, not a zombie
+   NotCommitted) whose `RecordedVesselGuid` is known and equals the recovery's
+   (`IsPositiveLaunchGuidMatch`; pid not consulted). Names are ignored, with one exception:
+   the active Re-Fly session's provisional while its own guid is still unknown is admitted
+   on name, so the TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT tie-break still sees it.
+2. `path=spawn-pid`: else every recording whose `SpawnedVesselPersistentId` equals the
+   recovery's pid, adoption stamps (spawn pid == recorded pid, craft-baked) excluded
+   (`IsGenuineSpawnPidMatch`) - the same arm `CrewRecoveryReservationClose` already used.
+3. `path=name-fallback`: else exactly the stage-1 walk (name, guid filter, tiers) and, on
+   the XP leg, the stage-2 refusal.
+
+**Stage 2 on the launch-guid path cannot fire**, by construction: every identity match
+carries one known guid, so `ClassifySurvivorLaunches` reads `one-known-launch`. The one
+exception is deliberate - an admitted id-less session provisional reads as uncorroborated,
+the safe direction for the irreversible row.
+
+**Mirror directions checked.** Funds, science and XP all resolve through the one picker.
+#1946's `RecoveredRecordingEvidence` reads recovery rows by their tag, so it consumes the
+corrected pick: a recovered spawned vessel now marks its SOURCE recording recovered (its
+end-of-replay spawn is not repeated), where before the untagged row marked nothing.
+`CrewRecoveryReservationClose` does not use the pick; its identity rule (positive guid or
+genuine spawn pid) now agrees with it. Re-Fly retirement and tombstones act on rows by tag
+and are unchanged in mechanism; the Re-Fly provisional keeps its admission. A spawned
+vessel the player then FLIES gets a recording under its own fresh guid, and the launch-guid
+path prefers it over the spawn source.
+
+**Rare residual, NOT fixed (review item 3).** If a launch's TERMINAL segment never got a
+guid (a switch-continuation whose recorder failed to bind, or a breakup child destroyed
+before any snapshot - the blanks the writer audit names) while earlier segments are
+stamped, the launch-guid path cannot see the terminal segment and credits the last
+STAMPED segment of the same launch. Same launch, so never a cross-launch mis-scope, and
+current writers stamp every segment they can.
+
+**Two shapes that change, named here rather than discovered later.** (a) A recovery whose
+launch has a stamped segment plus a legacy id-less segment credits the stamped one (the
+id-less segment is unreachable by identity), where main refused the XP row as
+uncorroborated - same launch either way, and current writers stamp every segment.
+(b) The recovered spawned vessel above now credits its source recording instead of nothing,
+reversing stage 1's named behavior for spawn copies under the operator principle.
+
+**Log lines (grep-stable).** One Info line per pick names the path:
+`PickRecoveryRecordingId path: vessel='X' ut=<t> path=launch-guid identityMatches=N
+identityNameMismatch=M nameOnlyIgnored=K unknownGuidSessionProvisionalAdmitted=<bool>`,
+`... path=spawn-pid identityMatches=N spawnPid=P nameMatches=K`, or
+`... path=name-fallback reason=<no-recording-carries-launch-guid|live-launch-guid-unknown>
+nameMatches=K`. The summary line gains `path=` after `ut=`, and on the identity paths
+reads `guidDropped=n/a` (the filter did not run; `nameMatches` is diagnostic). The
+`guid filter:` line prints only on the name fallback.
+
+**L6 re-read owed (not flown).** Both L6 specs were re-cut: the flight's own two segments
+carry the recovering guid, so every leg takes the launch-guid path and should print
+`PickRecoveryRecordingId path: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=<t>
+path=launch-guid identityMatches=2 identityNameMismatch=0 nameOnlyIgnored=2
+unknownGuidSessionProvisionalAdmitted=False` and `PickRecoveryRecordingId: ...
+path=launch-guid nameMatches=4 survivors=2 guidDropped=n/a skippedZombieNotCommitted=0
+sessionProvisionalAdmitted=False tier=most-recent-ended bracketTie=n/a pick=<id>`
+(natural-dwell: `identityMatches=[12]`, `nameMatches=[34]`, `survivors=[12]`). The old
+`guid filter: ... dropped=2` line no longer prints, and `path=name-fallback` is forbidden
+for the lane's vessel only (`vessel='Jumping Flea' .* path=name-fallback`), since an
+unrecorded debris recovery with a launch guid legitimately prints it.
+
+**Headless cover:** `RecoveryPickIdentityFirstTests` (17 cells; 9 red with the identity
+paths disabled, 2 red with the effective-timeline gate disabled): a recovery after a
+Re-Fly merge credits the live fork over the superseded TIP and origin; a rewind-retired
+recording is never picked; the active-session provisional with an inherited guid still
+wins the bracket tie; renamed vessel on all three legs with a no-identity negative
+control; rename onto an older launch's name; two same-name launches in both UT orders with
+the other launch bracketing; chained segments (last-ended and bracketing) beside a
+same-name debris recording; the stage-2-cannot-fire proof over a mixed stamped/id-less set;
+the legacy fallback with both reasons; the fallback keeping stage 1's drop and stage 2's
+refusal; the recovered spawned vessel on all three legs plus `RecoveredRecordingEvidence`;
+the adoption-stamp refusal; spawned-then-flown preferring its own recording; the id-less
+session-provisional admission and its bracket tie; the two predicates; the identity
+struct. Updated: `RecoveryPickAmbiguityTests.Picker_ReportsTheTierAndThePostFilterSurvivors`,
+`RecoveryPickAmbiguityTests.XpLeg_ChainedSegmentAndBgContinuation_AreCorroboratedAndTheRowIsWritten`
+(now shows shape (a) on the guid path and the refusal on the fallback), and two
+`RecoveryPickLaunchGuidFilterTests` picker cells now assert the path line.
+
+**Still owed:** the L6 re-read, and stage 2's own live proof (the operator authorized the
+fixture variant plus flight; it recovers with no recording carrying the live guid, so it
+exercises the name fallback this stage keeps).
 
 ## ~~ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one~~ [FOUND 2026-08-11 while wiring `H35-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct. **CLOSED 2026-08-30 by fix road (1)**: `SealSlot` and `RouteCommand` are both promoted out of `ReservedVerbs` and implemented against the production paths - see the closure note at the end of this entry]
 

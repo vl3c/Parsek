@@ -5273,7 +5273,8 @@ namespace Parsek
         internal static bool TryRecordKscScienceSubject(
             PendingScienceSubject subject,
             string vesselName,
-            string launchGuid = null)
+            string launchGuid = null,
+            uint vesselPersistentId = 0)
         {
             Initialize();
 
@@ -5292,7 +5293,8 @@ namespace Parsek
                 return false;
             }
 
-            string recordingId = ResolveKscScienceRecordingId(subject, vesselName, launchGuid);
+            string recordingId = ResolveKscScienceRecordingId(
+                subject, vesselName, launchGuid, vesselPersistentId);
             var routedSubject = subject;
             routedSubject.recordingId = recordingId ?? "";
 
@@ -5602,7 +5604,8 @@ namespace Parsek
         private static string ResolveKscScienceRecordingId(
             PendingScienceSubject subject,
             string vesselName,
-            string launchGuid = null)
+            string launchGuid = null,
+            uint vesselPersistentId = 0)
         {
             // Operator ruling 2026-09-26: deployed-experiment science is always untagged.
             // Stock submits it with xmitScalar 1, which reads as VesselRecovery, so without
@@ -5632,7 +5635,7 @@ namespace Parsek
             }
 
             return PickRecoveryRecordingId(
-                RecoveredVesselIdentity.FromRawName(vesselName, launchGuid),
+                RecoveredVesselIdentity.FromRawName(vesselName, launchGuid, vesselPersistentId),
                 subject.captureUT);
         }
 
@@ -6213,6 +6216,96 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 3: does <paramref name="rec"/>
+        /// POSITIVELY carry the recovering vessel's launch guid? Both sides must be known and
+        /// equal (format-insensitive). <c>persistentId</c> is deliberately not consulted: the
+        /// launch guid is launch-unique on its own, and the pid is craft-baked.
+        /// </summary>
+        internal static bool IsPositiveLaunchGuidMatch(Recording rec, string liveLaunchGuid)
+        {
+            if (rec == null) return false;
+            string live = VesselLaunchIdentity.NormalizeGuid(liveLaunchGuid);
+            if (live == null) return false;
+            string recorded = VesselLaunchIdentity.NormalizeGuid(rec.RecordedVesselGuid);
+            if (recorded == null) return false;
+            return string.Equals(recorded, live, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 3: is the recovering vessel
+        /// (<paramref name="livePid"/>) a GENUINE Parsek spawn of <paramref name="rec"/>? A
+        /// genuine spawn's pid is KSP-unique, so the match is conclusive on its own; an
+        /// adoption stamp (<c>SpawnedVesselPersistentId == VesselPersistentId</c>) is the
+        /// craft-baked pid again and is refused here - a same-launch adoption is reached by
+        /// the launch-guid path instead. Mirrors the spawn arm of
+        /// <c>CrewRecoveryReservationClose.IsRecoveredVesselRecording</c>.
+        /// </summary>
+        internal static bool IsGenuineSpawnPidMatch(Recording rec, uint livePid)
+        {
+            if (rec == null || livePid == 0) return false;
+            uint spawnedPid = rec.SpawnedVesselPersistentId;
+            return spawnedPid != 0
+                && spawnedPid == livePid
+                && spawnedPid != rec.VesselPersistentId;
+        }
+
+        /// <summary>
+        /// The recording ids a recovery may be credited to: the Effective Recording Set
+        /// (<see cref="EffectiveState.ComputeERS"/> - committed, not superseded, not
+        /// rewind-retired) plus, during a live Re-Fly session, the members of the session's
+        /// suppressed subtree that are themselves neither superseded nor retired.
+        ///
+        /// <para>
+        /// [ERS-exempt file, ERS read here on purpose] This file is allowlisted for raw
+        /// committed-list reads, but the recovery picker must not credit a recording that
+        /// left the effective timeline: after a Re-Fly merge the superseded origin and its
+        /// TIP still carry the fork's launch guid. ERS alone is not quite the set, because
+        /// it also hides the live session's suppressed subtree - the origin being re-flown,
+        /// which is not superseded until the merge. That subtree is re-admitted so the
+        /// pre-existing mid-session behaviour holds, including the
+        /// TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT tie-break in which the session
+        /// provisional beats a bracketing origin. The provisional itself is NotCommitted and
+        /// so never in ERS; the caller admits it by id.
+        /// </para>
+        /// </summary>
+        internal static HashSet<string> ResolveRecoveryAdmissibleRecordingIds()
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            var ers = EffectiveState.ComputeERS();
+            for (int i = 0; i < ers.Count; i++)
+            {
+                var rec = ers[i];
+                if (rec != null && !string.IsNullOrEmpty(rec.RecordingId))
+                    ids.Add(rec.RecordingId);
+            }
+
+            var scenario = ParsekScenario.Instance;
+            if (ReferenceEquals(null, scenario)) return ids;
+            var marker = scenario.ActiveReFlySessionMarker;
+            if (marker == null) return ids;
+
+            var suppressed = EffectiveState.ComputeSessionSuppressedSubtree(marker);
+            if (suppressed.Count == 0) return ids;
+            var recordings = RecordingStore.CommittedRecordings;
+            if (recordings == null) return ids;
+            var retired = EffectiveState.ComputeRewindRetiredRecordingIds(
+                recordings, scenario.RecordingRewindRetirements);
+            var suppressedSet = suppressed as HashSet<string>
+                ?? new HashSet<string>(suppressed, StringComparer.Ordinal);
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
+                if (!suppressedSet.Contains(rec.RecordingId)) continue;
+                if (rec.MergeState == MergeState.NotCommitted) continue;
+                if (!EffectiveState.IsVisible(rec, scenario.RecordingSupersedes)) continue;
+                if (retired.Contains(rec.RecordingId)) continue;
+                ids.Add(rec.RecordingId);
+            }
+            return ids;
+        }
+
         internal static string PickRecoveryRecordingId(RecoveredVesselIdentity identity, double ut)
         {
             return PickRecoveryRecording(identity, ut).RecordingId;
@@ -6240,6 +6333,24 @@ namespace Parsek
         /// <see cref="FilterRecoveryCandidatesByLaunchGuid"/> dropped, which is exactly the
         /// monotonicity break the filter's safety argument forbids.
         /// </para>
+        ///
+        /// <para>
+        /// STAGE 3 - IDENTITY FIRST. The candidate set the tiers walk is chosen by identity
+        /// before names are consulted: (1) every eligible recording that POSITIVELY carries
+        /// the recovering vessel's launch guid (<see cref="RecoveryPickPath.LaunchGuid"/>;
+        /// names ignored, so a renamed vessel still reaches its own recordings and a
+        /// same-name launch never enters); else (2) the recording a genuine Parsek spawn came
+        /// from, by its KSP-unique spawn pid (<see cref="RecoveryPickPath.SpawnPid"/>); else
+        /// (3) the stage-1 name walk plus guid filter (<see cref="RecoveryPickPath.NameFallback"/>),
+        /// for legacy id-less data and vessels no recording knows. The UT tiers below then
+        /// choose the segment exactly as before, so chained segments of one launch still
+        /// resolve to the bracketing segment, else the last one ended. On the launch-guid
+        /// path every identity match carries one known guid, so stage 2's corroboration
+        /// clause reads one-known-launch and its refusal cannot fire there. The single
+        /// exception is deliberate: an active Re-Fly provisional whose own guid is still
+        /// unknown is admitted on name, and stage 2 then reads that id-less member as
+        /// uncorroborated - the safe direction for the irreversible row.
+        /// </para>
         /// </summary>
         internal static RecoveryPickResult PickRecoveryRecording(
             RecoveredVesselIdentity identity, double ut)
@@ -6257,59 +6368,157 @@ namespace Parsek
                 };
             }
 
-            int skippedZombieNotCommitted = 0;
-
             // The ACTIVE session's provisional is a legitimate target (it survives the
             // merge as the fork); every other NotCommitted recording is a zombie whose
             // id would dangle. Resolved once, outside the loop.
             string sessionProvisionalId = ResolveActiveReFlyProvisionalRecordingId();
 
-            // Pass 1: the name+eligibility candidate set, in store order.
+            // Pass 1: ONE walk over the store classifies every eligible recording against
+            // the three identity keys, in store order. KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-
+            // UT-ONLY stage 3 (operator principle 2026-10-01, "we should have unique
+            // identities"): the launch guid decides first, the genuine spawn pid second, and
+            // the vessel NAME only when neither identity reaches any recording.
+            string liveGuid = VesselLaunchIdentity.NormalizeGuid(identity.LaunchGuid);
+            uint livePid = identity.PersistentId;
             var nameMatches = new List<Recording>();
+            var guidMatches = new List<Recording>();
+            var spawnMatches = new List<Recording>();
+            Recording unknownGuidSessionProvisional = null;
+            int zombieByName = 0, zombieByGuid = 0, zombieBySpawn = 0;
+            var admissible = ResolveRecoveryAdmissibleRecordingIds();
+            int skippedNotEffective = 0;
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
                 if (rec == null) continue;
                 if (rec.IsGhostOnly) continue;
-                if (rec.MergeState == MergeState.NotCommitted)
+                bool nameMatch = identity.MatchesName(rec.VesselName);
+                bool guidMatch = IsPositiveLaunchGuidMatch(rec, liveGuid);
+                bool spawnMatch = IsGenuineSpawnPidMatch(rec, livePid);
+                bool isSessionProvisional =
+                    !string.IsNullOrEmpty(sessionProvisionalId)
+                    && string.Equals(rec.RecordingId, sessionProvisionalId, StringComparison.Ordinal);
+                if (rec.MergeState == MergeState.NotCommitted && !isSessionProvisional)
                 {
-                    bool isSessionProvisional =
-                        !string.IsNullOrEmpty(sessionProvisionalId)
-                        && string.Equals(
-                            rec.RecordingId, sessionProvisionalId, StringComparison.Ordinal);
-                    if (!isSessionProvisional)
-                    {
-                        // Zombie awaiting LoadTimeSweep. Counted, not logged per-item.
-                        if (identity.MatchesName(rec.VesselName)) skippedZombieNotCommitted++;
-                        continue;
-                    }
+                    // Zombie awaiting LoadTimeSweep. Counted per key, not logged per-item.
+                    if (nameMatch) zombieByName++;
+                    if (guidMatch) zombieByGuid++;
+                    if (spawnMatch) zombieBySpawn++;
+                    continue;
                 }
-                if (!identity.MatchesName(rec.VesselName)) continue;
-                nameMatches.Add(rec);
+                // Superseded and rewind-retired recordings are off the effective timeline.
+                // After a Re-Fly merge the superseded origin and its TIP keep the fork's
+                // launch guid, so without this gate a later recovery could credit them.
+                if (!isSessionProvisional
+                    && (string.IsNullOrEmpty(rec.RecordingId) || !admissible.Contains(rec.RecordingId)))
+                {
+                    if (nameMatch || guidMatch || spawnMatch) skippedNotEffective++;
+                    continue;
+                }
+                if (nameMatch) nameMatches.Add(rec);
+                if (guidMatch) guidMatches.Add(rec);
+                if (spawnMatch) spawnMatches.Add(rec);
+                if (isSessionProvisional && nameMatch
+                    && VesselLaunchIdentity.NormalizeGuid(rec.RecordedVesselGuid) == null)
+                {
+                    unknownGuidSessionProvisional = rec;
+                }
             }
 
-            // Pass 2: KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 1. Drop candidates
-            // whose recorded launch guid conclusively differs from the recovering vessel's.
-            // Monotone and BEFORE the tier walk, so the tiers below are untouched.
-            var candidates = FilterRecoveryCandidatesByLaunchGuid(
-                nameMatches, identity.LaunchGuid, out int guidDropped);
+            if (skippedNotEffective > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PickRecoveryRecordingId effective filter: {identity.FormatForLog()} " +
+                    $"ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"skippedNotEffective={skippedNotEffective.ToString(CultureInfo.InvariantCulture)} " +
+                    "reason=superseded-or-rewind-retired");
+            }
+
+            RecoveryPickPath path;
+            List<Recording> candidates;
+            int guidDropped = 0;
+            int skippedZombieNotCommitted;
+            string utLog = ut.ToString("F1", CultureInfo.InvariantCulture);
+            if (guidMatches.Count > 0)
+            {
+                // THE LAUNCH-GUID PATH. Names are ignored: a vessel renamed after its
+                // recording captured the name still reaches its own recordings, and a
+                // same-name recording of a DIFFERENT launch never enters the set. The one
+                // exception is the active Re-Fly session's provisional while its own guid is
+                // still unknown (RewindInvoker's placeholder, or a fork whose origin predates
+                // the guid): it is admitted on name, the legacy fallback for an id-less
+                // member, so the TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT tie-break below can
+                // still see it. A provisional with a KNOWN guid is already in guidMatches or
+                // belongs to a different launch.
+                path = RecoveryPickPath.LaunchGuid;
+                candidates = guidMatches;
+                if (unknownGuidSessionProvisional != null)
+                    candidates.Add(unknownGuidSessionProvisional);
+                skippedZombieNotCommitted = zombieByGuid;
+                int nameMismatch = 0;
+                for (int i = 0; i < guidMatches.Count; i++)
+                    if (!identity.MatchesName(guidMatches[i].VesselName)) nameMismatch++;
+                int nameOnly = 0;
+                for (int i = 0; i < nameMatches.Count; i++)
+                    if (!candidates.Contains(nameMatches[i])) nameOnly++;
+                ParsekLog.Info(Tag,
+                    $"PickRecoveryRecordingId path: {identity.FormatForLog()} ut={utLog} " +
+                    $"path={RecoveryPickAmbiguity.PathToken(path)} " +
+                    $"identityMatches={guidMatches.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    $"identityNameMismatch={nameMismatch.ToString(CultureInfo.InvariantCulture)} " +
+                    $"nameOnlyIgnored={nameOnly.ToString(CultureInfo.InvariantCulture)} " +
+                    $"unknownGuidSessionProvisionalAdmitted={unknownGuidSessionProvisional != null}");
+            }
+            else if (spawnMatches.Count > 0)
+            {
+                // THE SPAWN-PID PATH. A genuine Parsek spawn regenerates the vessel guid, so
+                // the guid reaches nothing, but the KSP-unique spawn pid names the recording
+                // that spawned it - the same arm CrewRecoveryReservationClose uses.
+                path = RecoveryPickPath.SpawnPid;
+                candidates = spawnMatches;
+                skippedZombieNotCommitted = zombieBySpawn;
+                ParsekLog.Info(Tag,
+                    $"PickRecoveryRecordingId path: {identity.FormatForLog()} ut={utLog} " +
+                    $"path={RecoveryPickAmbiguity.PathToken(path)} " +
+                    $"identityMatches={spawnMatches.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    $"spawnPid={livePid.ToString(CultureInfo.InvariantCulture)} " +
+                    $"nameMatches={nameMatches.Count.ToString(CultureInfo.InvariantCulture)}");
+            }
+            else
+            {
+                // THE NAME FALLBACK - legacy id-less data, or a vessel no recording knows by
+                // identity. Exactly the stage-1 walk: name, then the guid filter (which can
+                // still drop a same-name recording of a conclusively different launch), then
+                // the tiers; the XP leg keeps the stage-2 ambiguity refusal.
+                path = RecoveryPickPath.NameFallback;
+                skippedZombieNotCommitted = zombieByName;
+                if (nameMatches.Count > 0 || identity.HasLaunchGuid)
+                {
+                    ParsekLog.Info(Tag,
+                        $"PickRecoveryRecordingId path: {identity.FormatForLog()} ut={utLog} " +
+                        $"path={RecoveryPickAmbiguity.PathToken(path)} " +
+                        $"reason={(identity.HasLaunchGuid ? "no-recording-carries-launch-guid" : "live-launch-guid-unknown")} " +
+                        $"nameMatches={nameMatches.Count.ToString(CultureInfo.InvariantCulture)}");
+                }
+
+                // Stage 1. Drop candidates whose recorded launch guid conclusively differs
+                // from the recovering vessel's. Monotone and BEFORE the tier walk.
+                candidates = FilterRecoveryCandidatesByLaunchGuid(
+                    nameMatches, identity.LaunchGuid, out guidDropped);
+            }
             int candidateCount = candidates.Count;
 
-            // THE SESSION PROVISIONAL IS RESOLVED FROM THE POST-FILTER SET, NOT PASS 1.
-            // Anything reading this - the summary line, and the tier-1 tie-break below -
-            // must see the set the tier walk actually walks. Deriving it from the name-match
-            // set instead would let a tie-break resurrect a candidate this filter removed,
-            // silently breaking the monotone property that is the whole safety argument for
-            // the filter.
-            // THE REBASE REQUIREMENT NAMED HERE HAS BEEN MET, and this is now a live
-            // constraint rather than a forward-looking one: the
-            // TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT tie-break landed in the tier-1 body
-            // below and consumes THIS reference by identity (ReferenceEquals against a
-            // member of `candidates`). It does NOT re-derive the provisional from
-            // `nameMatches`, from a raw store walk, or from a per-iteration id comparison -
-            // all three would reinstate a filtered-out candidate. Filter first, then tiers:
-            // the two compose because a guid the filter would drop is one this tie-break
-            // can then never see. Keep it that way.
+            // THE SESSION PROVISIONAL IS RESOLVED FROM THE CANDIDATE SET THE TIER WALK
+            // WALKS, NOT PASS 1. Anything reading this - the summary line, and the tier-1
+            // tie-break below - must see that set. Deriving it from the name-match set
+            // instead would let a tie-break resurrect a candidate the stage-1 filter (or the
+            // identity path) excluded, silently breaking the monotone property that is the
+            // whole safety argument for the filter.
+            // The TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT tie-break in the tier-1 body
+            // below consumes THIS reference by identity (ReferenceEquals against a member of
+            // `candidates`). It does NOT re-derive the provisional from `nameMatches`, from a
+            // raw store walk, or from a per-iteration id comparison - all three would
+            // reinstate an excluded candidate. Keep it that way.
             Recording admittedSessionProvisional =
                 FindSessionProvisionalAmong(candidates, sessionProvisionalId);
 
@@ -6318,24 +6527,23 @@ namespace Parsek
             // one of these per subject. That is bounded by the subject count and each line is
             // independently true, so it is left un-rate-limited rather than collapsed - a
             // dropped candidate is an attribution-changing decision on every leg that makes it.
-            if (guidDropped > 0)
+            // Only the name fallback runs the stage-1 filter, so only it logs it.
+            if (path == RecoveryPickPath.NameFallback && guidDropped > 0)
             {
                 ParsekLog.Info(Tag,
                     $"PickRecoveryRecordingId guid filter: {identity.FormatForLog()} " +
-                    $"ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"ut={utLog} " +
                     $"dropped={guidDropped.ToString(CultureInfo.InvariantCulture)} " +
                     $"remaining={candidateCount.ToString(CultureInfo.InvariantCulture)} " +
                     $"reason=guid-conclusive-mismatch");
             }
-            else if (nameMatches.Count > 0)
+            else if (path == RecoveryPickPath.NameFallback && nameMatches.Count > 0)
             {
                 // Nothing dropped - but WHY is the load-bearing half, and a silent no-drop
-                // cannot be told apart from a filter that never ran. Naming the two states
-                // is what lets a live proof read "the filter was active and agreed" off the
-                // log instead of inferring it. Same one-line-per-PICK bound as above.
+                // cannot be told apart from a filter that never ran.
                 ParsekLog.Verbose(Tag,
                     $"PickRecoveryRecordingId guid filter: {identity.FormatForLog()} " +
-                    $"ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"ut={utLog} " +
                     $"dropped=0 remaining={candidateCount.ToString(CultureInfo.InvariantCulture)} " +
                     $"reason={(identity.HasLaunchGuid ? "no-conclusive-mismatch" : "live-launch-guid-unknown")}");
             }
@@ -6394,7 +6602,7 @@ namespace Parsek
                 {
                     ParsekLog.Verbose(Tag,
                         $"PickRecoveryRecordingId: {identity.FormatForLog()} " +
-                        $"ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"ut={utLog} path={RecoveryPickAmbiguity.PathToken(path)} " +
                         $"nameMatches={nameMatches.Count.ToString(CultureInfo.InvariantCulture)} survivors=0 " +
                         $"skippedZombieNotCommitted={skippedZombieNotCommitted} tier=none " +
                         $"pick=<null> (only zombie provisionals matched; payout left untagged)");
@@ -6405,7 +6613,8 @@ namespace Parsek
                     Tier = RecoveryPickTier.None,
                     Survivors = candidates,
                     NameMatchCount = nameMatches.Count,
-                    GuidDropped = guidDropped
+                    GuidDropped = guidDropped,
+                    Path = path
                 };
             }
 
@@ -6422,12 +6631,18 @@ namespace Parsek
                               : "n/a";
             // `candidates=` is deliberately NOT reused here: it used to mean the name-match
             // count and would now silently mean the survivor count. Both are logged under
-            // unambiguous names instead, and nothing pinned the old token.
+            // unambiguous names instead, and nothing pinned the old token. On the identity
+            // paths `nameMatches` is diagnostic only and the stage-1 filter did not run, so
+            // `guidDropped` reads n/a rather than a misleading 0.
+            string guidDroppedText = path == RecoveryPickPath.NameFallback
+                ? guidDropped.ToString(CultureInfo.InvariantCulture)
+                : "n/a";
             ParsekLog.Verbose(Tag,
-                $"PickRecoveryRecordingId: {identity.FormatForLog()} ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"PickRecoveryRecordingId: {identity.FormatForLog()} ut={utLog} " +
+                $"path={RecoveryPickAmbiguity.PathToken(path)} " +
                 $"nameMatches={nameMatches.Count.ToString(CultureInfo.InvariantCulture)} " +
                 $"survivors={candidateCount.ToString(CultureInfo.InvariantCulture)} " +
-                $"guidDropped={guidDropped.ToString(CultureInfo.InvariantCulture)} " +
+                $"guidDropped={guidDroppedText} " +
                 $"skippedZombieNotCommitted={skippedZombieNotCommitted} " +
                 $"sessionProvisionalAdmitted={admittedSessionProvisional != null} " +
                 $"tier={tier} bracketTie={bracketTie} pick={pick.RecordingId}");
@@ -6438,7 +6653,8 @@ namespace Parsek
                 Tier = pickTier,
                 Survivors = candidates,
                 NameMatchCount = nameMatches.Count,
-                GuidDropped = guidDropped
+                GuidDropped = guidDropped,
+                Path = path
             };
         }
 
