@@ -319,6 +319,34 @@ namespace Parsek.Tests
             Assert.Equal(0, tally.Numbered);
         }
 
+        // catches: a controllable piece of the own ship (it shares part pids) leaving the
+        // PARTNER's stack a moment BEFORE the ship's own undock half joining the ship first,
+        // which left the real half blocked and numbered "Ship [2]". The best continuation of a
+        // hop wins over the earliest.
+        [Fact]
+        public void PieceLeavingThePartnerStackFirst_DoesNotTakeTheShipsName()
+        {
+            RecordingTree station = Tree("S", new[] { Rec("s1", "Station", 0, 500, pid: 100, guid: "GS") });
+            Recording ship = Rec("ship", "Ship", 10, 50, pid: 200, guid: "G2", partPids: new uint[] { 11, 12, 13 });
+            Recording stack = Rec("stack", "Station", 50, 60, pid: 100, guid: "GS", partPids: new uint[] { 11, 900 });
+            Recording stationHalf = Rec("halfS", "Station", 60, 90, pid: 100, guid: "GS", partPids: 900);
+            Recording shipHalf = Rec("halfA", "Ship", 60, 90, pid: 201, guid: "G3", partPids: new uint[] { 12, 13 });
+            Recording probe = Rec("probe", "Ship", 55, 200, pid: 300, partPids: 12);
+            RecordingTree mission = Tree("A", new[] { ship, stack, stationHalf, shipHalf, probe },
+                BP("d", BranchPointType.Dock, 50, new[] { "ship" }, new[] { "stack" }),
+                BP("p", BranchPointType.JointBreak, 55, new[] { "stack" }, new[] { "probe" }),
+                BP("u", BranchPointType.Undock, 60, new[] { "stack" }, new[] { "halfS", "halfA" }));
+            ship.TerminalStateValue = TerminalState.Docked;
+            Dictionary<string, string> names = MissionVesselNaming.Build(
+                mission, MissionStructureBuilder.Build(mission),
+                MissionVesselNaming.LaunchIndex.Build(new[] { mission, station }), id => "M-" + id,
+                out MissionVesselNaming.Tally tally);
+            Assert.Equal("Ship", names["ship"]);
+            Assert.Equal("Ship", names["halfA"]);
+            Assert.Equal("Ship [2]", names["probe"]);
+            Assert.Equal(1, tally.Continuations);
+        }
+
         // catches: a ship re-pidded TWICE (it docks and undocks twice: A -> A' -> A'') named by
         // recording-id order - the first cut computed its candidates once and stored stale
         // union-find roots, so the second hop could not join. Both id orders must agree.
@@ -428,7 +456,7 @@ namespace Parsek.Tests
             RecordingTree tree = trees.Single(t => t.Id == DockingTreeId);
             var cache = new MissionVesselNaming.Cache();
             int structureBuilds = 0;
-            Func<MissionStructure> structure = () => { structureBuilds++; return MissionStructureBuilder.Build(tree); };
+            Func<RecordingTree, MissionStructure> structure = t => { structureBuilds++; return MissionStructureBuilder.Build(t); };
             var missions = new List<Mission> { new Mission("m1", FirstTreeId, "Kerbal X") };
             int sig = MissionVesselNaming.Cache.MissionSignature(missions);
 
@@ -450,6 +478,31 @@ namespace Parsek.Tests
             Assert.NotEqual(sig, renamed);
             cache.GetOrBuild(tree, structure, trees, 8, renamed, MissionNameOf);
             Assert.Equal(3, cache.Rebuilds);
+        }
+
+        // catches: a recording rename leaving the Missions tab on the old name (and a stale
+        // "[2]") until an unrelated StateVersion bump - a rename moves no StateVersion.
+        [Fact]
+        public void Cache_RenameThroughTheRenamePath_ServesTheNewNameNextRead()
+        {
+            List<RecordingTree> trees = StructureListBdockFixtureTests.LoadBdockTrees();
+            RecordingTree tree = trees.Single(t => t.Id == DockingTreeId);
+            var cache = new MissionVesselNaming.Cache();
+            Func<RecordingTree, MissionStructure> structure = MissionStructureBuilder.Build;
+            Dictionary<string, string> before = cache.GetOrBuild(tree, structure, trees, 7, 1, MissionNameOf);
+            Assert.Equal("Kerbal X Probe", before[DockingProbe]);
+
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(tree.Recordings[DockingProbe], "  Relay One "));
+            Dictionary<string, string> after = cache.GetOrBuild(tree, structure, trees, 7, 1, MissionNameOf);
+            Assert.Equal("Relay One", after[DockingProbe]);
+            Assert.Equal(2, cache.Rebuilds);
+
+            // Blank and unchanged names write nothing and invalidate nothing.
+            int version = MissionVesselNaming.NameVersion;
+            Assert.False(MissionVesselNaming.ApplyRecordingRename(tree.Recordings[DockingProbe], "   "));
+            Assert.False(MissionVesselNaming.ApplyRecordingRename(tree.Recordings[DockingProbe], "Relay One"));
+            Assert.Equal(version, MissionVesselNaming.NameVersion);
+            Assert.Same(after, cache.GetOrBuild(tree, structure, trees, 7, 1, MissionNameOf));
         }
 
         [Fact]

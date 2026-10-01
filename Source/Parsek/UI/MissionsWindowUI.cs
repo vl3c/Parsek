@@ -345,6 +345,13 @@ namespace Parsek
         // steady frame reads it and computes nothing (MissionVesselNaming.Cache).
         private readonly MissionVesselNaming.Cache vesselNamingCache = new MissionVesselNaming.Cache();
         private int vesselNamingRebuildsLogged;
+        // Held in fields so a cache hit allocates no closure; the mission signature is read
+        // once per frame, not per tree.
+        private System.Func<RecordingTree, MissionStructure> vesselNamingStructure;
+        private static readonly System.Func<string, string> VesselNamingMissionName =
+            otherTreeId => ResolvePartnerMissionName(otherTreeId, null);
+        private int vesselNamingSignature;
+        private int vesselNamingSignatureFrame = -1;
         private readonly Dictionary<string, List<MissionVesselRow>> vesselRowsCache =
             new Dictionary<string, List<MissionVesselRow>>();
 
@@ -1629,11 +1636,17 @@ namespace Parsek
         // frame is one dictionary read per tree.
         private Dictionary<string, string> GetVesselNames(RecordingTree tree)
         {
+            if (vesselNamingStructure == null)
+                vesselNamingStructure = t => GetMissionView(t).structure;
+            int frame = Time.frameCount;
+            if (frame != vesselNamingSignatureFrame)
+            {
+                vesselNamingSignature = MissionVesselNaming.Cache.MissionSignature(MissionStore.Missions);
+                vesselNamingSignatureFrame = frame;
+            }
             Dictionary<string, string> names = vesselNamingCache.GetOrBuild(
-                tree, () => GetMissionView(tree).structure, RecordingStore.CommittedTrees,
-                RecordingStore.StateVersion,
-                MissionVesselNaming.Cache.MissionSignature(MissionStore.Missions),
-                otherTreeId => ResolvePartnerMissionName(otherTreeId, null));
+                tree, vesselNamingStructure, RecordingStore.CommittedTrees,
+                RecordingStore.StateVersion, vesselNamingSignature, VesselNamingMissionName);
             int rebuilds = vesselNamingCache.Rebuilds;
             if (rebuilds != vesselNamingRebuildsLogged)
             {

@@ -150,15 +150,18 @@ pinned row by row in `StructureListBdockFixtureTests` against the committed fixt
   number (never for a leg sharing launch with this mission's own root). Own non-EVA legs group
   into vessels by ChainId or launch identity, plus a RE-PIDDED CONTINUATION: KSP gives a ship
   a fresh pid (and guid) when it undocks, so a leg descending from an own vessel whose own legs
-  have all ended, and sharing part pids with it, joins that vessel. Legs are taken in StartUT
-  order against the CURRENT grouping, so a ship re-pidded twice (dock, undock, dock, undock)
-  chains hop by hop whatever its recording ids; the halves of one undock are weighed together,
-  best shared-pid count first, and the guard is only "no leg of the vessel still running when
-  the leg starts", which keeps a genuine same-named twin numbered and stops both halves of an
-  own stack joining one vessel. The Missions tab caches the pass ACROSS frames
-  (`MissionVesselNaming.Cache`: per-tree names, the launch index and per-recording part pids,
-  keyed on `RecordingStore.StateVersion` plus the missions' names; a collapsed mission builds
-  no named rows). Per name,
+  have all ended, and sharing part pids with it, joins that vessel - one hop at a time. A
+  candidate pairs a vessel with a leg whose NEAREST own ancestor (walking up through partner
+  legs) is in it; each round the best pair overall merges (most shared pids, then the
+  later-ending vessel, then the ids) against the CURRENT grouping, so the ship's real undock
+  half wins over a smaller own piece that left the partner's stack a moment earlier, and a
+  ship re-pidded twice (dock, undock, dock, undock) chains whatever its recording ids. The
+  guard is only "no leg of the vessel still running when the leg starts", which keeps a
+  genuine same-named twin numbered and stops both halves of an own stack joining one vessel.
+  The Missions tab caches the pass ACROSS frames (`MissionVesselNaming.Cache`: per-tree names,
+  the launch index and per-recording part pids, keyed on `RecordingStore.StateVersion`, a
+  dedicated `MissionVesselNaming.NameVersion` that a recording rename and a hydration repair
+  bump, and the missions' names; a collapsed mission builds no named rows). Per name,
   order is first appearance UT, then the vessel whose first leg shares part pids with its
   parent, then RecordingId; numbering is per tree, so clones agree. The first cut numbered the
   re-pidded own ship (`4af6cfd7`, 7 part pids shared with the root `5157d655`; GUI-3's
