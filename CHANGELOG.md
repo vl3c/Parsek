@@ -2315,6 +2315,27 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **The mission Log lists one row per real event.** A docked test mission's Log read 31 rows,
+  mostly noise; it now reads 11. Part-state seeds the recorder writes so a ghost starts in the
+  right state (at a recording's start, at a chain split, when a separated piece loads) are no
+  longer listed as staging; a debris piece's own breakup is never listed; a stage is ONE row per
+  recorded separation, absorbing every part that let go in that moment, symmetric partner
+  included (`Staged: 2 pieces (TT-38K Radial Decoupler x2)`, part titles from the game, the
+  internal name when a title is unknown); the docking port and pod events of an undock are not
+  staging; two different vessels that share a name and end together are two rows. Columns are
+  now Time, Event, Location and Vessel: the step number and the Status column are gone, an ending
+  reads `End: Orbiting` and a leg that ended Docked or Boarded draws no End row (its Docked or
+  Boarded row says it). Separation, dock and undock rows name the other vessel like the Missions
+  tab does (`Decoupled (Kerbal X Probe)`, `Docked (Kerbal X (mission 'Kerbal X'))`, `Undocked
+  (Kerbal X)`). Location reads `Kerbin orbit` only for an orbital ending or a separation whose
+  piece recorded an orbit, otherwise body and biome where the flight recorded them at that
+  moment, or the body alone - an in-flight decouple no longer reads the launch pad. The first
+  row's Time is the date, every later row `T+h:mm:ss` since it. A piece list too long for the
+  Event cell is shortened there and shown whole in a new hover line at the bottom of the window.
+  An empty mission Log reads "This mission has no recorded flight." Route Logs keep their rows;
+  an orbital route endpoint reads `Mun orbit`. Presentation only: no recording data changed
+  (`MissionStructureList.cs`, `StructureListWindowUI.cs`).
+
 - **Missions window redesign, first slice.** The columns are `#`, Missions and vessels,
   Start time, Start event, End event, End time and **Interact**, one right-hand column that
   holds every per-row button at one shared width (a two-button pair spans one button). Each

@@ -12,7 +12,8 @@ namespace Parsek.Tests
     /// <summary>
     /// THE cell that keeps the Structure List catalogue honest: every row it produces must
     /// be REAL-BUILDER output, because <c>StructureListWindowUI</c> draws
-    /// <c>step.Label</c> / <c>step.Status</c> / <c>step.Location</c> / <c>step.VesselName</c>
+    /// <c>step.Label</c> / <c>step.Location</c> / <c>step.VesselName</c> (and the Event
+    /// cell's <c>step.Tooltip</c>)
     /// VERBATIM - so a typed row is a picture of nothing, and the owner's one
     /// non-negotiable is that the mirror shows only what the game can draw.
     ///
@@ -92,11 +93,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TheTerminalRowsEventCellIsTheGenericEndWordAndTheStatusCarriesTheKind()
+        public void TheTerminalRowsEventCellCarriesTheTerminalWord()
         {
-            // The specific misreading the first version shipped, pinned so it cannot come
-            // back: the terminal pass writes Label = "End" ALWAYS, and puts the terminal
-            // word in STATUS so the two columns are not redundant.
+            // The terminal pass writes "End: <word>" - the word the Missions End column
+            // reads - and there is no separate Status column any more.
             foreach (TerminalState terminal in new[]
                      {
                          TerminalState.Splashed, TerminalState.Destroyed,
@@ -107,9 +107,17 @@ namespace Parsek.Tests
                 List<StructureStep> rows =
                     GuiMockStructureStates.TerminalRun(terminal, "Water", "Probe");
                 StructureStep row = rows.Single(r => r.Kind == StructureStepKind.Terminal);
-                Assert.Equal("End", row.Label);
-                Assert.Equal(MissionCompositionBuilder.TerminalName(terminal), row.Status);
+                Assert.Equal("End: " + MissionCompositionBuilder.TerminalName(terminal), row.Label);
             }
+        }
+
+        [Fact]
+        public void TheDockedAndBoardedStateDrawsNoEndRowForEitherJoiningLeg()
+        {
+            List<StructureStep> rows = GuiMockStructureStates.BuildDockedAndBoardedTerminals();
+            Assert.DoesNotContain(rows, r => r.Kind == StructureStepKind.Terminal);
+            Assert.Contains(rows, r => r.Label == "Docked");
+            Assert.Contains(rows, r => r.Label == "Boarded");
         }
 
         [Fact]
@@ -118,25 +126,33 @@ namespace Parsek.Tests
             var labels = new HashSet<string>(
                 GuiMockStructureStates.BuildBreakupRun().Select(r => r.Label),
                 StringComparer.Ordinal);
+            // Each failure row names the piece that left: "Overheated (Heat Shield)".
             foreach (string want in new[] { "Overheated", "Broke up", "Broke off", "Crashed" })
-                Assert.Contains(want, labels);
+                Assert.Contains(labels, l => l.StartsWith(want + " (", StringComparison.Ordinal));
         }
 
         [Fact]
-        public void TheStagingStateReachesTheCollapseAndBothNamedJettisonForms()
+        public void TheStagingStateReachesEveryStagedForm()
         {
             List<StructureStep> rows = GuiMockStructureStates.BuildStagingRun();
             var labels = rows.Select(r => r.Label).ToList();
-            // The xN collapse is the display walk's, so the row must come back collapsed
-            // rather than as eight rows.
-            Assert.Contains(
-                MissionStructureListBuilder.FormatCollapsedLabel("Shroud jettisoned", 8),
-                labels);
-            Assert.Contains("Fairing jettisoned", labels);
-            // "Staged <part>" is what a Decoupled part event renders as - NOT the branch
-            // label "Decoupled", which the first version used.
-            Assert.Contains(labels, l => l.StartsWith("Staged ", StringComparison.Ordinal));
+            // A stage is ONE row per branch point, naming its parts by title and count -
+            // including the symmetric partner the branch point's PID does not name.
+            Assert.Contains("Staged: 3 pieces (TT18-A Launch Stability Enhancer x3)", labels);
+            Assert.Contains("Staged: 2 pieces (TT-38K Radial Decoupler x2)", labels);
+            // Eight simultaneous shrouds with no branch point: one counted row.
+            Assert.Contains("Shroud jettisoned (LV-T45 \"Swivel\" Liquid Fuel Engine x8)", labels);
+            // A list too long for the cell is shortened there and whole in the tooltip.
+            StructureStep fairing = rows.Single(r => r.Label.StartsWith("Fairing jettisoned", StringComparison.Ordinal));
+            Assert.Equal("Fairing jettisoned (...)", fairing.Label);
+            Assert.Equal("Fairing jettisoned (AE-FF1 Airstream Protective Shell (1.25m))", fairing.Tooltip);
+            Assert.Contains("Staged: 1 piece (TD-12 Decoupler)", labels);
+            // The debris booster's own breakup never reaches the Log; nor does a bare
+            // "Decoupled" branch row for a debris-only split.
+            Assert.Equal(5, rows.Count(r => r.Kind == StructureStepKind.Staging));
             Assert.DoesNotContain("Decoupled", labels);
+            Assert.All(rows.Where(r => r.Kind == StructureStepKind.Staging),
+                r => Assert.Equal("Heavy Lifter", r.VesselName));
         }
 
         [Fact]
@@ -350,7 +366,7 @@ namespace Parsek.Tests
                       : s.UT.ToString("F0", System.Globalization.CultureInfo.InvariantCulture))
                   .Append(" kind=").Append(s.Kind)
                   .Append(" label='").Append(s.Label ?? "")
-                  .Append("' status='").Append(s.Status ?? "")
+                  .Append("' tip='").Append(s.Tooltip ?? "")
                   .Append("' loc='").Append(s.Location ?? "")
                   .Append("' vessel='").Append(s.VesselName ?? "")
                   .Append("'\n");

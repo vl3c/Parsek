@@ -984,17 +984,30 @@ Opened by `OpenForMission` (`:83`, from the Missions tab `Log` button) or `OpenF
 (`:94`, from the Logistics detail panel); one reusable instance, retargeted and rebuilt on each
 open (`:107`). No complexity gate.
 
-Columns: `#` 28, `Time` 110, `Event` expand, `Status` 95, `Location` 185, `Vessel` 140, plus a
-reserved scrollbar gutter. Layout (2026-09-25): ONE dark body box holds the pinned header row
+Columns (Log rework, 2026-10-01): `Time` 110, `Event` expand, `Location` 185, `Vessel` 160,
+plus a reserved scrollbar gutter; first-open width 900 (`DefaultWindowWidth`). The `#` and
+`Status` columns are gone. Time: the first row shows the date (`KSPUtil.PrintDateCompact`, the
+Missions start-time cell's formatter), every later row `T+h:mm:ss` since it
+(`StructureTimeFormatter`, computed once when the rows are set, never per frame). Event: one
+row per real event (`MissionStructureListBuilder`): `Launch`, one `Staged: N pieces (<part
+title> xK, ...)` row per recorded separation, `Decoupled (<piece>)` / `Docked (<partner>)` /
+`Undocked (<piece>)` naming the other vessel (cross-mission partners as
+`X (mission 'Y')`), and `End: <terminal word>` (no End row for a leg that ended Docked or
+Boarded). Location: `<body> orbit` only for an orbital ending or a separation whose piece
+recorded an orbit, else body and biome where recorded at that moment, else the body, else `-`.
+An Event list longer than `EventCellCharBudget` (60) is shortened in the cell and carried whole
+as the cell's tooltip, read in a single-line `TooltipEchoBox` strip above `Close` (the window's
+first strip). Layout (2026-09-25): ONE dark body box holds the pinned header row
 and the forced-vertical-bar scroll view of step rows (`DrawStepTable`), so the box frames the
 header too, and the row labels are the shared table cell style (`ParsekUI.GetTableCellStyle`,
 the boxed header's own horizontal padding) with the vertical padding dropped for this log's
 compact pitch. Before, the rows had no box and a hand-set 5 px indent, so body text sat 1 px
-right of the header text (GUI-4 `2026-09-24_2041`, `bd-structure-mission-advanced`). Empty state is a single label (`Nothing to show.` for a mission
-target, `Nothing to show (source recording unavailable).` for a route) plus `Close`, then an
-early return that suppresses the header, the scroll view and the resize handle (`:223-232`).
+right of the header text (GUI-4 `2026-09-24_2041`, `bd-structure-mission-advanced`). Empty state is a single label (`This mission has no recorded flight.` for a
+mission target, `Nothing to show (source recording unavailable).` for a route, `Nothing to
+show.` with no target; `EmptyText`) plus `Close`, then an early return that suppresses the
+header, the scroll view, the hover strip and the resize handle.
 
-Picture: `ksc-structure-advanced`, 3 nodes - window, label, button. That is the empty MISSION
+Picture: `ksc-structure-advanced`, 3 nodes - window, label, button. That is the no-target
 wording, because `op=open window=structure` raises `IsOpen` without ever calling
 `OpenForMission` / `OpenForRoute`, so `targetId` stays null and `Rebuild` never runs. The census
 spec files that as a follow-up rather than faking it
@@ -1296,8 +1309,9 @@ Two tooltip-infrastructure surfaces sit behind all of the above. `TooltipEchoBox
 (`UI/TooltipEchoBox.cs:215`) is the permanently visible one- or two-line help strip in 11
 windows; it draws exactly one `Space` plus one `Label` per pass so the control count and the
 window height never move on hover (`:233-250`, probe `:78-79`), and it marquee-scrolls
-overflowing text at 60 px/s rather than clipping (`UI/TooltipMarquee.cs:20`). Three windows have
-NO strip: `GroupPickerUI`, `StructureListWindowUI`, and the link picker. `DisabledHoverEcho`
+overflowing text at 60 px/s rather than clipping (`UI/TooltipMarquee.cs:20`). Two windows have
+NO strip: `GroupPickerUI` and the link picker (`StructureListWindowUI` gained a single-line one
+on 2026-10-01 for its shortened Event cells). `DisabledHoverEcho`
 (`UI/DisabledHoverEcho.cs:92`) paints an invisible zero-layout `GUI.Label` over a DISABLED
 control's rect on Repaint so its reason reaches that strip; it exists because in KSP 1.12.5's
 Unity build only `GUI.DoLabel` and `GUI.DoButtonGrid` publish a tooltip from managed code and
