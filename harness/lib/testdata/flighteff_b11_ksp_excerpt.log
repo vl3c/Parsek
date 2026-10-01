@@ -1,0 +1,19 @@
+[LOG 15:31:06.003] ******* Log Initiated for Kerbal Space Program - 1.12.5.3190 (WindowsPlayer x64) en-us *******
+[LOG 15:31:29.914] [HighLogic]: =========================== Scene Change : From LOADING to MAINMENU =====================
+[LOG 15:31:30.563] [Parsek][INFO][TestCommands] recv id=0001 cmd=LoadGame args=2
+[LOG 15:31:30.567] [Parsek][INFO][TestCommands] exec id=0001 cmd=LoadGame start
+[LOG 15:31:30.604] [HighLogic]: =========================== Scene Change : From MAINMENU to FLIGHT (Async) =====================
+[LOG 15:31:30.649] [Parsek][INFO][TestCommands] exec id=0001 verdict=PENDING (two-phase awaiting completion)
+[LOG 15:31:36.554] [Parsek][INFO][TestCommands] loadgame complete scene=FLIGHT save=b2-lko-craft game-loaded=true expected=Flight
+[LOG 15:31:36.555] [Parsek][INFO][TestCommands] exec id=0001 verdict=OK
+[LOG 15:31:36.703] [Parsek][INFO][TestCommands] recv id=0002 cmd=SetSetting args=2
+[LOG 15:31:36.703] [Parsek][INFO][TestCommands] exec id=0002 cmd=SetSetting start
+[LOG 15:31:36.706] [Parsek][INFO][TestCommands] exec id=0002 verdict=OK
+[LOG 15:52:50.732] [Parsek][INFO][TestCommands] recv id=0003 cmd=CommitTree args=0
+[LOG 15:52:50.733] [Parsek][INFO][TestCommands] exec id=0003 cmd=CommitTree start
+[LOG 15:52:51.182] [Parsek][INFO][TestCommands] exec id=0003 verdict=OK
+[LOG 15:52:52.135] [Parsek][INFO][TestCommands] recv id=0004 cmd=FlushAndQuit args=0
+[LOG 15:52:52.136] [Parsek][INFO][TestCommands] exec id=0004 cmd=FlushAndQuit start
+[LOG 15:52:52.282] [Parsek][INFO][TestCommands] exec id=0004 verdict=OK
+[LOG 15:52:52.291] [Parsek][INFO][TestCommands] flushandquit: Application.Quit
+[LOG 15:52:52.828] [UIApp] OnDestroy: AlarmClock

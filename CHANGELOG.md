@@ -10,6 +10,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: a flight-efficiency analyzer for harness runs.** `harness/tools/flight_efficiency.py`
+  (pure core `harness/lib/flighteff.py`) reads finished run artifacts and reports where the
+  WALL time went: 1x seconds outside the atmosphere with a static orbit, split by cause
+  (waiting for a node, a dwell phase, an autopilot slew, coasting to apoapsis or to entry),
+  rails warp below the altitude-legal factor, real 1x burns, and the harness overhead outside
+  the mission (KSP boot, each seam verb, quit, the post-quit verifier tail). Each finding
+  carries an estimated recoverable figure and the mission phase, mlib state machine and spec
+  `missionParams` keys that control it, per run or aggregated over every worktree's results.
+  It only measures; no mission, verifier or result changes. Over the 2026-10-01 nightly runs
+  about 39% of mission wall time was idle at 1x (B11's capture-node wait alone: ~600 s).
 - **Timeline rows explain themselves on hover.** Hovering a row's description in the
   Timeline now explains it in the window's bottom help line. A future row that holds a stock
   control names it, from the same check the stock screen's block uses: `Holds Research in R&D

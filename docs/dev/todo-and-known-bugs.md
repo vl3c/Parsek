@@ -15,6 +15,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## HARNESS-FLIGHT-WALL-TIME: auto-flights spend ~40% of their mission wall time idle at 1x [FILED 2026-10-01, branch `flight-efficiency`. MEASURED; the warp-policy fix is a separate session]
+
+`harness/tools/flight_efficiency.py` (pure core `harness/lib/flighteff.py`, contract in its
+docstring and `harness/README.md` "Flight efficiency") now measures where a run's wall time
+goes. Over the 2026-10-01 nightly runs 39% of mission wall was 1x with a static orbit outside
+the atmosphere; over all 165 mission runs in every worktree's results, 38%. The largest
+recoverable causes: MechJeb NodeExecutor node waits that drop to 1x long before the node
+(B11 CAPTURE-BURN ~600 s, TRANSFER-BURN 30-100 s on most B lanes, BDOCK RENDEZVOUS), the
+real-time PARK dwells (`parkDwellSeconds`, ~170 s each), B4's DEORBIT retrograde slew at 1x
+(~340 s per run; `apErr` is the autopilot pointing error, so rails warp cannot help it), and
+the m3 HOLD-* observation windows (deliberate). The mission warp policy itself is being
+changed in a separate session; re-run the tool over the next nightly to measure that fix.
+
+- [ ] Re-measure after the warp-policy change lands (`--since <date> --json-out`).
+
 ## MISSIONS-TAB-MODEL1: the Missions tab redesign, first slice ("Model 1") [OWNER-APPROVED 2026-09-29, branch `missions-model1`. IN PROGRESS]
 
 Presentation only (no recording data, schema or store change, no new UI surface, no new loop
