@@ -10,7 +10,7 @@ namespace Parsek
     /// <summary>
     /// Log window: a flat, chronological step list of one mission or supply route
     /// (launch, staging, dock / undock, deliveries, terminal), each with its time,
-    /// status, and location. Opened from a mission's "Log" button (Missions tab) or a
+    /// location and vessel. Opened from a mission's "Log" button (Missions tab) or a
     /// route's "Log (Route)" / "Log (Mission)" buttons (Logistics window). One reusable
     /// instance owned by <see cref="ParsekUI"/>; reopening retargets it. Read-only over
     /// already-recorded data; the ordered step list comes from the pure
@@ -55,6 +55,14 @@ namespace Parsek
         private string targetId;
         private string title = "";
         private List<StructureStep> steps = new List<StructureStep>();
+        // Time cells, derived once whenever `steps` is (re)assigned, never per frame: the
+        // first row's date, then each later row's elapsed time from it.
+        private string[] timeCells = new string[0];
+
+        // Bottom hover-help strip: the Event cell carries the FULL piece list as its
+        // tooltip when the cell had to shorten it. Single-line (see TooltipEchoBox).
+        private readonly TooltipEchoBox tooltipEcho =
+            new TooltipEchoBox(TooltipEchoBox.DefaultSpacing, TooltipEchoBox.SingleLine);
 
         // Row-cell label: the shared table cell style (the boxed column header's own
         // horizontal padding, so body text starts at the header text's x) with the
@@ -75,12 +83,31 @@ namespace Parsek
         /// </summary>
         internal const string WindowIdKey = "ParsekStructureList";
 
-        private const float ColW_Index = 28f;    // "#" step number, 1-based
-        private const float ColW_Time = 110f;
+        private const float ColW_Time = 110f;    // first row: date; later rows: "T+h:mm:ss"
         private const float ColW_Event = 0f;     // expand
-        private const float ColW_Status = 95f;   // vessel situation (Orbiting / Landed / ...)
-        private const float ColW_Location = 185f; // "SOI/body, biome"
-        private const float ColW_Vessel = 140f;
+        private const float ColW_Location = 185f; // "Kerbin, Launch Pad" / "Kerbin orbit"
+        private const float ColW_Vessel = 160f;
+
+        /// <summary>First-open width. The Event column gets what the three fixed columns
+        /// leave, which holds <see cref="MissionStructureListBuilder.EventCellCharBudget"/>
+        /// characters unshortened.</summary>
+        internal const float DefaultWindowWidth = 900f;
+        private const float DefaultWindowHeight = 320f;
+
+        /// <summary>The empty-state line of a mission Log.</summary>
+        internal const string EmptyMissionText = "This mission has no recorded flight.";
+        /// <summary>The empty-state line of a route Log.</summary>
+        internal const string EmptyRouteText = "Nothing to show (source recording unavailable).";
+        /// <summary>The empty-state line before any target was given (the bare seam open).</summary>
+        internal const string EmptyNoTargetText = "Nothing to show.";
+
+        /// <summary>The empty-state line for a target mode. Pure.</summary>
+        internal static string EmptyText(TargetMode targetMode)
+        {
+            if (targetMode == TargetMode.Route) return EmptyRouteText;
+            if (targetMode == TargetMode.Mission) return EmptyMissionText;
+            return EmptyNoTargetText;
+        }
 
         internal const float MinWindowWidth = 420f;
         internal const float MinWindowHeight = 160f;
@@ -189,7 +216,7 @@ namespace Parsek
             mode = snapshot.Mode;
             targetId = snapshot.TargetId;
             title = snapshot.Title ?? "";
-            steps = snapshot.Steps ?? new List<StructureStep>();
+            SetSteps(snapshot.Steps ?? new List<StructureStep>());
             isOpen = snapshot.IsOpen;
         }
 
@@ -207,30 +234,62 @@ namespace Parsek
             mode = routeMode ? TargetMode.Route : TargetMode.Mission;
             targetId = null;
             title = displayTitle ?? "";
-            steps = mockedSteps ?? new List<StructureStep>();
+            SetSteps(mockedSteps ?? new List<StructureStep>());
             isOpen = true;
         }
+
+        private void SetSteps(List<StructureStep> newSteps)
+        {
+            steps = newSteps ?? new List<StructureStep>();
+            timeCells = StructureTimeFormatter.FormatStepTimes(steps, FormatDate);
+        }
+
+        /// <summary>The Time cells the window draws right now, for tests and the census.</summary>
+        internal string[] TimeCellsForTesting => timeCells;
 
         // Resolves the target's data and (re)builds the step list. Kept off the per-frame
         // path: only called on open (reopening retargets and rebuilds).
         private void Rebuild()
         {
-            steps = new List<StructureStep>();
+            var built = new List<StructureStep>();
             if (mode == TargetMode.Mission)
             {
                 RecordingTree tree = FindTree(targetId);
                 if (tree != null)
                 {
                     MissionStructure structure = MissionStructureBuilder.Build(tree);
-                    steps = MissionStructureListBuilder.Build(tree, structure);
+                    string treeId = tree.Id;
+                    built = MissionStructureListBuilder.Build(
+                        tree, structure, ResolvePartTitle,
+                        (bp, viewerId) => ResolveMergePartner(treeId, bp, viewerId));
                 }
             }
             else if (mode == TargetMode.Route)
             {
                 if (Logistics.RouteStore.TryGetRoute(targetId, out Logistics.Route route))
-                    steps = RouteStructureListBuilder.Build(
+                    built = RouteStructureListBuilder.Build(
                         route, FindCommittedRecording, VesselSpawner.TryResolveBiome);
             }
+            SetSteps(built);
+        }
+
+        // Internal part name -> the player-facing part title. Part names in recordings are
+        // already the runtime dot-form; the replace keeps a cfg-form name resolving too.
+        // Called once per distinct name per build (the builder caches), never per frame.
+        private static string ResolvePartTitle(string partName)
+        {
+            if (string.IsNullOrEmpty(partName)) return null;
+            AvailablePart info = PartLoader.getPartInfoByName(partName.Replace('_', '.'));
+            return info != null && !string.IsNullOrEmpty(info.title) ? info.title : null;
+        }
+
+        // The other side of a Dock branch point, through the dock-event graph (ERS-scoped by
+        // its host cache, which rebuilds only when the committed topology moved).
+        private static string ResolveMergePartner(string treeId, BranchPoint bp, string viewerId)
+        {
+            return MissionStructureListBuilder.DescribeMergePartnerFromGraph(
+                DockEventGraphCache.GetOrBuild(), treeId, bp, viewerId,
+                MissionsWindowUI.ResolvePartnerMissionName);
         }
 
         private static RecordingTree FindTree(string treeId)
@@ -268,7 +327,7 @@ namespace Parsek
             if (windowRect.width < 1f)
             {
                 float x = mainWindowRect.x + mainWindowRect.width + 10;
-                windowRect = new Rect(x, mainWindowRect.y, 820, 320);
+                windowRect = new Rect(x, mainWindowRect.y, DefaultWindowWidth, DefaultWindowHeight);
             }
 
             ParsekUI.HandleResizeDrag(ref windowRect, ref isResizing,
@@ -334,9 +393,7 @@ namespace Parsek
 
             if (steps.Count == 0)
             {
-                GUILayout.Label(mode == TargetMode.Route
-                    ? "Nothing to show (source recording unavailable)."
-                    : "Nothing to show.");
+                GUILayout.Label(EmptyText(mode));
                 if (GUILayout.Button("Close"))
                     Close();
                 GUI.DragWindow();
@@ -344,6 +401,10 @@ namespace Parsek
             }
 
             DrawStepTable();
+
+            // Hover-help strip, drawn after the rows so the live GUI.tooltip read sees a
+            // hovered Event cell, and directly above Close (the house ordering).
+            tooltipEcho.Draw();
 
             // Full-width Close, matching the other Parsek windows.
             if (GUILayout.Button("Close"))
@@ -382,10 +443,8 @@ namespace Parsek
         private void DrawColumnHeader()
         {
             GUILayout.BeginHorizontal(parentUI.GetTableHeaderRowStyle());
-            GUILayout.Label("#", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Index));
             GUILayout.Label("Time", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Time));
             GUILayout.Label("Event", parentUI.GetColumnHeaderStyle(), GUILayout.ExpandWidth(true));
-            GUILayout.Label("Status", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Status));
             GUILayout.Label("Location", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Location));
             GUILayout.Label("Vessel", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Vessel));
             GUILayout.EndHorizontal();
@@ -399,10 +458,10 @@ namespace Parsek
                 StructureStep step = steps[i];
                 // Same shared row container as the header row above (one inset).
                 GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
-                GUILayout.Label((i + 1).ToString(CultureInfo.InvariantCulture), cellStyle, GUILayout.Width(ColW_Index));
-                GUILayout.Label(FormatTime(step.UT), cellStyle, GUILayout.Width(ColW_Time));
-                GUILayout.Label(step.Label ?? "", cellStyle, GUILayout.ExpandWidth(true));
-                GUILayout.Label(step.Status ?? "", cellStyle, GUILayout.Width(ColW_Status));
+                string time = i < timeCells.Length ? timeCells[i] : "";
+                GUILayout.Label(time, cellStyle, GUILayout.Width(ColW_Time));
+                GUILayout.Label(new GUIContent(step.Label ?? "", step.Tooltip ?? ""),
+                    cellStyle, GUILayout.ExpandWidth(true));
                 GUILayout.Label(step.Location ?? "", cellStyle, GUILayout.Width(ColW_Location));
                 GUILayout.Label(step.VesselName ?? "", cellStyle, GUILayout.Width(ColW_Vessel));
                 GUILayout.EndHorizontal();
@@ -416,10 +475,9 @@ namespace Parsek
             ParsekLog.Verbose("UI", $"Structure window closed: mode={mode} target={targetId ?? "<null>"}");
         }
 
-        private static string FormatTime(double ut)
+        // The first row's date: the Missions start-time cell's formatter.
+        private static string FormatDate(double ut)
         {
-            // The route Origin pseudo-step has no single UT.
-            if (double.IsNaN(ut)) return "-";
             return KSPUtil.PrintDateCompact(ut, true);
         }
     }

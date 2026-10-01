@@ -33,7 +33,7 @@ tier = "operator"
 #     disclosure open (`op=expand window=logistics key=all` walks the route rows, the
 #     `cand:` candidate rows AND the three fixed section keys, so one step opens the
 #     largest un-photographed control cluster in the mod);
-#   - the Structure window (`Parsek - Structure`, the Log) on a ROUTE and on a MISSION.
+#   - the Structure window (`Parsek - Log: <name>`) on a ROUTE and on a MISSION.
 #     GUI-1's `ksc-structure-advanced` is a picture of the empty "Nothing to show."
 #     chrome because `op=open window=structure` raises a flag and nothing else; `op=target`
 #     calls the production `StructureListWindowUI.OpenForRoute` / `OpenForMission`, which
@@ -138,7 +138,8 @@ tier = "operator"
 #     `GroupPickerPresentation.BuildTreeModel` does publish the auto-generated root group
 #     under the name the recording carries; and the link picker opened with no arming click
 #     (`Link 'Route: KSC -> Duna' with:` over the one other route).
-#   - The Structure openers reported `steps=4` on the route and `steps=38` on the mission,
+#   - The Structure openers reported `steps=4` on the route and `steps=38` on the mission
+#     (`steps=11` on the mission since the Log rework: `2026-10-01_1633`, PR #1945),
 #     and the windows are titled after their subjects rather than reading "Nothing to show.".
 #   - The `Candidates` section is present and EMPTY (`No eligible Supply Runs...`): this host
 #     carries a DISMISSED list, not live candidates, which the inventory's 6.1 row already
