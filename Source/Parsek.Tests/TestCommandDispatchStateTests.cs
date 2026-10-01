@@ -62,6 +62,8 @@ namespace Parsek.Tests
             public void SafeWriteCrash(ParsedCommand cmd) => Calls.Add("SafeWriteCrash");
             public void SpinVessel(ParsedCommand cmd) => Calls.Add("SpinVessel");
             public void StashSlot(ParsedCommand cmd) => Calls.Add("StashSlot");
+            public void RealSpawn(ParsedCommand cmd) => Calls.Add("RealSpawn");
+            public void Recover(ParsedCommand cmd) => Calls.Add("Recover");
         }
 
         [Fact]
@@ -173,6 +175,10 @@ namespace Parsek.Tests
         [InlineData("SpinVessel", "RequiresFlight")]
         // StashSlot: SealSlot's row - save-scoped stores only, table open at the KSC too.
         [InlineData("StashSlot", "RequiresGameLoaded")]
+        // The D18 player-action pair: the Real Spawn Control table and the stock Recover
+        // button both live in the flight scene.
+        [InlineData("RealSpawn", "RequiresFlight")]
+        [InlineData("Recover", "RequiresFlight")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -227,6 +233,8 @@ namespace Parsek.Tests
             fake.SafeWriteCrash(cmd);
             fake.SpinVessel(cmd);
             fake.StashSlot(cmd);
+            fake.RealSpawn(cmd);
+            fake.Recover(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

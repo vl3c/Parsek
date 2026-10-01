@@ -57,6 +57,8 @@ namespace Parsek.Tests
         [InlineData("SafeWriteCrash")]
         [InlineData("SpinVessel")]
         [InlineData("StashSlot")]
+        [InlineData("RealSpawn")]
+        [InlineData("Recover")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -175,7 +177,10 @@ namespace Parsek.Tests
             // so both numbers move in opposite directions again: the Recordings table's
             // Stash button, whose consumer is the live re-fly of a stable focus slot that
             // went EVA and re-boarded (RF-20).
-            Assert.Equal(44, TestCommandVerbs.ImplementedVerbNames.Count);
+            // RealSpawn and Recover are ADDITIVE (44 -> 46; reserved unchanged at 4): the
+            // D18 player-action pair; the reserved envelope never carried a spawn or a
+            // recovery verb.
+            Assert.Equal(46, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

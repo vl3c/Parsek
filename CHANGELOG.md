@@ -5361,6 +5361,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: the D18 player-action seam pair.** Two new automation-only seam
+  verbs. `RealSpawn rec=<id>` presses the Real Spawn Control row's "Warp to Spawn" for one
+  committed recording through the button's own click body and answers with the spawned
+  vessel's pid once the playback loop has spawned it; it refuses (pressing nothing) when the
+  table draws no row for the recording, the button is greyed, or the row would warp to a
+  departure instead. `Recover pid=<pid>` presses the flight scene's stock Recover button for
+  the active vessel, so stock saves, loads the Space Center and recovers it exactly as for a
+  player; it refuses a locked button, a vessel that is not the active one, and a recovery
+  whose Space Center load would raise a merge dialog. Mirrored in the harness tables; no
+  lane yet.
 - **Automated testing: the wide windows at 1280x720.** New automation-only `UiAction op=state
   window=missions key=scrollX value=<px>` drives the Missions window's horizontal scroll
   (read back as the settled, clamped offset; 0 while the window fits), mirrored in hlib. The

@@ -1015,6 +1015,19 @@ namespace Parsek.TestCommands
                 TryCompleteExitToSpaceCenter(now);
                 return;
             }
+            // The D18 player-action pair, in the ParsekTestCommandAddon.RealSpawn.cs /
+            // .Recover.cs partials: a spawn read-back and a stock recovery observed at the
+            // Space Center, each with its own bounded completion.
+            if (completionVerb == TestCommandRealSpawn.Verb)
+            {
+                TryCompleteRealSpawn(now);
+                return;
+            }
+            if (completionVerb == TestCommandRecover.Verb)
+            {
+                TryCompleteRecover(now);
+                return;
+            }
 
             bool done = false;
             string verdict = null;
@@ -1153,6 +1166,8 @@ namespace Parsek.TestCommands
             mergeAnswerDrivePending = false;
             // The EvaGroundScience key press must never outlive its command.
             EvaJumpKeyPressInjection.Remove();
+            // Recover's two stock-event listeners must never outlive its command either.
+            RemoveRecoverListeners();
             // A multi-category RunTests that ends by TIMEOUT or by a completion
             // exception must not leave its token queue armed for the next RunTests to
             // inherit; the sequence is over the moment the two-phase state is.
@@ -1502,6 +1517,10 @@ namespace Parsek.TestCommands
         // StashSlot: body in the sibling ParsekTestCommandAddon.StashSlot.cs. Single-phase
         // (TryStash is synchronous), so no TryComplete* counterpart.
         void ITestCommandExecutor.StashSlot(ParsedCommand cmd) => StashSlotImpl(cmd);
+        // RealSpawn / Recover (D18 player-action pair): bodies + two-phase completions in the
+        // sibling ParsekTestCommandAddon.RealSpawn.cs / .Recover.cs partials.
+        void ITestCommandExecutor.RealSpawn(ParsedCommand cmd) => RealSpawnImpl(cmd);
+        void ITestCommandExecutor.Recover(ParsedCommand cmd) => RecoverImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -1566,6 +1585,8 @@ namespace Parsek.TestCommands
                 case "SafeWriteCrash": exec.SafeWriteCrash(cmd); break;
                 case "SpinVessel": exec.SpinVessel(cmd); break;
                 case "StashSlot": exec.StashSlot(cmd); break;
+                case "RealSpawn": exec.RealSpawn(cmd); break;
+                case "Recover": exec.Recover(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

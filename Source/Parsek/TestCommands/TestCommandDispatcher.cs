@@ -269,6 +269,10 @@ namespace Parsek.TestCommands
         // ----- StashSlot (the seventh promoted reserved verb: the Unfinished Flights Stash
         // button, which opens a stable separation leaf for a re-fly) -----
         void StashSlot(ParsedCommand cmd);
+        // ----- RealSpawn / Recover (the D18 player-action pair: the Real Spawn Control row
+        // warp for one recording, and the flight scene's stock Recover button) -----
+        void RealSpawn(ParsedCommand cmd);
+        void Recover(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -502,6 +506,12 @@ namespace Parsek.TestCommands
                 // committed recording's MergeState), and the Recordings table it
                 // reproduces is open in FLIGHT and at the KSC alike.
                 ["StashSlot"] = VerbSceneRequirement.RequiresGameLoaded,
+                // RealSpawn. RequiresFlight: the Real Spawn Control table and the proximity
+                // scan that fills it exist only in the flight scene.
+                ["RealSpawn"] = VerbSceneRequirement.RequiresFlight,
+                // Recover. RequiresFlight: the stock Recover button is the flight scene's
+                // altimeter button and acts on the active vessel.
+                ["Recover"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>
@@ -684,6 +694,19 @@ namespace Parsek.TestCommands
                     // recording-active guard, and deliberately so: a live recorder is the
                     // PRECONDITION for the switch-segment cases this verb exists to exercise,
                     // not a hazard. The dialog / scope refusals are executor-side and typed.
+                    if (state.LoadInFlight)
+                        return DispatchResult.Reject("load-in-flight");
+                    if (state.MergeJournalInFlight)
+                        return DispatchResult.Reject("merge-journal-in-flight");
+                    break;
+
+                case "RealSpawn":
+                case "Recover":
+                    // The ExitToSpaceCenter pair, for its two reasons: Recover drives a
+                    // scene exit and RealSpawn a time jump plus a vessel spawn, neither of
+                    // which may race a LoadGame's scene change or a re-fly merge journal
+                    // mid-finalize. No recording-active guard: a live recorder is the
+                    // ordinary case (the product's own jump and recovery paths handle it).
                     if (state.LoadInFlight)
                         return DispatchResult.Reject("load-in-flight");
                     if (state.MergeJournalInFlight)
@@ -897,6 +920,16 @@ namespace Parsek.TestCommands
         /// parse, so it takes StartRecording's scene-wait size (180 s).</summary>
         internal const double LaunchFromEditorSeconds = 180.0;
 
+        /// <summary>RealSpawn: the row press runs <c>WarpToRecordingEnd</c>'s epoch-shift
+        /// jump synchronously; the wait is the playback loop's spawn at the new UT (and its
+        /// ledger recalc). Sized like TimeJump (120 s), the same jump plus spawn settle.</summary>
+        internal const double RealSpawnSeconds = 120.0;
+
+        /// <summary>Recover: stock's save + the Space Center load + the 8-frame delay before
+        /// <c>VesselRetrieval.recoverVessels</c>. Sized like ExitToSpaceCenter (120 s), the
+        /// same scene exit plus a few frames.</summary>
+        internal const double RecoverSeconds = 120.0;
+
         /// <summary>
         /// The deferral budget (seconds) for <paramref name="verb"/>. For RunTests the
         /// scenario's declared runtime budget is authoritative when supplied via
@@ -940,6 +973,10 @@ namespace Parsek.TestCommands
                     return GoToEditorSeconds;
                 case "LaunchFromEditor":
                     return LaunchFromEditorSeconds;
+                case "RealSpawn":
+                    return RealSpawnSeconds;
+                case "Recover":
+                    return RecoverSeconds;
                 // KscAction rides the default 60 s (career-ready / SPACECENTER wait; the
                 // action itself is immediate). SimulateStockSwitchClick rides it too: it is
                 // SINGLE-phase (the switch and its consume are synchronous inside
