@@ -1483,7 +1483,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | D6 | `MissionSelection` (whole file) and `Mission.ExcludedThroughLineHeadIds`: persisted, cloned, stale-dropped, folded into the change signature, never written | `MissionSelection.cs:23`, `:41`; `Mission.cs:18` |
 | D14 | `DrawCompositionNode` as a mission-row renderer, reachable only inside an included foreign partner journey (off by default) | `UI/MissionsWindowUI.cs:1578`, `:1682`; `Mission.cs:40` |
 | D16 | `BuildPeriodStateTooltip(locked: true)` cannot fire | `MissionPresentation.cs:651-652`, sole call `UI/MissionsWindowUI.cs:4156` |
-| P10 | The mission `Log` is titled with the mission but built from the TREE, so two clones with different include sets render byte-identical logs | title `UI/MissionsWindowUI.cs:2492`, build `UI/StructureListWindowUI.cs:110-117` |
+| P10 | ~~The mission `Log` is titled with the mission but built from the TREE, so two clones with different include sets render byte-identical logs~~ FIXED 2026-10-01 (MISSION-LOG-REWORK): the Log opens on a Mission and drops the rows of its excluded intervals through `MissionIntervalSelection.IsIntervalIncluded`, the vessel rows' predicate, and rebuilds on a change signature | title `UI/MissionsWindowUI.cs:2492`, build `UI/StructureListWindowUI.cs:110-117` |
 | P21 | The chapter tri-state toggle carries no tooltip and escapes the Basic gate | `UI/MissionsWindowUI.cs:1885`, marker `:1920` |
 | - | `MissionDeleteDisabledReason()` takes no arguments and returns a constant | `UI/MissionsWindowUI.cs:2908` |
 | - | Header summary, `Events (N)`, chapter titles, Start/End cells and the `#` index are all keyed by TREE id, so every clone shows identical values | `UI/MissionsWindowUI.cs:1255`, `:2272`, `:1770`, `:1515-1520`, `:2467` |
@@ -1702,7 +1702,7 @@ One line each for the rest:
 | P3 | The route Interval field snaps to `N x transit` and overwrites the typed value: show the snapped value and why in the existing tooltip, or accept the silent rewrite? |
 | P4 | `Warp to Spawn` has 15 silent refusals behind it: put the refusal reason in the existing disabled-hover echo, or rename the button to the action it performs? |
 | P9 | Rename refusals (mission, group, re-parent) discard the typed name with a Warn: keep the field content and show the reason in the row tooltip, or leave it? |
-| P10 | The mission `Log` is built from the tree and ignores the mission's include set, so clones render identical logs under different titles: is that the intended contract? |
+| P10 | The mission `Log` is built from the tree and ignores the mission's include set, so clones render identical logs under different titles: is that the intended contract? DECIDED + FIXED 2026-10-01: no; the Log follows the mission's include set (MISSION-LOG-REWORK) |
 | P11 | `Merged, but could not seal - seal it from the Timeline window` names a control that cannot exist in exactly that state: reword, or make the control exist? |
 | P19 | The Candidates empty-state sentence tells the player to do what the near-miss list below shows they already did: reword, or suppress it when near-misses exist? |
 | P20 | Four route cells read `Stops[0]` only while `RouteBuilder` builds multi-stop routes: is multi-stop display in scope, or should the labels be scoped to the first stop? |

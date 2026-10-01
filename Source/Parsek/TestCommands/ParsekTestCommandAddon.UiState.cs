@@ -365,13 +365,13 @@ namespace Parsek.TestCommands
             List<string> candidates;
             if (kind == UiTargetKind.Mission)
             {
-                if (!TryResolveMissionTarget(wanted, out resolvedId, out title,
-                                             out candidates))
+                if (!TryResolveMissionTarget(wanted, out resolvedId, out string missionId,
+                                             out title, out candidates))
                 {
                     RejectTargetNotFound(kind, wanted, candidates);
                     return;
                 }
-                structure.OpenForMission(resolvedId, title);
+                structure.OpenForMission(resolvedId, missionId, title);
             }
             else
             {
@@ -447,22 +447,36 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
-        /// Resolves a <c>mission=</c> value to the TREE ID the Structure window's opener
-        /// takes. Three rungs, in this order: the tree id itself, the Mission's display
-        /// NAME, then the tree's own name. A census spec names what a reviewer can read off
-        /// the window, which is the mission name; the id rung exists so a
-        /// <c>${step.field}</c> chain from a handle listing works unchanged.
+        /// Resolves a <c>mission=</c> value to the TREE ID and the Mission the Log's opener
+        /// takes. Four rungs, in this order: the Mission's own id (the R10 capture of an
+        /// <c>op=clone</c> payload's <c>copy=</c>, the only way to name a clone, whose name
+        /// may repeat its source's), the tree id (its first, original mission), the Mission's
+        /// display NAME, then the tree's own name (no Mission: the whole tree). A census spec
+        /// names what a reviewer can read off the window, which is the mission name; the id
+        /// rungs exist so a <c>${step.field}</c> chain works unchanged.
         /// </summary>
         private static bool TryResolveMissionTarget(string wanted, out string treeId,
+                                                    out string missionId,
                                                     out string title,
                                                     out List<string> candidates)
         {
             treeId = null;
+            missionId = null;
             title = null;
             candidates = new List<string>();
             IReadOnlyList<RecordingTree> trees = RecordingStore.CommittedTrees;
             IReadOnlyList<Mission> missions = MissionStore.Missions;
 
+            for (int i = 0; i < missions.Count; i++)
+            {
+                Mission m = missions[i];
+                if (m == null || !string.Equals(m.Id, wanted, StringComparison.Ordinal))
+                    continue;
+                treeId = m.TreeId;
+                missionId = m.Id;
+                title = string.IsNullOrEmpty(m.Name) ? m.TreeId : m.Name;
+                return true;
+            }
             for (int i = 0; i < missions.Count; i++)
             {
                 Mission m = missions[i];
@@ -472,6 +486,7 @@ namespace Parsek.TestCommands
                     || string.Equals(m.Name, wanted, StringComparison.Ordinal))
                 {
                     treeId = m.TreeId;
+                    missionId = m.Id;
                     title = string.IsNullOrEmpty(m.Name) ? m.TreeId : m.Name;
                     return true;
                 }

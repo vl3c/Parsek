@@ -2926,8 +2926,9 @@ namespace Parsek
             if (GUILayout.Button("Log", interactButtonStyle, GUILayout.Width(InteractButtonWidth)))
             {
                 ParsekLog.Info("UI",
-                    $"Mission Log button: tree={mission.TreeId ?? "<null>"} name='{mission.Name ?? ""}'");
-                parentUI.OpenStructureWindowForMission(mission.TreeId, mission.Name);
+                    $"Mission Log button: tree={mission.TreeId ?? "<null>"} mission={mission.Id ?? "<null>"} " +
+                    $"name='{mission.Name ?? ""}'");
+                parentUI.OpenStructureWindowForMission(mission.TreeId, mission.Id, mission.Name);
             }
             GUILayout.EndHorizontal();
         }

@@ -2320,9 +2320,16 @@ namespace Parsek
                     hasSourceMission, MissionLogButtonDisabledReason(sourceTreeId));
                 if (missionLogClicked)
                 {
+                    // The source tree's ORIGINAL mission: clones share the tree, and the
+                    // route was built from the flight the original stands for.
+                    Mission sourceMission = MissionStore.FindOriginalMission(sourceTreeId);
                     ParsekLog.Info("UI",
-                        $"Route Log (Mission) button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} tree={sourceTreeId ?? "<null>"}");
-                    parentUI.OpenStructureWindowForMission(sourceTreeId, ResolveTreeDisplayName(sourceTreeId));
+                        $"Route Log (Mission) button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} tree={sourceTreeId ?? "<null>"} " +
+                        $"mission={sourceMission?.Id ?? "<none>"}");
+                    parentUI.OpenStructureWindowForMission(sourceTreeId, sourceMission?.Id,
+                        !string.IsNullOrEmpty(sourceMission?.Name)
+                            ? sourceMission.Name
+                            : ResolveTreeDisplayName(sourceTreeId));
                 }
                 GUI.enabled = true;
 

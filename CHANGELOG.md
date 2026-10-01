@@ -2377,6 +2377,17 @@ _(unreleased — entries accumulate here per commit)_
   an orbital route endpoint reads `Mun orbit`. Presentation only: no recording data changed
   (`MissionStructureList.cs`, `StructureListWindowUI.cs`).
 
+- **The mission Log follows its mission, not the recording tree.** A mission's Log was built
+  from the whole tree, so a clone that leaves a vessel out read the same Log as its original.
+  It now drops the rows of the stretches the mission leaves out, by the same include check the
+  Missions tab's vessel rows use: a row stays when any stretch it falls in is included, so a
+  separation or dock on the boundary of a kept stretch stays. An open Log also follows the
+  mission while it is open: ticking or unticking a vessel, renaming the mission, or a new
+  commit rebuilds it (checked once per frame from a cheap signature, rebuilt only when it
+  moves). The Logistics window's mission Log button opens the source tree's original mission.
+  Presentation only (`MissionStructureList.cs`, `MissionIntervalSelection.IsIntervalIncluded`,
+  `StructureListWindowUI.cs`).
+
 - **Missions window redesign, first slice.** The columns are `#`, Missions and vessels,
   Start time, Start event, End event, End time and **Interact**, one right-hand column that
   holds every per-row button at one shared width (a two-button pair spans one button). Each

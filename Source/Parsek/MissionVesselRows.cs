@@ -232,8 +232,8 @@ namespace Parsek
             int excluded = 0;
             for (int i = 0; i < row.Intervals.Count; i++)
             {
-                if (excludedIntervalKeys != null
-                    && excludedIntervalKeys.Contains(row.Intervals[i].HeadLegId))
+                if (!MissionIntervalSelection.IsIntervalIncluded(
+                        row.Intervals[i], excludedIntervalKeys))
                     excluded++;
             }
             if (excluded == 0)

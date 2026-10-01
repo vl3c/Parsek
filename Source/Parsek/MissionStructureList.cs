@@ -202,12 +202,17 @@ namespace Parsek
         /// <paramref name="mergePartnerResolver"/> names the other side of a Dock / Board
         /// branch point for a viewer recording, already formatted
         /// ("CD" or "CD (mission 'CD Freighter')"); null when it cannot.
+        /// <paramref name="excludedIntervalKeys"/> is the viewed mission's
+        /// <c>Mission.ExcludedIntervalKeys</c>: a row that falls only inside intervals the
+        /// mission excludes is dropped (<see cref="DropExcludedSteps"/>), so two missions over
+        /// one tree read two different Logs. Null or empty keeps every row (the whole tree).
         /// </summary>
         internal static List<StructureStep> Build(
             RecordingTree tree,
             MissionStructure structure,
             Func<string, string> partTitleResolver = null,
-            Func<BranchPoint, string, string> mergePartnerResolver = null)
+            Func<BranchPoint, string, string> mergePartnerResolver = null,
+            ICollection<string> excludedIntervalKeys = null)
         {
             var steps = new List<StructureStep>();
             if (tree == null || structure == null || structure.LegsById.Count == 0)
@@ -241,7 +246,10 @@ namespace Parsek
             // 6. Terminal: one per controlled leg that ends in a state of its own.
             AddTerminalSteps(steps, ctx);
 
-            // 7. Deterministic chronological sort, then the simultaneous collapse.
+            // 7. The mission's include set: rows of intervals it excludes are not its story.
+            steps = DropExcludedSteps(steps, structure, excludedIntervalKeys, out int excludedRows);
+
+            // 8. Deterministic chronological sort, then the simultaneous collapse.
             steps.Sort(CompareStep);
             steps = CollapseSimultaneous(steps);
 
@@ -258,8 +266,98 @@ namespace Parsek
                     $"partEvents: seeds={ctx.SkippedSeeds} debris={ctx.SkippedDebris} " +
                     $"dockCoupling={ctx.SkippedDockCoupling} duplicates={ctx.SkippedDuplicates} " +
                     $"absorbed={ctx.AbsorbedCount} loose={loose.Count} " +
-                    $"mergedEndsSkipped={ctx.SkippedMergedEnds}");
+                    $"mergedEndsSkipped={ctx.SkippedMergedEnds} " +
+                    $"excludedKeys={(excludedIntervalKeys != null ? excludedIntervalKeys.Count : 0)} " +
+                    $"excludedRows={excludedRows}");
             return steps;
+        }
+
+        /// <summary>
+        /// Drops the rows a mission excludes. A row concerns one leg (its
+        /// <see cref="StructureStep.RecordingId"/>) at one UT; the composition intervals that
+        /// cover it are the intervals of every through-line holding that leg whose span holds
+        /// the UT (closed at both ends, so a row on an interval boundary - a separation, a dock
+        /// - is covered by the interval on each side). The row stays when ANY covering interval
+        /// is included (<see cref="MissionIntervalSelection.IsIntervalIncluded"/>, the predicate
+        /// the Missions vessel rows read) and when nothing covers it (a row the selection cannot
+        /// speak about is never hidden). Pure apart from the composition / through-line builders
+        /// it calls, which are themselves pure.
+        /// </summary>
+        internal static List<StructureStep> DropExcludedSteps(
+            List<StructureStep> steps, MissionStructure structure,
+            ICollection<string> excludedIntervalKeys, out int dropped)
+        {
+            dropped = 0;
+            if (steps == null || steps.Count == 0 || structure == null
+                || excludedIntervalKeys == null || excludedIntervalKeys.Count == 0)
+                return steps;
+
+            var intervals = new List<MissionCompositionNode>();
+            List<MissionCompositionNode> roots = MissionCompositionBuilder.Build(structure);
+            for (int i = 0; i < roots.Count; i++)
+                CollectSelectableIntervals(roots[i], intervals);
+
+            // One leg can sit on two through-lines (a same-tree dock's merged child is walked by
+            // both parents), and the composition awards its intervals to only one of them, so
+            // every containing head is a candidate owner.
+            MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
+            var headsByLeg = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            foreach (MissionThroughLine line in view.ByHeadId.Values)
+            {
+                for (int m = 0; m < line.MemberLegIds.Count; m++)
+                {
+                    string legId = line.MemberLegIds[m];
+                    if (legId == null) continue;
+                    if (!headsByLeg.TryGetValue(legId, out List<string> heads))
+                    {
+                        heads = new List<string>(1);
+                        headsByLeg[legId] = heads;
+                    }
+                    heads.Add(line.HeadLegId);
+                }
+            }
+
+            var kept = new List<StructureStep>(steps.Count);
+            for (int i = 0; i < steps.Count; i++)
+            {
+                if (IsStepIncluded(steps[i], headsByLeg, intervals, excludedIntervalKeys))
+                    kept.Add(steps[i]);
+                else
+                    dropped++;
+            }
+            return kept;
+        }
+
+        private static bool IsStepIncluded(
+            StructureStep step, Dictionary<string, List<string>> headsByLeg,
+            List<MissionCompositionNode> intervals, ICollection<string> excludedIntervalKeys)
+        {
+            if (string.IsNullOrEmpty(step.RecordingId)
+                || !headsByLeg.TryGetValue(step.RecordingId, out List<string> heads))
+                return true;
+            bool covered = false;
+            for (int i = 0; i < intervals.Count; i++)
+            {
+                MissionCompositionNode node = intervals[i];
+                if (!heads.Contains(node.OwnerHeadId)) continue;
+                if (step.UT < node.StartUT - MissionPresentation.PeelUtEpsilon
+                    || step.UT > node.EndUT + MissionPresentation.PeelUtEpsilon)
+                    continue;
+                covered = true;
+                if (MissionIntervalSelection.IsIntervalIncluded(node, excludedIntervalKeys))
+                    return true;
+            }
+            return !covered;
+        }
+
+        private static void CollectSelectableIntervals(
+            MissionCompositionNode node, List<MissionCompositionNode> into)
+        {
+            if (node == null) return;
+            if (node.IsSelectable && !string.IsNullOrEmpty(node.OwnerHeadId))
+                into.Add(node);
+            for (int i = 0; i < node.Children.Count; i++)
+                CollectSelectableIntervals(node.Children[i], into);
         }
 
         // ------------------------------------------------------------------

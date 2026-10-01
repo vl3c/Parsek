@@ -2181,7 +2181,11 @@ by `StructureListWindowUI.OpenForMission` / `OpenForRoute`, which set the target
 before raising the flag, so the op calls those and reports the row count they produced
 (`steps=`). `mission=` / `route=` resolve on three rungs - the id itself, the display NAME,
 then the tree's own name - because a census spec names what a reviewer can read off the
-window while a `${step.field}` chain carries an id. Exactly one selector: both is a
+window while a `${step.field}` chain carries an id. `mission=` tries the Mission's OWN id
+first, the only name a clone has that its source does not share (the `copy=` an
+`op=clone` payload returns), then the tree id (the tree's original mission); the Log it
+opens is that ONE mission's, its excluded intervals' rows dropped, and the reported `id=`
+stays the tree id. Exactly one selector: both is a
 REJECTED rather than a precedence, since the two open different lists and guessing would
 photograph the wrong one under the caller's label.
 

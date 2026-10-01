@@ -1060,10 +1060,11 @@ namespace Parsek
             structureListUI.DrawIfOpen(mainWindowRect);
         }
 
-        /// <summary>Opens the structure-list window for a mission tree (Missions tab button).</summary>
-        internal void OpenStructureWindowForMission(string treeId, string title)
+        /// <summary>Opens the Log window on one Mission (Missions tab button, Logistics route
+        /// Log button). <paramref name="missionId"/> null opens the whole tree.</summary>
+        internal void OpenStructureWindowForMission(string treeId, string missionId, string title)
         {
-            structureListUI.OpenForMission(treeId, title);
+            structureListUI.OpenForMission(treeId, missionId, title);
         }
 
         /// <summary>Opens the structure-list window for a supply route (Logistics window button).</summary>

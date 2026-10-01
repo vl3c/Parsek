@@ -336,7 +336,7 @@ Section 6 shows three different cache behaviours. One mechanism covers all of th
 | Timeline | `ShouldRebuildTimeline` `:771` returns false; `InvalidateCache` `:366` is suppressed |
 | Logistics | the three wall-clock refreshers `:2993/:3043/:3071` return early, and `legibilityCache.Clear()` `:3076` is skipped |
 | Spawn Control | the generation/count gate `:269-282` is satisfied naturally by a constant-count list; the UT read `:240` goes through the session's pinned UT |
-| Structure List, Settings, Group Picker | nothing: no invalidation key to fight |
+| Structure List, Settings, Group Picker | nothing: no invalidation key to fight (since 2026-10-01 the mission Log rebuilds on a change signature, `StructureListWindowUI.RefreshIfChanged`, which skips a window with no target, and a mock sets none) |
 
 The suppression is one predicate read per rebuild site, `GuiMockSession.Owns("<window>")`, which is false in every player build because the session can only be created by the armed seam. A unit test asserts that each suppressed site is inert when no session exists, and a source gate asserts the set of suppressed sites equals the set the applier claims to support (the `GuiCensusApplierSourceGateTests` shape, over comment-stripped source).
 

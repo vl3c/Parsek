@@ -93,7 +93,7 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   policy), so `GetRewindRecording` is null in every scene (GUI-4 is a Space Center capture
   and draws no Rewind either); GUI-1's operator career has launch saves and draws it.
 
-## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branch `log-rework`. PARTS 1-2 DONE]
+## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branches `log-rework` (parts 1-2) and `log-rework-2` (part 3 on). PARTS 1-3 DONE]
 
 Presentation only (no recording data or schema change, no new window). The docked-mission
 subject is `bdock-recorded`'s "Kerbal X #2" (GUI-4), whose Log read 31 rows; it now reads 11,
@@ -126,7 +126,14 @@ pinned row by row in `StructureListBdockFixtureTests` against the committed fixt
   separation at UT 692.77 names `5157d655`, which now ends at 568.23; its parts sit on the tail
   `d60398f6`). The Log tolerates it (stage ownership follows the parent's chain); other
   consumers of `BranchPoint.ParentRecordingIds` may not. Not investigated beyond the Log.
-- [ ] Later PR: the per-mission include set (the Log ignores a mission's excluded intervals).
+- [x] Part 3, the Log follows the mission (inventory P10): the window opens on a Mission (the
+  Logistics button resolves the source tree's ORIGINAL mission) and
+  `MissionStructureListBuilder.DropExcludedSteps` drops a row only when every composition
+  interval covering it (each through-line holding its leg, span closed at both ends) is
+  excluded by `MissionIntervalSelection.IsIntervalIncluded`, the one predicate the vessel rows
+  and render windows read. An open Log rebuilds on a Layout-only change signature
+  (`RecordingStore.StateVersion`, the mission's name, an order-free hash of its excluded keys);
+  a gallery mock has no target and stays inert.
 - [ ] Later PR: retire the route Log (it keeps working; its Status column folded into Location,
   an orbital endpoint reads `Mun orbit`).
 - [ ] Later PR: number same-named vessels (`Kerbal X [2]`); today the docking mission's two
