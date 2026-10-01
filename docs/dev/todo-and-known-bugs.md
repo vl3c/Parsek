@@ -7751,7 +7751,29 @@ on one criterion.
 at it ("none eligible yet - see what the runs below are missing") instead of repeating the
 instructions.
 
-## GUI-P20-MULTI-STOP-ROUTES-REPORT-ONLY-THEIR-FIRST-STOP [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-P20-MULTI-STOP-ROUTES-REPORT-ONLY-THEIR-FIRST-STOP~~ [FILED 2026-09-11 by the GUI fix batch; FIXED 2026-10-01]
+
+**Fix:** every derivation moved to pure helpers in `UI/LogisticsDeliveryPresentation.cs`
+(GUI-P20 section), each with a single-stop path that returns exactly the pre-fix text,
+pinned by `LogisticsMultiStopPresentationTests`. On a route with more than one stop:
+"Delivers per cycle" sums each resource over every stop's delivery manifest (the engine
+lands each stop's own manifest every cycle) and appends `across N stops` when more than one
+stop receives cargo; Destination names the first stop that RECEIVES cargo (not stop 0: the
+only committed multi-stop host, the rover relay, visits its pickup source first, so the old
+cell named the pickup rover and read `(nothing)`) plus `(+N stops)`, with the visit-ordered
+stop list and each stop's pickup / delivery role in the cell's existing tooltip; the
+DestinationFull capacity line replays `RouteDestinationCapacityCheck.HasCapacityForAllStops`
+over the resolved stop vessels and names the stop it refuses, comparing against that stop's
+manifest plus earlier stops to the same vessel (the gate's own accounting); and the single
+"Re-scan for endpoint" button (no per-stop buttons) is offered when any stop is a recoverable
+surface endpoint, re-scans every stop, logs each stop's outcome on one Info line
+(`stops=N resolved=K/N [...]`), and clears the retry gate only when every stop resolved.
+Proof host: the rover-relay route (`rover-relay-c-recorded`, two stops, built by RVR-7 and
+photographed by GUI-20 / GUI-21 / GUI-22), which shows the Destination and Delivers per
+cycle change; no lane pins window text. The capacity line stays unreachable there because
+the loop path never assigns `DestinationFull` as a route status, and the re-scan button
+needs an `EndpointLost` multi-stop route (the loop path can reach it at delivery,
+`endpoint-lost-at-delivery`), which no committed lane drives (RVR-18 is single-stop).
 
 **Evidence.** `Logistics/RouteBuilder.cs:353` genuinely builds multi-stop routes. Four
 window cells read `route.Stops[0]` only: "Delivers per cycle"
