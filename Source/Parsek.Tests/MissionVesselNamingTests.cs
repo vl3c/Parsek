@@ -319,6 +319,41 @@ namespace Parsek.Tests
             Assert.Equal(0, tally.Numbered);
         }
 
+        // catches: a ship re-pidded TWICE (it docks and undocks twice: A -> A' -> A'') named by
+        // recording-id order - the first cut computed its candidates once and stored stale
+        // union-find roots, so the second hop could not join. Both id orders must agree.
+        [Theory]
+        [InlineData("a", "c", "b")]
+        [InlineData("a", "b", "c")]
+        [InlineData("c", "b", "a")]
+        public void ShipRepiddedTwice_KeepsItsNameUnderAnyIdOrder(string idA, string idA1, string idA2)
+        {
+            RecordingTree station = Tree("S", new[] { Rec("s0", "Station", 0, 500, pid: 100, guid: "GS") });
+            Recording a = Rec(idA, "Ship", 10, 50, pid: 200, guid: "G2", partPids: new uint[] { 11, 12, 13 });
+            Recording stack1 = Rec("stack1", "Station", 50, 60, pid: 100, guid: "GS", partPids: new uint[] { 11, 900 });
+            Recording half1 = Rec("half1", "Station", 60, 65, pid: 100, guid: "GS", partPids: 900);
+            Recording a1 = Rec(idA1, "Ship", 60, 70, pid: 201, guid: "G3", partPids: new uint[] { 12, 13 });
+            Recording stack2 = Rec("stack2", "Station", 70, 80, pid: 100, guid: "GS", partPids: new uint[] { 12, 901 });
+            Recording half2 = Rec("half2", "Station", 80, 90, pid: 100, guid: "GS", partPids: 901);
+            Recording a2 = Rec(idA2, "Ship", 80, 90, pid: 202, guid: "G4", partPids: 13);
+            a.TerminalStateValue = TerminalState.Docked;
+            a1.TerminalStateValue = TerminalState.Docked;
+            RecordingTree mission = Tree("A", new[] { a, stack1, half1, a1, stack2, half2, a2 },
+                BP("d1", BranchPointType.Dock, 50, new[] { idA }, new[] { "stack1" }),
+                BP("u1", BranchPointType.Undock, 60, new[] { "stack1" }, new[] { "half1", idA1 }),
+                BP("d2", BranchPointType.Dock, 70, new[] { idA1 }, new[] { "stack2" }),
+                BP("u2", BranchPointType.Undock, 80, new[] { "stack2" }, new[] { "half2", idA2 }));
+            Dictionary<string, string> names = MissionVesselNaming.Build(
+                mission, MissionStructureBuilder.Build(mission),
+                MissionVesselNaming.LaunchIndex.Build(new[] { mission, station }), id => "M-" + id,
+                out MissionVesselNaming.Tally tally);
+            Assert.Equal("Ship", names[idA]);
+            Assert.Equal("Ship", names[idA1]);
+            Assert.Equal("Ship", names[idA2]);
+            Assert.Equal(0, tally.Numbered);
+            Assert.Equal(2, tally.Continuations);
+        }
+
         // catches: the continuation rule swallowing a genuine twin - a same-named piece that
         // decouples from a ship that carries on is a second vessel even though it shares the
         // parent's part pids.
@@ -381,6 +416,55 @@ namespace Parsek.Tests
             RecordingTree b = Tree("B", new[] { b1, b2 },
                 BP("s", BranchPointType.JointBreak, 50, new[] { "b1" }, new[] { "b2" }));
             Assert.Equal("Kerbal X", Names(b, a)["b2"]);
+        }
+
+        // catches: the Missions tab re-running the naming pass (snapshot parses, the O(L^2)
+        // launch union, the all-trees launch index) every frame. A steady key reads the cache;
+        // a StateVersion bump or a mission rename rebuilds.
+        [Fact]
+        public void Cache_ReusedAcrossFrames_InvalidatedOnStateVersionOrMissionNames()
+        {
+            List<RecordingTree> trees = StructureListBdockFixtureTests.LoadBdockTrees();
+            RecordingTree tree = trees.Single(t => t.Id == DockingTreeId);
+            var cache = new MissionVesselNaming.Cache();
+            int structureBuilds = 0;
+            Func<MissionStructure> structure = () => { structureBuilds++; return MissionStructureBuilder.Build(tree); };
+            var missions = new List<Mission> { new Mission("m1", FirstTreeId, "Kerbal X") };
+            int sig = MissionVesselNaming.Cache.MissionSignature(missions);
+
+            Dictionary<string, string> first = cache.GetOrBuild(tree, structure, trees, 7, sig, MissionNameOf);
+            for (int frame = 0; frame < 5; frame++)
+                Assert.Same(first, cache.GetOrBuild(tree, structure, trees, 7, sig, MissionNameOf));
+            Assert.Equal(1, cache.Rebuilds);
+            Assert.Equal(5, cache.Hits);
+            Assert.Equal(1, structureBuilds);
+            Assert.Equal(Partner, first[PartnerHalf]);
+
+            Dictionary<string, string> bumped = cache.GetOrBuild(tree, structure, trees, 8, sig, MissionNameOf);
+            Assert.NotSame(first, bumped);
+            Assert.Equal(2, cache.Rebuilds);
+            Assert.Equal(2, structureBuilds);
+
+            missions[0].Name = "Kerbal X renamed";
+            int renamed = MissionVesselNaming.Cache.MissionSignature(missions);
+            Assert.NotEqual(sig, renamed);
+            cache.GetOrBuild(tree, structure, trees, 8, renamed, MissionNameOf);
+            Assert.Equal(3, cache.Rebuilds);
+        }
+
+        [Fact]
+        public void FirstRowStartEvent_IsTheFirstVesselRowsStartEvent()
+        {
+            List<RecordingTree> trees = StructureListBdockFixtureTests.LoadBdockTrees();
+            foreach (RecordingTree tree in trees)
+            {
+                List<MissionCompositionNode> roots =
+                    MissionCompositionBuilder.Build(MissionStructureBuilder.Build(tree));
+                Assert.Equal(
+                    MissionPresentation.MissionStartEventText(MissionVesselRowBuilder.Build(roots)),
+                    MissionVesselRowBuilder.FirstRowStartEvent(roots));
+            }
+            Assert.Equal("", MissionVesselRowBuilder.FirstRowStartEvent(null));
         }
 
         [Fact]

@@ -341,10 +341,10 @@ namespace Parsek
         // Per-frame cache of the T2.2 flattened per-vessel rows, keyed by TREE id (derived from
         // the composition roots, so every Mission over one tree shares them). Cleared alongside
         // missionViewCache on the first lookup of a new frame.
-        private readonly Dictionary<string, Dictionary<string, string>> vesselNamesCache =
-            new Dictionary<string, Dictionary<string, string>>();
-        private MissionVesselNaming.LaunchIndex launchIndexCache;
-        private int launchIndexCacheFrame = -1;
+        // Cross-frame: keyed on RecordingStore.StateVersion + the missions' names, so a
+        // steady frame reads it and computes nothing (MissionVesselNaming.Cache).
+        private readonly MissionVesselNaming.Cache vesselNamingCache = new MissionVesselNaming.Cache();
+        private int vesselNamingRebuildsLogged;
         private readonly Dictionary<string, List<MissionVesselRow>> vesselRowsCache =
             new Dictionary<string, List<MissionVesselRow>>();
 
@@ -1280,15 +1280,18 @@ namespace Parsek
                     ? ComputeMissionPeriodicity(mission, view)
                     : default;
 
-                // The vessel rows are built before the mission bar because the bar's Start event
-                // cell is the first vessel's start event.
-                var vesselRows = GetVesselRows(tree);
+                // The bar's Start event cell is the first vessel row's start event. A collapsed
+                // mission draws only its bar and needs no names, so it reads that event off the
+                // composition roots instead of building the named rows.
+                string startEventText = collapsed
+                    ? MissionVesselRowBuilder.FirstRowStartEvent(GetCompositionRoots(tree))
+                    : MissionPresentation.MissionStartEventText(GetVesselRows(tree));
                 DrawMissionHeader(mission, ordered[i].index, view, periodicity,
-                    GetSummaryFacts(tree), MissionPresentation.MissionStartEventText(vesselRows),
-                    collapsed);
+                    GetSummaryFacts(tree), startEventText, collapsed);
                 CaptureRevealAnchor(mission);
                 if (collapsed)
                     continue;
+                var vesselRows = GetVesselRows(tree);
 
                 // T2.2: the FLATTENED per-vessel rows - one row per physical vessel / EVA
                 // kerbal, depth = separation lineage only, the event chain inline; each
@@ -1379,7 +1382,6 @@ namespace Parsek
                 missionViewCache.Clear();
                 compositionCache.Clear();
                 vesselRowsCache.Clear();
-                vesselNamesCache.Clear();
                 foreignLinksCache.Clear();
                 journeyLegsCache.Clear();
                 dockPartnerTextCache.Clear();
@@ -1622,38 +1624,28 @@ namespace Parsek
         }
 
         // The vessel names the mission Log uses too (MissionVesselNaming): numbered same-named
-        // vessels, another mission's vessel as its partner phrase. Once per frame per tree,
-        // cleared with the other per-frame caches by GetMissionView.
+        // vessels, another mission's vessel as its partner phrase. Cached ACROSS frames
+        // (MissionVesselNaming.Cache, keyed on StateVersion + the missions' names): a steady
+        // frame is one dictionary read per tree.
         private Dictionary<string, string> GetVesselNames(RecordingTree tree)
         {
-            var (structure, _) = GetMissionView(tree);
-            if (!vesselNamesCache.TryGetValue(tree.Id, out Dictionary<string, string> names))
+            Dictionary<string, string> names = vesselNamingCache.GetOrBuild(
+                tree, () => GetMissionView(tree).structure, RecordingStore.CommittedTrees,
+                RecordingStore.StateVersion,
+                MissionVesselNaming.Cache.MissionSignature(MissionStore.Missions),
+                otherTreeId => ResolvePartnerMissionName(otherTreeId, null));
+            int rebuilds = vesselNamingCache.Rebuilds;
+            if (rebuilds != vesselNamingRebuildsLogged)
             {
-                names = MissionVesselNaming.Build(
-                    tree, structure, GetLaunchIndex(),
-                    otherTreeId => ResolvePartnerMissionName(otherTreeId, null),
-                    out MissionVesselNaming.Tally naming);
-                vesselNamesCache[tree.Id] = names;
-                ParsekLog.VerboseRateLimited("Mission", "missions-vessel-names|" + tree.Id,
-                    () => $"Missions vessel names: tree={tree.Id} legs={naming.Legs} " +
-                    $"partners={naming.Partners} numbered={naming.Numbered} " +
-                    $"continuations={naming.Continuations}", 5.0);
+                vesselNamingRebuildsLogged = rebuilds;
+                MissionVesselNaming.Tally t = vesselNamingCache.LastTally;
+                int hits = vesselNamingCache.Hits;
+                ParsekLog.VerboseRateLimited("Mission", "missions-vessel-names",
+                    () => $"Missions vessel names rebuilt: tree={tree.Id} rebuilds={rebuilds} " +
+                    $"hits={hits} legs={t.Legs} partners={t.Partners} numbered={t.Numbered} " +
+                    $"continuations={t.Continuations}", 5.0);
             }
             return names;
-        }
-
-        // Every committed recording's launch identity, for MissionVesselNaming's partner test.
-        // Built at most once per frame (the other per-frame caches' cadence) and shared by
-        // every tree the frame draws.
-        private MissionVesselNaming.LaunchIndex GetLaunchIndex()
-        {
-            int frame = Time.frameCount;
-            if (launchIndexCache == null || launchIndexCacheFrame != frame)
-            {
-                launchIndexCache = MissionVesselNaming.LaunchIndex.Build(RecordingStore.CommittedTrees);
-                launchIndexCacheFrame = frame;
-            }
-            return launchIndexCache;
         }
 
         // Returns the header summary-line facts for a tree (T1.1), derived at most once per frame

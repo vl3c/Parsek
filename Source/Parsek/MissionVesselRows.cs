@@ -77,6 +77,24 @@ namespace Parsek
             return rows;
         }
 
+        /// <summary>
+        /// The start event of the first row <see cref="Build"/> would produce, without building
+        /// any row: what a collapsed mission's bar shows. Pure.
+        /// </summary>
+        internal static string FirstRowStartEvent(List<MissionCompositionNode> roots)
+        {
+            if (roots == null) return "";
+            for (int i = 0; i < roots.Count; i++)
+                if (IsRowHead(roots[i]))
+                    return roots[i].StartEvent ?? "";
+            return "";
+        }
+
+        // A node that heads a row: a selectable, non-atom interval with a through-line head.
+        private static bool IsRowHead(MissionCompositionNode node)
+            => node != null && !node.IsAtom && node.IsSelectable
+               && !string.IsNullOrEmpty(node.OwnerHeadId);
+
         // One vessel's row: walk the same-owner survivor chain (the builder chains interval
         // i+1 as a child of interval i), collecting different-owner selectable children as
         // separated child vessels. Roster atoms (not selectable vessels) are skipped - the
@@ -86,8 +104,7 @@ namespace Parsek
             MissionCompositionNode head, System.Func<string, double, string> dockPartnerResolver,
             IReadOnlyDictionary<string, string> vesselNames)
         {
-            if (head == null || head.IsAtom || !head.IsSelectable
-                || string.IsNullOrEmpty(head.OwnerHeadId))
+            if (!IsRowHead(head))
                 return null;
 
             string vesselName = head.VesselName;

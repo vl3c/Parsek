@@ -2392,8 +2392,9 @@ _(unreleased — entries accumulate here per commit)_
   later one numbered; EVA kerbals keep their names), in the Log's Event and Vessel cells, the
   Missions tab's vessel rows, their event phrases and the expanded `after undock: X left`
   lines, from one shared naming rule. One vessel keeps one name across its chain segments and
-  across the new id KSP gives a ship when it undocks (a later piece of the mission that carries
-  on the ship's parts after the ship itself stopped is that ship). A vessel that belongs to
+  across the new id KSP gives a ship every time it undocks (a later piece of the mission that
+  carries on the ship's parts after the ship itself stopped is that ship). The Missions tab
+  works the names out once per change to the recordings or mission names, not every frame. A vessel that belongs to
   another mission, such as a docking partner or the half of a docked stack that keeps the
   partner's identity after undocking, is never numbered: it reads `Kerbal X (mission 'Kerbal
   X')`. The docking test mission's Log now reads `Undocked (Kerbal X)` with the partner in the
