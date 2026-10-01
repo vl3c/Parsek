@@ -1555,16 +1555,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildLoopPeriodClampTooltip_ContainsKeyNumbers()
+        public void BuildLoopPeriodClampTooltip_CapRaised_NamesTypedFlownAndCopies()
         {
             string tooltip = RecordingsTableUI.BuildLoopPeriodClampTooltip(
                 storedSeconds: 5.0, effectiveSeconds: 26.778,
-                loopDurationSeconds: 267.78, cap: 10);
+                loopDurationSeconds: 267.78, cap: 10, unit: LoopTimeUnit.Sec);
 
-            Assert.Contains("26.778", tooltip);
-            Assert.Contains("<= 10", tooltip);
-            Assert.Contains("requested: 5", tooltip);
-            Assert.Contains("duration: 267.78", tooltip);
+            Assert.Equal(
+                "Period raised from 5s to 26.778s to fit the overlap cap - at most 10 copies of this flight can play at once.",
+                tooltip);
         }
 
         [Fact]
@@ -1572,10 +1571,125 @@ namespace Parsek.Tests
         {
             string tooltip = RecordingsTableUI.BuildLoopPeriodClampTooltip(
                 storedSeconds: 1.0, effectiveSeconds: 5.0,
-                loopDurationSeconds: 6.0, cap: 10);
+                loopDurationSeconds: 6.0, cap: 10, unit: LoopTimeUnit.Sec);
 
-            Assert.Contains("minimum period is 5", tooltip);
-            Assert.DoesNotContain("<= 10", tooltip);
+            Assert.Equal(
+                "Period raised from 1s to 5s - the shortest period allowed is 5s.", tooltip);
+            Assert.DoesNotContain("copies", tooltip);
+        }
+
+        [Fact]
+        public void BuildLoopPeriodClampTooltip_Unchanged_IsEmpty()
+        {
+            Assert.Equal(string.Empty, RecordingsTableUI.BuildLoopPeriodClampTooltip(
+                storedSeconds: 30.0, effectiveSeconds: 30.0,
+                loopDurationSeconds: 120.0, cap: 20, unit: LoopTimeUnit.Sec));
+        }
+
+        // ── BuildLoopPeriodCellView (the manual-mode Period read-out) ──
+        // catches: the cell showing the typed period while the engine flies a cap-raised
+        // one, or an uncapped cell changing its text when the cap logic is touched.
+
+        [Fact]
+        public void LoopPeriodCellView_BelowCap_ShowsTypedValueNoTooltip()
+        {
+            // 120 s flight, 30 s period: 4 live copies, well under the cap of 20.
+            var view = RecordingsTableUI.BuildLoopPeriodCellView(
+                30.0, 120.0, LoopTimeUnit.Sec, GhostPlayback.MaxOverlapGhostsPerRecording);
+
+            Assert.Equal("30", view.Text);
+            Assert.False(view.Clamped);
+            Assert.Equal(string.Empty, view.Tooltip);
+        }
+
+        [Fact]
+        public void LoopPeriodCellView_ExactlyAtCap_ShowsTypedValueNoTooltip()
+        {
+            // 120 s / 6 s = exactly 20 copies: the cap fits, nothing is raised.
+            var view = RecordingsTableUI.BuildLoopPeriodCellView(
+                6.0, 120.0, LoopTimeUnit.Sec, GhostPlayback.MaxOverlapGhostsPerRecording);
+
+            Assert.Equal("6", view.Text);
+            Assert.False(view.Clamped);
+            Assert.Equal(string.Empty, view.Tooltip);
+        }
+
+        [Fact]
+        public void LoopPeriodCellView_AboveCap_ShowsFlownCadenceAndWhy()
+        {
+            // The OC-1 shape: 5 s typed on a 120 s flight would need 24 copies; the engine
+            // flies 6 s (cycles=20). The cell must say 6, and the hover must name the 5.
+            var view = RecordingsTableUI.BuildLoopPeriodCellView(
+                5.0, 120.0, LoopTimeUnit.Sec, GhostPlayback.MaxOverlapGhostsPerRecording);
+
+            double engineCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                5.0, 120.0, GhostPlayback.MaxOverlapGhostsPerRecording);
+            Assert.Equal(6.0, engineCadence, 9);
+            Assert.Equal("6", view.Text);
+            Assert.True(view.Clamped);
+            Assert.Equal(
+                "Period raised from 5s to 6s to fit the overlap cap - at most 20 copies of this flight can play at once.",
+                view.Tooltip);
+        }
+
+        [Theory]
+        [InlineData(LoopTimeUnit.Min, 60.0, 3000.0, "2.5",
+            "Period raised from 1m to 2.5m to fit the overlap cap - at most 20 copies of this flight can play at once.")]
+        [InlineData(LoopTimeUnit.Hour, 360.0, 36000.0, "0.5",
+            "Period raised from 0.1h to 0.5h to fit the overlap cap - at most 20 copies of this flight can play at once.")]
+        public void LoopPeriodCellView_AboveCap_UsesTheRowUnit(
+            LoopTimeUnit unit, double storedSeconds, double durationSeconds,
+            string expectedText, string expectedTooltip)
+        {
+            var view = RecordingsTableUI.BuildLoopPeriodCellView(
+                storedSeconds, durationSeconds, unit, GhostPlayback.MaxOverlapGhostsPerRecording);
+
+            Assert.True(view.Clamped);
+            Assert.Equal(expectedText, view.Text);
+            Assert.Equal(expectedTooltip, view.Tooltip);
+        }
+
+        [Theory]
+        [InlineData(LoopTimeUnit.Sec, 30.0, 120.0)]
+        [InlineData(LoopTimeUnit.Sec, 45.0, 10.0)]     // period longer than the flight
+        [InlineData(LoopTimeUnit.Sec, 6.0, 120.0)]     // exactly at the cap
+        [InlineData(LoopTimeUnit.Min, 90.0, 600.0)]
+        [InlineData(LoopTimeUnit.Min, 100.0, 600.0)]   // 1.6666.. min rounds as before
+        [InlineData(LoopTimeUnit.Hour, 5400.0, 3600.0)]
+        public void LoopPeriodCellView_Uncapped_RendersExactlyThePlainStoredValue(
+            LoopTimeUnit unit, double storedSeconds, double durationSeconds)
+        {
+            var view = RecordingsTableUI.BuildLoopPeriodCellView(
+                storedSeconds, durationSeconds, unit, GhostPlayback.MaxOverlapGhostsPerRecording);
+
+            Assert.False(view.Clamped);
+            Assert.Equal(string.Empty, view.Tooltip);
+            Assert.Equal(
+                ParsekUI.FormatLoopValue(ParsekUI.ConvertFromSeconds(storedSeconds, unit), unit),
+                view.Text);
+        }
+
+        [Fact]
+        public void LoopPeriodCellView_IsCultureInvariant()
+        {
+            var prior = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    new System.Globalization.CultureInfo("de-DE");
+                var capped = RecordingsTableUI.BuildLoopPeriodCellView(
+                    60.0, 3000.0, LoopTimeUnit.Min, GhostPlayback.MaxOverlapGhostsPerRecording);
+                var plain = RecordingsTableUI.BuildLoopPeriodCellView(
+                    90.0, 600.0, LoopTimeUnit.Min, GhostPlayback.MaxOverlapGhostsPerRecording);
+
+                Assert.Equal("2.5", capped.Text);
+                Assert.Contains("from 1m to 2.5m", capped.Tooltip);
+                Assert.Equal("1.5", plain.Text);
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = prior;
+            }
         }
 
         [Fact]

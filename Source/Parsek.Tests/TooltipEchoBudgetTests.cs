@@ -214,6 +214,36 @@ namespace Parsek.Tests
             }
         }
 
+        // catches: the Recordings Period cell's clamp hover growing past the SINGLE-line
+        // Recordings strip. It is composed at runtime from the typed and flown values in
+        // the row's unit, so the literal scan cannot see it; the worst case is a long
+        // six-decimal value on both sides in every branch (cap, minimum, invalid).
+        [Fact]
+        public void LoopPeriodClampTooltips_FitTheRecordingsStrip()
+        {
+            int budget = BudgetChars(1355f, TooltipEchoBox.SingleLine);
+            int cap = GhostPlayback.MaxOverlapGhostsPerRecording;
+            var tips = new List<string>();
+            foreach (LoopTimeUnit unit in new[] { LoopTimeUnit.Sec, LoopTimeUnit.Min, LoopTimeUnit.Hour })
+            {
+                tips.Add(RecordingsTableUI.BuildLoopPeriodClampTooltip(
+                    123456.123457, 987654.987654, 99999999.0, cap, unit));
+                tips.Add(RecordingsTableUI.BuildLoopPeriodClampTooltip(
+                    1.234567, LoopTiming.MinCycleDuration, 6.0, cap, unit));
+                tips.Add(RecordingsTableUI.BuildLoopPeriodClampTooltip(
+                    double.NaN, 987654.987654, 99999999.0, cap, unit));
+            }
+            foreach (string tip in tips)
+            {
+                Assert.False(string.IsNullOrEmpty(tip));
+                Assert.DoesNotContain("\n", tip);
+                Assert.True(tip.Length <= budget,
+                    string.Format("the Period clamp hover is {0} chars, over the {1}-char "
+                        + "single-line Recordings help-strip budget: \"{2}\"",
+                        tip.Length, budget, tip));
+            }
+        }
+
         // catches: the future-RP Re-Fly refusal growing past the narrower of the two
         // windows whose disabled Fly button shows it as its tooltip (Timeline at 820 px,
         // single line; the Recordings table is wider). It is a runtime reason, not a
