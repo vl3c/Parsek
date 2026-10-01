@@ -8304,6 +8304,21 @@ namespace Parsek
                 return (false, $"terminal state {rec.TerminalStateValue.Value}");
             }
 
+            // Recovered after commit (operator ruling 2026-10-01): a recording whose
+            // vessel was recovered ends with NO vessel, exactly like a Recovered
+            // terminal, even when it was committed before the recovery fired and so
+            // still reads Landed / Splashed / Orbiting (a Tracking Station or KSC-marker
+            // recovery of an older flight, or a save from before the in-flight Recover
+            // committed Recovered). The recovery row credits the payout once at its UT;
+            // spawning the vessel too would let the player recover it a second time.
+            if (RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive(rec))
+            {
+                return (false,
+                    "recovered after commit (recovery ledger row, terminal " +
+                    (rec.TerminalStateValue.HasValue ? rec.TerminalStateValue.Value.ToString() : "<none>") +
+                    ")");
+            }
+
             // Snapshot situation check: if the snapshot's sit field is FLYING or SUB_ORBITAL,
             // KSP's on-rails aero check (101.3 kPa) immediately destroys spawned vessels.
             // This catches cases where TerminalState is null/Landed but the snapshot was
