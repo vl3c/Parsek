@@ -1354,6 +1354,8 @@ def aggregate(runs: List[Dict]) -> Dict:
     lanes: Dict[str, Dict] = {}
     causes: Dict[str, Dict] = {}
     lane_cause: Dict[Tuple[str, str, str], Dict] = {}
+    cause_run_ids: Dict[str, set] = {}
+    lane_cause_run_ids: Dict[Tuple[str, str, str], set] = {}
     mission_wall = 0.0
     idle = 0.0
     sampled = 0.0
@@ -1388,13 +1390,18 @@ def aggregate(runs: List[Dict]) -> Dict:
             if not rec["optional"]:
                 c = causes.setdefault(cause, {"cause": cause, "recoverable": 0.0, "runs": 0})
                 c["recoverable"] += rec["recoverable"]
-                c["runs"] += 1
+                cause_run_ids.setdefault(cause, set()).add(r["runId"])
             key = (r["scenario"], rec["phase"], cause)
             e = lane_cause.setdefault(key, {"scenario": r["scenario"], "phase": rec["phase"],
                                             "cause": cause, "recoverable": 0.0, "runs": 0,
                                             "optional": rec["optional"], "site": rec["site"]})
             e["recoverable"] += rec["recoverable"]
-            e["runs"] += 1
+            lane_cause_run_ids.setdefault(key, set()).add(r["runId"])
+    # A run with the same cause in several phases counts once per cause.
+    for cause, ids in cause_run_ids.items():
+        causes[cause]["runs"] = len(ids)
+    for key, ids in lane_cause_run_ids.items():
+        lane_cause[key]["runs"] = len(ids)
 
     def rnd(d):
         return {k: (round(v, 3) if isinstance(v, float) else v) for k, v in d.items()}

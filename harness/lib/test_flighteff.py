@@ -10,6 +10,7 @@ comes from warp_audit's committed 2026-07-22_1210 log.
 Runs under ``python -m unittest discover -s lib -q``. ASCII only; stdlib only.
 """
 
+import ast
 import contextlib
 import io
 import json
@@ -585,6 +586,17 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(agg["overhead"]["kspBoot"]["mean"], 24.0)
         self.assertEqual(agg["stepsByVerb"][0]["count"], 3)
 
+    def test_cause_runs_count_distinct_runs(self):
+        run = self._run("2026-10-01_1000_A", 10.0)
+        run["mission"]["recommendations"].append(
+            {"phase": "ORBIT-COMMIT", "cause": "dwell", "recoverable": 5.0,
+             "optional": False, "site": "s"})
+        run["mission"]["recoverable"] = 15.0
+        agg = fe.aggregate([run, self._run("2026-10-01_1100_A", 20.0)])
+        self.assertEqual(agg["causes"][0], {"cause": "dwell", "recoverable": 35.0, "runs": 2})
+        park = [r for r in agg["laneCauses"] if r["phase"] == "PARK"][0]
+        self.assertEqual(park["runs"], 2)
+
     def test_scenario_from_run_id(self):
         self.assertEqual(fe.scenario_from_run_id("2026-10-01_1231_B11-mun-orbit"), "B11-mun-orbit")
         self.assertEqual(fe.scenario_from_run_id("2026-09-29_2209_BDOCK-1-station-interceptor_a2"),
@@ -636,17 +648,34 @@ class DocumentTests(unittest.TestCase):
 
 
 class CodeSiteTests(unittest.TestCase):
+    # Both gates walk the AST so a call left only in a comment or docstring
+    # cannot keep them green.
+    @staticmethod
+    def _calls(src):
+        return [n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Call)]
+
     def test_every_mission_machine_is_called_by_its_shell(self):
         for mission, machine in fe.MISSION_MACHINES.items():
             path = os.path.join(_HARNESS, "missions", mission + ".py")
             self.assertTrue(os.path.isfile(path), path)
-            self.assertIn("mlib.%s(" % machine, _read(path), mission)
+            called = {c.func.attr for c in self._calls(_read(path))
+                      if isinstance(c.func, ast.Attribute)
+                      and isinstance(c.func.value, ast.Name) and c.func.value.id == "mlib"}
+            self.assertIn(machine, called, mission)
 
     def test_every_hint_param_exists_in_mlib(self):
-        src = _read(_MLIB_PATH)
+        keys = {c.args[0].value for c in self._calls(_read(_MLIB_PATH))
+                if isinstance(c.func, ast.Attribute) and c.func.attr == "get"
+                and isinstance(c.func.value, ast.Name) and c.func.value.id == "params"
+                and c.args and isinstance(c.args[0], ast.Constant)
+                and isinstance(c.args[0].value, str)}
         for key, (_text, params) in fe.SITE_HINTS.items():
             for p in params:
-                self.assertRegex(src, r'params\.get\("%s"' % re.escape(p), (key, p))
+                self.assertIn(p, keys, (key, p))
+
+    def test_ast_gates_ignore_comments(self):
+        src = '# mlib.b5_decide(\n"""params.get(\'parkDwellSeconds\')"""\nx = 1\n'
+        self.assertEqual(self._calls(src), [])
 
     def test_hint_resolution_and_fallbacks(self):
         self.assertIn("parkDwellSeconds", fe.code_site("b11_mun_orbit", "dwell", "PARK"))
