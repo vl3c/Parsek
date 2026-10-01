@@ -1275,6 +1275,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Debris rows in Recordings no longer report impossible speeds and distances.** The
+  Max Speed and Distance on a recording's hover are computed from its samples and orbit
+  segments. A destroyed vessel's last moments are kept as a ballistic arc whose lowest point
+  (periapsis) lies deep inside the planet, and Max Speed took the speed at that point: a 48 s,
+  1.9 km debris fall read 318.4 km/s. The arc's speed is now taken no lower than the surface
+  (that row reads 337.6 m/s), and its distance can no longer outrun its top speed. Separately,
+  most debris rows read about 1000 km of Distance: the step where a piece stops being recorded
+  relative to its parent stage measured metres as if they were degrees of latitude. That step
+  is no longer counted, and those rows now read 1 to 3 km. Orbits that stay above the surface
+  read exactly as before.
 - **The Recordings Period cell explains a raised period in plain words.** When a loop period
   would put more than 20 copies of a flight in the air at once, Parsek flies the shortest period
   that keeps it to 20, and the cell already showed that slower period in amber. Its hover now
