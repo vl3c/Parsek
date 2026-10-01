@@ -6406,8 +6406,8 @@ six publish or compare numbers the runner already measured.
     scan, the anomaly sweep and ARMED save-parse windows over each spec's newest archived
     run that still replays green against the current spec, then over mutated copies.
     Operator rulings 2026-09-24: an operator tool run over local archives (CI cannot see
-    them), and survivors are listed, never failing a run. Phase 2 is todo
-    MUTATION-CHECK-PHASE-2.
+    them), and survivors are listed, never failing a run. Phase 2 (todo
+    MUTATION-CHECK-PHASE-2) is closed; its residue is todo MUTATION-CHECK-RESIDUE.
     PHASE 2 PR 1, SAVE PERTURBATION (branch `mutation-phase2`, 2026-10-01; pure core
     `harness/lib/mutsave.py`, `mutation_check.py --save-only`): every window of every
     ARMED save-parse block is pushed across each declared bound by editing the archived
@@ -6437,8 +6437,35 @@ six publish or compare numbers the runner already measured.
     strategy lanes have no seed-bearing archive on this machine); 177 edits, 177 killed;
     122 gates PROVEN, 0 VACUOUS, 0 UNCHECKED (19 produced-pool, 19 seed-pool, 11
     manifest-amount, 8 entry-removal, 1 cross-check, 4 roster, 60 faults).
-    L1-passive-sandbox carries no pool gate by design (pool-less seed). Still open (PR 3):
-    mission sensor reads, forbidden-token injection.
+    L1-passive-sandbox carries no pool gate by design (pool-less seed).
+    PHASE 2 PR 3, MISSION CHAIN + FORBIDDEN INJECTION (branch `mutation-phase2-pr3`,
+    2026-10-01; pure cores `harness/lib/mutmission.py` and `harness/lib/mutforbid.py`,
+    `mutation_check.py --mission-only` / `--forbidden-only`): the mission-result read, the
+    driver-stage subkind map and the driver-validity composition (autopilot carve-out,
+    `missionOutcome` row) moved from `run.py` into `harness/lib/missionverify.py`, which
+    both call. Each archived assertion with its reading removed goes back through the real
+    `mlib.resolve_flight_verdict` / `build_mission_result` / `serialize_mission_result`,
+    the shared read, `classify_mission_step`, the composition and `classify_verdict`, and
+    must classify INVALID(mission) naming that assertion (the designed red under
+    mission-vs-Parsek orthogonality); a blind replay of the mission shell's real `evaluate`
+    over the initial machine state with no frames and with all-unread frames must leave
+    every archived assertion unmet and must not classify PASS; each post-mission outcome
+    step answered ERROR / REJECTED / never must classify PARSEK-FAIL(mission-outcome) /
+    INVALID(driver-verdict-mismatch) / INVALID(driver-stage); result faults (torn, bumped
+    schema, no verdict, no assertions, vessel lost, flake) must route as designed. Each
+    forbidden regex gets a generated line it matches, injected framed and bare, and the
+    real `evaluate_expectations` must report that token. FIRST SWEEP (every archive under
+    the umbrella root): mission - 65 of 86 autopilot specs green, 1604 edits, 1602 killed,
+    1214 gates PROVEN (377 assertion, 376 blind row, 65 blind verdict, 6 outcome step,
+    390 faults), 1 VACUOUS, 0 UNCHECKED; forbidden - 265 lanes, 1001 injections, 1001
+    PROVEN on the framed line, 0 VACUOUS, 0 UNCHECKED (all 398 distinct committed patterns
+    are injectable, held by a unit cell). The one VACUOUS gate is
+    `CA-1-commit-abort-booster-live` `craftChuteNeverArmed`: an absence claim about the
+    machine's own command latch, met with no telemetry by construction (ruling owed, todo
+    MUTATION-CHECK-RESIDUE). Found on the way: the `kx_rewind_watch` evaluator puts NaN in
+    assertion detail fields, so an early-ending flight writes no result at all (todo
+    KXRW-RESULT-NAN-DETAIL). Not reached: a threshold pushed across its bound inside a
+    mission evaluator (the frames are not archived).
     NUMERIC RULE (after the #1801 review): an identifier-shaped field (`pid`, `id`,
     `idx`, `index`, `inst`, `rec`, `slot`, `dist`, the UT fields, `frame=`, a `...Root`
     part pid, an unlabelled number) is `info`; EVERY other field that moves between zero
