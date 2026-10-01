@@ -143,11 +143,15 @@ namespace Parsek.Tests
                 RecordingsBudget, "Mission watch - not in flight");
             yield return Row(MissionsWindowUI.MissionWatchDisabledReason(true, false),
                 RecordingsBudget, "Mission watch - nothing flying");
-            yield return Row(MissionsWindowUI.MissionWarpToDisabledReason(false, true, true),
+            yield return Row(MissionsWindowUI.MissionWarpToDisabledReason(false, true, false, true, true),
                 RecordingsBudget, "Mission warp - wrong scene");
-            yield return Row(MissionsWindowUI.MissionWarpToDisabledReason(true, false, true),
+            yield return Row(MissionsWindowUI.MissionWarpToDisabledReason(true, false, false, true, true),
+                RecordingsBudget, "Mission warp - not looping");
+            yield return Row(MissionsWindowUI.MissionWarpToDisabledReason(true, false, true, true, true),
+                RecordingsBudget, "Mission warp - looped by route");
+            yield return Row(MissionsWindowUI.MissionWarpToDisabledReason(true, true, false, false, true),
                 RecordingsBudget, "Mission warp - no schedule");
-            yield return Row(MissionsWindowUI.MissionWarpToDisabledReason(true, true, false),
+            yield return Row(MissionsWindowUI.MissionWarpToDisabledReason(true, true, false, true, false),
                 RecordingsBudget, "Mission warp - launch behind");
 
             yield return Row(LogisticsWindowUI.LinkButtonDisabledReason(null),
@@ -211,7 +215,7 @@ namespace Parsek.Tests
             Assert.Equal(string.Empty, MissionsWindowUI.MissionDeleteDisabledReason(
                 MissionStore.MissionDeleteRefusal.None));
             Assert.Equal(string.Empty,
-                MissionsWindowUI.MissionWarpToDisabledReason(true, true, true));
+                MissionsWindowUI.MissionWarpToDisabledReason(true, true, false, true, true));
             Assert.Equal(string.Empty, LogisticsWindowUI.LinkButtonDisabledReason("route-7"));
             Assert.Equal(string.Empty, LogisticsWindowUI.MissionLogButtonDisabledReason("tree-3"));
         }
@@ -280,21 +284,58 @@ namespace Parsek.Tests
             Assert.Contains("Space Center", deferred);
         }
 
-        // catches: the three mission-warp gates collapsing into one wording, which would
-        // send the player to fix the wrong thing. (The button draws only while the mission
-        // loops, so "turn Loop on" is no longer a reason it can give.)
+        // catches: the mission-warp gates collapsing into one wording, which would send the
+        // player to fix the wrong thing. The button draws in every Advanced state (owner
+        // request 2026-10-01), with the Loop toggle right under it, so "turn Loop on" is a
+        // reason it gives again - except on a route-bound tree, whose toggle is gone.
         [Fact]
         public void MissionWarpReportsEachGateSeparately()
         {
+            string notLooping = MissionsWindowUI.MissionWarpToDisabledReason(true, false, false, true, true);
+            string routeBound = MissionsWindowUI.MissionWarpToDisabledReason(true, false, true, true, true);
             var seen = new HashSet<string>(StringComparer.Ordinal)
             {
-                MissionsWindowUI.MissionWarpToDisabledReason(false, true, true),
-                MissionsWindowUI.MissionWarpToDisabledReason(true, false, true),
-                MissionsWindowUI.MissionWarpToDisabledReason(true, true, false)
+                MissionsWindowUI.MissionWarpToDisabledReason(false, true, false, true, true),
+                notLooping,
+                routeBound,
+                MissionsWindowUI.MissionWarpToDisabledReason(true, true, false, false, true),
+                MissionsWindowUI.MissionWarpToDisabledReason(true, true, false, true, false)
             };
-            Assert.Equal(3, seen.Count);
+            Assert.Equal(5, seen.Count);
+            Assert.Equal("Turn Loop on to warp to the next launch", notLooping);
+            Assert.Contains("route", routeBound);
+            Assert.DoesNotContain("Turn Loop on", routeBound);
+            // The player-facing words: the timeline, never "your timeline" / "committed".
             foreach (string reason in seen)
-                Assert.DoesNotContain("Loop", reason);
+            {
+                Assert.DoesNotContain("your timeline", reason, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("committed", reason, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        // catches: the gates answering out of order - a wrong scene is reported before the
+        // loop, and the loop before the schedule it builds.
+        [Fact]
+        public void MissionWarpReportsTheFirstGateToFix()
+        {
+            Assert.Equal(
+                MissionsWindowUI.MissionWarpToDisabledReason(false, true, false, true, true),
+                MissionsWindowUI.MissionWarpToDisabledReason(false, false, false, false, false));
+            Assert.Equal(
+                MissionsWindowUI.MissionWarpToDisabledReason(true, false, false, true, true),
+                MissionsWindowUI.MissionWarpToDisabledReason(true, false, false, false, false));
+        }
+
+        // catches: the transition log keying on something that changes every frame, or an
+        // enabled button logging a reason.
+        [Fact]
+        public void MissionWarpStateForTheTransitionLogIsStable()
+        {
+            Assert.Equal("enabled", MissionsWindowUI.DescribeMissionWarpState(true, "ignored"));
+            Assert.Equal("greyed: Turn Loop on to warp to the next launch",
+                MissionsWindowUI.DescribeMissionWarpState(false,
+                    MissionsWindowUI.MissionWarpToDisabledReason(true, false, false, true, true)));
+            Assert.Equal("greyed: <no reason>", MissionsWindowUI.DescribeMissionWarpState(false, ""));
         }
 
         // catches: the reason predicate drifting out of step with the ENABLE predicate,
@@ -309,6 +350,8 @@ namespace Parsek.Tests
         // cell holds the two together over the boundary and the non-finite values.
         [Theory]
         // (warpScene, looping, unitBuilt, nextRelaunchUT, nowUT)
+        [InlineData(true, false, true, 100.0, 0.0)]       // not looping: greyed, says Loop
+        [InlineData(true, false, false, 100.0, 0.0)]      // not looping, no unit either
         [InlineData(true, true, true, 100.0, 0.0)]        // comfortably ahead: enabled
         [InlineData(true, true, true, 1.5, 0.0)]          // ahead by more than the 1.0 lead
         [InlineData(true, true, true, 1.0, 0.0)]          // exactly AT the lead: disabled
@@ -323,19 +366,20 @@ namespace Parsek.Tests
         public void MissionWarpReasonIsNonEmptyExactlyWhenTheButtonIsGreyed(
             bool warpScene, bool looping, bool unitBuilt, double nextRelaunchUT, double nowUT)
         {
-            // Mirrors the call site: the button draws only for a looping mission (every row
-            // here loops), and the clock leg is answered BY the enable gate, with the
-            // upstream legs pinned true so only its clock + finiteness checks speak.
-            Assert.True(looping, "the Warp button is not drawn for a mission that does not loop");
+            // Mirrors the call site: the button draws in every Advanced state, and the clock
+            // leg is answered BY the enable gate, with the upstream legs pinned true so only
+            // its clock + finiteness checks speak.
             bool relaunchAhead = MissionsWindowUI.ShouldEnableWarpToWindow(
                 true, true, nextRelaunchUT, nowUT);
             bool actionable = warpScene && MissionsWindowUI.ShouldEnableWarpToWindow(
                 looping, unitBuilt, nextRelaunchUT, nowUT);
 
-            string reason = MissionsWindowUI.MissionWarpToDisabledReason(
-                warpScene, unitBuilt, relaunchAhead);
-
-            Assert.Equal(!actionable, DisabledHoverEcho.ShouldCarry(actionable, reason));
+            foreach (bool routeBound in new[] { false, true })
+            {
+                string reason = MissionsWindowUI.MissionWarpToDisabledReason(
+                    warpScene, looping, routeBound, unitBuilt, relaunchAhead);
+                Assert.Equal(!actionable, DisabledHoverEcho.ShouldCarry(actionable, reason));
+            }
         }
 
         // catches: the not-in-flight placeholder and the nothing-flying case sharing one

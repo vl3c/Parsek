@@ -464,10 +464,19 @@ Rewind), `InteractButtonGap` 4, pinned `2 * pair + gap == single`; the column is
 plus an 8 px inset each side. The Advanced loop controls form a fixed 2x2 grid inside the name cell,
 right-aligned (owner mock-up 2026-09-30): column A (`LoopGridColumnAWidth` 70) holds Clone over
 Delete, column B (`LoopGridColumnBWidth` 92) holds `Warp to...` at its full width, so no gap
-opens before Log (or a same-width space when not looping), and line 2's loop cell (`LoopCellWidth`
-192 = column B + the Log slot, every control centred on one 22 px line) holds `Loop x` and the
-period cell, or `Looped by route` and the period cell when route-bound (the route label takes the
-greyed toggle's place). The locked period cell shows the value only (`~13d-19d`, `~6h`); the
+opens before Log; since 2026-10-01 it is drawn in every Advanced state, greyed with its reason
+when it cannot act. Line 2's loop row (`LoopCellWidth` 192 = column B + the Log slot, its own
+`loopCellRowStyle` carrying the buttons' top margin so its 22 px line sits on Delete's) reads
+`Loop [x] every [10] [sec]`: under Warp, `Loop` (28) + the checkbox slot (22) + `every` (42) fill
+column B, so `Loop` starts at Warp's left edge; under Log, the value field (56) + 4 + the unit
+button (40) fill the Log slot, so the period ends at Log's right edge, and a value-only locked
+period (`Loop [x] every ~13d-19d`) is one label of that slot. Every control is fixed-width, has
+zero horizontal margin and is centred on the line (the checkbox, field and unit button each in a
+22 px centring slot), so nothing moves between looping off / on, Auto / manual or locked. A
+route-bound tree draws `Looped by route` across the WHOLE row instead (a route clears the manual
+loop when it binds, so the toggle and period could only draw greyed and inert; the hover names
+the route). `MissionsTabColumnSequenceTests.TheLoopGridColumnsAreFixedAndLineUpAcrossBothLines`
+pins those edges and the zero margins. The locked period cell shows the value only (`~13d-19d`, `~6h`); the
 qualifier (`Mun window, varies`, `Kerbin rot`) and the locked-state sentence ride its hover
 (`MissionPresentation.BuildLockedPeriodTooltip`). Iteration 4 (2026-09-30) shrank the grid from
 A 70 / B 164 / cell 264 to A 70 / B 92 / cell 192 on those two changes, 72 px handed to the
@@ -522,10 +531,10 @@ Mission bar controls, with their gates:
 | `Collapse` / `Expand` | line 2 Interact | writes `Mission.Collapsed` | never |
 | `Clone` | loop grid column A, line 1, Advanced | `MissionStore.Clone` | HIDDEN in Basic |
 | `Delete` | loop grid column A, line 2, Advanced | `MissionStore.Delete` | greyed by `CanDelete` (`A flight always keeps its first mission`). HIDDEN in Basic since Missions Model 1 |
-| `Warp to...` | loop grid column B, line 1, Advanced | confirm dialog then a forward jump | drawn ONLY while the mission loops (a same-width space otherwise), HIDDEN in Basic; three ordered reasons (`MissionWarpToDisabledReason`: scene, schedule, launch ahead) |
-| `Loop` + toggle | loop cell (column B + the Log slot), line 2, Advanced; label and checkbox centred on one line | `CommitMissionLoopToggle` -> `MissionStore.SetLoopEnabled` | HIDDEN in Basic; greyed when `RouteTreeGuard.RouteBindingFor(treeId)` |
-| `Looped by route` | line 2: in the loop cell (Advanced) or right-aligned after the summary (Basic) | label (route name in the hover) | only on a route-bound tree |
-| loop-period cell | loop cell, line 2, Advanced | `CommitMissionLoopPeriod`, four states (locked / auto / manual / editing) | HIDDEN in Basic; an open edit is DROPPED uncommitted on a Basic switch |
+| `Warp to...` | loop grid column B, line 1, Advanced | confirm dialog then a forward jump | drawn in every Advanced state (2026-10-01), HIDDEN in Basic; four ordered reasons (`MissionWarpToDisabledReason`: scene, loop - `Turn Loop on to warp to the next launch`, or the route wording on a route-bound tree - schedule, launch ahead) |
+| `Loop` + toggle + `every` | loop row column B (under Warp), line 2, Advanced; centred on one 22 px line | `CommitMissionLoopToggle` -> `MissionStore.SetLoopEnabled` | HIDDEN in Basic; not drawn on a route-bound tree (the route label fills the row) |
+| `Looped by route` | line 2: across the whole loop row (Advanced) or right-aligned after the summary (Basic) | label (route name in the hover) | only on a route-bound tree |
+| loop-period cell | loop row's Log slot (under Log), line 2, Advanced | `CommitMissionLoopPeriod`, four states (locked / auto / manual / editing) | HIDDEN in Basic; not drawn on a route-bound tree; an open edit is DROPPED uncommitted on a Basic switch |
 
 The rest of the tab: expanded per-vessel interval rows (Advanced only), chapter group header
 rows (their tri-state toggle, the `[~]` marker and the dimming are Advanced-only: the P21 fix

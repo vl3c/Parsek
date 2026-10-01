@@ -59,10 +59,10 @@ namespace Parsek
         }
 
         /// <summary>Evidence tag: the recording itself ended <see cref="TerminalState.Recovered"/>.</summary>
-        internal const string EvidenceTerminal = "terminal-recovered";
+        internal const string EvidenceTerminal = RecoveredRecordingEvidence.EvidenceTerminal;
 
         /// <summary>Evidence tag: the ledger holds a post-cutoff recovery row for the recording.</summary>
-        internal const string EvidenceLedgerRow = "recovery-row";
+        internal const string EvidenceLedgerRow = RecoveredRecordingEvidence.EvidenceLedgerRow;
 
         /// <summary>
         /// True when a recording's terminal leaves the recorded vessel in the world, so a LATER
@@ -114,9 +114,10 @@ namespace Parsek
         ///
         /// <para>
         /// (1) The recording's terminal verdict is <see cref="TerminalState.Recovered"/>. Only
-        /// a PENDING tree is ever stamped Recovered (<c>UpdateRecordingsForTerminalEvent</c>),
-        /// so this is the manual-merge shape: the merge dialog waits at the Space Center, the
-        /// recovery fires first, and the commit sees the stamp.
+        /// a not-yet-committed tree is ever stamped Recovered: the pending tree from
+        /// <c>onVesselRecovered</c> (<c>UpdateRecordingsForTerminalEvent</c>), or the active
+        /// tree at the scene-exit finalize of an in-flight Recover
+        /// (<see cref="InFlightRecoveryRequest"/>, the shipping shape since 2026-10-01).
         /// </para>
         ///
         /// <para>
@@ -124,11 +125,10 @@ namespace Parsek
         /// <see cref="FundsEarningSource.Recovery"/>, or a
         /// <see cref="GameActionType.KerbalRecovered"/> row, on the recording with a UT after
         /// the cutoff, on a recording whose terminal left the vessel in the world
-        /// (<see cref="VesselOutlivedTerminal"/>). This is the SHIPPING shape: with auto-merge
-        /// on, an in-flight Recover commits the tree at the scene change (terminal from the
-        /// vessel situation, e.g. Landed) BEFORE stock fires <c>onVesselRecovered</c> at the
-        /// Space Center, and a Tracking Station recovery reaches a recording committed long
-        /// before. Committed recordings are never re-stamped by a terminal event, so the
+        /// (<see cref="VesselOutlivedTerminal"/>, row test shared through
+        /// <see cref="RecoveredRecordingEvidence"/>). A Tracking Station or KSC-marker recovery
+        /// reaches a recording committed long before, and saves written before 2026-10-01
+        /// hold in-flight Recovers committed with the vessel's situation (e.g. Landed). Committed recordings are never re-stamped by a terminal event, so the
         /// recovery lives only in the ledger, as the #444 funds row
         /// (<c>LedgerOrchestrator.OnVesselRecoveryFunds</c>) and the crew-close row
         /// (<c>LedgerOrchestrator.OnRealVesselCrewRecovered</c>). Both are written only from a
@@ -270,11 +270,9 @@ namespace Parsek
                 {
                     var action = ledgerActions[a];
                     if (action == null || string.IsNullOrEmpty(action.ActionId)) continue;
-                    if (!string.Equals(action.RecordingId, rec.RecordingId, StringComparison.Ordinal))
+                    if (!RecoveredRecordingEvidence.IsRecoveryFundsRow(
+                            action, rec.RecordingId, retireCutoffUT))
                         continue;
-                    if (action.Type != GameActionType.FundsEarning) continue;
-                    if (action.FundsSource != FundsEarningSource.Recovery) continue;
-                    if (!(action.UT > retireCutoffUT)) continue;
 
                     anchorUTs.Add(action.UT);
                     retired.Add(action.ActionId);
@@ -286,11 +284,9 @@ namespace Parsek
                 for (int a = 0; a < ledgerActions.Count; a++)
                 {
                     var action = ledgerActions[a];
-                    if (action == null) continue;
-                    if (!string.Equals(action.RecordingId, rec.RecordingId, StringComparison.Ordinal))
+                    if (!RecoveredRecordingEvidence.IsCrewCloseRow(
+                            action, rec.RecordingId, retireCutoffUT))
                         continue;
-                    if (action.Type != GameActionType.KerbalRecovered) continue;
-                    if (!(action.UT > retireCutoffUT)) continue;
                     crewCloseUTs.Add(action.UT);
                 }
 

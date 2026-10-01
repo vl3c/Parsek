@@ -1283,6 +1283,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel you recover from flight is saved as Recovered, and its replay ends with no
+  vessel.** Pressing Recover in flight leaves the flight scene before the game pays out the
+  recovery at the Space Center, so with auto-merge on (and with the Merge button of the merge
+  window) the flight was saved as Landed. After a rewind to before that flight, its replay
+  then put the vessel back at the landing site while the recovery still paid out, so you
+  could recover it a second time; the flight could also be stashed and re-flown. The flight is
+  now saved as Recovered, its replay ends with no vessel, and the recovery is paid once.
+  Flights already saved as Landed whose vessel was recovered (including a recovery from the
+  Tracking Station of an older flight) are recognised by their recovery payout or crew
+  return: their replay no longer spawns the vessel, and they are not offered for Stash or
+  Re-Fly. A flight that landed and was never recovered still leaves its vessel in the world.
 - **Debris rows in Recordings no longer report impossible speeds and distances.** The
   Max Speed and Distance on a recording's hover are computed from its samples and orbit
   segments. A destroyed vessel's last moments are kept as a ballistic arc whose lowest point
@@ -2349,12 +2360,16 @@ _(unreleased — entries accumulate here per commit)_
   per-mission Archive box and the list's "hide archived" filter; a mission archived in an
   older save loads collapsed. Stash / Fly + Seal and the Docked partner's Go to sit in
   Interact too. Everything that exists only because of mission looping is Advanced-only
-  (Clone, Delete, "Warp to..." shown only while the mission loops, the Loop toggle and
-  period, the countdown, and the greyed / `(partial)` styling of rows left out of a loop);
-  Advanced shows them as a compact two-by-two grid beside Log (Clone and "Warp to..." on the
-  title line, Delete and the Loop toggle with its period on the story line; a route-bound
-  mission shows "Looped by route" in the toggle's place), so the story keeps most of the
-  width. A physics-locked period shows its value only (`~13d-19d`, `~6h`); what sets it
+  (Clone, Delete, "Warp to...", the Loop toggle and period, the countdown, and the greyed /
+  `(partial)` styling of rows left out of a loop); Advanced shows them as a compact
+  two-by-two grid beside Log, so the story keeps most of the width. Clone and "Warp to..."
+  sit on the title line; "Warp to..." is always there, greyed while it cannot act, with the
+  reason on hover (`Turn Loop on to warp to the next launch`, the scene, no schedule yet, or
+  the next launch less than a second away). Delete and the Loop row sit on the story line,
+  the row reading `Loop [x] every [10] [sec]` (or `Loop [x] every ~13d-19d`) with "Loop"
+  lined up under "Warp to..." and the period ending under Log's right edge, every piece
+  centred on one line at a fixed width so nothing moves between states. A route-bound
+  mission shows "Looped by route" across that row instead. A physics-locked period shows its value only (`~13d-19d`, `~6h`); what sets it
   (`Mun window, varies`, `Kerbin rot`) is in its hover. The Next
   launch column is gone: the countdown lives in the story, and the warning its amber tint
   used to carry (a drifted station, a refused arrival, a launch outside its alignment

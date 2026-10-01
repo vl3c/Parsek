@@ -141,31 +141,114 @@ namespace Parsek.Tests
             Assert.Contains("InteractButtonWidth, 0f", MethodBody(prepared, "DrawInteractReFly"));
         }
 
-        // The Advanced loop grid (owner mock-up 2026-09-30): Clone / Delete share column A,
-        // "Warp to..." (or its same-width space) sits in column B, and the line-2 loop cell spans
-        // column B plus the Log slot, so both lines end at the same x and the grid never shifts.
+        // The Advanced loop grid (owner mock-up 2026-09-30, aligned 2026-10-01): Clone / Delete
+        // share column A, "Warp to..." fills column B and is ALWAYS drawn (greyed when it cannot
+        // act), Log follows it, and the line-2 loop row spans column B plus the Log slot, so its
+        // left edge is Warp's left edge and its right edge is Log's right edge. Inside the row,
+        // "Loop [x] every" fills column B under Warp and the period fills the Log slot under Log.
         [Fact]
         public void TheLoopGridColumnsAreFixedAndLineUpAcrossBothLines()
         {
-            Assert.Equal(MissionsWindowUI.LoopCellWidth,
-                MissionsWindowUI.LoopGridColumnBWidth + MissionsWindowUI.InteractButtonWidth);
+            // Both lines are right-aligned in the same name cell, so with every grid control at
+            // zero horizontal margin their right edges coincide at the cell's right edge R.
+            const float R = 1000f;
+            float logRight = R;
+            float logLeft = logRight - MissionsWindowUI.InteractButtonWidth;
+            float warpRight = logLeft;
+            float warpLeft = warpRight - MissionsWindowUI.LoopGridColumnBWidth;
+            float rowRight = R;
+            float rowLeft = rowRight - MissionsWindowUI.LoopCellWidth;
+            Assert.Equal(warpLeft, rowLeft);
+            Assert.Equal(logRight, rowRight);
+            // Column B of the row ("Loop", the checkbox slot, "every") ends where Warp ends, so
+            // the period starts at Log's left edge and ends at Log's right edge.
+            float everyRight = rowLeft + MissionsWindowUI.LoopRowLabelWidth
+                + MissionsWindowUI.LoopRowToggleSlotWidth + MissionsWindowUI.LoopRowEveryWidth;
+            Assert.Equal(warpRight, everyRight);
+            float periodRight = everyRight + MissionsWindowUI.LoopPeriodValueWidth
+                + MissionsWindowUI.LoopPeriodGap + MissionsWindowUI.LoopPeriodUnitButtonWidth;
+            Assert.Equal(logRight, periodRight);
+
+            // The widths themselves (a change here moves the grid against the summary).
+            Assert.Equal(92f, MissionsWindowUI.LoopGridColumnBWidth);
+            Assert.Equal(192f, MissionsWindowUI.LoopCellWidth);
+            Assert.Equal(28f, MissionsWindowUI.LoopRowLabelWidth);
+            Assert.Equal(22f, MissionsWindowUI.LoopRowToggleSlotWidth);
+            Assert.Equal(42f, MissionsWindowUI.LoopRowEveryWidth);
+            Assert.Equal(56f, MissionsWindowUI.LoopPeriodValueWidth);
+            Assert.Equal(40f, MissionsWindowUI.LoopPeriodUnitButtonWidth);
 
             string prepared = ReadPreparedSource();
             string line1 = MethodBody(prepared, "DrawMissionNameCell");
             string line2 = MethodBody(prepared, "DrawMissionSummaryNameCell");
             Assert.Contains("GUILayout.Width(LoopGridColumnAWidth)", line1);   // Clone
-            Assert.Contains("GUILayout.Space(LoopGridColumnBWidth)", line1);   // hidden Warp
             Assert.Contains("GUILayout.Width(InteractButtonWidth)", line1);    // Log
-            Assert.Contains("GUILayout.Width(LoopGridColumnAWidth)", line2);   // Delete
-            Assert.Contains("GUILayout.Width(LoopCellWidth)", line2);          // loop cell
-            // "Warp to..." FILLS column B, so there is no gap between it and Log, and its
-            // hidden-slot space is exactly the button's width.
+            // Warp is drawn in every Advanced state: no loop-state branch and no blank slot.
+            Assert.Contains("DrawMissionWarpToWindowButton(", line1);
+            Assert.DoesNotContain("GUILayout.Space(LoopGridColumnBWidth)", line1);
+            Assert.DoesNotContain("LoopPlayback", line1);
             Assert.Contains("GUILayout.Width(LoopGridColumnBWidth)",
                 MethodBody(prepared, "DrawMissionWarpToWindowButton"));
-            // Iteration 4 (value-only period cell): the grid's right column shrank to the new
-            // widest line-2 content, "Looped by route [10] [sec]".
-            Assert.Equal(192f, MissionsWindowUI.LoopCellWidth);
-            Assert.Equal(92f, MissionsWindowUI.LoopGridColumnBWidth);
+            Assert.Contains("GUILayout.Width(LoopGridColumnAWidth)", line2);   // Delete
+            Assert.Contains("DrawMissionLoopRow(", line2);
+
+            string row = MethodBody(prepared, "DrawMissionLoopRow");
+            Assert.Contains("GUILayout.Width(LoopCellWidth)", row);
+            Assert.Contains("DrawLoopedByRouteLabel(bindingRoute, LoopCellWidth)", row);
+            string toggle = MethodBody(prepared, "DrawMissionLoopToggle");
+            Assert.Contains("GUILayout.Width(LoopRowLabelWidth)", toggle);
+            Assert.Contains("BeginLoopCellSlot(LoopRowToggleSlotWidth)", toggle);
+            Assert.Contains("GUILayout.Width(LoopRowEveryWidth)", toggle);
+            string period = MethodBody(prepared, "DrawMissionLoopPeriodCell");
+            Assert.Contains("= LoopPeriodValueWidth", period);
+            Assert.Contains("= LoopPeriodUnitButtonWidth", period);
+            Assert.Contains("GUILayout.Space(LoopPeriodGap)", period);
+            Assert.Contains("GUILayout.Width(InteractButtonWidth)", period);  // locked value
+            // A content-sized control would make the row's width depend on its text.
+            Assert.DoesNotContain("ExpandWidth(false)", period);
+
+            // Every control style in the row has zero horizontal margin, so the fixed widths
+            // above are the controls' exact rects (a skin margin would push the period past
+            // Log's right edge).
+            foreach (string style in new[] { "loopCellRowStyle", "loopCellLabelStyle",
+                                             "loopCellToggleStyle", "loopCellFieldStyle",
+                                             "loopCellUnitButtonStyle", "loopGridButtonStyle",
+                                             "interactButtonStyle" })
+                AssertZeroHorizontalMarginStyle(prepared, style);
+        }
+
+        // catches: the loop row's state (and so the transition log) disagreeing with the
+        // period cell's own branch - the locked value draws only while the mission loops.
+        [Theory]
+        // (routeBound, looping, lockedOrReaim, autoUnit, expected)
+        [InlineData(true, true, true, true, (int)MissionsWindowUI.LoopRowKind.RouteBound)]
+        [InlineData(true, false, false, false, (int)MissionsWindowUI.LoopRowKind.RouteBound)]
+        [InlineData(false, true, true, false, (int)MissionsWindowUI.LoopRowKind.LockedPeriod)]
+        [InlineData(false, true, true, true, (int)MissionsWindowUI.LoopRowKind.LockedPeriod)]
+        [InlineData(false, false, true, false, (int)MissionsWindowUI.LoopRowKind.ManualPeriod)]
+        [InlineData(false, false, true, true, (int)MissionsWindowUI.LoopRowKind.AutoPeriod)]
+        [InlineData(false, true, false, true, (int)MissionsWindowUI.LoopRowKind.AutoPeriod)]
+        [InlineData(false, true, false, false, (int)MissionsWindowUI.LoopRowKind.ManualPeriod)]
+        public void TheLoopRowStateFollowsThePeriodCellBranch(
+            bool routeBound, bool looping, bool lockedOrReaim, bool autoUnit,
+            int expected)
+        {
+            Assert.Equal((MissionsWindowUI.LoopRowKind)expected,
+                MissionsWindowUI.ResolveLoopRowKind(routeBound, looping, lockedOrReaim, autoUnit));
+        }
+
+        private static void AssertZeroHorizontalMarginStyle(string prepared, string style)
+        {
+            Match m = Regex.Match(prepared, @"\b" + Regex.Escape(style) + @"\s*=\s*new GUIStyle\(([^)]*)\)");
+            Assert.True(m.Success, File + ": style " + style + " is never built, this gate is vacuous.");
+            string ctorArg = m.Groups[1].Value.Trim();
+            int end = prepared.IndexOf(';', m.Index);
+            string init = prepared.Substring(m.Index, end - m.Index);
+            if (Regex.IsMatch(init, @"margin\s*=\s*new RectOffset\(\s*0\s*,\s*0\s*,"))
+                return;
+            // A copy of a style this gate already holds to zero margin keeps it.
+            Assert.True(!init.Contains("margin") && (ctorArg == "interactButtonStyle"),
+                File + ": " + style + " must zero its left / right margin");
         }
 
         // The mutation this gate exists for, run against a synthetic pair so the cell above
