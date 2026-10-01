@@ -1435,9 +1435,13 @@ count. Flown once each on current main:
   inverted offline against its reading's produced save: 8 and 10 both red.
 - Findings, NOT re-pinned (more than one split): GS-8, B4, B13, B14, filed as
   INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS below.
-- Not flown (operator tier, over the 3 h budget): B16, B18, B19, B20, B21, B22.
+- Not flown (operator tier, over the 3 h budget): B16, B18, B19, B20, B21. B22 flew on
+  2026-10-01 for the mission warp policy (`2026-10-01_2135`, MISSION-OK, a circular Jool park)
+  and read 6 on `recordings.count 6 > max 5` alone with exactly one ascent-exit split
+  (`committed=5->6`): re-pinned 5 -> 6 on branch `mission-warp-fix`, re-flown green on the pin
+  (`2026-10-01_2235`, PASS attempt 1, count 6).
 
-## INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS: four lanes commit more than one extra recording since #1931, so their count windows were not re-pinned [FILED 2026-10-01, branch `split-count-repin`. LANE WINDOWS pending an operator ruling; no Parsek defect shown. OPEN]
+## ~~INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS: four lanes commit more than one extra recording since #1931, so their count windows were not re-pinned~~ [FILED 2026-10-01, branch `split-count-repin`. LANE WINDOWS, no Parsek defect. RULED AND RE-PINNED 2026-10-01, branch `mission-warp-fix`]
 
 Found while re-reading INFLIGHT-COMMIT-SPLIT-STALE-RECORDING-COUNTS. The re-pin rule there takes
 a count only when it is exactly one higher with one atmosphere-exit split behind it. These four
@@ -1460,6 +1464,70 @@ merge-dialog and scene-exit commits:
 Fix: an operator ruling that these splits are the intended in-flight commit shape (they match
 the scene-exit commit's), then re-pin each window to its read value (GS-8 10, B4 11, B13 11,
 B14 11), exact, off these runs, and re-fly once.
+
+RULED 2026-10-01 (operator): the extra splits are accepted as designed, since #1931 the in-flight
+commit runs the optimizer and it splits at ascent exit, reentry, approach and touchdown exactly
+as the scene-exit commit does. Re-pinned on branch `mission-warp-fix`, each window exact and its
+comment citing every split line of its reading run: GS-8 8 -> 10, B4 9..10 -> 11, B13 8 -> 11, B14
+8 -> 11. Confirmed on the mission-warp-policy verification flights (see
+MISSION-WARP-POLICY-2026-10-01), each PASS attempt 1 at the new count with the same splits:
+GS-8 `2026-10-01_1719` (10, `committed=8->10`), B4 `_2023` (11, ascent exit at UT 212.18 plus
+reentry at UT 918.78, `committed=9->11`), B13 `_1905` (11: ascent exit, Mun approach at UT
+22966.25, touchdown `prev=Approach next=SurfaceStationary`), B14 `_1938` (11: ascent exit, Minmus approach at UT
+278209.25, touchdown `prev=Approach next=SurfaceMobile`).
+
+## ~~MISSION-WARP-POLICY-2026-10-01: harness missions idled at 1x through node waits, dwells and vacuum coasts~~ [FILED AND FIXED 2026-10-01, branch `mission-warp-fix`, operator ruling of the same day. HARNESS ONLY, no C# change]
+
+A log analysis of the 2026-10-01 nightly runs (telemetry is ~1 Hz of wall time; an unchanged
+ap/pe at 1x is idle) found most mission wall time idle at 1x while the orbit was static:
+B11 / B13 CAPTURE-BURN ~600 s, the PARK dwell ~180 s, B13 / B14 DESCENT ~1,300 s, GS-8's COAST
+~135 s, B4's DEORBIT ~350 s. Ruling: burns stay at 1x so precision is unchanged, the idle
+around them is warped. Fix (`harness/missions/lib/mlib.py` section MISSION WARP POLICY, tests
+`test_mission_warp_policy.py`, contract in `harness/README.md` "The mission warp policy"):
+- CAPTURE node waits: the b5 machine holds the CAPTURE-BURN executor hand-off and rails-warps to
+  node UT - half burn - 120 s first. Root cause (decompiled MechJeb 2.15.1
+  `MechJebModuleNodeExecutor.StateWarpAlign`): the executor warps only to ignition - 600 s, then
+  waits at 1x for AlignedAndSettled (1 deg AND |omega| < 0.001 rad/s), calling `MinimumWarp` every
+  tick, so a craft that never settles idles the full 600 s. Transfers are NOT held: a held TLI
+  saved nothing (the executor settles within its lead) and ended 3.7 s earlier on all three Mun
+  flights (apoapsis 11.503 Mm instead of 11.480 Mm), re-timing the arrival; B13 `_1729` then
+  landed on a slope and shed its lower stack after touchdown (count 12), `_1833` ended
+  SurfaceMobile (log contract red). Capture-only, B13 `_1905` flew the pre-policy TLI and landing
+  site (UT 23133 vs 23125) green.
+- Vacuum landing coasts: DESCENT rails-warps an airless impact coast down to max(1.5 x approach
+  altitude, approach + 10 km). MechJeb's untargeted FinalDescent never warps.
+- Physics dwells: the PARK dwell and the kx COAST wait run at 4x physics warp (rails would freeze
+  attitude, pack loaded debris and turn the recorded coverage into checkpoint sections), 1x for
+  the last 15 s. Coverage proven on the produced saves: B13 `_1905`'s PARK window is one
+  Absolute / ExoBallistic physics section with 68 points (before: 15 + 54 in two such sections),
+  GS-8 `_1719`'s exo coast one physics section with 574 / 575 points per stack (before 621 / 622).
+- B4's REENTRY exo coast now hops while still ascending after the cutoff.
+- NOT warped, and why: B4's retrograde slew (an attitude slew, not a coast or node wait; a first
+  cut physics-warped it, withdrawn on review), the ascent's circularization align-and-settle
+  (MechJeb-internal; MechJeb's `MinimumWarp` cancels a second writer), LANDED-SETTLE, GS-8's
+  real-time WATCH / PLAYBACK-WAIT.
+Every policy input (vessel mass, the body's atmosphere depth and surface gravity, read from the
+game) fails closed to the pre-policy 1x path when unread, and every warp names its reason in its
+action line. Residual, not filed: the capture hold still idles ~120 s when the executor never
+settles (the lead is sized to the slowest measured flip); the descent coast takes 5-6 warp hops
+because the fall estimate uses surface gravity and ignores the horizontal speed (safe: it always
+lands early).
+
+Review follow-up (2026-10-02, same branch). (1) Terminal teardown: the PARK exit through
+`_b5_left_target_soi`, and the generic vessel-lost / frozen terminals, returned a terminal
+with the dwell's physics warp still held. A decorator on `b5_decide` / `kxrw_decide` now drops
+a held policy physics warp (and cancels a policy-owned native warp) on the frame either machine
+turns terminal; `TerminalTeardownTests` pin it. (2) The capture-hold lanes not yet flown, on the
+merged head (automation DLL sha256 `7bbf19ce...`), each PASS attempt 1 with its mission outcome
+unchanged: V3C `2026-10-01_2109` (count 4; its rate-independent seam tokens all met; wall
+937 -> 802 s vs `_0732`, PARK 180 -> 55), B17 `_2122` (count 3; 916 -> 783 s vs `_0835`,
+PARK 180 -> 55). The circular park altitudes differ from the before runs (V3C 3,863 vs
+7,036 km, B17 503 vs 1,128 km) because the arrival periapsis differed on PLAN-CAPTURE entry,
+before the policy acts; the two before runs differ from each other as much. (3) The long-burn
+check, B22 `_2135` (Jool, 1,292 m/s on 60 kN): the hold estimated a 149.1 s half burn, MechJeb
+ignited at node - 137.3 s, so the release came 136 s before ignition and the 120 s lead was not
+shrunk (the linear estimate over-reads the rocket equation). B22 was MISSION-OK with a circular
+park, red only on the stale #1931 count (re-pinned above; re-flown `_2235` PASS at 6).
 
 ## ~~RF-LANES-SECOND-REWIND-INTO-A-FUTURE-RP: RF-2 and RF-3 cannot reach their later rewind point since the future-rewind-point gate (#1788)~~ [FILED AND FIXED 2026-10-01, branch `arm-last19`. LANE SPEC DEFECT, not a Parsek defect. RE-FLOWN GREEN 2026-10-01]
 

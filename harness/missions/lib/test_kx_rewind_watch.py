@@ -3285,7 +3285,14 @@ class CraftAndSchemaSyncTests(unittest.TestCase):
             st_phase = dataclasses.replace(machine(), phase=phase)
             self.assertEqual(phase in mlib.KXRW_LOOP_PHASES,
                              spec.allow_rails_warp(st_phase), phase)
-        self.assertEqual(0.0, spec.max_physics_warp)
+        # Physics warp is likewise PER-STATE: the stock 4x inside the COAST wait
+        # only (mission warp policy, 2026-10-01), 0.0 = a flake everywhere else.
+        # MUTATION: return 4.0 for WATCH and this reds.
+        self.assertTrue(callable(spec.max_physics_warp))
+        for phase in mlib.KXRW_PHASES:
+            st_phase = dataclasses.replace(machine(), phase=phase)
+            self.assertEqual(4.0 if phase == mlib.KXRW_COAST else 0.0,
+                             spec.max_physics_warp(st_phase), phase)
         self.assertEqual(0, spec.settle_frames)
         st = spec.build_state({})
         self.assertIsInstance(st, mlib.KxrwState)

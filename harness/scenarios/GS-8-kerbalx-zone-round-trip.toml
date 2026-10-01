@@ -240,7 +240,24 @@ allowedAnomalies = []
 # GS-4's structural 8 (parent + 6 booster debris + the core child); the longer burn
 # adds distance, not recordings. RE-PINNED EXACT from runs `_1119` and `_1225`,
 # 8 both times (the B19 re-pin-do-not-widen contract).
-count = { min = 8, max = 8 }
+# RE-PINNED on 2026-10-01 (branch `mission-warp-fix`, todo
+# INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS, closed by the operator ruling of
+# 2026-10-01: the extra splits are the intended in-flight commit shape).
+# Since #1931 the mid-mission seam CommitTree runs the recording optimizer,
+# which splits where the scene-exit commit always did: atmosphere exit,
+# reentry, approach, touchdown.
+# Reading run `2026-10-01_1132_GS-8-kerbalx-zone-round-trip` read 10, and its
+# KSP.log carries two atmosphere-exit splits: the live pod stack AND the core
+# probe child, which also climbs past 70 km after its 160 km-apoapsis discard:
+#   Split candidate (PersistedPhaseChange): rec=33aa03d4... sec=7
+#   splitUT=161.76 prev=Atmospheric next=ExoBallistic
+#   Split candidate (PersistedPhaseChange): rec=43f8b571... sec=1
+#   splitUT=161.78 prev=Atmospheric next=ExoBallistic
+#   CommitTreeFlight: optimization pass ran committed=8->10
+# Still exact: 9 (a split missing) and 11 (an extra one) both red.
+# Confirmed on the new pin (mission warp policy flights): `2026-10-01_1719_GS-8-kerbalx-zone-round-trip` PASS
+# attempt 1, same splits.
+count = { min = 10, max = 10 }
 
 [expectations.logContracts]
 # GROUPS 1-4 are GS-4's, verbatim. GROUP 5 is this lane's own; GROUP 6 the lifecycle.
