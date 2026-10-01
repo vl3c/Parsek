@@ -4,8 +4,8 @@ using System.Globalization;
 
 namespace Parsek
 {
-    // Pure read model + mission builder for the structure-list window (roadmap.md
-    // Phase 13 Tier-1; docs/dev/plan-structure-list-window.md). A structure list is a
+    // Pure read model + mission builder for the Log window (StructureListWindowUI;
+    // roadmap.md Phase 13 Tier-1; docs/dev/plan-structure-list-window.md). A Log is a
     // flat, chronological "what happened, step by step" view of one run, complementing
     // the Missions tab's composition-over-time tree. The builder is pure (no Unity
     // calls, no shared mutable state, no recording mutation) and reads ONLY
@@ -16,7 +16,7 @@ namespace Parsek
     internal enum StructureStepKind
     {
         Launch     = 0,
-        Staging    = 1,  // separation that drops debris (no controlled-leg branch point)
+        Staging    = 1,  // a stage (debris-only separation) or a jettison with no branch point
         Separation = 2,  // decouple / breakup that produces a controlled child leg
         Dock       = 3,
         Undock     = 4,
@@ -27,29 +27,31 @@ namespace Parsek
         Terminal   = 9
     }
 
-    /// <summary>One row of a structure list: a single event with its time, status and location.</summary>
+    /// <summary>One row of a Log: a single event with its time, location and vessel.</summary>
     internal struct StructureStep
     {
         public double UT;            // event time; NaN for the route Origin pseudo-step (rendered first)
         public StructureStepKind Kind;
-        public string Label;         // "Launch", "Decoupled booster", "Dock", "Deliver (50 LiquidFuel)"
-        public string Status;        // vessel situation: "Prelaunch", "Flying", "Orbiting", "Landed", ...
-        public string Location;      // always "SOI/body, biome" order: "Kerbin, LaunchPad", "Mun, Midlands"
-        public string VesselName;    // the controlled vessel / piece this step concerns (may be empty)
-        public uint SortPid;         // staging part PID, for a deterministic tiebreak only (not rendered)
+        public string Label;         // "Launch", "Staged: 2 pieces (...)", "Docked (CD)", "End: Orbiting"
+        public string Tooltip;       // full label when Label had to be shortened for the cell; else null
+        public string Location;      // "Kerbin, Launch Pad", "Kerbin orbit", "Mun, Midlands", "Kerbin", "-"
+        public string VesselName;    // the vessel this step concerns (may be empty on route rows)
+        public string RecordingId;   // the owning recording / leg; identity for the simultaneous collapse
+        public uint SortPid;         // a part PID or 0, for a deterministic tiebreak only (not rendered)
     }
 
     /// <summary>
     /// Pure location text helpers shared by the mission builder and the Logistics-side
-    /// route builder, which formats its route endpoints on top of these. Reuses the
-    /// recordings-table formatters where they already format a recording's start/end
-    /// position so the wording matches the Recordings tab. All numeric output uses
-    /// InvariantCulture.
+    /// route builder, which formats its route endpoints on top of these. All output is
+    /// culture-free text.
     /// </summary>
     internal static class StructureLocationFormatter
     {
+        /// <summary>The one text every Location cell shows when nothing honest is recorded.</summary>
+        internal const string Missing = "-";
+
         // Canonical location text: ALWAYS "SOI/body, biome" order (body first, biome
-        // second). Either part may be empty. "-" when nothing is recorded.
+        // second). Either part may be empty. Missing when nothing is recorded.
         internal static string BodyBiome(string body, string biome)
         {
             bool hasBody = !string.IsNullOrEmpty(body);
@@ -57,20 +59,97 @@ namespace Parsek
             if (hasBody && hasBiome) return body + ", " + biome;
             if (hasBody) return body;
             if (hasBiome) return biome;
-            return "-";
+            return Missing;
         }
 
-        // Mid-flight event: body + biome from the supplied recording's START context. This
-        // is event-accurate for BRANCH events (the child branch's recording starts AT the
-        // split / merge), but only start-accurate for part events; the staging emit site
-        // gates on event-to-start freshness before using it. Per-UT exact coordinate
-        // resolution is still deferred.
-        internal static string MidLocation(Recording rec)
-            => rec == null ? "" : BodyBiome(rec.StartBodyName, rec.StartBiome);
+        /// <summary>"Kerbin orbit", or <see cref="Missing"/> with no body.</summary>
+        internal static string Orbit(string body)
+            => string.IsNullOrEmpty(body) ? Missing : body + " orbit";
 
-        // The vessel situation at the event (already humanized: "Flying", "Orbiting", ...).
-        internal static string MidStatus(Recording rec)
-            => rec != null && !string.IsNullOrEmpty(rec.StartSituation) ? rec.StartSituation : "";
+        // A recording's start-captured situation / biome describe ONLY the moment the
+        // recording began; nothing per-UT is recorded. So a row AT the recording's start
+        // gets the captured context ("Kerbin orbit" when it began Orbiting, else
+        // "body, biome", with the launch site in the biome slot for a launch), and any
+        // later row keeps only the segment-stable body. Blank beats wrong.
+        internal static string AtRecording(Recording rec, double ut)
+        {
+            if (rec == null) return Missing;
+            if (Math.Abs(ut - rec.StartUT) <= MissionStructureListBuilder.StartContextSeconds)
+            {
+                if (!string.IsNullOrEmpty(rec.LaunchSiteName)
+                    && string.IsNullOrEmpty(rec.ParentBranchPointId)
+                    && rec.ChainIndex <= 0)
+                    return BodyBiome(rec.StartBodyName, rec.LaunchSiteName);
+                if (string.Equals(rec.StartSituation, "Orbiting", StringComparison.Ordinal))
+                    return Orbit(rec.StartBodyName);
+                return BodyBiome(rec.StartBodyName, rec.StartBiome);
+            }
+            return BodyBiome(rec.StartBodyName, null);
+        }
+
+        // True when the recording captured anything at its start (a BG-born child often
+        // captured nothing: no situation, no body, no biome).
+        internal static bool HasStartContext(Recording rec)
+            => rec != null
+               && (!string.IsNullOrEmpty(rec.StartSituation)
+                   || !string.IsNullOrEmpty(rec.StartBodyName));
+    }
+
+    /// <summary>
+    /// The Log's Time column: the first row with a time shows the calendar date, every
+    /// later row the elapsed time since it, so rows in the same minute still read in
+    /// order. Pure; the date formatter is injected (the window passes
+    /// <c>KSPUtil.PrintDateCompact</c>, the Missions start-time cell's formatter).
+    /// </summary>
+    internal static class StructureTimeFormatter
+    {
+        /// <summary>"T+h:mm:ss" (hours unbounded), "T-h:mm:ss" before the reference.
+        /// Whole seconds, truncated toward zero. InvariantCulture.</summary>
+        internal static string FormatElapsed(double seconds)
+        {
+            if (double.IsNaN(seconds) || double.IsInfinity(seconds))
+                return StructureLocationFormatter.Missing;
+            string sign = seconds < 0 ? "T-" : "T+";
+            long total = (long)Math.Floor(Math.Abs(seconds));
+            long h = total / 3600;
+            long m = (total / 60) % 60;
+            long s = total % 60;
+            return sign + h.ToString(CultureInfo.InvariantCulture) + ":"
+                + m.ToString("00", CultureInfo.InvariantCulture) + ":"
+                + s.ToString("00", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// One Time cell per step: the first finite-UT step gets
+        /// <paramref name="dateFormatter"/>(UT), every later one its elapsed time from
+        /// that step, and a NaN step (the route origin) the missing-value text.
+        /// </summary>
+        internal static string[] FormatStepTimes(
+            List<StructureStep> steps, Func<double, string> dateFormatter)
+        {
+            if (steps == null) return new string[0];
+            var cells = new string[steps.Count];
+            double reference = double.NaN;
+            for (int i = 0; i < steps.Count; i++)
+            {
+                double ut = steps[i].UT;
+                if (double.IsNaN(ut))
+                {
+                    cells[i] = StructureLocationFormatter.Missing;
+                    continue;
+                }
+                if (double.IsNaN(reference))
+                {
+                    reference = ut;
+                    cells[i] = dateFormatter != null
+                        ? (dateFormatter(ut) ?? "")
+                        : ut.ToString("F0", CultureInfo.InvariantCulture);
+                    continue;
+                }
+                cells[i] = FormatElapsed(ut - reference);
+            }
+            return cells;
+        }
     }
 
     internal static class MissionStructureListBuilder
@@ -79,13 +158,56 @@ namespace Parsek
         // derivation (mirrors MissionStructureBuilder.SuppressLogging). Defaults to off.
         internal static bool SuppressLogging;
 
+        /// <summary>A row this close to its recording's start reads the start-captured
+        /// context (situation / biome / launch site); anything later gets the body only.</summary>
+        internal const double StartContextSeconds = 0.5;
+
         /// <summary>
-        /// Flattens a mission tree into a UT-ordered step list: launch(es), branch-point
-        /// events (dock / undock / decouple / eva / breakup), debris-staging part events,
-        /// and terminals. Pure. Takes the already-built <paramref name="structure"/> so
-        /// the window passes its cached structure without a rebuild.
+        /// A recording that continues another (a split child or a chain segment) starts with
+        /// SEEDS: the recorder re-states the part state the segment starts in so the ghost
+        /// draws correctly (RecordingOptimizer.ForwardPermanentStateEvents at exactly the split
+        /// UT; the background recorder's loaded-physics seed a moment later). A seed is a
+        /// permanent event either AT the segment's start (within this epsilon, which absorbs
+        /// only serialization noise) or one an ancestor recording already had for the same
+        /// part. No time window beyond that: a REAL jettison a moment after a split (a
+        /// scripted fairing deploy at an atmosphere-exit chain split) must stay a row.
         /// </summary>
-        internal static List<StructureStep> Build(RecordingTree tree, MissionStructure structure)
+        internal const double ContinuationSeedEpsilonSeconds = 1e-3;
+
+        /// <summary>The active recorder seeds the jettison state a ROOT recording starts in
+        /// at its exact start UT; a root's start-UT Decoupled is real (launch clamps).</summary>
+        internal const double RootSeedSeconds = 0.05;
+
+        /// <summary>Default "same physics moment" window for a stage's branch point when the
+        /// recorder stored no coalesce window of its own.</summary>
+        internal const double DefaultStageMomentSeconds = 0.1;
+
+        /// <summary>Part events this close to a Dock / Undock / Board on a recording that
+        /// takes part in it are the port / pod coupling changes of that event, not staging.</summary>
+        internal const double DockEventPartWindowSeconds = 0.5;
+
+        /// <summary>
+        /// The longest Event cell text drawn unshortened: the Event column at the window's
+        /// first-open width holds about this many characters. A longer piece list is
+        /// shortened in the cell and carried whole in the cell tooltip.
+        /// </summary>
+        internal const int EventCellCharBudget = 60;
+
+        /// <summary>
+        /// Flattens a mission tree into a UT-ordered step list. Pure. Takes the already-built
+        /// <paramref name="structure"/> so the window passes its cached structure without a
+        /// rebuild. <paramref name="partTitleResolver"/> maps an internal part name to its
+        /// player-facing title (null or an unknown name falls back to the internal name);
+        /// it is called at most once per distinct name per build.
+        /// <paramref name="mergePartnerResolver"/> names the other side of a Dock / Board
+        /// branch point for a viewer recording, already formatted
+        /// ("CD" or "CD (mission 'CD Freighter')"); null when it cannot.
+        /// </summary>
+        internal static List<StructureStep> Build(
+            RecordingTree tree,
+            MissionStructure structure,
+            Func<string, string> partTitleResolver = null,
+            Func<BranchPoint, string, string> mergePartnerResolver = null)
         {
             var steps = new List<StructureStep>();
             if (tree == null || structure == null || structure.LegsById.Count == 0)
@@ -96,29 +218,31 @@ namespace Parsek
                 return steps;
             }
 
-            Recording Rec(string id) =>
-                id != null && tree.Recordings != null && tree.Recordings.TryGetValue(id, out var r) ? r : null;
+            var ctx = new BuildContext(tree, structure, partTitleResolver, mergePartnerResolver);
 
             // 1. Launch: one per root leg.
-            AddLaunchSteps(steps, structure, Rec);
+            AddLaunchSteps(steps, ctx);
 
-            // 2. Branch-point events. Collect decoupler PIDs handled here so the staging
-            //    pass can dedup the Decoupled PartEvent that mirrors a controlled split.
-            var handledDecouplerPids = new HashSet<uint>();
-            AddBranchPointSteps(steps, tree, structure, Rec, handledDecouplerPids);
+            // 2. The part events that can still mean something to a reader: seeds,
+            //    debris breakup and dock coupling events are dropped here.
+            List<CandidateEvent> candidates = CollectCandidateEvents(ctx);
 
-            // 3. Staging part events across all member recordings.
-            AddStagingSteps(steps, tree, handledDecouplerPids);
+            // 3. Attach each candidate to the stage (split branch point) it belongs to.
+            var absorbed = new Dictionary<BranchPoint, List<CandidateEvent>>();
+            var loose = new List<CandidateEvent>();
+            AssignToStages(ctx, candidates, absorbed, loose);
 
-            // 4. Terminal: one per controlled leg that ends in a terminal state.
-            AddTerminalSteps(steps, structure, Rec);
+            // 4. Branch-point rows (a stage becomes ONE row with its absorbed parts).
+            AddBranchPointSteps(steps, ctx, absorbed);
 
-            // 5. Deterministic chronological sort.
+            // 5. Part events no branch point covers, grouped per recording and moment.
+            AddLooseStagingSteps(steps, ctx, loose);
+
+            // 6. Terminal: one per controlled leg that ends in a state of its own.
+            AddTerminalSteps(steps, ctx);
+
+            // 7. Deterministic chronological sort, then the simultaneous collapse.
             steps.Sort(CompareStep);
-
-            // 6. Collapse simultaneous identical events into one "xN" row (e.g. several engine
-            //    shrouds or radial decouplers separating in the same frame), so a big stack
-            //    does not list "Shroud jettisoned" a dozen times.
             steps = CollapseSimultaneous(steps);
 
             if (!SuppressLogging)
@@ -130,193 +254,806 @@ namespace Parsek
                     $"dock={CountKind(steps, StructureStepKind.Dock)} " +
                     $"undock={CountKind(steps, StructureStepKind.Undock)} " +
                     $"eva={CountKind(steps, StructureStepKind.Eva)} " +
-                    $"terminal={CountKind(steps, StructureStepKind.Terminal)}");
+                    $"terminal={CountKind(steps, StructureStepKind.Terminal)} " +
+                    $"partEvents: seeds={ctx.SkippedSeeds} debris={ctx.SkippedDebris} " +
+                    $"dockCoupling={ctx.SkippedDockCoupling} duplicates={ctx.SkippedDuplicates} " +
+                    $"absorbed={ctx.AbsorbedCount} loose={loose.Count} " +
+                    $"mergedEndsSkipped={ctx.SkippedMergedEnds}");
             return steps;
         }
 
-        /// <summary>
-        /// Phase 1: emits one Launch step per root leg. Extracted verbatim from Build.
-        /// </summary>
-        private static void AddLaunchSteps(
-            List<StructureStep> steps, MissionStructure structure, Func<string, Recording> Rec)
+        // ------------------------------------------------------------------
+        // Build state
+        // ------------------------------------------------------------------
+
+        private sealed class BuildContext
         {
-            foreach (var rootId in structure.RootLegIds)
+            internal readonly RecordingTree Tree;
+            internal readonly MissionStructure Structure;
+            private readonly Func<string, string> partTitleResolver;
+            internal readonly Func<BranchPoint, string, string> MergePartnerResolver;
+            private readonly Dictionary<string, string> titleCache =
+                new Dictionary<string, string>(StringComparer.Ordinal);
+
+            internal readonly Dictionary<string, BranchPoint> BranchPointsById =
+                new Dictionary<string, BranchPoint>(StringComparer.Ordinal);
+
+            // recording id -> the recordings it continues (branch parents + chain predecessor).
+            internal readonly Dictionary<string, List<string>> Predecessors =
+                new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+            internal int SkippedSeeds;
+            internal int SkippedDebris;
+            internal int SkippedDockCoupling;
+            internal int SkippedDuplicates;
+            internal int AbsorbedCount;
+            internal int SkippedMergedEnds;
+
+            internal BuildContext(RecordingTree tree, MissionStructure structure,
+                Func<string, string> partTitleResolver,
+                Func<BranchPoint, string, string> mergePartnerResolver)
             {
-                if (!structure.LegsById.TryGetValue(rootId, out MissionLeg leg))
-                    continue;
-                Recording rec = Rec(rootId);
+                Tree = tree;
+                Structure = structure;
+                this.partTitleResolver = partTitleResolver;
+                MergePartnerResolver = mergePartnerResolver;
+                IndexPredecessors();
+            }
+
+            internal Recording Rec(string id)
+                => id != null && Tree.Recordings != null
+                   && Tree.Recordings.TryGetValue(id, out Recording r) ? r : null;
+
+            internal MissionLeg Leg(string id)
+                => id != null && Structure.LegsById.TryGetValue(id, out MissionLeg l) ? l : null;
+
+            // The vessel name a row about this recording shows: the leg label for a
+            // controlled leg, else the recording's own vessel name.
+            internal string VesselOf(string recordingId)
+            {
+                MissionLeg leg = Leg(recordingId);
+                if (leg != null) return LegLabel(leg);
+                Recording rec = Rec(recordingId);
+                if (rec == null) return "";
+                if (!string.IsNullOrEmpty(rec.EvaCrewName)) return rec.EvaCrewName;
+                return string.IsNullOrEmpty(rec.VesselName) ? "(vessel)" : rec.VesselName;
+            }
+
+            internal string Title(string partName)
+            {
+                string key = partName ?? "";
+                if (titleCache.TryGetValue(key, out string cached))
+                    return cached;
+                string title = null;
+                if (partTitleResolver != null && key.Length > 0)
+                {
+                    try { title = partTitleResolver(key); }
+                    catch (Exception) { title = null; }
+                }
+                if (string.IsNullOrEmpty(title))
+                    title = key.Length > 0 ? key : "part";
+                titleCache[key] = title;
+                return title;
+            }
+
+            private void IndexPredecessors()
+            {
+                if (Tree.BranchPoints != null)
+                {
+                    foreach (BranchPoint bp in Tree.BranchPoints)
+                    {
+                        if (bp != null && !string.IsNullOrEmpty(bp.Id))
+                            BranchPointsById[bp.Id] = bp;
+                        if (bp?.ChildRecordingIds == null || bp.ParentRecordingIds == null) continue;
+                        foreach (string child in bp.ChildRecordingIds)
+                        {
+                            if (child == null) continue;
+                            AddPredecessors(child, bp.ParentRecordingIds);
+                        }
+                    }
+                }
+                if (Tree.Recordings == null) return;
+                // Chain segments: segment k continues segment k-1 of the same chain.
+                var byChain = new Dictionary<string, Dictionary<int, string>>(StringComparer.Ordinal);
+                foreach (Recording r in Tree.Recordings.Values)
+                {
+                    if (r == null || string.IsNullOrEmpty(r.ChainId) || r.ChainIndex < 0) continue;
+                    if (!byChain.TryGetValue(r.ChainId, out Dictionary<int, string> seg))
+                    {
+                        seg = new Dictionary<int, string>();
+                        byChain[r.ChainId] = seg;
+                    }
+                    seg[r.ChainIndex] = r.RecordingId;
+                }
+                foreach (Recording r in Tree.Recordings.Values)
+                {
+                    if (r == null || string.IsNullOrEmpty(r.ChainId) || r.ChainIndex <= 0) continue;
+                    if (byChain.TryGetValue(r.ChainId, out Dictionary<int, string> seg)
+                        && seg.TryGetValue(r.ChainIndex - 1, out string prev))
+                        AddPredecessors(r.RecordingId, new List<string> { prev });
+                }
+            }
+
+            private void AddPredecessors(string child, List<string> parents)
+            {
+                if (!Predecessors.TryGetValue(child, out List<string> list))
+                {
+                    list = new List<string>();
+                    Predecessors[child] = list;
+                }
+                foreach (string p in parents)
+                    if (p != null && !string.Equals(p, child, StringComparison.Ordinal) && !list.Contains(p))
+                        list.Add(p);
+            }
+
+            // True when the recording continues another one (split child or chain segment).
+            internal bool IsContinuation(Recording rec)
+                => rec != null
+                   && (!string.IsNullOrEmpty(rec.ParentBranchPointId)
+                       || rec.ChainIndex > 0
+                       || Predecessors.ContainsKey(rec.RecordingId ?? ""));
+
+            // True when (type, pid) already happened on an ancestor recording at or before
+            // ut: a permanent part state changes once per physical part along one lineage,
+            // so a repeat on a descendant is a re-statement of state, not a new event.
+            internal bool AncestorAlreadyHad(Recording rec, PartEvent pe)
+            {
+                if (rec == null || !Predecessors.ContainsKey(rec.RecordingId ?? "")) return false;
+                var visited = new HashSet<string>(StringComparer.Ordinal) { rec.RecordingId };
+                var stack = new Stack<string>(Predecessors[rec.RecordingId]);
+                while (stack.Count > 0)
+                {
+                    string id = stack.Pop();
+                    if (id == null || !visited.Add(id)) continue;
+                    Recording a = Rec(id);
+                    if (a?.PartEvents != null)
+                    {
+                        for (int i = 0; i < a.PartEvents.Count; i++)
+                        {
+                            PartEvent x = a.PartEvents[i];
+                            if (x.eventType == pe.eventType
+                                && x.partPersistentId == pe.partPersistentId
+                                && x.ut <= pe.ut + RootSeedSeconds)
+                                return true;
+                        }
+                    }
+                    if (Predecessors.TryGetValue(id, out List<string> more))
+                        foreach (string m in more) stack.Push(m);
+                }
+                return false;
+            }
+        }
+
+        private struct CandidateEvent
+        {
+            internal Recording Rec;
+            internal PartEvent Event;
+        }
+
+        // ------------------------------------------------------------------
+        // Phases
+        // ------------------------------------------------------------------
+
+        private static void AddLaunchSteps(List<StructureStep> steps, BuildContext ctx)
+        {
+            foreach (var rootId in ctx.Structure.RootLegIds)
+            {
+                MissionLeg leg = ctx.Leg(rootId);
+                if (leg == null) continue;
+                Recording rec = ctx.Rec(rootId);
                 // Location biome slot = the launch-site name when launched from a site, else
-                // the start biome. Status = the start situation (usually "Prelaunch").
-                string launchBiome = rec == null ? null
-                    : (!string.IsNullOrEmpty(rec.LaunchSiteName) ? rec.LaunchSiteName : rec.StartBiome);
+                // the start biome; a leg that began in orbit reads "<body> orbit".
+                string location = StructureLocationFormatter.Missing;
+                if (rec != null)
+                {
+                    if (!string.IsNullOrEmpty(rec.LaunchSiteName))
+                        location = StructureLocationFormatter.BodyBiome(rec.StartBodyName, rec.LaunchSiteName);
+                    else if (string.Equals(rec.StartSituation, "Orbiting", StringComparison.Ordinal))
+                        location = StructureLocationFormatter.Orbit(rec.StartBodyName);
+                    else
+                        location = StructureLocationFormatter.BodyBiome(rec.StartBodyName, rec.StartBiome);
+                }
                 steps.Add(new StructureStep
                 {
                     UT = leg.StartUT,
                     Kind = StructureStepKind.Launch,
                     Label = !string.IsNullOrEmpty(leg.EvaCrewName) ? "EVA " + leg.EvaCrewName : "Launch",
-                    Status = rec != null ? StructureLocationFormatter.MidStatus(rec) : "",
-                    Location = rec != null ? StructureLocationFormatter.BodyBiome(rec.StartBodyName, launchBiome) : "",
-                    VesselName = LegLabel(leg)
+                    Location = location,
+                    VesselName = LegLabel(leg),
+                    RecordingId = rootId
                 });
             }
         }
 
-        /// <summary>
-        /// Phase 2: emits branch-point event steps and records the handled decoupler PIDs
-        /// (mutating <paramref name="handledDecouplerPids"/>) so the staging pass can dedup
-        /// the mirrored Decoupled PartEvent. Extracted verbatim from Build.
-        /// </summary>
-        private static void AddBranchPointSteps(
-            List<StructureStep> steps,
-            RecordingTree tree,
-            MissionStructure structure,
-            Func<string, Recording> Rec,
-            HashSet<uint> handledDecouplerPids)
+        // Collects the staging-type part events a reader should see, in RecordingId order so
+        // the surviving duplicate is stable across save/load (Dictionary enumeration order
+        // is not). Drops: every part event on a debris recording (a debris piece's own
+        // breakup is not the mission's staging), seeds (state re-statements at a continuing
+        // segment's start, or a root's start-UT jettison seed), the port / pod coupling
+        // events of a Dock / Undock / Board, and cross-recording duplicates of one physical
+        // event (UT-tolerant: a same-(pid, kind) event FAR apart is a distinct staging of a
+        // craft-baked PID, e.g. a Re-Fly fork, and survives).
+        private static List<CandidateEvent> CollectCandidateEvents(BuildContext ctx)
         {
-            if (tree.BranchPoints != null)
+            var result = new List<CandidateEvent>();
+            if (ctx.Tree.Recordings == null) return result;
+
+            var mergeBps = new List<BranchPoint>();
+            if (ctx.Tree.BranchPoints != null)
+                foreach (BranchPoint bp in ctx.Tree.BranchPoints)
+                    if (bp != null && (bp.Type == BranchPointType.Dock
+                                       || bp.Type == BranchPointType.Undock
+                                       || bp.Type == BranchPointType.Board))
+                        mergeBps.Add(bp);
+
+            var seenUts = new Dictionary<string, List<double>>(StringComparer.Ordinal);
+            var orderedRecs = new List<Recording>(ctx.Tree.Recordings.Values);
+            orderedRecs.Sort((a, b) => string.CompareOrdinal(a?.RecordingId, b?.RecordingId));
+            foreach (Recording rec in orderedRecs)
             {
-                foreach (BranchPoint bp in tree.BranchPoints)
+                if (rec?.PartEvents == null) continue;
+                bool continuation = ctx.IsContinuation(rec);
+                foreach (PartEvent pe in rec.PartEvents)
                 {
-                    if (bp == null) continue;
-                    // Launch is the root step; VesselSwitchContinuation is an observation
-                    // boundary, not a physical event; Terminal is surfaced via the leg pass.
-                    if (bp.Type == BranchPointType.Launch
-                        || bp.Type == BranchPointType.VesselSwitchContinuation
-                        || bp.Type == BranchPointType.Terminal)
-                        continue;
-
-                    // Vessel name = the acting / continuing vessel (parent first); location =
-                    // the event-coincident recording (the CHILD branch created at the event,
-                    // whose captured start situation / biome / body IS the event context;
-                    // parent's start is its earlier launch context, so it would mislabel
-                    // biome). Fall back across each preference.
-                    string vesselId = FirstControlled(bp.ParentRecordingIds, structure)
-                        ?? FirstControlled(bp.ChildRecordingIds, structure);
-                    string locId = FirstControlled(bp.ChildRecordingIds, structure)
-                        ?? FirstControlled(bp.ParentRecordingIds, structure);
-                    MissionLeg repLeg = vesselId != null && structure.LegsById.TryGetValue(vesselId, out MissionLeg l) ? l : null;
-                    string cause = bp.SplitCause ?? bp.BreakupCause;
-
-                    Recording locRec = Rec(locId);
-                    steps.Add(new StructureStep
+                    if (!IsStagingEvent(pe.eventType)) continue;
+                    if (rec.IsDebris)
                     {
-                        UT = bp.UT,
-                        Kind = ClassifyBranch(bp.Type),
-                        Label = MissionCompositionBuilder.BranchEventName(bp.Type, cause),
-                        Status = StructureLocationFormatter.MidStatus(locRec),
-                        Location = StructureLocationFormatter.MidLocation(locRec),
-                        VesselName = repLeg != null ? LegLabel(repLeg) : ""
-                    });
+                        ctx.SkippedDebris++;
+                        continue;
+                    }
+                    if (IsSeed(ctx, rec, pe, continuation))
+                    {
+                        ctx.SkippedSeeds++;
+                        continue;
+                    }
+                    if (IsDockCoupling(mergeBps, rec, pe))
+                    {
+                        ctx.SkippedDockCoupling++;
+                        continue;
+                    }
 
-                    if (bp.DecouplerPartId != 0)
-                        handledDecouplerPids.Add(bp.DecouplerPartId);
+                    string key = (int)pe.eventType + "|" + pe.partPersistentId.ToString(CultureInfo.InvariantCulture);
+                    if (!seenUts.TryGetValue(key, out List<double> uts))
+                    {
+                        uts = new List<double>();
+                        seenUts[key] = uts;
+                    }
+                    bool duplicate = false;
+                    for (int u = 0; u < uts.Count; u++)
+                    {
+                        if (Math.Abs(uts[u] - pe.ut) <= StagingDedupToleranceSeconds)
+                        {
+                            duplicate = true;
+                            break;
+                        }
+                    }
+                    if (duplicate)
+                    {
+                        ctx.SkippedDuplicates++;
+                        continue;
+                    }
+                    uts.Add(pe.ut);
+                    result.Add(new CandidateEvent { Rec = rec, Event = pe });
                 }
             }
+            return result;
         }
 
-        /// <summary>
-        /// Phase 3: emits staging part-event steps across all member recordings, with the
-        /// UT-tolerant cross-recording dedup and decoupler-PID drop. Extracted verbatim
-        /// from Build.
-        /// </summary>
-        private static void AddStagingSteps(
-            List<StructureStep> steps, RecordingTree tree, HashSet<uint> handledDecouplerPids)
+        internal static bool IsSeedEvent(Recording rec, PartEvent pe, bool continuation)
         {
-            // Decoupled events are
-            // dropped when a controlled Separation branch point already covers the same
-            // decoupler PID; fairing / shroud have no branch-point counterpart and pass
-            // through. Cross-recording dedup is UT-TOLERANT, not UT-blind: the same
-            // physical event recorded on more than one member recording carries the same
-            // (pid, eventType) at NEARLY the same UT (sub-second recorder skew), so a
-            // same-key event within the tolerance is a duplicate. A same-key event FAR
-            // outside it is a genuinely DISTINCT staging of a craft-baked PID - e.g. a
-            // Re-Fly fork of the same craft living in the same tree re-jettisoning its
-            // fairing - and must survive (persistentId is craft-baked, NOT launch-unique).
-            // Recordings iterate in RecordingId order so the surviving representative is
-            // stable across save/load (Dictionary enumeration order is not).
-            var seenStagingUts = new Dictionary<string, List<double>>();
-            if (tree.Recordings != null)
+            if (rec == null) return false;
+            double sinceStart = pe.ut - rec.StartUT;
+            if (continuation)
+                return Math.Abs(sinceStart) <= ContinuationSeedEpsilonSeconds;
+            return pe.eventType != PartEventType.Decoupled
+                   && Math.Abs(sinceStart) <= RootSeedSeconds;
+        }
+
+        // Seed = at the continuing segment's exact start, at the exact UT of the branch point
+        // that created it (the recorder seeds when it attaches, and a recording's start can be
+        // backfilled to an earlier trajectory point than that), a root's start-UT jettison, or
+        // a re-statement of a state an ancestor already recorded for the same part (the
+        // background recorder's loaded-physics seed lands a fraction of a second after the
+        // split, and only this lineage check tells it from a real jettison).
+        private static bool IsSeed(BuildContext ctx, Recording rec, PartEvent pe, bool continuation)
+        {
+            if (IsSeedEvent(rec, pe, continuation)) return true;
+            if (!continuation) return false;
+            if (!string.IsNullOrEmpty(rec.ParentBranchPointId)
+                && ctx.BranchPointsById.TryGetValue(rec.ParentBranchPointId, out BranchPoint origin)
+                && Math.Abs(pe.ut - origin.UT) <= ContinuationSeedEpsilonSeconds)
+                return true;
+            return ctx.AncestorAlreadyHad(rec, pe);
+        }
+
+        private static bool IsDockCoupling(List<BranchPoint> mergeBps, Recording rec, PartEvent pe)
+        {
+            for (int i = 0; i < mergeBps.Count; i++)
             {
-                var orderedRecs = new List<Recording>(tree.Recordings.Values);
-                orderedRecs.Sort((a, b) => string.CompareOrdinal(a?.RecordingId, b?.RecordingId));
-                foreach (Recording rec in orderedRecs)
+                BranchPoint bp = mergeBps[i];
+                if (Math.Abs(pe.ut - bp.UT) > DockEventPartWindowSeconds) continue;
+                if (Contains(bp.ParentRecordingIds, rec.RecordingId)
+                    || Contains(bp.ChildRecordingIds, rec.RecordingId))
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool IsSplitBranch(BranchPoint bp)
+            => bp != null && (bp.Type == BranchPointType.JointBreak || bp.Type == BranchPointType.Breakup);
+
+        private static double StageMomentSeconds(BranchPoint bp)
+            => bp.CoalesceWindow > 0 ? bp.CoalesceWindow : DefaultStageMomentSeconds;
+
+        // Each candidate joins the nearest split branch point that covers it: one on its own
+        // recording within that branch point's coalesce window (the recorder grouped exactly
+        // these into it), or the branch point whose stored decoupler PID it is. A branch
+        // point is one physics moment, so two ripple stages half a second apart stay two
+        // branch points and two rows.
+        // The recording an event sits on owns the stage when it is one of the branch point's
+        // parents, or another segment of a parent's chain: the optimizer splits a recording
+        // into chain segments (at an atmosphere exit, for one) without re-pointing the split
+        // branch points that fall after the cut, so a branch point can name the HEAD while its
+        // same-moment part events sit on the TAIL.
+        private static bool IsStageOwner(BuildContext ctx, BranchPoint bp, Recording rec)
+        {
+            if (rec == null || bp.ParentRecordingIds == null) return false;
+            if (Contains(bp.ParentRecordingIds, rec.RecordingId)) return true;
+            if (string.IsNullOrEmpty(rec.ChainId)) return false;
+            for (int i = 0; i < bp.ParentRecordingIds.Count; i++)
+            {
+                Recording parent = ctx.Rec(bp.ParentRecordingIds[i]);
+                if (parent != null && string.Equals(parent.ChainId, rec.ChainId, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
+        private static void AssignToStages(BuildContext ctx, List<CandidateEvent> candidates,
+            Dictionary<BranchPoint, List<CandidateEvent>> absorbed, List<CandidateEvent> loose)
+        {
+            var splits = new List<BranchPoint>();
+            if (ctx.Tree.BranchPoints != null)
+                foreach (BranchPoint bp in ctx.Tree.BranchPoints)
+                    if (IsSplitBranch(bp)) splits.Add(bp);
+
+            foreach (CandidateEvent c in candidates)
+            {
+                BranchPoint best = null;
+                double bestDt = double.MaxValue;
+                for (int i = 0; i < splits.Count; i++)
                 {
-                    if (rec?.PartEvents == null) continue;
-                    foreach (PartEvent pe in rec.PartEvents)
+                    BranchPoint bp = splits[i];
+                    double dt = Math.Abs(c.Event.ut - bp.UT);
+                    bool onOwner = IsStageOwner(ctx, bp, c.Rec)
+                                   && dt <= StageMomentSeconds(bp);
+                    bool ownDecoupler = c.Event.eventType == PartEventType.Decoupled
+                                        && bp.DecouplerPartId != 0
+                                        && bp.DecouplerPartId == c.Event.partPersistentId
+                                        && dt <= StagingDedupToleranceSeconds;
+                    if (!onOwner && !ownDecoupler) continue;
+                    if (dt < bestDt
+                        || (dt == bestDt && string.CompareOrdinal(bp.Id, best?.Id) < 0))
                     {
-                        if (!IsStagingEvent(pe.eventType)) continue;
-                        if (pe.eventType == PartEventType.Decoupled
-                            && handledDecouplerPids.Contains(pe.partPersistentId))
-                            continue;
-
-                        string key = (int)pe.eventType + "|" + pe.partPersistentId.ToString(CultureInfo.InvariantCulture);
-                        if (!seenStagingUts.TryGetValue(key, out List<double> uts))
-                        {
-                            uts = new List<double>();
-                            seenStagingUts[key] = uts;
-                        }
-                        bool duplicate = false;
-                        for (int u = 0; u < uts.Count; u++)
-                        {
-                            if (System.Math.Abs(uts[u] - pe.ut) <= StagingDedupToleranceSeconds)
-                            {
-                                duplicate = true;
-                                break;
-                            }
-                        }
-                        if (duplicate) continue;
-                        uts.Add(pe.ut);
-
-                        // Status / biome honesty: the owning recording's START context is only
-                        // accurate near the recording start. A part event far into the segment
-                        // (e.g. a fairing jettisoned mid-ascent on a pad-to-orbit recording)
-                        // would wrongly read "Prelaunch / LaunchPad", so beyond the freshness
-                        // window we keep only the segment-stable body and blank the rest
-                        // (blank beats wrong; per-UT resolution is deferred).
-                        bool contextFresh = pe.ut - rec.StartUT <= StagingContextMaxAgeSeconds;
-                        steps.Add(new StructureStep
-                        {
-                            UT = pe.ut,
-                            Kind = StructureStepKind.Staging,
-                            Label = StagingLabel(pe),
-                            Status = contextFresh ? StructureLocationFormatter.MidStatus(rec) : "",
-                            Location = contextFresh
-                                ? StructureLocationFormatter.MidLocation(rec)
-                                : StructureLocationFormatter.BodyBiome(rec.StartBodyName, null),
-                            VesselName = "",
-                            SortPid = pe.partPersistentId
-                        });
+                        best = bp;
+                        bestDt = dt;
                     }
                 }
+                if (best == null)
+                {
+                    loose.Add(c);
+                    continue;
+                }
+                if (!absorbed.TryGetValue(best, out List<CandidateEvent> list))
+                {
+                    list = new List<CandidateEvent>();
+                    absorbed[best] = list;
+                }
+                list.Add(c);
+                ctx.AbsorbedCount++;
+            }
+        }
+
+        private static void AddBranchPointSteps(List<StructureStep> steps, BuildContext ctx,
+            Dictionary<BranchPoint, List<CandidateEvent>> absorbed)
+        {
+            if (ctx.Tree.BranchPoints == null) return;
+            foreach (BranchPoint bp in ctx.Tree.BranchPoints)
+            {
+                if (bp == null) continue;
+                // Launch is the root step; VesselSwitchContinuation is an observation
+                // boundary, not a physical event; Terminal is surfaced via the leg pass.
+                if (bp.Type == BranchPointType.Launch
+                    || bp.Type == BranchPointType.VesselSwitchContinuation
+                    || bp.Type == BranchPointType.Terminal)
+                    continue;
+
+                absorbed.TryGetValue(bp, out List<CandidateEvent> parts);
+                if (IsSplitBranch(bp))
+                    AddSplitStep(steps, ctx, bp, parts);
+                else
+                    AddOtherBranchStep(steps, ctx, bp);
+            }
+        }
+
+        // A split: with a controlled child it is a Separation naming the piece that left;
+        // debris-only it is ONE stage row naming the parts that let go.
+        private static void AddSplitStep(List<StructureStep> steps, BuildContext ctx,
+            BranchPoint bp, List<CandidateEvent> parts)
+        {
+            string parentId = FirstInTree(bp.ParentRecordingIds, ctx);
+            string ownerId = FirstControlled(bp.ParentRecordingIds, ctx.Structure) ?? parentId;
+            Recording owner = ctx.Rec(ownerId);
+            string cause = bp.SplitCause ?? bp.BreakupCause;
+            string eventWord = MissionCompositionBuilder.BranchEventName(bp.Type, cause);
+
+            var controlledChildren = new List<string>();
+            if (bp.ChildRecordingIds != null)
+                foreach (string id in bp.ChildRecordingIds)
+                    if (id != null && ctx.Structure.LegsById.ContainsKey(id))
+                        controlledChildren.Add(id);
+
+            if (controlledChildren.Count > 0)
+            {
+                var names = new List<string>();
+                foreach (string id in controlledChildren)
+                {
+                    string n = ctx.VesselOf(id);
+                    if (!string.IsNullOrEmpty(n) && !names.Contains(n)) names.Add(n);
+                }
+                // Location: the child began AT the event, so its captured start context is
+                // the event's; a child that captured nothing falls back to the owner, which
+                // only keeps its body once past its own start.
+                Recording child = ctx.Rec(controlledChildren[0]);
+                string location = StructureLocationFormatter.HasStartContext(child)
+                    ? StructureLocationFormatter.AtRecording(child, child.StartUT)
+                    : StructureLocationFormatter.AtRecording(owner, bp.UT);
+                string full = names.Count > 0
+                    ? eventWord + " (" + string.Join(", ", names.ToArray()) + ")"
+                    : eventWord;
+                string shortLabel = names.Count > 0
+                    ? ShortenList(eventWord, names)
+                    : eventWord;
+                steps.Add(new StructureStep
+                {
+                    UT = bp.UT,
+                    Kind = StructureStepKind.Separation,
+                    Label = shortLabel,
+                    Tooltip = shortLabel == full ? null : full,
+                    Location = location,
+                    VesselName = ownerId != null ? ctx.VesselOf(ownerId) : "",
+                    RecordingId = ownerId
+                });
+                return;
+            }
+
+            // Debris-only: the stage.
+            var decouplers = new List<CandidateEvent>();
+            if (parts != null)
+            {
+                var seenPids = new HashSet<uint>();
+                foreach (CandidateEvent c in parts)
+                    if (c.Event.eventType == PartEventType.Decoupled && seenPids.Add(c.Event.partPersistentId))
+                        decouplers.Add(c);
+            }
+            int pieces = bp.DebrisCount > 0
+                ? bp.DebrisCount
+                : (bp.ChildRecordingIds != null && bp.ChildRecordingIds.Count > 0
+                    ? bp.ChildRecordingIds.Count
+                    : decouplers.Count);
+            List<string> groups = TitleGroups(ctx, decouplers);
+            bool isStaging = cause == null || string.Equals(cause, "DECOUPLE", StringComparison.Ordinal);
+            string head = isStaging ? "Staged" : eventWord;
+            if (pieces > 0) head += ": " + FormatPieces(pieces);
+            string fullLabel = groups.Count > 0 ? head + " (" + string.Join(", ", groups.ToArray()) + ")" : head;
+            string label = groups.Count > 0 ? ShortenList(head, groups) : head;
+            steps.Add(new StructureStep
+            {
+                UT = bp.UT,
+                Kind = isStaging ? StructureStepKind.Staging : StructureStepKind.Separation,
+                Label = label,
+                Tooltip = label == fullLabel ? null : fullLabel,
+                Location = StructureLocationFormatter.AtRecording(owner, bp.UT),
+                VesselName = ownerId != null ? ctx.VesselOf(ownerId) : "",
+                RecordingId = ownerId,
+                SortPid = bp.DecouplerPartId
+            });
+        }
+
+        // Dock / Undock / Board / EVA / placed-part rows.
+        private static void AddOtherBranchStep(List<StructureStep> steps, BuildContext ctx, BranchPoint bp)
+        {
+            // Vessel name = the acting / continuing vessel (parent first); location = the
+            // event-coincident recording (the CHILD branch created at the event, whose
+            // captured start context IS the event's).
+            string vesselId = FirstControlled(bp.ParentRecordingIds, ctx.Structure)
+                ?? FirstControlled(bp.ChildRecordingIds, ctx.Structure);
+            string locId = FirstControlled(bp.ChildRecordingIds, ctx.Structure)
+                ?? FirstControlled(bp.ParentRecordingIds, ctx.Structure);
+            string cause = bp.SplitCause ?? bp.BreakupCause;
+            string eventWord = MissionCompositionBuilder.BranchEventName(bp.Type, cause);
+
+            string partner = null;
+            if (bp.Type == BranchPointType.Dock)
+                partner = DescribeMergePartner(ctx, bp, vesselId);
+            else if (bp.Type == BranchPointType.Undock)
+                partner = DescribeUndockPartner(ctx, bp);
+
+            Recording locRec = ctx.Rec(locId);
+            string location = locRec != null && StructureLocationFormatter.HasStartContext(locRec)
+                && Contains(bp.ChildRecordingIds, locId)
+                ? StructureLocationFormatter.AtRecording(locRec, locRec.StartUT)
+                : StructureLocationFormatter.AtRecording(locRec, bp.UT);
+
+            string full = string.IsNullOrEmpty(partner) ? eventWord : eventWord + " (" + partner + ")";
+            string label = full.Length <= EventCellCharBudget ? full : eventWord + " (...)";
+            steps.Add(new StructureStep
+            {
+                UT = bp.UT,
+                Kind = ClassifyBranch(bp.Type),
+                Label = label,
+                Tooltip = label == full ? null : full,
+                Location = location,
+                VesselName = vesselId != null ? ctx.VesselOf(vesselId) : "",
+                RecordingId = vesselId
+            });
+        }
+
+        // The other side of a dock: a two-parent same-tree dock names the other parent;
+        // otherwise the caller's resolver (the dock-event graph) answers, with the partner's
+        // mission when it lives in another tree.
+        private static string DescribeMergePartner(BuildContext ctx, BranchPoint bp, string viewerId)
+        {
+            if (bp.ParentRecordingIds != null && bp.ParentRecordingIds.Count == 2)
+            {
+                string a = bp.ParentRecordingIds[0];
+                string b = bp.ParentRecordingIds[1];
+                string other = string.Equals(a, viewerId, StringComparison.Ordinal) ? b
+                    : string.Equals(b, viewerId, StringComparison.Ordinal) ? a : null;
+                if (other != null && ctx.Rec(other) != null)
+                    return ctx.VesselOf(other);
+            }
+            if (ctx.MergePartnerResolver == null) return null;
+            try
+            {
+                string text = ctx.MergePartnerResolver(bp, viewerId);
+                return string.IsNullOrEmpty(text) ? null : text;
+            }
+            catch (Exception)
+            {
+                return null;
             }
         }
 
         /// <summary>
-        /// Phase 4: emits one Terminal step per controlled leg that ends in a terminal
-        /// state. Extracted verbatim from Build.
+        /// The other side of a Dock / Board branch point read off the dock-event graph:
+        /// "Kerbal X (mission 'Kerbal X')" when the partner lives in another tree, the bare
+        /// vessel name when it is inside this mission (<paramref name="treeId"/>), null when
+        /// the graph cannot name it. A viewer that is not a participant falls back to the
+        /// single parent. Pure over its parameters (the window passes the cached graph and
+        /// the Missions tab's mission-name resolver).
         /// </summary>
-        private static void AddTerminalSteps(
-            List<StructureStep> steps, MissionStructure structure, Func<string, Recording> Rec)
+        internal static string DescribeMergePartnerFromGraph(
+            DockEventGraph graph, string treeId, BranchPoint bp, string viewerId,
+            Func<string, string, string> missionNameResolver)
         {
-            foreach (MissionLeg leg in structure.LegsById.Values)
+            if (graph == null || bp == null || string.IsNullOrEmpty(bp.Id)) return null;
+            if (!DockEventGraph.TryDescribePartner(
+                    graph, bp.Id, viewerId, missionNameResolver, out DockPartnerDescription d))
+            {
+                if (bp.ParentRecordingIds == null || bp.ParentRecordingIds.Count != 1
+                    || !DockEventGraph.TryDescribePartner(
+                        graph, bp.Id, bp.ParentRecordingIds[0], missionNameResolver, out d))
+                    return null;
+            }
+            bool sameTree = string.Equals(d.PartnerTreeId, treeId, StringComparison.Ordinal);
+            return MissionChapters.FormatPartnerWithMission(
+                d.PartnerVesselName, sameTree ? null : d.PartnerMissionName);
+        }
+
+        // The vessel(s) that left at an undock: the children that are NOT the parent's own
+        // vessel continuing (same persistent id), named like the Missions vessel phrase.
+        private static string DescribeUndockPartner(BuildContext ctx, BranchPoint bp)
+        {
+            if (bp.ChildRecordingIds == null || bp.ChildRecordingIds.Count == 0) return null;
+            var parentPids = new HashSet<uint>();
+            if (bp.ParentRecordingIds != null)
+                foreach (string p in bp.ParentRecordingIds)
+                {
+                    Recording pr = ctx.Rec(p);
+                    if (pr != null && pr.VesselPersistentId != 0) parentPids.Add(pr.VesselPersistentId);
+                }
+            var names = new List<string>();
+            var firstSkipped = false;
+            foreach (string id in bp.ChildRecordingIds)
+            {
+                Recording c = ctx.Rec(id);
+                if (c == null || c.IsDebris) continue;
+                bool continues = c.VesselPersistentId != 0 && parentPids.Contains(c.VesselPersistentId);
+                if (parentPids.Count == 0 && !firstSkipped)
+                {
+                    // No identity to compare: the first child is taken as the continuing side.
+                    firstSkipped = true;
+                    continue;
+                }
+                if (continues) continue;
+                string n = ctx.VesselOf(id);
+                if (!string.IsNullOrEmpty(n) && !names.Contains(n)) names.Add(n);
+            }
+            return names.Count == 0 ? null : string.Join(", ", names.ToArray());
+        }
+
+        // Part events no branch point covers (a fairing deploy, a decouple the recorder
+        // grouped into no branch point), grouped per recording and physics moment.
+        private static void AddLooseStagingSteps(List<StructureStep> steps, BuildContext ctx,
+            List<CandidateEvent> loose)
+        {
+            loose.Sort((a, b) =>
+            {
+                int c = string.CompareOrdinal(a.Rec.RecordingId, b.Rec.RecordingId);
+                if (c != 0) return c;
+                c = a.Event.ut.CompareTo(b.Event.ut);
+                return c != 0 ? c : a.Event.partPersistentId.CompareTo(b.Event.partPersistentId);
+            });
+            int i = 0;
+            while (i < loose.Count)
+            {
+                CandidateEvent headEvt = loose[i];
+                int j = i + 1;
+                while (j < loose.Count
+                       && string.Equals(loose[j].Rec.RecordingId, headEvt.Rec.RecordingId, StringComparison.Ordinal)
+                       && loose[j].Event.ut - headEvt.Event.ut <= DefaultStageMomentSeconds)
+                    j++;
+                var group = loose.GetRange(i, j - i);
+                steps.Add(BuildLooseStep(ctx, group));
+                i = j;
+            }
+        }
+
+        private static StructureStep BuildLooseStep(BuildContext ctx, List<CandidateEvent> group)
+        {
+            var decouplers = new List<CandidateEvent>();
+            var jettisons = new List<CandidateEvent>();
+            bool anyShroud = false, anyFairing = false;
+            foreach (CandidateEvent c in group)
+            {
+                if (c.Event.eventType == PartEventType.Decoupled) decouplers.Add(c);
+                else
+                {
+                    jettisons.Add(c);
+                    if (c.Event.eventType == PartEventType.ShroudJettisoned) anyShroud = true;
+                    else anyFairing = true;
+                }
+            }
+            string head;
+            List<string> groups;
+            if (decouplers.Count > 0)
+            {
+                head = "Staged: " + FormatPieces(decouplers.Count);
+                groups = TitleGroups(ctx, decouplers);
+            }
+            else
+            {
+                head = anyShroud && anyFairing ? "Jettisoned"
+                    : anyShroud ? "Shroud jettisoned" : "Fairing jettisoned";
+                groups = TitleGroups(ctx, jettisons);
+            }
+            string full = groups.Count > 0 ? head + " (" + string.Join(", ", groups.ToArray()) + ")" : head;
+            string label = groups.Count > 0 ? ShortenList(head, groups) : head;
+            Recording rec = group[0].Rec;
+            return new StructureStep
+            {
+                UT = group[0].Event.ut,
+                Kind = StructureStepKind.Staging,
+                Label = label,
+                Tooltip = label == full ? null : full,
+                Location = StructureLocationFormatter.AtRecording(rec, group[0].Event.ut),
+                VesselName = ctx.VesselOf(rec.RecordingId),
+                RecordingId = rec.RecordingId,
+                SortPid = group[0].Event.partPersistentId
+            };
+        }
+
+        private static void AddTerminalSteps(List<StructureStep> steps, BuildContext ctx)
+        {
+            foreach (MissionLeg leg in ctx.Structure.LegsById.Values)
             {
                 if (!leg.TerminalStateValue.HasValue) continue;
-                Recording rec = Rec(leg.RecordingId);
-                // Body prefers the recorded terminal-orbit body, else the start body.
-                string termBody = rec == null ? null
-                    : (!string.IsNullOrEmpty(rec.TerminalOrbitBody) ? rec.TerminalOrbitBody : rec.StartBodyName);
+                TerminalState term = leg.TerminalStateValue.Value;
+                // A leg that ended by joining another already has its Docked / Boarded row.
+                if (term == TerminalState.Docked || term == TerminalState.Boarded)
+                {
+                    ctx.SkippedMergedEnds++;
+                    continue;
+                }
+                Recording rec = ctx.Rec(leg.RecordingId);
                 steps.Add(new StructureStep
                 {
                     UT = leg.EndUT,
                     Kind = StructureStepKind.Terminal,
-                    // Event = generic "End"; Status carries the terminal situation (Landed /
-                    // Orbiting / Recovered / ...) so the two columns are not redundant.
-                    Label = "End",
-                    Status = MissionCompositionBuilder.TerminalName(leg.TerminalStateValue),
-                    Location = rec != null ? StructureLocationFormatter.BodyBiome(termBody, rec.EndBiome) : "",
-                    VesselName = LegLabel(leg)
+                    Label = FormatEndLabel(term),
+                    Location = TerminalLocation(rec, term),
+                    VesselName = LegLabel(leg),
+                    RecordingId = leg.RecordingId
                 });
             }
+        }
+
+        /// <summary>"End: Orbiting" - the terminal word the Missions End column reads.</summary>
+        internal static string FormatEndLabel(TerminalState? terminal)
+        {
+            string word = MissionCompositionBuilder.TerminalName(terminal);
+            return string.IsNullOrEmpty(word) ? "End" : "End: " + word;
+        }
+
+        // An orbital ending reads "<body> orbit"; any other ending the recorded end biome.
+        internal static string TerminalLocation(Recording rec, TerminalState terminal)
+        {
+            if (rec == null) return StructureLocationFormatter.Missing;
+            string body = !string.IsNullOrEmpty(rec.TerminalOrbitBody) ? rec.TerminalOrbitBody : rec.StartBodyName;
+            if (terminal == TerminalState.Orbiting)
+                return StructureLocationFormatter.Orbit(body);
+            return StructureLocationFormatter.BodyBiome(body, rec.EndBiome);
+        }
+
+        // ------------------------------------------------------------------
+        // Label helpers
+        // ------------------------------------------------------------------
+
+        internal static string FormatPieces(int n)
+            => n.ToString(CultureInfo.InvariantCulture) + (n == 1 ? " piece" : " pieces");
+
+        /// <summary>
+        /// One "title xN" entry per distinct part title, in title order; "xN" only when
+        /// N &gt; 1. Pure over the supplied titles.
+        /// </summary>
+        internal static List<string> FormatTitleGroups(IEnumerable<string> titles)
+        {
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            var order = new List<string>();
+            foreach (string t in titles)
+            {
+                string key = t ?? "";
+                if (!counts.ContainsKey(key))
+                {
+                    counts[key] = 0;
+                    order.Add(key);
+                }
+                counts[key]++;
+            }
+            order.Sort(StringComparer.Ordinal);
+            var result = new List<string>(order.Count);
+            foreach (string t in order)
+                result.Add(counts[t] > 1
+                    ? t + " x" + counts[t].ToString(CultureInfo.InvariantCulture)
+                    : t);
+            return result;
+        }
+
+        private static List<string> TitleGroups(BuildContext ctx, List<CandidateEvent> events)
+        {
+            var titles = new List<string>(events.Count);
+            foreach (CandidateEvent c in events)
+                titles.Add(ctx.Title(c.Event.partName));
+            return FormatTitleGroups(titles);
+        }
+
+        /// <summary>
+        /// "head (a, b)" when that fits <see cref="EventCellCharBudget"/>, else as many
+        /// leading entries as fit followed by "...", else "head (...)". The caller keeps
+        /// the full text for the tooltip.
+        /// </summary>
+        internal static string ShortenList(string head, List<string> entries)
+        {
+            if (entries == null || entries.Count == 0) return head ?? "";
+            string full = head + " (" + string.Join(", ", entries.ToArray()) + ")";
+            if (full.Length <= EventCellCharBudget) return full;
+            for (int keep = entries.Count - 1; keep >= 1; keep--)
+            {
+                string candidate = head + " (" + string.Join(", ", entries.GetRange(0, keep).ToArray()) + ", ...)";
+                if (candidate.Length <= EventCellCharBudget) return candidate;
+            }
+            return head + " (...)";
         }
 
         private static string LegLabel(MissionLeg leg)
@@ -334,6 +1071,22 @@ namespace Parsek
                 if (ids[i] != null && structure.LegsById.ContainsKey(ids[i]))
                     return ids[i];
             return null;
+        }
+
+        private static string FirstInTree(List<string> ids, BuildContext ctx)
+        {
+            if (ids == null) return null;
+            for (int i = 0; i < ids.Count; i++)
+                if (ctx.Rec(ids[i]) != null) return ids[i];
+            return null;
+        }
+
+        private static bool Contains(List<string> ids, string id)
+        {
+            if (ids == null || id == null) return false;
+            for (int i = 0; i < ids.Count; i++)
+                if (string.Equals(ids[i], id, StringComparison.Ordinal)) return true;
+            return false;
         }
 
         private static StructureStepKind ClassifyBranch(BranchPointType t)
@@ -354,11 +1107,12 @@ namespace Parsek
             || t == PartEventType.FairingJettisoned
             || t == PartEventType.ShroudJettisoned;
 
-        // Two events are the "same simultaneous batch" when everything visible is identical
-        // and they fall within a tight time window. Same-frame separations share a recorded
-        // UT and cross-recording samples of one frame differ by well under 0.1s, so 0.25s
-        // absorbs all real jitter while NOT merging quick-succession ripple staging (e.g.
-        // booster pairs dropped half a second apart are distinct stages, not one batch).
+        // Two rows are the "same simultaneous batch" when everything visible is identical,
+        // they concern the same recording, and they fall within a tight time window.
+        // Same-frame separations share a recorded UT and cross-recording samples of one
+        // frame differ by well under 0.1s, so 0.25s absorbs all real jitter while NOT
+        // merging quick-succession ripple staging (e.g. booster pairs dropped half a second
+        // apart are distinct stages, not one batch).
         private const double SimultaneousWindowSeconds = 0.25;
 
         // Cross-recording staging dedup tolerance: the same physical event recorded on two
@@ -366,12 +1120,7 @@ namespace Parsek
         // is a distinct staging (Re-Fly fork of the same craft-baked PID) and survives.
         private const double StagingDedupToleranceSeconds = 5.0;
 
-        // Staging Status/biome freshness: the owning recording's start-captured context is
-        // trusted only this close to the recording start (see the honesty note at the
-        // staging emit site).
-        private const double StagingContextMaxAgeSeconds = 30.0;
-
-        // Collapses runs of identical simultaneous events (the already-sorted list groups them
+        // Collapses runs of identical simultaneous rows (the already-sorted list groups them
         // adjacently) into one row, appending " xN" to the label. Compares each candidate to
         // the batch HEAD so a slow drift cannot chain unrelated events together.
         private static List<StructureStep> CollapseSimultaneous(List<StructureStep> steps)
@@ -390,7 +1139,11 @@ namespace Parsek
                     j++;
                 }
                 if (count > 1)
+                {
                     head.Label = FormatCollapsedLabel(head.Label, count);
+                    if (head.Tooltip != null)
+                        head.Tooltip = FormatCollapsedLabel(head.Tooltip, count);
+                }
                 result.Add(head);
                 i = j;
             }
@@ -398,36 +1151,23 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The label a run of simultaneous identical events collapses to:
-        /// <c>"Shroud jettisoned x8"</c>. Extracted from the collapse walk with no
-        /// behaviour change so a caller that needs the SPELLING without running the walk
-        /// reaches this rather than a copy - the GUI state gallery's dense-launch state
-        /// being the one such caller.
+        /// The label a run of simultaneous identical rows collapses to:
+        /// <c>"Fairing jettisoned x2"</c>. Extracted from the collapse walk so a caller that
+        /// needs the SPELLING without running the walk reaches this rather than a copy.
         /// </summary>
         internal static string FormatCollapsedLabel(string label, int count)
         {
             return (label ?? "") + " x" + count.ToString(CultureInfo.InvariantCulture);
         }
 
-        private static bool IsSameBatch(StructureStep a, StructureStep b)
+        internal static bool IsSameBatch(StructureStep a, StructureStep b)
         {
             return a.Kind == b.Kind
-                && System.Math.Abs(a.UT - b.UT) <= SimultaneousWindowSeconds
+                && Math.Abs(a.UT - b.UT) <= SimultaneousWindowSeconds
+                && string.Equals(a.RecordingId, b.RecordingId, StringComparison.Ordinal)
                 && string.Equals(a.Label, b.Label, StringComparison.Ordinal)
-                && string.Equals(a.Status, b.Status, StringComparison.Ordinal)
                 && string.Equals(a.Location, b.Location, StringComparison.Ordinal)
                 && string.Equals(a.VesselName, b.VesselName, StringComparison.Ordinal);
-        }
-
-        private static string StagingLabel(PartEvent pe)
-        {
-            string part = string.IsNullOrEmpty(pe.partName) ? "" : " " + pe.partName;
-            switch (pe.eventType)
-            {
-                case PartEventType.FairingJettisoned: return "Fairing jettisoned";
-                case PartEventType.ShroudJettisoned: return "Shroud jettisoned";
-                default: return "Staged" + part; // Decoupled
-            }
         }
 
         private static int CountKind(List<StructureStep> steps, StructureStepKind kind)
@@ -438,8 +1178,8 @@ namespace Parsek
             return n;
         }
 
-        // Total, deterministic ordering: UT, then kind, then vessel, then label, then PID.
-        // NaN UTs (none on the mission path) sort last via double.CompareTo.
+        // Total, deterministic ordering: UT, then kind, then vessel, then label, then
+        // recording, then PID. NaN UTs (none on the mission path) sort last.
         private static int CompareStep(StructureStep a, StructureStep b)
         {
             int c = a.UT.CompareTo(b.UT);
@@ -449,6 +1189,8 @@ namespace Parsek
             c = string.CompareOrdinal(a.VesselName ?? "", b.VesselName ?? "");
             if (c != 0) return c;
             c = string.CompareOrdinal(a.Label ?? "", b.Label ?? "");
+            if (c != 0) return c;
+            c = string.CompareOrdinal(a.RecordingId ?? "", b.RecordingId ?? "");
             if (c != 0) return c;
             return a.SortPid.CompareTo(b.SortPid);
         }

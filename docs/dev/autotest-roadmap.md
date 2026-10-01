@@ -6359,10 +6359,12 @@ Remaining fail-open surfaces, ranked:
    sweep, armed save-parse windows) over runs archived on this machine and lists the
    mutations that survive. It is an operator tool and report-only by ruling: survivors
    never fail a run, and CI cannot see the archives. The first sweep's survivors and
-   their triage are known-gate 17 in `autotest-status.md`. Still open (phase 2, todo
-   MUTATION-CHECK-PHASE-2): save and ledger perturbation below the facet level, and
-   replaying mission assertions with sensor reads removed. Until then a mission-side or
-   ledger-side cell can still go vacuous without anything noticing.
+   their triage are known-gate 17 in `autotest-status.md`. Phase 2 PR 1 (2026-10-01,
+   branch `mutation-phase2`) adds save perturbation below the facet level
+   (`harness/lib/mutsave.py`, `--save-only`); its first sweep found no vacuous
+   save-parse gate. Still open (todo MUTATION-CHECK-PHASE-2, PRs 2 and 3): ledger
+   perturbation, and replaying mission assertions with sensor reads removed. Until then a
+   mission-side or ledger-side cell can still go vacuous without anything noticing.
 9. **The near-vacuous batch is admitted by design.** The gate blocks only
    `passed == 0`, so `total=42 passed=1 failed=0 skipped=41` satisfies every rule. Pin
    whole tallies.

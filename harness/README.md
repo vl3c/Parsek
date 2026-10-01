@@ -1242,17 +1242,19 @@ deleting one lets a future run overwrite an earlier run's records.
 
 ## Checking that the gates bite (`tools/mutation_check.py`)
 
-An operator tool (trust risk 8, phase 1): it answers "would this lane red if the
-thing its gate watches stopped happening?" over runs ALREADY archived on this
+An operator tool (trust risk 8, phases 1 and 2): it answers "would this lane red if
+the thing its gate watches stopped happening?" over runs ALREADY archived on this
 machine. It launches nothing and never fails anything; survivors are listed for
-triage. Pure core `lib/mutlib.py`, thin shell `tools/mutation_check.py`, tests
-`lib/test_mutlib.py`.
+triage. Pure cores `lib/mutlib.py` (log, count, exception, anomaly and facet-level
+save mutations) and `lib/mutsave.py` (save-level edits, phase 2), thin shell
+`tools/mutation_check.py`, tests `lib/test_mutlib.py` and `lib/test_mutsave.py`.
 
 ```
 python tools/mutation_check.py                    # every gating spec, newest green archive each
 python tools/mutation_check.py --spec B1-pad-hop  # one lane
 python tools/mutation_check.py --archive ../../logs/<stamp>_<specId>   # one run folder
 python tools/mutation_check.py --list-archives --spec B1-pad-hop
+python tools/mutation_check.py --save-only        # save-level edits only, no KSP.log needed
 ```
 
 Archives: every `<umbrella>/*/harness/results` (`<runId>.json` +
@@ -1275,6 +1277,7 @@ What it replays - only the gating evaluators that are pure over an archive:
 | `hlib.scan_unity_exception_stacks` + `evaluate_unity_exceptions` | inject a Parsek throw-site exception, and a stock throw with a Parsek caller |
 | the anomaly sweep | one raise of each gated token |
 | `saveparse` windows (armed blocks only) | the measured facet +1 / -1 / 0 against the evaluator's own window rule |
+| `saveparse.parse_parsek_scenario` + `evaluate_save_structure` (armed blocks only; `mutsave`) | edits to the archived `persistent.sfs` that push each window across each declared bound, plus per-block faults (torn save, no ParsekScenario node, a missing `pointCount`, a route the codec drops, a missing `completedCycles`) |
 
 Phases come from the log itself: `boot` is before the first seam `exec ... start`
 line, `teardown` after the `flushandquit: Application.Quit` marker. A required
@@ -1294,11 +1297,38 @@ Every triage survivor is re-decided by the real `hlib.evaluate_expectations` ove
 the full mutated text; the cheaper incremental re-check used for the rest is held
 equal to it by `LaneEvaluatorTests`.
 
-Not replayed (phase 2, todo MUTATION-CHECK-PHASE-2): the ledger oracle, the
+Save-level edits (phase 2 PR 1, `lib/mutsave.py`). The facet-level row above proves a
+window is not too wide; it cannot prove the number is READ. A window whose parser path
+is dead (a renamed node, a key the writer stopped emitting) measures a constant, and a
+`max = 0` tripwire reads a dead path's zero as a pass. So for every window of every
+ARMED block the checker edits the save itself: just below a `min` (or an exact pin) it
+removes contributors - drop `RECORDING` / `RECORDING_TREE` / supersede / tombstone /
+rewind-point / `BRANCH_POINT` / FLIGHTSTATE `VESSEL` / `ROUTE` / `STOP` / `SOURCE` nodes,
+clear a `terminalState`, relabel a route status, connection kind or body name, lower
+`pointCount` or a cycle counter; just above a `max` it adds them (clones, or a minimal
+synthesized node when the save has none). Route `ids` / `destinationVesselPids` get a
+re-pointed id. The edited tree is written back as ConfigNode text and read by the REAL
+parser and evaluator, so the plan never decides the outcome: an edit kills only when the
+window's own label appears in the armed mismatches. Per window the report gives
+`PROVEN` (a crossing edit red it), `VACUOUS` (an edit was built and the window stayed
+green: the re-measured value never moved - a dead path - or moved without crossing, or
+crossed and the evaluator still passed) or `UNCHECKED` (a bare `min = 0`, a `max` more
+than 256 additions away, or no constructible edit: a checker limit, not a finding). The
+"Vacuous save-parse gates" section names the spec, the block and the window. Edits run
+over the save cut down to `GAME` values, the ParsekScenario node and FLIGHTSTATE vessel
+values, but only when that reduced tree measures exactly what the full save measures;
+otherwise over the full save (the lane notes it).
+
+`--save-only` runs just the save-level edits, with the ARMED save-parse blocks as the
+whole baseline (no KSP.log), over the newest `--max-tries` archived produced saves whose
+armed blocks pass, then the spec's committed `fixture.saveTemplate` when that passes
+(`--no-fixtures` skips it; an operator-local template is never read). A full run (no
+`--save-only`) adds the same edits to any lane whose archive carries a save.
+
+Not replayed (later phase-2 PRs, todo MUTATION-CHECK-PHASE-2): the ledger oracle, the
 mission verdict, driver validity, the C# log validator, the offline recording
 analyzer, the in-game `testResults` / batch tally row, the ghost-lifecycle row
-(`ghostlife`), render composition, and save / ledger perturbation below the facet
-level.
+(`ghostlife`), render composition, ledger perturbation, and forbidden-token injection.
 
 ## Fixture saves and the shared craft library
 

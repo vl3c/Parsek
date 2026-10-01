@@ -33,6 +33,25 @@ changed in a separate session; re-run the tool over the next nightly to measure 
 
 - [ ] Re-measure after the warp-policy change lands (`--since <date> --json-out`).
 
+## RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON: the recording stats frame lookup matches a section end exactly, with no tolerance [FILED 2026-10-01 from the PR #1943 review, branch `l7-nightly-residue`. OPEN, low, pre-existing]
+
+`TrajectoryMath.ResolvePointFrameForStats` (`Source/Parsek/TrajectoryMath.Stats.cs:147`) finds a
+point's section with the strict lookup and then falls back to a section whose `endUT` EQUALS the
+point's UT (`:154`, `sections[i].endUT == ut`). The playback-side lookup,
+`RelativeAnchorResolver.FindTrackSectionForUT` (`Source/Parsek/RelativeAnchorResolver.cs:854`),
+also accepts a start or end within `SectionBoundaryEpsilonSeconds` (`:93`). So a Relative sample a
+hair past its section's `endUT`, or a boundary sample shared by two sections and carrying Relative
+units, resolves to no section in the stats path, reads as Absolute, and its anchor-local metres
+are measured as degrees again (the ~1000 km Dist the debris fix removed for the exact-match case).
+Not seen on a fixture: the committed `interbody-route-recorded` rows all read 1 to 3 km after the
+fix. Fix direction: share the epsilon helper (move it to `TrajectoryMath` or call it) instead of
+keeping a second, stricter copy, and add a cell with a Relative sample at `endUT + 1e-10`.
+
+Related, already filed: points inside some Relative sections carry body-fixed lat/lon/alt rather
+than metres (recording #27 on that fixture), while in-section Relative distance is always measured
+as metres. See the "Not fixed here" sentence at the end of
+RECORDINGS-STATS-DEBRIS-MAXSPD-IMPLAUSIBLE.
+
 ## MISSIONS-TAB-MODEL1: the Missions tab redesign, first slice ("Model 1") [OWNER-APPROVED 2026-09-29, branch `missions-model1`. IN PROGRESS]
 
 Presentation only (no recording data, schema or store change, no new UI surface, no new loop
@@ -92,6 +111,45 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   DESIGN: those committed fixtures carry no launch save (`CommittedFixtureRewindSaveTests`
   policy), so `GetRewindRecording` is null in every scene (GUI-4 is a Space Center capture
   and draws no Rewind either); GUI-1's operator career has launch saves and draws it.
+
+## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branch `log-rework`. PARTS 1-2 DONE]
+
+Presentation only (no recording data or schema change, no new window). The docked-mission
+subject is `bdock-recorded`'s "Kerbal X #2" (GUI-4), whose Log read 31 rows; it now reads 11,
+pinned row by row in `StructureListBdockFixtureTests` against the committed fixture.
+
+- [x] Part 1, builder correctness (`MissionStructureListBuilder`): part-state seeds are not
+  events - a permanent event at a continuing recording's exact start (chain split
+  `ForwardPermanentStateEvents`) or at the exact UT of the branch point that created it (a
+  vessel's recording can start earlier than the moment the recorder attached and seeded), a
+  re-statement of a state an ancestor already recorded for
+  the same part (the background recorder's loaded-physics seed, ~0.5 s after a split), and a
+  root's start-UT jettison seeds; there is no time window, so a real jettison a moment after a
+  split stays a row; debris recordings contribute no part rows; a split branch
+  point IS the stage and absorbs its same-moment parts (its coalesce window, else 0.1 s) on
+  its parent or any segment of the parent's chain, symmetric partner included, while distinct branch points stay distinct rows (ripple
+  staging); part events within 0.5 s of a Dock / Undock / Board on a participating recording
+  are the coupling change, not staging; the simultaneous collapse compares the owning
+  recording, so same-named vessels no longer merge into `End x2`; a row past its recording's
+  start keeps only the body (no launch-pad location on an in-flight decouple).
+- [x] Part 2, presentation (`StructureListWindowUI`): columns Time | Event | Location |
+  Vessel; `End: <word>` and no End row for a Docked / Boarded leg; `<body> orbit` only for an
+  orbital ending or a separation whose piece recorded an orbit; Time = the date on row 1, then
+  `T+h:mm:ss`; `Staged: N pieces (<title> xK, ...)` with titles through PartLoader, resolved
+  once per build; Separation / Dock / Undock rows name the other vessel (the Missions
+  `X (mission 'Y')` spelling, shared as `MissionChapters.FormatPartnerWithMission`); empty
+  state `This mission has no recorded flight.`; a shortened Event cell carries the full list in
+  its tooltip, read in a single-line hover strip the window now hosts.
+- [ ] Look into: the optimizer's atmosphere-exit chain split leaves split branch points that fall
+  AFTER the cut naming the HEAD segment as parent (bdock-recorded after load: the probe
+  separation at UT 692.77 names `5157d655`, which now ends at 568.23; its parts sit on the tail
+  `d60398f6`). The Log tolerates it (stage ownership follows the parent's chain); other
+  consumers of `BranchPoint.ParentRecordingIds` may not. Not investigated beyond the Log.
+- [ ] Later PR: the per-mission include set (the Log ignores a mission's excluded intervals).
+- [ ] Later PR: retire the route Log (it keeps working; its Status column folded into Location,
+  an orbital endpoint reads `Mun orbit`).
+- [ ] Later PR: number same-named vessels (`Kerbal X [2]`); today the docking mission's two
+  `End: Orbiting | Kerbal X` rows are told apart only by their recording.
 
 ## ~~MISSION-EVENT-DIGEST-DUPLICATE-LAUNCHED-ROW: the digest builds a second "launched" row for one flight~~ [FILED 2026-09-29 from MISSIONS-TAB-MODEL1. FIXED 2026-10-01, branch `missions-followups`]
 
@@ -1786,6 +1844,18 @@ awards of one subject credit 10, a recovery burst with repeats, two deployed sen
 during a flight, two same-instant awards in one recording, a fresh capture beside a legacy row,
 a KSC-filed capture re-filed at commit, both same-instant rows re-filed at commit, a commit
 retry, the discard re-home, the id surviving save/load, and the dedup rule cells).
+
+**Residual, open, low and transient (PR #1939 review).** Both rows now reach the ledger, but the
+committed-science cache write `GameStateStore.CommitScienceActions`
+(`Source/Parsek/GameStateStore.cs:847`) still keeps the MAX per subject rather than summing, so
+two same-instant rows of one subject leave the cache at one row's value until the next recalc,
+whose `LedgerOrchestrator.RebuildCommittedScienceFromSurvivingLedger`
+(`Source/Parsek/GameActions/LedgerOrchestrator.cs:3652`, called at `:3057`) replaces it with the
+capped per-subject sum. The ledger and the pool are right throughout; only a reader of the cache
+between the commit and that recalc sees the lower value. The max merge is deliberate (see the
+"Committed-science cache" paragraph of SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT: it keeps a
+mirrored duplicate from over-stating a subject), so a fix would have to sum by capture identity,
+not drop the max.
 
 ## DEPLOYED-SCIENCE-IS-ALWAYS-UNTAGGED: Breaking Ground deployed-experiment science is never tagged to the flown recording [OPERATOR RULING 2026-09-26; IMPLEMENTED 2026-09-26, branch `fix-deployed-science-ledger`]
 
@@ -3756,24 +3826,38 @@ descent; noted on the spec and its status row, not re-harvested (operator ruling
 2. The readiness check tests `Administration.Instance != null`, set in `Awake`, while the slot limit and commitment ceiling are read in `Start`; safe today only because `Pump` runs once per frame. Gate on a field `Start` sets, or compare the slot limit with `GameVariables`.
 3. `StrategyDisplayNames`' production cache is not exercised by the unit tests (the test hook bypasses it).
 
-## MUTATION-CHECK-PHASE-2: the mutation checker does not yet reach saves, the ledger or mission assertions [FILED 2026-09-24 with phase 1 (branch `mutation-check`). OPEN; harness]
+## MUTATION-CHECK-PHASE-2: the mutation checker does not yet reach the ledger or mission assertions [FILED 2026-09-24 with phase 1 (branch `mutation-check`). OPEN; harness. PR 1 (save perturbation) DONE 2026-10-01, branch `mutation-phase2`]
 
 Phase 1 (`harness/tools/mutation_check.py`, known-gate 17 in `autotest-status.md`) replays
 the gating evaluators that are pure over an archived KSP.log, plus the ARMED save-parse
-windows at the facet level (the measured count moved by one and to zero). Still unchecked,
-so a cell there can go vacuous with nothing noticing:
+windows at the facet level (the measured count moved by one and to zero). Phase 2 is
+planned as three PRs: (1) save perturbation, (2) ledger perturbation, (3) mission
+assertions and forbidden-token injection. Still unchecked after PR 1, so a cell there can
+go vacuous with nothing noticing: the ledger, mission and forbidden-pattern items below.
 
-- Save perturbation below the facet: edit the archived `persistent.sfs` itself (drop a
-  `RECORDING` node, a supersede row, a tombstone, a rewind point, a route stop) and re-run
-  `saveparse.parse_parsek_scenario` + `evaluate_save_structure`, so a window whose parser
-  path is dead is caught, not only a window that is too wide.
-- Ledger perturbation: the ledger oracle needs the run's seed capture; archive it (or
+- ~~Save perturbation below the facet~~ DONE (PR 1, `harness/lib/mutsave.py`): for every
+  window of every ARMED save-parse block the checker edits the archived `persistent.sfs`
+  itself so the measured value crosses each declared bound (drop or clone `RECORDING`,
+  `RECORDING_TREE`, supersede / tombstone / rewind-point rows, `BRANCH_POINT`, FLIGHTSTATE
+  `VESSEL`, `ROUTE`, `STOP`, `SOURCE`; clear or set `terminalState`; rewrite `pointCount`,
+  the route cycle counters, statuses, connection kinds and body names; re-point a route id
+  or endpoint pid), writes the tree back and re-runs the real
+  `saveparse.parse_parsek_scenario` + `evaluate_save_structure`. Each armed block also
+  gets fault edits (a torn save, no ParsekScenario node, a missing `pointCount`, a route the
+  codec would drop, a missing `completedCycles`). A window no crossing edit reds is
+  VACUOUS (spec and block named in the report). `mutation_check.py --save-only` runs it
+  without a KSP.log, over the newest archived produced save whose armed blocks pass, else
+  the spec's committed fixture template. First sweep (2026-10-01, every archive under the
+  umbrella root): all 124 specs with an armed block had a green archived save; 1802
+  edits, all killed; 1308 gates PROVEN, 0 VACUOUS, 0 UNCHECKED. Over committed fixtures
+  alone, 54 of the 124 baselines pass and all their gates are PROVEN.
+- Ledger perturbation (PR 2): the ledger oracle needs the run's seed capture; archive it (or
   re-derive it from the archived save) so `oracle.build_oracle_result` can replay with an
   award removed or a pool moved.
-- Mission assertions: replay a mission's recorded verdict with its sensor reads removed
-  (the kRPC telemetry lines it gates on), so a mission check that no longer reads what it
-  claims is caught.
-- Forbidden patterns: phase 1 cannot synthesize a line a forbidden regex would match; a
+- Mission assertions (PR 3): replay a mission's recorded verdict with its sensor reads
+  removed (the kRPC telemetry lines it gates on), so a mission check that no longer reads
+  what it claims is caught.
+- Forbidden patterns (PR 3): phase 1 cannot synthesize a line a forbidden regex would match; a
   literal-shaped forbidden token (`\[Parsek\]\[ERROR\]`) could be injected directly.
 
 Also open from the first sweep: the 723 triage survivors (96 lanes) listed by group in known-gate 17
@@ -5131,7 +5215,12 @@ closes too). All new cells red against `origin/main`'s
 
 **No harness lane.** No seam verb sets a single recording's loop toggle (`MissionConfig`
 loops a whole mission, the unaffected shape), so a live proof needs a new automation verb.
-The decision is a pure ledger walk and pinned in xUnit above.
+The decision is a pure ledger walk and pinned in xUnit above. Status: an open COVERAGE GAP, not
+a defect - the fix has no live proof lane until a verb toggles one recording's Loop flag. The
+PR #1938 review also checked the one skip left in place, `ParsekScenario`'s OnLoad crew
+auto-unreserve loop (`Source/Parsek/ParsekScenario.cs:4564`, `if (rec.LoopPlayback) continue;`),
+and judged it consistent with the fix (nulling a looped recording's snapshot would pre-empt
+the loop first-run spawn seams, as above), so it is not a defect either.
 
 ## ~~LOOP-ARMED-REWIND-FIRST-RUN-NOT-RENDERED: with a mission loop armed, a Rewind-to-Launch shows no ghost for the whole first run~~ [FILED 2026-09-24 from the #1808 review. PRODUCT DEFECT, operator ruling. **FIXED 2026-09-25** on branch `loop-first-run-visible`; see "Fix" below]
 
@@ -5665,7 +5754,7 @@ vocabulary stops claiming a word nothing renders. NOT fixed here: which way it g
 product decision about whether an observation boundary belongs in a chronological log, and
 that is exactly the kind of question the owner's iteration loop exists to answer.
 
-**3. PRODUCT: `MissionStructureListBuilder`'s terminal row makes the Event column
+**3. RESOLVED 2026-10-01 (MISSION-LOG-REWORK: the Status column is gone and a terminal row reads `End: <word>`). PRODUCT: `MissionStructureListBuilder`'s terminal row makes the Event column
 redundant on a one-leg run.** Its terminal pass writes `Label = "End"` always and puts the
 terminal word in STATUS - which is the right split when several legs end differently, and
 reads as a wasted column on a single-leg mission whose last two rows are `End | Splashed`
@@ -7987,6 +8076,7 @@ The candidate fix is one shared predicate, "recovered by the Recovered terminal 
 - Mirror directions: a Landed flight with no recovery row still spawns and still stashes; pad / runway retirement (#1783) is unchanged (its crew side, `VesselSpawner.IsKscRetiredFinalFlight`, reads the recording, not the spawn decision, and a recovered pad flight ends with no vessel either way); a Recovered commit closes its crew hold at the recording end, so the later crew-close produces no row; the Missions wording reads Recovered for new in-flight recoveries and keeps the stored terminal for older saves; Logistics reads no terminal state.
 - Tests: `RecoveredAfterCommitTests` (24 cases; mutation-checked: disabling the predicate or the scene-exit stamp fails 8).
 - Live proof still to run: `RB-1-rewind-readback-divergence` / `RB-2-rewind-readback-within-range` recover the Flea in flight with auto-merge on. Expect `In-flight recovery: recording '...' ... terminal Landed -> Recovered`, Step 3b's `evidence=terminal-recovered` instead of `recovery-row`, `terminalState = 5` (Recovered) on the Flea's recording in the produced save, and no change to the `VesselRecovery funds patched ... amount=4558` line (both lanes' log contracts already accept either evidence).
+- Open after the PR #1946 review: the live proof above is still owed (RB-1 / RB-2; the expected log line is `[Recovery] In-flight recovery: recording ... terminal Landed -> Recovered`). The stamp's WIRING has no unit test (`RecoveredAfterCommitTests` calls `Arm` / `ApplyAtSceneExit` / `TryApplyToFinalizedPendingTree` directly): the event handler (`ParsekScenario.OnVesselRecoveryRequested`, `Source/Parsek/ParsekScenario.cs:7840`, arm at `:7855`), the two `InFlightRecoveryRequest.ApplyAtSceneExit` call sites (`Source/Parsek/ParsekFlight.cs:3215` and `:15705`; method at `Source/Parsek/InFlightRecoveryRequest.cs:102`), and the clear ordering (`ParsekFlight.cs:2432`, `:3257`, `ParsekScenario.cs:3520`) - so the RB lanes are the only proof that they fire in that order. Known, accepted: a save written before #1946 still holds Landed on a recovered flight, so its Missions wording still reads "Landed" (the spawn and Stash readers use the shared predicate and are right there).
 
 ## ~~REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE~~ [FILED 2026-09-14 by the guard-retire decision. UPDATED 2026-09-27: the lane exists (RB-1) and found that its designed cause cannot happen in the shipping configuration. CLOSED 2026-09-27 (branch `recovered-after-commit`): with REFLY-RESURRECTED-RECOVERY-STAYS-BANKED fixed, RB-1 `2026-09-27_1423` is the first live `FLAGGED DIVERGENCE` and RB-2 `2026-09-27_1431` its within-range control. The A7 strategy / mod-grant follow-up below stays OPEN]
 
@@ -8047,6 +8137,10 @@ cycle change; no lane pins window text. The capacity line stays unreachable ther
 the loop path never assigns `DestinationFull` as a route status, and the re-scan button
 needs an `EndpointLost` multi-stop route (the loop path can reach it at delivery,
 `endpoint-lost-at-delivery`), which no committed lane drives (RVR-18 is single-stop).
+Status (2026-10-01, from PR #1941): both are an open COVERAGE GAP - no committed lane can reach
+the multi-stop "tanks full" capacity line or the multi-stop Re-scan. Owed and cheap: a re-read of
+GUI-20 / GUI-21 / GUI-22 on `rover-relay-c-recorded` with a DLL carrying the fix would photograph
+the new Destination and Delivers per cycle cells.
 
 **Evidence.** `Logistics/RouteBuilder.cs:353` genuinely builds multi-stop routes. Four
 window cells read `route.Stops[0]` only: "Delivers per cycle"
@@ -8437,7 +8531,15 @@ rather than re-discovered.
 should be named `*ForTesting` (as the watch-mode one is) so a grep can tell the two
 populations apart.
 
-## GUI-EXPOSURE-1-THE-TRACKING-STATION-HAS-FULL-GHOST-PRESENCE-AND-NO-CONTROL-SURFACE [FILED 2026-09-11 by the GUI fix batch; the census's biggest structural question]
+## ~~GUI-EXPOSURE-1-THE-TRACKING-STATION-HAS-FULL-GHOST-PRESENCE-AND-NO-CONTROL-SURFACE~~ [FILED 2026-09-11 by the GUI fix batch; the census's biggest structural question. CLOSED 2026-10-01 by OPERATOR RULING: user guide corrected; no TS control surface]
+
+**Ruling (2026-10-01, branch `l7-nightly-residue`).** Option (a): add no controls. `docs/user-guide.md` now says the
+Tracking Station has no Parsek window or toolbar button, describes what it shows for ghosts (a
+vessel-list row, a map icon, a stock orbit line, selection and targeting, and the selected-ghost
+popup's single Warp to Spawn button), and names where the controls live (the Parsek window in
+Flight / KSC); the mission Loop bullet says the TS shows the replay while the loop is set from
+Flight / KSC. `docs/dev/design-gui-inventory.md` H1 and its open-question paragraph record the
+ruling.
 
 **Evidence.** `ParsekTrackingStation.cs:26`, `:350` draws markers only, and says so at
 `:394-395`. The only `AddToAllToolbars` calls are `ParsekFlight.cs:1351` and
@@ -21132,7 +21234,7 @@ site stamping a guid, (c) is legacy data only (gen-4 recordings from before the 
 with no snapshot for `RecordingSidecarStore`'s load-time backfill). `distinct-known-launches` is
 unreachable from a stock recovery for the same reason.
 
-**The lane.** `L7-career-idless-same-name-xp-refusal` (operator, never flown) flies
+**The lane.** `L7-career-idless-same-name-xp-refusal` (operator and unflown when written; flown green `2026-10-01_1614` and promoted to nightly the same day) flies
 `science_bench_recover` with all three auto-record settings off (so no recording of the run
 carries the guid; `recordings.count` 2..2) over `career-idless-same-name-pad`, built by
 `harness/tools/build_career_idless_same_name_pad.py` from the `career-same-name-pad` build plus

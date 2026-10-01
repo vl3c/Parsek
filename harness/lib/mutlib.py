@@ -26,11 +26,16 @@ Evaluators replayed, each verified pure over an archived artifact:
 - ``saveparse`` window checks (``_check_window``, the evaluator's own window
   rule) over the facets of the archived save: each ARMED window's measured value
   is perturbed by one either side and to zero.
+- ``saveparse.parse_parsek_scenario`` + ``evaluate_save_structure`` over EDITED
+  copies of the archived save itself (phase 2, ``mutsave``): every armed window
+  gets edits that push it across each declared bound, so a window whose parser
+  path is dead is caught, not only one that is too wide.
 
-NOT replayed (not pure over an archive, or phase 2): the ledger oracle (needs the
-seed capture), the mission verdict, the response-stream driver validity, the
-log validator and the offline recording analyzer (C# subprocesses), the in-game
-testResults / batch tally row, the ghost-lifecycle row and render composition.
+NOT replayed (not pure over an archive, or later phase-2 PRs): the ledger oracle
+(needs the seed capture), the mission verdict, the response-stream driver
+validity, the log validator and the offline recording analyzer (C# subprocesses),
+the in-game testResults / batch tally row, the ghost-lifecycle row and render
+composition.
 
 Pure: no file I/O, no clock. ``harness/tools/mutation_check.py`` is the shell.
 """
@@ -588,6 +593,8 @@ class LaneReport:
     mutations: List[Mutation] = field(default_factory=list)
     patterns: List[PatternFacts] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
+    # mutsave.GateVerdict per armed save-parse window / set / block fault.
+    save_gates: list = field(default_factory=list)
 
     def count(self, outcome: Optional[str] = None, triage: Optional[str] = None) -> int:
         return sum(1 for m in self.mutations
@@ -602,6 +609,8 @@ class ArchiveInputs:
     log_text: str
     recording_count: Optional[int]
     snapshot: Optional["saveparse.ParsekSaveSnapshot"]
+    # The archived persistent.sfs text, for the save-level edits (mutsave).
+    save_text: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -1231,6 +1240,45 @@ def check_lane(spec: Dict, inputs: ArchiveInputs) -> LaneReport:
             lane.notes.append("saveParse armed but no archived save: window mutations skipped")
         else:
             lane.mutations.extend(mutate_save_windows(expectations, inputs.snapshot))
+            if inputs.save_text is not None:
+                _add_save_edits(lane, expectations, inputs.save_text)
+    return lane
+
+
+def _add_save_edits(lane: LaneReport, expectations: Dict, save_text: str) -> bool:
+    """Run the save-level edits (``mutsave``) over a save whose armed blocks pass.
+    Returns False (with the reasons on the lane) when that baseline is not green."""
+    import mutsave  # local: mutsave imports this module
+    base = mutsave.prepare_baseline(expectations, save_text)
+    if base.root is None:
+        lane.notes.append("save edits skipped: %s" % "; ".join(base.reasons))
+        return False
+    if base.note:
+        lane.notes.append(base.note)
+    check = mutsave.mutate_save_structure(expectations, base.root)
+    lane.mutations.extend(check.mutations)
+    lane.save_gates.extend(check.gates)
+    lane.notes.extend(check.notes)
+    return True
+
+
+def check_save_lane(spec: Dict, label: str, save_text: Optional[str]) -> LaneReport:
+    """The save-only lane (``mutation_check.py --save-only``): the baseline is the
+    ARMED save-parse blocks alone over one save (an archived produced save or a
+    committed fixture template), then the save-level edits. No KSP.log needed."""
+    import mutsave
+    spec_id = str(spec.get("id", "?"))
+    expectations = spec.get("expectations", {}) or {}
+    base = mutsave.prepare_baseline(expectations, save_text)
+    if base.root is None:
+        return LaneReport(spec_id, label, BASELINE_NOT_GREEN, list(base.reasons))
+    lane = LaneReport(spec_id, label, BASELINE_GREEN)
+    if base.note:
+        lane.notes.append(base.note)
+    check = mutsave.mutate_save_structure(expectations, base.root)
+    lane.mutations.extend(check.mutations)
+    lane.save_gates.extend(check.gates)
+    lane.notes.extend(check.notes)
     return lane
 
 
@@ -1294,11 +1342,24 @@ def summary_line(lane: LaneReport) -> str:
             lane.spec_id, lane.archive, _clip(lane.baseline_reasons[0], 120)
             if lane.baseline_reasons else "?")
     multi = sum(1 for p in lane.patterns if p.multi_phase)
+    gates = ""
+    if lane.save_gates:
+        g = gate_counts(lane.save_gates)
+        gates = " saveGates(proven=%d vacuous=%d unchecked=%d)" % (
+            g["PROVEN"], g["VACUOUS"], g["UNCHECKED"])
     return ("%s: archive=%s baseline=PASS mutations=%d killed=%d survived=%d "
-            "(triage=%d intended=%d info=%d) multiPhasePatterns=%d" % (
+            "(triage=%d intended=%d info=%d) multiPhasePatterns=%d%s" % (
                 lane.spec_id, lane.archive, len(lane.mutations), lane.count(KILLED),
                 lane.count(SURVIVED), lane.count(SURVIVED, TRIAGE),
-                lane.count(SURVIVED, INTENDED), lane.count(SURVIVED, INFO), multi))
+                lane.count(SURVIVED, INTENDED), lane.count(SURVIVED, INFO), multi, gates))
+
+
+def gate_counts(gates) -> Dict[str, int]:
+    """PROVEN / VACUOUS / UNCHECKED tallies over ``mutsave.GateVerdict`` rows."""
+    out = {"PROVEN": 0, "VACUOUS": 0, "UNCHECKED": 0}
+    for g in gates:
+        out[g.verdict] = out.get(g.verdict, 0) + 1
+    return out
 
 
 @dataclass
@@ -1312,6 +1373,9 @@ class SweepTotals:
     triage: int = 0
     intended: int = 0
     info: int = 0
+    gates_proven: int = 0
+    gates_vacuous: int = 0
+    gates_unchecked: int = 0
 
 
 def sweep_totals(lanes: Sequence[LaneReport], no_archive: int) -> SweepTotals:
@@ -1327,6 +1391,10 @@ def sweep_totals(lanes: Sequence[LaneReport], no_archive: int) -> SweepTotals:
         t.triage += lane.count(SURVIVED, TRIAGE)
         t.intended += lane.count(SURVIVED, INTENDED)
         t.info += lane.count(SURVIVED, INFO)
+        g = gate_counts(lane.save_gates)
+        t.gates_proven += g["PROVEN"]
+        t.gates_vacuous += g["VACUOUS"]
+        t.gates_unchecked += g["UNCHECKED"]
     return t
 
 
@@ -1336,13 +1404,15 @@ def render_report(lanes: Sequence[LaneReport], no_archive: Sequence[str],
     out: List[str] = ["# Mutation check report", ""]
     if header:
         out += [header, ""]
-    out += ["Report-only (trust risk 8, phase 1): survivors are listed for triage and "
+    out += ["Report-only (trust risk 8, phases 1 and 2): survivors are listed for triage and "
             "never fail anything.", "",
             "- lanes with a green baseline: %d" % t.lanes_green,
             "- lanes whose newest archives were not green: %d" % t.lanes_not_green,
             "- lanes with no archive on this machine: %d" % t.lanes_no_archive,
             "- mutations: %d, killed %d, survived %d (triage %d, intended %d, info %d)"
-            % (t.mutations, t.killed, t.survived, t.triage, t.intended, t.info), "",
+            % (t.mutations, t.killed, t.survived, t.triage, t.intended, t.info),
+            "- save-parse gates (save-level edits): proven %d, vacuous %d, unchecked %d"
+            % (t.gates_proven, t.gates_vacuous, t.gates_unchecked), "",
             "## One line per lane", ""]
     out += ["- " + summary_line(l) for l in lanes]
     if no_archive:
@@ -1360,6 +1430,27 @@ def render_report(lanes: Sequence[LaneReport], no_archive: Sequence[str],
                                                       _clip(m.target, 200), m.note))
         out.append("")
     if not any_triage:
+        out.append("(none)")
+    out += ["", "## Vacuous save-parse gates", ""]
+    any_vac = False
+    for lane in lanes:
+        for g in lane.save_gates:
+            if g.verdict == "VACUOUS":
+                any_vac = True
+                out.append("- %s (%s): block `%s` `%s %s` measured=%s -- %s" % (
+                    lane.spec_id, lane.archive, g.block, g.label, g.window, g.measured,
+                    _clip(g.reason, 240)))
+    if not any_vac:
+        out.append("(none)")
+    out += ["", "## Unchecked save-parse gates", ""]
+    any_unc = False
+    for lane in lanes:
+        for g in lane.save_gates:
+            if g.verdict == "UNCHECKED":
+                any_unc = True
+                out.append("- %s: `%s %s` measured=%s -- %s" % (
+                    lane.spec_id, g.label, g.window, g.measured, _clip(g.reason, 200)))
+    if not any_unc:
         out.append("(none)")
     out += ["", "## Multi-phase required patterns", ""]
     any_multi = False

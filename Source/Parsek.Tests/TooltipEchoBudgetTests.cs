@@ -143,6 +143,11 @@ namespace Parsek.Tests
             // strip: one tooltipped control whose fixed text is short; long runtime
             // vessel names overflow into the marquee.
             yield return new object[] { "UI/SpawnControlUI.cs", 750f, 0, TooltipEchoBox.SingleLine };
+            // Log (StructureListWindowUI): first-open DefaultWindowWidth = 900. Single-line
+            // strip; floor 0 on purpose - its one tooltip is runtime-built (the full piece
+            // list of an Event cell the builder shortened), so the scan finds no literal;
+            // MissionStructureListBuilder's ShortenList cells pin the cell side.
+            yield return new object[] { "UI/StructureListWindowUI.cs", 900f, 0, TooltipEchoBox.SingleLine };
             // Test runner (Settings-launched) and the global Ctrl+Shift+T twin: 440.
             yield return new object[] { "UI/TestRunnerUI.cs", 440f, 3, TooltipEchoBox.DoubleLine };
             yield return new object[] { "InGameTests/TestRunnerShortcut.cs", 440f, 2, TooltipEchoBox.DoubleLine };

@@ -10,6 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: the mutation checker now edits archived saves to prove the save-structure checks
+  read what they claim.** `harness/tools/mutation_check.py` (new pure core
+  `harness/lib/mutsave.py`; `--save-only` runs it without a log) removes, clones and
+  rewrites recordings, trees, rewind rows, branch points, vessels and supply routes in each
+  archived produced save until every armed save-structure window should fail, then runs the
+  real save parser and check over the edited file. A window that still passes is reported as
+  vacuous, naming the spec and the block. The first sweep over every local archive checked
+  1308 windows and faults on 124 lanes and found none vacuous. Report-only; no run changes.
 - **Dev: a flight-efficiency analyzer for harness runs.** `harness/tools/flight_efficiency.py`
   (pure core `harness/lib/flighteff.py`) reads finished run artifacts and reports where the
   WALL time went: 1x seconds outside the atmosphere with a static orbit, split by cause
@@ -56,7 +64,7 @@ _(unreleased — entries accumulate here per commit)_
   losses, quickload and restart off), derived from `career-pad-craft` by a builder with a
   byte-identity drift test.
 - **Dev: the automated tests can press Stash, and a lane re-flies a stashed slot whose flight went EVA.** A new test command, `StashSlot`, presses the Recordings table's per-row Stash button (the same handler) and checks that the slot now shows as an Unfinished Flight. `RF-20-stashed-eva-slot-refly` (flown green 2026-09-27) uses it: a staged orbital flight where a kerbal steps out and back in is committed, the crewed stage (a stable orbit, so not an Unfinished Flight on its own) is stashed, re-flown from the separation and merged, and the merge must replace the old flight including the kerbal's EVA and close the slot
-- **Dev: a lane for the refused recovery XP row.** `L7-career-idless-same-name-xp-refusal` (never flown) flies the pad craft unrecorded over a new career fixture, `career-idless-same-name-pad`, that carries two older same-name recordings with no launch identity, recovers it, and checks that the kerbal XP row is refused as ambiguous (`reason=ambiguous-recovery-recording`, `corroboration=unknown-launch-guid`) while the recovery funds and science still credit the later of the two recordings. Since recovery matches by launch identity first, this refusal is only reachable with recordings that predate the launch identity field.
+- **Dev: a lane for the refused recovery XP row.** `L7-career-idless-same-name-xp-refusal` (flown green 2026-10-01, nightly tier) flies the pad craft unrecorded over a new career fixture, `career-idless-same-name-pad`, that carries two older same-name recordings with no launch identity, recovers it, and checks that the kerbal XP row is refused as ambiguous (`reason=ambiguous-recovery-recording`, `corroboration=unknown-launch-guid`) while the recovery funds and science still credit the later of the two recordings. Since recovery matches by launch identity first, this refusal is only reachable with recordings that predate the launch identity field.
 - **Dev: a lane for rewinding a relaunch of a craft.** `RR-1-relaunch-rewind-keeps-earlier-launch` (never flown) relaunches the stock Kerbal X on `kerbin-splashdown-recorded`, whose earlier Kerbal X capsule is still landed, commits, rewinds that flight and checks the rewind keeps the earlier capsule while removing the relaunched vessel.
 
 - **Dev: two lanes for the crew inventory restore at spawn.** `H72-kerbal-inventory-spawn` (flown green 2026-09-27) runs the in-game `KerbalInventorySpawn` category over the pad craft's seated Jeb, whose roster carries a two-part inventory, and checks the capture, the roster applier and the rollback lines. `EVA-7-crew-inventory-spawn-after-rewind` (flown green 2026-09-27) replays EVA-6's chain: Jeb carries a parachute and a seismometer, places the seismometer on EVA, the recording commits, Rewind-to-Launch, and the Space Center spawns him. It checks that his spawn restores the recorded one-part inventory rather than the two-part one the rewind put back on the roster, and that the restore runs exactly once.
@@ -2362,6 +2370,29 @@ _(unreleased — entries accumulate here per commit)_
   changes, because there the two answers were already the same.
 
 ### Changed
+
+- **The mission Log lists one row per real event.** A docked test mission's Log read 31 rows,
+  mostly noise; it now reads 11. Part-state seeds the recorder writes so a ghost starts in the
+  right state (at a recording's start, at a chain split, when a separated piece loads, when a
+  vessel joins the mission) are no
+  longer listed as staging; a debris piece's own breakup is never listed; a stage is ONE row per
+  recorded separation, absorbing every part that let go in that moment, symmetric partner
+  included (also when the optimizer has since split the vessel's recording at an atmosphere
+  exit and the parts sit on the later segment) (`Staged: 2 pieces (TT-38K Radial Decoupler x2)`, part titles from the game, the
+  internal name when a title is unknown); the docking port and pod events of an undock are not
+  staging; two different vessels that share a name and end together are two rows. Columns are
+  now Time, Event, Location and Vessel: the step number and the Status column are gone, an ending
+  reads `End: Orbiting` and a leg that ended Docked or Boarded draws no End row (its Docked or
+  Boarded row says it). Separation, dock and undock rows name the other vessel like the Missions
+  tab does (`Decoupled (Kerbal X Probe)`, `Docked (Kerbal X (mission 'Kerbal X'))`, `Undocked
+  (Kerbal X)`). Location reads `Kerbin orbit` only for an orbital ending or a separation whose
+  piece recorded an orbit, otherwise body and biome where the flight recorded them at that
+  moment, or the body alone - an in-flight decouple no longer reads the launch pad. The first
+  row's Time is the date, every later row `T+h:mm:ss` since it. A piece list too long for the
+  Event cell is shortened there and shown whole in a new hover line at the bottom of the window.
+  An empty mission Log reads "This mission has no recorded flight." Route Logs keep their rows;
+  an orbital route endpoint reads `Mun orbit`. Presentation only: no recording data changed
+  (`MissionStructureList.cs`, `StructureListWindowUI.cs`).
 
 - **Missions window redesign, first slice.** The columns are `#`, Missions and vessels,
   Start time, Start event, End event, End time and **Interact**, one right-hand column that

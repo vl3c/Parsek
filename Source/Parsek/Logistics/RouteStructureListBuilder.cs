@@ -24,7 +24,7 @@ namespace Parsek.Logistics
             if (isKsc)
                 return StructureLocationFormatter.BodyBiome(string.IsNullOrEmpty(ep.BodyName) ? "Kerbin" : ep.BodyName, "KSC");
             if (string.IsNullOrEmpty(ep.BodyName))
-                return "-";
+                return StructureLocationFormatter.Missing;
             if (ep.IsSurface)
             {
                 string biome = biomeResolver != null
@@ -35,14 +35,7 @@ namespace Parsek.Logistics
                 return string.Format(CultureInfo.InvariantCulture,
                     "{0} ({1:F2}, {2:F2})", ep.BodyName, ep.Latitude, ep.Longitude);
             }
-            return ep.BodyName;
-        }
-
-        // The endpoint's situation for the Status column.
-        internal static string EndpointStatus(RouteEndpoint ep, bool isKsc)
-        {
-            if (isKsc) return "Prelaunch";
-            return ep.IsSurface ? "Landed" : "Orbiting";
+            return StructureLocationFormatter.Orbit(ep.BodyName);
         }
     }
 
@@ -78,7 +71,6 @@ namespace Parsek.Logistics
                 UT = double.NaN,
                 Kind = StructureStepKind.Origin,
                 Label = route.IsKscOrigin ? "Origin: KSC" : "Origin: depot",
-                Status = RouteEndpointLocationFormatter.EndpointStatus(route.Origin, route.IsKscOrigin),
                 Location = RouteEndpointLocationFormatter.EndpointLocation(route.Origin, route.IsKscOrigin, biomeResolver),
                 VesselName = ""
             });
@@ -118,10 +110,7 @@ namespace Parsek.Logistics
             bool hasEndpoint = win != null && win.EndpointAtDock.HasValue;
             string endpointLoc = hasEndpoint
                 ? RouteEndpointLocationFormatter.EndpointLocation(win.EndpointAtDock.Value, false, biomeResolver)
-                : "";
-            string endpointStatus = hasEndpoint
-                ? RouteEndpointLocationFormatter.EndpointStatus(win.EndpointAtDock.Value, false)
-                : "";
+                : StructureLocationFormatter.Missing;
 
             // Dock.
             if (win != null && !double.IsNaN(win.DockUT))
@@ -131,7 +120,6 @@ namespace Parsek.Logistics
                     UT = win.DockUT,
                     Kind = StructureStepKind.Dock,
                     Label = "Dock",
-                    Status = endpointStatus,
                     Location = endpointLoc,
                     VesselName = ""
                 });
@@ -163,7 +151,6 @@ namespace Parsek.Logistics
                     // reads "Deliver (...) / Pick up (...)". A degenerate empty stop
                     // falls back to the bare "Deliver" label (unchanged).
                     Label = FormatStopLabel(stop, num),
-                    Status = RouteEndpointLocationFormatter.EndpointStatus(stop.Endpoint, false),
                     Location = RouteEndpointLocationFormatter.EndpointLocation(stop.Endpoint, false, biomeResolver),
                     VesselName = ""
                 });
@@ -177,7 +164,6 @@ namespace Parsek.Logistics
                     UT = win.UndockUT,
                     Kind = StructureStepKind.Undock,
                     Label = "Undock",
-                    Status = endpointStatus,
                     Location = endpointLoc,
                     VesselName = ""
                 });
