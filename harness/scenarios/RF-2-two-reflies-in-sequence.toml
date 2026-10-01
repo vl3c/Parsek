@@ -112,10 +112,15 @@ steps = [
   { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "StopRecording",                                                          expect = "OK" },
   { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles2", expect = "OK" },
+  # The reload lands at UT ~500 (the first merge's save) and `handles2.rp0` is the point
+  # at UT 693.29: since #1788 the Re-Fly gate refuses a separation in the future
+  # (`refly-gate This separation is in your future`, `2026-10-01_0748` step 0013), so
+  # the clock is moved past it first (the CL-LANES-INJECTED-RP-IN-THE-FUTURE fix).
+  { cmd = "TimeJump",          args = { ut = "700" },                                expect = "OK", budget = 120 },
   { cmd = "InvokeRewind",      args = { rp = "${handles2.rp0}", slot = "1" },        expect = "OK", budget = 300 },
   # rp1's UT is 693.29, so the jump target has to clear it: `TimeJump` is FORWARD-ONLY
-  # and 500 would REJECT `backward-jump`. 800 is ~107 s past it, the same margin as the
-  # first act's, and still short of the Dock branch point.
+  # from the rewound clock. 800 is ~107 s past it, the same margin as the first act's,
+  # and still short of the Dock branch point.
   { cmd = "TimeJump",          args = { ut = "800" },                                expect = "OK", budget = 120 },
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },                          expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                          expect = "OK" },
@@ -180,14 +185,17 @@ forbidden = [
   "reason=sealedTipClosed",
 ]
 
-# REPORT-ONLY. DERIVED from the fixture's committed bytes, not measured:
+# DERIVED from the fixture's committed bytes, then MEASURED (below):
 #   rewindPoints  the harvest carries 3 and two merges reap two, so 1 survives.
 #   supersedeRows the fixture carries ZERO (it is a pre-merge world - see
 #                 RECORDED_FIXTURES); each merge appends at least one row for the
 #                 superseded subtree, so >= 2 after both.
 #   tombstones    nobody dies: `CommitTombstones` only builds rows for in-scope kerbal
 #                 deaths and neither re-fly is flown to a crash.
+# ARMED 2026-10-01 off `2026-10-01_0801` (PASS attempt 1 after the act-2 TimeJump fix:
+# rewindPoints 1, supersedeRows 2, tombstones 0, every window met).
 [expectations.rewind]
+gating        = true
 rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { min = 2 }
 tombstones    = { max = 0 }
@@ -197,8 +205,9 @@ tombstones    = { max = 0 }
 # max(step, 60+60):
 #   LoadGame x2 1320 + SetSetting x3 360 + StopRecording x2 240 + ListHandles x2 240
 #   + InvokeRewind x2 1320 + TimeJump x2 (deferred) 1320 + AnswerMergeDialog x2 360
-#   + RecordingState 120 + FlushAndQuit 120 = 5400. 5700 clears it by 300.
-budgetSeconds = 5700
+#   + RecordingState 120 + FlushAndQuit 120 = 5400, plus the pre-rewind TimeJump
+#   (deferred) 660 = 6060. 6400 clears it by 340.
+budgetSeconds = 6400
 
 [retry]
 policy = "once"

@@ -383,15 +383,22 @@ class SpecArithmeticTests(unittest.TestCase):
         # for a load-time optimizer split at the Eve->Gilly boundary.
         self.assertEqual({"min": carried + 1, "max": carried + 2}, window)
 
-    def test_the_spec_arms_no_gating_block(self):
-        # A first-flight READING lane must arm nothing: the ARMED_ALLOWLIST in
-        # harness/lib/test_hlib.py owns that decision and this spec is not on it.
-        for block in ("rewind", "recordings"):
-            sub = (self.spec.get("expectations") or {}).get(block) or {}
-            self.assertNotIn("gating", sub)
-            for nested in sub.values():
-                if isinstance(nested, dict):
-                    self.assertNotIn("gating", nested)
+    def test_only_the_rewind_block_is_armed(self):
+        # ARMED 2026-10-01 (branch `arm-last19`) off this lane's reading run, which the
+        # spec's rewind block cites; the spec is on ARMED_ALLOWLIST in
+        # harness/lib/test_hlib.py. The windows stay the clean single-craft 0 / 0 / 0,
+        # and nothing under `recordings` is armed (no structure block is declared).
+        exp = self.spec.get("expectations") or {}
+        rewind = exp.get("rewind") or {}
+        self.assertIs(True, rewind.get("gating"))
+        for key in ("rewindPoints", "supersedeRows", "tombstones"):
+            self.assertEqual({"max": 0}, rewind.get(key))
+        rec = exp.get("recordings") or {}
+        self.assertNotIn("structure", rec)
+        self.assertNotIn("gating", rec)
+        for nested in rec.values():
+            if isinstance(nested, dict):
+                self.assertNotIn("gating", nested)
 
 
 class V15CalibrationSeedTests(unittest.TestCase):

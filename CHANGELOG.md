@@ -61,6 +61,14 @@ _(unreleased — entries accumulate here per commit)_
   timing fix in one of its tests. One logistics lane (RVR-8) found that a route's second
   cycle no longer held when its origin was out of cargo. That was lost supply-route cargo
   (see Fixed), and RVR-8's own check is armed off its green re-fly.
+- **Dev: every declared save-structure check now gates the automated tests.** The last 19
+  report-only checks on the saved game (RF-2, RF-3, RF-12L, RF-16, RF-17, RF-20, RR-1, EVA-7,
+  V3C, B17 and the B23-B30 missions) were each read correctly by a recent run and shown to fail
+  when their window was moved; all 200 now gate. V3C's recording count moved from 3 to 4 and
+  B17's from 2 to 3, because a flight committed in the flight scene is now optimized at once,
+  which splits the probe where it leaves the atmosphere (B17 had been failing on this). RF-2
+  and RF-3 now move the clock past their second rewind point before re-flying it, since a
+  point in the future cannot be re-flown.
 - **Dev: 15 more save-structure checks now gate the automated tests.** GS-1, GS-2, GS-3, GS-7,
   GS-9, V3F, V3R, RF-1, RF-4, RF-9 and CL-3 each had a report-only check on the saved game read
   correctly by a fresh run, and each check was shown to fail when its window was moved. 180 of

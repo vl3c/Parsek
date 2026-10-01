@@ -217,16 +217,19 @@ forbidden = [
 ]
 
 [expectations.rewind]
-# REPORT-ONLY, pinned to `2026-09-27_1832`: the RewindPoint survives (probe slot open),
+# ARMED 2026-10-01 off the PASS reading `2026-09-27_1838` (the same facets as the first
+# reading `2026-09-27_1832`): the RewindPoint survives (probe slot open),
 # 4 supersede rows (TIP, continuation, re-boarded vessel, the EVA kerbal), 5 tombstones
 # (the superseded recordings' own KerbalAssignment x4 + MilestoneAchievement x1).
+gating        = true
 rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { min = 4, max = 4 }
 tombstones    = { min = 5, max = 5 }
 
 [expectations.recordings.structure]
-# REPORT-ONLY, matched on `2026-09-27_1832`: the original flight's one EVA and one Board
+# ARMED 2026-10-01 off `2026-09-27_1838` (matched first on `2026-09-27_1832`): the original flight's one EVA and one Board
 # survive in the tree (superseded, not deleted); the re-fly authors none.
+gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 branchPoints   = { EVA = { min = 1, max = 1 }, Board = { min = 1, max = 1 } }

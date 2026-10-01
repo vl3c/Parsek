@@ -735,11 +735,23 @@ class SpecArithmeticTests(unittest.TestCase):
                       required)
         self.assertTrue(any("terminalOrbitBody=Minmus" in t for t in required))
 
-    def test_the_spec_arms_no_gating_block(self):
-        exp = self.spec["expectations"]
+    def test_only_the_rewind_block_is_armed(self):
+        # ARMED 2026-10-01 (branch `arm-last19`) off this lane's reading run, which the
+        # spec's rewind block cites; the spec is on ARMED_ALLOWLIST in
+        # harness/lib/test_hlib.py. The windows stay the clean single-craft 0 / 0 / 0,
+        # and nothing under `recordings` is armed (no structure block is declared).
+        exp = self.spec.get("expectations") or {}
+        rewind = exp.get("rewind") or {}
+        self.assertIs(True, rewind.get("gating"))
+        for key in ("rewindPoints", "supersedeRows", "tombstones"):
+            self.assertEqual({"max": 0}, rewind.get(key))
+        rec = exp.get("recordings") or {}
+        self.assertNotIn("structure", rec)
+        self.assertNotIn("gating", rec)
+        for nested in rec.values():
+            if isinstance(nested, dict):
+                self.assertNotIn("gating", nested)
         self.assertEqual([], exp["allowedAnomalies"])
-        self.assertNotIn("structure", exp.get("recordings", {}))
-        self.assertNotIn("gating", exp.get("rewind", {}))
 
     def test_nothing_reaim_is_required_or_forbidden(self):
         """The routing is V21M/V21T's measurement, not this lane's claim."""

@@ -371,9 +371,12 @@ allowedAnomalies = []
 # placed-part member.
 count = { min = 11, max = 11 }
 
-# REPORT-ONLY, EVA-6's census: the two spawned vessels once each and the kept capsule.
+# EVA-6's census: the two spawned vessels once each and the kept capsule. ARMED 2026-10-01
+# off the reading `2026-09-29_1652` (and `2026-09-28_2103`), both PASS with every name met;
+# both predate #1931 (the in-flight CommitTree now runs the optimizer), so the armed block
+# was re-flown on current main: `2026-10-01_0804` PASS attempt 1, gating PASS, no mismatch.
 [expectations.recordings.structure]
-gating      = false
+gating      = true
 vesselNames = { "Grand Slam Passive Seismometer" = 1, "Jebediah Kerman" = 1, "#autoLOC_501232" = 1 }
 
 [expectations.logContracts]

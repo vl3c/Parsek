@@ -244,7 +244,15 @@ allowedAnomalies = []
 # COMMIT-BLIND (`.prec` sidecars, the B16 note verbatim), but this craft has
 # no third stage for a flameout-staging variance to pop, so the topology is
 # deterministic and the pin is exact.
-count = { min = 2, max = 2 }
+# RE-PINNED 2026-10-01 from 2 to 3 off `2026-10-01_0835` (PARSEK-FAIL(expectation) on
+# `recordings.count 3 > max 2` and the structure `recordings` window alone). Intended
+# behaviour, not contamination: #1931 (2026-09-30, IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-
+# PASS) made the seam `CommitTree` run `RecordingStore.RunOptimizationPass`, which now
+# splits the DD1 main recording at its atmosphere exit (`Split candidate
+# (PersistedPhaseChange) ... prev=Atmospheric next=ExoBallistic`, 147 + 365 points, one
+# chain, the terminal on the second half), the same split V3C `2026-10-01_0732` shows on
+# this mission. Main recording = two chain segments, + the booster debris = 3.
+count = { min = 3, max = 3 }
 
 [expectations.logContracts]
 # Every token sourced from its ACTUAL emitting call site; the interplanetary
@@ -317,10 +325,13 @@ tombstones    = { max = 0 }
 # closing Destroyed as plain debris. trees admits 2 for the documented
 # duplicate-tree writer hazard (OnSave re-writes a still-active tree on ~3%
 # of production saves; observed 1 here).
+# `recordings` RE-PINNED 2 -> 3 on 2026-10-01 for the #1931 chain split above (the
+# chain's first segment carries no terminal state, so the terminal and branch-point
+# windows stand); `2026-10-01_0835` meets every window here after it.
 gating = true
 trees          = { min = 1, max = 2 }
 committedTrees = { min = 1, max = 1 }
-recordings     = { min = 2, max = 2 }
+recordings     = { min = 3, max = 3 }
 terminalStates = { Orbiting = { min = 1 }, Destroyed = { max = 1 } }
 branchPoints   = { JointBreak = { min = 1, max = 1 } }
 
@@ -331,6 +342,11 @@ branchPoints   = { JointBreak = { min = 1, max = 1 } }
 # totals swing with warp timing far more than structure does. The windows
 # below are generous sanity bands around the single sample; arming them
 # would need a variance base several runs deep.
+# ARMED 2026-10-01 by operator request off `2026-10-01_0835` (total 574, largest 365,
+# smallest 62, trivial 0 - the chain split moves `largest`, not `total`). The variance
+# base is now three samples of this mission: 574 (_0007), 574 (_0835) and 582 (V3C
+# `2026-10-01_0732`, the same DD1 flight), all 5.7x or more above the floor.
+gating            = true
 total             = { min = 100 }
 trivialRecordings = { max = 0 }
 

@@ -643,6 +643,9 @@ id = "B28-laythe-jool-return"
 # because arming here would duplicate the pins the committed-fixture sweep already holds
 # over the same bytes. Arming is a per-scenario operator decision and this lane has no
 # call on one; see `ARMED_ALLOWLIST` in `harness/lib/test_hlib.py`.]**
+# **[SUPERSEDED 2026-10-01: the operator called it. `[expectations.rewind]` is ARMED off
+# the reading `2026-10-01_0813` (0 / 0 / 0, PASS attempt 1); the structure block stays
+# absent.]**
 #
 # `tier = "operator"` on the calibration discipline (the whole B18-B26 family's tier).
 # =====================================================================================
@@ -1135,6 +1138,9 @@ forbidden = [
 ]
 
 [expectations.rewind]
+# ARMED 2026-10-01 off its reading `2026-10-01_0813` (PASS attempt 1: rewindPoints 0, supersedeRows 0, tombstones 0); every bound
+# inverted offline red on exactly its window. The history below is kept.
+gating        = true
 # REPORT-ONLY on a first flight, and NOT armed even though every window is expected to be
 # met: this lane's product is a FIXTURE, and a fixture's structure is pinned where it is
 # CONSUMED (the B24/B25 disposition verbatim). A single-launch flight that authors no

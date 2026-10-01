@@ -307,10 +307,11 @@ forbidden = [
   # attempt.
 ]
 
-# REPORT-ONLY. R1 arms nothing here either; these are floors that a rewind which lost the
-# injected corpus sinks below. ARMING WAITS FOR A MATCHING READING RUN plus a negative
-# control, per the M-C2 rule.
+# A floor that a rewind which lost the injected corpus sinks below. ARMED 2026-10-01 off
+# the reading `2026-10-01_0727` (PASS attempt 1: rewindPoints 1, supersedeRows 0,
+# tombstones 0); the inverted bound red on exactly its window, offline.
 [expectations.rewind]
+gating       = true
 rewindPoints = { min = 1 }
 
 [runtime]
