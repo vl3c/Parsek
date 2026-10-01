@@ -93,7 +93,7 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   policy), so `GetRewindRecording` is null in every scene (GUI-4 is a Space Center capture
   and draws no Rewind either); GUI-1's operator career has launch saves and draws it.
 
-## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branches `log-rework` (parts 1-2) and `log-rework-2` (part 3 on). PARTS 1-4 DONE]
+## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branches `log-rework` (parts 1-2) and `log-rework-2` (part 3 on). PARTS 1-5 DONE]
 
 Presentation only (no recording data or schema change, no new window). The docked-mission
 subject is `bdock-recorded`'s "Kerbal X #2" (GUI-4), whose Log read 31 rows; it now reads 11,
@@ -143,8 +143,19 @@ pinned row by row in `StructureListBdockFixtureTests` against the committed fixt
   resolution (`RouteLog_OpensTheSourceMissionLog`, same cell count, so LT-4's pin holds), and
   GUI-3 photographs the Mun route's source mission (`ib-structure-route-log-advanced`).
   `StructureListWindowUI` no longer reads `CommittedRecordings`, so its ERS exemption is gone.
-- [ ] Later PR: number same-named vessels (`Kerbal X [2]`); today the docking mission's two
-  `End: Orbiting | Kerbal X` rows are told apart only by their recording.
+- [x] Part 5, same-named vessels are numbered (`Kerbal X [2]`) by one helper,
+  `MissionVesselNaming`, that the Log and the Missions vessel rows (names and phrases) both
+  read. A leg whose launch identity matches a vessel ANOTHER mission recorded EARLIER is that
+  mission's vessel and keeps the partner phrase `Kerbal X (mission 'Kerbal X')`, never a
+  number (never for a leg sharing launch with this mission's own root). Own non-EVA legs group
+  into vessels by ChainId or launch identity; per name, order is first appearance UT, then the
+  vessel whose first leg shares part pids with its parent, then RecordingId; numbering is per
+  tree, so clones agree. In the GUI-4 docking mission the undocked half `37d0dc07` and the
+  docked stack `f049901e` carry the first mission's launch (pid 3620499050, guid 97813bb6), so
+  they read the partner phrase, and `4af6cfd7` - this mission's own ship, re-pidded by KSP at
+  the undock - is the one numbered `Kerbal X [2]`: `Undocked (Kerbal X [2])` with the docked
+  stack (the partner) in the Vessel column, and three End rows told apart by name.
+  `MissionVesselNamingTests` pins both trees and the synthetic shapes.
 
 ## ~~MISSION-EVENT-DIGEST-DUPLICATE-LAUNCHED-ROW: the digest builds a second "launched" row for one flight~~ [FILED 2026-09-29 from MISSIONS-TAB-MODEL1. FIXED 2026-10-01, branch `missions-followups`]
 

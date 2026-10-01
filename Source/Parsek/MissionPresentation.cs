@@ -709,7 +709,8 @@ namespace Parsek
         /// </summary>
         internal static string ResolveSameTreeDockPartnerVesselName(
             MissionStructure structure, MissionThroughLineView view,
-            string ownerHeadId, double intervalStartUT)
+            string ownerHeadId, double intervalStartUT,
+            IReadOnlyDictionary<string, string> vesselNames = null)
         {
             if (structure == null || view == null || string.IsNullOrEmpty(ownerHeadId))
                 return null;
@@ -742,7 +743,14 @@ namespace Parsek
                         continue;
                     if (structure.LegsById.TryGetValue(parentId, out MissionLeg partner)
                         && partner != null && !string.IsNullOrEmpty(partner.VesselName))
+                    {
+                        // The shared mission vessel name (MissionVesselNaming) when given.
+                        if (vesselNames != null
+                            && vesselNames.TryGetValue(parentId, out string named)
+                            && !string.IsNullOrEmpty(named))
+                            return named;
                         return partner.VesselName;
+                    }
                 }
             }
             return null;

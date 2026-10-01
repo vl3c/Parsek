@@ -268,10 +268,20 @@ namespace Parsek
                 {
                     MissionStructure structure = MissionStructureBuilder.Build(tree);
                     string treeId = tree.Id;
+                    // The names the Missions vessel rows use (numbered same-named vessels,
+                    // another mission's vessel as its partner phrase), one helper for both.
+                    Dictionary<string, string> vesselNames = MissionVesselNaming.Build(
+                        tree, structure,
+                        MissionVesselNaming.LaunchIndex.Build(RecordingStore.CommittedTrees),
+                        otherTreeId => MissionsWindowUI.ResolvePartnerMissionName(otherTreeId, null),
+                        out MissionVesselNaming.Tally naming);
                     built = MissionStructureListBuilder.Build(
                         tree, structure, ResolvePartTitle,
                         (bp, viewerId) => ResolveMergePartner(treeId, bp, viewerId),
-                        mission?.ExcludedIntervalKeys);
+                        mission?.ExcludedIntervalKeys, vesselNames);
+                    ParsekLog.Verbose("UI",
+                        $"Structure window vessel names: tree={treeId} legs={naming.Legs} " +
+                        $"partners={naming.Partners} numbered={naming.Numbered}");
                 }
             }
             SetSteps(built);

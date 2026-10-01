@@ -112,6 +112,14 @@ tier = "operator"
 #     `steps=31`. After the Log rework (2026-10-01, PR #1945) the same opener reports
 #     `steps=11` - one row per real event (`2026-10-01_1630`, `bd-structure-mission-advanced`;
 #     rows pinned in `StructureListBdockFixtureTests`).
+#   - FLOWN `2026-10-01_2002` (MISSION-LOG-REWORK parts 3-5), PASS attempt 1: the docking
+#     mission's Log reads `Undocked (Kerbal X [2]) | Kerbin orbit | Kerbal X (mission
+#     'Kerbal X')` and three End rows named `Kerbal X (mission 'Kerbal X')`, `Kerbal X Probe`,
+#     `Kerbal X [2]`; its Missions row reads `Kerbal X   Launch -> Decoupled (Kerbal X Probe)
+#     -> Docked -> Undocked (Kerbal X [2]) -> Orbiting` over `Kerbal X Probe` and
+#     `Kerbal X [2]`. The clone pair opened `steps=9` (`Kerbal X`) and `steps=8`
+#     (`Kerbal X copy`, its probe excluded) - `bd-structure-cloneoriginal-advanced` /
+#     `bd-structure-clone-advanced`, the measured counts the pins below carry.
 #
 # WHAT THE RUN REFUTED, and this header claimed it: the THREE `REWIND_POINTS/POINT` entries
 # do NOT populate `Rewind/FF`. They are SEPARATION RewindPoints and they populate `Re-Fly`
@@ -272,6 +280,31 @@ steps = [
 
   # Leave the install in Advanced.
   { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+
+  # --- A CLONE'S LOG (MISSION-LOG-REWORK part 3, inventory P10), LAST on purpose: the clone
+  # is a new Mission in the store, and every capture above stays a picture of the fixture.
+  # `op=clone` with no `mission=` clones the FIRST mission over a committed tree, the first
+  # tree's `Kerbal X` (a Mission id is save-specific, so the copy is named by its R10
+  # capture `${clone.copy}`). The copy then drops its probe (`vessel:` + the probe's head
+  # recording id, the Missions vessel-row toggle's own body), and the Log opens on the
+  # ORIGINAL and on the COPY: same tree, two include sets, two Logs (9 rows and 8 rows,
+  # predicted from the committed bytes and measured on `2026-10-01_2002`; the copy has no
+  # `End: Orbiting | Kerbal X Probe`).
+  { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "clone", window = "missions" }, label = "clone", expect = "OK" },
+  { cmd = "UiAction", args = { op = "select", window = "missions", mission = "${clone.copy}", key = "vessel:b07cfd6cc27d47e7a6fb497d9836e665", include = "false" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "target", window = "structure", mission = "Kerbal X" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "structure", x = "270", y = "8", w = "1000", h = "520" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "bd-structure-cloneoriginal-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "bd-structure-cloneoriginal-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "structure" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "target", window = "structure", mission = "${clone.copy}" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "structure", x = "270", y = "8", w = "1000", h = "520" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "bd-structure-clone-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "bd-structure-clone-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "structure" }, expect = "OK" },
+
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 
@@ -305,6 +338,11 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=none state=false changed=[0-9]+ expanded=[0-9]+ total=[0-9]+",
   # --- the targeted Structure open (`steps=` is the row count the rebuild produced) ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction target window=structure target=mission id=.* steps=[0-9]+",
+  # --- the clone's Log: the copy drops its probe, and the Log opened on it is the COPY's
+  # (its own mission id on the window's open line, one row fewer than the original's) ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction select vessel mission=[0-9a-f]+ head=b07cfd6cc27d47e7a6fb497d9836e665 vessel=Kerbal X Probe include=false keysChanged=[1-9][0-9]*",
+  "\\[Parsek\\]\\[INFO\\]\\[UI\\] Structure window opened: mode=Mission tree=788554a928324f148dd313dd26322638 mission=[0-9a-f]+ steps=9 title='Parsek - Log: Kerbal X'",
+  "\\[Parsek\\]\\[INFO\\]\\[UI\\] Structure window opened: mode=Mission tree=788554a928324f148dd313dd26322638 mission=[0-9a-f]+ steps=8 title='Parsek - Log: Kerbal X copy'",
   # --- both group-picker titles ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction picker window=missions picker=manage target=.* open=true",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction picker window=missions picker=setparent target=Kerbal X open=true",
@@ -324,6 +362,8 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-timeline-refly-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-timeline-refly-minsize-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-structure-mission-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-structure-cloneoriginal-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-structure-clone-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-missions-grouppicker-manage-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-missions-grouppicker-setparent-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-main-basic .*patched=17/17",

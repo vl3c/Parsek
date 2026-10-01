@@ -200,13 +200,17 @@ namespace Parsek
         /// <c>Mission.ExcludedIntervalKeys</c>: a row that falls only inside intervals the
         /// mission excludes is dropped (<see cref="DropExcludedSteps"/>), so two missions over
         /// one tree read two different Logs. Null or empty keeps every row (the whole tree).
+        /// <paramref name="vesselNames"/> is <see cref="MissionVesselNaming.Build"/>'s map
+        /// (RecordingId -> "Kerbal X [2]" / the partner phrase), the names the Missions vessel
+        /// rows use; a leg it does not name reads its own vessel or kerbal name.
         /// </summary>
         internal static List<StructureStep> Build(
             RecordingTree tree,
             MissionStructure structure,
             Func<string, string> partTitleResolver = null,
             Func<BranchPoint, string, string> mergePartnerResolver = null,
-            ICollection<string> excludedIntervalKeys = null)
+            ICollection<string> excludedIntervalKeys = null,
+            IReadOnlyDictionary<string, string> vesselNames = null)
         {
             var steps = new List<StructureStep>();
             if (tree == null || structure == null || structure.LegsById.Count == 0)
@@ -217,7 +221,8 @@ namespace Parsek
                 return steps;
             }
 
-            var ctx = new BuildContext(tree, structure, partTitleResolver, mergePartnerResolver);
+            var ctx = new BuildContext(tree, structure, partTitleResolver, mergePartnerResolver,
+                vesselNames);
 
             // 1. Launch: one per root leg.
             AddLaunchSteps(steps, ctx);
@@ -364,6 +369,7 @@ namespace Parsek
             internal readonly MissionStructure Structure;
             private readonly Func<string, string> partTitleResolver;
             internal readonly Func<BranchPoint, string, string> MergePartnerResolver;
+            private readonly IReadOnlyDictionary<string, string> vesselNames;
             private readonly Dictionary<string, string> titleCache =
                 new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -383,12 +389,14 @@ namespace Parsek
 
             internal BuildContext(RecordingTree tree, MissionStructure structure,
                 Func<string, string> partTitleResolver,
-                Func<BranchPoint, string, string> mergePartnerResolver)
+                Func<BranchPoint, string, string> mergePartnerResolver,
+                IReadOnlyDictionary<string, string> vesselNames)
             {
                 Tree = tree;
                 Structure = structure;
                 this.partTitleResolver = partTitleResolver;
                 MergePartnerResolver = mergePartnerResolver;
+                this.vesselNames = vesselNames;
                 IndexPredecessors();
             }
 
@@ -399,10 +407,15 @@ namespace Parsek
             internal MissionLeg Leg(string id)
                 => id != null && Structure.LegsById.TryGetValue(id, out MissionLeg l) ? l : null;
 
-            // The vessel name a row about this recording shows: the leg label for a
-            // controlled leg, else the recording's own vessel name.
+            // The vessel name a row about this recording shows: the shared mission vessel
+            // name (numbered, or the partner phrase) when the naming pass gave one, the leg
+            // label for any other controlled leg, else the recording's own vessel name.
             internal string VesselOf(string recordingId)
             {
+                if (recordingId != null && vesselNames != null
+                    && vesselNames.TryGetValue(recordingId, out string named)
+                    && !string.IsNullOrEmpty(named))
+                    return named;
                 MissionLeg leg = Leg(recordingId);
                 if (leg != null) return LegLabel(leg);
                 Recording rec = Rec(recordingId);
@@ -551,7 +564,7 @@ namespace Parsek
                     Kind = StructureStepKind.Launch,
                     Label = !string.IsNullOrEmpty(leg.EvaCrewName) ? "EVA " + leg.EvaCrewName : "Launch",
                     Location = location,
-                    VesselName = LegLabel(leg),
+                    VesselName = ctx.VesselOf(rootId),
                     RecordingId = rootId
                 });
             }
@@ -1065,7 +1078,7 @@ namespace Parsek
                     Kind = StructureStepKind.Terminal,
                     Label = FormatEndLabel(term),
                     Location = TerminalLocation(rec, term),
-                    VesselName = LegLabel(leg),
+                    VesselName = ctx.VesselOf(leg.RecordingId),
                     RecordingId = leg.RecordingId
                 });
             }

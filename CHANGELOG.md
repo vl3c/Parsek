@@ -2387,6 +2387,15 @@ _(unreleased — entries accumulate here per commit)_
   moves). The Logistics window's mission Log button opens the source tree's original mission.
   Presentation only (`MissionStructureList.cs`, `MissionIntervalSelection.IsIntervalIncluded`,
   `StructureListWindowUI.cs`).
+- **Same-named vessels are numbered in the Log and the Missions rows.** Two of a mission's
+  own vessels that share a name read `Kerbal X` and `Kerbal X [2]` (the later one numbered;
+  segments of one vessel share its name; EVA kerbals keep their names), in the Log's Event and
+  Vessel cells and in the Missions tab's vessel rows and their event phrases, from one shared
+  naming rule. A vessel that belongs to another mission, such as a docking partner or the half
+  of a docked stack that keeps the partner's identity after undocking, is never numbered: it
+  reads `Kerbal X (mission 'Kerbal X')`. The docking test mission's Log now reads `Undocked
+  (Kerbal X [2])` and its three End rows name three different vessels. Presentation only
+  (`MissionVesselNaming.cs`).
 - **A supply route has one Log button, and it opens the mission's Log.** The route Log (an
   origin / dock / delivery / undock step list behind `Log (Route)`) is gone: the route's detail
   panel already shows its origin, destination, per-cycle delivery and transit. The remaining

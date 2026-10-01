@@ -341,6 +341,8 @@ namespace Parsek
         // Per-frame cache of the T2.2 flattened per-vessel rows, keyed by TREE id (derived from
         // the composition roots, so every Mission over one tree shares them). Cleared alongside
         // missionViewCache on the first lookup of a new frame.
+        private MissionVesselNaming.LaunchIndex launchIndexCache;
+        private int launchIndexCacheFrame = -1;
         private readonly Dictionary<string, List<MissionVesselRow>> vesselRowsCache =
             new Dictionary<string, List<MissionVesselRow>>();
 
@@ -1600,14 +1602,39 @@ namespace Parsek
             if (!vesselRowsCache.TryGetValue(tree.Id, out var rows))
             {
                 var (structure, view) = GetMissionView(tree);
+                // The vessel names the mission Log uses too (MissionVesselNaming): numbered
+                // same-named vessels, another mission's vessel as its partner phrase.
+                Dictionary<string, string> vesselNames = MissionVesselNaming.Build(
+                    tree, structure, GetLaunchIndex(),
+                    otherTreeId => ResolvePartnerMissionName(otherTreeId, null),
+                    out MissionVesselNaming.Tally naming);
                 rows = MissionVesselRowBuilder.Build(
                     GetCompositionRoots(tree),
                     (ownerHeadId, boundaryUT) =>
                         MissionPresentation.ResolveSameTreeDockPartnerVesselName(
-                            structure, view, ownerHeadId, boundaryUT));
+                            structure, view, ownerHeadId, boundaryUT, vesselNames),
+                    vesselNames);
                 vesselRowsCache[tree.Id] = rows;
+                var logged = naming;
+                ParsekLog.VerboseRateLimited("Mission", "missions-vessel-names|" + tree.Id,
+                    () => $"Missions vessel names: tree={tree.Id} legs={logged.Legs} " +
+                    $"partners={logged.Partners} numbered={logged.Numbered}", 5.0);
             }
             return rows;
+        }
+
+        // Every committed recording's launch identity, for MissionVesselNaming's partner test.
+        // Built at most once per frame (the other per-frame caches' cadence) and shared by
+        // every tree the frame draws.
+        private MissionVesselNaming.LaunchIndex GetLaunchIndex()
+        {
+            int frame = Time.frameCount;
+            if (launchIndexCache == null || launchIndexCacheFrame != frame)
+            {
+                launchIndexCache = MissionVesselNaming.LaunchIndex.Build(RecordingStore.CommittedTrees);
+                launchIndexCacheFrame = frame;
+            }
+            return launchIndexCache;
         }
 
         // Returns the header summary-line facts for a tree (T1.1), derived at most once per frame

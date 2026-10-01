@@ -438,7 +438,10 @@ the New Group footer button (the Info button was removed 2026-09-26), and every 
 
 **Missions tab.** Row model: one row per physical vessel or EVA kerbal, built by
 `MissionVesselRowBuilder.Build` (`MissionVesselRows.cs:59`); depth is SEPARATION LINEAGE only,
-never time (`:118-123`); roster atoms are not rows (`:99-101`).
+never time (`:118-123`); roster atoms are not rows (`:99-101`). Vessel names (2026-10-01) come
+from `MissionVesselNaming`, shared with the Log: another mission's vessel reads
+`X (mission 'Y')`, and this mission's own same-named vessels are numbered `Kerbal X [2]` in the
+row and in every phrase piece that names it.
 
 | # | header | width const | mission bar line 1 | mission bar line 2 | vessel / interval / partner / chapter rows |
 |---|---|---|---|---|---|
@@ -1007,7 +1010,9 @@ row per real event (`MissionStructureListBuilder`): `Launch`, one `Staged: N pie
 title> xK, ...)` row per recorded separation, `Decoupled (<piece>)` / `Docked (<partner>)` /
 `Undocked (<piece>)` naming the other vessel (cross-mission partners as
 `X (mission 'Y')`), and `End: <terminal word>` (no End row for a leg that ended Docked or
-Boarded). Location: `<body> orbit` only for an orbital ending or a separation whose piece
+Boarded). Vessel names in the Event and Vessel cells are the Missions rows' own
+(`MissionVesselNaming`): another mission's vessel reads `X (mission 'Y')`, this mission's own
+same-named vessels `Kerbal X [2]`. Location: `<body> orbit` only for an orbital ending or a separation whose piece
 recorded an orbit, else body and biome where recorded at that moment, else the body, else `-`.
 An Event list longer than `EventCellCharBudget` (60) is shortened in the cell and carried whole
 as the cell's tooltip, read in a single-line `TooltipEchoBox` strip above `Close` (the window's
