@@ -1482,7 +1482,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | id | item | file:line |
 |---|---|---|
 | H2 | The whole Gloops recorder, its 7 screen messages and its recordings group are reachable only through the seam | `UI/GloopsRecorderUI.cs`, verbs `ParsekFlight.cs:16978`+, retirement `UI/UiComplexityMode.cs:140-143` |
-| H10 | The 20-clone overlap cap silently RAISES the typed loop period while the Period cell keeps showing the typed value | `ParsekConfig.cs:150`, `:168`; `GhostPlaybackLogic.WarpLoopPolicy.cs:469`; verdict `GhostPlaybackEngine.cs:976` |
+| H10 | The 20-clone overlap cap silently RAISES the typed loop period while the Period cell keeps showing the typed value. STALE + FIXED 2026-10-01: the manual-mode cell has shown the flown (cap-raised) period in amber since April; its hover now names the typed value and the 20-copy reason in the row's unit (`RecordingsTableUI.BuildLoopPeriodCellView`). An `auto` row still shows the shared Settings launch gap | `ParsekConfig.cs:150`, `:168`; `GhostPlaybackLogic.WarpLoopPolicy.cs:469`; verdict `GhostPlaybackEngine.cs:976` |
 | H11 | Render zones, warp-hide and loop-spawn thresholds: ghosts stop drawing at 120 km, stop spawning past 50 km, lose part-event visuals past 10 km, lose FX past 10x warp and vanish past 50x. Every one reads as a bug | `ParsekConfig.cs:41`, `:71`, `:73-74`, `:327`, `:333`; `RenderingZoneManager.cs:31`, `:62`, `:76` |
 | H12 | 20 playback skip reasons; one has a control | `GhostPlaybackEvents.cs:5-56`, counters `:110-133`, log `GhostPlaybackEngine.cs:893-914` |
 | H13 | `historical-not-replayed`: a recording the player only moved forward past is completely inert - no ghost, no map icon, no terminal spawn | `PlaybackScopeTracker.cs:34` |
@@ -1493,7 +1493,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | D10 | `IsOverlapPerInstanceGateOn()` returns a constant; the documented OFF branch cannot execute | `GhostMapPresence.cs:76`, branch `:11416-11433` |
 | D11 | `UIMode.TrackingStation` is never constructed, so `CanOfferGhostOnlyDelete`'s TS branch is dead | `UI/RecordingsTableUI.cs:4613`, `ParsekUI.cs:11` |
 | P1 | The per-recording playback checkbox: the map icon, orbit line, TS row and the KSC terminal-vessel spawn all ignore `PlaybackEnabled` (bug #433). RULED + FIXED 2026-09-14 on the RENDER surfaces (see 5.2); the KSC terminal-vessel spawn stays, by the same ruling | tooltip `UI/RecordingsTableUI.cs:1849`; `GhostMapPresence*.cs` / `ParsekTrackingStation.cs` never read it; `ParsekKSC.cs:373-396` |
-| P2 | The Period cell shows the typed value, not the cadence being flown | header tooltip `UI/RecordingsTableUI.cs:1341`, engine `GhostPlaybackLogic.WarpLoopPolicy.cs:469` |
+| P2 | The Period cell shows the typed value, not the cadence being flown. FIXED 2026-10-01 (see H10): the read-out is the flown cadence, the hover says `Period raised from 5s to 6s to fit the overlap cap - at most 20 copies of this flight can play at once.` | header tooltip `UI/RecordingsTableUI.cs:1341`, engine `GhostPlaybackLogic.WarpLoopPolicy.cs:469` |
 | P4 | `Warp to Spawn` performs a time jump only; whether a vessel appears is then decided by 15 silent refusals, and an invalid jump is itself silent | `UI/SpawnControlPresentation.cs:104`, `ParsekFlight.WarpToRecordingEnd:27367`, `:27384-27389` |
 | P13 | The Gloops idle label says `Ghost-only - loops by default` while the code sets `LoopPlayback = false`; the class doc says the opposite of the label | `UI/GloopsRecorderUI.cs:333`, `ParsekFlight.cs:17090`, doc `:8-10` |
 
@@ -1660,7 +1660,7 @@ One line each for the rest:
 
 | id | the decision needed |
 |---|---|
-| P2 | The 20-clone cap silently raises the loop period while the Period cell shows the typed value: show the effective period with a tooltip, or leave the cap invisible? |
+| P2 | The 20-clone cap silently raises the loop period while the Period cell shows the typed value: show the effective period with a tooltip, or leave the cap invisible? DECIDED + FIXED 2026-10-01: show it, typed value and reason on the hover |
 | P3 | The route Interval field snaps to `N x transit` and overwrites the typed value: show the snapped value and why in the existing tooltip, or accept the silent rewrite? |
 | P4 | `Warp to Spawn` has 15 silent refusals behind it: put the refusal reason in the existing disabled-hover echo, or rename the button to the action it performs? |
 | P9 | Rename refusals (mission, group, re-parent) discard the typed name with a Warn: keep the field content and show the reason in the row tooltip, or leave it? |

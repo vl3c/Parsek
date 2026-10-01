@@ -1275,6 +1275,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **The Recordings Period cell explains a raised period in plain words.** When a loop period
+  would put more than 20 copies of a flight in the air at once, Parsek flies the shortest period
+  that keeps it to 20, and the cell already showed that slower period in amber. Its hover now
+  says what you typed and why, in the row's own unit: `Period raised from 5s to 6s to fit the
+  overlap cap - at most 20 copies of this flight can play at once.` (it used to read `Runtime
+  cadence clamped to 6s to keep concurrent cycles <= 20 ...`, always in seconds). Clicking the
+  cell still edits the period you typed, which is what stays saved. A period under the cap
+  looks exactly as before.
 - **The Logistics window describes a supply route with several stops as a whole.** A route
   built from a Supply Run that docked at more than one vessel delivers at every stop each
   cycle, but four cells read only its first stop. A relay that picked up cargo at one rover

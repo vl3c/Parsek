@@ -7550,7 +7550,7 @@ presence is exactly the surface a unit test cannot see. The lane needed NEW seam
 in the M-A2 command seam could flip `PlaybackEnabled` before, so `UiAction op=playback` was added
 with it.
 
-## GUI-P2-LOOP-PERIOD-CELL-SHOWS-A-PERIOD-THE-ENGINE-IS-NOT-FLYING: the 20-clone cap silently raises the cadence [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-P2-LOOP-PERIOD-CELL-SHOWS-A-PERIOD-THE-ENGINE-IS-NOT-FLYING~~: the 20-clone cap silently raises the cadence [FILED 2026-09-11 by the GUI fix batch, FIXED 2026-10-01]
 
 **Evidence.** The Period column header tooltip (`UI/RecordingsTableUI.cs:1341`) says
 "Launch-to-launch period: how often the ghost relaunches." When
@@ -7564,6 +7564,25 @@ displaying the number the player typed. The census called this the clearest
 reason in the existing tooltip - the same shape the Missions tab already uses for its
 clamped period (`MissionPresentation.PeriodTooltipClamped`), so there is a precedent to
 copy rather than a new surface to invent.
+
+**Fix.** The evidence was half stale: since the April loop-cadence change (`c55cfbb5e`) the
+manual-mode cell's read-out has been `GhostPlaybackLogic.ComputeEffectiveLaunchCadence` - the
+same call the engine makes before an overlap loop - in amber, with the edit buffer seeded from
+the stored typed value; the census read only the header tooltip. What was still wrong was the
+hover: `Runtime cadence clamped to Xs to keep concurrent cycles <= 20 (requested: Ys, duration:
+Zs)`, always in seconds. The read-out is now composed by one pure helper,
+`RecordingsTableUI.BuildLoopPeriodCellView` (text, clamped flag, hover), and the hover is in the
+Missions shape and the row's unit: `Period raised from 5s to 6s to fit the overlap cap - at most
+20 copies of this flight can play at once.` (minimum-period and invalid-value branches kept,
+reworded). Edit behaviour and the uncapped read-out are unchanged. Guarded by
+`RecordingsTableUITests.LoopPeriodCellView_*` (below / at / above the cap, row unit, culture,
+and an uncapped cell pinned to the plain `FormatLoopValue` text) and
+`TooltipEchoBudgetTests.LoopPeriodClampTooltips_FitTheRecordingsStrip`. Live cap behaviour:
+`OC-1-overlap-cap-per-recording` (5 s typed on a 120 s flight, flown at 6 s). Not changed, by
+design: an `auto` row shows the shared Settings launch gap, not its own cadence (the global
+auto queue relaunches each recording every gap x N, then caps that) - a different meaning, not
+this code path. The Missions period cell already showed its cap-raised cadence
+(`MaxOverlapMissionInstances`); the route Interval snap is GUI-P3.
 
 ## GUI-P3-ROUTE-INTERVAL-SNAPS-SILENTLY: a free-text field that rewrites what you typed [FILED 2026-09-11 by the GUI fix batch]
 

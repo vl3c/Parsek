@@ -6549,20 +6549,17 @@ namespace Parsek
             }
             else
             {
-                // Manual mode: editable text field with edit buffer.
-                double loopDuration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
-                bool displayClamped;
-                double displayedSeconds = ComputeDisplayedLoopPeriod(
-                    rec.LoopIntervalSeconds, loopDuration,
-                    GhostPlayback.MaxOverlapGhostsPerRecording,
-                    out displayClamped);
-                string displayText = FormatLoopPeriodDisplayText(
-                    displayedSeconds, rec.LoopTimeUnit, displayClamped);
-                string clampTooltip = displayClamped
-                    ? BuildLoopPeriodClampTooltip(
-                        rec.LoopIntervalSeconds, displayedSeconds, loopDuration,
-                        GhostPlayback.MaxOverlapGhostsPerRecording)
-                    : string.Empty;
+                // Manual mode: editable text field with edit buffer. The read-out is the
+                // cadence the engine flies (overlap cap applied); the edit buffer below
+                // still seeds from the stored typed value.
+                LoopPeriodCellView view = BuildLoopPeriodCellView(
+                    rec.LoopIntervalSeconds,
+                    GhostPlaybackEngine.EffectiveLoopDuration(rec),
+                    rec.LoopTimeUnit,
+                    GhostPlayback.MaxOverlapGhostsPerRecording);
+                bool displayClamped = view.Clamped;
+                string displayText = view.Text;
+                string clampTooltip = view.Tooltip;
                 if (loopPeriodFocusedRi != ri)
                 {
                     // Not editing: show runtime-effective value, but seed the edit buffer
@@ -6667,66 +6664,94 @@ namespace Parsek
             return ParsekUI.FormatLoopValue(displayValue, unit);
         }
 
-        internal static string BuildLoopPeriodClampTooltip(
-            double storedSeconds, double effectiveSeconds, double loopDurationSeconds, int cap)
+        /// <summary>
+        /// What a manual-mode Period cell shows while it is NOT being edited: the read-out
+        /// text, whether it differs from the stored typed value (amber tint), and the hover
+        /// text explaining the difference (empty when it does not differ).
+        /// </summary>
+        internal struct LoopPeriodCellView
         {
-            if (double.IsNaN(storedSeconds) || double.IsInfinity(storedSeconds)
-                || Math.Abs(effectiveSeconds - storedSeconds) <= 1e-6)
-            {
-                if (!(double.IsNaN(storedSeconds) || double.IsInfinity(storedSeconds)))
-                    return string.Empty;
-            }
+            public string Text;
+            public bool Clamped;
+            public string Tooltip;
+        }
 
+        /// <summary>
+        /// Composes the manual-mode Period read-out from the stored typed period. The value
+        /// shown is <see cref="GhostPlaybackLogic.ComputeEffectiveLaunchCadence"/> - the same
+        /// call the engine makes before flying an overlap loop - so the cell states the cadence
+        /// actually flown. An uncapped period renders exactly as the plain stored value. Pure.
+        /// </summary>
+        internal static LoopPeriodCellView BuildLoopPeriodCellView(
+            double storedSeconds, double loopDurationSeconds, LoopTimeUnit unit, int cap)
+        {
+            bool clamped;
+            double displayedSeconds = ComputeDisplayedLoopPeriod(
+                storedSeconds, loopDurationSeconds, cap, out clamped);
+            return new LoopPeriodCellView
+            {
+                Text = FormatLoopPeriodDisplayText(displayedSeconds, unit, clamped),
+                Clamped = clamped,
+                Tooltip = clamped
+                    ? BuildLoopPeriodClampTooltip(
+                        storedSeconds, displayedSeconds, loopDurationSeconds, cap, unit)
+                    : string.Empty,
+            };
+        }
+
+        /// <summary>
+        /// Hover text of a Period cell whose read-out differs from the typed value. Names the
+        /// typed value and the value flown in the row's own unit, and why (the overlap cap of
+        /// <paramref name="cap"/> live copies, or the minimum period). Same shape as the
+        /// Missions tab's clamped period (<see cref="MissionPresentation.PeriodTooltipClamped"/>).
+        /// Empty when the two agree. Pure; invariant culture.
+        /// </summary>
+        internal static string BuildLoopPeriodClampTooltip(
+            double storedSeconds, double effectiveSeconds, double loopDurationSeconds, int cap,
+            LoopTimeUnit unit)
+        {
             bool invalidStored = double.IsNaN(storedSeconds) || double.IsInfinity(storedSeconds);
+            if (!invalidStored && Math.Abs(effectiveSeconds - storedSeconds) <= 1e-6)
+                return string.Empty;
+
             double minAdjustedSeconds = invalidStored
                 ? LoopTiming.MinCycleDuration
                 : Math.Max(storedSeconds, LoopTiming.MinCycleDuration);
-            bool minAdjusted = invalidStored
-                || storedSeconds < LoopTiming.MinCycleDuration - 1e-6;
             bool capAdjusted = loopDurationSeconds > 0.0 && cap > 0
                 && effectiveSeconds - minAdjustedSeconds > 1e-6;
 
-            string effectiveText = effectiveSeconds.ToString("0.######", CultureInfo.InvariantCulture);
-            string requestedText = invalidStored
-                ? "invalid"
-                : storedSeconds.ToString("0.######", CultureInfo.InvariantCulture);
-            string durationText = loopDurationSeconds.ToString("0.######", CultureInfo.InvariantCulture);
-            string minText = LoopTiming.MinCycleDuration.ToString("0.######", CultureInfo.InvariantCulture);
+            string effectiveText = FormatLoopPeriodWithUnit(effectiveSeconds, unit);
 
-            if (capAdjusted && minAdjusted)
+            if (invalidStored)
             {
-                return string.Format(
-                    CultureInfo.InvariantCulture,
-                    "Runtime cadence clamped to {0}s to keep concurrent cycles <= {1} (requested: {2}s, minimum period: {3}s, duration: {4}s).",
-                    effectiveText, cap, requestedText, minText, durationText);
+                return capAdjusted
+                    ? string.Format(CultureInfo.InvariantCulture,
+                        "Period repaired to {0} - the stored value was invalid, and at most {1} copies of this flight can play at once.",
+                        effectiveText, cap)
+                    : string.Format(CultureInfo.InvariantCulture,
+                        "Period repaired to {0} - the stored value was invalid.",
+                        effectiveText);
             }
 
+            string typedText = FormatLoopPeriodWithUnit(storedSeconds, unit);
             if (capAdjusted)
             {
-                return string.Format(
-                    CultureInfo.InvariantCulture,
-                    "Runtime cadence clamped to {0}s to keep concurrent cycles <= {1} (requested: {2}s, duration: {3}s).",
-                    effectiveText, cap, requestedText, durationText);
+                return string.Format(CultureInfo.InvariantCulture,
+                    "Period raised from {0} to {1} to fit the overlap cap - at most {2} copies of this flight can play at once.",
+                    typedText, effectiveText, cap);
             }
 
-            if (minAdjusted)
-            {
-                if (invalidStored)
-                {
-                    return string.Format(
-                        CultureInfo.InvariantCulture,
-                        "Runtime cadence repaired to {0}s from an invalid stored value (minimum period: {1}s).",
-                        effectiveText, minText);
-                }
-
-                return string.Format(
-                    CultureInfo.InvariantCulture,
-                    "Runtime cadence raised to {0}s because the minimum period is {1}s (requested: {2}s).",
-                    effectiveText, minText, requestedText);
-            }
-
-            return string.Empty;
+            return string.Format(CultureInfo.InvariantCulture,
+                "Period raised from {0} to {1} - the shortest period allowed is {2}.",
+                typedText, effectiveText,
+                FormatLoopPeriodWithUnit(LoopTiming.MinCycleDuration, unit));
         }
+
+        // A period in the row's unit with its suffix ("6s", "0.1m"), at the clamped read-out's
+        // resolution so neither the typed nor the flown value is rounded away.
+        private static string FormatLoopPeriodWithUnit(double seconds, LoopTimeUnit unit)
+            => FormatLoopPeriodDisplayText(seconds, unit, preserveSecondResolution: true)
+                + UnitSuffix(unit);
 
         private void CommitLoopPeriodEdit(IReadOnlyList<Recording> committed)
         {
