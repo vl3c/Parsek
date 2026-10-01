@@ -1287,6 +1287,9 @@ _(unreleased — entries accumulate here per commit)_
   phase's hold at the split. A looped mission (which loops a whole mission, including supply
   route missions) never had this problem. The log line is `Loop recording holds crew like
   its real first run:` (`KerbalsModule.ProcessAction`, `CrewRecoveryReservationClose`).
+  Existing careers see this apply to the past too: a kerbal who flew a looped flight and was
+  since put on another vessel (which the old behaviour allowed) now reads as reserved until
+  that looped flight's vessel is recovered.
 
 - **Dev: the GUI mirror no longer paints scrolled-out rows in the colours of whatever is
   under them.** A scroll view's rows below (or above) its viewport are in the control-tree
