@@ -1,0 +1,75 @@
+[Mission][Info][Spawn] mission start name=b11_mun_orbit rpc=127.0.0.1:50000 stream=50001 budget=3000.000s result=C:\Users\vlad3\Documents\Code\Parsek\Parsek-split-count-repin\harness\results\2026-10-01_1231_B11-mun-orbit_mission.json
+[Mission][Info][PLAN-CAPTURE] phase TARGET-FLYBY -> PLAN-CAPTURE ut=16466.180 alt=2207323.104 ap=-1562246.457 vsurf=-413.800 avThr=249999.984 vessels=3 parts=17
+[Mission][Info][Warp] warp thread ended (OSError: [WinError 10038] An operation was attempted on something that is not a socket)
+[Mission][Info][Warp] native warp cancelled (factors zeroed)
+[Mission][Info][PLAN-CAPTURE] action cancel_warp value=none
+[Mission][Info][Capture] capture plan issued (circularize at periapsis, time reference READ BACK confirmed); nodes=1
+[Mission][Info][PLAN-CAPTURE] action mj_plan_capture value=none
+[Mission][VerboseRateLimited][PLAN-CAPTURE] telemetry ap=-1562246.457 pe=138827.891 alt=2207323.104 vspd=-413.800 body=Mun nodes=0 nodeUt=nan nextBody=Kerbin situation=ESCAPING warp=RAILSx3.160 apErr=nan ut=16466.180
+[Mission][Info][CAPTURE-BURN] phase PLAN-CAPTURE -> CAPTURE-BURN ut=16466.744 alt=2207098.244 ap=-1562246.457 vsurf=-413.804 avThr=249999.984 vessels=3 parts=17
+[Mission][Info][CAPTURE-BURN] action mj_execute_nodes value=none
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.457 pe=138827.891 alt=2206708.467 vspd=-413.811 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=RAILSx2.920 apErr=nan ut=16467.665
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.457 pe=138827.891 alt=2204519.197 vspd=-413.848 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=RAILSx7.600 apErr=nan ut=16472.953
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.457 pe=138827.891 alt=2197957.472 vspd=-413.959 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=RAILSx32.400 apErr=nan ut=16488.801
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.457 pe=138827.891 alt=2174487.368 vspd=-414.362 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=RAILSx79.999 apErr=nan ut=16545.453
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.457 pe=138827.891 alt=2058861.732 vspd=-416.421 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=RAILSx676.013 apErr=nan ut=16823.808
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.457 pe=138827.891 alt=1647803.847 vspd=-424.897 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=RAILSx1000.000 apErr=nan ut=17802.244
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.457 pe=138827.891 alt=1191372.396 vspd=-436.475 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=RAILSx1000.000 apErr=nan ut=18862.244
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.457 pe=138827.891 alt=724096.258 vspd=-446.614 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=RAILSx1000.000 apErr=nan ut=19922.244
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.457 pe=138827.891 alt=456408.308 vspd=-435.605 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=RAILSx100.000 apErr=nan ut=20521.222
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.457 pe=138827.891 alt=411594.649 vspd=-428.621 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=RAILSx100.000 apErr=nan ut=20625.222
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.457 pe=138827.891 alt=290676.493 vspd=-387.250 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=RAILSx42.800 apErr=nan ut=20919.946
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.457 pe=138827.891 alt=282699.077 vspd=-381.719 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=RAILSx10.000 apErr=nan ut=20943.922
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.457 pe=138827.891 alt=279143.303 vspd=-379.249 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=RAILSx8.300 apErr=nan ut=20954.050
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.457 pe=138827.891 alt=277300.250 vspd=-378.060 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=PHYSICSx1.880 apErr=nan ut=20958.807
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.457 pe=138827.891 alt=276869.958 vspd=-377.786 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=20959.912
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.457 pe=138827.891 alt=276464.392 vspd=-377.523 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=20960.952
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.457 pe=138827.891 alt=276061.285 vspd=-377.259 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=20961.992
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.456 pe=138827.891 alt=275658.215 vspd=-376.994 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=20963.032
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.456 pe=138827.891 alt=275247.383 vspd=-376.728 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=20964.072
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.456 pe=138827.891 alt=274832.300 vspd=-376.461 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=20965.112
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.456 pe=138827.891 alt=274421.609 vspd=-376.193 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=20966.152
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.456 pe=138827.891 alt=274016.213 vspd=-375.924 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=20967.192
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.456 pe=138827.891 alt=135233.638 vspd=-12.821 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=21555.252
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.456 pe=138827.891 alt=135190.128 vspd=-11.841 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=21556.292
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.456 pe=138827.891 alt=135116.822 vspd=-10.880 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=21557.312
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.456 pe=138827.891 alt=135192.918 vspd=-9.918 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=21558.332
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.456 pe=138827.891 alt=135217.166 vspd=-8.919 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=21559.392
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1562246.456 pe=138827.891 alt=135353.100 vspd=-7.939 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=21560.432
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1655150.125 pe=138827.815 alt=135462.216 vspd=-6.892 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=21561.432
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-1954681.950 pe=138827.457 alt=135503.638 vspd=-5.769 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=21562.472
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-2446671.310 pe=138827.154 alt=135536.304 vspd=-4.767 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=21563.492
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-3430891.943 pe=138826.923 alt=135548.635 vspd=-3.857 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=21564.512
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=-6497180.925 pe=138826.725 alt=135503.187 vspd=-3.027 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=21565.552
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=164171988.311 pe=138826.549 alt=135319.965 vspd=-2.297 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=21566.592
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=5147334.116 pe=138826.389 alt=135247.984 vspd=-1.666 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=21567.632
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=2389596.848 pe=138826.248 alt=135235.905 vspd=-1.132 body=Mun nodes=1 nodeUt=21568.831 nextBody=Kerbin situation=ESCAPING warp=NONEx1.000 apErr=nan ut=21568.672
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=1474389.384 pe=138826.137 alt=135238.146 vspd=-0.709 body=Mun nodes=1 nodeUt=21568.831 nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21569.672
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=990401.969 pe=138826.051 alt=135208.530 vspd=-0.360 body=Mun nodes=1 nodeUt=21568.831 nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21570.712
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=705205.530 pe=138826.005 alt=135217.854 vspd=-0.105 body=Mun nodes=1 nodeUt=21568.831 nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21571.732
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=511305.255 pe=138826.002 alt=135237.752 vspd=0.069 body=Mun nodes=1 nodeUt=21568.831 nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21572.772
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=375741.687 pe=138826.050 alt=135225.013 vspd=0.160 body=Mun nodes=1 nodeUt=21568.831 nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21573.792
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=272369.809 pe=138826.153 alt=135180.736 vspd=0.175 body=Mun nodes=1 nodeUt=21568.831 nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21574.832
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=192502.353 pe=138826.308 alt=135180.118 vspd=0.117 body=Mun nodes=1 nodeUt=21568.831 nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21575.872
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=160447.452 pe=138826.378 alt=135177.326 vspd=0.081 body=Mun nodes=1 nodeUt=21568.831 nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21576.912
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=151372.216 pe=138826.356 alt=135159.042 vspd=0.077 body=Mun nodes=1 nodeUt=21568.831 nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21577.952
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=146155.039 pe=138826.292 alt=135129.610 vspd=0.073 body=Mun nodes=1 nodeUt=21568.831 nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21578.992
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=143212.619 pe=138826.160 alt=135109.249 vspd=0.068 body=Mun nodes=1 nodeUt=21568.831 nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21579.992
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=141403.635 pe=138825.900 alt=135096.444 vspd=0.064 body=Mun nodes=1 nodeUt=21568.831 nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21581.032
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=140342.539 pe=138825.426 alt=135087.358 vspd=0.062 body=Mun nodes=1 nodeUt=21568.831 nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21582.072
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=139716.348 pe=138824.586 alt=135079.127 vspd=0.060 body=Mun nodes=1 nodeUt=21568.831 nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21583.072
+[Mission][VerboseRateLimited][CAPTURE-BURN] telemetry ap=139130.333 pe=138820.579 alt=135110.768 vspd=0.057 body=Mun nodes=1 nodeUt=21568.831 nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21584.112
+[Mission][Info][PARK] phase CAPTURE-BURN -> PARK ut=21585.152 alt=135124.020 ap=138865.827 vsurf=0.056 avThr=249999.984 vessels=3 parts=17
+[Mission][Info][PARK] action set_rails_warp value=0.000
+[Mission][Info][PARK] action cut_throttle value=0.000
+[Mission][Info][PARK] action mj_abort_and_clear_nodes value=none
+[Mission][Info][PARK] action set_sas value=none
+[Mission][Info][PARK] action set_rcs value=1.000
+[Mission][VerboseRateLimited][PARK] telemetry ap=138865.827 pe=138779.225 alt=135124.020 vspd=0.056 body=Mun nodes=0 nodeUt=nan nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21585.152
+[Mission][VerboseRateLimited][PARK] telemetry ap=138865.827 pe=138779.225 alt=135114.900 vspd=0.056 body=Mun nodes=0 nodeUt=nan nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21586.212
+[Mission][VerboseRateLimited][PARK] telemetry ap=138865.827 pe=138779.225 alt=135105.687 vspd=0.056 body=Mun nodes=0 nodeUt=nan nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21587.252
+[Mission][VerboseRateLimited][PARK] telemetry ap=138865.827 pe=138779.225 alt=135110.659 vspd=0.056 body=Mun nodes=0 nodeUt=nan nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21588.272
+[Mission][VerboseRateLimited][PARK] telemetry ap=138865.827 pe=138779.225 alt=135061.890 vspd=0.056 body=Mun nodes=0 nodeUt=nan nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21589.292
+[Mission][VerboseRateLimited][PARK] telemetry ap=138865.827 pe=138779.225 alt=135030.862 vspd=0.056 body=Mun nodes=0 nodeUt=nan nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21590.312
+[Mission][VerboseRateLimited][PARK] telemetry ap=138865.827 pe=138779.225 alt=134992.702 vspd=0.056 body=Mun nodes=0 nodeUt=nan nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21591.352
+[Mission][VerboseRateLimited][PARK] telemetry ap=138865.827 pe=138779.225 alt=134971.431 vspd=0.056 body=Mun nodes=0 nodeUt=nan nextBody=? situation=ORBITING warp=NONEx1.000 apErr=nan ut=21592.372
