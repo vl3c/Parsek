@@ -1438,7 +1438,8 @@ count. Flown once each on current main:
 - Not flown (operator tier, over the 3 h budget): B16, B18, B19, B20, B21. B22 flew on
   2026-10-01 for the mission warp policy (`2026-10-01_2135`, MISSION-OK, a circular Jool park)
   and read 6 on `recordings.count 6 > max 5` alone with exactly one ascent-exit split
-  (`committed=5->6`): re-pinned 5 -> 6 on branch `mission-warp-fix`, not yet re-flown on the pin.
+  (`committed=5->6`): re-pinned 5 -> 6 on branch `mission-warp-fix`, re-flown green on the pin
+  (`2026-10-01_2235`, PASS attempt 1, count 6).
 
 ## ~~INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS: four lanes commit more than one extra recording since #1931, so their count windows were not re-pinned~~ [FILED 2026-10-01, branch `split-count-repin`. LANE WINDOWS, no Parsek defect. RULED AND RE-PINNED 2026-10-01, branch `mission-warp-fix`]
 
@@ -1526,7 +1527,7 @@ before the policy acts; the two before runs differ from each other as much. (3) 
 check, B22 `_2135` (Jool, 1,292 m/s on 60 kN): the hold estimated a 149.1 s half burn, MechJeb
 ignited at node - 137.3 s, so the release came 136 s before ignition and the 120 s lead was not
 shrunk (the linear estimate over-reads the rocket equation). B22 was MISSION-OK with a circular
-park, red only on the stale #1931 count (re-pinned above).
+park, red only on the stale #1931 count (re-pinned above; re-flown `_2235` PASS at 6).
 
 ## ~~RF-LANES-SECOND-REWIND-INTO-A-FUTURE-RP: RF-2 and RF-3 cannot reach their later rewind point since the future-rewind-point gate (#1788)~~ [FILED AND FIXED 2026-10-01, branch `arm-last19`. LANE SPEC DEFECT, not a Parsek defect. RE-FLOWN GREEN 2026-10-01]
 

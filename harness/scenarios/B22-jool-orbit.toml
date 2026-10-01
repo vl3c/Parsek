@@ -1158,7 +1158,8 @@ allowedAnomalies = []
 #   Split candidate (PersistedPhaseChange): rec=5c9dcdab... sec=4 splitUT=224.50
 #   prev=Atmospheric next=ExoBallistic
 #   CommitTreeFlight: optimization pass ran committed=5->6
-# Not yet re-flown on the new pin. Still exact: 5 and 7 both red.
+# Re-flown on the new pin: `2026-10-01_2235_B22-jool-orbit` PASS attempt 1, count 6,
+# same split, the same circular Jool park. Still exact: 5 and 7 both red.
 count = { min = 6, max = 6 }
 
 [expectations.logContracts]
