@@ -10,6 +10,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: the mutation checker now proves the ledger checks red when the career numbers
+  drift.** `harness/tools/mutation_check.py --ledger-only` (new pure core
+  `harness/lib/mutledger.py`) replays the ledger oracle over each archived run's seed,
+  produced career totals and log, with every checked pool, declared award, armed stock-award
+  cross-check and roster claim pushed just past its tolerance, plus planted faults. A check
+  that stays green is reported as vacuous, naming the spec and the check. The oracle's
+  decision code moved out of `harness/run.py` into `harness/lib/ledgerverify.py` unchanged,
+  so the checker runs the same code a flight does. The first sweep checked 122 gates on 8
+  lanes and found none vacuous. Report-only; no run changes.
 - **Dev: the mutation checker now edits archived saves to prove the save-structure checks
   read what they claim.** `harness/tools/mutation_check.py` (new pure core
   `harness/lib/mutsave.py`; `--save-only` runs it without a log) removes, clones and

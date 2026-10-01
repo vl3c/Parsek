@@ -3826,14 +3826,14 @@ descent; noted on the spec and its status row, not re-harvested (operator ruling
 2. The readiness check tests `Administration.Instance != null`, set in `Awake`, while the slot limit and commitment ceiling are read in `Start`; safe today only because `Pump` runs once per frame. Gate on a field `Start` sets, or compare the slot limit with `GameVariables`.
 3. `StrategyDisplayNames`' production cache is not exercised by the unit tests (the test hook bypasses it).
 
-## MUTATION-CHECK-PHASE-2: the mutation checker does not yet reach the ledger or mission assertions [FILED 2026-09-24 with phase 1 (branch `mutation-check`). OPEN; harness. PR 1 (save perturbation) DONE 2026-10-01, branch `mutation-phase2`]
+## MUTATION-CHECK-PHASE-2: the mutation checker does not yet reach the ledger or mission assertions [FILED 2026-09-24 with phase 1 (branch `mutation-check`). OPEN; harness. PR 1 (save perturbation) DONE 2026-10-01, branch `mutation-phase2`; PR 2 (ledger perturbation) DONE 2026-10-01, branch `mutation-phase2-pr2`; PR 3 open]
 
 Phase 1 (`harness/tools/mutation_check.py`, known-gate 17 in `autotest-status.md`) replays
 the gating evaluators that are pure over an archived KSP.log, plus the ARMED save-parse
 windows at the facet level (the measured count moved by one and to zero). Phase 2 is
 planned as three PRs: (1) save perturbation, (2) ledger perturbation, (3) mission
-assertions and forbidden-token injection. Still unchecked after PR 1, so a cell there can
-go vacuous with nothing noticing: the ledger, mission and forbidden-pattern items below.
+assertions and forbidden-token injection. Still unchecked after PR 2, so a cell there can
+go vacuous with nothing noticing: the mission and forbidden-pattern items below.
 
 - ~~Save perturbation below the facet~~ DONE (PR 1, `harness/lib/mutsave.py`): for every
   window of every ARMED save-parse block the checker edits the archived `persistent.sfs`
@@ -3851,9 +3851,27 @@ go vacuous with nothing noticing: the ledger, mission and forbidden-pattern item
   umbrella root): all 124 specs with an armed block had a green archived save; 1802
   edits, all killed; 1308 gates PROVEN, 0 VACUOUS, 0 UNCHECKED. Over committed fixtures
   alone, 54 of the 124 baselines pass and all their gates are PROVEN.
-- Ledger perturbation (PR 2): the ledger oracle needs the run's seed capture; archive it (or
-  re-derive it from the archived save) so `oracle.build_oracle_result` can replay with an
-  award removed or a pool moved.
+- ~~Ledger perturbation~~ DONE (PR 2, `harness/lib/mutledger.py`). The seed was already
+  archived: `run.py` writes its careerSave-shaped audit copy into `<runId>.manifest.json`,
+  and the produced careerSave block travels in the snapshot's `analysis/*.analysis.json`.
+  The verifier's composition moved out of `run.py` into `harness/lib/ledgerverify.py`
+  (unchanged; `run._run_ledger_oracle` now only supplies the logger and the manifest write),
+  so the checker replays the same function a flight runs. Per ledger spec it moves each
+  hard pool just past its tolerance on both sides, on the produced value and on the seed;
+  moves each declared manifest amount until the expected value crosses (planned through the
+  reputation curve) and removes each non-zero entry; where `captureCrossCheck = "gate"`,
+  injects an unexplained stock award line and moves each captured award past the
+  tolerance; drops each roster `present` name and adds each `absent` one; and plants
+  faults (torn analysis file, no careerSave block, `parsed = false`, no seed, an
+  unknown-kind manifest entry, a missing pool, a missing roster facet). A kill counts only
+  on the gate's own facet. `mutation_check.py --ledger-only` runs it; a full run adds it to
+  any lane whose archive carries the seed. First sweep (2026-10-01, every archive under the
+  umbrella root): 8 of the 11 ledger specs have a green archive; 177 edits, all killed;
+  122 gates PROVEN, 0 VACUOUS, 0 UNCHECKED. No archive on this machine carries a seed for
+  `L2-ledger-groundtruth-career`, `L3-strategy-currency-conversion` or
+  `L3-strategy-exchanger-floor` (their only local runs are collect-logs folders); re-run
+  after their next tier. `L1-passive-sandbox` has no pool gate by design (its seed carries
+  no pools, so the oracle skips every pool); only its faults are checked.
 - Mission assertions (PR 3): replay a mission's recorded verdict with its sensor reads
   removed (the kRPC telemetry lines it gates on), so a mission check that no longer reads
   what it claims is caught.

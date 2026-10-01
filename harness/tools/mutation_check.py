@@ -22,11 +22,18 @@ them under the umbrella root):
     python tools/mutation_check.py --archive ../logs/2026-09-24_0041_SD-1-same-tree-redock
     python tools/mutation_check.py --list-archives --spec B1-pad-hop
     python tools/mutation_check.py --save-only           # save-level edits only (phase 2)
+    python tools/mutation_check.py --ledger-only         # ledger-oracle edits only (phase 2)
 
 ``--save-only`` runs only the save-structure checks (``lib/mutsave.py``): for every
 spec with an ARMED save-parse block, the newest archived produced save whose armed
 blocks pass, else the spec's committed ``fixture.saveTemplate`` when that passes;
 no KSP.log is needed, so it also reaches lanes whose logs no longer replay green.
+
+``--ledger-only`` runs only the ledger-oracle checks (``lib/mutledger.py``): for every
+spec with an ``[expectations.ledger]`` or ``[expectations.world]`` block, the newest
+results archive whose verifier passes over its archived seed (``<runId>.manifest.json``),
+produced careerSave (the snapshot's ``analysis/*.analysis.json``) and KSP.log.
+Collect-logs folders carry no seed, so they never serve.
 
 Writes ``results/mutation-check/<stamp>.md`` (gitignored) unless ``--out``.
 """
@@ -47,6 +54,7 @@ LIB_DIR = os.path.join(HARNESS_ROOT, "lib")
 if LIB_DIR not in sys.path:
     sys.path.insert(0, LIB_DIR)
 
+import mutledger  # noqa: E402
 import mutlib  # noqa: E402
 import saveparse  # noqa: E402
 
@@ -101,9 +109,11 @@ def _results_refs(results_dir: str) -> List[mutlib.ArchiveRef]:
         if not os.path.isdir(save_dir):
             save_dir = None
         rec_dir = os.path.join(save_dir, "Parsek", "Recordings") if save_dir else None
+        manifest = os.path.join(results_dir, "%s.manifest.json" % run_id)
         out.append(mutlib.ArchiveRef(parsed[0], str(data["scenarioId"]), "results", run_id,
                                      log_path, save_dir, rec_dir, data.get("verdict"),
-                                     bool(art.get("kspLogTruncated"))))
+                                     bool(art.get("kspLogTruncated")),
+                                     manifest if os.path.isfile(manifest) else None))
     return out
 
 
@@ -175,7 +185,74 @@ def read_inputs(ref: mutlib.ArchiveRef) -> mutlib.ArchiveInputs:
     save_text = read_save_text(ref)
     snapshot = saveparse.parse_parsek_scenario(save_text) if save_text is not None else None
     label = "%s:%s%s" % (ref.source, ref.run_id, " (log truncated)" if ref.truncated else "")
-    return mutlib.ArchiveInputs(label, text, count, snapshot, save_text)
+    return mutlib.ArchiveInputs(label, text, count, snapshot, save_text,
+                                read_ledger_inputs(ref, text))
+
+
+def read_analysis_text(ref: mutlib.ArchiveRef) -> Optional[str]:
+    """The produced save's single ``analysis/*.analysis.json`` (None when absent or
+    ambiguous)."""
+    if not ref.save_dir:
+        return None
+    adir = os.path.join(ref.save_dir, "analysis")
+    if not os.path.isdir(adir):
+        return None
+    names = [n for n in os.listdir(adir) if n.endswith(".analysis.json")]
+    if len(names) != 1:
+        return None
+    with open(os.path.join(adir, names[0]), "r", encoding="utf-8", errors="replace") as fh:
+        return fh.read()
+
+
+def read_ledger_inputs(ref: mutlib.ArchiveRef, log_text: str) -> Optional[mutledger.LedgerInputs]:
+    """Seed (the archived manifest's audit copy) + produced careerSave + log, or None
+    when the archive carries no analysis file."""
+    analysis = read_analysis_text(ref)
+    if analysis is None:
+        return None
+    seed = None
+    if ref.manifest_path:
+        data = _read_json(ref.manifest_path)
+        if isinstance(data, dict) and isinstance(data.get("seed"), dict):
+            seed = data["seed"]
+    return mutledger.LedgerInputs(seed, analysis, log_text)
+
+
+def run_ledger_only(specs: Dict[str, Dict], wanted: List[str], refs: List[mutlib.ArchiveRef],
+                    max_tries: int):
+    lanes: List[mutlib.LaneReport] = []
+    no_archive: List[str] = []
+    for sid in wanted:
+        spec = specs[sid]
+        if not mutledger.is_ledger_spec(spec.get("expectations", {}) or {}):
+            continue
+        cands = [r for r in mutlib.order_candidates(refs, sid)
+                 if r.manifest_path and r.save_dir][:max(1, max_tries)]
+        lane: Optional[mutlib.LaneReport] = None
+        first_red: Optional[mutlib.LaneReport] = None
+        for ref in cands:
+            label = "%s:%s" % (ref.source, ref.run_id)
+            try:
+                with open(ref.log_path, "r", encoding="utf-8", errors="replace") as fh:
+                    log_text = fh.read()
+                inputs = read_ledger_inputs(ref, log_text)
+            except OSError as exc:
+                print("skip %s: %s" % (label, exc), file=sys.stderr)
+                continue
+            if inputs is None:
+                continue
+            lane = mutlib.check_ledger_lane(spec, label, inputs)
+            if lane.baseline == mutlib.BASELINE_GREEN:
+                break
+            first_red = first_red or lane
+            lane = None
+        lane = lane or first_red
+        if lane is None:
+            no_archive.append(sid)
+            continue
+        lanes.append(lane)
+        print(mutlib.summary_line(lane), flush=True)
+    return lanes, no_archive
 
 
 def read_save_text(ref: mutlib.ArchiveRef) -> Optional[str]:
@@ -252,6 +329,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="only the save-level edits over archived saves / committed fixtures")
     ap.add_argument("--no-fixtures", action="store_true",
                     help="with --save-only: do not fall back to the committed fixture template")
+    ap.add_argument("--ledger-only", action="store_true",
+                    help="only the ledger-oracle edits over archived seed + careerSave + log")
     args = ap.parse_args(argv)
 
     specs = load_specs()
@@ -277,6 +356,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.save_only:
         lanes, no_archive = run_save_only(specs, wanted, refs, args.max_tries,
                                           not args.no_fixtures)
+        return finish(args, roots, started, lanes, no_archive)
+    if args.ledger_only:
+        lanes, no_archive = run_ledger_only(specs, wanted, refs, args.max_tries)
         return finish(args, roots, started, lanes, no_archive)
     lanes: List[mutlib.LaneReport] = []
     no_archive: List[str] = []
@@ -323,13 +405,16 @@ def finish(args, roots: List[str], started: float, lanes: List[mutlib.LaneReport
                         "baselineReasons": l.baseline_reasons, "notes": l.notes,
                         "mutations": [m.__dict__ for m in l.mutations],
                         "patterns": [p.__dict__ for p in l.patterns],
-                        "saveGates": [g.__dict__ for g in l.save_gates]} for l in lanes],
+                        "saveGates": [g.__dict__ for g in l.save_gates],
+                        "ledgerGates": [g.__dict__ for g in l.ledger_gates]} for l in lanes],
                       fh, indent=1)
     t = mutlib.sweep_totals(lanes, len(no_archive))
     print("sweep: lanes green=%d not-green=%d no-archive=%d mutations=%d killed=%d "
-          "survived=%d triage=%d saveGates proven=%d vacuous=%d unchecked=%d -> %s" % (
+          "survived=%d triage=%d saveGates proven=%d vacuous=%d unchecked=%d "
+          "ledgerGates proven=%d vacuous=%d unchecked=%d -> %s" % (
               t.lanes_green, t.lanes_not_green, t.lanes_no_archive, t.mutations, t.killed,
-              t.survived, t.triage, t.gates_proven, t.gates_vacuous, t.gates_unchecked, out))
+              t.survived, t.triage, t.gates_proven, t.gates_vacuous, t.gates_unchecked,
+              t.ledger_proven, t.ledger_vacuous, t.ledger_unchecked, out))
     return 0
 
 

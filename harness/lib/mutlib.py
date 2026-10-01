@@ -31,11 +31,17 @@ Evaluators replayed, each verified pure over an archived artifact:
   gets edits that push it across each declared bound, so a window whose parser
   path is dead is caught, not only one that is too wide.
 
-NOT replayed (not pure over an archive, or later phase-2 PRs): the ledger oracle
-(needs the seed capture), the mission verdict, the response-stream driver
-validity, the log validator and the offline recording analyzer (C# subprocesses),
-the in-game testResults / batch tally row, the ghost-lifecycle row and render
-composition.
+- the ledger oracle (``ledgerverify.evaluate``, the function ``run.py`` calls)
+  over PERTURBED copies of the archived seed (``<runId>.manifest.json``), the
+  produced careerSave block (the snapshot's ``.analysis.json``), the spec's
+  manifest and the KSP.log (phase 2 PR 2, ``mutledger``): every hard pool,
+  declared amount, armed cross-check and roster claim is pushed past its
+  tolerance and must red on its own facet.
+
+NOT replayed (not pure over an archive, or a later phase-2 PR): the mission
+verdict, the response-stream driver validity, the log validator and the offline
+recording analyzer (C# subprocesses), the in-game testResults / batch tally row,
+the ghost-lifecycle row and render composition.
 
 Pure: no file I/O, no clock. ``harness/tools/mutation_check.py`` is the shell.
 """
@@ -595,6 +601,9 @@ class LaneReport:
     notes: List[str] = field(default_factory=list)
     # mutsave.GateVerdict per armed save-parse window / set / block fault.
     save_gates: list = field(default_factory=list)
+    # mutsave.GateVerdict per ledger-oracle gate (mutledger): pool, manifest
+    # amount, cross-check, roster claim, fault.
+    ledger_gates: list = field(default_factory=list)
 
     def count(self, outcome: Optional[str] = None, triage: Optional[str] = None) -> int:
         return sum(1 for m in self.mutations
@@ -611,6 +620,8 @@ class ArchiveInputs:
     snapshot: Optional["saveparse.ParsekSaveSnapshot"]
     # The archived persistent.sfs text, for the save-level edits (mutsave).
     save_text: Optional[str] = None
+    # The archived seed + produced careerSave, for the ledger edits (mutledger).
+    ledger: Optional["mutledger.LedgerInputs"] = None
 
 
 # ---------------------------------------------------------------------------
@@ -1242,6 +1253,49 @@ def check_lane(spec: Dict, inputs: ArchiveInputs) -> LaneReport:
             lane.mutations.extend(mutate_save_windows(expectations, inputs.snapshot))
             if inputs.save_text is not None:
                 _add_save_edits(lane, expectations, inputs.save_text)
+    _add_ledger_edits(lane, expectations, inputs)
+    return lane
+
+
+def _add_ledger_edits(lane: LaneReport, expectations: Dict, inputs: ArchiveInputs) -> None:
+    """Run the ledger-oracle edits (``mutledger``) when the spec declares a ledger
+    or world block and the archive carries the seed + careerSave they need."""
+    import mutledger  # local: mutledger imports this module
+    if not mutledger.is_ledger_spec(expectations):
+        return
+    if inputs.ledger is None:
+        lane.notes.append("ledger declared but the archive has no seed / careerSave: "
+                          "ledger edits skipped")
+        return
+    base = mutledger.prepare_baseline(expectations, inputs.ledger)
+    if base.verdict is None or base.reasons:
+        lane.notes.append("ledger edits skipped: %s" % "; ".join(base.reasons))
+        return
+    if base.note:
+        lane.notes.append(base.note)
+    check = mutledger.mutate_ledger(expectations, base)
+    lane.mutations.extend(check.mutations)
+    lane.ledger_gates.extend(check.gates)
+    lane.notes.extend(check.notes)
+
+
+def check_ledger_lane(spec: Dict, label: str, inputs: "mutledger.LedgerInputs") -> LaneReport:
+    """The ledger-only lane (``mutation_check.py --ledger-only``): the baseline is
+    the ledger-oracle verdict alone over one archived run (seed, produced
+    careerSave, KSP.log), then the ledger edits."""
+    import mutledger
+    spec_id = str(spec.get("id", "?"))
+    expectations = spec.get("expectations", {}) or {}
+    base = mutledger.prepare_baseline(expectations, inputs)
+    if base.verdict is None or base.reasons:
+        return LaneReport(spec_id, label, BASELINE_NOT_GREEN, list(base.reasons))
+    lane = LaneReport(spec_id, label, BASELINE_GREEN)
+    if base.note:
+        lane.notes.append(base.note)
+    check = mutledger.mutate_ledger(expectations, base)
+    lane.mutations.extend(check.mutations)
+    lane.ledger_gates.extend(check.gates)
+    lane.notes.extend(check.notes)
     return lane
 
 
@@ -1306,6 +1360,8 @@ class ArchiveRef:
     recordings_dir: Optional[str]
     verdict: Optional[str]
     truncated: bool = False
+    # <runId>.manifest.json (the archived ledger seed), results archives only.
+    manifest_path: Optional[str] = None
 
 
 def order_candidates(refs: Sequence[ArchiveRef], spec_id: str) -> List[ArchiveRef]:
@@ -1347,6 +1403,10 @@ def summary_line(lane: LaneReport) -> str:
         g = gate_counts(lane.save_gates)
         gates = " saveGates(proven=%d vacuous=%d unchecked=%d)" % (
             g["PROVEN"], g["VACUOUS"], g["UNCHECKED"])
+    if lane.ledger_gates:
+        g = gate_counts(lane.ledger_gates)
+        gates += " ledgerGates(proven=%d vacuous=%d unchecked=%d)" % (
+            g["PROVEN"], g["VACUOUS"], g["UNCHECKED"])
     return ("%s: archive=%s baseline=PASS mutations=%d killed=%d survived=%d "
             "(triage=%d intended=%d info=%d) multiPhasePatterns=%d%s" % (
                 lane.spec_id, lane.archive, len(lane.mutations), lane.count(KILLED),
@@ -1376,6 +1436,9 @@ class SweepTotals:
     gates_proven: int = 0
     gates_vacuous: int = 0
     gates_unchecked: int = 0
+    ledger_proven: int = 0
+    ledger_vacuous: int = 0
+    ledger_unchecked: int = 0
 
 
 def sweep_totals(lanes: Sequence[LaneReport], no_archive: int) -> SweepTotals:
@@ -1395,6 +1458,10 @@ def sweep_totals(lanes: Sequence[LaneReport], no_archive: int) -> SweepTotals:
         t.gates_proven += g["PROVEN"]
         t.gates_vacuous += g["VACUOUS"]
         t.gates_unchecked += g["UNCHECKED"]
+        g = gate_counts(lane.ledger_gates)
+        t.ledger_proven += g["PROVEN"]
+        t.ledger_vacuous += g["VACUOUS"]
+        t.ledger_unchecked += g["UNCHECKED"]
     return t
 
 
@@ -1412,7 +1479,9 @@ def render_report(lanes: Sequence[LaneReport], no_archive: Sequence[str],
             "- mutations: %d, killed %d, survived %d (triage %d, intended %d, info %d)"
             % (t.mutations, t.killed, t.survived, t.triage, t.intended, t.info),
             "- save-parse gates (save-level edits): proven %d, vacuous %d, unchecked %d"
-            % (t.gates_proven, t.gates_vacuous, t.gates_unchecked), "",
+            % (t.gates_proven, t.gates_vacuous, t.gates_unchecked),
+            "- ledger-oracle gates (ledger edits): proven %d, vacuous %d, unchecked %d"
+            % (t.ledger_proven, t.ledger_vacuous, t.ledger_unchecked), "",
             "## One line per lane", ""]
     out += ["- " + summary_line(l) for l in lanes]
     if no_archive:
@@ -1451,6 +1520,27 @@ def render_report(lanes: Sequence[LaneReport], no_archive: Sequence[str],
                 out.append("- %s: `%s %s` measured=%s -- %s" % (
                     lane.spec_id, g.label, g.window, g.measured, _clip(g.reason, 200)))
     if not any_unc:
+        out.append("(none)")
+    out += ["", "## Vacuous ledger-oracle gates", ""]
+    any_lv = False
+    for lane in lanes:
+        for g in lane.ledger_gates:
+            if g.verdict == "VACUOUS":
+                any_lv = True
+                out.append("- %s (%s): `%s` `%s` %s %s -- %s" % (
+                    lane.spec_id, lane.archive, g.block, g.label, g.window, g.measured,
+                    _clip(g.reason, 240)))
+    if not any_lv:
+        out.append("(none)")
+    out += ["", "## Unchecked ledger-oracle gates", ""]
+    any_lu = False
+    for lane in lanes:
+        for g in lane.ledger_gates:
+            if g.verdict == "UNCHECKED":
+                any_lu = True
+                out.append("- %s: `%s` %s %s -- %s" % (
+                    lane.spec_id, g.label, g.window, g.measured, _clip(g.reason, 200)))
+    if not any_lu:
         out.append("(none)")
     out += ["", "## Multi-phase required patterns", ""]
     any_multi = False
