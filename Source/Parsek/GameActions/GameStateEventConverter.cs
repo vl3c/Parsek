@@ -380,6 +380,7 @@ namespace Parsek
             int untaggedInWindow = 0;
             int skippedCrossRecording = 0;
             int skippedOutsideWindow = 0;
+            int captureIdentified = 0;
 
             for (int i = 0; i < subjects.Count; i++)
             {
@@ -421,7 +422,7 @@ namespace Parsek
                 else
                     taggedMatches++;
 
-                result.Add(new GameAction
+                var action = new GameAction
                 {
                     UT = endUT,
                     Type = GameActionType.ScienceEarning,
@@ -435,14 +436,24 @@ namespace Parsek
                     StartUT = (float)resolvedStartUt,
                     EndUT = (float)endUT,
                     Sequence = sequence++
-                });
+                };
+                // The row IS the capture: every conversion of one capture yields the same
+                // ActionId, so LedgerOrchestrator.DeduplicateAgainstLedger can tell a
+                // re-file (same id) from a second same-instant award (fresh id).
+                if (!string.IsNullOrEmpty(subj.captureActionId))
+                {
+                    action.ActionId = subj.captureActionId;
+                    action.HasScienceCaptureIdentity = true;
+                    captureIdentified++;
+                }
+                result.Add(action);
             }
 
             ParsekLog.Info(Tag,
                 $"ConvertScienceSubjects: converted={result.Count} from {subjects.Count} subjects, " +
                 $"recordingId={recordingId ?? "(none)"}, tagged={taggedMatches}, " +
                 $"untaggedInWindow={untaggedInWindow}, skippedCrossRecording={skippedCrossRecording}, " +
-                $"skippedOutsideWindow={skippedOutsideWindow}");
+                $"skippedOutsideWindow={skippedOutsideWindow}, captureIdentified={captureIdentified}");
 
             return result;
         }

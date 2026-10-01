@@ -1025,6 +1025,15 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Mints the per-callback identity of a science capture, in the
+        /// <see cref="GameAction.ActionId"/> format (the converted row adopts it as its id).
+        /// </summary>
+        internal static string NewScienceCaptureActionId()
+        {
+            return "act_" + Guid.NewGuid().ToString("N");
+        }
+
+        /// <summary>
         /// Headless core of <see cref="OnScienceReceived"/>: every value the stock callback
         /// supplies is passed in, so the capture -> ledger chain is testable without KSP.
         /// </summary>
@@ -1119,7 +1128,13 @@ namespace Parsek
                 // The row stays in subject units (increment = amount / multiplier) and
                 // carries the multiplier frozen now, so ScienceModule's pool credit
                 // (increment * multiplier) equals stock's amount (KSP-SETTINGS-AUDIT S1).
-                scienceGainMultiplier = GameAction.NormalizeScienceGainMultiplier(scienceGainMultiplier)
+                scienceGainMultiplier = GameAction.NormalizeScienceGainMultiplier(scienceGainMultiplier),
+                // One id per stock callback: stock calls SubmitScienceData once per data
+                // item, so two canisters of one subject recovered together are two
+                // captures at the same instant and must stay two rows, while a re-file
+                // of THIS capture carries this id and is dropped by the ledger dedup
+                // (SCIENCE-SAME-SUBJECT-SAME-INSTANT-ROW-DROPPED).
+                captureActionId = NewScienceCaptureActionId()
             };
 
             bool hasLiveRecorder = HasLiveRecorder();
