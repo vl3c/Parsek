@@ -538,6 +538,14 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > `RF-20-stashed-eva-slot-refly`. `FlySlot` stays reserved for the reason above. Full
 > contract below (`#### StashSlot`).
 
+> Update (the D18 player-action pair, 2026-10-01): two ADDITIVE verbs, `RealSpawn rec=`
+> and `Recover pid=` (the reserved envelope never carried a spawn or a recovery verb),
+> taking the table to **46 implemented / 4 reserved**. They give the D18 cells where the
+> PLAYER acts on a ghost chain a driven subject (todo D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR):
+> `RealSpawn` presses the Real Spawn Control row's "Warp to Spawn" for one recording and
+> answers the spawned vessel's pid, `Recover` presses the flight scene's stock Recover
+> button for the active vessel. Full contract below (`#### RealSpawn / Recover`).
+
 > Update (DeleteRecording, 2026-09-02): one further ADDITIVE verb, `DeleteRecording
 > index=<n>` - the SaveGame / EVA / ExportRenderManifest shape, never in the reserved
 > envelope (which carried no recording-deletion verb). It takes the table to **31
@@ -3755,6 +3763,129 @@ rate=<F4> axis=roll parts= sasWasOn=`; payload `spun=true parts= sasWasOn=`.
 `-vessel-packed`, `-no-rigidbodies` (gate-class). World-mutating tail role, `recording`
 post-mission role. Pure half `TestCommandSpinVessel`. Lane: `MC-5-persistent-rotation`.
 
+#### RealSpawn / Recover (additive; the D18 player-action pair)
+
+**Why.** D18's open player-action cells need a chain the PLAYER acted on: a ghost spawned
+as a real vessel through Real Spawn Control, and a real vessel recovered (todo
+D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR; the recovery half of
+`chain-terminated-destruction-recovery` and the spawn-side `Terminated chain spawn
+suppressed:` line, todo D18-TERMINATED-CHAIN-RECOVERY-HALF-AND-SPAWN-SUPPRESSION-UNWITNESSED).
+No earlier verb drives either action. `UiAction op=warp window=spawncontrol` presses the
+same row button, but only the row that sorts FIRST, and it answers at the press; a lane
+that must name the chain tip it spawns, and hand the spawned pid to the next step, needs
+a recording-addressed verb that answers the spawn.
+
+Both verbs drive the PRODUCTION entry point a player's click reaches and fire nothing the
+click does not fire.
+
+**RealSpawn grammar.** `cmd=RealSpawn rec=<recordingId>`, usually a handle:
+`${chains.chain0tip}` (`ListHandles kind=chains`) or a `kind=committed` row.
+
+**RealSpawn production path.** The Real Spawn Control window has two spawn controls, the
+per-row "Warp to Spawn" / "Warp to Depart" button and the bottom "Warp to Next Spawn"
+(which picks the earliest live row and calls the same two methods). The row button's click
+body is one method, `SpawnControlUI.ExecuteRowWarp`, already shared with `UiAction
+op=warp`. The verb finds the recording's row through
+`SpawnControlUI.TryFindRowForRecordingForTesting` (the draw pass's own
+`ParsekFlight.NearbySpawnCandidates` list and `SpawnControlPresentation.BuildRowPresentation`
+row model) and presses it through `SpawnControlUI.PressRowWarpForTesting` ->
+`ExecuteRowWarp` -> `ParsekFlight.WarpToRecordingEnd` -> `TimeJumpManager.ExecuteJump`
+(the synchronous epoch-shift jump to the recording's `EndUT`). The spawn itself is the
+playback loop's, as for a player: the end-of-recording spawn, or for a chain tip
+`VesselGhoster.SpawnAtChainTip`; both write `Recording.VesselSpawned` and
+`SpawnedVesselPersistentId`, which is what the verb waits on. The row exists only while the
+active vessel is within `NearbySpawnListRadius` (1000 m) of the recording's live ghost and
+under `MaxListRelativeSpeed`, and its button is live only inside `NearbySpawnRadius`
+(250 m) and `MaxRelativeSpeed`: a lane must put the active vessel next to the ghost first.
+Lines: `realspawn pressed rec= index= vessel= endUT= utBefore=`, then `realspawn complete
+rec= pid= vessel= loaded= elapsed=`.
+
+**RealSpawn refusals** (REJECTED, decided before any side effect, in this order):
+`realspawn-rec-arg-missing` (arg), `realspawn-host-unavailable` (no `ParsekFlight`),
+`realspawn-unknown-recording` (arg: no committed recording has the id),
+`realspawn-already-spawned` (with `pid=`), `realspawn-not-a-candidate` (the table draws no
+row for it: no active ghost, outside the list radius or speed cap, not spawn-eligible,
+chain-suppressed, or already ended; `candidates=` in the log), `realspawn-button-disabled`
+(the row is listed but its button is greyed: too far, closing too fast, or past its UT;
+the button's own disabled-hover text in the log), and `realspawn-row-warps-to-departure`
+(the button is "Warp to Depart", which jumps to the ghost's departure and spawns nothing).
+Post-press ERROR: `realspawn-warp-not-applied` (the clock did not reach `EndUT` after the
+press: `WarpToRecordingEnd` only logs an invalid jump), `realspawn-spawn-abandoned`
+(`SpawnAbandoned` or `TerminalSpawnCannotSpawnSafely`), `realspawn-spawn-timeout`.
+
+**RealSpawn OK payload.** `rec= pid= vessel= endUT=(R) loaded=`. `pid` is the spawned
+vessel's KSP-unique persistentId (for a chain tip the original pid, the
+`chain-tip-original-pid` contract), the handle a following `SimulateStockSwitchClick
+pid=${spawn.pid}` or `Recover pid=${spawn.pid}` consumes.
+
+**Recover grammar.** `cmd=Recover pid=<persistentId>`. The pid must be the ACTIVE vessel's:
+the stock button only recovers the active vessel, so a spec switches first
+(`SimulateStockSwitchClick pid=`) and names the vessel it means.
+
+**Recover production path** (decompiled, KSP 1.12.5 `Assembly-CSharp.dll`):
+`KSP.UI.Screens.AltimeterSliderButtons` wires
+`vesselRecoveryButton.onClick.AddListener(recoverVessel)`. `recoverVessel()` reads
+`FlightGlobals.ClearToSave()`; on `CLEAR` and
+`HighLogic.CurrentGame.Parameters.Flight.CanLeaveToSpaceCenter` it fires
+`GameEvents.OnVesselRecoveryRequested.Fire(FlightGlobals.ActiveVessel)`; on
+`NOT_WHILE_ON_A_LADDER` it pops a leave dialog; otherwise it does nothing.
+`VesselRetrieval.onVesselRecoveryRequested` adds `v.id`, runs
+`GamePersistence.SaveGame("persistent", ...)` and `HighLogic.LoadScene(SPACECENTER)`; its
+`OnLevelLoaded(SPACECENTER)` waits 8 frames and `recoverVessels()` fires
+`GameEvents.onVesselRecovered.Fire(v.protoVessel, false)` and destroys the vessel. Stock
+locks the button (`UIExtensions.Lock` is `interactable = false`) except in `setUnlock(2)`,
+which `UnlockRecovery` reaches only for the active vessel landed or splashed on the home
+world, `horizontalSrfSpeed < 0.3`, not paused, and recovery allowed by the mission
+parameters. The verb finds the live `AltimeterSliderButtons`, refuses unless
+`vesselRecoveryButton.interactable`, re-checks the two conditions `recoverVessel` reads,
+and calls `vesselRecoveryButton.onClick.Invoke()`: the listener is stock's own
+`recoverVessel`. Parsek's handlers then run as for a player:
+`ParsekScenario.OnVesselRecoveryRequested` arms `InFlightRecoveryRequest` (the scene-exit
+finalize commits the recording `Recovered`, operator ruling 2026-10-01), and
+`ParsekScenario.OnVesselRecovered` stamps a pending-tree recording, routes the payout and
+closes crew reservations. kRPC's `Vessel.Recover` fires the same request event. The
+Tracking Station's Recover (`SpaceTracking.OnRecoverConfirm`, behind a confirm popup) fires
+`onVesselRecovered` directly and is NOT driven in v1 (a later `site=ts` arg, if a lane
+needs a non-active vessel recovered).
+
+**The wedge guard.** Stock's `LoadScene(SPACECENTER)` passes Parsek's scene-exit prefix,
+which raises a merge modal when a merge decision is outstanding. Before clicking, the verb
+evaluates `TestCommandExitToSpaceCenter.DecideExitGate` on the same live predicates
+`ExitToSpaceCenter` reads and refuses `REJECTED dialog-required variant=<v>` (reused
+verbatim, already `driver-gate`). The supported shape is `SetSetting autoMerge=true`
+earlier in the spec, as for `ExitToSpaceCenter`.
+
+**Recover refusals** (REJECTED, in this order): `recover-pid-arg-missing`,
+`recover-pid-arg-invalid` (arg: not a positive decimal uint), `recover-no-active-vessel`,
+`recover-not-active-vessel` (with `activePid=`), `recover-button-unavailable` (no live
+altimeter button), `recover-button-locked` (situation, home world, horizontal speed and
+pause in the log), `recover-not-clear-to-save` (with the stock status),
+`recover-cannot-leave-to-space-center`, then the wedge guard's `dialog-required`.
+Post-press ERROR: `recover-request-not-fired` (the click fired no
+`OnVesselRecoveryRequested` for the pid; events fire synchronously, so this is read inside
+the call), `recover-failed-returned-to-menu`, `recover-timeout`.
+
+**Recover completion.** The verb listens to `OnVesselRecoveryRequested` and
+`onVesselRecovered` (added at the press, removed in `ClearTwoPhase`); it fires neither. OK
+needs a settled SPACECENTER with a game loaded AND `onVesselRecovered` observed for the
+vessel (Guid or pid): the recovery runs 8 frames after the scene settles, so a scene read
+alone would answer early. Payload `pid= vessel= scene= recovered=true`; lines `recover
+pressed pid= vessel= situation= ut=`, `recover observed onVesselRecovered pid= vessel=
+fromTrackingStation=`, `recover complete pid= vessel= scene= elapsed=`.
+
+**Phases and roles.** Both TWO-PHASE, `RequiresFlight`, 120 s (`RealSpawn` the TimeJump
+size, `Recover` the ExitToSpaceCenter size), NOT `DEFERRED_SEAM_VERBS`. Dispatch rejects
+`load-in-flight` and `merge-journal-in-flight` (the ExitToSpaceCenter pair); no
+recording-active guard, the product's jump and recovery paths own a live recorder. Tail
+role world-mutating for both (a real vessel put into or taken out of the world).
+Post-mission role `recording` for both: `RealSpawn`'s OK is Parsek's own spawn
+bookkeeping, `Recover`'s is "stock recovered the pid and the Space Center settled";
+whether Parsek stamped `Recovered` is asserted from the log lines a spec pins. hlib mirrors
+the reasons (`REALSPAWN_REASONS` / `RECOVER_REASONS`, pinned by
+`RealSpawnRecoverSourceSyncTests`) and `validate_real_spawn_recover_step` checks the
+required arg pre-launch. Pure halves `TestCommandRealSpawn` / `TestCommandRecover`. Lanes:
+none yet; they are owed (todo D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR).
+
 ### Addon lifecycle
 
 `ParsekTestCommandAddon` mirrors `TestRunnerShortcut`: `[KSPAddon(KSPAddon.Startup.Instantly, true)]`
@@ -3876,6 +4007,8 @@ wall-clock. Some verbs need a different bound and override the default:
 | `UiAction` | (default) 60 s | bounds the game-not-loaded dispatch defer AND the one-frame settle wait of its two two-phase ops. A settle that has not landed in a minute means the game stopped drawing, not that it is slow, so the default is the right size and the terminal is named `ui-action-not-settled` rather than spelled like a refusal |
 | `GoToEditor` | 120 s | TWO-PHASE, the `ExitToSpaceCenter` class: the building click's persist + the EDITOR scene load, then (with `craft=`) the in-scene editor restart of the craft load; no save is parsed off disk, so NOT a `DEFERRED_SEAM_VERB` |
 | `LaunchFromEditor` | 180 s | TWO-PHASE: stock's pre-flight checks, the craft save and the FLIGHT bootstrap of a NEW vessel; `StartRecording`'s scene-wait size, NOT a `DEFERRED_SEAM_VERB` |
+| `RealSpawn` | 120 s | TWO-PHASE, the `TimeJump` size: the row press runs the epoch-shift jump synchronously and the wait is the playback loop's spawn at the new UT; NOT a `DEFERRED_SEAM_VERB` |
+| `Recover` | 120 s | TWO-PHASE, the `ExitToSpaceCenter` size: stock's save, the Space Center load and the 8-frame delay before `VesselRetrieval.recoverVessels`; NOT a `DEFERRED_SEAM_VERB` |
 
 Budgets are measured from when the command first reaches the head and begins deferring. On
 expiry the pump writes `TIMEOUT` with `msg` carrying the last defer reason and advances.

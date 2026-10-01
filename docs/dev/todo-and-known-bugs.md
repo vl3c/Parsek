@@ -5423,7 +5423,37 @@ and consider a second, pre-filter view (`ComputeAllGhostChains`' full output, or
 `digest=6ad6ec1c` (a fixture-derived literal in two required tokens), so it needs CI-3
 re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
 (`bbd83d3b`, `8952919c`) recomputed.
-## D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR: the player-action half of D18 needs a RealSpawn / Recover seam verb pair [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A, on the operator ruling that no player-action verbs are built in that wave. OPEN; a follow-on design item]
+## D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR: the player-action half of D18 needs a RealSpawn / Recover seam verb pair [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A, on the operator ruling that no player-action verbs are built in that wave. VERBS BUILT 2026-10-01 on branch `realspawn-recover-verbs` (operator decision 2026-10-01, the second half of the chain-tip track after PR #1953); LANES OWED]
+
+**Status 2026-10-01: both verbs built, no lane flown.** Contract in
+`design-autotest-command-seam.md` `#### RealSpawn / Recover`. `RealSpawn rec=<id>` finds the
+recording's Real Spawn Control row (the draw pass's own candidate list and row model) and
+presses it through `SpawnControlUI.ExecuteRowWarp` -> `ParsekFlight.WarpToRecordingEnd`,
+then waits for `Recording.VesselSpawned` + `SpawnedVesselPersistentId` and answers
+`OK rec= pid= vessel= endUT= loaded=`. `Recover pid=<pid>` invokes the stock
+`AltimeterSliderButtons.vesselRecoveryButton.onClick` for the ACTIVE vessel (stock fires
+`OnVesselRecoveryRequested`, saves, loads the Space Center, fires `onVesselRecovered` 8
+frames later) and answers `OK pid= vessel= scene= recovered=true` once it has observed that
+last event. Both two-phase, `RequiresFlight`, 120 s; refusals typed and mirrored in hlib.
+
+**Lanes owed (a later PR authors and flies them):**
+
+- A RealSpawn row exists only while the active vessel is within 1000 m of the recording's
+  live ghost, and its button is live only within 250 m and 2 m/s. Every lane must first put
+  the active vessel beside the ghost (a fixture whose active vessel is parked next to the
+  chain tip's end position, or a rendezvous mission).
+- `chain-terminated-destruction-recovery`, the Recovered half (with
+  D18-TERMINATED-CHAIN-RECOVERY-HALF-AND-SPAWN-SUPPRESSION-UNWITNESSED): RealSpawn a chain
+  tip, `SimulateStockSwitchClick pid=${spawn.pid}`, record its continuation, `Recover
+  pid=${spawn.pid}` (a landed Kerbin tip, so the button unlocks), let the auto-commit stamp
+  the continuation `Recovered`; then a rewind to before the tip's spawn UT so the walker
+  reads `terminalState=Recovered`, and the scene reaches the spawn decision with the tip
+  in the future so `Terminated chain spawn suppressed:` fires.
+- The chain-tip spawn itself (`chain-tip-original-pid`, re-claim): RealSpawn on a
+  `ListHandles kind=chains` tip with the requirement that the answered pid equals the
+  chain's original pid.
+- The docking cell the original entry names stays a mission, not a verb: RealSpawn hands
+  the pid to a dock mission.
 
 D18 is at 6 of 12 after PR-A. The cells still open are the ones where the PLAYER acts on a
 ghost chain: spawning a ghost as a real vessel through Real Spawn Control
@@ -5445,7 +5475,7 @@ Both need the M-A2 design pass (design-autotest-command-seam.md), the pure / app
 split, the dispatch rows, the hlib verb and role tables and `GuiCensusSeamVerbTests`'s
 vocabulary sync, before any lane can use them.
 
-## D18-TERMINATED-CHAIN-RECOVERY-HALF-AND-SPAWN-SUPPRESSION-UNWITNESSED: the recovery half of `chain-terminated-destruction-recovery` and the spawn-side suppression line have no driven subject [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A. OPEN; needs D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR or a harvested save with a Recovered chain tip]
+## D18-TERMINATED-CHAIN-RECOVERY-HALF-AND-SPAWN-SUPPRESSION-UNWITNESSED: the recovery half of `chain-terminated-destruction-recovery` and the spawn-side suppression line have no driven subject [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A. OPEN; the RealSpawn / Recover verbs it needed were built 2026-10-01 (D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR), the lane is owed]
 
 PR-A claims `chain-terminated-destruction-recovery` on V26T for the DESTROYED half only,
 off the walker's `ResolveTermination: ... terminalState=Destroyed` and
