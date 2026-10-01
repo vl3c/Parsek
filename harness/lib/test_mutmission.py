@@ -186,15 +186,19 @@ class EditTests(unittest.TestCase):
         self.assertFalse([g for g in gates if g.startswith("missionOutcome")])
         self.assertTrue(any("no post-mission outcome verb" in n for n in lane.notes))
 
-    def test_a_result_the_writer_cannot_serialize_reads_as_tooling_mission(self):
+    def test_a_nan_detail_is_scrubbed_and_reads_as_mission_not_tooling(self):
+        # KXRW-RESULT-NAN-DETAIL: a NaN detail used to make the writer refuse the
+        # result (INVALID(tooling-mission), rows lost). The scrub writes it as null
+        # and the unmet row classifies as INVALID(mission) naming that row.
         base = mutmission.prepare_baseline(SPEC, mutmission.MissionInputs(
             _record(), _result(), FakeShell()))
         nan_row = [mlib.AssertionOutcome("apoapsisWindow", False, None, {"peak": float("nan")})]
         text, verdict, reason = mutmission.build_result_text(base, nan_row, mutmission.clean_state())
-        self.assertIsNone(text)
-        self.assertIn("serialize_mission_result raised", reason)
+        self.assertIsNotNone(text)
+        self.assertNotIn("result serialization failed", reason)
+        self.assertIn('"peak": null', text)
         c = mutmission.run_chain(base, text)
-        self.assertEqual((hlib.VERDICT_INVALID, "tooling-mission"), (c.verdict, c.subkind))
+        self.assertEqual((hlib.VERDICT_INVALID, "mission"), (c.verdict, c.subkind))
 
     def test_the_real_b1_shell_blind_replay_reads_every_row_unmet(self):
         import b1_pad_hop

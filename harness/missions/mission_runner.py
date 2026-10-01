@@ -4980,7 +4980,15 @@ def run_mission(
         warp_utilisation=list(_FLY_LOOP_WARP_UTILISATION),
         error=error,
     )
-    writer(result_path, mlib.serialize_mission_result(result))
+    # Failure-safe: this runs after the try/finally, so a serializer fault here
+    # would kill the shell with NO result file and the harness would read a
+    # missing result (INVALID(tooling-mission)) instead of the real verdict. The
+    # fallback keeps the verdict, the reason and every assertion name / met.
+    text, ser_failure = mlib.serialize_mission_result_failsafe(result)
+    if ser_failure is not None:
+        log.error("Verdict", "%s -> wrote the minimal result (verdict=%s kept)"
+                  % (ser_failure, verdict))
+    writer(result_path, text)
     return 0 if verdict == mlib.MISSION_OK else 1
 
 
@@ -5061,7 +5069,7 @@ def main_from_spec(spec: MissionSpec, argv: Optional[List[str]] = None) -> int:
             connected_seconds=float("nan"), rpc_port=args.rpc_port, assertions=[],
             wall_seconds=0.0, krpc_client_version="", krpc_server_version="",
             error=traceback.format_exc())
-        _write_result_file(args.result, mlib.serialize_mission_result(result))
+        _write_result_file(args.result, mlib.serialize_mission_result_failsafe(result)[0])
         return 1
     seam_config = None
     if args.seam_commit_id and args.seam_commands and args.seam_responses:

@@ -1421,8 +1421,10 @@ PASS. Then:
   INVALID(tooling-mission); an empty assertion list and a vessel-lost terminal
   INVALID(mission); a phase timeout INVALID(autopilot-flake).
 
-A result the writer cannot serialize (a NaN in an assertion's detail; `allow_nan=False`)
-is read the way the harness reads a missing result file: INVALID(tooling-mission).
+A non-finite float in an assertion's value or detail is written as null
+(`AssertionOutcome.to_dict`), and a serializer fault that still escapes falls back to the
+minimal result (`serialize_mission_result_failsafe`), so the checker, like the runner, always
+has a result to read (todo KXRW-RESULT-NAN-DETAIL).
 `--mission-only` runs just these edits over the newest results archives carrying a mission
 result; a full run adds them to a lane whose archive carries one. Not reached: a threshold
 pushed across its bound inside an evaluator (the telemetry frames are not archived), so the
