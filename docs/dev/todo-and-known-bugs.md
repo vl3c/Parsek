@@ -33,7 +33,8 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   columns in both modes.
 - [x] The mission bar is a table row: line 1 = index, title, then the mission-level Start
   time / Start event / End event / End time under their headings, a blank Re-Fly cell and the
-  Archive checkbox (`DrawMissionValueRow`); line 2 = the wrapping summary on the left and the
+  Archive checkbox (`DrawMissionValueRow`; superseded by iteration 2: one Interact column,
+  Collapse / Expand instead of Archive); line 2 = the wrapping summary on the left and the
   right-aligned buttons (`DrawMissionActionLine`). The `Next launch` column is deleted; its
   amber warning reasons (plus a sentence for the tolerance-only case, which was tint alone)
   ride the summary tooltip. Every countdown is amber now, so a warned launch no longer looks
@@ -41,7 +42,7 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
 - [x] The `Events (N)` foldout is removed (`DrawEventDigestRows`, its expansion state and the
   seam's `digest:` expand key with it; GUI-1 drops its `ksc-missions-missions-events-advanced`
   capture). Its unique content moved onto the Docked partner rows: `Docked partner: <vessel>
-  (mission '<name>')` plus a `Go to` in the Re-Fly slot, and a new row of the same shape for a
+  (mission '<name>')` plus a `Go to` in the Re-Fly slot (now the Interact column), and a new row of the same shape for a
   dock this mission recorded with another mission's vessel (`DrawRecordedDockPartnerRow`).
   `MissionEventDigest` stays as the partner-text / Go to source.
 - [x] The Log window (StructureListWindowUI) is titled `Parsek - Log: <mission or route name>`

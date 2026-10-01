@@ -905,8 +905,8 @@ namespace Parsek
 
         /// <summary>
         /// Cross-link entry point for the Timeline GoTo button: schedules a scroll to the
-        /// mission that owns <paramref name="recordingId"/>, clearing the Archive filter first
-        /// when that filter is what would hide it. Called through
+        /// mission that owns <paramref name="recordingId"/>, expanding that mission first
+        /// when it is collapsed. Called through
         /// <see cref="RecordingsTableUI.ShowMissionForRecording"/>, which owns opening the
         /// window and selecting the Missions tab.
         /// <para>Visible in BOTH complexity modes: the Missions tab is the one Basic keeps
@@ -2536,7 +2536,7 @@ namespace Parsek
         // The Docked partner row's "Go to": opens the Missions tab on the partner's mission
         // through the same call the Timeline's GoTo makes (the Recordings window opens itself on
         // the Missions tab and delegates the scroll to RevealMissionForRecording, which only
-        // QUEUES the archive-filter clear, so a mid-frame click is safe). Blank when there is
+        // QUEUES the expand of a collapsed target, so a mid-frame click is safe). Blank when there is
         // nothing to go to.
         private void DrawInteractGoTo(Mission mission, string goToRecordingId,
             string partnerMission, string partnerText, string branchPointId)
