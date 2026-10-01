@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~KXRW-RESULT-NAN-DETAIL: a kx_rewind_watch flight that ends early writes no mission result at all~~ [FILED 2026-10-01 from the mutation checker's blind replay, branch `mutation-phase2-pr3`. FIXED 2026-10-01, branch `fix-kxrw-nan`. DEDUPE: the OPEN filing entry lives on `mutation-phase2-pr3`; when both land keep this closed entry and drop the open one]
+## ~~KXRW-RESULT-NAN-DETAIL: a kx_rewind_watch flight that ends early writes no mission result at all~~ [FILED 2026-10-01 from the mutation checker's blind replay, branch `mutation-phase2-pr3`. FIXED 2026-10-01, branch `fix-kxrw-nan`]
 
 `mlib.evaluate_kxrw_assertions` copies raw state floats into assertion DETAIL dicts:
 `coreDiscardedWithEnginesOff` carries `discardUT` / `discardAltitude` (`KxrwState`
@@ -47,6 +47,33 @@ already scrubbed its own via a local `num`). Cells:
 `test_kx_rewind_watch.EarlyEndResultSerializationTests` (an early-end state serializes and
 reads back through `run._read_mission_result` as ASSERT-FAIL -> `(False, "mission")` with
 all 8 rows), `test_mlib.NonFiniteDetailScrubTests`, `test_shells.ResultSerializerFailureTests`.
+
+## MUTATION-CHECK-RESIDUE: what the mutation checker still leaves to the operator [FILED 2026-10-01 when MUTATION-CHECK-PHASE-2 closed, branch `mutation-phase2-pr3`. OPEN; harness, spec rulings]
+
+- The phase 1 triage survivors (moved from MUTATION-CHECK-PHASE-2): the 723 triage
+  survivors (96 lanes) listed by group in known-gate 17 (spec tightening; each group is a
+  spec change or a recorded ruling). FIRST PASS DONE 2026-09-24 (branch
+  `tighten-survivors`): 26 specs tightened, 723 -> 700, of which 391 are recorded as
+  intended and 309 remain (known-gate 17 lists them). Still owed from the pass: the
+  teardown `Recording stopped` fix on the 25 lanes it could not verify offline - B4 now
+  that #1806 (`b4-chute`) has landed, and the 24 whose archives are missing or no longer
+  replay green (re-run `mutation_check.py` after their next tier, then apply the same
+  per-lane anchor).
+- One VACUOUS mission gate needs a ruling: `CA-1-commit-abort-booster-live`'s
+  `craftChuteNeverArmed` (mission `gs1_auto_chute_booster`, abort profile) is met by the
+  blind replay, because it is an ABSENCE claim about the machine's own command latch
+  (`not state.chute_commanded`): it reads no telemetry by construction and reds only if
+  the machine itself arms the chute. Either record it as intended, or re-derive it from an
+  observed read (the craft chute state staying un-deployed across DESCENT).
+- Ledger lanes with no seed-bearing archive on this machine
+  (`L2-ledger-groundtruth-career`, `L3-strategy-currency-conversion`,
+  `L3-strategy-exchanger-floor`): re-run `mutation_check.py --ledger-only` after their
+  next tier.
+- A threshold pushed across its bound INSIDE a mission evaluator is not reached: the
+  telemetry frames the evaluators read are not archived (the mission stdout is
+  rate-limited), so the blind replay proves an assertion reads telemetry, not which side
+  of its bound it compares. Reaching it needs the mission to archive its frames (or the
+  per-assertion evidence the compare reads).
 
 ## HARNESS-FLIGHT-WALL-TIME: auto-flights spend ~40% of their mission wall time idle at 1x [FILED 2026-10-01, branch `flight-efficiency`. MEASURED; the warp-policy fix is a separate session]
 
@@ -3859,14 +3886,13 @@ descent; noted on the spec and its status row, not re-harvested (operator ruling
 2. The readiness check tests `Administration.Instance != null`, set in `Awake`, while the slot limit and commitment ceiling are read in `Start`; safe today only because `Pump` runs once per frame. Gate on a field `Start` sets, or compare the slot limit with `GameVariables`.
 3. `StrategyDisplayNames`' production cache is not exercised by the unit tests (the test hook bypasses it).
 
-## MUTATION-CHECK-PHASE-2: the mutation checker does not yet reach the ledger or mission assertions [FILED 2026-09-24 with phase 1 (branch `mutation-check`). OPEN; harness. PR 1 (save perturbation) DONE 2026-10-01, branch `mutation-phase2`; PR 2 (ledger perturbation) DONE 2026-10-01, branch `mutation-phase2-pr2`; PR 3 open]
+## ~~MUTATION-CHECK-PHASE-2: the mutation checker does not yet reach the ledger or mission assertions~~ [FILED 2026-09-24 with phase 1 (branch `mutation-check`). **DONE 2026-10-01**; harness. PR 1 (save perturbation) branch `mutation-phase2`; PR 2 (ledger perturbation) branch `mutation-phase2-pr2`; PR 3 (mission chain + forbidden injection) branch `mutation-phase2-pr3`. What it still leaves to the operator is MUTATION-CHECK-RESIDUE]
 
 Phase 1 (`harness/tools/mutation_check.py`, known-gate 17 in `autotest-status.md`) replays
 the gating evaluators that are pure over an archived KSP.log, plus the ARMED save-parse
 windows at the facet level (the measured count moved by one and to zero). Phase 2 is
 planned as three PRs: (1) save perturbation, (2) ledger perturbation, (3) mission
-assertions and forbidden-token injection. Still unchecked after PR 2, so a cell there can
-go vacuous with nothing noticing: the mission and forbidden-pattern items below.
+assertions and forbidden-token injection. All three landed.
 
 - ~~Save perturbation below the facet~~ DONE (PR 1, `harness/lib/mutsave.py`): for every
   window of every ARMED save-parse block the checker edits the archived `persistent.sfs`
@@ -3905,20 +3931,36 @@ go vacuous with nothing noticing: the mission and forbidden-pattern items below.
   `L3-strategy-exchanger-floor` (their only local runs are collect-logs folders); re-run
   after their next tier. `L1-passive-sandbox` has no pool gate by design (its seed carries
   no pools, so the oracle skips every pool); only its faults are checked.
-- Mission assertions (PR 3): replay a mission's recorded verdict with its sensor reads
-  removed (the kRPC telemetry lines it gates on), so a mission check that no longer reads
-  what it claims is caught.
-- Forbidden patterns (PR 3): phase 1 cannot synthesize a line a forbidden regex would match; a
-  literal-shaped forbidden token (`\[Parsek\]\[ERROR\]`) could be injected directly.
-
-Also open from the first sweep: the 723 triage survivors (96 lanes) listed by group in known-gate 17
-(spec tightening; each group is a spec change or a recorded ruling). FIRST PASS DONE
-2026-09-24 (branch `tighten-survivors`): 26 specs tightened, 723 -> 700, of which 391 are
-recorded as intended and 309 remain (known-gate 17 lists them). Still owed from the pass:
-the teardown `Recording stopped` fix on the 25 lanes it could not verify offline - B4
-now that #1806 (`b4-chute`) has landed, and the 24 whose archives are missing or no longer replay
-green (re-run `mutation_check.py` after their next tier, then apply the same per-lane
-anchor).
+- ~~Mission assertions~~ DONE (PR 3, `harness/lib/mutmission.py`). The mission-result
+  read, the driver-stage subkind map and the driver-validity composition (the autopilot
+  carve-out and the `missionOutcome` row) moved out of `run.py` into
+  `harness/lib/missionverify.py` unchanged, so the checker replays the same code a flight
+  runs. Over each autopilot lane's archived run record, mission result and mission shell
+  module: each assertion with its reading removed goes back through the real
+  `resolve_flight_verdict` / `build_mission_result` / `serialize_mission_result`, the
+  shared read, `classify_mission_step`, the composition and `classify_verdict`, and must
+  classify INVALID(mission) naming that assertion (orthogonality: an unmet mission is a
+  driver-INVALID, never PARSEK-FAIL); a BLIND replay runs the shell's real `evaluate` over
+  the machine's initial state with no frames and with all-unread frames, and every
+  archived assertion must be unmet there; each post-mission outcome step answered ERROR /
+  REJECTED / never must classify PARSEK-FAIL(mission-outcome) / INVALID(driver-verdict-
+  mismatch) / INVALID(driver-stage); and result faults (torn, bumped schema, no verdict,
+  no assertions, vessel lost, flake) must route as designed. `mutation_check.py
+  --mission-only`. First sweep (2026-10-01, every archive under the umbrella root): 65 of
+  the 86 autopilot specs have a green archive (21 carry no mission result here); 1604
+  edits, 1602 killed; 1214 gates PROVEN, 1 VACUOUS (CA-1 `craftChuteNeverArmed`, an
+  absence claim, see MUTATION-CHECK-RESIDUE), 0 UNCHECKED. Found on the way:
+  KXRW-RESULT-NAN-DETAIL.
+- ~~Forbidden patterns~~ DONE (PR 3, `harness/lib/mutforbid.py`; phase 1 never injected a
+  forbidden line). For each forbidden regex a string the regex itself matches is generated
+  from the parsed pattern, injected into the archived KSP.log framed as a KSP line and then
+  bare, and the real `hlib.evaluate_expectations` must report that pattern matched.
+  `mutation_check.py --forbidden-only`. First sweep: 265 lanes with a log no forbidden
+  pattern already matches, 1001 injections, all PROVEN on the framed line, 0 VACUOUS,
+  0 UNCHECKED; a unit cell holds all 398 distinct committed patterns injectable. The
+  heuristic emitter list (a literal word no `Source/Parsek` file carries) names 5
+  patterns, all runtime data (a stock part, a building, a tech id, a synthetic recording
+  id), so no renamed message.
 
 ## ~~GHOSTLIFE-V2-FIRST-LIVE-READING: the v2 ghost-lifecycle surfaces have never read a live log~~ [FILED 2026-09-24, ghost-replay Tier C item 10, branch `ghostlife-v2`. **DISCHARGED 2026-09-24 by GS-12** (branch `gs12-loop`): the first live reading `2026-09-24_1911` read `MeshDestroyed reason=overlap expired` x27 (Kerbal X 14, Kerbal X Probe 13), `overlap cleared` x2, `engine teardown` x13 at quit, `LoopCycle` x40 - every one `mode=overlap-demote`, ZERO `unit` and ZERO `reuse` - and spawnLines = destroyLines = 57 with unbalanced 0, so the two line counts close on a looping lane as designed. The `unit` mode did not fire because the one-copy-at-a-time stage runs with an inter-cycle tail (period 150 s > span 109 s): the member is destroyed at its window end (`chain-loop unit member outside its window` / `chain-loop unit cycle change`) and respawned, never carried across the boundary. GS-12 ARMS `destroyedReasons.required`, `vessels` (`Kerbal X Debris` spawned >= 6) and `cycleLines` (>= 10); armed re-flight `_1934` PASS. Adding the `vessels` window to GS-4 stays open as its own arming change.]
 

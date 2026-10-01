@@ -10,6 +10,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: the mutation checker now proves the mission checks and the forbidden log tokens
+  red.** `harness/tools/mutation_check.py --mission-only` (new pure core
+  `harness/lib/mutmission.py`) replays each archived mission result through the real
+  verdict chain with every telemetry assertion's reading removed, runs each mission's
+  assertion code with no telemetry at all, fails each post-mission outcome step, and plants
+  result-file faults; `--forbidden-only` (`harness/lib/mutforbid.py`) injects a line each
+  forbidden log token matches into the archived log. The mission-result read and the
+  driver-validity decisions moved out of `harness/run.py` into
+  `harness/lib/missionverify.py` unchanged, so the checker runs the same code a flight
+  does. The first sweep proved 1214 mission gates on 65 lanes and 1001 forbidden tokens on
+  265 lanes, and found one vacuous mission check (an absence claim on CA-1) plus a
+  mission-library defect (`kx_rewind_watch` can fail to write its result). An unreadable
+  archive now reads as an unchecked ledger or mission gate instead of dropping the lane.
+  Report-only; no run changes.
 - **Dev: the mutation checker now proves the ledger checks red when the career numbers
   drift.** `harness/tools/mutation_check.py --ledger-only` (new pure core
   `harness/lib/mutledger.py`) replays the ledger oracle over each archived run's seed,

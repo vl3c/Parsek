@@ -378,6 +378,34 @@ class SharedPathTests(unittest.TestCase):
         self.assertEqual(1, len(calls))
 
 
+class UnreadableArchiveTests(unittest.TestCase):
+
+    def test_an_unreadable_archive_is_unchecked_and_the_lane_still_runs(self):
+        tools = os.path.join(os.path.dirname(_HERE), "tools")
+        if tools not in sys.path:
+            sys.path.insert(0, tools)
+        import mutation_check  # noqa: E402
+
+        def boom(ref):
+            raise PermissionError(13, "Permission denied", "analysis")
+
+        ref = mutlib.ArchiveRef("2026-10-01_0000", "T-hire", "results", "r", "KSP.log",
+                                "save", None, "PASS")
+        with Patched(mutation_check, "read_analysis_text", boom):
+            ledger = mutation_check.read_ledger_inputs(ref, LOG)
+        self.assertIn("PermissionError", ledger.read_error)
+        spec = _hire_spec()
+        spec["expectations"]["logContracts"] = {"required": ["tick ut="]}
+        lane = mutlib.check_lane(spec, mutlib.ArchiveInputs("t", LOG, None, None, ledger=ledger))
+        self.assertEqual(mutlib.BASELINE_GREEN, lane.baseline)
+        self.assertTrue(lane.mutations)
+        gate = [g for g in lane.ledger_gates if g.label == "ledger:inputs"]
+        self.assertEqual(["UNCHECKED"], [g.verdict for g in gate])
+        self.assertIn("unreadable archive: PermissionError", gate[0].reason)
+        only = mutlib.check_ledger_lane(spec, "t", ledger)
+        self.assertEqual(mutlib.BASELINE_NOT_GREEN, only.baseline)
+
+
 class ReportTests(unittest.TestCase):
 
     def test_report_lists_vacuous_ledger_gates(self):
