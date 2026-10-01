@@ -2328,12 +2328,16 @@ _(unreleased — entries accumulate here per commit)_
   per-mission Archive box and the list's "hide archived" filter; a mission archived in an
   older save loads collapsed. Stash / Fly + Seal and the Docked partner's Go to sit in
   Interact too. Everything that exists only because of mission looping is Advanced-only
-  (Clone, Delete, "Warp to..." shown only while the mission loops, the Loop toggle and
-  period, the countdown, and the greyed / `(partial)` styling of rows left out of a loop);
-  Advanced shows them as a compact two-by-two grid beside Log (Clone and "Warp to..." on the
-  title line, Delete and the Loop toggle with its period on the story line; a route-bound
-  mission shows "Looped by route" in the toggle's place), so the story keeps most of the
-  width. A physics-locked period shows its value only (`~13d-19d`, `~6h`); what sets it
+  (Clone, Delete, "Warp to...", the Loop toggle and period, the countdown, and the greyed /
+  `(partial)` styling of rows left out of a loop); Advanced shows them as a compact
+  two-by-two grid beside Log, so the story keeps most of the width. Clone and "Warp to..."
+  sit on the title line; "Warp to..." is always there, greyed while it cannot act, with the
+  reason on hover (`Turn Loop on to warp to the next launch`, the scene, no schedule yet, or
+  the next launch less than a second away). Delete and the Loop row sit on the story line,
+  the row reading `Loop [x] every [10] [sec]` (or `Loop [x] every ~13d-19d`) with "Loop"
+  lined up under "Warp to..." and the period ending under Log's right edge, every piece
+  centred on one line at a fixed width so nothing moves between states. A route-bound
+  mission shows "Looped by route" across that row instead. A physics-locked period shows its value only (`~13d-19d`, `~6h`); what sets it
   (`Mun window, varies`, `Kerbin rot`) is in its hover. The Next
   launch column is gone: the countdown lives in the story, and the warning its amber tint
   used to carry (a drifted station, a refused arrival, a launch outside its alignment
