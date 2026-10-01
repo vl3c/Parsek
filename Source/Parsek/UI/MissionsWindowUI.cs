@@ -467,26 +467,37 @@ namespace Parsek
         // (60) + 10 px, so they read as one group.
         private const float ColW_HeaderButton = 70f;
 
-        // ----- the Advanced loop grid (owner mock-up 2026-09-30) -----
+        // ----- the Advanced loop grid (owner mock-up 2026-09-30, aligned 2026-10-01) -----
         //
-        // Clone, Delete, Warp to... and the Loop toggle + period sit as a 2x2 grid across the
-        // mission bar's two lines, inside the name cell, right-aligned, so the summary keeps the
-        // width they used to take in one row after it:
-        //   line 1: title ...  [A: Clone ] [B: Warp to... | space  ] [Log]
-        //   line 2: summary .. [A: Delete] [loop cell: Loop x, period, Looped by route      ]
-        // The loop cell spans column B AND the Log slot above it (Log has zero horizontal margin
-        // and the grid buttons use the zero-margin loopGridButtonStyle, so column B + Log ==
-        // the loop cell exactly and both lines end at the same x). "Warp to..." fills column B,
-        // so there is no gap between it and Log. Every width is fixed, so the grid never shifts
-        // when Warp to... hides or the period's state changes.
+        // Clone, Delete, Warp to... and the Loop row sit as a 2x2 grid across the mission bar's
+        // two lines, inside the name cell, right-aligned, so the summary keeps the width they
+        // used to take in one row after it:
+        //   line 1: title ...  [A: Clone ] [B: Warp to...        ] [Log           ]
+        //   line 2: summary .. [A: Delete] [B: Loop [x] every    ] [period: [10][sec]]
+        // Every grid control has zero horizontal margin (loopGridButtonStyle, interactButtonStyle
+        // and the loopCell* styles), so each column is exactly its constant wide on both lines:
+        // the line-2 loop row starts at Warp's left edge and ends at Log's right edge, its
+        // "Loop [x] every" part fills column B under Warp, and its period part fills the Log slot
+        // under Log. Warp is always drawn in Advanced (greyed with its reason when it cannot
+        // act) and every width is fixed, so the grid never shifts between states.
         internal const float LoopGridColumnAWidth = ColW_HeaderButton;
         internal const float LoopGridGap = 4f;
-        // Wide enough for the widest line-2 content now that the period cell shows its value
-        // only: "Looped by route [10] [sec]" when route-bound (measured ~184 px), which is wider
-        // than "Loop x [10] [sec]" or "Loop x ~13d-19d".
-        internal const float LoopCellWidth = 192f;
-        internal const float LoopGridColumnBWidth = LoopCellWidth - InteractButtonWidth;
-        // One line: every control in the loop cell is centred on it.
+        internal const float LoopGridColumnBWidth = 92f;
+        // The loop row spans column B plus the Log slot above it.
+        internal const float LoopCellWidth = LoopGridColumnBWidth + InteractButtonWidth;
+        // Column B on line 2: "Loop", the checkbox's slot, "every". The three sum to column B.
+        internal const float LoopRowLabelWidth = 28f;
+        internal const float LoopRowToggleSlotWidth = 22f;
+        internal const float LoopRowEveryWidth =
+            LoopGridColumnBWidth - LoopRowLabelWidth - LoopRowToggleSlotWidth;
+        // The Log slot on line 2: the period value field, a gap and the unit button (the
+        // recordings window's 40 px unit button), summing to Log's width. A value-only locked
+        // period ("~13d-19d") is one label of the whole slot.
+        internal const float LoopPeriodUnitButtonWidth = 40f;
+        internal const float LoopPeriodGap = 4f;
+        internal const float LoopPeriodValueWidth =
+            InteractButtonWidth - LoopPeriodUnitButtonWidth - LoopPeriodGap;
+        // One line: every control in the loop row is centred on it.
         private const float LoopCellHeight = 22f;
         // ----- the Interact column (Missions Model 1, owner mock-up 2026-09-30) -----
         //
@@ -517,14 +528,6 @@ namespace Parsek
         // labels, which alone measure shorter than a recordings row; without this floor the rows
         // pack too tightly and leave no room for the per-row Fly / Seal button.
         private const float CompositionRowMinHeight = 22f;
-
-        // Mission-header loop-period cell width (lives on the header row, not the table columns).
-        // The "Loop" label + checkbox are emitted as bare siblings (no fixed width), so the only
-        // sized loop control here is the period cell. The cell is content-sized (it sizes to the
-        // read-only "~P (basis)" / "~P (basis, varies)" label or the editable value+unit), so a
-        // long scheduled label ("~32.2d (Mun window, varies)") renders on one line and the summary
-        // beside it on the mission bar's second line takes whatever width is left.
-        private const float ColW_Period = 90f;
 
         // How a Mission row list is ordered. Index = the per-tree index number (clones of a
         // tree share it); Name = alphabetic mission name; StartTime = the mission span start.
@@ -701,15 +704,19 @@ namespace Parsek
         // the header bubble carrying span / duration / vessel + crew counts / outcome / next launch.
         private GUIStyle missionSummaryLabel;
         private GUIStyle tableBodyBoxStyle;
-        // Zero-horizontal-margin field/button styles for the loop-period cell, identical to
-        // the recordings window's bodyCellTextFieldFlush / bodyCellButtonFlush so the value
-        // box and unit button render the same as RecordingsTableUI.DrawLoopPeriodCell.
-        private GUIStyle bodyCellTextFieldFlush;
-        private GUIStyle bodyCellButtonFlush;
         private GUIStyle interactButtonStyle;
         private GUIStyle interactPairButtonStyle;
         private GUIStyle interactToggleButtonStyle;
         private GUIStyle loopGridButtonStyle;
+        // The Advanced loop row (line 2 of the grid): the row itself carries the grid buttons'
+        // top / bottom margin so its 22 px line sits on Delete's line; every control inside has
+        // zero margin so the row's fixed widths are its controls' exact rects.
+        private GUIStyle loopCellRowStyle;
+        private GUIStyle loopCellLabelStyle;
+        private GUIStyle loopCellWordStyle;
+        private GUIStyle loopCellToggleStyle;
+        private GUIStyle loopCellFieldStyle;
+        private GUIStyle loopCellUnitButtonStyle;
         // Boxed header-cell container + bold inner label for a header cell that shares its
         // dark box with a toggle (Archive), mirroring RecordingsTableUI.colHdrCellContainerStyle
         // / boldHeaderInnerLabel. The container's left/right margin is zeroed (so its footprint
@@ -799,12 +806,6 @@ namespace Parsek
                 margin = new RectOffset(0, 0, 0, 0)
             };
 
-            bodyCellButtonFlush = new GUIStyle(GUI.skin.button)
-            {
-                margin = new RectOffset(
-                    0, 0,
-                    GUI.skin.button.margin.top, GUI.skin.button.margin.bottom)
-            };
             // Interact column buttons: zero horizontal margin, so a button's rect starts exactly
             // at the column's inset on every row (a skin button's 4 px margin would shift a
             // single button against a pair drawn with explicit gaps). The pair halves take the
@@ -824,18 +825,46 @@ namespace Parsek
             // The loop grid's buttons (Clone, Delete, Warp to...): the same zero horizontal
             // margin, so the grid's columns are exactly their constants wide on both lines.
             loopGridButtonStyle = new GUIStyle(interactButtonStyle);
+            // The loop row: see LoopGridColumnBWidth. The labels are centred on the line
+            // (MiddleLeft, zero vertical padding), "Loop" and "Looped by route" start flush at the
+            // row's left edge (Warp's left edge), and "every" keeps a small inset after the
+            // checkbox. The field, unit button and checkbox drop their vertical margin; each sits
+            // in a fixed 22 px slot that centres it (BeginLoopCellSlot).
+            loopCellRowStyle = new GUIStyle(GUIStyle.none)
+            {
+                margin = new RectOffset(
+                    0, 0, GUI.skin.button.margin.top, GUI.skin.button.margin.bottom),
+                padding = new RectOffset(0, 0, 0, 0)
+            };
+            loopCellLabelStyle = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                wordWrap = false,
+                clipping = TextClipping.Clip,
+                margin = new RectOffset(0, 0, 0, 0),
+                padding = new RectOffset(0, 0, 0, 0)
+            };
+            loopCellWordStyle = new GUIStyle(loopCellLabelStyle)
+            {
+                padding = new RectOffset(3, 0, 0, 0)
+            };
+            loopCellToggleStyle = new GUIStyle(GUI.skin.toggle)
+            {
+                margin = new RectOffset(0, 0, 0, 0)
+            };
+            loopCellFieldStyle = new GUIStyle(GUI.skin.textField)
+            {
+                margin = new RectOffset(0, 0, 0, 0)
+            };
+            loopCellUnitButtonStyle = new GUIStyle(GUI.skin.button)
+            {
+                margin = new RectOffset(0, 0, 0, 0)
+            };
             interactToggleButtonStyle = new GUIStyle(interactButtonStyle);
             interactToggleButtonStyle.onNormal.background = GUI.skin.button.active.background;
             interactToggleButtonStyle.onHover.background = GUI.skin.button.active.background;
             interactToggleButtonStyle.onNormal.textColor = Color.white;
             interactToggleButtonStyle.onHover.textColor = Color.white;
-
-            bodyCellTextFieldFlush = new GUIStyle(GUI.skin.textField)
-            {
-                margin = new RectOffset(
-                    0, 0,
-                    GUI.skin.textField.margin.top, GUI.skin.textField.margin.bottom)
-            };
 
             // Boxed container for the Archive header cell: clone the shared column-header
             // box but zero only the LEFT/RIGHT margin so the BeginHorizontal footprint is
@@ -2886,14 +2915,10 @@ namespace Parsek
 
                 // Column B, line 1: "Warp to...". Jumps the game clock to this mission's next
                 // relaunch (the countdown target = periodicity.NextRelaunchUT) through the
-                // in-place forward jump the Forward button uses. Drawn ONLY while the mission
-                // loops; otherwise the same-width Space holds its slot, so the grid never
-                // shifts, and the layout entry count stays the same (a Space is one entry, like
-                // the button) should another mission's Loop click clear this one's loop mid-pass.
-                if (mission.LoopPlayback)
-                    DrawMissionWarpToWindowButton(mission, periodicity);
-                else
-                    GUILayout.Space(LoopGridColumnBWidth);
+                // in-place forward jump the Forward button uses. ALWAYS drawn in Advanced
+                // (owner request 2026-10-01): greyed, with its reason on hover, while the mission
+                // does not loop or cannot warp yet, so the grid reads the same in every state.
+                DrawMissionWarpToWindowButton(mission, periodicity);
             }
 
             // "Log": opens the chronological step-list window for this mission (launch,
@@ -2936,9 +2961,10 @@ namespace Parsek
 
         // The name cell of line 2: the summary on the left (it expands and wraps), then:
         //   Basic:    [Looped by route], right-aligned, when route-bound.
-        //   Advanced: the loop grid's second row - Delete in column A, and the loop cell
-        //             ("Loop x", the period cell, "Looped by route" when route-bound) spanning
-        //             column B plus the Log slot above it.
+        //   Advanced: the loop grid's second row - Delete in column A, and the loop row
+        //             spanning column B plus the Log slot above it: "Loop [x] every" under
+        //             Warp and the period under Log, or "Looped by route" across the whole
+        //             row when route-bound.
         private void DrawMissionSummaryNameCell(Mission mission, MissionThroughLineView view,
             MissionPeriodicityDisplay periodicity, MissionPresentation.MissionSummaryFacts summary)
         {
@@ -2963,26 +2989,7 @@ namespace Parsek
                 GUI.enabled = true;
                 GUILayout.Space(LoopGridGap);
 
-                // The loop cell: a fixed width (column B + the Log slot) and one line tall, so
-                // the grid never shifts, and every control in it is vertically centred on the
-                // same line (LoopCellHeight) - the label, the toggle, the period field or label.
-                GUILayout.BeginHorizontal(GUILayout.Width(LoopCellWidth),
-                    GUILayout.Height(LoopCellHeight));
-                // Route-bound, "Looped by route" takes the Loop toggle's place: a route owns the
-                // tree's loop, so the toggle could only ever draw greyed and inert, and its hover
-                // said the same thing the route label's does (the route's name).
-                if (missionRouteBound)
-                    DrawLoopedByRouteLabel(bindingRoute);
-                else
-                    DrawMissionLoopToggle(mission, missionRouteBound, bindingRoute);
-                // Periodicity (the Phase-1 / Tier-1 solution) is computed once per mission by
-                // the draw loop and passed in; the period cell shows the faithful period P +
-                // basis label when phase-locked. It goes with the toggle in Basic: it is a period
-                // EDITOR (a value field plus a unit-cycling button; only the phase-locked /
-                // re-aim states render read-only).
-                DrawMissionLoopPeriodCell(mission, view, periodicity);
-                GUILayout.FlexibleSpace();
-                GUILayout.EndHorizontal();
+                DrawMissionLoopRow(mission, view, periodicity, missionRouteBound, bindingRoute);
             }
             else if (missionRouteBound)
             {
@@ -2994,37 +3001,137 @@ namespace Parsek
             GUILayout.EndHorizontal();
         }
 
-        // "Loop [x]": the label then the checkbox, both centred on the loop cell's line.
+        // The loop row (Advanced, line 2 of the grid): a fixed LoopCellWidth x LoopCellHeight row
+        // whose left edge is Warp's and whose right edge is Log's (see LoopGridColumnBWidth).
+        //   not route-bound: column B = "Loop" [x] "every", the Log slot = the period
+        //                    ("[10] [sec]", "[60s] [auto]" or the value-only "~13d-19d").
+        //   route-bound:     "Looped by route" across the whole row. A route owns the tree's
+        //                    loop, so the toggle and the period cell could only draw greyed and
+        //                    inert (RouteTreeGuard clears the manual loop when a route binds), and
+        //                    the label's hover names the route; the full-row label keeps both
+        //                    edges where the other states put them.
+        private void DrawMissionLoopRow(Mission mission, MissionThroughLineView view,
+            MissionPeriodicityDisplay periodicity, bool missionRouteBound, Route bindingRoute)
+        {
+            LogMissionLoopRowTransition(mission, ResolveLoopRowKind(
+                missionRouteBound,
+                mission.LoopPlayback,
+                periodicity.IsPhaseLockedConstrained || periodicity.IsReaim,
+                mission.LoopTimeUnit == LoopTimeUnit.Auto));
+
+            GUILayout.BeginHorizontal(loopCellRowStyle,
+                GUILayout.Width(LoopCellWidth), GUILayout.Height(LoopCellHeight));
+            if (missionRouteBound)
+            {
+                DrawLoopedByRouteLabel(bindingRoute, LoopCellWidth);
+            }
+            else
+            {
+                DrawMissionLoopToggle(mission, missionRouteBound, bindingRoute);
+                // Periodicity (the Phase-1 / Tier-1 solution) is computed once per mission by
+                // the draw loop and passed in; the period cell shows the faithful period P
+                // (value only, basis on hover) when phase-locked, otherwise a period EDITOR (a
+                // value field plus a unit-cycling button).
+                DrawMissionLoopPeriodCell(mission, view, periodicity);
+            }
+            GUILayout.EndHorizontal();
+        }
+
+        /// <summary>What the Advanced loop row draws, for the transition log.</summary>
+        internal enum LoopRowKind
+        {
+            RouteBound,
+            LockedPeriod,
+            AutoPeriod,
+            ManualPeriod,
+        }
+
+        /// <summary>
+        /// Which of the loop row's four states draws: the route label when a supply route
+        /// binds the tree, else "Loop [x] every" plus the period, which is a read-only value
+        /// only while the mission loops on a phase-locked or re-aim cadence (the
+        /// DrawMissionLoopPeriodCell branch), else the Auto or manual editor. Pure for unit
+        /// testing.
+        /// </summary>
+        internal static LoopRowKind ResolveLoopRowKind(
+            bool routeBound, bool looping, bool lockedOrReaim, bool autoUnit)
+        {
+            if (routeBound)
+                return LoopRowKind.RouteBound;
+            if (looping && lockedOrReaim)
+                return LoopRowKind.LockedPeriod;
+            return autoUnit ? LoopRowKind.AutoPeriod : LoopRowKind.ManualPeriod;
+        }
+
+        // Last logged loop-row state per mission id, so the per-frame draw logs only changes.
+        private readonly Dictionary<string, string> lastMissionLoopRowState =
+            new Dictionary<string, string>(System.StringComparer.Ordinal);
+
+        private void LogMissionLoopRowTransition(Mission mission, LoopRowKind kind)
+        {
+            if (mission == null || string.IsNullOrEmpty(mission.Id))
+                return;
+            string state = kind + (mission.LoopPlayback ? " looping" : " not-looping");
+            if (lastMissionLoopRowState.TryGetValue(mission.Id, out string previous)
+                && string.Equals(previous, state, System.StringComparison.Ordinal))
+                return;
+            lastMissionLoopRowState[mission.Id] = state;
+            ParsekLog.Verbose("Mission",
+                $"Loop row for '{mission.Name}' ({mission.Id}): {previous ?? "<first draw>"} -> {state}");
+        }
+
+        // One fixed-width, LoopCellHeight-tall slot of the loop row that centres a control
+        // shorter than the line (the checkbox, the period field, the unit button) on it.
+        private static void BeginLoopCellSlot(float width)
+        {
+            GUILayout.BeginVertical(GUIStyle.none,
+                GUILayout.Width(width), GUILayout.Height(LoopCellHeight));
+            GUILayout.FlexibleSpace();
+        }
+
+        private static void EndLoopCellSlot()
+        {
+            GUILayout.FlexibleSpace();
+            GUILayout.EndVertical();
+        }
+
+        // "Loop [x] every": the label, the checkbox and the word, filling column B under Warp,
+        // all centred on the loop row's line.
         //
         // Mutual exclusion (design section 0.6): when this tree is bound to a supply route, the
         // manual Loop toggle is greyed OFF (a tree is EITHER a route OR a manually looped
-        // mission). The GUI.enabled wrap renders it disabled; the belt-and-suspenders commit guard
-        // (CommitMissionLoopToggle) blocks any turn-ON from reaching MissionStore.SetLoopEnabled
-        // even if a future layout refactor drops the wrap.
+        // mission). The loop row draws the route label instead of calling this, but the
+        // GUI.enabled wrap and the belt-and-suspenders commit guard (CommitMissionLoopToggle)
+        // stay, so no layout refactor can let a turn-ON reach MissionStore.SetLoopEnabled.
         private void DrawMissionLoopToggle(Mission mission, bool missionRouteBound, Route bindingRoute)
         {
             bool prevGuiEnabled = GUI.enabled;
             if (missionRouteBound)
                 GUI.enabled = false;
             GUILayout.Label(new GUIContent("Loop", MissionPresentation.LoopToggleTooltip),
-                missionHeaderInlineLabel, GUILayout.ExpandWidth(false),
+                loopCellLabelStyle, GUILayout.Width(LoopRowLabelWidth),
                 GUILayout.Height(LoopCellHeight));
             bool missionLoopDrawnEnabled = GUI.enabled;
-            // The checkbox is shorter than the line: a vertical group with a FlexibleSpace
-            // either side centres it on the label's line instead of top-aligning it.
-            GUILayout.BeginVertical(GUILayout.Height(LoopCellHeight), GUILayout.ExpandWidth(false));
+            // The checkbox is shorter than the line: its slot centres it both ways.
+            BeginLoopCellSlot(LoopRowToggleSlotWidth);
+            GUILayout.BeginHorizontal(GUIStyle.none);
             GUILayout.FlexibleSpace();
             bool loopNow = GUILayout.Toggle(mission.LoopPlayback,
                 new GUIContent("", MissionPresentation.LoopToggleTooltip),
-                GUILayout.ExpandWidth(false));
-            GUILayout.FlexibleSpace();
-            GUILayout.EndVertical();
+                loopCellToggleStyle, GUILayout.ExpandWidth(false));
             // LoopToggleTooltip is the generic what-it-does sentence; when a supply
             // route owns the schedule the carrier names the route instead.
             DisabledHoverEcho.CarryLastControl(
                 missionLoopDrawnEnabled,
                 RecordingsTableUI.LoopToggleDisabledReason(
                     bindingRoute != null ? bindingRoute.Name : null));
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            EndLoopCellSlot();
+            // "every" reads the row as one sentence: "Loop [x] every [10] [sec]".
+            GUILayout.Label(new GUIContent("every", MissionPresentation.LoopToggleTooltip),
+                loopCellWordStyle, GUILayout.Width(LoopRowEveryWidth),
+                GUILayout.Height(LoopCellHeight));
             GUI.enabled = prevGuiEnabled;
             CommitMissionLoopToggle(mission, loopNow, missionRouteBound, bindingRoute);
         }
@@ -3032,15 +3139,19 @@ namespace Parsek
         // Inline "Looped by route: <name>" affordance (ASCII only; this distinctive UTF-16
         // string also doubles as the deployed-DLL verification token). NOT part of the loop
         // authoring gate (owner decision 2026-09-29), so a Basic player still reads why this
-        // mission's flights repeat.
-        private void DrawLoopedByRouteLabel(Route bindingRoute)
+        // mission's flights repeat. Advanced draws it across the whole loop row (a fixed
+        // width); Basic draws it content-sized after the summary.
+        private void DrawLoopedByRouteLabel(Route bindingRoute, float width = 0f)
         {
             string routeName = bindingRoute != null && !string.IsNullOrEmpty(bindingRoute.Name)
                 ? bindingRoute.Name : "route";
-            GUILayout.Label(
-                new GUIContent("Looped by route", $"Looped by route: {routeName}"),
-                missionHeaderInlineLabel, GUILayout.ExpandWidth(false),
-                GUILayout.Height(LoopCellHeight));
+            var content = new GUIContent("Looped by route", $"Looped by route: {routeName}");
+            if (width > 0f)
+                GUILayout.Label(content, loopCellLabelStyle, GUILayout.Width(width),
+                    GUILayout.Height(LoopCellHeight));
+            else
+                GUILayout.Label(content, missionHeaderInlineLabel, GUILayout.ExpandWidth(false),
+                    GUILayout.Height(LoopCellHeight));
         }
 
         // The mission summary, narrative form (T2.1): "Kerbin -> Mun -> Kerbin . 2d 3h . Jeb,
@@ -3408,16 +3519,22 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Why a mission's "Warp to..." is greyed out. The button draws only while the mission
-        /// loops (Advanced), so the three gates left are the ones a looping mission can still
-        /// fail; the button's own tooltip describes none of them, and they are reported in the
-        /// order the player would have to fix them. Pure for unit testing.
+        /// Why a mission's "Warp to..." is greyed out. The button draws in every Advanced
+        /// state (owner request 2026-10-01), so a mission that does not loop greys it too: the
+        /// Loop toggle sits right under it, so "turn Loop on" is a fix the player can make,
+        /// except on a route-bound tree, where a supply route owns the repeats and the toggle
+        /// is gone. The button's own tooltip describes none of the gates, and they are reported
+        /// in the order the player would have to fix them. Pure for unit testing.
         /// </summary>
         internal static string MissionWarpToDisabledReason(
-            bool warpScene, bool unitBuilt, bool relaunchAhead)
+            bool warpScene, bool looping, bool routeBound, bool unitBuilt, bool relaunchAhead)
         {
             if (!warpScene)
                 return "Warping works in flight or at the Space Center";
+            if (!looping)
+                return routeBound
+                    ? "A supply route repeats this mission, not Loop"
+                    : "Turn Loop on to warp to the next launch";
             if (!unitBuilt)
                 return "This mission does not repeat on a schedule yet";
             if (!relaunchAhead)
@@ -3431,43 +3548,72 @@ namespace Parsek
         // change) that lands RewindToLaunchLeadTimeSeconds (15 s) before the launch. In flight it
         // goes through ParsekFlight.FastForwardToEventUT (notifies the recorder, then
         // TimeJumpManager.ExecuteForwardJump); at the Space Center it calls ExecuteForwardJump
-        // directly. A confirmation dialog precedes the jump (matching the Forward button). Drawn
-        // only for a looping mission (the caller's gate, Advanced only); greyed unless an engine
-        // unit was built, the next relaunch is in the future, and we are in a warp-capable scene
+        // directly. A confirmation dialog precedes the jump (matching the Forward button). Drawn in
+        // every Advanced state (the caller's gate); greyed unless the mission loops, an engine unit
+        // was built, the next relaunch is in the future, and we are in a warp-capable scene
         // (flight or Space Center).
         private void DrawMissionWarpToWindowButton(Mission mission, MissionPeriodicityDisplay periodicity)
         {
             bool inFlight = parentUI.InFlightMode;
             bool warpScene = inFlight || HighLogic.LoadedScene == GameScenes.SPACECENTER;
+            bool looping = mission != null && mission.LoopPlayback;
+            bool routeBound = mission != null && RouteTreeGuard.RouteBindingFor(mission.TreeId, out _);
 
             double now = periodicity.Solved ? periodicity.NowUT : Planetarium.GetUniversalTime();
             bool actionable = warpScene && ShouldEnableWarpToWindow(
-                mission != null && mission.LoopPlayback,
+                looping,
                 periodicity.UnitBuilt,
                 periodicity.NextRelaunchUT,
                 now);
+            // Reuse the ENABLE gate itself for the clock leg, with the two upstream legs pinned
+            // true so only its clock + finiteness checks answer here. Re-deriving it as
+            // `NextRelaunchUT > now` left the button greyed but SILENT through the last second
+            // before every relaunch (the gate needs now + 1.0) and for a NaN/Inf relaunch UT.
+            string disabledReason = MissionWarpToDisabledReason(
+                warpScene, looping, routeBound, periodicity.UnitBuilt,
+                ShouldEnableWarpToWindow(true, true, periodicity.NextRelaunchUT, now));
+            LogMissionWarpStateTransition(mission, actionable, disabledReason);
 
             GUI.enabled = actionable;
             bool warpToClicked = GUILayout.Button(
                 new GUIContent("Warp to...", MissionPresentation.WarpToButtonTooltip),
                 loopGridButtonStyle, GUILayout.Width(LoopGridColumnBWidth));
             // WarpToButtonTooltip is the generic what-it-does sentence and stays attached
-            // while the button is greyed, so the carrier resolves which of the three gates
-            // actually closed (the looping gate is the draw site's: no loop, no button).
-            DisabledHoverEcho.CarryLastControl(
-                actionable,
-                MissionWarpToDisabledReason(
-                    warpScene,
-                    periodicity.UnitBuilt,
-                    // Reuse the ENABLE gate itself for the clock leg, with the two
-                    // upstream legs pinned true so only its clock + finiteness checks
-                    // answer here. Re-deriving it as `NextRelaunchUT > now` left the
-                    // button greyed but SILENT through the last second before every
-                    // relaunch (the gate needs now + 1.0) and for a NaN/Inf relaunch UT.
-                    ShouldEnableWarpToWindow(true, true, periodicity.NextRelaunchUT, now)));
+            // while the button is greyed, so the carrier resolves which gate actually closed.
+            DisabledHoverEcho.CarryLastControl(actionable, disabledReason);
             if (warpToClicked)
                 ShowMissionWarpToWindowConfirmation(mission, periodicity.NextRelaunchUT, inFlight);
             GUI.enabled = true;
+        }
+
+        // Last logged "Warp to..." state per mission id ("enabled" or the greyed reason), so the
+        // per-frame enable decision logs only when it changes.
+        private readonly Dictionary<string, string> lastMissionWarpState =
+            new Dictionary<string, string>(System.StringComparer.Ordinal);
+
+        private void LogMissionWarpStateTransition(Mission mission, bool actionable, string disabledReason)
+        {
+            if (mission == null || string.IsNullOrEmpty(mission.Id))
+                return;
+            string state = DescribeMissionWarpState(actionable, disabledReason);
+            if (lastMissionWarpState.TryGetValue(mission.Id, out string previous)
+                && string.Equals(previous, state, System.StringComparison.Ordinal))
+                return;
+            lastMissionWarpState[mission.Id] = state;
+            ParsekLog.Verbose("Mission",
+                $"Warp to... for '{mission.Name}' ({mission.Id}): {previous ?? "<first draw>"} -> {state}");
+        }
+
+        /// <summary>
+        /// The "Warp to..." state the transition log keys on: "enabled", or "greyed: reason"
+        /// (a greyed button always has a reason; the reason test pins that). Pure for unit
+        /// testing.
+        /// </summary>
+        internal static string DescribeMissionWarpState(bool actionable, string disabledReason)
+        {
+            if (actionable)
+                return "enabled";
+            return "greyed: " + (string.IsNullOrEmpty(disabledReason) ? "<no reason>" : disabledReason);
         }
 
         // Confirmation dialog for the "Warp to..." button, then the in-place forward jump (the same
@@ -4434,22 +4580,21 @@ namespace Parsek
         private void DrawMissionLoopPeriodCell(
             Mission mission, MissionThroughLineView view, MissionPeriodicityDisplay periodicity)
         {
-            const float unitBtnW = 40f; // match RecordingsTableUI.DrawLoopPeriodCell
-            float valueW = ColW_Period - unitBtnW - 4f;
+            // The period fills the Log slot of the loop row (see LoopGridColumnBWidth): value
+            // field + gap + unit button == Log's width, so the row ends at Log's right edge.
+            const float unitBtnW = LoopPeriodUnitButtonWidth;
+            const float valueW = LoopPeriodValueWidth;
 
             bool enabled = mission.LoopPlayback;
             bool auto = mission.LoopTimeUnit == LoopTimeUnit.Auto;
 
             string controlName = "MissionLoopPeriod_" + mission.Id;
 
-            // Content-sized period cell: it sizes to whichever state renders (a wide read-only
-            // "~P (basis)" / "~P (basis, varies)" locked label, or a narrow editable value+unit), so a
-            // long scheduled label renders on one line. NO wrapping horizontal group: the cell's
-            // controls are entries of the mission bar's second line directly. A nested group there
-            // took a share of the line's slack even with ExpandWidth(false) (measured in the
-            // GUI-17 dump: 186 px for a 90 px cell), opening a gap before Watch; every control
-            // below is fixed-width or ExpandWidth(false), so the summary cell is the one that
-            // stretches.
+            // Fixed-width period cell: every state fills exactly the Log slot (a read-only
+            // value label of that width, or the value field + gap + unit button), so nothing in
+            // the grid moves when the period's state changes. NO wrapping horizontal group of its
+            // own: its controls are entries of the loop row directly; the field and the unit
+            // button each sit in a centring slot (BeginLoopCellSlot) on the row's line.
 
             // Phase-locked + constrained (supported, P != MinCycleDuration): the cadence is
             // determined by physics (quantized to a multiple of P), not freely editable, so show the
@@ -4488,14 +4633,13 @@ namespace Parsek
                 GUI.enabled = false;
                 Color prevLocked = GUI.contentColor;
                 GUI.contentColor = LoopPeriodClampColor;
-                // missionHeaderInlineLabel (vertically centered) so "~6.4d" sits on the same
-                // baseline as the "Loop" label and the buttons; ExpandWidth(false) keeps the label
-                // content-sized inside the fixed loop cell.
+                // loopCellLabelStyle (vertically centred) so "~6.4d" sits on the same line as
+                // "every" before it, at the whole Log slot's width: "Loop [x] every ~6.4d".
                 // T1.5: name the state the cell is in - the four period states are distinguished by
                 // greyness, editability, and tint alone, and none of them says so.
                 GUILayout.Label(
                     new GUIContent(locked, MissionPresentation.BuildLockedPeriodTooltip(lockedFull)),
-                    missionHeaderInlineLabel, GUILayout.ExpandWidth(false),
+                    loopCellLabelStyle, GUILayout.Width(InteractButtonWidth),
                     GUILayout.Height(LoopCellHeight));
                 GUI.contentColor = prevLocked;
                 GUI.enabled = true;
@@ -4542,7 +4686,9 @@ namespace Parsek
                 GUI.enabled = false;
                 Color prevAuto = GUI.contentColor;
                 if (showEffective) GUI.contentColor = LoopPeriodClampColor;
-                GUILayout.TextField(autoText, bodyCellTextFieldFlush, GUILayout.Width(valueW));
+                BeginLoopCellSlot(valueW);
+                GUILayout.TextField(autoText, loopCellFieldStyle, GUILayout.Width(valueW));
+                EndLoopCellSlot();
                 GUI.contentColor = prevAuto;
                 GUI.enabled = true;
             }
@@ -4562,9 +4708,11 @@ namespace Parsek
                 GUI.SetNextControlName(controlName);
                 Color prevManual = GUI.contentColor;
                 if (showEffective) GUI.contentColor = LoopPeriodClampColor;
-                GUILayout.TextField(shownText, bodyCellTextFieldFlush, GUILayout.Width(valueW));
+                BeginLoopCellSlot(valueW);
+                GUILayout.TextField(shownText, loopCellFieldStyle, GUILayout.Width(valueW));
                 GUI.contentColor = prevManual;
                 loopPeriodEditRect = GUILayoutUtility.GetLastRect();
+                EndLoopCellSlot();
                 if (enabled && GUI.GetNameOfFocusedControl() == controlName)
                 {
                     loopPeriodFocusedMissionId = mission.Id;
@@ -4586,9 +4734,11 @@ namespace Parsek
 
                 GUI.enabled = enabled;
                 GUI.SetNextControlName(controlName);
+                BeginLoopCellSlot(valueW);
                 string newText = GUILayout.TextField(
-                    loopPeriodEditText, bodyCellTextFieldFlush, GUILayout.Width(valueW));
+                    loopPeriodEditText, loopCellFieldStyle, GUILayout.Width(valueW));
                 loopPeriodEditRect = GUILayoutUtility.GetLastRect();
+                EndLoopCellSlot();
                 if (newText != loopPeriodEditText)
                     loopPeriodEditText = newText;
                 if (submit)
@@ -4599,7 +4749,7 @@ namespace Parsek
                 GUI.enabled = true;
             }
 
-            GUILayout.Space(4f);
+            GUILayout.Space(LoopPeriodGap);
             GUI.enabled = enabled;
             // T1.5: the unit button carries the cell's STATE tooltip (loop off / auto / raised by
             // the overlap cap) - a GUILayout.TextField takes no GUIContent, so the adjacent button
@@ -4607,10 +4757,12 @@ namespace Parsek
             string periodStateTooltip = MissionPresentation.BuildPeriodStateTooltip(
                 enabled, auto, showEffective) ?? string.Empty;
             bool unitButtonEnabled = GUI.enabled;
+            BeginLoopCellSlot(unitBtnW);
             bool unitButtonClicked = GUILayout.Button(
                     new GUIContent(ParsekUI.UnitLabel(mission.LoopTimeUnit), periodStateTooltip),
-                    bodyCellButtonFlush, GUILayout.Width(unitBtnW));
+                    loopCellUnitButtonStyle, GUILayout.Width(unitBtnW));
             DisabledHoverEcho.CarryLastControl(unitButtonEnabled, periodStateTooltip);
+            EndLoopCellSlot();
             if (unitButtonClicked)
             {
                 mission.LoopTimeUnit = RecordingsTableUI.CycleRecordingUnit(mission.LoopTimeUnit);
