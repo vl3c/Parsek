@@ -178,6 +178,10 @@ python tools/flight_efficiency.py --results-glob "C:/.../Parsek-*/harness/result
     --since 2026-10-01 [--scenario B11-mun-orbit] [--per-run] [--top 10] [--json-out eff.json]
 ```
 
+Run ids carry the UTC date and minute (`run.py` stamps them with
+`datetime.now(timezone.utc)`, `hlib.RUN_ID_TIMESTAMP_FORMAT`), so `--since` filters by
+UTC date: a run started at 01:30 local in UTC+3 is filed under the previous day.
+
 Inputs per run, each optional: `<runId>_mission.stdout.log` (telemetry, phase
 changes, warp actions), `<runId>_mission.json` (`warpUtilisation` calibrates the
 wall clock per phase visit), `<runId>.json` (startedUtc / endedUtc / attempts /
@@ -191,17 +195,42 @@ The estimation contract (full text in the `lib/flighteff.py` docstring):
 
 - Each telemetry interval lands in exactly one bucket: `idle` (1x, orbit static
   within 1 m, outside any atmosphere and off the ground), `lowWarp` (rails below
-  the legal factor from mlib's `STOCK_WARP_ALTITUDE_LIMITS`, or physics warp on a
-  static orbit), `burn` (1x with a changing orbit; `thr=` is never read, MechJeb
+  the legal factor from mlib's `STOCK_WARP_ALTITUDE_LIMITS`), `physicsWarp` (any
+  PHYSICS warp above 1x: the policy's 4x PARK / kx COAST dwells, the DIY flip, and
+  kRPC `WarpTo`'s own PHYSICS x3-4 tail; shown as its own column and total, never
+  recoverable), `burn` (1x with a changing orbit; `thr=` is never read, MechJeb
   owns the throttle), `atmoOrGround`, `warped`, `unclassified`.
 - Idle is split by a deterministic cause: dwell phase, attitude-align (apErr
   above 5 deg), waiting-for-node, soi-approach, coast-to-apoapsis,
   coast-to-entry, coast-to-periapsis, other-coast.
-- Recoverable per contiguous idle / lowWarp run = wall - game / best legal rate
-  (at the run's minimum altitude) - a fixed 10 s ramp-and-settle overhead,
-  floored at 0. Attitude-align uses the 4x physics rate, because rails warp
-  freezes rotation. The ideal assumes a warp-to that lands exactly on the next
-  event, so treat the figure as an upper bound on what a warp policy can win.
+- Recoverable per contiguous idle / lowWarp run = wall - game / target rate - a
+  fixed 10 s ramp-and-settle overhead, floored at 0. The target is the best legal
+  rails rate at the run's minimum altitude, except attitude-align (4x physics,
+  because rails warp freezes rotation) and the POLICY-AWARE targets: B5's PARK
+  dwell and kx's COAST wait run at 4x physics warp by policy (the recorded
+  coverage needs per-frame physics), so their target is 4x, not rails (scoped to
+  the `b5_decide` / `kxrw_decide` machines; PARK and COAST name other machines'
+  phases too). The ideal assumes a warp-to that lands exactly on the next event,
+  so treat the figure as an upper bound on what a warp policy can win.
+- By design. 1x time the mission warp policy keeps on purpose is estimated the
+  same way but reported as `byDesign`, beside the recoverable total and never in
+  it (per phase, run, cause and lane; recommendation rows carry `byDesign: true`
+  and `byDesignReason` and print in their own "BY DESIGN (not counted)" section).
+  The policy table (`flighteff.BY_DESIGN_POLICY`): B4's DEORBIT attitude slew
+  (rails freezes rotation), the m3 HOLD-DEPART / HOLD-ARRIVE / HOLD-PARK render
+  holds, TRANSFER-BURN node waits (not held: a held TLI moved B13's landing site),
+  and MJ-ASCENT's node wait and coast to apoapsis (MechJeb's ascent executor
+  cancels a second warp). Plus the capture lead: a CAPTURE-BURN node wait whose
+  node is at most `NODE_WAIT_ORIENT_LEAD_SECONDS` (120 s) + the hold's 5 s
+  arrival tolerance + the half burn away is the executor's align-and-settle after
+  the hold released, so only the earlier seconds stay recoverable. The half burn
+  comes from the machine's own `node-wait: ... halfBurn=` action line; a visit
+  without one (a pre-policy run, or no hold) uses the constants alone, short by
+  the half burn (~10 s on a Mun capture). The lead constants and the 4x index are
+  mirrored from mlib and pinned by `lib/test_flighteff.py`.
+- Outcome-sensitive. CIRCULARIZE node waits (B22) stay recoverable, but the row
+  carries `outcomeSensitive: true` and says a warp there may move the outcome;
+  the policy for them is undecided.
 - Long burns (60 s or more of 1x with a changing orbit) are reported as
   physics-warp candidates with an optional x2 saving that never enters a total.
 - Blocking `warp_to` hops emit no telemetry; such a gap is bucketed `warped` and

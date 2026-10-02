@@ -57,6 +57,12 @@ _(unreleased — entries accumulate here per commit)_
   `missionParams` keys that control it, per run or aggregated over every worktree's results.
   It only measures; no mission, verifier or result changes. Over the 2026-10-01 nightly runs
   about 39% of mission wall time was idle at 1x (B11's capture-node wait alone: ~600 s).
+  It knows the mission warp policy: physics warp is its own bucket (never recoverable), 1x
+  time the policy keeps on purpose (B4's deorbit slew, the m3 render holds, transfer and
+  ascent node waits, the capture node wait's final lead before the node) is reported as
+  "by design" beside the recoverable total instead of in it, the PARK and kx COAST dwells
+  are judged against the 4x physics warp the policy uses, and CIRCULARIZE node waits are
+  flagged outcome-sensitive. JSON schema version 2.
 - **Timeline rows explain themselves on hover.** Hovering a row's description in the
   Timeline now explains it in the window's bottom help line. A future row that holds a stock
   control names it, from the same check the stock screen's block uses: `Holds Research in R&D

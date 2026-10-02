@@ -32,26 +32,48 @@ ESTIMATION CONTRACT (documented limits; every figure is an estimate):
   3. Game. ut(i+1) - ut(i); when a log predates the ut= field, game is
      wall x rate (the warp_audit fallback).
   4. Buckets. Every interval lands in EXACTLY ONE bucket, so nothing is counted
-     twice: idle, lowWarp, burn, atmoOrGround, warped, unclassified
-     (see ``classify_interval``).
+     twice: idle, lowWarp, physicsWarp, burn, atmoOrGround, warped,
+     unclassified (see ``classify_interval``). Any interval opened at PHYSICS
+     warp above 1x is ``physicsWarp`` (never lowWarp, never recoverable): the
+     mission warp policy runs PARK / kx COAST at 4x physics on purpose, and
+     kRPC's WarpTo drops into PHYSICS x3-4 for its own last game seconds.
   5. Recoverable. For a contiguous run of idle (or lowWarp) intervals inside one
      visit: wall - (game / target rate) - RAMP_SETTLE_OVERHEAD_SECONDS, floored
      at 0. The target rate is the best LEGAL rails rate at the run's MINIMUM
      altitude (stock ``timeWarpAltitudeLimits``), except attitude-align idle,
      which rails warp cannot help (rails freezes rotation): its target is the
-     top physics rate. The ideal assumes a warp-to that lands exactly on the
-     next event; the overhead constant stands for the ramp up, the ramp down
-     and the settle that a real warp-to always pays.
+     top physics rate, and except the policy-aware targets
+     (``POLICY_PHYSICS_TARGETS``: B5 PARK dwell, kx COAST), where the mission
+     policy is 4x PHYSICS warp, not rails, so the target is that 4x. The
+     ideal assumes a warp-to that lands exactly on the next event; the
+     overhead constant stands for the ramp up, the ramp down and the settle
+     that a real warp-to always pays.
   6. Long burns (>= LONG_BURN_MIN_SECONDS of 1x with a changing orbit) are
      physics-warp CANDIDATES, reported with an optional saving at
      BURN_PHYSICS_WARP_RATE that is NEVER added to the recoverable total
      (physics warp trades burn precision).
   7. ``thr=`` is never read: MechJeb owns the throttle and kRPC reads 0 during
      its burns, so a changing orbit is the only burn signal.
+  8. By design. An idle / lowWarp interval whose (cause, phase) the mission warp
+     policy deliberately leaves at 1x (``BY_DESIGN_POLICY``), or a CAPTURE-BURN
+     node wait inside the capture lead (``capture_lead_seconds``), forms its own
+     runs: the same estimate as item 5 is computed for them but lands in
+     ``byDesign``, never in ``recoverable``. The capture lead is the hold's
+     release point before the node: NODE_WAIT_ORIENT_LEAD_SECONDS + the
+     machine's arrival tolerance + the half burn the machine's own
+     ``node-wait:`` action line printed (``halfBurn=``). A visit with no such
+     line (a pre-policy run, or a declined hold) uses the constants alone, so
+     its lead is short by the half burn (~10 s for a Mun capture) and the
+     by-design figure is a lower bound. Resolution is one telemetry line: an
+     interval is inside the lead when its OPENING sample is.
+  9. Outcome-sensitive. (cause, phase) rows in ``OUTCOME_SENSITIVE`` stay
+     recoverable, but the row carries ``outcomeSensitive`` and its text says a
+     warp there may move the flight's outcome.
 
 ASCII only; stdlib only. Imports ``warp_audit`` (harness root) for the shared
-telemetry regexes and constants; mirrors two mlib tables (pinned against mlib by
-``test_flighteff``) because mlib is the mission library, not a harness import.
+telemetry regexes and constants; mirrors two mlib tables and the mission warp
+policy constants (each pinned against mlib by ``test_flighteff``) because mlib
+is the mission library, not a harness import.
 """
 
 from __future__ import annotations
@@ -70,7 +92,7 @@ if _HARNESS_DIR not in sys.path:
 
 import warp_audit  # noqa: E402
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # ---------------------------------------------------------------------------
 # Tables
@@ -140,7 +162,8 @@ GROUND_SITUATIONS = ("LANDED", "SPLASHED", "PRE_LAUNCH")
 ORBITAL_SITUATIONS = ("ORBITING", "SUB_ORBITAL", "ESCAPING")
 UNKNOWN_BODY_TOKENS = ("", "?", "-", "none", "None", "nan")
 
-BUCKETS = ("idle", "lowWarp", "burn", "atmoOrGround", "warped", "unclassified")
+BUCKETS = ("idle", "lowWarp", "physicsWarp", "burn", "atmoOrGround", "warped",
+           "unclassified")
 
 IDLE_CAUSES = ("dwell", "attitude-align", "waiting-for-node", "soi-approach",
                "coast-to-apoapsis", "coast-to-entry", "coast-to-periapsis",
@@ -152,6 +175,100 @@ BURN_CAUSE = "burn-physics-warp"
 # plus the explicit extras. Deterministic and pinned by tests.
 DWELL_PHASE_TOKENS = ("PARK", "HOLD", "DWELL", "SETTLE", "WAIT", "WATCH")
 DWELL_PHASE_EXTRAS = ("POST-DEPLOY", "EVA-WINDOW")
+
+# ---------------------------------------------------------------------------
+# Mission warp policy (what the missions leave at 1x or physics warp ON PURPOSE)
+# ---------------------------------------------------------------------------
+
+# MIRROR of mlib's mission warp policy constants; test_flighteff pins each one
+# against mlib. The b5 machine releases a held capture hand-off once UT is
+# within the arrival tolerance of node UT - half burn - the orient lead.
+NODE_WAIT_ORIENT_LEAD_SECONDS = 120.0
+NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS = 5.0
+# kRPC PhysicsWarpFactor index of a physics dwell (3 = the stock 4x).
+PHYSICS_DWELL_WARP_INDEX = 3
+POLICY_PHYSICS_RATE = PHYSICS_WARP_RATES[PHYSICS_DWELL_WARP_INDEX]
+
+CAPTURE_LEAD_KEY = ("waiting-for-node", "CAPTURE-BURN")
+CAPTURE_LEAD_REASON = (
+    "capture node-wait lead: the b5 machine rails-warps itself to node UT - half "
+    "burn - NODE_WAIT_ORIENT_LEAD_SECONDS and only then hands the node to "
+    "MechJeb's executor, which aligns and settles at 1x (mlib "
+    "_b5_node_wait_begin)")
+
+_ASCENT_REASON = (
+    "MechJeb's ascent runs its circularization node through its own executor; "
+    "it cancels a second warp writer, and its 1x is the align-and-settle, which "
+    "needs physics")
+_HOLD_REASON = ("m3 render hold: a deliberate 1x hold of dwellHoldSeconds game "
+                "time for render observation; shorten it rather than warp")
+
+# (cause, phase) -> why the mission warp policy leaves that 1x time alone. Its
+# estimate goes to byDesign, never to recoverable.
+BY_DESIGN_POLICY: Dict[Tuple[str, str], str] = {
+    ("attitude-align", "DEORBIT"): (
+        "B4's retrograde slew before the deorbit burn: rails warp freezes "
+        "rotation, and the warp policy leaves attitude slews at 1x"),
+    ("dwell", "HOLD-DEPART"): _HOLD_REASON,
+    ("dwell", "HOLD-ARRIVE"): _HOLD_REASON,
+    ("dwell", "HOLD-PARK"): _HOLD_REASON,
+    ("waiting-for-node", "TRANSFER-BURN"): (
+        "transfer node waits are not held (mlib _B5_NODE_WAIT_PHASES): a held "
+        "TLI ended 3.7 s earlier on every Mun flight, which re-timed the arrival "
+        "and moved B13's landing site"),
+    ("waiting-for-node", "MJ-ASCENT"): _ASCENT_REASON,
+    ("coast-to-apoapsis", "MJ-ASCENT"): _ASCENT_REASON,
+}
+
+# (cause, phase) -> the mlib machine whose policy runs that stretch at 4x
+# PHYSICS warp (the recorded coverage needs per-frame physics, so rails is not
+# the policy there). The recoverable target is POLICY_PHYSICS_RATE, and only
+# for a run of that machine: PARK and COAST name phases of other machines too.
+# kx COAST warps whenever it is above the atmosphere with the throttle at zero,
+# climbing or falling, so both coast causes are listed.
+POLICY_PHYSICS_TARGETS: Dict[Tuple[str, str], str] = {
+    ("dwell", "PARK"): "b5_decide",
+    ("coast-to-apoapsis", "COAST"): "kxrw_decide",
+    ("coast-to-entry", "COAST"): "kxrw_decide",
+}
+
+# (cause, phase) -> why a warp there may change the flight's outcome. The
+# seconds stay recoverable; the recommendation is flagged.
+OUTCOME_SENSITIVE: Dict[Tuple[str, str], str] = {
+    ("waiting-for-node", "CIRCULARIZE"): (
+        "undecided (B22): a node wait whose timing may move the resulting orbit, "
+        "as the held TLI moved B13's landing site; fly a verification flight "
+        "before warping it"),
+}
+
+
+def by_design_reason(cause: str, phase: str) -> str:
+    """The policy reason a (cause, phase) stretch stays at 1x, or ""."""
+    return BY_DESIGN_POLICY.get((cause, phase), "")
+
+
+def capture_lead_seconds(half_burn: Optional[float]) -> Tuple[float, bool]:
+    """(lead before node UT inside which a CAPTURE-BURN node wait is 1x by
+    design, whether the half burn was known). Without a finite half burn the
+    lead is the constants alone (short by the half burn)."""
+    base = NODE_WAIT_ORIENT_LEAD_SECONDS + NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS
+    if _is_finite(half_burn) and half_burn >= 0.0:
+        return base + half_burn, True
+    return base, False
+
+
+def policy_target_rate(cause: str, phase: str, machine: Optional[str]) -> Optional[float]:
+    """POLICY_PHYSICS_RATE when the mission policy runs (cause, phase) under
+    physics warp for ``machine``; None otherwise (an unknown machine never
+    matches: a log with no mission name predates the policy)."""
+    scope = POLICY_PHYSICS_TARGETS.get((cause, phase))
+    if scope is None or machine is None or machine != scope:
+        return None
+    return POLICY_PHYSICS_RATE
+
+
+def outcome_sensitive_reason(cause: str, phase: str) -> str:
+    return OUTCOME_SENSITIVE.get((cause, phase), "")
 
 
 def _is_finite(v) -> bool:
@@ -203,6 +320,7 @@ def is_dwell_phase(phase: str) -> bool:
 _KV_RE = re.compile(r"([A-Za-z]+)=(\S*)")
 _PHASE_RE = re.compile(r"^phase (?P<src>\S+) -> (?P<dst>\S+)")
 _ACTION_RE = re.compile(r"^action (?P<kind>[a-z_]+)(?: value=(?P<value>\S+))?")
+_HALF_BURN_RE = re.compile(r"\bhalfBurn=([^\s)]+)")
 
 
 @dataclass
@@ -239,6 +357,8 @@ class Visit:
     physics_cmds: int = 0
     cancels: int = 0
     time_jumps: int = 0
+    # halfBurn= of the machine's own node-wait line in this visit (NaN if none).
+    half_burn: float = float("nan")
 
 
 @dataclass
@@ -334,6 +454,10 @@ def parse_mission_log(lines: Sequence[str]) -> MissionLog:
         if "TimeJump" in msg:
             cur.time_jumps += 1
         am = _ACTION_RE.match(msg)
+        if am and "node-wait" in msg:
+            hb = _HALF_BURN_RE.search(msg)
+            if hb and _is_finite(_f(hb.group(1))):
+                cur.half_burn = _f(hb.group(1))
         if not am:
             continue
         kind = am.group("kind")
@@ -392,6 +516,10 @@ class Interval:
     bucket: str = ""
     cause: str = ""
     target_rate: Optional[float] = None
+    ut: float = float("nan")
+    node_ut: float = float("nan")
+    # Policy reason when this 1x / low-warp interval is left alone on purpose.
+    by_design: str = ""
 
 
 def _orbit_changed(a: Sample, b: Sample) -> Optional[bool]:
@@ -461,15 +589,9 @@ def classify_interval(a: Sample, b: Sample) -> Tuple[str, str]:
             return "burn", ""
         return "idle", idle_cause(a)
     if a.mode == "PHYSICS":
-        if not vac:
-            return "warped", ""
-        if changed:
-            return "burn", ""
-        if changed is False:
-            if _is_finite(a.ap_err) and abs(a.ap_err) > ATTITUDE_ALIGN_MIN_DEG:
-                return "lowWarp", "attitude-align"
-            return "lowWarp", LOW_WARP_CAUSE
-        return "unclassified", ""
+        # Physics warp is a policy choice (PARK / kx COAST dwells, the DIY
+        # flip) or kRPC WarpTo's own tail, never a rails factor left low.
+        return "physicsWarp", ""
     if a.mode == "RAILS" and vac:
         best = max_legal_rails_rate(a.body, min(a.alt, b.alt) if _is_finite(b.alt) else a.alt)
         if best is not None and warp_audit.bucket_rate(rate) < best:
@@ -517,7 +639,8 @@ def build_intervals(log: MissionLog) -> List[Interval]:
         gaps[i] = is_gap
         out.append(Interval(sample=i, visit=a.visit, phase=a.phase, wall=raw,
                             game=game, rate=a.rate, mode=a.mode, alt_min=alt_min,
-                            body=a.body, bucket=bucket, cause=cause))
+                            body=a.body, bucket=bucket, cause=cause, ut=a.ut,
+                            node_ut=a.node_ut))
     by_visit: Dict[int, List[Interval]] = {}
     for iv in out:
         by_visit.setdefault(iv.visit, []).append(iv)
@@ -545,6 +668,26 @@ def build_intervals(log: MissionLog) -> List[Interval]:
     return out
 
 
+def apply_policy(log: MissionLog, intervals: List[Interval]) -> Dict[int, Tuple[float, bool]]:
+    """Mark the idle / lowWarp intervals the mission warp policy leaves alone on
+    purpose (contract item 8). Returns visit -> (capture lead seconds, half
+    burn known) for every CAPTURE-BURN visit."""
+    leads: Dict[int, Tuple[float, bool]] = {}
+    for v in log.visits:
+        if v.phase == CAPTURE_LEAD_KEY[1]:
+            leads[v.index] = capture_lead_seconds(v.half_burn)
+    for iv in intervals:
+        if iv.bucket not in ("idle", "lowWarp"):
+            continue
+        reason = by_design_reason(iv.cause, iv.phase)
+        if not reason and (iv.cause, iv.phase) == CAPTURE_LEAD_KEY \
+                and iv.visit in leads and _is_finite(iv.ut) and _is_finite(iv.node_ut) \
+                and iv.node_ut - iv.ut <= leads[iv.visit][0]:
+            reason = CAPTURE_LEAD_REASON
+        iv.by_design = reason
+    return leads
+
+
 # ---------------------------------------------------------------------------
 # Runs and recoverable estimates
 # ---------------------------------------------------------------------------
@@ -565,30 +708,47 @@ class Run:
     wall_by_cause: Dict[str, float] = field(default_factory=dict)
     optional: float = 0.0
     target_rate: Optional[float] = None
+    # A by-design run: its estimate lands in by_design_* and never in
+    # recoverable / by_cause.
+    by_design: bool = False
+    by_design_seconds: float = 0.0
+    by_design_by_cause: Dict[str, float] = field(default_factory=dict)
+    by_design_reasons: Dict[str, str] = field(default_factory=dict)
+    policy_target: bool = False
 
 
-def _target_rate(kind_cause: str, body: str, alt_min: float) -> Optional[float]:
-    if kind_cause == "attitude-align":
+def _target_rate(cause: str, phase: str, body: str, alt_min: float,
+                 machine: Optional[str] = None) -> Optional[float]:
+    policy = policy_target_rate(cause, phase, machine)
+    if policy is not None:
+        return policy
+    if cause == "attitude-align":
         return PHYSICS_WARP_RATES[-1]
     return max_legal_rails_rate(body, alt_min)
 
 
-def build_runs(intervals: List[Interval]) -> List[Run]:
+def build_runs(intervals: List[Interval], machine: Optional[str] = None) -> List[Run]:
     """Contiguous same-bucket runs (idle / lowWarp / burn) inside one visit,
-    with their recoverable (or optional, for burns) wall seconds."""
+    split where the by-design flag changes, with their recoverable (or
+    by-design, or optional for burns) wall seconds. ``machine`` is the mlib
+    state machine of the mission (the policy-aware targets need it)."""
     runs: List[Run] = []
     cur: Optional[Run] = None
     for k, iv in enumerate(intervals):
         if iv.bucket not in ("idle", "lowWarp", "burn"):
             cur = None
             continue
+        flag = bool(iv.by_design)
         if cur is not None and cur.kind == iv.bucket and cur.visit == iv.visit \
-                and cur.last == k - 1:
+                and cur.last == k - 1 and cur.by_design == flag:
             cur.last = k
         else:
             cur = Run(kind=iv.bucket, visit=iv.visit, phase=iv.phase, first=k,
-                      last=k, wall=0.0, game=0.0, alt_min=float("inf"), body=iv.body)
+                      last=k, wall=0.0, game=0.0, alt_min=float("inf"), body=iv.body,
+                      by_design=flag)
             runs.append(cur)
+        if flag:
+            cur.by_design_reasons.setdefault(iv.cause or iv.bucket, iv.by_design)
         cur.wall += iv.wall
         cur.game += iv.game if _is_finite(iv.game) else 0.0
         if _is_finite(iv.alt_min):
@@ -605,10 +765,12 @@ def build_runs(intervals: List[Interval]) -> List[Run]:
         gains: Dict[str, float] = {}
         unknown = False
         for iv in ivs:
-            rate = _target_rate(iv.cause, run.body, run.alt_min)
+            rate = _target_rate(iv.cause, iv.phase, run.body, run.alt_min, machine)
             if rate is None:
                 unknown = True
                 break
+            if policy_target_rate(iv.cause, iv.phase, machine) is not None:
+                run.policy_target = True
             iv.target_rate = rate
             ideal = (iv.game if _is_finite(iv.game) else 0.0) / rate
             ideal_total += ideal
@@ -617,11 +779,17 @@ def build_runs(intervals: List[Interval]) -> List[Run]:
             continue
         run.target_rate = max_legal_rails_rate(run.body, run.alt_min)
         rec = max(0.0, run.wall - ideal_total - RAMP_SETTLE_OVERHEAD_SECONDS)
-        run.recoverable = rec
+        split: Dict[str, float] = {}
         gsum = sum(gains.values())
         if gsum > 0 and rec > 0:
             for cause in sorted(gains):
-                run.by_cause[cause] = rec * gains[cause] / gsum
+                split[cause] = rec * gains[cause] / gsum
+        if run.by_design:
+            run.by_design_seconds = rec
+            run.by_design_by_cause = split
+        else:
+            run.recoverable = rec
+            run.by_cause = split
     return runs
 
 
@@ -735,9 +903,11 @@ NE_HINT = ("its NodeExecutor warps only to 600 s before "
 
 SITE_HINTS: Dict[Tuple[str, str], Tuple[str, Tuple[str, ...]]] = {
     ("dwell", "PARK"): (
-        "PARK holds parkDwellSeconds of GAME time at 1x by design (the recording "
-        "must carry parked coverage); check that coverage survives rails warp "
-        "before warping it", ("parkDwellSeconds",)),
+        "PARK holds parkDwellSeconds of GAME time; the warp policy runs it at 4x "
+        "PHYSICS warp while in-gate (rails would freeze the attitude and turn the "
+        "recorded park into on-rails checkpoints) and drops to 1x for the last "
+        "15 s, so the 1x left is the tumble gate and that tail",
+        ("parkDwellSeconds",)),
     ("dwell", "HOLD-DEPART"): (
         "a deliberate 1x hold of dwellHoldSeconds game time for render "
         "observation, so shorten it rather than warp", ("dwellHoldSeconds",)),
@@ -786,9 +956,16 @@ SITE_HINTS: Dict[Tuple[str, str], Tuple[str, Tuple[str, ...]]] = {
     ("coast-to-periapsis", "*"): ("1x coast toward periapsis with no node", ()),
     ("other-coast", "*"): ("1x coast with no node and no vertical-speed reading", ()),
     ("coast-to-apoapsis", "COAST"): (
-        "COAST holds coastSeconds of GAME time with no warp so the recorder "
-        "authors post-separation coverage; shorten it or check coverage under "
-        "rails warp", ("coastSeconds",)),
+        "COAST holds coastSeconds of GAME time for post-separation coverage; the kx "
+        "warp policy runs it at 4x PHYSICS warp above the atmosphere with the "
+        "throttle at zero and drops to 1x for the last 15 s",
+        ("coastSeconds",)),
+    ("waiting-for-node", "CAPTURE-BURN"): (
+        "the b5 machine holds the hand-off and rails-warps itself to node UT - "
+        "half burn - 120 s (mlib _b5_node_wait_begin), then mission_runner.py "
+        "ACTION_MJ_EXECUTE_NODES hands the node to MechJeb, whose executor "
+        "aligns at 1x; time BEFORE that lead means the hold did not arm (an "
+        "unread input, a short window) or did not take; " + NE_HINT, ()),
     ("coast-to-apoapsis", "REENTRY"): (
         "an ASCENDING exo coast polls at 1x until vertical speed goes negative "
         "(rails hops only while descending)", ("warpAboveAltMeters", "warpHopSeconds")),
@@ -837,15 +1014,26 @@ def code_site(mission: Optional[str], cause: str, phase: str) -> str:
 # Mission analysis
 # ---------------------------------------------------------------------------
 
+def _sum_into(dst: Dict[str, float], src: Dict[str, float]) -> None:
+    for k, v in src.items():
+        dst[k] = dst.get(k, 0.0) + v
+
+
+def _rounded(d: Dict[str, float]) -> Dict[str, float]:
+    return {k: round(v, 3) for k, v in sorted(d.items())}
+
+
 def analyze_mission(log_text: str, mission_json: Optional[Dict]) -> Dict:
     """Phase table, buckets, runs, flags and recommendations for one mission."""
     log = parse_mission_log(log_text.splitlines())
     wu = (mission_json or {}).get("warpUtilisation") if isinstance(mission_json, dict) else None
     matched = match_visits(log.visits, wu)
-    intervals = build_intervals(log)
-    runs = build_runs(intervals)
     mission = (mission_json or {}).get("mission") if isinstance(mission_json, dict) else None
     mission = mission or log.mission_name
+    machine = MISSION_MACHINES.get(mission) if mission else None
+    intervals = build_intervals(log)
+    leads = apply_policy(log, intervals)
+    runs = build_runs(intervals, machine)
     mission_wall = (mission_json or {}).get("wallSeconds") if isinstance(mission_json, dict) else None
 
     phases: List[Dict] = []
@@ -864,17 +1052,24 @@ def analyze_mission(log_text: str, mission_json: Optional[Dict]) -> Dict:
         for b in BUCKETS:
             row[b] = round(sum(iv.wall for iv in ivs if iv.bucket == b), 3)
         rec: Dict[str, float] = {}
+        des: Dict[str, float] = {}
         for r in runs:
             if r.visit == v.index:
-                for c, s in r.by_cause.items():
-                    rec[c] = rec.get(c, 0.0) + s
-        row["recoverableByCause"] = {c: round(s, 3) for c, s in sorted(rec.items())}
+                _sum_into(rec, r.by_cause)
+                _sum_into(des, r.by_design_by_cause)
+        row["recoverableByCause"] = _rounded(rec)
         row["recoverable"] = round(sum(rec.values()), 3)
+        row["byDesignByCause"] = _rounded(des)
+        row["byDesign"] = round(sum(des.values()), 3)
+        row["byDesignWall"] = round(sum(iv.wall for iv in ivs if iv.by_design), 3)
+        lead = leads.get(v.index)
+        row["captureLeadSeconds"] = round(lead[0], 3) if lead else None
+        row["captureLeadHalfBurnKnown"] = lead[1] if lead else None
         idle_by_cause: Dict[str, float] = {}
         for iv in ivs:
             if iv.bucket == "idle":
                 idle_by_cause[iv.cause] = idle_by_cause.get(iv.cause, 0.0) + iv.wall
-        row["idleByCause"] = {c: round(s, 3) for c, s in sorted(idle_by_cause.items())}
+        row["idleByCause"] = _rounded(idle_by_cause)
         phases.append(row)
 
     run_rows = []
@@ -889,31 +1084,52 @@ def analyze_mission(log_text: str, mission_json: Optional[Dict]) -> Dict:
             "minAltitude": round(r.alt_min, 1) if math.isfinite(r.alt_min) else None,
             "body": r.body,
             "bestLegalRate": r.target_rate,
-            "wallByCause": {c: round(s, 3) for c, s in sorted(r.wall_by_cause.items())},
+            "policyTarget": r.policy_target,
+            "wallByCause": _rounded(r.wall_by_cause),
             "recoverable": round(r.recoverable, 3),
+            "byDesign": r.by_design,
+            "byDesignSeconds": round(r.by_design_seconds, 3),
             "optionalPhysicsWarpSaving": round(r.optional, 3),
         })
 
-    # Recommendations: recoverable summed per (phase, cause); burns separate.
-    recs: Dict[Tuple[str, str], Dict] = {}
+    # Recommendations: recoverable summed per (phase, cause), by-design per
+    # (phase, cause) in rows of their own, burns separate.
+    recs: Dict[Tuple[str, str, bool], Dict] = {}
     for r in runs:
-        items = list(r.by_cause.items())
-        if r.kind == "burn" and r.optional > 0:
-            items = [(BURN_CAUSE, r.optional)]
+        if r.kind == "burn":
+            items = [(BURN_CAUSE, r.optional)] if r.optional > 0 else []
+        elif r.by_design:
+            items = list(r.by_design_by_cause.items())
+        else:
+            items = list(r.by_cause.items())
         for cause, secs in items:
-            key = (r.phase, cause)
+            key = (r.phase, cause, r.by_design)
+            reason = r.by_design_reasons.get(cause, "") if r.by_design else ""
             e = recs.setdefault(key, {"phase": r.phase, "cause": cause,
-                                      "recoverable": 0.0, "optional": cause == BURN_CAUSE,
+                                      "recoverable": 0.0, "byDesignSeconds": 0.0,
+                                      "optional": cause == BURN_CAUSE,
+                                      "byDesign": r.by_design,
+                                      "byDesignReason": reason,
                                       "visits": []})
-            e["recoverable"] += secs
+            if r.by_design:
+                e["byDesignSeconds"] += secs
+            else:
+                e["recoverable"] += secs
             if r.visit not in e["visits"]:
                 e["visits"].append(r.visit)
     rec_rows = []
     for e in recs.values():
         e["recoverable"] = round(e["recoverable"], 3)
+        e["byDesignSeconds"] = round(e["byDesignSeconds"], 3)
+        why = "" if e["byDesign"] else outcome_sensitive_reason(e["cause"], e["phase"])
+        e["outcomeSensitive"] = bool(why)
         e["site"] = code_site(mission, e["cause"], e["phase"])
+        if why:
+            e["site"] += " OUTCOME-SENSITIVE: " + why
         rec_rows.append(e)
-    rec_rows.sort(key=lambda e: (e["optional"], -e["recoverable"], e["phase"], e["cause"]))
+    rec_rows.sort(key=lambda e: (e["byDesign"], e["optional"],
+                                 -(e["recoverable"] + e["byDesignSeconds"]),
+                                 e["phase"], e["cause"]))
 
     totals = {b: round(sum(iv.wall for iv in intervals if iv.bucket == b), 3) for b in BUCKETS}
     sampled = sum(iv.wall for iv in intervals)
@@ -922,9 +1138,10 @@ def analyze_mission(log_text: str, mission_json: Optional[Dict]) -> Dict:
         if iv.bucket == "idle":
             idle_by_cause[iv.cause] = idle_by_cause.get(iv.cause, 0.0) + iv.wall
     rec_by_cause: Dict[str, float] = {}
+    des_by_cause: Dict[str, float] = {}
     for r in runs:
-        for c, s in r.by_cause.items():
-            rec_by_cause[c] = rec_by_cause.get(c, 0.0) + s
+        _sum_into(rec_by_cause, r.by_cause)
+        _sum_into(des_by_cause, r.by_design_by_cause)
     return {
         "mission": mission,
         "missionWallSeconds": mission_wall if _is_finite(mission_wall) else None,
@@ -936,9 +1153,12 @@ def analyze_mission(log_text: str, mission_json: Optional[Dict]) -> Dict:
         "visitsCalibrated": matched,
         "sampledWallSeconds": round(sampled, 3),
         "buckets": totals,
-        "idleByCause": {c: round(s, 3) for c, s in sorted(idle_by_cause.items())},
-        "recoverableByCause": {c: round(s, 3) for c, s in sorted(rec_by_cause.items())},
+        "idleByCause": _rounded(idle_by_cause),
+        "recoverableByCause": _rounded(rec_by_cause),
         "recoverable": round(sum(rec_by_cause.values()), 3),
+        "byDesignByCause": _rounded(des_by_cause),
+        "byDesign": round(sum(des_by_cause.values()), 3),
+        "byDesignWall": round(sum(iv.wall for iv in intervals if iv.by_design), 3),
         "optionalBurnSaving": round(sum(r.optional for r in runs), 3),
         "phases": phases,
         "runs": run_rows,
@@ -1359,14 +1579,19 @@ def steps_by_verb(steps: Sequence[Dict]) -> List[Dict]:
 
 
 def aggregate(runs: List[Dict]) -> Dict:
-    """Totals per lane and per cause, ranked by recoverable wall seconds."""
+    """Totals per lane and per cause, ranked by recoverable wall seconds; the
+    by-design estimate is totalled beside it, never inside it."""
     lanes: Dict[str, Dict] = {}
     causes: Dict[str, Dict] = {}
-    lane_cause: Dict[Tuple[str, str, str], Dict] = {}
+    lane_cause: Dict[Tuple[str, str, str, bool], Dict] = {}
     cause_run_ids: Dict[str, set] = {}
-    lane_cause_run_ids: Dict[Tuple[str, str, str], set] = {}
+    cause_design_run_ids: Dict[str, set] = {}
+    lane_cause_run_ids: Dict[Tuple[str, str, str, bool], set] = {}
     mission_wall = 0.0
     idle = 0.0
+    physics = 0.0
+    by_design = 0.0
+    by_design_wall = 0.0
     sampled = 0.0
     overhead_keys: Dict[str, List[float]] = {}
     all_steps: List[Dict] = []
@@ -1374,7 +1599,9 @@ def aggregate(runs: List[Dict]) -> Dict:
         all_steps.extend((r.get("overhead") or {}).get("steps", []))
         lane = lanes.setdefault(r["scenario"], {"scenario": r["scenario"], "runs": 0,
                                                 "missionRuns": 0, "missionWall": 0.0,
-                                                "idle": 0.0, "recoverable": 0.0,
+                                                "idle": 0.0, "physicsWarp": 0.0,
+                                                "recoverable": 0.0, "byDesign": 0.0,
+                                                "byDesignWall": 0.0,
                                                 "optionalBurnSaving": 0.0, "totalWall": 0.0})
         lane["runs"] += 1
         if _is_finite(r.get("totalWallSeconds")):
@@ -1392,23 +1619,42 @@ def aggregate(runs: List[Dict]) -> Dict:
         sampled += m.get("sampledWallSeconds", 0.0)
         lane["idle"] += m["buckets"]["idle"]
         idle += m["buckets"]["idle"]
+        lane["physicsWarp"] += m["buckets"].get("physicsWarp", 0.0)
+        physics += m["buckets"].get("physicsWarp", 0.0)
         lane["recoverable"] += m["recoverable"]
+        lane["byDesign"] += m.get("byDesign", 0.0)
+        by_design += m.get("byDesign", 0.0)
+        lane["byDesignWall"] += m.get("byDesignWall", 0.0)
+        by_design_wall += m.get("byDesignWall", 0.0)
         lane["optionalBurnSaving"] += m["optionalBurnSaving"]
         for rec in m["recommendations"]:
             cause = rec["cause"]
+            design = bool(rec.get("byDesign"))
             if not rec["optional"]:
-                c = causes.setdefault(cause, {"cause": cause, "recoverable": 0.0, "runs": 0})
-                c["recoverable"] += rec["recoverable"]
-                cause_run_ids.setdefault(cause, set()).add(r["runId"])
-            key = (r["scenario"], rec["phase"], cause)
+                c = causes.setdefault(cause, {"cause": cause, "recoverable": 0.0, "runs": 0,
+                                              "byDesign": 0.0, "byDesignRuns": 0})
+                if design:
+                    c["byDesign"] += rec.get("byDesignSeconds", 0.0)
+                    cause_design_run_ids.setdefault(cause, set()).add(r["runId"])
+                else:
+                    c["recoverable"] += rec["recoverable"]
+                    cause_run_ids.setdefault(cause, set()).add(r["runId"])
+            key = (r["scenario"], rec["phase"], cause, design)
             e = lane_cause.setdefault(key, {"scenario": r["scenario"], "phase": rec["phase"],
-                                            "cause": cause, "recoverable": 0.0, "runs": 0,
-                                            "optional": rec["optional"], "site": rec["site"]})
+                                            "cause": cause, "recoverable": 0.0,
+                                            "byDesignSeconds": 0.0, "runs": 0,
+                                            "optional": rec["optional"], "byDesign": design,
+                                            "byDesignReason": rec.get("byDesignReason", ""),
+                                            "outcomeSensitive": bool(rec.get("outcomeSensitive")),
+                                            "site": rec["site"]})
             e["recoverable"] += rec["recoverable"]
+            e["byDesignSeconds"] += rec.get("byDesignSeconds", 0.0)
             lane_cause_run_ids.setdefault(key, set()).add(r["runId"])
     # A run with the same cause in several phases counts once per cause.
     for cause, ids in cause_run_ids.items():
         causes[cause]["runs"] = len(ids)
+    for cause, ids in cause_design_run_ids.items():
+        causes[cause]["byDesignRuns"] = len(ids)
     for key, ids in lane_cause_run_ids.items():
         lane_cause[key]["runs"] = len(ids)
 
@@ -1418,10 +1664,11 @@ def aggregate(runs: List[Dict]) -> Dict:
     lane_rows = sorted((rnd(v) for v in lanes.values()),
                        key=lambda e: (-e["recoverable"], e["scenario"]))
     cause_rows = sorted((rnd(v) for v in causes.values()),
-                        key=lambda e: (-e["recoverable"], e["cause"]))
+                        key=lambda e: (-e["recoverable"], -e["byDesign"], e["cause"]))
     lc_rows = sorted((rnd(v) for v in lane_cause.values()),
-                     key=lambda e: (e["optional"], -e["recoverable"], e["scenario"],
-                                    e["phase"], e["cause"]))
+                     key=lambda e: (e["byDesign"], e["optional"],
+                                    -(e["recoverable"] + e["byDesignSeconds"]),
+                                    e["scenario"], e["phase"], e["cause"]))
     ov = {k: {"runs": len(v), "total": round(sum(v), 3),
               "mean": round(sum(v) / len(v), 3)} for k, v in sorted(overhead_keys.items())}
     return {
@@ -1430,7 +1677,10 @@ def aggregate(runs: List[Dict]) -> Dict:
         "missionWallSeconds": round(mission_wall, 3),
         "idleSeconds": round(idle, 3),
         "idleShareOfMissionWall": round(idle / mission_wall, 4) if mission_wall > 0 else None,
+        "physicsWarpSeconds": round(physics, 3),
         "recoverableSeconds": round(sum(e["recoverable"] for e in cause_rows), 3),
+        "byDesignSeconds": round(by_design, 3),
+        "byDesignWallSeconds": round(by_design_wall, 3),
         "lanes": lane_rows,
         "causes": cause_rows,
         "laneCauses": lc_rows,
@@ -1449,7 +1699,14 @@ def build_document(runs: List[Dict], skipped: List[Dict], duplicates: int) -> Di
             "longBurnMinSeconds": LONG_BURN_MIN_SECONDS,
             "burnPhysicsWarpRate": BURN_PHYSICS_WARP_RATE,
             "attitudeAlignMinDeg": ATTITUDE_ALIGN_MIN_DEG,
+            "nodeWaitOrientLeadSeconds": NODE_WAIT_ORIENT_LEAD_SECONDS,
+            "nodeWaitArrivalToleranceSeconds": NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS,
+            "policyPhysicsRate": POLICY_PHYSICS_RATE,
         },
+        "byDesignPolicy": [{"cause": c, "phase": p, "reason": why}
+                           for (c, p), why in sorted(BY_DESIGN_POLICY.items())]
+        + [{"cause": CAPTURE_LEAD_KEY[0], "phase": CAPTURE_LEAD_KEY[1],
+            "reason": CAPTURE_LEAD_REASON + " (only inside the capture lead)"}],
         "runs": runs,
         "skipped": skipped,
         "duplicatesDropped": duplicates,
@@ -1463,6 +1720,15 @@ def build_document(runs: List[Dict], skipped: List[Dict], duplicates: int) -> Di
 
 def _s(v, fmt="%.0f") -> str:
     return (fmt % v) if _is_finite(v) else "?"
+
+
+def _design_lines(rows: List[Dict], top: int, with_lane: bool) -> List[str]:
+    L: List[str] = []
+    for e in rows[:top]:
+        lane = ("runs=%-3d %-34s " % (e["runs"], e["scenario"][:34])) if with_lane else ""
+        L.append("    %7ss %s%s/%s -> %s" % (_s(e["byDesignSeconds"]), lane, e["phase"],
+                                              e["cause"], e["byDesignReason"]))
+    return L
 
 
 def render_run(run: Dict, top: int = 8) -> str:
@@ -1480,21 +1746,33 @@ def render_run(run: Dict, top: int = 8) -> str:
         L.append("  mission=%s visits=%d (calibrated %d) telemetry=%d malformed=%d"
                  % (m.get("mission"), m["visits"], m["visitsCalibrated"],
                     m["telemetryLines"], m["malformedLines"]))
-        L.append("  idle-x1 %ss (%s of mission wall)  lowWarp %ss  burn %ss  "
-                 "atmo/ground %ss  warped %ss  recoverable %ss  (+optional burn %ss)"
+        L.append("  idle-x1 %ss (%s of mission wall)  lowWarp %ss  physicsWarp %ss  burn %ss  "
+                 "atmo/ground %ss  warped %ss"
                  % (_s(b["idle"]), ("%.0f%%" % (100.0 * b["idle"] / mw)) if mw else "?",
-                    _s(b["lowWarp"]), _s(b["burn"]), _s(b["atmoOrGround"]), _s(b["warped"]),
-                    _s(m["recoverable"]), _s(m["optionalBurnSaving"])))
+                    _s(b["lowWarp"]), _s(b["physicsWarp"]), _s(b["burn"]),
+                    _s(b["atmoOrGround"]), _s(b["warped"])))
+        L.append("  recoverable %ss  byDesign %ss (of %ss 1x wall, not counted)  "
+                 "(+optional burn %ss)"
+                 % (_s(m["recoverable"]), _s(m["byDesign"]), _s(m["byDesignWall"]),
+                    _s(m["optionalBurnSaving"])))
         L.append("")
-        L.append("  %-3s %-18s %8s %10s %7s %7s %7s %7s %8s  %s"
-                 % ("#", "PHASE", "WALL(s)", "GAME(s)", "IDLE", "LOWWARP", "BURN", "ATMO",
-                    "RECOVER", "RECOVERABLE BY CAUSE"))
+        L.append("  %-3s %-18s %8s %10s %7s %7s %8s %7s %7s %8s %8s  %s"
+                 % ("#", "PHASE", "WALL(s)", "GAME(s)", "IDLE", "LOWWARP", "PHYSWARP", "BURN",
+                    "ATMO", "RECOVER", "BYDESIGN", "RECOVERABLE BY CAUSE"))
         for p in m["phases"]:
             causes = ", ".join("%s %s" % (c, _s(s)) for c, s in p["recoverableByCause"].items())
-            L.append("  %-3d %-18s %8s %10s %7s %7s %7s %7s %8s  %s"
+            L.append("  %-3d %-18s %8s %10s %7s %7s %8s %7s %7s %8s %8s  %s"
                      % (p["visit"], p["phase"][:18], _s(p["wallSeconds"], "%.1f"),
                         _s(p["gameSeconds"]), _s(p["idle"]), _s(p["lowWarp"]),
-                        _s(p["burn"]), _s(p["atmoOrGround"]), _s(p["recoverable"]), causes))
+                        _s(p["physicsWarp"]), _s(p["burn"]), _s(p["atmoOrGround"]),
+                        _s(p["recoverable"]), _s(p["byDesign"]), causes))
+        for p in m["phases"]:
+            if p.get("captureLeadSeconds") is not None:
+                L.append("  capture lead: visit %d %s %ss before node UT (%s)"
+                         % (p["visit"], p["phase"], _s(p["captureLeadSeconds"], "%.1f"),
+                            "half burn from the node-wait line"
+                            if p["captureLeadHalfBurnKnown"]
+                            else "no node-wait line: constants only, short by the half burn"))
         for f in m["flags"]:
             L.append("  flag: visit %d %s %s" % (f["visit"], f["phase"],
                                                   " ".join("%s=%s" % (k, f[k]) for k in sorted(f)
@@ -1514,13 +1792,20 @@ def render_run(run: Dict, top: int = 8) -> str:
     L.append("    unaccounted %ss; attempt=%s attemptsWall=%s priorAttempts=%s lock=%s retries=%d"
              % (_s(o.get("unaccounted"), "%.1f"), o.get("attempt"), o.get("attemptsWallSeconds"),
                 _s(o.get("priorAttemptsWallSeconds")), o.get("lock"), len(o.get("retries") or [])))
-    if m and m["recommendations"]:
+    recs = (m or {}).get("recommendations") or []
+    counted = [e for e in recs if not e["byDesign"]]
+    design = [e for e in recs if e["byDesign"]]
+    if counted:
         L.append("")
         L.append("  RECOMMENDATIONS (ranked by recoverable wall seconds)")
-        for e in m["recommendations"][:top]:
+        for e in counted[:top]:
             L.append("    %7ss %s%s/%s -> %s"
                      % (_s(e["recoverable"]), "(optional) " if e["optional"] else "",
                         e["phase"], e["cause"], e["site"]))
+    if design:
+        L.append("")
+        L.append("  BY DESIGN (not counted; the warp policy leaves these at 1x)")
+        L.extend(_design_lines(design, top, False))
     return "\n".join(L)
 
 
@@ -1530,26 +1815,36 @@ def render_aggregate(doc: Dict, top: int = 10) -> str:
     L.append("FLIGHT EFFICIENCY AGGREGATE  runs=%d missionRuns=%d skipped=%d duplicates=%d"
              % (a["runs"], a["missionRuns"], len(doc["skipped"]), doc["duplicatesDropped"]))
     share = a["idleShareOfMissionWall"]
-    L.append("  mission wall %ss, idle-x1 %ss (%s), recoverable %ss"
+    L.append("  mission wall %ss, idle-x1 %ss (%s), physicsWarp %ss, recoverable %ss, "
+             "byDesign %ss (of %ss 1x wall, not counted)"
              % (_s(a["missionWallSeconds"]), _s(a["idleSeconds"]),
                 ("%.0f%%" % (100 * share)) if share is not None else "?",
-                _s(a["recoverableSeconds"])))
+                _s(a["physicsWarpSeconds"]), _s(a["recoverableSeconds"]),
+                _s(a["byDesignSeconds"]), _s(a["byDesignWallSeconds"])))
     L.append("")
     L.append("  TOP LANE / PHASE / CAUSE")
-    for e in [x for x in a["laneCauses"] if not x["optional"]][:top]:
+    for e in [x for x in a["laneCauses"] if not x["optional"] and not x["byDesign"]][:top]:
         L.append("    %7ss runs=%-3d %-34s %-16s %-18s %s"
                  % (_s(e["recoverable"]), e["runs"], e["scenario"][:34], e["phase"][:16],
                     e["cause"], e["site"]))
     L.append("")
-    L.append("  BY CAUSE")
+    L.append("  BY CAUSE (recoverable; byDesign beside it, not counted)")
     for e in a["causes"]:
-        L.append("    %7ss runs=%-3d %s" % (_s(e["recoverable"]), e["runs"], e["cause"]))
+        L.append("    %7ss runs=%-3d byDesign %7ss runs=%-3d %s"
+                 % (_s(e["recoverable"]), e["runs"], _s(e["byDesign"]), e["byDesignRuns"],
+                    e["cause"]))
     L.append("")
     L.append("  BY LANE")
     for e in a["lanes"][:max(top, 20)]:
-        L.append("    %7ss recoverable  idle %7ss  missionWall %7ss  runs=%d  %s"
-                 % (_s(e["recoverable"]), _s(e["idle"]), _s(e["missionWall"]), e["runs"],
-                    e["scenario"]))
+        L.append("    %7ss recoverable  byDesign %7ss  idle %7ss  physWarp %6ss  "
+                 "missionWall %7ss  runs=%d  %s"
+                 % (_s(e["recoverable"]), _s(e["byDesign"]), _s(e["idle"]),
+                    _s(e["physicsWarp"]), _s(e["missionWall"]), e["runs"], e["scenario"]))
+    design = [x for x in a["laneCauses"] if x["byDesign"]]
+    if design:
+        L.append("")
+        L.append("  BY DESIGN (not counted; the warp policy leaves these at 1x)")
+        L.extend(_design_lines(design, top, True))
     L.append("")
     L.append("  OVERHEAD (mean seconds over runs where the anchor exists)")
     for k, v in a["overhead"].items():
@@ -1560,7 +1855,7 @@ def render_aggregate(doc: Dict, top: int = 10) -> str:
     for g in a["stepsByVerb"][:top]:
         L.append("    %-24s n=%-5d total %9s  max %8s" % (g["verb"], g["count"],
                                                          _s(g["total"]), _s(g["max"], "%.1f")))
-    opt =[x for x in a["laneCauses"] if x["optional"]][:5]
+    opt = [x for x in a["laneCauses"] if x["optional"]][:5]
     if opt:
         L.append("")
         L.append("  OPTIONAL (long burns, physics warp x2; never in the totals)")

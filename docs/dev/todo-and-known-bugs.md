@@ -98,7 +98,25 @@ carries parked coverage), B4's DEORBIT retrograde slew at 1x
 the m3 HOLD-* observation windows (deliberate). The mission warp policy itself is being
 changed in a separate session; re-run the tool over the next nightly to measure that fix.
 
-- [ ] Re-measure after the warp-policy change lands (`--since <date> --json-out`).
+- [x] Re-measure after the warp-policy change lands (`--since <date> --json-out`). Measured
+  2026-10-03 with the policy-aware analyzer (schema 2: `physicsWarp` bucket, `byDesign`
+  totals, 4x targets for PARK / kx COAST). #1958 (capture holds, PARK / COAST 4x physics
+  warp): B11 mission wall 1,275 s (`2026-10-01_1231`) -> 668 s (`2026-10-01_1926`);
+  recoverable 618 s -> 14 s, with PARK now ~42 s of physics warp and 0 recoverable and the
+  capture wait's last ~133 s before the node by design. #1964 (BDOCK rendezvous holds):
+  BDOCK-1 mission wall 2,115 s (`2026-09-30_1732`) -> 1,487 s (`2026-10-02_2011`),
+  RENDEZVOUS recoverable 1,178 s -> 329 s; BDOCK-2 1,475 s (`2026-09-23_1704`) -> 1,022 s
+  (`2026-10-02_2037`). Over every worktree's results (845 runs, 197 with a mission log) the
+  old analyzer reported 30,196 s recoverable; the policy-aware one reports 18,712 s
+  recoverable plus 9,978 s by design (DEORBIT slew 2,266 s, the HOLD-* dwells 2,611 s,
+  node waits 5,100 s). The largest recoverable rows are now pre-#1964 BDOCK RENDEZVOUS
+  waits, B22's outcome-sensitive CIRCULARIZE node wait (~590 s per run, policy undecided)
+  and pre-#1958 CAPTURE-BURN waits.
+- [ ] Decide B22's CIRCULARIZE node wait (outcome-sensitive; needs a verification flight).
+- [ ] Decide whether the BDOCK hold's own post-release lead (RENDEZVOUS, ~329 s left on
+  `2026-10-02_2011`) and BDOCK's STATION-ASCENT / INT-ASCENT circularization waits (the same
+  MechJeb-ascent mechanism as MJ-ASCENT, 140 s / 87 s) belong in the analyzer's by-design
+  table; today they count as recoverable.
 
 ## RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON: the recording stats frame lookup matches a section end exactly, with no tolerance [FILED 2026-10-01 from the PR #1943 review, branch `l7-nightly-residue`. OPEN, low, pre-existing]
 
