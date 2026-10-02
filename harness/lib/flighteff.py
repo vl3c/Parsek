@@ -66,6 +66,15 @@ ESTIMATION CONTRACT (documented limits; every figure is an estimate):
      its lead is short by the half burn (~10 s for a Mun capture) and the
      by-design figure is a lower bound. Resolution is one telemetry line: an
      interval is inside the lead when its OPENING sample is.
+     The BDOCK machines' RENDEZVOUS node wait has the same kind of lead
+     (``rendezvous_lead_boundary``): the hold rails-warps to its target T and
+     cancels RV_EARLY_CANCEL_SECONDS before it, so a wait on that node is by
+     design from T - RV_EARLY_CANCEL_SECONDS on (T comes from the hold's own
+     ``warp_to_ut`` action, matched to the node by its ``nodeUt=``; a
+     closest-approach clamp is already inside T). A node the hold declined
+     uses its ``node-wait:`` text (nodeUt - halfBurn - lead, or the ca-clamp
+     UT when earlier, minus the early cancel); a node with no line at all (a
+     pre-hold run) uses the constants alone, short by the half burn.
   9. Outcome-sensitive. (cause, phase) rows in ``OUTCOME_SENSITIVE`` stay
      recoverable, but the row carries ``outcomeSensitive`` and its text says a
      warp there may move the flight's outcome.
@@ -196,6 +205,24 @@ CAPTURE_LEAD_REASON = (
     "MechJeb's executor, which aligns and settles at 1x (mlib "
     "_b5_node_wait_begin)")
 
+# MIRROR of mlib's RENDEZVOUS NODE WAITS constants (the BDOCK machines);
+# test_flighteff pins each one against mlib. The hold cancels its own warp
+# RV_WARP_ARRIVAL_TOLERANCE_SECONDS before its target (kRPC WarpTo's last game
+# seconds read PHYSICS x3-4), and a node keeps its identity while its UT moves
+# less than RV_WARP_NODE_IDENTITY_SECONDS.
+RV_EARLY_CANCEL_SECONDS = 15.0
+RV_NODE_IDENTITY_SECONDS = 1.0
+
+RENDEZVOUS_LEAD_KEY = ("waiting-for-node", "RENDEZVOUS")
+# The machines whose RENDEZVOUS phase is bdock_decide's (sdock / rdock wrap it).
+RENDEZVOUS_LEAD_MACHINES = ("bdock_decide", "sdock_decide", "rdock_decide")
+RENDEZVOUS_LEAD_REASON = (
+    "rendezvous node-wait lead: the bdock machine rails-warps itself to node UT - "
+    "half burn - NODE_WAIT_ORIENT_LEAD_SECONDS (earlier when the 5 km "
+    "closest-approach guard clamps it), cancels the warp RV_EARLY_CANCEL_SECONDS "
+    "early, then MechJeb's executor aligns and settles at 1x (mlib "
+    "_bdock_rv_node_wait)")
+
 _ASCENT_REASON = (
     "MechJeb's ascent runs its circularization node through its own executor; "
     "it cancels a second warp writer, and its 1x is the align-and-settle, which "
@@ -218,6 +245,11 @@ BY_DESIGN_POLICY: Dict[Tuple[str, str], str] = {
         "and moved B13's landing site"),
     ("waiting-for-node", "MJ-ASCENT"): _ASCENT_REASON,
     ("coast-to-apoapsis", "MJ-ASCENT"): _ASCENT_REASON,
+    # The BDOCK machine engages the same MechJeb ascent on both legs (mlib
+    # _bdock_ascent_entry_actions: ACTION_MJ_ENGAGE_ASCENT); the phase names
+    # are BDOCK's alone.
+    ("waiting-for-node", "STATION-ASCENT"): _ASCENT_REASON,
+    ("waiting-for-node", "INT-ASCENT"): _ASCENT_REASON,
 }
 
 # (cause, phase) -> the mlib machine whose policy runs that stretch at 4x
@@ -255,6 +287,45 @@ def capture_lead_seconds(half_burn: Optional[float]) -> Tuple[float, bool]:
     if _is_finite(half_burn) and half_burn >= 0.0:
         return base + half_burn, True
     return base, False
+
+
+def rendezvous_text_boundary(w: "RvNodeWait") -> float:
+    """By-design start UT from a hold line's ``node-wait:`` text: node UT -
+    half burn - lead (the half burn counts 0 when unread), pulled in to the
+    ca-clamp UT when that is earlier, minus RV_EARLY_CANCEL_SECONDS. NaN when
+    the node UT is unread."""
+    if not _is_finite(w.node_ut):
+        return float("nan")
+    half = w.half_burn if _is_finite(w.half_burn) and w.half_burn >= 0.0 else 0.0
+    lead = w.lead if _is_finite(w.lead) else NODE_WAIT_ORIENT_LEAD_SECONDS
+    end = w.node_ut - half - lead
+    if _is_finite(w.clamp_ut):
+        end = min(end, w.clamp_ut)
+    return end - RV_EARLY_CANCEL_SECONDS
+
+
+def rendezvous_lead_boundary(node_ut: float, waits: Sequence["RvNodeWait"]
+                             ) -> Tuple[float, str]:
+    """(UT from which a RENDEZVOUS wait on ``node_ut`` is 1x by design, source).
+
+    Source ``warp``: the hold's own warp target T for that node (not
+    window-capped), boundary T - RV_EARLY_CANCEL_SECONDS. ``text``: a declined
+    or window-capped hold, boundary from its ``node-wait:`` text
+    (``rendezvous_text_boundary``). ``constants``: no hold line names the node
+    (a pre-hold run, or a decline that printed no numbers), boundary node UT -
+    NODE_WAIT_ORIENT_LEAD_SECONDS - RV_EARLY_CANCEL_SECONDS, short by the half
+    burn. A window-capped warp is not the lead: the capped hold spends its node
+    and the executor waits out the rest itself."""
+    mine = [w for w in waits if _is_finite(w.node_ut) and _is_finite(node_ut)
+            and abs(w.node_ut - node_ut) <= RV_NODE_IDENTITY_SECONDS]
+    for w in mine:
+        if w.warp_target is not None and _is_finite(w.warp_target) and not w.window_capped:
+            return w.warp_target - RV_EARLY_CANCEL_SECONDS, "warp"
+    for w in mine:
+        b = rendezvous_text_boundary(w)
+        if _is_finite(b):
+            return b, "text"
+    return node_ut - NODE_WAIT_ORIENT_LEAD_SECONDS - RV_EARLY_CANCEL_SECONDS, "constants"
 
 
 def policy_target_rate(cause: str, phase: str, machine: Optional[str]) -> Optional[float]:
@@ -321,6 +392,36 @@ _KV_RE = re.compile(r"([A-Za-z]+)=(\S*)")
 _PHASE_RE = re.compile(r"^phase (?P<src>\S+) -> (?P<dst>\S+)")
 _ACTION_RE = re.compile(r"^action (?P<kind>[a-z_]+)(?: value=(?P<value>\S+))?")
 _HALF_BURN_RE = re.compile(r"\bhalfBurn=([^\s)]+)")
+_RV_NODE_WAIT_RE = re.compile(
+    r"node-wait: nodeUt=([^\s)]+) halfBurn=([^\s)]+) lead=([^\s)]+)")
+_RV_CA_CLAMP_RE = re.compile(r"\bca-clamp caUt=([^\s)]+) .*?\bguard=([^\s)]+)")
+_RV_GATE_PREFIX = "gate rvWarp "
+
+
+@dataclass
+class RvNodeWait:
+    """One BDOCK rendezvous hold decision for one node (parsed from the
+    hold's ``warp_to_ut`` action or its ``declined:`` gate line)."""
+    node_ut: float
+    half_burn: float
+    lead: float
+    warp_target: Optional[float]   # the hold's warp target; None = declined
+    clamp_ut: float = float("nan")  # caUt - guard when ca-clamped, else NaN
+    window_capped: bool = False
+
+
+def parse_rv_node_wait(text: str, warp_target: Optional[float]) -> Optional[RvNodeWait]:
+    """The node-wait numbers in a rendezvous hold line, or None."""
+    m = _RV_NODE_WAIT_RE.search(text)
+    if not m:
+        return None
+    clamp = float("nan")
+    c = _RV_CA_CLAMP_RE.search(text)
+    if c and _is_finite(_f(c.group(1))) and _is_finite(_f(c.group(2))):
+        clamp = _f(c.group(1)) - _f(c.group(2))
+    return RvNodeWait(node_ut=_f(m.group(1)), half_burn=_f(m.group(2)),
+                      lead=_f(m.group(3)), warp_target=warp_target, clamp_ut=clamp,
+                      window_capped="window-capped" in text)
 
 
 @dataclass
@@ -359,6 +460,11 @@ class Visit:
     time_jumps: int = 0
     # halfBurn= of the machine's own node-wait line in this visit (NaN if none).
     half_burn: float = float("nan")
+    # BDOCK rendezvous hold decisions in this visit, in log order.
+    rv_waits: List["RvNodeWait"] = field(default_factory=list)
+    # round(nodeUt, 1) -> (by-design start UT, source) for each RENDEZVOUS node
+    # wait the policy pass judged (filled by apply_policy).
+    rv_leads: Dict[float, Tuple[float, str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -453,7 +559,17 @@ def parse_mission_log(lines: Sequence[str]) -> MissionLog:
             continue
         if "TimeJump" in msg:
             cur.time_jumps += 1
+        if msg.startswith(_RV_GATE_PREFIX):
+            new = msg[len(_RV_GATE_PREFIX):].split(" | ")[0].partition("->")[2]
+            if new.startswith("declined:"):
+                rv = parse_rv_node_wait(new, None)
+                if rv is not None:
+                    cur.rv_waits.append(rv)
         am = _ACTION_RE.match(msg)
+        if am and am.group("kind") == "warp_to_ut" and "rendezvous node-wait:" in msg:
+            rv = parse_rv_node_wait(msg, _f(am.group("value")))
+            if rv is not None:
+                cur.rv_waits.append(rv)
         if am and "node-wait" in msg:
             hb = _HALF_BURN_RE.search(msg)
             if hb and _is_finite(_f(hb.group(1))):
@@ -668,14 +784,19 @@ def build_intervals(log: MissionLog) -> List[Interval]:
     return out
 
 
-def apply_policy(log: MissionLog, intervals: List[Interval]) -> Dict[int, Tuple[float, bool]]:
+def apply_policy(log: MissionLog, intervals: List[Interval],
+                 machine: Optional[str] = None) -> Dict[int, Tuple[float, bool]]:
     """Mark the idle / lowWarp intervals the mission warp policy leaves alone on
     purpose (contract item 8). Returns visit -> (capture lead seconds, half
-    burn known) for every CAPTURE-BURN visit."""
+    burn known) for every CAPTURE-BURN visit. The RENDEZVOUS lead applies only
+    when ``machine`` is one of RENDEZVOUS_LEAD_MACHINES; its per-node
+    boundaries land in each visit's ``rv_leads``."""
     leads: Dict[int, Tuple[float, bool]] = {}
+    visits = {v.index: v for v in log.visits}
     for v in log.visits:
         if v.phase == CAPTURE_LEAD_KEY[1]:
             leads[v.index] = capture_lead_seconds(v.half_burn)
+    rv_on = machine in RENDEZVOUS_LEAD_MACHINES
     for iv in intervals:
         if iv.bucket not in ("idle", "lowWarp"):
             continue
@@ -684,6 +805,13 @@ def apply_policy(log: MissionLog, intervals: List[Interval]) -> Dict[int, Tuple[
                 and iv.visit in leads and _is_finite(iv.ut) and _is_finite(iv.node_ut) \
                 and iv.node_ut - iv.ut <= leads[iv.visit][0]:
             reason = CAPTURE_LEAD_REASON
+        if not reason and rv_on and (iv.cause, iv.phase) == RENDEZVOUS_LEAD_KEY \
+                and iv.visit in visits and _is_finite(iv.ut) and _is_finite(iv.node_ut):
+            v = visits[iv.visit]
+            start, source = rendezvous_lead_boundary(iv.node_ut, v.rv_waits)
+            v.rv_leads.setdefault(round(iv.node_ut, 1), (start, source))
+            if iv.ut >= start:
+                reason = RENDEZVOUS_LEAD_REASON
         iv.by_design = reason
     return leads
 
@@ -966,6 +1094,12 @@ SITE_HINTS: Dict[Tuple[str, str], Tuple[str, Tuple[str, ...]]] = {
         "ACTION_MJ_EXECUTE_NODES hands the node to MechJeb, whose executor "
         "aligns at 1x; time BEFORE that lead means the hold did not arm (an "
         "unread input, a short window) or did not take; " + NE_HINT, ()),
+    ("waiting-for-node", "RENDEZVOUS"): (
+        "the bdock machine holds each rendezvous node (mlib _bdock_rv_node_wait): "
+        "it rails-warps to node UT - half burn - 120 s (earlier under the 5 km "
+        "closest-approach guard) and cancels 15 s early, then MechJeb's executor "
+        "aligns at 1x; time BEFORE that lead means the hold did not arm (a decline, "
+        "a short window, a node already held) or did not take; " + NE_HINT, ()),
     ("coast-to-apoapsis", "REENTRY"): (
         "an ASCENDING exo coast polls at 1x until vertical speed goes negative "
         "(rails hops only while descending)", ("warpAboveAltMeters", "warpHopSeconds")),
@@ -1032,7 +1166,7 @@ def analyze_mission(log_text: str, mission_json: Optional[Dict]) -> Dict:
     mission = mission or log.mission_name
     machine = MISSION_MACHINES.get(mission) if mission else None
     intervals = build_intervals(log)
-    leads = apply_policy(log, intervals)
+    leads = apply_policy(log, intervals, machine)
     runs = build_runs(intervals, machine)
     mission_wall = (mission_json or {}).get("wallSeconds") if isinstance(mission_json, dict) else None
 
@@ -1065,6 +1199,9 @@ def analyze_mission(log_text: str, mission_json: Optional[Dict]) -> Dict:
         lead = leads.get(v.index)
         row["captureLeadSeconds"] = round(lead[0], 3) if lead else None
         row["captureLeadHalfBurnKnown"] = lead[1] if lead else None
+        row["rendezvousLeads"] = [
+            {"nodeUt": nu, "byDesignFromUt": round(b, 3), "source": src}
+            for nu, (b, src) in sorted(v.rv_leads.items())] or None
         idle_by_cause: Dict[str, float] = {}
         for iv in ivs:
             if iv.bucket == "idle":
@@ -1701,12 +1838,16 @@ def build_document(runs: List[Dict], skipped: List[Dict], duplicates: int) -> Di
             "attitudeAlignMinDeg": ATTITUDE_ALIGN_MIN_DEG,
             "nodeWaitOrientLeadSeconds": NODE_WAIT_ORIENT_LEAD_SECONDS,
             "nodeWaitArrivalToleranceSeconds": NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS,
+            "rendezvousEarlyCancelSeconds": RV_EARLY_CANCEL_SECONDS,
             "policyPhysicsRate": POLICY_PHYSICS_RATE,
         },
         "byDesignPolicy": [{"cause": c, "phase": p, "reason": why}
                            for (c, p), why in sorted(BY_DESIGN_POLICY.items())]
         + [{"cause": CAPTURE_LEAD_KEY[0], "phase": CAPTURE_LEAD_KEY[1],
-            "reason": CAPTURE_LEAD_REASON + " (only inside the capture lead)"}],
+            "reason": CAPTURE_LEAD_REASON + " (only inside the capture lead)"},
+           {"cause": RENDEZVOUS_LEAD_KEY[0], "phase": RENDEZVOUS_LEAD_KEY[1],
+            "reason": RENDEZVOUS_LEAD_REASON + " (only inside the rendezvous lead, "
+            "BDOCK machines only)"}],
         "runs": runs,
         "skipped": skipped,
         "duplicatesDropped": duplicates,
@@ -1729,6 +1870,13 @@ def _design_lines(rows: List[Dict], top: int, with_lane: bool) -> List[str]:
         L.append("    %7ss %s%s/%s -> %s" % (_s(e["byDesignSeconds"]), lane, e["phase"],
                                               e["cause"], e["byDesignReason"]))
     return L
+
+
+RV_LEAD_SOURCE_TEXT = {
+    "warp": "hold warp target - early cancel",
+    "text": "declined or capped hold: node-wait text",
+    "constants": "no hold line: constants only, short by the half burn",
+}
 
 
 def render_run(run: Dict, top: int = 8) -> str:
@@ -1773,6 +1921,11 @@ def render_run(run: Dict, top: int = 8) -> str:
                             "half burn from the node-wait line"
                             if p["captureLeadHalfBurnKnown"]
                             else "no node-wait line: constants only, short by the half burn"))
+            for e in p.get("rendezvousLeads") or []:
+                L.append("  rendezvous lead: visit %d %s nodeUt=%s by design from ut %s (%s)"
+                         % (p["visit"], p["phase"], _s(e["nodeUt"], "%.1f"),
+                            _s(e["byDesignFromUt"], "%.1f"),
+                            RV_LEAD_SOURCE_TEXT.get(e["source"], e["source"])))
         for f in m["flags"]:
             L.append("  flag: visit %d %s %s" % (f["visit"], f["phase"],
                                                   " ".join("%s=%s" % (k, f[k]) for k in sorted(f)

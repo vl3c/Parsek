@@ -112,11 +112,22 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   node waits 5,100 s). The largest recoverable rows are now pre-#1964 BDOCK RENDEZVOUS
   waits, B22's outcome-sensitive CIRCULARIZE node wait (~590 s per run, policy undecided)
   and pre-#1958 CAPTURE-BURN waits.
-- [ ] Decide B22's CIRCULARIZE node wait (outcome-sensitive; needs a verification flight).
-- [ ] Decide whether the BDOCK hold's own post-release lead (RENDEZVOUS, ~329 s left on
-  `2026-10-02_2011`) and BDOCK's STATION-ASCENT / INT-ASCENT circularization waits (the same
-  MechJeb-ascent mechanism as MJ-ASCENT, 140 s / 87 s) belong in the analyzer's by-design
-  table; today they count as recoverable.
+- [ ] B22's CIRCULARIZE node wait: owner ruling 2026-10-03 keeps it recoverable and
+  outcome-sensitive in the analyzer. Backlog target: a verification flight before any warp
+  there (~590 s per run).
+- [x] BDOCK decisions (owner ruling 2026-10-03, resolved in the analyzer). STATION-ASCENT /
+  INT-ASCENT node waits are by design (the same MechJeb ascent as MJ-ASCENT; BDOCK engages
+  `ACTION_MJ_ENGAGE_ASCENT` on both legs). The RENDEZVOUS wait is by design from the hold's
+  warp target minus the 15 s early cancel (`RV_WARP_ARRIVAL_TOLERANCE_SECONDS`), the target
+  read from the hold's own `warp_to_ut` line for that node (a ca-clamped target is already
+  earlier); a declined hold uses its `node-wait:` text, a pre-hold run the constants
+  (nodeUt - 135 s). BDOCK-1 `2026-10-02_2011`: RENDEZVOUS recoverable 329 s -> 0 (329 s by
+  design), STATION-ASCENT 140 s and INT-ASCENT 87 s -> by design, run recoverable 595 s ->
+  37 s (DOCK coasts). Pre-#1964 `2026-09-30_1732`: RENDEZVOUS 1,178 s -> 874 s recoverable
+  (284 s by design: the last 135 s before each of four nodes). Every worktree's results:
+  recoverable 18,712 s -> 14,450 s, by design 9,996 s -> 14,141 s; the top recoverable rows
+  are now the pre-#1964 BDOCK-1 / BDOCK-2 RENDEZVOUS waits (3,499 s / 1,338 s), B22
+  CIRCULARIZE (1,183 s) and pre-#1958 CAPTURE-BURN waits.
 
 ## ~~RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON: the recording stats frame lookup matches a section end exactly, with no tolerance~~ [FILED 2026-10-01 from the PR #1943 review, branch `l7-nightly-residue`. FIXED 2026-10-03, branch `fix-stats-frame-epsilon`]
 

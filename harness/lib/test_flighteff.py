@@ -655,7 +655,8 @@ class DocumentTests(unittest.TestCase):
         self.assertEqual(sorted(back), ["aggregate", "byDesignPolicy", "constants",
                                         "duplicatesDropped", "runs", "schema", "schemaVersion",
                                         "skipped"])
-        self.assertEqual(len(back["byDesignPolicy"]), len(fe.BY_DESIGN_POLICY) + 1)
+        self.assertEqual(len(back["byDesignPolicy"]), len(fe.BY_DESIGN_POLICY) + 2)
+        self.assertEqual(back["constants"]["rendezvousEarlyCancelSeconds"], 15.0)
         r = back["runs"][0]
         for key in ("runId", "scenario", "verdict", "totalWallSeconds", "missionWallSeconds",
                     "harnessResidueSeconds", "mission", "overhead", "notes"):
@@ -667,7 +668,7 @@ class DocumentTests(unittest.TestCase):
         self.assertIn("physicsWarp", r["mission"]["buckets"])
         for p in r["mission"]["phases"]:
             for key in ("physicsWarp", "byDesign", "byDesignWall", "byDesignByCause",
-                        "captureLeadSeconds", "captureLeadHalfBurnKnown"):
+                        "captureLeadSeconds", "captureLeadHalfBurnKnown", "rendezvousLeads"):
                 self.assertIn(key, p)
         for e in r["mission"]["recommendations"]:
             for key in ("byDesign", "byDesignReason", "byDesignSeconds", "outcomeSensitive"):
@@ -756,20 +757,49 @@ class PolicyTableTests(unittest.TestCase):
         self.assertEqual(sorted(fe.BY_DESIGN_POLICY), sorted([
             ("attitude-align", "DEORBIT"), ("dwell", "HOLD-DEPART"), ("dwell", "HOLD-ARRIVE"),
             ("dwell", "HOLD-PARK"), ("waiting-for-node", "TRANSFER-BURN"),
-            ("waiting-for-node", "MJ-ASCENT"), ("coast-to-apoapsis", "MJ-ASCENT")]))
+            ("waiting-for-node", "MJ-ASCENT"), ("coast-to-apoapsis", "MJ-ASCENT"),
+            ("waiting-for-node", "STATION-ASCENT"), ("waiting-for-node", "INT-ASCENT")]))
         self.assertEqual(sorted(fe.OUTCOME_SENSITIVE), [("waiting-for-node", "CIRCULARIZE")])
         self.assertEqual(fe.CAPTURE_LEAD_KEY, ("waiting-for-node", "CAPTURE-BURN"))
+        self.assertEqual(fe.RENDEZVOUS_LEAD_KEY, ("waiting-for-node", "RENDEZVOUS"))
         self.assertTrue(all(fe.BY_DESIGN_POLICY.values()))
 
     def test_every_policy_key_names_a_real_cause_and_mlib_phase(self):
         phases = self._mlib_phase_literals()
         keys = (list(fe.BY_DESIGN_POLICY) + list(fe.OUTCOME_SENSITIVE)
-                + list(fe.POLICY_PHYSICS_TARGETS) + [fe.CAPTURE_LEAD_KEY])
+                + list(fe.POLICY_PHYSICS_TARGETS) + [fe.CAPTURE_LEAD_KEY,
+                                                     fe.RENDEZVOUS_LEAD_KEY])
         for cause, phase in keys:
             self.assertIn(cause, fe.IDLE_CAUSES, (cause, phase))
             self.assertIn(phase, phases, (cause, phase))
-        for machine in fe.POLICY_PHYSICS_TARGETS.values():
+        for machine in (list(fe.POLICY_PHYSICS_TARGETS.values())
+                        + list(fe.RENDEZVOUS_LEAD_MACHINES)):
             self.assertIn(machine, fe.MISSION_MACHINES.values())
+
+    def test_bdock_ascent_phases_are_bdock_only_and_engage_mechjeb_ascent(self):
+        # The two unscoped BDOCK ascent rows are safe only while no other
+        # machine names a phase STATION-ASCENT / INT-ASCENT (AST, not regex).
+        tree = ast.parse(_read(_MLIB_PATH))
+        owners = {}
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant) \
+                    and n.value.value in ("STATION-ASCENT", "INT-ASCENT", "RENDEZVOUS"):
+                for t in n.targets:
+                    owners.setdefault(n.value.value, set()).add(getattr(t, "id", "?"))
+        self.assertEqual(owners, {"STATION-ASCENT": {"BDOCK_STATION_ASCENT"},
+                                  "INT-ASCENT": {"BDOCK_INT_ASCENT"},
+                                  "RENDEZVOUS": {"BDOCK_RENDEZVOUS"}})
+        sys.path.insert(0, os.path.join(_HARNESS, "missions", "lib"))
+        try:
+            import mlib
+        finally:
+            sys.path.pop(0)
+        kinds = [a.kind for a in mlib._bdock_ascent_entry_actions(80000.0)]
+        self.assertIn(mlib.ACTION_MJ_ENGAGE_ASCENT, kinds)
+        for phase in ("STATION-ASCENT", "INT-ASCENT"):
+            self.assertEqual(fe.by_design_reason("waiting-for-node", phase),
+                             fe.by_design_reason("waiting-for-node", "MJ-ASCENT"))
+            self.assertEqual(fe.by_design_reason("coast-to-apoapsis", phase), "")
 
     def test_each_by_design_entry(self):
         cases = {
@@ -952,6 +982,118 @@ class CaptureLeadTests(unittest.TestCase):
         self.assertIn("BY DESIGN (not counted", agg)
 
 
+# Real BDOCK-1 hold lines (2026-10-02_2011_BDOCK-1-station-interceptor).
+_RV_WARP = ("[Mission][Info][RENDEZVOUS] action warp_to_ut value=7614.554 text=rendezvous "
+            "node-wait: nodeUt=7735.1 halfBurn=0.5 lead=120")
+_RV_CLAMPED = ("[Mission][Info][RENDEZVOUS] action warp_to_ut value=8325.885 text=rendezvous "
+               "node-wait: nodeUt=8663.9 halfBurn=0.5 lead=120 ca-clamp caUt=8670.2 caDist=68 "
+               "vSecant=26.24 nodeDv=14.521 guard=344")
+_RV_DECLINED = ("[Mission][Info][RENDEZVOUS] gate rvWarp released:warp-down warp-down->"
+                "declined:node-plan warp window -110 s < 0 s (node-wait: nodeUt=8686.6 "
+                "halfBurn=0.0 lead=120) | ut=8676.503 alt=116271.008 nodeDv=1.409 apErr=nan "
+                "thr=0.000 avThr=249999.984 nextPe=nan warp=NONEx1.000 vessels=4 parts=28")
+_RV_HELD_GATE = ("[Mission][Info][RENDEZVOUS] gate rvWarp released:warp-down warp-down->held "
+                 "rendezvous node-wait: nodeUt=8663.9 halfBurn=0.5 lead=120 | ut=8062.313 "
+                 "warp=NONEx1.000")
+
+
+class RendezvousLeadTests(unittest.TestCase):
+    """The BDOCK RENDEZVOUS node wait after the hold's release is by design."""
+
+    _ORBIT = dict(alt=100000.0, ap=117000.0, pe=90000.0)
+
+    def _run(self, node_ut, start, n, prefix=(), mission="bdock_dock_transfer"):
+        lines = ["[Mission][Info][PRELAUNCH] mission start name=%s" % mission,
+                 _phase("SET-TARGET", "RENDEZVOUS", start)]
+        lines += list(prefix)
+        lines += [_tel(phase="RENDEZVOUS", ut=start + i, nodes=1, node_ut=str(node_ut),
+                       **self._ORBIT) for i in range(n)]
+        log = fe.parse_mission_log(lines)
+        ivs = fe.build_intervals(log)
+        fe.apply_policy(log, ivs, fe.MISSION_MACHINES.get(mission))
+        return log, {iv.ut: iv for iv in ivs}
+
+    def test_parse_hold_lines(self):
+        log, _ = self._run(7735.1, 7590.0, 3, prefix=[_RV_WARP, _RV_CLAMPED, _RV_DECLINED,
+                                                     _RV_HELD_GATE])
+        w = log.visits[-1].rv_waits
+        self.assertEqual(len(w), 3)  # the held gate line duplicates the action: not parsed
+        self.assertEqual((w[0].node_ut, w[0].half_burn, w[0].lead, w[0].warp_target),
+                         (7735.1, 0.5, 120.0, 7614.554))
+        self.assertNotEqual(w[0].clamp_ut, w[0].clamp_ut)
+        self.assertAlmostEqual(w[1].clamp_ut, 8670.2 - 344.0)
+        self.assertEqual(w[1].warp_target, 8325.885)
+        self.assertEqual((w[2].node_ut, w[2].half_burn, w[2].warp_target), (8686.6, 0.0, None))
+
+    def test_unclamped_warp_target(self):
+        # T = 7614.554: by design from T - 15 = 7599.554
+        log, by_ut = self._run(7735.1, 7590.0, 20, prefix=[_RV_WARP])
+        self.assertEqual(by_ut[7599.0].by_design, "")
+        self.assertEqual(by_ut[7600.0].by_design, fe.RENDEZVOUS_LEAD_REASON)
+        self.assertEqual(log.visits[-1].rv_leads, {7735.1: (7614.554 - 15.0, "warp")})
+
+    def test_clamped_warp_target(self):
+        # the 5 km guard pulled T to 8325.885, 338 s before node - half burn - 120
+        log, by_ut = self._run(8663.9, 8300.0, 30, prefix=[_RV_CLAMPED])
+        self.assertEqual(by_ut[8310.0].by_design, "")
+        self.assertEqual(by_ut[8311.0].by_design, fe.RENDEZVOUS_LEAD_REASON)
+        self.assertEqual(log.visits[-1].rv_leads[8663.9][1], "warp")
+        # the text alone agrees within its print rounding
+        self.assertAlmostEqual(fe.rendezvous_text_boundary(log.visits[-1].rv_waits[0]),
+                               8325.885 - 15.0, delta=0.5)
+
+    def test_declined_uses_the_node_wait_text(self):
+        # nodeUt 8686.6 - halfBurn 0.0 - 120 - 15 = 8551.6
+        log, by_ut = self._run(8686.6, 8545.0, 20, prefix=[_RV_DECLINED])
+        self.assertEqual(log.visits[-1].rv_leads[8686.6][1], "text")
+        self.assertAlmostEqual(log.visits[-1].rv_leads[8686.6][0], 8551.6)
+        self.assertEqual(by_ut[8551.0].by_design, "")
+        self.assertEqual(by_ut[8552.0].by_design, fe.RENDEZVOUS_LEAD_REASON)
+
+    def test_boundary_is_inclusive_and_constants_without_a_line(self):
+        # no hold line (a pre-hold run): node 1000 - 120 - 15 = 865 exactly
+        log, by_ut = self._run(1000.0, 860.0, 10)
+        self.assertEqual(log.visits[-1].rv_leads, {1000.0: (865.0, "constants")})
+        self.assertEqual(by_ut[864.0].by_design, "")
+        self.assertEqual(by_ut[865.0].by_design, fe.RENDEZVOUS_LEAD_REASON)
+
+    def test_other_node_and_window_cap(self):
+        # a warp line for another node (> 1 s away) does not set this node's lead
+        _log, by_ut = self._run(7737.0, 7590.0, 20, prefix=[_RV_WARP])
+        self.assertEqual(by_ut[7600.0].by_design, "")
+        capped = _RV_WARP + " window-capped 900 s"
+        log, _ = self._run(7735.1, 7590.0, 3, prefix=[capped])
+        self.assertEqual(log.visits[-1].rv_leads[7735.1][1], "text")
+        self.assertAlmostEqual(log.visits[-1].rv_leads[7735.1][0], 7735.1 - 0.5 - 120.0 - 15.0)
+
+    def test_scoped_to_the_bdock_machines(self):
+        for mission in ("bdock_dock_transfer", "bdock_second_dock", "d5_redock"):
+            _log, by_ut = self._run(1000.0, 860.0, 10, mission=mission)
+            self.assertEqual(by_ut[866.0].by_design, fe.RENDEZVOUS_LEAD_REASON, mission)
+        for mission in ("b11_mun_orbit", "nonexistent_m"):
+            _log, by_ut = self._run(1000.0, 860.0, 10, mission=mission)
+            self.assertEqual(by_ut[866.0].by_design, "", mission)
+
+    def test_analyze_and_render(self):
+        lines = ["[Mission][Info][PRELAUNCH] mission start name=bdock_dock_transfer",
+                 _phase("SET-TARGET", "RENDEZVOUS", 7400.0), _RV_WARP]
+        lines += [_tel(phase="RENDEZVOUS", ut=7400.0 + i, nodes=1, node_ut="7735.1",
+                       **self._ORBIT) for i in range(331)]
+        res = fe.analyze_mission("\n".join(lines), None)
+        row = [p for p in res["phases"] if p["phase"] == "RENDEZVOUS"][0]
+        self.assertEqual(row["rendezvousLeads"],
+                         [{"nodeUt": 7735.1, "byDesignFromUt": 7599.554, "source": "warp"}])
+        # 330 s of wait: 7400..7599 recoverable (200 lines), 7600..7729 by design (130)
+        self.assertAlmostEqual(res["byDesignWall"], 130.0, places=6)
+        legal = fe.max_legal_rails_rate("Kerbin", self._ORBIT["alt"])
+        self.assertAlmostEqual(res["recoverable"],
+                               200.0 - 200.0 / legal - fe.RAMP_SETTLE_OVERHEAD_SECONDS, delta=0.1)
+        run = fe.analyze_run("2026-10-02_2011_BDOCK-1-station-interceptor", None, None,
+                             "\n".join(lines), None, None)
+        self.assertIn("rendezvous lead: visit 1 RENDEZVOUS nodeUt=7735.1 by design from "
+                      "ut 7599.6 (hold warp target - early cancel)", fe.render_run(run))
+
+
 class PolicyMirrorTests(unittest.TestCase):
     """The mirrored mission warp policy constants agree with mlib."""
 
@@ -971,6 +1113,50 @@ class PolicyMirrorTests(unittest.TestCase):
         self.assertEqual(fe.PHYSICS_DWELL_WARP_INDEX, mlib.PHYSICS_DWELL_WARP_INDEX)
         self.assertEqual(fe.POLICY_PHYSICS_RATE, 4.0)
         self.assertEqual(mlib._B5_NODE_WAIT_PHASES, (fe.CAPTURE_LEAD_KEY[1],))
+        self.assertEqual(fe.RV_EARLY_CANCEL_SECONDS, mlib.RV_WARP_ARRIVAL_TOLERANCE_SECONDS)
+        self.assertEqual(fe.RV_NODE_IDENTITY_SECONDS, mlib.RV_WARP_NODE_IDENTITY_SECONDS)
+        self.assertEqual(mlib.BDOCK_RENDEZVOUS, fe.RENDEZVOUS_LEAD_KEY[1])
+
+    @staticmethod
+    def _names_in(func_name):
+        tree = ast.parse(_read(_MLIB_PATH))
+        fn = [n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == func_name][0]
+        return {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
+
+    def test_release_tolerances(self):
+        # The rendezvous hold releases RV_WARP_ARRIVAL_TOLERANCE_SECONDS (15 s)
+        # before its target; the capture hold releases
+        # NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS (5 s) before its own, which the
+        # capture lead already carries. Two machines, two tolerances.
+        self.assertIn("RV_WARP_ARRIVAL_TOLERANCE_SECONDS", self._names_in("_bdock_rv_hold_step"))
+        cap = self._names_in("_b5_node_wait_step")
+        self.assertIn("NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS", cap)
+        self.assertNotIn("RV_WARP_ARRIVAL_TOLERANCE_SECONDS", cap)
+        # sdock / rdock run bdock_decide's RENDEZVOUS phase
+        for machine in ("sdock_decide", "rdock_decide"):
+            self.assertIn("bdock_decide", self._names_in(machine), machine)
+
+    def test_machine_rendezvous_target_is_the_analyzer_boundary(self):
+        mlib = self._mlib()
+        # unclamped (the 2011 flight's first hold) and ca-clamped (its second)
+        cases = [
+            (7133.461, 7735.1, 17.218, 50000.0, 7740.0, 9000.0),
+            (8062.313, 8663.9, 14.521, 15951.0, 8670.2, 68.0),
+        ]
+        for now, node, dv, dist, ca_ut, ca_d in cases:
+            mass = 0.5 * 2.0 * 250000.0 / dv  # half burn 0.5 s
+            target, key, detail = mlib.rendezvous_node_wait_plan(
+                now, node, dv, 250000.0, mass, float("nan"), 91000.0, 90000.0, 70000.0,
+                dist, ca_ut, ca_d, "Kerbin")
+            self.assertEqual(key, "held", detail)
+            w = fe.parse_rv_node_wait(detail, target)
+            self.assertIsNotNone(w)
+            self.assertEqual(fe.rendezvous_lead_boundary(node, [w]),
+                             (target - mlib.RV_WARP_ARRIVAL_TOLERANCE_SECONDS, "warp"))
+            # the text alone rebuilds the same boundary within its print rounding
+            self.assertAlmostEqual(fe.rendezvous_text_boundary(w),
+                                   target - mlib.RV_WARP_ARRIVAL_TOLERANCE_SECONDS, delta=0.6)
 
     def test_machine_lead_is_the_analyzer_lead(self):
         mlib = self._mlib()
