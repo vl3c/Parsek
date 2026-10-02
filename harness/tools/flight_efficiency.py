@@ -4,9 +4,11 @@
 Thin I/O shell over ``harness/lib/flighteff.py`` (every decision lives there):
 finds runs in one or more ``harness/results`` dirs, reads each run's artifacts,
 and prints where the wall time went -- idle 1x seconds by cause, rails warp below
-the altitude-legal factor, long 1x burns, and the harness overhead outside the
-mission (KSP boot, seam steps, quit, the post-quit verifier tail) -- with an
-estimated recoverable figure and the code site that controls each.
+the altitude-legal factor, physics warp (its own bucket, never recoverable), long
+1x burns, and the harness overhead outside the mission (KSP boot, seam steps,
+quit, the post-quit verifier tail) -- with an estimated recoverable figure and
+the code site that controls each. 1x time the mission warp policy keeps on
+purpose is reported as by-design, beside the recoverable total, never in it.
 
 It only MEASURES: it reads run artifacts and writes nothing but stdout and the
 optional ``--json-out`` file. No flight, no provisioning, no KSP.
@@ -189,7 +191,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--run-id", action="append", default=[], help="only this run id (repeatable)")
     ap.add_argument("--scenario", action="append", default=[],
                     help="only this scenario id (repeatable)")
-    ap.add_argument("--since", default=None, help="only run ids dated >= YYYY-MM-DD")
+    ap.add_argument("--since", default=None, help="only run ids dated >= YYYY-MM-DD (run ids carry the UTC date)")
     ap.add_argument("--per-run", action="store_true",
                     help="print every run's report (default only when one run is selected)")
     ap.add_argument("--top", type=int, default=10, help="rows per ranked table")
