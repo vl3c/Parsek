@@ -1542,6 +1542,65 @@ reentry at UT 918.78, `committed=9->11`), B13 `_1905` (11: ascent exit, Mun appr
 22966.25, touchdown `prev=Approach next=SurfaceStationary`), B14 `_1938` (11: ascent exit, Minmus approach at UT
 278209.25, touchdown `prev=Approach next=SurfaceMobile`).
 
+## ~~BDOCK-RENDEZVOUS-1X-WAITS: each BDOCK rendezvous burn idled ~600 s at 1x~~ [FILED AND FIXED 2026-10-02, branch `bdock-warp`, operator ruling of the same day (rails warp only). HARNESS ONLY, no C# change]
+
+`flight_efficiency.py` ranked BDOCK-1 RENDEZVOUS the largest recoverable 1x wait in the suite
+(~4,714 s over 4 runs; BDOCK-2 ~2,162 s over 3). Cause, per sub-phase of
+`2026-09-30_1732` (decompiled MechJeb 2.15.1): `MechJebModuleRendezvousAutopilot.Drive` hands
+every node it places to the shared `MechJebModuleNodeExecutor` (`ExecuteAllNodes`) when a node
+exists and the executor is idle. `StateWarpAlign` warps to ignition - 600 s
+(`WarpToUT(_ignitionUT - 600)`), then, unless `AlignedAndSettled` (1 deg AND
+|angularVelocity| < 0.001 rad/s), calls `MinimumWarp` and `SetAttitude` every tick. The
+Interceptor never settled: the Hohmann node (17.2 m/s at ut 7720) sat at NONEx1 from 7118.6 to
+7729, the closest-approach match node (15.7 m/s at ~8603) from 8002 to 8603; together 1,178 of
+the phase's 1,458 wall-s. The capture hold of MISSION-WARP-POLICY could not be copied: the
+autopilot re-engages the executor itself, and disabling it to hold a hand-off would make its
+`OnModuleEnabled` remove the nodes and re-plan (possibly through another branch of `Drive`,
+since the target is closer by then). Fix (`harness/missions/lib/mlib.py` section RENDEZVOUS
+NODE WAITS, tests `test_rendezvous_node_wait.py`): the bdock machine turns the executor's
+`autowarp` off (`StateWarpAlign` then only aligns), rails-warps itself to node UT - half burn -
+120 s, and turns `autowarp` back on at the first 1x frame. Target safety: no hold warp starts or
+ends with the target inside 5 km (kRPC closest approach over the next orbit, clamped with the
+slower of the secant and node-dv speeds, plus a live-distance backstop every frame). The STATION-
+SEPARATE coast the analyzer also ranked (~426 s) was already gone (4.4 s since
+`2026-09-30_1732`); the DOCK-phase coasts are prox-ops and stay 1x by rule.
+
+Flight findings (2026-10-02, automation DLL sha256 `dc79d1d1...`, C# unchanged):
+- Both holds rails-warped as designed on `2026-10-02_1925` and `_1944`: node 1 held from about
+  7130 to 7607 (CA clear); node 2 CA-clamped (closest approach 52-55 m, guard 343-344 s), held
+  from about 8060 to 8322; both burns ignited on time. A third, 1.8 m/s close-in node was
+  declined (window negative), as intended.
+- **Outcome change, inside MechJeb's own band.** On both flights MechJeb's rendezvous autopilot
+  finished at 101.45 / 101.29 m and 0.27 / 0.25 m/s. Every baseline ended under 100 m (95.7 m on
+  `2026-09-30_1732`). The bdock RENDEZVOUS -> MATCH-VELOCITY gate required d <= 100 m, so the
+  no-progress watchdog flaked a MechJeb-legal completion (MISSION-FLAKE, INVALID). Mechanism:
+  node 2 now falls at the transfer apoapsis (node 1 + 930 s, 14.5 m/s on both flights, against
+  node 1 + 884 s and 15.656 m/s on all four baseline runs). The likely cause is the shorter 1x
+  RCS attitude dwell before node 1 (120 s instead of 600 s), which leaves the orbit closer to
+  MechJeb's Hohmann plan. The final approach then starts at about 140 m rather than about 300 m,
+  closes more slowly and stops a few metres further out. Fix (operator pre-decision 2026-10-02):
+  the gate is MechJeb's own completion test, `rendezvous_ap_done` (d < approachDistance * 1.05 + 2 m
+  AND v < 1 m/s, decompiled `MechJebModuleRendezvousAutopilot.Drive`), paired with the AP's
+  enabled latch as before; docking still follows MATCH-VELOCITY unchanged.
+- **Pre-existing: kRPC WarpTo's last ~3-4 game seconds read PHYSICS mode** (x3.3-4.3, `_1925` ut
+  7605.99 and 8320.34). The same tail closes #1958's capture holds (B11 `2026-10-01_1652`
+  TRANSFER-BURN, ut 1742.51 at PHYSICSx3.64) and so ends every native warp_to in the suite. The
+  rendezvous hold now cancels its own warp 15 s before target (`RV_WARP_ARRIVAL_TOLERANCE_SECONDS`),
+  which on `_1944` went RAILS x10 -> 1x on both releases with no PHYSICS frame; the held step also
+  drops any warp that reads PHYSICS. The capture hold and the other warp_to users still cross it.
+- Flown green on the aligned gate, each PASS attempt 1 with the mission outcome unchanged
+  (MISSION-OK, docked, both transfers, undocked; recordings 21 and 31, inside their windows):
+  BDOCK-1 `2026-10-02_2011` (MechJeb done at 99.7 m / 0.26 m/s), BDOCK-2 `2026-10-02_2037`
+  (99.8 m / 0.32 m/s). `flight_efficiency.py`, before -> after:
+  BDOCK-1 RENDEZVOUS 1,458 -> 598 wall-s, DOCK 246 -> 210, total 2,194 -> 1,540 (vs
+  `2026-09-30_1732`; this run's ascents happened to fly 1x, as `2026-09-10_2305`'s did, so its
+  STATION- / INT-ASCENT read 356 / 301 against 194 / 195);
+  BDOCK-2 RENDEZVOUS 1,019 -> 560, total 1,537 -> 1,080 (vs `2026-09-23_1704`).
+  Recoverable RENDEZVOUS 1x left: ~330 / ~270 s, the ~340 s the closest-approach clamp keeps at
+  1x before the match burn plus the close-in nodes, both by design.
+- [ ] #1958's holds and every other native warp_to cross WarpTo's physics-mode tail; decide whether
+  they should cancel early too (operator ruling 2026-10-02: no physics warp in missions).
+
 ## ~~MISSION-WARP-POLICY-2026-10-01: harness missions idled at 1x through node waits, dwells and vacuum coasts~~ [FILED AND FIXED 2026-10-01, branch `mission-warp-fix`, operator ruling of the same day. HARNESS ONLY, no C# change]
 
 A log analysis of the 2026-10-01 nightly runs (telemetry is ~1 Hz of wall time; an unchanged

@@ -962,6 +962,12 @@ ACTION_MJ_DISABLE_DOCKING = "mj_disable_docking"           # value = None
 # (flight-8 prox-ops rule: a pending node rails-warped at ~92 m, packing cleared
 # the docking-port target, and the docking AP NRE'd forever). Best-effort.
 ACTION_MJ_ABORT_NODE_EXEC = "mj_abort_node_exec"           # value = None
+# Set the shared NodeExecutor's autowarp flag (value 1.0 on / 0.0 off; runner:
+# node_executor.autowarp = bool(value), nothing else). Emitted ONLY by the
+# rendezvous node-wait hold (RENDEZVOUS NODE WAITS): off while the machine
+# rails-warps toward a node itself, so StateWarpAlign stops calling MinimumWarp,
+# and back on once the warp is down. text = the decision that emitted it.
+ACTION_MJ_SET_NODE_AUTOWARP = "mj_set_node_autowarp"       # value = 1.0 / 0.0
 # Attitude control (flight-10 tumble fix). SET_SAS: control.sas = True, then try
 # control.sas_mode = stability_assist (separate try/except). SET_RCS: control.rcs
 # = (value != 0). Emitted after each SEPARATE (separation torque with no SAS = the
@@ -2228,6 +2234,162 @@ def physics_dwell_warp_index(remaining_seconds: float) -> int:
 
 
 # ---------------------------------------------------------------------------
+# RENDEZVOUS NODE WAITS (BDOCK family; RAILS warp only, operator ruling
+# 2026-10-02). MechJeb 2.15.1's MechJebModuleRendezvousAutopilot.Drive hands
+# every node it plans to the shared NodeExecutor (ExecuteAllNodes) whenever a
+# node exists and the executor is idle, so a rendezvous wait is the same
+# executor wait the capture hold fixes: StateWarpAlign rails-warps to
+# ignition - 600 s, then calls MinimumWarp every tick and aligns at 1x until
+# AlignedAndSettled (1 deg AND |omega| < 0.001 rad/s). The BDOCK Interceptor
+# never settles there, so every rendezvous burn idled the full ~600 s at 1x
+# (2026-09-30_1732: ut 7118.6 -> 7729 and 8002 -> 8603 at NONEx1, 1178 of the
+# phase's 1458 wall-s).
+#
+# The capture hold cannot be copied: the rendezvous AP re-engages the executor
+# on its own (there is no hand-off to hold), and disabling the AP to hold one
+# would make it REMOVE its nodes on re-enable (OnModuleEnabled) and re-plan,
+# possibly from another branch of Drive. Instead the hold turns the executor's
+# autowarp OFF, which makes StateWarpAlign only SetAttitude (no MinimumWarp),
+# rails-warps itself, and turns autowarp back ON once the warp is down and the
+# game reads 1x again, so from there the executor and the rendezvous AP run
+# exactly as before. The node, the AP and the executor's state are never
+# touched. The rendezvous AP writes the same flag False itself on every BDOCK
+# run (Drive: Autowarp && Distance > 1000 m) and the runner forces it True at
+# every executor hand-off, so a False left behind by a dead run is the class
+# MechJeb already leaves.
+#
+# Target safety: no warp STARTS or ENDS inside RV_WARP_MIN_TARGET_DISTANCE_M.
+# kRPC's Orbit.DistanceAtClosestApproach / TimeOfClosestApproach (decompiled
+# CalcClosestAproach) is the minimum separation over the next ORBIT from now,
+# so a closest approach at or beyond the safe distance clears any warp shorter
+# than RV_WARP_MAX_WINDOW_SECONDS (well under one LKO period). A nearer
+# closest approach clamps the warp end to where the separation is predicted to
+# fall through the safe distance (straight-line relative motion through the
+# approach), using the SLOWER of two speed estimates so the clamp lands early:
+# the secant through the current distance, and the node's dv (the rendezvous
+# AP places its final node AT the closest approach with dv =
+# DeltaVToMatchVelocities, the relative speed there). Every frame of a held
+# warp re-checks the live distance as a backstop. Burns never run warped: the
+# warp ends NODE_WAIT_ORIENT_LEAD_SECONDS (+ half the burn) before the node at
+# the latest, as the capture hold does.
+# ---------------------------------------------------------------------------
+
+# 2x KSP's 2.5 km vessel load range, 5x the rendezvous AP's own 1 km autowarp
+# cutoff (decompiled Drive). No hold warp starts or ends nearer the target.
+RV_WARP_MIN_TARGET_DISTANCE_M = 5000.0
+# Longest single hold warp: the closest-approach read covers one orbit from
+# now, and a LKO period is ~1,800 s; a hold normally arms ~600 s before
+# ignition, so this never binds on a healthy rendezvous.
+RV_WARP_MAX_WINDOW_SECONDS = 900.0
+# Consecutive frames at warp NONE with a static orbit before a hold arms: the
+# executor has finished its own far warp and sits aligning at 1x.
+RV_WARP_IDLE_FRAMES = 2
+# A node is the "same" node (no second hold once its hold ended) while its UT
+# stays within this many seconds.
+RV_WARP_NODE_IDENTITY_SECONDS = 1.0
+# Bounded native warp issues per hold (initial + self-heals).
+RV_WARP_MAX_ISSUES = 5
+# The hold cancels its own warp this many game seconds before the target
+# instead of letting kRPC's WarpTo run out. Measured on the first BDOCK-1
+# flight (2026-10-02_1925): WarpTo's last ~3-4 game seconds read PHYSICS mode
+# at a 3.3-4.3x rate (twice, ut 7605.99 / 8320.34; the B11 capture hold's warp
+# end reads the same, 2026-10-01_1652 ut 1742.51), so a hold that waits for
+# the warp to end crosses that tail; the runner's cancel drops the factor
+# straight to 1x. ~10 game-s of 1x is the price.
+RV_WARP_ARRIVAL_TOLERANCE_SECONDS = 15.0
+
+
+def rendezvous_ca_warp_limit(now_ut: float, distance: float, ca_ut: float,
+                             ca_distance: float, node_dv: float,
+                             safe_m: float = RV_WARP_MIN_TARGET_DISTANCE_M
+                             ) -> Tuple[Optional[float], str, str]:
+    """Latest UT a rendezvous rails warp may end at with the target still at
+    least ``safe_m`` away: ``(limit_ut, key, detail)``.
+
+    ``limit_ut`` None = no warp at all (``key`` says why); ``math.inf`` = the
+    next orbit never brings the target inside ``safe_m``. ``key`` is a stable
+    token for the machine's decision line, ``detail`` carries the numbers.
+    Fails closed on any unread input."""
+    if not (_is_finite(now_ut) and _is_finite(distance)):
+        return None, "target-unread", "target distance unread"
+    if distance < safe_m:
+        return None, "target-near", ("target %.0f m inside the %.0f m safe distance"
+                                     % (distance, safe_m))
+    if not (_is_finite(ca_ut) and _is_finite(ca_distance)):
+        return None, "ca-unread", "closest approach unread"
+    if ca_distance >= safe_m:
+        return math.inf, "ca-clear", ("closest approach %.0f m >= %.0f m within one orbit"
+                                      % (ca_distance, safe_m))
+    tau = ca_ut - now_ut
+    if tau <= 0.0:
+        return None, "ca-now", "closest approach is now (%.0f m)" % ca_distance
+    v_secant = math.sqrt(max(distance * distance - ca_distance * ca_distance,
+                             0.0)) / tau
+    speeds = [v_secant]
+    if _is_finite(node_dv) and node_dv > 0.0:
+        speeds.append(float(node_dv))
+    v = min(speeds)
+    if v <= 0.0:
+        return None, "ca-speed-zero", "closing speed estimate is zero"
+    guard = math.sqrt(safe_m * safe_m - ca_distance * ca_distance) / v
+    return (float(ca_ut - guard), "ca-clamp",
+            "ca-clamp caUt=%.1f caDist=%.0f vSecant=%.2f nodeDv=%s guard=%.0f"
+            % (ca_ut, ca_distance, v_secant, _obs_fmt(node_dv), guard))
+
+
+def rendezvous_node_wait_plan(now_ut: float, node_ut: float, node_dv: float,
+                              available_thrust: float, vessel_mass: float,
+                              time_to_soi: float, altitude: float,
+                              periapsis: float, atmosphere_depth: float,
+                              distance: float, ca_ut: float, ca_distance: float,
+                              body: str = ""
+                              ) -> Tuple[Optional[float], str, str]:
+    """Where a rendezvous node-wait hold rails-warps to, or why it does not:
+    ``(target_ut, key, detail)``.
+
+    The capture hold's node-wait target (``node_wait_warp_plan``: node UT -
+    half burn - NODE_WAIT_ORIENT_LEAD_SECONDS, SOI-clamped, refused in an
+    atmosphere or on unread inputs), then clamped by the target-safety limit
+    (``rendezvous_ca_warp_limit``) and RV_WARP_MAX_WINDOW_SECONDS, and refused
+    when what is left spans less than NODE_WAIT_MIN_WARP_SECONDS.
+
+    RAILS ONLY: kRPC's SpaceCenter.WarpTo falls back to PHYSICS warp when
+    CanRailsWarpAt fails (decompiled: the vessel below the body's rails limit
+    at factor 1, or a main throttle above zero), so the plan also refuses a
+    body outside the committed rails table and an altitude or periapsis below
+    its factor-1 limit; the held step drops a warp that reads PHYSICS."""
+    limits = STOCK_WARP_ALTITUDE_LIMITS.get(body)
+    if limits is None or len(limits) < 2:
+        return None, "rails-unknown", "no rails table for body %r" % (body,)
+    if not (_is_finite(altitude) and _is_finite(periapsis)
+            and min(altitude, periapsis) >= limits[1]):
+        return None, "rails-illegal", (
+            "alt=%s pe=%s below the %.0f m rails limit (WarpTo would physics-warp)"
+            % (_obs_fmt(altitude), _obs_fmt(periapsis), limits[1]))
+    target, why = node_wait_warp_plan(
+        now_ut, node_ut, node_dv, available_thrust, vessel_mass, time_to_soi,
+        altitude, periapsis, atmosphere_depth, min_window=0.0)
+    if target is None:
+        return None, "node-plan", why
+    limit, key, detail = rendezvous_ca_warp_limit(now_ut, distance, ca_ut,
+                                                  ca_distance, node_dv)
+    if limit is None:
+        return None, key, detail
+    if limit < target:
+        target = limit
+        why += " " + detail
+    cap = now_ut + RV_WARP_MAX_WINDOW_SECONDS
+    if cap < target:
+        target = cap
+        why += " window-capped %.0f s" % RV_WARP_MAX_WINDOW_SECONDS
+    if target - now_ut < NODE_WAIT_MIN_WARP_SECONDS:
+        return None, "window-short", ("warp window %.0f s < %.0f s (%s)"
+                                      % (target - now_ut,
+                                         NODE_WAIT_MIN_WARP_SECONDS, why))
+    return float(target), "held", "rendezvous " + why
+
+
+# ---------------------------------------------------------------------------
 # Stock heliocentric ephemeris (PAD-ALIGN's pure window math). COMMITTED DATA,
 # the STOCK_WARP_ALTITUDE_LIMITS precedent: KSP's planets are on rails with
 # elements that never change, so the phase angle between two planets is a pure
@@ -3206,6 +3368,12 @@ class TelemetrySnapshot:
     vessel_mass: float = float("nan")
     atmosphere_depth: float = float("nan")
     surface_gravity: float = float("nan")
+    # RENDEZVOUS NODE WAITS (2026-10-02): the next closest approach to the
+    # TARGET vessel over one orbit from now (kRPC Orbit.TimeOfClosestApproach /
+    # DistanceAtClosestApproach). Read only by docking missions with a target
+    # vessel set; NaN when unread, which refuses every rendezvous warp.
+    target_ca_ut: float = float("nan")
+    target_ca_distance: float = float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -15917,6 +16085,10 @@ class BDockParams:
     # target_distance never beat the running minimum -> flake (a stuck AP).
     rendezvous_noprogress_frames: int = 40
     frozen_sample_limit: int = 10
+    # RENDEZVOUS NODE WAITS (2026-10-02, rails only): hold the executor's 1x
+    # node wait and rails-warp it instead. ON for every lane; tests flip it to
+    # pin the pre-policy shape. No spec key: the policy is the library's.
+    rendezvous_node_wait_warp: bool = True
 
 
 def bdock_params_from_dict(params: Dict) -> BDockParams:
@@ -16059,6 +16231,28 @@ class BDockState:
     # Carried evidence for the evaluator.
     docked_confirmed: bool = False
     undock_confirmed: bool = False
+    # RENDEZVOUS NODE WAITS (2026-10-02). ``rv_hold_ut``: the UT the hold is
+    # rails-warping to (None = no hold); ``rv_hold_node_ut``: the node it is
+    # for; ``rv_hold_releasing``: the warp is cancelled and the executor's
+    # autowarp goes back on at the first 1x frame. ``rv_hold_warp_cmd`` /
+    # ``rv_hold_last_issue_ut`` / ``rv_hold_issues`` drive the native warp and
+    # its bounded self-heal. ``rv_spent_node_ut``: the node whose hold already
+    # ended (never held twice). ``rv_prev_ap`` / ``rv_prev_pe`` /
+    # ``rv_idle_frames``: the static-orbit-at-1x evidence a hold arms on.
+    # ``rv_warp_decision``: the stable token of the last decision, a
+    # MACHINE_DIFF_FIELDS entry so every change prints one gate line.
+    rv_hold_ut: Optional[float] = None
+    rv_hold_node_ut: Optional[float] = None
+    rv_hold_releasing: bool = False
+    rv_hold_warp_cmd: Optional[float] = None
+    rv_hold_last_issue_ut: float = 0.0
+    rv_hold_issues: int = 0
+    rv_spent_node_ut: Optional[float] = None
+    rv_prev_ap: Optional[float] = None
+    rv_prev_pe: Optional[float] = None
+    rv_idle_frames: int = 0
+    rv_warp_key: str = ""
+    rv_warp_decision: str = ""
 
 
 def bdock_initial_state(params: BDockParams) -> BDockState:
@@ -16330,6 +16524,191 @@ def _bdock_separate_step(state: BDockState, snapshot: TelemetrySnapshot,
     return st, []
 
 
+# MechJeb 2.15.1 MechJebModuleRendezvousAutopilot.Drive (decompiled): the AP
+# declares the rendezvous done, clears its users (disables itself) and thrusts
+# off when Target.Distance < desiredDistance * 1.05 + 2.0 AND
+# |Target.RelativeVelocity| < 1.0 (status #MechJeb_RZauto_statu1).
+MECHJEB_RV_DONE_DISTANCE_FACTOR = 1.05
+MECHJEB_RV_DONE_DISTANCE_PAD_M = 2.0
+MECHJEB_RV_DONE_MAX_REL_SPEED = 1.0
+
+
+def rendezvous_ap_done(distance: float, rel_speed: float,
+                       desired_distance: float) -> bool:
+    """MechJeb's own rendezvous completion test, derived from the AP's
+    ``desired_distance`` (the spec's approachDistanceMeters): distance <
+    desired * 1.05 + 2 m AND relative speed < 1 m/s. The B-DOCK RENDEZVOUS ->
+    MATCH-VELOCITY gate pairs it with the AP's enabled latch flipping off, so
+    the gate opens on exactly the condition that turned the AP off. Fails
+    closed on an unread distance or speed."""
+    if not (_is_finite(distance) and _is_finite(rel_speed)
+            and _is_finite(desired_distance)):
+        return False
+    limit = (desired_distance * MECHJEB_RV_DONE_DISTANCE_FACTOR
+             + MECHJEB_RV_DONE_DISTANCE_PAD_M)
+    return distance < limit and rel_speed < MECHJEB_RV_DONE_MAX_REL_SPEED
+
+
+def _bdock_rv_note(state: BDockState, key: str, detail: str = "") -> BDockState:
+    """Record a rendezvous-warp decision. ``rv_warp_decision`` (a
+    MACHINE_DIFF_FIELDS entry, so it prints one gate line) is rewritten only
+    when the stable ``key`` changes, carrying that first frame's numbers; a
+    decision repeated every frame (a short window) prints once."""
+    if key == state.rv_warp_key:
+        return state
+    return replace(state, rv_warp_key=key,
+                   rv_warp_decision=(key + " " + detail) if detail else key)
+
+
+def _bdock_rv_clear(state: BDockState, key: str, detail: str = "") -> BDockState:
+    """Drop every hold field; the held node is spent (never held twice)."""
+    cleared = replace(state, rv_hold_ut=None, rv_hold_releasing=False,
+                      rv_hold_warp_cmd=None, rv_hold_issues=0,
+                      rv_spent_node_ut=state.rv_hold_node_ut,
+                      rv_hold_node_ut=None)
+    return _bdock_rv_note(cleared, key, detail)
+
+
+def _bdock_rv_release(state: BDockState, snapshot: TelemetrySnapshot,
+                      reason: str) -> Tuple[BDockState, List[Action]]:
+    """End a hold. The executor's autowarp goes back on only at 1x: while the
+    vessel is still on rails StateWarpAlign tests a 10 deg cone instead of
+    AlignedAndSettled and would warp itself to ignition - 3 s, which the
+    pre-policy executor (parked at 1x) never did. So a warp that is still
+    running is cancelled first and the autowarp-on waits for a frame that
+    reads warp NONE (``rv_hold_releasing``)."""
+    tag = reason.split(" ")[0]
+    at_1x = (snapshot.warp_mode == WARP_NONE
+             and not _is_finite(snapshot.warping_to))
+    if at_1x:
+        actions = [Action(ACTION_MJ_SET_NODE_AUTOWARP, 1.0,
+                          text="rendezvous hold released (%s): executor autowarp on"
+                          % reason)]
+        return _bdock_rv_clear(state, "released:" + tag, reason), actions
+    releasing = replace(state, rv_hold_releasing=True, rv_hold_warp_cmd=None)
+    return (_bdock_rv_note(releasing, "releasing:" + tag, reason),
+            [Action(ACTION_CANCEL_WARP,
+                    text="rendezvous hold release (%s): warp cancelled" % reason)])
+
+
+def _bdock_rv_hold_step(state: BDockState, snapshot: TelemetrySnapshot
+                        ) -> Tuple[BDockState, List[Action]]:
+    """One frame of an armed rendezvous hold (see RENDEZVOUS NODE WAITS)."""
+    ut = snapshot.ut
+    if state.rv_hold_releasing:
+        return _bdock_rv_release(state, snapshot, "warp-down")
+    reason = ""
+    if snapshot.node_count < 1 or not _is_finite(snapshot.node_ut):
+        reason = "node-gone"
+    elif (state.rv_hold_node_ut is not None
+          and abs(snapshot.node_ut - state.rv_hold_node_ut)
+          > RV_WARP_NODE_IDENTITY_SECONDS):
+        reason = "node-moved nodeUt=%.1f held=%.1f" % (snapshot.node_ut,
+                                                        state.rv_hold_node_ut)
+    elif not snapshot.mj_rendezvous_enabled:
+        reason = "ap-off"
+    elif snapshot.warp_mode == WARP_PHYSICS:
+        reason = "physics-warp (rails only)"
+    elif not (_is_finite(snapshot.target_distance)
+              and snapshot.target_distance >= RV_WARP_MIN_TARGET_DISTANCE_M):
+        reason = "target-near distance=%s" % _obs_fmt(snapshot.target_distance)
+    elif (_is_finite(ut) and state.rv_hold_ut is not None
+          and ut >= state.rv_hold_ut - RV_WARP_ARRIVAL_TOLERANCE_SECONDS):
+        reason = "arrived ut=%.1f target=%.1f" % (ut, state.rv_hold_ut)
+    elif (state.rv_hold_issues >= RV_WARP_MAX_ISSUES
+          and not _is_finite(snapshot.warping_to)):
+        reason = "warp-not-taking issues=%d" % state.rv_hold_issues
+    if reason:
+        return _bdock_rv_release(state, snapshot, reason)
+    target = state.rv_hold_ut
+    if (state.rv_hold_warp_cmd is not None and not _is_finite(snapshot.warping_to)
+            and _is_finite(ut) and ut < target
+            and (ut - state.rv_hold_last_issue_ut) >= WARP_REISSUE_SECONDS):
+        healed = replace(state, rv_hold_last_issue_ut=ut,
+                         rv_hold_issues=state.rv_hold_issues + 1)
+        return healed, [Action(ACTION_WARP_TO_UT, float(target),
+                               text="rendezvous hold re-issue toward %.1f" % target)]
+    return state, []
+
+
+def _bdock_rv_node_wait(state: BDockState, snapshot: TelemetrySnapshot
+                        ) -> Tuple[BDockState, List[Action]]:
+    """RENDEZVOUS NODE WAITS: one RENDEZVOUS frame's rails-warp decision.
+
+    Arms only when the rendezvous AP is OBSERVED enabled with a node pending,
+    the game has read 1x with a static orbit for RV_WARP_IDLE_FRAMES frames
+    (the executor finished its own far warp and parked at MinimumWarp; a
+    static orbit means nothing is burning), the node was not held before, and
+    ``rendezvous_node_wait_plan`` returns a target. Arming emits executor
+    autowarp OFF, then the warp; every decision is noted (see _bdock_rv_note)
+    and every warp action carries its reason."""
+    static = orbit_static(state.rv_prev_ap, state.rv_prev_pe,
+                          snapshot.apoapsis, snapshot.periapsis)
+    idle = static and snapshot.warp_mode == WARP_NONE
+    st = replace(state,
+                 rv_prev_ap=(float(snapshot.apoapsis)
+                             if _is_finite(snapshot.apoapsis) else None),
+                 rv_prev_pe=(float(snapshot.periapsis)
+                             if _is_finite(snapshot.periapsis) else None),
+                 rv_idle_frames=(min(state.rv_idle_frames + 1, RV_WARP_IDLE_FRAMES)
+                                 if idle else 0))
+    if st.rv_hold_ut is not None:
+        return _bdock_rv_hold_step(st, snapshot)
+    if not st.params.rendezvous_node_wait_warp:
+        return st, []
+    if (not snapshot.mj_rendezvous_enabled or snapshot.node_count < 1
+            or not _is_finite(snapshot.node_ut)):
+        return _bdock_rv_note(st, "idle:no-node"), []
+    if (st.rv_spent_node_ut is not None
+            and abs(snapshot.node_ut - st.rv_spent_node_ut)
+            <= RV_WARP_NODE_IDENTITY_SECONDS):
+        return st, []
+    if st.rv_idle_frames < RV_WARP_IDLE_FRAMES:
+        return st, []
+    target, key, detail = rendezvous_node_wait_plan(
+        snapshot.ut, snapshot.node_ut, snapshot.node_dv,
+        snapshot.available_thrust, snapshot.vessel_mass, snapshot.time_to_soi,
+        snapshot.altitude, snapshot.periapsis, snapshot.atmosphere_depth,
+        snapshot.target_distance, snapshot.target_ca_ut,
+        snapshot.target_ca_distance, snapshot.body)
+    if target is None:
+        return _bdock_rv_note(st, "declined:" + key, detail), []
+    ut = float(snapshot.ut)
+    held = replace(st, rv_hold_ut=target, rv_hold_node_ut=float(snapshot.node_ut),
+                   rv_hold_releasing=False, rv_hold_warp_cmd=target,
+                   rv_hold_last_issue_ut=ut, rv_hold_issues=1)
+    return (_bdock_rv_note(held, "held", detail),
+            [Action(ACTION_MJ_SET_NODE_AUTOWARP, 0.0,
+                    text="rendezvous hold: executor autowarp off (%s)" % detail),
+             Action(ACTION_WARP_TO_UT, target, text=detail)])
+
+
+def _bdock_rv_hold_teardown(decide):
+    """Decorator for ``bdock_decide``: a frame that leaves RENDEZVOUS (or turns
+    the machine terminal: vessel lost, frozen telemetry, a budget flake) while
+    a rendezvous hold is armed cancels the hold's warp, so the runner never
+    drives the next phase or the cleanup tail warped. The executor's autowarp
+    is NOT turned back on here: on rails the executor would warp itself, and
+    every later executor hand-off (kill-rel-vel, execute-nodes, rendezvous
+    enable) forces it on in the runner anyway."""
+    @functools.wraps(decide)
+    def decide_with_teardown(state, snapshot):
+        new_state, actions = decide(state, snapshot)
+        if new_state.rv_hold_ut is None:
+            return new_state, actions
+        if not new_state.done and new_state.phase == BDOCK_RENDEZVOUS:
+            return new_state, actions
+        kept = [a for a in actions if a.kind != ACTION_WARP_TO_UT]
+        extra = ([] if any(a.kind == ACTION_CANCEL_WARP for a in kept)
+                 else [Action(ACTION_CANCEL_WARP,
+                              text="rendezvous hold torn down: left %s"
+                              % BDOCK_RENDEZVOUS)])
+        return (_bdock_rv_clear(new_state, "released:phase-exit"),
+                extra + kept)
+    return decide_with_teardown
+
+
+@_bdock_rv_hold_teardown
 def bdock_decide(state: BDockState,
                  snapshot: TelemetrySnapshot) -> Tuple[BDockState, List[Action]]:
     """Advance the B-DOCK machine one frame; return (new_state, actions).
@@ -16477,8 +16856,11 @@ def bdock_decide(state: BDockState,
         if snapshot.mj_rendezvous_enabled:
             st = replace(st, rendezvous_ever_enabled=True)
         latched_off = st.rendezvous_ever_enabled and not snapshot.mj_rendezvous_enabled
-        close = (_is_finite(snapshot.target_distance)
-                 and snapshot.target_distance <= p.approach_distance)
+        # MechJeb's OWN completion test (see rendezvous_ap_done): the AP only
+        # disables itself inside it, so a stricter gate (the old d <= 100 m)
+        # flaked MechJeb-legal completions at 100-107 m.
+        close = rendezvous_ap_done(snapshot.target_distance,
+                                   snapshot.target_rel_speed, p.approach_distance)
         if latched_off and close:
             return (_bdock_enter(st, BDOCK_MATCH_VELOCITY, snapshot.ut),
                     [Action(ACTION_MJ_KILL_REL_VEL)])
@@ -16499,7 +16881,10 @@ def bdock_decide(state: BDockState,
                              rendezvous_noprogress_count=st.rendezvous_noprogress_count + 1)
                 if st.rendezvous_noprogress_count >= p.rendezvous_noprogress_frames:
                     return _bdock_flake(st), []
-        return _bdock_stay_or_flake(st, snapshot), []
+        if _bdock_over_budget(st, snapshot):
+            return _bdock_flake(st), []
+        # RENDEZVOUS NODE WAITS: rails-warp the executor's 1x node wait.
+        return _bdock_rv_node_wait(st, snapshot)
 
     if state.phase == BDOCK_MATCH_VELOCITY:
         rel = snapshot.target_rel_speed
@@ -19605,6 +19990,10 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     # Mission warp policy (2026-10-01): a held executor hand-off. One line when
     # the hold arms (the target UT) and one when it releases (-> None).
     ("node_wait_ut", "nodeWaitUt"),
+    # Rendezvous node waits (BDOCK, 2026-10-02): the hold's warp target and
+    # its decision token (one line per changed decision, numbers included).
+    ("rv_hold_ut", "rvHoldUt"),
+    ("rv_warp_decision", "rvWarp"),
     ("planned_node_count", "plannedNodes"),
     # Twenty-second flight additions, both bounded by their debounce depths:
     # a flameout-stage pop and the impact-certain countdown are exactly the
