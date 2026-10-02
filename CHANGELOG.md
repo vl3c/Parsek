@@ -59,7 +59,9 @@ _(unreleased — entries accumulate here per commit)_
   about 39% of mission wall time was idle at 1x (B11's capture-node wait alone: ~600 s).
   It knows the mission warp policy: physics warp is its own bucket (never recoverable), 1x
   time the policy keeps on purpose (B4's deorbit slew, the m3 render holds, transfer and
-  ascent node waits, the capture node wait's final lead before the node) is reported as
+  ascent node waits including BDOCK's two MechJeb ascents, the capture node wait's final
+  lead before the node, and the BDOCK rendezvous node wait from its hold's warp target
+  minus the 15 s early cancel) is reported as
   "by design" beside the recoverable total instead of in it, the PARK and kx COAST dwells
   are judged against the 4x physics warp the policy uses, and CIRCULARIZE node waits are
   flagged outcome-sensitive. JSON schema version 2.

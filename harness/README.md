@@ -225,18 +225,32 @@ The estimation contract (full text in the `lib/flighteff.py` docstring):
   The policy table (`flighteff.BY_DESIGN_POLICY`): B4's DEORBIT attitude slew
   (rails freezes rotation), the m3 HOLD-DEPART / HOLD-ARRIVE / HOLD-PARK render
   holds, TRANSFER-BURN node waits (not held: a held TLI moved B13's landing site),
-  and MJ-ASCENT's node wait and coast to apoapsis (MechJeb's ascent executor
-  cancels a second warp). Plus the capture lead: a CAPTURE-BURN node wait whose
+  MJ-ASCENT's node wait and coast to apoapsis (MechJeb's ascent executor
+  cancels a second warp), and BDOCK's STATION-ASCENT / INT-ASCENT node waits (the
+  same MechJeb ascent, engaged on both legs). Plus the capture lead: a CAPTURE-BURN node wait whose
   node is at most `NODE_WAIT_ORIENT_LEAD_SECONDS` (120 s) + the hold's 5 s
   arrival tolerance + the half burn away is the executor's align-and-settle after
   the hold released, so only the earlier seconds stay recoverable. The half burn
   comes from the machine's own `node-wait: ... halfBurn=` action line; a visit
   without one (a pre-policy run, or no hold) uses the constants alone, short by
-  the half burn (~10 s on a Mun capture). The lead constants and the 4x index are
-  mirrored from mlib and pinned by `lib/test_flighteff.py`.
+  the half burn (~10 s on a Mun capture). And the BDOCK rendezvous lead (the
+  `bdock_decide` / `sdock_decide` / `rdock_decide` machines only): the RENDEZVOUS
+  hold rails-warps to node UT - half burn - 120 s (earlier when the 5 km
+  closest-approach guard clamps it) and cancels 15 s before that target
+  (`RV_WARP_ARRIVAL_TOLERANCE_SECONDS`, which dodges kRPC WarpTo's PHYSICS tail),
+  so a RENDEZVOUS node wait is by design from the hold's warp target - 15 s on.
+  The target comes from the hold's `warp_to_ut` action for that node (matched by
+  `nodeUt=` within 1 s); a declined or window-capped hold uses its `node-wait:`
+  text (nodeUt - halfBurn - 120, or the ca-clamp UT when earlier, - 15); a node
+  with no hold line (a pre-hold run) uses nodeUt - 135 s, short by the half burn.
+  Each such node prints a `rendezvous lead:` line and a `rendezvousLeads` entry on
+  its phase row. The capture hold releases 5 s before its target, the rendezvous
+  hold 15 s; each lead uses its own machine's tolerance. The lead constants and the
+  4x index are mirrored from mlib and pinned by `lib/test_flighteff.py`.
 - Outcome-sensitive. CIRCULARIZE node waits (B22) stay recoverable, but the row
   carries `outcomeSensitive: true` and says a warp there may move the outcome;
-  the policy for them is undecided.
+  the owner kept them recoverable (2026-10-03), a backlog target that needs a
+  verification flight before any warp.
 - Long burns (60 s or more of 1x with a changing orbit) are reported as
   physics-warp candidates with an optional x2 saving that never enters a total.
 - Blocking `warp_to` hops emit no telemetry; such a gap is bucketed `warped` and
