@@ -61,20 +61,11 @@ namespace Parsek
 
         /// <summary>
         /// The one-shot screen toast posted when a Create Route disables an existing
-        /// manual loop on the route's source tree: "Manual loop on '&lt;tree&gt;'
-        /// turned off: a route now owns this tree". Pure for unit testing; the window
-        /// posts it via <c>ParsekLog.ScreenMessage</c>.
+        /// manual loop on the route's source mission: "Manual loop on mission
+        /// '&lt;mission&gt;' turned off: a supply route now repeats it". Pure for unit
+        /// testing; the window posts it via <c>ParsekLog.ScreenMessage</c>.
         /// </summary>
-        internal static string FormatManualLoopTurnedOffToast(string treeName)
-            => $"Manual loop on '{treeName}' turned off: a route now owns this tree";
-
-        /// <summary>
-        /// The always-visible detail-panel ownership note (M5): "This route owns tree
-        /// '&lt;tree&gt;'; manual looping is disabled while it exists." Pure for unit
-        /// testing; the window renders it as a detail line whenever the route binds a
-        /// tree.
-        /// </summary>
-        internal static string FormatRouteOwnsTreeNote(string treeName)
-            => $"This route owns tree '{treeName}'; manual looping is disabled while it exists.";
+        internal static string FormatManualLoopTurnedOffToast(string missionName)
+            => $"Manual loop on mission '{missionName}' turned off: a supply route now repeats it";
     }
 }

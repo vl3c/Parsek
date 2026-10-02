@@ -2409,6 +2409,26 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Logistics window redesign (Model 1).** Each route row is now two lines: the route name
+  over a grey "KSC -> Depot Station Duna I" line (the separate Origin and Destination
+  columns are gone), then what each run delivers, how often it runs, the next run as the
+  Missions-style amber countdown ("T- 1y 291d", " (!)" when the last run was held, exact
+  date on hover), and ONE Status word with a short reason that replaces the old Status and
+  Delivery columns: Delivering, Scheduled, Held: ..., Paused, New, Sending one run, Pausing
+  after this run, or Broken: ... . A paused route that was held now says why instead of
+  reading "New". The action column is "Interact", sized like the Missions one: Activate or
+  Pause on top, Send and Log below; greyed buttons say why on hover. A route sent once now
+  sits in the Paused table for its whole single run and keeps its countdown. Delete moved
+  into the expanded detail, next to Rename (same confirmation). The detail block now says
+  only what the row cannot, with exact dates: what each run delivers and where, the next
+  run, "Last run held on <date>: ..." (the date of the last held run), the last delivery
+  and the running total, and "Built from mission 'X'.". In Basic mode the interval is shown
+  read-only ("every 4.0d") and the Runs column, Every / Priority steppers, round-trip linking,
+  recent-run history and the flight list are Advanced-only; switching to Basic closes an open
+  link picker and drops a half-typed interval. Player text says "run" and "flight" instead
+  of cycle, dispatch, tree and recording; the Candidates destination names the place
+  instead of raw coordinates, and the create dialog says "Destination:".
+
 - **Dev: harness missions warp through their idle 1x waits.** Operator ruling 2026-10-01:
   burns stay at 1x, the idle stretches around them are warped (`harness/missions/lib/mlib.py`
   section MISSION WARP POLICY, `harness/README.md` "The mission warp policy"). A capture

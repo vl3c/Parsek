@@ -568,6 +568,16 @@ namespace Parsek.TestCommands
             else
             {
                 LogisticsWindowUI lw = ui.GetLogisticsUI();
+                if (!lw.LinkPickerAvailableForTesting)
+                {
+                    ParsekLog.Warn(Tag, "uiaction rejected reason="
+                        + TestCommandUiState.PickerHiddenInBasicReason
+                        + $" picker={TestCommandUiState.PickerModeToken(mode)} wanted={wanted}");
+                    SetExecResult("REJECTED", null,
+                        $"{TestCommandUiState.PickerHiddenInBasicReason} "
+                        + $"picker={TestCommandUiState.PickerModeToken(mode)} wanted={wanted}");
+                    return;
+                }
                 if (!TryResolveRouteTarget(wanted, out string routeId, out string title,
                                            out List<string> candidates))
                 {

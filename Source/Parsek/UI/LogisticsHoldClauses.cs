@@ -37,11 +37,11 @@ namespace Parsek
 
         /// <summary>FundsShort with a measured shortfall (Career, KSC-origin dispatch).</summary>
         internal const string FundsShortWithAmount =
-            "not enough funds at KSC - short {0:F0} funds for this dispatch";
+            "not enough funds at KSC - short {0:F0} funds for this run";
 
         /// <summary>FundsShort with no measured shortfall (legacy holds persist 0).</summary>
         internal const string FundsShortGeneric =
-            "not enough funds at KSC for this dispatch";
+            "not enough funds at KSC for this run";
 
         /// <summary>DestinationFull, inventory-slot shortfall whose stored part cannot be named.</summary>
         internal const string DestinationNoInventorySlot =
@@ -69,11 +69,11 @@ namespace Parsek
 
         /// <summary>EndpointLost on any other token (a destination loss).</summary>
         internal const string DestinationVesselNotFound =
-            "destination vessel could not be found - re-target or recreate the route";
+            "destination vessel could not be found - use Re-scan to find it, or delete this route";
 
-        /// <summary>SourcesStale: the route's source recordings did not resolve this cycle.</summary>
+        /// <summary>SourcesStale: the flights the route copies did not resolve this run.</summary>
         internal const string SourceRecordingsUnavailable =
-            "route source recordings are unavailable right now";
+            "a flight this route copies is unavailable right now";
 
         /// <summary>WaitingForPartner with no partner name in the token.</summary>
         internal const string WaitingForLinkedRoute =
@@ -195,7 +195,7 @@ namespace Parsek
         internal const string CompactDestinationVesselLost = "destination vessel lost";
 
         /// <summary>Compact SourcesStale.</summary>
-        internal const string CompactSourceRecordingsUnavailable = "source recordings unavailable";
+        internal const string CompactSourceRecordingsUnavailable = "flight unavailable";
 
         /// <summary>Compact WaitingForPartner with no partner name.</summary>
         internal const string CompactWaitingForLinkedRoute = "waiting for linked route";
@@ -261,29 +261,31 @@ namespace Parsek
         // FRAMES - the lines a clause is rendered INSIDE
         // ==================================================================
 
-        /// <summary>Detail-panel blocked line when the hold's age is unknown or invalid.</summary>
-        internal const string HoldDetailLine = "Last cycle blocked: {0}";
+        /// <summary>Detail-panel held line when the hold's date is unknown.</summary>
+        internal const string HoldDetailLine = "Last run held: {0}.";
 
         /// <summary>
-        /// Detail-panel blocked line with the mandatory age suffix: a reason held
-        /// across a long warp reads as historical fact, not a live claim.
+        /// Detail-panel held line with its exact date. The date is <c>Route.LastHoldUT</c>,
+        /// the LAST check (it moves forward on every refused run), so the line names the
+        /// last held run and never claims when the hold began. A reason held across a long
+        /// warp still reads as historical fact, not a live claim.
         /// </summary>
-        internal const string HoldDetailLineWithAge = "Last cycle blocked: {0} (checked {1} ago)";
+        internal const string HoldDetailLineOnDate = "Last run held on {1}: {0}.";
 
-        /// <summary>Detail-panel partial-delivery report when the age is unknown or invalid.</summary>
-        internal const string PartialDeliveryLine = "Last delivery was partial: {0}";
+        /// <summary>Detail-panel partial-delivery report when its date is unknown.</summary>
+        internal const string PartialDeliveryLine = "Last delivery was partial: {0}.";
 
-        /// <summary>Detail-panel partial-delivery report with its age suffix.</summary>
-        internal const string PartialDeliveryLineWithAge = "Last delivery was partial: {0} ({1} ago)";
+        /// <summary>Detail-panel partial-delivery report with its exact date.</summary>
+        internal const string PartialDeliveryLineOnDate = "Last delivery on {1} was partial: {0}.";
 
         /// <summary>The Status cell's held marker, wrapped around a compact clause before truncation.</summary>
         internal const string StatusCellHeld = "Held: {0}";
 
         /// <summary>
-        /// The Send Once toast's belt-and-braces clause when a blocked cycle
-        /// somehow carried no failure kind (<c>RouteSendOncePresentation</c>).
+        /// The Send toast's belt-and-braces clause when a held run somehow
+        /// carried no failure kind (<c>RouteSendOncePresentation</c>).
         /// </summary>
-        internal const string SendOnceNotEligible = "the route was not eligible to dispatch";
+        internal const string SendOnceNotEligible = "the route could not make a run";
 
         // ==================================================================
 
@@ -360,9 +362,9 @@ namespace Parsek
                 Hold("CompactOriginOutOfResource", CompactOriginOutOfResource),
 
                 Hold("HoldDetailLine", HoldDetailLine),
-                Hold("HoldDetailLineWithAge", HoldDetailLineWithAge),
+                Hold("HoldDetailLineOnDate", HoldDetailLineOnDate),
                 Hold("PartialDeliveryLine", PartialDeliveryLine),
-                Hold("PartialDeliveryLineWithAge", PartialDeliveryLineWithAge),
+                Hold("PartialDeliveryLineOnDate", PartialDeliveryLineOnDate),
                 Hold("StatusCellHeld", StatusCellHeld),
                 Hold("SendOnceNotEligible", SendOnceNotEligible)
             };

@@ -29,7 +29,7 @@ namespace Parsek
         internal const int MaxCyclesShown = 5;
 
         /// <summary>Header line drawn above the per-cycle lines.</summary>
-        internal const string RecentCyclesHeader = "Recent cycles:";
+        internal const string RecentCyclesHeader = "Recent runs:";
 
         /// <summary>Which route cargo row a <see cref="FlowRow"/> came from.</summary>
         internal enum FlowRowKind
@@ -330,7 +330,7 @@ namespace Parsek
             }
 
             var sb = new StringBuilder();
-            sb.Append("Cycle ").Append(ordinal.ToString(CultureInfo.InvariantCulture));
+            sb.Append("Run ").Append(ordinal.ToString(CultureInfo.InvariantCulture));
             double age = currentUT - maxUt;
             if (maxUt > double.MinValue && age >= 0.0)
             {

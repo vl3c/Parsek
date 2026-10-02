@@ -509,7 +509,7 @@ namespace Parsek
         /// <summary>
         /// The EXPLICIT design 7.2 close set, in close order. Deliberately NOT derived from
         /// <see cref="Cleanup"/> (which omits gloops, logistics and the test runner) and not
-        /// from <c>HiddenSurfaces(Basic)</c> alone, because two entries map to no
+        /// from <c>HiddenSurfaces(Basic)</c> alone, because three entries map to no
         /// <see cref="UiSurface"/>:
         /// <list type="bullet">
         ///   <item><description><c>TestRunner</c> - its launcher lives in the hidden
@@ -520,6 +520,11 @@ namespace Parsek
         ///     Recordings tab, but an already-open picker keeps drawing from
         ///     <c>RecordingsTableUI.DrawIfOpen</c> regardless of tab (edge case 4). It owns
         ///     no input lock.</description></item>
+        ///   <item><description><c>LogisticsLinkPicker</c> - the round-trip link picker is
+        ///     armed from the Logistics detail block's Link control, which Basic hides
+        ///     (<see cref="UiSurface.LogisticsRouteTuning"/>), but an already-open picker
+        ///     keeps drawing from <c>LogisticsWindowUI.DrawIfOpen</c>. It owns no input
+        ///     lock; the Logistics window itself stays open.</description></item>
         /// </list>
         /// <para>Deliberately ABSENT: <c>recordingsTableUI</c> (survives as the Missions
         /// window), <c>structureListUI</c> (reachable from the Missions and Logistics rows,
@@ -556,6 +561,12 @@ namespace Parsek
                     () => recordingsTableUI.IsGroupPickerOpen,
                     () => false,
                     () => recordingsTableUI.CloseGroupPickerForModeChange()),
+                new GatedWindowCloseTarget(
+                    "LogisticsLinkPicker",
+                    null, // owns no input lock: the Link control that opens it is Advanced-only
+                    () => logisticsUI.IsLinkPickerOpen,
+                    () => false,
+                    () => logisticsUI.CloseLinkPickerForModeChange()),
             };
         }
 

@@ -338,6 +338,13 @@ namespace Parsek.TestCommands
         /// <summary>The named group / recording / route does not exist.</summary>
         internal const string PickerTargetNotFoundReason = "picker-target-not-found";
 
+        /// <summary>The round-trip link picker was asked for while the interface-mode
+        /// setting hides its opener (the Logistics detail block's Link control), and the
+        /// mode switch's close set closes the picker. Refused rather than opened, so a
+        /// census never photographs a window over a control that mode does not offer
+        /// (<c>LogisticsWindowUI.LinkPickerAvailableForTesting</c>).</summary>
+        internal const string PickerHiddenInBasicReason = "picker-hidden-in-basic";
+
         /// <summary>POST-SETTLE: the opener ran and the popup's own open flag is down. The
         /// one live cause is a popup that closes itself on its first draw; reported rather
         /// than accepted, so a census cannot photograph a scene without the popup under a

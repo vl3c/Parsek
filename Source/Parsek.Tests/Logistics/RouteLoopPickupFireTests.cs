@@ -809,7 +809,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(4, paused.Sequence);
 
             string toast = Assert.Single(screenMessages);
-            Assert.Contains("Send Once", toast);
+            Assert.Contains("Send:", toast);
             Assert.Contains("Paused", toast);
             Assert.Contains(logLines, l =>
                 l.Contains("[Route]") && l.Contains("COMPLETED cycle consumed the armed pause")

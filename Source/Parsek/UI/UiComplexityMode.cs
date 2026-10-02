@@ -100,11 +100,28 @@ namespace Parsek
         /// governs them would split one decision across two windows. It IS the period of
         /// any mission whose unit is Auto, i.e. exactly the value the hidden loop-period
         /// cell would show.</para>
-        /// <para>Route CADENCE is not affected - a route-backing mission is built
-        /// <c>LoopTimeUnit.Sec</c> with <c>LoopIntervalSeconds = route.DispatchInterval</c>,
-        /// authored in the Logistics window Basic keeps.</para>
+        /// <para>Route CADENCE is a separate knob - a route-backing mission is built
+        /// <c>LoopTimeUnit.Sec</c> with <c>LoopIntervalSeconds = route.DispatchInterval</c> -
+        /// and it is authored in the Logistics window under
+        /// <see cref="LogisticsRouteTuning"/>, which Basic also hides. Basic still SEES a
+        /// route's interval (the read-only "every 4.0d" Every cell); only editing it is
+        /// Advanced.</para>
         /// </summary>
         SettingsSectionLooping,
+
+        /// <summary>
+        /// The Logistics window's route TUNING controls: the Every (interval) stepper in
+        /// the row and in the detail block, the Runs column, the Priority stepper, the
+        /// round-trip Link / Unlink control and its picker, the Recent runs lines, the
+        /// "Flights used" line, and the manual-looping clause of the "Built from mission"
+        /// note. Basic keeps the route itself: its row (with a read-only Every cell), the
+        /// merged Status, Next, Activate / Pause, Send, Log, Rename and Delete.
+        /// <para>One key for all of them because they are one decision: they tune HOW a
+        /// route that already runs is scheduled, which a Basic player reads (Every, Next)
+        /// but does not author. A route linked or retimed in Advanced keeps that schedule
+        /// after the switch (philosophy 1: visibility only, never behavior).</para>
+        /// </summary>
+        LogisticsRouteTuning,
 
         /// <summary>Settings section: verbose logging, tracing toggles, Test Runner.</summary>
         SettingsSectionDiagnostics,
@@ -179,6 +196,7 @@ namespace Parsek
                 case UiSurface.TabRecordings:                // raw per-recording table
                 case UiSurface.MissionsLoopControls:         // manual-loop authoring on the Missions tab
                 case UiSurface.SettingsSectionLooping:       // the global half of the same authoring set
+                case UiSurface.LogisticsRouteTuning:         // route interval / priority / link / run history
                 case UiSurface.SettingsSectionDiagnostics:   // developer instrumentation
                 case UiSurface.SettingsSectionSampleDensity: // recorder fidelity tuning
                     visibleInBasic = false;

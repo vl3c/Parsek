@@ -65,7 +65,7 @@ namespace Parsek
         internal static string FormatLinkedNote(string partnerName)
         {
             string name = string.IsNullOrEmpty(partnerName) ? "<unnamed>" : partnerName;
-            return $"Round-trip linked to '{name}' (alternates: dispatches only after its partner completes a run).";
+            return $"Round-trip linked to '{name}' (alternates: runs only after its partner completes a run).";
         }
     }
 }

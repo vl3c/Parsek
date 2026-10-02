@@ -121,10 +121,10 @@ namespace Parsek.Tests.Logistics
         {
             // -- FundsShort --
             c.Add(C("FundsShortWithAmount",
-                "not enough funds at KSC - short 1235 funds for this dispatch",
+                "not enough funds at KSC - short 1235 funds for this run",
                 LogisticsHoldPresentation.DescribeHold(FundsShort, "funds-short", 1234.6)));
             c.Add(C("FundsShortGeneric",
-                "not enough funds at KSC for this dispatch",
+                "not enough funds at KSC for this run",
                 LogisticsHoldPresentation.DescribeHold(FundsShort, "funds-short", 0.0)));
 
             // -- DestinationFull --
@@ -153,12 +153,12 @@ namespace Parsek.Tests.Logistics
                 "origin vessel could not be found",
                 LogisticsHoldPresentation.DescribeHold(EndpointLost, "origin-no-live-vessel", 0.0)));
             c.Add(C("EndpointLostDestination",
-                "destination vessel could not be found - re-target or recreate the route",
+                "destination vessel could not be found - use Re-scan to find it, or delete this route",
                 LogisticsHoldPresentation.DescribeHold(EndpointLost, "stop-0-no-live-vessels", 0.0)));
 
             // -- SourcesStale --
             c.Add(C("SourcesStale",
-                "route source recordings are unavailable right now",
+                "a flight this route copies is unavailable right now",
                 LogisticsHoldPresentation.DescribeHold(SourcesStale, "sources-stale", 0.0)));
 
             // -- WaitingForPartner --
@@ -311,7 +311,7 @@ namespace Parsek.Tests.Logistics
             c.Add(C("CompactEndpointLostDestination", "destination vessel lost",
                 LogisticsHoldPresentation.CompactHold(EndpointLost, "stop-0-no-live-vessels", 0.0)));
 
-            c.Add(C("CompactSourcesStale", "source recordings unavailable",
+            c.Add(C("CompactSourcesStale", "flight unavailable",
                 LogisticsHoldPresentation.CompactHold(SourcesStale, "sources-stale", 0.0)));
 
             c.Add(C("CompactWaitingForPartnerGeneric", "waiting for linked route",
@@ -389,27 +389,23 @@ namespace Parsek.Tests.Logistics
 
         private static void AddFrameCases(List<Case> c)
         {
-            c.Add(C("HoldDetailLineWithAge",
-                "Last cycle blocked: origin is out of LiquidFuel (checked 10.0m ago)",
+            c.Add(C("HoldDetailLineOnDate",
+                "Last run held on Y1, D06, 14:05: origin is out of LiquidFuel.",
                 LogisticsHoldPresentation.FormatHoldDetailLine(
-                    "origin is out of LiquidFuel", 600.0)));
-            c.Add(C("HoldDetailLineNegativeAge",
-                "Last cycle blocked: origin is out of LiquidFuel",
+                    "origin is out of LiquidFuel", 600.0, ut => "Y1, D06, 14:05")));
+            c.Add(C("HoldDetailLineUnknownDate",
+                "Last run held: origin is out of LiquidFuel.",
                 LogisticsHoldPresentation.FormatHoldDetailLine(
-                    "origin is out of LiquidFuel", -1.0)));
-            c.Add(C("HoldDetailLineUnknownAge",
-                "Last cycle blocked: origin is out of LiquidFuel",
-                LogisticsHoldPresentation.FormatHoldDetailLine(
-                    "origin is out of LiquidFuel", 0.0)));
+                    "origin is out of LiquidFuel", -1.0, ut => "Y1, D06, 14:05")));
 
-            c.Add(C("PartialDeliveryLineWithAge",
-                "Last delivery was partial: 40.0 of 60.0 LiquidFuel (10.0m ago)",
+            c.Add(C("PartialDeliveryLineOnDate",
+                "Last delivery on Y1, D05, 22:40 was partial: 40.0 of 60.0 LiquidFuel.",
                 LogisticsHoldPresentation.FormatPartialDeliveryLine(
-                    "40.0 of 60.0 LiquidFuel", 600.0)));
-            c.Add(C("PartialDeliveryLineNegativeAge",
-                "Last delivery was partial: 40.0 of 60.0 LiquidFuel",
+                    "40.0 of 60.0 LiquidFuel", 600.0, ut => "Y1, D05, 22:40")));
+            c.Add(C("PartialDeliveryLineUnknownDate",
+                "Last delivery was partial: 40.0 of 60.0 LiquidFuel.",
                 LogisticsHoldPresentation.FormatPartialDeliveryLine(
-                    "40.0 of 60.0 LiquidFuel", -1.0)));
+                    "40.0 of 60.0 LiquidFuel", -1.0, ut => "Y1, D05, 22:40")));
 
             c.Add(C("StatusCellHeldPrefix",
                 "Held: origin out of LiquidFuel",
@@ -421,20 +417,14 @@ namespace Parsek.Tests.Logistics
                     OriginLacksCargo,
                     "source:42:A Very Long Depot Name That Keeps On Going:LiquidFuel",
                     0.0)));
-            c.Add(C("StatusCellTooltipWithHold",
-                "Paused - origin is out of LiquidFuel - delivers when the origin has the full amount",
-                LogisticsHoldPresentation.StatusCellTooltip(
-                    RouteStatus.Paused,
-                    LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "LiquidFuel", 0.0))));
-
             c.Add(C("SendOnceBlockedNamesTheHold",
-                "Send Once: route 'Relay Run' did not run - origin is out of LiquidFuel"
+                "Send: route 'Relay Run' did not run - origin is out of LiquidFuel"
                     + " - delivers when the origin has the full amount - route is now Paused",
                 RouteSendOncePresentation.BuildBlockedMessage(
                     "Relay Run", "route-1", OriginLacksCargo, "LiquidFuel", 0.0)));
             c.Add(C("SendOnceBlockedNotEligibleFallback",
-                "Send Once: route 'Relay Run' did not run"
-                    + " - the route was not eligible to dispatch - route is now Paused",
+                "Send: route 'Relay Run' did not run"
+                    + " - the route could not make a run - route is now Paused",
                 RouteSendOncePresentation.BuildBlockedMessage(
                     "Relay Run", "route-1",
                     RouteDispatchEvaluator.EligibilityFailureKind.None, null, 0.0)));
@@ -449,11 +439,11 @@ namespace Parsek.Tests.Logistics
         private static void AddRejectCases(List<Case> c)
         {
             c.Add(C("RejectNotFullySealedSingular",
-                "not fully sealed (1 recording still re-flyable)",
+                "not finished yet (1 flight can still be re-flown)",
                 LogisticsRejectPresentation.DescribeNearMiss(
                     RouteAnalysisStatus.Eligible, true, 1)));
             c.Add(C("RejectNotFullySealedPlural",
-                "not fully sealed (1234 recordings still re-flyable)",
+                "not finished yet (1234 flights can still be re-flown)",
                 LogisticsRejectPresentation.DescribeNearMiss(
                     RouteAnalysisStatus.Eligible, true, 1234)));
 
@@ -463,7 +453,7 @@ namespace Parsek.Tests.Logistics
                     RouteAnalysisStatus.Eligible, false, 0)));
 
             c.Add(C("RejectMissingRouteProof",
-                "Recording has no route proof - log the dock event to enable a Supply Route.",
+                "No dock was recorded on this flight, so there is nothing to repeat.",
                 Reject(RouteAnalysisStatus.MissingRouteProof)));
             c.Add(C("RejectMultipleConnectionWindows",
                 "Two transfers happened at the same recorded time and cannot be ordered."

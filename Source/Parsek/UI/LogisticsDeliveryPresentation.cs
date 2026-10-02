@@ -175,6 +175,11 @@ namespace Parsek
 
             /// <summary>Per-resource sum of every row's actual manifest.</summary>
             internal Dictionary<string, double> CumulativeTotal { get; set; }
+
+            /// <summary>Game UT of the latest row (the last delivery); NaN when none. The
+            /// ledger is the only record of when a route delivered: the route stores no
+            /// delivered UT.</summary>
+            internal double LastUt { get; set; } = double.NaN;
         }
 
         /// <summary>
@@ -204,6 +209,7 @@ namespace Parsek
                 {
                     haveLatest = true;
                     latestUt = row.Ut;
+                    summary.LastUt = row.Ut;
                     summary.LastActual = row.Actual;
                     summary.LastRequested = row.Requested;
                 }
@@ -244,167 +250,6 @@ namespace Parsek
                   .Append(key);
             }
             return sb.ToString();
-        }
-
-        // ------------------------------------------------------------------
-        // H3: delivering vs "flying, not delivering" badge.
-        // ------------------------------------------------------------------
-
-        /// <summary>
-        /// The realized outcome of a route's latest delivery cycle, derived from its
-        /// latest <c>RouteCargoDelivered</c> ledger row.
-        /// </summary>
-        internal enum DeliveryOutcome
-        {
-            /// <summary>No fresh delivered row (never ran or blocked this cycle).</summary>
-            None = 0,
-
-            /// <summary>Delivered, but a requested manifest was recorded (shortfall).</summary>
-            Partial = 1,
-
-            /// <summary>Delivered in full (a non-empty actual with no requested manifest).</summary>
-            Full = 2,
-        }
-
-        /// <summary>
-        /// The always-visible delivery badge shown per route row and in the detail panel.
-        /// </summary>
-        internal enum DeliveryBadge
-        {
-            /// <summary>Ghost flying and the last cycle delivered (green).</summary>
-            Delivering = 0,
-
-            /// <summary>Ghost flying but the last cycle transferred nothing (yellow).</summary>
-            FlyingNotDelivering = 1,
-
-            /// <summary>Not ghost-driving: a paused / hard-broken route (grey).</summary>
-            Paused = 2,
-
-            /// <summary>Ghost flying but no cycle has completed yet (cyan).</summary>
-            New = 3,
-        }
-
-        /// <summary>
-        /// Derives the always-visible delivery badge for a route. A non-driving route
-        /// (paused or hard-broken) is <see cref="DeliveryBadge.Paused"/>. A driving
-        /// route that has delivered at least once and whose last outcome was Full or
-        /// Partial is <see cref="DeliveryBadge.Delivering"/>. A driving route that has
-        /// never completed a cycle and has no delivered row yet is
-        /// <see cref="DeliveryBadge.New"/>. A driving route that has run before but
-        /// whose latest cycle delivered nothing (blocked / skipped) is
-        /// <see cref="DeliveryBadge.FlyingNotDelivering"/>.
-        /// </summary>
-        /// <param name="ghostDriving">Whether the ghost is flying
-        /// (<see cref="RouteStatusPolicy.GhostDriving"/>).</param>
-        /// <param name="lastOutcome">Outcome derived from the latest delivered row.</param>
-        /// <param name="completedCycles">The route's completed cycle count; separates
-        /// "New (never run)" from "Flying, not delivering".</param>
-        /// <param name="skippedCycles">The route's skipped cycle count (blocked cycles).</param>
-        internal static DeliveryBadge ClassifyDeliveryBadge(
-            bool ghostDriving,
-            DeliveryOutcome lastOutcome,
-            int completedCycles,
-            int skippedCycles)
-        {
-            if (!ghostDriving)
-                return DeliveryBadge.Paused;
-
-            if (lastOutcome == DeliveryOutcome.Full || lastOutcome == DeliveryOutcome.Partial)
-                return DeliveryBadge.Delivering;
-
-            // Ghost-driving with no fresh delivered row.
-            if (completedCycles == 0 && skippedCycles == 0)
-                return DeliveryBadge.New;
-
-            return DeliveryBadge.FlyingNotDelivering;
-        }
-
-        /// <summary>
-        /// The short cell label for a delivery badge. Plain ASCII, no glyphs.
-        /// </summary>
-        internal static string DeliveryBadgeLabel(DeliveryBadge badge)
-        {
-            switch (badge)
-            {
-                case DeliveryBadge.Delivering:
-                    return "Delivering";
-                case DeliveryBadge.FlyingNotDelivering:
-                    return "Flying, not delivering";
-                case DeliveryBadge.New:
-                    return "New (not yet run)";
-                case DeliveryBadge.Paused:
-                default:
-                    return "Paused";
-            }
-        }
-
-        // ------------------------------------------------------------------
-        // L1: separate never-run-yet from intentionally-paused routes.
-        // ------------------------------------------------------------------
-
-        /// <summary>
-        /// The two Paused-section Status-cell labels. A route that has never completed
-        /// a cycle reads <see cref="New"/> ("New (not yet run)" in cyan); a route that
-        /// has run before and was deliberately paused reads <see cref="Paused"/>
-        /// ("Paused" in grey). This is a Status-cell refinement only, separate from the
-        /// H3 <see cref="DeliveryBadge"/> column (whose badge cell stays grey "Paused"
-        /// for any paused route since it is keyed on ghost-driving state).
-        /// </summary>
-        internal enum PausedRouteLabel
-        {
-            /// <summary>Never run: CompletedCycles == 0 (cyan).</summary>
-            New = 0,
-
-            /// <summary>Deliberately paused after running: CompletedCycles &gt; 0 (grey).</summary>
-            Paused = 1,
-        }
-
-        /// <summary>
-        /// The one-line guidance shown under a never-run paused row, pointing the
-        /// player at Send Once to fire a test cycle. Plain ASCII, no glyphs.
-        /// </summary>
-        internal const string SendOnceGuidanceText = "New - use Send Once to test";
-
-        /// <summary>
-        /// Classifies a Paused-section route as never-run (<see cref="PausedRouteLabel.New"/>)
-        /// versus deliberately-paused (<see cref="PausedRouteLabel.Paused"/>) from its
-        /// completed-cycle count. A route with no completed cycles has never delivered,
-        /// so it reads "New (not yet run)"; one or more completed cycles means it ran
-        /// and was then paused. SkippedCycles is intentionally ignored (a never-run but
-        /// blocked route still reads "New" per the L1 spec). Pure, caller passes only
-        /// the count.
-        /// </summary>
-        internal static PausedRouteLabel ClassifyPausedRoute(int completedCycles)
-        {
-            return completedCycles <= 0 ? PausedRouteLabel.New : PausedRouteLabel.Paused;
-        }
-
-        /// <summary>
-        /// The Status-cell text for a Paused-section label. <see cref="PausedRouteLabel.New"/>
-        /// reuses the exact H3 badge string for <see cref="DeliveryBadge.New"/> so the
-        /// badge column and this Status cell never diverge; <see cref="PausedRouteLabel.Paused"/>
-        /// reads "Paused".
-        /// </summary>
-        internal static string PausedRouteLabelText(PausedRouteLabel label)
-        {
-            switch (label)
-            {
-                case PausedRouteLabel.New:
-                    return DeliveryBadgeLabel(DeliveryBadge.New);
-                case PausedRouteLabel.Paused:
-                default:
-                    return DeliveryBadgeLabel(DeliveryBadge.Paused);
-            }
-        }
-
-        /// <summary>
-        /// Whether the "Send Once to test" guidance line should show for a paused row.
-        /// Only never-run rows (CompletedCycles == 0) get the guidance; a route that has
-        /// already run does not.
-        /// </summary>
-        internal static bool ShouldShowSendOnceGuidance(int completedCycles)
-        {
-            return completedCycles <= 0;
         }
 
         // ------------------------------------------------------------------
@@ -479,54 +324,6 @@ namespace Parsek
             return string.Format(CultureInfo.InvariantCulture,
                 "{0} ({1}) {2:F2},{3:F2}",
                 endpoint.BodyName, sit, endpoint.Latitude, endpoint.Longitude);
-        }
-
-        // ------------------------------------------------------------------
-        // H5: recording / mission names instead of 8-char GUID fragments.
-        // ------------------------------------------------------------------
-
-        /// <summary>
-        /// Formats a source recording for the detail panel. When the id resolved to a
-        /// display name (<paramref name="recordingName"/> non-empty) it shows the name,
-        /// the human-1-based position in its owning tree, and the tree/mission name
-        /// when known: "Mun Fuel Run (rec 3 of tree 'Munar Logistics')". A standalone
-        /// recording (no tree name) drops the tree clause: "Mun Fuel Run (rec 3)". An
-        /// unknown position (<paramref name="humanTreePosition"/> &lt;= 0) drops the
-        /// "rec N" clause entirely. When the id did not resolve
-        /// (<paramref name="recordingName"/> null/empty) it falls back to the short id
-        /// verbatim. The short id is kept by the caller as a hover tooltip only.
-        /// InvariantCulture on the position number.
-        /// </summary>
-        /// <param name="shortId">The 8-char id fragment used as the resolved-miss
-        /// fallback text and the hover tooltip.</param>
-        /// <param name="recordingName">The resolved recording display name, or null/empty
-        /// when the id is not in the committed store.</param>
-        /// <param name="treeName">The owning tree/mission name, or null for a standalone
-        /// recording.</param>
-        /// <param name="humanTreePosition">The 1-based position within the tree, or a
-        /// non-positive value when unknown.</param>
-        internal static string FormatSourceRecordingDisplay(
-            string shortId,
-            string recordingName,
-            string treeName,
-            int humanTreePosition)
-        {
-            if (string.IsNullOrEmpty(recordingName))
-                return string.IsNullOrEmpty(shortId) ? "<none>" : shortId;
-
-            bool hasPosition = humanTreePosition > 0;
-            bool hasTree = !string.IsNullOrEmpty(treeName);
-
-            if (hasTree && hasPosition)
-                return string.Format(CultureInfo.InvariantCulture,
-                    "{0} (rec {1} of tree '{2}')", recordingName, humanTreePosition, treeName);
-            if (hasTree)
-                return string.Format(CultureInfo.InvariantCulture,
-                    "{0} (tree '{1}')", recordingName, treeName);
-            if (hasPosition)
-                return string.Format(CultureInfo.InvariantCulture,
-                    "{0} (rec {1})", recordingName, humanTreePosition);
-            return recordingName;
         }
 
         // ------------------------------------------------------------------

@@ -130,7 +130,7 @@ namespace Parsek.Tests.Logistics
 
             Assert.Single(lines);
             Assert.False(lines[0].Shortfall);
-            Assert.StartsWith("Cycle 1 (1.0h ago): ", lines[0].Text, StringComparison.Ordinal);
+            Assert.StartsWith("Run 1 (1.0h ago): ", lines[0].Text, StringComparison.Ordinal);
             Assert.Contains("delivered 150.0 LiquidFuel to Munar Station", lines[0].Text);
         }
 
@@ -420,10 +420,10 @@ namespace Parsek.Tests.Logistics
             // Bounded to the last 5, newest first, ordinals preserved (7..3);
             // cycles 1 and 2 are simply not shown.
             Assert.Equal(5, lines.Count);
-            Assert.StartsWith("Cycle 7", lines[0].Text, StringComparison.Ordinal);
-            Assert.StartsWith("Cycle 3", lines[4].Text, StringComparison.Ordinal);
-            Assert.DoesNotContain(lines, l => l.Text.StartsWith("Cycle 2", StringComparison.Ordinal));
-            Assert.DoesNotContain(lines, l => l.Text.StartsWith("Cycle 1 ", StringComparison.Ordinal));
+            Assert.StartsWith("Run 7", lines[0].Text, StringComparison.Ordinal);
+            Assert.StartsWith("Run 3", lines[4].Text, StringComparison.Ordinal);
+            Assert.DoesNotContain(lines, l => l.Text.StartsWith("Run 2", StringComparison.Ordinal));
+            Assert.DoesNotContain(lines, l => l.Text.StartsWith("Run 1 ", StringComparison.Ordinal));
         }
 
         [Fact]

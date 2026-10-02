@@ -481,7 +481,7 @@ namespace Parsek.Tests.Logistics
                     LogisticsCreatePresentation.FormatManualLoopTurnedOffToast("tree-X"), 5f);
 
             Assert.True(cleared > 0);
-            Assert.Contains(toasts, t => t.Contains("turned off: a route now owns this tree"));
+            Assert.Contains(toasts, t => t.Contains("turned off: a supply route now repeats it"));
         }
 
         [Fact]

@@ -454,64 +454,44 @@ namespace Parsek.Tests.Logistics
         }
 
         // ==================================================================
-        // H1 cell / detail-line formatters (pure; the window passes the already-
-        // formatted countdown so these stay Unity-free).
+        // Next cell / detail-line formatters (LogisticsRoutePresentation; the
+        // Missions countdown reused exactly: "T- " + two units).
         // ==================================================================
 
-        // The "Next" column cell shows the bare formatted countdown for both the
-        // next-delivery and the wait-state recheck branch (the branch wording lives
-        // in the detail line, not the narrow cell).
+        // The Next cell shows the Missions countdown for the next-delivery, window and
+        // recheck branches (the branch wording lives in the hover and detail line).
         [Fact]
-        public void NextDeliveryCell_NextDeliveryBranch_ShowsCountdown()
+        public void NextCell_EveryCountdownBranch_ShowsMissionsCountdown()
         {
-            Assert.Equal("T-12m 5s", LogisticsCountdownPresentation.FormatNextDeliveryCell(
-                LogisticsCountdownPresentation.CountdownBranch.NextDelivery, "T-12m 5s"));
+            Assert.Equal("T- 12m 5s", LogisticsRoutePresentation.FormatNextCell(
+                LogisticsCountdownPresentation.CountdownBranch.NextDelivery, 725.0, true, false));
+            Assert.Equal("T- 23s", LogisticsRoutePresentation.FormatNextCell(
+                LogisticsCountdownPresentation.CountdownBranch.RechecksIn, 23.0, true, false));
         }
 
+        // No-countdown branch, or no run scheduled, shows a dash.
         [Fact]
-        public void NextDeliveryCell_RechecksInBranch_ShowsCountdown()
+        public void NextCell_NoneOrUnscheduled_ShowsDash()
         {
-            Assert.Equal("T-0m 23s", LogisticsCountdownPresentation.FormatNextDeliveryCell(
-                LogisticsCountdownPresentation.CountdownBranch.RechecksIn, "T-0m 23s"));
+            Assert.Equal("-", LogisticsRoutePresentation.FormatNextCell(
+                LogisticsCountdownPresentation.CountdownBranch.None, 50.0, true, false));
+            Assert.Equal("-", LogisticsRoutePresentation.FormatNextCell(
+                LogisticsCountdownPresentation.CountdownBranch.NextDelivery, 50.0, false, false));
         }
 
-        // No-countdown branch (or an empty formatted string) shows a dash.
+        // The detail line dates the branch; a recheck says the held run is tried again;
+        // None yields null (no line drawn).
         [Fact]
-        public void NextDeliveryCell_NoneBranch_ShowsDash()
+        public void NextLine_DatesTheBranch()
         {
-            Assert.Equal("-", LogisticsCountdownPresentation.FormatNextDeliveryCell(
-                LogisticsCountdownPresentation.CountdownBranch.None, "anything"));
-        }
-
-        [Fact]
-        public void NextDeliveryCell_EmptyCountdown_ShowsDash()
-        {
-            Assert.Equal("-", LogisticsCountdownPresentation.FormatNextDeliveryCell(
-                LogisticsCountdownPresentation.CountdownBranch.NextDelivery, ""));
-        }
-
-        // The detail line prefixes the branch wording; None yields null (no line drawn).
-        [Fact]
-        public void DetailCountdownLine_NextDelivery_PrefixesNextDelivery()
-        {
-            Assert.Equal("Next delivery T-12m 5s",
-                LogisticsCountdownPresentation.FormatDetailCountdownLine(
-                    LogisticsCountdownPresentation.CountdownBranch.NextDelivery, "T-12m 5s"));
-        }
-
-        [Fact]
-        public void DetailCountdownLine_RechecksIn_PrefixesRechecksIn()
-        {
-            Assert.Equal("Rechecks in T-0m 23s",
-                LogisticsCountdownPresentation.FormatDetailCountdownLine(
-                    LogisticsCountdownPresentation.CountdownBranch.RechecksIn, "T-0m 23s"));
-        }
-
-        [Fact]
-        public void DetailCountdownLine_None_ReturnsNull()
-        {
-            Assert.Null(LogisticsCountdownPresentation.FormatDetailCountdownLine(
-                LogisticsCountdownPresentation.CountdownBranch.None, "ignored"));
+            Assert.Equal("Next delivery on D1.",
+                LogisticsRoutePresentation.FormatNextLine(
+                    LogisticsCountdownPresentation.CountdownBranch.NextDelivery, 100.0, true, "1h 0m", ut => "D1"));
+            Assert.Equal("Tries the held run again on D1.",
+                LogisticsRoutePresentation.FormatNextLine(
+                    LogisticsCountdownPresentation.CountdownBranch.RechecksIn, 100.0, true, "1h 0m", ut => "D1"));
+            Assert.Null(LogisticsRoutePresentation.FormatNextLine(
+                LogisticsCountdownPresentation.CountdownBranch.None, 100.0, true, "1h 0m", ut => "D1"));
         }
     }
 }

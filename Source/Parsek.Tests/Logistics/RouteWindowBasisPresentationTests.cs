@@ -206,12 +206,13 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void FormatCountdownSurfaces_NextWindow()
         {
-            Assert.Equal("Next launch window T-1h 2m",
-                LogisticsCountdownPresentation.FormatDetailCountdownLine(
-                    LogisticsCountdownPresentation.CountdownBranch.NextWindow, "T-1h 2m"));
-            Assert.Equal("T-1h 2m",
-                LogisticsCountdownPresentation.FormatNextDeliveryCell(
-                    LogisticsCountdownPresentation.CountdownBranch.NextWindow, "T-1h 2m"));
+            Assert.Equal("Next launch window on Y2, D110, 03:12; arrives 1y 29d later.",
+                LogisticsRoutePresentation.FormatNextLine(
+                    LogisticsCountdownPresentation.CountdownBranch.NextWindow, 3720.0, true,
+                    "1y 29d", ut => "Y2, D110, 03:12"));
+            Assert.Equal("T- 1h 2m",
+                LogisticsRoutePresentation.FormatNextCell(
+                    LogisticsCountdownPresentation.CountdownBranch.NextWindow, 3720.0, true, false));
         }
 
         // ==================================================================

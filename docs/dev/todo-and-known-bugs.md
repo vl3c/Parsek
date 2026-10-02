@@ -15,6 +15,29 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## LOGISTICS-MODEL1-FOLLOWUPS: the parts of the Logistics redesign left out of Model 1 [FILED 2026-10-02, branch `logistics-model1`]
+
+Model 1 (the merged Status cell, the two-line Route cell, the Missions-shaped Interact column,
+the Basic gate `UiSurface.LogisticsRouteTuning`, the dated detail block) shipped without these,
+each deferred by the second-opinion review as its own change:
+
+- **Pickup-aware Delivers (D4).** A pure pickup relay still reads `(nothing)` in the Delivers
+  column and the "Delivers each run" line, while its Last delivered line names real cargo. Needs
+  new presentation logic over the relay manifest ("picks up 154 LiquidFuel at B").
+- **Group the near-miss list by reason (R10).** A save with many flights that never docked
+  shows one identical "No dock was recorded on this flight, so there is nothing to repeat."
+  line per mission; one grouped line with the names in the hover would read better.
+- **Part titles in the create dialog and stored-part holds.** The create dialog lists stored
+  parts by internal name (`evaChute`) and the hold clauses name a stored part the same way;
+  both want the part TITLE through a PartLoader lookup.
+- **Recent runs with exact dates.** The Advanced Recent runs lines still say "(2.1h ago)"; the
+  ledger rows carry the UT, so they could read "Run 3 on Y1, D05, 22:40".
+- **Default route names.** The name still repeats the from/to line ("Route: KSC -> Duna"
+  over "KSC -> Depot Station Duna I"); naming a new route after its mission was ruled out of
+  this change (it needs "Name [2]" dedupe and makes the Missions route hover tautological).
+
+---
+
 ## ~~KXRW-RESULT-NAN-DETAIL: a kx_rewind_watch flight that ends early writes no mission result at all~~ [FILED 2026-10-01 from the mutation checker's blind replay, branch `mutation-phase2-pr3`. FIXED 2026-10-01, branch `fix-kxrw-nan`]
 
 `mlib.evaluate_kxrw_assertions` copies raw state floats into assertion DETAIL dicts:

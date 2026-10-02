@@ -928,54 +928,73 @@ todo `CAREER-WINDOW-REMOVED-2026-09-27`.
 Purpose: supply routes derived from flights already flown. Hosts `ParsekFlight.cs:2136`,
 `ParsekKSC.cs:258`; not the Tracking Station.
 
-Complexity: `UI/LogisticsWindowUI.cs` contains **zero** `IsVisible` calls, and
-`UiSurface.MainButtonLogistics` has no call site anywhere. The window is identical in both
-modes not because the gate says keep but because nothing asks - the two census trees are
-byte-identical at 58 nodes each.
+Complexity (Logistics Model 1, 2026-10-02): the window is gated INSIDE by one key,
+`UiSurface.LogisticsRouteTuning` (design-ui-basic-advanced.md 4.6), read once per pass into
+`drawTuning` at the top of `DrawWindow` through `LogisticsRoutePresentation.ShowsRouteTuning`.
+The header, every row and every detail block read that one bool. (Before 2026-10-02 the window
+had zero `IsVisible` calls and the two census trees were byte-identical at 58 nodes.)
 
-Six bubbles inside one scroll view (`:541-554`). Only THREE are caret disclosures with a count
-badge - Dormant Routes (`:675`), `Recently merged trees not yet eligible` (`:777`) and
-`Dismissed` (`:844`); Active, Paused and Candidates are drawn unconditionally with a plain
-centred title (`:544-545`). Per-ROW expand is separate (`:979`, `:1487`).
+Bubbles inside one scroll view: Active, Paused and Candidates are drawn unconditionally with a
+plain centred title; the Dormant Routes, `Missions that cannot become routes yet (N)` and
+`Hidden missions (N)` disclosures are caret folds with a count. Per-ROW expand is separate. An
+empty route table reads one grey sentence (`No active routes.` / `No paused routes.`), no
+longer `(none)`.
 
-Route table (Active and Paused share `DrawRouteSortableHeader` `:929` and `DrawRouteRow` `:968`;
-both sections share one sort state, `:118-119`):
+Table membership: the Paused table holds every Paused route PLUS a route armed by Send making its
+one run (`LogisticsRoutePresentation.BelongsInPausedTable`), so a Send-armed route never jumps
+sections and never reads "scheduled" in an Active row. A Pause-armed route stays in Active.
 
-| # | column | width | value |
-|---|---|---|---|
-| 1 | `#` | 30 | display position; not sortable |
-| 2 | Name | expand | caret + `route.Name` |
-| 3 | Origin | 95 | `FormatOrigin` `:3664` |
-| 4 | Destination | 180 | cached `leg.DestinationText`; coords in the tooltip. A multi-stop route names its first receiving stop plus `(+N stops)` and lists every stop with its cargo direction in the tooltip |
-| 5 | Interval | 150 | inline `[-] field [+] Nx` stepper (`:1163`); an EMPTY cell of the same width while Send-Once-armed (`:1012`) |
-| 6 | Cycle | 80 | `"3"` or `"3 / 1 skipped"` (`:3738`) |
-| 7 | Next | 135 | bare `T-` countdown or `-` (`:3586`) |
-| 8 | Status | 240 | hold text or status reason, colour by `StatusStyleFor` `:3813` |
-| 9 | Delivery | 120 | Delivering / Flying, not delivering / New (not yet run) / Paused |
-| 10 | Actions | 190 | Pause 58 + X 22 (Active); Send Once 79 + Activate 64 + X 22 (Paused); or a 160 px disabled armed button |
+Route table (Active and Paused share `DrawRouteSortableHeader` and `DrawRouteRow`; both sections
+share one sort state). Every row is two lines tall:
 
-The fixed columns total 1220 px, which is why the window's own `MinWindowWidth` is 1410.
-There is no Transit column: it lives only in the Interval cell's `Nx` tooltip and the expanded
-detail line (`:1023-1025`).
+| # | column | width | Basic | Advanced | value |
+|---|---|---|---|---|---|
+| 1 | `#` | 30 | yes | yes | display position; not sortable |
+| 2 | Route | expand | yes | yes | line 1 caret + `route.Name`; line 2 grey (`MissionsWindowUI.MissionSummaryTextColor`, same font) `KSC -> Depot Station Duna I` (a multi-stop route `Depot (+2 stops)`; an unresolved endpoint names the place, never coordinates). Hover: the full origin and destination with coordinates. Sorts by name |
+| 3 | Delivers | 200 | yes | yes | per-run manifest (wraps); hover `Delivers each run: ... to <destination>.` Not sortable |
+| 4 | Every | 150 | read-only `every 4.0d` / `every 2nd window` | inline `[-] field [+] Nx` stepper | a Send-armed route shows the read-only form in both modes |
+| 5 | Runs | 80 | no | yes | `3` or `3, 1 held` |
+| 6 | Next | 135 | yes | yes | the Missions countdown exactly: amber `T- ` + `FormatCountdownCompact`, ` (!)` when the last run was held; grey `-` when no run is scheduled (a Paused route not armed by Send). Hover: the exact date |
+| 7 | Status | 260 | yes | yes | ONE colour-coded word + short reason (`LogisticsRoutePresentation.ClassifyStatus`): `Delivering` green, `Scheduled` white, `Held: ...` yellow (on Paused rows too), `Paused` grey, `New` cyan, `Sending one run` / `Pausing after this run` cyan, `Broken: destination lost` / `flight missing` / `flight changed` red. Replaces the old Status + Delivery columns. Hover: one dated sentence, never the raw enum |
+| 8 | Interact | 116 | yes | yes | centred header; Missions Model 1 shape (100 px single, two 48 px halves, 8 px inset, the Missions constants): line 1 `Activate` (Paused) / `Pause` (Active) / greyed `Sending...` / `Pausing...`; line 2 `Send` (live only on an unarmed Paused row, greyed with its reason otherwise) and `Log` (the source mission's Log, greyed with its reason when there is none) |
 
-Candidates table (`:905`, rows `:1474`): `#` 30, Name expand, Origin 95, Destination 180,
-`Would deliver` 260, `Transit` 80, Actions 190 (`Create Route` 100 + `Dismiss` 70). Its empty
-state is a full sentence, not `(none)`: `No eligible Supply Runs. Fly a one-way transport that
-docks, transfers cargo to the destination, and undocks, then commit and seal the recording.`
-(`:743`).
+The fixed columns total 891 px in Basic and 971 in Advanced; `MinWindowWidth` stays 1410 in both
+modes, so a switch never resizes the window and Route keeps over 400 px. The retired sort members
+(`Origin`, `Destination`, `Delivery`) stay in `LogisticsRouteSortColumn` so the seam's sort
+vocabulary parses: Origin / Destination still sort, `Delivery` aliases Status. In Basic a sort by
+the Advanced-only Runs column reads as a Route-name sort without changing the stored sort.
 
-The expanded route detail panel (`:1554-1670`) is where most of the window's real controls
-live: `Rename`, `Log` (the source mission's Log; `Log (Route)` and its route step list were
-retired 2026-10-01), `Link round-trip...` / `Unlink`, cadence and
-priority steppers, `Re-scan for endpoint`, plus up to fourteen conditional readout lines
-(hold, partial, capacity, countdown branch, five recent-cycle flow lines, cost/run, source
-recordings). The candidate detail panel (`:2300`) is three or four lines with NO controls.
+Candidates table: `#` 30, Name expand, Origin 95, Destination 180 (`Kerbin (surface)`, the
+coordinates in the hover), `Would deliver` 260, `Transit` 80, Actions 190 (its own
+`ColW_CandidateActions`: `Create Route` 100 + `Dismiss` 70). Its empty state is a grey sentence:
+`No supply runs to offer yet. Fly a cargo run that docks, transfers cargo and undocks, then finish
+the mission.` The near-miss reason for a flight with no dock reads `No dock was recorded on this
+flight, so there is nothing to repeat.`
 
-The link picker (window 7, `:1741-1851`) is its own `GUILayoutWindow`, armed only from an
-expanded route row's `Link round-trip...` button; it is a declared census exclusion
-(`TestCommands/TestCommandUiAction.cs:373-376`).
+The expanded route detail panel (`DrawRouteDetail`) says only what the row cannot. Basic:
+`Delivers each run: <manifest> to <destination>.`, the next run (`Next launch window on <date>;
+arrives <duration> later.`), the dated hold (`Last run held on <date>: <clause>.`, yellow; the
+date is `Route.LastHoldUT`, the LAST check, so it names the last held run, never when the hold
+began) and partial-delivery lines, the capacity line and `Re-scan for endpoint` of a broken
+route, `Last delivered on <date>: ... Delivered so far: ...` (from the route's
+RouteCargoDelivered ledger rows; the route stores no delivered UT), cost/run, `Built from
+mission 'X'.`, the round-trip note when linked, and a right-aligned `Rename` / `Delete` row
+(Delete moved here from the row; its confirm dialog is unchanged). Advanced adds the `Every:` and
+`Priority:` steppers, `Recent runs:` (up to five `Run N (age ago): ...` lines), `Flights used:`
+(names, a repeated name numbered `Name [1]`, `Name [2]`), the manual-looping clause after
+`Built from mission 'X'.`, and `Link round-trip...` / `Unlink` in the button row. Dropped: the
+`Status: <Enum> - <reason>` line, the Interval / Transit / Cycles line, the owns-tree sentence and
+the `rec N of tree 'X'` source list. The candidate detail panel is the cost line and `Built from
+mission 'X'.` with NO controls.
 
-Pictures: `ksc-logistics-advanced` and `ksc-logistics-basic` (58 nodes each, identical) show
+The link picker (window 7) is its own `GUILayoutWindow`, armed only from an expanded route
+row's `Link round-trip...` button (Advanced only); it is a declared census exclusion
+(`TestCommands/TestCommandUiAction.cs:373-376`), reached by `op=picker picker=link`, which
+refuses `picker-hidden-in-basic` in Basic. A switch to Basic closes it (the `LogisticsLinkPicker`
+entry of the Basic close set).
+
+Pictures (before Model 1; GUI-1 and GUI-3 were re-flown on the redesign, see the PR):
+`ksc-logistics-advanced` and `ksc-logistics-basic` (58 nodes each, identical) show
 the whole chrome, three section headers, two route sort headers, both `(none)` rows, the
 candidate empty sentence, and the collapsed near-miss disclosure reading `(18)`. The census
 forced the window to 1280 px - BELOW its own 1410 minimum, which is legal because `op=rect`

@@ -79,11 +79,16 @@ namespace Parsek.Tests
                 UiSurface.SettingsSectionLooping,
                 UiSurface.SettingsSectionDiagnostics,
                 UiSurface.SettingsSectionSampleDensity,
+                // Logistics Model 1: route tuning (Every stepper, Runs, Priority, Link,
+                // Recent runs, Flights used). The Logistics launcher stays visible.
+                UiSurface.LogisticsRouteTuning,
             };
 
             var actual = new HashSet<UiSurface>(UiSurfaceVisibility.HiddenSurfaces(UiComplexityMode.Basic));
 
-            Assert.Equal(7, actual.Count);
+            Assert.Equal(8, actual.Count);
+            Assert.True(UiSurfaceVisibility.IsVisible(
+                UiSurface.MainButtonLogistics, UiComplexityMode.Basic));
             // Owner re-ruling 2026-09-22: the Kerbals window is the only surface that says
             // why a reserved kerbal is missing from stock crew assignment, so Basic keeps it.
             Assert.True(UiSurfaceVisibility.IsVisible(

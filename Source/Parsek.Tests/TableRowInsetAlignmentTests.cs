@@ -665,6 +665,55 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Logistics Model 1: the header and every row add or drop the Advanced-only Runs
+        /// column from ONE bool, latched once per pass in DrawWindow before the first
+        /// section draws, so a Layout pass and its Repaint pass always draw the same
+        /// columns. Neither the header nor the row may read the mode itself (a mode change
+        /// between the two would misalign every column under the header).
+        /// </summary>
+        [Fact]
+        public void LogisticsHeaderAndRowsReadOneLatchedTuningBool()
+        {
+            string file = Path.Combine("UI", "LogisticsWindowUI.cs");
+            string prepared = ReadPreparedSource(file);
+            foreach (string method in new[] { "DrawRouteSortableHeader", "DrawRouteRow" })
+            {
+                string body = MethodBody(prepared, method, file);
+                Assert.Contains("if (drawTuning)", body);
+                Assert.DoesNotContain("AppliedUiComplexityMode", body);
+                Assert.DoesNotContain("ShowsRouteTuning", body);
+            }
+            string draw = MethodBody(prepared, "DrawWindow", file);
+            int latch = draw.IndexOf("drawTuning = ", StringComparison.Ordinal);
+            int firstSection = draw.IndexOf("DrawRouteSectionBubble(", StringComparison.Ordinal);
+            Assert.True(latch >= 0 && firstSection > latch,
+                "LogisticsWindowUI.DrawWindow must latch drawTuning before the first section draws.");
+        }
+
+        /// <summary>
+        /// Decision 1a: Delete lives in the expanded detail block beside Rename, out of
+        /// the scan line; the row and its Interact cell never arm it. The candidates table
+        /// keeps its own Actions width, so the route tables' Interact width cannot squeeze
+        /// Create Route + Dismiss.
+        /// </summary>
+        [Fact]
+        public void LogisticsDeleteLivesInTheDetailBlockAndCandidatesKeepTheirWidth()
+        {
+            string file = Path.Combine("UI", "LogisticsWindowUI.cs");
+            string prepared = ReadPreparedSource(file);
+            foreach (string method in new[] { "DrawRouteRow", "DrawRouteInteractCell" })
+                Assert.DoesNotContain("pendingConfirmDeleteRoute =", MethodBody(prepared, method, file));
+            Assert.Contains("pendingConfirmDeleteRoute = route",
+                MethodBody(prepared, "DrawRouteDetailButtonRow", file));
+            foreach (string method in new[] { "DrawCandidateColumnHeader", "DrawCandidateRow" })
+            {
+                string body = MethodBody(prepared, method, file);
+                Assert.Contains("ColW_CandidateActions", body);
+                Assert.DoesNotContain("ColW_Interact", body);
+            }
+        }
+
+        /// <summary>
         /// On a screen narrower than the Missions window's natural width (1355 px), its two
         /// tabs scroll horizontally, and the pinned column header must scroll WITH the body
         /// or every column is misaligned by the scroll offset. The shared

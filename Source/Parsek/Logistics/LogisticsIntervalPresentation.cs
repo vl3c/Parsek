@@ -27,7 +27,7 @@ namespace Parsek.Logistics
             if (windowedBasis)
             {
                 return string.Format(CultureInfo.InvariantCulture,
-                    "Dispatch cadence: {0} {1}. The route delivers on the launch windows its ghost flies; use -/+ to deliver every Nth window.",
+                    "Runs {0} {1}. The route delivers on the launch windows it flies; use -/+ to deliver every Nth window.",
                     RouteWindowBasisPresentation.FormatWindowedCadence(multiplier),
                     basisLabel ?? string.Empty);
             }
@@ -36,7 +36,7 @@ namespace Parsek.Logistics
             // the multiplier readout's own symbol, not filler (a copy trim once
             // replaced it with the word "cadence", defining cadence as itself).
             return string.Format(CultureInfo.InvariantCulture,
-                "Dispatch cadence = N x run duration (transit {0}). Type an interval (30m, 2h, 1d, or plain seconds) or use -/+; it snaps up to a whole run-multiple.",
+                "Runs every N x run duration (transit {0}). Type an interval (30m, 2h, 1d, or plain seconds) or use -/+; it snaps up to a whole run-multiple.",
                 formattedTransit ?? "-");
         }
     }
