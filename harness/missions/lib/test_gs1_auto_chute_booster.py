@@ -1440,15 +1440,23 @@ class Gs1AirborneExitSchemaTests(unittest.TestCase):
 CA1_SPEC_PATH = os.path.join(_HARNESS, "scenarios", "CA-1-commit-abort-booster-live.toml")
 
 
+# The upper stage's name on the live flights (the booster's is siblingVesselName).
+UPPER_NAME = "GS1 Auto-Chute Booster"
+BOOSTER_NAME = "GS1 Auto-Chute Booster Probe"
+
+
 def impact_descent(**over):
     """``to_descent`` under the focus-impact profile, then two falling frames with
-    the booster airborne, so the airborne streak has reached its debounce."""
+    the booster airborne, so the airborne streak has reached its debounce. Both
+    frames read the upper stage by name with its chute Stowed, the reading a
+    healthy CA-1 descent carries."""
     over.setdefault("focusImpactAtExit", True)
     state, actions = to_descent(**over)
     for i in range(2):
         state, more = fly(state, ut=13.0 + i, altitude=600.0 - 150.0 * i,
                           vertical_speed=-30.0 - 10.0 * i, situation="FLYING",
-                          available_thrust=0.0)
+                          available_thrust=0.0, vessel_name=UPPER_NAME,
+                          craft_chute_state=mlib.CHUTE_STATE_STOWED)
         actions = actions + more
     return state, actions
 
@@ -1667,6 +1675,144 @@ class Gs1FocusImpactAssertionRowTests(unittest.TestCase):
         state, _ = step(state, ut=0.0, vessel_lost=True)
         state = dataclasses.replace(state, sibling_outcome="")
         self.assertFalse(self._rows(state)["boosterAirborneAtImpact"].met)
+
+
+class Gs1FocusImpactObservedChuteTests(unittest.TestCase):
+    """craftChuteNeverArmed reads the upper stage's REAL chute state across DESCENT
+    (operator ruling 2026-10-01), not only the machine's own command latch."""
+
+    def _row(self, state):
+        return {r.name: r for r in mlib.evaluate_gs1_assertions(
+            [snap(ut=14.0, situation="FLYING")],
+            mlib.gs1_params_from_dict(params(focusImpactAtExit=True)),
+            state=state)}["craftChuteNeverArmed"]
+
+    def _fall(self, state, ut, **kw):
+        kw.setdefault("vessel_name", UPPER_NAME)
+        return fly(state, ut=ut, altitude=300.0, vertical_speed=-60.0,
+                   situation="FLYING", available_thrust=0.0, **kw)
+
+    def test_never_commanded_and_never_observed_is_met(self):
+        state, _ = impact_descent()
+        state, _ = step(state, ut=0.0, vessel_lost=True)
+        row = self._row(state)
+        self.assertTrue(row.met)
+        self.assertEqual(mlib.CHUTE_STATE_STOWED, row.value)
+        self.assertEqual(2, row.detail["upperStageChuteReads"])
+        self.assertFalse(row.detail["observedFired"])
+
+    def test_commanded_is_unmet_even_with_a_stowed_read(self):
+        state, _ = impact_descent()
+        state = dataclasses.replace(state, chute_commanded=True)
+        row = self._row(state)
+        self.assertFalse(row.met)
+        self.assertTrue(row.detail["armCommanded"])
+
+    def test_observed_armed_with_no_command_is_unmet(self):
+        state, _ = impact_descent()
+        state, _ = self._fall(state, 15.0, craft_chute_state=mlib.CHUTE_STATE_ARMED)
+        self.assertFalse(state.chute_commanded)
+        self.assertTrue(state.upper_chute_fired_seen)
+        row = self._row(state)
+        self.assertFalse(row.met)
+        self.assertEqual(mlib.CHUTE_STATE_ARMED, row.value)
+        self.assertEqual(15.0, row.detail["firedUT"])
+
+    def test_observed_deployed_is_unmet(self):
+        state, _ = impact_descent()
+        state, _ = self._fall(state, 15.0,
+                              craft_chute_state=mlib.CHUTE_STATE_DEPLOYED)
+        self.assertFalse(self._row(state).met)
+
+    def test_the_latch_is_sticky_across_a_later_stowed_read(self):
+        state, _ = impact_descent()
+        state, _ = self._fall(state, 15.0,
+                              craft_chute_state=mlib.CHUTE_STATE_SEMI_DEPLOYED)
+        state, _ = self._fall(state, 16.0, craft_chute_state=mlib.CHUTE_STATE_STOWED)
+        row = self._row(state)
+        self.assertFalse(row.met)
+        self.assertEqual(mlib.CHUTE_STATE_SEMI_DEPLOYED, row.detail["firedState"])
+
+    def test_an_unknown_state_name_counts_as_fired(self):
+        state, _ = impact_descent()
+        state, _ = self._fall(state, 15.0, craft_chute_state="Exploded")
+        self.assertFalse(self._row(state).met)
+
+    def test_unread_telemetry_fails_closed(self):
+        # No chute read on any DESCENT frame: the absence claim has no evidence.
+        state, _ = to_descent(focusImpactAtExit=True)
+        for i in range(3):
+            state, _ = self._fall(state, 13.0 + i)
+        row = self._row(state)
+        self.assertFalse(row.met)
+        self.assertEqual("UNREAD", row.value)
+        self.assertEqual(0, row.detail["upperStageChuteReads"])
+
+    def test_an_unread_vessel_name_is_not_attributed(self):
+        # A chute read whose name faulted might be the booster: excluded, so an
+        # unread name can neither certify nor condemn.
+        state, _ = to_descent(focusImpactAtExit=True)
+        state, _ = self._fall(state, 13.0, vessel_name="",
+                              craft_chute_state=mlib.CHUTE_STATE_STOWED)
+        state, _ = self._fall(state, 14.0, vessel_name="",
+                              craft_chute_state=mlib.CHUTE_STATE_DEPLOYED)
+        self.assertEqual(0, state.upper_chute_reads)
+        self.assertEqual(2, state.upper_chute_unattributed_reads)
+        self.assertFalse(state.upper_chute_fired_seen)
+        self.assertFalse(self._row(state).met)
+
+    def test_the_booster_chutes_after_the_handoff_are_ignored(self):
+        """MEASURED: KSP focuses the booster when the upper stage dies, and its six
+        chutes read Deployed. That frame is the IMPACTED terminal, not an arm."""
+        state, _ = impact_descent()
+        state, _ = fly(state, ut=15.0, altitude=485.0, vertical_speed=-2.5,
+                       situation="FLYING", available_thrust=0.0,
+                       vessel_name=BOOSTER_NAME,
+                       craft_chute_state=mlib.CHUTE_STATE_DEPLOYED)
+        self.assertEqual(mlib.GS1_IMPACTED, state.phase)
+        self.assertFalse(state.upper_chute_fired_seen)
+        self.assertEqual(1, state.upper_chute_unattributed_reads)
+        row = self._row(state)
+        self.assertTrue(row.met)
+        self.assertEqual(mlib.CHUTE_STATE_STOWED, row.detail["lastUpperStageState"])
+
+    def test_frames_after_the_terminal_are_not_read(self):
+        state, _ = impact_descent()
+        state, _ = step(state, ut=0.0, vessel_lost=True)
+        state, _ = fly(state, ut=16.0, altitude=400.0, vertical_speed=-3.0,
+                       situation="FLYING", available_thrust=0.0,
+                       vessel_name=UPPER_NAME,
+                       craft_chute_state=mlib.CHUTE_STATE_DEPLOYED)
+        self.assertFalse(state.upper_chute_fired_seen)
+
+    def test_the_pre_split_stack_is_out_of_scope(self):
+        # The separation click arms the booster's chutes while they are still on the
+        # active vessel; that read predates DESCENT and must not count.
+        state, _ = to_separation(focusImpactAtExit=True)
+        state, _ = fly(state, ut=8.0, altitude=700.0, apoapsis=780.0,
+                       vertical_speed=30.0, situation="FLYING", available_thrust=0.0,
+                       vessel_name=UPPER_NAME,
+                       craft_chute_state=mlib.CHUTE_STATE_ARMED)
+        self.assertEqual(mlib.GS1_COAST, state.phase)
+        self.assertFalse(state.upper_chute_fired_seen)
+        self.assertEqual(0, state.upper_chute_reads)
+
+    def test_the_nominal_profile_never_reads_the_latch(self):
+        state, _ = to_descent()
+        state, _ = fly(state, ut=13.0, altitude=500.0, vertical_speed=-8.0,
+                       situation="FLYING", available_thrust=0.0,
+                       vessel_name=UPPER_NAME,
+                       craft_chute_state=mlib.CHUTE_STATE_DEPLOYED)
+        self.assertEqual(0, state.upper_chute_reads)
+        self.assertFalse(state.upper_chute_fired_seen)
+
+    def test_the_blind_replay_leaves_it_unmet(self):
+        """The mutation checker's blind replay: the initial state, no frames."""
+        state = machine(focusImpactAtExit=True)
+        rows = gs1_auto_chute_booster.evaluate(
+            [], params(focusImpactAtExit=True), state=state)
+        row = {r.name: r for r in rows}["craftChuteNeverArmed"]
+        self.assertFalse(row.met)
 
 
 class Gs1FocusImpactSpecTests(unittest.TestCase):
