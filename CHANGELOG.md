@@ -1337,6 +1337,11 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A Missions tab vessel row no longer shows another mission's vessel as a mid-flight
+  "Launch".** After switching to another mission's vessel, the row's event chain read e.g.
+  "Launch -> Launch (Depot Station Duna I (mission 'Kerbal X #5')) -> Docked". A launch
+  cannot happen mid-flight, so that step is now left out; the following "Docked" step
+  already names the partner. Mission selections are unaffected.
 - **Dev: a harness mission that ends early writes its result file again.** A mission's
   assertion rows could carry a reading still at its "not yet measured" NaN default (the
   `kx_rewind_watch` core discard altitude and time, peak booster thrust and rewind times, on
