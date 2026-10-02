@@ -5435,6 +5435,22 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: recording under physics warp, at every sampling density.** Three new
+  nightly lanes, `PWR-1/2/3-physwarp-ascent-{low,medium,high}`, fly the LKO ascent (MechJeb
+  runs 2x physics warp through the upper ascent with the engine burning) plus a 4x
+  `WarpToUT ladder=phys` orbital coast at each `samplingDensity` preset, and gate the
+  recording's quality through a new saveParse block, `[expectations.recordings.sampling]`
+  (`harness/lib/samplingq.py`): every gap of the focused vessel's per-frame sections within
+  the preset's max interval plus one physics frame (0.02 s x the warp rate), no duplicate or
+  reversed sample time, no missed direction or speed trigger, no position jump, and floors
+  proving the stretch really was recorded under physics warp. The recorder already spaces
+  samples by game time, so its bounds hold under physics warp; the section-close log line
+  now names each stretch's warp state (`warpRuns=`) so the harness can tell them apart.
+  Low and Medium fly green; High is quarantined on two filed physics-warp findings (one
+  sample per warp-rate change sits a frame behind its time; one backstop sample landed a
+  frame late). The quarantine uses per-token `[expectedFail]` signatures, now available for
+  save-structure failures, with an opt-in list of tolerated tokens for one intermittent
+  second defect.
 - **Automated testing: the D18 player-action seam pair.** Two new automation-only seam
   verbs. `RealSpawn rec=<id>` presses the Real Spawn Control row's "Warp to Spawn" for one
   committed recording through the button's own click body and answers with the spawned

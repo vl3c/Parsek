@@ -6604,6 +6604,11 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if isinstance(recordings_block, dict) and saveparse.POINTS_BLOCK in recordings_block:
         errors.extend(saveparse.validate_points_expectations(
             recordings_block.get(saveparse.POINTS_BLOCK)))
+    # The fifth block: recording SAMPLING quality (samplingq.py). An unknown
+    # density is a pre-launch rejection, because every bound is derived from it.
+    if isinstance(recordings_block, dict) and saveparse.SAMPLING_BLOCK in recordings_block:
+        errors.extend(samplingq.validate_sampling_expectations(
+            recordings_block.get(saveparse.SAMPLING_BLOCK)))
     # The fourth M-C2 block: the ROUTES node. Top-level beside `rewind` because
     # that is where it lives in the save.
     if saveparse.ROUTES_BLOCK in expectations:
@@ -6826,6 +6831,7 @@ import saveparse  # noqa: E402  (the M-C2/R9 pure sibling; save-parse spec-surfa
 import savepatch  # noqa: E402  (the pure FLIGHTSTATE patcher behind [[fixture.liveState]]; same rule - the module that APPLIES the block validates its spec surface)
 import rendercompose  # noqa: E402  (the M-A7 pure sibling; same reason - the render-composition spec surface is validated by the module that evaluates it)
 import ghostlife  # noqa: E402  (the ghost-lifecycle pure sibling; same reason - the [expectations.ghostLifecycle] surface is validated by the module that evaluates it)
+import samplingq  # noqa: E402  (the recording-sampling pure sibling; same reason - the [expectations.recordings.sampling] surface is validated by the module that evaluates it)
 
 
 def build_expected_admission(
@@ -9497,19 +9503,31 @@ NEVER_BUGID_ONLY_SUBKINDS: Tuple[str, ...] = ("mission-outcome",)
 EXPECTED_FAIL_BUG_ID_KEY = "bugId"
 EXPECTED_FAIL_SUBKIND_KEY = "subkind"
 EXPECTED_FAIL_MISMATCHES_KEY = "mismatches"
+# OPT-IN subset tolerance (2026-10-02, PWR-3): tokens a SECOND, intermittent, already
+# filed defect may add to a run that carries the required signature. A run demotes
+# when every `mismatches` token is present AND every observed token is in
+# mismatches U optionalMismatches. Absent key = the plain set-equality rule, which
+# stays the default for every other lane. `optionalBugId` names the filed defect the
+# optional tokens belong to (required whenever optionalMismatches is declared).
+EXPECTED_FAIL_OPTIONAL_MISMATCHES_KEY = "optionalMismatches"
+EXPECTED_FAIL_OPTIONAL_BUG_ID_KEY = "optionalBugId"
 EXPECTED_FAIL_KNOWN_KEYS: Tuple[str, ...] = (
     EXPECTED_FAIL_BUG_ID_KEY, EXPECTED_FAIL_SUBKIND_KEY, EXPECTED_FAIL_MISMATCHES_KEY,
+    EXPECTED_FAIL_OPTIONAL_MISMATCHES_KEY, EXPECTED_FAIL_OPTIONAL_BUG_ID_KEY,
 )
 
 # The PARSEK-FAIL subkinds whose failing verifier reports a per-token mismatch list
 # an `[expectedFail] mismatches = [...]` signature can be compared against. Only the
 # expectations manifest today: its mismatch strings are deterministic literals built
 # from the spec's own patterns (the EXPECTATION_*_PREFIX forms below), so a
-# quarantine can name the exact tokens one defect produces. The gating save-structure
-# / render-composition / ghost-lifecycle rows also carry mismatch lists, but no
-# committed spec arms them and their strings embed measured values; extend this set
-# (and expected_fail_observed_mismatches) when one needs a per-token quarantine.
-EXPECTED_FAIL_SIGNATURE_SUBKINDS: Tuple[str, ...] = ("expectation",)
+# quarantine can name the exact tokens one defect produces. `save-structure` joined it
+# on 2026-10-02 (PWR-3's physics-warp quarantine): its ARMED mismatch list
+# (`detail.saveParse.armedMismatches`) is built from block-prefixed window labels
+# ("recordings.sampling.jumps 1 != 0"); the strings embed the measured count, so a
+# signature names one defect at one magnitude, and a changed magnitude reds as a
+# changed defect - the equality rule below. The render-composition / ghost-lifecycle
+# rows stay out until a lane needs them.
+EXPECTED_FAIL_SIGNATURE_SUBKINDS: Tuple[str, ...] = ("expectation", "save-structure")
 
 # The expectations-manifest mismatch shapes (evaluate_expectations builds every
 # mismatch string from these; the expectedFail.mismatches validator accepts only the
@@ -9916,7 +9934,8 @@ class Verdict:
 def expected_fail_signature_matched(base_verdict: str, base_subkind: str,
                                     ef_subkind: str,
                                     ef_mismatches: Optional[Sequence[str]] = None,
-                                    observed_mismatches: Optional[Sequence[str]] = None
+                                    observed_mismatches: Optional[Sequence[str]] = None,
+                                    ef_optional: Optional[Sequence[str]] = None
                                     ) -> bool:
     """Decide whether a computed verdict matches the tracked expected-fail signature
     (S2). Only a PARSEK-FAIL can match. When ``ef_subkind`` is empty the match is
@@ -9933,7 +9952,12 @@ def expected_fail_signature_matched(base_verdict: str, base_subkind: str,
     PARSEK-FAIL, and a MISSING declared token means the defect changed shape (half
     fixed, or failing a different way) - also new information a green verdict would
     hide. Fails closed: a declared list with no subkind, a subkind outside
-    EXPECTED_FAIL_SIGNATURE_SUBKINDS, or no observed list never matches."""
+    EXPECTED_FAIL_SIGNATURE_SUBKINDS, or no observed list never matches.
+
+    ``ef_optional`` (``[expectedFail] optionalMismatches``, opt-in) relaxes the upper
+    bound only: every declared ``ef_mismatches`` token must still be observed, and the
+    observed set may additionally carry any ``ef_optional`` token, but nothing else.
+    It is ignored without ``ef_mismatches`` (validation refuses that shape)."""
     if base_verdict != VERDICT_PARSEK_FAIL:
         return False
     if ef_mismatches is not None:
@@ -9941,7 +9965,11 @@ def expected_fail_signature_matched(base_verdict: str, base_subkind: str,
             return False
         if base_subkind != ef_subkind or observed_mismatches is None:
             return False
-        return set(observed_mismatches) == set(ef_mismatches)
+        seen = set(observed_mismatches)
+        required = set(ef_mismatches)
+        if ef_optional:
+            return required <= seen and seen <= (required | set(ef_optional))
+        return seen == required
     if not ef_subkind:
         # bugId-only demotion, EXCEPT for the subkinds in NEVER_BUGID_ONLY_SUBKINDS. A
         # quarantine key is a statement about ONE tracked Parsek defect; letting it also
@@ -9961,13 +9989,34 @@ def expected_fail_observed_mismatches(base_subkind: str,
     None makes a declared ``[expectedFail] mismatches`` signature fail closed."""
     if base_subkind not in EXPECTED_FAIL_SIGNATURE_SUBKINDS:
         return None
-    row = (verifier_detail or {}).get("expectations")
+    if base_subkind == "save-structure":
+        row = (verifier_detail or {}).get("saveParse")
+        field_name = "armedMismatches"
+    else:
+        row = (verifier_detail or {}).get("expectations")
+        field_name = "mismatches"
     if not isinstance(row, dict):
         return None
-    mismatches = row.get("mismatches")
+    mismatches = row.get(field_name)
     if not isinstance(mismatches, (list, tuple)):
         return None
     return [str(m) for m in mismatches]
+
+
+_TODO_SHORT_ID_RE = re.compile(r"\b([A-Z]\d+[A-Za-z0-9-]*)\b")
+# A todo entry's own id: the `## ID:` heading (struck through once closed).
+_TODO_HEADING_ID_RE = re.compile(r"^## (?:~~)?([A-Z0-9][A-Z0-9-]*[A-Z0-9]):", re.M)
+
+
+def parse_todo_bug_ids(text: Optional[str]) -> List[str]:
+    """The ids an `[expectedFail] bugId` may resolve to in the todo doc: every short
+    letter-digit token (`B14`, `H22-...`, the historical scrape) plus every entry
+    heading id (`## PHYSWARP-RATE-CHANGE-SAMPLE-SKEW: ...`), the form every current
+    entry uses. Sorted, deduplicated. Pure."""
+    text = text or ""
+    ids = set(_TODO_SHORT_ID_RE.findall(text))
+    ids.update(_TODO_HEADING_ID_RE.findall(text))
+    return sorted(ids)
 
 
 def validate_expected_fail_block(exp_fail: object, expectations: Optional[Dict]) -> List[str]:
@@ -9990,9 +10039,39 @@ def validate_expected_fail_block(exp_fail: object, expectations: Optional[Dict])
     if unknown:
         errors.append("expectedFail: unknown key(s) %s (accepted: %s)"
                       % (unknown, list(EXPECTED_FAIL_KNOWN_KEYS)))
+    optional = exp_fail.get(EXPECTED_FAIL_OPTIONAL_MISMATCHES_KEY)
+    opt_key = "expectedFail.%s" % EXPECTED_FAIL_OPTIONAL_MISMATCHES_KEY
+    if EXPECTED_FAIL_OPTIONAL_MISMATCHES_KEY in exp_fail:
+        if EXPECTED_FAIL_MISMATCHES_KEY not in exp_fail:
+            errors.append("%s: requires expectedFail.mismatches (the required signature); "
+                          "optional tokens alone would demote a run that fails only "
+                          "the tolerated way" % opt_key)
+        if (not isinstance(optional, list) or not optional
+                or not all(isinstance(o, str) and o.strip() for o in optional)):
+            errors.append("%s: %r must be a non-empty list of non-empty strings"
+                          % (opt_key, optional))
+            optional = None
+        opt_bug = exp_fail.get(EXPECTED_FAIL_OPTIONAL_BUG_ID_KEY, "")
+        if not isinstance(opt_bug, str) or not opt_bug.strip():
+            errors.append("%s: requires a non-empty expectedFail.%s naming the filed "
+                          "defect the optional tokens belong to"
+                          % (opt_key, EXPECTED_FAIL_OPTIONAL_BUG_ID_KEY))
+        elif opt_bug == (exp_fail.get(EXPECTED_FAIL_BUG_ID_KEY, "") or ""):
+            errors.append("expectedFail.%s: must name a DIFFERENT filed defect than "
+                          "bugId (the required signature already belongs to bugId)"
+                          % EXPECTED_FAIL_OPTIONAL_BUG_ID_KEY)
+        if isinstance(optional, list) and isinstance(exp_fail.get(EXPECTED_FAIL_MISMATCHES_KEY), list):
+            overlap = sorted(set(optional) & set(exp_fail.get(EXPECTED_FAIL_MISMATCHES_KEY)))
+            if overlap:
+                errors.append("%s: %s also in expectedFail.mismatches" % (opt_key, overlap))
+    elif EXPECTED_FAIL_OPTIONAL_BUG_ID_KEY in exp_fail:
+        errors.append("expectedFail.%s: inert without expectedFail.%s"
+                      % (EXPECTED_FAIL_OPTIONAL_BUG_ID_KEY, EXPECTED_FAIL_OPTIONAL_MISMATCHES_KEY))
     if EXPECTED_FAIL_MISMATCHES_KEY not in exp_fail:
         return errors
     sigs = exp_fail.get(EXPECTED_FAIL_MISMATCHES_KEY)
+    # Optional tokens are checked with the same shape rules as the required ones.
+    all_sigs = list(sigs) + list(optional or []) if isinstance(sigs, list) else sigs
     key = "expectedFail.%s" % EXPECTED_FAIL_MISMATCHES_KEY
     if (not isinstance(sigs, list) or not sigs
             or not all(isinstance(s, str) and s.strip() for s in sigs)):
@@ -10010,10 +10089,21 @@ def validate_expected_fail_block(exp_fail: object, expectations: Optional[Dict])
                       "verifiers report a per-token mismatch list"
                       % (key, list(EXPECTED_FAIL_SIGNATURE_SUBKINDS), ef_subkind))
         return errors
+    if ef_subkind == "save-structure":
+        # Every entry must be a window mismatch of a block the spec ARMS: the armed
+        # list is the only one a save-structure PARSEK-FAIL is decided by, and its
+        # strings are "<block>.<key> ..." (saveparse._check_window). A structural
+        # fault ("<block>: ...") is not a defect signature and is refused.
+        armed = saveparse.armed_structure_blocks(expectations or {})
+        for s in all_sigs:
+            if not any(s.startswith(b + ".") for b in armed):
+                errors.append("%s: %r is not a window mismatch of an ARMED save-parse "
+                              "block (armed: %s)" % (key, s, list(armed)))
+        return errors
     log_contracts = ((expectations or {}).get("logContracts", {}) or {})
     required = set(log_contracts.get("required", []) or [])
     forbidden = set(log_contracts.get("forbidden", []) or [])
-    for s in sigs:
+    for s in all_sigs:
         if s.startswith(EXPECTATION_REQUIRED_MISS_PREFIX):
             pat = s[len(EXPECTATION_REQUIRED_MISS_PREFIX):]
             if pat not in required:

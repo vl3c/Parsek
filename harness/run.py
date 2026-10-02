@@ -52,6 +52,7 @@ import oracle  # noqa: E402
 import provlib  # noqa: E402
 import rendercompose  # noqa: E402  (the M-A7 pure sibling behind the renderCompose row)
 import savepatch  # noqa: E402  (the pure FLIGHTSTATE patcher behind [[fixture.liveState]])
+import samplingq  # noqa: E402  (the recording-sampling measures behind the saveParse row's sampling block)
 import saveparse  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -2144,6 +2145,33 @@ def read_save_structure(save_dir: str) -> Optional["saveparse.ParsekSaveSnapshot
         return None
 
 
+def read_sampling_input(save_dir: str, log_text: str) -> "samplingq.SamplingInput":
+    """Read every readable sidecar mirror (``<id>.prec.txt``) of the produced save
+    for the ``[expectations.recordings.sampling]`` block. Thin I/O only; a
+    ``.prec`` sidecar with no mirror is COUNTED (a defined mismatch in the
+    evaluator), never skipped silently. The mirrors exist because the harness
+    settings baseline pins ``writeReadableSidecarMirrors`` ON for every run."""
+    rec_dir = os.path.join(save_dir, "Parsek", "Recordings")
+    texts: Dict[str, str] = {}
+    missing = 0
+    try:
+        names = sorted(os.listdir(rec_dir))
+    except OSError:
+        names = []
+    for name in names:
+        if not name.endswith(".prec"):
+            continue
+        rid = name[:-len(".prec")]
+        mirror = os.path.join(rec_dir, name + ".txt")
+        try:
+            with open(mirror, "r", encoding="utf-8", errors="replace") as fh:
+                texts[rid] = fh.read()
+        except OSError:
+            missing += 1
+    return samplingq.SamplingInput(prec_texts=texts, log_text=log_text or "",
+                                   missing_mirrors=missing)
+
+
 RENDER_MANIFEST_FILENAME = "parsek-render-manifest.txt"
 
 
@@ -2852,13 +2880,19 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
             "parsed": sp_parsed, "parseError": sp_error, "scenarioFound": sp_found}
         logger.info("Verify", "verify saveParse status=SKIPPED reason=driver-invalid")
     else:
-        sp = saveparse.evaluate_save_structure(expectations, snapshot)
+        sampling_input = None
+        if "recordings.sampling" in saveparse.declared_structure_blocks(expectations):
+            sampling_input = read_sampling_input(save_dir, log_text)
+        sp = saveparse.evaluate_save_structure(expectations, snapshot, sampling_input)
         if sp.gating:
             verifiers["save_structure_mismatch"] = (sp.status == saveparse.STATUS_FAIL)
         detail["saveParse"] = {
             "status": sp.status, "reason": "", "gating": sp.gating,
             "blocks": list(sp.blocks), "armedBlocks": list(sp.armed_blocks),
             "mismatches": list(sp.mismatches), "observed": dict(sp.observed),
+            # The verdict-driving subset; an [expectedFail] subkind="save-structure"
+            # per-token signature is compared against exactly this list.
+            "armedMismatches": list(sp.armed_mismatches),
             "parsed": sp_parsed, "parseError": sp_error,
             "scenarioFound": sp.scenario_found,
         }
@@ -2891,6 +2925,21 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                        routes_obs.get("statuses", "-"),
                        routes_obs.get("codecRejects", "-"), len(sp.mismatches)))
         report_only = [m for m in sp.mismatches if m not in sp.armed_mismatches]
+        sampling_obs = ((sp.observed.get("recordings") or {}).get("sampling") or {})
+        if sampling_obs:
+            phys = sampling_obs.get(samplingq.CLASS_PHYS) or {}
+            norm = sampling_obs.get(samplingq.CLASS_NORMAL) or {}
+            logger.info("Verify", "verify saveParse sampling density=%s sections=%s "
+                                  "totals=%s 1x(gaps=%s p50=%s max=%s) phys(gaps=%s p50=%s "
+                                  "max=%s triggered=%s maxRate=%s) warpCloseLines=%s "
+                                  "missingMirrors=%s findings=%s"
+                        % (sampling_obs.get("density"), sampling_obs.get("sectionsInScope"),
+                           sampling_obs.get("totals"), norm.get("gaps"), norm.get("p50Gap"),
+                           norm.get("maxGap"), phys.get("gaps"), phys.get("p50Gap"),
+                           phys.get("maxGap"), phys.get("triggered"), phys.get("maxRate"),
+                           sampling_obs.get("warpCloseLines"),
+                           sampling_obs.get("missingMirrors"),
+                           sampling_obs.get("findings") or "-"))
         if report_only:
             logger.warn("Verify", "saveParse recorded %d report-only mismatch(es) "
                                   "(not gating; arm with gating = true inside the "
@@ -3566,12 +3615,14 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         # ONE defect: the failing verifier's mismatch set must equal the declared one.
         observed_mismatches = hlib.expected_fail_observed_mismatches(
             base.subkind, facts.get("detail"))
+        ef_optional = ef.get(hlib.EXPECTED_FAIL_OPTIONAL_MISMATCHES_KEY)
         signature_matched = hlib.expected_fail_signature_matched(
-            base.verdict, base.subkind, ef_subkind, ef_mismatches, observed_mismatches)
+            base.verdict, base.subkind, ef_subkind, ef_mismatches, observed_mismatches,
+            ef_optional)
         if (bug_id and ef_mismatches is not None
                 and base.verdict == hlib.VERDICT_PARSEK_FAIL and not signature_matched):
             declared = set(ef_mismatches)
-            seen = set(observed_mismatches or [])
+            seen = set(observed_mismatches or []) - set(ef_optional or [])
             logger.warn("Classify", "expected-fail bugId=%s mismatch signature not met: "
                                     "runSubkind=%s unexpected=%s missing=%s (stays PARSEK-FAIL)"
                         % (bug_id, base.subkind, sorted(seen - declared),
@@ -4930,16 +4981,11 @@ def _load_bug_ids() -> List[str]:
     doc = os.path.join(WORKTREE_ROOT, "docs", "dev", "todo-and-known-bugs.md")
     if not os.path.isfile(doc):
         return []
-    import re
-    ids = set()
     try:
         with open(doc, "r", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                for m in re.findall(r"\b([A-Z]\d+[A-Za-z0-9-]*)\b", line):
-                    ids.add(m)
+            return hlib.parse_todo_bug_ids(fh.read())
     except OSError:
         return []
-    return sorted(ids)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

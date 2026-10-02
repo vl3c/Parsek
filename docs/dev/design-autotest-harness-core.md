@@ -347,6 +347,9 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 #   terminalStates / branchPoints / ghostChainNodes (M-C2/R9)                 -> ACTIVE (verifier 7b, report-only until gating = true)
 # [expectations.recordings.points] total / largest / smallest /
 #   trivialRecordings (gate 12)                                              -> ACTIVE (verifier 7b, report-only until gating = true)
+# [expectations.recordings.sampling] density + overMax / subMin / duplicates /
+#   backsteps / dirMisses / speedMisses / jumps / physGaps / physTriggered
+#   (recorder sampling quality over the sidecar mirrors, samplingq.py)      -> ACTIVE (verifier 7b, report-only until gating = true)
 # [expectations.routes] count / dormant / stops / sourceRefs / cycles /
 #   statuses / connectionKinds / origin+destinationBodies / ids /
 #   destinationVesselPids (M-C2/R9, the ROUTES node)                          -> ACTIVE (verifier 7b, report-only until gating = true)
@@ -411,8 +414,23 @@ stays PARSEK-FAIL under either rule. run.py Warn-logs the difference
 (`mismatch signature not met: runSubkind=... unexpected=[...] missing=[...]`) when a
 declared signature does not match a PARSEK-FAIL.
 
+**Save-structure signatures and optional tokens (2026-10-02, PWR-3).** `save-structure`
+joined the signature subkinds: the observed list is the row's ARMED mismatches
+(`verifiers.saveParse.armedMismatches`, block-prefixed window labels such as
+`recordings.sampling.jumps 1 != 0`; they embed the measured count, so a different
+magnitude reds as a different defect), and validation accepts only window mismatches of a
+block the spec arms. Separately, an OPT-IN `optionalMismatches` list (with a distinct,
+filed `optionalBugId`) relaxes the upper bound for ONE intermittent, already-filed second
+defect: a run demotes when every `mismatches` token is present and every observed token is
+in `mismatches` U `optionalMismatches`. The required half keeps the flip-loud property (a
+fixed required defect means no demotion), and anything outside the union still reds.
+Validation refuses `optionalMismatches` without `mismatches`, without `optionalBugId`, or
+with an `optionalBugId` equal to `bugId`; a `test_hlib` cell checks that every committed
+quarantine's bugId and optionalBugId are filed todo heading ids (`hlib.parse_todo_bug_ids`,
+which run.py also uses to resolve `bugId`). Every lane without the key keeps pure equality.
+
 The key is supported only for the subkinds in `hlib.EXPECTED_FAIL_SIGNATURE_SUBKINDS`,
-today `{expectation}`: its mismatch strings are deterministic literals built from the
+`{expectation, save-structure}` (the latter as above); for expectation: its mismatch strings are deterministic literals built from the
 spec's own patterns. (A `log-contract` PARSEK-FAIL is the C# log validator, which
 reports no per-token list; the gating save-structure / render-composition /
 ghost-lifecycle rows are armed by no committed spec and their strings embed measured

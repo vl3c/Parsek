@@ -75,8 +75,8 @@
 #                      capture spends up to ~600 GAME seconds at 1x in MechJeb's
 #                      own pre-ignition WARPALIGN hold.
 #   PARK               PARKED CONFIGURATION: throttle CUT, nodes CLEARED,
-#                      attitude HELD (SAS + RCS), rails at 1x, held across
-#                      parkDwellSeconds. IDENTICAL to B12 - the orbital coverage
+#                      attitude HELD (SAS + RCS), rails off, held across
+#                      parkDwellSeconds under 4x PHYSICS warp (#1958). IDENTICAL to B12 - the orbital coverage
 #                      is still recorded before the descent.
 # ---------------------------------------------------------------------------
 #   DESCENT            THE LANDER, and the only phase that differs from B12
