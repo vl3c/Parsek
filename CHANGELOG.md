@@ -1337,6 +1337,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Dev: an in-game test batch in the Tracking Station no longer orphans the ghost map
+  vessels.** Before a batch the test runner cleared Parsek's list of ghost map vessels without
+  removing the vessels, and in the Tracking Station nothing else removed them. They then read
+  as real vessels: the batch's two start-up saves counted them against the stock vessel
+  budget and dropped real debris, and the scene built a second set of ghosts beside them. The
+  runner now removes every registered ghost vessel first (the same removal the scene uses
+  when you leave it) and the Tracking Station rebuilds them a moment later; the in-game
+  `VesselBudget` check waits for the rebuilt ghosts instead of skipping. Flight batches are
+  unchanged. A live Tracking Station batch (VB-1 can restore its in-game step) is owed.
 - **Dev: the harness `DiscardTree` command now leaves a restored vessel idle.** On a
   recorded save the flight scene resumes the committed recording of the vessel you are
   flying, and keeps retrying that once a second while nothing records. A lane that stopped

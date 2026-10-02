@@ -10469,6 +10469,228 @@ namespace Parsek
         }
 
         /// <summary>
+        /// What the in-game test runner's between-run cleanup must destroy before
+        /// <see cref="ResetBetweenTestRuns"/> clears the ghost-map bookkeeping. Built by the
+        /// pure <see cref="PlanBetweenRunGhostVesselRemoval"/>.
+        /// </summary>
+        internal struct BetweenRunGhostVesselRemovalPlan
+        {
+            /// <summary>Ghost vessels held by the chain / recording-index / overlap maps;
+            /// destroyed through <see cref="RemoveAllGhostVessels"/>.</summary>
+            internal int TrackedVesselCount;
+
+            /// <summary>Live, non-dead vessels whose pid is a registered ghost pid but which no
+            /// tracking map holds (in live-list order, distinct). Destroyed one by one while
+            /// still registered, so every vessel-event guard keeps reading them as ghosts.</summary>
+            internal List<uint> UntrackedLivePids;
+
+            /// <summary>Registered ghost pids with no live vessel: bookkeeping only, cleared by
+            /// <see cref="ResetBetweenTestRuns"/>.</summary>
+            internal int StaleRegisteredPidCount;
+
+            internal bool RunTrackedRemoval => TrackedVesselCount > 0;
+
+            internal int UntrackedLiveCount => UntrackedLivePids?.Count ?? 0;
+
+            internal bool AnyRemoval => RunTrackedRemoval || UntrackedLiveCount > 0;
+        }
+
+        /// <summary>
+        /// PURE, Unity-free. Decides which ghost map vessels the between-run cleanup must
+        /// destroy so that no ghost ProtoVessel outlives its registration. Without this the
+        /// Tracking Station (no ParsekFlight, so nothing else destroys them) kept every ghost
+        /// in FlightGlobals.Vessels after the bookkeeping clear: they then read as REAL vessels
+        /// to every IsGhostMapVessel guard (stock vessel budget, StripFromSave) and the scene
+        /// built a second set beside them (todo INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS).
+        /// In FLIGHT, ParsekFlight.DestroyAllTimelineGhosts has already emptied every map and
+        /// the registered set, so the plan is empty there.
+        /// </summary>
+        /// <param name="trackedVesselCount">Entries across the chain, recording-index and
+        /// overlap-instance maps.</param>
+        /// <param name="trackedVesselPids">The pids of those entries.</param>
+        /// <param name="liveVesselPids">Pids of the live, non-dead vessels in
+        /// FlightGlobals.Vessels, in list order.</param>
+        /// <param name="registeredGhostPids">The registered ghost pid set.</param>
+        internal static BetweenRunGhostVesselRemovalPlan PlanBetweenRunGhostVesselRemoval(
+            int trackedVesselCount,
+            ICollection<uint> trackedVesselPids,
+            IReadOnlyList<uint> liveVesselPids,
+            ICollection<uint> registeredGhostPids)
+        {
+            var plan = new BetweenRunGhostVesselRemovalPlan
+            {
+                TrackedVesselCount = trackedVesselCount > 0 ? trackedVesselCount : 0,
+                UntrackedLivePids = new List<uint>(),
+                StaleRegisteredPidCount = 0,
+            };
+
+            if (registeredGhostPids == null || registeredGhostPids.Count == 0)
+                return plan;
+
+            var live = new HashSet<uint>();
+            if (liveVesselPids != null)
+            {
+                for (int i = 0; i < liveVesselPids.Count; i++)
+                {
+                    uint pid = liveVesselPids[i];
+                    if (pid == 0 || !live.Add(pid))
+                        continue;
+                    if (!registeredGhostPids.Contains(pid))
+                        continue;
+                    if (trackedVesselPids != null && trackedVesselPids.Contains(pid))
+                        continue;
+                    plan.UntrackedLivePids.Add(pid);
+                }
+            }
+
+            foreach (uint pid in registeredGhostPids)
+            {
+                if (!live.Contains(pid))
+                    plan.StaleRegisteredPidCount++;
+            }
+
+            return plan;
+        }
+
+        /// <summary>
+        /// PURE summary line for <see cref="RemoveRegisteredGhostVesselsBeforeTestReset"/>.
+        /// </summary>
+        internal static string FormatBetweenRunGhostVesselRemoval(
+            string reason,
+            string scene,
+            BetweenRunGhostVesselRemovalPlan plan,
+            int untrackedRemoved,
+            int liveVesselsBefore,
+            int liveVesselsAfter)
+        {
+            return string.Format(ic,
+                "Between-run ghost vessel removal: reason={0} scene={1} tracked={2} " +
+                "untrackedLive={3} untrackedRemoved={4} staleRegisteredPids={5} " +
+                "liveVesselsBefore={6} liveVesselsAfter={7}",
+                reason ?? "(null)",
+                scene ?? "(null)",
+                plan.TrackedVesselCount,
+                plan.UntrackedLiveCount,
+                untrackedRemoved,
+                plan.StaleRegisteredPidCount,
+                liveVesselsBefore,
+                liveVesselsAfter);
+        }
+
+        /// <summary>
+        /// The in-game test runner's between-run step that runs BEFORE
+        /// <see cref="ResetBetweenTestRuns"/>: destroys every ghost map vessel that is still
+        /// registered, through the same <c>Vessel.Die()</c> removal the scene teardowns use
+        /// (<see cref="RemoveAllGhostVessels"/> for the mapped ones, the single-ghost teardown
+        /// scope for any vessel registered by pid alone). The scene's own lifecycle then
+        /// rebuilds from a clean slate (the Tracking Station's next lifecycle tick creates the
+        /// ghosts again). <c>Vessel.Die()</c> on a non-active vessel removes it from
+        /// FlightGlobals.Vessels synchronously and marks it DEAD, so a save the runner writes
+        /// in the same frame no longer counts it. Untracked vessels die first, while still
+        /// registered, because the remove-all clears the registered set. The live list is
+        /// copied before any Die() so no removal mutates a list being iterated.
+        /// Returns the number of vessels destroyed.
+        /// </summary>
+        internal static int RemoveRegisteredGhostVesselsBeforeTestReset(string reason)
+        {
+            List<Vessel> liveVessels = FlightGlobals.Vessels;
+            var liveSnapshot = new List<Vessel>();
+            var livePids = new List<uint>();
+            if (liveVessels != null)
+            {
+                for (int i = 0; i < liveVessels.Count; i++)
+                {
+                    Vessel v = liveVessels[i];
+                    if (v == null || v.state == Vessel.State.DEAD)
+                        continue;
+                    liveSnapshot.Add(v);
+                    livePids.Add(v.persistentId);
+                }
+            }
+
+            int trackedCount = vesselsByChainPid.Count + vesselsByRecordingIndex.Count
+                + overlapInstanceVessels.Count;
+            var trackedPids = new HashSet<uint>();
+            foreach (Vessel v in vesselsByChainPid.Values)
+                if (v != null) trackedPids.Add(v.persistentId);
+            foreach (Vessel v in vesselsByRecordingIndex.Values)
+                if (v != null) trackedPids.Add(v.persistentId);
+            foreach (Vessel v in overlapInstanceVessels.Values)
+                if (v != null) trackedPids.Add(v.persistentId);
+
+            BetweenRunGhostVesselRemovalPlan plan = PlanBetweenRunGhostVesselRemoval(
+                trackedCount, trackedPids, livePids, ghostMapVesselPids);
+            string scene = HighLogic.LoadedScene.ToString();
+
+            if (!plan.AnyRemoval)
+            {
+                ParsekLog.Verbose(Tag,
+                    FormatBetweenRunGhostVesselRemoval(
+                        reason, scene, plan, 0, liveSnapshot.Count, liveSnapshot.Count)
+                    + " (no registered ghost vessel is live)");
+                return 0;
+            }
+
+            int untrackedRemoved = 0;
+            if (plan.UntrackedLiveCount > 0)
+            {
+                var untracked = new HashSet<uint>(plan.UntrackedLivePids);
+                var toKill = new List<Vessel>(plan.UntrackedLiveCount);
+                for (int i = 0; i < liveSnapshot.Count; i++)
+                {
+                    if (untracked.Remove(liveSnapshot[i].persistentId))
+                        toKill.Add(liveSnapshot[i]);
+                }
+
+                BeginGhostTeardown();
+                try
+                {
+                    for (int i = 0; i < toKill.Count; i++)
+                    {
+                        try
+                        {
+                            toKill[i].Die();
+                            untrackedRemoved++;
+                        }
+                        catch (Exception ex)
+                        {
+                            ParsekLog.Warn(Tag,
+                                string.Format(ic,
+                                    "Between-run ghost vessel removal: Die() threw for untracked pid={0}: {1}",
+                                    toKill[i].persistentId, ex.Message));
+                        }
+                    }
+                }
+                finally
+                {
+                    EndGhostTeardown();
+                }
+
+                for (int i = 0; i < toKill.Count; i++)
+                    ghostMapVesselPids.Remove(toKill[i].persistentId);
+            }
+
+            if (plan.RunTrackedRemoval)
+                RemoveAllGhostVessels(reason);
+
+            int liveAfter = 0;
+            List<Vessel> after = FlightGlobals.Vessels;
+            if (after != null)
+            {
+                for (int i = 0; i < after.Count; i++)
+                {
+                    if (after[i] != null && after[i].state != Vessel.State.DEAD)
+                        liveAfter++;
+                }
+            }
+
+            ParsekLog.Info(Tag,
+                FormatBetweenRunGhostVesselRemoval(
+                    reason, scene, plan, untrackedRemoved, liveSnapshot.Count, liveAfter));
+            return plan.TrackedVesselCount + untrackedRemoved;
+        }
+
+        /// <summary>
         /// Synchronous bookkeeping reset for the in-game test runner's between-run cleanup
         /// path (#417/#418). Clears the PID tracking HashSet, orbit bounds, and
         /// recording-index maps in one shot without calling vessel.Die(), under the
@@ -10480,7 +10702,9 @@ namespace Parsek
         ///
         /// Idempotent: safe to call when all dictionaries are already empty (emits a
         /// verbose no-op log). Does NOT call Die() on any vessel — those destructions
-        /// are the caller's responsibility via RemoveAllGhostVessels or engine cleanup.
+        /// are the caller's responsibility via RemoveAllGhostVessels or engine cleanup; the
+        /// runner calls RemoveRegisteredGhostVesselsBeforeTestReset first, so a scene with no
+        /// ParsekFlight (the Tracking Station) never keeps a ghost vessel past this clear.
         /// </summary>
         internal static void ResetBetweenTestRuns(string reason)
         {

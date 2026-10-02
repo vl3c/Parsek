@@ -1,6 +1,8 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using UnityEngine;
 
 namespace Parsek.InGameTests
 {
@@ -19,6 +21,14 @@ namespace Parsek.InGameTests
     /// build so stock cannot flag a live landed debris vessel for autoclean, and both settings
     /// plus the log observer are restored in <c>finally</c>. The built state is discarded.
     /// </para>
+    ///
+    /// <para>
+    /// The batch's between-run cleanup removes every ghost map vessel before the batch
+    /// starts (todo INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS) and the Tracking Station's
+    /// lifecycle tick rebuilds them a moment later, so the cell waits (bounded) for the
+    /// rebuilt ghosts instead of reading the scene in the gap. It skips only when none
+    /// appear within the bound, which means the save holds no in-window orbital recording.
+    /// </para>
     /// </summary>
     public class FlightStateGhostBudgetInGameTest
     {
@@ -26,34 +36,39 @@ namespace Parsek.InGameTests
             Description = "A real FlightState() build excludes ghost map vessels from "
                 + "MAX_VESSELS_BUDGET: at a budget equal to the real-vessel count no real vessel "
                 + "is dropped, the patch logs the exact adjustment, and the budget is restored")]
-        public void FlightStateBuild_GhostMapVessels_DoNotCountAgainstVesselBudget()
+        public IEnumerator FlightStateBuild_GhostMapVessels_DoNotCountAgainstVesselBudget()
         {
-            List<Vessel> vessels = FlightGlobals.Vessels;
-            if (vessels == null)
+            if (FlightGlobals.Vessels == null)
             {
                 InGameAssert.Skip("FlightGlobals.Vessels unavailable");
-                return;
+                yield break;
             }
 
             int ghosts = 0;
             int real = 0;
-            for (int i = 0; i < vessels.Count; i++)
+            float waitStart = Time.realtimeSinceStartup;
+            float deadline = waitStart + GhostRebuildTimeoutSeconds;
+            while (true)
             {
-                Vessel v = vessels[i];
-                if (v == null || v.state == Vessel.State.DEAD)
-                    continue;
-                if (GhostMapPresence.IsGhostMapVessel(v.persistentId))
-                    ghosts++;
-                else
-                    real++;
+                CountLiveVessels(out ghosts, out real);
+                if (ghosts > 0 || Time.realtimeSinceStartup >= deadline)
+                    break;
+                yield return null;
             }
 
             if (ghosts == 0)
             {
-                InGameAssert.Skip("needs at least one ghost map vessel in the Tracking Station "
-                    + "(a committed recording with an orbital ghost); found none");
-                return;
+                InGameAssert.Skip(string.Format(CultureInfo.InvariantCulture,
+                    "needs at least one ghost map vessel in the Tracking Station (a committed "
+                    + "recording with an in-window orbital ghost); none appeared within {0:F0} s "
+                    + "of the batch start",
+                    GhostRebuildTimeoutSeconds));
+                yield break;
             }
+
+            ParsekLog.Info("TestRunner", string.Format(CultureInfo.InvariantCulture,
+                "FlightStateGhostBudget: {0} ghost map vessel(s) present after {1:F2} s",
+                ghosts, Time.realtimeSinceStartup - waitStart));
 
             int savedBudget = GameSettings.MAX_VESSELS_BUDGET;
             bool savedDeclutter = GameSettings.DECLUTTER_KSC;
@@ -124,6 +139,29 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(logged,
                 "the Harmony patch must reach the real FlightState() and log '"
                 + expectedFragment + "' with '" + expectedBudget + "' " + counts);
+        }
+
+        // The Tracking Station lifecycle ticks every 0.25 s; the bound only has to cover a
+        // rebuild after the batch's between-run ghost removal, with margin for a slow frame.
+        private const float GhostRebuildTimeoutSeconds = 15f;
+
+        private static void CountLiveVessels(out int ghosts, out int real)
+        {
+            ghosts = 0;
+            real = 0;
+            List<Vessel> vessels = FlightGlobals.Vessels;
+            if (vessels == null)
+                return;
+            for (int i = 0; i < vessels.Count; i++)
+            {
+                Vessel v = vessels[i];
+                if (v == null || v.state == Vessel.State.DEAD)
+                    continue;
+                if (GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                    ghosts++;
+                else
+                    real++;
+            }
         }
     }
 }
