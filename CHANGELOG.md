@@ -2410,7 +2410,8 @@ _(unreleased — entries accumulate here per commit)_
 ### Changed
 
 - **Logistics window redesign (Model 1).** Each route row is now two lines: the route name
-  over a grey "KSC -> Depot Station Duna I" line (the separate Origin and Destination
+  over a grey "KSC to Depot Station Duna I" line, drawn with the same arrow as the route
+  names (the separate Origin and Destination
   columns are gone), then what each run delivers, how often it runs, the next run as the
   Missions-style amber countdown ("T- 1y 291d", " (!)" when the last run was held, exact
   date on hover), and ONE Status word with a short reason that replaces the old Status and
@@ -2425,7 +2426,11 @@ _(unreleased — entries accumulate here per commit)_
   and the running total, and "Built from mission 'X'.". In Basic mode the interval is shown
   read-only ("every 4.0d") and the Runs column, Every / Priority steppers, round-trip linking,
   recent-run history and the flight list are Advanced-only; switching to Basic closes an open
-  link picker and drops a half-typed interval. Player text says "run" and "flight" instead
+  link picker and drops a half-typed interval. A broken route's greyed Send says why
+  ("Stopped: destination lost. Fix or delete the route first"), a destination hold ends
+  "delivers when it has room for the full load", and creating a route over a mission that
+  was repeating on its own now says "Mission 'X' now repeats only on this route's
+  schedule." instead of a loop / tree message. Player text says "run" and "flight" instead
   of cycle, dispatch, tree and recording; the Candidates destination names the place
   instead of raw coordinates, and the create dialog says "Destination:".
 

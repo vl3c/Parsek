@@ -46,22 +46,22 @@ namespace Parsek
         /// <summary>DestinationFull, inventory-slot shortfall whose stored part cannot be named.</summary>
         internal const string DestinationNoInventorySlot =
             "destination has no free inventory slot for a stored part"
-            + " - delivers when it has room for the full manifest";
+            + " - delivers when it has room for the full load";
 
         /// <summary>DestinationFull, inventory-slot shortfall naming the stored part.</summary>
         internal const string DestinationNoInventorySlotForNamedPart =
             "destination has no free inventory slot for stored part '{0}'"
-            + " - delivers when it has room for the full manifest";
+            + " - delivers when it has room for the full load";
 
         /// <summary>DestinationFull with no resource named in the token.</summary>
         internal const string DestinationNoRoomForDelivery =
             "destination has no room for the delivery"
-            + " - delivers when it has room for the full manifest";
+            + " - delivers when it has room for the full load";
 
         /// <summary>DestinationFull naming the resource the destination cannot take.</summary>
         internal const string DestinationNoRoomForResource =
             "destination has no room for {0}"
-            + " - delivers when it has room for the full manifest";
+            + " - delivers when it has room for the full load";
 
         /// <summary>EndpointLost on an "origin-*" token (the origin resolver failed).</summary>
         internal const string OriginVesselNotFound =

@@ -550,12 +550,14 @@ Seven of the eleven are ordinary census lanes on committed hosts (`GUI-13`..`GUI
 THE OTHER FOUR ARE A NEW SHAPE: `GUI-20`..`GUI-23` CLONE the `RVR-8` / `RVR-10` /
 `RVR-13` / `RVR-17` driver chains and append a census capture tail, which no non-GUI spec
 had ever carried. They exist because the Logistics window's whole failure vocabulary - the
-`Held:` status-cell override, the yellow `Last cycle blocked: ...` detail line, the
-`Delivering` badge, `Recent cycles:`, `Cycle = N / M skipped` - is only on screen while a
-route is actually holding, and no static fixture can be in that state. The clones
-deliberately declare NO `[expectations.routes]` block: the ORIGINALS keep that gating, and
-dropping it is what lets a clone append the extra `TimeJump` that ages a hold into its
-`(checked N ago)` form without reding a cycle-count window. RVR-14's clone was DROPPED
+`Held:` Status cell, the yellow dated `Last run held on <date>: ...` detail line,
+`Recent runs:`, the Runs column's `N, M held` (all as reworded by Logistics Model 1,
+2026-10-02; the lanes were designed against the earlier `Last cycle blocked: ... (checked N
+ago)` line, the separate Delivery badge and the `Cycle = N / M skipped` column) - is only on
+screen while a route is actually holding, and no static fixture can be in that state. The
+clones deliberately declare NO `[expectations.routes]` block: the ORIGINALS keep that
+gating, and dropping it is what lets a clone append the extra `TimeJump` that moves a held
+run's date (it aged the old `(checked N ago)` suffix) without reding a cycle-count window. RVR-14's clone was DROPPED
 rather than written - its required-token set is byte-identical to RVR-13's and its hold
 renders the same literal, so it reaches no distinct window state.
 
@@ -567,10 +569,10 @@ renders the same literal, so it reaches no distinct window state.
 | `GUI-16-census-gloops-states` | `b2-lko-craft` (FLIGHT) | the Gloops recorder RECORDING and holding a finished TAKE (all four existing Gloops captures are the same IDLE state), plus the Settings Interface section with `Basic` greyed and its extended hint while that recording runs |
 | `GUI-17-census-missions-loop-mun` / `GUI-18-census-missions-loop-duna` | `mun-orbit-recorded` / `duna-direct-recorded` (FLIGHT - `MissionConfig` is `RequiresFlight`) | the Missions tab with a loop ARMED: eight states behind one switch, against every prior dump reading `value=False`. The pair takes the two LABEL forms of the period cell (phase-locked, re-aim), which are a different control set from the editable field rather than a different string |
 | `GUI-19-census-timeline-supersede` | `refly-a-recorded` (FLIGHT) | the Timeline window over the one committed fixture carrying a `RECORDING_SUPERSEDES` entry, across all four tabs in FLIGHT - three of which had ZERO captures in that scene, and FLIGHT is the only scene the `W` column draws in. Plus the third and last period rendering, the editable form |
-| `GUI-20-census-logistics-hold-second-cycle` | RVR-8's `rover-relay-c-recorded` (FLIGHT) | the richest of the four clones, because RVR-8 delivers a cycle before it blocks: the Paused row with its aged hold detail line, `Recent cycles:`, `Last cycle:`, `Total delivered:`, `Cycle = 1 / 1 skipped` - then the ACTIVE section with `Pause`, the `Delivering` badge and (declared a MAY) the `Held:` override |
-| `GUI-21-census-logistics-hold-origin-empty` | RVR-10's host + its `liveState` patch (FLIGHT) | the `OriginLacksCargo` hold over a drained source, the cyan `New (not yet run)` cell with its send-once guidance line, `Cycle = 0 / 1 skipped`, and NO `Recent cycles:` header - a blocked cycle emits no ledger cargo rows, so the ABSENCE is the state |
+| `GUI-20-census-logistics-hold-second-cycle` | RVR-8's `rover-relay-c-recorded` (FLIGHT) | the richest of the four clones, because RVR-8 delivers a cycle before it blocks: the Paused row with its dated hold detail line, `Recent runs:`, the dated `Last delivered on <date>: ...` line, Runs `1, 1 held` - then the ACTIVE section with `Pause` and the `Held:` Status cell (declared a MAY) |
+| `GUI-21-census-logistics-hold-origin-empty` | RVR-10's host + its `liveState` patch (FLIGHT) | the `OriginLacksCargo` hold over a drained source, the yellow `Held:` Status cell on the PAUSED row (the cyan `New (not yet run)` cell and guidance line it was designed for are gone since Logistics Model 1), Runs `0, 1 held`, and NO `Recent runs:` header - a blocked run emits no ledger cargo rows, so the ABSENCE is the state |
 | `GUI-22-census-logistics-hold-destination-full` | RVR-13's host + its `liveState` patch (FLIGHT) | the `DestinationFull` hold over a topped-out endpoint. The `<dest> tanks full:` capacity line is NOT bought and cannot be: it is gated on `RouteStatus == DestinationFull`, which the loop dispatch path never assigns |
-| `GUI-23-census-logistics-hold-funds-short` | RVR-17's `rover-route-career` (FLIGHT) | the `FundsShort` hold on the CAREER route host, and `Cycle = 0 / 2 skipped` - the only two-skip reading of the four |
+| `GUI-23-census-logistics-hold-funds-short` | RVR-17's `rover-route-career` (FLIGHT) | the `FundsShort` hold on the CAREER route host, and Runs `0, 2 held` - the only two-held reading of the four |
 
 WAVE 6 (authored AND FLOWN 2026-09-22, all four PASS on attempt 1 at 55-88 s wall, nine
 flights on one pinned DLL) is FOUR lanes, `GUI-24` through `GUI-27`, and its input is

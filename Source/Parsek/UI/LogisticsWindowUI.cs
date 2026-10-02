@@ -407,7 +407,7 @@ namespace Parsek
             public string CumulativeText;    // "1240.0 LiquidFuel, 30.0 Oxidizer" or "(none)"
             public string LastDeliveredLine;
 
-            // The Route cell's second line ("KSC -> Depot Station Duna I") and its hover
+            // The Route cell's second line ("KSC [U+2192] Depot Station Duna I") and its hover
             // (the full origin and destination incl. coordinates), plus the destination
             // name alone (the Delivers line and the Destination sort key). Resolved here
             // because an unresolved surface endpoint does an O(vessels) FlightGlobals scan.
@@ -1316,7 +1316,7 @@ namespace Parsek
             GUILayout.Label(rowNum.ToString(CultureInfo.InvariantCulture), GUILayout.Width(ColW_Num));
 
             // Route: line 1 the caret + name (click to expand), line 2 the grey
-            // "KSC -> Depot Station Duna I" at the same font size; the hover carries the
+            // "KSC [U+2192] Depot Station Duna I" at the same font size; the hover carries the
             // full origin and destination including coordinates.
             GUILayout.BeginVertical(GUILayout.ExpandWidth(true));
             string arrow = expanded ? "▼" : "▶";
@@ -1360,7 +1360,8 @@ namespace Parsek
             GUILayout.Label(new GUIContent(leg.Status.Text ?? "-", leg.StatusTooltip ?? string.Empty),
                 WrapStatusStyleFor(leg.Status.Color), GUILayout.Width(ColW_Status));
 
-            DrawRouteInteractCell(route, section, sendingOnce, pausingAfterRun);
+            DrawRouteInteractCell(route, section, sendingOnce, pausingAfterRun,
+                LogisticsRoutePresentation.BrokenShortReason(leg.Status));
 
             GUILayout.EndHorizontal();
 
@@ -1377,7 +1378,8 @@ namespace Parsek
         /// carries its reason to the hover strip (DisabledHoverEcho). Deliberate difference
         /// from Missions: Log is a pair half here, because Logistics has no name-cell grid.
         /// </summary>
-        private void DrawRouteInteractCell(Route route, RouteSection section, bool sendingOnce, bool pausingAfterRun)
+        private void DrawRouteInteractCell(Route route, RouteSection section, bool sendingOnce, bool pausingAfterRun,
+            string brokenReason)
         {
             bool armed = sendingOnce || pausingAfterRun;
             GUILayout.BeginVertical(GUILayout.Width(MissionsWindowUI.ColW_Interact));
@@ -1415,7 +1417,7 @@ namespace Parsek
             GUILayout.BeginHorizontal();
             GUILayout.Space(MissionsWindowUI.InteractCellInset);
             string sendReason = LogisticsRoutePresentation.SendDisabledReason(
-                section == RouteSection.Active, armed);
+                section == RouteSection.Active, armed, brokenReason);
             bool sendEnabled = string.IsNullOrEmpty(sendReason);
             bool prev = GUI.enabled;
             GUI.enabled = sendEnabled;
@@ -2524,9 +2526,13 @@ namespace Parsek
                 shortIds.Add(ShortId(id));
             }
 
-            ParsekLog.Verbose("UI",
+            // Built on every draw pass of an expanded Advanced route, so the summary is
+            // rate-limited per route; a changed resolved count prints at once (it is in the key).
+            ParsekLog.VerboseRateLimited("UI",
+                "flights-used-" + (route.Id ?? "<no-id>") + "-" + resolved.ToString(CultureInfo.InvariantCulture),
                 $"Logistics: flights used line route={ShortId(route.Id)} " +
-                $"resolved={resolved.ToString(CultureInfo.InvariantCulture)}/{route.RecordingIds.Count.ToString(CultureInfo.InvariantCulture)}");
+                $"resolved={resolved.ToString(CultureInfo.InvariantCulture)}/{route.RecordingIds.Count.ToString(CultureInfo.InvariantCulture)}",
+                30.0);
             return (LogisticsRoutePresentation.FormatFlightsUsed(names, shortIds), string.Join(", ", shortIds));
         }
 
@@ -3158,11 +3164,13 @@ namespace Parsek
                 // callback / frame-reset field), so the QW2 trap does not apply.
                 if (LogisticsCreatePresentation.ShouldToastManualLoopCleared(outcome.ManualLoopsCleared))
                 {
-                    string treeName = ResolveMissionDisplayName(ResolveRouteSourceTreeId(outcome.Route));
-                    string toast = LogisticsCreatePresentation.FormatManualLoopTurnedOffToast(treeName);
+                    // The ORIGINAL mission's name (clones share the tree), else the tree's name.
+                    string sourceTreeId = ResolveRouteSourceTreeId(outcome.Route);
+                    string missionName = ResolveMissionDisplayName(sourceTreeId);
+                    string toast = LogisticsCreatePresentation.FormatMissionNowRepeatsOnRouteToast(missionName);
                     ParsekLog.ScreenMessage(toast, 5f);
                     ParsekLog.Info("UI",
-                        $"Logistics: manual loop turned off by create route={ShortId(outcome.Route.Id)} tree='{treeName}' cleared={outcome.ManualLoopsCleared.ToString(CultureInfo.InvariantCulture)} (toast posted)");
+                        $"Logistics: manual loop turned off by create route={ShortId(outcome.Route.Id)} tree={ShortId(sourceTreeId)} mission='{missionName}' cleared={outcome.ManualLoopsCleared.ToString(CultureInfo.InvariantCulture)} (toast posted)");
                 }
                 ParsekLog.Info("UI",
                     $"Logistics: Create Route from candidate tree={ShortId(candidate.Tree.Id)} -> route={ShortId(outcome.Route.Id)} name='{outcome.Route.Name}' (Paused, interval={interval.ToString("R", CultureInfo.InvariantCulture)}s)");

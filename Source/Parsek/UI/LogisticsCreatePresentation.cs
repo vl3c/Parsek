@@ -60,12 +60,14 @@ namespace Parsek
             => clearedCount > 0;
 
         /// <summary>
-        /// The one-shot screen toast posted when a Create Route disables an existing
-        /// manual loop on the route's source mission: "Manual loop on mission
-        /// '&lt;mission&gt;' turned off: a supply route now repeats it". Pure for unit
+        /// The one-shot screen toast posted when a Create Route took over a mission that was
+        /// repeating on its own: "Mission '&lt;mission&gt;' now repeats only on this route's
+        /// schedule." It can fire in Basic, which has no loop control, so it names the
+        /// effect without the word. <paramref name="missionName"/> is the source tree's
+        /// ORIGINAL mission name (the window falls back to the tree's name). Pure for unit
         /// testing; the window posts it via <c>ParsekLog.ScreenMessage</c>.
         /// </summary>
-        internal static string FormatManualLoopTurnedOffToast(string missionName)
-            => $"Manual loop on mission '{missionName}' turned off: a supply route now repeats it";
+        internal static string FormatMissionNowRepeatsOnRouteToast(string missionName)
+            => $"Mission '{missionName}' now repeats only on this route's schedule.";
     }
 }

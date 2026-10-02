@@ -307,12 +307,12 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void FromTo_ShortOriginAndDestination()
         {
-            Assert.Equal("KSC -> Depot Station Duna I",
+            Assert.Equal("KSC \u2192 Depot Station Duna I",
                 LogisticsRoutePresentation.FormatFromTo(
                     LogisticsRoutePresentation.FormatOriginShort(true, false, null), "Depot Station Duna I"));
             Assert.Equal("Harvested", LogisticsRoutePresentation.FormatOriginShort(false, true, null));
             Assert.Equal("Depot A", LogisticsRoutePresentation.FormatOriginShort(false, false, "Depot A"));
-            Assert.Equal("- -> -", LogisticsRoutePresentation.FormatFromTo(null, ""));
+            Assert.Equal("- \u2192 -", LogisticsRoutePresentation.FormatFromTo(null, ""));
         }
 
         [Fact]
@@ -375,6 +375,33 @@ namespace Parsek.Tests.Logistics
                 LogisticsRoutePresentation.SendDisabledReason(true, false));
             Assert.StartsWith("Already armed",
                 LogisticsRoutePresentation.SendDisabledReason(false, true));
+        }
+
+        // catches: a broken route in the Active table explaining its greyed Send with
+        // "Already running on its schedule" - it is not running at all.
+        [Fact]
+        public void SendDisabledReason_BrokenRouteSaysStoppedAndWins()
+        {
+            var cell = LogisticsRoutePresentation.ClassifyStatus(
+                RouteStatus.EndpointLost, false, false, null, 3, false);
+            string broken = LogisticsRoutePresentation.BrokenShortReason(cell);
+            Assert.Equal("destination lost", broken);
+            Assert.Equal("Stopped: destination lost. Fix or delete the route first",
+                LogisticsRoutePresentation.SendDisabledReason(true, false, broken));
+            Assert.Equal("flight missing", LogisticsRoutePresentation.BrokenShortReason(
+                LogisticsRoutePresentation.ClassifyStatus(RouteStatus.MissingSourceRecording, false, false, null, 0, false)));
+            Assert.Equal("flight changed", LogisticsRoutePresentation.BrokenShortReason(
+                LogisticsRoutePresentation.ClassifyStatus(RouteStatus.SourceChanged, false, false, null, 0, false)));
+            Assert.Null(LogisticsRoutePresentation.BrokenShortReason(
+                LogisticsRoutePresentation.ClassifyStatus(RouteStatus.Active, false, false, null, 3, false)));
+        }
+
+        // The from/to line uses the same arrow glyph as the default route names.
+        [Fact]
+        public void FromTo_UsesTheRouteNameArrow()
+        {
+            Assert.Contains("\u2192", LogisticsRoutePresentation.FromToArrow);
+            Assert.DoesNotContain("->", LogisticsRoutePresentation.FormatFromTo("KSC", "Depot"));
         }
 
         // The armed labels fit the 100 px single (the long words live in the Status cell).

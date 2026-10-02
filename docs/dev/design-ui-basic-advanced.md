@@ -324,7 +324,7 @@ Logistics Model 1 (owner decisions 1a, 2b, 3a, 4a, 5b) redesigned the route tabl
 | Hidden in Basic | Kept in Basic |
 |---|---|
 | The editable Every stepper (row and detail) | The Every column, read-only ("every 4.0d", "every 2nd window") |
-| The Runs column ("3, 1 held") | Route (name + grey "KSC -> Depot" line), Delivers, Next (the Missions amber countdown), the merged Status cell |
+| The Runs column ("3, 1 held") | Route (name + grey "KSC -> Depot" line, U+2192 arrow as in route names), Delivers, Next (the Missions amber countdown), the merged Status cell |
 | Priority stepper | Activate / Pause, Send, Log (the Interact column) |
 | Link round-trip... / Unlink and the link picker | The round-trip pairing note when a route is linked |
 | Recent runs, Flights used | Delivers each run, next run, dated hold / partial lines, Last delivered, run cost, "Built from mission 'X'." |

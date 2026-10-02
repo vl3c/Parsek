@@ -158,12 +158,12 @@ namespace Parsek
             {
                 case RouteStatus.EndpointLost:
                     return Cell(StatusWord.Broken,
-                        originLost ? "Broken: origin lost" : "Broken: destination lost",
+                        originLost ? BrokenPrefix + "origin lost" : BrokenPrefix + "destination lost",
                         ParsekUI.StatusColorKind.Red);
                 case RouteStatus.MissingSourceRecording:
-                    return Cell(StatusWord.Broken, "Broken: flight missing", ParsekUI.StatusColorKind.Red);
+                    return Cell(StatusWord.Broken, BrokenPrefix + "flight missing", ParsekUI.StatusColorKind.Red);
                 case RouteStatus.SourceChanged:
-                    return Cell(StatusWord.Broken, "Broken: flight changed", ParsekUI.StatusColorKind.Red);
+                    return Cell(StatusWord.Broken, BrokenPrefix + "flight changed", ParsekUI.StatusColorKind.Red);
             }
 
             if (sendingOnce)
@@ -266,6 +266,22 @@ namespace Parsek
         internal static string StatusSortKey(StatusCell cell)
         {
             return cell.Text ?? string.Empty;
+        }
+
+        private const string BrokenPrefix = "Broken: ";
+
+        /// <summary>
+        /// The short reason of a Broken Status cell ("destination lost", "flight missing",
+        /// "flight changed"), or null for any other word. The Send button's greyed reason
+        /// reads it.
+        /// </summary>
+        internal static string BrokenShortReason(StatusCell cell)
+        {
+            if (cell.Word != StatusWord.Broken || string.IsNullOrEmpty(cell.Text))
+                return null;
+            return cell.Text.StartsWith(BrokenPrefix, StringComparison.Ordinal)
+                ? cell.Text.Substring(BrokenPrefix.Length)
+                : cell.Text;
         }
 
         // ------------------------------------------------------------------
@@ -382,11 +398,18 @@ namespace Parsek
             return string.IsNullOrEmpty(originVesselName) ? "-" : originVesselName;
         }
 
-        /// <summary>The Route cell's grey second line: "KSC -> Depot Station Duna I".</summary>
+        /// <summary>
+        /// The arrow between a route's two ends: U+2192, the glyph the default route names
+        /// already draw ("Route: KSC [U+2192] Duna", <c>RouteCreationFormatters</c>), so the
+        /// name and the line under it read alike in the same font.
+        /// </summary>
+        internal const string FromToArrow = " \u2192 ";
+
+        /// <summary>The Route cell's grey second line: "KSC [U+2192] Depot Station Duna I".</summary>
         internal static string FormatFromTo(string originShort, string destination)
         {
             return (string.IsNullOrEmpty(originShort) ? "-" : originShort)
-                + " -> " + (string.IsNullOrEmpty(destination) ? "-" : destination);
+                + FromToArrow + (string.IsNullOrEmpty(destination) ? "-" : destination);
         }
 
         // ------------------------------------------------------------------
@@ -523,11 +546,14 @@ namespace Parsek
 
         /// <summary>
         /// Why the Send button is greyed, or empty when it is live. Send makes one run of a
-        /// paused route; a running route is already on its schedule, and an armed one is
-        /// already doing what Send would ask.
+        /// paused route; a broken route cannot run at all (<paramref name="brokenReason"/>,
+        /// the short reason of its "Broken: ..." Status cell), a running route is already on
+        /// its schedule, and an armed one is already doing what Send would ask.
         /// </summary>
-        internal static string SendDisabledReason(bool inActiveTable, bool armed)
+        internal static string SendDisabledReason(bool inActiveTable, bool armed, string brokenReason = null)
         {
+            if (!string.IsNullOrEmpty(brokenReason))
+                return "Stopped: " + brokenReason + ". Fix or delete the route first";
             if (armed)
                 return "Already armed: this route finishes the run it is making first";
             if (inActiveTable)

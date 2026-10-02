@@ -950,13 +950,13 @@ share one sort state). Every row is two lines tall:
 | # | column | width | Basic | Advanced | value |
 |---|---|---|---|---|---|
 | 1 | `#` | 30 | yes | yes | display position; not sortable |
-| 2 | Route | expand | yes | yes | line 1 caret + `route.Name`; line 2 grey (`MissionsWindowUI.MissionSummaryTextColor`, same font) `KSC -> Depot Station Duna I` (a multi-stop route `Depot (+2 stops)`; an unresolved endpoint names the place, never coordinates). Hover: the full origin and destination with coordinates. Sorts by name |
+| 2 | Route | expand | yes | yes | line 1 caret + `route.Name`; line 2 grey (`MissionsWindowUI.MissionSummaryTextColor`, same font; measured 199/255 in the GUI-3 capture against 230 for row text, identical to the Missions summary line) `KSC -> Depot Station Duna I` (drawn with U+2192, the arrow the default route names use) (a multi-stop route `Depot (+2 stops)`; an unresolved endpoint names the place, never coordinates). Hover: the full origin and destination with coordinates. Sorts by name |
 | 3 | Delivers | 200 | yes | yes | per-run manifest (wraps); hover `Delivers each run: ... to <destination>.` Not sortable |
 | 4 | Every | 150 | read-only `every 4.0d` / `every 2nd window` | inline `[-] field [+] Nx` stepper | a Send-armed route shows the read-only form in both modes |
 | 5 | Runs | 80 | no | yes | `3` or `3, 1 held` |
 | 6 | Next | 135 | yes | yes | the Missions countdown exactly: amber `T- ` + `FormatCountdownCompact`, ` (!)` when the last run was held; grey `-` when no run is scheduled (a Paused route not armed by Send). Hover: the exact date |
 | 7 | Status | 260 | yes | yes | ONE colour-coded word + short reason (`LogisticsRoutePresentation.ClassifyStatus`): `Delivering` green, `Scheduled` white, `Held: ...` yellow (on Paused rows too), `Paused` grey, `New` cyan, `Sending one run` / `Pausing after this run` cyan, `Broken: destination lost` / `flight missing` / `flight changed` red. Replaces the old Status + Delivery columns. Hover: one dated sentence, never the raw enum |
-| 8 | Interact | 116 | yes | yes | centred header; Missions Model 1 shape (100 px single, two 48 px halves, 8 px inset, the Missions constants): line 1 `Activate` (Paused) / `Pause` (Active) / greyed `Sending...` / `Pausing...`; line 2 `Send` (live only on an unarmed Paused row, greyed with its reason otherwise) and `Log` (the source mission's Log, greyed with its reason when there is none) |
+| 8 | Interact | 116 | yes | yes | centred header; Missions Model 1 shape (100 px single, two 48 px halves, 8 px inset, the Missions constants): line 1 `Activate` (Paused) / `Pause` (Active) / greyed `Sending...` / `Pausing...`; line 2 `Send` (live only on an unarmed Paused row, greyed with its reason otherwise: running, armed, or `Stopped: <reason>. Fix or delete the route first` on a broken route) and `Log` (the source mission's Log, greyed with its reason when there is none) |
 
 The fixed columns total 891 px in Basic and 971 in Advanced; `MinWindowWidth` stays 1410 in both
 modes, so a switch never resizes the window and Route keeps over 400 px. The retired sort members

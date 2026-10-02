@@ -315,7 +315,7 @@ namespace Parsek.Tests.Logistics
         public void DescribeHold_DestinationFull_Named()
         {
             Assert.Equal(
-                "destination has no room for Ore - delivers when it has room for the full manifest",
+                "destination has no room for Ore - delivers when it has room for the full load",
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, "Ore", 0.0));
         }
 
@@ -326,7 +326,7 @@ namespace Parsek.Tests.Logistics
         public void DescribeHold_DestinationFull_StoredPart()
         {
             Assert.Equal(
-                "destination has no free inventory slot for stored part 'evaJetpack' - delivers when it has room for the full manifest",
+                "destination has no free inventory slot for stored part 'evaJetpack' - delivers when it has room for the full load",
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, "stored-part:evaJetpack", 0.0));
             // Legacy-wrapped shape lands on the same text.
             Assert.Equal(
@@ -334,7 +334,7 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, "destination-full-stored-part:evaJetpack", 0.0));
             // Empty part tail: category text, never a broken quote.
             Assert.Equal(
-                "destination has no free inventory slot for a stored part - delivers when it has room for the full manifest",
+                "destination has no free inventory slot for a stored part - delivers when it has room for the full load",
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, "stored-part:", 0.0));
         }
 
@@ -343,10 +343,10 @@ namespace Parsek.Tests.Logistics
         public void DescribeHold_DestinationFull_Unnamed()
         {
             Assert.Equal(
-                "destination has no room for the delivery - delivers when it has room for the full manifest",
+                "destination has no room for the delivery - delivers when it has room for the full load",
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, "", 0.0));
             Assert.Equal(
-                "destination has no room for the delivery - delivers when it has room for the full manifest",
+                "destination has no room for the delivery - delivers when it has room for the full load",
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, null, 0.0));
         }
 

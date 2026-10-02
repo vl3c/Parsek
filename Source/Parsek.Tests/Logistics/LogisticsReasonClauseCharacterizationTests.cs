@@ -130,21 +130,21 @@ namespace Parsek.Tests.Logistics
             // -- DestinationFull --
             c.Add(C("DestinationNoInventorySlotGeneric",
                 "destination has no free inventory slot for a stored part"
-                    + " - delivers when it has room for the full manifest",
+                    + " - delivers when it has room for the full load",
                 LogisticsHoldPresentation.DescribeHold(
                     DestinationFull, "destination-full-stored-part:", 0.0)));
             c.Add(C("DestinationNoInventorySlotNamed",
                 "destination has no free inventory slot for stored part 'radialDrill'"
-                    + " - delivers when it has room for the full manifest",
+                    + " - delivers when it has room for the full load",
                 LogisticsHoldPresentation.DescribeHold(
                     DestinationFull, "destination-full-stored-part:radialDrill", 0.0)));
             c.Add(C("DestinationNoRoomGeneric",
                 "destination has no room for the delivery"
-                    + " - delivers when it has room for the full manifest",
+                    + " - delivers when it has room for the full load",
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, "destination-full-", 0.0)));
             c.Add(C("DestinationNoRoomForResource",
                 "destination has no room for LiquidFuel"
-                    + " - delivers when it has room for the full manifest",
+                    + " - delivers when it has room for the full load",
                 LogisticsHoldPresentation.DescribeHold(
                     DestinationFull, "destination-full-LiquidFuel", 0.0)));
 
