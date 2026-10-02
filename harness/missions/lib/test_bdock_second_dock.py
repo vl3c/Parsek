@@ -64,7 +64,8 @@ INTERCEPTOR_FRAMES = [
     snap(ut=460.0),                                                  # -> SET-TARGET
     snap(ut=470.0, target_set=True),                                 # -> RENDEZVOUS
     snap(ut=480.0, mj_rendezvous_enabled=True, target_distance=5000.0),
-    snap(ut=490.0, mj_rendezvous_enabled=False, target_distance=80.0),  # -> MATCH
+    snap(ut=490.0, mj_rendezvous_enabled=False, target_distance=80.0,
+            target_rel_speed=0.3),  # -> MATCH
     snap(ut=500.0, target_rel_speed=0.5),                            # -> DOCK
     snap(ut=505.0, target_distance=90.0),
     snap(ut=510.0, mj_docking_enabled=True, docking_state="Docking", target_distance=50.0),

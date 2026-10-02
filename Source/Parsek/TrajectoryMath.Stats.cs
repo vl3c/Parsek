@@ -30,10 +30,8 @@ namespace Parsek
             double lat0 = rec.Points[0].latitude;
             double lon0 = rec.Points[0].longitude;
             string body0 = rec.Points[0].bodyName ?? "Kerbin";
-            int firstPointSectionIdx = FindTrackSectionForUT(rec.TrackSections, rec.Points[0].ut);
-            ReferenceFrame firstPointFrame = firstPointSectionIdx >= 0
-                ? rec.TrackSections[firstPointSectionIdx].referenceFrame
-                : ReferenceFrame.Absolute;
+            ReferenceFrame firstPointFrame =
+                ResolvePointFrameForStats(rec.TrackSections, rec.Points[0].ut);
 
             ApplyTrackSectionAltitudeMetadata(rec.TrackSections, ref stats);
 
@@ -89,10 +87,8 @@ namespace Parsek
                         // Max range from first point (same body only)
                         if (body == body0)
                         {
-                            int pointSectionIdx = FindTrackSectionForUT(rec.TrackSections, pt.ut);
-                            ReferenceFrame pointFrame = pointSectionIdx >= 0
-                                ? rec.TrackSections[pointSectionIdx].referenceFrame
-                                : ReferenceFrame.Absolute;
+                            ReferenceFrame pointFrame =
+                                ResolvePointFrameForStats(rec.TrackSections, pt.ut);
                             double range = ComputePointRangeFromStart(
                                 rec.Points[0], pt, firstPointFrame, pointFrame, bodyRadius);
                             if (range > stats.maxRange)
@@ -118,9 +114,8 @@ namespace Parsek
         /// PURE: resolves the reference frame a consecutive point pair is measured in, or
         /// returns false when the pair is not a travel step and contributes no distance.
         ///
-        /// <para>Each endpoint resolves its own section: the strict lookup, then an exact
-        /// match on a section's exclusive end, because a section's last sample sits at its
-        /// endUT and the strict lookup misses it when a gap follows. A Relative point stores
+        /// <para>Each endpoint resolves its own section through
+        /// <see cref="ResolvePointFrameForStats"/>. A Relative point stores
         /// anchor-local metres in latitude/longitude/altitude while any other frame stores
         /// body-fixed degrees, so a pair whose endpoints disagree has no common unit:
         /// measuring the metre offsets as degrees turned a parent-anchored debris
@@ -144,20 +139,19 @@ namespace Parsek
             return true;
         }
 
-        private static ReferenceFrame ResolvePointFrameForStats(List<TrackSection> sections, double ut)
+        /// <summary>
+        /// PURE: the reference frame a single point's latitude/longitude/altitude are stored
+        /// in, for the stats distance and range. Uses the same boundary-tolerant lookup as the
+        /// relative-anchor resolver (<see cref="FindTrackSectionForUTWithBoundaryEpsilon"/>),
+        /// so a section's last sample at or a hair past its exclusive endUT (a gap follows)
+        /// still reads its own section's frame. A UT shared by two contiguous sections resolves
+        /// through the strict lookup to the later section, as playback's section dispatch does;
+        /// within the tolerance of both sides of a gap the start match wins, as in the anchor
+        /// resolver. A point outside every section reads as Absolute.
+        /// </summary>
+        internal static ReferenceFrame ResolvePointFrameForStats(List<TrackSection> sections, double ut)
         {
-            int idx = FindTrackSectionForUT(sections, ut);
-            if (idx < 0 && sections != null)
-            {
-                for (int i = sections.Count - 1; i >= 0; i--)
-                {
-                    if (sections[i].endUT == ut)
-                    {
-                        idx = i;
-                        break;
-                    }
-                }
-            }
+            int idx = FindTrackSectionForUTWithBoundaryEpsilon(sections, ut);
             return idx >= 0 ? sections[idx].referenceFrame : ReferenceFrame.Absolute;
         }
 
