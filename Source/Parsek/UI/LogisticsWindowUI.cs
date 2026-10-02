@@ -3258,6 +3258,13 @@ namespace Parsek
         /// </summary>
         private void RefreshLegibilityCacheIfDue(IReadOnlyList<Route> routes, double currentUT)
         {
+            // Refresh only on a Layout pass. Several detail lines and the Every / Next cells
+            // draw or not from cached fields, so a refresh between a frame's Layout and its
+            // Repaint would change the control count inside one frame. A dirtied cache
+            // (stamp -1) keeps its old entries until the next Layout, so the passes before
+            // it still agree with each other.
+            if (Event.current != null && Event.current.type != EventType.Layout)
+                return;
             float now = Time.realtimeSinceStartup;
             if (lastLegibilityComputeRealtime >= 0f
                 && now - lastLegibilityComputeRealtime < LegibilityRecomputeIntervalSeconds)
