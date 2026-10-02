@@ -283,6 +283,26 @@ same tree (an optimizer split's later segment, a re-fly TIP). A chained recordin
 earlier segments are NOT in the tree keeps its launch row. The digest's summary line counts
 them (`skippedChainContinuations=N`); `MissionEventDigestTests.Digest_ChainContinuation_IsNotASecondLaunch`.
 
+## ~~MISSION-VESSEL-ROW-PARTNER-LAUNCH: a vessel row's event phrase reads "Launch (<another mission's vessel>)" mid-run~~ [FILED 2026-10-02 from the owner's Missions tab. FIXED 2026-10-02, branch `missions-partner-launch`]
+
+The Duna Supply 1 row read `Launch -> Launch (Depot Station Duna I (mission 'Kerbal X #5')) -> ...`
+and Kerbal X #4 read `Launch (Kerbal X (mission 'Kerbal X #3')) -> Docked (...)`. A fresh
+recording started after switching to another mission's vessel joins the tree under a
+`BranchPointType.Launch` edge (`ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording`);
+`MissionCompositionBuilder` treats every non-EVA branch child as a structural peel, so the
+interval boundary's event word is `Launch` and `MissionVesselRowBuilder.BuildEventPhrase`
+named the partner as the piece that left. The Mission Log already skips Launch branch points
+(`MissionStructureListBuilder.AddBranchPointSteps`).
+
+Fix: `BuildEventPhrase` skips a mid-run boundary piece whose event word is `Launch` (logged
+rate-limited, `skipped N mid-run Launch boundary piece(s)`); the row's own start event is
+unaffected. The edge stays in the composition on purpose: dropping it would renumber the
+`/segN` interval keys a mission's `ExcludedIntervalKeys` stores. The vessel row's hover is the
+phrase and its End event cell is the terminal word, so both follow. Left as they are: the
+expanded interval detail rows (Advanced) still show `Launch` in the Start / End event cells
+at that boundary, and the partner still hangs under the vessel as a child row whose start
+event is `Launch`. `MissionVesselRowsTests.BuildEventPhrase_*`.
+
 ## ~~BDOCK-1-STATION-SEPARATE-NOT-OBSERVED: the BDOCK-1 mission never sees the station separation it just performed~~ [FILED 2026-09-30 from the #1931 / #1932 verification flights. FIXED 2026-09-30, PR #1934, flight-proven]
 
 `BDOCK-1-station-interceptor` classifies INVALID(autopilot-flake) twice on a build of main + #1931 + #1932
