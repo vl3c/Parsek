@@ -1346,6 +1346,17 @@ _(unreleased — entries accumulate here per commit)_
   when you leave it) and the Tracking Station rebuilds them a moment later; the in-game
   `VesselBudget` check waits for the rebuilt ghosts instead of skipping. Flight batches are
   unchanged. A live Tracking Station batch (VB-1 can restore its in-game step) is owed.
+
+- **Recording Distance and Range no longer misread a sample sitting on a section boundary.**
+  A recording is cut into sections, and samples recorded relative to a parent vessel store
+  metres where the others store latitude and longitude. The Distance and Range figures on a
+  recording's hover looked up each sample's section more strictly than playback does, so a
+  relative sample a hair past its section's end could still be read as degrees and add
+  hundreds of km. They now share playback's boundary rule (a sample on the line between two
+  sections belongs to the later one; one within a billionth of a second of a section edge
+  belongs to that section). Range had the same flaw for a section's last sample and is fixed
+  too. (RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON)
+
 - **Dev: the harness `DiscardTree` command now leaves a restored vessel idle.** On a
   recorded save the flight scene resumes the committed recording of the vessel you are
   flying, and keeps retrying that once a second while nothing records. A lane that stopped

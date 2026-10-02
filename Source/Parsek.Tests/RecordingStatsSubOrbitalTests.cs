@@ -223,6 +223,113 @@ namespace Parsek.Tests
             Assert.Equal(ReferenceFrame.Absolute, frame);
         }
 
+        // --- RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON ----------------------------
+
+        [Fact]
+        public void PointFrame_RelativeSampleAHairPastEndBeforeGap_ReadsRelative()
+        {
+            var sections = new List<TrackSection>
+            {
+                Section(ReferenceFrame.Relative, 0, 10),
+                Section(ReferenceFrame.Absolute, 20, 30)
+            };
+            double ut = 10 + 1e-10;
+
+            Assert.Equal(-1, TrajectoryMath.FindTrackSectionForUT(sections, ut));
+            Assert.Equal(0, TrajectoryMath.FindTrackSectionForUTWithBoundaryEpsilon(sections, ut));
+            Assert.Equal(ReferenceFrame.Relative,
+                TrajectoryMath.ResolvePointFrameForStats(sections, ut));
+            Assert.True(TrajectoryMath.TryResolvePairTravelFrame(sections, 9, ut, out var frame));
+            Assert.Equal(ReferenceFrame.Relative, frame);
+        }
+
+        [Fact]
+        public void PointFrame_JustOutsideTheEpsilon_StaysUnresolved()
+        {
+            var sections = new List<TrackSection>
+            {
+                Section(ReferenceFrame.Relative, 0, 10),
+                Section(ReferenceFrame.Absolute, 20, 30)
+            };
+            double ut = 10 + 1e-8;
+            Assert.True(ut - 10 > TrajectoryMath.SectionBoundaryEpsilonSeconds);
+
+            Assert.Equal(-1, TrajectoryMath.FindTrackSectionForUTWithBoundaryEpsilon(sections, ut));
+            Assert.Equal(ReferenceFrame.Absolute,
+                TrajectoryMath.ResolvePointFrameForStats(sections, ut));
+            Assert.False(TrajectoryMath.TryResolvePairTravelFrame(sections, 9, ut, out _));
+        }
+
+        [Theory]
+        [InlineData(ReferenceFrame.Relative, ReferenceFrame.Absolute)]
+        [InlineData(ReferenceFrame.Absolute, ReferenceFrame.Relative)]
+        public void PointFrame_SharedContiguousBoundary_ReadsTheSectionPlaybackDispatches(
+            ReferenceFrame earlier, ReferenceFrame later)
+        {
+            var sections = new List<TrackSection>
+            {
+                Section(earlier, 0, 10),
+                Section(later, 10, 20)
+            };
+
+            // Playback's own section dispatch (strict lookup) picks the later section: the
+            // earlier section's end is exclusive.
+            int playbackIdx = TrajectoryMath.FindTrackSectionForUT(sections, 10);
+            Assert.Equal(1, playbackIdx);
+            Assert.Equal(playbackIdx,
+                TrajectoryMath.FindTrackSectionForUTWithBoundaryEpsilon(sections, 10));
+            Assert.Equal(later, TrajectoryMath.ResolvePointFrameForStats(sections, 10));
+        }
+
+        [Fact]
+        public void PointFrame_WithinEpsilonOfBothSidesOfAGap_StartMatchWins()
+        {
+            // The UT is the earlier section's exact end AND within the tolerance of the
+            // later section's start. The anchor resolver takes the start match; the old stats
+            // fallback took the exact end match and read the Absolute section instead.
+            var sections = new List<TrackSection>
+            {
+                Section(ReferenceFrame.Absolute, 0, 10),
+                Section(ReferenceFrame.Relative, 10 + 5e-10, 20)
+            };
+
+            Assert.Equal(-1, TrajectoryMath.FindTrackSectionForUT(sections, 10));
+            Assert.Equal(1, TrajectoryMath.FindTrackSectionForUTWithBoundaryEpsilon(sections, 10));
+            Assert.Equal(ReferenceFrame.Relative,
+                TrajectoryMath.ResolvePointFrameForStats(sections, 10));
+        }
+
+        [Fact]
+        public void EpsilonLookup_NonFiniteUtOrNoSections_Unresolved()
+        {
+            var sections = new List<TrackSection> { Section(ReferenceFrame.Relative, 0, 10) };
+            Assert.Equal(-1, TrajectoryMath.FindTrackSectionForUTWithBoundaryEpsilon(sections, double.NaN));
+            Assert.Equal(-1, TrajectoryMath.FindTrackSectionForUTWithBoundaryEpsilon(null, 5));
+            Assert.Equal(-1, TrajectoryMath.FindTrackSectionForUTWithBoundaryEpsilon(
+                new List<TrackSection>(), 5));
+        }
+
+        [Fact]
+        public void ComputeStats_RelativeSampleAHairPastEnd_MeasuredAsMetresForDistanceAndRange()
+        {
+            var rec = new Recording();
+            var p0 = new TrajectoryPoint { ut = 100, latitude = 0, longitude = 0, altitude = 0, bodyName = "Kerbin" };
+            var p1 = new TrajectoryPoint { ut = 106 + 1e-10, latitude = 30, longitude = 40, altitude = 0, bodyName = "Kerbin" };
+            rec.Points.AddRange(new[] { p0, p1 });
+            var rel = Section(ReferenceFrame.Relative, 100, 106);
+            rel.frames.AddRange(new[] { p0, p1 });
+            rec.TrackSections.Add(rel);
+            rec.TrackSections.Add(Section(ReferenceFrame.Absolute, 107, 110));
+
+            var stats = TrajectoryMath.ComputeStats(rec, KerbinLookup);
+
+            // |(30, 40, 0)| = 50 m. Read as degrees the range was thousands of km.
+            Assert.Equal(50.0, stats.distanceTravelled, 9);
+            Assert.Equal(50.0, stats.maxRange, 9);
+            Assert.Contains(logLines, l => l.Contains("[TrajectoryMath]")
+                && l.Contains("ComputeStats complete") && l.Contains("skippedFrameChangePairs=0"));
+        }
+
         [Fact]
         public void ComputeStats_RelativeToAbsoluteGap_DoesNotMeasureMetresAsDegrees()
         {
