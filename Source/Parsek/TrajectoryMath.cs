@@ -1153,6 +1153,52 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Boundary tolerance for <see cref="FindTrackSectionForUTWithBoundaryEpsilon"/>.
+        /// </summary>
+        internal const double SectionBoundaryEpsilonSeconds = 1e-9;
+
+        /// <summary>
+        /// Boundary-tolerant section lookup shared by the relative-anchor resolver and the
+        /// recording stats. Order is load-bearing: the strict lookup first (so at a shared
+        /// contiguous boundary the LATER section wins, because every non-last section's end
+        /// is exclusive); then the first section whose startUT is within
+        /// <see cref="SectionBoundaryEpsilonSeconds"/>; then the last section whose endUT is
+        /// within it. A start match therefore beats an end match when a UT sits within the
+        /// tolerance of both sides of a gap. Returns -1 when nothing matches.
+        /// Pure static for testability.
+        /// </summary>
+        internal static int FindTrackSectionForUTWithBoundaryEpsilon(
+            List<TrackSection> sections, double ut)
+        {
+            int strictIndex = FindTrackSectionForUT(sections, ut);
+            if (strictIndex >= 0)
+                return strictIndex;
+
+            if (sections == null || sections.Count == 0 || !IsFinite(ut))
+                return -1;
+
+            for (int i = 0; i < sections.Count; i++)
+            {
+                if (IsFinite(sections[i].startUT)
+                    && System.Math.Abs(ut - sections[i].startUT) <= SectionBoundaryEpsilonSeconds)
+                {
+                    return i;
+                }
+            }
+
+            for (int i = sections.Count - 1; i >= 0; i--)
+            {
+                if (IsFinite(sections[i].endUT)
+                    && System.Math.Abs(ut - sections[i].endUT) <= SectionBoundaryEpsilonSeconds)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        /// <summary>
         /// Returns true if the TrackSection covering the given UT has a surface environment
         /// (SurfaceMobile or SurfaceStationary). Surface vessels should not use orbit segment
         /// interpolation — their Keplerian orbit is a sub-surface path through the planet.

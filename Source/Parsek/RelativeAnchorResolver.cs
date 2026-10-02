@@ -90,7 +90,8 @@ namespace Parsek
     internal static class RelativeAnchorResolver
     {
         private const double UtEpsilon = 1e-6;
-        internal const double SectionBoundaryEpsilonSeconds = 1e-9;
+        internal const double SectionBoundaryEpsilonSeconds =
+            TrajectoryMath.SectionBoundaryEpsilonSeconds;
         private const double TerminalClampDoubleSlopSeconds = 1e-6;
         private const double HeadlessTestFixedDeltaTimeSeconds = 0.02;
         private static readonly bool RunningInHeadlessTestRunner = DetectHeadlessTestRunner();
@@ -853,32 +854,7 @@ namespace Parsek
 
         private static int FindTrackSectionForUT(List<TrackSection> sections, double ut)
         {
-            int strictIndex = TrajectoryMath.FindTrackSectionForUT(sections, ut);
-            if (strictIndex >= 0)
-                return strictIndex;
-
-            if (sections == null || sections.Count == 0 || !IsFinite(ut))
-                return -1;
-
-            for (int i = 0; i < sections.Count; i++)
-            {
-                if (IsFinite(sections[i].startUT)
-                    && Math.Abs(ut - sections[i].startUT) <= SectionBoundaryEpsilonSeconds)
-                {
-                    return i;
-                }
-            }
-
-            for (int i = sections.Count - 1; i >= 0; i--)
-            {
-                if (IsFinite(sections[i].endUT)
-                    && Math.Abs(ut - sections[i].endUT) <= SectionBoundaryEpsilonSeconds)
-                {
-                    return i;
-                }
-            }
-
-            return -1;
+            return TrajectoryMath.FindTrackSectionForUTWithBoundaryEpsilon(sections, ut);
         }
 
         private static bool TryResolveTerminalClampedPose(

@@ -12,6 +12,7 @@ namespace Parsek.Tests
     // The fixtures go through the REAL MissionStructureBuilder / MissionCompositionBuilder
     // (same Leg / BP / Tree helpers as MissionPresentationTests), so a change to interval
     // keying, seg chaining, or peel attachment fails here instead of silently flattening wrong.
+    [Collection("Sequential")]
     public class MissionVesselRowsTests
     {
         // ---- fixture helpers (mirrors MissionPresentationTests) ----
@@ -135,6 +136,109 @@ namespace Parsek.Tests
                 "Launch" + Arrow + "Decoupled (Kerbal X Booster)" + Arrow + "Landed",
                 rows[0].EventPhrase);
             Assert.Equal("Decoupled" + Arrow + "Destroyed", rows[0].Children[0].EventPhrase);
+        }
+
+        // A fresh post-switch recording (another mission's vessel) joins the tree under a
+        // BranchPointType.Launch edge off this mission's vessel, mid-run: the shape
+        // ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording produces.
+        private static List<MissionVesselRow> BuildPartnerJoinRows()
+        {
+            return BuildRows(
+                new[]
+                {
+                    Leg("L", "C", 0, 0, 50, probes: 1, vessel: "Duna Supply 1"),
+                    Leg("cont", "C2", 0, 50, 200, probes: 1, vessel: "Duna Supply 1",
+                        terminal: TerminalState.Orbiting),
+                    Leg("partner", "C3", 0, 50, 180, probes: 2,
+                        vessel: "Depot Station Duna I", terminal: TerminalState.Orbiting),
+                },
+                new[]
+                {
+                    BP("launchbp", BranchPointType.Launch, new[] { "L" },
+                        new[] { "cont", "partner" }),
+                });
+        }
+
+        [Fact]
+        public void BuildEventPhrase_PartnerJoinAtMidRunLaunchBoundary_IsSkipped()
+        {
+            var logLines = new List<string>();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            try
+            {
+                List<MissionVesselRow> rows = BuildPartnerJoinRows();
+                MissionVesselRow ship = rows.Find(r => r.OwnerHeadId == "L");
+                Assert.NotNull(ship);
+                // Precondition: the Launch edge is still a real interval boundary (dropping it
+                // would renumber the /segN keys the mission's excluded set stores).
+                Assert.Equal(2, ship.Intervals.Count);
+                Assert.Equal("Launch", ship.Intervals[0].EndEvent);
+                Assert.Equal("L/seg1", ship.Intervals[1].HeadLegId);
+                Assert.Contains(ship.Children, c => c.VesselName == "Depot Station Duna I");
+
+                // Fails with "Launch -> Launch (Depot Station Duna I) -> Orbiting" without the skip.
+                Assert.Equal("Launch" + Arrow + "Orbiting", ship.EventPhrase);
+                Assert.Contains(logLines, l => l.Contains("[Mission]")
+                    && l.Contains("skipped 1 mid-run Launch boundary piece(s)")
+                    && l.Contains("owner=L"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void BuildEventPhrase_RowStartLaunch_IsUnaffectedBySkip()
+        {
+            // The row's OWN start event "Launch" is not a boundary piece and must stay first;
+            // only mid-run Launch boundaries are skipped.
+            List<MissionVesselRow> rows = BuildPartnerJoinRows();
+            MissionVesselRow ship = rows.Find(r => r.OwnerHeadId == "L");
+            Assert.NotNull(ship);
+            Assert.Equal("Launch", ship.StartEvent);
+            Assert.StartsWith("Launch" + Arrow, ship.EventPhrase);
+
+            // A plain launch-to-orbit row with no boundary keeps its start piece too.
+            List<MissionVesselRow> plain = BuildRows(
+                new[] { Leg("solo", "C", 0, 0, 100, pods: 1, terminal: TerminalState.Orbiting) },
+                null);
+            Assert.Equal("Launch" + Arrow + "Orbiting", Assert.Single(plain).EventPhrase);
+        }
+
+        [Fact]
+        public void BuildEventPhrase_OwnSeparationBoundary_StillRendersAlongsideSkippedLaunch()
+        {
+            // A genuine own separation (decouple) on the same vessel still names the piece that
+            // left, even when a mid-run Launch edge is skipped earlier in the same row.
+            List<MissionVesselRow> rows = BuildRows(
+                new[]
+                {
+                    Leg("L", "C", 0, 0, 50, probes: 1, vessel: "Duna Supply 1"),
+                    Leg("cont", "C2", 0, 50, 100, probes: 1, vessel: "Duna Supply 1"),
+                    Leg("partner", "C3", 0, 50, 180, probes: 2,
+                        vessel: "Depot Station Duna I", terminal: TerminalState.Orbiting),
+                    Leg("cont2", "C4", 0, 100, 200, probes: 1, vessel: "Duna Supply 1",
+                        terminal: TerminalState.Orbiting),
+                    Leg("stage", "C5", 0, 100, 150, probes: 1, parentAnchor: "cont",
+                        vessel: "Duna Supply 1 Stage", terminal: TerminalState.Destroyed),
+                },
+                new[]
+                {
+                    BP("launchbp", BranchPointType.Launch, new[] { "L" },
+                        new[] { "cont", "partner" }),
+                    BP("decbp", BranchPointType.JointBreak, new[] { "cont" },
+                        new[] { "cont2", "stage" }, splitCause: "DECOUPLE"),
+                });
+
+            MissionVesselRow ship = rows.Find(r => r.OwnerHeadId == "L");
+            Assert.NotNull(ship);
+            Assert.Equal(3, ship.Intervals.Count);
+            Assert.Equal(
+                "Launch" + Arrow + "Decoupled (Duna Supply 1 Stage)" + Arrow + "Orbiting",
+                ship.EventPhrase);
         }
 
         [Fact]

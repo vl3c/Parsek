@@ -10,6 +10,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: CA-1's "upper chute never armed" check now reads the real chute.** The check
+  used to trust the mission's own record of never arming the chute, so nothing that
+  happened in flight could fail it. It now also watches the upper stage's parachute
+  through the descent and fails if it arms or opens by any route, ignoring the booster's
+  chutes once the game switches to the booster; with no chute reading at all it fails.
+  A CA-1 re-read flight is owed.
 - **Dev: the mutation checker now proves the mission checks and the forbidden log tokens
   red.** `harness/tools/mutation_check.py --mission-only` (new pure core
   `harness/lib/mutmission.py`) replays each archived mission result through the real
@@ -51,6 +57,12 @@ _(unreleased — entries accumulate here per commit)_
   `missionParams` keys that control it, per run or aggregated over every worktree's results.
   It only measures; no mission, verifier or result changes. Over the 2026-10-01 nightly runs
   about 39% of mission wall time was idle at 1x (B11's capture-node wait alone: ~600 s).
+  It knows the mission warp policy: physics warp is its own bucket (never recoverable), 1x
+  time the policy keeps on purpose (B4's deorbit slew, the m3 render holds, transfer and
+  ascent node waits, the capture node wait's final lead before the node) is reported as
+  "by design" beside the recoverable total instead of in it, the PARK and kx COAST dwells
+  are judged against the 4x physics warp the policy uses, and CIRCULARIZE node waits are
+  flagged outcome-sensitive. JSON schema version 2.
 - **Timeline rows explain themselves on hover.** Hovering a row's description in the
   Timeline now explains it in the window's bottom help line. A future row that holds a stock
   control names it, from the same check the stock screen's block uses: `Holds Research in R&D
@@ -1331,6 +1343,40 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Dev: an in-game test batch in the Tracking Station no longer orphans the ghost map
+  vessels.** Before a batch the test runner cleared Parsek's list of ghost map vessels without
+  removing the vessels, and in the Tracking Station nothing else removed them. They then read
+  as real vessels: the batch's two start-up saves counted them against the stock vessel
+  budget and dropped real debris, and the scene built a second set of ghosts beside them. The
+  runner now removes every registered ghost vessel first (the same removal the scene uses
+  when you leave it) and the Tracking Station rebuilds them a moment later; the in-game
+  `VesselBudget` check waits for the rebuilt ghosts instead of skipping. Flight batches are
+  unchanged. A live Tracking Station batch (VB-1 can restore its in-game step) is owed.
+
+- **Recording Distance and Range no longer misread a sample sitting on a section boundary.**
+  A recording is cut into sections, and samples recorded relative to a parent vessel store
+  metres where the others store latitude and longitude. The Distance and Range figures on a
+  recording's hover looked up each sample's section more strictly than playback does, so a
+  relative sample a hair past its section's end could still be read as degrees and add
+  hundreds of km. They now share playback's boundary rule (a sample on the line between two
+  sections belongs to the later one; one within a billionth of a second of a section edge
+  belongs to that section). Range had the same flaw for a section's last sample and is fixed
+  too. (RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON)
+
+- **Dev: the harness `DiscardTree` command now leaves a restored vessel idle.** On a
+  recorded save the flight scene resumes the committed recording of the vessel you are
+  flying, and keeps retrying that once a second while nothing records. A lane that stopped
+  and discarded that recording (every EVA-6 to EVA-9 lane does, before the kerbal steps out)
+  could see it resumed again a few milliseconds later, so the kerbal's own recording was
+  refused. `DiscardTree` now tells the retry to skip that vessel until something records
+  again, the active vessel changes, or the scene ends, and logs
+  `CommittedSpawnedRestoreSuppression: armed` / `cleared`. Player discards are unchanged.
+  The lanes keep `retry policy = "once"` until a flight shows the fix.
+- **A Missions tab vessel row no longer shows another mission's vessel as a mid-flight
+  "Launch".** After switching to another mission's vessel, the row's event chain read e.g.
+  "Launch -> Launch (Depot Station Duna I (mission 'Kerbal X #5')) -> Docked". A launch
+  cannot happen mid-flight, so that step is now left out; the following "Docked" step
+  already names the partner. Mission selections are unaffected.
 - **Dev: a harness mission that ends early writes its result file again.** A mission's
   assertion rows could carry a reading still at its "not yet measured" NaN default (the
   `kx_rewind_watch` core discard altitude and time, peak booster thrust and rewind times, on
@@ -2403,6 +2449,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Dev: the BDOCK rendezvous waits are rails-warped.** Operator ruling 2026-10-02 (rails
+  warp only): MechJeb's rendezvous autopilot hands each node to its NodeExecutor, which
+  warps only to 600 s before ignition and then sits at 1x until the craft is aligned and
+  settled; the Interceptor never settles, so each rendezvous burn idled ~600 s at 1x. The
+  BDOCK machine now turns the executor's autowarp off, rails-warps to 120 s before the
+  burn itself and turns autowarp back on at 1x, never with the target vessel inside 5 km
+  (kRPC's closest approach over the next orbit clamps the warp). The node and the
+  autopilot are untouched (`harness/missions/lib/mlib.py` section RENDEZVOUS NODE WAITS,
+  `harness/README.md` "The mission warp policy"). The hold cancels its warp 15 s before target,
+  because kRPC's warp-to spends its last few seconds in physics warp. With less 1x attitude jitter
+  before the first burn, MechJeb's rendezvous now finishes a few metres further out (101 m
+  instead of 96 m) but still inside its own completion test, so the BDOCK rendezvous gate now
+  uses that exact test (distance under 1.05 x the approach distance + 2 m, speed under 1 m/s)
+  instead of a stricter 100 m.
 - **Dev: harness missions warp through their idle 1x waits.** Operator ruling 2026-10-01:
   burns stay at 1x, the idle stretches around them are warped (`harness/missions/lib/mlib.py`
   section MISSION WARP POLICY, `harness/README.md` "The mission warp policy"). A capture
@@ -5461,6 +5521,12 @@ _(unreleased — entries accumulate here per commit)_
   player; it refuses a locked button, a vessel that is not the active one, and a recovery
   whose Space Center load would raise a merge dialog. Mirrored in the harness tables; no
   lane yet.
+- **Automated testing: `Recover pid=` literal range check.** The pre-launch spec check now
+  rejects a literal pid above the uint maximum (4294967295) or written with non-ASCII
+  digits, the same values the seam refuses as `recover-pid-arg-invalid`; before, it
+  passed them on to fail in game. The two RealSpawn / Recover lanes are still unflown: no
+  committed fixture can put a ghost-chain tip in the future next to an active vessel
+  (todo D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR).
 - **Automated testing: the wide windows at 1280x720.** New automation-only `UiAction op=state
   window=missions key=scrollX value=<px>` drives the Missions window's horizontal scroll
   (read back as the settled, clamped offset; 0 while the window fits), mirrored in hlib. The

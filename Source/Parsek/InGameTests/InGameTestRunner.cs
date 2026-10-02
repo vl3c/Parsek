@@ -567,10 +567,16 @@ namespace Parsek.InGameTests
         /// 2. Delegate to ParsekFlight.Instance.DestroyAllTimelineGhosts() when available
         ///    — this does RemoveAllGhostVessels (vessel.Die + dict clear) followed by
         ///    engine.DestroyAllGhosts (primary + overlap GO destroy + engine dict clear).
-        /// 3. Safety net: ResetBetweenTestRuns on GhostMapPresence, idempotent and
-        ///    synchronous, catches any PID that lingered past step 1 (e.g. if Die()
-        ///    throws, or if we are not in the flight scene and ParsekFlight.Instance is
-        ///    null but ghost-map bookkeeping is somehow non-empty from a previous scene).
+        /// 3. GhostMapPresence.RemoveRegisteredGhostVesselsBeforeTestReset destroys every
+        ///    ghost map vessel that is still registered (Vessel.Die through the scene
+        ///    teardown path). In FLIGHT step 2 already removed them, so it finds none; in
+        ///    the Tracking Station (no ParsekFlight) it is the only step that removes them,
+        ///    and the TS ghost selection is cleared with them so no popup keeps a dead pid.
+        ///    The scene's lifecycle then rebuilds the ghosts from a clean slate.
+        /// 4. Safety net: ResetBetweenTestRuns on GhostMapPresence, idempotent and
+        ///    synchronous, catches any PID that lingered past steps 2-3 (e.g. if Die()
+        ///    throws). It clears bookkeeping only; step 3 runs first so no ghost
+        ///    ProtoVessel is ever left in FlightGlobals.Vessels unregistered.
         ///
         /// Idempotent: calling with zero ghosts just emits verbose no-op logs.
         /// Exceptions from Die() or engine cleanup are swallowed so a single broken
@@ -624,9 +630,36 @@ namespace Parsek.InGameTests
                     "PerformBetweenRunCleanup: no ParsekFlight.Instance — skipping flight-scene ghost teardown");
             }
 
-            // Safety net: clear any ghost-map bookkeeping that survived step 1.
-            // Also covers the case where ParsekFlight.Instance was null but
-            // GhostMapPresence dicts are non-empty from a previous scene.
+            // Destroy every ghost map vessel still registered BEFORE the bookkeeping
+            // clear below. Without this the Tracking Station kept every ghost in
+            // FlightGlobals.Vessels unregistered: the batch's baseline / marker saves
+            // counted them as real vessels against the stock budget and the scene built
+            // a duplicate set (todo INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS).
+            int ghostVesselsRemoved = 0;
+            try
+            {
+                ghostVesselsRemoved = GhostMapPresence.RemoveRegisteredGhostVesselsBeforeTestReset(reason);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"PerformBetweenRunCleanup: RemoveRegisteredGhostVesselsBeforeTestReset threw: {ex.Message}");
+            }
+            if (ghostVesselsRemoved > 0)
+            {
+                try
+                {
+                    Patches.GhostTrackingStationSelection.ClearSelectedGhost(
+                        "between-run ghost vessel removal");
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"PerformBetweenRunCleanup: ClearSelectedGhost threw: {ex.Message}");
+                }
+            }
+
+            // Safety net: clear any ghost-map bookkeeping that survived the steps above.
             try
             {
                 GhostMapPresence.ResetBetweenTestRuns(reason);
@@ -640,7 +673,8 @@ namespace Parsek.InGameTests
             int mapPidsAfter = GhostMapPresence.ghostMapVesselPids.Count;
             ParsekLog.Info(Tag,
                 $"PerformBetweenRunCleanup: end reason={reason} " +
-                $"ghostsBefore={ghostsBefore} mapPidsBefore={mapPidsBefore} mapPidsAfter={mapPidsAfter}");
+                $"ghostsBefore={ghostsBefore} mapPidsBefore={mapPidsBefore} mapPidsAfter={mapPidsAfter} " +
+                $"ghostVesselsRemoved={ghostVesselsRemoved}");
 
             // Safety net: a prior run (or a user Cancel) may have left a stock
             // Space Center facility building open and the game paused. Force it

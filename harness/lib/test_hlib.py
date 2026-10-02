@@ -16217,6 +16217,20 @@ class RealSpawnRecoverSourceSyncTests(unittest.TestCase):
         self.assertIn("recover-pid-arg-invalid", v(0, "Recover", {"pid": "abc"})[0])
         self.assertEqual([], v(0, "SpinVessel", {}))
 
+    def test_the_step_validator_rejects_a_literal_pid_outside_uint(self):
+        # The seam parses pid= with uint.TryParse(NumberStyles.None), so a literal
+        # above the uint max, or a non-ASCII digit str.isdigit accepts, would pass the
+        # pre-launch check and only fail as REJECTED recover-pid-arg-invalid in game.
+        v = hlib.validate_real_spawn_recover_step
+        self.assertEqual(4294967295, hlib.RECOVER_PID_MAX)
+        self.assertEqual([], v(0, "Recover", {"pid": "4294967295"}))
+        self.assertIn("recover-pid-arg-invalid", v(0, "Recover", {"pid": "4294967296"})[0])
+        self.assertIn("recover-pid-arg-invalid",
+                      v(0, "Recover", {"pid": "99999999999999999999"})[0])
+        self.assertIn("recover-pid-arg-invalid", v(0, "Recover", {"pid": "²"})[0])
+        self.assertIn("recover-pid-arg-invalid", v(0, "Recover", {"pid": "+5"})[0])
+        self.assertIn("recover-pid-arg-invalid", v(0, "Recover", {"pid": " 5"})[0])
+
 
 class GuiCensusSeamVerbTests(unittest.TestCase):
     """The GUI-census pair (`CaptureScreenshot` + `UiAction`), whose harness-side

@@ -208,12 +208,19 @@ all 8 rows), `test_mlib.NonFiniteDetailScrubTests`, `test_shells.ResultSerialize
   that #1806 (`b4-chute`) has landed, and the 24 whose archives are missing or no longer
   replay green (re-run `mutation_check.py` after their next tier, then apply the same
   per-lane anchor).
-- One VACUOUS mission gate needs a ruling: `CA-1-commit-abort-booster-live`'s
-  `craftChuteNeverArmed` (mission `gs1_auto_chute_booster`, abort profile) is met by the
-  blind replay, because it is an ABSENCE claim about the machine's own command latch
-  (`not state.chute_commanded`): it reads no telemetry by construction and reds only if
-  the machine itself arms the chute. Either record it as intended, or re-derive it from an
-  observed read (the craft chute state staying un-deployed across DESCENT).
+- ~~One VACUOUS mission gate needs a ruling~~ RULED AND APPLIED (operator ruling
+  2026-10-01, branch `ca1-chute-telemetry`): `CA-1-commit-abort-booster-live`'s
+  `craftChuteNeverArmed` (mission `gs1_auto_chute_booster`, abort profile) was met by the
+  blind replay because it read only the machine's own command latch. It now also reads the
+  upper stage's REAL parachute state (the shell's existing `read_chute=True`
+  `craft_chute_state`) on every DESCENT frame attributable to the upper stage (vessel name
+  read and not `siblingVesselName`, so the booster's open chutes after the impact handoff
+  are excluded), latches any state but Stowed, and needs at least one such read (unread
+  fails closed): `mlib.GS1_UPPER_CHUTE_MIN_READS` / `_gs1_observe_upper_chute`.
+  `mutation_check.py --mission-only` over archive `2026-09-26_0143`: 19 PROVEN, 0 VACUOUS
+  (was 18 / 1). Re-read flight `2026-10-02_1906` PASS: the row met with value `Stowed`,
+  `upperStageChuteReads=25`, `observedFired=false` and `unattributedChuteReads=1` (the
+  handoff frame).
 - Ledger lanes with no seed-bearing archive on this machine
   (`L2-ledger-groundtruth-career`, `L3-strategy-currency-conversion`,
   `L3-strategy-exchanger-floor`): re-run `mutation_check.py --ledger-only` after their
@@ -240,9 +247,27 @@ carries parked coverage), B4's DEORBIT retrograde slew at 1x
 the m3 HOLD-* observation windows (deliberate). The mission warp policy itself is being
 changed in a separate session; re-run the tool over the next nightly to measure that fix.
 
-- [ ] Re-measure after the warp-policy change lands (`--since <date> --json-out`).
+- [x] Re-measure after the warp-policy change lands (`--since <date> --json-out`). Measured
+  2026-10-03 with the policy-aware analyzer (schema 2: `physicsWarp` bucket, `byDesign`
+  totals, 4x targets for PARK / kx COAST). #1958 (capture holds, PARK / COAST 4x physics
+  warp): B11 mission wall 1,275 s (`2026-10-01_1231`) -> 668 s (`2026-10-01_1926`);
+  recoverable 618 s -> 14 s, with PARK now ~42 s of physics warp and 0 recoverable and the
+  capture wait's last ~133 s before the node by design. #1964 (BDOCK rendezvous holds):
+  BDOCK-1 mission wall 2,115 s (`2026-09-30_1732`) -> 1,487 s (`2026-10-02_2011`),
+  RENDEZVOUS recoverable 1,178 s -> 329 s; BDOCK-2 1,475 s (`2026-09-23_1704`) -> 1,022 s
+  (`2026-10-02_2037`). Over every worktree's results (845 runs, 197 with a mission log) the
+  old analyzer reported 30,196 s recoverable; the policy-aware one reports 18,712 s
+  recoverable plus 9,978 s by design (DEORBIT slew 2,266 s, the HOLD-* dwells 2,611 s,
+  node waits 5,100 s). The largest recoverable rows are now pre-#1964 BDOCK RENDEZVOUS
+  waits, B22's outcome-sensitive CIRCULARIZE node wait (~590 s per run, policy undecided)
+  and pre-#1958 CAPTURE-BURN waits.
+- [ ] Decide B22's CIRCULARIZE node wait (outcome-sensitive; needs a verification flight).
+- [ ] Decide whether the BDOCK hold's own post-release lead (RENDEZVOUS, ~329 s left on
+  `2026-10-02_2011`) and BDOCK's STATION-ASCENT / INT-ASCENT circularization waits (the same
+  MechJeb-ascent mechanism as MJ-ASCENT, 140 s / 87 s) belong in the analyzer's by-design
+  table; today they count as recoverable.
 
-## RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON: the recording stats frame lookup matches a section end exactly, with no tolerance [FILED 2026-10-01 from the PR #1943 review, branch `l7-nightly-residue`. OPEN, low, pre-existing]
+## ~~RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON: the recording stats frame lookup matches a section end exactly, with no tolerance~~ [FILED 2026-10-01 from the PR #1943 review, branch `l7-nightly-residue`. FIXED 2026-10-03, branch `fix-stats-frame-epsilon`]
 
 `TrajectoryMath.ResolvePointFrameForStats` (`Source/Parsek/TrajectoryMath.Stats.cs:147`) finds a
 point's section with the strict lookup and then falls back to a section whose `endUT` EQUALS the
@@ -255,6 +280,21 @@ are measured as degrees again (the ~1000 km Dist the debris fix removed for the 
 Not seen on a fixture: the committed `interbody-route-recorded` rows all read 1 to 3 km after the
 fix. Fix direction: share the epsilon helper (move it to `TrajectoryMath` or call it) instead of
 keeping a second, stricter copy, and add a cell with a Relative sample at `endUT + 1e-10`.
+
+Fix: the resolver's lookup moved to `TrajectoryMath.FindTrackSectionForUTWithBoundaryEpsilon`
+(with `SectionBoundaryEpsilonSeconds = 1e-9`; `RelativeAnchorResolver` now delegates to it and
+forwards the constant, so its behavior is unchanged). `ResolvePointFrameForStats` calls it, and
+so do the two Max Range frame reads in `ComputeStats` (the first point and each later point),
+which used the bare strict lookup and had the same defect for a section's last sample. The
+tie-break is the resolver's: strict lookup first, so at a contiguous shared boundary the LATER
+section wins (every non-last section's end is exclusive, which is also what playback's own
+section dispatch, `GhostPlaybackEngine.TryGetRelativeSectionAtUT`, picks); then the first
+section whose start is within the tolerance; then the last section whose end is. One
+behavior change against the old stats fallback: a UT that equals one section's end exactly
+and also lies within 1e-9 s of the next section's start now reads the next section, as the
+resolver does. Cells in `RecordingStatsSubOrbitalTests`: `endUT + 1e-10`, `endUT + 1e-8`
+(stays unresolved), both orders of a Relative/Absolute contiguous boundary, the gap tie, and
+a `ComputeStats` distance + range cell.
 
 Related, already filed: points inside some Relative sections carry body-fixed lat/lon/alt rather
 than metres (recording #27 on that fixture), while in-section Relative distance is always measured
@@ -424,6 +464,26 @@ names a continuation - same `ChainId`, and an earlier `ChainIndex` of that chain
 same tree (an optimizer split's later segment, a re-fly TIP). A chained recording whose
 earlier segments are NOT in the tree keeps its launch row. The digest's summary line counts
 them (`skippedChainContinuations=N`); `MissionEventDigestTests.Digest_ChainContinuation_IsNotASecondLaunch`.
+
+## ~~MISSION-VESSEL-ROW-PARTNER-LAUNCH: a vessel row's event phrase reads "Launch (<another mission's vessel>)" mid-run~~ [FILED 2026-10-02 from the owner's Missions tab. FIXED 2026-10-02, branch `missions-partner-launch`]
+
+The Duna Supply 1 row read `Launch -> Launch (Depot Station Duna I (mission 'Kerbal X #5')) -> ...`
+and Kerbal X #4 read `Launch (Kerbal X (mission 'Kerbal X #3')) -> Docked (...)`. A fresh
+recording started after switching to another mission's vessel joins the tree under a
+`BranchPointType.Launch` edge (`ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording`);
+`MissionCompositionBuilder` treats every non-EVA branch child as a structural peel, so the
+interval boundary's event word is `Launch` and `MissionVesselRowBuilder.BuildEventPhrase`
+named the partner as the piece that left. The Mission Log already skips Launch branch points
+(`MissionStructureListBuilder.AddBranchPointSteps`).
+
+Fix: `BuildEventPhrase` skips a mid-run boundary piece whose event word is `Launch` (logged
+rate-limited, `skipped N mid-run Launch boundary piece(s)`); the row's own start event is
+unaffected. The edge stays in the composition on purpose: dropping it would renumber the
+`/segN` interval keys a mission's `ExcludedIntervalKeys` stores. The vessel row's hover is the
+phrase and its End event cell is the terminal word, so both follow. Left as they are: the
+expanded interval detail rows (Advanced) still show `Launch` in the Start / End event cells
+at that boundary, and the partner still hangs under the vessel as a child row whose start
+event is `Launch`. `MissionVesselRowsTests.BuildEventPhrase_*`.
 
 ## ~~BDOCK-1-STATION-SEPARATE-NOT-OBSERVED: the BDOCK-1 mission never sees the station separation it just performed~~ [FILED 2026-09-30 from the #1931 / #1932 verification flights. FIXED 2026-09-30, PR #1934, flight-proven]
 
@@ -686,7 +746,46 @@ precedent requires a clean seed session), and an operator-local fixture may only
 a window drew, which none of these lanes needs. Nothing from that save is committed or
 staged.
 
-## HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE: a recorded-fixture lane's boot `DiscardTree` can be undone by the 1 Hz restore retry [FILED 2026-09-29 from EVA-6's `2026-09-28_2059` attempt 1 (INVALID, passed on retry), branch `deployables-lanes`]
+## ~~HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE: a recorded-fixture lane's boot `DiscardTree` can be undone by the 1 Hz restore retry~~ [FILED 2026-09-29 from EVA-6's `2026-09-28_2059` attempt 1 (INVALID, passed on retry), branch `deployables-lanes`; FIXED 2026-10-02 on `fix-discard-restore-race`, live proof owed]
+
+**Fix (2026-10-02).** The seam's `DiscardTree` verb now arms a committed-spawned restore
+suppression for the active vessel right after its discard (and on the `nothing=true` path,
+so a boot restore that has not landed yet cannot adopt the tree after the verb reported the
+host idle). `TryRestoreCommittedTreeForSpawnedActiveVessel` skips a suppressed vessel BEFORE
+`TryTakeCommittedTreeForSpawnedVesselRestore`, so no copy-on-write clone is taken and no
+restore attempt armed; that covers the 1 Hz Update retry and the OnFlightReady / switch
+entry points alike. The suppression is one pid on the `ParsekFlight` instance (a scene load
+drops it) and `HandleMissedVesselSwitchRecovery` clears it each frame, before the retry, once
+anything owns a live tree or recorder (a `StartRecording`, an adoption) or the active vessel
+is a different one (an `EvaExit`, a switch); a zero active pid mid-switch keeps it. Pure
+decisions `IsCommittedSpawnedRestoreSuppressedForVessel`,
+`ResolveCommittedSpawnedRestoreSuppressionClearReason`, `BeginCommittedSpawnedRestoreSuppression`
+and `TickCommittedSpawnedRestoreSuppression`, cells in `CommittedSpawnedRestoreSuppressionTests`
+(plus source gates for the ordering and a single-caller gate). Log lines:
+`CommittedSpawnedRestoreSuppression: armed pid=... reason=test-command-discard` and
+`... cleared pid=... reason=active-vessel-changed|live-tree-or-recorder`.
+
+Player paths were checked and left alone: every in-flight teardown of a committed-restore
+clone (pre-switch dialog Case A / Case B Discard, the scene-exit idle and no-op discards) is
+followed in the same call by a vessel switch or a scene change, so the retry never sees the
+discarded vessel idle; if stock refuses that switch, the old vessel stays active and the
+retry re-adopts its committed tree, which is the product rule (a live committed vessel
+resumes its recording), not a defect.
+
+Correction to the Cause paragraph: the timer is not left at a boot-dependent value. Every
+frame a tree or recorder is live, `HandleMissedVesselSwitchRecovery` sets
+`nextCommittedSpawnedRestoreRetryAt = 0`, so the first Update after the discard retries at
+once; source predicts the re-adoption on every run, and the green `_1815` run's single
+restore is not explained by source alone (not investigated further: the fix removes the
+dependence).
+
+**Live proof owed (next EVA-6..9 / census flight).** The produced `KSP.log` should show, after
+the lane's `discardtree discarded=true`, one `CommittedSpawnedRestoreSuppression: armed` line
+naming the capsule pid, NO second `TryRestoreCommittedTreeForSpawnedActiveVessel: restored
+tree` line before the `EvaExit`, a `cleared ... reason=active-vessel-changed activePid=<kerbal>`
+line at the exit, and the kerbal's `startrecording recordingId=...` OK (no
+`active-recording-id-missing` refusal). The four lanes keep `retry policy = "once"` until
+that flight is read; drop it per lane afterwards.
 
 **Evidence.** On `kerbin-splashdown-recorded` the boot promotes the committed Kerbal X tip
 (`TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'Kerbal X' ... via
@@ -1625,6 +1724,65 @@ reentry at UT 918.78, `committed=9->11`), B13 `_1905` (11: ascent exit, Mun appr
 22966.25, touchdown `prev=Approach next=SurfaceStationary`), B14 `_1938` (11: ascent exit, Minmus approach at UT
 278209.25, touchdown `prev=Approach next=SurfaceMobile`).
 
+## ~~BDOCK-RENDEZVOUS-1X-WAITS: each BDOCK rendezvous burn idled ~600 s at 1x~~ [FILED AND FIXED 2026-10-02, branch `bdock-warp`, operator ruling of the same day (rails warp only). HARNESS ONLY, no C# change]
+
+`flight_efficiency.py` ranked BDOCK-1 RENDEZVOUS the largest recoverable 1x wait in the suite
+(~4,714 s over 4 runs; BDOCK-2 ~2,162 s over 3). Cause, per sub-phase of
+`2026-09-30_1732` (decompiled MechJeb 2.15.1): `MechJebModuleRendezvousAutopilot.Drive` hands
+every node it places to the shared `MechJebModuleNodeExecutor` (`ExecuteAllNodes`) when a node
+exists and the executor is idle. `StateWarpAlign` warps to ignition - 600 s
+(`WarpToUT(_ignitionUT - 600)`), then, unless `AlignedAndSettled` (1 deg AND
+|angularVelocity| < 0.001 rad/s), calls `MinimumWarp` and `SetAttitude` every tick. The
+Interceptor never settled: the Hohmann node (17.2 m/s at ut 7720) sat at NONEx1 from 7118.6 to
+7729, the closest-approach match node (15.7 m/s at ~8603) from 8002 to 8603; together 1,178 of
+the phase's 1,458 wall-s. The capture hold of MISSION-WARP-POLICY could not be copied: the
+autopilot re-engages the executor itself, and disabling it to hold a hand-off would make its
+`OnModuleEnabled` remove the nodes and re-plan (possibly through another branch of `Drive`,
+since the target is closer by then). Fix (`harness/missions/lib/mlib.py` section RENDEZVOUS
+NODE WAITS, tests `test_rendezvous_node_wait.py`): the bdock machine turns the executor's
+`autowarp` off (`StateWarpAlign` then only aligns), rails-warps itself to node UT - half burn -
+120 s, and turns `autowarp` back on at the first 1x frame. Target safety: no hold warp starts or
+ends with the target inside 5 km (kRPC closest approach over the next orbit, clamped with the
+slower of the secant and node-dv speeds, plus a live-distance backstop every frame). The STATION-
+SEPARATE coast the analyzer also ranked (~426 s) was already gone (4.4 s since
+`2026-09-30_1732`); the DOCK-phase coasts are prox-ops and stay 1x by rule.
+
+Flight findings (2026-10-02, automation DLL sha256 `dc79d1d1...`, C# unchanged):
+- Both holds rails-warped as designed on `2026-10-02_1925` and `_1944`: node 1 held from about
+  7130 to 7607 (CA clear); node 2 CA-clamped (closest approach 52-55 m, guard 343-344 s), held
+  from about 8060 to 8322; both burns ignited on time. A third, 1.8 m/s close-in node was
+  declined (window negative), as intended.
+- **Outcome change, inside MechJeb's own band.** On both flights MechJeb's rendezvous autopilot
+  finished at 101.45 / 101.29 m and 0.27 / 0.25 m/s. Every baseline ended under 100 m (95.7 m on
+  `2026-09-30_1732`). The bdock RENDEZVOUS -> MATCH-VELOCITY gate required d <= 100 m, so the
+  no-progress watchdog flaked a MechJeb-legal completion (MISSION-FLAKE, INVALID). Mechanism:
+  node 2 now falls at the transfer apoapsis (node 1 + 930 s, 14.5 m/s on both flights, against
+  node 1 + 884 s and 15.656 m/s on all four baseline runs). The likely cause is the shorter 1x
+  RCS attitude dwell before node 1 (120 s instead of 600 s), which leaves the orbit closer to
+  MechJeb's Hohmann plan. The final approach then starts at about 140 m rather than about 300 m,
+  closes more slowly and stops a few metres further out. Fix (operator pre-decision 2026-10-02):
+  the gate is MechJeb's own completion test, `rendezvous_ap_done` (d < approachDistance * 1.05 + 2 m
+  AND v < 1 m/s, decompiled `MechJebModuleRendezvousAutopilot.Drive`), paired with the AP's
+  enabled latch as before; docking still follows MATCH-VELOCITY unchanged.
+- **Pre-existing: kRPC WarpTo's last ~3-4 game seconds read PHYSICS mode** (x3.3-4.3, `_1925` ut
+  7605.99 and 8320.34). The same tail closes #1958's capture holds (B11 `2026-10-01_1652`
+  TRANSFER-BURN, ut 1742.51 at PHYSICSx3.64) and so ends every native warp_to in the suite. The
+  rendezvous hold now cancels its own warp 15 s before target (`RV_WARP_ARRIVAL_TOLERANCE_SECONDS`),
+  which on `_1944` went RAILS x10 -> 1x on both releases with no PHYSICS frame; the held step also
+  drops any warp that reads PHYSICS. The capture hold and the other warp_to users still cross it.
+- Flown green on the aligned gate, each PASS attempt 1 with the mission outcome unchanged
+  (MISSION-OK, docked, both transfers, undocked; recordings 21 and 31, inside their windows):
+  BDOCK-1 `2026-10-02_2011` (MechJeb done at 99.7 m / 0.26 m/s), BDOCK-2 `2026-10-02_2037`
+  (99.8 m / 0.32 m/s). `flight_efficiency.py`, before -> after:
+  BDOCK-1 RENDEZVOUS 1,458 -> 598 wall-s, DOCK 246 -> 210, total 2,194 -> 1,540 (vs
+  `2026-09-30_1732`; this run's ascents happened to fly 1x, as `2026-09-10_2305`'s did, so its
+  STATION- / INT-ASCENT read 356 / 301 against 194 / 195);
+  BDOCK-2 RENDEZVOUS 1,019 -> 560, total 1,537 -> 1,080 (vs `2026-09-23_1704`).
+  Recoverable RENDEZVOUS 1x left: ~330 / ~270 s, the ~340 s the closest-approach clamp keeps at
+  1x before the match burn plus the close-in nodes, both by design.
+- [ ] #1958's holds and every other native warp_to cross WarpTo's physics-mode tail; decide whether
+  they should cancel early too (operator ruling 2026-10-02: no physics warp in missions).
+
 ## ~~MISSION-WARP-POLICY-2026-10-01: harness missions idled at 1x through node waits, dwells and vacuum coasts~~ [FILED AND FIXED 2026-10-01, branch `mission-warp-fix`, operator ruling of the same day. HARNESS ONLY, no C# change]
 
 A log analysis of the 2026-10-01 nightly runs (telemetry is ~1 Hz of wall time; an unchanged
@@ -2488,7 +2646,7 @@ KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN); alternate launch sites with
 
 ---
 
-## INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS: an in-game batch in the Tracking Station orphans every ghost map vessel [FILED 2026-09-29 from VB-1's first reading run, branch `settings-axis`. OPEN; test runner only, no player path]
+## ~~INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS: an in-game batch in the Tracking Station orphans every ghost map vessel~~ [FILED 2026-09-29 from VB-1's first reading run, branch `settings-axis`. FIXED 2026-10-03, branch `fix-ts-batch-orphans`; live proof owed (VB-1 / a TS batch); test runner only, no player path]
 
 Found by `VB-1-ghost-vessel-budget` reading `2026-09-29_1657` (its KSP.log). Before a batch,
 `InGameTestRunner.PerformBetweenRunCleanup` destroys the flight-scene ghosts through
@@ -2518,6 +2676,35 @@ direction (not done here): in the Tracking Station, remove the registered ghost 
 before clearing the bookkeeping (or let `ParsekTrackingStation` rebuild from a clean slate), and
 give the `VesselBudget` cell a wait for the rebuilt ghosts. VB-1 drops its RunTests step until
 then.
+
+FIXED 2026-10-03, branch `fix-ts-batch-orphans`: `PerformBetweenRunCleanup` now calls
+`GhostMapPresence.RemoveRegisteredGhostVesselsBeforeTestReset` after the flight teardown and
+BEFORE `ResetBetweenTestRuns`. The pure `PlanBetweenRunGhostVesselRemoval` decides what dies:
+every vessel the chain / recording-index / overlap maps hold goes through the existing
+`RemoveAllGhostVessels` (the `Vessel.Die()` path the Tracking Station's own teardown and the TS
+Fly strip use), and a live vessel registered by pid alone dies first, inside the ghost-teardown
+scope and while still registered (the remove-all clears the registered set, and every vessel
+event guard must keep reading it as a ghost). `Vessel.Die()` on a non-active vessel removes it
+from `FlightGlobals.Vessels` synchronously and marks it DEAD (decompiled; `new FlightState()`
+skips DEAD), so the baseline and marker saves the batch writes in the same frame no longer count
+the ghosts. One summary line: `Between-run ghost vessel removal: reason=... scene=... tracked=N
+untrackedLive=N untrackedRemoved=N staleRegisteredPids=N liveVesselsBefore=N liveVesselsAfter=N`
+(Info when anything died, Verbose otherwise); the runner's end line gains
+`ghostVesselsRemoved=N`. TS state reset with it: the static TS ghost selection
+(`GhostTrackingStationSelection`, whose pid would name a dead vessel; the popup closes on the
+next Update when the selection is gone). `ParsekTrackingStation`'s other caches are keyed by
+recording index or id (atmospheric marker indices, ghost CommNet nodes and orbit cache, the
+action-chain cache) and tolerate the removal; its next lifecycle tick rebuilds the ghosts from
+the empty maps. FLIGHT is unchanged (`DestroyAllTimelineGhosts` already emptied the maps and the
+registered set, so the plan is empty); the Space Center holds no ghost map vessels in the
+ordinary case, and any that were registered now die instead of being orphaned. The
+`VesselBudget` cell is an IEnumerator that waits up to 15 s for the rebuilt ghosts and skips,
+naming the context, only if none appear. Cells: `BetweenRunGhostVesselRemovalTests` (planner
+cases, the summary line, and an IL check that the removal call precedes the bookkeeping clear).
+A live Tracking Station batch should show the removal line with `tracked=8` on VB-1's host, no
+`Too many vessels in scene` line from the baseline / marker saves, one set of `Created ghost
+vessel` lines after the batch start, and `VesselBudget` PASS; after that read, VB-1 can restore
+its RunTests `VesselBudget` step (it re-pins the lane's batch tally).
 
 ## KSP-SETTINGS-FOLLOWUPS-2026-09-27: fixes from the traces of the settings audit [FILED 2026-09-27, branch `kss2-career`]
 
@@ -5760,7 +5947,7 @@ and consider a second, pre-filter view (`ComputeAllGhostChains`' full output, or
 `digest=6ad6ec1c` (a fixture-derived literal in two required tokens), so it needs CI-3
 re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
 (`bbd83d3b`, `8952919c`) recomputed.
-## D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR: the player-action half of D18 needs a RealSpawn / Recover seam verb pair [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A, on the operator ruling that no player-action verbs are built in that wave. VERBS BUILT 2026-10-01 on branch `realspawn-recover-verbs` (operator decision 2026-10-01, the second half of the chain-tip track after PR #1953); LANES OWED]
+## D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR: the player-action half of D18 needs a RealSpawn / Recover seam verb pair [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A, on the operator ruling that no player-action verbs are built in that wave. VERBS BUILT 2026-10-01 on branch `realspawn-recover-verbs` (operator decision 2026-10-01, the second half of the chain-tip track after PR #1953); LANES OWED, BLOCKED ON A HOST: the 2026-10-02 survey found no committed fixture that can stand an active vessel beside a future chain tip's ghost]
 
 **Status 2026-10-01: both verbs built, no lane flown.** Contract in
 `design-autotest-command-seam.md` `#### RealSpawn / Recover`. `RealSpawn rec=<id>` finds the
@@ -5791,6 +5978,43 @@ last event. Both two-phase, `RequiresFlight`, 120 s; refusals typed and mirrored
   chain's original pid.
 - The docking cell the original entry names stays a mission, not a verb: RealSpawn hands
   the pid to a dock mission.
+
+**Host survey 2026-10-02 (branch `lanes-d18-realspawn`): NO committed fixture can host
+either lane, so neither was authored or flown.** A Real Spawn Control row needs, at one
+instant, the tip recording's flight ghost live (`ghostStates` entry, `rec.EndUT >
+currentUT`, not yet `VesselSpawned`) AND the active vessel within 1000 m (250 m and
+2 m/s for a live button). Every chain the walker builds from the 72 committed fixtures
+(claiming branch points with a `targetVesselPid`, walked to the leaf; script over each
+`persistent.sfs`) fails that on the CLOCK, not on geometry:
+
+- The four landed-Kerbin chain hosts, `rover-relay-recorded` (tip `ff014f58` rover C,
+  end 438.8, boot 443.6), `rover-relay-c-recorded` (tips `9fed706a` B end 227.8 and
+  `ec4bf428` C end 347.6, boot 410.4), `rover-route-recorded` and `rover-route-career`
+  (tip `4370a799` B, end 618.5, boot 979.5): every tip ended before boot, so the tip
+  vessel is already the live ACTIVE vessel (0 m) and no ghost exists to press. None
+  carries a RewindPoint and every `rewindSave` is empty by harvest policy, so nothing can
+  move the clock back before a tip's EndUT; an in-run `StartRecording` -> `CommitTree` ->
+  `InvokeRewindToLaunch tree=latest` only rewinds to a UT after boot.
+- The RewindPoint hosts: `bdock-recorded` / `bdock-second-dock-recorded` (one RP, UT
+  382.7, during the launch) have Orbiting chain tips at UT ~8950 / ~11804 that no
+  re-flown slot vessel can be parked beside; `refly-autopilot-recorded` and both
+  `refly-split-crewed-*` carry no chain at all.
+- No fixture has a Landed recording ending after its boot UT (the six that end later are
+  all Destroyed / SubOrbital / Orbiting / Recovered).
+
+Also measured: on all four rover chains the TIP is the docking rover, not the claimed
+vessel (`rover-route-*`: chain pid 2123618197, tip pid 313889796), so the
+`chain-tip-original-pid` requirement "answered pid equals the chain's original pid" can
+only be asked of a chain whose tip carries the claimed vessel's own pid (the bdock
+Kerbal X shape, 3620499050 both).
+
+**What a host needs** (a harvest, not a lane change): a save whose boot UT, or a
+RewindPoint's UT, lies inside a Landed-on-Kerbin chain tip's ghost window while a
+DIFFERENT flyable vessel sits parked within 250 m of the tip ghost's final stretch, and
+for lane (a) also a RewindPoint before that tip's EndUT so the post-Recover rewind can
+put the tip back in the future. One road: harvest a rover dock / undock flight with its
+undock RewindPoint kept (rover-route's tree B undocks at 594.3; the shipped fixture has
+no RP), re-fly the undocked half, and park it beside the other half's ghost.
 
 D18 is at 6 of 12 after PR-A. The cells still open are the ones where the PLAYER acts on a
 ghost chain: spawning a ghost as a real vessel through Real Spawn Control
@@ -5831,7 +6055,10 @@ off the walker's `ResolveTermination: ... terminalState=Destroyed` and
 
 A subject for either needs a chain whose tip is still in the future when the scene loads
 and ends Recovered or Destroyed: a rewind onto a fixture with such a chain, or the
-RealSpawn / Recover verb pair.
+RealSpawn / Recover verb pair. The 2026-10-02 host survey under
+D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR found no committed fixture that offers either: every
+landed-Kerbin chain tip already ended before its fixture's boot UT and none of those
+fixtures carries a RewindPoint.
 
 ## ~~KSC-BUILDING-DESTROY-REPAIR-NEVER-REACH-LEDGER: a KSC building destroyed or repaired outside a committing recording never becomes a ledger action~~ [FILED 2026-09-23 from the PR #1764 review; FIXED 2026-09-23 on branch `ksc-facility-ledger`]
 
@@ -11898,6 +12125,16 @@ production path that lets a spawned vessel adopt its committed tree; it re-arms 
 own poll, so the recorder is live again before the seam's next step is written, and a
 longer dwell only spends more wall time inside the same steady state. The CEN-7 dwell
 was added specifically to falsify "the seam moved too fast" and did not.
+
+**Same root cause as HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE, fixed there
+2026-10-02 (live proof owed).** Source confirms the steady state: every frame a tree or
+recorder is live, `HandleMissedVesselSwitchRecovery` zeroes
+`nextCommittedSpawnedRestoreRetryAt`, so the first Update after the discard retries at once
+and `TryTakeCommittedTreeForSpawnedVesselRestore` re-clones the committed original (still in
+committed storage). The `DiscardTree` verb now arms a per-vessel suppression that holds
+until something records, the active vessel changes, or the scene ends, so the kill pair
+should now idle a restorable host too. Until a census re-flies `mun-landing-recorded`, keep
+treating such a host as unproven; H69 still owns the LANDED `AutoRecord` cells.
 
 Needs: nothing. `H69-autorecord-landed` already executes the LANDED `AutoRecord` cells
 on `rover-route-recorded`, whose store does not re-arm this way, so the coverage this

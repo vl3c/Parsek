@@ -3190,11 +3190,18 @@ RECOVER_REASONS: Tuple[str, ...] = (
 )
 
 
+# The largest persistentId a literal ``Recover pid=`` can name: KSP's persistentId is a
+# uint, and the seam parses the arg with ``uint.TryParse``.
+RECOVER_PID_MAX = 4294967295
+
+
 def validate_real_spawn_recover_step(index: int, cmd: str, step_args: Dict) -> List[str]:
     """Pre-launch shape check for one ``RealSpawn`` / ``Recover`` step: the verb's one
     required arg (``rec=`` / ``pid=``) must be present and non-empty. A literal Recover
-    pid must be a positive decimal; a ``${step.field}`` handle is checked by the R10
-    static tier and resolved at run time."""
+    pid must be an ASCII decimal in 1..4294967295, the range the seam's
+    ``uint.TryParse(NumberStyles.None)`` accepts (``str.isdigit`` alone would pass a value
+    above the uint max and a non-ASCII digit, both of which the seam rejects); a
+    ``${step.field}`` handle is checked by the R10 static tier and resolved at run time."""
     errors: List[str] = []
     if cmd == REALSPAWN_VERB:
         key, reason = REALSPAWN_REC_KEY, "realspawn-rec-arg-missing"
@@ -3208,7 +3215,8 @@ def validate_real_spawn_recover_step(index: int, cmd: str, step_args: Dict) -> L
             "driver.steps[%d].args.%s: %s REQUIRES it; the seam answers REJECTED %s"
             % (index, key, cmd, reason))
     elif cmd == RECOVER_VERB and "${" not in str(raw) and not (
-            str(raw).isdigit() and int(str(raw)) > 0):
+            re.fullmatch(r"[0-9]+", str(raw))
+            and 0 < int(str(raw)) <= RECOVER_PID_MAX):
         errors.append(
             "driver.steps[%d].args.%s: %r is not a positive decimal persistentId; the "
             "seam answers REJECTED recover-pid-arg-invalid" % (index, key, raw))
