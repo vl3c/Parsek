@@ -10,6 +10,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: CA-1's "upper chute never armed" check now reads the real chute.** The check
+  used to trust the mission's own record of never arming the chute, so nothing that
+  happened in flight could fail it. It now also watches the upper stage's parachute
+  through the descent and fails if it arms or opens by any route, ignoring the booster's
+  chutes once the game switches to the booster; with no chute reading at all it fails.
+  A CA-1 re-read flight is owed.
 - **Dev: the mutation checker now proves the mission checks and the forbidden log tokens
   red.** `harness/tools/mutation_check.py --mission-only` (new pure core
   `harness/lib/mutmission.py`) replays each archived mission result through the real

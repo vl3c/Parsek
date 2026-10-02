@@ -20227,6 +20227,32 @@ GS1_SIBLING_AIRBORNE_DEBOUNCE_K = 2
 # poll a pod can read LANDED on its way to exploding cannot condemn the run).
 GS1_FOCUS_IMPACT_LANDED_DEBOUNCE_K = 2
 
+# THE OBSERVED HALF OF craftChuteNeverArmed (operator ruling 2026-10-01). The row
+# used to read only the machine's own command latch, which no telemetry can redden:
+# the mutation checker's blind replay met it with no frames at all. It now also
+# reads the upper stage's REAL parachute state (TelemetrySnapshot.craft_chute_state,
+# the shell's read_chute=True) on every DESCENT frame, so an arm by ANY route - an
+# action group, a stray stage click, craft settings, stock auto-deploy - reds it.
+# The upper stage carries exactly one parachute (parachuteSingle, see
+# tools/build_gs1_craft.py), so the runner's most-deployed aggregate IS that
+# chute's state while the upper stage is the active vessel.
+#
+# ATTRIBUTION. After the upper stage dies KSP hands the active vessel to the
+# booster, whose six chutes are open, so a frame counts only when the vessel NAME
+# was read and is not siblingVesselName (the chute and name reads resolve off the
+# same kRPC vessel handle in one poll). The handoff frame itself is excluded, and so
+# is a frame whose name read faulted: it might be the booster.
+#
+# ANY state but Stowed counts as fired (Armed, SemiDeployed, Deployed, Cut, or a
+# state name this library does not know), fail-closed. Stock chute states are
+# monotone along one flight, so a chute armed in COAST still reads non-Stowed in
+# DESCENT; scoping the read to DESCENT keeps the pre-split stack (whose booster
+# chutes the separation click arms) out of it.
+#
+# UNREAD FAILS CLOSED: the row needs at least this many attributable reads, so a
+# runner whose chute or name read never answered cannot pass an absence claim.
+GS1_UPPER_CHUTE_MIN_READS = 1
+
 # Consecutive Deployed reads before the canopy latch certifies. Same value and same
 # reasoning as B1_CANOPY_DEBOUNCE_K: stock flips ParachuteState to DEPLOYED at the
 # START of the ~8 s canopy animation, so a lone glitched frame must not certify.
@@ -20411,6 +20437,19 @@ class Gs1State:
     focus_landed_streak: int = 0
     # The shell skips its settle tail after IMPACTED: the vessel is gone.
     skip_settle_tail: bool = False
+    # OBSERVED upper-stage chute across DESCENT (craftChuteNeverArmed reads these;
+    # see _gs1_observe_upper_chute). ``upper_chute_reads`` counts DESCENT frames whose
+    # chute read is attributable to the upper stage; ``upper_chute_fired_seen`` is the
+    # sticky latch for any non-Stowed state seen on one of them, with the first such
+    # state and its UT as evidence. ``upper_chute_unattributed_reads`` counts frames
+    # with a chute read that could not be attributed (the vessel name was unread or
+    # was the booster's): they are excluded, never counted as clean.
+    upper_chute_reads: int = 0
+    upper_chute_fired_seen: bool = False
+    upper_chute_fired_state: str = ""
+    upper_chute_fired_ut: Optional[float] = None
+    upper_chute_last_state: str = ""
+    upper_chute_unattributed_reads: int = 0
 
     phases_reached: Tuple[str, ...] = (GS1_PRELAUNCH,)
     verdict: Optional[str] = None
@@ -20502,6 +20541,30 @@ def _gs1_focus_impact_eligible(state: Gs1State) -> bool:
     return (state.params.focus_impact_at_exit
             and state.phase == GS1_DESCENT
             and state.separation_seen)
+
+
+def _gs1_observe_upper_chute(state: Gs1State,
+                             snapshot: TelemetrySnapshot) -> Gs1State:
+    """Fold one live focus-impact DESCENT frame into the observed upper-stage chute
+    latch (GS1_UPPER_CHUTE_MIN_READS has the whole argument). A frame with no chute
+    read touches nothing; a chute read whose vessel name is unread or is the
+    booster's only bumps the unattributed count."""
+    if snapshot.vessel_lost or not snapshot.craft_chute_state:
+        return state
+    name = snapshot.vessel_name
+    booster = state.params.sibling_vessel_name
+    if not name or (booster and name == booster):
+        return replace(state, upper_chute_unattributed_reads=(
+            state.upper_chute_unattributed_reads + 1))
+    chute = snapshot.craft_chute_state
+    state = replace(state, upper_chute_reads=state.upper_chute_reads + 1,
+                    upper_chute_last_state=chute)
+    if chute != CHUTE_STATE_STOWED and not state.upper_chute_fired_seen:
+        state = replace(state, upper_chute_fired_seen=True,
+                        upper_chute_fired_state=chute,
+                        upper_chute_fired_ut=(snapshot.ut if _is_finite(snapshot.ut)
+                                              else None))
+    return state
 
 
 def _gs1_enter_impacted(state: Gs1State, peak: Optional[float]) -> Gs1State:
@@ -20721,7 +20784,9 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
         # are the HANDOFF (the active vessel now reads as the booster: the upper
         # stage is gone and KSP focused the nearest craft) and the named ASSERT-FAIL
         # for an upper stage that came down intact; the other success exits are the
-        # losses handled above.
+        # losses handled above. The observed-chute latch is folded FIRST so every
+        # exit below carries it; the handoff frame itself is excluded by name.
+        state = _gs1_observe_upper_chute(state, snapshot)
         if (state.params.sibling_vessel_name
                 and snapshot.vessel_name == state.params.sibling_vessel_name
                 and _gs1_focus_impact_eligible(state)):
@@ -21059,7 +21124,10 @@ def _gs1_focus_impact_rows(params: Gs1Params, state,
     three terminal rows INVERTED and RENAMED so no nominal row name can be read as
     met over the opposite fact.
 
-    - ``craftChuteNeverArmed``: the machine never commanded the upper chute.
+    - ``craftChuteNeverArmed``: the machine never commanded the upper chute AND the
+      upper stage's chute was never OBSERVED in any state but Stowed on a DESCENT
+      frame attributable to it, over at least GS1_UPPER_CHUTE_MIN_READS such reads
+      (an unread chute fails closed). See GS1_UPPER_CHUTE_MIN_READS.
     - ``focusImpacted``: the machine reached IMPACTED (a loss in DESCENT after the
       observed separation), not a timeout or a landed ASSERT-FAIL.
     - ``boosterAirborneAtImpact``: the booster read airborne on
@@ -21067,10 +21135,23 @@ def _gs1_focus_impact_rows(params: Gs1Params, state,
       This is the non-debris leaf the Parsek abort needs still live.
     """
     armed = bool(getattr(state, "chute_commanded", False))
+    fired = bool(getattr(state, "upper_chute_fired_seen", False))
+    reads = int(getattr(state, "upper_chute_reads", 0))
+    fired_state = getattr(state, "upper_chute_fired_state", "") or ""
+    last_upper = getattr(state, "upper_chute_last_state", "") or ""
     never_armed = AssertionOutcome(
-        "craftChuteNeverArmed", not armed,
-        getattr(state, "last_chute_state", "") or "UNREAD",
-        {"armCommanded": armed})
+        "craftChuteNeverArmed",
+        (not armed) and (not fired) and reads >= GS1_UPPER_CHUTE_MIN_READS,
+        fired_state or last_upper or "UNREAD",
+        {"armCommanded": armed,
+         "observedFired": fired,
+         "firedState": fired_state or None,
+         "firedUT": getattr(state, "upper_chute_fired_ut", None),
+         "upperStageChuteReads": reads,
+         "readsRequired": GS1_UPPER_CHUTE_MIN_READS,
+         "unattributedChuteReads": int(getattr(state, "upper_chute_unattributed_reads",
+                                               0)),
+         "lastUpperStageState": last_upper or "UNREAD"})
     impacted = getattr(state, "phase", None) == GS1_IMPACTED
     impact_ut = getattr(state, "impact_ut", None)
     impact = AssertionOutcome(

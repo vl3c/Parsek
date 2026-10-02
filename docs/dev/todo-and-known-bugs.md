@@ -59,12 +59,20 @@ all 8 rows), `test_mlib.NonFiniteDetailScrubTests`, `test_shells.ResultSerialize
   that #1806 (`b4-chute`) has landed, and the 24 whose archives are missing or no longer
   replay green (re-run `mutation_check.py` after their next tier, then apply the same
   per-lane anchor).
-- One VACUOUS mission gate needs a ruling: `CA-1-commit-abort-booster-live`'s
-  `craftChuteNeverArmed` (mission `gs1_auto_chute_booster`, abort profile) is met by the
-  blind replay, because it is an ABSENCE claim about the machine's own command latch
-  (`not state.chute_commanded`): it reads no telemetry by construction and reds only if
-  the machine itself arms the chute. Either record it as intended, or re-derive it from an
-  observed read (the craft chute state staying un-deployed across DESCENT).
+- ~~One VACUOUS mission gate needs a ruling~~ RULED AND APPLIED (operator ruling
+  2026-10-01, branch `ca1-chute-telemetry`): `CA-1-commit-abort-booster-live`'s
+  `craftChuteNeverArmed` (mission `gs1_auto_chute_booster`, abort profile) was met by the
+  blind replay because it read only the machine's own command latch. It now also reads the
+  upper stage's REAL parachute state (the shell's existing `read_chute=True`
+  `craft_chute_state`) on every DESCENT frame attributable to the upper stage (vessel name
+  read and not `siblingVesselName`, so the booster's open chutes after the impact handoff
+  are excluded), latches any state but Stowed, and needs at least one such read (unread
+  fails closed): `mlib.GS1_UPPER_CHUTE_MIN_READS` / `_gs1_observe_upper_chute`.
+  `mutation_check.py --mission-only` over archive `2026-09-26_0143`: 19 PROVEN, 0 VACUOUS
+  (was 18 / 1). STILL OWED: a CA-1 re-read flight, whose mission result must carry the
+  row met with value `Stowed`, `upperStageChuteReads` >= 1, `observedFired` false and
+  `unattributedChuteReads` 1 (the handoff frame); the archived flights' stdout already
+  read `chute=Stowed` on every DESCENT poll and `Deployed` only on the handoff frame.
 - Ledger lanes with no seed-bearing archive on this machine
   (`L2-ledger-groundtruth-career`, `L3-strategy-currency-conversion`,
   `L3-strategy-exchanger-floor`): re-run `mutation_check.py --ledger-only` after their
