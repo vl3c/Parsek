@@ -564,7 +564,46 @@ precedent requires a clean seed session), and an operator-local fixture may only
 a window drew, which none of these lanes needs. Nothing from that save is committed or
 staged.
 
-## HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE: a recorded-fixture lane's boot `DiscardTree` can be undone by the 1 Hz restore retry [FILED 2026-09-29 from EVA-6's `2026-09-28_2059` attempt 1 (INVALID, passed on retry), branch `deployables-lanes`]
+## ~~HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE: a recorded-fixture lane's boot `DiscardTree` can be undone by the 1 Hz restore retry~~ [FILED 2026-09-29 from EVA-6's `2026-09-28_2059` attempt 1 (INVALID, passed on retry), branch `deployables-lanes`; FIXED 2026-10-02 on `fix-discard-restore-race`, live proof owed]
+
+**Fix (2026-10-02).** The seam's `DiscardTree` verb now arms a committed-spawned restore
+suppression for the active vessel right after its discard (and on the `nothing=true` path,
+so a boot restore that has not landed yet cannot adopt the tree after the verb reported the
+host idle). `TryRestoreCommittedTreeForSpawnedActiveVessel` skips a suppressed vessel BEFORE
+`TryTakeCommittedTreeForSpawnedVesselRestore`, so no copy-on-write clone is taken and no
+restore attempt armed; that covers the 1 Hz Update retry and the OnFlightReady / switch
+entry points alike. The suppression is one pid on the `ParsekFlight` instance (a scene load
+drops it) and `HandleMissedVesselSwitchRecovery` clears it each frame, before the retry, once
+anything owns a live tree or recorder (a `StartRecording`, an adoption) or the active vessel
+is a different one (an `EvaExit`, a switch); a zero active pid mid-switch keeps it. Pure
+decisions `IsCommittedSpawnedRestoreSuppressedForVessel`,
+`ResolveCommittedSpawnedRestoreSuppressionClearReason`, `BeginCommittedSpawnedRestoreSuppression`
+and `TickCommittedSpawnedRestoreSuppression`, cells in `CommittedSpawnedRestoreSuppressionTests`
+(plus source gates for the ordering and a single-caller gate). Log lines:
+`CommittedSpawnedRestoreSuppression: armed pid=... reason=test-command-discard` and
+`... cleared pid=... reason=active-vessel-changed|live-tree-or-recorder`.
+
+Player paths were checked and left alone: every in-flight teardown of a committed-restore
+clone (pre-switch dialog Case A / Case B Discard, the scene-exit idle and no-op discards) is
+followed in the same call by a vessel switch or a scene change, so the retry never sees the
+discarded vessel idle; if stock refuses that switch, the old vessel stays active and the
+retry re-adopts its committed tree, which is the product rule (a live committed vessel
+resumes its recording), not a defect.
+
+Correction to the Cause paragraph: the timer is not left at a boot-dependent value. Every
+frame a tree or recorder is live, `HandleMissedVesselSwitchRecovery` sets
+`nextCommittedSpawnedRestoreRetryAt = 0`, so the first Update after the discard retries at
+once; source predicts the re-adoption on every run, and the green `_1815` run's single
+restore is not explained by source alone (not investigated further: the fix removes the
+dependence).
+
+**Live proof owed (next EVA-6..9 / census flight).** The produced `KSP.log` should show, after
+the lane's `discardtree discarded=true`, one `CommittedSpawnedRestoreSuppression: armed` line
+naming the capsule pid, NO second `TryRestoreCommittedTreeForSpawnedActiveVessel: restored
+tree` line before the `EvaExit`, a `cleared ... reason=active-vessel-changed activePid=<kerbal>`
+line at the exit, and the kerbal's `startrecording recordingId=...` OK (no
+`active-recording-id-missing` refusal). The four lanes keep `retry policy = "once"` until
+that flight is read; drop it per lane afterwards.
 
 **Evidence.** On `kerbin-splashdown-recorded` the boot promotes the committed Kerbal X tip
 (`TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'Kerbal X' ... via
@@ -11816,6 +11855,16 @@ production path that lets a spawned vessel adopt its committed tree; it re-arms 
 own poll, so the recorder is live again before the seam's next step is written, and a
 longer dwell only spends more wall time inside the same steady state. The CEN-7 dwell
 was added specifically to falsify "the seam moved too fast" and did not.
+
+**Same root cause as HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE, fixed there
+2026-10-02 (live proof owed).** Source confirms the steady state: every frame a tree or
+recorder is live, `HandleMissedVesselSwitchRecovery` zeroes
+`nextCommittedSpawnedRestoreRetryAt`, so the first Update after the discard retries at once
+and `TryTakeCommittedTreeForSpawnedVesselRestore` re-clones the committed original (still in
+committed storage). The `DiscardTree` verb now arms a per-vessel suppression that holds
+until something records, the active vessel changes, or the scene ends, so the kill pair
+should now idle a restorable host too. Until a census re-flies `mun-landing-recorded`, keep
+treating such a host as unproven; H69 still owns the LANDED `AutoRecord` cells.
 
 Needs: nothing. `H69-autorecord-landed` already executes the LANDED `AutoRecord` cells
 on `rover-route-recorded`, whose store does not re-arm this way, so the coverage this
