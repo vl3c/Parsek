@@ -2289,6 +2289,14 @@ RV_WARP_IDLE_FRAMES = 2
 RV_WARP_NODE_IDENTITY_SECONDS = 1.0
 # Bounded native warp issues per hold (initial + self-heals).
 RV_WARP_MAX_ISSUES = 5
+# The hold cancels its own warp this many game seconds before the target
+# instead of letting kRPC's WarpTo run out. Measured on the first BDOCK-1
+# flight (2026-10-02_1925): WarpTo's last ~3-4 game seconds read PHYSICS mode
+# at a 3.3-4.3x rate (twice, ut 7605.99 / 8320.34; the B11 capture hold's warp
+# end reads the same, 2026-10-01_1652 ut 1742.51), so a hold that waits for
+# the warp to end crosses that tail; the runner's cancel drops the factor
+# straight to 1x. ~10 game-s of 1x is the price.
+RV_WARP_ARRIVAL_TOLERANCE_SECONDS = 15.0
 
 
 def rendezvous_ca_warp_limit(now_ut: float, distance: float, ca_ut: float,
@@ -16516,6 +16524,31 @@ def _bdock_separate_step(state: BDockState, snapshot: TelemetrySnapshot,
     return st, []
 
 
+# MechJeb 2.15.1 MechJebModuleRendezvousAutopilot.Drive (decompiled): the AP
+# declares the rendezvous done, clears its users (disables itself) and thrusts
+# off when Target.Distance < desiredDistance * 1.05 + 2.0 AND
+# |Target.RelativeVelocity| < 1.0 (status #MechJeb_RZauto_statu1).
+MECHJEB_RV_DONE_DISTANCE_FACTOR = 1.05
+MECHJEB_RV_DONE_DISTANCE_PAD_M = 2.0
+MECHJEB_RV_DONE_MAX_REL_SPEED = 1.0
+
+
+def rendezvous_ap_done(distance: float, rel_speed: float,
+                       desired_distance: float) -> bool:
+    """MechJeb's own rendezvous completion test, derived from the AP's
+    ``desired_distance`` (the spec's approachDistanceMeters): distance <
+    desired * 1.05 + 2 m AND relative speed < 1 m/s. The B-DOCK RENDEZVOUS ->
+    MATCH-VELOCITY gate pairs it with the AP's enabled latch flipping off, so
+    the gate opens on exactly the condition that turned the AP off. Fails
+    closed on an unread distance or speed."""
+    if not (_is_finite(distance) and _is_finite(rel_speed)
+            and _is_finite(desired_distance)):
+        return False
+    limit = (desired_distance * MECHJEB_RV_DONE_DISTANCE_FACTOR
+             + MECHJEB_RV_DONE_DISTANCE_PAD_M)
+    return distance < limit and rel_speed < MECHJEB_RV_DONE_MAX_REL_SPEED
+
+
 def _bdock_rv_note(state: BDockState, key: str, detail: str = "") -> BDockState:
     """Record a rendezvous-warp decision. ``rv_warp_decision`` (a
     MACHINE_DIFF_FIELDS entry, so it prints one gate line) is rewritten only
@@ -16580,7 +16613,7 @@ def _bdock_rv_hold_step(state: BDockState, snapshot: TelemetrySnapshot
               and snapshot.target_distance >= RV_WARP_MIN_TARGET_DISTANCE_M):
         reason = "target-near distance=%s" % _obs_fmt(snapshot.target_distance)
     elif (_is_finite(ut) and state.rv_hold_ut is not None
-          and ut >= state.rv_hold_ut - NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS):
+          and ut >= state.rv_hold_ut - RV_WARP_ARRIVAL_TOLERANCE_SECONDS):
         reason = "arrived ut=%.1f target=%.1f" % (ut, state.rv_hold_ut)
     elif (state.rv_hold_issues >= RV_WARP_MAX_ISSUES
           and not _is_finite(snapshot.warping_to)):
@@ -16823,8 +16856,11 @@ def bdock_decide(state: BDockState,
         if snapshot.mj_rendezvous_enabled:
             st = replace(st, rendezvous_ever_enabled=True)
         latched_off = st.rendezvous_ever_enabled and not snapshot.mj_rendezvous_enabled
-        close = (_is_finite(snapshot.target_distance)
-                 and snapshot.target_distance <= p.approach_distance)
+        # MechJeb's OWN completion test (see rendezvous_ap_done): the AP only
+        # disables itself inside it, so a stricter gate (the old d <= 100 m)
+        # flaked MechJeb-legal completions at 100-107 m.
+        close = rendezvous_ap_done(snapshot.target_distance,
+                                   snapshot.target_rel_speed, p.approach_distance)
         if latched_off and close:
             return (_bdock_enter(st, BDOCK_MATCH_VELOCITY, snapshot.ut),
                     [Action(ACTION_MJ_KILL_REL_VEL)])

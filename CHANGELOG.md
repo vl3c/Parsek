@@ -2411,7 +2411,12 @@ _(unreleased — entries accumulate here per commit)_
   burn itself and turns autowarp back on at 1x, never with the target vessel inside 5 km
   (kRPC's closest approach over the next orbit clamps the warp). The node and the
   autopilot are untouched (`harness/missions/lib/mlib.py` section RENDEZVOUS NODE WAITS,
-  `harness/README.md` "The mission warp policy").
+  `harness/README.md` "The mission warp policy"). The hold cancels its warp 15 s before target,
+  because kRPC's warp-to spends its last few seconds in physics warp. With less 1x attitude jitter
+  before the first burn, MechJeb's rendezvous now finishes a few metres further out (101 m
+  instead of 96 m) but still inside its own completion test, so the BDOCK rendezvous gate now
+  uses that exact test (distance under 1.05 x the approach distance + 2 m, speed under 1 m/s)
+  instead of a stricter 100 m.
 - **Dev: harness missions warp through their idle 1x waits.** Operator ruling 2026-10-01:
   burns stay at 1x, the idle stretches around them are warped (`harness/missions/lib/mlib.py`
   section MISSION WARP POLICY, `harness/README.md` "The mission warp policy"). A capture

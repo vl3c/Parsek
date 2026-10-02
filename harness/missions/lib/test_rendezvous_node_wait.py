@@ -185,6 +185,38 @@ class PlanTests(unittest.TestCase):
         self.assertEqual("rails-unknown", self.plan(body="")[1])
 
 
+class RendezvousDoneGateTests(unittest.TestCase):
+    """The RENDEZVOUS -> MATCH-VELOCITY gate is MechJeb's own completion test
+    (MechJebModuleRendezvousAutopilot.Drive: d < desired * 1.05 + 2 AND
+    v < 1). BDOCK-1 2026-10-02_1925 / _1944 ended at 101.45 / 101.29 m and
+    0.27 / 0.25 m/s, MechJeb-done, and the old d <= 100 m gate flaked both."""
+
+    def test_the_flown_endings_are_done(self):
+        self.assertTrue(mlib.rendezvous_ap_done(101.45, 0.27, 100.0))
+        self.assertTrue(mlib.rendezvous_ap_done(95.7, 0.24, 100.0))
+
+    def test_bounds_are_derived_and_strict(self):
+        """MUTATION: <= for < on either bound, or a fixed 107, and this reds."""
+        limit = 100.0 * 1.05 + 2.0
+        self.assertFalse(mlib.rendezvous_ap_done(limit, 0.2, 100.0))
+        self.assertTrue(mlib.rendezvous_ap_done(limit - 0.01, 0.2, 100.0))
+        self.assertFalse(mlib.rendezvous_ap_done(50.0, 1.0, 100.0))
+        self.assertTrue(mlib.rendezvous_ap_done(125.0, 0.2, 120.0))
+
+    def test_unread_fails_closed(self):
+        nan = float("nan")
+        self.assertFalse(mlib.rendezvous_ap_done(nan, 0.2, 100.0))
+        self.assertFalse(mlib.rendezvous_ap_done(50.0, nan, 100.0))
+
+    def test_machine_advances_on_a_mechjeb_done_ending_past_100_m(self):
+        st, acts = drive(rv_state(), [rv_snap(8730.0, node_count=0, node_ut=float("nan"),
+                                              mj_rendezvous_enabled=False,
+                                              target_distance=101.45,
+                                              target_rel_speed=0.27)])
+        self.assertEqual(mlib.BDOCK_MATCH_VELOCITY, st.phase)
+        self.assertEqual([mlib.ACTION_MJ_KILL_REL_VEL], kinds(acts[0]))
+
+
 class HoldMachineTests(unittest.TestCase):
 
     def test_arms_on_the_second_idle_frame_autowarp_off_first(self):
@@ -246,6 +278,22 @@ class HoldMachineTests(unittest.TestCase):
         st, acts = drive(st, [rv_snap(PLAN_TARGET + 0.5)])
         self.assertEqual([mlib.ACTION_MJ_SET_NODE_AUTOWARP], kinds(acts[0]))
         self.assertIsNone(st.rv_hold_ut)
+
+    def test_hold_cancels_its_own_warp_before_warp_to_runs_out(self):
+        """kRPC WarpTo's last seconds read PHYSICS mode; the hold cancels
+        RV_WARP_ARRIVAL_TOLERANCE_SECONDS early instead. MUTATION: use the
+        5 s NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS and the first frame stays quiet."""
+        st, _ = armed()
+        early = PLAN_TARGET - mlib.RV_WARP_ARRIVAL_TOLERANCE_SECONDS + 1.0
+        st, acts = drive(st, [rv_snap(early, warp_mode="RAILS", warp_rate=10.0,
+                                      warping_to=PLAN_TARGET)])
+        self.assertEqual([mlib.ACTION_CANCEL_WARP], kinds(acts[0]))
+        self.assertIn("arrived", acts[0][0].text)
+        quiet, _ = armed()
+        quiet, acts = drive(quiet, [rv_snap(PLAN_TARGET - mlib.RV_WARP_ARRIVAL_TOLERANCE_SECONDS
+                                            - 1.0, warp_mode="RAILS", warp_rate=10.0,
+                                            warping_to=PLAN_TARGET)])
+        self.assertEqual([[]], acts)
 
     def test_target_closing_inside_the_safe_distance_releases(self):
         st, _ = armed()
