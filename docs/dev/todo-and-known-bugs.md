@@ -1522,7 +1522,16 @@ Flight findings (2026-10-02, automation DLL sha256 `dc79d1d1...`, C# unchanged):
   rendezvous hold now cancels its own warp 15 s before target (`RV_WARP_ARRIVAL_TOLERANCE_SECONDS`),
   which on `_1944` went RAILS x10 -> 1x on both releases with no PHYSICS frame; the held step also
   drops any warp that reads PHYSICS. The capture hold and the other warp_to users still cross it.
-- [ ] Re-fly BDOCK-1 / BDOCK-2 on the aligned gate; record the before / after per phase here.
+- Flown green on the aligned gate, each PASS attempt 1 with the mission outcome unchanged
+  (MISSION-OK, docked, both transfers, undocked; recordings 21 and 31, inside their windows):
+  BDOCK-1 `2026-10-02_2011` (MechJeb done at 99.7 m / 0.26 m/s), BDOCK-2 `2026-10-02_2037`
+  (99.8 m / 0.32 m/s). `flight_efficiency.py`, before -> after:
+  BDOCK-1 RENDEZVOUS 1,458 -> 598 wall-s, DOCK 246 -> 210, total 2,194 -> 1,540 (vs
+  `2026-09-30_1732`; this run's ascents happened to fly 1x, as `2026-09-10_2305`'s did, so its
+  STATION- / INT-ASCENT read 356 / 301 against 194 / 195);
+  BDOCK-2 RENDEZVOUS 1,019 -> 560, total 1,537 -> 1,080 (vs `2026-09-23_1704`).
+  Recoverable RENDEZVOUS 1x left: ~330 / ~270 s, the ~340 s the closest-approach clamp keeps at
+  1x before the match burn plus the close-in nodes, both by design.
 - [ ] #1958's holds and every other native warp_to cross WarpTo's physics-mode tail; decide whether
   they should cancel early too (operator ruling 2026-10-02: no physics warp in missions).
 
