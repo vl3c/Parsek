@@ -69,10 +69,9 @@ all 8 rows), `test_mlib.NonFiniteDetailScrubTests`, `test_shells.ResultSerialize
   are excluded), latches any state but Stowed, and needs at least one such read (unread
   fails closed): `mlib.GS1_UPPER_CHUTE_MIN_READS` / `_gs1_observe_upper_chute`.
   `mutation_check.py --mission-only` over archive `2026-09-26_0143`: 19 PROVEN, 0 VACUOUS
-  (was 18 / 1). STILL OWED: a CA-1 re-read flight, whose mission result must carry the
-  row met with value `Stowed`, `upperStageChuteReads` >= 1, `observedFired` false and
-  `unattributedChuteReads` 1 (the handoff frame); the archived flights' stdout already
-  read `chute=Stowed` on every DESCENT poll and `Deployed` only on the handoff frame.
+  (was 18 / 1). Re-read flight `2026-10-02_1906` PASS: the row met with value `Stowed`,
+  `upperStageChuteReads=25`, `observedFired=false` and `unattributedChuteReads=1` (the
+  handoff frame).
 - Ledger lanes with no seed-bearing archive on this machine
   (`L2-ledger-groundtruth-career`, `L3-strategy-currency-conversion`,
   `L3-strategy-exchanger-floor`): re-run `mutation_check.py --ledger-only` after their
