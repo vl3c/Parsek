@@ -5451,6 +5451,12 @@ _(unreleased — entries accumulate here per commit)_
   player; it refuses a locked button, a vessel that is not the active one, and a recovery
   whose Space Center load would raise a merge dialog. Mirrored in the harness tables; no
   lane yet.
+- **Automated testing: `Recover pid=` literal range check.** The pre-launch spec check now
+  rejects a literal pid above the uint maximum (4294967295) or written with non-ASCII
+  digits, the same values the seam refuses as `recover-pid-arg-invalid`; before, it
+  passed them on to fail in game. The two RealSpawn / Recover lanes are still unflown: no
+  committed fixture can put a ghost-chain tip in the future next to an active vessel
+  (todo D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR).
 - **Automated testing: the wide windows at 1280x720.** New automation-only `UiAction op=state
   window=missions key=scrollX value=<px>` drives the Missions window's horizontal scroll
   (read back as the settled, clamped offset; 0 while the window fits), mirrored in hlib. The

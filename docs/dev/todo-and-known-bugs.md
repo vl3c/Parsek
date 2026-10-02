@@ -5619,7 +5619,7 @@ and consider a second, pre-filter view (`ComputeAllGhostChains`' full output, or
 `digest=6ad6ec1c` (a fixture-derived literal in two required tokens), so it needs CI-3
 re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
 (`bbd83d3b`, `8952919c`) recomputed.
-## D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR: the player-action half of D18 needs a RealSpawn / Recover seam verb pair [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A, on the operator ruling that no player-action verbs are built in that wave. VERBS BUILT 2026-10-01 on branch `realspawn-recover-verbs` (operator decision 2026-10-01, the second half of the chain-tip track after PR #1953); LANES OWED]
+## D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR: the player-action half of D18 needs a RealSpawn / Recover seam verb pair [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A, on the operator ruling that no player-action verbs are built in that wave. VERBS BUILT 2026-10-01 on branch `realspawn-recover-verbs` (operator decision 2026-10-01, the second half of the chain-tip track after PR #1953); LANES OWED, BLOCKED ON A HOST: the 2026-10-02 survey found no committed fixture that can stand an active vessel beside a future chain tip's ghost]
 
 **Status 2026-10-01: both verbs built, no lane flown.** Contract in
 `design-autotest-command-seam.md` `#### RealSpawn / Recover`. `RealSpawn rec=<id>` finds the
@@ -5650,6 +5650,43 @@ last event. Both two-phase, `RequiresFlight`, 120 s; refusals typed and mirrored
   chain's original pid.
 - The docking cell the original entry names stays a mission, not a verb: RealSpawn hands
   the pid to a dock mission.
+
+**Host survey 2026-10-02 (branch `lanes-d18-realspawn`): NO committed fixture can host
+either lane, so neither was authored or flown.** A Real Spawn Control row needs, at one
+instant, the tip recording's flight ghost live (`ghostStates` entry, `rec.EndUT >
+currentUT`, not yet `VesselSpawned`) AND the active vessel within 1000 m (250 m and
+2 m/s for a live button). Every chain the walker builds from the 72 committed fixtures
+(claiming branch points with a `targetVesselPid`, walked to the leaf; script over each
+`persistent.sfs`) fails that on the CLOCK, not on geometry:
+
+- The four landed-Kerbin chain hosts, `rover-relay-recorded` (tip `ff014f58` rover C,
+  end 438.8, boot 443.6), `rover-relay-c-recorded` (tips `9fed706a` B end 227.8 and
+  `ec4bf428` C end 347.6, boot 410.4), `rover-route-recorded` and `rover-route-career`
+  (tip `4370a799` B, end 618.5, boot 979.5): every tip ended before boot, so the tip
+  vessel is already the live ACTIVE vessel (0 m) and no ghost exists to press. None
+  carries a RewindPoint and every `rewindSave` is empty by harvest policy, so nothing can
+  move the clock back before a tip's EndUT; an in-run `StartRecording` -> `CommitTree` ->
+  `InvokeRewindToLaunch tree=latest` only rewinds to a UT after boot.
+- The RewindPoint hosts: `bdock-recorded` / `bdock-second-dock-recorded` (one RP, UT
+  382.7, during the launch) have Orbiting chain tips at UT ~8950 / ~11804 that no
+  re-flown slot vessel can be parked beside; `refly-autopilot-recorded` and both
+  `refly-split-crewed-*` carry no chain at all.
+- No fixture has a Landed recording ending after its boot UT (the six that end later are
+  all Destroyed / SubOrbital / Orbiting / Recovered).
+
+Also measured: on all four rover chains the TIP is the docking rover, not the claimed
+vessel (`rover-route-*`: chain pid 2123618197, tip pid 313889796), so the
+`chain-tip-original-pid` requirement "answered pid equals the chain's original pid" can
+only be asked of a chain whose tip carries the claimed vessel's own pid (the bdock
+Kerbal X shape, 3620499050 both).
+
+**What a host needs** (a harvest, not a lane change): a save whose boot UT, or a
+RewindPoint's UT, lies inside a Landed-on-Kerbin chain tip's ghost window while a
+DIFFERENT flyable vessel sits parked within 250 m of the tip ghost's final stretch, and
+for lane (a) also a RewindPoint before that tip's EndUT so the post-Recover rewind can
+put the tip back in the future. One road: harvest a rover dock / undock flight with its
+undock RewindPoint kept (rover-route's tree B undocks at 594.3; the shipped fixture has
+no RP), re-fly the undocked half, and park it beside the other half's ghost.
 
 D18 is at 6 of 12 after PR-A. The cells still open are the ones where the PLAYER acts on a
 ghost chain: spawning a ghost as a real vessel through Real Spawn Control
@@ -5690,7 +5727,10 @@ off the walker's `ResolveTermination: ... terminalState=Destroyed` and
 
 A subject for either needs a chain whose tip is still in the future when the scene loads
 and ends Recovered or Destroyed: a rewind onto a fixture with such a chain, or the
-RealSpawn / Recover verb pair.
+RealSpawn / Recover verb pair. The 2026-10-02 host survey under
+D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR found no committed fixture that offers either: every
+landed-Kerbin chain tip already ended before its fixture's boot UT and none of those
+fixtures carries a RewindPoint.
 
 ## ~~KSC-BUILDING-DESTROY-REPAIR-NEVER-REACH-LEDGER: a KSC building destroyed or repaired outside a committing recording never becomes a ledger action~~ [FILED 2026-09-23 from the PR #1764 review; FIXED 2026-09-23 on branch `ksc-facility-ledger`]
 
