@@ -383,6 +383,13 @@ namespace Parsek
         // ghost spawns and other processing into the dying scene.
         private bool sceneChangeInProgress;
         private float nextCommittedSpawnedRestoreRetryAt;
+        // Pid of the active vessel the M-A2 DiscardTree seam verb asked to leave idle
+        // (0 = none). While it matches the active vessel, TryRestoreCommittedTreeForSpawnedActiveVessel
+        // refuses to re-adopt that vessel's committed tree; otherwise the 1 Hz Update
+        // retry re-clones it within a second of the discard. Instance-scoped, so a scene
+        // load (a new ParsekFlight) drops it; cleared per frame by
+        // ResolveCommittedSpawnedRestoreSuppressionClearReason.
+        private uint committedSpawnedRestoreSuppressedPid;
         private MissedVesselSwitchRecoveryDiagnosticContext currentVesselSwitchRecoveryDiagnosticContext;
 
         // Captured at Start when FlightDriver.StartupBehaviour reports a fresh
@@ -4275,6 +4282,20 @@ namespace Parsek
             uint activeVesselPid = activeVessel != null ? activeVessel.persistentId : 0;
             if (activeVesselPid == 0 || GhostMapPresence.IsGhostMapVessel(activeVesselPid))
                 return false;
+
+            if (IsCommittedSpawnedRestoreSuppressedForVessel(
+                    committedSpawnedRestoreSuppressedPid, activeVesselPid))
+            {
+                // Standing condition re-reached by the 1 Hz Update retry: rate-limited
+                // per pid. Returning before TryTakeCommittedTreeForSpawnedVesselRestore
+                // keeps the copy-on-write clone and its restore attempt unarmed.
+                ParsekLog.VerboseRateLimited("Flight",
+                    "committed-spawned-restore-suppressed-" + activeVesselPid,
+                    $"TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel " +
+                    $"'{activeVessel.vesselName}' pid={activeVesselPid} - committed-tree " +
+                    "restore suppressed after a test-command DiscardTree");
+                return false;
+            }
 
             if (ShouldSkipCommittedTreeRestoreForFreshLaunch(activeVesselPid, freshRolloutVesselPid))
             {
@@ -12568,6 +12589,16 @@ namespace Parsek
         /// </summary>
         private void HandleMissedVesselSwitchRecovery()
         {
+            if (committedSpawnedRestoreSuppressedPid != 0)
+            {
+                Vessel suppressionActiveVessel = FlightGlobals.ActiveVessel;
+                TickCommittedSpawnedRestoreSuppression(
+                    ref committedSpawnedRestoreSuppressedPid,
+                    suppressionActiveVessel != null ? suppressionActiveVessel.persistentId : 0u,
+                    hasActiveTree: activeTree != null,
+                    hasRecorder: recorder != null);
+            }
+
             if (ShouldAttemptCommittedSpawnedRestoreInUpdate(
                     activeTree != null,
                     recorder != null,
@@ -15164,6 +15195,118 @@ namespace Parsek
             return hasPendingTree
                 && pendingTreeIsFinalized
                 && reFlyInPlaceContinuationActive;
+        }
+
+        /// <summary>
+        /// Asks the committed-spawned restore (the 1 Hz Update retry and every other
+        /// <see cref="TryRestoreCommittedTreeForSpawnedActiveVessel"/> entry point) to
+        /// leave the CURRENT active vessel idle. Called only by the M-A2
+        /// <c>DiscardTree</c> test-command verb: without it, discarding the tree a
+        /// recorded-fixture boot restored for its spawned vessel is undone within a second
+        /// (the committed original is still in committed storage, so the retry re-clones
+        /// it), and a lane's later <c>StartRecording</c> is refused. Player discard paths
+        /// never call this: each is followed by a vessel switch or a scene change, and a
+        /// live committed vessel re-adopting its tree is the intended product rule.
+        /// </summary>
+        internal void SuppressCommittedSpawnedRestoreForActiveVessel(string reason)
+        {
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            BeginCommittedSpawnedRestoreSuppression(
+                ref committedSpawnedRestoreSuppressedPid,
+                activeVessel != null ? activeVessel.persistentId : 0u,
+                activeVessel != null ? activeVessel.vesselName : null,
+                hasActiveTree: activeTree != null,
+                hasRecorder: recorder != null,
+                reason: reason);
+        }
+
+        /// <summary>
+        /// Pure: true when the committed-spawned restore must skip
+        /// <paramref name="activeVesselPid"/> because a DiscardTree suppression names it.
+        /// A zero pid on either side never matches.
+        /// </summary>
+        internal static bool IsCommittedSpawnedRestoreSuppressedForVessel(
+            uint suppressedPid, uint activeVesselPid)
+        {
+            return suppressedPid != 0
+                && activeVesselPid != 0
+                && suppressedPid == activeVesselPid;
+        }
+
+        /// <summary>
+        /// Pure: why an armed suppression ends, or null to keep it. It ends once anything
+        /// owns a live tree or recorder (a StartRecording, a restore coroutine, an
+        /// adoption), because the idle request is then over, and once the active vessel is
+        /// a DIFFERENT vessel (an EVA, a switch), so a later legitimate restore of another
+        /// vessel, or of this one after switching back, still runs. A zero active pid is a
+        /// transient mid-switch read and keeps the suppression.
+        /// </summary>
+        internal static string ResolveCommittedSpawnedRestoreSuppressionClearReason(
+            uint suppressedPid, uint activeVesselPid, bool hasActiveTree, bool hasRecorder)
+        {
+            if (suppressedPid == 0) return null;
+            if (hasActiveTree || hasRecorder) return "live-tree-or-recorder";
+            if (activeVesselPid != 0 && activeVesselPid != suppressedPid)
+                return "active-vessel-changed";
+            return null;
+        }
+
+        /// <summary>
+        /// Arms the suppression for <paramref name="activeVesselPid"/> and logs it. Refuses
+        /// (and logs why) when there is no active vessel or something still owns a live
+        /// tree or recorder, since the per-frame clear would drop it on the next frame.
+        /// Returns whether it armed.
+        /// </summary>
+        internal static bool BeginCommittedSpawnedRestoreSuppression(
+            ref uint suppressedPid,
+            uint activeVesselPid,
+            string activeVesselName,
+            bool hasActiveTree,
+            bool hasRecorder,
+            string reason)
+        {
+            if (activeVesselPid == 0)
+            {
+                ParsekLog.Info("Flight",
+                    $"CommittedSpawnedRestoreSuppression: not armed reason={reason} " +
+                    "(no active vessel)");
+                return false;
+            }
+            if (hasActiveTree || hasRecorder)
+            {
+                ParsekLog.Info("Flight",
+                    $"CommittedSpawnedRestoreSuppression: not armed reason={reason} " +
+                    $"pid={activeVesselPid} (live tree={hasActiveTree} recorder={hasRecorder})");
+                return false;
+            }
+            uint previous = suppressedPid;
+            suppressedPid = activeVesselPid;
+            ParsekLog.Info("Flight",
+                $"CommittedSpawnedRestoreSuppression: armed pid={activeVesselPid} " +
+                $"vessel='{activeVesselName ?? "<null>"}' reason={reason} " +
+                $"previousPid={previous} - committed-tree restore skips this vessel until a " +
+                "live tree or recorder exists, the active vessel changes, or the scene ends");
+            return true;
+        }
+
+        /// <summary>
+        /// Per-frame clear for the suppression (no-op when none is armed). Logs once when
+        /// it clears. Returns the clear reason, or null when the suppression stays.
+        /// </summary>
+        internal static string TickCommittedSpawnedRestoreSuppression(
+            ref uint suppressedPid,
+            uint activeVesselPid,
+            bool hasActiveTree,
+            bool hasRecorder)
+        {
+            string clearReason = ResolveCommittedSpawnedRestoreSuppressionClearReason(
+                suppressedPid, activeVesselPid, hasActiveTree, hasRecorder);
+            if (clearReason == null) return null;
+            ParsekLog.Info("Flight",
+                $"CommittedSpawnedRestoreSuppression: cleared pid={suppressedPid} " +
+                $"reason={clearReason} activePid={activeVesselPid}");
+            suppressedPid = 0;
+            return clearReason;
         }
 
         internal static bool ShouldAttemptCommittedSpawnedRestoreInUpdate(

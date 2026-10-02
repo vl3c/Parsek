@@ -1337,6 +1337,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Dev: the harness `DiscardTree` command now leaves a restored vessel idle.** On a
+  recorded save the flight scene resumes the committed recording of the vessel you are
+  flying, and keeps retrying that once a second while nothing records. A lane that stopped
+  and discarded that recording (every EVA-6 to EVA-9 lane does, before the kerbal steps out)
+  could see it resumed again a few milliseconds later, so the kerbal's own recording was
+  refused. `DiscardTree` now tells the retry to skip that vessel until something records
+  again, the active vessel changes, or the scene ends, and logs
+  `CommittedSpawnedRestoreSuppression: armed` / `cleared`. Player discards are unchanged.
+  The lanes keep `retry policy = "once"` until a flight shows the fix.
 - **A Missions tab vessel row no longer shows another mission's vessel as a mid-flight
   "Launch".** After switching to another mission's vessel, the row's event chain read e.g.
   "Launch -> Launch (Depot Station Duna I (mission 'Kerbal X #5')) -> Docked". A launch
