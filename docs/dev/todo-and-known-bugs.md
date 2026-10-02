@@ -59,12 +59,19 @@ all 8 rows), `test_mlib.NonFiniteDetailScrubTests`, `test_shells.ResultSerialize
   that #1806 (`b4-chute`) has landed, and the 24 whose archives are missing or no longer
   replay green (re-run `mutation_check.py` after their next tier, then apply the same
   per-lane anchor).
-- One VACUOUS mission gate needs a ruling: `CA-1-commit-abort-booster-live`'s
-  `craftChuteNeverArmed` (mission `gs1_auto_chute_booster`, abort profile) is met by the
-  blind replay, because it is an ABSENCE claim about the machine's own command latch
-  (`not state.chute_commanded`): it reads no telemetry by construction and reds only if
-  the machine itself arms the chute. Either record it as intended, or re-derive it from an
-  observed read (the craft chute state staying un-deployed across DESCENT).
+- ~~One VACUOUS mission gate needs a ruling~~ RULED AND APPLIED (operator ruling
+  2026-10-01, branch `ca1-chute-telemetry`): `CA-1-commit-abort-booster-live`'s
+  `craftChuteNeverArmed` (mission `gs1_auto_chute_booster`, abort profile) was met by the
+  blind replay because it read only the machine's own command latch. It now also reads the
+  upper stage's REAL parachute state (the shell's existing `read_chute=True`
+  `craft_chute_state`) on every DESCENT frame attributable to the upper stage (vessel name
+  read and not `siblingVesselName`, so the booster's open chutes after the impact handoff
+  are excluded), latches any state but Stowed, and needs at least one such read (unread
+  fails closed): `mlib.GS1_UPPER_CHUTE_MIN_READS` / `_gs1_observe_upper_chute`.
+  `mutation_check.py --mission-only` over archive `2026-09-26_0143`: 19 PROVEN, 0 VACUOUS
+  (was 18 / 1). Re-read flight `2026-10-02_1906` PASS: the row met with value `Stowed`,
+  `upperStageChuteReads=25`, `observedFired=false` and `unattributedChuteReads=1` (the
+  handoff frame).
 - Ledger lanes with no seed-bearing archive on this machine
   (`L2-ledger-groundtruth-career`, `L3-strategy-currency-conversion`,
   `L3-strategy-exchanger-floor`): re-run `mutation_check.py --ledger-only` after their
@@ -275,6 +282,26 @@ names a continuation - same `ChainId`, and an earlier `ChainIndex` of that chain
 same tree (an optimizer split's later segment, a re-fly TIP). A chained recording whose
 earlier segments are NOT in the tree keeps its launch row. The digest's summary line counts
 them (`skippedChainContinuations=N`); `MissionEventDigestTests.Digest_ChainContinuation_IsNotASecondLaunch`.
+
+## ~~MISSION-VESSEL-ROW-PARTNER-LAUNCH: a vessel row's event phrase reads "Launch (<another mission's vessel>)" mid-run~~ [FILED 2026-10-02 from the owner's Missions tab. FIXED 2026-10-02, branch `missions-partner-launch`]
+
+The Duna Supply 1 row read `Launch -> Launch (Depot Station Duna I (mission 'Kerbal X #5')) -> ...`
+and Kerbal X #4 read `Launch (Kerbal X (mission 'Kerbal X #3')) -> Docked (...)`. A fresh
+recording started after switching to another mission's vessel joins the tree under a
+`BranchPointType.Launch` edge (`ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording`);
+`MissionCompositionBuilder` treats every non-EVA branch child as a structural peel, so the
+interval boundary's event word is `Launch` and `MissionVesselRowBuilder.BuildEventPhrase`
+named the partner as the piece that left. The Mission Log already skips Launch branch points
+(`MissionStructureListBuilder.AddBranchPointSteps`).
+
+Fix: `BuildEventPhrase` skips a mid-run boundary piece whose event word is `Launch` (logged
+rate-limited, `skipped N mid-run Launch boundary piece(s)`); the row's own start event is
+unaffected. The edge stays in the composition on purpose: dropping it would renumber the
+`/segN` interval keys a mission's `ExcludedIntervalKeys` stores. The vessel row's hover is the
+phrase and its End event cell is the terminal word, so both follow. Left as they are: the
+expanded interval detail rows (Advanced) still show `Launch` in the Start / End event cells
+at that boundary, and the partner still hangs under the vessel as a child row whose start
+event is `Launch`. `MissionVesselRowsTests.BuildEventPhrase_*`.
 
 ## ~~BDOCK-1-STATION-SEPARATE-NOT-OBSERVED: the BDOCK-1 mission never sees the station separation it just performed~~ [FILED 2026-09-30 from the #1931 / #1932 verification flights. FIXED 2026-09-30, PR #1934, flight-proven]
 
@@ -5670,7 +5697,7 @@ and consider a second, pre-filter view (`ComputeAllGhostChains`' full output, or
 `digest=6ad6ec1c` (a fixture-derived literal in two required tokens), so it needs CI-3
 re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
 (`bbd83d3b`, `8952919c`) recomputed.
-## D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR: the player-action half of D18 needs a RealSpawn / Recover seam verb pair [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A, on the operator ruling that no player-action verbs are built in that wave. VERBS BUILT 2026-10-01 on branch `realspawn-recover-verbs` (operator decision 2026-10-01, the second half of the chain-tip track after PR #1953); LANES OWED]
+## D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR: the player-action half of D18 needs a RealSpawn / Recover seam verb pair [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A, on the operator ruling that no player-action verbs are built in that wave. VERBS BUILT 2026-10-01 on branch `realspawn-recover-verbs` (operator decision 2026-10-01, the second half of the chain-tip track after PR #1953); LANES OWED, BLOCKED ON A HOST: the 2026-10-02 survey found no committed fixture that can stand an active vessel beside a future chain tip's ghost]
 
 **Status 2026-10-01: both verbs built, no lane flown.** Contract in
 `design-autotest-command-seam.md` `#### RealSpawn / Recover`. `RealSpawn rec=<id>` finds the
@@ -5701,6 +5728,43 @@ last event. Both two-phase, `RequiresFlight`, 120 s; refusals typed and mirrored
   chain's original pid.
 - The docking cell the original entry names stays a mission, not a verb: RealSpawn hands
   the pid to a dock mission.
+
+**Host survey 2026-10-02 (branch `lanes-d18-realspawn`): NO committed fixture can host
+either lane, so neither was authored or flown.** A Real Spawn Control row needs, at one
+instant, the tip recording's flight ghost live (`ghostStates` entry, `rec.EndUT >
+currentUT`, not yet `VesselSpawned`) AND the active vessel within 1000 m (250 m and
+2 m/s for a live button). Every chain the walker builds from the 72 committed fixtures
+(claiming branch points with a `targetVesselPid`, walked to the leaf; script over each
+`persistent.sfs`) fails that on the CLOCK, not on geometry:
+
+- The four landed-Kerbin chain hosts, `rover-relay-recorded` (tip `ff014f58` rover C,
+  end 438.8, boot 443.6), `rover-relay-c-recorded` (tips `9fed706a` B end 227.8 and
+  `ec4bf428` C end 347.6, boot 410.4), `rover-route-recorded` and `rover-route-career`
+  (tip `4370a799` B, end 618.5, boot 979.5): every tip ended before boot, so the tip
+  vessel is already the live ACTIVE vessel (0 m) and no ghost exists to press. None
+  carries a RewindPoint and every `rewindSave` is empty by harvest policy, so nothing can
+  move the clock back before a tip's EndUT; an in-run `StartRecording` -> `CommitTree` ->
+  `InvokeRewindToLaunch tree=latest` only rewinds to a UT after boot.
+- The RewindPoint hosts: `bdock-recorded` / `bdock-second-dock-recorded` (one RP, UT
+  382.7, during the launch) have Orbiting chain tips at UT ~8950 / ~11804 that no
+  re-flown slot vessel can be parked beside; `refly-autopilot-recorded` and both
+  `refly-split-crewed-*` carry no chain at all.
+- No fixture has a Landed recording ending after its boot UT (the six that end later are
+  all Destroyed / SubOrbital / Orbiting / Recovered).
+
+Also measured: on all four rover chains the TIP is the docking rover, not the claimed
+vessel (`rover-route-*`: chain pid 2123618197, tip pid 313889796), so the
+`chain-tip-original-pid` requirement "answered pid equals the chain's original pid" can
+only be asked of a chain whose tip carries the claimed vessel's own pid (the bdock
+Kerbal X shape, 3620499050 both).
+
+**What a host needs** (a harvest, not a lane change): a save whose boot UT, or a
+RewindPoint's UT, lies inside a Landed-on-Kerbin chain tip's ghost window while a
+DIFFERENT flyable vessel sits parked within 250 m of the tip ghost's final stretch, and
+for lane (a) also a RewindPoint before that tip's EndUT so the post-Recover rewind can
+put the tip back in the future. One road: harvest a rover dock / undock flight with its
+undock RewindPoint kept (rover-route's tree B undocks at 594.3; the shipped fixture has
+no RP), re-fly the undocked half, and park it beside the other half's ghost.
 
 D18 is at 6 of 12 after PR-A. The cells still open are the ones where the PLAYER acts on a
 ghost chain: spawning a ghost as a real vessel through Real Spawn Control
@@ -5741,7 +5805,10 @@ off the walker's `ResolveTermination: ... terminalState=Destroyed` and
 
 A subject for either needs a chain whose tip is still in the future when the scene loads
 and ends Recovered or Destroyed: a rewind onto a fixture with such a chain, or the
-RealSpawn / Recover verb pair.
+RealSpawn / Recover verb pair. The 2026-10-02 host survey under
+D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR found no committed fixture that offers either: every
+landed-Kerbin chain tip already ended before its fixture's boot UT and none of those
+fixtures carries a RewindPoint.
 
 ## ~~KSC-BUILDING-DESTROY-REPAIR-NEVER-REACH-LEDGER: a KSC building destroyed or repaired outside a committing recording never becomes a ledger action~~ [FILED 2026-09-23 from the PR #1764 review; FIXED 2026-09-23 on branch `ksc-facility-ledger`]
 

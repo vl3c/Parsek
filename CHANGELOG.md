@@ -10,6 +10,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: CA-1's "upper chute never armed" check now reads the real chute.** The check
+  used to trust the mission's own record of never arming the chute, so nothing that
+  happened in flight could fail it. It now also watches the upper stage's parachute
+  through the descent and fails if it arms or opens by any route, ignoring the booster's
+  chutes once the game switches to the booster; with no chute reading at all it fails.
+  A CA-1 re-read flight is owed.
 - **Dev: the mutation checker now proves the mission checks and the forbidden log tokens
   red.** `harness/tools/mutation_check.py --mission-only` (new pure core
   `harness/lib/mutmission.py`) replays each archived mission result through the real
@@ -1331,6 +1337,11 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A Missions tab vessel row no longer shows another mission's vessel as a mid-flight
+  "Launch".** After switching to another mission's vessel, the row's event chain read e.g.
+  "Launch -> Launch (Depot Station Duna I (mission 'Kerbal X #5')) -> Docked". A launch
+  cannot happen mid-flight, so that step is now left out; the following "Docked" step
+  already names the partner. Mission selections are unaffected.
 - **Dev: a harness mission that ends early writes its result file again.** A mission's
   assertion rows could carry a reading still at its "not yet measured" NaN default (the
   `kx_rewind_watch` core discard altitude and time, peak booster thrust and rewind times, on
@@ -5459,6 +5470,12 @@ _(unreleased — entries accumulate here per commit)_
   player; it refuses a locked button, a vessel that is not the active one, and a recovery
   whose Space Center load would raise a merge dialog. Mirrored in the harness tables; no
   lane yet.
+- **Automated testing: `Recover pid=` literal range check.** The pre-launch spec check now
+  rejects a literal pid above the uint maximum (4294967295) or written with non-ASCII
+  digits, the same values the seam refuses as `recover-pid-arg-invalid`; before, it
+  passed them on to fail in game. The two RealSpawn / Recover lanes are still unflown: no
+  committed fixture can put a ghost-chain tip in the future next to an active vessel
+  (todo D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR).
 - **Automated testing: the wide windows at 1280x720.** New automation-only `UiAction op=state
   window=missions key=scrollX value=<px>` drives the Missions window's horizontal scroll
   (read back as the settled, clamped offset; 0 while the window fits), mirrored in hlib. The

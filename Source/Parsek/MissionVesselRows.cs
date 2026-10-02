@@ -180,7 +180,9 @@ namespace Parsek
         /// limitation as the T1.3 labels), and a Dock / Board boundary (or start event) names
         /// the same-tree partner via <paramref name="dockPartnerResolver"/> when one resolves.
         /// A crew (EVA) departure is not a boundary, so it never appears here - the kerbal has
-        /// their own child row.
+        /// their own child row. A mid-run Launch boundary (a fresh recording joining the tree
+        /// after a vessel switch) is not an event of this vessel and is skipped; the row's own
+        /// start event "Launch" is unaffected.
         /// </summary>
         internal static string BuildEventPhrase(
             MissionVesselRow row, System.Func<string, double, string> dockPartnerResolver = null)
@@ -188,6 +190,7 @@ namespace Parsek
             if (row == null || row.Intervals.Count == 0)
                 return "";
             var sb = new StringBuilder();
+            int skippedLaunch = 0;
             AppendPhrasePiece(sb, NameEventPiece(row, row.StartEvent, row.StartUT, dockPartnerResolver));
             for (int i = 0; i < row.Intervals.Count; i++)
             {
@@ -198,6 +201,18 @@ namespace Parsek
                     continue;
                 if (!isLast)
                 {
+                    // A launch cannot happen mid-run. A Launch boundary here is the edge a
+                    // fresh post-switch recording hangs off (ParsekFlight
+                    // PrepareActiveTreeForFreshPostSwitchRecording), usually another
+                    // mission's vessel, and naming it would read "Launch (<partner>)". The
+                    // edge itself stays in the composition: dropping it would renumber the
+                    // /segN interval keys that Mission.ExcludedIntervalKeys stores. The
+                    // following Dock / terminal piece already tells the story.
+                    if (string.Equals(boundaryEvent, LaunchEventWord, System.StringComparison.Ordinal))
+                    {
+                        skippedLaunch++;
+                        continue;
+                    }
                     string peeled = ResolveChildAtBoundary(row, interval.EndUT);
                     AppendPhrasePiece(sb, peeled != null
                         ? boundaryEvent + " (" + peeled + ")"
@@ -208,8 +223,19 @@ namespace Parsek
                     AppendPhrasePiece(sb, boundaryEvent);
                 }
             }
+            if (skippedLaunch > 0)
+            {
+                string owner = row.OwnerHeadId;
+                ParsekLog.VerboseRateLimited("Mission", "vesselrow-midrun-launch-skip-" + owner,
+                    () => $"VesselRow: skipped {skippedLaunch} mid-run Launch boundary piece(s) " +
+                          $"in the event phrase (owner={owner})");
+            }
             return sb.ToString();
         }
+
+        // The event word a Launch branch point maps to (MissionCompositionBuilder's own table).
+        private static readonly string LaunchEventWord =
+            MissionCompositionBuilder.BranchEventName(BranchPointType.Launch, null);
 
         // A Dock / Board piece gains the partner's name when the resolver knows it; every other
         // event word passes through unchanged. The boundary UT is the merged interval's start,

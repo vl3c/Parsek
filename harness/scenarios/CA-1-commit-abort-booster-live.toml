@@ -67,6 +67,18 @@ id = "CA-1-commit-abort-booster-live"
 # STATUS: ARMED 2026-09-26 from reading 2026-09-26_0138; armed re-flight 2026-09-26_0143 PASS
 # attempt 1 (census, promotion, Landed finalize and commit identical; 90 points). Offline
 # negative control red on 12 of 12 seeded mutations over both logs.
+#
+# THE MISSION'S craftChuteNeverArmed ROW READS THE REAL CHUTE (operator ruling
+# 2026-10-01, todo MUTATION-CHECK-RESIDUE). It used to read only the machine's own
+# command latch, so the mutation checker's blind replay met it with no telemetry. It
+# now also needs the upper stage's OBSERVED parachute state (the shell's read_chute
+# read) to stay Stowed on every DESCENT frame attributable to the upper stage - the
+# vessel name read and not siblingVesselName, so the booster's open chutes on the
+# handoff frame never count - over at least one such read (unread fails closed;
+# mlib.GS1_UPPER_CHUTE_MIN_READS). Re-checked offline over 2026-09-26_0143: PROVEN.
+# RE-READ OWED: the next flight's mission result must carry the row met with value
+# Stowed, upperStageChuteReads >= 1, observedFired false and unattributedChuteReads 1.
+# The read is mission-side (stdout and result JSON), so no KSP.log token is added.
 # =====================================================================================
 tier = "nightly"
 description = "D1 commit-abort: GS-1's two-stage hop with the upper stage's chute left unarmed. The ACTIVE upper stage is destroyed on impact while the probe-cored booster (a non-debris leaf) is still under canopy, so the post-destruction merge is aborted, no dialog or commit happens at the death, and the tree keeps recording until an explicit CommitTree after the booster lands."
