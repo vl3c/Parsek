@@ -2479,7 +2479,7 @@ KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN); alternate launch sites with
 
 ---
 
-## INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS: an in-game batch in the Tracking Station orphans every ghost map vessel [FILED 2026-09-29 from VB-1's first reading run, branch `settings-axis`. OPEN; test runner only, no player path]
+## ~~INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS: an in-game batch in the Tracking Station orphans every ghost map vessel~~ [FILED 2026-09-29 from VB-1's first reading run, branch `settings-axis`. FIXED 2026-10-03, branch `fix-ts-batch-orphans`; live proof owed (VB-1 / a TS batch); test runner only, no player path]
 
 Found by `VB-1-ghost-vessel-budget` reading `2026-09-29_1657` (its KSP.log). Before a batch,
 `InGameTestRunner.PerformBetweenRunCleanup` destroys the flight-scene ghosts through
@@ -2509,6 +2509,35 @@ direction (not done here): in the Tracking Station, remove the registered ghost 
 before clearing the bookkeeping (or let `ParsekTrackingStation` rebuild from a clean slate), and
 give the `VesselBudget` cell a wait for the rebuilt ghosts. VB-1 drops its RunTests step until
 then.
+
+FIXED 2026-10-03, branch `fix-ts-batch-orphans`: `PerformBetweenRunCleanup` now calls
+`GhostMapPresence.RemoveRegisteredGhostVesselsBeforeTestReset` after the flight teardown and
+BEFORE `ResetBetweenTestRuns`. The pure `PlanBetweenRunGhostVesselRemoval` decides what dies:
+every vessel the chain / recording-index / overlap maps hold goes through the existing
+`RemoveAllGhostVessels` (the `Vessel.Die()` path the Tracking Station's own teardown and the TS
+Fly strip use), and a live vessel registered by pid alone dies first, inside the ghost-teardown
+scope and while still registered (the remove-all clears the registered set, and every vessel
+event guard must keep reading it as a ghost). `Vessel.Die()` on a non-active vessel removes it
+from `FlightGlobals.Vessels` synchronously and marks it DEAD (decompiled; `new FlightState()`
+skips DEAD), so the baseline and marker saves the batch writes in the same frame no longer count
+the ghosts. One summary line: `Between-run ghost vessel removal: reason=... scene=... tracked=N
+untrackedLive=N untrackedRemoved=N staleRegisteredPids=N liveVesselsBefore=N liveVesselsAfter=N`
+(Info when anything died, Verbose otherwise); the runner's end line gains
+`ghostVesselsRemoved=N`. TS state reset with it: the static TS ghost selection
+(`GhostTrackingStationSelection`, whose pid would name a dead vessel; the popup closes on the
+next Update when the selection is gone). `ParsekTrackingStation`'s other caches are keyed by
+recording index or id (atmospheric marker indices, ghost CommNet nodes and orbit cache, the
+action-chain cache) and tolerate the removal; its next lifecycle tick rebuilds the ghosts from
+the empty maps. FLIGHT is unchanged (`DestroyAllTimelineGhosts` already emptied the maps and the
+registered set, so the plan is empty); the Space Center holds no ghost map vessels in the
+ordinary case, and any that were registered now die instead of being orphaned. The
+`VesselBudget` cell is an IEnumerator that waits up to 15 s for the rebuilt ghosts and skips,
+naming the context, only if none appear. Cells: `BetweenRunGhostVesselRemovalTests` (planner
+cases, the summary line, and an IL check that the removal call precedes the bookkeeping clear).
+A live Tracking Station batch should show the removal line with `tracked=8` on VB-1's host, no
+`Too many vessels in scene` line from the baseline / marker saves, one set of `Created ghost
+vessel` lines after the batch start, and `VesselBudget` PASS; after that read, VB-1 can restore
+its RunTests `VesselBudget` step (it re-pins the lane's batch tally).
 
 ## KSP-SETTINGS-FOLLOWUPS-2026-09-27: fixes from the traces of the settings audit [FILED 2026-09-27, branch `kss2-career`]
 
