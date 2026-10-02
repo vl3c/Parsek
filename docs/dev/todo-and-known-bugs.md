@@ -1476,6 +1476,30 @@ reentry at UT 918.78, `committed=9->11`), B13 `_1905` (11: ascent exit, Mun appr
 22966.25, touchdown `prev=Approach next=SurfaceStationary`), B14 `_1938` (11: ascent exit, Minmus approach at UT
 278209.25, touchdown `prev=Approach next=SurfaceMobile`).
 
+## ~~BDOCK-RENDEZVOUS-1X-WAITS: each BDOCK rendezvous burn idled ~600 s at 1x~~ [FILED AND FIXED 2026-10-02, branch `bdock-warp`, operator ruling of the same day (rails warp only). HARNESS ONLY, no C# change]
+
+`flight_efficiency.py` ranked BDOCK-1 RENDEZVOUS the largest recoverable 1x wait in the suite
+(~4,714 s over 4 runs; BDOCK-2 ~2,162 s over 3). Cause, per sub-phase of
+`2026-09-30_1732` (decompiled MechJeb 2.15.1): `MechJebModuleRendezvousAutopilot.Drive` hands
+every node it places to the shared `MechJebModuleNodeExecutor` (`ExecuteAllNodes`) when a node
+exists and the executor is idle. `StateWarpAlign` warps to ignition - 600 s
+(`WarpToUT(_ignitionUT - 600)`), then, unless `AlignedAndSettled` (1 deg AND
+|angularVelocity| < 0.001 rad/s), calls `MinimumWarp` and `SetAttitude` every tick. The
+Interceptor never settled: the Hohmann node (17.2 m/s at ut 7720) sat at NONEx1 from 7118.6 to
+7729, the closest-approach match node (15.7 m/s at ~8603) from 8002 to 8603; together 1,178 of
+the phase's 1,458 wall-s. The capture hold of MISSION-WARP-POLICY could not be copied: the
+autopilot re-engages the executor itself, and disabling it to hold a hand-off would make its
+`OnModuleEnabled` remove the nodes and re-plan (possibly through another branch of `Drive`,
+since the target is closer by then). Fix (`harness/missions/lib/mlib.py` section RENDEZVOUS
+NODE WAITS, tests `test_rendezvous_node_wait.py`): the bdock machine turns the executor's
+`autowarp` off (`StateWarpAlign` then only aligns), rails-warps itself to node UT - half burn -
+120 s, and turns `autowarp` back on at the first 1x frame. Target safety: no hold warp starts or
+ends with the target inside 5 km (kRPC closest approach over the next orbit, clamped with the
+slower of the secant and node-dv speeds, plus a live-distance backstop every frame). The STATION-
+SEPARATE coast the analyzer also ranked (~426 s) was already gone (4.4 s since
+`2026-09-30_1732`); the DOCK-phase coasts are prox-ops and stay 1x by rule.
+- [ ] Fly BDOCK-1 (and BDOCK-2) on the change; record the before / after per phase here.
+
 ## ~~MISSION-WARP-POLICY-2026-10-01: harness missions idled at 1x through node waits, dwells and vacuum coasts~~ [FILED AND FIXED 2026-10-01, branch `mission-warp-fix`, operator ruling of the same day. HARNESS ONLY, no C# change]
 
 A log analysis of the 2026-10-01 nightly runs (telemetry is ~1 Hz of wall time; an unchanged

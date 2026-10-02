@@ -2403,6 +2403,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Dev: the BDOCK rendezvous waits are rails-warped.** Operator ruling 2026-10-02 (rails
+  warp only): MechJeb's rendezvous autopilot hands each node to its NodeExecutor, which
+  warps only to 600 s before ignition and then sits at 1x until the craft is aligned and
+  settled; the Interceptor never settles, so each rendezvous burn idled ~600 s at 1x. The
+  BDOCK machine now turns the executor's autowarp off, rails-warps to 120 s before the
+  burn itself and turns autowarp back on at 1x, never with the target vessel inside 5 km
+  (kRPC's closest approach over the next orbit clamps the warp). The node and the
+  autopilot are untouched (`harness/missions/lib/mlib.py` section RENDEZVOUS NODE WAITS,
+  `harness/README.md` "The mission warp policy").
 - **Dev: harness missions warp through their idle 1x waits.** Operator ruling 2026-10-01:
   burns stay at 1x, the idle stretches around them are warped (`harness/missions/lib/mlib.py`
   section MISSION WARP POLICY, `harness/README.md` "The mission warp policy"). A capture

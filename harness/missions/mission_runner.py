@@ -714,6 +714,8 @@ class KrpcMissionControl(MissionControl):
             # closed sentinel, NEVER count toward the vessel-lost read-fail streak.
             target_distance = float("nan")
             target_rel_speed = float("nan")
+            target_ca_ut = float("nan")
+            target_ca_distance = float("nan")
             docking_state = ""
             target_set = False
             mj_rv_enabled = False
@@ -730,6 +732,7 @@ class KrpcMissionControl(MissionControl):
             if self._read_docking:
                 target_distance, target_rel_speed, target_set = \
                     self._read_target_controller()
+                target_ca_ut, target_ca_distance = self._read_target_closest_approach(sc, v)
                 mj_rv_enabled, mj_dock_enabled = self._read_docking_ap_enabled()
                 docking_state = self._read_docking_state(v)
                 try:
@@ -975,6 +978,8 @@ class KrpcMissionControl(MissionControl):
                 # commit result (all fail-closed defaults when not read_docking).
                 target_distance=target_distance,
                 target_rel_speed=target_rel_speed,
+                target_ca_ut=target_ca_ut,
+                target_ca_distance=target_ca_distance,
                 docking_state=docking_state,
                 target_set=target_set,
                 mj_rendezvous_enabled=mj_rv_enabled,
@@ -2193,6 +2198,18 @@ class KrpcMissionControl(MissionControl):
             if action.value is not None:
                 dk.speed_limit = float(action.value)
             dk.enabled = True
+        elif kind == mlib.ACTION_MJ_SET_NODE_AUTOWARP:
+            # The rendezvous node-wait hold (mlib RENDEZVOUS NODE WAITS): off
+            # while the machine rails-warps toward the node itself, so the
+            # executor's StateWarpAlign stops calling MinimumWarp; back on at
+            # 1x. Nothing else on the executor is touched (its node, mode and
+            # users stay as the rendezvous AP left them).
+            try:
+                self._mechjeb.node_executor.autowarp = bool(action.value)
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Rendezvous", "node executor autowarp=%s failed: %s"
+                    % (bool(action.value), exc)))
         elif kind == mlib.ACTION_MJ_DISABLE_DOCKING:
             try:
                 self._mechjeb.docking_autopilot.enabled = False
@@ -3122,6 +3139,26 @@ class KrpcMissionControl(MissionControl):
             except Exception:
                 pass
         return distance, rel_speed, target_set
+
+    def _read_target_closest_approach(self, sc, vessel) -> Tuple[float, float]:
+        """(time, distance) of the next closest approach to the TARGET VESSEL
+        over one orbit from now (kRPC Orbit.TimeOfClosestApproach /
+        DistanceAtClosestApproach; decompiled CalcClosestAproach samples one
+        period of both orbits). The rendezvous node-wait hold's target-safety
+        input (mlib RENDEZVOUS NODE WAITS). (NaN, NaN) with no target vessel
+        (a docking-port target included: the hold never runs then) or on any
+        fault, which refuses every rendezvous warp; never counts toward the
+        vessel-lost read-fail streak."""
+        try:
+            tv = sc.target_vessel
+            if tv is None:
+                return float("nan"), float("nan")
+            orbit = vessel.orbit
+            target_orbit = tv.orbit
+            return (float(orbit.time_of_closest_approach(target_orbit)),
+                    float(orbit.distance_at_closest_approach(target_orbit)))
+        except Exception:
+            return float("nan"), float("nan")
 
     def _read_docking_ap_enabled(self) -> Tuple[bool, bool]:
         """(rendezvous_enabled, docking_enabled) MechJeb AP Enabled latches.
