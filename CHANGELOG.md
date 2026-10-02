@@ -1346,6 +1346,16 @@ _(unreleased — entries accumulate here per commit)_
   sections belongs to the later one; one within a billionth of a second of a section edge
   belongs to that section). Range had the same flaw for a section's last sample and is fixed
   too. (RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON)
+
+- **Dev: the harness `DiscardTree` command now leaves a restored vessel idle.** On a
+  recorded save the flight scene resumes the committed recording of the vessel you are
+  flying, and keeps retrying that once a second while nothing records. A lane that stopped
+  and discarded that recording (every EVA-6 to EVA-9 lane does, before the kerbal steps out)
+  could see it resumed again a few milliseconds later, so the kerbal's own recording was
+  refused. `DiscardTree` now tells the retry to skip that vessel until something records
+  again, the active vessel changes, or the scene ends, and logs
+  `CommittedSpawnedRestoreSuppression: armed` / `cleared`. Player discards are unchanged.
+  The lanes keep `retry policy = "once"` until a flight shows the fix.
 - **A Missions tab vessel row no longer shows another mission's vessel as a mid-flight
   "Launch".** After switching to another mission's vessel, the row's event chain read e.g.
   "Launch -> Launch (Depot Station Duna I (mission 'Kerbal X #5')) -> Docked". A launch
@@ -2423,6 +2433,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Dev: the BDOCK rendezvous waits are rails-warped.** Operator ruling 2026-10-02 (rails
+  warp only): MechJeb's rendezvous autopilot hands each node to its NodeExecutor, which
+  warps only to 600 s before ignition and then sits at 1x until the craft is aligned and
+  settled; the Interceptor never settles, so each rendezvous burn idled ~600 s at 1x. The
+  BDOCK machine now turns the executor's autowarp off, rails-warps to 120 s before the
+  burn itself and turns autowarp back on at 1x, never with the target vessel inside 5 km
+  (kRPC's closest approach over the next orbit clamps the warp). The node and the
+  autopilot are untouched (`harness/missions/lib/mlib.py` section RENDEZVOUS NODE WAITS,
+  `harness/README.md` "The mission warp policy"). The hold cancels its warp 15 s before target,
+  because kRPC's warp-to spends its last few seconds in physics warp. With less 1x attitude jitter
+  before the first burn, MechJeb's rendezvous now finishes a few metres further out (101 m
+  instead of 96 m) but still inside its own completion test, so the BDOCK rendezvous gate now
+  uses that exact test (distance under 1.05 x the approach distance + 2 m, speed under 1 m/s)
+  instead of a stricter 100 m.
 - **Dev: harness missions warp through their idle 1x waits.** Operator ruling 2026-10-01:
   burns stay at 1x, the idle stretches around them are warped (`harness/missions/lib/mlib.py`
   section MISSION WARP POLICY, `harness/README.md` "The mission warp policy"). A capture

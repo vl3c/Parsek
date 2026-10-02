@@ -2329,6 +2329,10 @@ namespace Parsek.TestCommands
             ParsekFlight flight = ParsekFlight.Instance;
             if (flight == null || !flight.HasActiveTree)
             {
+                // Still ask the committed-spawned restore to leave the active vessel idle:
+                // a boot restore that has not landed yet would otherwise adopt the tree
+                // after this verb reported the host idle.
+                flight?.SuppressCommittedSpawnedRestoreForActiveVessel("test-command-discard-nothing");
                 ParsekLog.Info(Tag, "discardtree nothing=true");
                 SetExecResult("OK", TestCommandRecordingVerbs.BuildDiscardPayload(hadTree: false), null);
                 return;
@@ -2359,6 +2363,15 @@ namespace Parsek.TestCommands
                 screenMessage: "Recording discarded (test command)",
                 ledgerRecalcReason: "test-command-discard",
                 reapSidecars: false);
+
+            // The discarded tree is usually a committed-restore clone of the active
+            // vessel's committed tree, and the committed original stays in committed
+            // storage, so the 1 Hz committed-spawned restore retry would re-clone and
+            // re-adopt it within a second (todo
+            // HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE). Keep the vessel idle
+            // until a live tree or recorder exists, the active vessel changes, or the
+            // scene ends.
+            flight.SuppressCommittedSpawnedRestoreForActiveVessel("test-command-discard");
 
             if (reapSkipReason != null)
             {

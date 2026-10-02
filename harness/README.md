@@ -267,6 +267,32 @@ every decision closed, which is the pre-policy 1x behaviour.
   on the verification flights.
 - **B4's REENTRY exo coast** hops while still ascending after the cutoff, not only
   while descending (`ascending_coast_hops`).
+- **BDOCK rendezvous node waits (rails, operator ruling 2026-10-02).** MechJeb's
+  rendezvous autopilot hands each node it plans to the same NodeExecutor, so each
+  rendezvous burn idled ~600 s at 1x (BDOCK-1 `2026-09-30_1732`: two burns, 1,178
+  of RENDEZVOUS' 1,458 wall-s). The capture hold cannot be copied (the autopilot
+  re-engages the executor itself, and disabling it would remove and re-plan its
+  nodes), so the bdock machine turns the executor's `autowarp` OFF (its
+  `StateWarpAlign` then only aligns, with no `MinimumWarp`), rails-warps itself to
+  the node-wait target and turns `autowarp` back ON at the first 1x frame (on rails
+  the executor would test a 10 deg cone and warp itself to ignition). The node, the
+  autopilot and the executor are otherwise untouched. A hold arms only with the
+  autopilot observed on, a node pending, and two static-orbit frames at 1x (the
+  executor parked after its own far warp); each node is held at most once. The
+  target vessel never comes inside 5 km of a hold warp: kRPC's closest approach
+  over the next orbit (`target_ca_ut` / `target_ca_distance`) either clears it or
+  clamps the warp end, using the slower of the secant speed and the node's dv, and
+  every held frame re-checks the live distance. Rails only: kRPC's `WarpTo` falls
+  back to physics warp below the body's factor-1 rails limit (or with throttle up),
+  so the plan refuses there and a held warp that reads PHYSICS is dropped; and since
+  `WarpTo`'s own last ~3-4 game-s read PHYSICS mode, the hold cancels its warp 15 s before
+  target (`RV_WARP_ARRIVAL_TOLERANCE_SECONDS`). The RENDEZVOUS -> MATCH-VELOCITY gate is
+  MechJeb's own completion test (`rendezvous_ap_done`: d < 1.05 x approach + 2 m, v < 1 m/s),
+  because the AP finishes anywhere inside that band. Pure decisions:
+  `rendezvous_node_wait_plan` / `rendezvous_ca_warp_limit` (section "RENDEZVOUS
+  NODE WAITS"), tests `missions/lib/test_rendezvous_node_wait.py`; each decision
+  prints one `gate rvWarp` line. BDOCK-2 inherits it (its machine delegates to
+  `bdock_decide`).
 
 Not warped by design: B4's retrograde slew (an attitude slew, outside the
 ruling's coasts and node waits; rails freezes rotation), the ascent's
