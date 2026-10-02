@@ -82,6 +82,13 @@ namespace Parsek
         // trimmed in lockstep with frames in TrimRecordingToUT.
         private readonly List<bool> sectionFrameWarpFlags = new List<bool>();
 
+        // The current section's frames folded into contiguous warp runs AT SAMPLE TIME
+        // (SectionWarpRuns.Append: one entry per 1x / physics / rails stretch, never one
+        // per frame). Diagnostic only and never serialized: it feeds the `warpRuns=`
+        // token of the section-close line, which the harness sampling verifier reads to
+        // classify each recorded gap. Cleared when a section opens and when it closes.
+        private readonly List<SectionWarpRuns.Run> sectionWarpRuns = new List<SectionWarpRuns.Run>();
+
         // Anchor detection for RELATIVE frame (Phase 3a)
         private bool isRelativeMode;
         private uint currentAnchorPid;
@@ -5457,6 +5464,7 @@ namespace Parsek
             surfaceMobileMaxClearanceThisSection = double.NaN;
             surfaceMobileClearanceSumThisSection = 0.0;
             sectionFrameWarpFlags.Clear();
+            sectionWarpRuns.Clear();
             ParsekLog.Info("Recorder",
                 $"TrackSection started: env={env} ref={refFrame} source={source} " +
                 $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
@@ -5600,7 +5608,9 @@ namespace Parsek
                 $"duration={(ut - currentTrackSection.startUT).ToString("F2", CultureInfo.InvariantCulture)}s " +
                 $"avgGap={gapStats.AverageGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
                 $"maxGap={gapStats.MaxGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
-                $"largeGaps={gapStats.LargeGapCount}");
+                $"largeGaps={gapStats.LargeGapCount} " +
+                $"warpRuns={SectionWarpRuns.Format(sectionWarpRuns)}");
+            sectionWarpRuns.Clear();
 
             if (gapStats.LargeGapCount > 0)
             {
@@ -9885,6 +9895,34 @@ namespace Parsek
         private void AppendCurrentSectionFrameWarpFlag()
         {
             sectionFrameWarpFlags.Add(isOnRails || IsTimeWarpActiveForDiagnostics());
+            if (trackSectionActive && currentTrackSection.frames != null
+                && currentTrackSection.frames.Count > 0)
+            {
+                SectionWarpRuns.Append(
+                    sectionWarpRuns,
+                    currentTrackSection.frames[currentTrackSection.frames.Count - 1].ut,
+                    ReadEncodedFrameWarpRateForDiagnostics(isOnRails));
+            }
+        }
+
+        /// <summary>
+        /// The current frame's warp state encoded by
+        /// <see cref="SectionWarpRuns.EncodeFrameRate"/>. Reads TimeWarp defensively
+        /// (absent under xUnit, where every frame reads as 1x). Diagnostic only.
+        /// </summary>
+        internal static float ReadEncodedFrameWarpRateForDiagnostics(bool onRails)
+        {
+            try
+            {
+                return SectionWarpRuns.EncodeFrameRate(
+                    onRails,
+                    TimeWarp.WarpMode == TimeWarp.Modes.LOW,
+                    TimeWarp.CurrentRate);
+            }
+            catch
+            {
+                return SectionWarpRuns.EncodeFrameRate(onRails, false, 1f);
+            }
         }
 
         /// <summary>
@@ -10258,6 +10296,7 @@ namespace Parsek
                     if (frameTrimIdx < sectionFrameWarpFlags.Count)
                         sectionFrameWarpFlags.RemoveRange(frameTrimIdx,
                             sectionFrameWarpFlags.Count - frameTrimIdx);
+                    SectionWarpRuns.TrimToFrames(sectionWarpRuns, currentTrackSection.frames);
                 }
             }
             if (trackSectionActive && currentTrackSection.bodyFixedFrames != null)

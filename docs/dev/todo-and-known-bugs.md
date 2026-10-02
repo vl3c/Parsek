@@ -15,6 +15,155 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## PHYSWARP-HARNESS-PHASES-VERDICT: keep #1958's 4x physics warp in the PARK dwell and the kx COAST [FILED 2026-10-02, branch `physwarp-recording`, operator request. VERDICT: keep both; no mission-library change]
+
+PR #1958 runs the B5-family PARK dwell and GS-8's kx COAST under 4x PHYSICS warp. The
+operator asked whether the recorded data and the lanes stay relevant. Measured offline with
+`harness/lib/samplingq.py` (Medium density, the fixtures' preset) on the produced saves of
+the same lanes flown before (1x, `Parsek-split-count-repin` results) and after (4x,
+`Parsek-mission-warp-fix` results); the warp state of each gap comes from the mission's own
+telemetry `warp=` field (those runs predate the `warpRuns=` token):
+
+| stretch | before (1x) | after (4x physics) |
+|---|---|---|
+| B11 PARK (180 game s) `1231` vs `1926` | 59 gaps, every gap 3.00 s | 52 phys gaps at 3.04 s + 7 at 3.00-3.04 (59) |
+| B13 PARK `1410` vs `1905` | 59 gaps, 3.00 s | 52 phys at 3.04 s + 7 (59) |
+| B14 PARK `1334` vs `1938` | 59 gaps, 3.00 s | 53 phys at 3.04 s + 6 (59) |
+| GS-8 COAST (150 game s) `1132` vs `1719` | 685 gaps, p50 0.22 s, max 0.24 s | 496 phys gaps p50 0.24 s (+142 1x / edge), 638 total, max 0.24 s |
+
+Every stretch, before and after: overMax 0, duplicates 0, backsteps 0, direction / speed
+trigger misses 0, jumps 0 (max chord ratio 0.89-0.97 of the speed bound), analyzer RED=0
+(FAIL=0 WARN=0 on all eight saves). Track sections are the same kind on both sides: active
+ABSOLUTE per-frame ExoBallistic sections, no orbital checkpoints (physics warp never packs
+the vessel). The PARK has one fewer section after: the 1x run's extra split was an `OnSave`
+serialization checkpoint (real-time autosave), not a warp artifact. Part events in the
+stretch are identical (one PARK event; GS-8's 27 + 2 + 2 + 2). The "before" runs read
+PARSEK-FAIL on the #1931 recording-count re-pin only; their data is sound.
+
+What changes under 4x: one physics frame is 0.08 game s, so a backstop-limited sample lands
+on 3.04 s instead of 3.00 s, and a min-floor-limited sample (GS-8's post-separation
+high-fidelity cadence) on 0.24 s instead of 0.22 s - 7 % fewer coast points. Both are inside
+the density's bounds plus one frame, and neither is visible in a replay.
+
+The lanes' assertions over those stretches do not read sampling: B11/B13/B14 gate on the
+recording count, the commit / terminal log tokens and the mission's own park gate (tumble
+ceiling, situation, dwell held), GS-8 on count, tree structure, ghostLifecycle spawns and
+the rewind block. None of them is weaker under warp, and none could catch a sampling
+regression in the stretch at 1x either. The new `[expectations.recordings.sampling]` block
+is what would, and the PWR lanes prove it holds under physics warp at every density.
+
+Verdict per phase:
+- **PARK dwell (B11 / B13 / B14 and the B5 family): KEEP 4x physics warp.** Backstop-only
+  coast; spacing and structure equal to 1x up to one frame; saves ~125 s per lane.
+- **kx COAST (GS-8): KEEP 4x physics warp.** All bounds hold; 7 % fewer points at Medium.
+  Condition: should a lane fly that coast at HIGH density, its min-floor cadence becomes
+  0.08 s (one 4x frame) instead of 0.06 s, about 25 % fewer points, still within bounds; cap
+  that lane at 3x (one frame 0.06 s matches the 1x cadence) only if a replay ever needs the
+  density. Saves ~92 s.
+
+The B11 / B13 / B14 spec headers (and B16's dwell comment) described the PARK as "rails
+DROPPED to 1x" / "the machine holds 1x through it", which predates #1958; the same branch
+rewords them (comments only).
+
+## PHYSWARP-RATE-CHANGE-SAMPLE-SKEW: a sample taken on a physics-warp rate-change frame carries a position one frame behind its UT [FILED 2026-10-02 from PWR-3 `2026-10-02_2108`, branch `physwarp-recording`. OPEN, low; operator decides the fix]
+
+The High-density reading run's sampling block counted ONE continuity jump. Recording
+`988bacde` (the main ship's post-ascent-exit half), section 0, at the end of MechJeb's 2x
+ascent physics warp (`Time warp rate changed to 2.0x at UT=212.36`, then `1.0x at UT=213.37`,
+the rate lerping in between): samples at UT 212.3599 / 212.4391 / 212.5152 / 212.5882 have
+longitude 60.839900 / 60.830813 / 60.826406 / 60.813707 deg W and altitude 70068.9 / 70091.3
+/ 70102.2 / 70133.4 m, so the implied step speeds are 1371 / 693 / 2078 / 1371 m/s against a
+stored speed of 1399 m/s. The 212.5152 sample sits ~55 m (one 2x frame, 0.04 s at
+1400 m/s) behind where its UT puts it, and the next gap reads chord 151.8 m against a
+116.5 m reach. Nothing like it appears in any other gap of the three reading runs (a
+step-speed check across every in-scope pair of PWR-1 / PWR-2 / PWR-3 finds only this and
+the 1x booster-staging step at UT 49).
+
+Hypothesis, not proven: the recorder stamps `Planetarium.GetUniversalTime()` and reads
+`v.transform.position` in the same `VesselPrecalculate` postfix, and on a frame where
+`TimeWarp.updateRate` changes `Time.fixedDeltaTime` the UT advance and the PhysX step that
+moved the transform used different dt. The recorder faithfully writes what the frame
+reports. Every density is exposed; only High's short gaps make it measurable (inside a
+3 s or 8 s gap the 55 m is under the jump tolerance). Playback effect: a one-sample hitch of
+0.04 s, not visible at playback speed.
+
+- [ ] Decide: accept (and widen nothing; the PWR-3 `jumps = 0` pin stays and the lane carries
+  the finding), or skip / re-stamp a sample on a frame whose `fixedDeltaTime` changed.
+
+## PHYSWARP-BACKSTOP-MISSED-FRAME: under 4x physics warp the max-interval backstop sample once landed a frame late [FILED 2026-10-02 from PWR-3 `2026-10-02_2133`, branch `physwarp-recording`. OPEN, low, intermittent; operator decides the fix]
+
+PWR-3's armed run counted ONE gap over the High backstop allowance: recording `8db2e7f1`
+(the main ship's post-ascent half), section 5, the 4x `WarpToUT ladder=phys` LKO coast. Every
+gap there is 1.04 s (13 frames of 0.08 s, the first frame past the 1.0 s max) except
+409.1044 -> 410.2244 = 1.12 s (14 frames): the recorder took no sample on the 13th frame.
+`PhysicsFramePatch.Postfix` has no skip path for the active recorder and `OnPhysicsFrame`
+returns early only for `isOnRails` / a re-fly post-load settle (neither applies), so either
+no `VesselPrecalculate.CalculatePhysicsStats` callback ran for the active vessel on that
+tick, or UT advanced twice between two callbacks. The 400 -> 420 UT window's
+`warptout progress` line counted 268 frames against the usual 296-297 per 5 s, i.e. a slow
+render stretch (`Recording frame exceeded budget: 15.43ms` at UT ~403). The reading run
+`_2108` (same profile) had no such gap; PWR-1 / PWR-2 (8.08 s / 3.04 s backstops under 4x,
+39 / 85 physics gaps each) had none either. Archive context (594 Medium saves, no warp
+classification available there): of ~98,000 backstop gaps in 3.0-3.3 s, 39 sit two or more
+frames past the backstop (3.12-3.25 s), so the shape predates this work and is rare.
+
+The PWR-3 quarantine tolerates this token (`[expectedFail] optionalMismatches`,
+`optionalBugId = PHYSWARP-BACKSTOP-MISSED-FRAME`) because it is intermittent; a count other
+than 1 reds.
+
+- [ ] Instrument (a per-frame UT-delta check on the active recorder) and decide whether a
+  backstop can be guaranteed at `max + one frame` under physics warp.
+
+## SECTION-DUPLICATE-UT-SAMPLES: the recorder writes two samples with the same UT into one track section [FILED 2026-10-02 from PWR-1 `2026-10-02_2122` / `_2141` and PWR-3 `2026-10-02_2108` / `_2133`, branch `physwarp-recording`. OPEN, low, pre-existing at 1x; operator decides the fix]
+
+The PWR sampling block counts in-section duplicate UTs. It found them in four of the six
+PWR flights, every one at 1x and none on a physics-warp gap:
+- PWR-1 `_2122` and `_2141`: recording `0d313b5f` / `b19a1f23` section 2 ends with two
+  BYTE-IDENTICAL points at UT 48.50, the booster decouple (`OnPartJointBreak ... ut=48.500`,
+  a high-fidelity window opened at the joint break, and the section closed at the same UT).
+- PWR-3 `_2133`: the same identical shape at 48.50 and at 83.18 (the second booster pair).
+- PWR-3 `_2108`: a DIFFERING pair at the clamp release, recording `e90196b1` section 0,
+  two points at UT 35.18 with the same position but speed 175.0 then 0.0 m/s. The first is
+  an `OnPhysicsFrame` sample taken while the vessel was still packed (`SampleCurrentVelocity`
+  returns `obt_velocity`; the log has `OnPhysicsFrame sample with packed vessel`); the
+  second is the go-off-rails boundary sample (`FlightRecorder` surface off-rails path
+  `SamplePosition(v)`, FlightRecorder.cs ~11219, `Boundary point sampled at UT=35.2`), which
+  commits unconditionally even when a sample already exists at that UT.
+
+Archive-wide (every `*_save` under the worktrees' harness results since 2026-09-20, 542
+saves): 1524 in-section duplicates in active absolute sections, 1501 byte-identical and 23
+differing (the differing ones at launch: RF-4 UT 26.68, RVR-5 137.66, RF-12L 56.46). INV1
+checks only strict backsteps, so the analyzer never saw them. Playback effect: none for an
+identical pair (a zero-length segment); a differing pair carries two velocities at one UT.
+
+The PWR lanes REPORT the all-class total and pin only `warpDuplicates = 0` (duplicates on
+pairs touching physics warp), because this defect is not a physics-warp degradation (operator
+decision 2026-10-02).
+
+- [ ] Decide: skip (or replace) a commit whose UT equals `lastRecordedUT` in
+  `CommitRecordedPoint` / the off-rails boundary path / the section-close seed.
+
+## SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP: the recorder's dropped-sample WARN is downgraded for every physics-warp gap [FILED 2026-10-02 from the physics-warp recording investigation, branch `physwarp-recording`. OPEN, low, pre-existing; operator decides]
+
+`FlightRecorder.CloseCurrentTrackSection` WARNs `TrackSection sparse sampling:` when a closed
+section holds a gap beyond `ResolveSparseGapWarningThreshold(maxSampleInterval)` whose two
+samples were both at 1x (`ShouldWarnOnSparseSampling`, FlightRecorder.cs:836; the per-frame
+flag is `isOnRails || IsTimeWarpActiveForDiagnostics()`, FlightRecorder.cs:9897, which is
+`TimeWarp.CurrentRateIndex > 0`). That index is above 0 under PHYSICS warp too, so a gap
+under 2x-4x physics warp always logs Verbose. The downgrade's stated reason ("dense sampling
+is impossible") is true for rails, where the vessel is packed, but not for physics warp: every
+physics frame still runs (`TimeWarp.updateRate` sets `fixedDeltaTime = 0.02 * rate`) and the
+recorder keeps its bounds up to one 0.08 s frame at 4x, so a large physics-warp gap is the same
+stalled-sampler signal as a 1x one. `BackgroundRecorder` (BackgroundRecorder.cs:7327 / 7632)
+shares the classification.
+
+Impact is low: the line is diagnostic, the log validator's WRN-001 does not read it, and the
+new `[expectations.recordings.sampling]` block (`harness/lib/samplingq.py`) now gates the same
+defect on the PWR lanes with the right per-rate allowance. Not changed here (operator decides).
+
+- [ ] Classify the warn flag by mode: rails / on-rails stays exempt, physics warp WARNs above
+  the threshold plus one `0.02 * rate` frame.
+
 ## ~~KXRW-RESULT-NAN-DETAIL: a kx_rewind_watch flight that ends early writes no mission result at all~~ [FILED 2026-10-01 from the mutation checker's blind replay, branch `mutation-phase2-pr3`. FIXED 2026-10-01, branch `fix-kxrw-nan`]
 
 `mlib.evaluate_kxrw_assertions` copies raw state floats into assertion DETAIL dicts:

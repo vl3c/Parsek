@@ -1361,6 +1361,13 @@ ROUTES_ASSERTION_KEYS: Tuple[str, ...] = (
     + ROUTES_BODY_GROUPS + ROUTES_SET_KEYS)
 ROUTES_BLOCK_KEYS: Tuple[str, ...] = (GATING_KEY,) + ROUTES_ASSERTION_KEYS
 
+# The fifth block: the recorder's SAMPLING quality over the produced sidecars'
+# readable mirrors (`samplingq.py` owns the measures, the validator and the
+# evaluator; this module only routes the block through the shared per-block
+# arming / mismatch machinery). Nested under [expectations.recordings] beside
+# structure / points.
+SAMPLING_BLOCK = "sampling"
+
 STATUS_REPORT = "REPORT"
 STATUS_PASS = "PASS"
 STATUS_FAIL = "FAIL"
@@ -1638,6 +1645,13 @@ def save_structure_expectation_warnings(expectations: Optional[Dict]) -> List[st
     if isinstance(routes, dict) and not any(k in routes for k in ROUTES_ASSERTION_KEYS):
         warns.append("expectations.routes: declared with no assertion key - the "
                      "block reports nothing and gates nothing")
+    sampling = (recordings.get(SAMPLING_BLOCK)
+                if isinstance(recordings, dict) else None)
+    if isinstance(sampling, dict):
+        import samplingq  # local: samplingq imports this module
+        if not any(k in sampling for k in samplingq.SAMPLING_ASSERTION_KEYS):
+            warns.append("expectations.recordings.sampling: declared with no assertion "
+                         "key - the block reports its facets and gates nothing")
     return warns
 
 
@@ -1709,6 +1723,10 @@ def _points_block(expectations: Dict) -> Optional[Dict]:
     return _recordings_sub_block(expectations, POINTS_BLOCK)
 
 
+def _sampling_block(expectations: Dict) -> Optional[Dict]:
+    return _recordings_sub_block(expectations, SAMPLING_BLOCK)
+
+
 def declared_structure_blocks(expectations: Optional[Dict]) -> Tuple[str, ...]:
     """Which of the four M-C2 save-parse blocks the spec declares, stable order."""
     expectations = expectations or {}
@@ -1721,6 +1739,8 @@ def declared_structure_blocks(expectations: Optional[Dict]) -> Tuple[str, ...]:
         out.append("recordings.points")
     if isinstance(expectations.get(ROUTES_BLOCK), dict):
         out.append(ROUTES_BLOCK)
+    if _sampling_block(expectations) is not None:
+        out.append("recordings.sampling")
     return tuple(out)
 
 
@@ -1742,6 +1762,9 @@ def armed_structure_blocks(expectations: Optional[Dict]) -> Tuple[str, ...]:
     routes = expectations.get(ROUTES_BLOCK)
     if isinstance(routes, dict) and routes.get(GATING_KEY) is True:
         out.append(ROUTES_BLOCK)
+    sampling = _sampling_block(expectations)
+    if sampling is not None and sampling.get(GATING_KEY) is True:
+        out.append("recordings.sampling")
     return tuple(out)
 
 
@@ -1777,7 +1800,8 @@ def _check_window(label: str, spec_val: Any, measured: int,
 
 def evaluate_save_structure(
         expectations: Optional[Dict],
-        snapshot: Optional[ParsekSaveSnapshot]) -> SaveStructureResult:
+        snapshot: Optional[ParsekSaveSnapshot],
+        sampling: Optional[Any] = None) -> SaveStructureResult:
     """Evaluate the declared M-C2 blocks (``rewind`` / ``recordings.structure``
     / ``recordings.points`` / ``routes``) against the parsed save snapshot.
 
@@ -1798,11 +1822,25 @@ def evaluate_save_structure(
 
     With no block declared, both degrade to an empty REPORT row with the
     fault visible in the caller's ``parsed`` / ``scenarioFound`` fields.
+
+    ``sampling`` is the ``samplingq.SamplingInput`` the caller read off the
+    produced save's sidecars and the collected log; it is only consulted when
+    ``[expectations.recordings.sampling]`` is declared (its facets land under
+    ``observed["recordings"]["sampling"]``).
     """
     expectations = expectations or {}
     blocks = declared_structure_blocks(expectations)
     armed = armed_structure_blocks(expectations)
     observed = observed_structure_facets(snapshot)
+    sampling_spec = _sampling_block(expectations)
+    sampling_facets: Dict[str, Any] = {}
+    if sampling_spec is not None:
+        import samplingq  # local: samplingq imports this module
+        sampling_facets = samplingq.observed_sampling_facets(sampling_spec, sampling)
+        observed = dict(observed)
+        recs = dict(observed.get("recordings") or {})
+        recs["sampling"] = sampling_facets
+        observed["recordings"] = recs
     # Per-block mismatch partition (finding 3): only armed blocks' mismatches
     # drive PASS/FAIL; everything lands in the report list.
     per_block: Dict[str, List[str]] = {b: [] for b in blocks}
@@ -1903,6 +1941,11 @@ def evaluate_save_structure(
                 want_set = sorted({w for w in want if isinstance(w, str)})
                 if got_set != want_set:
                     out.append("routes.%s %s != %s" % (key, got_set, want_set))
+
+        if sampling_spec is not None:
+            import samplingq  # local: samplingq imports this module
+            per_block["recordings.sampling"].extend(
+                samplingq.evaluate_sampling(sampling_spec, sampling_facets))
 
     # Dedupe while preserving order: a STRUCTURAL fault is attributed to every
     # declared block (it must gate whichever block is armed), but the flattened

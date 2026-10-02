@@ -467,8 +467,8 @@ parkMaxEccentricity        = 0.25
 parkMaxAngularVelocityRadPerSec = 0.05
 parkSituations             = ["ORBITING"]
 # Same 180 game-s held dwell as B11/B12: this dwell IS the recorded
-# parked-in-foreign-SOI coverage (the machine holds 1x through it), so it is also
-# a direct ~180 s of wall cost. PROVISIONAL: raise only if flight 1 shows the
+# parked-in-foreign-SOI coverage (under 4x PHYSICS warp since #1958, 1x for its
+# last 15 s; never rails), so it costs ~57 s of wall. PROVISIONAL: raise only if flight 1 shows the
 # committed recording carrying too little in-Eve-SOI coverage to be a useful
 # playback / ghost fixture.
 parkDwellSeconds           = 180

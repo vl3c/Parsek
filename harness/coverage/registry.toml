@@ -130,8 +130,22 @@ values = ["auto-record-launch", "auto-record-eva", "auto-record-first-mod-switch
           "scene-exit-finalization", "ballistic-extrapolation", "finalization-cache"]
 
 [D2]  # sampling
+# RECORDING UNDER PHYSICS WARP (2026-10-02, branch `physwarp-recording`, operator request):
+# one value per density preset, CLAIMED as "the active recorder, flown through stock physics
+# warp (2x MechJeb ascent burn + a 4x WarpToUT ladder=phys coast), keeps that preset's
+# min / max interval and direction / speed thresholds in GAME seconds - every gap within
+# maxInterval + one 0.02 * rate frame, no duplicate / reversed UT, no missed trigger, no
+# position jump - gated by the armed [expectations.recordings.sampling] block". DECLARERS:
+# PWR-1-physwarp-ascent-low, PWR-2-physwarp-ascent-medium, PWR-3-physwarp-ascent-high
+# (reading runs `2026-10-02_2102` / `_2057` / `_2108`, armed `_2141` / `_2128` / `_2133`;
+# offline negative controls 7/8/7 of 7/8/7 seeds red). A value is claimed only by a lane
+# whose armed run flew green: `physics-warp-low` (PWR-1) and `physics-warp-medium` (PWR-2)
+# are CLAIMED; `physics-warp-high` is an OPEN GAP - PWR-3 flies it but is quarantined
+# EXPECTED-FAIL on two physics-warp findings (todo PHYSWARP-RATE-CHANGE-SAMPLE-SKEW,
+# PHYSWARP-BACKSTOP-MISSED-FRAME) and does not declare it.
 values = ["density-presets", "proximity-cadence-bg", "structural-event-snapshots",
-          "threshold-debounce"]
+          "threshold-debounce", "physics-warp-low", "physics-warp-medium",
+          "physics-warp-high"]
 
 [D3]  # reference frames (per TrackSection)
 values = ["absolute", "surface-body-fixed", "orbital-checkpoint",

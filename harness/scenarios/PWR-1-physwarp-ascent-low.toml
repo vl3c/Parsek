@@ -1,0 +1,136 @@
+# PWR-1-physwarp-ascent-low - the RECORDER under PHYSICS warp at the Low sampling density.
+#
+# WHAT IT PROVES. Every lane before this family tested ghost PLAYBACK under physics
+# warp (V7W) and nothing held the RECORDER to its contract while the player's game ran
+# physics-warped. This lane flies B2's LKO ascent (the stock Kerbal X, MechJeb ascent
+# autopilot) with `samplingDensity = 0` (Low: min 0.5 s, max 8.0 s, 6.0 deg,
+# 12.0 %), so the recording carries three stretches:
+#   1. the lower ascent at 1x (liftoff to ~42 km, throttle up, gravity turn);
+#   2. the upper ascent under MechJeb's OWN physics warp (it escalates to 2x from
+#      ~42 km to ~70 km with the engine burning; KRPC.MechJeb exposes no toggle, see
+#      b2_lko_ascent.py) - physics warp WITH dynamics;
+#   3. a post-mission LKO coast driven by `WarpToUT ladder=phys` at the stock physics
+#      ceiling (4x), where one physics frame is 0.08 game seconds.
+# Each density's family member flies the same profile (PWR-1 Low, PWR-2 Medium, PWR-3
+# High), so the three lanes compare like with like.
+#
+# THE WITNESS is the saveParse row's [expectations.recordings.sampling] block
+# (harness/lib/samplingq.py), measured off the produced save's `.prec.txt` sidecar
+# mirrors and classified per sample pair by the recorder's own `warpRuns=` token on
+# `TrackSection closed:` (Source/Parsek/SectionWarpRuns.cs). It holds every gap of the
+# focused vessel's absolute per-frame sections to the density's bounds with a one-frame
+# allowance of 0.02 * rate (KSP physics warp sets fixedDeltaTime = 0.02 * rate, so the
+# recorder - which spaces by GAME time - can only land on those frames):
+#   overMax      no gap beyond maxInterval + one frame (the backstop held);
+#   duplicates / backsteps   no repeated or reversed UT inside a section;
+#   dirMisses / speedMisses  no gap across which the turn / speed change already
+#                exceeded the threshold one frame before the later sample;
+#   jumps        no chord longer than the faster speed (plus surface rotation) covers;
+#   physGaps / physTriggered  the anti-vacuity floors: gaps really were recorded under
+#                physics warp, and at least one of them closed on a trigger rather
+#                than the backstop.
+# The analyzer row (INV1..INV12) runs on the same save as on every lane.
+schema = 1
+id = "PWR-1-physwarp-ascent-low"
+tier = "nightly"
+description = "Recorder under PHYSICS warp at the Low sampling density: B2's MechJeb LKO ascent (its own 2x physics warp mid-ascent) plus a 4x WarpToUT ladder=phys orbital coast, with samplingDensity=0; the saveParse sampling block holds every recorded gap to the Low min/max/threshold bounds with a one-physics-frame allowance and requires gaps recorded under physics warp."
+instanceProfile = "stock-minimal"
+tags = ["PWR", "PWR-1", "physics-warp", "sampling", "flown", "mechjeb"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b2_lko_ascent"
+
+# Budget: B2's 780 s mission + a 180 game-second 4x coast (~50 wall s with the ramp)
+# + commit. The coast target is ABSOLUTE (WarpToUT takes no relative UT): B2's mission
+# ends at UT ~300 on every flight on disk (2026-10-01_1127 299.9, _1812 299.5), so 480
+# leaves a 180 s span.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  # The density under test. samplingDensity is install-wide (ParsekSettings, the
+  # settings sidecar route): the harness rewrites the sidecar to its baseline at stage
+  # and in the per-attempt teardown, which drops this key again, so no later run
+  # inherits it (run.py reset_settings_sidecar).
+  { cmd = "SetSetting", args = { name = "samplingDensity", value = "0" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 780 },
+  { cmd = "WarpToUT", args = { ut = "480", ladder = "phys" }, expect = "OK", budget = 300 },
+  { cmd = "CommitTree",                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                        expect = "OK" },
+]
+
+[driver.missionParams]
+targetApoapsisMeters      = 80000
+targetPeriapsisMeters     = 80000
+apoErrorMeters            = 5000
+periErrorMeters           = 5000
+eccentricityMax           = 0.02
+inclinationErrorDeg       = 2.0
+ascentTimeoutSeconds      = 420
+circularizeTimeoutSeconds = 300
+
+[dimensionsCovered]
+D2  = ["density-presets", "physics-warp-low"]
+D14 = ["kerbin", "warp-phys"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# B2's population (main ascent + the in-flight optimizer's ascent-exit split + six
+# booster debris children); density does not move a split.
+count = { min = 7, max = 8 }
+
+[expectations.recordings.sampling]
+# ARMED 2026-10-02 off the report-only reading run `2026-10-02_2102` (PASS attempt 1):
+# gaps 192 (1x 148 p50 0.52 s max 8.02 s; phys 39 p50 8.08 s max 8.08 s at 4x, 18 triggered), subMin 8, every other count 0.
+# Windows: the zero pins are the quality contract and are NOT loosened for a
+# finding; subMin ~2x the reading (a denser preset than declared leaves 100+);
+# physGaps / physTriggered at about half the reading (anti-vacuity: the stretch
+# really was recorded under physics warp, and a trigger fired inside it).
+gating = true
+density = "low"
+overMax = 0
+subMin = { max = 20 }
+# Duplicate UTs on pairs touching physics warp. The all-class `duplicates` total is
+# REPORTED, not pinned: duplicate sample UTs at 1x staging / off-rails boundaries are a
+# pre-existing recorder defect (todo SECTION-DUPLICATE-UT-SAMPLES, 1524 over 542
+# archived saves) and not a physics-warp degradation; PWR-1's first armed run
+# `2026-10-02_2122` red on exactly one such 1x duplicate at booster staging.
+warpDuplicates = 0
+backsteps = 0
+dirMisses = 0
+speedMisses = 0
+jumps = 0
+physGaps = { min = 20 }
+physTriggered = { min = 9 }
+
+[expectations.logContracts]
+required = [
+  "Recording started",
+  "ProcessBreakupEvent: debris child created",
+  # The recorder classified frames as physics-warped on the active vessel.
+  "\\[Parsek\\]\\[INFO\\]\\[Recorder\\] TrackSection closed: .* warpRuns=\\S*phys:",
+  # The 4x coast: started on the physics ladder and completed at the physics top rung.
+  "warptout start ut=480 .*ladder=phys",
+  "warptout complete reachedUT=\\S+ ut=480 .*maxRate=4 ladder=phys",
+  "CommitTreeFlight: starting tree commit at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "warptout refused",
+]
+
+[runtime]
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

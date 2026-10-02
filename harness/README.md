@@ -23,7 +23,13 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   SOURCE rows, origin / destination bodies, route-id and endpoint-pid identity,
   plus a `codecRejects` counter for a route the game would DROP on the next
   load. There is deliberately NO escrow facet - `RouteStore`'s `cargoEscrow` is
-  pure RAM and no save carries it),
+  pure RAM and no save carries it; and `[expectations.recordings.sampling]`,
+  the recorder SAMPLING-QUALITY block measured by `samplingq.py` over the
+  produced save's `.prec.txt` mirrors: every gap of the focused vessel's
+  absolute per-frame sections held to the declared `samplingDensity` preset's
+  min / max / threshold bounds with a one-physics-frame allowance of
+  `0.02 * rate`, the rate per gap read off the recorder's `warpRuns=` token on
+  `TrackSection closed:` - see "Recording under physics warp" below),
   + `rendercompose.py`, the M-A7 pure render-composition parser / clock-math
   re-derivation / RC-* rule set behind the `renderCompose` verifier row
   (`[expectations.renderComposition]`, evaluated over the produced
@@ -330,6 +336,34 @@ Never warped: a commanded burn, the inside of an atmosphere, a pending stage or
 seam step, a real-time replay (GS-8's WATCH / PLAYBACK-WAIT stay 1x by design).
 Every warp the policy emits carries its reason in the action's text, so the
 mission log line reads `action warp_to_ut value=... text=node-wait: ...`.
+
+### Recording under physics warp (the sampling block)
+
+KSP's physics warp (`TimeWarp.Modes.LOW`, 2x-4x) sets `Time.fixedDeltaTime =
+0.02 * rate` (decompiled `TimeWarp.updateRate`): every physics frame still runs,
+each one advancing GAME time by `0.02 * rate`. The recorder decides on game UT
+(`TrajectoryMath.ShouldRecordPoint` over `Planetarium.GetUniversalTime()`), so its
+bounds hold under physics warp up to that coarser frame. The PWR family
+(`PWR-1/2/3-physwarp-ascent-{low,medium,high}`) flies B2's ascent (MechJeb runs 2x
+physics warp from ~42 km to ~70 km with the engine burning) plus a 4x
+`WarpToUT ladder=phys` LKO coast at each density, and gates it through
+`[expectations.recordings.sampling]` (`harness/lib/samplingq.py`):
+
+| key | measured over every in-scope gap |
+|---|---|
+| `density` | REQUIRED: `low` / `medium` / `high`; the bounds come from it (`samplingq.DENSITY_PRESETS`, source-synced to `ParsekSettings.cs`) |
+| `overMax` | gap > maxInterval + one frame at that gap's rate |
+| `subMin` | 0 < gap < minInterval (forced / high-fidelity samples; the "denser than declared" tell) |
+| `duplicates` / `backsteps` | repeated / reversed UT inside one section (a boundary seed shared by two sections is legitimate) |
+| `dirMisses` / `speedMisses` | the turn / speed change one frame before the later sample already exceeded the threshold (linear estimate, 25 % tolerance) |
+| `jumps` | chord longer than (faster speed + surface rotation) x gap |
+| `physGaps` / `physTriggered` | anti-vacuity: gaps recorded under physics warp, and those that closed on a trigger |
+
+In scope: ACTIVE (`src` absent / 0), ABSOLUTE (`ref = 0`) sections with two or
+more points; background and relative sections run proximity cadences and
+anchor-local coordinates. A `.prec` with no `.prec.txt` mirror, an unparseable
+mirror, no in-scope section, or (with a `phys*` window declared) a log with no
+`warpRuns=` token are DEFINED mismatches.
 
 ## Contact sheets (V3): what a run leaves for the human eye
 
@@ -1295,7 +1329,12 @@ the narrower the better, because EXPECTED-FAIL absorbs everything it matches:
   `expectation` that is still EVERY log-contract token in the spec.
 - `subkind = "expectation"` plus `mismatches = [...]` - only a run whose
   `verifiers.expectations.mismatches` list (in `results/<runId>.json`) is EXACTLY
-  that set demotes. Copy the strings from the defect's red run, e.g.
+  that set demotes. `subkind = "save-structure"` works the same way over the
+  saveParse row's ARMED mismatch list (`verifiers.saveParse.armedMismatches`, e.g.
+  `"recordings.sampling.jumps 1 != 0"`). An opt-in `optionalMismatches = [...]`
+  plus a filed `optionalBugId` tolerates ONE intermittent second defect: the run
+  demotes when every `mismatches` token is present and nothing outside the two
+  lists is (PWR-3 is the one user). Copy the strings from the defect's red run, e.g.
   `"logContracts.required not matched: <pattern>"` or
   `"logContracts.forbidden matched: <pattern>"`. An extra red, or a declared one
   that stopped failing, stays PARSEK-FAIL, and run.py Warn-logs the
