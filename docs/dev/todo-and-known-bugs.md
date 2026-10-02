@@ -100,7 +100,7 @@ changed in a separate session; re-run the tool over the next nightly to measure 
 
 - [ ] Re-measure after the warp-policy change lands (`--since <date> --json-out`).
 
-## RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON: the recording stats frame lookup matches a section end exactly, with no tolerance [FILED 2026-10-01 from the PR #1943 review, branch `l7-nightly-residue`. OPEN, low, pre-existing]
+## ~~RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON: the recording stats frame lookup matches a section end exactly, with no tolerance~~ [FILED 2026-10-01 from the PR #1943 review, branch `l7-nightly-residue`. FIXED 2026-10-03, branch `fix-stats-frame-epsilon`]
 
 `TrajectoryMath.ResolvePointFrameForStats` (`Source/Parsek/TrajectoryMath.Stats.cs:147`) finds a
 point's section with the strict lookup and then falls back to a section whose `endUT` EQUALS the
@@ -113,6 +113,21 @@ are measured as degrees again (the ~1000 km Dist the debris fix removed for the 
 Not seen on a fixture: the committed `interbody-route-recorded` rows all read 1 to 3 km after the
 fix. Fix direction: share the epsilon helper (move it to `TrajectoryMath` or call it) instead of
 keeping a second, stricter copy, and add a cell with a Relative sample at `endUT + 1e-10`.
+
+Fix: the resolver's lookup moved to `TrajectoryMath.FindTrackSectionForUTWithBoundaryEpsilon`
+(with `SectionBoundaryEpsilonSeconds = 1e-9`; `RelativeAnchorResolver` now delegates to it and
+forwards the constant, so its behavior is unchanged). `ResolvePointFrameForStats` calls it, and
+so do the two Max Range frame reads in `ComputeStats` (the first point and each later point),
+which used the bare strict lookup and had the same defect for a section's last sample. The
+tie-break is the resolver's: strict lookup first, so at a contiguous shared boundary the LATER
+section wins (every non-last section's end is exclusive, which is also what playback's own
+section dispatch, `GhostPlaybackEngine.TryGetRelativeSectionAtUT`, picks); then the first
+section whose start is within the tolerance; then the last section whose end is. One
+behavior change against the old stats fallback: a UT that equals one section's end exactly
+and also lies within 1e-9 s of the next section's start now reads the next section, as the
+resolver does. Cells in `RecordingStatsSubOrbitalTests`: `endUT + 1e-10`, `endUT + 1e-8`
+(stays unresolved), both orders of a Relative/Absolute contiguous boundary, the gap tie, and
+a `ComputeStats` distance + range cell.
 
 Related, already filed: points inside some Relative sections carry body-fixed lat/lon/alt rather
 than metres (recording #27 on that fixture), while in-section Relative distance is always measured
