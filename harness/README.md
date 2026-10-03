@@ -250,7 +250,11 @@ The estimation contract (full text in the `lib/flighteff.py` docstring):
 - Outcome-sensitive. CIRCULARIZE node waits (B22) stay recoverable, but the row
   carries `outcomeSensitive: true` and says a warp there may move the outcome;
   the owner kept them recoverable (2026-10-03), a backlog target that needs a
-  verification flight before any warp.
+  verification flight before any warp. B22 now holds the park round-out behind
+  `circularizeNodeWaitWarp` (pending that re-fly): in a CIRCULARIZE visit whose
+  own `node-wait:` action line printed a half burn, the wait inside the capture
+  lead formula (120 s + 5 s + half burn) is by design and prints a
+  `circularize lead:` line; a visit without such a line gets no lead.
 - Long burns (60 s or more of 1x with a changing orbit) are reported as
   physics-warp candidates with an optional x2 saving that never enters a total.
 - Blocking `warp_to` hops emit no telemetry; such a gap is bucketed `warped` and
@@ -1348,7 +1352,7 @@ the narrower the better, because EXPECTED-FAIL absorbs everything it matches:
   `"recordings.sampling.jumps 1 != 0"`). An opt-in `optionalMismatches = [...]`
   plus a filed `optionalBugId` tolerates ONE intermittent second defect: the run
   demotes when every `mismatches` token is present and nothing outside the two
-  lists is (PWR-3 is the one user). Copy the strings from the defect's red run, e.g.
+  lists is (no committed spec uses it today; PWR-3 did until 2026-10-03). Copy the strings from the defect's red run, e.g.
   `"logContracts.required not matched: <pattern>"` or
   `"logContracts.forbidden matched: <pattern>"`. An extra red, or a declared one
   that stopped failing, stays PARSEK-FAIL, and run.py Warn-logs the

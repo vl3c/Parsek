@@ -135,6 +135,8 @@ namespace Parsek
         private const double BackgroundStateDriftCheckInterval = 5.0;
         private const double BranchBoundaryUTTolerance = 1e-6;
         private double lastBackgroundStateDriftCheckUT = double.MinValue;
+        // FixedUpdate-step physics callbacks that took no trajectory sample (diagnostics only).
+        private int fixedStepSampleSkipCount;
 
         // Debris TTL: stop recording debris after this many seconds
         internal const double DebrisTTLSeconds = 60.0;
@@ -2457,6 +2459,27 @@ namespace Parsek
                     highFidelityActive,
                     debrisTier))
             {
+                NoteProximitySilenceTick(state, ut);
+                return;
+            }
+            // Back in range (or a high-fidelity / debris tier overrides the range): the
+            // designed silence ends on this tick, whether or not a sample follows.
+            CloseProximitySilence(state, ut);
+
+            // A FixedUpdate-step callback reads a pre-physics vessel against post-advance
+            // bodies; the Update-step read at the end of the render frame samples instead
+            // (see PostPhysicsPoseCache).
+            if (PostPhysicsPoseCache.ShouldSkipBackgroundSampleInFixedStep(
+                    PostPhysicsPoseCache.ReadInFixedTimeStep(),
+                    PostPhysicsPoseCache.ReadStatsRunInUpdate(),
+                    bgVessel.packed))
+            {
+                fixedStepSampleSkipCount++;
+                ParsekLog.VerboseRateLimited("BgRecorder", "bg-fixed-step-skip",
+                    $"Fixed-step physics callback: background sample deferred to the Update step " +
+                    $"pid={pid} ut={ut.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"skippedCallbacks={fixedStepSampleSkipCount}",
+                    5.0);
                 return;
             }
 
@@ -7309,22 +7332,58 @@ namespace Parsek
             state.surfaceMobileMaxClearanceThisSection = double.NaN;
             state.surfaceMobileClearanceSumThisSection = 0.0;
             state.sectionFrameWarpFlags.Clear();
+            state.sectionProximitySilences.Clear();
             ParsekLog.Info("BgRecorder",
                 $"TrackSection started: env={env} ref={refFrame} source=Background " +
                 $"pid={state.vesselPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>
-        /// Appends one entry to <paramref name="state"/>'s per-section warp-flag
+        /// Appends one entry to <paramref name="state"/>'s per-section rails-flag
         /// list in lockstep with a <c>currentTrackSection.frames.Add</c>. Records
-        /// whether the sample was taken under physics time-warp so the section-
-        /// close sparse-sampling check can classify each gap. On-rails BG samples
-        /// never reach these append paths (the per-frame tick early-returns on
-        /// <c>bgVessel.packed</c>), so physics warp is the only signal.
+        /// whether the sample was taken under rails warp so the section-close
+        /// sparse-sampling check can classify each gap; physics warp reads false
+        /// because its frames are sampled like 1x frames. On-rails BG samples never
+        /// reach these append paths (the per-frame tick early-returns on
+        /// <c>bgVessel.packed</c>).
         /// </summary>
         private static void AppendSectionFrameWarpFlag(BackgroundVesselState state)
         {
-            state?.sectionFrameWarpFlags.Add(FlightRecorder.IsTimeWarpActiveForDiagnostics());
+            state?.sectionFrameWarpFlags.Add(FlightRecorder.IsRailsWarpActiveForDiagnostics());
+        }
+
+        /// <summary>
+        /// Opens a sampling silence at the first tick the vessel is skipped for being out of
+        /// proximity range (later skipped ticks extend the same silence).
+        /// </summary>
+        private static void NoteProximitySilenceTick(BackgroundVesselState state, double ut)
+        {
+            if (state == null || !double.IsNaN(state.proximitySilenceStartUT))
+                return;
+            state.proximitySilenceStartUT = ut;
+            ParsekLog.Verbose("BgRecorder",
+                $"Proximity sampling silence started: pid={state.vesselPid} " +
+                $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Closes an open proximity silence at the first tick the vessel is no longer
+        /// skipped for range, so the section-close gap check excuses exactly the out-of-range
+        /// time: an in-range stall after the return stays outside the window and still WARNs.
+        /// </summary>
+        private static void CloseProximitySilence(BackgroundVesselState state, double endUT)
+        {
+            if (state == null || double.IsNaN(state.proximitySilenceStartUT))
+                return;
+            double startUT = state.proximitySilenceStartUT;
+            state.proximitySilenceStartUT = double.NaN;
+            if (endUT > startUT)
+                state.sectionProximitySilences.Add(
+                    new FlightRecorder.SamplingSilenceWindow(startUT, endUT));
+            ParsekLog.Verbose("BgRecorder",
+                $"Proximity sampling silence ended: pid={state.vesselPid} " +
+                $"startUT={startUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"endUT={endUT.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         private static void AppendFrameToCurrentTrackSection(
@@ -7604,7 +7663,8 @@ namespace Parsek
                 FlightRecorder.ComputeSectionGapStats(
                     state.currentTrackSection.frames,
                     largeGapThresholdSeconds: sparseGapThreshold,
-                    warpFlags: state.sectionFrameWarpFlags);
+                    warpFlags: state.sectionFrameWarpFlags,
+                    silences: state.sectionProximitySilences);
             if (state.currentTrackSection.referenceFrame == ReferenceFrame.Relative
                 && string.IsNullOrWhiteSpace(state.currentTrackSection.anchorRecordingId))
             {
@@ -7630,14 +7690,15 @@ namespace Parsek
             if (gapStats.LargeGapCount > 0)
             {
                 bool warn = FlightRecorder.ShouldWarnOnSparseSampling(
-                    gapStats.LargeGapCountAtNormalRate);
+                    gapStats.LargeGapCountOffRails);
                 string message =
                     $"TrackSection sparse sampling: pid={state.vesselPid} " +
                     $"env={state.currentTrackSection.environment} " +
                     $"ref={state.currentTrackSection.referenceFrame} frames={frameCount} " +
                     $"maxGap={gapStats.MaxGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
                     $"threshold={sparseGapThreshold.ToString("F2", CultureInfo.InvariantCulture)}s " +
-                    $"largeGaps={gapStats.LargeGapCount} largeGaps1x={gapStats.LargeGapCountAtNormalRate}";
+                    $"largeGaps={gapStats.LargeGapCount} largeGapsOffRails={gapStats.LargeGapCountOffRails} " +
+                    $"largeGapsOutOfRange={gapStats.LargeGapCountInSilence}";
                 if (warn)
                     ParsekLog.Warn("BgRecorder", message);
                 else

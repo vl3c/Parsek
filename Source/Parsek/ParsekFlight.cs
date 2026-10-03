@@ -1340,6 +1340,7 @@ namespace Parsek
             GameEvents.onGamePause.Add(OnGamePause);
             GameEvents.onGameUnpause.Add(OnGameUnpause);
             Camera.onPreCull += OnCameraPreCull;
+            StartCoroutine(PostPhysicsPoseCaptureLoop());
 
             CaptureFreshRolloutVesselPidIfApplicable();
 
@@ -2230,6 +2231,7 @@ namespace Parsek
             if (inertForGameMode)
                 return; // never subscribed, never became Instance (S9 game-mode gate)
             Instance = null;
+            PostPhysicsPoseCache.Clear();
             // #267: clear the static restore-reentrancy guard. The restore coroutines
             // set it true and clear it in a finally, but Unity abandons a running
             // coroutine when the MonoBehaviour is destroyed (scene change) WITHOUT
@@ -4383,6 +4385,39 @@ namespace Parsek
             StartCoroutine(DeferredResumeScreenMessage());
             RecorderStateLog.RecState("CommittedSpawnedRestore:post", CaptureRecorderState());
             return true;
+        }
+
+        /// <summary>
+        /// Captures the active vessel's pose after every physics step while a foreground
+        /// recorder runs, so a physics callback that fires inside FixedUpdate (before that
+        /// step's PhysX simulate) can still sample a UT and position from one step. See
+        /// <see cref="PostPhysicsPoseCache"/>.
+        /// </summary>
+        private IEnumerator PostPhysicsPoseCaptureLoop()
+        {
+            var waitForFixedUpdate = new WaitForFixedUpdate();
+            ParsekLog.Verbose("Recorder", "Post-physics pose capture loop started");
+            while (true)
+            {
+                yield return waitForFixedUpdate;
+                if (Patches.PhysicsFramePatch.ActiveRecorder == null
+                    && Patches.PhysicsFramePatch.GloopsRecorderInstance == null)
+                {
+                    PostPhysicsPoseCache.Clear();
+                    continue;
+                }
+
+                try
+                {
+                    PostPhysicsPoseCache.Capture(FlightGlobals.ActiveVessel);
+                }
+                catch (Exception ex)
+                {
+                    PostPhysicsPoseCache.Clear();
+                    ParsekLog.WarnRateLimited("Recorder", "post-physics-pose-capture-failed",
+                        $"Post-physics pose capture failed: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
         }
 
         private System.Collections.IEnumerator DeferredResumeScreenMessage()

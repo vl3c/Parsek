@@ -73,11 +73,11 @@ namespace Parsek
         private double surfaceMobileMaxClearanceThisSection = double.NaN;
         private double surfaceMobileClearanceSumThisSection;
 
-        // Per-frame warp flags for the current section, index-aligned with
+        // Per-frame rails flags for the current section, index-aligned with
         // currentTrackSection.frames (flag[i] == true means frame i was sampled
-        // under time-warp / on-rails). Used at section close to classify each
-        // large gap: a gap touching a warp sample is a structurally-expected
-        // jump (Verbose), a large gap whose both ends were at 1x is a genuine
+        // on rails or under rails warp). Used at section close to classify each
+        // large gap: a gap touching a rails sample is a structurally-expected
+        // jump (Verbose); any other large gap, at 1x or under physics warp, is a
         // dropped-sample signal (WARN). Reset per section in StartNewTrackSection,
         // trimmed in lockstep with frames in TrimRecordingToUT.
         private readonly List<bool> sectionFrameWarpFlags = new List<bool>();
@@ -727,14 +727,81 @@ namespace Parsek
             public double MaxGapSeconds;
             public int LargeGapCount;
 
-            // Subset of LargeGapCount whose bounding samples were BOTH taken at
-            // normal (1x, not-on-rails) rate. A large gap at 1x is a genuine
-            // dropped / stalled-sampler signal worth a WARN; a large gap whose
-            // either bounding sample was under time-warp / on-rails is a
+            // Subset of LargeGapCount whose bounding samples were BOTH taken off
+            // rails (1x or physics warp). Such a gap is a genuine dropped /
+            // stalled-sampler signal worth a WARN; a large gap whose either
+            // bounding sample was on rails / under rails warp is a
             // structurally-expected jump that belongs at Verbose. When no
-            // per-sample warp data is supplied (warpFlags == null), this equals
+            // per-sample rails data is supplied (warpFlags == null), this equals
             // LargeGapCount so the WARN behaviour is unchanged.
-            public int LargeGapCountAtNormalRate;
+            public int LargeGapCountOffRails;
+
+            // Subset of the off-rails large gaps that a designed sampling silence
+            // explains: the time left after removing the overlap with the supplied
+            // silence windows is within the threshold. Logged, never WARNed.
+            public int LargeGapCountInSilence;
+        }
+
+        /// <summary>
+        /// A UT span during which a recorder took no trajectory samples by design (the
+        /// background recorder's out-of-proximity-range silence). A section gap that
+        /// overlaps one is only as large as the part of it outside the window.
+        /// </summary>
+        internal struct SamplingSilenceWindow
+        {
+            public double StartUT;
+            public double EndUT;
+
+            public SamplingSilenceWindow(double startUT, double endUT)
+            {
+                StartUT = startUT;
+                EndUT = endUT;
+            }
+        }
+
+        /// <summary>
+        /// The seconds of the gap [<paramref name="fromUT"/>, <paramref name="toUT"/>] not
+        /// covered by any silence window (windows may overlap each other; each is clipped
+        /// to the gap and their union is subtracted).
+        /// </summary>
+        internal static double ComputeGapSecondsOutsideSilences(
+            double fromUT, double toUT, IList<SamplingSilenceWindow> silences)
+        {
+            double gap = toUT - fromUT;
+            if (silences == null || silences.Count == 0 || gap <= 0.0)
+                return gap;
+
+            var clipped = new List<SamplingSilenceWindow>();
+            for (int i = 0; i < silences.Count; i++)
+            {
+                double a = Math.Max(fromUT, silences[i].StartUT);
+                double b = Math.Min(toUT, silences[i].EndUT);
+                if (b > a)
+                    clipped.Add(new SamplingSilenceWindow(a, b));
+            }
+            if (clipped.Count == 0)
+                return gap;
+
+            clipped.Sort((x, y) => x.StartUT.CompareTo(y.StartUT));
+            double covered = 0.0;
+            double runStart = clipped[0].StartUT;
+            double runEnd = clipped[0].EndUT;
+            for (int i = 1; i < clipped.Count; i++)
+            {
+                if (clipped[i].StartUT <= runEnd)
+                {
+                    if (clipped[i].EndUT > runEnd)
+                        runEnd = clipped[i].EndUT;
+                }
+                else
+                {
+                    covered += runEnd - runStart;
+                    runStart = clipped[i].StartUT;
+                    runEnd = clipped[i].EndUT;
+                }
+            }
+            covered += runEnd - runStart;
+            return Math.Max(0.0, gap - covered);
         }
 
         /// <summary>
@@ -743,18 +810,25 @@ namespace Parsek
         /// <param name="frames">The section's sampled points (UT-ordered).</param>
         /// <param name="largeGapThresholdSeconds">Gap size above which a gap counts as "large".</param>
         /// <param name="warpFlags">
-        /// Optional per-sample warp flags, index-aligned with <paramref name="frames"/>
-        /// (flag[i] == true means sample i was committed under time-warp / on-rails).
-        /// When supplied and aligned, a large gap is classified as "at normal rate"
-        /// only if BOTH bounding samples were at 1x; gaps touching a warp sample are
-        /// excluded from <see cref="SectionGapStats.LargeGapCountAtNormalRate"/>.
+        /// Optional per-sample rails flags, index-aligned with <paramref name="frames"/>
+        /// (flag[i] == true means sample i was committed on rails / under rails warp).
+        /// When supplied and aligned, a large gap counts as "off rails" only if BOTH
+        /// bounding samples were off rails; gaps touching a rails sample are excluded
+        /// from <see cref="SectionGapStats.LargeGapCountOffRails"/>.
         /// When null or length-mismatched, every large gap counts as normal-rate
         /// (conservative -- preserves the unconditional-WARN behaviour).
+        /// </param>
+        /// <param name="silences">
+        /// Optional designed sampling silences. An off-rails large gap whose time outside
+        /// them is within the threshold counts in
+        /// <see cref="SectionGapStats.LargeGapCountInSilence"/> instead of
+        /// <see cref="SectionGapStats.LargeGapCountOffRails"/>.
         /// </param>
         internal static SectionGapStats ComputeSectionGapStats(
             IList<TrajectoryPoint> frames,
             double largeGapThresholdSeconds = SparseSectionGapWarningThresholdSeconds,
-            IList<bool> warpFlags = null)
+            IList<bool> warpFlags = null,
+            IList<SamplingSilenceWindow> silences = null)
         {
             var stats = new SectionGapStats
             {
@@ -764,7 +838,7 @@ namespace Parsek
                 AverageGapSeconds = 0.0,
                 MaxGapSeconds = 0.0,
                 LargeGapCount = 0,
-                LargeGapCountAtNormalRate = 0
+                LargeGapCountOffRails = 0
             };
 
             if (frames == null || frames.Count == 0)
@@ -785,7 +859,8 @@ namespace Parsek
             double maxGap = 0.0;
             int gapCount = 0;
             int largeGapCount = 0;
-            int largeGapCountAtNormalRate = 0;
+            int largeGapCountOffRails = 0;
+            int largeGapCountInSilence = 0;
             for (int i = 1; i < frames.Count; i++)
             {
                 double gap = frames[i].ut - frames[i - 1].ut;
@@ -799,16 +874,24 @@ namespace Parsek
                 if (gap > largeGapThresholdSeconds)
                 {
                     largeGapCount++;
-                    bool gapTouchesWarp = haveWarpFlags && (warpFlags[i - 1] || warpFlags[i]);
-                    if (!gapTouchesWarp)
-                        largeGapCountAtNormalRate++;
+                    bool gapTouchesRails = haveWarpFlags && (warpFlags[i - 1] || warpFlags[i]);
+                    if (!gapTouchesRails)
+                    {
+                        double unexplained = ComputeGapSecondsOutsideSilences(
+                            frames[i - 1].ut, frames[i].ut, silences);
+                        if (unexplained > largeGapThresholdSeconds)
+                            largeGapCountOffRails++;
+                        else
+                            largeGapCountInSilence++;
+                    }
                 }
             }
 
             stats.AverageGapSeconds = gapCount > 0 ? totalGap / gapCount : 0.0;
             stats.MaxGapSeconds = maxGap;
             stats.LargeGapCount = largeGapCount;
-            stats.LargeGapCountAtNormalRate = largeGapCountAtNormalRate;
+            stats.LargeGapCountOffRails = largeGapCountOffRails;
+            stats.LargeGapCountInSilence = largeGapCountInSilence;
             return stats;
         }
 
@@ -817,25 +900,28 @@ namespace Parsek
         /// worth a WARN or are a structurally-expected condition that belongs at
         /// Verbose.
         ///
-        /// Time-warp (physics warp rate &gt; 1) and on-rails recording produce
-        /// large UT jumps between physics frames by design -- dense sampling is
-        /// impossible and the gap is harmless, not data loss. Flooding WARN with
-        /// these makes the genuine signal (a sparse gap at 1x, which indicates a
-        /// dropped sample or a stalled sampler) impossible to spot.
+        /// Rails warp and on-rails recording produce large UT jumps by design: the
+        /// vessel is packed, dense sampling is impossible and the gap is harmless,
+        /// not data loss. Physics warp is different: every physics frame still runs
+        /// (<c>TimeWarp.updateRate</c> sets <c>fixedDeltaTime = 0.02 * rate</c>) and
+        /// the sampler keeps its bounds to within one 0.08 s frame at 4x, so a large
+        /// physics-warp gap is the same stalled-sampler signal as a 1x one. The
+        /// threshold (<see cref="ResolveSparseGapWarningThreshold"/>) already exceeds
+        /// the max interval plus one 4x frame for every max interval (1.5x the max,
+        /// floored at 0.5 s), so an on-schedule physics-warp gap never reaches it.
         ///
         /// Classification is per-gap, NOT per-section: a single section can hold
-        /// both a real 1x gap and a later warp gap (physics warp never goes
-        /// on-rails and does not close the section). We WARN whenever at least
-        /// one large gap had BOTH bounding samples at 1x
-        /// (<paramref name="largeGapCountAtNormalRate"/> &gt; 0), and downgrade
-        /// to Verbose only when every large gap touched a warp / on-rails sample.
+        /// both a real off-rails gap and a rails-touching gap. We WARN whenever at
+        /// least one large gap had BOTH bounding samples off rails
+        /// (<paramref name="largeGapCountOffRails"/> &gt; 0), and downgrade to
+        /// Verbose only when every large gap touched a rails sample.
         ///
         /// Pure static so the recorder hot path stays a one-line call and the
         /// decision is unit-testable. Returns true to WARN, false to log Verbose.
         /// </summary>
-        internal static bool ShouldWarnOnSparseSampling(int largeGapCountAtNormalRate)
+        internal static bool ShouldWarnOnSparseSampling(int largeGapCountOffRails)
         {
-            return largeGapCountAtNormalRate > 0;
+            return largeGapCountOffRails > 0;
         }
 
         /// <summary>
@@ -1132,6 +1218,13 @@ namespace Parsek
         internal const float AnimateHeatMediumThreshold = 0.40f;
         internal const float AnimateHeatMediumFallbackThreshold = 0.35f; // hysteresis: fall from Medium at 0.35, rise at 0.40
         private double lastRecordedUT = -1;
+        // Physics-callback sample-source tallies (diagnostics only; see PostPhysicsPoseCache).
+        private int physicsSampleFixedStepPoseCount;
+        private int physicsSampleSkipCount;
+        // True while the open section's only frame is a boundary seed copied from the
+        // closed section (SeedBoundaryPoint); the flat list's same-UT tail then belongs
+        // to the closed section.
+        private bool currentSectionHoldsOnlySeed;
         private Vector3 lastRecordedVelocity;
         private Quaternion lastRecordedWorldRotation = Quaternion.identity;
         private bool hasLastRecordedWorldRotation;
@@ -5465,6 +5558,7 @@ namespace Parsek
             surfaceMobileClearanceSumThisSection = 0.0;
             sectionFrameWarpFlags.Clear();
             sectionWarpRuns.Clear();
+            currentSectionHoldsOnlySeed = false;
             ParsekLog.Info("Recorder",
                 $"TrackSection started: env={env} ref={refFrame} source={source} " +
                 $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
@@ -5614,13 +5708,13 @@ namespace Parsek
 
             if (gapStats.LargeGapCount > 0)
             {
-                bool warn = ShouldWarnOnSparseSampling(gapStats.LargeGapCountAtNormalRate);
+                bool warn = ShouldWarnOnSparseSampling(gapStats.LargeGapCountOffRails);
                 string message =
                     $"TrackSection sparse sampling: env={currentTrackSection.environment} " +
                     $"ref={currentTrackSection.referenceFrame} frames={frameCount} " +
                     $"maxGap={gapStats.MaxGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
                     $"threshold={sparseGapThreshold.ToString("F2", CultureInfo.InvariantCulture)}s " +
-                    $"largeGaps={gapStats.LargeGapCount} largeGaps1x={gapStats.LargeGapCountAtNormalRate}";
+                    $"largeGaps={gapStats.LargeGapCount} largeGapsOffRails={gapStats.LargeGapCountOffRails}";
                 if (warn)
                     ParsekLog.Warn("Recorder", message);
                 else
@@ -9118,9 +9212,21 @@ namespace Parsek
                     return;
             }
 
+            // The trajectory sample's UT and position must describe one physics step; see
+            // PostPhysicsPoseCache for why a live read inside FixedUpdate does not. The
+            // boundary checks below sample the live vessel, so a FixedUpdate callback leaves
+            // them to the Update-step callback at the end of the same render frame.
+            bool inFixedTimeStep = PostPhysicsPoseCache.ReadInFixedTimeStep();
+            bool statsRunInUpdate = PostPhysicsPoseCache.ReadStatsRunInUpdate();
+            bool deferBoundaryChecks = PostPhysicsPoseCache.ShouldDeferBoundaryChecksInFixedStep(
+                inFixedTimeStep, statsRunInUpdate, v.packed);
+
             // Check atmosphere / altitude boundary (before part state polling)
-            CheckAtmosphereBoundary(v);
-            CheckAltitudeBoundary(v);
+            if (!deferBoundaryChecks)
+            {
+                CheckAtmosphereBoundary(v);
+                CheckAltitudeBoundary(v);
+            }
 
             PollPartStates(v);
             // M2 harvest poll (plan D4): threshold-crossing window open/close.
@@ -9128,14 +9234,35 @@ namespace Parsek
             // through which a warp-period converter toggle gets attributed at
             // the rails-exit boundary (round-2 nit 8).
             PollHarvestActivity(v);
-            UpdateEnvironmentTracking(v);
-
-            UpdateAnchorDetection(v);
+            if (!deferBoundaryChecks)
+            {
+                UpdateEnvironmentTracking(v);
+                UpdateAnchorDetection(v);
+            }
             RefreshFinalizationCache(v, "periodic");
 
-            double currentUT = Planetarium.GetUniversalTime();
-            if (ShouldHoldReFlyPostLoadSettle(v, currentUT))
+            double liveUT = Planetarium.GetUniversalTime();
+            if (ShouldHoldReFlyPostLoadSettle(v, liveUT))
                 return;
+
+            bool hasPose = PostPhysicsPoseCache.TryGetLatest(out PostPhysicsPose pose);
+            PhysicsSampleSource sampleSource = PostPhysicsPoseCache.ResolveSampleSource(
+                inFixedTimeStep,
+                statsRunInUpdate,
+                v.packed,
+                isRelativeMode,
+                hasPose,
+                pose,
+                v.persistentId,
+                v.mainBody != null ? v.mainBody.name : null,
+                liveUT,
+                PostPhysicsPoseCache.ReadPhysicsStepGameSeconds(),
+                out string sampleSourceReason);
+            NotePhysicsSampleSource(sampleSource, sampleSourceReason, inFixedTimeStep, liveUT, pose);
+            if (sampleSource == PhysicsSampleSource.Skip)
+                return;
+            bool usePose = sampleSource == PhysicsSampleSource.PostPhysicsPose;
+            double currentUT = usePose ? pose.UT : liveUT;
 
             Vector3 currentVelocity = SampleCurrentVelocity(v);
             if (v.packed)
@@ -9249,11 +9376,51 @@ namespace Parsek
             }
 
             TrajectoryPoint point = BuildTrajectoryPoint(v, currentVelocity, currentUT);
+            if (usePose)
+            {
+                point.latitude = pose.Latitude;
+                point.longitude = pose.Longitude;
+                point.altitude = pose.Altitude;
+            }
             TryCanonicalizeActiveReFlyRecordingPoint(ref point, "physics-sample");
             TrajectoryPoint absolutePoint = point;
 
             bool relativeApplied = ApplyRelativeOffset(ref point, v);
             CommitRecordedPoint(point, v, relativeApplied ? (TrajectoryPoint?)absolutePoint : null);
+        }
+
+        /// <summary>
+        /// Counts physics-callback sample sources and logs the ones that differ from the
+        /// ordinary Update-step read: every FixedUpdate-step callback (a render frame that
+        /// held several physics steps) and every Update-step fallback to a live read.
+        /// </summary>
+        internal void NotePhysicsSampleSource(
+            PhysicsSampleSource source,
+            string reason,
+            bool inFixedTimeStep,
+            double liveUT,
+            PostPhysicsPose pose)
+        {
+            if (source == PhysicsSampleSource.Skip)
+                physicsSampleSkipCount++;
+            else if (source == PhysicsSampleSource.PostPhysicsPose && inFixedTimeStep)
+                physicsSampleFixedStepPoseCount++;
+
+            if (!inFixedTimeStep && (source != PhysicsSampleSource.Live || reason == "packed"))
+                return;
+
+            var ic = CultureInfo.InvariantCulture;
+            string key = inFixedTimeStep ? "physics-sample-fixed-step" : "physics-sample-update-live";
+            string prefix = inFixedTimeStep
+                ? "Fixed-step physics callback"
+                : "Update-step physics callback read live";
+            ParsekLog.VerboseRateLimited("Recorder", key,
+                $"{prefix}: source={source} reason={reason} " +
+                $"liveUT={liveUT.ToString("F4", ic)} " +
+                $"poseUT={(pose.VesselPid != 0 ? pose.UT.ToString("F4", ic) : "(none)")} " +
+                $"fixedStepPoseSamples={physicsSampleFixedStepPoseCount} " +
+                $"skippedCallbacks={physicsSampleSkipCount}",
+                5.0);
         }
 
         private double ResolveHighFidelitySplitChildProximityMeters(Vessel focus, out string source)
@@ -9894,7 +10061,7 @@ namespace Parsek
         /// </summary>
         private void AppendCurrentSectionFrameWarpFlag()
         {
-            sectionFrameWarpFlags.Add(isOnRails || IsTimeWarpActiveForDiagnostics());
+            sectionFrameWarpFlags.Add(isOnRails || IsRailsWarpActiveForDiagnostics());
             if (trackSectionActive && currentTrackSection.frames != null
                 && currentTrackSection.frames.Count > 0)
             {
@@ -9926,15 +10093,32 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Reads the active time-warp rate index defensively. Returns false when
-        /// the Unity <c>TimeWarp</c> singleton is unavailable (xUnit / headless).
-        /// Rate index &gt; 0 means physics or rails warp is engaged. Used only
-        /// to classify sparse-sampling diagnostics, never to gate recording.
+        /// Reads whether RAILS warp is engaged, defensively. Returns false when the
+        /// Unity <c>TimeWarp</c> singleton is unavailable (xUnit / headless). Physics
+        /// warp reads false: its frames are sampled like 1x frames. Used only to
+        /// classify sparse-sampling diagnostics, never to gate recording.
         /// </summary>
-        internal static bool IsTimeWarpActiveForDiagnostics()
+        internal static bool IsRailsWarpActiveForDiagnostics()
         {
-            try { return TimeWarp.CurrentRateIndex > 0; }
+            try
+            {
+                // Without the singleton TimeWarp's static accessors answer rate index 1
+                // in HIGH mode (decompiled), which would read as rails warp.
+                if (object.ReferenceEquals(TimeWarp.fetch, null))
+                    return false;
+                return IsRailsWarpState(
+                    TimeWarp.CurrentRateIndex, TimeWarp.WarpMode == TimeWarp.Modes.LOW);
+            }
             catch { return false; }
+        }
+
+        /// <summary>
+        /// Rails warp is a rate index above 0 in the HIGH (rails) warp mode;
+        /// LOW is physics warp.
+        /// </summary>
+        internal static bool IsRailsWarpState(int currentRateIndex, bool physicsWarpMode)
+        {
+            return currentRateIndex > 0 && !physicsWarpMode;
         }
 
         internal static bool IsSurfaceClearanceEnvironment(SegmentEnvironment env)
@@ -10029,14 +10213,22 @@ namespace Parsek
             // environment / RELATIVE frame; the playback path falls through
             // to the legacy altitude branch. Mutates `point` BEFORE the flat
             // list / section append so both stores see the same value.
-            if (ShouldEmitSurfaceClearance(
+            bool surfaceClearanceSample = ShouldEmitSurfaceClearance(
                     trackSectionActive,
                     trackSectionActive ? currentTrackSection.referenceFrame : ReferenceFrame.Absolute,
                     trackSectionActive ? currentTrackSection.environment : SegmentEnvironment.Atmospheric,
-                    hasVessel && v.mainBody != null && v.mainBody.pqsController != null))
+                    hasVessel && v.mainBody != null && v.mainBody.pqsController != null);
+            if (surfaceClearanceSample)
             {
                 double terrainHeight = v.mainBody.TerrainAltitude(point.latitude, point.longitude, true);
                 point.recordedGroundClearance = point.altitude - terrainHeight;
+            }
+
+            if (TryCommitSameUTPoint(point, v, bodyFixedPrimaryPoint, surfaceClearanceSample))
+                return;
+
+            if (surfaceClearanceSample)
+            {
                 surfaceMobileSamplesThisSection++;
                 if (double.IsNaN(surfaceMobileMinClearanceThisSection)
                     || point.recordedGroundClearance < surfaceMobileMinClearanceThisSection)
@@ -10048,6 +10240,7 @@ namespace Parsek
             }
 
             Recording.Add(point);
+            currentSectionHoldsOnlySeed = false;
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
             lastRecordedWorldRotation = hasVessel
@@ -10159,7 +10352,11 @@ namespace Parsek
                 return;
             }
 
+            if (TryCommitSameUTPoint(point, null, bodyFixedPrimaryPoint, false))
+                return;
+
             Recording.Add(point);
+            currentSectionHoldsOnlySeed = false;
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
             lastRecordedWorldRotation = default(Quaternion);
@@ -10194,6 +10391,225 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Recorder", "recorded-point",
                     $"Recorded point #{Recording.Count}: {point}", 5.0);
             }
+        }
+
+        /// <summary>
+        /// How a foreground commit whose UT equals the last point of its section is handled
+        /// (todo SECTION-DUPLICATE-UT-SAMPLES).
+        /// </summary>
+        internal enum SameUTCommitDisposition
+        {
+            /// <summary>A new UT for this section (or nothing to compare): append normally.</summary>
+            Append,
+            /// <summary>The same sample again: keep the stored point, OR in any new flag bits.</summary>
+            MergeIntoIdentical,
+            /// <summary>A different sample at the same UT: the later observation replaces the stored one.</summary>
+            ReplaceLast,
+        }
+
+        /// <summary>
+        /// Classifies a foreground commit against the point it would follow in its own
+        /// section (the section's last frame, or the flat list's last point when no section
+        /// is open). Several paths can commit at one UT inside one physics callback: a
+        /// periodic sample and a structural-event snapshot at a joint break, the section
+        /// close / reopen seed at staging, an off-rails boundary sample after a packed
+        /// sample at clamp release. A section must hold one sample per UT. The later commit
+        /// is the later observation of that instant, taken after whatever event caused it,
+        /// so it is the one the following samples continue from (at clamp release the
+        /// off-rails sample carries the unpacked velocity convention every later sample
+        /// uses; the packed one carried <c>obt_velocity</c>). A commit into a section with
+        /// no frames yet appends: the flat list's equal-UT seam point belongs to the
+        /// previous section.
+        /// </summary>
+        internal static SameUTCommitDisposition ClassifySameUTCommit(
+            bool hasReference, TrajectoryPoint reference, TrajectoryPoint incoming)
+        {
+            if (!hasReference || reference.ut != incoming.ut)
+                return SameUTCommitDisposition.Append;
+            return AreTrajectoryPointsEquivalent(reference, incoming)
+                ? SameUTCommitDisposition.MergeIntoIdentical
+                : SameUTCommitDisposition.ReplaceLast;
+        }
+
+        /// <summary>
+        /// Field-by-field equality of two samples, ignoring <see cref="TrajectoryPoint.flags"/>
+        /// (merged separately) and treating two NaN clearances as equal.
+        /// </summary>
+        internal static bool AreTrajectoryPointsEquivalent(TrajectoryPoint a, TrajectoryPoint b)
+        {
+            return a.ut.Equals(b.ut)
+                && a.latitude.Equals(b.latitude)
+                && a.longitude.Equals(b.longitude)
+                && a.altitude.Equals(b.altitude)
+                && a.rotation.x.Equals(b.rotation.x)
+                && a.rotation.y.Equals(b.rotation.y)
+                && a.rotation.z.Equals(b.rotation.z)
+                && a.rotation.w.Equals(b.rotation.w)
+                && a.velocity.x.Equals(b.velocity.x)
+                && a.velocity.y.Equals(b.velocity.y)
+                && a.velocity.z.Equals(b.velocity.z)
+                && string.Equals(a.bodyName, b.bodyName, StringComparison.Ordinal)
+                && a.funds.Equals(b.funds)
+                && a.science.Equals(b.science)
+                && a.reputation.Equals(b.reputation)
+                && a.recordedGroundClearance.Equals(b.recordedGroundClearance);
+        }
+
+        /// <summary>
+        /// Names the fields two same-UT samples differ in, for the replace log line.
+        /// </summary>
+        internal static string DescribeTrajectoryPointDifference(TrajectoryPoint a, TrajectoryPoint b)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            var parts = new List<string>();
+            if (!a.latitude.Equals(b.latitude) || !a.longitude.Equals(b.longitude)
+                || !a.altitude.Equals(b.altitude))
+            {
+                parts.Add("position(alt " + a.altitude.ToString("F2", ic) + "->"
+                    + b.altitude.ToString("F2", ic) + ")");
+            }
+            if (!a.rotation.x.Equals(b.rotation.x) || !a.rotation.y.Equals(b.rotation.y)
+                || !a.rotation.z.Equals(b.rotation.z) || !a.rotation.w.Equals(b.rotation.w))
+                parts.Add("rotation");
+            if (!a.velocity.x.Equals(b.velocity.x) || !a.velocity.y.Equals(b.velocity.y)
+                || !a.velocity.z.Equals(b.velocity.z))
+            {
+                parts.Add("speed(" + a.velocity.magnitude.ToString("F2", ic) + "->"
+                    + b.velocity.magnitude.ToString("F2", ic) + ")");
+            }
+            if (!string.Equals(a.bodyName, b.bodyName, StringComparison.Ordinal))
+                parts.Add("body(" + (a.bodyName ?? "(null)") + "->" + (b.bodyName ?? "(null)") + ")");
+            if (!a.funds.Equals(b.funds) || !a.science.Equals(b.science) || !a.reputation.Equals(b.reputation))
+                parts.Add("career");
+            if (!a.recordedGroundClearance.Equals(b.recordedGroundClearance))
+                parts.Add("clearance");
+            return parts.Count > 0 ? string.Join(",", parts.ToArray()) : "(none)";
+        }
+
+        /// <summary>
+        /// Handles a commit whose UT equals the last point of its section; returns false
+        /// when the commit is an ordinary append. The flat list mirrors the section: its
+        /// last point is updated in place when it has the same UT, else the sample is
+        /// appended there so the flat list keeps every committed UT.
+        /// </summary>
+        private bool TryCommitSameUTPoint(
+            TrajectoryPoint point,
+            Vessel v,
+            TrajectoryPoint? bodyFixedPrimaryPoint,
+            bool surfaceClearanceSample)
+        {
+            bool sectionReference = trackSectionActive && currentTrackSection.frames != null;
+            List<TrajectoryPoint> referenceList = sectionReference ? currentTrackSection.frames : Recording;
+            bool hasReference = referenceList != null && referenceList.Count > 0;
+            TrajectoryPoint reference = hasReference ? referenceList[referenceList.Count - 1] : default(TrajectoryPoint);
+            SameUTCommitDisposition disposition = ClassifySameUTCommit(hasReference, reference, point);
+            if (disposition == SameUTCommitDisposition.Append)
+                return false;
+
+            var ic = CultureInfo.InvariantCulture;
+            byte mergedFlags = (byte)(reference.flags | point.flags);
+            TrajectoryPoint stored = disposition == SameUTCommitDisposition.MergeIntoIdentical ? reference : point;
+            stored.flags = mergedFlags;
+
+            if (sectionReference)
+            {
+                referenceList[referenceList.Count - 1] = stored;
+                if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
+                    && bodyFixedPrimaryPoint.HasValue
+                    && disposition == SameUTCommitDisposition.ReplaceLast)
+                {
+                    TrajectoryPoint shadow = bodyFixedPrimaryPoint.Value;
+                    if (!object.ReferenceEquals(v, null))
+                        ApplySurfaceClearanceToBodyFixedShadow(v, ref shadow);
+                    if (currentTrackSection.bodyFixedFrames == null)
+                        currentTrackSection.bodyFixedFrames = new List<TrajectoryPoint>();
+                    List<TrajectoryPoint> shadows = currentTrackSection.bodyFixedFrames;
+                    if (shadows.Count > 0 && shadows[shadows.Count - 1].ut == point.ut)
+                        shadows[shadows.Count - 1] = shadow;
+                    else
+                        shadows.Add(shadow);
+                }
+                if (disposition == SameUTCommitDisposition.ReplaceLast)
+                    UpdateTrackSectionAltitude((float)point.altitude);
+            }
+
+            // A seed-only section's flat-list twin is the closed section's last point: a
+            // replacement leaves it there and appends (the equal-UT seam the flat list
+            // has always carried); an identical merge only ORs the flags into it.
+            bool flatTailAtUT = Recording.Count > 0 && Recording[Recording.Count - 1].ut == point.ut;
+            bool flatTailBelongsToClosedSection = sectionReference
+                && currentSectionHoldsOnlySeed
+                && referenceList.Count == 1;
+            if (flatTailAtUT && flatTailBelongsToClosedSection)
+            {
+                if (disposition == SameUTCommitDisposition.ReplaceLast)
+                {
+                    Recording.Add(stored);
+                }
+                else
+                {
+                    TrajectoryPoint tail = Recording[Recording.Count - 1];
+                    tail.flags = (byte)(tail.flags | mergedFlags);
+                    Recording[Recording.Count - 1] = tail;
+                }
+            }
+            else if (flatTailAtUT)
+            {
+                Recording[Recording.Count - 1] = stored;
+            }
+            else
+            {
+                Recording.Add(stored);
+            }
+            if (disposition == SameUTCommitDisposition.ReplaceLast)
+                currentSectionHoldsOnlySeed = false;
+
+            if (disposition == SameUTCommitDisposition.ReplaceLast)
+            {
+                if (surfaceClearanceSample
+                    && surfaceMobileSamplesThisSection > 0
+                    && !double.IsNaN(reference.recordedGroundClearance)
+                    && !double.IsNaN(point.recordedGroundClearance))
+                {
+                    surfaceMobileClearanceSumThisSection +=
+                        point.recordedGroundClearance - reference.recordedGroundClearance;
+                }
+                lastRecordedVelocity = point.velocity;
+                if (!object.ReferenceEquals(v, null))
+                {
+                    lastRecordedWorldRotation = ReadSanitizedWorldRotation(v);
+                    hasLastRecordedWorldRotation = true;
+                }
+                else
+                {
+                    lastRecordedWorldRotation = default(Quaternion);
+                    hasLastRecordedWorldRotation = false;
+                }
+                LastRecordedAltitude = point.altitude;
+                ParsekLog.Verbose("Recorder",
+                    $"Same-UT sample replaced the section's last point: ut={point.ut.ToString("R", ic)} " +
+                    $"differs={DescribeTrajectoryPointDifference(reference, point)} " +
+                    $"flags={mergedFlags.ToString(ic)} " +
+                    $"section={(sectionReference ? "open" : "none")}");
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "same-ut-identical-merge",
+                    $"Same-UT sample identical to the section's last point, not appended: " +
+                    $"ut={point.ut.ToString("R", ic)} flags={reference.flags.ToString(ic)}->{mergedFlags.ToString(ic)} " +
+                    $"section={(sectionReference ? "open" : "none")}",
+                    5.0);
+            }
+            lastRecordedUT = point.ut;
+            return true;
+        }
+
+        // Kept out of TryCommitSameUTPoint so the headless commit path never JITs a
+        // Unity transform read.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static Quaternion ReadSanitizedWorldRotation(Vessel v)
+        {
+            return TrajectoryMath.SanitizeQuaternion(v.transform.rotation);
         }
 
         /// <summary>
@@ -10549,6 +10965,16 @@ namespace Parsek
         internal void AppendSectionStartSeamPointForTesting(TrajectoryPoint seamPoint, string reason)
         {
             AppendSectionStartSeamPoint(seamPoint, null, reason);
+        }
+
+        internal void CommitRecordedPointForTesting(TrajectoryPoint point)
+        {
+            CommitRecordedPoint(point, null);
+        }
+
+        internal void SeedBoundaryPointForTesting(TrajectoryPoint point)
+        {
+            SeedBoundaryPoint(point);
         }
 
         private void AppendSectionStartSeamPoint(TrajectoryPoint seamPoint, Vessel v, string reason)
@@ -10929,6 +11355,7 @@ namespace Parsek
                 return;
             if (!trackSectionActive || currentTrackSection.frames == null) return;
             currentTrackSection.frames.Add(point.Value);
+            currentSectionHoldsOnlySeed = currentTrackSection.frames.Count == 1;
             AppendCurrentSectionFrameWarpFlag();
             if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
                 && bodyFixedPrimaryPoint.HasValue)

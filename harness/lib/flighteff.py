@@ -66,6 +66,11 @@ ESTIMATION CONTRACT (documented limits; every figure is an estimate):
      its lead is short by the half burn (~10 s for a Mun capture) and the
      by-design figure is a lower bound. Resolution is one telemetry line: an
      interval is inside the lead when its OPENING sample is.
+     A CIRCULARIZE node wait gets the same lead (``CIRCULARIZE_LEAD_KEY``) only
+     in a visit whose own ``node-wait:`` action line printed a half burn: that
+     line exists only where the lane opted in (``circularizeNodeWaitWarp``), so
+     a CIRCULARIZE wait with no line (every other lane) stays wholly
+     recoverable and outcome-sensitive (item 9).
      The BDOCK machines' RENDEZVOUS node wait has the same kind of lead
      (``rendezvous_lead_boundary``): the hold rails-warps to its target T and
      cancels RV_EARLY_CANCEL_SECONDS before it, so a wait on that node is by
@@ -205,6 +210,16 @@ CAPTURE_LEAD_REASON = (
     "MechJeb's executor, which aligns and settles at 1x (mlib "
     "_b5_node_wait_begin)")
 
+# The OPT-IN CIRCULARIZE node-wait hold (mlib _B5_CIRCULARIZE_NODE_WAIT_PHASE,
+# spec key circularizeNodeWaitWarp): the same release point as the capture
+# hold, applied only to a visit whose node-wait line printed its half burn.
+CIRCULARIZE_LEAD_KEY = ("waiting-for-node", "CIRCULARIZE")
+CIRCULARIZE_LEAD_REASON = (
+    "circularize node-wait lead: with circularizeNodeWaitWarp the b5 machine "
+    "rails-warps itself to the park round-out node UT - half burn - "
+    "NODE_WAIT_ORIENT_LEAD_SECONDS and only then hands the node to MechJeb's "
+    "executor, which aligns and settles at 1x (mlib _b5_node_wait_begin)")
+
 # MIRROR of mlib's RENDEZVOUS NODE WAITS constants (the BDOCK machines);
 # test_flighteff pins each one against mlib. The hold cancels its own warp
 # RV_WARP_ARRIVAL_TOLERANCE_SECONDS before its target (kRPC WarpTo's last game
@@ -268,9 +283,10 @@ POLICY_PHYSICS_TARGETS: Dict[Tuple[str, str], str] = {
 # seconds stay recoverable; the recommendation is flagged.
 OUTCOME_SENSITIVE: Dict[Tuple[str, str], str] = {
     ("waiting-for-node", "CIRCULARIZE"): (
-        "undecided (B22): a node wait whose timing may move the resulting orbit, "
-        "as the held TLI moved B13's landing site; fly a verification flight "
-        "before warping it"),
+        "pending re-fly (B22): circularizeNodeWaitWarp now holds this wait on B22 "
+        "only; the park round-out's resulting orbit may move with the burn timing, "
+        "as the held TLI moved B13's landing site, so the held flight must show an "
+        "unchanged park and Jool arrival before any other lane opts in"),
 }
 
 
@@ -788,7 +804,8 @@ def apply_policy(log: MissionLog, intervals: List[Interval],
                  machine: Optional[str] = None) -> Dict[int, Tuple[float, bool]]:
     """Mark the idle / lowWarp intervals the mission warp policy leaves alone on
     purpose (contract item 8). Returns visit -> (capture lead seconds, half
-    burn known) for every CAPTURE-BURN visit. The RENDEZVOUS lead applies only
+    burn known) for every CAPTURE-BURN visit, and for every CIRCULARIZE visit
+    whose node-wait line printed a half burn. The RENDEZVOUS lead applies only
     when ``machine`` is one of RENDEZVOUS_LEAD_MACHINES; its per-node
     boundaries land in each visit's ``rv_leads``."""
     leads: Dict[int, Tuple[float, bool]] = {}
@@ -796,15 +813,20 @@ def apply_policy(log: MissionLog, intervals: List[Interval],
     for v in log.visits:
         if v.phase == CAPTURE_LEAD_KEY[1]:
             leads[v.index] = capture_lead_seconds(v.half_burn)
+        elif v.phase == CIRCULARIZE_LEAD_KEY[1] and _is_finite(v.half_burn) \
+                and v.half_burn >= 0.0:
+            leads[v.index] = capture_lead_seconds(v.half_burn)
+    lead_reasons = {CAPTURE_LEAD_KEY: CAPTURE_LEAD_REASON,
+                    CIRCULARIZE_LEAD_KEY: CIRCULARIZE_LEAD_REASON}
     rv_on = machine in RENDEZVOUS_LEAD_MACHINES
     for iv in intervals:
         if iv.bucket not in ("idle", "lowWarp"):
             continue
         reason = by_design_reason(iv.cause, iv.phase)
-        if not reason and (iv.cause, iv.phase) == CAPTURE_LEAD_KEY \
+        if not reason and (iv.cause, iv.phase) in lead_reasons \
                 and iv.visit in leads and _is_finite(iv.ut) and _is_finite(iv.node_ut) \
                 and iv.node_ut - iv.ut <= leads[iv.visit][0]:
-            reason = CAPTURE_LEAD_REASON
+            reason = lead_reasons[(iv.cause, iv.phase)]
         if not reason and rv_on and (iv.cause, iv.phase) == RENDEZVOUS_LEAD_KEY \
                 and iv.visit in visits and _is_finite(iv.ut) and _is_finite(iv.node_ut):
             v = visits[iv.visit]
@@ -1063,8 +1085,10 @@ SITE_HINTS: Dict[Tuple[str, str], Tuple[str, Tuple[str, ...]]] = {
         "circularization node and runs it through ExecuteOneNode with autowarp "
         "on by default; " + NE_HINT, ()),
     ("waiting-for-node", "CIRCULARIZE"): (
-        "1x coast to the circularization node "
-        "(mission_runner.py ACTION_MJ_EXECUTE_CIRCULARIZATION)", ()),
+        "1x coast to the circularization or park round-out node "
+        "(mission_runner.py ACTION_MJ_EXECUTE_CIRCULARIZATION / "
+        "ACTION_MJ_EXECUTE_NODES); circularizeNodeWaitWarp holds the round-out "
+        "hand-off and rails-warps to its orient lead", ("circularizeNodeWaitWarp",)),
     ("waiting-for-node", "CORRECTION-BURN"): (
         "the DIY burner holds 1x before ignition (settle AND attitude gate)",
         ("correctionSettleSeconds",)),
@@ -1072,8 +1096,11 @@ SITE_HINTS: Dict[Tuple[str, str], Tuple[str, Tuple[str, ...]]] = {
         "mission_runner.py ACTION_MJ_EXECUTE_NODES hands the node to MechJeb "
         "with autowarp on; " + NE_HINT, ()),
     ("soi-approach", "*"): (
-        "1x around the SOI boundary; the machine stairs down inside soiLeadSeconds",
-        ("soiLeadSeconds", "coastWarpFactor", "approachMaxWarpFactor")),
+        "1x around the SOI boundary; the machine stairs down inside soiLeadSeconds "
+        "(soiNativeLeadSeconds / triggerNativeLeadSeconds when armed; the 'gate "
+        "coastLead' lines name the lead applied)",
+        ("soiLeadSeconds", "soiNativeLeadSeconds", "triggerNativeLeadSeconds",
+         "coastWarpFactor", "approachMaxWarpFactor")),
     ("coast-to-apoapsis", "MJ-ASCENT"): (
         "MechJeb's ascent (mission_runner.py ACTION_MJ_ENGAGE_ASCENT) coasts to "
         "its circularization node with autowarp on by default; " + NE_HINT, ()),
@@ -1108,7 +1135,8 @@ SITE_HINTS: Dict[Tuple[str, str], Tuple[str, Tuple[str, ...]]] = {
         ("warpAboveAltMeters", "warpHopSeconds")),
     ("low-warp", "COAST-TO-TARGET"): (
         "coast rails factor below the altitude-legal maximum",
-        ("coastWarpFactor", "approachMaxWarpFactor")),
+        ("coastWarpFactor", "approachMaxWarpFactor", "soiNativeLeadSeconds",
+         "triggerNativeLeadSeconds")),
     ("low-warp", "TARGET-FLYBY"): (
         "flyby rails factor below the altitude-legal maximum",
         ("flybyWarpFactor", "flybyMaxWarpFactor")),
@@ -1845,6 +1873,9 @@ def build_document(runs: List[Dict], skipped: List[Dict], duplicates: int) -> Di
                            for (c, p), why in sorted(BY_DESIGN_POLICY.items())]
         + [{"cause": CAPTURE_LEAD_KEY[0], "phase": CAPTURE_LEAD_KEY[1],
             "reason": CAPTURE_LEAD_REASON + " (only inside the capture lead)"},
+           {"cause": CIRCULARIZE_LEAD_KEY[0], "phase": CIRCULARIZE_LEAD_KEY[1],
+            "reason": CIRCULARIZE_LEAD_REASON + " (only inside the lead, and only "
+            "in a visit whose node-wait line printed its half burn)"},
            {"cause": RENDEZVOUS_LEAD_KEY[0], "phase": RENDEZVOUS_LEAD_KEY[1],
             "reason": RENDEZVOUS_LEAD_REASON + " (only inside the rendezvous lead, "
             "BDOCK machines only)"}],
@@ -1916,8 +1947,10 @@ def render_run(run: Dict, top: int = 8) -> str:
                         _s(p["recoverable"]), _s(p["byDesign"]), causes))
         for p in m["phases"]:
             if p.get("captureLeadSeconds") is not None:
-                L.append("  capture lead: visit %d %s %ss before node UT (%s)"
-                         % (p["visit"], p["phase"], _s(p["captureLeadSeconds"], "%.1f"),
+                L.append("  %s lead: visit %d %s %ss before node UT (%s)"
+                         % ("circularize" if p["phase"] == CIRCULARIZE_LEAD_KEY[1]
+                            else "capture",
+                            p["visit"], p["phase"], _s(p["captureLeadSeconds"], "%.1f"),
                             "half burn from the node-wait line"
                             if p["captureLeadHalfBurnKnown"]
                             else "no node-wait line: constants only, short by the half burn"))

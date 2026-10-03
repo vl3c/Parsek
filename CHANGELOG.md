@@ -74,7 +74,31 @@ _(unreleased — entries accumulate here per commit)_
   minus the 15 s early cancel) is reported as
   "by design" beside the recoverable total instead of in it, the PARK and kx COAST dwells
   are judged against the 4x physics warp the policy uses, and CIRCULARIZE node waits are
-  flagged outcome-sensitive. JSON schema version 2.
+  flagged outcome-sensitive (by design inside the lead of a held park round-out).
+  JSON schema version 2.
+- **Dev: the b5 coast can warp natively closer to an SOI boundary and to a correction
+  trigger.** Two new `missionParams` keys, both off by default so every other lane flies as
+  before. `soiNativeLeadSeconds` makes the coast's native warp stop that many game seconds
+  short of the SOI boundary instead of `soiLeadSeconds` (the approach warp clamp uses the
+  same lead, the rails last-mile then runs unchanged, and the flyby exit warp keeps
+  `soiLeadSeconds`); a spec value under 120 s plus one 4 s frame at the rails ceiling is
+  rejected at load. `triggerNativeLeadSeconds` keeps the native warp to a time-mode
+  correction trigger armed until that many seconds before it, instead of `soiLeadSeconds`.
+  Each decision prints a `gate coastLead` line naming the lead and why. B26 (400 / 30) and
+  B22 (10,000 / 30) opt in, to cut ~3,000 game s per leg crawled at x50 on B26 and ~96
+  x1,000 frames on B22. Re-flown with unchanged outcomes: B26 mission 707 s -> 596 s, B22 coast
+  368 s -> 315 s.
+- **Dev: the b5 park round-out can skip MechJeb's 1x node wait.** A new `missionParams` key
+  `circularizeNodeWaitWarp` (off by default, so every other lane flies as before) extends
+  the capture node-wait hold to the CIRCULARIZE park round-out node: the machine
+  rails-warps itself to node UT - half burn - 120 s and only then hands the node to
+  MechJeb's executor, instead of letting the executor warp to 600 s before ignition and
+  idle there at 1x. The hold is declined (plain hand-off, reason on the action line) when
+  the executor is not seen idle, the park is below the body's rails limit, or the warp
+  budget is spent; transfer nodes are never held. The flight-efficiency analyzer counts
+  the wait inside that lead as by design in a visit whose `node-wait:` line printed its
+  half burn. B22 opts in; its re-fly cut CIRCULARIZE from 626 s to 108 s and the mission from
+  2,767 s to 2,156 s, with the same trim, corrections and Jool park.
 - **Timeline rows explain themselves on hover.** Hovering a row's description in the
   Timeline now explains it in the window's bottom help line. A future row that holds a stock
   control names it, from the same check the stock screen's block uses: `Holds Research in R&D
@@ -1372,6 +1396,36 @@ _(unreleased — entries accumulate here per commit)_
   as one that died. A fresh, never-committed flight recovered from the pad is still dropped
   silently.
 
+- **Dev: booster debris no longer logs a sparse-sampling warning on every launch.** Once
+  a background vessel leaves proximity range the recorder stops sampling it by design, and
+  the long gap until it came back (about 14 s for each booster pair) read as a stalled
+  sampler. The recorder now notes each out-of-range silence, from the first skipped moment to
+  the moment the vessel is back in range, and a gap counts toward the warning only by the
+  part of it outside that silence; the line stays at Verbose with a
+  `largeGapsOutOfRange=` count.
+- **Dev: the recorder's sparse-sampling warning fires under physics warp again.** A recorded
+  section whose samples sat further apart than the sampler allows logs
+  `TrackSection sparse sampling:` as a warning, but any time warp downgraded it to a verbose
+  line, including physics warp, where every physics frame still runs and the sampler keeps
+  its spacing. Only rails warp (and on-rails recording) now downgrades it; the count token
+  is renamed `largeGapsOffRails=`. An on-schedule physics-warp gap stays under the
+  threshold, which already clears the max interval plus one 4x frame. Headless runs no
+  longer read a missing `TimeWarp` as rails warp.
+- **Recording: a sample taken when a frame runs long now sits where the vessel was at that
+  moment.** When one rendered frame holds several physics steps (a warp-rate change, staging,
+  a slow stretch), KSP hands the recorder a mid-step reading on the later steps: the clock
+  has moved on but the vessel has not, and the first step of the frame is never offered at
+  all. A recording could carry a point up to one step (0.08 s at 4x warp) behind its own
+  time, and the max-interval heartbeat could land a step late. The recorder now keeps the
+  vessel's position from the end of every physics step and samples that, so each point's
+  position belongs to its time and every step is seen once. Background recordings skip the
+  mid-step reading instead and sample at the end of the frame.
+- **Recording: no more doubled samples at staging and launch.** When two parts of the
+  recorder wrote a sample at the same moment (a staging joint break, the reopened section
+  after it, a launch-clamp release), the recording kept both, one right after the other.
+  One section now holds one sample per moment: a repeat is dropped, and when the two
+  differ the later one is kept (at clamp release, the one taken after the vessel went off
+  rails), with its event marker carried over. No recording format change.
 - **Dev: an in-game test batch in the Tracking Station no longer orphans the ghost map
   vessels.** Before a batch the test runner cleared Parsek's list of ghost map vessels without
   removing the vessels, and in the Tracking Station nothing else removed them. They then read
@@ -5524,6 +5578,11 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: PWR-3 (recording under physics warp at the High density) is armed;
+  every registry coverage cell is now claimed (251 of 251).** Its two quarantining findings
+  were fixed in the recorder (see Fixed: "a sample taken when a frame runs long"), the
+  quarantined flight passed unexpectedly, and the lane now gates without an expected-fail
+  block and claims D2 `physics-warp-high`.
 - **Automated testing: recording under physics warp, at every sampling density.** Three new
   nightly lanes, `PWR-1/2/3-physwarp-ascent-{low,medium,high}`, fly the LKO ascent (MechJeb
   runs 2x physics warp through the upper ascent with the engine burning) plus a 4x
