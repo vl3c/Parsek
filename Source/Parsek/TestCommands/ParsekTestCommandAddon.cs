@@ -1028,6 +1028,13 @@ namespace Parsek.TestCommands
                 TryCompleteRecover(now);
                 return;
             }
+            // TrackingStationRecover, in the .TrackingStationRecover.cs partial: a phased
+            // walk through the Tracking Station and back, each step a stock control.
+            if (completionVerb == TestCommandTrackingStationRecover.Verb)
+            {
+                TryCompleteTrackingStationRecover(now);
+                return;
+            }
 
             bool done = false;
             string verdict = null;
@@ -1168,6 +1175,7 @@ namespace Parsek.TestCommands
             EvaJumpKeyPressInjection.Remove();
             // Recover's two stock-event listeners must never outlive its command either.
             RemoveRecoverListeners();
+            RemoveTsRecoverListeners();
             // A multi-category RunTests that ends by TIMEOUT or by a completion
             // exception must not leave its token queue armed for the next RunTests to
             // inherit; the sequence is over the moment the two-phase state is.
@@ -1521,6 +1529,9 @@ namespace Parsek.TestCommands
         // sibling ParsekTestCommandAddon.RealSpawn.cs / .Recover.cs partials.
         void ITestCommandExecutor.RealSpawn(ParsedCommand cmd) => RealSpawnImpl(cmd);
         void ITestCommandExecutor.Recover(ParsedCommand cmd) => RecoverImpl(cmd);
+        // TrackingStationRecover: body + two-phase completion in the sibling
+        // ParsekTestCommandAddon.TrackingStationRecover.cs partial.
+        void ITestCommandExecutor.TrackingStationRecover(ParsedCommand cmd) => TrackingStationRecoverImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -1587,6 +1598,7 @@ namespace Parsek.TestCommands
                 case "StashSlot": exec.StashSlot(cmd); break;
                 case "RealSpawn": exec.RealSpawn(cmd); break;
                 case "Recover": exec.Recover(cmd); break;
+                case "TrackingStationRecover": exec.TrackingStationRecover(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

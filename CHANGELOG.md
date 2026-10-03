@@ -10,6 +10,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: a test command recovers a vessel from the Tracking Station.**
+  `TrackingStationRecover pid=<pid>` walks the stock route a player takes from the Space
+  Center: it enters the Tracking Station, selects the vessel, presses stock's Recover and
+  confirms it, closes the recovery summary if one opens, and leaves back to the Space Center,
+  answering once stock has recovered the vessel. The flag stock passes with that event is its
+  "quick" flag and is false for this route, so nothing waits on it.
 - **Dev: a lane for recovering a ghost chain's final vessel, and the duplicate it found.**
   The new `chain-tip-recovery` injected recording set gives a test save a ghost chain whose
   last vessel lands next to the pad vessel while its ghost is still playing, so a lane can
