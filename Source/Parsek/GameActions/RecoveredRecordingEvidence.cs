@@ -15,10 +15,21 @@ namespace Parsek
     /// or when its terminal left the vessel in the world
     /// (<see cref="ResurrectionRetirementEligibility.VesselOutlivedTerminal"/>) and the
     /// effective ledger holds a recovery row tagged to it: a
-    /// <see cref="GameActionType.FundsEarning"/> with <see cref="FundsEarningSource.Recovery"/>
-    /// or a <see cref="GameActionType.KerbalRecovered"/> crew-close row. Both rows are
-    /// written only from a real <c>onVesselRecovered</c> (or the commit-time pairing of a
-    /// Recovered terminal), so a row means the vessel was recovered.
+    /// <see cref="GameActionType.FundsEarning"/> with <see cref="FundsEarningSource.Recovery"/>,
+    /// a <see cref="GameActionType.KerbalRecovered"/> crew-close row, or a
+    /// <see cref="GameActionType.VesselRecovered"/> row. All three are written only from a
+    /// real <c>onVesselRecovered</c> (or the commit-time pairing of a Recovered terminal),
+    /// so a row means the vessel was recovered.
+    /// </para>
+    ///
+    /// <para>
+    /// The funds row needs stock's <c>FundsChanged(VesselRecovery)</c> (never raised on a
+    /// sandbox save) and the crew-close row needs crew aboard, so the
+    /// <see cref="GameActionType.VesselRecovered"/> row is the one written on every player
+    /// recovery that maps to a committed recording, in every game mode. No reader filters
+    /// by UT: a recovered recording's vessel never spawns again, also after a rewind to
+    /// before the recovery. Only a tombstone (a Re-Fly supersede or resurrection) retires
+    /// the evidence.
     /// </para>
     ///
     /// <para>
@@ -58,11 +69,22 @@ namespace Parsek
             return action.Type == GameActionType.KerbalRecovered;
         }
 
-        /// <summary>Either recovery row kind (funds payout or crew close).</summary>
+        /// <summary>
+        /// True for a <see cref="GameActionType.VesselRecovered"/> row tagged to
+        /// <paramref name="recordingId"/> with a UT after <paramref name="afterUT"/>.
+        /// </summary>
+        internal static bool IsVesselRecoveredRow(GameAction action, string recordingId, double afterUT)
+        {
+            if (!IsTaggedAfter(action, recordingId, afterUT)) return false;
+            return action.Type == GameActionType.VesselRecovered;
+        }
+
+        /// <summary>Any recovery row kind (funds payout, crew close or vessel recovered).</summary>
         internal static bool IsRecoveryRow(GameAction action, string recordingId, double afterUT)
         {
             return IsRecoveryFundsRow(action, recordingId, afterUT)
-                || IsCrewCloseRow(action, recordingId, afterUT);
+                || IsCrewCloseRow(action, recordingId, afterUT)
+                || IsVesselRecoveredRow(action, recordingId, afterUT);
         }
 
         /// <summary>True when any row of <paramref name="ledger"/> is a recovery row for the recording.</summary>

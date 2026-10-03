@@ -849,6 +849,11 @@ values = ["waterfall-swe-fallback", "restock", "persistent-rotation", "better-ti
 # driven (no seam verb; todo SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX). The
 # spawn-side `Terminated chain spawn suppressed:` line is unreachable and not owed
 # (TERMINATED-CHAIN-SPAWN-SUPPRESSED-LINE-UNREACHABLE).
+# D18 `chain-tip-original-pid` is claimed by TWO lanes, one per route to the chain-tip spawn:
+# CI-2-refly-claim-tip-pid (2026-09-08: a TimeJump past a committed tip after a rewind) and
+# CI-8-chain-tip-original-pid (2026-10-03: the player's Real Spawn Control row button on a
+# background-claimed tip; the pid RealSpawn answers equals the pid `ListHandles kind=chains`
+# answered before the spawn, compared capture to capture, and the save holds one such vessel).
 # Docking with a Real-Spawned chain tip has no D18 value: CI-9-chain-tip-dock (2026-10-03)
 # drives it and declares only second witnesses of D5 `cross-tree-foreign-dock` and D13
 # `real-spawn-control`.

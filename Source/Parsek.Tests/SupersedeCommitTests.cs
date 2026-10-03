@@ -197,6 +197,10 @@ namespace Parsek.Tests
             // surviving ELS and the merge retires the row via IsSupersedeTombstoneEligible.
             // Neither gate blocks.
             yield return new object[] { GameActionType.KerbalRecovered, false, false };
+            // VesselRecovered (SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX):
+            // a record that the player recovered the owner's vessel; no pool moves and the
+            // merge retires it via IsSupersedeTombstoneEligible. Neither gate blocks.
+            yield return new object[] { GameActionType.VesselRecovered, false, false };
         }
 
         [Fact]

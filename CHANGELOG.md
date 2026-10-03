@@ -10,6 +10,25 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: KSP.log now records when the crash screen and the recovery summary open and close.**
+  Stock KSP's flight results dialog ("Outcome: Catastrophic Failure!", also the F3 flight
+  status screen) and its "Mission Summary" recovery dialog left no reliable trace in the log,
+  so a scan of harness runs could not tell how long either stayed up. Parsek now writes one
+  `[PostFlightDialog]` line when each opens, with the scene, the vessel and, for the flight
+  results dialog, whether the game is paused and whether it is the crash screen
+  (`exitControls=true`), and one when each closes, with the time it stayed on screen in wall
+  seconds (`onScreenWallSeconds=`). Logging only: nothing on screen changes.
+- **Dev: a lane for spawning a ghost chain's final vessel through Real Spawn Control.**
+  `CI-8-chain-tip-original-pid` (flown green 2026-10-03, nightly) reads a ghost chain's
+  vessel id, presses the chain's Real Spawn Control button, and requires the vessel that
+  appears to carry that same id, with exactly one copy of it in the saved game. It reuses
+  the `chain-tip-recovery` test save of the recovery lane.
+- **Dev: a test command recovers a vessel from the Tracking Station.**
+  `TrackingStationRecover pid=<pid>` walks the stock route a player takes from the Space
+  Center: it enters the Tracking Station, selects the vessel, presses stock's Recover and
+  confirms it, closes the recovery summary if one opens, and leaves back to the Space Center,
+  answering once stock has recovered the vessel. The flag stock passes with that event is its
+  "quick" flag and is false for this route, so nothing waits on it.
 - **Dev: lanes for a Hard career that earns and spends, and for a career that starts with no
   money.** `HC-2-hard-career-earn-spend` (flown green 2026-10-03, nightly) flies L3's science
   hop on `career-science-pad-hard`, a copy of L3's save at KSP's Hard preset built by
@@ -1393,6 +1412,19 @@ _(unreleased — entries accumulate here per commit)_
   new atlas section. No player-visible behavior changes.
 
 ### Fixed
+
+- **A vessel Parsek brought into the world that you recover from the Tracking Station or
+  the KSC no longer comes back.** Recover a vessel Parsek spawned at the end of a recorded
+  flight without flying it first (the Tracking Station Recover button, the KSC vessel
+  marker), on a sandbox save or with no crew aboard, and the next flight scene used to read
+  the vessel's absence as a crash and spawn it again. Parsek only learned of such a
+  recovery through the recovery payout (which a sandbox save never pays) or the crew coming
+  home (which an uncrewed vessel has none of). Every recovery you make of a vessel that
+  continues a recorded flight now writes its own ledger entry, in every game mode, and that
+  recording's vessel is never spawned again, also after a rewind to before the recovery.
+  A vanished vessel whose recording reads recovered is no longer counted as a death either.
+  Parsek's own housekeeping recoveries write nothing. A Re-Fly that puts the vessel back in
+  the world retires the entry with the recovery payout. No new interface.
 
 - **A vessel you recover right after switching to it no longer comes back.** Bring a
   recorded flight's vessel into the world (Real Spawn Control, or its end-of-recording
