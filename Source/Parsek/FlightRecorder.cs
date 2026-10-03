@@ -1132,6 +1132,9 @@ namespace Parsek
         internal const float AnimateHeatMediumThreshold = 0.40f;
         internal const float AnimateHeatMediumFallbackThreshold = 0.35f; // hysteresis: fall from Medium at 0.35, rise at 0.40
         private double lastRecordedUT = -1;
+        // Physics-callback sample-source tallies (diagnostics only; see PostPhysicsPoseCache).
+        private int physicsSampleFixedStepPoseCount;
+        private int physicsSampleSkipCount;
         // True while the open section's only frame is a boundary seed copied from the
         // closed section (SeedBoundaryPoint); the flat list's same-UT tail then belongs
         // to the closed section.
@@ -9123,9 +9126,21 @@ namespace Parsek
                     return;
             }
 
+            // The trajectory sample's UT and position must describe one physics step; see
+            // PostPhysicsPoseCache for why a live read inside FixedUpdate does not. The
+            // boundary checks below sample the live vessel, so a FixedUpdate callback leaves
+            // them to the Update-step callback at the end of the same render frame.
+            bool inFixedTimeStep = PostPhysicsPoseCache.ReadInFixedTimeStep();
+            bool statsRunInUpdate = PostPhysicsPoseCache.ReadStatsRunInUpdate();
+            bool deferBoundaryChecks = PostPhysicsPoseCache.ShouldDeferBoundaryChecksInFixedStep(
+                inFixedTimeStep, statsRunInUpdate, v.packed);
+
             // Check atmosphere / altitude boundary (before part state polling)
-            CheckAtmosphereBoundary(v);
-            CheckAltitudeBoundary(v);
+            if (!deferBoundaryChecks)
+            {
+                CheckAtmosphereBoundary(v);
+                CheckAltitudeBoundary(v);
+            }
 
             PollPartStates(v);
             // M2 harvest poll (plan D4): threshold-crossing window open/close.
@@ -9133,14 +9148,35 @@ namespace Parsek
             // through which a warp-period converter toggle gets attributed at
             // the rails-exit boundary (round-2 nit 8).
             PollHarvestActivity(v);
-            UpdateEnvironmentTracking(v);
-
-            UpdateAnchorDetection(v);
+            if (!deferBoundaryChecks)
+            {
+                UpdateEnvironmentTracking(v);
+                UpdateAnchorDetection(v);
+            }
             RefreshFinalizationCache(v, "periodic");
 
-            double currentUT = Planetarium.GetUniversalTime();
-            if (ShouldHoldReFlyPostLoadSettle(v, currentUT))
+            double liveUT = Planetarium.GetUniversalTime();
+            if (ShouldHoldReFlyPostLoadSettle(v, liveUT))
                 return;
+
+            bool hasPose = PostPhysicsPoseCache.TryGetLatest(out PostPhysicsPose pose);
+            PhysicsSampleSource sampleSource = PostPhysicsPoseCache.ResolveSampleSource(
+                inFixedTimeStep,
+                statsRunInUpdate,
+                v.packed,
+                isRelativeMode,
+                hasPose,
+                pose,
+                v.persistentId,
+                v.mainBody != null ? v.mainBody.name : null,
+                liveUT,
+                PostPhysicsPoseCache.ReadPhysicsStepGameSeconds(),
+                out string sampleSourceReason);
+            NotePhysicsSampleSource(sampleSource, sampleSourceReason, inFixedTimeStep, liveUT, pose);
+            if (sampleSource == PhysicsSampleSource.Skip)
+                return;
+            bool usePose = sampleSource == PhysicsSampleSource.PostPhysicsPose;
+            double currentUT = usePose ? pose.UT : liveUT;
 
             Vector3 currentVelocity = SampleCurrentVelocity(v);
             if (v.packed)
@@ -9254,11 +9290,51 @@ namespace Parsek
             }
 
             TrajectoryPoint point = BuildTrajectoryPoint(v, currentVelocity, currentUT);
+            if (usePose)
+            {
+                point.latitude = pose.Latitude;
+                point.longitude = pose.Longitude;
+                point.altitude = pose.Altitude;
+            }
             TryCanonicalizeActiveReFlyRecordingPoint(ref point, "physics-sample");
             TrajectoryPoint absolutePoint = point;
 
             bool relativeApplied = ApplyRelativeOffset(ref point, v);
             CommitRecordedPoint(point, v, relativeApplied ? (TrajectoryPoint?)absolutePoint : null);
+        }
+
+        /// <summary>
+        /// Counts physics-callback sample sources and logs the ones that differ from the
+        /// ordinary Update-step read: every FixedUpdate-step callback (a render frame that
+        /// held several physics steps) and every Update-step fallback to a live read.
+        /// </summary>
+        internal void NotePhysicsSampleSource(
+            PhysicsSampleSource source,
+            string reason,
+            bool inFixedTimeStep,
+            double liveUT,
+            PostPhysicsPose pose)
+        {
+            if (source == PhysicsSampleSource.Skip)
+                physicsSampleSkipCount++;
+            else if (source == PhysicsSampleSource.PostPhysicsPose && inFixedTimeStep)
+                physicsSampleFixedStepPoseCount++;
+
+            if (!inFixedTimeStep && (source != PhysicsSampleSource.Live || reason == "packed"))
+                return;
+
+            var ic = CultureInfo.InvariantCulture;
+            string key = inFixedTimeStep ? "physics-sample-fixed-step" : "physics-sample-update-live";
+            string prefix = inFixedTimeStep
+                ? "Fixed-step physics callback"
+                : "Update-step physics callback read live";
+            ParsekLog.VerboseRateLimited("Recorder", key,
+                $"{prefix}: source={source} reason={reason} " +
+                $"liveUT={liveUT.ToString("F4", ic)} " +
+                $"poseUT={(pose.VesselPid != 0 ? pose.UT.ToString("F4", ic) : "(none)")} " +
+                $"fixedStepPoseSamples={physicsSampleFixedStepPoseCount} " +
+                $"skippedCallbacks={physicsSampleSkipCount}",
+                5.0);
         }
 
         private double ResolveHighFidelitySplitChildProximityMeters(Vessel focus, out string source)

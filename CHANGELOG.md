@@ -1355,6 +1355,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Recording: a sample taken when a frame runs long now sits where the vessel was at that
+  moment.** When one rendered frame holds several physics steps (a warp-rate change, staging,
+  a slow stretch), KSP hands the recorder a mid-step reading on the later steps: the clock
+  has moved on but the vessel has not, and the first step of the frame is never offered at
+  all. A recording could carry a point up to one step (0.08 s at 4x warp) behind its own
+  time, and the max-interval heartbeat could land a step late. The recorder now keeps the
+  vessel's position from the end of every physics step and samples that, so each point's
+  position belongs to its time and every step is seen once. Background recordings skip the
+  mid-step reading instead and sample at the end of the frame.
 - **Recording: no more doubled samples at staging and launch.** When two parts of the
   recorder wrote a sample at the same moment (a staging joint break, the reopened section
   after it, a launch-clamp release), the recording kept both, one right after the other.
@@ -5513,6 +5522,11 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: PWR-3 (recording under physics warp at the High density) is armed;
+  every registry coverage cell is now claimed (251 of 251).** Its two quarantining findings
+  were fixed in the recorder (see Fixed: "a sample taken when a frame runs long"), the
+  quarantined flight passed unexpectedly, and the lane now gates without an expected-fail
+  block and claims D2 `physics-warp-high`.
 - **Automated testing: recording under physics warp, at every sampling density.** Three new
   nightly lanes, `PWR-1/2/3-physwarp-ascent-{low,medium,high}`, fly the LKO ascent (MechJeb
   runs 2x physics warp through the upper ascent with the engine burning) plus a 4x
