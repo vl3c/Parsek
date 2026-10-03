@@ -87,6 +87,106 @@ namespace Parsek.Tests.Logistics
             Assert.StartsWith("Run 2: Delivered 40.0 of 150.0 LiquidFuel", rows[2].Label);
         }
 
+        // A run's debit row (same RouteCycleId) as the dispatch writes it: funds on a
+        // Career KSC launch, the actual cargo plus the origin pid on a vessel debit.
+        private static GameAction Debit(double ut, string cycle, float funds = 0f,
+            uint originPid = 0u, Dictionary<string, double> cargo = null)
+        {
+            return new GameAction
+            {
+                Type = GameActionType.RouteCargoDebited, UT = ut, RouteId = RouteId,
+                RouteCycleId = cycle, RouteKscFundsCost = funds,
+                RouteOriginVesselPid = originPid, RouteResourceManifest = cargo,
+            };
+        }
+
+        private static Dictionary<string, double> LfOx()
+            => new Dictionary<string, double> { { "LiquidFuel", 257.8 }, { "Oxidizer", 315.1 } };
+
+        // Career KSC launch: the Sent row carries its funds cost, grouped whole funds; a
+        // Send-armed run the same way. The debit row itself stays hidden.
+        [Fact]
+        public void CareerSentRowShowsTheFundsCost()
+        {
+            var rows = Build(new List<GameAction>
+            {
+                Act(GameActionType.RouteDispatched, 100, "c1"),
+                Debit(100, "c1", funds: 7410f, cargo: LfOx()),
+                Act(GameActionType.RouteDispatched, 500, "c2", sendOnce: true),
+                Debit(500, "c2", funds: 7410f, cargo: LfOx()),
+            });
+            Assert.Equal(new[]
+                {
+                    "Run 1: Sent, cost 7,410 funds", "Run 2: Sent once, cost 7,410 funds",
+                },
+                rows.Select(r => r.Label).ToArray());
+        }
+
+        // A launch that took cargo from its origin vessel lists it after the funds; both
+        // together read "cost <funds>, <cargo>".
+        [Fact]
+        public void OriginCargoDebitIsPartOfTheCost()
+        {
+            var rows = Build(new List<GameAction>
+            {
+                Act(GameActionType.RouteDispatched, 100, "c1"),
+                Debit(100, "c1", originPid: 77u, cargo: LfOx()),
+            });
+            Assert.Equal("Run 1: Sent, cost 257.8 LiquidFuel, 315.1 Oxidizer", rows.Single().Label);
+            Assert.Equal(", cost 7,410 funds, 257.8 LiquidFuel, 315.1 Oxidizer",
+                RouteHistoryBuilder.SentCostSuffix(Debit(100, "c1", 7410f, 77u, LfOx())));
+            Assert.Equal("", RouteHistoryBuilder.SentCostSuffix(
+                Debit(100, "c1", originPid: 77u, cargo: new Dictionary<string, double> { { "Ore", 0.0 } })));
+            Assert.Equal("", RouteHistoryBuilder.SentCostSuffix(null));
+        }
+
+        // Sandbox / Science: the dispatch writes no funds cost, and a KSC launch's manifest
+        // is what the launch carried, not a cost, so the row reads plain "Sent".
+        [Fact]
+        public void SandboxSentRowHasNoFundsPart()
+        {
+            var rows = Build(new List<GameAction>
+            {
+                Act(GameActionType.RouteDispatched, 100, "c1"),
+                Debit(100, "c1", funds: 0f, originPid: 0u, cargo: LfOx()),
+            });
+            Assert.Equal("Run 1: Sent", rows.Single().Label);
+        }
+
+        // Interleaved runs: each Sent row takes its own run's debit by RouteCycleId, never the
+        // nearest row; a debit with no Sent row of its own adds no row.
+        [Fact]
+        public void DebitJoinsItsOwnRun_AndAnOrphanDebitAddsNoRow()
+        {
+            var rows = Build(new List<GameAction>
+            {
+                Act(GameActionType.RouteDispatched, 100, "c1"),
+                Act(GameActionType.RouteDispatched, 200, "c2"),
+                Debit(200, "c2", funds: 500f),
+                Debit(100, "c1", funds: 7410f),
+                Debit(300, "c3", funds: 999f),
+            });
+            Assert.Equal(new[] { "Run 1: Sent, cost 7,410 funds", "Run 2: Sent, cost 500 funds" },
+                rows.Select(r => r.Label).ToArray());
+        }
+
+        // The cost text is InvariantCulture whatever the thread culture.
+        [Fact]
+        public void SentCostFormatsInvariantly()
+        {
+            CultureInfo prior = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                Assert.Equal(", cost 1,234,567 funds, 257.8 LiquidFuel, 315.1 Oxidizer",
+                    RouteHistoryBuilder.SentCostSuffix(Debit(1, "c1", 1234567f, 77u, LfOx())));
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = prior;
+            }
+        }
+
         // State rows: pause, resume, endpoint loss, with their reasons in player words.
         [Fact]
         public void PauseResumeAndLossAreStateRows()

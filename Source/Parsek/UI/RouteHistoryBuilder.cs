@@ -11,7 +11,10 @@ namespace Parsek
     /// in its route mode) under the same Time | Event | Location | Vessel columns.
     /// <list type="bullet">
     ///   <item>RouteDispatched: "Run N: Sent", or "Run N: Sent once" for a run armed by Send
-    ///   (the row's <c>RouteSendOnce</c> stamp). Location and Vessel name the origin.</item>
+    ///   (the row's <c>RouteSendOnce</c> stamp), followed by what the launch cost when it
+    ///   cost anything: ", cost 7,410 funds" and / or the cargo taken from the origin vessel
+    ///   (", cost 257.8 LiquidFuel, 315.1 Oxidizer"), read from the run's own
+    ///   RouteCargoDebited row (same RouteCycleId). Location and Vessel name the origin.</item>
     ///   <item>RouteCargoPickedUp: "Run N: Picked up ..." at an intermediate stop, located
     ///   at that stop and its vessel (the row's endpoint pid first).</item>
     ///   <item>RouteCargoDelivered: "Run N: Delivered ..." (with "of" amounts when the run
@@ -21,8 +24,9 @@ namespace Parsek
     /// </list>
     /// N is the run's position in dispatch order (a run's first row assigns it). The input
     /// is the Effective Ledger Set (<see cref="EffectiveState.ComputeELS"/>), so a rewound or
-    /// tombstoned run is simply absent. Debit rows (funds or origin cargo) are not shown:
-    /// the run's Sent row stands for them. Pure: names come through the resolvers.
+    /// tombstoned run is simply absent, its debit with it. Debit rows (funds or origin
+    /// cargo) are not shown as rows: their cost is folded into the run's Sent row, and a
+    /// debit with no Sent row of its own adds nothing. Pure: names come through the resolvers.
     /// </summary>
     internal static class RouteHistoryBuilder
     {
@@ -48,6 +52,18 @@ namespace Parsek
             if (els == null || string.IsNullOrEmpty(routeId))
                 return new List<StructureStep>();
 
+            // The run's debit, keyed by RouteCycleId, folded into its Sent row below.
+            var debitByRun = new Dictionary<string, GameAction>(StringComparer.Ordinal);
+            for (int i = 0; i < els.Count; i++)
+            {
+                GameAction d = els[i];
+                if (d != null && d.Type == GameActionType.RouteCargoDebited
+                    && !string.IsNullOrEmpty(d.RouteCycleId)
+                    && string.Equals(d.RouteId, routeId, StringComparison.Ordinal)
+                    && !debitByRun.ContainsKey(d.RouteCycleId))
+                    debitByRun[d.RouteCycleId] = d;
+            }
+
             var runOrdinal = new Dictionary<string, int>(StringComparer.Ordinal);
             int order = 0;
             for (int i = 0; i < els.Count; i++)
@@ -59,10 +75,16 @@ namespace Parsek
                 switch (a.Type)
                 {
                     case GameActionType.RouteDispatched:
+                    {
+                        GameAction debit = null;
+                        if (!string.IsNullOrEmpty(a.RouteCycleId))
+                            debitByRun.TryGetValue(a.RouteCycleId, out debit);
                         step = Row(a.UT, StructureStepKind.Launch,
-                            RunPrefix(runOrdinal, a.RouteCycleId) + (a.RouteSendOnce ? "Sent once" : "Sent"),
+                            RunPrefix(runOrdinal, a.RouteCycleId) + (a.RouteSendOnce ? "Sent once" : "Sent")
+                                + SentCostSuffix(debit),
                             Or(originPlace), Or(originVessel));
                         break;
+                    }
                     case GameActionType.RouteCargoPickedUp:
                     {
                         string vessel = (a.RouteOriginVesselPid != 0u && vesselByPid != null
@@ -116,6 +138,54 @@ namespace Parsek
             for (int i = 0; i < rows.Count; i++)
                 result.Add(rows[i].Value);
             return result;
+        }
+
+        /// <summary>
+        /// What a run's launch cost, from its RouteCargoDebited row: ", cost 7,410 funds",
+        /// ", cost 257.8 LiquidFuel, 315.1 Oxidizer", both joined, or "" when the launch cost
+        /// nothing. Funds read <c>RouteKscFundsCost</c>, which the dispatch writes only for a
+        /// Career KSC launch, so Sandbox and Science never show funds; a zero cost is left out
+        /// rather than shown as "free". Funds format as the route's Cost/run line
+        /// (<see cref="LogisticsCostPresentation.FormatFunds"/>: grouped whole funds,
+        /// InvariantCulture). Cargo is shown only for a debit taken from an origin VESSEL (the
+        /// row carries its pid): a KSC launch's row lists the cargo the funds bought, and a
+        /// legacy row a manifest nothing removed, so neither is a cost. Cargo reads amount
+        /// first, as a short delivery does ("40.0 of 150.0 LiquidFuel").
+        /// </summary>
+        internal static string SentCostSuffix(GameAction debit)
+        {
+            if (debit == null)
+                return "";
+            var parts = new List<string>(2);
+            double funds = debit.RouteKscFundsCost;
+            if (funds > 0.0 && !double.IsNaN(funds) && !double.IsInfinity(funds))
+                parts.Add(Logistics.LogisticsCostPresentation.FormatFunds(funds));
+            if (debit.RouteOriginVesselPid != 0u)
+            {
+                string cargo = DebitedCargo(debit.RouteResourceManifest, debit.RouteInventoryManifest);
+                if (!string.IsNullOrEmpty(cargo))
+                    parts.Add(cargo);
+            }
+            return parts.Count == 0 ? "" : ", cost " + string.Join(", ", parts.ToArray());
+        }
+
+        // The cargo a launch took from its origin vessel; null when it took nothing.
+        private static string DebitedCargo(
+            IReadOnlyDictionary<string, double> resources, List<InventoryPayloadItem> inventory)
+        {
+            var taken = new List<string>();
+            if (resources != null)
+            {
+                foreach (KeyValuePair<string, double> kv in resources)
+                {
+                    if (kv.Value > 0.0)
+                        taken.Add(kv.Value.ToString("F1", IC) + " " + kv.Key);
+                }
+            }
+            int parts = inventory?.Count ?? 0;
+            if (parts > 0)
+                taken.Add(parts.ToString(IC) + (parts == 1 ? " stored part" : " stored parts"));
+            return taken.Count == 0 ? null : string.Join(", ", taken.ToArray());
         }
 
         /// <summary>The state row label of a RoutePaused reason.</summary>

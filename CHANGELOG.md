@@ -2479,7 +2479,8 @@ _(unreleased — entries accumulate here per commit)_
   to Paused. Greyed buttons say why on hover, including "Stopped: destination lost. Fix or
   delete the route first" on a broken route. Log opens a new Route History window
   ("Parsek - Route History: <route>", the Mission Log's table): every run the route sent,
-  picked up and delivered, with its pauses, each row dated; it can stay open beside a
+  picked up and delivered, with its pauses, each row dated, each launch with what it cost
+  ("Run 1: Sent, cost 7,410 funds", or the cargo taken from the origin vessel); it can stay open beside a
   Mission Log (it opens offset from it, keeps its column headers when empty, and closes when
   its route is deleted). Click a route's name for its details: what each run delivers and where, the
   next run, "Last run held on <date>: ..." (the date of the last held run), the last

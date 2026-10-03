@@ -1056,14 +1056,22 @@ Route History rows (N is the run's position in dispatch order):
 
 | ledger row | Event | Location / Vessel |
 |---|---|---|
-| RouteDispatched | `Run N: Sent`, or `Run N: Sent once` for a run armed by Send | the origin (`KSC` / `-` for a funds-paid launch) |
+| RouteDispatched | `Run N: Sent`, or `Run N: Sent once` for a run armed by Send, plus what the launch cost when it cost anything: `, cost 7,410 funds` (a Career KSC launch), `, cost 257.8 LiquidFuel, 315.1 Oxidizer` (cargo taken from an origin vessel), or both joined (`RouteHistoryBuilder.SentCostSuffix`) | the origin (`KSC` / `-` for a funds-paid launch) |
 | RouteCargoPickedUp | `Run N: Picked up <amounts>` (`(the source was short)` when it was) | the pickup stop's place and vessel |
 | RouteCargoDelivered | `Run N: Delivered <amounts>` (`40.0 of 150.0 LiquidFuel (110.0 did not fit)` when short); the row that finishes a run | the stop's place and vessel |
 | RoutePaused | `Paused` (a player Pause), `Paused after the run` (delivered, partly delivered, or delivered on a replayed crossing), `Paused after a held run`, `Stopped: flight missing` / `flight changed` | `-` |
 | RouteResumed | `Activated` (player), `Resumed` (automatic) | `-` |
 | RouteEndpointLost | `Stopped: destination lost` / `origin lost` | `-` |
 
-Debit rows (funds or origin cargo) are not shown; the run's Sent row stands for them. The
+Debit rows (funds or origin cargo) are not shown as rows; each is folded into the Sent row of
+its own run (same `RouteCycleId`, so interleaved runs never borrow each other's cost), and a debit
+with no Sent row adds nothing. The funds part reads the debit's `RouteKscFundsCost`, which the
+dispatch writes only for a Career KSC launch: Sandbox and Science never show funds, and a zero
+cost is left out (never "free"). Funds format as the route's Cost/run line
+(`LogisticsCostPresentation.FormatFunds`, grouped whole funds, InvariantCulture). Cargo shows
+only for a debit taken from an origin vessel (the row carries its pid); a KSC launch's row lists
+the cargo its funds bought, which is not a separate cost. Both come from the same ELS list as the
+rows, so a rewound or tombstoned run's cost leaves with it. The
 ledger carries a UT on every row, so each pickup and each delivery has its own time; no extra
 field is stored. It rebuilds while open when the ledger version, the tombstone version or the
 route's name move (`RouteHistorySignature`, read on Layout passes only). When its route no
