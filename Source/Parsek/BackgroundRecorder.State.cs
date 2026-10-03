@@ -138,7 +138,9 @@ namespace Parsek
 
             // Out-of-proximity-range sampling silences (ShouldSkipTrajectorySamplingForProximity).
             // The open one starts at the first skipped tick and closes at the first tick that
-            // is not skipped; the closed ones explain the section-close gaps they overlap.
+            // is not skipped, or at a frame committed while still out of range (an
+            // event-driven snapshot); the closed ones explain the section-close gaps they
+            // overlap.
             // Cleared on StartBackgroundTrackSection; a window past a trimmed tail overlaps
             // no gap.
             public double proximitySilenceStartUT = double.NaN;

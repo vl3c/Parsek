@@ -215,8 +215,14 @@ not introduce it. No lane reads it.
 - [x] Fix: the background recorder records each out-of-range silence as a UT window
   (`BackgroundVesselState.sectionProximitySilences`): it opens at the first tick
   `ShouldSkipTrajectorySamplingForProximity` skips and closes at the first tick that is not
-  skipped (back in range, or a high-fidelity / debris tier overriding the range), and the
-  list is cleared when a section starts. Closing on the return tick rather than on the next
+  skipped (back in range, or a high-fidelity / debris tier overriding the range) or at a
+  frame committed while it is still open (`CloseProximitySilenceAtCommittedFrame`: an
+  event-driven snapshot out of range; open still means every tick since was skipped, so no
+  stall can hide), and the list is cleared when a section starts. The commit close was added
+  after the first live check on `main` (PWR-1 `2026-10-03_1311`, PWR-3 `_1316`): one debris
+  per launch read Verbose `largeGapsOutOfRange=1`, but debris that hit the ground out of range
+  closed its section in the impact's own event chain (JointBreak snapshot, then destroy)
+  before any in-range tick, and still WARNed. Closing on the return tick rather than on the next
   committed frame keeps an in-range stall after the return outside the window (it still
   WARNs; `SectionClose_StallAfterReturningInRange_StillWarns`), and a boundary seed committed
   during a silence no longer cuts the window short. `ComputeSectionGapStats` takes the windows: an off-rails

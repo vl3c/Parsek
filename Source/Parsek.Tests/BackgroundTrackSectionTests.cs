@@ -882,6 +882,61 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SectionClose_EventFrameWhileStillOutOfRange_EndsTheSilence()
+        {
+            // PWR-3 2026-10-03_1316: booster debris out of range from 62.84 hit the ground at
+            // 76.86; the JointBreak snapshot was the next frame and the vessel was destroyed in
+            // the same event chain, so no in-range tick ever ended the silence.
+            uint pid = 7700007;
+            string recId = "rec_sparse_impact_out_of_range";
+            var tree = MakeTree(pid, recId);
+            tree.Recordings[recId].Points.Clear();
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 19000.0);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(19000.0));
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(19000.5));
+            bgRecorder.NoteProximitySilenceTickForTesting(pid, 19000.52);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(19014.5)); // impact snapshot
+
+            bgRecorder.FlushLoadedStateForOnRailsTransitionForTesting(
+                pid,
+                SegmentEnvironment.Atmospheric,
+                willHavePlayableOnRailsPayload: false,
+                boundaryPoint: Point(19014.5),
+                ut: 19014.5);
+
+            Assert.Contains(logLines, l => l.Contains("[BgRecorder]")
+                && l.Contains("Proximity sampling silence ended: pid=7700007 startUT=19000.52 endUT=19014.50"));
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE][BgRecorder]")
+                && l.Contains("TrackSection sparse sampling: pid=7700007")
+                && l.Contains("largeGapsOffRails=0 largeGapsOutOfRange=1"));
+            Assert.DoesNotContain(logLines, l => l.Contains("[WARN][BgRecorder]")
+                && l.Contains("TrackSection sparse sampling: pid=7700007"));
+        }
+
+        [Fact]
+        public void SeedOlderThanTheSilence_LeavesItOpen()
+        {
+            uint pid = 7700008;
+            string recId = "rec_sparse_seed_in_silence";
+            var tree = MakeTree(pid, recId);
+            tree.Recordings[recId].Points.Clear();
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 19000.0);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(19000.0));
+            bgRecorder.NoteProximitySilenceTickForTesting(pid, 19000.52);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(19000.0)); // seed copy
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Proximity sampling silence ended: pid=7700008"));
+            bgRecorder.NoteInRangeTickForTesting(pid, 19009.0);
+            Assert.Contains(logLines, l => l.Contains("Proximity sampling silence ended: pid=7700008 startUT=19000.52 endUT=19009.00"));
+        }
+
+        [Fact]
         public void SectionClose_StallAfterReturningInRange_StillWarns()
         {
             // Out of range for 6.5 s, then back in range at 19007.0 but no sample for 7.5 s:
