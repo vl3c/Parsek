@@ -345,17 +345,19 @@ craft = []
 [driver]
 kind    = "autopilot"
 mission = "science_bench_recover"
-# L3's driver verbatim (its (1) autoMerge ON and (2) CommitTree kept-and-expected-to-fail
+# L3's driver verbatim (its (1) autoMerge ON and (2) CommitTree kept-and-expected-REJECTED
 # reasoning transfers unchanged: the recovery destroys the vessel, the tree stashes as
-# pending, and the FLIGHT -> SPACECENTER exit auto-commits it), plus verboseLogging=true
-# because the pick line this lane reads is Verbose.
+# pending, the FLIGHT -> SPACECENTER exit auto-commits it, and the post-mission CommitTree
+# then meets a settled SPACECENTER, which the seam answers `REJECTED not-in-flight` at once
+# since 2026-10-03 instead of a 60 s TIMEOUT), plus verboseLogging=true because the pick
+# line this lane reads is Verbose.
 steps = [
   { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },    expect = "OK", budget = 300 },
   { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
   { cmd = "SetSetting",     args = { name = "autoMerge",          value = "true" }, expect = "OK" },
   { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
   { phase = "mission",                                                              expect = "MISSION-OK", budget = 1320 },
-  { cmd = "CommitTree",                                                             expect = "OK" },
+  { cmd = "CommitTree",                                                             expect = "REJECTED" },
   { cmd = "RecordingState",                                                         expect = "OK" },
   { cmd = "FlushAndQuit",                                                           expect = "OK" },
 ]

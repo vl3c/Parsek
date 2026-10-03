@@ -588,6 +588,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void VesselRecovered_RoundTrip()
+        {
+            var original = new GameAction
+            {
+                UT = 2345.6,
+                Type = GameActionType.VesselRecovered,
+                RecordingId = "rec_tip",
+                Sequence = 4,
+                RecoveredVesselName = "CTR Lander",
+                RecoveredVesselPid = 3344556677u
+            };
+
+            var result = RoundTrip(original);
+
+            Assert.Equal(GameActionType.VesselRecovered, result.Type);
+            Assert.Equal(2345.6, result.UT);
+            Assert.Equal("rec_tip", result.RecordingId);
+            Assert.Equal(4, result.Sequence);
+            Assert.Equal("CTR Lander", result.RecoveredVesselName);
+            Assert.Equal(3344556677u, result.RecoveredVesselPid);
+        }
+
+        [Fact]
+        public void VesselRecovered_SerializesItsOwnKeysOnly()
+        {
+            var parent = new ConfigNode("LEDGER");
+            new GameAction
+            {
+                UT = 10.0,
+                Type = GameActionType.VesselRecovered,
+                RecordingId = "rec_tip",
+                RecoveredVesselName = "CTR Lander",
+                RecoveredVesselPid = 42u
+            }.SerializeInto(parent);
+
+            var node = parent.GetNode("GAME_ACTION");
+            Assert.Equal("35", node.GetValue("type"));
+            Assert.Equal("CTR Lander", node.GetValue("vesselName"));
+            Assert.Equal("42", node.GetValue("vesselPid"));
+            Assert.Null(node.GetValue("kerbalName"));
+            Assert.Null(node.GetValue("fundsAwarded"));
+        }
+
+        [Fact]
         public void KerbalStandIn_RoundTrip()
         {
             var original = new GameAction
@@ -1390,7 +1434,7 @@ namespace Parsek.Tests
             var parent = new ConfigNode("TEST");
             original.SerializeInto(parent);
             ConfigNode node = parent.GetNode("GAME_ACTION");
-            Assert.Equal("35", node.GetValue("type"));
+            Assert.Equal("36", node.GetValue("type"));
             Assert.Equal("OriginLacksCargo", node.GetValue("routeHoldKind"));
             Assert.Equal("108.79999999999706", node.GetValue("routeHoldShortfall"));
 

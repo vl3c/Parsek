@@ -1,0 +1,193 @@
+# CI-8: the player spawns a ghost chain's tip through Real Spawn Control, and the vessel that
+# comes into the world carries the chain's ORIGINAL pid (D18 `chain-tip-original-pid`, the
+# player-action re-claim).
+#
+# WHY A SECOND LANE FOR A CLAIMED CELL. CI-2 claims `chain-tip-original-pid` off a TimeJump
+# past a committed tip after a rewind: the clock crosses the tip and the playback loop spawns
+# it. Nothing there is a player action. The catalog's interaction surface is the player
+# spawning a ghost as a real vessel, and since the RealSpawn verb (2026-10-01) a lane can
+# press the Real Spawn Control row button itself (`SpawnControlUI.ExecuteRowWarp` ->
+# `ParsekFlight.WarpToRecordingEnd` -> the chain-tip spawn). Todo
+# D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR lists this lane as owed: RealSpawn on a `ListHandles
+# kind=chains` tip, requiring the answered pid to equal the chain's original pid.
+#
+# HOST: CI-6's, unchanged: `gloops-airshow` (the mk1-capsule on the Launch Pad) plus the
+# `chain-tip-recovery` preset: ONE committed tree `tree-ctr-carrier-rec` whose parentless
+# background recording `ctr-tip-rec` (`CTR Lander`, landed, absent from the save) is in
+# progress at the save UT ~130 m from the pad. The walker claims its pid via
+# BACKGROUND_EVENT, so it is a live chain tip and Real Spawn Control lists it with "Warp to
+# Spawn" live. On this host the chain's own pid and the tip recording's vessel pid are the
+# same number, which is what the requirement needs (the rover chains' tips are a different
+# vessel, todo D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR "Also measured").
+#
+# THE COMPARISON IS BETWEEN TWO CAPTURES, never a literal. `ListHandles kind=chains` (label
+# `chains`) answers `chain0pid` BEFORE the spawn; RealSpawn (label `spawn`) answers `pid`
+# AFTER it. The MISSIONMARK step stamps both into one log line, and the required regex
+# back-references the first into the second, so the gate is "spawned pid == chain pid"
+# whatever the number is. A second back-referenced token ties the same capture through the
+# product's own lines (the readback row, the ghoster's spawn line, the verb's completion).
+#
+# NO DUPLICATE. The produced save's vessel census counts `CTR Lander` (report-only until the
+# reading run), and the forbidden list carries every line a second copy or a regenerated
+# identity would print: a second `Chain tip spawn complete` for the lander, the spawn-death
+# respawn, the ordinary spawner path, and `RegenerateVesselIdentity`'s two lines.
+#
+# FLOWN 2026-10-03 (branch `lane-ci8-tip-pid`, automation DLL sha256 `86ca248f...`, an
+# origin/main build, no C# change): reading `2026-10-03_1637` PASS attempt 1 with every
+# token matched: `listhandles chain index=0 pid=1344998135 ... tip=ctr-tip-rec`, then
+# `RespawnVessel: preserving vessel identity (chain-tip spawn)`, `Chain tip spawn:
+# pid=1344998135 vessel=CTR Lander preserveIdentity=true`, `realspawn complete
+# rec=ctr-tip-rec pid=1344998135`, and `MISSIONMARK
+# label=ci8-chain-pid-1344998135-spawn-pid-1344998135-tip-ctr-tip-rec-rec-ctr-tip-rec`.
+# The produced save holds exactly ONE vessel with persistentId 1344998135 (`CTR Lander`)
+# and the tip's spawnedPid is 1344998135. Readbacks: after the spawn the committed list is
+# still 2 and the chain set is EMPTY (`kind=chains count=0`): a spawned tip leaves no live
+# chain. The census below was armed off `_1637`'s facets.
+# ARMED re-flight `2026-10-03_1640` PASS attempt 1 (same DLL, hash re-asserted before
+# launch), census gating and green. NEGATIVE CONTROLS, offline: the spec over `_1637`'s log
+# with the MISSIONMARK spawn pid rewritten reds on exactly the capture comparison; over the
+# pre-fix CI-6 duplicate log `2026-10-03_1014` (the recovered lander respawned under a fresh
+# pid 3842087101) it reds on that token plus three forbidden lines (`Regenerated vessel
+# identity`, `Spawn-death detected`, `Vessel spawn for #1 (CTR Lander)`); the armed census
+# over `_1637`'s save with the lander's VESSEL block duplicated reds on exactly
+# `spawnedVessels 2 > max 1` and `vesselNames.CTR Lander 2 > max 1`.
+
+schema = 1
+id = "CI-8-chain-tip-original-pid"
+tier = "nightly"
+description = "D18 chain-tip-original-pid, the player-action re-claim: over gloops-airshow plus the chain-tip-recovery preset (a committed tree whose parentless background recording of a landed lander is a ghost chain tip ~130 m from the pad), read the chain's pid from ListHandles kind=chains, RealSpawn the tip through Real Spawn Control, and require the spawned vessel's pid to equal the captured chain pid, the identity to be preserved, and exactly one lander in the produced save."
+instanceProfile = "stock-minimal"
+tags = ["CI-8", "D18", "chain-interaction", "ghost-chain", "real-spawn",
+        "injected-recordings", "R10", "runtime-handles", "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "chain-tip-recovery"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # CI-6's flown prefix, kept identical so the host behaves as measured there.
+  { cmd = "SetSetting", args = { name = "autoMerge", value = "true" }, expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "chains" }, label = "chains", expect = "OK" },
+  # THE SETTLE: the proximity scan admits a row only on its second sighting, 1.5 s apart.
+  # Twenty inert steps (~5 s) are CI-6's measured count.
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RealSpawn", args = { rec = "${chains.chain0tip}" }, label = "spawn", expect = "OK", budget = 120 },
+  # THE GATE: both captures in one line; the required regex back-references them.
+  { cmd = "MissionMark", args = { label = "ci8-chain-pid-${chains.chain0pid}-spawn-pid-${spawn.pid}-tip-${chains.chain0tip}-rec-${spawn.rec}" }, expect = "OK" },
+  # Let the playback loop run a few seconds past the spawn, so a duplicate spawn (spawn-death
+  # pass, a second chain-tip spawn) would have its frames before the save is written.
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # Readbacks for the review (not gates): the committed rows carry the tip's spawnedPid, and
+  # the post-spawn chain set says what the walker made of a spawned tip.
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "chains" }, label = "chains2", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "ci8-post-spawn-committed-${c1.count}-chains-${chains2.count}" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE: `chain-tip-original-pid` (re-claim; CI-2 holds it off a TimeJump) is
+# backed by REQUIRED tokens all observed on reading `2026-10-03_1637`: the MISSIONMARK
+# capture comparison (spawned pid == chain pid), the back-referenced walker readback ->
+# ghoster spawn -> spawn complete -> realspawn complete chain for that pid, and the
+# spawner's `preserving vessel identity (chain-tip spawn)`; no-duplicate by the armed
+# census (`CTR Lander` exactly 1) and the forbidden list. Scope: Real Spawn Control's row
+# button on a background-claimed chain tip whose tip vessel is the claimed vessel.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+D18 = ["chain-tip-original-pid"]
+
+[expectations]
+allowedAnomalies = []
+
+# The two injected recordings; a spawn alone commits nothing new (measured 2 on `_1637`).
+[expectations.recordings]
+count = { min = 2, max = 2 }
+
+# ARMED 2026-10-03 off reading `2026-10-03_1637` (trees / committedTrees 1, recordings 2,
+# Landed 1 / SubOrbital 1, spawnedVessels 1, one `CTR Lander`, one `mk1-capsule`).
+[expectations.recordings.structure]
+gating         = true
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2, max = 2 }
+terminalStates = { Landed = { min = 1, max = 1 }, SubOrbital = { min = 1, max = 1 } }
+spawnedVessels = { min = 1, max = 1 }
+vesselNames    = { "CTR Lander" = { min = 1, max = 1 }, "mk1-capsule" = { min = 1, max = 1 } }
+
+[expectations.logContracts]
+required  = [
+  # Boot: the walker claims the lander via BACKGROUND_EVENT and builds a live chain.
+  "\\[ChainWalker\\] Chain built: vessel=[0-9]+ links=1 tip=ctr-tip-rec spawnUT=[0-9.]+ terminated=False",
+  # THE CLAIM: the pid RealSpawn answered equals the chain pid ListHandles answered before the
+  # spawn, compared capture to capture, and the spawned recording is the chain's tip.
+  "MISSIONMARK label=ci8-chain-pid-([1-9][0-9]*)-spawn-pid-\\1-tip-(\\S+)-rec-\\2 ut=",
+  # The same capture through the product: the readback row, the identity-preserving spawn of
+  # that pid, the spawn completion for that pid, and the verb's answer.
+  "listhandles chain index=0 pid=([1-9][0-9]*) links=1 trees=1 treeIds=tree-ctr-carrier-rec tip=ctr-tip-rec[\\s\\S]*realspawn pressed rec=ctr-tip-rec [\\s\\S]*\\[Ghoster\\] Chain tip spawn: pid=\\1 vessel=CTR Lander preserveIdentity=true[\\s\\S]*Chain tip spawn complete: #[0-9]+ \"CTR Lander\" pid=\\1[\\s\\S]*realspawn complete rec=ctr-tip-rec pid=\\1 vessel=CTR Lander ",
+  # The spawner kept the snapshot's identity instead of regenerating it.
+  "\\[Spawner\\] (RespawnVessel|SpawnAtPosition): preserving vessel identity \\(chain-tip spawn\\)",
+  "flushandquit: saved=true ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "realspawn rejected",
+  # A regenerated identity on the spawn path (VesselSpawner.RegenerateVesselIdentity).
+  "Regenerated vessel identity: pid=",
+  "RegenerateVesselIdentity: vessel GUID regenerated",
+  # A second copy of the lander: a second chain-tip spawn, the spawn-death respawn, or the
+  # ordinary end-of-recording spawner path.
+  "Chain tip spawn complete: #[0-9]+ \"CTR Lander\"[\\s\\S]*Chain tip spawn complete: #[0-9]+ \"CTR Lander\"",
+  "\\[Policy\\] Spawn-death detected: #[0-9]+ \"CTR Lander\"",
+  "\\[Spawner\\] Vessel spawn for #[0-9]+ \\(CTR Lander\\)",
+  "Chain tip spawn (blocked by collision|failed): #[0-9]+ \"CTR Lander\"",
+]
+
+[runtime]
+budgetSeconds = 1200
+
+[retry]
+policy = "once"

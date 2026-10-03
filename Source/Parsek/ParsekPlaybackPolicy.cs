@@ -185,6 +185,7 @@ namespace Parsek
 
             int detected = 0;
             int abandoned = 0;
+            int recovered = 0;
             int skippedTimelineInactive = 0;
 
             for (int i = 0; i < committed.Count; i++)
@@ -203,6 +204,20 @@ namespace Parsek
                 // Vessel still alive — no action needed
                 if (FlightRecorder.FindVesselByPid(rec.SpawnedVesselPersistentId) != null)
                     continue;
+
+                // A recovered vessel is gone because the player recovered it, not because it
+                // died: clear the claim without counting a death, ahead of the terminal-orbit
+                // branch, so the spawn gate refuses on the recovery evidence instead.
+                if (TryClearRecoveredSpawnClaim(
+                        rec, RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive,
+                        out uint recoveredOldPid, out string recoveredEvidence))
+                {
+                    recovered++;
+                    ParsekLog.Info("Policy",
+                        $"Spawned vessel recovered: #{i} \"{rec.VesselName}\" pid={recoveredOldPid} " +
+                        $"evidence={recoveredEvidence} - spawn claim cleared, no respawn");
+                    continue;
+                }
 
                 // Vessel died since last frame
                 rec.SpawnDeathCount++;
@@ -259,9 +274,10 @@ namespace Parsek
                 }
             }
 
-            if (detected > 0)
+            if (detected > 0 || recovered > 0)
                 ParsekLog.Info("Policy",
-                    $"RunSpawnDeathChecks: {detected} death(s) detected, {abandoned} abandoned");
+                    $"RunSpawnDeathChecks: {detected} death(s) detected, {abandoned} abandoned, " +
+                    $"{recovered} recovered");
             if (skippedTimelineInactive > 0)
                 ParsekLog.VerboseRateLimited("Policy", "spawn-death-skip-timeline-inactive",
                     $"RunSpawnDeathChecks: skipped {skippedTimelineInactive} timeline-inactive recording(s)");
@@ -306,6 +322,43 @@ namespace Parsek
             rec.SpawnedVesselPersistentId = 0;
             rec.SpawnAttempts = 0;
             return SpawnDeathDisposition.ResetForRespawn;
+        }
+
+        /// <summary>
+        /// The recovered half of <see cref="RunSpawnDeathChecks"/>: when a recording whose
+        /// spawned vessel went missing reads recovered (its terminal is
+        /// <see cref="TerminalState.Recovered"/>, or <paramref name="isRecoveredByLedgerRow"/>
+        /// finds a recovery ledger row, <see cref="RecoveredRecordingEvidence"/>), the vessel
+        /// left the world through a recovery, not a death. Clears the spawn claim
+        /// (<see cref="Recording.VesselSpawned"/> false, the spawned pid 0) and leaves the
+        /// death count, <see cref="Recording.SpawnAttempts"/> and the abandon flag alone, so
+        /// the claim stops being checked and the spawn gate refuses on the same recovery
+        /// evidence. Returns false (nothing touched) when the recording does not read
+        /// recovered. <paramref name="priorSpawnedPid"/> is the pid on entry;
+        /// <paramref name="evidence"/> is <see cref="RecoveredRecordingEvidence.EvidenceTerminal"/>
+        /// or <see cref="RecoveredRecordingEvidence.EvidenceLedgerRow"/> (null when false).
+        /// The caller owns the counters and the log lines.
+        /// </summary>
+        internal static bool TryClearRecoveredSpawnClaim(
+            Recording rec,
+            Func<Recording, bool> isRecoveredByLedgerRow,
+            out uint priorSpawnedPid,
+            out string evidence)
+        {
+            priorSpawnedPid = rec != null ? rec.SpawnedVesselPersistentId : 0u;
+            evidence = null;
+            if (rec == null) return false;
+
+            if (rec.TerminalStateValue == TerminalState.Recovered)
+                evidence = RecoveredRecordingEvidence.EvidenceTerminal;
+            else if (isRecoveredByLedgerRow != null && isRecoveredByLedgerRow(rec))
+                evidence = RecoveredRecordingEvidence.EvidenceLedgerRow;
+            else
+                return false;
+
+            rec.VesselSpawned = false;
+            rec.SpawnedVesselPersistentId = 0;
+            return true;
         }
 
         /// <summary>

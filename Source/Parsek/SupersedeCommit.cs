@@ -2152,6 +2152,11 @@ namespace Parsek
                 // every recalc, and the merge retires the row through
                 // IsSupersedeTombstoneEligible. Nothing for a strict block to protect.
                 case GameActionType.KerbalRecovered:
+                // VesselRecovered: a RECORD that the player recovered the owner's vessel
+                // (spawn evidence only, no pool moves); the merge retires it through
+                // IsSupersedeTombstoneEligible. A NEW type falls through to `return true`,
+                // which would strict-block every supersede over a recovered recording.
+                case GameActionType.VesselRecovered:
                 // StrategyScienceDebit (STRATEGY-SCIENCE-CONVERSION-LEAK): the science
                 // INPUT leg of a stock currency-exchange strategy. Listed EXPLICITLY,
                 // against this method's twice-stated warning that a NEW type falls

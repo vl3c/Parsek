@@ -209,6 +209,8 @@ namespace Parsek
                 case GameActionType.KerbalStandIn:
                 // KerbalRecovered bounds a crew reservation; no pool moves.
                 case GameActionType.KerbalRecovered:
+                // VesselRecovered is spawn evidence only; no pool moves.
+                case GameActionType.VesselRecovered:
                 case GameActionType.FacilityDestruction:
                 case GameActionType.StrategyDeactivate:
                 case GameActionType.FundsInitial:

@@ -44,6 +44,13 @@
 "eva2-lko-crewed" = ["Kerbal X"]
 "eva3-pad-3crew" = ["Kerbal X"]
 "gs1-two-stage-pad" = ["GS1 Auto-Chute Booster", "Kerbal X"]
+# The game-settings axis's two career hosts launch a probe from the VAB (HC-2, ZF-1): under
+# ProbesBeforeCrew the Mk1 pod and the Mk16 chute sit behind unresearched nodes, so neither
+# career can launch the stock Jumping Flea (stock refuses `ExperimentalPartsAvailable`, flown
+# ZF-1 `2026-10-03_1446`), and the one-part `Settings Probe` (a start-node Stayputnik) is the
+# cheapest craft both can.
+"career-science-pad-hard" = ["Settings Probe"]
+"career-pad-craft-zero-funds" = ["Settings Probe"]
 # RF-9's produced save, harvested. The row is INHERITED rather than chosen: the
 # fixture is a copy of what a `gs1-two-stage-pad` run left behind, so its
 # `Ships/VAB` held the same two craft and the harvester dropped them as already

@@ -53,7 +53,7 @@ namespace Parsek.Logistics
     {
         /// <summary>
         /// True for the nine free-standing route <see cref="GameActionType"/>
-        /// members (values 23-30 and 35, <see cref="GameActionType.RouteHeld"/>).
+        /// members (values 23-30 and 36, <see cref="GameActionType.RouteHeld"/>).
         /// Implemented as an explicit switch over the named
         /// members (NOT a numeric range) so that adding an unrelated action Type
         /// after the route block can never silently widen the retire set.
@@ -70,7 +70,7 @@ namespace Parsek.Logistics
                 case GameActionType.RouteRecoveryCredited:  // 28
                 case GameActionType.RouteCargoPickedUp:     // 29
                 case GameActionType.RouteResumed:           // 30
-                case GameActionType.RouteHeld:              // 35
+                case GameActionType.RouteHeld:              // 36
                     return true;
                 default:
                     return false;

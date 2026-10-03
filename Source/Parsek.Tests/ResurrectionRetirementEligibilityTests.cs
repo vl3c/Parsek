@@ -412,6 +412,72 @@ namespace Parsek.Tests
                 Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0));
         }
 
+        private static GameAction VesselRecovered(string actionId, string recId, double ut)
+        {
+            return new GameAction
+            {
+                ActionId = actionId,
+                RecordingId = recId,
+                UT = ut,
+                Type = GameActionType.VesselRecovered,
+                RecoveredVesselName = "Jumping Flea",
+                RecoveredVesselPid = 42u,
+            };
+        }
+
+        // catches: a sandbox uncrewed recovery (only the VesselRecovered row) resurrected by
+        // a Re-Fly keeping its row, so the resurrected recording still reads recovered and
+        // its spawn stays refused.
+        [Fact]
+        public void VesselRecoveredRowAlone_IsEvidenceAndIsRetired()
+        {
+            var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
+            rec.TerminalStateValue = TerminalState.Landed;
+            var actions = new List<GameAction> { VesselRecovered("act-vr", "rec-1", 520.0) };
+
+            var result = ResurrectionRetirementEligibility.Classify(
+                Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0);
+
+            Assert.Single(result);
+            Assert.Equal("rec-1", result[0].RecordingId);
+            Assert.Equal(520.0, result[0].AnchorUT);
+            Assert.False(result[0].UsedFallbackAnchor);
+            Assert.Equal(ResurrectionRetirementEligibility.EvidenceLedgerRow, result[0].Evidence);
+            Assert.Equal(new List<string> { "act-vr" }, result[0].RetiredActionIds);
+        }
+
+        [Fact]
+        public void VesselRecoveredRow_IsRetiredWithTheFundsRow_CrewCloseKept()
+        {
+            var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
+            rec.TerminalStateValue = TerminalState.Landed;
+            var actions = new List<GameAction>
+            {
+                RecoveryFunds("act-funds", "rec-1", 521.0, 8000f),
+                VesselRecovered("act-vr", "rec-1", 520.0),
+                CrewClose("act-crew-close", "rec-1", 520.0),
+            };
+
+            var result = ResurrectionRetirementEligibility.Classify(
+                Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0);
+
+            Assert.Single(result);
+            Assert.Equal(520.0, result[0].AnchorUT);
+            Assert.Equal(new List<string> { "act-funds", "act-vr" }, result[0].RetiredActionIds);
+        }
+
+        [Fact]
+        public void VesselRecoveredRowBeforeTheCutoff_IsNotEvidence()
+        {
+            var rec = RecoveredRecording("rec-1", 42u, GuidA, 10.0, 100.0);
+            rec.TerminalStateValue = TerminalState.Landed;
+            var actions = new List<GameAction> { VesselRecovered("act-vr", "rec-1", 150.0) };
+
+            Assert.Empty(ResurrectionRetirementEligibility.Classify(
+                Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0, out int matchedWithoutRecovery));
+            Assert.Equal(1, matchedWithoutRecovery);
+        }
+
         [Fact]
         public void CrewCloseRowBeforeTheCutoff_IsNotEvidence()
         {

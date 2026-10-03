@@ -10,6 +10,40 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: KSP.log now records when the crash screen and the recovery summary open and close.**
+  Stock KSP's flight results dialog ("Outcome: Catastrophic Failure!", also the F3 flight
+  status screen) and its "Mission Summary" recovery dialog left no reliable trace in the log,
+  so a scan of harness runs could not tell how long either stayed up. Parsek now writes one
+  `[PostFlightDialog]` line when each opens, with the scene, the vessel and, for the flight
+  results dialog, whether the game is paused and whether it is the crash screen
+  (`exitControls=true`), and one when each closes, with the time it stayed on screen in wall
+  seconds (`onScreenWallSeconds=`). Logging only: nothing on screen changes.
+- **Dev: a lane for spawning a ghost chain's final vessel through Real Spawn Control.**
+  `CI-8-chain-tip-original-pid` (flown green 2026-10-03, nightly) reads a ghost chain's
+  vessel id, presses the chain's Real Spawn Control button, and requires the vessel that
+  appears to carry that same id, with exactly one copy of it in the saved game. It reuses
+  the `chain-tip-recovery` test save of the recovery lane.
+- **Dev: a test command recovers a vessel from the Tracking Station.**
+  `TrackingStationRecover pid=<pid>` walks the stock route a player takes from the Space
+  Center: it enters the Tracking Station, selects the vessel, presses stock's Recover and
+  confirms it, closes the recovery summary if one opens, and leaves back to the Space Center,
+  answering once stock has recovered the vessel. The flag stock passes with that event is its
+  "quick" flag and is false for this route, so nothing waits on it.
+- **Dev: lanes for a Hard career that earns and spends, and for a career that starts with no
+  money.** `HC-2-hard-career-earn-spend` (flown green 2026-10-03, nightly) flies L3's science
+  hop on `career-science-pad-hard`, a copy of L3's save at KSP's Hard preset built by
+  `harness/tools/build_career_science_pad_hard.py` and pinned byte for byte. It then launches a
+  probe from the VAB, runs the ledger ground-truth check and rewinds the hop. Every milestone
+  reward came in at exactly 0.6 times the Normal amount and every science result carried the
+  0.6 multiplier, while the recovery stayed unscaled. The funds total matched the value
+  predicted before the flight, Parsek's ledger matched the game's own balances with no
+  correction, and the rewind put the balances back. `ZF-1-zero-funds-career` (flown green
+  2026-10-03, nightly) loads `career-pad-craft-zero-funds`, a career that starts at 0 funds.
+  It checks that the starting balance is recorded as zero without the old 10-second wait, that
+  a recovery and a launch then add up with no correction, and that a hire the career cannot
+  afford is refused. Both lanes launch `Settings Probe`, a new one-part shared craft. These
+  careers cannot build the stock Jumping Flea: with Probes Before Crew installed its pod and
+  parachute are not yet researched.
 - **Dev: a lane for recovering a ghost chain's final vessel, and the duplicate it found.**
   The new `chain-tip-recovery` injected recording set gives a test save a ghost chain whose
   last vessel lands next to the pad vessel while its ghost is still playing, so a lane can
@@ -136,7 +170,7 @@ _(unreleased — entries accumulate here per commit)_
   byte-identity drift test.
 - **Dev: the automated tests can press Stash, and a lane re-flies a stashed slot whose flight went EVA.** A new test command, `StashSlot`, presses the Recordings table's per-row Stash button (the same handler) and checks that the slot now shows as an Unfinished Flight. `RF-20-stashed-eva-slot-refly` (flown green 2026-09-27) uses it: a staged orbital flight where a kerbal steps out and back in is committed, the crewed stage (a stable orbit, so not an Unfinished Flight on its own) is stashed, re-flown from the separation and merged, and the merge must replace the old flight including the kerbal's EVA and close the slot
 - **Dev: a lane for the refused recovery XP row.** `L7-career-idless-same-name-xp-refusal` (flown green 2026-10-01, nightly tier) flies the pad craft unrecorded over a new career fixture, `career-idless-same-name-pad`, that carries two older same-name recordings with no launch identity, recovers it, and checks that the kerbal XP row is refused as ambiguous (`reason=ambiguous-recovery-recording`, `corroboration=unknown-launch-guid`) while the recovery funds and science still credit the later of the two recordings. Since recovery matches by launch identity first, this refusal is only reachable with recordings that predate the launch identity field.
-- **Dev: a lane for rewinding a relaunch of a craft.** `RR-1-relaunch-rewind-keeps-earlier-launch` (never flown) relaunches the stock Kerbal X on `kerbin-splashdown-recorded`, whose earlier Kerbal X capsule is still landed, commits, rewinds that flight and checks the rewind keeps the earlier capsule while removing the relaunched vessel.
+- **Dev: a lane for rewinding a relaunch of a craft.** `RR-1-relaunch-rewind-keeps-earlier-launch` (flown green 2026-10-03) relaunches the stock Kerbal X on `kerbin-splashdown-recorded`, whose earlier Kerbal X capsule is still landed, commits, rewinds that flight and checks the rewind keeps the earlier capsule while removing the relaunched vessel.
 
 - **Dev: two lanes for the crew inventory restore at spawn.** `H72-kerbal-inventory-spawn` (flown green 2026-09-27) runs the in-game `KerbalInventorySpawn` category over the pad craft's seated Jeb, whose roster carries a two-part inventory, and checks the capture, the roster applier and the rollback lines. `EVA-7-crew-inventory-spawn-after-rewind` (flown green 2026-09-27) replays EVA-6's chain: Jeb carries a parachute and a seismometer, places the seismometer on EVA, the recording commits, Rewind-to-Launch, and the Space Center spawns him. It checks that his spawn restores the recorded one-part inventory rather than the two-part one the rewind put back on the roster, and that the restore runs exactly once.
 - **Dev: two lanes for the Re-Fly exit on the Hard preset.** `RF-16-hard-preset-refly-exit-merge` and `RF-17-hard-preset-refly-exit-discard` (both flown green 2026-09-27) run a re-fly on `gloops-airshow-hard`, a copy of `gloops-airshow` with the Hard flags (no revert, no quickload) built by `harness/tools/build_gloops_airshow_hard.py` and pinned byte for byte. Each requires the "Retry not offered" log line, leaves the flight through the scene-exit merge dialog and commits (RF-16) or discards (RF-17) the attempt, and forbids any revert.
@@ -1379,6 +1413,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel Parsek brought into the world that you recover from the Tracking Station or
+  the KSC no longer comes back.** Recover a vessel Parsek spawned at the end of a recorded
+  flight without flying it first (the Tracking Station Recover button, the KSC vessel
+  marker), on a sandbox save or with no crew aboard, and the next flight scene used to read
+  the vessel's absence as a crash and spawn it again. Parsek only learned of such a
+  recovery through the recovery payout (which a sandbox save never pays) or the crew coming
+  home (which an uncrewed vessel has none of). Every recovery you make of a vessel that
+  continues a recorded flight now writes its own ledger entry, in every game mode, and that
+  recording's vessel is never spawned again, also after a rewind to before the recovery.
+  A vanished vessel whose recording reads recovered is no longer counted as a death either.
+  Parsek's own housekeeping recoveries write nothing. A Re-Fly that puts the vessel back in
+  the world retires the entry with the recovery payout. No new interface.
+
 - **A vessel you recover right after switching to it no longer comes back.** Bring a
   recorded flight's vessel into the world (Real Spawn Control, or its end-of-recording
   spawn), switch to it and press stock's Recover at once, and the next flight scene used to
@@ -1396,12 +1443,30 @@ _(unreleased — entries accumulate here per commit)_
   as one that died. A fresh, never-committed flight recovered from the pad is still dropped
   silently.
 
+- **Dev: a harness mission no longer waits out its wall budget behind KSP's crash screen.**
+  About 60 s after the active vessel is destroyed, stock KSP opens the flight results dialog
+  and pauses the game. Every mission phase budget counts game time, so a mission whose craft
+  crashed polled the stopped game until its wall budget ran out (one run lost about 1,100 s
+  this way). The mission shell now ends the mission once the game has read paused with the
+  clock stopped for 15 s, as a vessel loss naming the pause (`MISSION-ASSERT-FAIL`, reason
+  `vessel-lost (paused-clock: ...)`, the same class as every other vessel loss). It never
+  fires during a native warp, right after a seam step, or on a pause shorter than 15 s, and it
+  reads the pause state only when the clock did not move.
+- **Dev: two harness waits behind KSP's post-flight screens now end at once.** A test
+  command waiting on the EVA kerbal (`EvaGroundScience`, `PlantFlag`) now ends with
+  `ERROR active-vessel-lost` on the first check after the kerbal dies, instead of sitting out
+  its whole budget. Stock KSP keeps a dead active vessel in place rather than deleting it, so
+  the old check never saw the loss; six EVA-8 runs each lost 120 s this way. And `CommitTree`
+  sent after a stock recovery, when the game is already back at the Space Center with nothing
+  to commit, now answers `REJECTED not-in-flight` straight away instead of waiting 60 s with
+  the recovery summary up. L3, L5 and both L6 lanes expect that answer now.
 - **Dev: booster debris no longer logs a sparse-sampling warning on every launch.** Once
   a background vessel leaves proximity range the recorder stops sampling it by design, and
   the long gap until it came back (about 14 s for each booster pair) read as a stalled
   sampler. The recorder now notes each out-of-range silence, from the first skipped moment to
-  the moment the vessel is back in range, and a gap counts toward the warning only by the
-  part of it outside that silence; the line stays at Verbose with a
+  the moment the vessel is back in range or records an event out of range (a booster hitting
+  the ground), and a gap counts toward the warning only by the part of it outside that
+  silence; the line stays at Verbose with a
   `largeGapsOutOfRange=` count.
 - **Dev: the recorder's sparse-sampling warning fires under physics warp again.** A recorded
   section whose samples sat further apart than the sampler allows logs
@@ -1434,7 +1499,8 @@ _(unreleased — entries accumulate here per commit)_
   runner now removes every registered ghost vessel first (the same removal the scene uses
   when you leave it) and the Tracking Station rebuilds them a moment later; the in-game
   `VesselBudget` check waits for the rebuilt ghosts instead of skipping. Flight batches are
-  unchanged. A live Tracking Station batch (VB-1 can restore its in-game step) is owed.
+  unchanged. Proven live 2026-10-03: VB-1 runs the in-game step again, removes all eight
+  ghosts before the batch and passes the check.
 
 - **Recording Distance and Range no longer misread a sample sitting on a section boundary.**
   A recording is cut into sections, and samples recorded relative to a parent vessel store
@@ -1454,7 +1520,8 @@ _(unreleased — entries accumulate here per commit)_
   refused. `DiscardTree` now tells the retry to skip that vessel until something records
   again, the active vessel changes, or the scene ends, and logs
   `CommittedSpawnedRestoreSuppression: armed` / `cleared`. Player discards are unchanged.
-  The lanes keep `retry policy = "once"` until a flight shows the fix.
+  The lanes keep `retry policy = "once"`: the 2026-10-03 EVA-6 flight passed with no
+  re-adoption, but its boot took the ordering where the discard finds nothing to discard.
 - **A Missions tab vessel row no longer shows another mission's vessel as a mid-flight
   "Launch".** After switching to another mission's vessel, the row's event chain read e.g.
   "Launch -> Launch (Depot Station Duna I (mission 'Kerbal X #5')) -> Docked". A launch
@@ -5633,6 +5700,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: the player docks with a ghost-chain tip spawned through Real Spawn
+  Control (CI-9).** A new nightly lane, `CI-9-chain-tip-dock`, puts an orbital ghost-chain
+  tip (the new `chain-tip-dock` injected preset) 140 m ahead of the focused Kerbal X,
+  presses "Warp to Spawn" for it, starts a recording and flies a new mission,
+  `ci9_tip_dock`, that rendezvous with the spawned tip and docks to it. It gates the
+  single-parent Dock branch point, the dock superseding the tip's committed spawn so the
+  absorbed vessel never comes back, and the committed save shape. The flight found that
+  in orbit the spawned tip appears on its recorded orbit 120 km away instead of where its
+  ghost stood (todo REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST, open).
 - **Automated testing: PWR-3 (recording under physics warp at the High density) is armed;
   every registry coverage cell is now claimed (251 of 251).** Its two quarantining findings
   were fixed in the recorder (see Fixed: "a sample taken when a frame runs long"), the

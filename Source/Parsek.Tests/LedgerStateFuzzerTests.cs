@@ -1048,6 +1048,12 @@ namespace Parsek.Tests
                     action.KerbalName = KerbalNames[rng.Next(KerbalNames.Length)];
                     action.KerbalRole = KerbalRoles[rng.Next(KerbalRoles.Length)];
                     break;
+                // VesselRecovered: the recovered vessel's name and pid are the row's
+                // payload; its RecordingId (the owner) comes from the skeleton.
+                case GameActionType.VesselRecovered:
+                    action.RecoveredVesselName = "Vessel " + rng.Next(0, 8).ToString(IC);
+                    action.RecoveredVesselPid = (uint)rng.Next(1, 1000000);
+                    break;
                 // Added 2026-09-16 with the payload assertion in
                 // Generator_CoversEveryNonSeedActionType: this type had NO arm, so the
                 // corpus fuzzed an all-zero KerbalExperience row - the exact shape the
