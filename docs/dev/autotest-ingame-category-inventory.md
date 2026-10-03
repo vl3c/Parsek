@@ -1,4 +1,4 @@
-# In-game test category inventory (all 125 categories)
+# In-game test category inventory (all 126 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -194,6 +194,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `SpawnRotation` | 10 | 10 | 0 | 0 | 0 | 0 | H8 | A |
 | `SpawnTerminalOrbit` | 3 | 3 | 0 | 0 | 0 | 3 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 3 - the whole category at FLIGHT with zero skips) | A |
 | `Spawner` | 2 | 2 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the residue wants autostrut parts in range) | B |
+| `StartupNotices` | 3 | 3 | 3 | 3 | 0 | 1 | SN-1-startup-notices-clean-install (authored 2026-10-03, NOT YET FLOWN; interim pin `total=3` with the split regexed, predicted 3 / 0). The live half of the startup notices (`StartupNotices.cs`, `ParsekHarmony.cs`) on the provisioned `fresh-career` host, a correct install: the install-location check over KSP's real `AssemblyLoader` paths answers null, this session's Harmony sweep applied every patch class, and stock `ScreenMessages` accepts a post in a settled scene; the spec forbids every startup-notice warn / post line. Three AnyScene cells, so every scene column counts 3. Its OWN category for the standing reason. The self-skip column is 1: the post cell skips when `ScreenMessages` has no instance | A |
 | `StockUiOverlay` | 12 | 0 | 12 | 0 | 0 | 12 | H45 (2026-09-25, stock-UI overlays PR 7: a twelfth cell, the KSC facility menu (`FacilityMenuUpgradeDisabledWithReasonAndRestored`: a committed future upgrade greys Upgrade with the reason in a stock tooltip through a stock refresh, another facility's menu stays stock, and Upgrade comes back when the row goes; it opens the menu with a no-op dismiss callback so nothing in the career changes), pin `total=12`, still interim. PR 4: an eleventh cell, the contract-slot block on Accept (`MissionControlSlotNeededByCommittedAcceptGreysAcceptWithReason`: committed-accept fixture rows fill the free slots, Accept greys with the slot reason and the backstop decision refuses; no stock contract state is changed), pin `total=11`, still interim. PR 3: a tenth cell, the Active-row label and Cancel block (`MissionControlActiveRowLabelAndCancelBlockedWithReason`), which needs an Active contract and skips on `career-earned-ksc` (nine Offered, zero Active); pin `total=10`, still interim. PR 2a: the four R&D / Astronaut Complex badge cells were replaced by six stock-mechanism cells - tinted node icon, stock tooltip and description text, disabled Research button, row labels, locked hire / dismiss buttons, no Parsek object on the stock screen. PR 2b: the two Mission Control badge cells rewritten for the stock mechanisms and a third added. Together 9 declarations, pin `total=9` with the split regexed and the id back in `INTERIM_PIN_IDS` until the new cells fly. EARLIER: RE-HOSTED to `career-earned-ksc` 2026-09-08 and now executes 6 of 6 - the whole category at SPACECENTER with zero skips, run `2026-09-08_1039`. PRIOR: flown 2026-08-28 on `career-contract-pad` at 4 of 6, with the 2 Mission Control cells skipping `rows=0, contractRows=0`, re-measured 2026-09-07 (census CEN-2, run `2026-09-07_2017`) on `career-earned-ksc` at the same 4 of 6 with `rows=9, contractRows=0`. THE SECOND READING - "the rows populate only with the Mission Control BUILDING UI open" - WAS WRONG, and the `rows=9` half was the refutation nobody followed through: nine rows were walked, so the building UI WAS open, and what failed was the row-to-contract lookup. Stock (`MissionControl.AddItem`, KSP 1.12.5) stores a `MissionControl.MissionSelection` wrapper in `UIListItem.Data`; Parsek's overlay and the test both cast it `as Contract`, got null, and disabled themselves, so the Mission Control contract overlays had never decorated a row on any install. `StockUiOverlayController.ExtractMissionControlRowContract` now unwraps the wrapper (a bare `Contract` payload still accepted) and the cells read rows through the same helper. Census CEN-11 (scratch, run `2026-09-08_1034`) on the fixed DLL: 6 of 6, with the production overlay logging `MissionControl decorated contractCount=1`. `career-contract-pad` stays L5's host; its one contract is Active, so it puts no Offered row in front of the screen and could not have shown this either way) | A |
 | `StockWarpLimits` | 1 | 1 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
 | `Storage` | 3 | 3 | 3 | 3 | 0 | 3 | ST-1-storage-timeline-ingame (MULTI, authored 2026-09-25 by coverage wave 4, LIVE-PROVEN the same day: armed `2026-09-25_2049` PASS attempt 1, executes 2 of 3 on `career-earned-pad` - recording-id validation on the live ids and the readable `.prec.txt` mirrors reconciled off and on and decoded back; the RP cell skips, the host has no rewind point) + ST-2-rewind-point-quicksave (single-category, armed `2026-09-25_2053` PASS attempt 1, executes 2 of 3 on `eva2-lko-crewed` after an EVA split authors an RP in-run - the RP quicksave read back and the RP id validated; the mirror cell skips, no committed recording). Union 3 of 3, both tallies pinned whole; neither lane drives the whole category at its own boot, so the promotion rule does NOT fire and the bucket stays **B**. Its own category for the standing reason - a cell added to `Serialization` would move a tally other specs pin | B |
@@ -219,8 +220,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **125 categories / 661 declarations**. Buckets **A 92 categories
-(366 declarations)**, **B 32 categories (291 declarations)**, **C 1 category (4
+Totals, re-derived: **126 categories / 664 declarations**. Buckets **A 93 categories
+(369 declarations)**, **B 32 categories (291 declarations)**, **C 1 category (4
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
@@ -334,10 +335,12 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **120 of 125 categories**, covering **652 of 661
+Driven by a committed spec: **121 of 126 categories**, covering **655 of 664
 declarations** (re-derived mechanically the same way: count the table rows whose
-Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 661 declarations in
-125 categories over `Source/Parsek`. The 2026-10-01 spawn-blocked chain tip ghost
+Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 664 declarations in
+126 categories over `Source/Parsek`. The 2026-10-03 startup notices opened a 126th
+row, `StartupNotices` (three AnyScene cells, bucket **A**), driven by the never-flown
+SN-1-startup-notices-clean-install. The 2026-10-01 spawn-blocked chain tip ghost
 (D18-CHAIN-SPAWN-BLOCKED-GHOST-6B4-NOOP) opened a 125th row, `ChainTipBlockedGhost` (two FLIGHT cells, bucket
 **B**), UNCLAIMED. The 2026-09-28 ground-science cluster lanes opened a 124th row,
 `DeployedScienceGhost` (one FLIGHT cell, bucket **B**), UNCLAIMED. The 2026-09-28 surface-ghost flicker fix
