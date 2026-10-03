@@ -22,6 +22,32 @@ default career difficulty multipliers (all 1.0). Third-party mod SCENARIO nodes
 (`Trajectories`, `Tracking_Persistence`) stripped; `start` tech node parts reduced to a
 pure base-stock set (ReStock / Making-History parts dropped).
 
+### Known artifact: ReStock shroud names on stock parts (visual only)
+
+The donor craft were saved on the ReStock dev install, and stock `ModuleJettison` persists
+the mesh name it resolved there (`activejettisonName`). On the stock-minimal automation
+instance that name does not exist, so the shroud or fairing stays visible on the live
+vessel even though `isJettisoned = True`. The cause is in stock code (decompiled KSP
+1.12.5): in flight, `LoadJettisonMeshState` looks the transform up by the persisted
+`activejettisonName` only. On a miss `FetchActiveMeshTransform` falls back to a null
+`jettisonTransform`, so `SetupJettisonState` has no object to hide. The drag cube is still
+set to the jettisoned state. The editor re-resolves the name from the cfg `jettisonName`,
+which is why a craft launched from the VAB looks right.
+
+What you will see: the RT-5 Flea (`solidBooster.sm.v2`, persisted `ShroudSRB`, stock mesh
+`shroud`) on the "Jumping Flea" shows its bottom skirt in every lane whose save carries
+that name. That covers `b1-pad-craft`, the `career-*-pad*` saves derived from it,
+`k2-held-kerbal-pad`, `preparsek-untouched-career` and `refly-a-recorded`. The same
+artifact appears on `HeatShield2` (persisted `HeatShield25Fairing`, stock mesh `fairing`)
+in `b2-lko-craft`, `duna-one-recorded`, `duna-park-recorded` and
+`interbody-route-recorded`. Parsek ghosts do not show it. `GhostVisualBuilder` resolves
+the cfg `jettisonName` and honours the snapshot's `isJettisoned`, so a ghost of the craft
+has no skirt while the live vessel does. A vessel that Parsek spawns from a snapshot
+carries the persisted name verbatim and looks the same as the live vessel, which is
+faithful to stock. Not a Parsek defect. The fixtures are deliberately left as they are:
+re-resolving the name would change the live part's shape, which every measured flight pin
+on these saves was taken with. Observed on HC-2 `2026-10-03_1533`.
+
 ## fresh-career (GAME Mode = CAREER)
 
 Shared by B10 + the four career L1 scripts (hire / dismiss / research / upgrade) +
