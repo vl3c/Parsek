@@ -9029,7 +9029,7 @@ A recording now qualifies when a survivor is POSITIVELY its launch and it either
 
 **Sibling, filed below:** the committed Landed terminal of a recovered vessel is read by two other consumers that assume a recovery reads Recovered (RECOVERED-AFTER-COMMIT-READS-LANDED-ELSEWHERE).
 
-## ~~RECOVERED-AFTER-COMMIT-READS-LANDED-ELSEWHERE~~: with auto-merge on, a recovered flight is committed Landed, and two more consumers read that as "not recovered" [FILED 2026-09-27 while fixing REFLY-RESURRECTED-RECOVERY-STAYS-BANKED, branch `recovered-after-commit`. FIXED 2026-10-01 on branch `fix-recovered-after-commit` (headless; not flown yet); see Fix below]
+## ~~RECOVERED-AFTER-COMMIT-READS-LANDED-ELSEWHERE~~: with auto-merge on, a recovered flight is committed Landed, and two more consumers read that as "not recovered" [FILED 2026-09-27 while fixing REFLY-RESURRECTED-RECOVERY-STAYS-BANKED, branch `recovered-after-commit`. FIXED 2026-10-01 on branch `fix-recovered-after-commit`; LIVE-PROVEN 2026-10-03 by RB-1 `2026-10-03_1456` / RB-2 `_1504`; see Fix below]
 
 The ordering is measured (RB-1 `2026-09-27_1249`: `FinalizeIndividualRecording ... stable terminal state Landed (vessel.situation=LANDED, isSceneExit=True)`, then `Silent full-fidelity auto-commit (scene-exit)`, then `[VesselRecovery]: Jumping Flea recovered` at the Space Center). With a manual merge the same flight commits `Recovered`. Step 3b now reads the ledger instead. Two other readers still key on the terminal alone:
 
@@ -9053,6 +9053,15 @@ The candidate fix is one shared predicate, "recovered by the Recovered terminal 
 - Tests: `RecoveredAfterCommitTests` (24 cases; mutation-checked: disabling the predicate or the scene-exit stamp fails 8).
 - Live proof still to run: `RB-1-rewind-readback-divergence` / `RB-2-rewind-readback-within-range` recover the Flea in flight with auto-merge on. Expect `In-flight recovery: recording '...' ... terminal Landed -> Recovered`, Step 3b's `evidence=terminal-recovered` instead of `recovery-row`, `terminalState = 5` (Recovered) on the Flea's recording in the produced save, and no change to the `VesselRecovery funds patched ... amount=4558` line (both lanes' log contracts already accept either evidence).
 - Open after the PR #1946 review: the live proof above is still owed (RB-1 / RB-2; the expected log line is `[Recovery] In-flight recovery: recording ... terminal Landed -> Recovered`). The stamp's WIRING has no unit test (`RecoveredAfterCommitTests` calls `Arm` / `ApplyAtSceneExit` / `TryApplyToFinalizedPendingTree` directly): the event handler (`ParsekScenario.OnVesselRecoveryRequested`, `Source/Parsek/ParsekScenario.cs:7840`, arm at `:7855`), the two `InFlightRecoveryRequest.ApplyAtSceneExit` call sites (`Source/Parsek/ParsekFlight.cs:3215` and `:15705`; method at `Source/Parsek/InFlightRecoveryRequest.cs:102`), and the clear ordering (`ParsekFlight.cs:2432`, `:3257`, `ParsekScenario.cs:3520`) - so the RB lanes are the only proof that they fire in that order. Known, accepted: a save written before #1946 still holds Landed on a recovered flight, so its Missions wording still reads "Landed" (the spawn and Stash readers use the shared predicate and are right there).
+- **Live proof DONE 2026-10-03 (`closing-flights`, automation DLL sha256 `9078cb1c...`, origin/main
+  `cb899a8f9`).** RB-1 `2026-10-03_1456` and RB-2 `_1504` both PASS attempt 1. Each logs `In-flight
+  recovery requested: ... pid=2905720181 ... boundRec=<rec>`, then `In-flight recovery: recording
+  '<rec>' vessel='Jumping Flea' pid=2905720181 terminal Landed -> Recovered ... context=scene-exit
+  autoMerge-on`, and the single `VesselRecovery funds patched ... amount=4558`. Step 3b reads
+  `evidence=terminal-recovered`: RB-1 5 actions then `FLAGGED DIVERGENCE ... delta=-4558`; RB-2 6
+  actions then `within-expected-range resource=funds`. Both of the Flea's chain segments carry
+  `terminalState = 5` in each produced save. So the event handler, the scene-exit apply and the
+  clear ordering all fired live.
 
 ## ~~REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE~~ [FILED 2026-09-14 by the guard-retire decision. UPDATED 2026-09-27: the lane exists (RB-1) and found that its designed cause cannot happen in the shipping configuration. CLOSED 2026-09-27 (branch `recovered-after-commit`): with REFLY-RESURRECTED-RECOVERY-STAYS-BANKED fixed, RB-1 `2026-09-27_1423` is the first live `FLAGGED DIVERGENCE` and RB-2 `2026-09-27_1431` its within-range control. The A7 strategy / mod-grant follow-up below stays OPEN]
 
