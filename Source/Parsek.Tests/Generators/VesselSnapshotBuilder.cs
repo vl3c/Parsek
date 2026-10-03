@@ -66,6 +66,22 @@ namespace Parsek.Tests.Generators
             return b;
         }
 
+        /// <summary>
+        /// A flat uncrewed lander: an OKTO core with a Spark on top, so it rests on the core
+        /// and does not roll once landed (the probeCoreSphere of <see cref="ProbeShip"/> can).
+        /// Part pids follow the usual index order: core 100000, engine 101111.
+        /// </summary>
+        public static VesselSnapshotBuilder FlatProbeLander(string name, uint pid = 1000000)
+        {
+            var b = new VesselSnapshotBuilder();
+            b.name = name;
+            b.persistentId = pid;
+            b.type = "Lander";
+            b.AddPart("probeCoreOcto");
+            b.AddPart("liquidEngineMini.v2", position: "0,0.35,0");
+            return b;
+        }
+
         public static VesselSnapshotBuilder FleaRocket(string name, string crew, uint pid)
         {
             var b = new VesselSnapshotBuilder();

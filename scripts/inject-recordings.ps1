@@ -33,6 +33,7 @@ $injectFilterByPreset = @{
     "overlap-cap"           = "InjectOverlapCap"
     "rewind-readback"       = "InjectRewindReadback"
     "vessel-budget"         = "InjectVesselBudget"
+    "chain-tip-recovery"    = "InjectChainTipRecovery"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -58,6 +59,7 @@ $defaultSaveByPreset = @{
     "overlap-cap"           = "overlap-cap-fixture"
     "rewind-readback"       = "rewind-readback-fixture"
     "vessel-budget"         = "vessel-budget-fixture"
+    "chain-tip-recovery"    = "chain-tip-recovery-fixture"
 }
 
 $ErrorActionPreference = "Stop"
