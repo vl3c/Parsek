@@ -60,9 +60,16 @@ uses the recorded terminal orbit (`ClassifyCapture`; landed, already-spawned, ou
 uncrossed recordings are skipped). `TryResolveRecordedTerminalOrbitSpawnState` (every orbital spawn
 site: chain tip, blocked-chain retry, the non-chain end spawn) evaluates the orbit's phase at
 `spawnUT - lag` with `spawnUT` as the epoch (`VesselSpawner.ComputeSpawnMeanAnomaly`), the same
-translation the player got. The shift is released once the vessel exists, dropped when the clock is
-behind the jump (a rewind), and cleared with the flight scene. Logs: `Terminal-orbit jump shift
-armed: ... ghostSeparation=`, `Jump-shifted terminal orbit spawn: ... spawnSeparation=`. Unit cells
+translation the player got. Both chain-tip collision gates (`SpawnAtChainTip` and the blocked
+retry `TrySpawnBlockedChain`) test that resolved position when a shift is armed
+(`VesselGhoster.SelectChainTipCollisionCheckPosition`, resolved once and reused for the spawn),
+not the unshifted snapshot endpoint / propagated orbit that lay ~120 km away on CI-9; the held
+blocked-tip ghost is drawn on the shifted orbit and rebuilt after every jump; a tip still blocked
+when a second jump freezes it again accumulates that jump's delta. The shift is released once the
+vessel exists, dropped when the clock is behind the jump (a rewind), and cleared with the flight
+scene. Logs: `Terminal-orbit jump shift armed: ... ghostSeparation=` (and `... accumulated:`),
+`Jump-shifted terminal orbit spawn: ... spawnSeparation=` (Info once per armed shift),
+`Chain tip collision check at the jump-shifted spawn: ... checkSeparation=`. Unit cells
 in `TimeJumpTerminalOrbitShiftTests` (relative position and velocity preserved to 0.05 m / 1e-4 m/s
 after 10 / 53.8 / 600 / 3000 s jumps on CI-9's LKO; the no-lag control reads 110-130 km; landed and
 zero-delta jumps unchanged). Live: `CI-9-chain-tip-dock` reading `2026-10-03_1833` and armed `_1841`
@@ -87,9 +94,8 @@ three neighbours keep the old geometry; none is flown:
   current positions"); playback has no per-recording time offset to honour that.
 - **An orbital end without a recorded terminal orbit**, and a SubOrbital / Docked bubble tip:
   the spawn falls back to the endpoint lat/lon/alt at EndUT, unshifted.
-- **The chain-tip collision check** (`VesselGhoster.SpawnAtChainTip`) tests the snapshot /
-  endpoint position, not the resolved spawn position, so a tip whose ghost overlaps the player
-  is not caught before the shifted spawn (CI-9 logs the OverlapBox ~350 km away).
+- **The blocked-tip trajectory walkback** (`VesselGhoster.TryWalkbackSpawn`) still walks the
+  recorded points unshifted, so a tip held long enough to walk back leaves the frozen geometry.
 
 ---
 

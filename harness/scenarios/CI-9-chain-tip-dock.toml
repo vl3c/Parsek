@@ -20,6 +20,11 @@
 # first kRPC distance 138.1 m, so the mission took its MATCH-VELOCITY branch
 # (`rendezvousNeeded=False`) and docked. The two jump-shift lines are pinned below with the
 # separation held to 100-199 m; an unshifted spawn prints neither.
+# Review follow-up: the chain-tip collision gate tested the unshifted snapshot endpoint
+# (`_1833`: `Physics.OverlapBox at (194684,982,-288814)`); it now tests the shifted spawn.
+# READING `2026-10-03_1915` PASS (DLL `85f145a8...`): `Chain tip collision check at the
+# jump-shifted spawn: ... checkSeparation=139.5m` then `Physics.OverlapBox at (45,0,-131)`,
+# pinned below.
 # The fix exposed a fixture fault on the near branch: with the target's identity attitude
 # its port faced south and the Kerbal X sat in the port's plane, so MechJeb's docking
 # autopilot moved laterally straight into the target and spent its RCS pressed against it
@@ -179,6 +184,10 @@ required  = [
   # Kerbal X, where its ghost stood (design 14.5 steps 4 and 6).
   "\\[TimeJump\\] Terminal-orbit jump shift armed: rec=ctd-tip-rec vessel=CTD Target T0=4[23][0-9]\\.[0-9] target=481\\.2 lag=5[0-9]\\.[0-9]s ghostSeparation=1[0-9]{2}\\.[0-9]m",
   "\\[Spawner\\] Jump-shifted terminal orbit spawn: rec=ctd-tip-rec vessel=CTD Target spawnUT=481\\.2[0-9] phaseUT=4[23][0-9]\\.[0-9]{2} lag=5[0-9]\\.[0-9]s ghostSeparationAtJump=1[0-9]{2}\\.[0-9]m spawnSeparation=1[0-9]{2}\\.[0-9]m",
+  # The spawn's collision gate looks where the tip appears: within the 1000 m box of the
+  # floating origin beside the Kerbal X, not the unshifted endpoint ~120 km away
+  # (`Physics.OverlapBox at (194684,982,-288814)` before the gate fix).
+  "(?s)\\[Ghoster\\] Chain tip collision check at the jump-shifted spawn: rec=ctd-tip-rec vessel=CTD Target site=chain-tip checkSeparation=1[0-9]{2}\\.[0-9]m.{0,300}?Physics\\.OverlapBox at \\(-?[0-9]{1,3},-?[0-9]{1,3},-?[0-9]{1,3}\\)",
   "\\[Ghoster\\] Chain tip spawn: pid=3156176881 vessel=CTD Target preserveIdentity=true",
   "realspawn complete rec=ctd-tip-rec pid=3156176881 vessel=CTD Target ",
   "\\[Flight\\] StartRecording succeeded: pid=3620499050, tree=True",

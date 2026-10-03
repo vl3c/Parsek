@@ -1422,7 +1422,10 @@ _(unreleased — entries accumulate here per commit)_
   same time shift your vessel gets, so the real vessel appears where the ghost was, with
   the same distance and relative speed to you. Ghosts outside the bubble, and landed or
   splashed ones (the planet carries both vessels), spawn as before. The same applies to
-  "Warp to departure" and every other epoch-shift jump. No new interface.
+  "Warp to departure" and every other epoch-shift jump. The spawn's collision check looks
+  at that same spot, so a vessel that would appear inside something beside you is held
+  back as before, and a held ghost is drawn where its vessel would appear. No new
+  interface.
 
 - **A vessel Parsek brought into the world that you recover from the Tracking Station or
   the KSC no longer comes back.** Recover a vessel Parsek spawned at the end of a recorded
