@@ -15,6 +15,27 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## LOGISTICS-MODEL1-FOLLOWUPS: the parts of the Logistics redesign left out of Model 1 [FILED 2026-10-02, branch `logistics-model1`]
+
+Model 1 (the merged Status cell, the two-line Route cell, the Interact grid, the Route History
+window, the Basic gate `UiSurface.LogisticsRouteTuning`, the dated detail block) shipped without
+these, each deferred as its own change:
+
+- **Pickup-aware Delivers (D4).** A pure pickup relay still reads `(nothing)` in the Delivers
+  column and the "Delivers each run" line, while its Last delivered line names real cargo. Needs
+  new presentation logic over the relay manifest ("picks up 154 LiquidFuel at B").
+- **Group the near-miss list by reason (R10).** A save with many flights that never docked
+  shows one identical "No dock was recorded on this flight, so there is nothing to repeat."
+  line per mission; one grouped line with the names in the hover would read better.
+- **Part titles in the create dialog and stored-part holds.** The create dialog lists stored
+  parts by internal name (`evaChute`) and the hold clauses name a stored part the same way;
+  both want the part TITLE through a PartLoader lookup.
+- **Default route names.** The name still repeats the from/to line ("Route: KSC -> Duna"
+  over "KSC -> Depot Station Duna I"); naming a new route after its mission was ruled out of
+  this change (it needs "Name [2]" dedupe and makes the Missions route hover tautological).
+
+---
+
 ## PHYSWARP-HARNESS-PHASES-VERDICT: keep #1958's 4x physics warp in the PARK dwell and the kx COAST [FILED 2026-10-02, branch `physwarp-recording`, operator request. VERDICT: keep both; no mission-library change]
 
 PR #1958 runs the B5-family PARK dwell and GS-8's kx COAST under 4x PHYSICS warp. The
@@ -215,8 +236,16 @@ not introduce it. No lane reads it.
 - [x] Fix: the background recorder records each out-of-range silence as a UT window
   (`BackgroundVesselState.sectionProximitySilences`): it opens at the first tick
   `ShouldSkipTrajectorySamplingForProximity` skips and closes at the first tick that is not
-  skipped (back in range, or a high-fidelity / debris tier overriding the range), and the
-  list is cleared when a section starts. Closing on the return tick rather than on the next
+  skipped (back in range, or a high-fidelity / debris tier overriding the range) or at a
+  frame committed while it is still open (`CloseProximitySilenceAtCommittedFrame`: an
+  event-driven snapshot out of range; open still means every tick since was skipped, so no
+  stall can hide), and the list is cleared when a section starts. The commit close was added
+  after the first live check on `main` (PWR-1 `2026-10-03_1311`, PWR-3 `_1316`): one debris
+  per launch read Verbose `largeGapsOutOfRange=1`, but debris that hit the ground out of range
+  closed its section in the impact's own event chain (JointBreak snapshot, then destroy)
+  before any in-range tick, and still WARNed. Re-flown with the commit close: PWR-1
+  `2026-10-03_1324` and PWR-3 `_1329` PASS, all four booster debris log Verbose
+  `largeGapsOffRails=0 largeGapsOutOfRange=1` (silences ~63 -> ~76.9), no sparse-sampling WARN. Closing on the return tick rather than on the next
   committed frame keeps an in-range stall after the return outside the window (it still
   WARNs; `SectionClose_StallAfterReturningInRange_StillWarns`), and a boundary seed committed
   during a silence no longer cuts the window short. `ComputeSectionGapStats` takes the windows: an off-rails
@@ -541,6 +570,10 @@ pinned row by row in `StructureListBdockFixtureTests` against the committed fixt
   resolution (`RouteLog_OpensTheSourceMissionLog`, same cell count, so LT-4's pin holds), and
   GUI-3 photographs the Mun route's source mission (`ib-structure-route-log-advanced`).
   `StructureListWindowUI` no longer reads `CommittedRecordings`, so its ERS exemption is gone.
+  FOLLOW-UP 2026-10-03 (LOGISTICS-MODEL1, PR #1966, owner ruling): a route's runs come back as
+  their own window, the Route History (a second `StructureListWindowUI` instance in route
+  mode, rows from the route's ledger actions in the ELS, `op=target window=routehistory
+  route=`), opened by the route's `Log`; the route's `Go to` now reveals its source mission.
 - [x] Part 5, same-named vessels are numbered (`Kerbal X [2]`) by one helper,
   `MissionVesselNaming`, that the Log and the Missions vessel rows (names and phrases) both
   read. A leg whose launch identity matches a vessel ANOTHER mission recorded EARLIER is that

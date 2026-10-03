@@ -99,23 +99,35 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The detail-panel line: "Last cycle blocked: {describe} (checked
-        /// {age} ago)". The age suffix is mandatory display context (a reason
-        /// held across a long warp reads as historical fact, not a live claim)
-        /// and is omitted only when the age is unknown/invalid (negative, or a
-        /// degenerate duration the formatter renders as "-"). Returns null when
-        /// <paramref name="describe"/> is null/empty (no hold to render).
+        /// The detail-panel held line and the Status-cell hover: "Last run held on
+        /// Y1, D06, 14:05: {describe}." <paramref name="lastHoldUT"/> is
+        /// <c>Route.LastHoldUT</c>, which is the LAST check (every refused run moves it
+        /// forward), so the line names the last held run rather than claiming when the
+        /// hold began; a reason held across a long warp still reads as dated fact, not a
+        /// live claim. A negative UT drops the date. Returns null when
+        /// <paramref name="describe"/> is null/empty (no hold to render). The date comes
+        /// through <paramref name="formatDate"/>
+        /// (<see cref="ReservationExplanation.FormatDate"/>: invariant "UT n" when null).
         /// </summary>
-        internal static string FormatHoldDetailLine(string describe, double ageSeconds)
+        internal static string FormatHoldDetailLine(
+            string describe, double lastHoldUT, System.Func<double, string> formatDate)
         {
             if (string.IsNullOrEmpty(describe))
                 return null;
-            if (ageSeconds < 0.0)
-                return Fmt(LogisticsHoldClauses.HoldDetailLine, describe);
-            string age = LogisticsWindowUI.FormatDuration(ageSeconds);
-            if (age == "-")
-                return Fmt(LogisticsHoldClauses.HoldDetailLine, describe);
-            return Fmt(LogisticsHoldClauses.HoldDetailLineWithAge, describe, age);
+            string body = TrimFinalStop(describe);
+            if (lastHoldUT < 0.0 || double.IsNaN(lastHoldUT) || double.IsInfinity(lastHoldUT))
+                return Fmt(LogisticsHoldClauses.HoldDetailLine, body);
+            return Fmt(LogisticsHoldClauses.HoldDetailLineOnDate, body,
+                ReservationExplanation.FormatDate(lastHoldUT, formatDate));
+        }
+
+        // A frame supplies the closing full stop, so a clause that already ends in one
+        // must not print two.
+        private static string TrimFinalStop(string text)
+        {
+            return !string.IsNullOrEmpty(text) && text[text.Length - 1] == '.'
+                ? text.Substring(0, text.Length - 1)
+                : text;
         }
 
         /// <summary>
@@ -140,23 +152,6 @@ namespace Parsek
                 || status == RouteStatus.SourceChanged)
                 return false;
             return true;
-        }
-
-        /// <summary>
-        /// Status-cell tooltip: the raw enum name alone (the pre-M6 contract), or the
-        /// enum name followed by the one-clause hold description on a SINGLE line.
-        /// The tooltip always carries the FULL hold clause - the visible cell text
-        /// is the compact (possibly truncated) <see cref="StatusCellText"/>, so the
-        /// tooltip is where a truncated reason is read in full. Single-line since the
-        /// Logistics help strip became one line tall: a hard newline spent one of the
-        /// old two lines on the short enum name; now the strip's marquee scrolls the
-        /// whole "Enum - clause" line into view instead.
-        /// </summary>
-        internal static string StatusCellTooltip(RouteStatus status, string holdShort)
-        {
-            if (string.IsNullOrEmpty(holdShort))
-                return status.ToString();
-            return status + " - " + holdShort;
         }
 
         // The OriginLacksCargo token family: the special markers first
@@ -310,7 +305,7 @@ namespace Parsek
         /// Hard cap on the visible Status-cell hold text. The cell is 240 px
         /// and wraps, so this bounds the row to roughly two wrapped lines even
         /// with long vessel / route names; the FULL clause always survives in
-        /// the tooltip (<see cref="StatusCellTooltip"/>).
+        /// the Status hover (<c>LogisticsRoutePresentation.StatusTooltip</c>).
         /// </summary>
         internal const int StatusCellMaxChars = 60;
 
@@ -587,23 +582,22 @@ namespace Parsek
 
         /// <summary>
         /// The detail-panel line for a partial delivery
-        /// (<c>Route.LastPartialDeliverySummary</c>): "Last delivery was
-        /// partial: {summary} (age ago)" - the destination-capacity gate makes
-        /// partials rare (mid-transit capacity changes only), so when one DOES
-        /// happen the player must see exactly what was lost. Same age-suffix
-        /// contract as <see cref="FormatHoldDetailLine"/>. Returns null when
-        /// no summary is recorded.
+        /// (<c>Route.LastPartialDeliverySummary</c>): "Last delivery on Y1, D05, 22:40 was
+        /// partial: {summary}." - the destination-capacity gate makes partials rare
+        /// (mid-transit capacity changes only), so when one DOES happen the player must
+        /// see exactly what was lost, and when. Same date contract as
+        /// <see cref="FormatHoldDetailLine"/>. Returns null when no summary is recorded.
         /// </summary>
-        internal static string FormatPartialDeliveryLine(string summary, double ageSeconds)
+        internal static string FormatPartialDeliveryLine(
+            string summary, double partialUT, System.Func<double, string> formatDate)
         {
             if (string.IsNullOrEmpty(summary))
                 return null;
-            if (ageSeconds < 0.0)
-                return Fmt(LogisticsHoldClauses.PartialDeliveryLine, summary);
-            string age = LogisticsWindowUI.FormatDuration(ageSeconds);
-            if (age == "-")
-                return Fmt(LogisticsHoldClauses.PartialDeliveryLine, summary);
-            return Fmt(LogisticsHoldClauses.PartialDeliveryLineWithAge, summary, age);
+            string body = TrimFinalStop(summary);
+            if (partialUT < 0.0 || double.IsNaN(partialUT) || double.IsInfinity(partialUT))
+                return Fmt(LogisticsHoldClauses.PartialDeliveryLine, body);
+            return Fmt(LogisticsHoldClauses.PartialDeliveryLineOnDate, body,
+                ReservationExplanation.FormatDate(partialUT, formatDate));
         }
     }
 }

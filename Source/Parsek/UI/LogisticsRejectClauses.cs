@@ -29,11 +29,11 @@ namespace Parsek
     {
         /// <summary>The tree has at least one non-Immutable recording, so the route proof can still change.</summary>
         internal const string NotFullySealed =
-            "not fully sealed ({0} {1} still re-flyable)";
+            "not finished yet ({0} {1} can still be re-flown)";
 
         /// <summary>MissingRouteProof: no dock event was logged on the source recording.</summary>
         internal const string MissingRouteProof =
-            "Recording has no route proof - log the dock event to enable a Supply Route.";
+            "No dock was recorded on this flight, so there is nothing to repeat.";
 
         /// <summary>MultipleConnectionWindows: two transfers share a recorded moment and cannot be ordered.</summary>
         internal const string MultipleConnectionWindows =

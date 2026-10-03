@@ -217,8 +217,8 @@ namespace Parsek.Tests
             // for at all.
             Assert.Equal(
                 new[] { "main", "missions", "timeline", "kerbals", "logistics",
-                        "structure", "settings", "spawncontrol", "gloops", "testrunner",
-                        "testrunnerglobal" },
+                        "structure", "routehistory", "settings", "spawncontrol", "gloops",
+                        "testrunner", "testrunnerglobal" },
                 TestCommandUiAction.Windows.Select(w => w.Name).ToArray());
         }
 

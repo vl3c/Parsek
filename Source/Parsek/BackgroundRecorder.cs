@@ -7350,6 +7350,27 @@ namespace Parsek
         private static void AppendSectionFrameWarpFlag(BackgroundVesselState state)
         {
             state?.sectionFrameWarpFlags.Add(FlightRecorder.IsRailsWarpActiveForDiagnostics());
+            CloseProximitySilenceAtCommittedFrame(state);
+        }
+
+        /// <summary>
+        /// An event-driven frame (a structural snapshot at a joint break, a boundary point)
+        /// can be committed while the vessel is still out of range, and the section can close
+        /// in the same event chain (debris that hits the ground and is destroyed) before any
+        /// in-range tick ends the silence. A window still open at a commit means every tick
+        /// since it opened was skipped for range, so it ends at that frame; a seed carrying a
+        /// UT not after the silence start leaves it open.
+        /// </summary>
+        private static void CloseProximitySilenceAtCommittedFrame(BackgroundVesselState state)
+        {
+            if (state == null || double.IsNaN(state.proximitySilenceStartUT))
+                return;
+            List<TrajectoryPoint> frames = state.currentTrackSection.frames;
+            if (frames == null || frames.Count == 0)
+                return;
+            double frameUT = frames[frames.Count - 1].ut;
+            if (frameUT > state.proximitySilenceStartUT)
+                CloseProximitySilence(state, frameUT);
         }
 
         /// <summary>
@@ -7368,8 +7389,10 @@ namespace Parsek
 
         /// <summary>
         /// Closes an open proximity silence at the first tick the vessel is no longer
-        /// skipped for range, so the section-close gap check excuses exactly the out-of-range
-        /// time: an in-range stall after the return stays outside the window and still WARNs.
+        /// skipped for range (or at a frame committed while still out of range, see
+        /// <see cref="CloseProximitySilenceAtCommittedFrame"/>), so the section-close gap check
+        /// excuses exactly the out-of-range time: an in-range stall after the return stays
+        /// outside the window and still WARNs.
         /// </summary>
         private static void CloseProximitySilence(BackgroundVesselState state, double endUT)
         {

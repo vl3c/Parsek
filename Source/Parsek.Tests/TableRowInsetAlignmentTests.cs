@@ -665,6 +665,100 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Logistics Model 1: the header and every row add or drop the Advanced-only Runs
+        /// column from ONE bool, latched once per pass in DrawWindow before the first
+        /// section draws, so a Layout pass and its Repaint pass always draw the same
+        /// columns. Neither the header nor the row may read the mode itself (a mode change
+        /// between the two would misalign every column under the header).
+        /// </summary>
+        [Fact]
+        public void LogisticsHeaderAndRowsReadOneLatchedTuningBool()
+        {
+            string file = Path.Combine("UI", "LogisticsWindowUI.cs");
+            string prepared = ReadPreparedSource(file);
+            foreach (string method in new[] { "DrawRouteSortableHeader", "DrawRouteRow" })
+            {
+                string body = MethodBody(prepared, method, file);
+                Assert.Contains("if (drawTuning)", body);
+                Assert.DoesNotContain("AppliedUiComplexityMode", body);
+                Assert.DoesNotContain("ShowsRouteTuning", body);
+            }
+            string draw = MethodBody(prepared, "DrawWindow", file);
+            int latch = draw.IndexOf("drawTuning = ", StringComparison.Ordinal);
+            int firstSection = draw.IndexOf("DrawRouteSectionBubble(", StringComparison.Ordinal);
+            Assert.True(latch >= 0 && firstSection > latch,
+                "LogisticsWindowUI.DrawWindow must latch drawTuning before the first section draws.");
+        }
+
+        /// <summary>
+        /// Decision 1a, as laid out 2026-10-03: Delete lives in the expanded detail block,
+        /// out of the scan line, as a 100 px single in the block's own Interact column
+        /// (Rename on the first line, Delete on the second, Link round-trip... on the third
+        /// in Advanced) - never on a button row of its own. Every route-detail line ends in
+        /// that slot cell, so the buttons take the block's first lines. The row and its
+        /// Interact cell never arm Delete. The candidates table keeps its own Actions width,
+        /// so the route tables' Interact width cannot squeeze Create Route + Dismiss.
+        /// </summary>
+        [Fact]
+        public void LogisticsDeleteLivesInTheDetailBlockAndCandidatesKeepTheirWidth()
+        {
+            string file = Path.Combine("UI", "LogisticsWindowUI.cs");
+            string prepared = ReadPreparedSource(file);
+            foreach (string method in new[] { "DrawRouteRow", "DrawRouteInteractCell", "DrawRouteDetail" })
+                Assert.DoesNotContain("pendingConfirmDeleteRoute =", MethodBody(prepared, method, file));
+            string slotButton = MethodBody(prepared, "DrawDetailSlotButton", file);
+            Assert.Contains("pendingConfirmDeleteRoute = route", slotButton);
+            Assert.Contains("InteractSingleWidth", slotButton);
+            Assert.DoesNotContain("DrawRouteDetailButtonRow", prepared);
+            // Every route-detail line shape ends in the slot cell; a shape that skipped it
+            // would shift the slots and leave its label wider than the rest.
+            foreach (string method in new[]
+                     {
+                         "DrawEndpointRescan", "DrawMultiStopEndpointRescan",
+                         "DrawCadenceStepper", "DrawPriorityStepper", "DrawFlightsUsedLine",
+                     })
+                Assert.Contains("DrawDetailSlotCell()", MethodBody(prepared, method, file));
+            // The two DetailLine overloads that draw (the third forwards to one of them).
+            foreach (string overload in new[] { @"string text,\s*GUIStyle style", @"GUIContent content" })
+                Assert.True(Regex.IsMatch(prepared,
+                        @"void\s+DetailLine\(\s*" + overload + @"\s*\)\s*\{[^}]*DrawDetailSlotCell\(\)"),
+                    "LogisticsWindowUI.DetailLine(" + overload + ") must end in DrawDetailSlotCell().");
+            // The Interact grid: line 1 is the state button then Send, line 2 Go to then Log;
+            // every cell the same measured pair width, the column the measured column width
+            // in the header and every row, Go to through the Missions cross-link and Log to
+            // the Route History.
+            string grid = MethodBody(prepared, "DrawRouteInteractCell", file);
+            int send = grid.IndexOf("SendButtonLabel", StringComparison.Ordinal);
+            int goTo = grid.IndexOf("DrawRouteGoToButton(", StringComparison.Ordinal);
+            int log = grid.IndexOf("LogButtonLabel", StringComparison.Ordinal);
+            int line2 = grid.IndexOf("GUILayout.BeginHorizontal()", send < 0 ? 0 : send, StringComparison.Ordinal);
+            Assert.True(send > 0 && line2 > send && goTo > line2 && log > goTo,
+                "LogisticsWindowUI.DrawRouteInteractCell: line 1 must end in Send, line 2 be Go to then Log.");
+            Assert.Contains("GUILayout.Width(interactColumnWidth)", grid);
+            Assert.DoesNotContain("InteractButtonWidth", grid);
+            Assert.Contains("GUILayout.Width(interactColumnWidth)",
+                MethodBody(prepared, "DrawRouteSortableHeader", file));
+            Assert.Contains("ShowMissionForRecording(", MethodBody(prepared, "DrawRouteGoToButton", file));
+            Assert.Contains("OpenRouteHistoryWindow(", grid);
+
+            // Decision 3b: the live Cancel of a Send-armed route before launch goes through
+            // the dedicated cancel path (TryCancelSendOnce, no ledger row), never TryPause.
+            string interact = MethodBody(prepared, "DrawRouteInteractCell", file);
+            int cancel = interact.IndexOf("ArmedLine1.Cancel:", StringComparison.Ordinal);
+            int nextCase = interact.IndexOf("case ", cancel + 1, StringComparison.Ordinal);
+            Assert.True(cancel >= 0 && nextCase > cancel
+                        && interact.Substring(cancel, nextCase - cancel).Contains("pendingCancelSend = route")
+                        && !interact.Substring(cancel, nextCase - cancel).Contains("pendingPause = route"),
+                "LogisticsWindowUI.DrawRouteInteractCell: the Cancel branch must set pendingCancelSend, not pendingPause.");
+            foreach (string method in new[] { "DrawCandidateColumnHeader", "DrawCandidateRow" })
+            {
+                string body = MethodBody(prepared, method, file);
+                Assert.Contains("ColW_CandidateActions", body);
+                Assert.DoesNotContain("ColW_Interact", body);
+            }
+        }
+
+        /// <summary>
         /// On a screen narrower than the Missions window's natural width (1355 px), its two
         /// tabs scroll horizontally, and the pinned column header must scroll WITH the body
         /// or every column is misaligned by the scroll offset. The shared

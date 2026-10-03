@@ -343,8 +343,9 @@ namespace Parsek.Logistics
             RouteStore.DropRouteEscrow(route.Id);
 
             route.PauseAfterCurrentCycle = false;
-            // A pending Send Once one-shot is cancelled by an explicit pause; the
-            // never-fired arm leaves no ledger trace (nothing dispatched).
+            // A pending Send Once one-shot is cleared by an explicit pause. This path
+            // still writes its RoutePaused marker below; taking back an undispatched
+            // Send without any ledger row is TryCancelSendOnce.
             if (route.SendOnceArmed)
             {
                 route.SendOnceArmed = false;
@@ -355,6 +356,52 @@ namespace Parsek.Logistics
             // Route-timeline events: record the pause point so the ledger timeline
             // carries the player's pause history (retired at rewind past it).
             EmitRouteLifecycleMarker(route, currentUT, GameActionType.RoutePaused, "player-pause");
+            return true;
+        }
+
+        /// <summary>Transition reason of a Send arm taken back before its run launched.</summary>
+        internal const string SendOnceCancelledReason = "send-once-cancelled";
+
+        /// <summary>
+        /// Player "Cancel" on a Send-armed route whose run has not launched: undoes the
+        /// arm and returns the route to Paused, writing NO ledger row. Arming wrote none
+        /// either (<see cref="TrySendOneCycleNow"/> only flips fields; the dispatch row is
+        /// stamped when the run fires), so a cancelled Send leaves the ledger, and the
+        /// Route History built from it, exactly as before the arm. The Logistics window
+        /// offers Send only on a Paused route, so Paused is the state the arm left.
+        /// Refuses (false, Info-logged) a null route, a route with no pending Send arm,
+        /// and a route whose run is in flight (InTransit: a launched run cannot be
+        /// called back) or already Paused. Drops any escrow the arm could have reserved
+        /// (idempotent no-op when none is held).
+        /// </summary>
+        internal static bool TryCancelSendOnce(Route route)
+        {
+            if (route == null)
+            {
+                ParsekLog.Info(Tag, "TryCancelSendOnce: route=null");
+                return false;
+            }
+            if (!route.SendOnceArmed)
+            {
+                ParsekLog.Info(Tag,
+                    $"TryCancelSendOnce: route={ShortIdForLog(route)} status={route.Status} has no pending Send arm");
+                return false;
+            }
+            if (route.Status == RouteStatus.InTransit || route.Status == RouteStatus.Paused)
+            {
+                ParsekLog.Info(Tag,
+                    $"TryCancelSendOnce: route={ShortIdForLog(route)} status={route.Status} - not cancellable " +
+                    "(only an armed run that has not launched can be taken back)");
+                return false;
+            }
+
+            RouteStore.DropRouteEscrow(route.Id);
+            route.SendOnceArmed = false;
+            route.PauseAfterCurrentCycle = false;
+            route.TransitionTo(RouteStatus.Paused, SendOnceCancelledReason);
+            ParsekLog.Info(Tag,
+                $"TryCancelSendOnce: route={ShortIdForLog(route)} Send arm taken back before launch; " +
+                "route Paused, no ledger row written");
             return true;
         }
 

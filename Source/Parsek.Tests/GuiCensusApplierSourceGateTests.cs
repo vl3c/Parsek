@@ -311,6 +311,7 @@ namespace Parsek.Tests
                 case "KerbalsWindow": return TestCommandUiAction.KerbalsWindow;
                 case "LogisticsWindow": return TestCommandUiAction.LogisticsWindow;
                 case "StructureWindow": return TestCommandUiAction.StructureWindow;
+                case "RouteHistoryWindow": return TestCommandUiAction.RouteHistoryWindow;
                 case "SettingsWindow": return TestCommandUiAction.SettingsWindow;
                 case "SpawnControlWindow": return TestCommandUiAction.SpawnControlWindow;
                 case "GloopsWindow": return TestCommandUiAction.GloopsWindow;

@@ -459,7 +459,7 @@ namespace Parsek.Tests.Logistics
         // -----------------------------------------------------------------
         // M5: the toast fires (via ParsekLog.ScreenMessage) ONLY when a manual
         // loop was actually cleared. Pins the count-plumbing -> ShouldToast ->
-        // FormatManualLoopTurnedOffToast -> ScreenMessage seam (the IMGUI create
+        // FormatMissionNowRepeatsOnRouteToast -> ScreenMessage seam (the IMGUI create
         // wiring in CreateRouteFromCandidate is not unit-testable, so we drive the
         // same pure surface it calls and assert the screen-message sink).
         // -----------------------------------------------------------------
@@ -478,10 +478,10 @@ namespace Parsek.Tests.Logistics
             // Drive the same pure decision + format the create path runs.
             if (LogisticsCreatePresentation.ShouldToastManualLoopCleared(cleared))
                 ParsekLog.ScreenMessage(
-                    LogisticsCreatePresentation.FormatManualLoopTurnedOffToast("tree-X"), 5f);
+                    LogisticsCreatePresentation.FormatMissionNowRepeatsOnRouteToast("tree-X"), 5f);
 
             Assert.True(cleared > 0);
-            Assert.Contains(toasts, t => t.Contains("turned off: a route now owns this tree"));
+            Assert.Contains(toasts, t => t.Contains("now repeats only on this route's schedule"));
         }
 
         [Fact]
@@ -498,7 +498,7 @@ namespace Parsek.Tests.Logistics
             int cleared = RouteTreeGuard.ForceClearManualLoopForRoute(route, 100.0);
             if (LogisticsCreatePresentation.ShouldToastManualLoopCleared(cleared))
                 ParsekLog.ScreenMessage(
-                    LogisticsCreatePresentation.FormatManualLoopTurnedOffToast("tree-X"), 5f);
+                    LogisticsCreatePresentation.FormatMissionNowRepeatsOnRouteToast("tree-X"), 5f);
 
             Assert.Equal(0, cleared);
             Assert.Empty(toasts);

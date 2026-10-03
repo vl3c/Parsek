@@ -688,7 +688,9 @@ namespace Parsek
         // Mission-header summary line (T1.1): a muted grey, quieter than the bold title above
         // it, so the line reads as annotation rather than a second heading. A text colour on
         // the style, never an alpha on GUI.color (see EnsureStyles).
-        private static readonly Color MissionSummaryTextColor = new Color(0.78f, 0.78f, 0.78f);
+        // Internal: the Logistics window's grey Route second line reuses it (one muted text
+        // colour for a two-line title row across windows).
+        internal static readonly Color MissionSummaryTextColor = new Color(0.78f, 0.78f, 0.78f);
 
         // Tint for a loop-period value that the overlap cap raised above what was requested
         // (so the cell shows the real effective cadence in a distinct colour), and the colour

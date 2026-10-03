@@ -214,14 +214,14 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "ib-logistics-expanded-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },
 
-  # --- the Structure window, POPULATED, on each route's source mission ---
+  # --- the Mission Log, POPULATED, on each route's source mission ---
   # `op=target` is the whole difference from GUI-1's `ksc-structure-advanced`: it calls the
   # production opener, which sets the target and rebuilds the step list BEFORE raising the
   # flag, and reports the row count it produced as `steps=`.
-  # The `Route: KSC -> Mun` route's `Log` button opens the ORIGINAL mission of its source
-  # tree (`LogisticsWindowUI.ResolveRouteSourceTreeId` + `MissionStore.FindOriginalMission`).
-  # The seam drives no click, so the step names that tree id: `mission=` resolves a tree id
-  # to the tree's original mission, the same rule (this fixture: `Kerbal X #4`).
+  # The `Route: KSC -> Mun` route's source mission is the ORIGINAL mission of its source
+  # tree (`LogisticsWindowUI.ResolveRouteSourceTreeId` + `MissionStore.FindOriginalMission`),
+  # the mission its `Go to` reveals. `mission=` resolves a tree id to the tree's original
+  # mission, the same rule (this fixture: `Kerbal X #4`).
   { cmd = "UiAction", args = { op = "target", window = "structure", mission = "02382fcdcb1a465388529350c0879cd6" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "structure", x = "270", y = "8", w = "1000", h = "520" }, expect = "OK" },
@@ -239,6 +239,19 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "ib-structure-mission-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ib-structure-mission-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "structure" }, expect = "OK" },
+
+  # --- the Route History, on the Mun route ---
+  # The window the route's `Log` button opens: the second instance of the log table, titled
+  # `Parsek - Route History: <route>`, its rows the route's ledger rows (Effective Ledger
+  # Set). `op=target window=routehistory route=` calls the production opener. This
+  # fixture's committed routes carry no run of their own in the ledger, so the capture is
+  # the window's honest empty state (`No runs yet.`); `steps=` is regexed for that reason.
+  { cmd = "UiAction", args = { op = "target", window = "routehistory", route = "8f644e71b1164df3bb735330127d2ee7" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "routehistory", x = "270", y = "8", w = "1000", h = "520" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ib-routehistory-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ib-routehistory-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "routehistory" }, expect = "OK" },
 
   # --- the Missions window over a route-bound corpus ---
   # What is new here against GUI-1's pair of the same two tabs is the DATA: four missions,
@@ -358,12 +371,13 @@ allowedAnomalies = []
 # those are the claim.
 required = [
   # --- describe echoes, in step order ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,logistics",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,structure",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,missions",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,structure",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,routehistory",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,logistics",
   # --- the hover pair: the control was resolved by TEXT, and the cursor landed on it ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction find window=main text=Logistics ctrl=\\w+ match=\\w+ matches=[0-9]+ rect=",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction pointer at=[0-9.-]+,[0-9.-]+ park=false via=",
@@ -374,6 +388,7 @@ required = [
   # --- the two targeted Structure opens, which is what makes the window non-empty ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction target window=structure target=mission id=02382fcdcb1a465388529350c0879cd6 .*steps=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction target window=structure target=mission id=.* steps=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction target window=routehistory target=route id=8f644e71b1164df3bb735330127d2ee7 .*steps=[0-9]+",
   # --- the three popups the window table excludes, each reporting open=true ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction picker window=logistics picker=link target=71a983a16dc04d78bc2a2b90f1d184b0 open=true",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction picker window=missions picker=manage target=.* open=true",
@@ -389,6 +404,7 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-logistics-expanded-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-structure-route-log-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-structure-mission-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-routehistory-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-missions-missions-collapsed-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-missions-missions-expanded-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-missions-recordings-expanded-advanced .*patched=17/17",

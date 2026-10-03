@@ -124,8 +124,8 @@ count = { min = 0, max = 0 }
 # The describe echoes are the in-run mapping check: `open=<n> openWindows=<names>`
 # pinned as a literal is an EXACT claim, since a third open window would move the count.
 required = [
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,timeline",
   "Accept:",
   "\\[Parsek\\]\\[VERBOSE\\]\\[Timeline\\] Career slot hover rebuilt liveUT=[0-9]+ contractSlots=active=0/limit=2/peak=0/reserved=0/free=2/source=live strategySlots=active=0/limit=1/peak=0/reserved=0/free=1 missionControl=L1 administration=L1 contractsHover='Only contract rows, past and future\\. Contract slots: 2 of 2 free now \\(0 active\\)\\.' strategiesHover='Only strategy rows, past and future\\. Strategy slots: 1 of 1 free now \\(0 active\\)\\.'",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction find window=timeline text=Contracts ctrl=\\w+ match=exact matches=[0-9]+ rect=",

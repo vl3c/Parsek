@@ -57,7 +57,7 @@ namespace Parsek
         {
             if (notSealed)
             {
-                string noun = reflyableCount == 1 ? "recording" : "recordings";
+                string noun = reflyableCount == 1 ? "flight" : "flights";
                 return string.Format(CultureInfo.InvariantCulture,
                     LogisticsRejectClauses.NotFullySealed, reflyableCount, noun);
             }

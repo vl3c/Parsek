@@ -175,7 +175,7 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void DescribeNearMiss_NotSealed_Singular()
         {
-            Assert.Equal("not fully sealed (1 recording still re-flyable)",
+            Assert.Equal("not finished yet (1 flight can still be re-flown)",
                 LogisticsRejectPresentation.DescribeNearMiss(
                     RouteAnalysisStatus.Eligible, notSealed: true, reflyableCount: 1));
         }
@@ -184,7 +184,7 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void DescribeNearMiss_NotSealed_Plural()
         {
-            Assert.Equal("not fully sealed (3 recordings still re-flyable)",
+            Assert.Equal("not finished yet (3 flights can still be re-flown)",
                 LogisticsRejectPresentation.DescribeNearMiss(
                     RouteAnalysisStatus.Eligible, notSealed: true, reflyableCount: 3));
         }
@@ -199,7 +199,7 @@ namespace Parsek.Tests.Logistics
             string viaReject = LogisticsRejectPresentation.DescribeNearMiss(
                 RouteAnalysisStatus.MixedPickupDelivery, notSealed: true, reflyableCount: 2);
             Assert.Equal(viaEligible, viaReject);
-            Assert.Equal("not fully sealed (2 recordings still re-flyable)", viaEligible);
+            Assert.Equal("not finished yet (2 flights can still be re-flown)", viaEligible);
         }
 
         // ---- DeriveNearMisses ----
@@ -279,7 +279,7 @@ namespace Parsek.Tests.Logistics
         }
 
         // catches: an empty committed tree (no recordings) being reported as a near-miss
-        // with the self-contradictory "not fully sealed (0 recordings still re-flyable)".
+        // with the self-contradictory "not finished yet (0 flights can still be re-flown)".
         // An empty tree is not a meaningful near-miss and is skipped entirely.
         [Fact]
         public void DeriveNearMisses_EmptyTree_NotANearMiss()
@@ -306,7 +306,7 @@ namespace Parsek.Tests.Logistics
             RouteNearMiss nm = Assert.Single(nearMisses);
             string text = LogisticsRejectPresentation.DescribeNearMiss(
                 nm.Status, nm.NotSealed, nm.ReflyableCount);
-            Assert.Equal("not fully sealed (1 recording still re-flyable)", text);
+            Assert.Equal("not finished yet (1 flight can still be re-flown)", text);
         }
 
         // catches (M6 verify, design 19.4 M6 first bullet): any link in the

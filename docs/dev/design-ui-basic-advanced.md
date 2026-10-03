@@ -5,6 +5,8 @@
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies the UI complexity mode: which surfaces Basic hides, how the gate is implemented, and the visibility-only guarantee.*
 
 **Status:** IMPLEMENTED (phases 1-8 landed on branch `claude/mods-ui-basic-advanced-amrgy9`, in-game validation pending). All blocking decisions are RESOLVED. First-run default (section 7.3): the stored setting always wins, Basic is the default for new installs only, an existing install is never changed. Basic hide-set (section 4): as specified, with Logistics explicitly kept visible for discoverability (philosophy 7); the conditional "appear once used" variant is rejected in section 10. Naming (section 4.1): the main-window button, window title, and first/default tab all become Missions in BOTH modes, the one deliberate Advanced-visible change in this feature; section 4.2 lists the "Recordings" strings that must NOT be renamed.
+**Logistics (section 4.6):** the Logistics window draws in both modes; its route TUNING controls are hidden in Basic under `UiSurface.LogisticsRouteTuning`.
+
 **Amendment 2026-09-27 (owner decision, section 4 Career row):** the Career State window is REMOVED in both modes - its class, its launcher, `UiSurface.MainButtonCareer` and its entry in the section 7.2 close set. Its one unique fact, the slots the committed future reserves, is the last sentence of the Timeline's `Contracts` / `Strategies` button hovers in Career mode (the Timeline is kept in Basic, so that fact is now visible in Basic too). The Career rows below are kept as the record of the decision they took.
 
 **Amendment 2026-09-22 (owner re-ruling, section 4 Kerbals row):** the Kerbals window is visible in Basic - it is the only surface that says why a reserved kerbal is missing from stock crew assignment, and it is read-only. `UiSurface.MainButtonKerbals` is KEEP and `kerbalsUI` left the Advanced -> Basic close set (section 7.2).
@@ -20,9 +22,9 @@
 
 ## 1. Introduction
 
-Players report the Parsek UI is too complicated. The main window presents eight launch buttons, which open windows totalling roughly 25,000 lines of IMGUI across 13 distinct surfaces. Several of those surfaces are read-only reference panels or power-user tools that a player never needs in order to use the mod's core loop.
+Players report the Parsek UI is too complicated. The main window's launchers open a dozen distinct IMGUI windows, and several of those surfaces are raw tables, power-user tools or developer instrumentation that a player never needs in order to use the mod's core loop.
 
-This document specifies a **UI complexity mode**: a single Settings toggle with two values, `Basic` and `Advanced`. `Advanced` is exactly today's UI, unchanged. `Basic` hides the surfaces that are not required to fly, commit, loop, and rewind.
+This document specifies a **UI complexity mode**: a single Settings toggle with two values, `Basic` and `Advanced`. `Advanced` is the full UI. `Basic` hides the surfaces that are not required to fly, commit, watch, and rewind.
 
 This document covers:
 - A full inventory of every Parsek UI surface (section 3).
@@ -37,24 +39,24 @@ This document does NOT cover: restyling any window, changing any window's intern
 
 | Situation | What happens |
 |-----------|--------------|
-| Fresh install (no Parsek footprint anywhere), first open of the main window | Four buttons: Timeline, Missions, Logistics, Settings |
-| Player sets Settings -> Interface -> Advanced | Main window grows to the full eight-button set on the next frame; nothing else changes |
-| Player switches back to Basic while the Real Spawn Control window is open | That window closes, its input lock is released, its state is preserved (the Career window this row first named was removed 2026-09-27) |
-| Player in Basic mode flies, commits, loops, and rewinds a mission | Every step works; no hidden window is required at any point |
+| Fresh install (no Parsek footprint anywhere), first open of the main window | Five buttons: Timeline, Missions, Logistics, Kerbals, Settings |
+| Player sets Settings -> Interface -> Advanced | On the next frame the main window adds `Real Spawn Control` in flight, the Missions window gains its `Recordings` tab and the manual-loop controls, and Settings gains its Looping, Recorder Sample Density and Diagnostics sections |
+| Player switches back to Basic while the Real Spawn Control window is open | That window closes, its input lock is released, its state is preserved |
+| Player in Basic mode flies, commits, watches, and rewinds a mission | Every step works; no hidden window is required at any point |
 | Existing install (any Parsek footprint), first run after update | Stays on Advanced (see section 7.3), so nothing the player used disappears |
 
 ### 1.2 Worked example
 
 A new player installs Parsek and starts a career save.
 
-1. Main window opens with `Timeline`, `Missions`, `Logistics`, `Settings`. Four buttons instead of eight.
-2. They launch a rocket. Recording starts automatically (`autoRecordOnLaunch = true`), no UI needed.
+1. Main window opens with `Timeline`, `Missions`, `Logistics`, `Kerbals`, `Settings`.
+2. They launch a rocket. Recording starts automatically, no UI needed.
 3. They return to the Space Center. The scene-exit Merge dialog commits the recording, unchanged in Basic.
-4. They open `Missions`, see one mission, set it to loop every 6 hours, and tick its include checkbox.
+4. They open `Missions` and see one mission: its name and summary, `Log`, `Watch`, `Rewind`, `Collapse`.
 5. They open `Timeline`, find the launch row, and click `R` to rewind to it.
 6. The ghost of the first flight replays alongside their new one.
 
-At no point did they need Recordings (raw per-recording table), Kerbals, Career, Gloops, or Real Spawn Control. Those four windows plus the Recordings tab are what Basic hid at first. **Owner re-ruling 2026-09-22: the Kerbals window is visible in Basic** - it is the only surface that explains why a reserved kerbal is missing from stock crew assignment, and it is read-only - so Basic now hides Career, Gloops, Real Spawn Control and the Recordings tab.
+At no point did they need the Recordings tab (the raw per-recording table), Real Spawn Control, manual loop authoring, or the Looping / Sample Density / Diagnostics settings. Those are what Basic hides. The Gloops Flight Recorder launcher is retired in both modes.
 
 ---
 
@@ -72,79 +74,73 @@ At no point did they need Recordings (raw per-recording table), Kerbals, Career,
 
 ## 3. Full UI Inventory
 
-### 3.1 Main window (`ParsekUI.DrawWindow`, `ParsekUI.cs:193-385`)
+The measured structural map of every window, tab, dialog and overlay is `docs/dev/design-gui-inventory.md` section 3; this section lists only what the gate decides over.
 
-The launcher, opened by the stock ApplicationLauncher toolbar button (`ParsekFlight.cs:1301` for FLIGHT/MAPVIEW, `ParsekKSC.cs:128` for SPACECENTER). Contents in draw order:
+### 3.1 Main window (`ParsekUI.DrawWindow`)
 
-| Element | Condition | Line |
-|---------|-----------|------|
-| Flight status line | InFlight only | `ParsekUI.cs:197` |
-| Compact budget line | always | `ParsekUI.cs:200` |
-| `Real Spawn Control (N)` | InFlight only, disabled when N=0 | `ParsekUI.cs:216` |
-| `Timeline` | always | `ParsekUI.cs:230` |
-| `Recordings` | always | `ParsekUI.cs:239` |
-| Supply Route candidate banner | when `RouteRunPrompt.HasPendingPrompt` | `ParsekUI.cs:248` |
-| `Logistics` | always, red tint when broken, cyan when prompt pending | `ParsekUI.cs:314` |
-| `Kerbals` | always | `ParsekUI.cs:329` |
-| ~~`Career`~~ | REMOVED 2026-09-27 with its window | - |
-| `Gloops Flight Recorder` | InFlight only | `ParsekUI.cs:346` |
-| `Settings` | always | `ParsekUI.cs:356` |
-| Version footer + `Close` | always | `ParsekUI.cs:371` |
+The launcher, opened by the stock ApplicationLauncher toolbar button in FLIGHT / MAPVIEW (`ParsekFlight`) and SPACECENTER (`ParsekKSC`). Contents in draw order:
+
+| Element | Condition | Gate key |
+|---------|-----------|----------|
+| `Real Spawn Control (N)` | InFlight only, disabled when N=0 | `MainButtonSpawnControl` (hidden in Basic) |
+| `Timeline` | always | `MainButtonTimeline` |
+| `Missions` | always | `MainButtonRecordings` |
+| Supply Route candidate banner (`Open Logistics`, `Dismiss`) | when `RouteRunPrompt.HasPendingPrompt` | none |
+| `Logistics` | always, red tint when a route is hard-broken, cyan while a candidate banner is pending | `MainButtonLogistics` |
+| `Kerbals` | always | `MainButtonKerbals` |
+| `Gloops Flight Recorder` | InFlight only | `MainButtonGloops` (retired in both modes) |
+| `Settings` | always | `MainButtonSettings` |
+| Tooltip strip, version label + `Close` | always | none |
 
 ### 3.2 Windows launched from the main window
 
-Interactive-control counts are mechanical (`Button(` and `Toggle(` occurrences) and are used in section 4 as a proxy for "control surface vs reference panel".
-
-| Window | File | Lines | Button( | Toggle( | Nature |
-|--------|------|-------|---------|---------|--------|
-| Recordings table | `UI/RecordingsTableUI.cs` | 5739 | 62 | 13 | Heavy control surface |
-| Missions tab (hosted in the above) | `UI/MissionsWindowUI.cs` | 2581 | 17 | 5 | Control surface |
-| Logistics | `UI/LogisticsWindowUI.cs` | 3820 | - | - | Route management |
-| ~~Career State~~ | removed 2026-09-27 | - | - | - | (was a read-only reference) |
-| Timeline | `UI/TimelineWindowUI.cs` | 1591 | 29 | 10 | Actionable (rewind, warp) |
-| Kerbals | `UI/KerbalsWindowUI.cs` | 1306 | 8 | 0 | Read-only reference |
-| Settings | `UI/SettingsWindowUI.cs` | 591 | - | - | Configuration |
-| Real Spawn Control | `UI/SpawnControlUI.cs` | 366 | - | - | InFlight utility |
-| Gloops Flight Recorder | `UI/GloopsRecorderUI.cs` | 330 | - | - | Manual ghost-only recorder |
-
-The Career window's four `Button(` hits are two `Close` and the two row name cells (a contract or strategy name is a label-styled button that scrolls the Timeline's Career view to it, UI state only; its tab bar is a `Toolbar`, not counted, and its one `Toggle(` is the in-table pending fold; re-measured 2026-09-24); the Kerbals window's seven are `Close` (`KerbalsWindowUI.cs:636`), the plain-kerbal bucket fold (`:674`), the Roster's Last flight cell (`:735`), the per-kerbal Flights fold (`:814`) and the three cells of one Flights row (`:835`, `:839`, `:845`); the Last flight cell and the Flights cells cross-link to a Timeline scroll (UI state only). Re-measured against the 2026-09-22 round-2 rework; the pre-rebuild reading was four at `:326` / `:399` / `:565` / `:577`. Neither window mutates game or Parsek state. Both are pure reporting surfaces.
+| Window | File | Nature |
+|--------|------|--------|
+| Missions (Missions tab + Recordings tab) | `UI/RecordingsTableUI.cs` (chrome, Recordings tab), `UI/MissionsWindowUI.cs` (Missions tab) | The Recordings tab is the densest control surface in the mod; the Missions tab is the mission-level control surface |
+| Timeline | `UI/TimelineWindowUI.cs` | Actionable (rewind, fast-forward, warp, re-fly) |
+| Logistics | `UI/LogisticsWindowUI.cs` | Route management |
+| Kerbals | `UI/KerbalsWindowUI.cs` | Read-only reference: every control is a fold or a Timeline cross-link |
+| Settings | `UI/SettingsWindowUI.cs` | Configuration |
+| Real Spawn Control | `UI/SpawnControlUI.cs` | InFlight utility |
+| Gloops Flight Recorder | `UI/GloopsRecorderUI.cs` | Manual ghost-only recorder; launcher retired |
 
 ### 3.3 Tabs inside windows
 
-| Host window | Tabs | Source |
-|-------------|------|--------|
-| Recordings | `Recordings`, `Missions` | `RecordingsTableUI.cs:127` |
-| ~~Career State~~ | removed 2026-09-27 (the Timeline's Career view carries its history; its slot counts are the Contracts / Strategies button hovers) | - |
-| Kerbals | `Roster`, `Flights` (seam tokens still `roster` / `outcomes`) | `KerbalsWindowUI.cs:196` |
+| Host window | Tabs |
+|-------------|------|
+| Missions | `Missions`, `Recordings` (`RecordingsTableUI.TabLabels`) |
+| Kerbals | `Roster`, `Flights` (seam tokens `roster` / `outcomes`) |
+
+The Timeline's view row (`Overview` / `Details` / `Rewind/FF` / `Re-Fly` / `Career`) is a filter, not a tab bar; nothing in it is mode-gated.
 
 ### 3.4 Settings window sections
 
-`SettingsWindowUI.cs`, in draw order at the time of this design: `Recording`, `Looping`, `Ghosts`, `Stock UI`, `Diagnostics`, `Recorder Sample Density`, `Data Management`. (2026-08-27 settings simplification: the `Recording` and `Stock UI` sections were retired outright, and `Looping` shrank to the auto-launch period row - the current order is `Interface`, `Looping`, `Ghosts`, `Diagnostics`, `Recorder Sample Density`, `Data Management`. 2026-09-26: `Data Management` was removed outright by the ruling that recordings are never player-deletable, so the window now draws `Interface`, `Ghosts`, `Looping`, `Recorder Sample Density`, `Diagnostics`.) The Diagnostics section also hosts the in-game Test Runner launch.
+`SettingsWindowUI.cs`, in draw order: `Interface`, `Ghosts`, `Looping`, `Recorder Sample Density`, `Diagnostics`. The Diagnostics section also hosts the in-game Test Runner launch.
 
 ### 3.5 Contextual surfaces (not launched from the main window)
 
 | Surface | File | Opened from |
 |---------|------|-------------|
-| Log window (mission step list) | `UI/StructureListWindowUI.cs` | Missions row `Log`, Logistics route `Log` (the source mission's Log) |
+| Mission Log (mission step list) | `UI/StructureListWindowUI.cs` | Missions row `Log` |
+| Route History (a route's runs; second instance of the same class) | `UI/StructureListWindowUI.cs` | Logistics route `Log` |
 | Group picker popup | `UI/GroupPickerUI.cs` | Recordings tab group assignment |
-| Route creation dialog | `UI/RouteCreationDialog.cs` | Logistics `Create` |
-| Logistics link picker (second top-level IMGUI window) | `UI/LogisticsWindowUI.cs:1707` | Logistics |
+| Logistics link picker (a second top-level IMGUI window) | `UI/LogisticsWindowUI.cs` | Logistics |
 | Settings-launched test runner window | `UI/TestRunnerUI.cs` (`ParsekTestRunner`) | Settings -> Diagnostics |
-| Global test runner window (separate window, separate lock) | `InGameTests/TestRunnerShortcut.cs:189-197` (`ParsekTestRunnerGlobal`) | Ctrl+Shift+T, any scene |
-| Spawn warning (pure text helper; rendered by ParsekFlight) | `SpawnWarningUI.cs` | Spawn flow |
+| Global test runner window (separate window, separate lock) | `InGameTests/TestRunnerShortcut.cs` (`ParsekTestRunnerGlobal`) | Ctrl+Shift+T, any scene |
 | Merge / Discard dialogs | `MergeDialog.cs` | Scene exit, pre-switch |
-| Missions warp-to-window confirm | `UI/MissionsWindowUI.cs:1282` | Missions `Warp to...` |
-| Rewind-flow dialogs | `ReFlyRevertDialog.cs:236`, `RewindInvoker.cs:452`, `WarpToTimeController.cs:223` | Timeline rewind flow |
-| Seal confirm | `UnfinishedFlightSealHandler.cs:214` | Missions / Timeline Seal |
-| Wipe / delete confirms | `ParsekUI.cs:921`, `:954` (both removed 2026-09-26 with Settings Data Management), `RecordingsTableUI.cs:3979/4022/4058`, `LogisticsWindowUI.cs:2496/2537/2640` | Settings Data Management (gone), Recordings tab, Logistics |
-| Save-failed popup | `SceneExitInterceptor.cs:536` | Scene-exit save failure |
-| Blocked-action popup | `CommittedActionDialog.cs:31` | Game event, no UI parent |
-| Flight-map ghost icon menu | `Patches/GhostVesselLoadPatch.cs:324` (`ParsekGhostIconMenu`) | Clicking a ghost icon in the flight map; NO parent window |
-| Tracking Station ghost icon menu | `ParsekTrackingStation.cs:1241` (`ParsekTrackingStationGhostMenu`) | Clicking a ghost icon in the TS; NO parent window; includes Materialize |
+| Missions warp-to-launch confirm | `MissionsWindowUI.ShowMissionWarpToWindowConfirmation` | Missions `Warp to...` |
+| Rewind / fast-forward / re-fly / warp confirms | `RecordingsTableUI.ShowRewindConfirmation` / `ShowFastForwardConfirmation`, `RewindInvoker`, `ReFlyRevertDialog`, `WarpToTimeController` | Missions, Recordings tab, Timeline |
+| Seal confirm | `UnfinishedFlightSealHandler` | Missions / Recordings / Timeline `Seal` |
+| Disband-group and Logistics delete / create confirms | `RecordingsTableUI.ShowDisbandGroupConfirmation`, `LogisticsWindowUI` | Recordings tab, Logistics |
+| Save-failed popup | `SceneExitInterceptor` | Scene-exit save failure |
+| Blocked-action popup | `CommittedActionDialog` | A refused stock-control click, no UI parent |
+| Flight-map ghost icon menu | `Patches/GhostVesselLoadPatch.cs` (`ParsekGhostIconMenu`) | Clicking a ghost icon in the flight map; NO parent window |
+| Tracking Station ghost icon menu | `ParsekTrackingStation` (`ParsekTrackingStationGhostMenu`) | Clicking a ghost icon in the TS; NO parent window |
 | Flight map markers | `ParsekUI.DrawMapMarkers` | Map view |
-| Tracking Station markers | `ParsekTrackingStation.cs` OnGUI (`:337`) | Tracking Station |
+| Tracking Station markers | `ParsekTrackingStation.OnGUI` | Tracking Station |
+| In-world ghost labels | `ParsekFlight.DrawGhostLabels` (text from `SpawnWarningUI`) | Flight |
 
-Most of these are reached only through a parent surface or a game-flow event, so gating the parent gates them implicitly. Explicit exceptions with their own rules: the two test runner windows (section 6.3: only the Settings-launched instance is affected, the global Ctrl+Shift+T window is never gated), the Group picker (must be force-closed on mode change since it can be open when Basic is selected, section 7.2), and the two ghost icon menus (parentless; deliberately NOT gated: they are playback surfaces, not complexity surfaces, and hold no input locks). The Timeline `GoTo` cross-link was the one kept-surface-to-hidden-surface link; the section 4.1a revision retargets it at the Missions tab, so no kept surface now links to a hidden one.
+Most of these are reached only through a parent surface or a game-flow event, so gating the parent gates them implicitly. Explicit exceptions with their own rules: the two test runner windows (section 6.3: only the Settings-launched instance is affected, the global Ctrl+Shift+T window is never gated), the Group picker (force-closed on mode change because it can be open when Basic is selected, section 7.2), and the two ghost icon menus (parentless; deliberately NOT gated: they are playback surfaces, not complexity surfaces, and hold no input locks). The Timeline `GoTo` cross-link targets the Missions tab (section 4.1a), so no kept surface links to a hidden one.
 
 ---
 
@@ -155,141 +151,123 @@ The test applied to each surface: **can a player complete the core loop (fly -> 
 | Surface | Basic | Rationale |
 |---------|-------|-----------|
 | Timeline | **Keep** | The only access to rewind (`R`), fast-forward (`FF`), and `Warp to time`. Irreplaceable. |
-| Logistics | **Keep** | The only surface for supply routes. Broken-route red tint is a player-visible error channel. Kept visible even for a player with zero routes, per philosophy 7: it is the button that teaches them supply routes exist. See section 10 for the rejected conditional-visibility variant. |
+| Logistics | **Keep** (route tuning hidden, section 4.6) | The only surface for supply routes. Broken-route red tint is a player-visible error channel. Kept visible even for a player with zero routes, per philosophy 7: it is the button that teaches them supply routes exist. See section 10 for the rejected conditional-visibility variant. Inside the window, route tuning is Advanced-only (section 4.6); every route, its read-only interval, status and next run, and Activate / Pause / Cancel / Send / Go to / Log / Rename / Delete show in both modes. |
 | Settings | **Keep** | Hosts the mode toggle itself. Must always be reachable. |
-| Missions tab | **Keep** | The player-facing mission abstraction: name, Watch, Log, Collapse / Expand, Rewind / Forward (Missions Model 1, 2026-09-29/30: Delete, Warp to... and the TTL countdown became Advanced-only, and Archive became Collapse / Expand). Sufficient for all routine recording management. Its manual-loop AUTHORING controls (the `Loop` toggle, the loop-period cell, the include checkboxes, and since 2026-08-20 the `Clone` button) are the one carve-out: hidden in Basic per section 4.5. |
-| Recordings tab | **Hide** | The raw per-recording table (62 buttons, 13 toggles). Almost everything a normal player needs is expressed at the Mission level; the one known exception is retroactive per-recording playback-disable, accepted as a v1 limitation in section 4.3. This is the single largest complexity reduction available. |
-| Career window | **Removed 2026-09-27** (was **Hide**) | 4 buttons (two are Timeline cross-links), 1 toggle, zero mutations. The state view of contracts and strategies: slots now, a Timeline-end column and an in-table Pending-in-timeline fold. Pure power-user reference; the dated history behind it is the Timeline's Career view, which Basic keeps. Independently of the mode, its launcher shows only in Career games (Science and Sandbox have no contracts or strategies). |
-| Kerbals window | **Keep** (was Hide; owner re-ruling 2026-09-22) | Zero mutations (every control is a fold or a Timeline cross-link). Reports roster state and per-kerbal mission outcomes. The comprehension gap that decided it: the CrewDialogFilter patch silently removed reserved kerbals from stock crew assignment, and this window was the only surface explaining why - hiding it left a Basic player with a missing kerbal and no explanation. (Since 2026-09-25 the crew dialog lists a reserved kerbal greyed with the reason instead; re-ruling this row is open decision D3 of the stock-UI reservation analysis.) Read-only, so showing it costs nothing a Basic player could break. Same window in both modes; no Basic-specific variant. |
-| Gloops Flight Recorder | **Hide** | Manual ghost-only recording. An explicitly opt-in power feature; the automatic recorder covers the normal path. The mode switch is refused while a Gloops recording is in progress (section 7.2), so hiding the window can never strand a running manual recording. |
-| Real Spawn Control | **Hide** | Proximity spawning of nearby recorded vessels. Advanced staging tool, already conditional (InFlight, disabled at zero candidates). Residual loss: it is also the only surface listing when a still-playing ghost becomes a real craft (`SelectiveSpawnUI.cs:35-42`); spawn-at-end itself stays automatic, so no capability is lost, only the countdown/warp convenience. |
-| Settings: Looping | **Hide** | The global half of the section 4.5 authoring set: the auto-launch period (which IS the period of any Auto-unit mission, i.e. the value the hidden loop-period cell would show). At design time the section also held the landing-body alignment A/B mode and the force-faithful (no re-aim) toggle; the 2026-08-27 settings simplification retired both from the window (alignment pinned Loose, force-faithful harness-only). |
-| Settings: Diagnostics | **Hide** | Verbose logging, ghost/map/ledger render tracing, Test Runner. Developer instrumentation; the tracing toggles warn about huge logs. Also hides the RewindPoints disk-usage readout (`SettingsWindowUI.cs:525-531`), a power-user report, not developer instrumentation; accepted. |
+| Missions tab | **Keep** | The player-facing mission abstraction: name and rename, summary, `Log`, `Watch`, `Rewind` / `Forward`, `Collapse` / `Expand`, `Fly` / `Stash` / `Seal`, `Go to` and the Docked partner rows. Sufficient for all routine recording management. Its manual-loop AUTHORING surface (`Clone`, `Delete`, `Warp to...`, the `Loop` toggle and period, the summary countdown, the include checkboxes and the per-vessel interval detail) is the one carve-out: hidden in Basic per section 4.5. |
+| Recordings tab | **Hide** | The raw per-recording table, the mod's densest control surface. Almost everything a normal player needs is expressed at the Mission level; the one known exception is retroactive per-recording playback-disable, accepted as a v1 limitation in section 4.3. This is the single largest complexity reduction available. |
+| Kerbals window | **Keep** | Zero mutations (every control is a fold or a Timeline cross-link). Reports roster state and per-kerbal mission outcomes, and is the one surface that lists every reserved, stand-in, retired and lost kerbal with the reason. Read-only, so showing it costs nothing a Basic player could break. Same window in both modes; no Basic-specific variant. |
+| Gloops Flight Recorder | **Hide** (retired in both modes) | Manual ghost-only recording, an explicitly opt-in power feature; the automatic recorder covers the normal path. The launcher is retired in Advanced too (`UiSurfaceVisibility.IsRetired`). The mode switch is refused while a Gloops recording is in progress (section 7.2), so hiding the window can never strand a running manual recording. |
+| Real Spawn Control | **Hide** | Proximity spawning of nearby recorded vessels. Advanced staging tool, already conditional (InFlight, disabled at zero candidates). Residual loss: it is also the only surface listing when a still-playing ghost becomes a real craft (`SelectiveSpawnUI`); spawn-at-end itself stays automatic, so no capability is lost, only the countdown / warp convenience. |
+| Settings: Looping | **Hide** | The global half of the section 4.5 authoring set: the auto-launch period, which IS the period of any Auto-unit mission, i.e. the value the hidden loop-period cell would show. |
+| Settings: Diagnostics | **Hide** | Verbose logging, ghost / map / ledger render tracing, readable recording copies, Test Runner, Diagnostics Report. Developer instrumentation; the tracing toggles warn about huge logs. Also hides the RewindPoints disk-usage readout, a power-user report rather than developer instrumentation; accepted. |
 | Settings: Sample Density | **Hide** | Recorder fidelity tuning. A wrong value degrades recordings; the Medium default is correct for normal play. |
-| Settings: Data Management | **Removed 2026-09-26** | The section and both wipes are gone in every mode: recordings are never player-deletable (a deletion breaks the timeline and the ledger). The per-row Archive checkbox is the only way to stop seeing a recording. |
 
-**Result.** Basic shows four main-window buttons (Timeline, Missions, Logistics, Settings) instead of eight - five since the 2026-09-22 Kerbals re-ruling (the Kerbals window row above) - one tab instead of two in the Missions window, and five Settings sections instead of eight (this feature itself adds the always-visible `Interface` section that hosts the toggle, making eight total in Advanced; Basic hides Looping, Diagnostics and Sample Density).
+There is no Career window and no Settings Data Management section in either mode: contracts and strategies are read through stock Mission Control / Administration and the Timeline's Career view, and recordings are never player-deletable (the per-row Archive checkbox is the only way to stop seeing a recording).
+
+**Result.** Basic shows five main-window buttons (Timeline, Missions, Logistics, Kerbals, Settings) where Advanced shows the same five plus `Real Spawn Control` in flight; one tab instead of two in the Missions window; and two Settings sections (`Interface`, `Ghosts`) instead of five.
 
 ### 4.1 Naming and tab order (DECIDED, applies to BOTH modes)
 
-Today a button named `Recordings` opens a window titled `Parsek - Recordings` whose first tab is `Recordings` and whose second tab, `Missions`, holds the abstraction players actually work with. In Basic, where the Recordings tab is hidden, that naming would be actively wrong. Making the label mode-dependent would be worse: the same button would carry two names depending on a setting.
+Missions is the primary identity of this window in both modes, because in Basic, where the Recordings tab is hidden, a window named after recordings would be wrong, and a label that changed with the mode would be worse:
 
-**Decision.** Missions becomes the primary identity of this window in both modes:
+- The main-window button reads **`Missions`** (a constant in `ParsekUI.DrawWindow`; no mode-dependent label helper).
+- The window title reads **`Parsek - Missions`**.
+- The tab order is **`{ "Missions", "Recordings" }`** (`RecordingsTableUI.TabLabels`), `TabMissions = 0`, `TabRecordings = 1`, and the default is `selectedTab = TabMissions`, so Missions is both first and the default selection.
+- `selectedTab` is transient (never persisted), so no stored tab index exists to migrate.
+- The dispatch is keyed on the named constants (`selectedTab == TabMissions`), never on literal ints, and `TabRecordings` / `TabMissions` / `TabLabels` / `selectedTab` have no consumers outside `RecordingsTableUI.cs` and its tests.
 
-- The main-window button reads **`Missions`** (`ParsekUI.cs:239`).
-- The window title reads **`Parsek - Missions`** (`RecordingsTableUI.cs:435`).
-- The tab order becomes **`{ "Missions", "Recordings" }`**, so Missions is both first and the default selection (`RecordingsTableUI.cs:127`).
-- The tab constants swap to `TabMissions = 0`, `TabRecordings = 1`, and the default becomes `selectedTab = TabMissions` (`RecordingsTableUI.cs:124-126`).
-- `RecordingsTableUI.ScrollToRecording` gains an explicit `selectedTab = TabRecordings` (see section 4.1a; it worked before the reorder only because Recordings happened to be the default tab). Superseded by the section 4.1a revision: the method still does this, but has no production caller.
-- The two Timeline GoTo tooltips `"Show in Recordings Manager"` (both in `TimelineWindowUI.DrawEntryRow`) become `"Show in Recordings tab"`. Superseded by the section 4.1a revision: the target is now the Missions tab and the tooltip reads `"Show this recording's mission"`.
+### 4.1a Timeline GoTo cross-link
 
-Because the label no longer varies by mode, the planned `GetRecordingsMainButtonLabel(mode)` helper is unnecessary; a constant label is correct, and the `GetKerbalsMainButtonLabel` indirection pattern is not needed here.
-
-**This is safe to reorder.** `selectedTab` is explicitly transient and not persisted (`RecordingsTableUI.cs:120-122`, "Transient (not persisted), matching the Kerbals / Career State tab idiom"). No player has a stored tab index that this reorder could flip, so there is no migration concern.
-
-The dispatch at `RecordingsTableUI.cs:1190` is keyed on the named constants (`if (selectedTab == TabMissions)`), not on literal ints, so swapping the constant values carries it automatically. Verified at review time: `TabRecordings` / `TabMissions` / `TabLabels` / `selectedTab` have zero consumers outside `RecordingsTableUI.cs` (CareerState / Kerbals have their own private homonyms), and nothing externally selects a tab. Re-verify at implementation time.
-
-### 4.1a Timeline GoTo cross-link (NEW, from review; REVISED, see below)
-
-Timeline rows carry a `GoTo` button that navigates from a timeline row to the flight it belongs to. Two `RecordingStart` / separation row flavours carry it (`TimelineWindowUI.cs`, both inside `DrawEntryRow`).
-
-**Original disposition (shipped in phases 1 and 5).** GoTo called `RecordingsTableUI.ScrollToRecording`, which targets the raw **Recordings tab**. Two obligations followed:
-
-- **Phase 1 (both modes):** `ScrollToRecording` had to set `selectedTab = TabRecordings` explicitly, or the tab reorder alone would regress GoTo in Advanced (window opens on Missions, the scroll silently never lands, the pending id dangles).
-- **Basic:** the GoTo button was gated by `IsVisible(UiSurface.TabRecordings, mode)` - a control whose sole purpose is navigating to a hidden surface is gated by the target surface's key, not its host window's. Hiding the button also prevented the unhide/HideActive side effects from firing invisibly.
-
-**Revised disposition (current).** Hiding the button left Basic with no way at all to get from a timeline row to its flight, which is a core-loop action, not an advanced one. GoTo now targets the **Missions tab** - the surface Basic keeps - so the button is present and useful in BOTH modes and no gate hides it:
+Timeline `RecordingStart` and separation rows carry a `GoTo` button that navigates from a timeline row to the flight it belongs to (`TimelineWindowUI.DrawEntryRow`). It targets the **Missions tab** - a surface Basic keeps - so it is present and useful in both modes:
 
 - `TimelineWindowUI` calls `RecordingsTableUI.ShowMissionForRecording(recordingId)`, which force-opens the window, sets `selectedTab = TabMissions`, and delegates to `MissionsWindowUI.RevealMissionForRecording`.
 - Resolution is recording -> `Recording.TreeId` -> `MissionStore.FindOriginalMission(treeId)`. A tree may carry several missions (clones); the original is the deterministic, name-linked one (the same pick `MissionGroupLink` makes).
-- The reveal schedules a scroll through the same two-frame handshake the recordings tab uses: the target mission's header row is located during a Repaint pass, and the scroll is applied at the top of a later pass, before `BeginScrollView` (writing `scrollPos` afterwards is a no-op for that frame). The scroll target is the DIFFERENCE between the target header's y and the first header's y, so it is a distance between two rects rather than a raw layout coordinate.
-- A **collapsed** target mission (`Mission.Collapsed`) is expanded, queued and applied on the tab's next Layout pass, so the rows the player navigated to see are drawn; one click on its Collapse button folds it back. (Until Missions Model 1, 2026-09-30, this step cleared the global `MissionStore.HideArchived` list filter instead; that filter is gone, and the per-mission archive mark became Collapse.)
+- The reveal schedules a scroll through a two-frame handshake: the target mission's header row is located during a Repaint pass, and the scroll is applied at the top of a later pass, before `BeginScrollView` (writing `scrollPos` afterwards is a no-op for that frame). The scroll target is the DIFFERENCE between the target header's y and the first header's y, so it is a distance between two rects rather than a raw layout coordinate.
+- A **collapsed** target mission (`Mission.Collapsed`) is expanded, queued and applied on the tab's next Layout pass, so the rows the player navigated to see are drawn; one click on its `Collapse` button folds it back.
 - Every failure (recording not committed, no `TreeId`, tree not yet seeded with a mission, target never drawn) warns and lands the player on the tab unscrolled. A pending target is never left armed to fire on an unrelated later frame.
-- The gate is KEPT, re-keyed to `IsVisible(UiSurface.TabMissions, mode)`. It hides nothing today (Missions is visible in both modes); it exists so that re-pointing GoTo at a hidden surface would automatically hide the button again instead of stranding the player. The "gated by the TARGET surface's key" idiom is unchanged. No new `UiSurface` value is needed.
-- Tooltip: `"Show this recording's mission"`.
-- `ScrollToRecording` is **kept** as the Recordings tab's own navigation API, with no production caller (decided 2026-08-01). The tab-clamp tests use it as their lever for selecting `TabRecordings`, but that lever exercises only its first three lines, so `RecordingsTableApiTests` covers the rest of the method - the resolve, the un-archive, the group expansion and the scheduled scroll - so a callerless API cannot rot behind test names that merely look like coverage. Its unreachable `HideActive` filter-clear branch (it tested `target.Hidden` after the un-archive above had cleared it) was removed at the same time.
+- The button is gated by `IsVisible(UiSurface.TabMissions, mode)` - the key of its TARGET surface, not of its host window. It hides nothing today (Missions is visible in both modes); it exists so that re-pointing GoTo at a hidden surface would hide the button again instead of stranding the player.
+- Tooltip: `"Show this recording's mission"`, greyed `"This recording is not part of a mission"`.
+- `RecordingsTableUI.ScrollToRecording` is the Recordings tab's own navigation API (it sets `selectedTab = TabRecordings`) and has no production caller. `RecordingsTableApiTests` covers its resolve, un-archive, group expansion and scheduled scroll, so a callerless API cannot rot behind test names that merely look like coverage.
 
 ### 4.2 Strings that must NOT be renamed
 
-"Recordings" appears in several places that are not this button. Renaming any of them is a defect, not a follow-through:
+"Recordings" appears in several places that are not this button. Renaming any of them is a defect:
 
 | Site | Why it must not change |
 |------|------------------------|
-| `"ParsekRecordings".GetHashCode()` (`RecordingsTableUI.cs:432`) | The IMGUI window ID. Changing it gives the window a new identity, resetting its saved position and size and risking an ID collision with another window. |
-| `Path.Combine("Parsek", "Recordings", ...)` (`RecordingPaths.cs:16-50`, also `:55`, `:98`; `RecordingStore.OrphanCleanup.cs:275`; `Analyzer/Rules/Inv7bAnnotationStale.cs:38`; ~20 Parsek.Tests sites; `InGameTests/RuntimeTests.cs:8232/8273`; `scripts/collect-logs.py:369/376`; `harness/run.py:1279`; `harness/lib/_fake_ksp.py:169`; `harness/lib/test_run_smoke.py:154`) | The on-disk sidecar directory. Renaming it orphans every existing recording. |
-| ALL diagnostic log text containing "Recordings": `LogWindowPosition("Recordings", ...)` (`RecordingsTableUI.cs:445`), `"Recordings window toggled"` (`ParsekUI.cs:500`), resize/log keys (`RecordingsTableUI.cs:423`, `:1109`, `:1130`), tab-switch log `"Recordings window: tab switched"` (`:1137-1141`, asserted verbatim by `RecordingsTableUITests.cs:2180-2185`) | Diagnostic log keys. Changing any breaks grep continuity with every historical KSP.log and collected log snapshot; the tab-switch string additionally has a unit test asserting it. Blanket rule: log strings keep "Recordings". |
-| `GUILayout.Toggle(showRecordingEntries, "Recordings", ...)` (`TimelineWindowUI.cs:695`) | A Timeline entry-type filter, an unrelated feature that genuinely filters recording rows. Correctly named. |
-| `"Wipe All Recordings ({N})"` button (`SettingsWindowUI.cs:581`) and its confirm popup `"Confirm: Wipe Recordings"` / dialog id `"ParsekWipeRecordingsConfirm"` (`ParsekUI.cs:927`, `:925`) | Moot since 2026-09-26: the button, its popup and the Data Management section were removed. |
+| `RecordingsTableUI.WindowIdKey = "ParsekRecordings"` (hashed into the IMGUI window id) | Changing it gives the window a new identity, resetting its saved position and size and risking an ID collision with another window. |
+| `Path.Combine("Parsek", "Recordings", ...)` (`RecordingPaths`, `RecordingStore.OrphanCleanup`, `Analyzer/Rules/Inv7bAnnotationStale.cs`, the Parsek.Tests and `InGameTests/RuntimeTests.cs` sites, `scripts/collect-logs.py`, `harness/run.py`, `harness/lib/_fake_ksp.py`, `harness/lib/test_run_smoke.py`) | The on-disk sidecar directory. Renaming it orphans every existing recording. |
+| ALL diagnostic log text containing "Recordings": `LogWindowPosition("Recordings", ...)`, `"Recordings window toggled"`, the resize / log keys, the tab-switch log `"Recordings window: tab switched"` (asserted verbatim by `RecordingsTableUITests`) | Diagnostic log keys. Changing any breaks grep continuity with every historical KSP.log and collected log snapshot; the tab-switch string additionally has a unit test asserting it. Blanket rule: log strings keep "Recordings". |
+| The Timeline's `Recordings` source toggle (`TimelineWindowUI.DrawSourceToggles`) | A Timeline entry-type filter that genuinely filters recording rows. Correctly named. |
+| The `Recordings` tab label itself | It names the raw per-recording table, which is what it is. |
 
-Exactly four user-facing strings change: the button at `ParsekUI.cs:239`, the window title at `RecordingsTableUI.cs:435`, and the two GoTo tooltips (section 4.1a; the revision there changed them again, to `"Show this recording's mission"`), plus the tab array and constants. A grep for `"Recordings"` will surface all of the above; the table is the disposition for each hit.
+A grep for `"Recordings"` surfaces all of the above; the table is the disposition for each hit.
 
 ### 4.3 Known Basic v1 limitation: retroactive playback-disable (from review)
 
-The only UI writing `Recording.PlaybackEnabled` is the hidden Recordings tab (per-row toggle `RecordingsTableUI.cs:1459`, select-all `:942`, group aggregates `:2030`, `:2651`, chain block `:3645`). The Missions tab deliberately has no per-row enable ("Blank enable slot", `MissionsWindowUI.cs:619-621`); its include checkboxes write `Mission.ExcludedIntervalKeys`, consumed only by the loop-unit pipeline, while non-loop ghost playback, KSC showcase, and map presence gate on `PlaybackEnabled`. Mission Archive explicitly leaves loop/ghost state untouched (`MissionsWindowUI.cs:378-381`), and mission Delete is view-only and disabled for a tree's last mission.
+The only UI writing `Recording.PlaybackEnabled` is the hidden Recordings tab (per-row toggle, header select-all, group aggregates, chain block). The Missions tab deliberately has no per-row enable (its first column is a blank enable slot); its include checkboxes write `Mission.ExcludedIntervalKeys`, consumed only by the loop-unit pipeline, while non-loop ghost playback, KSC showcase, and map presence gate on `PlaybackEnabled`. `Collapse` is view state only and leaves loop / ghost state untouched, and mission `Delete` (Advanced) removes a clone, never a tree's first mission.
 
-Consequence: "I committed this flight and later want its ghost gone" is Advanced-only in v1. Pre-commit regret is fully covered in Basic by the Merge dialog's Discard. This is a deliberate, documented exception to philosophy 3, accepted because fixing it inside this feature would require a new Missions-tab control in both modes, violating philosophy 6 (no other Advanced-visible change). The follow-up is section 17.8 (mission-level ghost-visibility toggle). Related: debris recordings never become mission legs (`MissionStructure.cs:139` - debris rides its parent), so individual debris enable/hide is likewise Advanced-only; acceptable because debris follows its parent's loop inclusion.
+Consequence: "I committed this flight and later want its ghost gone" is Advanced-only in v1. Pre-commit regret is fully covered in Basic by the Merge dialog's Discard. This is a deliberate, documented exception to philosophy 3, accepted because fixing it inside this feature would require a new Missions-tab control in both modes, violating philosophy 6. The follow-up is section 17.8 (mission-level ghost-visibility toggle). Related: debris recordings never become mission rows (debris rides its parent), so individual debris enable / hide is likewise Advanced-only; acceptable because debris follows its parent's loop inclusion.
 
 Not to be confused with `Recording.Hidden`, the OTHER Recordings-tab-only flag, which is a different axis and is NOT a v1 limitation: it is decided in section 4.4.
 
-### 4.4 What `Recording.Hidden` (Archive) means, and the Timeline's reveal (DECIDED 2026-08-01)
+### 4.4 What `Recording.Hidden` (Archive) means, and the Timeline's reveal (DECIDED)
 
-Found by the same 2026-07-31 audit as the 4.1a revision, and left open there because it needed a decision rather than a fix.
+Every writer of `Recording.Hidden` lives in the Recordings tab (the per-row Archive checkbox and the folder / block aggregates), which Basic hides, and the Timeline filters on the flag. Without a reveal on the Timeline, a recording archived in Advanced would be gone from the Timeline in Basic with no reachable control able to bring it back.
 
-**The gap.** `Recording.Hidden` suppressed Timeline rows unconditionally (`Timeline/TimelineBuilder.cs`, `if (rec.Hidden) { hiddenSkipped++; continue; }`), but every writer of the flag lives in the Recordings tab (the per-row Archive checkbox `RecordingsTableUI.cs:1897`, the group aggregates `:2594` / `:2934`), which Basic hides. Archive a recording in Advanced, switch to Basic, and the flight was gone from the Timeline with no reachable control able to bring it back. It still appeared in the Missions tab, which does not filter on the flag.
-
-**The decision.** State the flag's meaning first, because both candidate fixes presuppose an answer:
+**The decision.**
 
 > **Archive is a per-list view filter, never a suppression. Every list that honours `Recording.Hidden` carries its own control to show archived items again.**
 
-That is already how the flag behaves everywhere except the Timeline. The Recordings tab honours it and pairs it with the Archive header checkbox (`GroupHierarchyStore.HideActive`, persisted, default on). The mission-level twin `Mission.Archived` honours it in the Missions tab and pairs it with that tab's own Archive checkbox (`MissionStore.HideArchived`). The Timeline was the single list consuming the flag with no paired reveal - a defect that predates Basic mode; Basic only made it terminal, by hiding the one surface that could undo it.
+The Recordings tab honours it and pairs it with its Archive header checkbox (`GroupHierarchyStore.HideActive`, persisted, default on). The Timeline honours it and pairs it with its `Archived` toggle, the last cell of the filter area's first row, in BOTH modes:
 
-**The fix.** The Timeline gets an `Archived` toggle in its filter bar, second row, column 4 (directly under `Recordings`, the source toggle it qualifies), in BOTH modes:
-
-- `TimelineBuilder.Build` takes `bool includeArchivedRecordings` (default false, so every existing caller and the whole default row set are unchanged). The builder stays pure and reads no store; the window supplies the value.
-- The toggle is bound to the SAME state the Recordings tab's Archive header already owns, through `TimelineWindowUI.ShowArchivedRecordings` (`= !GroupHierarchyStore.HideActive`; the polarity flips because the Recordings-tab label means "hide archived" while every Timeline filter toggle means "show this"). One archive flag, one filter switch, two places to reach it. A Timeline-private second flag was rejected: it would give one flag two switches that could disagree.
-- Scope note on that shared switch: `GroupHierarchyStore.HideActive` gates TWO axes in the Recordings tab, archived recordings and hidden GROUPS (`RecordingsTableUI.cs:2137` / `:2167` / `:3793`), a conflation that predates this change and that the Recordings-tab header checkbox already exposed. The Timeline toggle therefore also reveals hidden groups over in the Recordings tab. Accepted rather than split: separating the axes means two flags where the player sees one "Archive" control, and the group axis is Advanced-only anyway (Basic hides the tab that renders groups). Recorded so the coupling is not rediscovered as a bug.
-- Writing the flag invalidates the Timeline's cache. The Recordings tab's per-row Archive checkbox and its two group aggregates now call `ParsekUI.GetTimelineUI()?.InvalidateCache()`, because timeline invalidation otherwise fires only from `LedgerOrchestrator.OnTimelineDataChanged` and an archive is not a ledger event. Without it, archiving a row with both windows open leaves the Timeline showing that flight unmarked until the next unrelated recalc - pre-existing staleness that the `[archived]` marker would have made conspicuous.
+- `TimelineBuilder.Build` takes `bool includeArchivedRecordings` (default false). The builder stays pure and reads no store; the window supplies the value.
+- The toggle is bound to the SAME state the Recordings tab's Archive header owns, through `TimelineWindowUI.ShowArchivedRecordings` (`= !GroupHierarchyStore.HideActive`; the polarity flips because the Recordings-tab label means "hide archived" while every Timeline filter toggle means "show this"). One archive flag, one filter switch, two places to reach it. A Timeline-private second flag was rejected: it would give one flag two switches that could disagree.
+- Scope note on that shared switch: `GroupHierarchyStore.HideActive` gates TWO axes in the Recordings tab, archived recordings and hidden GROUPS. The Timeline toggle therefore also reveals hidden groups over in the Recordings tab. Accepted rather than split: separating the axes means two flags where the player sees one "Archive" control, and the group axis is Advanced-only anyway (Basic hides the tab that renders groups).
+- Writing the flag invalidates the Timeline's cache: the Recordings tab's archive writes call `NotifyTimelineOfArchiveChange` (`ParsekUI.GetTimelineUI()?.InvalidateCache()`), because timeline invalidation otherwise fires only from `LedgerOrchestrator.OnTimelineDataChanged` and an archive is not a ledger event.
 - Because that state is shared, the Recordings tab can move it while the Timeline's cache is warm and nothing marks the cache dirty. `TimelineWindowUI.ShouldRebuildTimeline(dirty, cacheMissing, cachedShowedArchived, showArchivedNow)` is the pure predicate that adds the missing trigger.
-- Revealed rows are marked `[archived]`, composed into the row's existing single description `Label` (never a second control, so the IMGUI control count is identical in the Layout and Repaint passes). Without the marker the player can see the rows are back but not which ones were archived, and so cannot tell what to un-archive.
-- Entries carry `TimelineEntry.IsArchivedRecording`, stamped by the collector over the entry range one recording contributed, rather than threaded through four `Try*Add` signatures.
+- Revealed rows are marked `[archived]`, composed into the row's existing single description `Label` (never a second control, so the IMGUI control count is identical in the Layout and Repaint passes), so the player can tell what to un-archive.
+- Entries carry `TimelineEntry.IsArchivedRecording`, stamped by the collector over the entry range one recording contributed.
 
-**Nothing here reads the mode.** The Timeline's row set is identical in Basic and Advanced; the mode symbol does not appear in `Source/Parsek/Timeline/` and the section 13.4 grep gate's allowlist is untouched. Basic reaches the toggle because the Timeline is a surface Basic keeps, not because the gate treats it specially. The same holds for the two-row filter area and its Career view (contracts, strategies, facilities, milestones, tech): identical controls in Basic and Advanced, gated only by the GAME mode (Science shows three categories, Sandbox none), which is the only way a Basic player can find milestone, facility or tech history, since the Career window is Advanced-only.
+The Missions tab's `Collapse` is a different flag (`Mission.Collapsed`, view state over one mission's rows) and does not reach the Timeline.
 
-**Rejected: have the Timeline ignore `Hidden` in Basic** (audit candidate a). Four reasons, any one sufficient:
+**Nothing here reads the mode.** The Timeline's row set is identical in Basic and Advanced; the mode symbol does not appear in `Source/Parsek/Timeline/` and the section 13.4 grep gate's allowlist does not include it. Basic reaches the toggle because the Timeline is a surface Basic keeps, not because the gate treats it specially. The same holds for the whole filter area and its Career view (contracts, strategies, facilities, milestones, tech): identical controls in Basic and Advanced, gated only by the GAME mode (Science shows three categories, Sandbox none).
+
+**Rejected: have the Timeline ignore `Hidden` in Basic.** Four reasons, any one sufficient:
 
 - It inverts the mental model. Every other mode difference is Basic is a subset of Advanced; this would make Basic show rows Advanced does not, so switching Basic -> Advanced would silently delete Timeline rows - the exact "a default changed what the player sees" failure section 7.3 exists to prevent.
 - It crosses the section 5 / 9.1 line. The mode may decide what a message SAYS, never "whether it fires, what is detected". A per-row inclusion decision inside `TimelineBuilder` is detection.
-- It would force `Source/Parsek/Timeline/` onto the 13.4 grep-gate allowlist, weakening the mechanism that keeps section 9 honest, in order to make a data filter mode-dependent - precisely the rot that gate exists to catch.
+- It would force `Source/Parsek/Timeline/` onto the 13.4 grep-gate allowlist, weakening the mechanism that keeps section 9 honest, in order to make a data filter mode-dependent.
 - It gives the player nothing. The recording stays archived; the mode merely masks the flag, and the player still has no control over it.
 
-**Rejected: an un-archive affordance in the Missions tab** (audit candidate b, as literally written). It builds a second, mission-level archive control beside the `Mission.Archived` one that already exists, which is section 17.8's design space (mission vs row granularity, does debris follow the parent, how it composes with the include checkboxes) - much larger than this gap, and a new both-modes control with open questions. The shipped fix IS a Basic-reachable restore affordance; it is placed on the surface where the loss is felt and bound to the state that already exists.
+**Rejected: an un-archive affordance in the Missions tab.** It would be a second, mission-level archive control, which is section 17.8's design space (mission vs row granularity, does debris follow the parent, how it composes with the include checkboxes) - much larger than this gap. The Timeline toggle IS a Basic-reachable restore affordance, placed on the surface where the loss is felt and bound to the state that already exists.
 
-**Precedent this is consistent with.** section 7.33 already refuses to archive an Unfinished Flight (`RecordingsTableUI.cs:1911`, "rewind access must remain visible"), because archiving one would sweep a re-fly opportunity out of view. The codebase therefore already treats "an archive made something unreachable" as a bug class, and already solves it by preserving reachability - not by making the filter mode-dependent.
+**Consistent precedent.** The Recordings tab already refuses to archive an Unfinished Flight (`IsArchiveRefusedForUnfinishedFlight`, "rewind access must remain visible"), because archiving one would sweep a re-fly opportunity out of view: "an archive made something unreachable" is treated as a bug class and solved by preserving reachability, not by making the filter mode-dependent.
 
-**Known residual, deliberately not widened here.** The archive filter has always been partial: it gates the four row flavours the recording collector emits (RecordingStart, Separation / UnfinishedFlightSeparation, VesselSpawn, CrewDeath), while the same flight's ledger action rows and legacy event rows come from collectors that never read the flag. Revealing is therefore additive and honest, but archiving still leaves a flight's career actions on the Timeline. Making the flag reach the action collectors is a scope-and-semantics question of its own (it would change what Advanced shows for every archived flight) and is not part of this decision.
+**Known residual.** The archive filter is partial: it gates the four row flavours the recording collector emits (RecordingStart, Separation / UnfinishedFlightSeparation, VesselSpawn, CrewDeath), while the same flight's ledger action rows and legacy event rows come from collectors that never read the flag. Revealing is therefore additive and honest, but archiving still leaves a flight's career actions on the Timeline. Making the flag reach the action collectors is a scope-and-semantics question of its own and is not part of this decision.
 
-### 4.5 Manual mission looping is Advanced-only (DECIDED 2026-08-18)
+### 4.5 Manual mission looping is Advanced-only (DECIDED)
 
-Section 4 kept the whole Missions tab, "loop period ... include checkboxes" included, and left the Settings `Looping` section unwrapped. This amends both: the tab stays, its three manual-loop AUTHORING controls do not, and the `Looping` section goes with them.
+The Missions tab is kept in Basic, but its manual-loop AUTHORING surface is not, and the Settings `Looping` section goes with it.
 
 **The decision.**
 
 > **Basic hides the controls that AUTHOR a manual mission loop. It keeps every control that REPORTS or NAVIGATES a loop that is already running.**
 
-Hidden in Basic (two gate keys: `UiSurface.MissionsLoopControls` for the Missions tab's three controls, `UiSurface.SettingsSectionLooping` for the Settings section - two keys because they gate different windows and the Settings one is an ordinary section gate like Diagnostics, not a control group):
+Hidden in Basic (two gate keys: `UiSurface.MissionsLoopControls` for the Missions tab's controls, `UiSurface.SettingsSectionLooping` for the Settings section - two keys because they gate different windows and the Settings one is an ordinary section gate like Diagnostics, not a control group):
 
 | Control | Site | Why it goes |
 |---------|------|-------------|
-| `Loop` label + toggle on the mission header | `MissionsWindowUI.DrawMissionHeader` | The authoring act itself. |
-| The loop-period cell beside it (value field + unit-cycling `Sec/Min/Hour/Auto` button; only the phase-locked / re-aim states render read-only) | `DrawMissionLoopPeriodCell` | It configures the toggle. Keeping the tab's most cryptic control as the ONLY surviving loop control is worse than hiding both. |
-| The per-row include checkboxes (intervals / branches, the per-vessel include, and the partner-journey link toggle) | `DrawVesselRow`, `DrawCompositionRow`, `DrawForeignDockLinkRows` | They write `Mission.ExcludedIntervalKeys` / `Mission.IncludedForeignDockLinkIds`, which NOTHING but the loop-unit pipeline reads (the same fact section 4.3 records). Without a loop they are controls with no observable effect. |
-| The `Clone` header button | `DrawMissionHeader` | A clone exists to carry a SECOND include set / loop period / archive flag over the same recordings - pure loop authoring. In Basic it could only mint an inert duplicate row. Added to the set 2026-08-20 (owner playtest); same gate key, width absorbed by the FlexibleSpace like the Loop controls'. |
-| The `Delete` and `Warp to...` header buttons | `DrawMissionHeader` | Owner ruling 2026-09-29 (Missions Model 1): both depend on Advanced mission looping. `Delete` removes a CLONE (`CanDelete` keeps a tree's first mission), and only Advanced makes clones; `Warp to...` jumps to a looping mission's next launch, and is now drawn ONLY while the mission loops (a same-width space holds its slot otherwise), so its "Turn Loop on" refusal is gone. Same gate key. |
-| The loop piece of the summary line (`Next launch T- ...`; the `Loops ~P` piece was removed 2026-09-30, the period cell shows the period) | `DrawMissionSummaryCell` | Model 1: Basic reads no loop word. (Model 1 first gated the `Next launch` column the same way, header and row cells together, then retired the column: the countdown lives in the summary, so the gate reduces to "the summary countdown is Advanced-only".) |
-| The loop-selection styling: dimmed excluded vessels, the `(partial)` suffix, the chapter header's dimming and `[~]` marker, a Docked partner row's dimming and the partner-journey rows an include pulls in | `DrawVesselRow`, `DrawChapterHeaderRow`, `DrawForeignDockLinkRows` | Model 1: they report a selection that only means something to a loop. Basic draws the rows plain and a Docked partner row without its journey; the selection itself is untouched. |
-| The Settings `Looping` section: auto-launch period + unit button (plus, until the 2026-08-27 settings simplification retired them, landing-body alignment and force-faithful) | `SettingsWindowUI.DrawLoopingSettings` (gate key `UiSurface.SettingsSectionLooping`) | The same decision, one window over. The auto-launch period IS the period of any mission whose unit is `Auto` - exactly the value the hidden per-mission cell would show. Added 2026-08-18 during PR review, on the observation that hiding per-mission loop authoring while keeping the globals that govern it splits one decision across two windows. |
+| `Loop` label + toggle + `every` (loop grid column B, mission bar line 2) | `MissionsWindowUI` mission bar | The authoring act itself. |
+| The loop-period cell beside it (value field + unit button cycling `sec` / `min` / `hr` / `auto`; only the phase-locked / re-aim states render a read-only value label) | `DrawMissionLoopPeriodCell` | It configures the toggle. Keeping the tab's most cryptic control as the ONLY surviving loop control is worse than hiding both. |
+| The per-row include checkboxes (the per-vessel include, the interval / chapter toggles, and the partner-journey link toggle) and the per-vessel interval detail they live in | `DrawVesselRow`, `DrawCompositionRow`, `DrawChapterHeaderRow`, `DrawForeignDockLinkRows` | They write `Mission.ExcludedIntervalKeys` / `Mission.IncludedForeignDockLinkIds`, which NOTHING but the loop-unit pipeline reads (the same fact section 4.3 records). Without a loop they are controls with no observable effect. Basic never expands a vessel row, since the detail is the authoring surface. |
+| `Clone` (loop grid column A, line 1) | mission bar | A clone exists to carry a SECOND include set / loop period over the same recordings - pure loop authoring. In Basic it could only mint an inert duplicate row. |
+| `Delete` (loop grid column A, line 2) and `Warp to...` (column B, line 1) | mission bar | Both depend on Advanced mission looping. `Delete` removes a CLONE (`CanDelete` keeps a tree's first mission), and only Advanced makes clones; `Warp to...` jumps to a looping mission's next launch. In Advanced `Warp to...` is drawn in every state and greyed with its reason (`MissionWarpToDisabledReason`, including `Turn Loop on to warp to the next launch`), because the fix sits right under it. |
+| The summary line's `Next launch T- ...` countdown | `DrawMissionSummaryCell` | Basic reads no loop word. |
+| The loop-selection styling: dimmed excluded vessels, the `(partial)` suffix, the chapter header's dimming and `[~]` marker, a Docked partner row's dimming and the partner-journey rows an include pulls in | `DrawVesselRow`, `DrawChapterHeaderRow`, `DrawForeignDockLinkRows` | They report a selection that only means something to a loop. Basic draws the rows plain and a Docked partner row without its journey; the selection itself is untouched. |
+| The Settings `Looping` section: auto-launch period + unit button | `SettingsWindowUI.DrawLoopingSettings` (gate key `UiSurface.SettingsSectionLooping`) | The same decision, one window over. The auto-launch period IS the period of any mission whose unit is `Auto` - exactly the value the hidden per-mission cell would show. Hiding per-mission loop authoring while keeping the global that governs it would split one decision across two windows. |
 
-Kept in Basic, deliberately: the `Looped by route` status label, `Watch`, `Rewind / Forward`, `Log`, `Collapse / Expand`, Fly / Stash / Seal and `Go to` (the Interact column), the rename, the sort headers, the chapter headers, the Docked partner rows and the whole composition tree. (Until Missions Model 1, 2026-09-29, Basic also kept the TTL / `Next launch` countdown column, `Warp to...` and `Delete`, and drew rows excluded in Advanced greyed; the owner ruled all of those Advanced-only, since each exists only because of Advanced mission looping.)
+Kept in Basic, deliberately: the `Looped by route` status label, `Watch`, `Rewind` / `Forward`, `Log`, `Collapse` / `Expand`, `Fly` / `Stash` / `Seal` and `Go to` (the Interact column), the rename, the sort headers, the chapter headers, the Docked partner rows and the vessel rows of the composition tree.
 
 **Why.** Manually looping a mission is a presentation choice with no career consequence: it re-launches one recorded flight on a period so the player can watch it repeat. Nothing downstream depends on it - not the ledger, not a contract, not a route delivery. The three controls are also the tab's densest cluster, and the period cell in particular ("`~14.5d (Minmus window, varies)`", an overlap-cap clamp tint, a unit button cycling into `Auto` which then inherits a global setting the player has not seen) is the hardest thing on the tab to explain. It is exactly the "advanced staging tool" shape section 4 hides everywhere else; it survived the original pass only because it sits inside a window that survives. The Settings `Looping` section is the same argument reaching its other half: `Auto` is a unit the hidden cell offers, and the section is where that unit's value actually lives, so keeping it would leave a Basic player tuning a period for a control they can no longer see.
 
@@ -298,20 +276,41 @@ Kept in Basic, deliberately: the `Looped by route` status label, `Watch`, `Rewin
 **Philosophy 1 is untouched.** The gate is visibility only, in both directions:
 
 - Nothing here writes `Mission.LoopPlayback`, `Mission.LoopIntervalSeconds`, `ExcludedIntervalKeys` or `IncludedForeignDockLinkIds`. A mission looped in Advanced KEEPS LOOPING after the switch, with its selection intact; the ghosts keep flying and the player keeps seeing them, and `Watch` still reaches them. (The TTL countdown and `Warp to...` were kept for the same reason until Missions Model 1, 2026-09-29, which ruled them Advanced-only: Basic reads no loop word.)
-- Supply route DELIVERY is unaffected, and route CADENCE is not reachable from either key. A route drives its tree through `RouteBackingMission`, a synthesized mission never inserted into `MissionStore` and never rendered on the Missions tab, built `LoopPlayback=true` / `LoopTimeUnit.Sec` / `LoopIntervalSeconds = route.DispatchInterval` - so its period comes from the route, authored in Logistics, a surface Basic keeps. The auto-launch period never touches it (that value is only read for an `Auto`-unit mission).
-- Honest exception, accepted, and narrower than it first reads (OVERTAKEN 2026-08-27: the settings simplification pinned landing-body alignment at Loose via the compile-time `ParsekSettings.LandingBodyAlignmentMode` and made `forceFaithfulLoopPlayback` harness-only, so neither value is player-reachable in ANY mode any more and the reachability delta below is moot; kept for the record of the original decision): two of the `Looping` section's values were also read by routes. `RouteOrchestrator` took `TransitedBodyRotationMode` and `forceFaithfulLoopPlayback` off `ParsekSettings` and folds them into the delivery clock's builder signature, so the clock phase-locks identically to the rendered ghost. This is NOT one window's gate reaching another - the Logistics window is ungated and untouched, and the Missions-tab half of 4.5 has no route relevance whatever; it is two global settings with a second consumer.
+- Supply route DELIVERY is unaffected, and route CADENCE is not reachable from either key. A route drives its tree through `RouteBackingMission`, a synthesized mission never inserted into `MissionStore` and never rendered on the Missions tab, built `LoopPlayback=true` / `LoopTimeUnit.Sec` / `LoopIntervalSeconds = route.DispatchInterval` - so its period comes from the route, authored in the Logistics window's Every stepper, which is Advanced-only under its own key `LogisticsRouteTuning` (section 4.6); Basic shows each route's interval read-only. The auto-launch period never touches it (that value is only read for an `Auto`-unit mission). The two keys gate different values, and neither writes the other's.
+- Honest exception, accepted, and narrower than it first reads (OVERTAKEN 2026-08-27: the settings simplification pinned landing-body alignment at Loose via the compile-time `ParsekSettings.LandingBodyAlignmentMode` and made `forceFaithfulLoopPlayback` harness-only, so neither value is player-reachable in ANY mode any more and the reachability delta below is moot; kept for the record of the original decision): two of the `Looping` section's values were also read by routes. `RouteOrchestrator` took `TransitedBodyRotationMode` and `forceFaithfulLoopPlayback` off `ParsekSettings` and folds them into the delivery clock's builder signature, so the clock phase-locks identically to the rendered ghost. This is NOT one window's gate reaching another - the Logistics window's own gate (section 4.6) hides only route-local controls and reads neither value, and the Missions-tab half of 4.5 has no route relevance whatever; it is two global settings with a second consumer.
   What Basic changes here is REACHABILITY ONLY, not behavior: the stored values are untouched and keep driving route playback exactly as before the switch, so a route in flight is bit-identical across the mode change. What goes away is the ability to RETUNE those two values without returning to Advanced. Accepted for the usual reason - both ship on the value a route wants (`Loose`, re-aim ON) and both are explicitly A/B tuning knobs, the "advanced staging tool" shape section 4 hides everywhere else - and recorded here rather than filed under a blanket "routes are untouched", which would be true of the Missions half and too broad for this one.
 - Switching back to Advanced restores every hidden control - the tab's three and the whole `Looping` section - with its state (philosophy 2).
 
 **Accepted consequence.** A mission looped in Advanced can only be UN-looped in Advanced, and its period - per-mission or the global `Auto` one - can only be retuned there. This is the same shape as the section 4.3 limitation (retroactive playback-disable) and is accepted for the same reason: the escape hatch is the always-visible Interface section of Settings, one click away, and the state it leaves running is a visual one the player deliberately turned on. The alternative - clearing `LoopPlayback` when Basic is applied - was REJECTED: it is a behavior write driven by a visibility mode, which is the one thing section 5 forbids, and it would make the switch destructive (philosophy 2).
 
-**Layout.** The three drawing sites drop controls only (the fourth read site, `DrawMissionsTabContent`, draws nothing and only tears down edit state), and each hidden checkbox is replaced by the SAME single blank cell the non-selectable roster-atom rows already draw, so the `#` column keeps its width and every row stays aligned with the column header. On the mission bar the buttons are right-aligned on its second line, so the freed width goes to the summary beside them and Watch / Rewind stay pinned at the same x as in Advanced; Archive sits on the first line, under its column header, in both modes. The mission index still renders in the `#` column on header rows, so that sortable header keeps its referent. Since Missions Model 1 the header bar also drops `Clone` / `Delete` / `Warp to...` in Basic, the same way (in Advanced they sit with the Loop toggle and period in a fixed 2x2 grid beside Log, spanning the bar's two lines; Basic draws no grid); in Advanced a mission that does not loop draws a same-width space where `Warp to...` would be, so the Loop toggle does not move when the loop is switched. No COLUMN is mode-gated any more (the `Next launch` column is retired); `MissionsTabColumnSequenceTests` pins by source scan that the header and every row kind, the mission bar's first line included, draw the same columns in both modes.
+**Layout.** Each draw site reads the gate through `MissionsWindowUI.ShowsLoopAuthoringControls` and drops controls only (`DrawMissionsTabContent` draws nothing for it and only tears down edit state). Each hidden checkbox is replaced by the SAME single blank cell the non-selectable rows draw, so the `#` column keeps its width and every row stays aligned with the column header. In Advanced, `Clone` / `Delete` / `Warp to...` and the `Loop [x] every [10] [sec]` row form a fixed 2x2 grid right-aligned in the name cell beside `Log`, spanning the bar's two lines, and every control in it is fixed-width, so nothing moves when the loop is switched on or off; Basic draws no grid, the summary takes the freed width and `Log` stays right-aligned on line 1. `Watch` / `Rewind` and `Collapse` / `Expand` sit in the Interact column in both modes, and the mission index renders in the `#` column, so that sortable header keeps its referent. No COLUMN is mode-gated; `MissionsTabColumnSequenceTests` pins by source scan that the header and every row kind, both lines of the mission bar included, draw the same columns in both modes.
 
 **Edit-state cleanup.** The loop-period field commits on Enter or click-away, so an edit can be open when the mode changes. `DrawMissionsTabContent` DROPS an open edit in Basic instead of committing it against a `loopPeriodEditRect` no longer being drawn - the Escape path, not data loss (`Mission.LoopIntervalSeconds` is untouched). This is required by philosophy 1, not merely tidy: every OTHER teardown (the click-away commit, Enter, the unit button, loop-off, the auto / phase-locked branches) needs the mission's own period cell to draw, which is what Basic does not do, so an armed focus id would survive - and the click-away branch would then commit the stale buffer to `Mission.LoopIntervalSeconds` on the next MouseDown anywhere in the window, a loop write performed in Basic. The drop routes through `CommitMissionLoopPeriodEdit(null)`, the documented "just ends the edit" path, so the text buffer and the now-undrawn field's keyboard focus are released exactly as on every other exit, minus the commit.
 
-The `Looping` section has the SAME shape and takes the same treatment: `DrawSettingsWindow`'s window-level click-away commit for the auto-launch period runs before any section draws, so leaving it live in Basic would let the next MouseDown anywhere in the Settings window write the stale buffer to `autoLoopIntervalSeconds`. The check is gated on `SettingsSectionLooping` and the hidden branch ends the edit through a shared `EndAutoLoopEdit()` (flag + rect + keyboard focus), which `CommitAutoLoopEdit` and the `Defaults` button now also call, so every exit leaves identical state. This is why the mode latch is read at the TOP of `DrawSettingsWindow` rather than at the first gated section. Hiding the section also pushed Basic's content fit below the window's hardcoded first-open height (600) for the first time, exposing a latent init gap: the init rect never requested a height fit, and GUILayout only auto-corrects the grow direction. The first-open rect init in `DrawIfOpen` now requests the same re-measure a mode switch gets (playtest 2026-08-19).
+The `Looping` section has the SAME shape and takes the same treatment: `DrawSettingsWindow`'s window-level click-away commit for the auto-launch period runs before any section draws, so leaving it live in Basic would let the next MouseDown anywhere in the Settings window write the stale buffer to `autoLoopIntervalSeconds`. The check is gated on `SettingsSectionLooping` and the hidden branch ends the edit through a shared `EndAutoLoopEdit()` (flag + rect + keyboard focus), which `CommitAutoLoopEdit` and the `Defaults` button also call, so every exit leaves identical state. This is why the mode latch is read at the TOP of `DrawSettingsWindow` rather than at the first gated section. Basic's content fit is below the window's first-open height (600), and GUILayout only auto-corrects the grow direction, so the first-open rect init in `DrawIfOpen` requests the same height re-measure a mode switch gets.
 
 ---
+
+### 4.6 Logistics route tuning is Advanced-only
+
+One key, `UiSurface.LogisticsRouteTuning`, splits the Logistics window by mode.
+
+> **Basic shows every route and what it is doing, and every action that starts, stops, tests, opens, renames or deletes it. It hides the controls that TUNE how an existing route is scheduled.**
+
+| Hidden in Basic | Shown in both modes |
+|---|---|
+| The editable Every stepper (row and detail) | The Every column, read-only ("every 4.0d", "every 2nd window") |
+| The Runs column ("3, 1 held") | Route (name over a grey from/to line), Delivers, Next (the Missions amber countdown), the Status cell |
+| Priority stepper | The Interact grid: Activate / Pause / Cancel with Send, then Go to and Log |
+| Link round-trip... / Unlink and the link picker | The round-trip pairing note when a route is linked |
+| Flights used | Delivers each run, next run, dated hold / partial lines, Last delivered, run cost, "Built from mission 'X'." |
+| The manual-looping clause after "Built from mission 'X'." | Rename, Delete (the detail block's Interact stack), Re-scan for a lost endpoint, the Route History window |
+
+**Why.** Every, Priority and Link change WHEN a route that already runs makes its runs. A Basic player reads when (Every, Next) without needing to author it, and the Advanced steppers are the window's densest controls. The flight list is a diagnostic. The Every column exists in both modes, so a switch never moves a column or resizes the window (one `MinWindowWidth`).
+
+**Philosophy 1 holds.** Nothing here writes a route field. A route retimed, re-prioritised or linked in Advanced keeps that schedule in Basic.
+
+**Edit state.** The first Basic pass drops an open Every edit (its field is no longer drawn, so its click-away commit would land on a control that is gone; the edit is discarded like Escape, never committed) and closes a standing link picker (also in the 7.2 close set). Sorting by the Advanced-only Runs column reads as a Route-name sort in Basic without changing the stored sort. The header and every row read ONE bool latched at the top of `LogisticsWindowUI.DrawWindow`, so the Layout and Repaint passes of a frame always draw the same columns. The automation seam's `op=picker window=logistics` refuses with `picker-hidden-in-basic` in Basic.
 
 ---
 
@@ -331,9 +330,10 @@ The `Looping` section has the SAME shape and takes the same treatment: `DrawSett
              v            v             v               v
       main-window     window tabs   settings        window
         buttons                     sections      auto-close
-     (ParsekUI)     (Recordings,   (SettingsUI)   (mode-change
-                     Career,                        handler)
-                     Kerbals)
+     (ParsekUI)     (Missions       (SettingsUI)   (mode-change
+                     window), and                   handler)
+                     the Missions
+                     loop controls
 
    Invariant: the gate feeds THREE consumers and no others -
               (1) LAUNCHER / CONTENT draw sites,
@@ -378,6 +378,9 @@ TabMissions             - the mission abstraction tab
 MissionsLoopControls    - the Missions tab's manual-loop authoring controls (4.5):
                           the Loop toggle, the loop-period cell, and the include
                           checkboxes. One key for all three; they are one decision.
+LogisticsRouteTuning    - the Logistics window's route tuning (4.6): the Every
+                          stepper, Runs column, Priority, Link round-trip and its
+                          picker, Recent runs, Flights used.
 SettingsSectionLooping        - the Looping settings section (4.5): auto-launch
                                 period (alignment + force-faithful rows retired
                                 2026-08-27)
@@ -389,15 +392,15 @@ SettingsSectionSampleDensity  - recorder fidelity tuning
 
 ```
 IsVisible(UiSurface surface, UiComplexityMode mode) : bool
-    - the single decision predicate; Advanced returns true for every surface.
+    - the single decision predicate; Advanced returns true for every surface
+      that is not retired (IsRetired, checked first, hides MainButtonGloops in
+      both modes).
       Contract: an unhandled UiSurface value THROWS (no silent default), so the
       EverySurfaceIsDecided reflection test can fail on an undecided addition.
 HiddenSurfaces(UiComplexityMode mode) : IEnumerable<UiSurface>
     - enumeration used by the mode-change LOG line (ParsekUI.FormatHiddenSurfaces,
       printed by ApplyPendingUiComplexityModeIfAny) and by tests. NOT the close set:
       that is the hand-written BuildGatedWindowCloseSet (see the notes in 7.2).
-      Corrected 2026-09-11 - this line said "close handler", which was never true
-      and left the method with no production consumer at all.
 ResolveMode(int? storedValue, bool installHasParsekFootprint) : UiComplexityMode
     - first-run default, see section 7.3. Takes the STORED VALUE as an input so
       that stored-vs-footprint precedence is expressed inside the pure seam and
@@ -421,22 +424,21 @@ ResolveMode(int? storedValue, bool installHasParsekFootprint) : UiComplexityMode
 **Single setter seam (from review).** ALL mode writes route through one entry point, `ParsekUI.SetUiComplexityMode(UiComplexityMode next)` (or an equivalent static seam reachable from SettingsWindowUI and tests), which performs: settings write + `RecordUiComplexityMode` + scheduling the deferred apply of section 7.2 (close handler + clamp). Rationale: window BODIES are deliberately not gated, so any writer that bypasses the seam (an in-game test writing `ParsekSettings.Current.uiComplexityMode` directly, or a future Settings "Defaults" button) would leave hidden windows open in Basic. The 13.3 in-game tests MUST call the seam, not the field, or they test nothing.
 
 **`ParsekUI`** (`Source/Parsek/ParsekUI.cs`):
-- `OnUiComplexityModeChanged(UiComplexityMode previous, UiComplexityMode next)` - the close handler of section 7.2, invoked from the deferred apply, never mid-OnGUI.
-- `:239` button label `"Recordings"` -> `"Missions"` (constant, both modes; no label-helper indirection needed, see section 4.1).
+- `SetUiComplexityMode` (the setter seam), `ApplyPendingUiComplexityModeIfAny` (the deferred apply) and `CloseGatedWindowsForBasic` over `BuildGatedWindowCloseSet` (the close handler of section 7.2), run from the deferred apply, never mid-OnGUI.
+- The main-window button label is the constant `"Missions"` in both modes (section 4.1).
 
 **`RecordingsTableUI`** (`Source/Parsek/UI/RecordingsTableUI.cs`):
-- `:124-125` constants swap to `TabMissions = 0`, `TabRecordings = 1`, made `internal` (with `TabLabels`) so 13.1's tests can assert them.
-- `:126` default becomes `selectedTab = TabMissions`.
-- `:127` `TabLabels` stays the single two-entry array, reordered to `{ "Missions", "Recordings" }`. There is NO separate Basic array: in Basic the toolbar is simply not drawn (section 7.4). A pure `internal static int VisibleTabCount(UiComplexityMode mode)` (or equivalent) is the testable seam for the zero-toolbar rule.
-- `:435` window title `"Parsek - Recordings"` -> `"Parsek - Missions"`.
-- `ScrollToRecording` sets `selectedTab = TabRecordings` (section 4.1a, a phase 1 obligation). Its production caller is gone after the 4.1a revision; `ShowMissionForRecording` sets `TabMissions` instead, which is Basic-valid by construction.
-- NOT changed: `:432` window ID hash, `:445` log key. See section 4.2.
+- `TabMissions = 0`, `TabRecordings = 1`, `internal` (with `TabLabels`) so 13.1's tests can assert them; `selectedTab` defaults to `TabMissions`.
+- `TabLabels` is the single two-entry array `{ "Missions", "Recordings" }`. There is NO separate Basic array: in Basic the toolbar is simply not drawn (section 7.4). The pure `internal static int VisibleTabCount(UiComplexityMode mode)` is the testable seam for the zero-toolbar rule.
+- The window title is `"Parsek - Missions"`.
+- `ScrollToRecording` sets `selectedTab = TabRecordings` and has no production caller; `ShowMissionForRecording` (the Timeline GoTo target) sets `TabMissions`, which is Basic-valid by construction.
+- The window ID key `"ParsekRecordings"` and the `"Recordings"` log keys are unchanged. See section 4.2.
 
 ### 6.3 Serialization
 
-The mode is a global (not per-save) preference, persisted through the existing `ParsekSettingsPersistence` store alongside `showRouteLines` (and, until the 2026-08-27 settings simplification deleted it, `blockCommittedActions`). No recording schema change, no ledger change, no `.sfs` change beyond the existing settings node. `RecordingStore.CurrentRecordingSchemaGeneration` is untouched.
+The mode is a global (not per-save) preference, persisted through the existing `ParsekSettingsPersistence` store alongside `showRouteLines`. No recording schema change, no ledger change, no `.sfs` change beyond the existing settings node. `RecordingStore.CurrentRecordingSchemaGeneration` is untouched.
 
-There are TWO test runner windows, not one with two entry points (review correction): the Settings-launched `ParsekTestRunner` (`UI/TestRunnerUI.cs`, opened via `SettingsWindowUI.cs:508-512` -> `ParsekUI.ToggleTestRunner`) and the DDOL global `ParsekTestRunnerGlobal` (`TestRunnerShortcut.cs:189-197`, Ctrl+Shift+T), with separate locks. Basic gates only the former's launcher and force-closes an open instance on mode change (section 7.2); the global window and its shortcut are never gated in either mode. The shortcut is a developer entry point that must remain available for the automated-testing harness (`PARSEK_AUTORUN_TESTS`), which never opens the Settings window.
+There are TWO test runner windows, not one with two entry points (review correction): the Settings-launched `ParsekTestRunner` (`UI/TestRunnerUI.cs`, opened by the Diagnostics section's `In-Game Test Runner` button -> `ParsekUI.ToggleTestRunner`) and the DDOL global `ParsekTestRunnerGlobal` (`InGameTests/TestRunnerShortcut.cs`, Ctrl+Shift+T), with separate locks. Basic gates only the former's launcher and force-closes an open instance on mode change (section 7.2); the global window and its shortcut are never gated in either mode. The shortcut is a developer entry point that must remain available for the automated-testing harness (`PARSEK_AUTORUN_TESTS`), which never opens the Settings window.
 
 ---
 
@@ -446,30 +448,30 @@ There are TWO test runner windows, not one with two entry points (review correct
 
 Each gated draw site wraps its existing block in `if (UiSurfaceVisibility.IsVisible(UiSurface.X, mode))`, where `mode` is the FRAME-LATCHED applied mode of section 7.2, never a raw read of the settings field. No draw-site logic changes beyond the wrap. In Advanced the predicate is constant-true, so Advanced output is identical to today.
 
-**What is gated: launcher buttons, the tab bar + tab-content dispatch, settings sections, the Timeline GoTo button (4.1a), and player-facing text that names a gated surface (section 9.1). What is NEVER gated: the per-window `Draw*WindowIfOpen` / `DrawIfOpen` call sites** (`ParsekFlight.cs:2058-2067`, `ParsekKSC.cs:225-232`). Every window's `DrawIfOpen` begins `if (!IsOpen) { ReleaseInputLock(); return; }` and also releases on mouse-leave; this per-frame prologue is the self-heal that makes the 7.2 close path leak-proof in any ordering. Wrapping those calls in `IsVisible(...)` would silently delete the safety net and convert any missed release into a scene-long soft-lock. Cautionary precedent that this mistake is easy to make: `DrawGloopsRecorderWindowIfOpen` already skips `DrawIfOpen` entirely when `!InFlight` (`ParsekUI.cs:1155-1159`), bypassing the `!IsOpen` release path; do not replicate that shape.
+**What is gated: launcher buttons, the tab bar + tab-content dispatch, the Missions tab's loop-authoring controls (4.5), settings sections, the Timeline GoTo button (4.1a), and player-facing text that names a gated surface (section 9.1). What is NEVER gated: the per-window `Draw*WindowIfOpen` / `DrawIfOpen` call sites** (`ParsekFlight.OnGUI`, `ParsekKSC.OnGUI`). Every window's `DrawIfOpen` begins `if (!IsOpen) { ReleaseInputLock(); return; }` and also releases on mouse-leave; this per-frame prologue is the self-heal that makes the 7.2 close path leak-proof in any ordering. Wrapping those calls in `IsVisible(...)` would silently delete the safety net and convert any missed release into a scene-long soft-lock. Cautionary precedent that this mistake is easy to make: `ParsekUI.DrawGloopsRecorderWindowIfOpen` skips `DrawIfOpen` entirely when `!InFlight`, bypassing the `!IsOpen` release path; do not replicate that shape.
 
-Separator spacing needs care: `ParsekUI.cs` emits `GUILayout.Space(SpacingLarge)` between button groups. When Basic removes a whole group, the separator that opens it must go too, or Basic shows a double gap. The spacing belongs inside the same visibility block as the buttons it separates. Since the 2026-09-22 Kerbals re-ruling the Kerbals/Career group is never empty in Basic (Kerbals draws, Career does not), so its leading separator draws in both modes and Basic reads Logistics, one gap, Kerbals, one gap, Settings.
+Separator spacing needs care: `ParsekUI.cs` emits `GUILayout.Space(SpacingLarge)` between button groups. When Basic removes a whole group, the separator that opens it must go too, or Basic shows a double gap. The spacing belongs inside the same visibility block as the buttons it separates: the Real Spawn Control block carries its own trailing gap, and the gap that opens the Kerbals group is gated on the Kerbals button drawing. Kerbals draws in both modes, so Basic reads Timeline, Missions, Logistics, one gap, Kerbals, one gap, Settings.
 
 ### 7.2 Switching mode
 
-**Frame-latched apply (from review).** The mode toggle is the first Parsek setting whose value changes IMGUI control counts. Unity IMGUI requires the control count to match between the Layout and Repaint passes of one frame; an immediate mid-event flip (the toggle click lands during an event pass, and Diagnostics + Sample Density draw AFTER the Interface section in the same window callback, `SettingsWindowUI.cs:166-178`) raises `ArgumentException: Getting control N's position in a group with only M controls`. The codebase already defers exactly this class of change: the RouteRunPrompt banner is cleared only on the Layout event "so the same frame's Repaint pass sees the identical control count" (`ParsekUI.cs:253-258`).
+**Frame-latched apply (from review).** The mode toggle is the first Parsek setting whose value changes IMGUI control counts. Unity IMGUI requires the control count to match between the Layout and Repaint passes of one frame; an immediate mid-event flip (the toggle click lands during an event pass, and Looping + Sample Density + Diagnostics draw AFTER the Interface section in the same window callback, `SettingsWindowUI.DrawSettingsWindow`) raises `ArgumentException: Getting control N's position in a group with only M controls`. The codebase defers exactly this class of change elsewhere too: the RouteRunPrompt banner is cleared only on the Layout event "so the same frame's Repaint pass sees the identical control count" (`ParsekUI.DrawWindow`).
 
 Rule: the toggle click calls the setter seam (section 6.2), which writes + persists the setting and records a PENDING mode. The pending mode is APPLIED outside OnGUI (in the controller's `Update()`), which latches the effective mode all `IsVisible` calls read for the whole next frame and runs the close handler. Every gate therefore sees one stable mode per frame; the UI change appears one frame after the click, imperceptibly.
 
 Apply sequence (in `Update()`, not mid-OnGUI):
 
 1. Latch the applied mode; log at Info: `Mode changed: uiComplexityMode=Advanced->Basic`.
-2. Advanced -> Basic close set, each wrapped in its own try/catch (`InputLockManager.RemoveControlLock` fires `GameEvents.onInputLocksModified`; a throwing listener must not abort the loop - precedent `RouteCreationDialog.cs:466-480`): for each of `gloopsUI`, `spawnControlUI`, and the Settings-launched `testRunnerUI` (`kerbalsUI` left the set with the 2026-09-22 re-ruling, `careerStateUI` with the 2026-09-27 removal of its window), set `IsOpen = false` and call `ReleaseInputLock()`; also call `groupPicker.Close()` (reachable only from the hidden Recordings tab, but it can already be open at switch time and would otherwise keep drawing from `RecordingsTableUI.DrawIfOpen:448`; existing close precedent `RecordingsTableUI.cs:1102`). Apply the tab clamp (7.4). Log one Verbose line per closed window (window name, whether it held a lock).
+2. Advanced -> Basic close set, each wrapped in its own try/catch (`InputLockManager.RemoveControlLock` fires `GameEvents.onInputLocksModified`; a throwing listener must not abort the loop - precedent `RouteCreationDialog.cs:466-480`): for each of `gloopsUI`, `spawnControlUI`, and the Settings-launched `testRunnerUI` (`kerbalsUI` left the set with the 2026-09-22 re-ruling, `careerStateUI` with the 2026-09-27 removal of its window), set `IsOpen = false` and call `ReleaseInputLock()`; also call `groupPicker.Close()` (reachable only from the hidden Recordings tab, but it can already be open at switch time and would otherwise keep drawing from `RecordingsTableUI.DrawIfOpen:448`; existing close precedent `RecordingsTableUI.cs:1102`) and, since 2026-10-02, `LogisticsWindowUI.CloseLinkPickerForModeChange()` (the round-trip link picker, armed only from the Advanced-only Link control, owns no lock; the Logistics window stays open). Apply the tab clamp (7.4). Log one Verbose line per closed window (window name, whether it held a lock).
 3. Basic -> Advanced: nothing to close. Windows reopen on demand with preserved state.
-4. BOTH directions: request a one-shot height re-measure of the Settings window (`SettingsWindowUI.RequestHeightRemeasure`), the one window whose own content changes with the mode - Basic drops the Looping + Diagnostics + Sample Density sections and Advanced restores them, and its height is fixed with no resize handle, so without this it keeps dead space in Basic and clips in Advanced (playtest 2026-07-28). Only the height is re-derived (x / y / width untouched); the request just sets a flag the next Layout pass consumes, so no control count changes mid-frame. That consume does TWO things, and the second is the load-bearing one (corrected 2026-08-17, after the first version shipped with only the first and left the shrink direction broken): it drops the `GUILayout.Height` option AND hands GUILayout a zero-height rect. A GUILayout window resolves to `Max(passedHeight, contentMin)` - `GUI.CallWindowDelegate` seeds the window's layout group with `Width`/`Height` from the window's CURRENT rect before the caller's options are applied over it, so omitting Height just leaves that seeded height standing and `GUILayoutUtility.LayoutSingleGroup` clamps an over-tall window straight back to itself. Growth worked because it is the direction `contentMin` pushes; shrink never happened at all. Releasing the height resolves the clamp to `contentMin`, the true fit, both ways. The stored rect keeps its old height across that pass (`SettingsWindowPresentation.KeepStoredHeightAcrossFitPass`) because it is also the hit rect behind the window's CAMERACONTROLS lock. The consume waits for a pass with the bottom tooltip box down (the pointer sits on the mode toggle right after the click, and measuring then would bake in a height that vanishes with the tooltip). The Missions window is deliberately NOT re-measured: its height is player-owned (resize handle) and its tab bar sits above a scroll view that absorbs the freed space.
+4. BOTH directions: request a one-shot height re-measure of the Settings window (`SettingsWindowUI.RequestHeightRemeasure`), the one window whose own content changes with the mode - Basic drops the Looping + Diagnostics + Sample Density sections and Advanced restores them, and its height is fixed with no resize handle, so without this it keeps dead space in Basic and clips in Advanced. Only the height is re-derived (x / y / width untouched); the request just sets a flag the next Layout pass consumes, so no control count changes mid-frame. That consume does TWO things, and the second is the load-bearing one: it drops the `GUILayout.Height` option AND hands GUILayout a zero-height rect. A GUILayout window resolves to `Max(passedHeight, contentMin)` - `GUI.CallWindowDelegate` seeds the window's layout group with `Width`/`Height` from the window's CURRENT rect before the caller's options are applied over it, so omitting Height alone leaves that seeded height standing and `GUILayoutUtility.LayoutSingleGroup` clamps an over-tall window straight back to itself: the window grows (the direction `contentMin` pushes) but never shrinks. Releasing the height resolves the clamp to `contentMin`, the true fit, both ways. The stored rect keeps its old height across that pass (`SettingsWindowPresentation.KeepStoredHeightAcrossFitPass`) because it is also the hit rect behind the window's CAMERACONTROLS lock. The consume waits for a pass with the bottom tooltip box down (the pointer sits on the mode toggle right after the click, and measuring then would bake in a height that vanishes with the tooltip). The Missions window is deliberately NOT re-measured: its height is player-owned (resize handle) and its tab bar sits above a scroll view that absorbs the freed space.
 
 Notes on the close set:
 - It is enumerated from `HiddenSurfaces(Basic)` PLUS the two review additions that do not map 1:1 to a surface: `testRunnerUI` (its launcher lives in the hidden Diagnostics section; without closing it, an open instance has no reopen path in Basic - the Ctrl+Shift+T shortcut opens the SEPARATE global `ParsekTestRunnerGlobal` window, which is never gated) and `groupPicker`.
-- `RecordingsTableUI` itself is NOT closed (it survives as the Missions window); `StructureListWindowUI` is NOT closed (reachable from Missions and Logistics rows, both kept).
+- `RecordingsTableUI` itself is NOT closed (it survives as the Missions window); neither `StructureListWindowUI` instance is closed (the Mission Log and the Route History open from the Missions and Logistics rows, both kept).
 - Do not copy `ParsekUI.Cleanup()` (`ParsekUI.cs:2047-2053`) as the enumeration source: it omits `gloopsUI`, `logisticsUI`, and `testRunnerUI`. The handler owns its own explicit list, and 13.1 has a test pinning that list to the lock-owning gated windows.
 - A missed close self-heals in bounded time: `DrawIfOpen` keeps running ungated (7.1) and releases the lock next frame once `IsOpen` is false, and KSP clears all input locks on scene transition regardless.
 
-**Gloops in-progress guard (from review).** Gloops manual-recording state lives in `ParsekFlight` (`IsGloopsRecording`, driven from `GloopsRecorderUI.cs:199-251`), not in the window; hiding the window does not stop the recording, which would leave it sampling with no reachable Stop/Discard control in Basic. Rule: while `IsGloopsRecording` is true, the Basic option in the Settings toggle is disabled with the inline reason `Stop the Gloops recording first`; the refusal is logged at Info. Zero behavior change, one rare interaction. In SPACECENTER the UI has no `ParsekFlight` (`parentUI.Flight` is null under the `UIMode.KSC` constructor); the check falls back to "not recording", which is sound - Gloops live-recording state dies with the FLIGHT-scene `ParsekFlight`, so it can never be in progress there.
+**Gloops in-progress guard (from review).** Gloops manual-recording state lives in `ParsekFlight` (`IsGloopsRecording`, driven from the `GloopsRecorderUI` buttons), not in the window; hiding the window does not stop the recording, which would leave it sampling with no reachable Stop/Discard control in Basic. Rule: while `IsGloopsRecording` is true, the Basic option in the Settings toggle is disabled and the Interface hint adds `Stop the Gloops recording first.`; the refusal is logged at Info. Zero behavior change, one rare interaction. In SPACECENTER the UI has no `ParsekFlight` (`parentUI.Flight` is null under the `UIMode.KSC` constructor); the check falls back to "not recording", which is sound - Gloops live-recording state dies with the FLIGHT-scene `ParsekFlight`, so it can never be in progress there.
 
 ### 7.3 First-run default (DECIDED; mechanism reworked after review)
 
@@ -481,15 +483,15 @@ Resolution order, expressed by the pure seam `ResolveMode(int? storedValue, bool
 - No stored value AND no install footprint -> `Basic`. A genuinely new player, nothing to disrupt.
 - No stored value AND an install footprint -> `Advanced`. An existing player updating into this feature; every window they used stays exactly where it was.
 
-**The footprint is INSTALL-level, not per-save.** The settings store is per-install (`GameData/Parsek/PluginData/settings.cfg`, `ParsekSettingsPersistence.cs:80-84`), so a per-save footprint would make the resolved default depend on which save happens to load first: an existing player whose first post-update load is a brand-new sandbox would resolve Basic and lose four windows on every veteran save. `installHasParsekFootprint` is true when ANY of:
+**The footprint is INSTALL-level, not per-save.** The settings store is per-install (`GameData/Parsek/PluginData/settings.cfg`, `ParsekSettingsPersistence`), so a per-save footprint would make the resolved default depend on which save happens to load first: an existing player whose first post-update load is a brand-new sandbox would resolve Basic and lose four windows on every veteran save. `installHasParsekFootprint` is true when ANY of:
 
 1. Any `saves/<name>/Parsek/` directory exists (cheap `Directory.Exists` walk over the saves root; no `.sfs` parsing).
-2. The CURRENT save's `SCENARIO{name=ParsekScenario}` node is populated (available for free in `ParsekScenario.OnLoad`; reuses `PreParsekBackup`'s authority concept, `PreParsekBackup.cs:29-32`, `:137`).
+2. The CURRENT save's `SCENARIO{name=ParsekScenario}` node is populated (available for free in `ParsekScenario.OnLoad`; reuses `PreParsekBackup`'s authority concept).
 3. The settings store already contains any stored keys (Parsek ran before this feature existed; the strongest cheap signal).
 
 **The resolved default is persisted immediately.** When resolution runs (no stored value), the result is written back via `RecordUiComplexityMode` in the same step. Without this, resolution re-runs every session, and by session 2 a fresh install HAS a footprint (its own `Parsek/` sidecar dir and populated scenario node), silently flipping the new player from Basic to Advanced - exactly the "default changed what the player sees" failure this section exists to prevent. Persisting on first resolve makes resolution run at most once per install, ever, and makes "stored value present" the steady state.
 
-**When it runs.** Once, at the first settings restore that finds no `uiComplexityMode` key, during a COLD `ParsekScenario.OnLoad` (settings restore runs at `ParsekScenario.cs:2773`; the scenario node is at hand there). Never on warm OnLoads (rewind quickloads, scene changes) - by then the value is stored anyway.
+**When it runs.** Once, at the first settings restore that finds no `uiComplexityMode` key, during a COLD `ParsekScenario.OnLoad` (the settings restore runs there, with the scenario node at hand). Never on warm OnLoads (rewind quickloads, scene changes) - by then the value is stored anyway.
 
 The rejected alternative was defaulting Basic unconditionally: one line, but it silently removes four windows from every existing install on update, which reads as a regression rather than a simplification. The requirement is not "make everyone start in Basic", it is "make Basic the starting point for people who have no history to lose".
 
@@ -497,17 +499,17 @@ The rejected alternative was defaulting Basic unconditionally: one line, but it 
 
 ### 7.4 Tab-index clamp
 
-`RecordingsTableUI.selectedTab` is transient runtime state (`RecordingsTableUI.cs:120-122`), not persisted, so this is a within-session concern only.
+`RecordingsTableUI.selectedTab` is transient runtime state, not persisted, so this is a within-session concern only.
 
-The section 4.1 reorder materially shrinks it. With `TabMissions = 0`, index 0 is valid and means Missions in both modes. The only out-of-range case left is a player sitting on the Recordings tab (index 1) when Basic is selected, and clamping that to 0 lands on Missions, which is both in range and the semantically right destination.
+With `TabMissions = 0`, index 0 is valid and means Missions in both modes. The only out-of-range case left is a player sitting on the Recordings tab (index 1) when Basic is selected, and clamping that to 0 lands on Missions, which is both in range and the semantically right destination.
 
-Had Missions stayed at index 1, every player on the default tab would have needed a clamp on entering Basic, and a naive clamp would have been correct only by coincidence. Putting Missions at index 0 makes the clamp a rare no-op rather than the common path.
+Putting Missions at index 0 makes the clamp a rare no-op rather than the common path: a player on the default tab never needs one.
 
 Clamp in the deferred mode-apply step (7.2) and defensively on draw; the on-draw clamp reads the frame-latched mode, so it is deterministic within a frame (same result in Layout and Repaint) and layout-safe. Log the clamp at Verbose with old index, new index, and active tab count. Entering Advanced needs no clamp, since every Basic index is valid.
 
 In Basic the tab bar renders zero tabs rather than a single one-button toolbar - `GUILayout.Toolbar` with one entry is visual noise; the window title (`Parsek - Missions`) carries the identity. `TabLabels` remains the single two-entry array (section 6.2); Basic simply skips drawing the toolbar and pins the dispatch to Missions. `VisibleTabCount(mode)` is the pure, testable expression of this rule.
 
-One more GoTo consequence (4.1a): after the revision, the only production tab mover is `ShowMissionForRecording`, which writes `TabMissions` - the very index Basic clamps TO, so it can never produce a Basic-invalid selection. `ScrollToRecording` (no production caller) is the one that still writes `TabRecordings`; the defensive clamp covers it and any future caller regardless.
+One more GoTo consequence (4.1a): the only production tab mover is `ShowMissionForRecording`, which writes `TabMissions` - the very index Basic clamps TO, so it can never produce a Basic-invalid selection. `ScrollToRecording` (no production caller) is the one that still writes `TabRecordings`; the defensive clamp covers it and any future caller regardless.
 
 ---
 
@@ -516,19 +518,19 @@ One more GoTo consequence (4.1a): after the revision, the only production tab mo
 1. **Window open when Basic is selected.** Force-closed and its input lock released (section 7.2). State preserved for the next Advanced session.
 2. **Input lock leak.** A gated window that held a lock at hide time would soft-lock the player's mouse. `ReleaseInputLock()` is mandatory in the close handler (per-window try/catch, section 7.2), and is the highest-risk defect in this feature. Two backstops bound the blast radius: the ungated `DrawIfOpen` prologue releases the lock on the next frame once `IsOpen` is false (7.1), and KSP clears all input locks on scene transition. Neither excuses the handler: a leak would still cost the player up to a scene session.
 3. **`selectedTab` out of range.** Only reachable from the Recordings tab (index 1) when Basic is selected. Clamped to 0 (Missions) in the deferred mode-apply and defensively on draw (section 7.4).
-3a. **Window position reset by the rename.** If the window ID hash at `RecordingsTableUI.cs:432` is changed along with the title, every player's saved window position and size for this window is silently discarded. The ID is deliberately excluded from the rename (section 4.2). A test cannot easily catch this; it is a review checklist item.
-3b. **Timeline "Recordings" filter mistaken for the renamed button.** `TimelineWindowUI.cs:695` is an unrelated entry-type filter that correctly says "Recordings". A global find-and-replace would rename it and break the Timeline's filter labelling. Section 4.2 is the disposition table for every hit.
-4. **Contextual window orphaned.** The Log window (`StructureListWindowUI`) can be opened from a Missions row, which stays visible in Basic. It remains reachable and is not gated. The Group picker is reachable only from the hidden Recordings tab, BUT an already-open picker survives the switch (it draws from `RecordingsTableUI.DrawIfOpen:448` regardless of tab) and could still mutate group assignments; the close handler calls `groupPicker.Close()` (section 7.2). It holds no input lock, so this is a reachability rule, not a lock rule.
+3a. **Window position reset by a rename.** If the window ID key `RecordingsTableUI.WindowIdKey` (`"ParsekRecordings"`) is changed along with the title, every player's saved window position and size for this window is silently discarded. The ID is deliberately excluded from the rename (section 4.2). A test cannot easily catch this; it is a review checklist item.
+3b. **Timeline "Recordings" filter mistaken for the renamed button.** The Timeline's `Recordings` source toggle is an unrelated entry-type filter that correctly says "Recordings". A global find-and-replace would rename it and break the Timeline's filter labelling. Section 4.2 is the disposition table for every hit.
+4. **Contextual window orphaned.** The Log window (`StructureListWindowUI`) can be opened from a Missions row, which stays visible in Basic. It remains reachable and is not gated. The Group picker is reachable only from the hidden Recordings tab, BUT an already-open picker survives the switch (it draws from `RecordingsTableUI.DrawIfOpen` regardless of tab) and could still mutate group assignments; the close handler calls `groupPicker.Close()` (section 7.2). It holds no input lock, so this is a reachability rule, not a lock rule.
 5. **Route candidate banner in Basic.** Kept. It carries `Open Logistics` and `Dismiss`, both of which target a surface Basic keeps.
-6. **Data Management destructive actions.** Superseded 2026-09-26: the section and both wipes were removed in every mode, because recordings are never player-deletable. (It was kept in Basic on the grounds that a player who needs to clear data must be able to; the operator ruling is that a deletion breaks the timeline and the ledger, and the per-row Archive checkbox is the only way to stop seeing a recording.)
-7. **Scene differences.** The main window exists in exactly TWO scenes: FLIGHT (`ParsekFlight.cs:1268`) and SPACECENTER (`ParsekKSC.cs:120`), both through the single `ParsekUI.DrawWindow` path; the Tracking Station has NO main window (`ParsekTrackingStation.cs` draws markers and the ghost menu only), so no gated window can be open in a scene where the Settings toggle is unreachable. The InFlight-only buttons (Spawn Control, Gloops) are already conditional; the Basic gate composes with that condition (`InFlight && IsVisible(...)`), it does not replace it.
+6. **No destructive data actions.** Settings has no data-management section in either mode: recordings are never player-deletable (a deletion breaks the timeline and the ledger), and the per-row Archive checkbox is the only way to stop seeing a recording.
+7. **Scene differences.** The main window exists in exactly TWO scenes: FLIGHT (`ParsekFlight`) and SPACECENTER (`ParsekKSC`), both through the single `ParsekUI.DrawWindow` path; the Tracking Station has NO main window (`ParsekTrackingStation.cs` draws markers and the ghost menu only), so no gated window can be open in a scene where the Settings toggle is unreachable. The InFlight-only buttons (Spawn Control, Gloops) are already conditional; the Basic gate composes with that condition (`InFlight && IsVisible(...)`), it does not replace it.
 8. **Harness and in-game tests.** Any in-game test that drives a gated window must either force Advanced for its duration or assert against the mode. Tests must not assume the Advanced set is present. Review audit result: NO existing in-game test opens or draws a gated window through the UI (they call mode-independent internal statics; `LogisticsTooltipEchoImguiTest` drives Logistics, which is kept), and the harness autorun path uses the ungated global `TestRunnerShortcut` window. Expect the phase-7 audit to confirm near-zero forcing is needed.
 9. **Mode changed while a gated window is mid-drag / mid-resize.** The apply runs in `Update()`, decoupled from the click; it may therefore coincide with any window state. The close path must not assume the window was idle (it only sets `IsOpen` and releases the lock, both safe mid-resize).
 10. **Toolbar button in Basic.** Unchanged. The launcher is not gated; only the main window's contents are.
 11. **Gloops recording in progress.** Switching to Basic is refused while `IsGloopsRecording` (section 7.2); otherwise the running ghost-only recording would keep sampling with no reachable Stop/Discard control.
-12. **Timeline GoTo.** See section 4.1a: phase 1 made `ScrollToRecording` select the Recordings tab and Basic hid the button; the revision retargets GoTo at the Missions tab through `ShowMissionForRecording`, so it is visible in both modes and its gate key is `TabMissions`.
+12. **Timeline GoTo.** See section 4.1a: GoTo targets the Missions tab through `ShowMissionForRecording`, so it is visible in both modes, and its gate key is its target's, `TabMissions`.
 13. **Two test runner windows.** The Settings-launched `ParsekTestRunner` window is in the close set (no reopen path in Basic); the global Ctrl+Shift+T `ParsekTestRunnerGlobal` window is a separate window with a separate lock and is never gated (section 6.3).
-14. **`autoRecordOnLaunch` off in Basic.** The Recording section stays visible, so a Basic player can turn auto-record off; with Gloops hidden there is then no manual recorder at all. Pre-existing shape (Advanced has no manual tree-recorder start either) and the toggle is the player's own explicit act; no rule, just noted.
+14. **Auto-record has no control in either mode.** `autoRecordOnLaunch` / `autoRecordOnEva` / `autoRecordOnFirstModificationAfterSwitch` are hidden fields clamped on at load (Settings has no Recording section), so every mode records automatically and no player can turn it off; with the Gloops launcher retired there is no manual recorder in either mode.
 15. **A Recordings-tab-only flag reaching a Basic-kept surface.** `Recording.Hidden` (Archive) is written only from the hidden Recordings tab yet filtered the Timeline, so an archive was irreversible in Basic. Resolved in section 4.4 by giving the Timeline its own reveal toggle over the SAME shared filter state, in both modes. The general rule it establishes: when a hidden surface owns the only writer of a flag a KEPT surface consumes, give the kept surface a control, never a mode-dependent filter. Any future flag with that shape gets the same treatment.
 
 ---
@@ -550,7 +552,7 @@ A grep gate is proposed in section 13.4 to enforce that the mode symbol appears 
 
 ### 9.1 Player-facing text that names a gated surface
 
-One narrow extension of the gate's consumer set, added with the section 4.1a revision. A message telling the player to open a window whose launcher Basic has removed is worse than saying nothing: it is a 10-second on-screen instruction with no button behind it. So such text may vary by mode.
+One narrow extension of the gate's consumer set. A message telling the player to open a window whose launcher Basic has removed is worse than saying nothing: it is a 10-second on-screen instruction with no button behind it. So such text may vary by mode.
 
 The rule is deliberately tight:
 
@@ -618,13 +620,14 @@ The existing `[UI]` tag is correct here; this feature introduces no new subsyste
 - **`ResolutionIsSticky`** - after a no-stored-value resolution, the resolved mode is recorded (via the `SetStored...ForTesting` / `GetStored...` seams), so a second resolution sees a stored value and the footprint no longer matters. Guards the session-2 flip failure of section 7.3.
 - **`OutOfRangeStoredValueResolvesToAdvanced`** - the clamping accessor maps any out-of-range int to Advanced (fail-open, section 6.2).
 - **`EverySurfaceIsDecided`** - reflection walk asserting `IsVisible` throws on an unhandled enum value (the documented contract, section 6.1), so adding a `UiSurface` without a Basic decision fails the build rather than defaulting silently.
-- **`EverySurfaceKeyHasAtLeastOneEnforcementSite`** (added 2026-09-11) - source scan over `Source/Parsek/**.cs` (excluding the decision point itself) asserting every `UiSurface` value is read at a draw site as `IsVisible(UiSurface.<Key>, ...)` or `IsRetired(UiSurface.<Key>)`. Added because `MainButtonTimeline` / `MainButtonRecordings` / `MainButtonLogistics` / `MainButtonSettings` had ZERO call sites: their launchers drew unconditionally, so the gate table described four gates the product did not apply - and the gap was invisible because all four are classified "keep", so the unenforced answer happened to agree with the enforced one. All four are now wired, with behaviour unchanged (they stay visible in both modes). The scan matches whitespace-tolerantly: `TimelineWindowUI` wraps `IsVisible(` onto the line before its `UiSurface.TabMissions` argument, and a contiguous scan read that real site as a missing one.
+- **`EverySurfaceKeyHasAtLeastOneEnforcementSite`** - source scan over `Source/Parsek/**.cs` (excluding the decision point itself) asserting every `UiSurface` value is read at a draw site as `IsVisible(UiSurface.<Key>, ...)` or `IsRetired(UiSurface.<Key>)`. Without it a key classified "keep" could have no call site at all and the gate table would describe a gate the product does not apply, invisibly, because the unenforced answer agrees with the enforced one. The scan matches whitespace-tolerantly: `TimelineWindowUI` wraps `IsVisible(` onto the line before its `UiSurface.TabMissions` argument, and a contiguous scan read that real site as a missing one.
 - **`TabIndexClampsIntoRange`** - clamp helper over both modes' visible tab counts, including the index-1-into-Basic case.
 - **`MissionsIsTheDefaultAndFirstTab`** - asserts `TabMissions == 0`, that `selectedTab` initializes to it, that `TabLabels[0]` is "Missions" (single array, section 6.2), and that `VisibleTabCount(Basic) == 0` / `VisibleTabCount(Advanced) == 2`. Requires the constants and `TabLabels` to be `internal` (6.2). Fails if a future edit reorders the tabs back, which would silently restore the Recordings tab as the landing view and re-widen the clamp case of section 7.4.
 - **Section 4.5 Settings half** - `SettingsSectionGateWiringTests.LoopingSectionIsGatedWithItsSeparator` (the section + its trailing separator sit inside the gate) and `TheAutoLoopClickAwayCommitIsGatedAndDropsTheEditInBasic` (the click-away commit is the `else` of the gate, the hidden branch ends the edit through the shared teardown, and the latch is read before the check). `NoOtherSettingsSectionIsGated` pins the count at three gated sections plus that one edit-state read.
+- **Section 4.6 Logistics route tuning** - `LogisticsRoutePresentationTests` (the gate in both modes, the Basic sort fallback for the Advanced-only Runs column, Send-armed routes kept in the Active table while they send, with a live Cancel before launch and a greyed Delivering... in flight, the merged Status cell including a held PAUSED route, the Missions countdown and its dated hover, the read-only Every cell, the dated detail sentences, InvariantCulture under de-DE) plus two source gates in `TableRowInsetAlignmentTests` (the header and every row read ONE latched `drawTuning`, so Layout and Repaint draw the same columns; Delete sits in the detail block and the candidates keep their own Actions width) and the `LogisticsLinkPicker` row of `CloseHandlerCoversEveryGatedLockOwner`.
 - **Section 4.5 loop-control gate** - `MissionsWindowLoopGateTests` (3 cells over `MissionsWindowUI.ShowsLoopAuthoringControls`: hidden in Basic and kept in Advanced; derived from `UiSurfaceVisibility.IsVisible` rather than a private second opinion; and the scope guard that hiding the controls does not hide the Missions tab or its launcher). The four draw sites are IMGUI callbacks with no headless seam, so the shared decision they read is what is pinned; `BasicHidesExactlyTheDocumentedSet` covers the key's membership in the hide-set.
 - **`RecordingStoragePathsAreUnaffectedByRename`** - asserts `RecordingPaths` still resolves the `Parsek/Recordings` directory (`RecordingPaths` already has xUnit precedent). Guards the section 4.2 trap where an over-eager rename orphans every recording on disk.
-- **`CloseHandlerCoversEveryGatedLockOwner`** - pins the section 7.2 close set: every lock-owning window whose launcher Basic hides (gloops, spawn control, settings-launched test runner; kerbals until 2026-09-22, career until its removal 2026-09-27) appears in the handler's list, plus the group picker close. Guards the drift failure the existing `Cleanup()` sweep exhibits (it omits three windows).
+- **`CloseHandlerCoversEveryGatedLockOwner`** - pins the section 7.2 close set: every lock-owning window whose launcher Basic hides (gloops, spawn control, settings-launched test runner; kerbals until 2026-09-22, career until its removal 2026-09-27) appears in the handler's list, plus the group picker close and (since 2026-10-02) the Logistics link picker close. Guards the drift failure the existing `Cleanup()` sweep exhibits (it omits three windows).
 - **`ScrollToRecordingSelectsRecordingsTab`** - phase 1 guard for section 4.1a, asserting the explicit `selectedTab = TabRecordings` write. After the 4.1a revision it guards the Recordings tab's own navigation API rather than a live cross-link; the cross-link's own cells live in `TimelineGoToMissionTests` (happy path, tab move off Recordings, mid-scene default-mission seeding, original-not-clone pick, the three Archive-filter rules, the three headless-reachable failure paths, the stale-target clear, the gate key in both modes, and a source-text gate over both button sites). The fourth failure path - target armed but never drawn - is draw-loop-only and has no headless cell.
 - **Section 4.4 archive reveal** - `TimelineArchivedRowsTests` (12 cells: the default still hides, the reveal includes and is purely additive, the `IsArchivedRecording` stamp follows the RECORDING and not the build flag, the collector's `hidden=` / `archivedShown=` diagnostic, both directions of the `ShowArchivedRecordings` polarity and of its write-through to the shared filter, the untouched-save default, and the `ShouldRebuildTimeline` truth table including the archive-filter arm no invalidation call announces) plus `TimelineArchiveFilterWiringTests` (4 loose source-text cells over the IMGUI wiring `DrawTimelineWindow` / `DrawFilterBar` / `DrawEntryRow` cannot expose headlessly - the silent regressions being a dropped `Build` argument, which leaves the toggle rendering and storing while the row set never moves, and a rewritten rebuild condition that drops the archive arm, which is why the cell pins the CALL SITE `if (ShouldRebuildTimeline(` and not the bare method name the definition also satisfies). No mode cell is needed or wanted: 4.4 reads no mode, and the existing 13.4 grep gate is what proves it.
 
@@ -676,7 +679,7 @@ New source files: `Source/Parsek/UI/UiComplexityMode.cs`, `Source/Parsek.Tests/U
 
 ### 15.1 Timeline tier filters
 
-The Timeline has 10 toggles, several being tier filters. Whether those should collapse to a single dropdown in Basic is a within-window simplification, deliberately deferred out of v1 (which gates whole surfaces only). Flagged because Timeline is the window a Basic player uses most.
+The Timeline's filter area is three rows of up to six buttons (views, context toggles, time range). Whether those should collapse in Basic is a within-window simplification, deliberately deferred out of v1 (which gates whole surfaces only). Flagged because Timeline is the window a Basic player uses most.
 
 ---
 
@@ -684,18 +687,19 @@ The Timeline has 10 toggles, several being tier filters. Whether those should co
 
 | Concept | Code |
 |---------|------|
-| Mode enum + surfaces + predicate + `ResolveMode` | `Source/Parsek/UI/UiComplexityMode.cs` (new) |
+| Mode enum + surfaces + predicate + `ResolveMode` | `Source/Parsek/UI/UiComplexityMode.cs` |
 | Persisted value | `ParsekSettings.uiComplexityMode` + clamping accessor, `ParsekSettingsPersistence` (full showRouteLines-analog wiring, section 6.2) |
 | Setter seam (all mode writes) | `ParsekUI.SetUiComplexityMode` (section 6.2) |
 | Frame-latched deferred apply | controller `Update()` (`ParsekFlight` / `ParsekKSC`), section 7.2 |
-| Toggle UI | `UI/SettingsWindowUI.cs` (new `Interface` section, drawn first; Basic option disabled while `IsGloopsRecording`) |
-| Main-window gates | `ParsekUI.cs:193-385` |
-| Tab gates + reorder + clamp | `UI/RecordingsTableUI.cs:124-127`, `:1182-1190` |
+| Toggle UI | `UI/SettingsWindowUI.cs` (`Interface` section, drawn first; Basic option disabled while `IsGloopsRecording`) |
+| Main-window gates | `ParsekUI.DrawWindow` |
+| Tab gates + order + clamp | `RecordingsTableUI.TabMissions` / `TabRecordings` / `TabLabels` / `VisibleTabCount` / `ClampTabIndexForMode` |
+| Missions loop-control gate | `MissionsWindowUI.ShowsLoopAuthoringControls` (section 4.5) |
 | GoTo cross-link fix + gate | `UI/RecordingsTableUI.ShowMissionForRecording`, `UI/MissionsWindowUI.RevealMissionForRecording`, `UI/TimelineWindowUI.DrawEntryRow` (section 4.1a) |
 | Archive reveal (section 4.4) | `Timeline/TimelineBuilder.Build(..., includeArchivedRecordings)` + `TimelineEntry.IsArchivedRecording`; `UI/TimelineWindowUI.ShowArchivedRecordings` / `ShouldRebuildTimeline` / `DrawFilterBar` / `DrawEntryRow`; `UI/RecordingsTableUI.NotifyTimelineOfArchiveChange`; shared filter state `GroupHierarchyStore.HideActive` |
-| Rename (button, title, tooltips) | `ParsekUI.cs:239`, `UI/RecordingsTableUI.cs:435`, the two GoTo tooltips in `UI/TimelineWindowUI.DrawEntryRow` |
-| Rename exclusions | `UI/RecordingsTableUI.cs:432` (window ID), log strings (section 4.2 blanket rule), `RecordingPaths.cs` (storage), `UI/TimelineWindowUI.cs:695` (unrelated filter), `SettingsWindowUI.cs:581` + `ParsekUI.cs:927` (wipe strings) |
-| Mode-change close handler | `ParsekUI.OnUiComplexityModeChanged` (explicit per-window list, section 7.2) |
+| Names (button, title, tooltips) | `ParsekUI.DrawWindow`, the `RecordingsTableUI` window title, `TimelineWindowUI.GetGoToMissionTooltip` |
+| Rename exclusions | `RecordingsTableUI.WindowIdKey` (window ID), log strings (section 4.2 blanket rule), `RecordingPaths.cs` (storage), the Timeline `Recordings` source toggle (unrelated filter) |
+| Mode-change close handler | `ParsekUI.CloseGatedWindowsForBasic` over `BuildGatedWindowCloseSet` (explicit per-window list, section 7.2) |
 | Invariant enforcement | `scripts/grep-audit-ui-complexity-mode.ps1` |
 
 ---
@@ -706,17 +710,17 @@ Independent of the Basic/Advanced feature. Each would ship as its own change; no
 
 ### 17.1 Extract shared window chrome (highest structural value; NOT a prerequisite)
 
-TEN files independently implement the same window scaffolding: `*HasInputLock`, `isResizing*`, `IsOpen`, `ReleaseInputLock`, `IsMouseOverOpenWindow` (`CareerStateWindowUI`, `KerbalsWindowUI`, `LogisticsWindowUI`, `RecordingsTableUI`, `SettingsWindowUI`, `SpawnControlUI`, `TestRunnerUI`, `TimelineWindowUI`, plus the two the original count missed: `GloopsRecorderUI`, `StructureListWindowUI`). A shared `ParsekWindowBase` would remove ten copies of the same lifecycle.
+NINE files independently implement the same window scaffolding: `*HasInputLock`, `isResizing*`, `IsOpen`, `ReleaseInputLock`, `IsMouseOverOpenWindow` (`GloopsRecorderUI`, `KerbalsWindowUI`, `LogisticsWindowUI`, `RecordingsTableUI`, `SettingsWindowUI`, `SpawnControlUI`, `StructureListWindowUI`, `TestRunnerUI`, `TimelineWindowUI`). A shared `ParsekWindowBase` would remove nine copies of the same lifecycle.
 
 Review verdict (settled for this feature): do NOT pre-land this refactor before phase 7. The windows are instance classes with uniform chrome shape but non-uniform signatures (`DrawIfOpen(Rect)` vs `(Rect, ParsekFlight, bool)` vs `(Rect, MonoBehaviour)`; Timeline's close routes through `CloseWindow()` with warp-date persistence while Kerbals is a plain field set), so the extraction is a mid-size refactor of hot IMGUI paths inside a feature whose core invariant is "Advanced stays byte-identical". The de-risking it promised is achieved more cheaply by the explicit per-window close list + `CloseHandlerCoversEveryGatedLockOwner` (section 7.2), backstopped by the ungated `DrawIfOpen` self-heal (7.1). Ship the feature first; extract afterwards if ever.
 
 ### 17.2 Main window has no visual grouping
 
-Eight buttons in a flat stack with only blank-space separators and no labels. Even in Advanced, three group headers (`Flight`, `History`, `Career`) would make the launcher scannable. Cheap, and it helps Advanced users, who are not served by the mode toggle at all.
+Five or six buttons in a flat stack with only blank-space separators and no labels. Group headers would make the launcher scannable. Cheap, and it helps Advanced users, who are not served by the mode toggle at all.
 
 ### 17.3 No search or filter in the Recordings table
 
-Verified: the only `TextField` uses in `RecordingsTableUI` are rename and loop-period editing. With many recordings the table is a long scroll with sort as the only narrowing tool. A single name-filter field is a small change with a large effect. Review note: the same argument now applies to the Missions tab (sort + archive-hide but no name filter, `MissionsWindowUI.cs:2504-2545`), which becomes the primary landing view in both modes; if this ships, cover both tabs.
+Verified: the only `TextField` uses in `RecordingsTableUI` are rename and loop-period editing. With many recordings the table is a long scroll with sort as the only narrowing tool. A single name-filter field is a small change with a large effect. The same argument applies to the Missions tab (sort and per-mission Collapse, but no name filter), which is the primary landing view in both modes; if this ships, cover both tabs.
 
 ### 17.4 First-run onboarding
 
@@ -724,15 +728,15 @@ A one-time panel stating the three-step loop (fly, commit, rewind) with a "Show 
 
 ### 17.5 Toolbar button carries no state
 
-The Logistics button tints red for hard-broken routes, but only once the main window is open. A player with the window closed has no signal. Tinting or badging the ApplicationLauncher icon (`ParsekFlight.cs:1301`, `ParsekKSC.cs:128`) surfaces the error where it can actually be seen. Applies in both modes.
+The Logistics button tints red for hard-broken routes, but only once the main window is open. A player with the window closed has no signal. Tinting the ApplicationLauncher icon (registered by `ParsekFlight` and `ParsekKSC`) would surface the error where it can actually be seen. Applies in both modes.
 
 ### 17.6 Settings is one long scroll
 
-Seven sections, no folds. The codebase already has caret and foldout helpers in `RecordingsTableUI`. Collapsible sections, with `Interface` and `Recording` open by default, would shorten it considerably. Partly mitigated by this feature (Basic drops two sections), so lower priority.
+Five sections in Advanced, no folds. The codebase already has caret and foldout helpers in `RecordingsTableUI`. Collapsible sections, with `Interface` open by default, would shorten it. Mostly mitigated by this feature (Basic draws two sections), so low priority.
 
 ### 17.7 "Recordings" versus "Missions" naming (RESOLVED, now in scope)
 
-This was raised here as a separate proposal and has since been folded into the feature proper: the rename and tab reorder apply in both modes and ship as phase 1. See section 4.1 for the decision, 4.2 for the strings excluded from it. Retained as a heading so the cross-reference from earlier revisions still resolves.
+Folded into the feature proper: the Missions naming and tab order apply in both modes. See section 4.1 for the decision, 4.2 for the strings excluded from it.
 
 ### 17.8 Mission-level ghost-visibility toggle (follow-up for the section 4.3 limitation)
 

@@ -7,19 +7,27 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
-    /// Log window: a flat, chronological step list of one mission (launch, staging,
-    /// dock / undock, terminal), each with its time, location and vessel. Opened from a
-    /// mission's "Log" button (Missions tab) or a supply route's "Log" button (Logistics
-    /// window), which opens the Log of the mission the route was built from. One reusable
-    /// instance owned by <see cref="ParsekUI"/>; reopening retargets it. Read-only over
-    /// already-recorded data; the ordered step list comes from the pure
-    /// <see cref="MissionStructureListBuilder"/>.
+    /// The log-table window, in two instances owned by <see cref="ParsekUI"/>, each with
+    /// its own window id, rect, input lock and open state, so both can be open at once:
+    /// <list type="bullet">
+    ///   <item>The Mission Log ("Parsek - Log: &lt;mission&gt;"): a flat, chronological
+    ///   step list of one mission (launch, staging, dock / undock, terminal), opened from a
+    ///   mission's "Log" button on the Missions tab. Its first row carries the date, later
+    ///   rows the elapsed "T+" from it. Rows from the pure
+    ///   <see cref="MissionStructureListBuilder"/>.</item>
+    ///   <item>The Route History ("Parsek - Route History: &lt;route&gt;"): one supply
+    ///   route's runs and state changes from its ledger rows, opened from the route's
+    ///   "Log" button in the Logistics window. Every row carries its own date. Rows from the
+    ///   pure <see cref="RouteHistoryBuilder"/> over the Effective Ledger Set.</item>
+    /// </list>
+    /// Both draw the same table (Time | Event | Location | Vessel), hover strip and Close;
+    /// reopening an instance retargets it. Read-only.
     /// </summary>
     internal class StructureListWindowUI
     {
         /// <summary>Internal rather than private because the gallery snapshot below
         /// carries one, and an internal struct cannot have a private-typed field.</summary>
-        internal enum TargetMode { None, Mission }
+        internal enum TargetMode { None, Mission, Route }
 
         private readonly ParsekUI parentUI;
 
@@ -46,6 +54,27 @@ namespace Parsek
         private Rect lastWindowRect;
 
         private const string InputLockId = "Parsek_StructureListWindow";
+
+        /// <summary>The Route History instance's window-id key (see <see cref="WindowIdKey"/>).</summary>
+        internal const string RouteHistoryWindowIdKey = "ParsekRouteHistory";
+        private const string RouteHistoryInputLockId = "Parsek_RouteHistoryWindow";
+
+        /// <summary>The Route History instance's fixed title part.</summary>
+        internal const string RouteHistoryTitlePrefix = "Parsek - Route History";
+
+        // This instance's identity: which of the two windows it is.
+        private readonly bool isRouteHistory;
+        private readonly string instanceWindowIdKey;
+        private readonly string instanceInputLockId;
+        private readonly string instanceTitlePrefix;
+        private readonly string logName;
+
+        /// <summary>This instance's window-id key (the seam scopes a captured GUI tree by
+        /// it).</summary>
+        internal string InstanceWindowIdKey => instanceWindowIdKey;
+
+        /// <summary>True for the Route History instance.</summary>
+        internal bool IsRouteHistory => isRouteHistory;
 
         // Current target + cached built step list (rebuilt when the target changes). `title`
         // is the TARGET's name (the mission); the window title is built from it by
@@ -108,6 +137,7 @@ namespace Parsek
         internal static string EmptyText(TargetMode targetMode)
         {
             if (targetMode == TargetMode.Mission) return EmptyMissionText;
+            if (targetMode == TargetMode.Route) return RouteHistoryBuilder.EmptyText;
             return EmptyNoTargetText;
         }
 
@@ -125,13 +155,19 @@ namespace Parsek
         /// </summary>
         internal static string BuildWindowTitle(string targetName)
         {
+            return BuildWindowTitle(WindowTitlePrefix, targetName);
+        }
+
+        /// <summary>A window title from a fixed part and a target name. Pure.</summary>
+        internal static string BuildWindowTitle(string prefix, string targetName)
+        {
             return string.IsNullOrEmpty(targetName)
-                ? WindowTitlePrefix
-                : WindowTitlePrefix + ": " + targetName;
+                ? prefix
+                : prefix + ": " + targetName;
         }
 
         /// <summary>The title the window draws right now, for tests and the census.</summary>
-        internal string WindowTitleForTesting => BuildWindowTitle(title);
+        internal string WindowTitleForTesting => BuildWindowTitle(instanceTitlePrefix, title);
 
         public bool IsOpen
         {
@@ -139,9 +175,32 @@ namespace Parsek
             set { isOpen = value; }
         }
 
-        internal StructureListWindowUI(ParsekUI parentUI)
+        internal StructureListWindowUI(ParsekUI parentUI, bool routeHistory = false)
         {
             this.parentUI = parentUI;
+            isRouteHistory = routeHistory;
+            instanceWindowIdKey = routeHistory ? RouteHistoryWindowIdKey : WindowIdKey;
+            instanceInputLockId = routeHistory ? RouteHistoryInputLockId : InputLockId;
+            instanceTitlePrefix = routeHistory ? RouteHistoryTitlePrefix : WindowTitlePrefix;
+            logName = routeHistory ? "Route History window" : "Structure window";
+        }
+
+        /// <summary>
+        /// Opens the Route History on one supply route: its runs and state changes from the
+        /// route's ledger rows. While open it rebuilds when the ledger, the tombstones or the
+        /// route's name move (<see cref="RefreshIfChanged"/>).
+        /// </summary>
+        internal void OpenForRoute(string routeId, string displayTitle)
+        {
+            mode = TargetMode.Route;
+            targetId = routeId;
+            missionId = null;
+            title = displayTitle ?? "";
+            Rebuild();
+            isOpen = true;
+            ParsekLog.Info("UI",
+                $"{logName} opened: mode=Route route={routeId ?? "<null>"} steps={steps.Count} " +
+                $"title='{BuildWindowTitle(instanceTitlePrefix, title)}'");
         }
 
         /// <summary>
@@ -245,7 +304,11 @@ namespace Parsek
         private void SetSteps(List<StructureStep> newSteps)
         {
             steps = newSteps ?? new List<StructureStep>();
-            timeCells = StructureTimeFormatter.FormatStepTimes(steps, FormatDate);
+            // The Mission Log dates its first row and counts "T+" from it; a route's runs
+            // are days to years apart, so the Route History dates every row.
+            timeCells = mode == TargetMode.Route
+                ? RouteHistoryBuilder.FormatRowTimes(steps, FormatDate)
+                : StructureTimeFormatter.FormatStepTimes(steps, FormatDate);
         }
 
         /// <summary>The Time cells the window draws right now, for tests and the census.</summary>
@@ -257,7 +320,12 @@ namespace Parsek
         private void Rebuild()
         {
             var built = new List<StructureStep>();
-            if (mode == TargetMode.Mission)
+            if (mode == TargetMode.Route)
+            {
+                changeSignature = LogisticsWindowUI.RouteHistorySignature(targetId, out _);
+                built = LogisticsWindowUI.BuildRouteHistorySteps(targetId);
+            }
+            else if (mode == TargetMode.Mission)
             {
                 Mission mission = FindMission(missionId);
                 changeSignature = ComputeChangeSignature(
@@ -297,6 +365,29 @@ namespace Parsek
         /// </summary>
         private void RefreshIfChanged()
         {
+            if (mode == TargetMode.Route && !string.IsNullOrEmpty(targetId))
+            {
+                bool routeFound = Logistics.RouteStore.TryGetRoute(targetId, out Logistics.Route live) && live != null;
+                if (ShouldCloseForDeletedRoute(mode, targetId, routeFound))
+                {
+                    ParsekLog.Info("UI",
+                        $"{logName} closed: route={targetId} no longer exists (deleted) " +
+                        $"title='{BuildWindowTitle(instanceTitlePrefix, title)}'");
+                    Close();
+                    return;
+                }
+                int routeSignature = LogisticsWindowUI.RouteHistorySignature(targetId, out string routeName);
+                if (routeSignature == changeSignature)
+                    return;
+                int stepsBefore = steps.Count;
+                if (!string.IsNullOrEmpty(routeName))
+                    title = routeName;
+                Rebuild();
+                ParsekLog.Info("UI",
+                    $"{logName} rebuilt on change: route={targetId} steps={stepsBefore}->{steps.Count} " +
+                    $"title='{BuildWindowTitle(instanceTitlePrefix, title)}'");
+                return;
+            }
             if (mode != TargetMode.Mission || string.IsNullOrEmpty(targetId))
                 return;
             Mission mission = FindMission(missionId);
@@ -314,6 +405,40 @@ namespace Parsek
                 $"found={(mission != null ? "yes" : "no")} " +
                 $"excludedKeys={(mission != null ? mission.ExcludedIntervalKeys.Count : 0)} " +
                 $"steps={before}->{steps.Count} title='{BuildWindowTitle(title)}'");
+        }
+
+        /// <summary>
+        /// A Route History whose route is gone (deleted, or removed by a rewind past its
+        /// creation) closes rather than titling a route that no longer exists. Pure.
+        /// </summary>
+        internal static bool ShouldCloseForDeletedRoute(TargetMode targetMode, string routeId, bool routeFound)
+        {
+            return targetMode == TargetMode.Route && !string.IsNullOrEmpty(routeId) && !routeFound;
+        }
+
+        /// <summary>How far the Route History's first-open position sits from the Mission
+        /// Log's, down and right, so the two windows never open exactly stacked.</summary>
+        internal const float RouteHistoryCascadeOffset = 40f;
+
+        /// <summary>
+        /// First-open rect: right of the main window, top-aligned with it; the Route History
+        /// instance is offset by <see cref="RouteHistoryCascadeOffset"/> on both axes. Pure.
+        /// </summary>
+        internal static Rect DefaultWindowRect(Rect mainWindowRect, bool routeHistory)
+        {
+            float offset = routeHistory ? RouteHistoryCascadeOffset : 0f;
+            return new Rect(mainWindowRect.x + mainWindowRect.width + 10 + offset,
+                mainWindowRect.y + offset, DefaultWindowWidth, DefaultWindowHeight);
+        }
+
+        /// <summary>
+        /// Whether an empty window still draws its table: the Route History keeps its
+        /// column headers and reads "No runs yet." as the one body row; the Mission Log's
+        /// empty state is a single label. Pure.
+        /// </summary>
+        internal static bool DrawsTableWhenEmpty(TargetMode targetMode)
+        {
+            return targetMode == TargetMode.Route;
         }
 
         /// <summary>
@@ -393,13 +518,10 @@ namespace Parsek
                 RefreshIfChanged();
 
             if (windowRect.width < 1f)
-            {
-                float x = mainWindowRect.x + mainWindowRect.width + 10;
-                windowRect = new Rect(x, mainWindowRect.y, DefaultWindowWidth, DefaultWindowHeight);
-            }
+                windowRect = DefaultWindowRect(mainWindowRect, isRouteHistory);
 
             ParsekUI.HandleResizeDrag(ref windowRect, ref isResizing,
-                MinWindowWidth, MinWindowHeight, "Structure window");
+                MinWindowWidth, MinWindowHeight, logName);
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
             if (opaqueWindowStyle == null)
@@ -408,10 +530,10 @@ namespace Parsek
             try
             {
                 windowRect = ClickThruBlocker.GUILayoutWindow(
-                    WindowIdKey.GetHashCode(),
+                    instanceWindowIdKey.GetHashCode(),
                     windowRect,
                     DrawWindow,
-                    BuildWindowTitle(title),
+                    BuildWindowTitle(instanceTitlePrefix, title),
                     opaqueWindowStyle,
                     GUILayout.Width(windowRect.width),
                     GUILayout.Height(windowRect.height)
@@ -421,13 +543,13 @@ namespace Parsek
             {
                 ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
             }
-            parentUI.LogWindowPosition("StructureList", ref lastWindowRect, windowRect);
+            parentUI.LogWindowPosition(isRouteHistory ? "RouteHistory" : "StructureList", ref lastWindowRect, windowRect);
 
             if (windowRect.Contains(Event.current.mousePosition))
             {
                 if (!hasInputLock)
                 {
-                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, InputLockId);
+                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, instanceInputLockId);
                     hasInputLock = true;
                 }
             }
@@ -440,7 +562,7 @@ namespace Parsek
         public void ReleaseInputLock()
         {
             if (!hasInputLock) return;
-            InputLockManager.RemoveControlLock(InputLockId);
+            InputLockManager.RemoveControlLock(instanceInputLockId);
             hasInputLock = false;
         }
 
@@ -459,7 +581,7 @@ namespace Parsek
 
             GUILayout.Space(5);
 
-            if (steps.Count == 0)
+            if (steps.Count == 0 && !DrawsTableWhenEmpty(mode))
             {
                 GUILayout.Label(EmptyText(mode));
                 if (GUILayout.Button("Close"))
@@ -478,7 +600,7 @@ namespace Parsek
             if (GUILayout.Button("Close"))
                 Close();
 
-            ParsekUI.DrawResizeHandle(windowRect, ref isResizing, "Structure window");
+            ParsekUI.DrawResizeHandle(windowRect, ref isResizing, logName);
             GUI.DragWindow();
         }
 
@@ -503,7 +625,10 @@ namespace Parsek
             scrollPos = GUILayout.BeginScrollView(scrollPos, false, true,
                 GUI.skin.horizontalScrollbar, GUI.skin.verticalScrollbar,
                 parentUI.GetTableScrollViewStyle(), GUILayout.ExpandHeight(true));
-            DrawStepRows();
+            if (steps.Count == 0)
+                DrawEmptyBodyRow();
+            else
+                DrawStepRows();
             GUILayout.EndScrollView();
             GUILayout.EndVertical();
         }
@@ -515,6 +640,14 @@ namespace Parsek
             GUILayout.Label("Event", parentUI.GetColumnHeaderStyle(), GUILayout.ExpandWidth(true));
             GUILayout.Label("Location", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Location));
             GUILayout.Label("Vessel", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Vessel));
+            GUILayout.EndHorizontal();
+        }
+
+        // The empty table's one body row (DrawsTableWhenEmpty), under the column headers.
+        private void DrawEmptyBodyRow()
+        {
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
+            GUILayout.Label(EmptyText(mode), bodyCellLabel);
             GUILayout.EndHorizontal();
         }
 
@@ -540,7 +673,7 @@ namespace Parsek
         {
             isOpen = false;
             ReleaseInputLock();
-            ParsekLog.Verbose("UI", $"Structure window closed: mode={mode} target={targetId ?? "<null>"}");
+            ParsekLog.Verbose("UI", $"{logName} closed: mode={mode} target={targetId ?? "<null>"}");
         }
 
         // The first row's date: the Missions start-time cell's formatter.

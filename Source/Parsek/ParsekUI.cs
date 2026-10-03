@@ -107,6 +107,9 @@ namespace Parsek
 
         // Structure-list window (one reusable instance, retargeted per mission / route)
         private StructureListWindowUI structureListUI;
+        // The Route History: a second instance of the log-table window, opened from a
+        // supply route's Log button (its own id, rect, lock and open state).
+        private StructureListWindowUI routeHistoryUI;
 
         // Gloops Flight Recorder window (extracted to GloopsRecorderUI)
         private GloopsRecorderUI gloopsUI;
@@ -142,6 +145,7 @@ namespace Parsek
         // Advanced -> Basic close set, which is why neither needed an accessor before.
         internal LogisticsWindowUI GetLogisticsUI() { return logisticsUI; }
         internal StructureListWindowUI GetStructureListUI() { return structureListUI; }
+        internal StructureListWindowUI GetRouteHistoryUI() { return routeHistoryUI; }
 
         /// <summary>
         /// Why the Real Spawn Control launcher is greyed out. The window turns a recorded
@@ -176,6 +180,7 @@ namespace Parsek
             this.settingsUI = new SettingsWindowUI(this);
             this.logisticsUI = new LogisticsWindowUI(this);
             this.structureListUI = new StructureListWindowUI(this);
+            this.routeHistoryUI = new StructureListWindowUI(this, routeHistory: true);
             activeInstance = this;
             InitializeAppliedUiComplexityModeFromSettings();
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
@@ -196,6 +201,7 @@ namespace Parsek
             this.settingsUI = new SettingsWindowUI(this);
             this.logisticsUI = new LogisticsWindowUI(this);
             this.structureListUI = new StructureListWindowUI(this);
+            this.routeHistoryUI = new StructureListWindowUI(this, routeHistory: true);
             activeInstance = this;
             InitializeAppliedUiComplexityModeFromSettings();
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
@@ -509,7 +515,7 @@ namespace Parsek
         /// <summary>
         /// The EXPLICIT design 7.2 close set, in close order. Deliberately NOT derived from
         /// <see cref="Cleanup"/> (which omits gloops, logistics and the test runner) and not
-        /// from <c>HiddenSurfaces(Basic)</c> alone, because two entries map to no
+        /// from <c>HiddenSurfaces(Basic)</c> alone, because three entries map to no
         /// <see cref="UiSurface"/>:
         /// <list type="bullet">
         ///   <item><description><c>TestRunner</c> - its launcher lives in the hidden
@@ -520,10 +526,16 @@ namespace Parsek
         ///     Recordings tab, but an already-open picker keeps drawing from
         ///     <c>RecordingsTableUI.DrawIfOpen</c> regardless of tab (edge case 4). It owns
         ///     no input lock.</description></item>
+        ///   <item><description><c>LogisticsLinkPicker</c> - the round-trip link picker is
+        ///     armed from the Logistics detail block's Link control, which Basic hides
+        ///     (<see cref="UiSurface.LogisticsRouteTuning"/>), but an already-open picker
+        ///     keeps drawing from <c>LogisticsWindowUI.DrawIfOpen</c>. It owns no input
+        ///     lock; the Logistics window itself stays open.</description></item>
         /// </list>
         /// <para>Deliberately ABSENT: <c>recordingsTableUI</c> (survives as the Missions
-        /// window), <c>structureListUI</c> (reachable from the Missions and Logistics rows,
-        /// both kept), <c>kerbalsUI</c> (drawn in Basic since the 2026-09-22 owner
+        /// window), <c>structureListUI</c> (the Mission Log, reachable from the Missions
+        /// rows), <c>routeHistoryUI</c> (the Route History, reachable from every Logistics
+        /// route's Log in both modes), <c>kerbalsUI</c> (drawn in Basic since the 2026-09-22 owner
         /// re-ruling: it is the only surface that explains why a reserved kerbal is
         /// missing from stock crew assignment), and the ungated <c>timelineUI</c> /
         /// <c>logisticsUI</c> / <c>settingsUI</c> / <c>missionsUI</c>.</para>
@@ -556,6 +568,12 @@ namespace Parsek
                     () => recordingsTableUI.IsGroupPickerOpen,
                     () => false,
                     () => recordingsTableUI.CloseGroupPickerForModeChange()),
+                new GatedWindowCloseTarget(
+                    "LogisticsLinkPicker",
+                    null, // owns no input lock: the Link control that opens it is Advanced-only
+                    () => logisticsUI.IsLinkPickerOpen,
+                    () => false,
+                    () => logisticsUI.CloseLinkPickerForModeChange()),
             };
         }
 
@@ -1058,10 +1076,18 @@ namespace Parsek
         public void DrawStructureWindowIfOpen(Rect mainWindowRect)
         {
             structureListUI.DrawIfOpen(mainWindowRect);
+            routeHistoryUI.DrawIfOpen(mainWindowRect);
         }
 
-        /// <summary>Opens the Log window on one Mission (Missions tab button, Logistics route
-        /// Log button). <paramref name="missionId"/> null opens the whole tree.</summary>
+        /// <summary>Opens the Route History window on one supply route (the route's Log
+        /// button). It can stand beside an open Mission Log.</summary>
+        internal void OpenRouteHistoryWindow(string routeId, string routeName)
+        {
+            routeHistoryUI.OpenForRoute(routeId, routeName);
+        }
+
+        /// <summary>Opens the Mission Log on one Mission (the Missions tab's Log button).
+        /// <paramref name="missionId"/> null opens the whole tree.</summary>
         internal void OpenStructureWindowForMission(string treeId, string missionId, string title)
         {
             structureListUI.OpenForMission(treeId, missionId, title);
@@ -1849,6 +1875,26 @@ namespace Parsek
         // ════════════════════════════════════════════════════════════════
         //  Sortable header helper (shared by RecordingsTableUI + SpawnControlUI)
         // ════════════════════════════════════════════════════════════════
+
+        /// <summary>The house rule-line grey (the Timeline's "now" divider, a bit darker
+        /// than its grey label text).</summary>
+        internal static readonly Color RuleLineColor = new Color(0.4f, 0.4f, 0.4f, 1f);
+
+        /// <summary>
+        /// A thin rule: a 1x1 texture of <paramref name="color"/> stretched by a Box
+        /// (callers give the height and ExpandWidth). The Timeline's "now" divider and the
+        /// Logistics section separators and accent bars are drawn with it.
+        /// </summary>
+        internal static GUIStyle CreateRuleLineStyle(Color color)
+        {
+            var tex = new Texture2D(1, 1);
+            tex.SetPixel(0, 0, color);
+            tex.Apply();
+            var style = new GUIStyle();
+            style.normal.background = tex;
+            style.padding = new RectOffset(0, 0, 0, 0);
+            return style;
+        }
 
         internal void DrawSortableHeaderCore<TCol>(
             string label, TCol col, ref TCol currentCol, ref bool ascending,
@@ -3025,6 +3071,7 @@ namespace Parsek
             settingsUI.ReleaseInputLock();
             spawnControlUI.ReleaseInputLock();
             structureListUI.ReleaseInputLock();
+            routeHistoryUI.ReleaseInputLock();
             ResetCachedWindowStylesForSceneChange();
             // Map marker resources (icon atlas, fallback diamond, label style) are
             // owned by MapMarkerRenderer and reset per scene via ResetForSceneChange.

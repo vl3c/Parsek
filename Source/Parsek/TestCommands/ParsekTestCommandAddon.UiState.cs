@@ -351,9 +351,9 @@ namespace Parsek.TestCommands
             {
                 string detail = reject == TestCommandUiState.TargetUnsupportedWindowReason
                     ? $"{reject} window={spec.Name} "
-                      + $"valid={TestCommandUiAction.StructureWindow}"
+                      + $"valid={TestCommandUiAction.StructureWindow},{TestCommandUiAction.RouteHistoryWindow}"
                     : reject == TestCommandUiState.TargetRouteRetiredReason
-                        ? $"{reject} window={spec.Name} use=mission"
+                        ? $"{reject} window={spec.Name} use=window:{TestCommandUiAction.RouteHistoryWindow}"
                         : $"{reject} window={spec.Name}";
                 ParsekLog.Warn(Tag, $"uiaction rejected reason={reject} "
                     + $"window={spec.Name}");
@@ -361,14 +361,33 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            StructureListWindowUI structure = ui.GetStructureListUI();
-            if (!TryResolveMissionTarget(wanted, out string resolvedId, out string missionId,
-                                         out string title, out List<string> candidates))
+            StructureListWindowUI structure;
+            string resolvedId;
+            string title;
+            if (kind == UiTargetKind.Route)
             {
-                RejectTargetNotFound(kind, wanted, candidates);
-                return;
+                // The Route History, through the production opener the route's Log button
+                // calls.
+                structure = ui.GetRouteHistoryUI();
+                if (!TryResolveRouteTarget(wanted, out resolvedId, out title,
+                                           out List<string> routeCandidates))
+                {
+                    RejectTargetNotFound(kind, wanted, routeCandidates);
+                    return;
+                }
+                ui.OpenRouteHistoryWindow(resolvedId, title);
             }
-            structure.OpenForMission(resolvedId, missionId, title);
+            else
+            {
+                structure = ui.GetStructureListUI();
+                if (!TryResolveMissionTarget(wanted, out resolvedId, out string missionId,
+                                             out title, out List<string> candidates))
+                {
+                    RejectTargetNotFound(kind, wanted, candidates);
+                    return;
+                }
+                structure.OpenForMission(resolvedId, missionId, title);
+            }
 
             uiActionPending = new UiActionPending
             {
@@ -403,7 +422,9 @@ namespace Parsek.TestCommands
         private void CompleteUiActionTarget(UiActionSettleContext ctx,
                                             UiActionPending pending)
         {
-            StructureListWindowUI structure = ctx.Ui.GetStructureListUI();
+            StructureListWindowUI structure = pending.TargetKind == UiTargetKind.Route
+                ? ctx.Ui.GetRouteHistoryUI()
+                : ctx.Ui.GetStructureListUI();
             bool open = structure.IsOpen;
             if (!open)
             {
@@ -568,6 +589,16 @@ namespace Parsek.TestCommands
             else
             {
                 LogisticsWindowUI lw = ui.GetLogisticsUI();
+                if (!lw.LinkPickerAvailableForTesting)
+                {
+                    ParsekLog.Warn(Tag, "uiaction rejected reason="
+                        + TestCommandUiState.PickerHiddenInBasicReason
+                        + $" picker={TestCommandUiState.PickerModeToken(mode)} wanted={wanted}");
+                    SetExecResult("REJECTED", null,
+                        $"{TestCommandUiState.PickerHiddenInBasicReason} "
+                        + $"picker={TestCommandUiState.PickerModeToken(mode)} wanted={wanted}");
+                    return;
+                }
                 if (!TryResolveRouteTarget(wanted, out string routeId, out string title,
                                            out List<string> candidates))
                 {

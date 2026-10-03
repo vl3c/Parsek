@@ -993,6 +993,84 @@ namespace Parsek.Tests.Logistics
             Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("LifecycleMarker"));
         }
 
+        private static List<StructureStep> HistoryOf(Route route)
+        {
+            return RouteHistoryBuilder.Build(Ledger.Actions.ToList(), route.Id, "KSC", null,
+                stop => "-", stop => "-", pid => null);
+        }
+
+        // Cancel on a Send-armed route before launch: back to Paused, the arm and the
+        // pause-after flag cleared, and the ledger exactly as before the arm, so the Route
+        // History shows no row for a route that never ran.
+        [Fact]
+        public void TryCancelSendOnce_UndispatchedArm_PausesWithNoLedgerRow()
+        {
+            var route = BuildActiveDueKscRoute(nextDispatchUT: 1_000_000.0);
+            route.Status = RouteStatus.Paused;
+            int ledgerBefore = Ledger.Actions.Count;
+
+            Assert.True(RouteOrchestrator.TrySendOneCycleNow(route, 100.0));
+            Assert.Equal(RouteStatus.Active, route.Status);
+            Assert.True(route.SendOnceArmed);
+
+            Assert.True(RouteOrchestrator.TryCancelSendOnce(route));
+
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.False(route.SendOnceArmed);
+            Assert.False(route.PauseAfterCurrentCycle);
+            Assert.Equal(ledgerBefore, Ledger.Actions.Count);
+            Assert.DoesNotContain(Ledger.Actions, a => a.RouteId == route.Id);
+            Assert.Empty(HistoryOf(route));
+            Assert.Contains(logLines, l => l.Contains("TryCancelSendOnce")
+                && l.Contains("no ledger row written"));
+            Assert.Contains(logLines, l => l.Contains("reason=" + RouteOrchestrator.SendOnceCancelledReason));
+        }
+
+        // Cancel refuses what it cannot honestly take back: no arm, a run in flight, an
+        // already Paused route, a null route. Nothing changes and nothing is written.
+        [Fact]
+        public void TryCancelSendOnce_RefusesUnarmedInFlightPausedAndNull()
+        {
+            Assert.False(RouteOrchestrator.TryCancelSendOnce(null));
+
+            var unarmed = BuildActiveDueKscRoute();
+            unarmed.Status = RouteStatus.Active;
+            Assert.False(RouteOrchestrator.TryCancelSendOnce(unarmed));
+            Assert.Equal(RouteStatus.Active, unarmed.Status);
+
+            var inFlight = BuildActiveDueKscRoute();
+            inFlight.Status = RouteStatus.InTransit;
+            inFlight.SendOnceArmed = true;
+            inFlight.PauseAfterCurrentCycle = true;
+            Assert.False(RouteOrchestrator.TryCancelSendOnce(inFlight));
+            Assert.Equal(RouteStatus.InTransit, inFlight.Status);
+            Assert.True(inFlight.SendOnceArmed && inFlight.PauseAfterCurrentCycle);
+
+            var paused = BuildActiveDueKscRoute();
+            paused.Status = RouteStatus.Paused;
+            paused.SendOnceArmed = true;
+            Assert.False(RouteOrchestrator.TryCancelSendOnce(paused));
+
+            Assert.Empty(Ledger.Actions);
+        }
+
+        // The mirror: an explicit Pause of a genuinely Active scheduled route still writes
+        // its RoutePaused row, and the Route History reads it as "Paused".
+        [Fact]
+        public void TryPause_ActiveScheduledRoute_StillWritesItsPausedRow()
+        {
+            var route = BuildActiveDueKscRoute();
+            route.Status = RouteStatus.Active;
+
+            Assert.True(RouteOrchestrator.TryPause(route, 500.0, null));
+
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.Single(Ledger.Actions, a => a.Type == GameActionType.RoutePaused && a.RouteId == route.Id);
+            var history = HistoryOf(route);
+            Assert.Single(history);
+            Assert.Equal("Paused", history[0].Label);
+        }
+
         [Theory]
         [InlineData(-1.0)]
         [InlineData(0.0)] // some UI fallbacks surface 0 when Planetarium is missing (BUG-F lesson)

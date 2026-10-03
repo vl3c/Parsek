@@ -302,11 +302,11 @@ namespace Parsek.Tests.Logistics
         public void DescribeHold_FundsShort_NamesShortfall()
         {
             Assert.Equal(
-                "not enough funds at KSC - short 750 funds for this dispatch",
+                "not enough funds at KSC - short 750 funds for this run",
                 LogisticsHoldPresentation.DescribeHold(FundsShort, "funds-short", 750.0));
             // Shortfall 0 (legacy capture, or a degenerate result): generic text.
             Assert.Equal(
-                "not enough funds at KSC for this dispatch",
+                "not enough funds at KSC for this run",
                 LogisticsHoldPresentation.DescribeHold(FundsShort, "funds-short", 0.0));
         }
 
@@ -315,7 +315,7 @@ namespace Parsek.Tests.Logistics
         public void DescribeHold_DestinationFull_Named()
         {
             Assert.Equal(
-                "destination has no room for Ore - delivers when it has room for the full manifest",
+                "destination has no room for Ore - delivers when it has room for the full load",
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, "Ore", 0.0));
         }
 
@@ -326,7 +326,7 @@ namespace Parsek.Tests.Logistics
         public void DescribeHold_DestinationFull_StoredPart()
         {
             Assert.Equal(
-                "destination has no free inventory slot for stored part 'evaJetpack' - delivers when it has room for the full manifest",
+                "destination has no free inventory slot for stored part 'evaJetpack' - delivers when it has room for the full load",
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, "stored-part:evaJetpack", 0.0));
             // Legacy-wrapped shape lands on the same text.
             Assert.Equal(
@@ -334,7 +334,7 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, "destination-full-stored-part:evaJetpack", 0.0));
             // Empty part tail: category text, never a broken quote.
             Assert.Equal(
-                "destination has no free inventory slot for a stored part - delivers when it has room for the full manifest",
+                "destination has no free inventory slot for a stored part - delivers when it has room for the full load",
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, "stored-part:", 0.0));
         }
 
@@ -343,10 +343,10 @@ namespace Parsek.Tests.Logistics
         public void DescribeHold_DestinationFull_Unnamed()
         {
             Assert.Equal(
-                "destination has no room for the delivery - delivers when it has room for the full manifest",
+                "destination has no room for the delivery - delivers when it has room for the full load",
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, "", 0.0));
             Assert.Equal(
-                "destination has no room for the delivery - delivers when it has room for the full manifest",
+                "destination has no room for the delivery - delivers when it has room for the full load",
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, null, 0.0));
         }
 
@@ -359,16 +359,16 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(
                     EndpointLost, "origin-no-vessel-within-radius", 0.0));
             Assert.Equal(
-                "destination vessel could not be found - re-target or recreate the route",
+                "destination vessel could not be found - use Re-scan to find it, or delete this route",
                 LogisticsHoldPresentation.DescribeHold(
                     EndpointLost, "stop-0-no-live-vessels", 0.0));
             Assert.Equal(
-                "destination vessel could not be found - re-target or recreate the route",
+                "destination vessel could not be found - use Re-scan to find it, or delete this route",
                 LogisticsHoldPresentation.DescribeHold(
                     EndpointLost, "endpoint-destroyed-at-delivery:no-live-vessels", 0.0));
             // Unknown/empty token: destination is the safe default.
             Assert.Equal(
-                "destination vessel could not be found - re-target or recreate the route",
+                "destination vessel could not be found - use Re-scan to find it, or delete this route",
                 LogisticsHoldPresentation.DescribeHold(EndpointLost, null, 0.0));
         }
 
@@ -389,7 +389,7 @@ namespace Parsek.Tests.Logistics
             // "funds-shortfall-N" (legacy, shortfall stored as 0): the generic
             // funds text - the token suffix is deliberately NOT parsed.
             Assert.Equal(
-                "not enough funds at KSC for this dispatch",
+                "not enough funds at KSC for this run",
                 LogisticsHoldPresentation.DescribeHold(FundsShort, "funds-shortfall-750", 0.0));
             // Doubly-wrapped legacy markers: the legacy WaitResources factory
             // wraps whatever OriginHasCargo returned, INCLUDING the special
@@ -409,10 +409,10 @@ namespace Parsek.Tests.Logistics
         public void DescribeHold_SourcesStale()
         {
             Assert.Equal(
-                "route source recordings are unavailable right now",
+                "a flight this route copies is unavailable right now",
                 LogisticsHoldPresentation.DescribeHold(SourcesStale, "sources-stale", 0.0));
             Assert.Equal(
-                "route source recordings are unavailable right now",
+                "a flight this route copies is unavailable right now",
                 LogisticsHoldPresentation.DescribeHold(SourcesStale, "null-env", 0.0));
         }
 
@@ -479,52 +479,54 @@ namespace Parsek.Tests.Logistics
         // FormatHoldDetailLine
         // ------------------------------------------------------------------
 
-        // catches: the mandatory age suffix being dropped for a known age.
+        // catches: the exact date being dropped, or the frame saying "cycle" again. The
+        // date is Route.LastHoldUT, the LAST check, so the frame names the last held run.
         [Fact]
-        public void FormatHoldDetailLine_AppendsAge()
+        public void FormatHoldDetailLine_DatesTheLastHeldRun()
         {
             Assert.Equal(
-                "Last cycle blocked: origin is out of LiquidFuel (checked 2.0m ago)",
+                "Last run held on Y1, D06, 14:05: origin is out of LiquidFuel.",
                 LogisticsHoldPresentation.FormatHoldDetailLine(
-                    "origin is out of LiquidFuel", 120.0));
+                    "origin is out of LiquidFuel", 120.0, ut => "Y1, D06, 14:05"));
+            Assert.DoesNotContain("cycle",
+                LogisticsHoldPresentation.FormatHoldDetailLine("x", 120.0, ut => "D"));
         }
 
-        // catches: a negative (unknown) age rendering a bogus "checked - ago".
+        // catches: the null-formatter fallback printing a culture-dependent number.
         [Fact]
-        public void FormatHoldDetailLine_OmitsNegativeAge()
+        public void FormatHoldDetailLine_NullFormatter_PrintsInvariantUT()
         {
-            Assert.Equal(
-                "Last cycle blocked: origin is out of LiquidFuel",
-                LogisticsHoldPresentation.FormatHoldDetailLine(
-                    "origin is out of LiquidFuel", -1.0));
-            // Age 0 renders "-" through FormatDuration: also omitted.
-            Assert.Equal(
-                "Last cycle blocked: origin is out of LiquidFuel",
-                LogisticsHoldPresentation.FormatHoldDetailLine(
-                    "origin is out of LiquidFuel", 0.0));
-            // No describe -> no line at all.
-            Assert.Null(LogisticsHoldPresentation.FormatHoldDetailLine(null, 120.0));
-            Assert.Null(LogisticsHoldPresentation.FormatHoldDetailLine("", 120.0));
+            var prior = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    new System.Globalization.CultureInfo("de-DE");
+                Assert.Equal(
+                    "Last run held on UT 1235: origin is out of LiquidFuel.",
+                    LogisticsHoldPresentation.FormatHoldDetailLine(
+                        "origin is out of LiquidFuel", 1234.6, null));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = prior;
+            }
         }
 
-        // ------------------------------------------------------------------
-        // Status-cell tooltip augmentation
-        // ------------------------------------------------------------------
-
-        // catches: the tooltip losing the raw enum name (the pre-M6 contract)
-        // or not appending the hold clause. Single-line since the Logistics help
-        // strip became one line tall: "Enum - clause" with a plain hyphen, never
-        // a hard newline (a newline would push the clause off a 1-line strip).
+        // catches: a negative (unknown) UT rendering a bogus date, a clause that already
+        // ends in a stop printing two, and a missing clause still drawing a line.
         [Fact]
-        public void StatusCellTooltip_AppendsHoldAfterEnumName()
+        public void FormatHoldDetailLine_OmitsUnknownDate()
         {
-            Assert.Equal("Active",
-                LogisticsHoldPresentation.StatusCellTooltip(RouteStatus.Active, null));
-            Assert.Equal("Active",
-                LogisticsHoldPresentation.StatusCellTooltip(RouteStatus.Active, ""));
-            Assert.Equal("Active - not enough funds at KSC for this dispatch",
-                LogisticsHoldPresentation.StatusCellTooltip(
-                    RouteStatus.Active, "not enough funds at KSC for this dispatch"));
+            Assert.Equal(
+                "Last run held: origin is out of LiquidFuel.",
+                LogisticsHoldPresentation.FormatHoldDetailLine(
+                    "origin is out of LiquidFuel", -1.0, ut => "never"));
+            Assert.Equal(
+                "Last run held: origin is out of LiquidFuel.",
+                LogisticsHoldPresentation.FormatHoldDetailLine(
+                    "origin is out of LiquidFuel.", -1.0, ut => "never"));
+            Assert.Null(LogisticsHoldPresentation.FormatHoldDetailLine(null, 120.0, ut => "D"));
+            Assert.Null(LogisticsHoldPresentation.FormatHoldDetailLine("", 120.0, ut => "D"));
         }
 
         private const RouteDispatchEvaluator.EligibilityFailureKind WaitingForPartner =
@@ -712,18 +714,19 @@ namespace Parsek.Tests.Logistics
         }
 
         // catches: the partial-delivery detail line losing its summary or the
-        // age suffix contract drifting from FormatHoldDetailLine's.
+        // date contract drifting from FormatHoldDetailLine's.
         [Fact]
         public void FormatPartialDeliveryLine_Shapes()
         {
-            Assert.Null(LogisticsHoldPresentation.FormatPartialDeliveryLine(null, 100.0));
-            Assert.Null(LogisticsHoldPresentation.FormatPartialDeliveryLine("", 100.0));
+            Assert.Null(LogisticsHoldPresentation.FormatPartialDeliveryLine(null, 100.0, ut => "D"));
+            Assert.Null(LogisticsHoldPresentation.FormatPartialDeliveryLine("", 100.0, ut => "D"));
             Assert.Equal(
-                "Last delivery was partial: LiquidFuel 120/200",
-                LogisticsHoldPresentation.FormatPartialDeliveryLine("LiquidFuel 120/200", -1.0));
-            string aged = LogisticsHoldPresentation.FormatPartialDeliveryLine("LiquidFuel 120/200", 3600.0);
-            Assert.StartsWith("Last delivery was partial: LiquidFuel 120/200 (", aged);
-            Assert.EndsWith(" ago)", aged);
+                "Last delivery was partial: LiquidFuel 120/200.",
+                LogisticsHoldPresentation.FormatPartialDeliveryLine("LiquidFuel 120/200", -1.0, ut => "D"));
+            Assert.Equal(
+                "Last delivery on Y1, D05, 22:40 was partial: LiquidFuel 120/200.",
+                LogisticsHoldPresentation.FormatPartialDeliveryLine(
+                    "LiquidFuel 120/200", 3600.0, ut => "Y1, D05, 22:40"));
         }
 
         // catches: the endpoint-lost cell not distinguishing origin loss from
@@ -741,7 +744,7 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void StatusCellText_SourcesStaleAndPartner()
         {
-            Assert.Equal("Held: source recordings unavailable",
+            Assert.Equal("Held: flight unavailable",
                 LogisticsHoldPresentation.StatusCellText(SourcesStale, "sources-stale", 0.0));
             Assert.Equal("Held: waiting for 'Return Run'",
                 LogisticsHoldPresentation.StatusCellText(WaitingForPartner, "partner:Return Run", 0.0));
@@ -823,7 +826,7 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, "stored-part:evaJetpack", 0.0),
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "inventory:evaJetpack", 0.0),
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "inventory-state:evaJetpack", 0.0),
-                LogisticsHoldPresentation.FormatPartialDeliveryLine("LiquidFuel 120/200; evaJetpack 0/1 (no slot)", 3600.0),
+                LogisticsHoldPresentation.FormatPartialDeliveryLine("LiquidFuel 120/200; evaJetpack 0/1 (no slot)", 3600.0, null),
                 LogisticsHoldPresentation.DescribeHold(EndpointLost, "origin-body-unresolved", 0.0),
                 LogisticsHoldPresentation.DescribeHold(EndpointLost, "stop-0-no-surface-candidate", 0.0),
                 LogisticsHoldPresentation.DescribeHold(EndpointLost, "endpoint-destroyed-at-delivery:unknown", 0.0),
@@ -833,10 +836,8 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(WaitingForPartner, null, 0.0),
                 LogisticsHoldPresentation.DescribeHold(
                     (RouteDispatchEvaluator.EligibilityFailureKind)999, "tok", 0.0),
-                LogisticsHoldPresentation.FormatHoldDetailLine("origin is out of LiquidFuel", 120.0),
-                LogisticsHoldPresentation.FormatHoldDetailLine("origin is out of LiquidFuel", -1.0),
-                LogisticsHoldPresentation.StatusCellTooltip(
-                    RouteStatus.WaitingForFunds, "not enough funds at KSC for this dispatch"),
+                LogisticsHoldPresentation.FormatHoldDetailLine("origin is out of LiquidFuel", 120.0, null),
+                LogisticsHoldPresentation.FormatHoldDetailLine("origin is out of LiquidFuel", -1.0, null),
                 // M6 closeout: the compact Status-cell strings ride the same guard.
                 LogisticsHoldPresentation.StatusCellText(OriginLacksCargo, "LiquidFuel", 0.0),
                 LogisticsHoldPresentation.StatusCellText(OriginLacksCargo,
