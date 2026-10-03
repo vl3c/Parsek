@@ -114,7 +114,7 @@ than 1 reds.
 - [ ] Instrument (a per-frame UT-delta check on the active recorder) and decide whether a
   backstop can be guaranteed at `max + one frame` under physics warp.
 
-## SECTION-DUPLICATE-UT-SAMPLES: the recorder writes two samples with the same UT into one track section [FILED 2026-10-02 from PWR-1 `2026-10-02_2122` / `_2141` and PWR-3 `2026-10-02_2108` / `_2133`, branch `physwarp-recording`. OPEN, low, pre-existing at 1x; operator decides the fix]
+## ~~SECTION-DUPLICATE-UT-SAMPLES: the recorder writes two samples with the same UT into one track section~~ [FILED 2026-10-02 from PWR-1 `2026-10-02_2122` / `_2141` and PWR-3 `2026-10-02_2108` / `_2133`, branch `physwarp-recording`. FIXED 2026-10-03, branch `section-duplicate-ut`]
 
 The PWR sampling block counts in-section duplicate UTs. It found them in four of the six
 PWR flights, every one at 1x and none on a physics-warp gap:
@@ -140,8 +140,26 @@ The PWR lanes REPORT the all-class total and pin only `warpDuplicates = 0` (dupl
 pairs touching physics warp), because this defect is not a physics-warp degradation (operator
 decision 2026-10-02).
 
-- [ ] Decide: skip (or replace) a commit whose UT equals `lastRecordedUT` in
-  `CommitRecordedPoint` / the off-rails boundary path / the section-close seed.
+- [x] Fix: one choke point instead of per-site guards. Every foreground sample reaches
+  `CommitRecordedPointWithVessel` / `WithoutVessel`, which now classify the commit against the
+  point it would follow in its own section (the section's last frame, or the flat list's last
+  point with no section open; `ClassifySameUTCommit`). The PWR-1 "byte-identical" double at
+  48.50 is the periodic sample followed by the JointBreak structural snapshot of the same
+  callback: same position and velocity, but the snapshot carries `flags = 1` and a rotation
+  differing in the fourth decimal (`HasStructuralEventSnapshotAtTail` dedupes only against
+  an earlier structural point), so it takes the replace path and the flagged point stays.
+  An identical sample (every field but `flags`, NaN clearances equal) is not appended and its
+  flag bits are OR-ed into the stored point, so a structural-event marker is never lost. A
+  differing one replaces the stored point (flags OR-ed, Relative `bodyFixedFrames` shadow
+  replaced in step, flat list updated in place): the later commit is the later observation of
+  that instant, taken after the event that caused it, and the following samples continue from
+  its state (the clamp-release pair: the off-rails sample's unpacked velocity is the
+  convention every later sample uses, the packed one carried `obt_velocity`). It logs
+  `Same-UT sample replaced the section's last point: ... differs=...` (Verbose; identical
+  merges rate-limited). A first frame in a fresh section still appends: the flat list's
+  equal-UT seam point belongs to the closed section. No schema change. The background
+  recorder is unchanged (its sections showed no in-section duplicate in the PWR saves; its
+  equal-UT tolerance in `ApplyTrajectoryPointToRecording` stays).
 
 ## SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP: the recorder's dropped-sample WARN is downgraded for every physics-warp gap [FILED 2026-10-02 from the physics-warp recording investigation, branch `physwarp-recording`. OPEN, low, pre-existing; operator decides]
 

@@ -10029,14 +10029,22 @@ namespace Parsek
             // environment / RELATIVE frame; the playback path falls through
             // to the legacy altitude branch. Mutates `point` BEFORE the flat
             // list / section append so both stores see the same value.
-            if (ShouldEmitSurfaceClearance(
+            bool surfaceClearanceSample = ShouldEmitSurfaceClearance(
                     trackSectionActive,
                     trackSectionActive ? currentTrackSection.referenceFrame : ReferenceFrame.Absolute,
                     trackSectionActive ? currentTrackSection.environment : SegmentEnvironment.Atmospheric,
-                    hasVessel && v.mainBody != null && v.mainBody.pqsController != null))
+                    hasVessel && v.mainBody != null && v.mainBody.pqsController != null);
+            if (surfaceClearanceSample)
             {
                 double terrainHeight = v.mainBody.TerrainAltitude(point.latitude, point.longitude, true);
                 point.recordedGroundClearance = point.altitude - terrainHeight;
+            }
+
+            if (TryCommitSameUTPoint(point, v, bodyFixedPrimaryPoint, surfaceClearanceSample))
+                return;
+
+            if (surfaceClearanceSample)
+            {
                 surfaceMobileSamplesThisSection++;
                 if (double.IsNaN(surfaceMobileMinClearanceThisSection)
                     || point.recordedGroundClearance < surfaceMobileMinClearanceThisSection)
@@ -10159,6 +10167,9 @@ namespace Parsek
                 return;
             }
 
+            if (TryCommitSameUTPoint(point, null, bodyFixedPrimaryPoint, false))
+                return;
+
             Recording.Add(point);
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
@@ -10194,6 +10205,194 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Recorder", "recorded-point",
                     $"Recorded point #{Recording.Count}: {point}", 5.0);
             }
+        }
+
+        /// <summary>
+        /// How a foreground commit whose UT equals the last point of its section is handled
+        /// (todo SECTION-DUPLICATE-UT-SAMPLES).
+        /// </summary>
+        internal enum SameUTCommitDisposition
+        {
+            /// <summary>A new UT for this section (or nothing to compare): append normally.</summary>
+            Append,
+            /// <summary>The same sample again: keep the stored point, OR in any new flag bits.</summary>
+            MergeIntoIdentical,
+            /// <summary>A different sample at the same UT: the later observation replaces the stored one.</summary>
+            ReplaceLast,
+        }
+
+        /// <summary>
+        /// Classifies a foreground commit against the point it would follow in its own
+        /// section (the section's last frame, or the flat list's last point when no section
+        /// is open). Several paths can commit at one UT inside one physics callback: a
+        /// periodic sample and a structural-event snapshot at a joint break, the section
+        /// close / reopen seed at staging, an off-rails boundary sample after a packed
+        /// sample at clamp release. A section must hold one sample per UT. The later commit
+        /// is the later observation of that instant, taken after whatever event caused it,
+        /// so it is the one the following samples continue from (at clamp release the
+        /// off-rails sample carries the unpacked velocity convention every later sample
+        /// uses; the packed one carried <c>obt_velocity</c>). A commit into a section with
+        /// no frames yet appends: the flat list's equal-UT seam point belongs to the
+        /// previous section.
+        /// </summary>
+        internal static SameUTCommitDisposition ClassifySameUTCommit(
+            bool hasReference, TrajectoryPoint reference, TrajectoryPoint incoming)
+        {
+            if (!hasReference || reference.ut != incoming.ut)
+                return SameUTCommitDisposition.Append;
+            return AreTrajectoryPointsEquivalent(reference, incoming)
+                ? SameUTCommitDisposition.MergeIntoIdentical
+                : SameUTCommitDisposition.ReplaceLast;
+        }
+
+        /// <summary>
+        /// Field-by-field equality of two samples, ignoring <see cref="TrajectoryPoint.flags"/>
+        /// (merged separately) and treating two NaN clearances as equal.
+        /// </summary>
+        internal static bool AreTrajectoryPointsEquivalent(TrajectoryPoint a, TrajectoryPoint b)
+        {
+            return a.ut.Equals(b.ut)
+                && a.latitude.Equals(b.latitude)
+                && a.longitude.Equals(b.longitude)
+                && a.altitude.Equals(b.altitude)
+                && a.rotation.x.Equals(b.rotation.x)
+                && a.rotation.y.Equals(b.rotation.y)
+                && a.rotation.z.Equals(b.rotation.z)
+                && a.rotation.w.Equals(b.rotation.w)
+                && a.velocity.x.Equals(b.velocity.x)
+                && a.velocity.y.Equals(b.velocity.y)
+                && a.velocity.z.Equals(b.velocity.z)
+                && string.Equals(a.bodyName, b.bodyName, StringComparison.Ordinal)
+                && a.funds.Equals(b.funds)
+                && a.science.Equals(b.science)
+                && a.reputation.Equals(b.reputation)
+                && a.recordedGroundClearance.Equals(b.recordedGroundClearance);
+        }
+
+        /// <summary>
+        /// Names the fields two same-UT samples differ in, for the replace log line.
+        /// </summary>
+        internal static string DescribeTrajectoryPointDifference(TrajectoryPoint a, TrajectoryPoint b)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            var parts = new List<string>();
+            if (!a.latitude.Equals(b.latitude) || !a.longitude.Equals(b.longitude)
+                || !a.altitude.Equals(b.altitude))
+            {
+                parts.Add("position(alt " + a.altitude.ToString("F2", ic) + "->"
+                    + b.altitude.ToString("F2", ic) + ")");
+            }
+            if (!a.rotation.x.Equals(b.rotation.x) || !a.rotation.y.Equals(b.rotation.y)
+                || !a.rotation.z.Equals(b.rotation.z) || !a.rotation.w.Equals(b.rotation.w))
+                parts.Add("rotation");
+            if (!a.velocity.x.Equals(b.velocity.x) || !a.velocity.y.Equals(b.velocity.y)
+                || !a.velocity.z.Equals(b.velocity.z))
+            {
+                parts.Add("speed(" + a.velocity.magnitude.ToString("F2", ic) + "->"
+                    + b.velocity.magnitude.ToString("F2", ic) + ")");
+            }
+            if (!string.Equals(a.bodyName, b.bodyName, StringComparison.Ordinal))
+                parts.Add("body(" + (a.bodyName ?? "(null)") + "->" + (b.bodyName ?? "(null)") + ")");
+            if (!a.funds.Equals(b.funds) || !a.science.Equals(b.science) || !a.reputation.Equals(b.reputation))
+                parts.Add("career");
+            if (!a.recordedGroundClearance.Equals(b.recordedGroundClearance))
+                parts.Add("clearance");
+            return parts.Count > 0 ? string.Join(",", parts.ToArray()) : "(none)";
+        }
+
+        /// <summary>
+        /// Handles a commit whose UT equals the last point of its section; returns false
+        /// when the commit is an ordinary append. The flat list mirrors the section: its
+        /// last point is updated in place when it has the same UT, else the sample is
+        /// appended there so the flat list keeps every committed UT.
+        /// </summary>
+        private bool TryCommitSameUTPoint(
+            TrajectoryPoint point,
+            Vessel v,
+            TrajectoryPoint? bodyFixedPrimaryPoint,
+            bool surfaceClearanceSample)
+        {
+            bool sectionReference = trackSectionActive && currentTrackSection.frames != null;
+            List<TrajectoryPoint> referenceList = sectionReference ? currentTrackSection.frames : Recording;
+            bool hasReference = referenceList != null && referenceList.Count > 0;
+            TrajectoryPoint reference = hasReference ? referenceList[referenceList.Count - 1] : default(TrajectoryPoint);
+            SameUTCommitDisposition disposition = ClassifySameUTCommit(hasReference, reference, point);
+            if (disposition == SameUTCommitDisposition.Append)
+                return false;
+
+            var ic = CultureInfo.InvariantCulture;
+            byte mergedFlags = (byte)(reference.flags | point.flags);
+            TrajectoryPoint stored = disposition == SameUTCommitDisposition.MergeIntoIdentical ? reference : point;
+            stored.flags = mergedFlags;
+
+            if (sectionReference)
+            {
+                referenceList[referenceList.Count - 1] = stored;
+                if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
+                    && bodyFixedPrimaryPoint.HasValue
+                    && disposition == SameUTCommitDisposition.ReplaceLast)
+                {
+                    TrajectoryPoint shadow = bodyFixedPrimaryPoint.Value;
+                    if (!object.ReferenceEquals(v, null))
+                        ApplySurfaceClearanceToBodyFixedShadow(v, ref shadow);
+                    if (currentTrackSection.bodyFixedFrames == null)
+                        currentTrackSection.bodyFixedFrames = new List<TrajectoryPoint>();
+                    List<TrajectoryPoint> shadows = currentTrackSection.bodyFixedFrames;
+                    if (shadows.Count > 0 && shadows[shadows.Count - 1].ut == point.ut)
+                        shadows[shadows.Count - 1] = shadow;
+                    else
+                        shadows.Add(shadow);
+                }
+                if (disposition == SameUTCommitDisposition.ReplaceLast)
+                    UpdateTrackSectionAltitude((float)point.altitude);
+            }
+
+            if (Recording.Count > 0 && Recording[Recording.Count - 1].ut == point.ut)
+                Recording[Recording.Count - 1] = stored;
+            else
+                Recording.Add(stored);
+
+            if (disposition == SameUTCommitDisposition.ReplaceLast)
+            {
+                if (surfaceClearanceSample
+                    && surfaceMobileSamplesThisSection > 0
+                    && !double.IsNaN(reference.recordedGroundClearance)
+                    && !double.IsNaN(point.recordedGroundClearance))
+                {
+                    surfaceMobileClearanceSumThisSection +=
+                        point.recordedGroundClearance - reference.recordedGroundClearance;
+                }
+                lastRecordedVelocity = point.velocity;
+                if (!object.ReferenceEquals(v, null))
+                {
+                    lastRecordedWorldRotation = ReadSanitizedWorldRotation(v);
+                    hasLastRecordedWorldRotation = true;
+                }
+                LastRecordedAltitude = point.altitude;
+                ParsekLog.Verbose("Recorder",
+                    $"Same-UT sample replaced the section's last point: ut={point.ut.ToString("R", ic)} " +
+                    $"differs={DescribeTrajectoryPointDifference(reference, point)} " +
+                    $"flags={mergedFlags.ToString(ic)} " +
+                    $"section={(sectionReference ? "open" : "none")}");
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "same-ut-identical-merge",
+                    $"Same-UT sample identical to the section's last point, not appended: " +
+                    $"ut={point.ut.ToString("R", ic)} flags={reference.flags.ToString(ic)}->{mergedFlags.ToString(ic)} " +
+                    $"section={(sectionReference ? "open" : "none")}",
+                    5.0);
+            }
+            lastRecordedUT = point.ut;
+            return true;
+        }
+
+        // Kept out of TryCommitSameUTPoint so the headless commit path never JITs a
+        // Unity transform read.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static Quaternion ReadSanitizedWorldRotation(Vessel v)
+        {
+            return TrajectoryMath.SanitizeQuaternion(v.transform.rotation);
         }
 
         /// <summary>
@@ -10549,6 +10748,11 @@ namespace Parsek
         internal void AppendSectionStartSeamPointForTesting(TrajectoryPoint seamPoint, string reason)
         {
             AppendSectionStartSeamPoint(seamPoint, null, reason);
+        }
+
+        internal void CommitRecordedPointForTesting(TrajectoryPoint point)
+        {
+            CommitRecordedPoint(point, null);
         }
 
         private void AppendSectionStartSeamPoint(TrajectoryPoint seamPoint, Vessel v, string reason)
