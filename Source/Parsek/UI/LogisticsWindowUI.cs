@@ -2415,13 +2415,17 @@ namespace Parsek
             return showsTuning ? 3 : 2;
         }
 
-        // The slot cell's width: the row's Interact column, less the detail box's own right
-        // margin and padding, so a slot button's left edge lines up with Activate / Pause.
+        // The slot cell's width: the row's Interact column, less how far the detail box's
+        // content sits inside the section box's content on the right - its padding, plus
+        // only the part of its margin the section box's own padding does not already cover
+        // (GUILayout overlaps a child's margin with its parent's padding). Measured: the
+        // naive margin + padding put every slot button 4 px right of Activate / Pause.
         private float DetailSlotCellWidth()
         {
             float w = interactColumnWidth;
             if (GUI.skin != null && GUI.skin.box != null)
-                w -= GUI.skin.box.margin.right + GUI.skin.box.padding.right;
+                w -= GUI.skin.box.padding.right
+                    + Mathf.Max(0, GUI.skin.box.margin.right - GUI.skin.box.padding.right);
             return Mathf.Max(w, MissionsWindowUI.InteractCellInset + InteractSingleWidth);
         }
 
