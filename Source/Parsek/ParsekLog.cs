@@ -604,11 +604,21 @@ namespace Parsek
 
         public static void ScreenMessage(string message, float duration)
         {
+            TryScreenMessage(message, duration);
+        }
+
+        /// <summary>
+        /// <see cref="ScreenMessage"/> that reports whether stock accepted the message.
+        /// Stock drops it (returns null) while a scene load is in progress, from the load
+        /// REQUEST until <c>onLevelWasLoaded</c>, and when no ScreenMessages instance exists.
+        /// </summary>
+        internal static bool TryScreenMessage(string message, float duration)
+        {
             var sink = ScreenMessageSinkForTesting;
             if (sink != null)
             {
                 sink(message ?? string.Empty, duration);
-                return;
+                return true;
             }
             // Same ECall guards as Write's Debug.Log: callers now include the
             // orchestrator's background route tick, which must never be unwound
@@ -616,10 +626,10 @@ namespace Parsek
             // test that reached a toast path without installing the sink).
             try
             {
-                ScreenMessages.PostScreenMessage(
+                return ScreenMessages.PostScreenMessage(
                     $"[Parsek] {message}",
                     duration,
-                    ScreenMessageStyle.UPPER_CENTER);
+                    ScreenMessageStyle.UPPER_CENTER) != null;
             }
             catch (System.Security.SecurityException)
             {
@@ -634,6 +644,7 @@ namespace Parsek
                 // Mono (Linux test runs) surfaces unresolvable Unity native
                 // calls as MissingMethodException instead of the above two.
             }
+            return false;
         }
     }
 }

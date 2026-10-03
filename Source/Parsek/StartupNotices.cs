@@ -102,11 +102,13 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The notice for a misplaced or duplicated Parsek install, or null when the install
-        /// looks right or cannot be judged. <paramref name="parsekDllPaths"/> are the file
-        /// paths of every loaded assembly named Parsek; <paramref name="gameDataDir"/> is the
-        /// KSP GameData directory. Folder names compare case-insensitively so only a clear
-        /// misinstall is reported.
+        /// The notice for a misplaced Parsek install, or null when the install looks right or
+        /// cannot be judged. <paramref name="parsekDllPaths"/> are the file paths of the
+        /// loaded assemblies named Parsek; <paramref name="gameDataDir"/> is the KSP GameData
+        /// directory. Folder names compare case-insensitively so only a clear misinstall is
+        /// reported. KSP's AssemblyLoader keeps ONE entry per assembly name (the highest
+        /// version among same-named copies), so a duplicate install is not visible here; the
+        /// wording covers it for the case where the stray copy is the one that loaded.
         /// </summary>
         internal static string EvaluateInstallLocation(IList<string> parsekDllPaths, string gameDataDir)
         {
@@ -123,22 +125,18 @@ namespace Parsek
             if (relatives.Count == 0)
                 return null;
 
-            if (relatives.Count > 1)
+            var misplaced = relatives.Where(rel =>
             {
-                return "More than one copy of Parsek is installed ("
-                    + string.Join(", ", relatives.Select(r => "GameData/" + r))
-                    + "). Keep only GameData/Parsek and delete the others.";
-            }
-
-            string only = relatives[0];
-            string[] segments = only.Split('/');
-            bool directlyUnderGameData = segments.Length >= 2
-                && string.Equals(segments[0], "Parsek", StringComparison.OrdinalIgnoreCase);
-            if (directlyUnderGameData)
+                string[] segments = rel.Split('/');
+                return !(segments.Length >= 2
+                    && string.Equals(segments[0], "Parsek", StringComparison.OrdinalIgnoreCase));
+            }).ToList();
+            if (misplaced.Count == 0)
                 return null;
 
-            return "Parsek is installed in the wrong folder (found GameData/" + only
-                + "). Move the Parsek folder directly into GameData, so it reads GameData/Parsek.";
+            return "Parsek is loading from the wrong folder ("
+                + string.Join(", ", misplaced.Select(r => "GameData/" + r))
+                + "). It must be in GameData/Parsek; if you have more than one copy, keep only that one.";
         }
 
         /// <summary>

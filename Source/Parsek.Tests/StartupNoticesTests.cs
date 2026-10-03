@@ -110,8 +110,8 @@ namespace Parsek.Tests
                 new[] { InGameData("GameData", "Parsek", "Plugins", "Parsek.dll") }, GameData);
 
             Assert.Equal(
-                "Parsek is installed in the wrong folder (found GameData/GameData/Parsek/Plugins/Parsek.dll). "
-                + "Move the Parsek folder directly into GameData, so it reads GameData/Parsek.",
+                "Parsek is loading from the wrong folder (GameData/GameData/Parsek/Plugins/Parsek.dll). "
+                + "It must be in GameData/Parsek; if you have more than one copy, keep only that one.",
                 notice);
         }
 
@@ -121,7 +121,7 @@ namespace Parsek.Tests
             string notice = StartupNotices.EvaluateInstallLocation(
                 new[] { InGameData("Parsek-v0.10.5", "Parsek", "Plugins", "Parsek.dll") }, GameData);
 
-            Assert.Contains("found GameData/Parsek-v0.10.5/Parsek/Plugins/Parsek.dll", notice);
+            Assert.Contains("(GameData/Parsek-v0.10.5/Parsek/Plugins/Parsek.dll)", notice);
         }
 
         [Fact]
@@ -131,22 +131,32 @@ namespace Parsek.Tests
             string notice = StartupNotices.EvaluateInstallLocation(
                 new[] { InGameData("Parsek.dll") }, GameData);
 
-            Assert.Contains("found GameData/Parsek.dll", notice);
+            Assert.Contains("(GameData/Parsek.dll)", notice);
         }
 
         [Fact]
-        public void Install_TwoCopiesAreReported()
+        public void Install_StrayCopyThatWonTheLoadIsReported()
+        {
+            // AssemblyLoader keeps one entry per name (highest version), so a duplicate
+            // install surfaces only when the stray copy is the one loaded.
+            string notice = StartupNotices.EvaluateInstallLocation(
+                new[] { InGameData("Parsek (old)", "Plugins", "Parsek.dll") }, GameData);
+
+            Assert.Contains("(GameData/Parsek (old)/Plugins/Parsek.dll)", notice);
+            Assert.Contains("if you have more than one copy, keep only that one", notice);
+        }
+
+        [Fact]
+        public void Install_OnlyMisplacedPathsAreListed()
         {
             string notice = StartupNotices.EvaluateInstallLocation(new[]
             {
                 InGameData("Parsek", "Plugins", "Parsek.dll"),
-                InGameData("Parsek (old)", "Plugins", "Parsek.dll"),
+                InGameData("GameData", "Parsek", "Plugins", "Parsek.dll"),
             }, GameData);
 
-            Assert.Equal(
-                "More than one copy of Parsek is installed (GameData/Parsek/Plugins/Parsek.dll, "
-                + "GameData/Parsek (old)/Plugins/Parsek.dll). Keep only GameData/Parsek and delete the others.",
-                notice);
+            Assert.Contains("(GameData/GameData/Parsek/Plugins/Parsek.dll)", notice);
+            Assert.DoesNotContain("GameData/Parsek/Plugins/Parsek.dll,", notice);
         }
 
         [Fact]

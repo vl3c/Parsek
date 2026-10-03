@@ -10,10 +10,16 @@ startup EVENTS, once per process, through `StartupNotices.cs` (pure) and `Parsek
   name prefix (`StartupNotices.PatchFeatureFor`); the notice gives the failed count and up to
   three features. `StartupNoticesTests.EveryHarmonyPatchClass_MapsToAPlayerFacingFeature`
   reds when a new patch class has no rule, so add a prefix there with the patch.
-- **Install location.** Every loaded assembly named Parsek must sit in a folder directly under
+- **Install location.** The loaded assembly named Parsek must sit in a folder directly under
   `GameData` (the toolbar textures load as `Parsek/Textures/...`). Nested `GameData`, a zip
-  wrapper folder, a loose DLL or two copies post a notice naming the found path. Folder-name
-  case is not reported.
+  wrapper folder or a loose DLL posts a notice naming the found path. Folder-name case is not
+  reported. A duplicate install is NOT detectable this way: `AssemblyLoader` keeps one entry
+  per assembly name (the highest version), so only a stray copy that won the load is seen,
+  and the notice wording covers that case.
+- **Posting.** Stock `ScreenMessages` drops a post (returns null) from a scene-load REQUEST,
+  which already sets `HighLogic.LoadedScene`, until `onLevelWasLoaded`. The poster waits for a
+  playable scene to stay current 3 s, then posts through `ParsekLog.TryScreenMessage` and
+  re-queues a dropped notice for the next frame.
 
 KSP version range and dependencies stay with `Parsek.version` and CKAN; a missing Harmony,
 ClickThroughBlocker or ToolbarControl keeps `Parsek.dll` from loading at all, so Parsek cannot

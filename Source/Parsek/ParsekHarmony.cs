@@ -122,8 +122,10 @@ namespace Parsek
             }
         }
 
-        // KSP clears screen messages on every level load and the loading screen covers
-        // them, so wait until one playable scene has stayed loaded for a few seconds.
+        // KSP clears screen messages on every level load and drops posts from the load
+        // REQUEST (which already sets LoadedScene) until the level finishes loading, so
+        // wait until one playable scene has stayed current for a few seconds, then keep a
+        // notice queued until stock actually accepts it.
         private IEnumerator PostStartupNoticesWhenSceneSettles()
         {
             GameScenes settledScene = GameScenes.LOADING;
@@ -149,11 +151,24 @@ namespace Parsek
                 yield return null;
             }
 
-            var notices = StartupNotices.TakePending();
-            foreach (var notice in notices)
+            int dropped = 0;
+            while (StartupNotices.PendingCount > 0)
             {
-                ParsekLog.Info("Init", $"Startup notice posted in {settledScene}: {notice}");
-                ParsekLog.ScreenMessage(notice, StartupNotices.NoticeDurationSeconds);
+                foreach (var notice in StartupNotices.TakePending())
+                {
+                    if (ParsekLog.TryScreenMessage(notice, StartupNotices.NoticeDurationSeconds))
+                    {
+                        ParsekLog.Info("Init", $"Startup notice posted in {HighLogic.LoadedScene}" +
+                            $" after {dropped} dropped attempt(s): {notice}");
+                    }
+                    else
+                    {
+                        dropped++;
+                        StartupNotices.Enqueue(notice);
+                    }
+                }
+                if (StartupNotices.PendingCount > 0)
+                    yield return null;
             }
         }
 
