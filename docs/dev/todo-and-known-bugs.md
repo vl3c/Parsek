@@ -261,7 +261,7 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   node waits 5,100 s). The largest recoverable rows are now pre-#1964 BDOCK RENDEZVOUS
   waits, B22's outcome-sensitive CIRCULARIZE node wait (~590 s per run, policy undecided)
   and pre-#1958 CAPTURE-BURN waits.
-- [ ] B22's CIRCULARIZE node wait: owner ruling 2026-10-03 keeps it recoverable and
+- [x] B22's CIRCULARIZE node wait: owner ruling 2026-10-03 keeps it recoverable and
   outcome-sensitive in the analyzer. Backlog target: a verification flight before any warp
   there (~590 s per run). Now a hold behind the default-off b5 key `circularizeNodeWaitWarp`
   (branch `b5-circ-node-wait`, stacked on `coast-native-lead`): the CAPTURE node-wait hold
@@ -270,9 +270,11 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   budget is spent; transfer nodes stay un-held. Only B22 opts in. The analyzer counts the
   wait inside the lead (120 s + 5 s + half burn) as by design only in a visit whose own
   `node-wait:` line printed its half burn; the rest stays recoverable and outcome-sensitive.
-  Pending re-fly proof: the park round-out's resulting ap / pe / ecc (the unheld
-  2026-10-03_1106 run planned the trim from 769,634 x 560,640 m, ecc 0.0826), then an
-  unchanged Kerbin park, ejection, correction dv and Jool arrival / capture / park.
+  Re-fly proof 2026-10-03_1157 (with the coast lead): the hold warped to ut 2564.7 (node
+  2687.2, half burn 2.5 s) and released on arrival; trim ap 769,667 m (unheld runs 769,661 /
+  769,650); CIRCULARIZE wall 626 s -> 108 s; mission wall 2,767 s (2026-10-01_2235) ->
+  2,156 s; same 20-phase list, corrections 124.10 / 73.25 m/s (unheld 124.10 / 72.73-72.81),
+  Jool park ap 584,389 km (unheld 584,339 / 584,320 km, about 0.01%).
 - [x] BDOCK decisions (owner ruling 2026-10-03, resolved in the analyzer). STATION-ASCENT /
   INT-ASCENT node waits are by design (the same MechJeb ascent as MJ-ASCENT; BDOCK engages
   `ACTION_MJ_ENGAGE_ASCENT` on both legs). The RENDEZVOUS wait is by design from the hold's
@@ -286,16 +288,18 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   recoverable 18,712 s -> 14,450 s, by design 9,996 s -> 14,141 s; the top recoverable rows
   are now the pre-#1964 BDOCK-1 / BDOCK-2 RENDEZVOUS waits (3,499 s / 1,338 s), B22
   CIRCULARIZE (1,183 s) and pre-#1958 CAPTURE-BURN waits.
-- [ ] Coast native lead (branch `coast-native-lead`): two default-off b5 `missionParams`.
+- [x] Coast native lead (branch `coast-native-lead`): two default-off b5 `missionParams`.
   `soiNativeLeadSeconds` moves the coast's native warp stop (and the approach clamp's lead)
   closer to the SOI boundary than `soiLeadSeconds`, floored at 120 s + 4 x
   `RAILS_WARP_RATES[approachMaxWarpFactor]` (rejected at spec load below it);
   `triggerNativeLeadSeconds` keeps the time-mode correction-trigger native warp armed to
   that many seconds before the trigger instead of `soiLeadSeconds`. Opted in on B26
-  (400 / 30) and B22 (10,000 / 30); every other lane is unchanged. Pending re-fly proof on
-  both: the same phase list, SOI-crossing UT, first TARGET-FLYBY frame, correction dv,
-  nextPe, capture dv and park, with the x50 / x1,000 rails crawl before each boundary and
-  the round-1 trigger gone from the flight-efficiency report.
+  (400 / 30) and B22 (10,000 / 30); every other lane is unchanged. Re-fly proof: B26
+  2026-10-03_1055 vs _0956 mission wall 707 s -> 596 s, same 20-phase list, corrections
+  63.72 / 11.63 m/s (was 63.72 / 11.67), Vall park 170,812 x 167,552 m (was 170,547 x
+  167,279; the two pre-change runs differ by ~980 m). B22 2026-10-03_1106 vs 2026-10-01_2235
+  coast wall 368 s -> 315 s, corrections 124.10 / 72.73 (was 124.10 / 72.81), Jool park
+  within 19 km of 584,339 km.
 
 ## ~~RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON: the recording stats frame lookup matches a section end exactly, with no tolerance~~ [FILED 2026-10-01 from the PR #1943 review, branch `l7-nightly-residue`. FIXED 2026-10-03, branch `fix-stats-frame-epsilon`]
 
