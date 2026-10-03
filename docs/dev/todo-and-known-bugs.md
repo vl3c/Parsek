@@ -263,7 +263,16 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   and pre-#1958 CAPTURE-BURN waits.
 - [ ] B22's CIRCULARIZE node wait: owner ruling 2026-10-03 keeps it recoverable and
   outcome-sensitive in the analyzer. Backlog target: a verification flight before any warp
-  there (~590 s per run).
+  there (~590 s per run). Now a hold behind the default-off b5 key `circularizeNodeWaitWarp`
+  (branch `b5-circ-node-wait`, stacked on `coast-native-lead`): the CAPTURE node-wait hold
+  (`_b5_node_wait_begin` / `_b5_node_wait_step`) extended to the park round-out hand-off,
+  declined when the executor is not observed idle, the park is rails-illegal, or the warp
+  budget is spent; transfer nodes stay un-held. Only B22 opts in. The analyzer counts the
+  wait inside the lead (120 s + 5 s + half burn) as by design only in a visit whose own
+  `node-wait:` line printed its half burn; the rest stays recoverable and outcome-sensitive.
+  Pending re-fly proof: the park round-out's resulting ap / pe / ecc (the unheld
+  2026-10-03_1106 run planned the trim from 769,634 x 560,640 m, ecc 0.0826), then an
+  unchanged Kerbin park, ejection, correction dv and Jool arrival / capture / park.
 - [x] BDOCK decisions (owner ruling 2026-10-03, resolved in the analyzer). STATION-ASCENT /
   INT-ASCENT node waits are by design (the same MechJeb ascent as MJ-ASCENT; BDOCK engages
   `ACTION_MJ_ENGAGE_ASCENT` on both legs). The RENDEZVOUS wait is by design from the hold's

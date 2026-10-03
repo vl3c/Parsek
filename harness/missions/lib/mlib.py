@@ -2041,7 +2041,8 @@ def max_legal_rails_factor(body: str, altitude_m: float) -> int:
 #     AlignedAndSettled (1 deg AND |omega| < 0.001 rad/s, roll included) before
 #     warping on, and while it aligns it calls MinimumWarp every tick, so a
 #     second warp writer is cancelled. A vessel that never settles idles the
-#     whole 600 s. The machine therefore HOLDS the CAPTURE hand-off, rails-warps
+#     whole 600 s. The machine therefore HOLDS the CAPTURE hand-off (and, per
+#     lane via circularizeNodeWaitWarp, the CIRCULARIZE park round-out), rails-warps
 #     itself to NODE_WAIT_ORIENT_LEAD_SECONDS before ignition, and only then
 #     engages the executor, which aligns and burns exactly as before (see
 #     _B5_NODE_WAIT_PHASES for why transfers are not held).
@@ -2168,6 +2169,30 @@ def node_wait_warp_plan(now_ut: float, node_ut: float, node_dv: float,
         return None, ("warp window %.0f s < %.0f s (%s)"
                       % (target - now_ut, min_window, why))
     return float(target), why
+
+
+def node_wait_rails_legal(body: str, altitude: float, periapsis: float
+                          ) -> Tuple[bool, str]:
+    """Whether a node-wait hold may rails-warp here: ``(legal, why_not)``.
+
+    kRPC's SpaceCenter.WarpTo falls back to PHYSICS warp when CanRailsWarpAt
+    fails (decompiled: the vessel below the body's rails limit at factor 1),
+    so the hold needs ``max_legal_rails_factor`` >= 1 at the LOWER of the
+    altitude and the periapsis (the warp may cross the periapsis). Unlike
+    ``max_legal_rails_factor`` itself this fails CLOSED: a body outside the
+    committed rails table or an unread altitude / periapsis is no warp."""
+    limits = STOCK_WARP_ALTITUDE_LIMITS.get(body)
+    if limits is None or len(limits) < 2:
+        return False, "no rails table for body %r" % (body,)
+    if not (_is_finite(altitude) and _is_finite(periapsis)):
+        return False, "alt=%s pe=%s unread" % (_obs_fmt(altitude),
+                                               _obs_fmt(periapsis))
+    low = min(altitude, periapsis)
+    if max_legal_rails_factor(body, low) < 1:
+        return False, ("alt=%s pe=%s below the %.0f m rails limit (WarpTo "
+                       "would physics-warp)"
+                       % (_obs_fmt(altitude), _obs_fmt(periapsis), limits[1]))
+    return True, ""
 
 
 def descent_warp_floor(body: str) -> Optional[float]:
@@ -4746,6 +4771,15 @@ class B5Params:
                                            # armed while dt > this (not
                                            # dt > soi_lead). Spec key
                                            # triggerNativeLeadSeconds.
+    # --- CIRCULARIZE NODE WAIT (wall time; OFF by default) --------------------
+    # The park round-out (park_trim_ecc_max) hands its node to MechJeb's
+    # executor, which rails-warps only to ignition - 600 s and then idles at 1x
+    # until AlignedAndSettled (B22: ~590 s per run). True extends the CAPTURE
+    # node-wait hold (_b5_node_wait_begin / _b5_node_wait_step) to that
+    # CIRCULARIZE hand-off: the machine rails-warps itself to node UT - half
+    # burn - NODE_WAIT_ORIENT_LEAD_SECONDS first. False = every lane flown to
+    # date, byte for byte. Spec key circularizeNodeWaitWarp.
+    circularize_node_wait_warp: bool = False
 
 
 def b5_params_from_dict(params: Dict) -> B5Params:
@@ -5133,6 +5167,8 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         # Coast native leads: off (0/0) unless a spec arms them.
         soi_native_lead=_soi_native_lead,
         trigger_native_lead=float(params.get("triggerNativeLeadSeconds", 0.0)),
+        # Circularize node-wait hold: off unless a spec arms it.
+        circularize_node_wait_warp=bool(params.get("circularizeNodeWaitWarp", False)),
     )
 
 
@@ -11745,8 +11781,11 @@ def _b5_park_trim_step(state: B5State, snapshot: TelemetrySnapshot,
             return (replace(stayed,
                             park_trim_attempts=state.park_trim_attempts + 1),
                     [Action(ACTION_MJ_PLAN_PARK_TRIM)])
-        return (replace(stayed, park_trim_execs=state.park_trim_execs + 1),
-                [Action(ACTION_MJ_EXECUTE_NODES)])
+        # The executor hand-off goes through the node-wait hold, a pass-through
+        # (the bare action, byte for byte) unless circularizeNodeWaitWarp is set.
+        return _b5_node_wait_begin(
+            replace(stayed, park_trim_execs=state.park_trim_execs + 1),
+            snapshot, Action(ACTION_MJ_EXECUTE_NODES))
     if verdict == PARK_TRIM_GIVEUP:
         return _b5_named_flake(
             state,
@@ -12503,16 +12542,34 @@ def _b5_flameout_stage(state: B5State,
 # Past it the hold releases to the executor, which then warps itself exactly
 # as it did before the policy: slower, never wrong.
 NODE_WAIT_MAX_ISSUES = 5
-# The ONE phase a held executor hand-off lives in: CAPTURE-BURN, where the
-# executor's never-settling 1x align ate ~590 s on B11 and B13. NOT the
-# transfer, the ejection or the park round-out: there the executor settles
-# within its own lead (2026-10-01 B11 / B13 / B15 transfers: 52-93 s), so a
-# hold saves nothing, and flying it MOVED THE BURN. The first verification
-# flights ended the TLI 3.7 s earlier with apoapsis 11.503 Mm instead of
-# 11.480 Mm on all three Mun runs (the executor's own warp to ignition - 3 s,
-# started from 600 s out, lands late; from a 120 s hold it does not), which
-# re-timed the whole arrival and moved B13's landing site onto a slope.
+# The ONE phase a held executor hand-off lives in by default: CAPTURE-BURN,
+# where the executor's never-settling 1x align ate ~590 s on B11 and B13. NOT
+# the transfer, the ejection or (unless opted in below) the park round-out:
+# there the executor settled within its own lead (2026-10-01 B11 / B13 / B15
+# transfers: 52-93 s), so a hold saves nothing, and flying it MOVED THE BURN.
+# The first verification flights ended the TLI 3.7 s earlier with apoapsis
+# 11.503 Mm instead of 11.480 Mm on all three Mun runs (the executor's own warp
+# to ignition - 3 s, started from 600 s out, lands late; from a 120 s hold it
+# does not), which re-timed the whole arrival and moved B13's landing site onto
+# a slope.
 _B5_NODE_WAIT_PHASES = (B5_CAPTURE_BURN,)
+# OPT-IN: the CIRCULARIZE park round-out node (spec key circularizeNodeWaitWarp,
+# B22 only). Unlike the Mun transfers above, B22's park-trim executor idles the
+# full ~590 s at 1x (2026-10-03_1106: node issued ut 1716, nodeUt 2687, then
+# NONEx1 from ~2087 on). Whether the shorter executor warp moves the trim's
+# result the way it moved the TLI is what the key's re-fly proves: the
+# round-out parks the craft for the Jool ejection, so its ap / pe / ecc and
+# the arrival downstream are the comparison. Transfer nodes stay un-held.
+_B5_CIRCULARIZE_NODE_WAIT_PHASE = B5_CIRCULARIZE
+
+
+def _b5_node_wait_phases(params: B5Params) -> Tuple[str, ...]:
+    """The phases whose executor hand-off the node-wait hold may own:
+    _B5_NODE_WAIT_PHASES, plus CIRCULARIZE when circularizeNodeWaitWarp is
+    set."""
+    if params.circularize_node_wait_warp:
+        return _B5_NODE_WAIT_PHASES + (_B5_CIRCULARIZE_NODE_WAIT_PHASE,)
+    return _B5_NODE_WAIT_PHASES
 
 
 def _b5_node_wait_begin(state: B5State, snapshot: TelemetrySnapshot,
@@ -12523,10 +12580,32 @@ def _b5_node_wait_begin(state: B5State, snapshot: TelemetrySnapshot,
     Only the executor hand-off is ever held; any other hand-off (the DIY
     correction burner's ap_point_node) passes through untouched. With the
     vessel mass unread the hand-off is the pre-policy action byte for byte; a
-    readable refusal rides the hand-off's text so the action line names it."""
+    readable refusal rides the hand-off's text so the action line names it.
+
+    The opt-in CIRCULARIZE hold refuses three more cases before planning, each
+    as a named decline: the executor not OBSERVED idle (an engaged executor
+    already owns the warp, so a machine warp would be a second writer; -1
+    unread fails closed), a spent warp budget from an earlier round-out
+    attempt in the same phase, and a rails-illegal altitude or periapsis
+    (``node_wait_rails_legal``: WarpTo would physics-warp)."""
     if (handoff.kind != ACTION_MJ_EXECUTE_NODES or not state.params.node_wait_warp
-            or state.phase not in _B5_NODE_WAIT_PHASES):
+            or state.phase not in _b5_node_wait_phases(state.params)):
         return state, [handoff]
+    if state.phase == _B5_CIRCULARIZE_NODE_WAIT_PHASE:
+        refusal = ""
+        if snapshot.node_executor_enabled != 0:
+            refusal = ("executor not observed idle (nodeExec=%d)"
+                       % snapshot.node_executor_enabled)
+        elif state.phase_warp_issues >= NODE_WAIT_MAX_ISSUES:
+            refusal = ("warp budget spent (%d issues this phase)"
+                       % state.phase_warp_issues)
+        else:
+            legal, why_not = node_wait_rails_legal(
+                snapshot.body, snapshot.altitude, snapshot.periapsis)
+            if not legal:
+                refusal = "rails-illegal " + why_not
+        if refusal:
+            return state, [replace(handoff, text="node-wait declined: %s" % refusal)]
     target, why = node_wait_warp_plan(
         snapshot.ut, snapshot.node_ut, snapshot.node_dv,
         snapshot.available_thrust, snapshot.vessel_mass, snapshot.time_to_soi,
@@ -12561,7 +12640,7 @@ def _b5_node_wait_step(state: B5State, snapshot: TelemetrySnapshot,
     if state.node_wait_ut is None:
         return None
     target = state.node_wait_ut
-    if state.phase not in _B5_NODE_WAIT_PHASES:
+    if state.phase not in _b5_node_wait_phases(state.params):
         return None
     ut = snapshot.ut
     release = ""
@@ -13921,7 +14000,8 @@ def _b5_policy_physics_field(state) -> str:
 
 
 def _b5_policy_native_warp(state) -> bool:
-    """A held capture hand-off or a DESCENT coast warp is the policy's."""
+    """A held capture (or opt-in circularize) hand-off or a DESCENT coast warp
+    is the policy's."""
     return (state.warp_to_cmd is not None
             and (state.node_wait_ut is not None or state.phase == B5_DESCENT))
 

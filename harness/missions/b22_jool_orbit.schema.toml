@@ -639,3 +639,12 @@ required = false
 type = "number"
 min = 0.0
 max = 1000000.0
+
+# CIRCULARIZE NODE WAIT (wall time; off when omitted or false). True holds the
+# park round-out's executor hand-off and rails-warps to node UT - half burn -
+# NODE_WAIT_ORIENT_LEAD_SECONDS first (the CAPTURE node-wait hold, extended to
+# CIRCULARIZE); declined when the executor is not observed idle or the park is
+# rails-illegal. Transfer nodes are never held. Optional; false = off.
+[params.circularizeNodeWaitWarp]
+required = false
+type = "bool"

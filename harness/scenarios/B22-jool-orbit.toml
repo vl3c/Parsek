@@ -829,6 +829,16 @@ circularizeTimeoutSeconds  = 12000
 # the round-out should be a no-op -- it is armed anyway, because a capture that arrives
 # off-target has no periapsis to circularize at.
 parkTrimEccMax             = 0.02
+# CIRCULARIZE NODE WAIT (wall time). MechJeb's executor rails-warps the round-out
+# node only to ignition - 600 s, then idles at 1x until AlignedAndSettled: ~590 s
+# per run here (2026-10-03_1106: node at ut 1716, nodeUt 2687). True holds that
+# hand-off and rails-warps to node UT - half burn - 120 s first, the CAPTURE
+# hold's own mechanism (mlib _b5_node_wait_begin); the executor then aligns and
+# burns as before. Declined (bare hand-off) when the executor is not observed
+# idle or the park is rails-illegal. PENDING RE-FLY: the trim's ap / pe / ecc
+# and the Jool arrival must match the unheld runs (a held TLI once moved B13's
+# landing site). Default false = off.
+circularizeNodeWaitWarp    = true
 
 # --- THE JETTISON. A CRAFT signature, not a body constant (Nerv 60 kN / Skipper
 # 650 kN / Mainsail 1,500 kN); full derivation in B19-dres-orbit.toml's header.

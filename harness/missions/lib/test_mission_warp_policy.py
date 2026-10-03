@@ -17,13 +17,15 @@ about, so a cell fails for the reason it names.
 """
 
 import math
+import os
+import tomllib
 import unittest
 from dataclasses import replace
 
 import mlib
 from mlib import Action
-from test_mlib import (B4_PARAMS, B11_PARAMS, B13_PARAMS, _b4_state,
-                       _parked, _descending, snap)
+from test_mlib import (B4_PARAMS, B11_PARAMS, B13_PARAMS, B15_TRIM_PARAMS,
+                       _b4_state, _parked, _descending, snap)
 
 
 def kinds(actions):
@@ -259,6 +261,245 @@ class NodeWaitHoldTests(unittest.TestCase):
             burn_phase=mlib.B5_CAPTURE_BURN, on_timeout_phase=None,
             handoff_action=Action(mlib.ACTION_MJ_EXECUTE_NODES))
         self.assertEqual([Action(mlib.ACTION_MJ_EXECUTE_NODES)], actions)
+
+
+# B22's park round-out, 2026-10-03_1106: the trim node issued at ut 1716.317
+# with nodeUt 2687.196 and nodeDv 67.745 on the 650 kN stack, park 702 km x
+# 560 km over Kerbin. The mass is a round 100 t, so the half burn is
+# 67.745 * 100000 / (2 * 650000) = 5.211 s.
+CIRC_NODE_UT = 2687.196
+CIRC_ENTRY_UT = 1715.257
+CIRC_HALF_BURN = 67.745 * 100_000.0 / (2.0 * 650_000.0)
+CIRC_TARGET = CIRC_NODE_UT - CIRC_HALF_BURN - mlib.NODE_WAIT_ORIENT_LEAD_SECONDS
+
+
+def _circ_state(armed=True, **over):
+    """CIRCULARIZE with one park-trim plan issued and not yet handed over."""
+    params = replace(B15_TRIM_PARAMS, circularize_node_wait_warp=armed)
+    base = mlib.b5_initial_state(params)
+    fields = {**base.__dict__, "phase": mlib.B5_CIRCULARIZE,
+              "phase_entry_ut": CIRC_ENTRY_UT, "park_trim_attempts": 1}
+    fields.update(over)
+    return base.__class__(**fields)
+
+
+def _circ_frame(**kw):
+    base = dict(ut=1716.317, body="Kerbin", situation="ORBITING",
+                altitude=702_284.0, apoapsis=769_634.457, periapsis=560_640.170,
+                eccentricity=0.0826, node_count=1, node_dv=67.745,
+                node_ut=CIRC_NODE_UT, vessel_mass=100_000.0,
+                available_thrust=650_000.0, atmosphere_depth=70_000.0,
+                node_executor_enabled=0)
+    base.update(kw)
+    return snap(**base)
+
+
+class CircularizeNodeWaitTests(unittest.TestCase):
+    """circularizeNodeWaitWarp: the CAPTURE node-wait hold, extended to the
+    CIRCULARIZE park round-out node, driven through the real b5_decide."""
+
+    def _held(self):
+        state, actions = mlib.b5_decide(_circ_state(), _circ_frame())
+        self.assertEqual([mlib.ACTION_WARP_TO_UT], kinds(actions))
+        return state, actions
+
+    def test_the_key_arms_the_hold_on_the_park_trim_handoff(self):
+        state, actions = self._held()
+        self.assertEqual(mlib.B5_CIRCULARIZE, state.phase)
+        self.assertAlmostEqual(CIRC_TARGET, actions[0].value, places=6)
+        self.assertEqual(actions[0].value, state.node_wait_ut)
+        self.assertEqual(actions[0].value, state.warp_to_cmd)
+        self.assertEqual(mlib.ACTION_MJ_EXECUTE_NODES, state.node_wait_handoff)
+        # The hand-off is owed, so the trim counts it as made: no later frame
+        # may re-plan or re-execute behind the hold.
+        self.assertEqual(1, state.park_trim_execs)
+        # The analyzer's halfBurn= token rides the action text.
+        self.assertIn("node-wait: nodeUt=2687.2 halfBurn=5.2 lead=120",
+                      actions[0].text)
+
+    def test_default_off_is_the_old_handoff_byte_for_byte(self):
+        """MUTATION: drop the circularize_node_wait_warp test in
+        _b5_node_wait_phases and the bare hand-off becomes a warp."""
+        before = _circ_state(armed=False)
+        frame = _circ_frame()
+        state, actions = mlib.b5_decide(before, frame)
+        self.assertEqual([Action(mlib.ACTION_MJ_EXECUTE_NODES)], actions)
+        # The pre-change line: replace(stayed, park_trim_execs=execs + 1).
+        # (b5_decide's frozen-telemetry signature is stamped before the phase.)
+        stayed = mlib._b5_stay_or_flake(before, frame, frame.apoapsis)
+        self.assertEqual(replace(stayed, park_trim_execs=1,
+                                 frozen_sig=state.frozen_sig,
+                                 frozen_count=state.frozen_count), state)
+        self.assertFalse(B15_TRIM_PARAMS.circularize_node_wait_warp)
+        self.assertFalse(mlib.B5Params.__dataclass_fields__[
+            "circularize_node_wait_warp"].default)
+        self.assertEqual(mlib._B5_NODE_WAIT_PHASES,
+                         mlib._b5_node_wait_phases(B15_TRIM_PARAMS))
+
+    def test_the_spec_key_parses_and_defaults_off(self):
+        self.assertFalse(mlib.b5_params_from_dict({}).circularize_node_wait_warp)
+        self.assertTrue(mlib.b5_params_from_dict(
+            {"circularizeNodeWaitWarp": True}).circularize_node_wait_warp)
+
+    def test_only_b22_opts_in(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        scen = os.path.join(os.path.dirname(os.path.dirname(here)), "scenarios")
+        armed = []
+        for name in sorted(os.listdir(scen)):
+            if not name.endswith(".toml"):
+                continue
+            with open(os.path.join(scen, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            mp = spec.get("driver", {}).get("missionParams", {})
+            if "circularizeNodeWaitWarp" in mp:
+                armed.append((name, mp["circularizeNodeWaitWarp"]))
+        self.assertEqual([("B22-jool-orbit.toml", True)], armed)
+
+    def test_the_hold_never_covers_a_transfer_node(self):
+        """Owner ruling: a held TLI moved B13's landing site. The key adds
+        CIRCULARIZE only; MUTATION: add B5_TRANSFER_BURN to the opt-in."""
+        self.assertEqual((mlib.B5_CAPTURE_BURN, mlib.B5_CIRCULARIZE),
+                         mlib._b5_node_wait_phases(
+                             replace(B15_TRIM_PARAMS, circularize_node_wait_warp=True)))
+        base = replace(_circ_state(), phase=mlib.B5_PLAN_TRANSFER)
+        state, actions = mlib._b5_plan_phase(
+            base, _circ_frame(), None, plan_action=None,
+            burn_phase=mlib.B5_TRANSFER_BURN, on_timeout_phase=None,
+            handoff_action=Action(mlib.ACTION_MJ_EXECUTE_NODES))
+        self.assertEqual(mlib.B5_TRANSFER_BURN, state.phase)
+        self.assertEqual([Action(mlib.ACTION_MJ_EXECUTE_NODES)], actions)
+        self.assertIsNone(state.node_wait_ut)
+
+    def test_the_hold_owns_the_frame_and_never_writes_a_second_warp(self):
+        state, _ = self._held()
+        for i in range(6):
+            state, actions = mlib.b5_decide(state, _circ_frame(
+                ut=1800.0 + 100.0 * i, warping_to=CIRC_TARGET,
+                warp_mode="RAILS", warp_rate=100.0))
+            self.assertEqual([], actions)
+            self.assertEqual(1, state.park_trim_execs)
+            self.assertEqual(1, state.park_trim_attempts)
+
+    def test_lead_boundary(self):
+        # Release exactly NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS before the target.
+        state, _ = self._held()
+        edge = CIRC_TARGET - mlib.NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS
+        early, actions = mlib.b5_decide(state, _circ_frame(
+            ut=edge - 0.01, warping_to=CIRC_TARGET))
+        self.assertEqual([], actions)
+        self.assertIsNotNone(early.node_wait_ut)
+        done, actions = mlib.b5_decide(state, _circ_frame(ut=edge))
+        self.assertEqual([mlib.ACTION_MJ_EXECUTE_NODES], kinds(actions))
+        self.assertIn("released: arrived", actions[0].text)
+        self.assertIsNone(done.node_wait_ut)
+        self.assertIsNone(done.warp_to_cmd)
+        # The released executor still has the whole orient lead (+ half burn
+        # + tolerance) before the node, so no second of the burn is warped.
+        self.assertAlmostEqual(
+            mlib.NODE_WAIT_ORIENT_LEAD_SECONDS + CIRC_HALF_BURN
+            + mlib.NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS, CIRC_NODE_UT - edge, places=6)
+        # The plan's own window floor: exactly NODE_WAIT_MIN_WARP_SECONDS holds,
+        # a hair less declines to the executor's own warp.
+        now = CIRC_TARGET - mlib.NODE_WAIT_MIN_WARP_SECONDS
+        _held, actions = mlib.b5_decide(_circ_state(), _circ_frame(ut=now))
+        self.assertEqual([mlib.ACTION_WARP_TO_UT], kinds(actions))
+        short, actions = mlib.b5_decide(_circ_state(), _circ_frame(ut=now + 0.1))
+        self.assertEqual([mlib.ACTION_MJ_EXECUTE_NODES], kinds(actions))
+        self.assertIn("node-wait declined: warp window", actions[0].text)
+        self.assertIsNone(short.node_wait_ut)
+        self.assertEqual(1, short.park_trim_execs)
+
+    def test_rails_legality_is_fail_closed(self):
+        limit = mlib.STOCK_WARP_ALTITUDE_LIMITS["Mun"][1]
+        self.assertEqual((True, ""), mlib.node_wait_rails_legal("Mun", 50_000.0, limit))
+        self.assertFalse(mlib.node_wait_rails_legal("Mun", 50_000.0, limit - 1.0)[0])
+        self.assertFalse(mlib.node_wait_rails_legal("Mun", limit - 1.0, 50_000.0)[0])
+        self.assertFalse(mlib.node_wait_rails_legal("Mun", float("nan"), 50_000.0)[0])
+        self.assertFalse(mlib.node_wait_rails_legal("Nowhere", 1.0e6, 1.0e6)[0])
+        # B22's 702 x 560 km park is legal.
+        self.assertTrue(mlib.node_wait_rails_legal("Kerbin", 702_284.0, 560_640.0)[0])
+
+    def test_a_rails_illegal_park_declines_to_the_executor(self):
+        """An airless body, so only the rails clamp can refuse (the plan's
+        atmosphere check would mask it on Kerbin). MUTATION: drop the
+        node_wait_rails_legal call and this arms a warp WarpTo would fly as
+        PHYSICS warp."""
+        # Below the Mun's factor-1 limit: the hand-off seam itself (the
+        # CIRCULARIZE periapsis gate would never reach the trim this low).
+        state, actions = mlib._b5_node_wait_begin(
+            _circ_state(), _circ_frame(body="Mun", altitude=600_000.0,
+                                       periapsis=4_000.0, atmosphere_depth=0.0),
+            Action(mlib.ACTION_MJ_EXECUTE_NODES))
+        self.assertEqual([mlib.ACTION_MJ_EXECUTE_NODES], kinds(actions))
+        self.assertIn("node-wait declined: rails-illegal", actions[0].text)
+        self.assertIn("below the 5000 m rails limit", actions[0].text)
+        self.assertIsNone(state.node_wait_ut)
+        # A body outside the rails table, through the real b5_decide.
+        state, actions = mlib.b5_decide(_circ_state(), _circ_frame(
+            body="Nowhere", atmosphere_depth=0.0))
+        self.assertEqual([mlib.ACTION_MJ_EXECUTE_NODES], kinds(actions))
+        self.assertIn("node-wait declined: rails-illegal no rails table",
+                      actions[0].text)
+        self.assertIsNone(state.node_wait_ut)
+        self.assertEqual(1, state.park_trim_execs)
+
+    def test_an_engaged_or_unread_executor_is_never_warped_over(self):
+        """An enabled executor already owns the warp; a second writer is what
+        the hold exists to avoid. -1 (unread) fails closed."""
+        for value in (1, -1):
+            state, actions = mlib.b5_decide(_circ_state(), _circ_frame(
+                node_executor_enabled=value))
+            self.assertEqual([mlib.ACTION_MJ_EXECUTE_NODES], kinds(actions), value)
+            self.assertIn("executor not observed idle (nodeExec=%d)" % value,
+                          actions[0].text)
+            self.assertIsNone(state.node_wait_ut)
+
+    def test_a_spent_warp_budget_declines(self):
+        state, actions = mlib.b5_decide(
+            _circ_state(phase_warp_issues=mlib.NODE_WAIT_MAX_ISSUES), _circ_frame())
+        self.assertEqual([mlib.ACTION_MJ_EXECUTE_NODES], kinds(actions))
+        self.assertIn("warp budget spent", actions[0].text)
+        self.assertIsNone(state.node_wait_ut)
+
+    def test_release_cancels_the_warp_before_the_executor_warps(self):
+        """Cancel-before-rails: the release frame drops the machine's native
+        warp BEFORE the autowarping executor is engaged, in that order, and
+        writes no warp of its own. MUTATION: swap the two appends in
+        _b5_node_wait_step and this reds."""
+        state, _ = self._held()
+        released, actions = mlib.b5_decide(state, _circ_frame(
+            ut=CIRC_TARGET, warping_to=CIRC_TARGET))
+        self.assertEqual([mlib.ACTION_CANCEL_WARP, mlib.ACTION_MJ_EXECUTE_NODES],
+                         kinds(actions))
+        self.assertNotIn(mlib.ACTION_WARP_TO_UT, kinds(actions))
+        self.assertNotIn(mlib.ACTION_SET_RAILS_WARP, kinds(actions))
+        self.assertIsNone(released.warp_to_cmd)
+        self.assertEqual(0, released.warp_cmd)
+        # The budget release (before the target) cancels first too.
+        old = replace(state, phase_entry_ut=1800.0
+                      - B15_TRIM_PARAMS.circularize_timeout - 1.0)
+        _st, actions = mlib.b5_decide(old, _circ_frame(
+            ut=1800.0, warping_to=CIRC_TARGET))
+        self.assertEqual([mlib.ACTION_CANCEL_WARP, mlib.ACTION_MJ_EXECUTE_NODES],
+                         kinds(actions))
+        self.assertIn("phase budget expired", actions[-1].text)
+
+    def test_a_vanished_node_releases_and_the_trim_reads_the_orbit(self):
+        state, _ = self._held()
+        state, actions = mlib.b5_decide(state, _circ_frame(ut=1800.0, node_count=0))
+        self.assertNotIn(mlib.ACTION_MJ_EXECUTE_NODES, kinds(actions))
+        self.assertIsNone(state.node_wait_ut)
+        # Next frame: a round park leaves through the unchanged trim ladder.
+        state, actions = mlib.b5_decide(state, _circ_frame(
+            ut=1801.0, node_count=0, apoapsis=769_700.0, periapsis=769_500.0,
+            eccentricity=0.0001))
+        self.assertEqual(mlib.B5_ORBIT, state.phase)
+
+    def test_a_held_circularize_that_dies_cancels_its_warp(self):
+        state, _ = self._held()
+        state, actions = mlib.b5_decide(state, snap(ut=1800.0, vessel_lost=True))
+        self.assertTrue(state.done)
+        self.assertEqual([mlib.ACTION_CANCEL_WARP], kinds(actions))
 
 
 def _park_state(**over):
