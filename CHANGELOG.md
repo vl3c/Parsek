@@ -10,6 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: KSP.log now records when the crash screen and the recovery summary open and close.**
+  Stock KSP's flight results dialog ("Outcome: Catastrophic Failure!", also the F3 flight
+  status screen) and its "Mission Summary" recovery dialog left no reliable trace in the log,
+  so a scan of harness runs could not tell how long either stayed up. Parsek now writes one
+  `[PostFlightDialog]` line when each opens, with the scene, the vessel and, for the flight
+  results dialog, whether the game is paused and whether it is the crash screen
+  (`exitControls=true`), and one when each closes, with the time it stayed on screen in wall
+  seconds (`onScreenWallSeconds=`). Logging only: nothing on screen changes.
 - **Dev: a lane for spawning a ghost chain's final vessel through Real Spawn Control.**
   `CI-8-chain-tip-original-pid` (flown green 2026-10-03, nightly) reads a ghost chain's
   vessel id, presses the chain's Real Spawn Control button, and requires the vessel that

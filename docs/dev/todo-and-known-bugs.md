@@ -356,7 +356,7 @@ all 8 rows), `test_mlib.NonFiniteDetailScrubTests`, `test_shells.ResultSerialize
   of its bound it compares. Reaching it needs the mission to archive its frames (or the
   per-assertion evidence the compare reads).
 
-## HARNESS-POST-FLIGHT-DIALOG-STALLS: harness runs sit behind KSP's post-flight screens until a timeout or the wall budget ends [FILED 2026-10-03, branch `todo-stuck-dialogs`. CONFIRMED in the collected logs; fixes not started]
+## HARNESS-POST-FLIGHT-DIALOG-STALLS: harness runs sit behind KSP's post-flight screens until a timeout or the wall budget ends [FILED 2026-10-03, branch `todo-stuck-dialogs`. CONFIRMED in the collected logs; observability done on branch `post-flight-dialog-logging`, the three fixes not started]
 
 Operator observation: auto tests sometimes sit on the post-flight "Mission Summary" screen.
 A scan of all 894 collected `_shots/KSP.log` files found two stock dialogs, neither of which
@@ -394,14 +394,30 @@ Lost: about 26 min with a dialog up, about 25 min of it avoidable (RB-1 is about
 - [ ] Seam: a two-phase pending step fails fast when the active vessel is destroyed or
   `FlightResultsDialog.isDisplaying`, instead of waiting its full timeout
   (`ParsekTestCommandAddon.EvaGroundScience.cs` step-move path first). Also log the
-  dialog's display and the active-vessel loss so a scan can find the next case.
+  active-vessel loss so a scan can find the next case (the dialog's display is now logged,
+  see Observability below).
 - [ ] Recovery-screen class: `CommitTree` returns a fast `REJECTED not-in-flight` in
   SPACECENTER instead of deferring 60 s, or L3 / L5 / L6 drop that step. L3 keeps the step
   verbatim as a tripwire, so its `expect` must change with it. Saves about 60 s on each of
   those runs (SE-1 hits the same deferral).
-- [ ] Observability: subscribe to `onGUIRecoveryDialogSpawn` / `Despawn` and log the crash
+- [x] ~~Observability: subscribe to `onGUIRecoveryDialogSpawn` / `Despawn` and log the crash
   dialog. Neither dialog logs its own close today, so a stall longer than about 62 s on the
-  recovery screen cannot be confirmed from logs.
+  recovery screen cannot be confirmed from logs.~~ Fix: `PostFlightDialogLog` (pure state and
+  formatting) writes four Info lines under the `[PostFlightDialog]` subsystem, each with the
+  scene and the vessel name in quotes (`"?"` when unknown):
+  `FlightResultsDialog shown: scene=FLIGHT vessel="..." paused=true exitControls=true outcome="..."`,
+  `FlightResultsDialog dismissed: scene=... vessel="..." via=Close|Destroyed onScreenWallSeconds=N.NN paused=...`,
+  `MissionRecoveryDialog shown: scene=SPACECENTER vessel="..."` and
+  `MissionRecoveryDialog dismissed: scene=... vessel="..." onScreenWallSeconds=N.NN` (`unknown`
+  for a dialog that opened before the subscription). Wall seconds come from
+  `Time.realtimeSinceStartup` and format culture-invariant. `exitControls=true` is the crash
+  screen; `false` is the F3 flight status screen, which is the same stock dialog. The flight
+  results feed is three Harmony postfixes (`Patches/FlightResultsDialogLogPatches.cs` on
+  `Display(string)`, `Close()` and the private `OnDestroy()`, since that dialog has no
+  GameEvent); the recovery feed is `PostFlightDialogLogHost`, a process-lifetime addon on
+  stock `onGUIRecoveryDialogSpawn` / `onGUIRecoveryDialogDespawn` plus
+  `onVesselRecoveryProcessing` for the vessel name (stock fires the spawn inside the dialog's
+  Awake, before the name is set). No harness cell reads these lines yet.
 
 ## HARNESS-FLIGHT-WALL-TIME: auto-flights spend ~40% of their mission wall time idle at 1x [FILED 2026-10-01, branch `flight-efficiency`. MEASURED; the warp-policy fix is a separate session]
 
