@@ -10,6 +10,11 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: a lane for spawning a ghost chain's final vessel through Real Spawn Control.**
+  `CI-8-chain-tip-original-pid` (flown green 2026-10-03, nightly) reads a ghost chain's
+  vessel id, presses the chain's Real Spawn Control button, and requires the vessel that
+  appears to carry that same id, with exactly one copy of it in the saved game. It reuses
+  the `chain-tip-recovery` test save of the recovery lane.
 - **Dev: lanes for a Hard career that earns and spends, and for a career that starts with no
   money.** `HC-2-hard-career-earn-spend` (flown green 2026-10-03, nightly) flies L3's science
   hop on `career-science-pad-hard`, a copy of L3's save at KSP's Hard preset built by
