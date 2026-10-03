@@ -1363,6 +1363,12 @@ _(unreleased — entries accumulate here per commit)_
   is renamed `largeGapsOffRails=`. An on-schedule physics-warp gap stays under the
   threshold, which already clears the max interval plus one 4x frame. Headless runs no
   longer read a missing `TimeWarp` as rails warp.
+- **Recording: no more doubled samples at staging and launch.** When two parts of the
+  recorder wrote a sample at the same moment (a staging joint break, the reopened section
+  after it, a launch-clamp release), the recording kept both, one right after the other.
+  One section now holds one sample per moment: a repeat is dropped, and when the two
+  differ the later one is kept (at clamp release, the one taken after the vessel went off
+  rails), with its event marker carried over. No recording format change.
 - **Dev: an in-game test batch in the Tracking Station no longer orphans the ghost map
   vessels.** Before a batch the test runner cleared Parsek's list of ghost map vessels without
   removing the vessels, and in the Tracking Station nothing else removed them. They then read
