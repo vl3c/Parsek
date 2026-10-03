@@ -10,6 +10,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: a lane for recovering a ghost chain's final vessel, and the duplicate it found.**
+  The new `chain-tip-recovery` injected recording set gives a test save a ghost chain whose
+  last vessel lands next to the pad vessel while its ghost is still playing, so a lane can
+  bring it into the world through Real Spawn Control. `CI-6-chain-tip-recover-no-respawn`
+  does what a player would: brings it in, switches to it, presses stock's Recover, then
+  launches a new flight from the SPH. The recovered vessel comes back. Switching to the
+  vessel resumes its recording; leaving with nothing changed throws that resume away before
+  the recovery is written down; and the next flight scene treats the missing vessel as one
+  that died and spawns it again. Filed as CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE.
+  The lane stays an expected failure on exactly that signature until the fix lands.
 - **Dev: CA-1's "upper chute never armed" check now reads the real chute.** The check
   used to trust the mission's own record of never arming the chute, so nothing that
   happened in flight could fail it. It now also watches the upper stage's parachute
