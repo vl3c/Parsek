@@ -271,7 +271,13 @@ namespace Parsek.Tests
         public void BothPickersDrawTheHouseTableLook(string file, string method)
         {
             string body = MethodBody(Prepared("UI", file), method);
+            int gap = body.IndexOf("PickerWindowLayout.DrawTitleGap()", StringComparison.Ordinal);
             int heading = body.IndexOf("parentUI.GetTableSectionHeaderStyle()", StringComparison.Ordinal);
+            Assert.True(gap >= 0 && heading > gap,
+                file + "." + method + ": the title-bar gap must be drawn before the heading (gap="
+                + gap + " heading=" + heading + ")");
+            Assert.True(body.IndexOf("GUILayout.", StringComparison.Ordinal) >= gap,
+                file + "." + method + ": nothing may be laid out above the title-bar gap");
             int list = body.IndexOf("PickerWindowLayout.BeginEntryList(parentUI", StringComparison.Ordinal);
             int endList = body.IndexOf("PickerWindowLayout.EndEntryList()", StringComparison.Ordinal);
             Assert.True(heading >= 0 && list > heading && endList > list,
@@ -287,6 +293,33 @@ namespace Parsek.Tests
             Assert.DoesNotContain("GUILayout.BeginScrollView(", body);
             Assert.Matches(new Regex(@"GUILayout\.Width\(PickerWindowLayout\.ButtonWidth\)[\s\S]*GUILayout\.Width\(PickerWindowLayout\.ButtonWidth\)"), body);
             Assert.DoesNotMatch(new Regex(@"GUILayout\.Width\(\s*\d+f?\s*\)"), body);
+        }
+
+        /// <summary>
+        /// The pickers leave the same gap under their title bar as the main windows. Every
+        /// main window opens its body with a GUILayout.Space of that height; this reads the
+        /// FIRST Space in each window function and requires it to equal
+        /// <see cref="ParsekUI.WindowContentTopGapPx"/>, which is what DrawTitleGap draws.
+        /// </summary>
+        [Theory]
+        [InlineData("RecordingsTableUI.cs", "DrawRecordingsWindow")]
+        [InlineData("LogisticsWindowUI.cs", "DrawWindow")]
+        [InlineData("KerbalsWindowUI.cs", "DrawKerbalsWindow")]
+        [InlineData("SettingsWindowUI.cs", "DrawSettingsWindow")]
+        [InlineData("StructureListWindowUI.cs", "DrawWindow")]
+        public void PickerTitleGapIsTheMainWindowsTitleGap(string file, string method)
+        {
+            string gap = MethodBody(Prepared("UI", "PickerWindowLayout.cs"), "DrawTitleGap");
+            Assert.Contains("GUILayout.Space(ParsekUI.WindowContentTopGapPx)", gap);
+
+            string body = MethodBody(Prepared("UI", file), method);
+            Match first = Regex.Match(body, @"GUILayout\.Space\(\s*([^)]*?)\s*\)");
+            Assert.True(first.Success, file + "." + method + ": no GUILayout.Space, this gate is vacuous.");
+            string arg = first.Groups[1].Value;
+            float value = arg == "ParsekUI.WindowContentTopGapPx" || arg == "WindowContentTopGapPx"
+                ? ParsekUI.WindowContentTopGapPx
+                : float.Parse(arg.TrimEnd('f', 'F'), CultureInfo.InvariantCulture);
+            Assert.Equal(ParsekUI.WindowContentTopGapPx, value);
         }
 
         [Fact]

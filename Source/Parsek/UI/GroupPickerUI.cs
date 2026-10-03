@@ -267,7 +267,9 @@ namespace Parsek
         private void DrawGroupPopupContents(GroupPickerTreeModel treeModel, bool isGroupPopup)
         {
             // The house picker look (PickerWindowLayout): a heading in the shared table
-            // section style, then the entries inside the shared dark table body box.
+            // section style below the main windows' title gap, then the entries inside the
+            // shared dark table body box.
+            PickerWindowLayout.DrawTitleGap();
             GUILayout.Label(groupPopupHeading, parentUI.GetTableSectionHeaderStyle());
             groupPopupScrollPos = PickerWindowLayout.BeginEntryList(parentUI, groupPopupScrollPos);
 

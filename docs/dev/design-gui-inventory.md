@@ -647,7 +647,9 @@ first entry row; `+` is 48 px, `OK` / `Cancel` 100 px. Minimum 260 x 220, first 
 320 x 360: next to the clicked `G` / `S` button, or centred over the Missions window when the
 seam opens it. Pictures: see row 14 of 3.0.
 
-**The shared picker look** (`UI/PickerWindowLayout.cs`, both pickers): a heading in the
+**The shared picker look** (`UI/PickerWindowLayout.cs`, both pickers): the main windows'
+5 px gap under the title bar (`ParsekUI.WindowContentTopGapPx`, the `GUILayout.Space` the
+Missions, Logistics, Kerbals, Settings and Log windows open with), a heading in the
 shared table section-header style (`ParsekUI.GetTableSectionHeaderStyle`), then the entries
 inside the shared dark table body box (`GetTableBodyBoxStyle`, the Recordings tab's list-area
 box) around a scroll view on `GetTableScrollViewStyle`, one `GetTableRowStyle` row per entry

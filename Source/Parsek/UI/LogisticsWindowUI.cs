@@ -2145,7 +2145,9 @@ namespace Parsek
         {
             EnsureStyles();
             // The house picker look (PickerWindowLayout): a heading in the shared table
-            // section style, then the entries inside the shared dark table body box.
+            // section style below the main windows' title gap, then the entries inside the
+            // shared dark table body box.
+            PickerWindowLayout.DrawTitleGap();
             GUILayout.Label($"Link '{linkPickerSourceName}' with:", parentUI.GetTableSectionHeaderStyle());
 
             List<LogisticsLinkPresentation.LinkCandidate> candidates =

@@ -9,7 +9,8 @@ namespace Parsek
     /// <see cref="GroupPickerUI"/>) and the Logistics round-trip link picker
     /// (<c>Link round-trip partner</c>, <see cref="LogisticsWindowUI"/>).
     ///
-    /// <para><b>Look.</b> A picker draws like the main windows' tables: an optional heading
+    /// <para><b>Look.</b> A picker draws like the main windows' tables: the main windows'
+    /// gap under the title bar (<see cref="DrawTitleGap"/>), then an optional heading
     /// in the shared table section-header style, then its entries inside the shared dark
     /// table body box (<see cref="ParsekUI.GetTableBodyBoxStyle"/>) holding a scroll view on
     /// the shared table scroll style, one shared table row container per entry with the
@@ -145,6 +146,16 @@ namespace Parsek
                 "{0} placed {1}: x={2:F0} y={3:F0} w={4:F0} h={5:F0} screen={6:F0}x{7:F0}",
                 pickerName ?? "Picker", anchor, placed.x, placed.y, placed.width, placed.height,
                 screenWidth, screenHeight);
+        }
+
+        /// <summary>
+        /// The gap between a picker's title bar and its heading box: the same
+        /// <see cref="ParsekUI.WindowContentTopGapPx"/> the main windows leave above their
+        /// first box or row. Drawn first in every picker's window body.
+        /// </summary>
+        internal static void DrawTitleGap()
+        {
+            GUILayout.Space(ParsekUI.WindowContentTopGapPx);
         }
 
         /// <summary>

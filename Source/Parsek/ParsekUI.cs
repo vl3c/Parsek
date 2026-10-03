@@ -1495,6 +1495,13 @@ namespace Parsek
         // and padding are left at the skin's 4px so row pitch is unchanged.
         internal const int TableRowHorizontalInsetPx = 0;
 
+        // The gap a Parsek window leaves between its title bar and its first box or row:
+        // the Missions, Logistics, Kerbals, Settings and Log windows each open their
+        // content with a GUILayout.Space of this height, and the pickers
+        // (PickerWindowLayout.DrawTitleGap) reuse it. Pinned equal across them by
+        // PickerWindowLayoutTests.
+        internal const float WindowContentTopGapPx = 5f;
+
         // Fallback footprint when GUI.skin.verticalScrollbar is unavailable: KSP's
         // 15px bar plus its 1px left margin, as measured by the 2026-09-11 census
         // (run 2026-09-11_1706_GUI-6-census-flight-playback).
