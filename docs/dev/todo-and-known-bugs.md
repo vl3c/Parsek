@@ -143,6 +143,22 @@ decision 2026-10-02).
 - [ ] Decide: skip (or replace) a commit whose UT equals `lastRecordedUT` in
   `CommitRecordedPoint` / the off-rails boundary path / the section-close seed.
 
+## BG-PROXIMITY-GAP-READS-AS-SPARSE-SAMPLING: a debris section that left proximity range WARNs `TrackSection sparse sampling:` on every booster launch [FILED 2026-10-03 from PWR-3 `2026-10-03_1030` and every PWR flight of 2026-10-02, branch `sparse-warn-physwarp`. OPEN, low, pre-existing]
+
+Every PWR flight (`2026-10-02_2102` / `_2108` / `_2122` / `_2128` / `_2133` / `_2141` and
+`2026-10-03_1030`) logs two `[WARN][BgRecorder] TrackSection sparse sampling:` lines, one per
+booster debris, `maxGap` 13.8-14.2 s. The debris leaves the 2.3 km proximity tier
+(`Sample rate changed: ... interval=none`), `ShouldSkipTrajectorySamplingForProximity` stops
+its samples by design, and the next sample comes when a structural event reopens a
+high-fidelity window (`structural-event-JointBreak` at the second staging), so the gap is the
+designed out-of-range silence, not a stalled sampler. It WARNed at 1x before
+SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP too (the old `largeGaps1x=1`), so that fix did
+not introduce it. No lane reads it.
+
+- [ ] Fix: classify a background gap whose earlier sample was taken while the vessel's
+  proximity interval was out of range (or whose span holds an `interval=none` stretch) as
+  expected, like a rails gap; or close the section when sampling stops for range.
+
 ## ~~SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP: the recorder's dropped-sample WARN is downgraded for every physics-warp gap~~ [FILED 2026-10-02 from the physics-warp recording investigation, branch `physwarp-recording`. FIXED 2026-10-03, branch `sparse-warn-physwarp`]
 
 `FlightRecorder.CloseCurrentTrackSection` WARNs `TrackSection sparse sampling:` when a closed
@@ -159,7 +175,7 @@ shares the classification.
 
 Impact is low: the line is diagnostic, the log validator's WRN-001 does not read it, and the
 new `[expectations.recordings.sampling]` block (`harness/lib/samplingq.py`) now gates the same
-defect on the PWR lanes with the right per-rate allowance. Not changed here (operator decides).
+defect on the PWR lanes with the right per-rate allowance.
 
 - [x] Fix: the per-frame flag is now `isOnRails || IsRailsWarpActiveForDiagnostics()` (rate
   index above 0 in `TimeWarp.Modes.HIGH`; pure `IsRailsWarpState`), in both recorders, so
