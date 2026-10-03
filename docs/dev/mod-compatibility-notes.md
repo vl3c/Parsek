@@ -1,5 +1,24 @@
 # Mod Compatibility Notes
 
+## Startup notices (any mod)
+Parsek does not warn about which mods are installed; a mod it cannot cope with should degrade
+with a log line (as RemoteTech does for ghost CommNet). The player hears about exactly two
+startup EVENTS, once per process, through `StartupNotices.cs` (pure) and `ParsekHarmony.cs`
+(collect + post):
+
+- **Failed Harmony patches.** Every `[HarmonyPatch]` class maps to a player-facing feature by
+  name prefix (`StartupNotices.PatchFeatureFor`); the notice gives the failed count and up to
+  three features. `StartupNoticesTests.EveryHarmonyPatchClass_MapsToAPlayerFacingFeature`
+  reds when a new patch class has no rule, so add a prefix there with the patch.
+- **Install location.** Every loaded assembly named Parsek must sit in a folder directly under
+  `GameData` (the toolbar textures load as `Parsek/Textures/...`). Nested `GameData`, a zip
+  wrapper folder, a loose DLL or two copies post a notice naming the found path. Folder-name
+  case is not reported.
+
+KSP version range and dependencies stay with `Parsek.version` and CKAN; a missing Harmony,
+ClickThroughBlocker or ToolbarControl keeps `Parsek.dll` from loading at all, so Parsek cannot
+report it.
+
 ## CustomBarnKit
 CustomBarnKit modifies facility upgrade costs and tier counts. Parsek's FacilitiesModule stores facility levels as integers from KSP's normalized values. The dynamic slot limit mapping in LedgerOrchestrator assumes stock 3-tier progression (levels 0/1/2). CustomBarnKit compatibility requires verifying that the normalized-to-integer level conversion still produces correct values with non-standard tier counts.
 

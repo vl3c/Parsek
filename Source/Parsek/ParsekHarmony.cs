@@ -1,6 +1,9 @@
 using HarmonyLib;
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using UnityEngine;
 
@@ -51,6 +54,7 @@ namespace Parsek
             // Apply patches individually so one failure doesn't block the rest
             int applied = 0;
             int failed = 0;
+            var failedPatchNames = new List<string>();
             var patchTypes = assembly.GetTypes()
                 .Where(t => t.GetCustomAttributes(typeof(HarmonyPatch), false).Length > 0);
 
@@ -68,6 +72,7 @@ namespace Parsek
                 catch (Exception ex)
                 {
                     failed++;
+                    failedPatchNames.Add(patchType.Name);
                     ParsekLog.Error("Harmony", $"Failed to apply patch {patchType.Name}: {ex.Message}");
                 }
             }
@@ -77,6 +82,79 @@ namespace Parsek
             ParsekLog.Info("Init",
                 FormatSessionStartMessage(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
             ParsekLog.Info("Harmony", $"Harmony patches applied: {applied} succeeded, {failed} failed");
+
+            StartupNotices.Enqueue(StartupNotices.BuildPatchFailureNotice(applied + failed, failedPatchNames));
+            CheckInstallLocation();
+            if (StartupNotices.PendingCount > 0)
+                StartCoroutine(PostStartupNoticesWhenSceneSettles());
+        }
+
+        private static void CheckInstallLocation()
+        {
+            try
+            {
+                var parsekAssembly = typeof(ParsekHarmony).Assembly;
+                var paths = new List<string>();
+                foreach (var loaded in AssemblyLoader.loadedAssemblies)
+                {
+                    if (loaded == null)
+                        continue;
+                    bool isParsek = loaded.assembly == parsekAssembly
+                        || string.Equals(loaded.name, "Parsek", StringComparison.Ordinal);
+                    if (isParsek && !string.IsNullOrEmpty(loaded.path))
+                        paths.Add(Path.GetFullPath(loaded.path));
+                }
+                string gameDataDir = Path.GetFullPath(
+                    Path.Combine(KSPUtil.ApplicationRootPath ?? "", "GameData"));
+                string notice = StartupNotices.EvaluateInstallLocation(paths, gameDataDir);
+                if (notice == null)
+                {
+                    ParsekLog.Verbose("Init", $"Install location OK: {string.Join(", ", paths)}");
+                    return;
+                }
+                ParsekLog.Warn("Init", $"Install location problem: {notice} " +
+                    $"(paths={string.Join(", ", paths)}, gameData={gameDataDir})");
+                StartupNotices.Enqueue(notice);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Init", $"Install location check skipped: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        // KSP clears screen messages on every level load and the loading screen covers
+        // them, so wait until one playable scene has stayed loaded for a few seconds.
+        private IEnumerator PostStartupNoticesWhenSceneSettles()
+        {
+            GameScenes settledScene = GameScenes.LOADING;
+            float sceneSeenAt = -1f;
+            while (true)
+            {
+                GameScenes scene = HighLogic.LoadedScene;
+                bool postable = StartupNotices.IsPostableScene(scene)
+                    && ScreenMessages.Instance != null;
+                if (!postable)
+                {
+                    sceneSeenAt = -1f;
+                }
+                else if (sceneSeenAt < 0f || scene != settledScene)
+                {
+                    settledScene = scene;
+                    sceneSeenAt = Time.realtimeSinceStartup;
+                }
+                else if (Time.realtimeSinceStartup - sceneSeenAt >= StartupNotices.SceneSettleSeconds)
+                {
+                    break;
+                }
+                yield return null;
+            }
+
+            var notices = StartupNotices.TakePending();
+            foreach (var notice in notices)
+            {
+                ParsekLog.Info("Init", $"Startup notice posted in {settledScene}: {notice}");
+                ParsekLog.ScreenMessage(notice, StartupNotices.NoticeDurationSeconds);
+            }
         }
 
         // This addon is DontDestroyOnLoad and lives for the whole process, so it is the one

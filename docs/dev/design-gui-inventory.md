@@ -1364,6 +1364,7 @@ exact text: research note appendix 2.
 | Ledger | **1** (`GameActions/KspStatePatcher.cs:3514`, latched once per session) | the only player-visible signal that the reconstructed ledger disagreed with the live pool |
 | Gloops | 7 (`ParsekFlight.cs:17014`-`:17499`) | all seven are player-unreachable: every trigger starts in the retired window or the seam |
 | Playback seam / test runner / the sink itself | 4 | |
+| Startup problems | 2 (`ParsekHarmony.cs`, text from `StartupNotices.cs`): failed Harmony patches (count + affected features), misplaced or duplicate install | queued at `Startup.Instantly`, posted once per process after a playable scene has stayed loaded 3 s; silent on a correct install |
 
 A separate 46 sites use `InfoRateLimited` / `WarnRateLimited` - STANDING conditions (route
 refusals, playback skips, anchor failures) that by construction reach `KSP.log` and nowhere

@@ -67,7 +67,7 @@ Requires KSP 1.12.x.
 | ClickThroughBlocker 2.1.10+ | linuxgurugamer | LGPL-3.0 | [GitHub](https://github.com/linuxgurugamer/ClickThroughBlocker) |
 | ToolbarControl 0.1.9+ | linuxgurugamer | LGPL-3.0 | [GitHub](https://github.com/linuxgurugamer/ToolbarControl) |
 
-Copy the `Parsek` folder into `GameData/`.
+Copy the `Parsek` folder into `GameData/`, so the DLL ends up at `GameData/Parsek/Plugins/Parsek.dll`. If Parsek finds itself in the wrong folder, installed twice, or unable to load some of its game patches, it says so in a message once the main menu has loaded.
 
 ## Building from Source
 
