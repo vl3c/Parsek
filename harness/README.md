@@ -168,6 +168,24 @@ the full phase history with durations, and a heuristic WHAT IS IT DOING line
 like a silent 1x hang in game -- and predicts the fall-through time).
 Stdlib only; parsers are pure functions tested in `lib/test_status.py`.
 
+### The paused-clock watchdog (a game parked behind a stock dialog)
+
+Every mission phase budget is GAME time, so a paused game stops all of them.
+Stock KSP opens `FlightResultsDialog` about 60 s after the active vessel is
+destroyed and pauses the game, which used to leave the mission polling frozen
+telemetry until its WALL budget ran out (RB-1 `2026-09-27_1353` lost about
+1,100 s). The fly loop now feeds `mlib.paused_clock_step` on every poll: when
+`KRPC.Paused` reads true on every poll for `mlib.PAUSED_CLOCK_WALL_SECONDS`
+(15 s) of wall time with UT unchanged, the mission ends as a vessel loss,
+`MISSION-ASSERT-FAIL` with a reason starting `vessel-lost (paused-clock: ...`
+(INVALID(mission), retried once like every other vessel-loss terminal). The
+log shows `gate paused-clock armed`, then `cleared` or a `[Warn]` `gate
+paused-clock TRIP | frozenUt=... pausedFor=...`. The pause RPC is spent only on
+a poll whose UT did not move. It never trips while a native warp runs (the
+warp watchdog owns pauses then), after a seam step (perform() blocks for the
+whole step, so the watch re-arms), when the machine state declares
+`game_pause_owned` (no mission does today), or on an unread pause state.
+
 ## Flight efficiency (where the wall time goes)
 
 `tools/flight_efficiency.py` measures the REAL-TIME cost of finished runs: how

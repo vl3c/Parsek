@@ -14,7 +14,8 @@ import math
 import os
 import tomllib
 import unittest
-from dataclasses import replace
+from dataclasses import dataclass, fields, replace
+from typing import Optional
 
 import mlib
 from mlib import Action, TelemetrySnapshot
@@ -11571,6 +11572,175 @@ class NonFiniteDetailScrubTests(unittest.TestCase):
         self.assertTrue(obj["serializationFallback"])
         self.assertTrue(obj["error"].startswith("earlier error\n"))
         self.assertIn(failure, obj["error"])
+
+
+class PausedClockWatchdogTests(unittest.TestCase):
+    """The always-on paused-clock watchdog (todo HARNESS-POST-FLIGHT-DIALOG-STALLS):
+    a game reading PAUSED with UT frozen for PAUSED_CLOCK_WALL_SECONDS of wall time
+    ends the mission as a vessel loss instead of riding a FlightResultsDialog pause
+    to the wall budget (RB-1 2026-09-27_1353 lost about 1,100 s that way)."""
+
+    W = mlib.PAUSED_CLOCK_WALL_SECONDS
+
+    def _drive(self, polls, exempt_at=()):
+        """Feed ``polls`` = [(wall, ut, paused), ...] through the pure step the way
+        the shell does (the pause read only on a frozen-UT poll, the wall only on
+        a paused one). Returns the list of readings."""
+        watch = mlib.PausedClockWatch()
+        readings = []
+        for i, (wall, ut, paused) in enumerate(polls):
+            exempt = i in exempt_at
+            probed = (paused if not exempt
+                      and mlib.paused_clock_needs_probe(watch, ut) else None)
+            wall_in = wall if probed is True else float("nan")
+            watch, reading = mlib.paused_clock_step(watch, ut, probed, wall_in,
+                                                    exempt=exempt)
+            readings.append(reading)
+        return readings
+
+    @staticmethod
+    def _frozen(start_wall, end_wall, ut, paused=True, step=0.5):
+        out = []
+        t = start_wall
+        while t <= end_wall + 1e-9:
+            out.append((t, ut, paused))
+            t += step
+        return out
+
+    def test_trips_after_the_window_paused_with_ut_frozen(self):
+        # UT advances to 157.86, then the game pauses: frozen + paused from t=10.
+        polls = [(0.0, 150.0, False), (5.0, 155.0, False), (9.5, 157.86, False)]
+        polls += self._frozen(10.0, 10.0 + self.W + 1.0, 157.86)
+        readings = self._drive(polls)
+        tripped = [i for i, r in enumerate(readings) if r.tripped]
+        self.assertTrue(tripped, "a 16 s paused frozen run must trip")
+        first = readings[tripped[0]]
+        self.assertGreaterEqual(first.paused_seconds, self.W)
+        self.assertLess(first.paused_seconds, self.W + 0.5)
+        self.assertEqual(157.86, first.frozen_ut)
+        # Every poll before the window filled stayed quiet.
+        self.assertFalse(any(r.tripped for r in readings[:tripped[0]]))
+
+    def test_no_trip_while_ut_advances_even_if_paused_reads_true(self):
+        # A paused read with a moving clock is contradictory evidence: never trips.
+        polls = [(i * 0.5, 100.0 + i * 0.5, True) for i in range(200)]
+        self.assertFalse(any(r.tripped for r in self._drive(polls)))
+
+    def test_no_trip_when_not_paused_even_with_ut_frozen(self):
+        # Frozen UT with a running game is the frozen-TELEMETRY class, which the
+        # machines' own detector owns; this watchdog keeps out of it.
+        polls = self._frozen(0.0, 4 * self.W, 42.0, paused=False)
+        self.assertFalse(any(r.tripped for r in self._drive(polls)))
+
+    def test_unread_pause_state_never_trips(self):
+        polls = self._frozen(0.0, 4 * self.W, 42.0, paused=None)
+        self.assertFalse(any(r.tripped for r in self._drive(polls)))
+
+    def test_one_poll_blip_never_trips_and_a_broken_run_restarts(self):
+        # A long frozen stretch whose pause read drops out once every 10 s: no
+        # unbroken paused run ever reaches the window.
+        polls = []
+        t = 0.0
+        while t < 4 * self.W:
+            dropout = (int(t * 2) % 20) == 19
+            polls.append((t, 42.0, not dropout))
+            t += 0.5
+        self.assertFalse(any(r.tripped for r in self._drive(polls)))
+        # A single paused poll alone measures zero seconds.
+        watch = mlib.PausedClockWatch(last_ut=42.0)
+        _, reading = mlib.paused_clock_step(watch, 42.0, True, 100.0)
+        self.assertFalse(reading.tripped)
+        self.assertEqual(0.0, reading.paused_seconds)
+
+    def test_the_first_poll_at_a_new_ut_cannot_start_a_run(self):
+        # The run starts on the SECOND poll at the frozen UT, so a pause read on
+        # the poll that first sees the value buys nothing.
+        watch = mlib.PausedClockWatch(last_ut=10.0)
+        watch, reading = mlib.paused_clock_step(watch, 11.0, True, 0.0)
+        self.assertIsNone(watch.paused_since)
+        self.assertEqual(0.0, reading.paused_seconds)
+        self.assertFalse(mlib.paused_clock_needs_probe(mlib.PausedClockWatch(), 11.0))
+        self.assertTrue(mlib.paused_clock_needs_probe(watch, 11.0))
+        self.assertFalse(mlib.paused_clock_needs_probe(watch, 11.5))
+        self.assertFalse(mlib.paused_clock_needs_probe(watch, float("nan")))
+
+    def test_ut_moving_backwards_rearms(self):
+        polls = self._frozen(0.0, self.W - 1.0, 500.0)
+        polls += self._frozen(self.W - 0.5, 2 * self.W - 2.0, 20.0)  # a rewind
+        self.assertFalse(any(r.tripped for r in self._drive(polls)))
+
+    def test_seam_in_flight_exemption_rearms_the_watch(self):
+        # Exempt every 20th poll (the shell re-arms after each seam step and
+        # exempts while it owns the pause): the window never fills.
+        polls = self._frozen(0.0, 4 * self.W, 42.0)
+        exempt = set(range(0, len(polls), 20))
+        self.assertFalse(any(r.tripped for r in self._drive(polls, exempt_at=exempt)))
+        # An exempt poll returns a fresh watch and a non-tripping reading even
+        # when the window would otherwise be full.
+        full = mlib.PausedClockWatch(last_ut=42.0, paused_since=0.0)
+        watch, reading = mlib.paused_clock_step(full, 42.0, True, 100.0, exempt=True)
+        self.assertEqual(mlib.PausedClockWatch(), watch)
+        self.assertFalse(reading.tripped)
+        _, reading = mlib.paused_clock_step(full, 42.0, True, 100.0)
+        self.assertTrue(reading.tripped)
+
+    def test_rearm_kinds_are_the_two_seam_actions(self):
+        self.assertEqual(
+            frozenset((mlib.ACTION_PARSEK_COMMIT_TREE, mlib.ACTION_PARSEK_SEAM_COMMAND)),
+            mlib.PAUSED_CLOCK_REARM_ACTION_KINDS)
+
+    def test_non_finite_inputs_are_no_evidence(self):
+        full = mlib.PausedClockWatch(last_ut=42.0, paused_since=0.0)
+        watch, reading = mlib.paused_clock_step(full, float("nan"), True, 100.0)
+        self.assertFalse(reading.tripped)
+        self.assertEqual(mlib.PausedClockWatch(), watch)
+        watch, reading = mlib.paused_clock_step(full, 42.0, True, float("nan"))
+        self.assertFalse(reading.tripped)
+        self.assertIsNone(watch.paused_since)
+
+    def test_reason_names_the_pause_and_leads_with_vessel_lost(self):
+        reading = mlib.PausedClockReading(tripped=True, frozen_ut=157.86,
+                                          paused_seconds=15.2)
+        reason = mlib.format_paused_clock_reason("DESCENT", reading)
+        self.assertTrue(reason.startswith("vessel-lost (paused-clock: "))
+        for token in ("PAUSED", "157.860", "15 wall-s", "limit 15",
+                      "FlightResultsDialog", "in phase DESCENT"):
+            self.assertIn(token, reason)
+
+    def test_terminal_is_the_vessel_lost_assert_fail(self):
+        # A machine with a loss channel ends like its own vessel-lost terminal,
+        # and resolve_flight_verdict returns the reason verbatim even over
+        # assertions the frozen telemetry would satisfy.
+        state = mlib.b1_initial_state(B1_PARAMS)
+        reason = "vessel-lost (paused-clock: test)"
+        end = mlib.paused_clock_terminal(state, reason)
+        self.assertTrue(end.done)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, end.verdict)
+        self.assertEqual(reason, end.loss_reason)
+        met = [mlib.AssertionOutcome(name="x", met=True, value=1.0)]
+        self.assertEqual((mlib.MISSION_ASSERT_FAIL, reason),
+                         mlib.resolve_flight_verdict(end, met))
+
+    def test_terminal_without_a_loss_channel_is_a_named_flake(self):
+        # M3 is the one machine state with no loss_reason; it must never fall
+        # through to assertion grading.
+        self.assertNotIn("loss_reason", {f.name for f in fields(mlib.M3State)})
+
+        @dataclass(frozen=True)
+        class _NoLoss:
+            phase: str = "HOLD"
+            verdict: Optional[str] = None
+            flake_phase: Optional[str] = None
+            flake_reason: Optional[str] = None
+            done: bool = False
+
+        end = mlib.paused_clock_terminal(_NoLoss(), "vessel-lost (paused-clock: t)")
+        self.assertTrue(end.done)
+        self.assertEqual(mlib.MISSION_FLAKE, end.verdict)
+        self.assertEqual("HOLD", end.flake_phase)
+        met = [mlib.AssertionOutcome(name="x", met=True, value=1.0)]
+        self.assertEqual((mlib.MISSION_FLAKE, "vessel-lost (paused-clock: t)"),
+                         mlib.resolve_flight_verdict(end, met))
 
 
 if __name__ == "__main__":

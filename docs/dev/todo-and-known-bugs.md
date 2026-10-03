@@ -356,7 +356,7 @@ all 8 rows), `test_mlib.NonFiniteDetailScrubTests`, `test_shells.ResultSerialize
   of its bound it compares. Reaching it needs the mission to archive its frames (or the
   per-assertion evidence the compare reads).
 
-## HARNESS-POST-FLIGHT-DIALOG-STALLS: harness runs sit behind KSP's post-flight screens until a timeout or the wall budget ends [FILED 2026-10-03, branch `todo-stuck-dialogs`. CONFIRMED in the collected logs; fixes not started]
+## HARNESS-POST-FLIGHT-DIALOG-STALLS: harness runs sit behind KSP's post-flight screens until a timeout or the wall budget ends [FILED 2026-10-03, branch `todo-stuck-dialogs`. CONFIRMED in the collected logs; the paused-clock watchdog FIXED 2026-10-03, branch `harness-dialog-stalls`; the other items open]
 
 Operator observation: auto tests sometimes sit on the post-flight "Mission Summary" screen.
 A scan of all 894 collected `_shots/KSP.log` files found two stock dialogs, neither of which
@@ -387,10 +387,33 @@ clears a pause only while a warp is running). In every case something else held 
 
 Lost: about 26 min with a dialog up, about 25 min of it avoidable (RB-1 is about 19 min).
 
-- [ ] Mission shell: an always-on paused-clock watchdog (extend `_warp_watchdog`, called
-  from the fly loop). If game time has not advanced for about 15 wall s while `krpc.paused`
-  is true in an airborne phase, with no seam step in flight, end the mission as vessel lost
-  rather than waiting out the wall budget. This would have saved about 1,100 s on RB-1.
+- [x] Mission shell: an always-on paused-clock watchdog. If game time has not advanced for
+  about 15 wall s while `krpc.paused` is true, with no seam step in flight, end the mission
+  as vessel lost rather than waiting out the wall budget. This would have saved about
+  1,100 s on RB-1.
+  Fix: pure `mlib.paused_clock_step` (one debounced wall window: an unbroken run of polls
+  with UT unchanged AND `KRPC.Paused` true lasting `PAUSED_CLOCK_WALL_SECONDS = 15`), fed
+  every poll by `mission_runner._fly_loop_body`. A trip ends the mission through
+  `mlib.paused_clock_terminal`: `MISSION-ASSERT-FAIL` with a `vessel-lost (paused-clock:
+  ...)` reason, the class every machine's own vessel-lost terminal uses (INVALID(mission),
+  retried once). A state with no `loss_reason` field (M3 only) gets a named `MISSION-FLAKE`
+  so its frozen telemetry is never graded. Exempt, re-arming the watch: a running native
+  warp (`_warp_watchdog` owns pauses then), the poll after any seam action (perform()
+  blocks for the whole step), a machine state declaring `game_pause_owned` (no mission
+  pauses the game; grep found no pause writer but `_warp_watchdog`'s unpause), an unread
+  pause state, a non-finite UT. Not scoped to airborne phases: the seam exemption already
+  keeps scene-straddling verbs out, and a pause this long is a stall in any phase. The pause
+  RPC is issued only on a poll whose UT did not move. Log: `gate paused-clock armed` /
+  `cleared` at Info, `gate paused-clock TRIP | frozenUt= pausedFor= limit=` at Warn. On
+  RB-1 it would have tripped about 15.5 s after `Game Paused!` (16:57:07 instead of the
+  wall reaper at about 17:15). Tests: `test_mlib.PausedClockWatchdogTests`,
+  `test_shells.PausedClockWatchdogShellTests` / `KrpcPausedClockSeamTests`.
+- [ ] RB-1 also shows the frozen-telemetry detector NOT firing: from the crash (UT 98.72)
+  to the pause (UT 157.86) UT advanced at 1x for about 60 s while the logged altitude,
+  vertical speed, apoapsis and periapsis stayed identical to 3 decimals, yet B1's
+  10-sample limit (inside `sbr_decide`) never tripped. Unexplained; a low-bit jitter in one
+  of the four signature fields would explain it. Reproduce against the raw snapshot floats
+  before changing the detector.
 - [ ] Seam: a two-phase pending step fails fast when the active vessel is destroyed or
   `FlightResultsDialog.isDisplaying`, instead of waiting its full timeout
   (`ParsekTestCommandAddon.EvaGroundScience.cs` step-move path first). Also log the
