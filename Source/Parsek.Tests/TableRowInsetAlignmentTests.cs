@@ -691,20 +691,46 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Decision 1a: Delete lives in the expanded detail block beside Rename, out of
-        /// the scan line; the row and its Interact cell never arm it. The candidates table
-        /// keeps its own Actions width, so the route tables' Interact width cannot squeeze
-        /// Create Route + Dismiss.
+        /// Decision 1a, as laid out 2026-10-03: Delete lives in the expanded detail block,
+        /// out of the scan line, as a 100 px single in the block's own Interact column
+        /// (Rename on the first line, Delete on the second, Link round-trip... on the third
+        /// in Advanced) - never on a button row of its own. Every route-detail line ends in
+        /// that slot cell, so the buttons take the block's first lines. The row and its
+        /// Interact cell never arm Delete. The candidates table keeps its own Actions width,
+        /// so the route tables' Interact width cannot squeeze Create Route + Dismiss.
         /// </summary>
         [Fact]
         public void LogisticsDeleteLivesInTheDetailBlockAndCandidatesKeepTheirWidth()
         {
             string file = Path.Combine("UI", "LogisticsWindowUI.cs");
             string prepared = ReadPreparedSource(file);
-            foreach (string method in new[] { "DrawRouteRow", "DrawRouteInteractCell" })
+            foreach (string method in new[] { "DrawRouteRow", "DrawRouteInteractCell", "DrawRouteDetail" })
                 Assert.DoesNotContain("pendingConfirmDeleteRoute =", MethodBody(prepared, method, file));
-            Assert.Contains("pendingConfirmDeleteRoute = route",
-                MethodBody(prepared, "DrawRouteDetailButtonRow", file));
+            string slotButton = MethodBody(prepared, "DrawDetailSlotButton", file);
+            Assert.Contains("pendingConfirmDeleteRoute = route", slotButton);
+            Assert.Contains("MissionsWindowUI.InteractButtonWidth", slotButton);
+            Assert.DoesNotContain("DrawRouteDetailButtonRow", prepared);
+            // Every route-detail line shape ends in the slot cell; a shape that skipped it
+            // would shift the slots and leave its label wider than the rest.
+            foreach (string method in new[]
+                     {
+                         "DrawEndpointRescan", "DrawMultiStopEndpointRescan",
+                         "DrawCadenceStepper", "DrawPriorityStepper", "DrawFlightsUsedLine",
+                     })
+                Assert.Contains("DrawDetailSlotCell()", MethodBody(prepared, method, file));
+            // The two DetailLine overloads that draw (the third forwards to one of them).
+            foreach (string overload in new[] { @"string text,\s*GUIStyle style", @"GUIContent content" })
+                Assert.True(Regex.IsMatch(prepared,
+                        @"void\s+DetailLine\(\s*" + overload + @"\s*\)\s*\{[^}]*DrawDetailSlotCell\(\)"),
+                    "LogisticsWindowUI.DetailLine(" + overload + ") must end in DrawDetailSlotCell().");
+            // Decision 3b: the live Cancel of a Send-armed route before launch goes through
+            // the Pause path (TryPause clears the pending arm with nothing dispatched).
+            string interact = MethodBody(prepared, "DrawRouteInteractCell", file);
+            int cancel = interact.IndexOf("ArmedLine1.Cancel:", StringComparison.Ordinal);
+            int nextCase = interact.IndexOf("case ", cancel + 1, StringComparison.Ordinal);
+            Assert.True(cancel >= 0 && nextCase > cancel
+                        && interact.Substring(cancel, nextCase - cancel).Contains("pendingPause = route"),
+                "LogisticsWindowUI.DrawRouteInteractCell: the Cancel branch must set pendingPause.");
             foreach (string method in new[] { "DrawCandidateColumnHeader", "DrawCandidateRow" })
             {
                 string body = MethodBody(prepared, method, file);

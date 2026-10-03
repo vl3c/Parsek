@@ -48,29 +48,82 @@ namespace Parsek.Tests.Logistics
         }
 
         // ------------------------------------------------------------------
-        // Table membership (decision 3a)
+        // Table membership (decision 3b)
         // ------------------------------------------------------------------
 
-        // catches: a Send-armed route sitting in Active (the old A1 contradiction: one row
-        // reading "scheduled" in three cells and "single send" in one).
+        // catches: a Send-armed route leaving the Active table while it sends. It sits in
+        // Active through the countdown and the run in flight; only Paused routes sit in
+        // the Paused table (the backend's PauseAfterCurrentCycle returns it there).
         [Fact]
-        public void SendArmedRoute_SitsInThePausedTable_WhateverItsStatus()
+        public void OnlyPausedRoutesSitInThePausedTable()
         {
+            Assert.True(LogisticsRoutePresentation.BelongsInPausedTable(RouteStatus.Paused));
             foreach (RouteStatus status in new[]
                      {
                          RouteStatus.Active, RouteStatus.InTransit, RouteStatus.WaitingForResources,
-                         RouteStatus.WaitingForFunds, RouteStatus.DestinationFull, RouteStatus.Paused,
+                         RouteStatus.WaitingForFunds, RouteStatus.DestinationFull, RouteStatus.EndpointLost,
+                         RouteStatus.MissingSourceRecording, RouteStatus.SourceChanged,
                      })
-                Assert.True(LogisticsRoutePresentation.BelongsInPausedTable(status, sendingOnce: true));
+                Assert.False(LogisticsRoutePresentation.BelongsInPausedTable(status));
+        }
+
+        // ------------------------------------------------------------------
+        // Send-armed Interact line 1: Cancel before launch, Delivering... in flight
+        // ------------------------------------------------------------------
+
+        // catches: a Send arm that cannot be taken back before launch, or an in-flight run
+        // offering a Cancel the backend cannot honour.
+        [Theory]
+        [InlineData((int)RouteStatus.Active)]
+        [InlineData((int)RouteStatus.WaitingForResources)]
+        [InlineData((int)RouteStatus.WaitingForFunds)]
+        [InlineData((int)RouteStatus.DestinationFull)]
+        public void SendArmed_CountdownPhase_IsALiveCancel(int status)
+        {
+            Assert.Equal(LogisticsRoutePresentation.ArmedLine1.Cancel,
+                LogisticsRoutePresentation.ResolveArmedLine1(true, false, (RouteStatus)status));
+            Assert.Equal("Cancel", LogisticsRoutePresentation.CancelButtonLabel);
+            Assert.Equal("Cancels the run before launch; nothing is spent.",
+                LogisticsRoutePresentation.CancelButtonTooltip);
         }
 
         [Fact]
-        public void UnarmedRoutes_SplitByPausedStatus()
+        public void SendArmed_InFlight_IsAGreyedDeliveringWithNoCancel()
         {
-            Assert.True(LogisticsRoutePresentation.BelongsInPausedTable(RouteStatus.Paused, false));
-            Assert.False(LogisticsRoutePresentation.BelongsInPausedTable(RouteStatus.Active, false));
-            Assert.False(LogisticsRoutePresentation.BelongsInPausedTable(RouteStatus.EndpointLost, false));
-            Assert.False(LogisticsRoutePresentation.BelongsInPausedTable(RouteStatus.WaitingForFunds, false));
+            Assert.Equal(LogisticsRoutePresentation.ArmedLine1.Delivering,
+                LogisticsRoutePresentation.ResolveArmedLine1(true, false, RouteStatus.InTransit));
+            Assert.Equal("Delivering...", LogisticsRoutePresentation.DeliveringButtonLabel);
+            Assert.Equal(LogisticsRoutePresentation.ArmedLine1.Pausing,
+                LogisticsRoutePresentation.ResolveArmedLine1(false, true, RouteStatus.InTransit));
+            Assert.Equal(LogisticsRoutePresentation.ArmedLine1.None,
+                LogisticsRoutePresentation.ResolveArmedLine1(false, false, RouteStatus.Active));
+        }
+
+        [Fact]
+        public void DeliveringTooltip_DatesLaunchAndArrival()
+        {
+            Assert.Equal(
+                "Launched on Y1, D06, 14:05; arrives on Y1, D06, 14:05, then pauses again. A launched run cannot be called back.",
+                LogisticsRoutePresentation.FormatDeliveringTooltip(10.0, 20.0, Date));
+            Assert.Equal(
+                "Arrives, then pauses again. A launched run cannot be called back.",
+                LogisticsRoutePresentation.FormatDeliveringTooltip(double.NaN, double.NaN, Date));
+        }
+
+        // The Cancel click goes through the same TryPause path a Pause click does: on an
+        // un-launched Send arm it clears the arm and pauses, dispatching nothing.
+        [Fact]
+        public void Cancel_RoutesToTryPause_WhichClearsTheArmAndPauses()
+        {
+            var route = new Route
+            {
+                Id = "cancel-test", Name = "Cancel test", Status = RouteStatus.Active,
+                PauseAfterCurrentCycle = true, SendOnceArmed = true,
+            };
+            Assert.True(RouteOrchestrator.TryPause(route, -1.0, null));
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.False(route.SendOnceArmed);
+            Assert.False(route.PauseAfterCurrentCycle);
         }
 
         // ------------------------------------------------------------------
@@ -375,6 +428,8 @@ namespace Parsek.Tests.Logistics
                 LogisticsRoutePresentation.SendDisabledReason(true, false));
             Assert.StartsWith("Already armed",
                 LogisticsRoutePresentation.SendDisabledReason(false, true));
+            Assert.Equal("Already sending one run",
+                LogisticsRoutePresentation.SendDisabledReason(true, true, null, sendingOnce: true));
         }
 
         // catches: a broken route in the Active table explaining its greyed Send with
@@ -404,13 +459,25 @@ namespace Parsek.Tests.Logistics
             Assert.DoesNotContain("->", LogisticsRoutePresentation.FormatFromTo("KSC", "Depot"));
         }
 
+        // The detail block's Interact slots: Rename and Delete in both modes, Link
+        // round-trip in Advanced, so a Basic block needs two lines and an Advanced one three.
+        [Fact]
+        public void DetailSlots_RenameDeleteThenLinkInAdvanced()
+        {
+            Assert.Equal(0, LogisticsWindowUI.RenameSlot);
+            Assert.Equal(1, LogisticsWindowUI.DeleteSlot);
+            Assert.Equal(2, LogisticsWindowUI.LinkSlot);
+            Assert.Equal(2, LogisticsWindowUI.RouteDetailSlotCount(false));
+            Assert.Equal(3, LogisticsWindowUI.RouteDetailSlotCount(true));
+        }
+
         // The armed labels fit the 100 px single (the long words live in the Status cell).
         [Fact]
         public void ArmedButtonLabels_AreShort()
         {
-            Assert.Equal("Sending...", LogisticsRoutePresentation.SendingButtonLabel);
+            Assert.Equal("Delivering...", LogisticsRoutePresentation.DeliveringButtonLabel);
             Assert.Equal("Pausing...", LogisticsRoutePresentation.PausingButtonLabel);
-            Assert.True(LogisticsRoutePresentation.SendingButtonLabel.Length <= 12);
+            Assert.True(LogisticsRoutePresentation.DeliveringButtonLabel.Length <= 13);
         }
     }
 }

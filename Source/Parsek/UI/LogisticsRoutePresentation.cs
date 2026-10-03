@@ -61,14 +61,15 @@ namespace Parsek
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// True when a route belongs in the Paused table: a Paused route, and a route armed
-        /// by Send to make ONE run (it is a paused route doing a single run, so it stays in
-        /// the Paused table before, during and after that run and never jumps sections).
-        /// Everything else (running, held, broken, pause-armed) sits in Active.
+        /// True when a route belongs in the Paused table: a Paused route only. A route
+        /// armed by Send sits in ACTIVE while it sends (the countdown to its window, then
+        /// the run in flight); when the run completes the backend's PauseAfterCurrentCycle
+        /// returns it to Paused, and the row moves with it. Running, held, pause-armed and
+        /// broken routes all sit in Active.
         /// </summary>
-        internal static bool BelongsInPausedTable(RouteStatus status, bool sendingOnce)
+        internal static bool BelongsInPausedTable(RouteStatus status)
         {
-            return status == RouteStatus.Paused || sendingOnce;
+            return status == RouteStatus.Paused;
         }
 
         // ------------------------------------------------------------------
@@ -293,8 +294,8 @@ namespace Parsek
         /// the Missions summary's countdown) plus
         /// <see cref="MissionPresentation.SummaryCountdownWarningMarker"/> when warned, or
         /// "-" when no run is scheduled. <paramref name="runScheduled"/> is false for a
-        /// Paused route that is not armed by Send (the R6 rule: a Send-armed route keeps its
-        /// countdown in the Paused table). The window draws it in the Missions amber.
+        /// Paused route (a Send-armed route sits in Active and keeps its countdown, to the
+        /// window and then to the arrival). The window draws it in the Missions amber.
         /// </summary>
         internal static string FormatNextCell(
             LogisticsCountdownPresentation.CountdownBranch branch, double seconds,
@@ -538,11 +539,66 @@ namespace Parsek
         // Interact column
         // ------------------------------------------------------------------
 
-        /// <summary>The greyed line-1 label of a route armed by Send.</summary>
-        internal const string SendingButtonLabel = "Sending...";
-
         /// <summary>The greyed line-1 label of a route armed by Pause.</summary>
         internal const string PausingButtonLabel = "Pausing...";
+
+        /// <summary>The live line-1 label of a Send-armed route before its run launches.</summary>
+        internal const string CancelButtonLabel = "Cancel";
+
+        /// <summary>The greyed line-1 label of a Send-armed route whose run is in flight.</summary>
+        internal const string DeliveringButtonLabel = "Delivering...";
+
+        /// <summary>The Cancel hover: the arm is cleared, nothing was dispatched.</summary>
+        internal const string CancelButtonTooltip = "Cancels the run before launch; nothing is spent.";
+
+        /// <summary>What an armed route's Interact line 1 draws. All three are ONE 100 px
+        /// button in the same control slot, so a phase change never changes the control
+        /// count.</summary>
+        internal enum ArmedLine1
+        {
+            /// <summary>Not armed: Activate / Pause.</summary>
+            None = 0,
+
+            /// <summary>Send-armed, countdown phase: a live Cancel (routes to TryPause, which
+            /// clears the pending arm with nothing dispatched).</summary>
+            Cancel = 1,
+
+            /// <summary>Send-armed, run in flight: a greyed Delivering... (a launched run is
+            /// paid for and on the timeline; there is no abort path).</summary>
+            Delivering = 2,
+
+            /// <summary>Pause-armed while a run is in flight: a greyed Pausing...</summary>
+            Pausing = 3,
+        }
+
+        /// <summary>
+        /// Picks an armed route's Interact line 1. A Send arm is in its countdown phase
+        /// until the run launches (status InTransit), then in flight.
+        /// </summary>
+        internal static ArmedLine1 ResolveArmedLine1(bool sendingOnce, bool pausingAfterRun, RouteStatus status)
+        {
+            if (sendingOnce)
+                return status == RouteStatus.InTransit ? ArmedLine1.Delivering : ArmedLine1.Cancel;
+            return pausingAfterRun ? ArmedLine1.Pausing : ArmedLine1.None;
+        }
+
+        /// <summary>
+        /// The greyed Delivering... hover (and the in-flight Status hover): "Launched on
+        /// &lt;date&gt;; arrives on &lt;date&gt;, then pauses again. A launched run cannot be
+        /// called back." An unknown launch or arrival UT drops its clause.
+        /// </summary>
+        internal static string FormatDeliveringTooltip(double launchUT, double arriveUT, Func<double, string> formatDate)
+        {
+            var sb = new StringBuilder();
+            if (IsUsableUT(launchUT))
+                sb.Append("Launched on ").Append(ReservationExplanation.FormatDate(launchUT, formatDate)).Append("; ");
+            sb.Append(IsUsableUT(arriveUT)
+                ? "arrives on " + ReservationExplanation.FormatDate(arriveUT, formatDate) + ", then pauses again."
+                : "arrives, then pauses again.");
+            sb.Append(" A launched run cannot be called back.");
+            string text = sb.ToString();
+            return char.ToUpperInvariant(text[0]) + text.Substring(1);
+        }
 
         /// <summary>
         /// Why the Send button is greyed, or empty when it is live. Send makes one run of a
@@ -550,10 +606,13 @@ namespace Parsek
         /// the short reason of its "Broken: ..." Status cell), a running route is already on
         /// its schedule, and an armed one is already doing what Send would ask.
         /// </summary>
-        internal static string SendDisabledReason(bool inActiveTable, bool armed, string brokenReason = null)
+        internal static string SendDisabledReason(bool inActiveTable, bool armed, string brokenReason = null,
+            bool sendingOnce = false)
         {
             if (!string.IsNullOrEmpty(brokenReason))
                 return "Stopped: " + brokenReason + ". Fix or delete the route first";
+            if (sendingOnce)
+                return "Already sending one run";
             if (armed)
                 return "Already armed: this route finishes the run it is making first";
             if (inActiveTable)

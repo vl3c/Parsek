@@ -487,6 +487,8 @@ namespace Parsek.Tests
                 LogisticsRoutePresentation.NextHeaderTooltip,
                 LogisticsRoutePresentation.StatusHeaderTooltip,
                 LogisticsRoutePresentation.RunsTooltip,
+                LogisticsRoutePresentation.CancelButtonTooltip,
+                "Sending one run. " + LogisticsRoutePresentation.FormatDeliveringTooltip(1.0, 2.0, date),
                 LogisticsRoutePresentation.EveryTooltip(true, "(launch window schedule)"),
                 LogisticsRoutePresentation.FormatNextTooltip(
                     LogisticsCountdownPresentation.CountdownBranch.RechecksIn, 100.0, true, true, date),

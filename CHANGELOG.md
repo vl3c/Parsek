@@ -2452,9 +2452,14 @@ _(unreleased — entries accumulate here per commit)_
   Delivery columns: Delivering, Scheduled, Held: ..., Paused, New, Sending one run, Pausing
   after this run, or Broken: ... . A paused route that was held now says why instead of
   reading "New". The action column is "Interact", sized like the Missions one: Activate or
-  Pause on top, Send and Log below; greyed buttons say why on hover. A route sent once now
-  sits in the Paused table for its whole single run and keeps its countdown. Delete moved
-  into the expanded detail, next to Rename (same confirmation). The detail block now says
+  Pause on top, Send and Log below; greyed buttons say why on hover. A route sent once stays
+  in the Active table while it sends, reading "Sending one run" with its countdown: before
+  launch the top button is a live Cancel (nothing is spent), once the run is in flight a
+  greyed Delivering... gives the launch and arrival dates, and when the run completes the
+  route drops back to Paused. Delete moved
+  into the expanded detail (same confirmation): Rename, Delete and, in Advanced, Link
+  round-trip sit one under the other at the right of the detail's first lines, under
+  Activate / Pause, instead of on a button row of their own. The detail block now says
   only what the row cannot, with exact dates: what each run delivers and where, the next
   run, "Last run held on <date>: ..." (the date of the last held run), the last delivery
   and the running total, and "Built from mission 'X'.". In Basic mode the interval is shown

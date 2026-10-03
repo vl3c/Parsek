@@ -164,6 +164,8 @@ namespace Parsek.Tests
                 LogisticsBudget, "Logistics send - armed row");
             yield return Row(LogisticsRoutePresentation.SendDisabledReason(true, false, "destination lost"),
                 LogisticsBudget, "Logistics send - broken row");
+            yield return Row(LogisticsRoutePresentation.SendDisabledReason(true, true, null, true),
+                LogisticsBudget, "Logistics send - sending one run");
         }
 
         private static object[] Row(string reason, int budget, string label)

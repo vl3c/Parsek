@@ -940,9 +940,12 @@ plain centred title; the Dormant Routes, `Missions that cannot become routes yet
 empty route table reads one grey sentence (`No active routes.` / `No paused routes.`), no
 longer `(none)`.
 
-Table membership: the Paused table holds every Paused route PLUS a route armed by Send making its
-one run (`LogisticsRoutePresentation.BelongsInPausedTable`), so a Send-armed route never jumps
-sections and never reads "scheduled" in an Active row. A Pause-armed route stays in Active.
+Table membership (owner decision 3b, 2026-10-03, which replaced 3a): the Paused table holds
+Paused routes only (`LogisticsRoutePresentation.BelongsInPausedTable`). A route armed by Send sits
+in ACTIVE while it sends - through the countdown to its window and while the run is in flight -
+reading `Sending one run` with its amber countdown (to the window, then to the arrival, like any
+scheduled run); when the run completes the backend's PauseAfterCurrentCycle returns it to Paused
+and the row moves with it. A Pause-armed route also stays in Active.
 
 Route table (Active and Paused share `DrawRouteSortableHeader` and `DrawRouteRow`; both sections
 share one sort state). Every row is two lines tall:
@@ -956,7 +959,7 @@ share one sort state). Every row is two lines tall:
 | 5 | Runs | 80 | no | yes | `3` or `3, 1 held` |
 | 6 | Next | 135 | yes | yes | the Missions countdown exactly: amber `T- ` + `FormatCountdownCompact`, ` (!)` when the last run was held; grey `-` when no run is scheduled (a Paused route not armed by Send). Hover: the exact date |
 | 7 | Status | 260 | yes | yes | ONE colour-coded word + short reason (`LogisticsRoutePresentation.ClassifyStatus`): `Delivering` green, `Scheduled` white, `Held: ...` yellow (on Paused rows too), `Paused` grey, `New` cyan, `Sending one run` / `Pausing after this run` cyan, `Broken: destination lost` / `flight missing` / `flight changed` red. Replaces the old Status + Delivery columns. Hover: one dated sentence, never the raw enum |
-| 8 | Interact | 116 | yes | yes | centred header; Missions Model 1 shape (100 px single, two 48 px halves, 8 px inset, the Missions constants): line 1 `Activate` (Paused) / `Pause` (Active) / greyed `Sending...` / `Pausing...`; line 2 `Send` (live only on an unarmed Paused row, greyed with its reason otherwise: running, armed, or `Stopped: <reason>. Fix or delete the route first` on a broken route) and `Log` (the source mission's Log, greyed with its reason when there is none) |
+| 8 | Interact | 116 | yes | yes | centred header; Missions Model 1 shape (100 px single, two 48 px halves, 8 px inset, the Missions constants): line 1 `Activate` (Paused) / `Pause` (Active); for a Send-armed route a live `Cancel` before launch (hover `Cancels the run before launch; nothing is spent.`; it goes through TryPause, which clears the pending arm with nothing dispatched) and a greyed `Delivering...` once the run is in flight (hover `Launched on <date>; arrives on <date>, then pauses again. A launched run cannot be called back.`; there is no abort path); a greyed `Pausing...` for a Pause-armed route - one 100 px button in the same slot in every state; line 2 `Send` (live only on an unarmed Paused row, greyed with its reason otherwise: running, `Already sending one run`, armed, or `Stopped: <reason>. Fix or delete the route first` on a broken route) and `Log` (the source mission's Log, greyed with its reason when there is none) |
 
 The fixed columns total 891 px in Basic and 971 in Advanced; `MinWindowWidth` stays 1410 in both
 modes, so a switch never resizes the window and Route keeps over 400 px. The retired sort members
@@ -978,11 +981,18 @@ date is `Route.LastHoldUT`, the LAST check, so it names the last held run, never
 began) and partial-delivery lines, the capacity line and `Re-scan for endpoint` of a broken
 route, `Last delivered on <date>: ... Delivered so far: ...` (from the route's
 RouteCargoDelivered ledger rows; the route stores no delivered UT), cost/run, `Built from
-mission 'X'.`, the round-trip note when linked, and a right-aligned `Rename` / `Delete` row
-(Delete moved here from the row; its confirm dialog is unchanged). Advanced adds the `Every:` and
+mission 'X'.`, and the round-trip note when linked. The block has its own Interact column
+under the row's: every route-detail line ends in one slot cell (`DrawDetailSlotCell`), and
+the first lines carry `Rename` (line 1), `Delete` (line 2; moved here from the row, its
+confirm dialog unchanged) and, in Advanced, `Link round-trip...` / `Unlink` (line 3), each a
+100 px Missions single lined up with Activate / Pause; every later line keeps a same-width
+space. There is no button row. While a route is renamed, its name field leads the block
+without taking a slot, and Rename greys with its reason. A block too short to host its
+buttons (no source mission) still gets them, one per extra line, so Delete is always
+reachable. Advanced adds the `Every:` and
 `Priority:` steppers, `Recent runs:` (up to five `Run N (age ago): ...` lines), `Flights used:`
 (names, a repeated name numbered `Name [1]`, `Name [2]`), the manual-looping clause after
-`Built from mission 'X'.`, and `Link round-trip...` / `Unlink` in the button row. Dropped: the
+`Built from mission 'X'.`, and the `Link round-trip...` / `Unlink` slot. Dropped: the
 `Status: <Enum> - <reason>` line, the Interval / Transit / Cycles line, the owns-tree sentence and
 the `rec N of tree 'X'` source list. The candidate detail panel is the cost line and `Built from
 mission 'X'.` with NO controls.

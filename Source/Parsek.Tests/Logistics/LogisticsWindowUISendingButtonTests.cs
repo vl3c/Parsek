@@ -9,7 +9,7 @@ namespace Parsek.Tests.Logistics
     /// <summary>
     /// Pins <see cref="LogisticsWindowUI.ShouldShowSendingButton"/>, the pure
     /// predicate that decides whether a route's action cell shows the disabled
-    /// "Sending..." affordance (armed one-shot / in-flight cycle) instead of a
+    /// "Delivering..." affordance (armed one-shot / in-flight cycle) instead of a
     /// live action button. The predicate is Unity-free, so it is exercised here
     /// without IMGUI. Theories take the status as an <c>int</c> ordinal because
     /// <see cref="RouteStatus"/> is <c>internal</c> and cannot appear in a public
@@ -28,7 +28,7 @@ namespace Parsek.Tests.Logistics
 
         // A committed one-shot / in-flight cycle (PauseAfterCurrentCycle) that has
         // not yet landed back in Paused and is in a dispatchable state shows
-        // "Sending...".
+        // "Delivering...".
         [Theory]
         [InlineData((int)RouteStatus.Active)]
         [InlineData((int)RouteStatus.InTransit)]
@@ -42,7 +42,7 @@ namespace Parsek.Tests.Logistics
         }
 
         // Armed but already landed back in Paused (cycle complete / idle): the
-        // normal Send Once / Activate buttons should show, not "Sending...".
+        // normal Send Once / Activate buttons should show, not "Delivering...".
         [Fact]
         public void ArmedButPaused_DoesNotShowSending()
         {
@@ -51,7 +51,7 @@ namespace Parsek.Tests.Logistics
         }
 
         // Armed but in a hard-broken endpoint/source state that cannot send:
-        // "Sending..." would be misleading, so show the normal actions.
+        // "Delivering..." would be misleading, so show the normal actions.
         [Theory]
         [InlineData((int)RouteStatus.EndpointLost)]
         [InlineData((int)RouteStatus.MissingSourceRecording)]
@@ -63,7 +63,7 @@ namespace Parsek.Tests.Logistics
         }
 
         // Not armed: a periodic Active route (or a mid-cycle periodic route, or an
-        // idle Paused route) is not a one-shot send, so it never shows "Sending...".
+        // idle Paused route) is not a one-shot send, so it never shows "Delivering...".
         [Theory]
         [InlineData((int)RouteStatus.Active)]
         [InlineData((int)RouteStatus.InTransit)]
@@ -106,7 +106,7 @@ namespace Parsek.Tests.Logistics
 
         // catches: a Send-Once-armed dispatchable status being mislabeled as a pause.
         // Active / the blocked-active waits / DestinationFull all classify as SendOnce
-        // and read "Sending...".
+        // and read "Delivering...".
         [Theory]
         [InlineData((int)RouteStatus.Active)]
         [InlineData((int)RouteStatus.WaitingForResources)]
@@ -116,7 +116,7 @@ namespace Parsek.Tests.Logistics
         {
             var kind = LogisticsWindowUI.ClassifyArmedSend((RouteStatus)statusOrdinal);
             Assert.Equal(LogisticsWindowUI.ArmedSendKind.SendOnce, kind);
-            Assert.Equal("Sending...", LogisticsWindowUI.LabelForArmedState(kind));
+            Assert.Equal("Delivering...", LogisticsWindowUI.LabelForArmedState(kind));
         }
 
         // catches: the two labels collapsing into one. The whole point of M6 is that
@@ -153,14 +153,14 @@ namespace Parsek.Tests.Logistics
         // THE M6 bug fix: a Send-Once arm un-pauses Paused -> Active -> InTransit while
         // still armed, so once the cycle is in flight status alone reads InTransit for
         // BOTH a Send-Once and a Pause arm. ResolveArmedKind honors the send-once
-        // provenance set, so a Send-Once-in-transit stays "Sending..." and is
+        // provenance set, so a Send-Once-in-transit stays "Delivering..." and is
         // NOT mislabeled "Pausing...".
         [Fact]
         public void ResolveArmedKind_SendOnceArmed_StaysSendOnce_EvenInTransit()
         {
             var kind = LogisticsWindowUI.ResolveArmedKind(sendOnceArmed: true, RouteStatus.InTransit);
             Assert.Equal(LogisticsWindowUI.ArmedSendKind.SendOnce, kind);
-            Assert.Equal("Sending...", LogisticsWindowUI.LabelForArmedState(kind));
+            Assert.Equal("Delivering...", LogisticsWindowUI.LabelForArmedState(kind));
         }
 
         // A genuine Pause-mid-cycle arm (not in the send-once set) reads PauseAfterCycle.

@@ -445,6 +445,9 @@ namespace Parsek
             // cell also reads.
             public LogisticsRoutePresentation.StatusCell Status;
             public string StatusTooltip;
+            // The greyed Delivering... hover of a Send-armed run in flight (launch and
+            // arrival dates); null otherwise.
+            public string DeliveringTooltip;
 
             // Advanced "Recent runs": one compact line per recent completed run, newest
             // first, bounded to LogisticsFlowPresentation.MaxCyclesShown. Null when the
@@ -570,6 +573,10 @@ namespace Parsek
         private GUIStyle interactButtonStyle;
         private GUIStyle interactPairButtonStyle;
         private GUIStyle interactHeaderContainerStyle;
+        // The detail block's Interact singles (Rename / Delete / Link round-trip...): the
+        // zero-margin single, with the compact 2 px text padding so the longest label fits
+        // the 100 px Missions single.
+        private GUIStyle detailSlotButtonStyle;
         private GUIStyle interactHeaderLabelStyle;
 
         // The route tuning gate (UiSurface.LogisticsRouteTuning), latched ONCE at the top
@@ -591,9 +598,6 @@ namespace Parsek
         private const float ColW_Runs = 80f;       // Advanced only: "3" / "3, 1 held"
         private const float ColW_NextDelivery = 135f; // the amber "T- 1y 291d" countdown (+ " (!)")
         private const float ColW_Status = 260f;    // merged Status: one word + a short reason, wraps
-        // Uniform width for the detail block's button row (Link round-trip... / Unlink,
-        // Rename, Delete) so they read as one group; sized for the widest label.
-        private const float RouteDetailButtonWidth = 104f;
         // The candidates table keeps its own columns (L3): # / Name / Origin / Destination /
         // Would deliver / Transit / Actions. Its Actions cell is its OWN constant so the
         // route tables' Interact column can follow the Missions width without squeezing
@@ -760,9 +764,9 @@ namespace Parsek
             RefreshLegibilityCacheIfDue(routes, currentUT);
 
             // Split stored routes by enablement. The Paused table holds every Paused
-            // route plus a route armed by Send making its one run (it is a paused route
-            // doing a single run, so it never jumps sections); Active holds everything
-            // else (running, held, pause-armed and hard-broken).
+            // route; Active holds everything else (running, held, Send-armed while it
+            // sends, pause-armed and hard-broken). A Send-armed route returns to Paused
+            // when its run completes (the backend's PauseAfterCurrentCycle).
             var activeRoutes = new List<Route>();
             var pausedRoutes = new List<Route>();
             int routeCount = routes?.Count ?? 0;
@@ -770,7 +774,7 @@ namespace Parsek
             {
                 Route r = routes[i];
                 if (r == null) continue;
-                if (LogisticsRoutePresentation.BelongsInPausedTable(r.Status, IsSendingOnce(r)))
+                if (LogisticsRoutePresentation.BelongsInPausedTable(r.Status))
                     pausedRoutes.Add(r);
                 else
                     activeRoutes.Add(r);
@@ -915,8 +919,8 @@ namespace Parsek
 
         /// <summary>
         /// True when a route is armed by Send to make one run (and has not landed back in
-        /// Paused yet): the Paused-table membership, the "Sending one run" Status word and
-        /// the greyed "Sending..." button all read this one predicate. The provenance is
+        /// Paused yet): the "Sending one run" Status word, its live Cancel / greyed
+        /// Delivering... and its greyed Send all read this one predicate. The provenance is
         /// the persisted <see cref="Route.SendOnceArmed"/> flag, plus this session's set
         /// for the frame between the click and the next refresh.
         /// </summary>
@@ -1361,7 +1365,7 @@ namespace Parsek
                 WrapStatusStyleFor(leg.Status.Color), GUILayout.Width(ColW_Status));
 
             DrawRouteInteractCell(route, section, sendingOnce, pausingAfterRun,
-                LogisticsRoutePresentation.BrokenShortReason(leg.Status));
+                LogisticsRoutePresentation.BrokenShortReason(leg.Status), leg);
 
             GUILayout.EndHorizontal();
 
@@ -1372,44 +1376,69 @@ namespace Parsek
         /// <summary>
         /// The Interact column (Missions Model 1 shape: a 100 px single on line 1, two 48 px
         /// halves of one single on line 2, 8 px inset). Line 1: Activate (Paused table) /
-        /// Pause (Active table), or the greyed Sending... / Pausing... of an armed route.
+        /// Pause (Active table); for a Send-armed route a live Cancel before launch and a
+        /// greyed Delivering... in flight; for a Pause-armed route a greyed Pausing...
         /// Line 2: Send (one run, then stay Paused; live only on an unarmed Paused row) and
         /// Log (the Mission Log of the mission the route was built from). Every greyed button
         /// carries its reason to the hover strip (DisabledHoverEcho). Deliberate difference
         /// from Missions: Log is a pair half here, because Logistics has no name-cell grid.
         /// </summary>
         private void DrawRouteInteractCell(Route route, RouteSection section, bool sendingOnce, bool pausingAfterRun,
-            string brokenReason)
+            string brokenReason, RouteLegibility leg)
         {
             bool armed = sendingOnce || pausingAfterRun;
             GUILayout.BeginVertical(GUILayout.Width(MissionsWindowUI.ColW_Interact));
 
+            // Line 1 is ONE 100 px button in every state (Activate, Pause, Cancel,
+            // Delivering... or Pausing...), so a phase change never changes the control
+            // count between a frame's Layout and Repaint.
             GUILayout.BeginHorizontal();
             GUILayout.Space(MissionsWindowUI.InteractCellInset);
-            if (armed)
+            LogisticsRoutePresentation.ArmedLine1 line1 =
+                LogisticsRoutePresentation.ResolveArmedLine1(sendingOnce, pausingAfterRun, route.Status);
+            switch (line1)
             {
-                ArmedSendKind kind = sendingOnce ? ArmedSendKind.SendOnce : ArmedSendKind.PauseAfterCycle;
-                string reason = TooltipForArmedState(kind);
-                bool prevEnabled = GUI.enabled;
-                GUI.enabled = false;
-                GUILayout.Button(new GUIContent(LabelForArmedState(kind), reason),
-                    interactButtonStyle, GUILayout.Width(MissionsWindowUI.InteractButtonWidth));
-                DisabledHoverEcho.CarryLastControl(false, reason);
-                GUI.enabled = prevEnabled;
-            }
-            else if (section == RouteSection.Active)
-            {
-                if (GUILayout.Button(new GUIContent("Pause",
-                        "Stop running this route on its schedule. A run already in flight finishes first."),
-                        interactButtonStyle, GUILayout.Width(MissionsWindowUI.InteractButtonWidth)))
-                    pendingPause = route;
-            }
-            else
-            {
-                if (GUILayout.Button(new GUIContent("Activate",
-                        "Run this route on its schedule."),
-                        interactButtonStyle, GUILayout.Width(MissionsWindowUI.InteractButtonWidth)))
-                    pendingActivate = route;
+                case LogisticsRoutePresentation.ArmedLine1.Cancel:
+                    // The countdown phase: nothing has launched, so the arm can be taken
+                    // back. Routes through TryPause, which clears the pending Send arm
+                    // with nothing dispatched and returns the route to Paused.
+                    if (GUILayout.Button(new GUIContent(LogisticsRoutePresentation.CancelButtonLabel,
+                            LogisticsRoutePresentation.CancelButtonTooltip),
+                            interactButtonStyle, GUILayout.Width(MissionsWindowUI.InteractButtonWidth)))
+                        pendingPause = route;
+                    break;
+                case LogisticsRoutePresentation.ArmedLine1.Delivering:
+                case LogisticsRoutePresentation.ArmedLine1.Pausing:
+                {
+                    // A launched run is paid for and on the timeline, and the backend has
+                    // no abort path, so the in-flight states are greyed with their reason.
+                    string reason = line1 == LogisticsRoutePresentation.ArmedLine1.Delivering
+                        ? (leg.DeliveringTooltip ?? TooltipForArmedState(ArmedSendKind.SendOnce))
+                        : TooltipForArmedState(ArmedSendKind.PauseAfterCycle);
+                    string label = line1 == LogisticsRoutePresentation.ArmedLine1.Delivering
+                        ? LogisticsRoutePresentation.DeliveringButtonLabel
+                        : LogisticsRoutePresentation.PausingButtonLabel;
+                    bool prevEnabled = GUI.enabled;
+                    GUI.enabled = false;
+                    GUILayout.Button(new GUIContent(label, reason),
+                        interactButtonStyle, GUILayout.Width(MissionsWindowUI.InteractButtonWidth));
+                    DisabledHoverEcho.CarryLastControl(false, reason);
+                    GUI.enabled = prevEnabled;
+                    break;
+                }
+                default:
+                    if (section == RouteSection.Active)
+                    {
+                        if (GUILayout.Button(new GUIContent("Pause",
+                                "Stop running this route on its schedule. A run already in flight finishes first."),
+                                interactButtonStyle, GUILayout.Width(MissionsWindowUI.InteractButtonWidth)))
+                            pendingPause = route;
+                    }
+                    else if (GUILayout.Button(new GUIContent("Activate",
+                                 "Run this route on its schedule."),
+                                 interactButtonStyle, GUILayout.Width(MissionsWindowUI.InteractButtonWidth)))
+                        pendingActivate = route;
+                    break;
             }
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
@@ -1417,7 +1446,7 @@ namespace Parsek
             GUILayout.BeginHorizontal();
             GUILayout.Space(MissionsWindowUI.InteractCellInset);
             string sendReason = LogisticsRoutePresentation.SendDisabledReason(
-                section == RouteSection.Active, armed, brokenReason);
+                section == RouteSection.Active, armed, brokenReason, sendingOnce);
             bool sendEnabled = string.IsNullOrEmpty(sendReason);
             bool prev = GUI.enabled;
             GUI.enabled = sendEnabled;
@@ -1759,7 +1788,8 @@ namespace Parsek
 
         /// <summary>
         /// The greyed Interact line-1 label for an armed state (M6). A Pause-armed route
-        /// shows "Pausing..."; a Send-armed route shows "Sending...". Both fit the 100 px
+        /// shows "Pausing..."; a Send-armed run in flight shows "Delivering..." (before it
+        /// launches, a Send-armed route shows the live Cancel instead). Both fit the 100 px
         /// single; the Status cell carries the longer words. Plain ASCII (literal three
         /// dots), no glyphs.
         /// </summary>
@@ -1771,7 +1801,7 @@ namespace Parsek
                     return LogisticsRoutePresentation.PausingButtonLabel;
                 case ArmedSendKind.SendOnce:
                 default:
-                    return LogisticsRoutePresentation.SendingButtonLabel;
+                    return LogisticsRoutePresentation.DeliveringButtonLabel;
             }
         }
 
@@ -1894,6 +1924,14 @@ namespace Parsek
         {
             GUILayout.BeginVertical(GUI.skin.box);
             RouteLegibility leg = GetLegibility(route);
+            detailSlotRoute = route;
+            detailSlotNext = 0;
+
+            // While this route is being renamed, the name field leads the block. It takes
+            // no Interact slot (its cell is a same-width space), so Rename stays on the
+            // Delivers line below it.
+            if (string.Equals(renamingRouteId, route.Id, System.StringComparison.Ordinal))
+                DrawRouteRenameField(route);
 
             DetailLine(leg.DeliversLine ?? LogisticsRoutePresentation.FormatDeliversEachRun(null, null));
             if (leg.NextLine != null)
@@ -1959,7 +1997,19 @@ namespace Parsek
                 DrawFlightsUsedLine(route);
             }
 
-            DrawRouteDetailButtonRow(route);
+            // A block too short to host every Interact button (a degenerate route with
+            // no source mission) still gets them, one per line: Delete must never be
+            // unreachable. Ordinary blocks never reach this (two lines in Basic, three
+            // or more in Advanced).
+            int required = RouteDetailSlotCount(drawTuning);
+            while (detailSlotNext < required)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.FlexibleSpace();
+                DrawDetailSlotCell();
+                GUILayout.EndHorizontal();
+            }
+            detailSlotRoute = null;
             GUILayout.EndVertical();
         }
 
@@ -2212,6 +2262,8 @@ namespace Parsek
                     // Refresh the destination cell + capacity context next frame.
                     lastLegibilityComputeRealtime = -1f;
                 }
+                // Push the Interact slot to the right edge (the label branch already expands).
+                GUILayout.FlexibleSpace();
             }
             else
             {
@@ -2227,6 +2279,7 @@ namespace Parsek
                     detailStyle, GUILayout.ExpandWidth(true));
             }
 
+            DrawDetailSlotCell();
             GUILayout.EndHorizontal();
         }
 
@@ -2271,6 +2324,8 @@ namespace Parsek
                         (allResolved ? " (cleared retry gate)" : " (still EndpointLost)"));
                     lastLegibilityComputeRealtime = -1f;
                 }
+                // Push the Interact slot to the right edge (the label branch already expands).
+                GUILayout.FlexibleSpace();
             }
             else
             {
@@ -2283,6 +2338,7 @@ namespace Parsek
                 GUILayout.Label(reason, detailStyle, GUILayout.ExpandWidth(true));
             }
 
+            DrawDetailSlotCell();
             GUILayout.EndHorizontal();
         }
 
@@ -2335,111 +2391,176 @@ namespace Parsek
             return ShortId(treeId);
         }
 
-        /// <summary>
-        /// The detail block's closing button row, right-aligned: [Link round-trip...] or
-        /// [Unlink] (Advanced only), [Rename], [Delete]. Delete lives here, out of the scan
-        /// line, and still goes through the unchanged confirm dialog
-        /// (<see cref="SpawnDeleteRouteConfirmation"/> via <see cref="pendingConfirmDeleteRoute"/>).
-        /// While this route is being renamed the row is the deferred-commit name field
-        /// instead (the RecordingsTableUI idiom): Enter commits here, a click outside
-        /// commits in <see cref="HandleLogisticsDefocus"/>, Escape cancels. Editing is keyed
-        /// by <see cref="Route.Id"/> (NOT a row index) because routes are re-sectioned /
-        /// added / removed between frames; the committed name shows in the row at once
-        /// because <see cref="DrawRouteRow"/> reads <see cref="Route.Name"/> live.
-        /// </summary>
-        private void DrawRouteDetailButtonRow(Route route)
+        // ----- The detail block's Interact column -----
+        //
+        // Rename, Delete and (Advanced) Link round-trip... / Unlink sit at the right of the
+        // detail block's first lines, one 100 px single per line, under the row's
+        // Activate / Pause: there is no button row of their own. Every route-detail line
+        // ends in one slot cell of the same width (a button, or a same-width space), so
+        // the label beside it wraps at the same width on every line, and the slot a line
+        // gets depends only on its position in the block - which is decided by cached
+        // fields and the latched drawTuning, exactly like the lines themselves, so a
+        // frame's Layout and Repaint passes draw the same controls. detailSlotRoute is
+        // null outside DrawRouteDetail (the candidate detail shares DetailLine and draws
+        // no slot).
+        private Route detailSlotRoute;
+        private int detailSlotNext;
+
+        internal const int RenameSlot = 0;
+        internal const int DeleteSlot = 1;
+        internal const int LinkSlot = 2;
+
+        /// <summary>How many slots carry a button: Rename and Delete, plus Link in
+        /// Advanced. Pure.</summary>
+        internal static int RouteDetailSlotCount(bool showsTuning)
         {
-            const string controlName = "LogiRouteRename";
-            bool editingThis = string.Equals(renamingRouteId, route.Id, System.StringComparison.Ordinal);
+            return showsTuning ? 3 : 2;
+        }
 
-            GUILayout.BeginHorizontal();
-            GUILayout.Space(24f);
+        // The slot cell's width: the row's Interact column, less the detail box's own right
+        // margin and padding, so a slot button's left edge lines up with Activate / Pause.
+        private static float DetailSlotCellWidth()
+        {
+            float w = MissionsWindowUI.ColW_Interact;
+            if (GUI.skin != null && GUI.skin.box != null)
+                w -= GUI.skin.box.margin.right + GUI.skin.box.padding.right;
+            return Mathf.Max(w, MissionsWindowUI.InteractCellInset + MissionsWindowUI.InteractButtonWidth);
+        }
 
-            if (!editingThis)
+        /// <summary>
+        /// Ends a route-detail line with its Interact slot: the next slot's button, or a
+        /// same-width space. Nothing outside DrawRouteDetail.
+        /// </summary>
+        private void DrawDetailSlotCell()
+        {
+            if (detailSlotRoute == null)
+                return;
+            int slot = detailSlotNext++;
+            GUILayout.BeginHorizontal(GUILayout.Width(DetailSlotCellWidth()));
+            GUILayout.Space(MissionsWindowUI.InteractCellInset);
+            DrawDetailSlotButton(detailSlotRoute, slot);
+            GUILayout.EndHorizontal();
+        }
+
+        // A line with no slot (the rename field): the same-width space, no slot consumed.
+        private void DrawDetailSlotSpacer()
+        {
+            GUILayout.Space(DetailSlotCellWidth());
+        }
+
+        private void DrawDetailSlotButton(Route route, int slot)
+        {
+            float w = MissionsWindowUI.InteractButtonWidth;
+            switch (slot)
             {
-                GUILayout.FlexibleSpace();
-
-                // Round-trip link control (Advanced). Unlinked: "Link round-trip..." arms
-                // the partner picker. Linked: "Unlink" breaks the pair inline, DIRECTLY in
-                // the click branch (synchronous draw path, so the async-callback trap does
-                // not apply). Either way the legibility cache is dirtied so the row and
-                // detail refresh next frame.
-                if (drawTuning)
+                case RenameSlot:
                 {
+                    bool editing = string.Equals(renamingRouteId, route.Id, System.StringComparison.Ordinal);
+                    const string renamingReason = "Renaming: Enter saves, Escape cancels";
+                    bool prev = GUI.enabled;
+                    GUI.enabled = !editing;
+                    bool clicked = GUILayout.Button(new GUIContent("Rename", "Edit this route's name"),
+                        detailSlotButtonStyle, GUILayout.Width(w));
+                    DisabledHoverEcho.CarryLastControl(!editing, renamingReason);
+                    GUI.enabled = prev;
+                    if (clicked && !editing)
+                    {
+                        // Editing the interval and the name at once would cross-wire the two
+                        // deferred commits; the interval edit-start already suppresses itself
+                        // while a rename is active, so clear any pending interval edit first.
+                        ClearIntervalEdit();
+                        renamingRouteId = route.Id;
+                        renamingRouteText = route.Name ?? string.Empty;
+                        renamingRouteFocused = false;
+                        renamingRouteRect = default;
+                        ParsekLog.Verbose("UI",
+                            $"Logistics: rename started route={ShortId(route.Id)} current='{route.Name}'");
+                    }
+                    return;
+                }
+                case DeleteSlot:
+                    if (GUILayout.Button(new GUIContent("Delete", "Delete this route (asks first)."),
+                            detailSlotButtonStyle, GUILayout.Width(w)))
+                        pendingConfirmDeleteRoute = route;
+                    return;
+                case LinkSlot:
+                    if (!drawTuning)
+                    {
+                        GUILayout.Space(w);
+                        return;
+                    }
+                    // Round-trip link control (Advanced). Unlinked: "Link round-trip..." arms
+                    // the partner picker. Linked: "Unlink" breaks the pair inline, DIRECTLY in
+                    // the click branch (synchronous draw path, so the async-callback trap does
+                    // not apply). Either way the legibility cache is dirtied so the row and
+                    // detail refresh next frame.
                     if (string.IsNullOrEmpty(route.LinkedRouteId))
                     {
                         if (GUILayout.Button(new GUIContent("Link round-trip...",
                                 "Pair this route with another so they alternate: each runs only after its partner completes a run (a single reused transport flying out and back)."),
-                                GUILayout.Width(RouteDetailButtonWidth)))
-                        {
+                                detailSlotButtonStyle, GUILayout.Width(w)))
                             OpenLinkPicker(route, Event.current.mousePosition);
-                        }
                     }
-                    else
+                    else if (GUILayout.Button(new GUIContent("Unlink",
+                                 "Break this route's round-trip pairing; both routes return to running on their own schedule."),
+                                 detailSlotButtonStyle, GUILayout.Width(w)))
                     {
-                        if (GUILayout.Button(new GUIContent("Unlink",
-                                "Break this route's round-trip pairing; both routes return to running on their own schedule."),
-                                GUILayout.Width(RouteDetailButtonWidth)))
-                        {
-                            ParsekLog.Info("UI",
-                                $"Logistics: unlink button route={ShortId(route.Id)} partner={ShortId(route.LinkedRouteId)}");
-                            RouteStore.UnlinkRoute(route.Id);
-                            lastLegibilityComputeRealtime = -1f;
-                        }
+                        ParsekLog.Info("UI",
+                            $"Logistics: unlink button route={ShortId(route.Id)} partner={ShortId(route.LinkedRouteId)}");
+                        RouteStore.UnlinkRoute(route.Id);
+                        lastLegibilityComputeRealtime = -1f;
                     }
-                }
-
-                if (GUILayout.Button(new GUIContent("Rename", "Edit this route's name"), GUILayout.Width(RouteDetailButtonWidth)))
-                {
-                    // Editing the interval and the name at once would cross-wire the two
-                    // deferred commits; the interval edit-start already suppresses itself
-                    // while a rename is active, so clear any pending interval edit first.
-                    ClearIntervalEdit();
-                    renamingRouteId = route.Id;
-                    renamingRouteText = route.Name ?? string.Empty;
-                    renamingRouteFocused = false;
-                    renamingRouteRect = default;
-                    ParsekLog.Verbose("UI",
-                        $"Logistics: rename started route={ShortId(route.Id)} current='{route.Name}'");
-                }
-
-                if (GUILayout.Button(new GUIContent("Delete", "Delete this route (asks first)."),
-                        GUILayout.Width(RouteDetailButtonWidth)))
-                    pendingConfirmDeleteRoute = route;
+                    return;
+                default:
+                    GUILayout.Space(w);
+                    return;
             }
-            else
-            {
-                bool submit = Event.current.type == EventType.KeyDown
-                    && (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
-                bool cancel = Event.current.type == EventType.KeyDown
-                    && Event.current.keyCode == KeyCode.Escape;
+        }
 
-                GUILayout.Label("Name:", detailStyle, GUILayout.Width(46f));
-                GUI.SetNextControlName(controlName);
-                renamingRouteText = GUILayout.TextField(renamingRouteText ?? string.Empty, GUILayout.ExpandWidth(true));
-                renamingRouteRect = GUILayoutUtility.GetLastRect();
+        /// <summary>
+        /// The deferred-commit name field, drawn as the first line of the detail block
+        /// while this route is renamed (the RecordingsTableUI idiom). Enter commits here, a
+        /// click outside commits in <see cref="HandleLogisticsDefocus"/>, Escape cancels.
+        /// Editing is keyed by <see cref="Route.Id"/> (NOT a row index) because routes are
+        /// re-sectioned / added / removed between frames; the committed name shows in the
+        /// row at once because <see cref="DrawRouteRow"/> reads <see cref="Route.Name"/>
+        /// live. The Delete confirm dialog it sits above is unchanged.
+        /// </summary>
+        private void DrawRouteRenameField(Route route)
+        {
+            const string controlName = "LogiRouteRename";
+            bool submit = Event.current.type == EventType.KeyDown
+                && (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
+            bool cancel = Event.current.type == EventType.KeyDown
+                && Event.current.keyCode == KeyCode.Escape;
 
-                if (!renamingRouteFocused)
-                {
-                    GUI.FocusControl(controlName);
-                    renamingRouteFocused = true;
-                }
-
-                if (submit)
-                {
-                    CommitRouteRename(route);
-                    Event.current.Use();
-                }
-                else if (cancel)
-                {
-                    ParsekLog.Verbose("UI",
-                        $"Logistics: rename cancelled route={ShortId(route.Id)}");
-                    ClearRouteRename();
-                    Event.current.Use();
-                }
-            }
-
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(24f);
+            GUILayout.Label("Name:", detailStyle, GUILayout.Width(46f));
+            GUI.SetNextControlName(controlName);
+            renamingRouteText = GUILayout.TextField(renamingRouteText ?? string.Empty, GUILayout.ExpandWidth(true));
+            renamingRouteRect = GUILayoutUtility.GetLastRect();
+            DrawDetailSlotSpacer();
             GUILayout.EndHorizontal();
+
+            if (!renamingRouteFocused)
+            {
+                GUI.FocusControl(controlName);
+                renamingRouteFocused = true;
+            }
+
+            if (submit)
+            {
+                CommitRouteRename(route);
+                Event.current.Use();
+            }
+            else if (cancel)
+            {
+                ParsekLog.Verbose("UI",
+                    $"Logistics: rename cancelled route={ShortId(route.Id)}");
+                ClearRouteRename();
+                Event.current.Use();
+            }
         }
 
         /// <summary>
@@ -2501,6 +2622,7 @@ namespace Parsek
             GUILayout.BeginHorizontal();
             GUILayout.Space(24f);
             GUILayout.Label(new GUIContent(text, tooltip), detailStyle, GUILayout.ExpandWidth(true));
+            DrawDetailSlotCell();
             GUILayout.EndHorizontal();
         }
 
@@ -2584,6 +2706,7 @@ namespace Parsek
             }
 
             GUILayout.FlexibleSpace();
+            DrawDetailSlotCell();
             GUILayout.EndHorizontal();
         }
 
@@ -2627,6 +2750,7 @@ namespace Parsek
             }
 
             GUILayout.FlexibleSpace();
+            DrawDetailSlotCell();
             GUILayout.EndHorizontal();
         }
 
@@ -2671,6 +2795,7 @@ namespace Parsek
             GUILayout.BeginHorizontal();
             GUILayout.Space(24f);
             GUILayout.Label(text, style ?? detailStyle, GUILayout.ExpandWidth(true));
+            DrawDetailSlotCell();
             GUILayout.EndHorizontal();
         }
 
@@ -2682,6 +2807,7 @@ namespace Parsek
             GUILayout.BeginHorizontal();
             GUILayout.Space(24f);
             GUILayout.Label(content, detailStyle, GUILayout.ExpandWidth(true));
+            DrawDetailSlotCell();
             GUILayout.EndHorizontal();
         }
 
@@ -3336,7 +3462,7 @@ namespace Parsek
             System.Func<double, string> formatDate = ReservationExplanation.DefaultDateFormatter;
             bool sendingOnce = IsSendingOnce(route);
             bool pausingAfterRun = IsPausingAfterRun(route);
-            bool inPausedTable = LogisticsRoutePresentation.BelongsInPausedTable(route.Status, sendingOnce);
+            bool inPausedTable = LogisticsRoutePresentation.BelongsInPausedTable(route.Status);
 
             // Countdown: next dock crossing (read-only; the LoopUnit build stays behind the
             // allowlisted RouteOrchestrator accessor), or the basis-aware next launch window
@@ -3356,9 +3482,10 @@ namespace Parsek
                     hasWindow, secondsToWindow, currentUT);
             leg.CountdownBranch = countdown.Branch;
             leg.CountdownSeconds = countdown.Seconds;
-            // A run is scheduled unless the route sits in the Paused table without a Send
-            // arm: a Send-armed route keeps its countdown to the run it is about to make.
-            leg.RunScheduled = !(inPausedTable && !sendingOnce);
+            // A run is scheduled unless the route is Paused. A Send-armed route sits in
+            // Active and keeps its countdown: to its window before launch, then to the
+            // arrival of the run in flight, like any scheduled run.
+            leg.RunScheduled = !inPausedTable || sendingOnce;
             double nextUT = countdown.Branch != LogisticsCountdownPresentation.CountdownBranch.None
                 ? currentUT + countdown.Seconds
                 : double.NaN;
@@ -3455,6 +3582,14 @@ namespace Parsek
             leg.StatusTooltip = LogisticsRoutePresentation.StatusTooltip(
                 leg.Status, route.Status, leg.HoldText, route.CompletedCycles,
                 route.CreatedUT, nextUT, originLost, formatDate);
+            // A Send-armed run in flight: the greyed Delivering... and the Status hover
+            // date the launch (the cycle's start) and the arrival (the countdown target).
+            if (sendingOnce && route.Status == RouteStatus.InTransit)
+            {
+                leg.DeliveringTooltip = LogisticsRoutePresentation.FormatDeliveringTooltip(
+                    route.CurrentCycleStartUT ?? double.NaN, nextUT, formatDate);
+                leg.StatusTooltip = "Sending one run. " + leg.DeliveringTooltip;
+            }
             bool warned = leg.Status.Word == LogisticsRoutePresentation.StatusWord.Held;
             leg.NextCellText = LogisticsRoutePresentation.FormatNextCell(
                 countdown.Branch, countdown.Seconds, leg.RunScheduled, warned);
@@ -4264,6 +4399,11 @@ namespace Parsek
                     0, 0, GUI.skin.button.margin.top, GUI.skin.button.margin.bottom)
             };
             interactPairButtonStyle = new GUIStyle(interactButtonStyle)
+            {
+                padding = new RectOffset(
+                    2, 2, GUI.skin.button.padding.top, GUI.skin.button.padding.bottom)
+            };
+            detailSlotButtonStyle = new GUIStyle(interactButtonStyle)
             {
                 padding = new RectOffset(
                     2, 2, GUI.skin.button.padding.top, GUI.skin.button.padding.bottom)
