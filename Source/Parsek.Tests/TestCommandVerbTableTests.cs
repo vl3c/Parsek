@@ -59,6 +59,7 @@ namespace Parsek.Tests
         [InlineData("StashSlot")]
         [InlineData("RealSpawn")]
         [InlineData("Recover")]
+        [InlineData("TrackingStationRecover")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -180,7 +181,9 @@ namespace Parsek.Tests
             // RealSpawn and Recover are ADDITIVE (44 -> 46; reserved unchanged at 4): the
             // D18 player-action pair; the reserved envelope never carried a spawn or a
             // recovery verb.
-            Assert.Equal(46, TestCommandVerbs.ImplementedVerbNames.Count);
+            // TrackingStationRecover is ADDITIVE (46 -> 47; reserved unchanged at 4): the
+            // Tracking Station half of a player's recovery, for a non-active vessel.
+            Assert.Equal(47, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 
