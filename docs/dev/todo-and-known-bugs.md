@@ -6449,9 +6449,12 @@ would skip it before `ResolveTermination`). `CI-6-chain-tip-recover-no-respawn` 
 RealSpawn -> SimulateStockSwitchClick -> Recover -> a new flight through the SPH, and both
 verbs answered OK on their first flight (reading run `2026-10-03_1014`). The product's
 answer is a defect, filed as CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE; the lane is
-committed as its EXPECTED-FAIL quarantine. Still open from the list below: the
-`chain-tip-original-pid` re-claim lane (the RealSpawn answered `pid=1344998135`, the chain's
-own pid, on this host too, but no lane pins it as a claim) and the docking mission.
+committed as its EXPECTED-FAIL quarantine. Still open from the list below: the docking
+mission. The `chain-tip-original-pid` re-claim lane is FLOWN (2026-10-03, branch
+`lane-ci8-tip-pid`): `CI-8-chain-tip-original-pid` on the same host compares the pid
+`ListHandles kind=chains` answers before the spawn with the pid `RealSpawn` answers after
+it, capture to capture (reading `2026-10-03_1637`, armed `_1640`, both PASS; both read
+1344998135, and the produced save holds exactly one vessel with that pid).
 
 
 **Status 2026-10-01: both verbs built, no lane flown.** Contract in
@@ -6478,9 +6481,9 @@ last event. Both two-phase, `RequiresFlight`, 120 s; refusals typed and mirrored
   the continuation `Recovered`; then a rewind to before the tip's spawn UT so the walker
   reads `terminalState=Recovered`, and the scene reaches the spawn decision with the tip
   in the future so `Terminated chain spawn suppressed:` fires.
-- The chain-tip spawn itself (`chain-tip-original-pid`, re-claim): RealSpawn on a
+- ~~The chain-tip spawn itself (`chain-tip-original-pid`, re-claim): RealSpawn on a
   `ListHandles kind=chains` tip with the requirement that the answered pid equals the
-  chain's original pid.
+  chain's original pid.~~ Flown 2026-10-03 as `CI-8-chain-tip-original-pid`.
 - The docking cell the original entry names stays a mission, not a verb: RealSpawn hands
   the pid to a dock mission.
 

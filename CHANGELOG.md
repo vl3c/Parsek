@@ -10,6 +10,11 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: a lane for spawning a ghost chain's final vessel through Real Spawn Control.**
+  `CI-8-chain-tip-original-pid` (flown green 2026-10-03, nightly) reads a ghost chain's
+  vessel id, presses the chain's Real Spawn Control button, and requires the vessel that
+  appears to carry that same id, with exactly one copy of it in the saved game. It reuses
+  the `chain-tip-recovery` test save of the recovery lane.
 - **Dev: a test command recovers a vessel from the Tracking Station.**
   `TrackingStationRecover pid=<pid>` walks the stock route a player takes from the Space
   Center: it enters the Tracking Station, selects the vessel, presses stock's Recover and

@@ -323,8 +323,9 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # claims it via BACKGROUND_EVENT and it
                                         # is a Real Spawn Control candidate.
                                         # `--filter InjectChainTipRecovery`. No
-                                        # RP. Consumer:
-                                        # CI-6-chain-tip-recover-no-respawn.
+                                        # RP. Consumers:
+                                        # CI-6-chain-tip-recover-no-respawn,
+                                        # CI-8-chain-tip-original-pid.
                                         "chain-tip-recovery")
 
 # Retry policies (design [retry].policy).
