@@ -1348,7 +1348,7 @@ the narrower the better, because EXPECTED-FAIL absorbs everything it matches:
   `"recordings.sampling.jumps 1 != 0"`). An opt-in `optionalMismatches = [...]`
   plus a filed `optionalBugId` tolerates ONE intermittent second defect: the run
   demotes when every `mismatches` token is present and nothing outside the two
-  lists is (PWR-3 is the one user). Copy the strings from the defect's red run, e.g.
+  lists is (no committed spec uses it today; PWR-3 did until 2026-10-03). Copy the strings from the defect's red run, e.g.
   `"logContracts.required not matched: <pattern>"` or
   `"logContracts.forbidden matched: <pattern>"`. An extra red, or a declared one
   that stopped failing, stays PARSEK-FAIL, and run.py Warn-logs the

@@ -140,9 +140,10 @@ values = ["auto-record-launch", "auto-record-eva", "auto-record-first-mod-switch
 # (reading runs `2026-10-02_2102` / `_2057` / `_2108`, armed `_2141` / `_2128` / `_2133`;
 # offline negative controls 7/8/7 of 7/8/7 seeds red). A value is claimed only by a lane
 # whose armed run flew green: `physics-warp-low` (PWR-1) and `physics-warp-medium` (PWR-2)
-# are CLAIMED; `physics-warp-high` is an OPEN GAP - PWR-3 flies it but is quarantined
-# EXPECTED-FAIL on two physics-warp findings (todo PHYSWARP-RATE-CHANGE-SAMPLE-SKEW,
-# PHYSWARP-BACKSTOP-MISSED-FRAME) and does not declare it.
+# are CLAIMED; `physics-warp-high` (PWR-3) CLAIMED 2026-10-03 (branch
+# `physwarp-sampling-fixes`) once its two physics-warp findings were fixed (todo
+# PHYSWARP-RATE-CHANGE-SAMPLE-SKEW, PHYSWARP-BACKSTOP-MISSED-FRAME): the quarantined run
+# `2026-10-03_1030` XPASSed with every count 0 and the quarantine was removed.
 values = ["density-presets", "proximity-cadence-bg", "structural-event-snapshots",
           "threshold-debounce", "physics-warp-low", "physics-warp-medium",
           "physics-warp-high"]
