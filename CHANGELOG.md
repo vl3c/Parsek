@@ -2663,7 +2663,8 @@ _(unreleased — entries accumulate here per commit)_
   in Interact; the second is a one-line story (where it went, how long, who flew, how it
   ended), with Rewind / Forward in Interact right under Watch at the same width, and a
   clickable caret under the mission's number (down while the mission is open, right while it
-  is folded; hover "Collapse this mission" / "Expand this mission"). The story is now the
+  is folded; hover "Collapse this mission" / "Expand this mission"). The `#` header sits
+  over the mission numbers and carets, with its sort arrow after it. The story is now the
   title's size, and in Advanced its next-launch countdown (`Next launch T- 5h 47m`) is
   amber; it no longer repeats the loop period (`Loops ~P`), which the period cell beside it
   shows. The caret hides a mission's vessel rows; its title bar stays. It replaces the

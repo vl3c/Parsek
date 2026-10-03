@@ -739,6 +739,12 @@ namespace Parsek
         // the whole cell, label + checkbox included.
         private GUIStyle colHdrCellContainerStyle;
         private GUIStyle boldHeaderInnerLabel;
+        // The merged [enable + index] header cell and its sortable "#": laid out exactly like a
+        // row's two leading cells (see EnsureStyles), so "#" sits over the row numbers, the
+        // collapse carets and the include checkboxes.
+        private GUIStyle indexHeaderCellStyle;
+        private GUIStyle indexHeaderEnableStyle;
+        private GUIStyle indexHeaderLabelStyle;
         // Mission-header ROW bubble: the dark section-header box used as the background of the
         // WHOLE mission header row (index, title, Loop, period, Watch, Clone, Delete, Archive),
         // so the bubble spans the full row width with every control sitting on it. Cloned from
@@ -778,6 +784,20 @@ namespace Parsek
         public MissionsWindowUI(ParsekUI parentUI)
         {
             this.parentUI = parentUI;
+        }
+
+        /// <summary>
+        /// The "#" header cell's right padding once its left inset is removed: the old left
+        /// inset (max of the box's left padding and the first cell's left margin) moves to the
+        /// right, added to the old right inset (max of the box's right padding and the last
+        /// cell's right margin), so the cell's width is unchanged and no header to its right
+        /// moves. Pure.
+        /// </summary>
+        internal static int IndexHeaderRightPadding(
+            int boxPaddingLeft, int boxPaddingRight, int cellMarginLeft, int cellMarginRight)
+        {
+            return System.Math.Max(boxPaddingLeft, cellMarginLeft)
+                + System.Math.Max(boxPaddingRight, cellMarginRight);
         }
 
         // Lazily rebuilds the body-cell label and dark table-body box styles the
@@ -894,6 +914,31 @@ namespace Parsek
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.MiddleCenter,
                 normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
+            };
+
+            // The "#" header cell. A row's leading cells start at the row's left edge (a row group
+            // has no style, so its first cell's margin passes up to the parent), but a boxed group
+            // insets its first child by max(padding.left, the child's margin.left), which put the
+            // header's index slot 4 px right of the rows' index cell (GUI-25 dump: "#" at x=38,
+            // the index numbers at x=34). Zero left padding plus a blank enable slot with zero
+            // left margin puts the slot at the rows' x. The inset moves to the right padding, so
+            // the cell keeps the footprint it had (its content sets it past the Width option) and
+            // no header to its right moves. The label is left-aligned with the label skin's
+            // padding, like the index number and the collapse caret below it, so the "#" glyph
+            // starts where they start, and a sort arrow trails it without moving it.
+            var hdrPad = colHdrCellContainerStyle.padding;
+            indexHeaderEnableStyle = new GUIStyle(GUI.skin.label);
+            indexHeaderEnableStyle.margin = new RectOffset(
+                0, GUI.skin.label.margin.right, GUI.skin.label.margin.top, GUI.skin.label.margin.bottom);
+            indexHeaderCellStyle = new GUIStyle(colHdrCellContainerStyle);
+            indexHeaderCellStyle.padding = new RectOffset(
+                0,
+                IndexHeaderRightPadding(hdrPad.left, hdrPad.right,
+                    GUI.skin.label.margin.left, GUI.skin.label.margin.right),
+                hdrPad.top, hdrPad.bottom);
+            indexHeaderLabelStyle = new GUIStyle(boldHeaderInnerLabel)
+            {
+                alignment = TextAnchor.MiddleLeft
             };
 
             // Mission-header row bubble: the section-header box stretched across the whole row.
@@ -4925,17 +4970,19 @@ namespace Parsek
             // first header (Width(ColW_Enable + ColW_Index + 8)), so the expanding "Missions and
             // vessels" column starts at the same x as the recordings "Name" column. There is no
             // per-row enable in missions, so the enable slot is blank; the sortable "#" lives inline
-            // (boldHeaderInnerLabel) in the index slot so the dark container is not double-boxed.
-            GUILayout.BeginHorizontal(colHdrCellContainerStyle,
+            // (indexHeaderLabelStyle) in the index slot so the dark container is not double-boxed,
+            // and the cell is laid out like a row's leading cells (indexHeaderCellStyle) so the
+            // "#" sits over the index numbers and carets.
+            GUILayout.BeginHorizontal(indexHeaderCellStyle,
                 GUILayout.Width(ColW_Enable + ColW_Index + 8f), GUILayout.Height(ColHeaderHeight));
-            GUILayout.Label("", GUILayout.Width(ColW_Enable));
+            GUILayout.Label("", indexHeaderEnableStyle, GUILayout.Width(ColW_Enable));
             // Sortable "#" in BOTH modes: the per-tree index number now shows on mission rows in
             // Basic too (the T1.7 hide read as a rendering gap - owner playtest 2026-08-20), so
             // the header that sorts by it comes back with it.
             {
                 string hashArrow = (sortColumn == MissionSortColumn.Index)
                     ? (sortAscending ? " \u25b2" : " \u25bc") : "";
-                if (GUILayout.Button("#" + hashArrow, boldHeaderInnerLabel, GUILayout.Width(ColW_Index)))
+                if (GUILayout.Button("#" + hashArrow, indexHeaderLabelStyle, GUILayout.Width(ColW_Index)))
                 {
                     if (sortColumn == MissionSortColumn.Index) sortAscending = !sortAscending;
                     else { sortColumn = MissionSortColumn.Index; sortAscending = true; }

@@ -540,7 +540,9 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   sharing line 1 as a 48 + 48 pair: Watch is line 1's single, Rewind / Forward line 2's single
   at the same x, and line 2 reserves a button-sized rect when neither applies.
   `MissionsTabColumnSequenceTests.TheCollapseCaretSitsUnderTheIndexAndWatchStacksOverRewind`
-  pins both.
+  pins both. The `#` header now sits over the index numbers and carets (it drew 4 px
+  right of them and centred): no left inset in its cell, left-aligned like the numbers, width
+  unchanged (`TheIndexHeaderSitsOverTheIndexColumnContents`).
 
 ## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branches `log-rework` (parts 1-2) and `log-rework-2` (part 3 on). PARTS 1-6 DONE]
 

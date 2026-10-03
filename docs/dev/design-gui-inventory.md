@@ -470,6 +470,13 @@ describes the first row under it:
 lines, the vessel row, the interval row, the chapter header row and both Docked partner row
 kinds, in both modes: no column is mode-gated.
 
+The `#` header sits over the index column's contents: its merged [enable + index] cell
+(`indexHeaderCellStyle`) has no left inset, so its index slot starts at the rows' index-cell x,
+and `#` is left-aligned in a label-skin style (`indexHeaderLabelStyle`) like the index number
+and the collapse caret below it, with the sort arrow trailing it. The inset moves to the cell's
+right padding (`IndexHeaderRightPadding`), so the cell keeps its width and no other header moves
+(`TheIndexHeaderSitsOverTheIndexColumnContents`).
+
 The Interact column carries every per-row action, on one width system:
 `InteractButtonWidth` 100 for a single button (`Watch` on line 1 and `Rewind` / `Forward` on
 line 2 at the same x, `Go to`, and `Log` in the name cell), `InteractPairButtonWidth` 48 for

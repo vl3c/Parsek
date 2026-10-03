@@ -207,6 +207,63 @@ namespace Parsek.Tests
             Assert.Contains("GUILayoutUtility.GetRect(InteractReservedSlotContent, interactButtonStyle", rewind);
         }
 
+        // The "#" header sits over the index column's contents (owner feedback 2026-10-03: it
+        // drew 4 px right of the row numbers and centred, GUI-25 dump "#" x=38 vs the index cell
+        // x=34). The header's [enable + index] cell is laid out like a row's two leading cells:
+        // no left inset, the blank enable slot without a left margin, and "#" left-aligned in a
+        // label-skin style like the index number and the collapse caret below it.
+        [Fact]
+        public void TheIndexHeaderSitsOverTheIndexColumnContents()
+        {
+            string prepared = ReadPreparedSource();
+            string header = MethodBody(prepared, "DrawColumnHeader");
+            Assert.Contains("GUILayout.BeginHorizontal(indexHeaderCellStyle,", header);
+            Assert.Contains("GUILayout.Label(\"\", indexHeaderEnableStyle, GUILayout.Width(ColW_Enable))", header);
+            // The "#" literal is masked by the source scan, so its contents are not matched.
+            Assert.Matches(@"GUILayout\.Button\(""[^""]*""\s*\+\s*hashArrow,\s*indexHeaderLabelStyle,\s*GUILayout\.Width\(ColW_Index\)\)",
+                header);
+
+            // The header's "#" and the rows' index cells share one alignment and one skin.
+            Assert.Matches(@"indexHeaderLabelStyle\s*=\s*new GUIStyle\(boldHeaderInnerLabel\)\s*\{\s*alignment\s*=\s*TextAnchor\.MiddleLeft",
+                prepared);
+            Assert.Matches(@"boldHeaderInnerLabel\s*=\s*new GUIStyle\(GUI\.skin\.label\)", prepared);
+            Assert.Matches(@"missionHeaderTextStyle\s*=\s*new GUIStyle\(GUI\.skin\.label\)\s*\{[^}]*alignment\s*=\s*TextAnchor\.MiddleLeft",
+                prepared);
+            Assert.Matches(@"missionCaretStyle\s*=\s*new GUIStyle\(GUI\.skin\.label\)\s*\{[^}]*alignment\s*=\s*TextAnchor\.MiddleLeft",
+                prepared);
+            Assert.Contains("GUILayout.Width(ColW_Index)", MethodBody(prepared, "DrawMissionValueRow"));
+
+            // No left inset: the cell's left padding and the enable slot's left margin are zero,
+            // and the removed inset moves to the right padding.
+            Assert.Matches(@"indexHeaderCellStyle\.padding\s*=\s*new RectOffset\(\s*0\s*,\s*IndexHeaderRightPadding\(", prepared);
+            Assert.Matches(@"indexHeaderEnableStyle\.margin\s*=\s*new RectOffset\(\s*0\s*,", prepared);
+        }
+
+        // catches: the "#" cell growing or shrinking when its left inset moves, which would
+        // shift every header to its right. Modelled on IMGUI's boxed horizontal group: the first
+        // child sits max(padding.left, margin.left) in, and the group ends
+        // max(padding.right, margin.right) after its last child.
+        [Theory]
+        // (padL, padR, marginL, marginR)
+        [InlineData(4, 4, 4, 4)]
+        [InlineData(6, 6, 4, 4)]
+        [InlineData(2, 2, 4, 4)]
+        [InlineData(0, 0, 0, 0)]
+        [InlineData(8, 3, 4, 4)]
+        public void TheIndexHeaderCellKeepsItsWidthWhenItsLeftInsetMoves(
+            int padL, int padR, int marginL, int marginR)
+        {
+            const int content = 54; // enable slot 20 + gap 4 + "#" slot 30
+            int before = System.Math.Max(padL, marginL) + content + System.Math.Max(padR, marginR);
+            int newPadR = MissionsWindowUI.IndexHeaderRightPadding(padL, padR, marginL, marginR);
+            // After: zero left padding and a zero-margin first cell, so the slot starts at the
+            // cell's left edge, exactly like a row's (unstyled) leading cells.
+            int lead = System.Math.Max(0, 0);
+            int after = lead + content + System.Math.Max(newPadR, marginR);
+            Assert.Equal(0, lead);
+            Assert.Equal(before, after);
+        }
+
         // The Advanced loop grid (owner mock-up 2026-09-30, aligned 2026-10-01): Clone / Delete
         // share column A, "Warp to..." fills column B and is ALWAYS drawn (greyed when it cannot
         // act), Log follows it, and the line-2 loop row spans column B plus the Log slot, so its
