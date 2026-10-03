@@ -22249,7 +22249,7 @@ nameMatches=K`. The summary line gains `path=` after `ut=`, and on the identity 
 reads `guidDropped=n/a` (the filter did not run; `nameMatches` is diagnostic). The
 `guid filter:` line prints only on the name fallback.
 
-**L6 re-read DONE 2026-10-01 for `L6-career-same-name-recover`** (`2026-10-01_1621`, PASS attempt 1, 463 s, every re-cut token as written; the natural-dwell sibling stays an unflown A/B control and its row in `autotest-status.md` still owes its own re-read, which does not gate this entry). Both L6 specs were re-cut: the flight's own two segments
+**L6 re-read DONE 2026-10-01 for `L6-career-same-name-recover`** (`2026-10-01_1621`, PASS attempt 1, 463 s, every re-cut token as written; the natural-dwell sibling's own re-read followed on 2026-10-03: `L6-career-same-name-natural-dwell` `2026-10-03_1552` PASS attempt 1, every re-cut token as written, with `path=launch-guid identityMatches=2 ... nameOnlyIgnored=2` and no `path=name-fallback`). Both L6 specs were re-cut: the flight's own two segments
 carry the recovering guid, so every leg takes the launch-guid path and should print
 `PickRecoveryRecordingId path: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=<t>
 path=launch-guid identityMatches=2 identityNameMismatch=0 nameOnlyIgnored=2
