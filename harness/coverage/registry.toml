@@ -824,6 +824,16 @@ values = ["waterfall-swe-fallback", "restock", "persistent-rotation", "better-ti
 # branch-point-free background recording of a real loaded vessel with a trigger part
 # event), not a harvested flight. Operator-confirmed 2026-09-26.
 # Why no harvest: todo D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED.
+# D18 `chain-terminated-destruction-recovery` is claimed by TWO lanes, one per half: the
+# DESTROYED half on V26T-interbody-route-ts-arrival (2026-09-22: the walker's
+# `ResolveTermination ... terminalState=Destroyed` on its fixture's committed chains) and the
+# RECOVERED half on CI-6-chain-tip-recover-no-respawn (2026-10-03: a Real-Spawned chain tip
+# switched to and recovered through stock's Recover is committed Recovered, the next flight's
+# walker resolves `terminalState=Recovered`, and the vessel does not spawn again). Scoped to
+# the in-flight Recover after a Switch-To; a Tracking Station recovery of a spawned tip is not
+# driven (no seam verb; todo SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX). The
+# spawn-side `Terminated chain spawn suppressed:` line is unreachable and not owed
+# (TERMINATED-CHAIN-SPAWN-SUPPRESSED-LINE-UNREACHABLE).
 [D18]  # ghost chains / paradox prevention
 values = ["committed-interaction-claiming", "ghost-conversion-quicksave",
           "intermediate-spawn-suppression", "chain-tip-original-pid",

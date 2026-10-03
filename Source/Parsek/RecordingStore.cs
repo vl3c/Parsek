@@ -1578,6 +1578,14 @@ namespace Parsek
             return (pids != null && pids.Count > 0) ? pids : null;
         }
 
+        /// <summary>True for a terminal after which the recorded vessel no longer exists.</summary>
+        internal static bool EndsWithNoVessel(TerminalState? terminal)
+        {
+            return terminal == TerminalState.Recovered
+                || terminal == TerminalState.Destroyed
+                || terminal == TerminalState.Disassembled;
+        }
+
         /// <summary>
         /// Topology-update commits replace <c>committedRecordings[i]</c> wholesale
         /// with the pending tree's instance. The pending-tree path during a
@@ -1688,7 +1696,23 @@ namespace Parsek
                 liveVesselPids != null
                 && existing.SpawnedVesselPersistentId != 0u
                 && !liveVesselPids.Contains(existing.SpawnedVesselPersistentId);
-            if (existingSpawnPidIsStale)
+            // A replacement whose own terminal leaves no vessel (Recovered, Destroyed,
+            // Disassembled) is never represented by a live spawned vessel, so it never
+            // inherits a spawn claim. An in-flight Recover of a resumed spawned vessel
+            // commits Recovered at the Space Center BEFORE stock removes the vessel, so the
+            // stale guard above still sees the pid live; re-installing the claim there made
+            // the next flight's spawn-death pass read the recovery as a death.
+            bool incomingEndsVesselless = EndsWithNoVessel(incoming.TerminalStateValue);
+            if (incomingEndsVesselless)
+            {
+                if (copyVesselSpawned || copySpawnedPid)
+                    ParsekLog.Info("RecordingStore",
+                        $"PreserveLiveRuntimeFieldsOnReplace: spawn stamp " +
+                        $"pid={existing.SpawnedVesselPersistentId} not re-installed for recording " +
+                        $"\"{incoming.VesselName}\" id={incoming.RecordingId ?? "<none>"}: its terminal " +
+                        $"{incoming.TerminalStateValue} leaves no vessel");
+            }
+            else if (existingSpawnPidIsStale)
             {
                 // Log only when the suppression actually prevented a copy, so a
                 // recording that already carries its own spawn claim does not
