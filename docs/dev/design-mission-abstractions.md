@@ -238,55 +238,26 @@ multiple routes.
 
 ## The Missions UI
 
-A first-draft window, opened from a "Missions" button in the main Parsek UI under
-Recordings. It reuses `RecordingsTableUI`'s rendering primitives (caret
-expand/collapse, indentation, tree connectors, row layout); it does NOT reuse the
-recordings hierarchy (debris/crew/chain blocks), because it renders a different
-graph: the controlled-leg fork-tree (derived by walking `RecordingTree.BranchPoints`
-for fork / merge / continuation edges, grouping each run's env-split legs by
-`ChainId` and ordering by `StartUT`, with debris children excluded). At a merge the
-rendered path follows its own incoming line into the child; the co-parent (a
-docking target with its own Mission) is not expanded.
+The Missions view is the first tab of the `Parsek - Missions` window, opened from the main
+window's `Missions` button (`UI/MissionsWindowUI.cs` inside `UI/RecordingsTableUI.cs`). Its
+measured layout is `docs/dev/design-gui-inventory.md` section 3.2 and its Basic / Advanced split
+is `docs/dev/design-ui-basic-advanced.md` section 4.5; `docs/parsek-missions-design.md`
+section 9 summarizes it. What it renders, in terms of this hierarchy:
 
-Layout: a vertical indented outline. The one rule that keeps arbitrary missions
-representable without 2D layout pain:
-
-- Indentation increases ONLY at a fork (a controlled separation).
-- A linear sequence of legs does NOT indent; it stacks as rows at the same depth,
-  joined by a vertical connector.
-- So depth = number of separations, not number of events.
-
-Sketch (the drop-pod example):
-
-```
-Mission row  [Clone] [loop x] [period: 30s]   <- Mission-level controls
-[x] Launch (M+D stack)
- |- [ ] A - lower booster + probe        (unchecked: its branch greys out)
- \- [x] B - upper stage + capsule
-       [x] dock to station S
-       [x] re-entry + landing
-```
-
-- Each leg row = one recording (post-optimizer), with an include checkbox; debris
-  is not shown (it rides along its parent leg). Rows are labeled by their end
-  event. Note: optimizer env-splits mean a single controlled activity (e.g.
-  transit) can become several stacked rows whose end events are environmental
-  (entering atmosphere, SOI change), not gameplay milestones. Whether to visually
-  collapse consecutive same-line env-split rows is an open UI detail (open
-  question 5).
-- Checkbox behavior is the layer-4 trim rule: excluding a leg drops it and
-  everything downstream; greying enforces the contiguous interval from both ends.
-- Columns on the Mission (root) row: a Clone button, a Delete button, a loop
-  checkbox, and a loop period (the loop/period mirror the Recordings window's
-  controls but apply to the whole Mission). Delete removes that Mission; it is
-  greyed/blocked on the last remaining Mission for a tree (every tree always
-  keeps at least one).
-
-First real usage (the viability test): set loop + period on a Mission and have
-the whole selected subtree loop as one unit (one shared span clock over the
-included legs, debris riding along, members excluded from per-recording loop
-scheduling), instead of each recording looping independently. This is the
-concrete proof the abstraction is viable and the basis for later logistics.
+- One two-line BAR per Mission (layer 5): its name, a summary line, and the Mission-level
+  controls - `Log`, `Watch`, `Rewind` / `Forward` and `Collapse` in both modes; `Clone`,
+  `Delete` (greyed on a tree's first Mission, so every tree keeps at least one), `Warp to...`
+  and the `Loop [x] every [N] [unit]` row in Advanced.
+- Under it, one row per physical vessel or EVA kerbal of the mission tree (layers 2-3,
+  `MissionVesselRowBuilder.Build` over the composition trees). Indentation increases ONLY at a
+  separation, so depth = separation lineage, never time or event count; debris is not a row
+  (it rides along its parent). Each row names the vessel and its event phrase
+  (`Launch -> Decoupled (Probe) -> Orbiting`).
+- The selection (layer 4) is edited in Advanced only: a per-vessel include checkbox and, in a
+  vessel's expanded interval rows, a per-interval one, writing `Mission.ExcludedIntervalKeys`
+  (start / end trim, no cascade). An excluded vessel row draws dimmed.
+- At a dock with another mission's vessel the co-parent is not expanded: a `Docked partner:`
+  row names it and its mission, with a `Go to` that opens that mission.
 
 ---
 
@@ -473,9 +444,9 @@ so the new fields persist with no extra wiring. `Mission.Clone` must copy all th
 
 ### UI
 
-A per-Mission-row loop checkbox + period cell, mirroring
-`RecordingsTableUI.DrawLoopPeriodCell`: a value text field plus a unit button cycling
-Sec / Min / Hour / Auto. Reuse the existing `ParsekUI` helpers (`TryParseLoopInput`,
+A per-Mission loop toggle + period cell on the mission bar (Advanced), sharing the Recordings
+tab's loop-period conventions: a value text field plus a unit button cycling
+`sec` / `min` / `hr` / `auto`, the `ParsekUI` helpers (`TryParseLoopInput`,
 `ConvertToSeconds`, `ConvertFromSeconds`, `FormatLoopValue`, `UnitLabel`) and the same
 clamp-to-`MinCycleDuration` rule. The loop toggle allows concurrent loops across trees
 but one per tree: turning loop on for a Mission turns it off only on other Missions that

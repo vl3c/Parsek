@@ -4,21 +4,15 @@
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how the GUI census gets from ~166 photographed states to ~450, and the owner-facing iteration loop built on top of that.*
 
-**Amendment 2026-09-27:** the Career State window was removed (owner decision), and with it
-the `career` mock window, `GuiMockCareerStates.cs`, its two suppression sites
-(`career-vm-rebuild`, `career-invalidate`), the Career in-game apply cell and
-`GuiMockCareerIdShapeTests`. The catalogue now covers Kerbals and Structure List (24 states
-since the 2026-10-01 route-Log retirement removed the three `structure.route.*` states, four
-`GuiMock` cells; the Structure payload lost its `RouteMode` flag with them). The Career passages below are the record of the design and its bugs.
-
-**Status:** P1 + P1b BUILT, NEVER RUN IN KSP (2026-09-22). The `op=mock` primitive, the
-compiled catalogue (43 states across Kerbals / Career State / Structure List), the session
-and its four cache suppressions, the dump's `mock` provenance block, the completeness guard
-and the raised harvest cap all ship, with five in-game `GuiMock` cells for the
-suppression-plus-draw path. NOTHING HAS FLOWN: P1 ships no lane by design (P2 owns them),
-the `GuiMock` category is driven by no committed spec, and every in-game pin is a
-prediction. P2 onward remain design. Section 18 records every place the code forced a change
-from the design and why; read it before building P2.
+**Status:** P1 + P1b BUILT, NEVER RUN IN KSP. The `op=mock` primitive, the compiled catalogue
+(24 states: 13 Kerbals, 11 Structure List / mission Log), the session and its cache
+suppressions, the dump's `mock` provenance block, the completeness guard and the raised
+harvest cap all ship, with four in-game `GuiMock` cells for the suppression-plus-draw path.
+NOTHING HAS FLOWN: P1 ships no lane by design (P2 owns them), the `GuiMock` category is driven
+by no committed spec, and every in-game pin is a prediction. P2 onward remain design, and the
+windows sections 6-7 plan beyond Kerbals and Structure List are design, not code. Section 18
+records every place the code forced a change from the design and why; read it before building
+P2.
 **Out of scope:** the mirror page itself (`docs/dev/design-gui-mirror.md` owns it; this doc only specifies what the gallery adds to it), the dump format (`docs/dev/design-gui-tree-dump.md`), the measured window inventory (`docs/dev/design-gui-inventory.md`), the existing seam op vocabulary (`docs/dev/design-autotest-command-seam.md`), hover / tooltip capture (refuted instrument, `TestCommandUiPointer.cs:92-102`), and `harness/tools/gui_mirror_fidelity.py` (assumed to exist; this doc names where it plugs into the loop).
 **Related docs:** `design-gui-mirror.md`, `design-gui-tree-dump.md`, `design-gui-inventory.md`, `design-gui-kerbals-window.md`, `design-autotest-command-seam.md`, `design-autotest-harness-core.md`, `autotest-status.md`.
 
@@ -37,7 +31,6 @@ The 2026-09-21 coverage audit enumerated **~480 visibly distinct states** across
 | Logistics hold clauses | 17 | 0 | each needs a route that failed for one specific reason at one specific cycle |
 | Logistics reject reasons | 12 | 0 | needs a career whose trees are ineligible in twelve different ways |
 | Logistics route statuses | 9 | 3 | `EndpointLost`, `DestinationFull`, `WaitingForFunds`, `SourceChanged` are multi-hour careers |
-| Career divergence banner | 1 | 0 | needs a rewind that moves committed actions into the future |
 | Kerbals `Lost` / `Retired` and the stand-in chain forms | ~6 | 0 in the current design | needs a fatal flight, or a displaced stand-in after its owner returns |
 | Timeline supersede, rewind-armed, live Re-Fly | ~6 | 0 | needs a live Re-Fly session mid-flight |
 | Test Runner failed row, running state | 2 | 0 | needs a deliberately failing test and a non-blocking run |
@@ -96,17 +89,15 @@ Nothing. Every surface here is automation-only, armed by `PARSEK_TEST_COMMANDS=1
 
 ## 4. Scenarios
 
-The design is answerable only against concrete cases. These five are the acceptance set.
+The design is answerable only against concrete cases. These four are the acceptance set.
 
 **S1. The reason string nobody has seen.** `logistics.hold.escrow-short` replaces a green delivery cell with `Held: escrow short by 1,240 funds ...`, truncated to 60 characters by `LogisticsHoldPresentation.TruncateForCell` and re-tinted yellow. Today: 0 of 17 hold clauses photographed. Under the gallery: one catalogue entry, one capture, and the truncation is measured off the real `GUI.Label` rect rather than argued about.
 
-**S2. The window whose whole point has no picture.** `career.banner.divergent` draws `Career mode - UT 414 (timeline ends at UT 9310)` plus the split `Active now (N)` / `Pending in timeline (K)` layout. Reachable today only by rewinding a dense career.
+**S2. A layout change the owner wants to judge.** The owner asks for a wider column. The loop must show him the same states before and after, side by side, with the node counts and worst header-to-cell dx measured off both dumps.
 
-**S3. A layout change the owner wants to judge.** The owner asks for wider Rewards cells in Milestones. The loop must show him the same 34 Career states before and after, side by side, with the node counts and worst header-to-cell dx measured off both dumps.
+**S3. The state that must stay real.** The Missions window's row identity is an index into the raw committed list by explicit design (`RecordingsTableUI.cs:1749-1755`). Mocking that store in memory is exactly what philosophy 2 forbids. So the design must reach those states another way, or say plainly that it does not.
 
-**S4. The state that must stay real.** The Missions window's row identity is an index into the raw committed list by explicit design (`RecordingsTableUI.cs:1749-1755`). Mocking that store in memory is exactly what philosophy 2 forbids. So the design must reach those states another way, or say plainly that it does not.
-
-**S5. A mock that must not survive.** A gallery run is killed mid-state by a KSP crash. The next boot must find no mocked data anywhere, and no save may contain any. This has to be true by construction, not by a finally block.
+**S4. A mock that must not survive.** A gallery run is killed mid-state by a KSP crash. The next boot must find no mocked data anywhere, and no save may contain any. This has to be true by construction, not by a finally block.
 
 ---
 
@@ -118,7 +109,7 @@ An automation-only op swaps a window's view model or row source for a catalogue 
 
 **Evidence that this fits the existing seam rather than inventing a new mechanism.** `UiAction` already has sixteen ops (`open close tab complexity rect describe pointer find expand target picker dialog playback raise dismiss run`, `TestCommandUiAction.cs:596-604`), three of which MUTATE UI state for the duration of a capture (`op=expand`, `op=playback state=`, and `op=raise`, which deliberately leaves a modal standing to be photographed). It already has a two-phase settle contract - initiate, then confirm after one drawn frame (`ParsekTestCommandAddon.UiAction.cs:385-395`, `SetExecResult(PendingVerdict, null, null)`). It already refuses an op when the game forbids it (`complexity-refused-gloops-recording`, `TestCommandUiAction.cs:339`). It already has a pure/applier split with source-gate tests over the applier's own tables (`GuiCensusApplierSourceGateTests`, which derives the applier's window tables from its comment-stripped source). A mock op is the same shape with a different payload.
 
-**Evidence that the windows are injectable.** Two windows are settable TODAY with zero production change: `KerbalsWindowUI.CachedViewModelForTesting` (`UI/KerbalsWindowUI.cs:132-136`) and `CareerStateWindowUI.CachedVMForTesting` (`UI/CareerStateWindowUI.cs:209-213`). Career State is the reference case: everything from the VM read at `:1384` downward is a pure function of `vm` - a grep for `RecordingStore|EffectiveState|Ledger|FlightGlobals|HighLogic|Planetarium|ContractSystem|StrategySystem` over `:1384-2072` returns nothing. Kerbals is the same: over the whole draw path `:595-916` the only non-VM reads are chrome (`parentUI.GetTableRowStyle()`, `GUI.skin.label`). And all seventeen Logistics presentation helpers are pure and Unity-free, so the strings a mock produces are produced by the same code the game runs.
+**Evidence that the windows are injectable.** The Kerbals window is settable with zero production change through `KerbalsWindowUI.CachedViewModelForTesting`: over its whole draw path the only non-VM reads are chrome (`parentUI.GetTableRowStyle()`, `GUI.skin.label`). And all seventeen Logistics presentation helpers are pure and Unity-free, so the strings a mock produces are produced by the same code the game runs.
 
 **Cost.** Entirely per-window, and it depends on how much of each window's pixels come from a model versus from live statics read inline inside the draw method. Section 6 is that audit, window by window, with the live cells named.
 
@@ -133,7 +124,7 @@ Extend `Source/Parsek.Tests/Generators/` (RecordingBuilder, VesselSnapshotBuilde
 
 For these two, the only cheap injection point is the store - which philosophy 2 forbids in memory. A **save** the generators authored is the legitimate form of the same mock: it is data, it is reproducible, it is committed, and the game loads it through its ordinary path. So B owns the store-shaped windows and A owns the model-shaped ones.
 
-**What A reaches that B cannot.** Anything with no representation on disk: a Test Runner mid-run, a failing test row, a Logistics hold computed from a live capacity probe, a candidate cost, a Spawn Control row inside the warp radius, a Career VM in divergence without actually rewinding. Roughly two thirds of the enumerated gap.
+**What A reaches that B cannot.** Anything with no representation on disk: a Test Runner mid-run, a failing test row, a Logistics hold computed from a live capacity probe, a candidate cost, a Spawn Control row inside the warp radius. Roughly two thirds of the enumerated gap.
 
 **What the generators can and cannot author today.** This decides how much of B is buildable. `ScenarioWriter.BuildScenarioNode` (`Source/Parsek.Tests/Generators/ScenarioWriter.cs:287-347`) is exhaustive, and `InjectIntoSave` (`:375-389`) string-inserts that one node before `\tFLIGHTSTATE`, so it structurally cannot reach `GAME/PARAMETERS` or `GAME/ROSTER` or any other `SCENARIO`:
 
@@ -165,7 +156,7 @@ Five of those six absences are a mechanical `ScenarioWriter` extension over a co
 Running the draw code outside KSP is not achievable at layout fidelity. Four independent blocks, each measured rather than argued:
 
 1. **The GUI entry points refuse to run outside a GUI pass, and the depth flag cannot even be read headlessly.** `GUIUtility.guiDepth` is an `[MethodImpl(InternalCall)]` extern; `GUIUtility.CheckOnGUI` throws "You can only call GUI functions from inside OnGUI" when it is `<= 0`. The project already documents that `Delegate.CreateDelegate` over that ECall is refused in the xUnit host ("ECall methods must be packaged into a system module") and that a headless host makes `ReadGuiDepth` return `GuiDepthUnavailable` (`design-gui-tree-dump.md:80-95`). So a headless host is not merely unblessed, it is the case the recorder has a documented fallback for.
-2. **No layout without a real `GUISkin`.** Every rect in a Parsek window is computed by `GUILayout`'s two-pass layout against styles from `GUI.skin` / `HighLogic.UISkin`, which are Unity assets loaded from KSP's resources. A hand-built `GUIStyle` is not the shipped skin, and the mod's own tests never construct one: they reason about `GUI.skin` metrics as constants and pin source text instead (`TableRowInsetAlignmentTests.cs:197-269`, `CareerStateWindowUITests.cs:1557`).
+2. **No layout without a real `GUISkin`.** Every rect in a Parsek window is computed by `GUILayout`'s two-pass layout against styles from `GUI.skin` / `HighLogic.UISkin`, which are Unity assets loaded from KSP's resources. A hand-built `GUIStyle` is not the shipped skin, and the mod's own tests never construct one: they reason about `GUI.skin` metrics as constants and pin source text instead (`TableRowInsetAlignmentTests`).
 3. **No text measurement without the native font.** Widths come from `GUIStyle.CalcSize` through Unity's native `TextGenerator` and the font KSP loaded. The mirror already proves how sensitive this is: it had to calibrate to Arial 13px against measured ink extents of 136 / 144 / 87 px, because "a font that is 8% wide overflows cells the game fits" (`design-gui-mirror.md:49-58`). A stub layer would be exactly that error, at every cell, with no photo to catch it.
 4. **Unity batch mode is not the same renderer either.** Even `-batchmode` inside Unity would need KSP's skin, fonts, screen metrics and `ClickThruBlocker` (the mod's window host is `ClickThruBlocker.GUILayoutWindow`), i.e. it would need KSP - at which point it is the harness instance with extra steps.
 
@@ -173,36 +164,33 @@ Verdict: **C is refused.** A stub GUI layer that records "the same tree" would p
 
 ### 5.D Better ideas found in the code
 
-Three, all adopted into the recommendation:
+Two, both adopted into the recommendation:
 
 **D1. A batch-owner verb, not 900 spec steps.** Driving ~300 states from the TOML at 3 steps each is ~900 steps and about 6 minutes of pure harness channel latency. The seam already has the batch-owner shape for exactly this: `RunTests` owns an in-game batch and emits one `BATCH_COMPLETE v1 total=N passed=... skipped=S` line the spec pins (`TestCommandRunTests.cs:34-48`). Measured latency per seam op is ~0.24 s (`uiaction complexity` 18:54:30.527 -> `open` :30.768 -> `open` :30.788 -> `rect` :31.025 in the GUI-5 log), against 0.086 s for a whole `DumpGuiTree` (recv :31.779 -> ok :31.865) and `elapsed=0.1s` for a screenshot. So a `GalleryRun` verb that loops in-game removes roughly 60 percent of the wall time and shrinks the spec to about twenty steps.
 
-**D2. Reuse `WindowRectForTesting`, which every window already has.** `StructureListWindowUI.cs:36`, `SpawnControlUI.cs:27`, `TestRunnerUI.cs:27`, `SettingsWindowUI.cs:253`, `TestRunnerShortcut.cs:148`, `KerbalsWindowUI.cs:45`, `CareerStateWindowUI.cs:36`, `GloopsRecorderUI.cs:27`. `op=rect` already drives it to enlarge a window so one capture shows more rows. The gallery needs no new sizing surface.
-
-**D3. Two title-lookup seams already exist in Career State.** `ContractTitleLookupForTesting` (`:181`) and `StrategyTitleLookupForTesting` (`:186`) are consulted before `ContractSystem.Instance` / `StrategySystem.Instance` (`:1110`, `:1151`). That is the exact shape the other windows' live cells need, and it is a precedent to copy rather than a pattern to invent.
+**D2. Reuse `WindowRectForTesting`, which every window already has** (`StructureListWindowUI`, `SpawnControlUI`, `TestRunnerUI`, `SettingsWindowUI`, `TestRunnerShortcut`, `KerbalsWindowUI`, `GloopsRecorderUI`). `op=rect` already drives it to enlarge a window so one capture shows more rows. The gallery needs no new sizing surface.
 
 ---
 
 ## 6. Per-window injectability audit
 
-Every claim below is from the source at `origin/main` commit `a5c47c7e1`. "Live cells" is the important column: those are cells a mock does NOT control, so a catalogue state either avoids them or the phase adds a seam for them.
+Every claim below, line citations included, is from the source at `origin/main` commit `a5c47c7e1`; rows for windows and controls that no longer exist are removed, and the row numbers are the audit's. "Live cells" is the important column: those are cells a mock does NOT control, so a catalogue state either avoids them or the phase adds a seam for them.
 
 | # | Window | Model type (where) | Built where / pure? | Consumed where | Injection point | Cache key, does a mock survive? | Live cells under a mock | Est. lines | States unlocked (audit table) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | **Kerbals** | `KerbalsViewModel` (`UI/KerbalsWindowUI.cs:204-209`) over POCO rows (`:229-244`, `KerbalsPresentation.cs:99-169`); zero live objects | `GatherViewModel` `:1026-1056` (impure); pure composer `BuildViewModel` `:1201-1211` | `DrawKerbalsWindow` `:595`, rows `:723/:879` | `CachedViewModelForTesting` `:132` - **settable today** | `cachedVM` `:123`; nulled by `InvalidateCache` `:259` and eight stock `GameEvents` `:288-295` -> **no**, needs a pin | **none** over `:595-916` (chrome only) | 0 + ~5 pin | 4.8: `Lost`, `Retired`, `as <stand-in>`, `Reserved for X until`, `(displaced)`, `|--` glyph: ~15 |
-| 2 | **Career State** | `CareerStateViewModel` `UI/CareerStateWindowUI.cs:225-237` + 4 tab VMs + 4 row structs; POCO (2 KSP enums) | `Build` `:363` **pure over 7 args**; 2 pre-seamed title lookups `:181/:186` | `DrawCareerStateWindow` `:1343`, tabs `:1460/:1576/:1681/:1732` | `CachedVMForTesting` `:209` - **settable today** | `ShouldRebuildCachedVM` `:893-923`, incl. UT-text compare `:917` -> **no**, rebuilt every game-second; needs a pin | `HighLogic.CurrentGame` `:1351`, `Planetarium.GetUniversalTime()` `:1368`, both ABOVE the VM read | ~10-20 | 4.7: divergence banner, `Active (N>0)`, pending folds, Flow cell, facility L>1, `(pending)`/`(closing)`: ~23 |
 | 3 | **Structure List** | `StructureStep` (`MissionStructureList.cs:31-40`), POCO | `Rebuild` `:131-149`, called **only** from `OpenForMission` `:112` / `OpenForRoute` `:123`, never per frame | `DrawWindow` `:235-306`, rows `:285-297` | the `steps` field `:53` (+ `mode`/`title` `:50-52`); needs one `OpenWithSteps(...)` | **no invalidation key at all** -> **yes, survives indefinitely** | `KSPUtil.PrintDateCompact` in `FormatTime` `:319` only | ~8-12 | 4.6: 6 of 10 terminal statuses, `EVA`/`Boarded`, `Crashed`/`Overheated`/`Broke up`, route pickup forms: ~16 |
-| 4 | **Settings** | none by design: binds `ParsekSettings.Current` at `UI/SettingsWindowUI.cs:324` | n/a | `DrawSettingsWindow` `:320` + 6 section draws | `ParsekSettings.CurrentOverrideForTesting` (`ParsekSettings.cs:406`) - **settable today**; the 5 statics below need separate handles | none -> **yes** | `ParsekUI.AppliedUiComplexityMode` `:341`; `UiSurfaceVisibility.IsVisible` `:356/:389/:404/:412` (decides which sections exist); `parentUI.Flight.IsGloopsRecording` `:491/:513`; `RewindPointDiskUsage` `:700-704`; `RecordingStore.CommittedRecordings.Count` `:760` + `MilestoneStore.Milestones.Count` `:761` (the two Wipe labels + enablement `:763/:778`) | 0 for values, ~15-25 for the 5 handles | 4.9: greyed Wipe pair + reasons, density Low/High, 5 diagnostics toggles, Basic-disabled + hint: ~12 |
+| 4 | **Settings** | none by design: binds `ParsekSettings.Current` at `UI/SettingsWindowUI.cs:324` | n/a | `DrawSettingsWindow` `:320` + 6 section draws | `ParsekSettings.CurrentOverrideForTesting` (`ParsekSettings.cs:406`) - **settable today**; the 5 statics below need separate handles | none -> **yes** | `ParsekUI.AppliedUiComplexityMode` `:341`; `UiSurfaceVisibility.IsVisible` `:356/:389/:404/:412` (decides which sections exist); `parentUI.Flight.IsGloopsRecording` `:491/:513`; `RewindPointDiskUsage` `:700-704` | 0 for values, ~15-25 for the 5 handles | 4.9: density Low/High, 5 diagnostics toggles, Basic-disabled + hint |
 | 5 | **Timeline** | `List<TimelineEntry>` (`Timeline/TimelineEntry.cs:73-99`); POCO apart from `UnityEngine.Color` (a plain struct) | `TimelineBuilder.Build` (`Timeline/TimelineBuilder.cs:36-42`) pure; call site impure (`UI/TimelineWindowUI.cs:474-486`, ERS `:479`, ELS `:482`) | `DrawEntryList` `:1098`, `DrawEntryRow` `:1275` | `cachedTimeline` `:101` (private, needs an accessor) + `recordingById` `:185` + `committedIndexById` `:193` | `ShouldRebuildTimeline` `:771-775` = `dirty \|\| missing \|\| archiveChanged`, **no UT trigger** -> **yes**, while nothing calls `InvalidateCache` `:366` | `Planetarium` `:1108/:933/:570`; a **second unthrottled** `ComputeERS()` in `DrawTimeRangeFilterBar` `:931` (slider bounds); per-row ghost reads `flight.HasActiveGhost` `:1340` .. `DescribeWatchFocusForLogs` `:1360`; `GetRewindSaveFileName` `:1617/:1788`; `CanFastForwardAtUT` `:1776`; **`File.Exists`** `:1815-1820`; `ResolveUnfinishedFlightRewindRoute` `:1208/:1509`; and row buttons need real `Recording`s in `recordingById` or **no W/R/FF/GoTo/Fly/Seal cell draws at all** | ~40-70 entries only; ~120-160 with row actions | 4.2: strikethrough supersede, archived marker, source toggles OFF, custom range, `W*`, disabled `W`, `FF`, dim future rows, `T-`: ~28 |
 | 6 | **Group Picker** | `GroupPickerTreeModel` (`UI/GroupPickerPresentation.cs:5-23`), strings only | `BuildTreeModel` `:121-173` pure over 4 args; called **inside the draw** every frame (`GroupPickerUI.cs:197-201`) | `DrawGroupPopupContents` `:239`, `DrawGroupPopupNode` `:310-354` | the `treeModel` local `:197` -> hoist to a nullable field; plus one seeder for `groupPopupOpen/Group/Checked/Expanded` `:74-82` | none (rebuilt per frame) -> **yes**, once the override is checked each frame | `Screen.width/height` `:210-211`; `parentUI.KnownEmptyGroups` `:272` (click only) | ~20-30 | 4.4: collapsed node, chain-opened, `CycleInvalid` pruning, depth >= 2, multi-selection: ~9 |
 | 7 | **Real Spawn Control** | `NearbySpawnCandidate` (`SelectiveSpawnUI.cs:11-22`) + pure `SpawnCandidateRowPresentation` (`SpawnControlPresentation.cs:21-39`, built by pure `BuildRowPresentation` `:88-92`) | `ParsekFlight.CollectNearbySpawnCandidates` `:27256`; exposed getter-only `NearbySpawnCandidates` `:511` | `DrawSpawnControlWindow` `UI/SpawnControlUI.cs:234`, rows `:290` | nullable override read at `:241` (+ `:142`, `:287`) **and** a UT override for `:240`; injecting `cachedSortedCandidates` `:44` does not work (gate `:269-282`) | `cachedSortedCandidates` keyed on count + `ProximityCheckGeneration` + sort -> **yes** for a constant-count list, if the generation is frozen | **`Planetarium.GetUniversalTime()` `:240`** (feeds every countdown `:305/:333`, `BuildRowPresentation` `:308`); `NearbySpawnRadius`/`MaxRelativeSpeed` `:309-310` (green tint `:319`, warp enable `:352`); auto-close gate `:142-153` force-closes outside FLIGHT or on zero candidates | ~25-40 | 4.10: multiple rows, `ConditionsMet` green + enabled warp, `Departing -> X`, `Departs T-`: ~8 |
 | 8 | **Test Runner** x2 | `InGameTestInfo` (`InGameTests/InGameTestRunner.cs:30-60`) - mutable class carrying `MethodInfo`/`Type`, but the draw never dereferences them (`UI/TestRunnerUI.cs:284-401`) | `DiscoverTests` `:315-345` (reflects the assembly); grouped by `RebuildTestGroupCache` `:230-245` (pure over `cachedTestGroups`) | `DrawTestRunnerWindow` `:427`, `DrawTestCategoryList` `:284` | the `testRunner` field `:41` (getter-only `RunnerForTesting` `:190`); a list-only mock needs a settable runner, a running/failed mock needs an interface seam because `IsRunning/Passed/Failed/Skipped` are `private set` `:277-280`. Global twin: `TestRunnerShortcut.cs:26`, `:474`, `:487-489` | `cachedTestGroups` `:43`, rebuilt on `null \|\| (wasRunning && !running)` `:516-518` -> **yes** at runner level, **no** if injected into the group cache | `HighLogic.LoadedScene` `:347` (greys/dims every FLIGHT row), `:483`, `:486`; runner counters `:440/:463/:474-479` | ~10 list-only; ~40-60 with the interface | 4.12: RUNNING, failed row, skipped/dimmed/`[single]`, FLIGHT scene, global results: ~9 |
 | 9 | **Logistics** | **no window VM.** Four row sources: `Route` (`Logistics/Route.cs:40`, POCO), `RouteCandidate` / `RouteNearMiss` (`RouteCandidateFinder.cs:13/:35`, both carry a live `RecordingTree`), and the private `RouteLegibility` struct (`UI/LogisticsWindowUI.cs:253-346`) which IS the de-facto pure row VM. **All 17 presentation helpers are pure and Unity-free** | 3 impure wall-clock refreshers: `GetCandidates` `:2992`, `GetNearMisses` `:3042`, `RefreshLegibilityCacheIfDue` `:3068` (reads ELS `:3290/:3350/:3456`, `HighLogic.CurrentGame.Mode` `:3277`, `FlightGlobals` `:3543`, live `LiveDeliveryCapacityProbe` `:3391`) | `DrawWindow` `:592`, `DrawRouteRow` `:1072`, `DrawCandidateRow` `:1578` - the row draws themselves are clean, every cell from `route.*` + `GetLegibility(route)` `:1089` | **five**: `RouteStore.CommittedRoutes` at `:598` (extract), `cachedCandidates` `:166`, `cachedNearMisses` `:195`, `legibilityCache` `:214`, `RouteStore.DormantRoutes` at `:781` | wall clock x3 (`:2993`, `:3043`, `:3071`), and **`legibilityCache.Clear()` `:3076`** every 1 s -> **no**, needs the refreshers pinned; L2 sort caches `:234-237`/`:3609-3611` | `RouteStore.TryGetRoute` `:1809`, `RecordingStore.CommittedTrees` `:2060`, `RecordingStore.TryResolveRecordingDisplayInfo` `:2289` (all expanded-row detail text), `Planetarium` via `TryGetCurrentUT` `:3751` | ~180-280 | 4.5: 17 holds, 12 rejects, 6 statuses, 2 badges, `Recent cycles:`, capacity, `Pause`, dormant section, candidates: **~70** |
-| 10 | **Missions window** | three pure layers (`MissionVesselRow` `MissionVesselRows.cs:21-37`, `MissionSummaryFacts` `MissionPresentation.cs:116-136`, chapters, periodicity) but the draw's inputs are live `Mission` + `RecordingTree` | `GetMissionView` `UI/MissionsWindowUI.cs:1135-1181` from a live tree, once per tree per frame | the whole file | **not in this file**: `RecordingStore.CommittedTrees` + `MissionStore.Missions` | every derived cache keyed on **`Time.frameCount`** `:1137-1148` -> **no mock can live in any of them** | ~40 inline static reads incl. `MissionStore.HideArchived` `:952/:1032/:4483` (decides how many blocks draw), ERS `:739`, `Planetarium` x8 | 300-600 to make it VM-driven | via option B only |
+| 10 | **Missions window** | three pure layers (`MissionVesselRow` `MissionVesselRows.cs:21-37`, `MissionSummaryFacts` `MissionPresentation.cs:116-136`, chapters, periodicity) but the draw's inputs are live `Mission` + `RecordingTree` | `GetMissionView` `UI/MissionsWindowUI.cs:1135-1181` from a live tree, once per tree per frame | the whole file | **not in this file**: `RecordingStore.CommittedTrees` + `MissionStore.Missions` | every derived cache keyed on **`Time.frameCount`** `:1137-1148` -> **no mock can live in any of them** | ~40 inline static reads incl. ERS `:739` and `Planetarium` x8 | 300-600 to make it VM-driven | via option B only |
 | 11 | **Recordings tab** | **none.** Live `Recording` objects by index (`UI/RecordingsTableUI.cs:1756`, `[ERS-exempt]` `:1749-1755`) | n/a | the whole file | **not in this file**: `RecordingStore.CommittedRecordings` | `sortedIndices` keyed on `RecordingStore.StateVersion` `:425-427/:4890` -> only if `StateVersion` is stable | ~20 store predicates per row (`CanFastForward`, `CanRewind`, `GetRewindRecording`, `IsRewindRetired`, `GetSegmentPhaseLabel`, `Planetarium` `:1759`) | 400-800 for a row model | via option B only |
 | 12 | **Gloops Recorder** | recorder state read live | n/a | `UI/GloopsRecorderUI.cs:105` | n/a - the seam already has `GloopsStart/Stop/Preview` verbs (`TestCommandGloopsVerbs.cs`) which reach all 3 missing states on a real host | n/a | n/a | 0 | 4.11: 3, already reachable; and the launcher is retired in both modes (`UiComplexityMode.cs:140-143`), so P3 in practice |
 
-**Reading of the table.** Nine of the twelve surfaces are injectable for well under 300 lines each; two (Kerbals, Career State) and one static (Settings values) are settable with no production change at all. Two windows (Missions, Recordings) are store-shaped and belong to option B. One (Gloops) needs nothing. The single largest prize is Logistics: ~70 states for ~180-280 lines, and its helpers being pure is what makes the completeness guard of section 11 possible.
+**Reading of the table.** Eight of the eleven surfaces are injectable for well under 300 lines each; Kerbals and one static (Settings values) are settable with no production change at all. Two windows (Missions, Recordings) are store-shaped and belong to option B. One (Gloops) needs nothing. The single largest prize is Logistics: ~70 states for ~180-280 lines, and its helpers being pure is what makes the completeness guard of section 11 possible.
 
 ---
 
@@ -223,7 +211,6 @@ GuiMockState                      - one catalogue entry, immutable
 
 GuiMockPayload                    - the union the applier hands to one window
   Kerbals: KerbalsViewModel?
-  Career: CareerStateViewModel?
   Timeline: List<TimelineEntry>?
   TimelineRecordings: List<Recording>?      - seeds recordingById so row buttons draw
   Structure: GuiMockStructure?              - steps + title + TargetMode
@@ -242,7 +229,7 @@ GuiMockSession                    - the live scope, one at a time, process-lifet
   Restore: Action                 - captured closures that put every touched member back
 ```
 
-Nothing here is serialized. `GuiMockSession` is a static on an automation-only type, not a field of `ParsekScenario`, so `OnSave` has nothing to write even if a session is live (S5).
+Nothing here is serialized. `GuiMockSession` is a static on an automation-only type, not a field of `ParsekScenario`, so `OnSave` has nothing to write even if a session is live (S4).
 
 ### 7.2 Where the catalogue lives
 
@@ -252,7 +239,6 @@ Nothing here is serialized. `GuiMockSession` is a static on an automation-only t
 GuiMockCatalogue.cs          - the registry: All, ById, ForWindow, plus the arming gate
 GuiMockPayload.cs            - the union + the small per-window carrier types
 GuiMockKerbalsStates.cs      - builders returning real KerbalsViewModel
-GuiMockCareerStates.cs       - real CareerStateViewModel
 GuiMockTimelineStates.cs     - real List<TimelineEntry>
 GuiMockStructureStates.cs    - real List<StructureStep>
 GuiMockLogisticsStates.cs    - real Route / RouteLegibility / RouteCandidate
@@ -332,7 +318,6 @@ Section 6 shows three different cache behaviours. One mechanism covers all of th
 
 | Window | What the phase adds |
 | --- | --- |
-| Career State | `ShouldRebuildCachedVM` `:893` returns false while a session owns `career`; the UT-text compare at `:917` is what would otherwise clobber the VM within one game-second |
 | Kerbals | `InvalidateCache` `:259` and `OnLiveCrewStateChanged` `:361` become no-ops while a session owns `kerbals` (eight stock `GameEvents` feed them, `onVesselChange` among them) |
 | Timeline | `ShouldRebuildTimeline` `:771` returns false; `InvalidateCache` `:366` is suppressed |
 | Logistics | the three wall-clock refreshers `:2993/:3043/:3071` return early, and `legibilityCache.Clear()` `:3076` is skipped |
@@ -345,7 +330,7 @@ The suppression is one predicate read per rebuild site, `GuiMockSession.Owns("<w
 
 Four layers, in order of strength.
 
-1. **Structural (the only one that has to work).** Every injected member is a UI-layer field: `cachedVM`, `cachedTimeline`, `steps`, `legibilityCache`, `cachedCandidates`, a nullable override field, or `ParsekSettings.CurrentOverrideForTesting`. None of them is read by `ParsekScenario.OnSave` (`:1165`), by any sidecar writer, or by `RecordingStore` / `Ledger` / `MissionStore` / `RouteStore`. A save taken mid-mock writes the real game. This is what makes S5 true by construction rather than by a finally block. A grep gate enforces it: the gallery applier's write-set must be confined to the injection members the catalogue declares, and no gallery file may appear in `scripts/ers-els-audit-allowlist.txt` (it reads no committed recordings at all; where it needs effective state it routes through `EffectiveState.ComputeERS/ComputeELS` like every other consumer).
+1. **Structural (the only one that has to work).** Every injected member is a UI-layer field: `cachedVM`, `cachedTimeline`, `steps`, `legibilityCache`, `cachedCandidates`, a nullable override field, or `ParsekSettings.CurrentOverrideForTesting`. None of them is read by `ParsekScenario.OnSave` (`:1165`), by any sidecar writer, or by `RecordingStore` / `Ledger` / `MissionStore` / `RouteStore`. A save taken mid-mock writes the real game. This is what makes S4 true by construction rather than by a finally block. A grep gate enforces it: the gallery applier's write-set must be confined to the injection members the catalogue declares, and no gallery file may appear in `scripts/ers-els-audit-allowlist.txt` (it reads no committed recordings at all; where it needs effective state it routes through `EffectiveState.ComputeERS/ComputeELS` like every other consumer).
 2. **The seam refuses to save.** `SaveGame` answers `save-refused-gui-mock` while a session is live. A lane that wants a save ends the session first. This is a lane-hygiene guard, not a data guard.
 3. **Every exit clears.** The addon already subscribes `onGameSceneLoadRequested` and `onLevelWasLoaded` (`ParsekTestCommandAddon.cs:246-247`): both clear the session. `FlushAndQuit` clears. An exception anywhere inside apply, draw-settle or capture runs restore and answers `ui-action-threw` / `mock-not-applied`. `GalleryRun` restores in a `finally` per state, so one bad state cannot poison the next.
 4. **A process that dies mid-mock leaves nothing**, because of (1). `ParsekScenario.OnLoad` logs one Warn if it ever finds a session static set at load (it cannot, across processes) - cheap, and it makes the claim observable rather than assumed.
@@ -358,7 +343,6 @@ Every one of these transitions is logged (section 10).
 
 ```
 logistics.hold.escrow-short   ->  mock-logistics-hold-escrow-short-advanced
-career.banner.divergent       ->  mock-career-banner-divergent-advanced
 kerbals.roster.lost           ->  mock-kerbals-roster-lost-advanced
 ```
 
@@ -471,7 +455,7 @@ Runs `Restore`, clears the session, logs. Then the window's own invalidation is 
 | --- | --- | --- |
 | E1 | `op=mock` on a window with no seam yet | `mock-window-unsupported`, message names the supported set. Phases add windows; the refusal names what this build has. |
 | E2 | Two mocks at once | `mock-refused-session-live`. One at a time: two windows' suppressions interacting is a state nobody can reason about, and the gallery has no need for it. |
-| E3 | Complexity switch while a mock is live | allowed only if the state does not pin a mode; `op=complexity` is already refused during a Gloops recording (`ParsekTestCommandAddon.UiAction.cs:748-759`) and the session is orthogonal to it. Switching to Basic force-closes gated windows (`ParsekUI.BuildGatedWindowCloseSet:530-571`), so a Basic capture of Career is not a state (audit section 3 proves 6 of 9 such index rows are unreachable) and the catalogue must not declare one. Kerbals left the close set on 2026-09-22 (it draws in Basic), so its Basic capture IS a state. |
+| E3 | Complexity switch while a mock is live | allowed only if the state does not pin a mode; `op=complexity` is already refused during a Gloops recording (`ParsekTestCommandAddon.UiAction.cs:748-759`) and the session is orthogonal to it. Switching to Basic force-closes gated windows (`ParsekUI.BuildGatedWindowCloseSet`), so a Basic capture of a window Basic hides is not a state and the catalogue must not declare one. Kerbals draws in Basic, so its Basic capture IS a state. |
 | E4 | The window self-closes under the mock | Spawn Control does this on zero candidates (`SpawnControlUI.cs:142-153`). A catalogue state for that window must supply a non-empty list; the read-back catches the rest as `mock-not-applied`. |
 | E5 | A stock `GameEvent` fires mid-mock | the suppression holds (7.4). The event still reaches the real subsystems; only the window's cache rebuild is deferred. |
 | E6 | Scene change mid-mock | session cleared on `onGameSceneLoadRequested`; any in-flight `GalleryRun` stops and reports `failed` for the interrupted state. |
@@ -508,7 +492,7 @@ Subsystem tag `[GuiMock]` for the session and applier, reusing `[TestCommands]` 
 | Error | `mock restore failed` | `state=<id> window=<w> exception=<type>` |
 | Info | `gallery state` (one per state) | `i=<k>/<n> state=<id> label=<label> verdict=<captured\|skipped\|failed> reason=<token or -> wall=<s>` |
 | Info | `GALLERY_COMPLETE v1` | `total= captured= skipped= failed= catalogue= wall=` |
-| Verbose | `mock suppression` | `site=<career-vm\|kerbals-invalidate\|timeline-rebuild\|logistics-legibility\|...> owner=<window>` - one-shot per site per session, not per frame |
+| Verbose | `mock suppression` | `site=<kerbals-invalidate\|timeline-rebuild\|logistics-legibility\|...> owner=<window>` - one-shot per site per session, not per frame |
 
 Numbers in payloads and log lines are formatted with `CultureInfo.InvariantCulture`: the `GALLERY_COMPLETE` line and the `k=v` payloads are parsed by the harness, which is the M-A2 response-grammar rule.
 
@@ -648,7 +632,7 @@ Sizes are production plus tests, rounded. "States" is against the audit's own ta
 | Phase | Scope | Size | States unlocked | Gate to the next phase |
 | --- | --- | --- | --- | --- |
 | **P0** | this doc, the mirror pointer, the todo entry | docs only | 0 | owner answers section 16 |
-| **P1** BUILT | the spine: `GuiMockState` / `GuiMockPayload` / `GuiMockCatalogue`, the `op=mock` primitive with its full refusal table, the `GuiMockSession` + four suppression sites, the dump `mock` block, the completeness guard (reflection over the enums PLUS named bool-driven branch keys), the write-set ALLOWLIST gate, the builder-fidelity gate, the id-shape gate, and five in-game `GuiMock` cells. Windows: **Kerbals** (0 lines of injection), **Career State** (0), **Structure List** (~45). The MIRROR half moved to P2 (section 18.7) | ~5600 with tests | **43** (Kerbals 14, Career 15, Structure 14) | `op=mock` green in-game for three windows; a mocked capture badged in the mirror |
+| **P1** BUILT | the spine: `GuiMockState` / `GuiMockPayload` / `GuiMockCatalogue`, the `op=mock` primitive with its full refusal table, the `GuiMockSession` + four suppression sites, the dump `mock` block, the completeness guard (reflection over the enums PLUS named bool-driven branch keys), the write-set ALLOWLIST gate, the builder-fidelity gate, the id-shape gate, and five in-game `GuiMock` cells. Windows: **Kerbals** (0 lines of injection), **Structure List** (~45). The MIRROR half moved to P2 (section 18.7) | ~5600 with tests | **24** (Kerbals 13, Structure 11) | `op=mock` green in-game for both windows; a mocked capture badged in the mirror |
 | **P1b** BUILT | **the harvest cap**: `ARTIFACT_MAX_SCREENSHOTS` 64 -> **1024** and `ARTIFACT_MAX_SCREENSHOT_BYTES` 256 MB -> **768 MB**, pinned by `test_hlib.GuiCensusSeamVerbTests.test_the_harvest_cap_fits_a_gallery_run`. Without this a run harvested 32 states and dropped the rest into `skipped_over_cap` | ~50 | unblocks every later phase | a 300-file harvest with `screenshotsSkipped = 0` |
 | **P2** | `GalleryRun` batch verb + `GUI-13-gallery-mock` (KSC) and `GUI-14-gallery-mock-flight` lanes (NOT BUILT) + **the mirror half, BUILT 2026-09-22**: the `mock` block read into `fixture = "mock"` with its badge and index fields, the pinned default dataset, the per-state notes + verdict with the `parsek-gui-mirror-notes/1` export and import blob, the `#win=` focus link and per-window Compare header, and P7's three retirement rules brought forward | ~450-550 | 0 new, but this is the phase that makes the loop exist | one full lane under 8 minutes; the owner completes one round of step 6-7 |
 | **P3** | **Logistics**: extract `RouteLegibility` (`:253-346`) into a public row model, five injection seams (`:598`, `cachedCandidates`, `cachedNearMisses`, `legibilityCache`, `:781`), pin the three wall-clock refreshers, the three detail-panel resolver seams, reason-clause constants (11.3), and the string half of the completeness guard | ~600-800 | **~70** - the single largest win in the program | 17 holds + 12 rejects + 6 statuses + both badges photographed |
@@ -657,7 +641,7 @@ Sizes are production plus tests, rounded. "States" is against the audit's own ta
 | **P6** | option B: five mechanical `ScenarioWriter` entry points over codecs that already ship (`MISSION`, `ROUTE` + `DORMANT_ROUTES`, `KERBAL_SLOTS`, `HIDDEN_GROUPS`, supersede + tombstone `ENTRY`) plus injector presets, spliced onto HARVESTED saves per the `SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE` caution, for **Missions** and **Recordings**. Ledger rows stay derived on load; settings stay seam-only (structurally out of reach) | ~400-600 | ~60 (sort states still need an `op=sort`) | - |
 | **P7** | housekeeping the audit already earned. **Done in the P2 mirror commit**: the 4 stale labels retire by supersession, all 4 empty-hover labels flag from the log or from an identical sibling, and 2 of the 3 mislabelled captures flag as label-versus-log - all three rules mechanical, no label named (`design-gui-mirror.md` 17). LEFT: index the one missing real state (`bdk-kerbals-roster-standin-chain-advanced`, a `--shots` argument), and the content mislabels a seam log cannot witness | ~100 | corrects ~8 false-coverage rows | - |
 
-P1 and P2 together are the minimum viable loop: three windows, ~45 states, one lane, before/after in the browser with notes coming back. P3 is where the coverage argument is won.
+P1 and P2 together are the minimum viable loop: two windows, 24 states, one lane, before/after in the browser with notes coming back. P3 is where the coverage argument is won.
 
 As of 2026-09-22 the mirror half of P2 is BUILT and the loop's steps 4 to 7 exist: a regeneration badges and isolates mocked captures, the review is scoped to one window by a link, and the owner's verdicts come back as a schema'd blob. What P2 still owes is the `GalleryRun` verb and the two lanes, so the corpus has no mocked capture yet - the mirror's own cells drive synthetic dumps instead.
 
@@ -746,36 +730,16 @@ therefore per-intent: the applier checks it for apply and clear, and the harness
 Section 7.1 gave each state an optional `Mode` field. The shipped form is a refusal instead:
 `mock-refused-mode`, checked against the PRODUCTION visibility predicate
 (`GuiMockCatalogue.IsMockableInMode`, which consults the surface-level gate the mode switch
-itself uses). Basic hides the Career State launcher AND the mode switch force-closes it, so a
-Basic apply would photograph a window no player can open - which the coverage audit already
-classifies as UNREACHABLE rather than uncaptured. (Kerbals was refused the same way until the
-2026-09-22 owner re-ruling made it draw in Basic; the predicate followed on its own, which is
-the point of consulting it rather than a per-state pin.)
+itself uses). A window whose launcher Basic hides is force-closed by the mode switch, so a
+Basic apply would photograph a window no player can open - which the coverage audit
+classifies as UNREACHABLE rather than uncaptured. Kerbals draws in Basic, so the predicate
+admits it there; consulting the predicate rather than a per-state pin is what keeps that
+answer right when a surface's gate changes.
 
 A per-state pin would have been the weaker answer: it puts the decision on 46 declarations
 instead of on the one predicate that already owns it, and a new state could still get it
 wrong. Structure List has no launcher surface at all - it is opened from a row and is not in
 the gated close set - so it is mockable in either mode.
-
-### 18.2c A SECOND writer of the Career cache, and the throw it caused
-
-`CareerStateWindowUI`'s cached view model has TWO writers: the rebuild predicate and an
-explicit `InvalidateCache` reached from `LedgerOrchestrator.OnTimelineDataChanged`. The
-first build suppressed only the predicate, so any ledger write nulled a mocked VM, the
-predicate then answered "do not rebuild" - and the draw dereferenced a null `Nullable` every
-frame, which a capture would have photographed as a half-drawn window under the mocked
-state's label.
-
-Two changes, because one alone would have left the shape reachable: a `career-invalidate`
-suppression site, and an ORDER change in the predicate so a NULL cache is ALWAYS rebuilt
-whatever the session says. A null cache under a live scope additionally marks the scope
-BROKEN, and the applier answers a new `mock-scope-broken` - distinct from
-`mock-not-applied`, because "the model was there and went away" sends an author to a missing
-suppression site rather than to the state or the lane.
-
-The source gate now derives its site set from every `GuiMockSession.Suppressed(...)` call in
-`Source/Parsek` rather than from the declared table alone, so a window's undeclared
-invalidation path reds locally.
 
 ### 18.3 The read-back is a DERIVED WITNESS SET, and it is THREE-PHASE
 
@@ -795,8 +759,7 @@ measured all three ways. The shipped form is:
 2. **The COVERED ROW comes first.** `GuiMockWitness.Covered` derives from the row that
    carries the state's own `Covers` branch, and `Expected` only tops up from the generic
    scan afterwards. A generic first-row scan produced witness sets that missed the state's
-   point entirely - seven Structure states witnessed only their launch row, six Career
-   contracts states shared one identical set - so a state could pass its read-back while
+   point entirely - seven Structure states witnessed only their launch row - so a state could pass its read-back while
    the cell it exists to photograph was absent. A state with a non-empty `Covers` whose
    covered derivation is empty is refused by the catalogue suite, and no two states may
    derive an IDENTICAL witness set (four pairs were dropped or differentiated rather than
@@ -831,9 +794,9 @@ transactional install that restores it. `GuiMockState.ExpandKeys` came with it: 
 chain view is a SEPARATE transient set from the view model, so the three chain states drive
 it through the window's own `SetRosterExpandedForTesting` - the member `op=expand` writes.
 
-### 18.5 `GuiMockPayload` carries three windows, not eleven
+### 18.5 `GuiMockPayload` carries two windows, not eleven
 
-Section 7.1 sketched the whole union up front. Nine null fields no code reads would be dead
+Section 7.1 sketched the whole union up front. Null fields no code reads would be dead
 surface that reads as coverage, and the point of a C# catalogue is that an unbuildable state
 is a compile error. Each later phase adds its window's field in the same commit as its
 builder, its applier arm and its refusal row.
@@ -891,22 +854,6 @@ its own inputs, and one fails on any string literal assigned to a drawn `Structu
 field - scoped to a `new StructureStep { ... }` initializer, because a gallery INPUT
 legitimately carries typed data (a `Recording`'s `VesselName` is the recorded craft name,
 and the builder decides whether any row shows it).
-
-### 18.6c The Career catalogue uses ids the game can hold
-
-Strategy titles are resolved FROM the id (`StrategySystem.Instance`, falling back to the raw
-id) and milestone titles are `SpaceBeforeCapitals` over a stock ProgressNode key, so an
-invented id renders a title no career can produce - the same class of defect as a typed
-cell, one layer up. The first build had four invented strategy names, including
-`"AggressiveNegotiations"` for a strategy stock spells `"AgressiveNegotiations"` (sic) and
-which is a `CurrencyOperation` with no Source -> Target flow at all, plus two milestone ids
-in neither production shape.
-
-The shipped catalogue uses stock cfg names only, each with its OWN declared input / output
-so the Flow cell reads what stock would produce, and milestone ids in the two shapes
-production writes (a bare node name, or `<Body>/<Node>`). `GuiMockCareerIdShapeTests` pins
-the stock names as test data, pins each converter's flow, and cross-checks the milestone ids
-against the committed fixtures' own ledgers - ids a real KSP wrote.
 
 ### 18.7 The MIRROR half moved to P2
 

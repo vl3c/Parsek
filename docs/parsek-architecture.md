@@ -63,11 +63,12 @@ Historical note: the original 0.4.3-era architecture spec (class-level pseudo-co
         +------------------+
 
     -------------------------- UI layer --------------------------
-      ParsekUI (main window + button row)
-         -> Recordings Manager, Timeline, Missions, Logistics,
-            Kerbals, Career State, Real Spawn Control, Settings
-            (Gloops Flight Recorder: retired 2026-08-28, window
-            code kept but launcher hidden in every mode)
+      ParsekUI (main window + launcher column)
+         -> Timeline, Missions (Missions + Recordings tabs),
+            Logistics, Kerbals, Real Spawn Control (flight),
+            Settings; the Gloops Flight Recorder launcher is
+            retired in every mode. Inventory:
+            dev/design-gui-inventory.md
 ```
 
 All UI windows are read-only views of the three stores above (`RecordingStore`, `Ledger`, `KerbalsModule`). Cache invalidation fans out through a single event (`LedgerOrchestrator.OnTimelineDataChanged`) after every recalculation walk.
@@ -80,13 +81,13 @@ Each of these is the authoritative source for its area. This index doesn't dupli
 
 - **Flight recorder + ghost playback**: [`parsek-flight-recorder-design.md`](parsek-flight-recorder-design.md) — trajectory sampling, part-event capture, commit/discard, ghost spawn/despawn, loop and overlap semantics, watch mode.
 - **Recording finalization reliability**: [`parsek-recording-finalization-design.md`](parsek-recording-finalization-design.md) — terminal-state and synthetic-tail contract for scene exit, crash, vessel unload/delete, background recordings, and Rewind-to-Separation dependencies.
-- **Timeline (entries + resource budget)**: [`parsek-timeline-design.md`](parsek-timeline-design.md) — timeline entry model, significance tiers, source toggles, time-range filter, resource-budget footer.
+- **Timeline**: [`parsek-timeline-design.md`](parsek-timeline-design.md) - timeline entry model, significance tiers, views and Career categories, source toggles, time-range filter, row actions.
 - **Game actions & career resources**: [`parsek-game-actions-and-resources-recorder-design.md`](parsek-game-actions-and-resources-recorder-design.md) — how KSP career events become `GameAction` ledger entries, resource module semantics, recalculation engine, action replay.
 - **Logistics / Supply Routes**: [`parsek-logistics-supply-routes-design.md`](parsek-logistics-supply-routes-design.md) - stock-first Supply Runs and Supply Routes; dock / transfer / undock (and claw / grapple) validation, non-KSC origins, pickup and mixed windows, multi-stop / multi-origin / round-trip linking, and inter-body routes.
 - **Missions (whole-mission looping)**: [`parsek-missions-design.md`](parsek-missions-design.md) - group a recording tree into a mission and loop it as a unit; launch-window periodicity / phase-locking, interplanetary transfer re-aim, and destination-SOI arrival holds. Logistics routes are built on this layer.
 - **Map / Tracking-Station ghost rendering**: [`parsek-ghost-trajectory-rendering-design.md`](parsek-ghost-trajectory-rendering-design.md) - the flight-scene ghost-geometry pipeline (smoothing / anchor-correction / terrain / outlier); the map / Tracking-Station draw layer is covered by [`dev/design-map-ts-render-architecture.md`](dev/design-map-ts-render-architecture.md).
 - **Rewind to Separation (v0.9)**: [`parsek-rewind-to-separation-design.md`](parsek-rewind-to-separation-design.md) — re-fly unfinished sibling missions from a past multi-controllable split. Effective-state model (ERS / ELS), append-only supersede relations, session-suppressed subtree, journaled staged merge, post-load strip, broad reviewed-career tombstone scope.
-- **Career State window**: [`dev/done/plans/career-state-window.md`](dev/done/plans/career-state-window.md) — four-tab career-state view, current-vs-projected walk, slot math, companion Kerbals→Timeline scroll.
+- **Window structure (all windows)**: [`dev/design-gui-inventory.md`](dev/design-gui-inventory.md) - what each window draws; [`dev/design-ui-basic-advanced.md`](dev/design-ui-basic-advanced.md) - what Basic hides; [`dev/design-gui-kerbals-window.md`](dev/design-gui-kerbals-window.md) - the Kerbals window.
 
 Completed design specs (now implementation-historical) live under [`dev/done/`](dev/done/). Recent ones worth knowing:
 

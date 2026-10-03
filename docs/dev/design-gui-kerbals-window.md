@@ -1,9 +1,8 @@
 # Parsek - Kerbals window: the two column tables
 
 Design authority for `Source/Parsek/UI/KerbalsWindowUI.cs` and its pure half
-`Source/Parsek/UI/KerbalsPresentation.cs`. Written with the 2026-09-15 rebuild and revised by
-the 2026-09-22 review round (section 2, "Round-2 rulings"); it replaces the row-model half of
-`design-gui-inventory.md` section 3.4, which now points here.
+`Source/Parsek/UI/KerbalsPresentation.cs`. `design-gui-inventory.md` section 3.4 summarizes
+the window and points here for the row model, the status vocabulary, the sizing and the seam.
 
 ## 1. What the window is for
 
@@ -15,81 +14,63 @@ In the mod's own words, from the two tab tooltips it ships:
 
 The window answers two questions and nothing else: **who can I fly right now, and why not**,
 and **what happened to this kerbal across my career**. It is READ-ONLY - no reserve,
-unreserve, swap, clear or dismiss control - and its only mutations are three transient,
-unpersisted fold states (the plain-kerbal bucket and a per-kerbal flight-group fold). Every
+unreserve, swap, clear or dismiss control - and its only mutations are transient, unpersisted
+fold states (the plain-kerbal bucket and a per-kerbal flight-group fold). Every
 crew mutation lives in `CrewReservationManager` and runs automatically inside the
 recalculation walk.
 
-It draws in BOTH complexity modes since the owner re-ruling of 2026-09-22 (ruling 1 below):
+It draws in BOTH complexity modes (ruling 1 below):
 `UiSurface.MainButtonKerbals` is `visibleInBasic = true` (`UI/UiComplexityMode.cs`) and the
 window is not in the Advanced -> Basic close set (`ParsekUI.BuildGatedWindowCloseSet`). Same
 window, both tabs, no Basic-specific variant.
 
-## 2. The operator's rulings (2026-09-15, binding)
+## 2. The operator's rulings (binding)
 
-1. The window stays **read-only**. The rebuild is a restructuring inside an existing
-   window, which is not a new player-facing surface. **AMENDED 2026-09-22 (owner
-   re-ruling): the window is visible in Basic too.** When ruled, it was the only surface
-   that explained why a reserved kerbal was missing from stock crew assignment (the
-   `CrewDialogFilter` patch removed him silently), and it is read-only, so showing it costs
-   a Basic player nothing he could break. Since 2026-09-25 (stock-UI overlays PR 6) the
-   VAB/SPH crew dialog lists that kerbal greyed out with the reason in his tooltip
-   instead of hiding him; whether that moves the window back to Advanced is the open
-   decision D3 in `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md`. It was Advanced-only from the 2026-09-15 rebuild until then.
+1. The window stays **read-only**, and it is **visible in Basic too**: it is the one
+   surface that lists every reserved, stand-in, retired and lost kerbal with the reason, and
+   it is read-only, so showing it costs a Basic player nothing he could break. (The VAB/SPH
+   crew dialog lists a reserved kerbal greyed with the reason in his tooltip; whether that
+   moves the window back to Advanced is the open decision D3 in
+   `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md`.)
 2. Both tabs are **column tables** with ONE shared inset: header row and body rows inside the
-   same container, through `ParsekUI.GetTableRowStyle` / `GetTableBodyBoxStyle`, so header and
-   cells align with zero delta (the house pattern from PRs #1679 / #1680).
-3. Tab 1 is renamed **Roster** (from "Roster State"); tab 2 is renamed **Flights** (from
-   "Mission Outcomes"). The seam tab TOKENS are unchanged: `roster` and `outcomes`.
+   same container, through `ParsekUI.GetTableRowStyle` / `GetTableBodyBoxStyle`, and every body
+   cell on a style built from `ParsekUI.GetTableCellStyle`, so header and cell TEXT align with
+   zero delta (the house table pattern, pinned by `TableRowInsetAlignmentTests`).
+3. Tab 1 is **Roster**, tab 2 is **Flights**. The seam tab TOKENS are `roster` and
+   `outcomes`.
 4. **Minimal, need-to-know, no spam.** Rows Parsek has something to say about are listed
    first and normally; plain available kerbals with no recorded flight collapse under ONE
    fold row, closed by default.
-5. A **stand-in gets its own row**, with status "Stand-in for &lt;owner&gt;" - since
-   2026-09-22 drawn directly UNDER the owner whose seat it covers (ruling 14).
+5. A **stand-in gets its own row**, with status "Stand-in for &lt;owner&gt;", drawn directly
+   UNDER the owner whose seat it covers (ruling 14).
 6. The Flights tab keeps **per-kerbal grouping**, and the bucket summary is the group HEADER -
    always shown, not a folded-only extra.
 7. A Flights row keeps the **Timeline jump** on click.
 
-### Post-capture rulings (2026-09-15, after the GUI-11 reading)
-
 8. **The Flights row unit is the MISSION, not the recorded segment** ("need-to-know, no
-   spam"). The GUI-11 capture read five rows per kerbal - four of them repeating the same
-   mission name and the same date, one of them `Outcome unknown` for a mid-mission segment
-   that simply has no ending - for what the player did as two missions. One row per
+   spam"). A row per segment repeats one mission name and one date per segment and shows
+   `Outcome unknown` for a mid-mission segment that simply has no ending. One row per
    (kerbal, tree); the segments are counted and listed in the row's hover text. Section 4
    carries the collapse rule.
-9. **A stand-in row is not expandable.** The replacement chain describes ONE slot and that
-   slot belongs to the owner, so only the owner's row expands. A stand-in row expanding
-   into a chain containing itself was the reading; it now says whose slot it covers in its
-   status cell and stops there. (Superseded 2026-09-22 by ruling 14: NO row expands; the
-   chain is drawn as rows.)
+9. **No Roster row expands.** A slot's chain is drawn as rows (ruling 14); a stand-in row
+   says whose slot it covers in its status cell and stops there.
 10. **"Stand-in for &lt;owner&gt;" is a per-MEMBER fact, not a per-chain one** - only the
     chain's ACTIVE occupant reads as one. See the status table in section 3.
-
-### Round-2 rulings (2026-09-22, the Kerbals review's approved items)
-
-The review (`kerbals-window-review.md`, recommendations 1-9 minus 10) read the c1 and
-bdock-recorded captures; the owner approved these, and each is a row of this doc below.
 
 11. **A deleted stand-in is not a row** (rec 1). A saved chain member who is displaced, not
     in the stock roster, not retired and not reserved is exactly the stand-in
     `KerbalsModule.ApplyToRoster` deleted as unused (`Stand-in '...' displaced -> deleted
-    (unused)`); the slot keeps the NAME for later rewinds. The window re-added it as an
-    `Available` row - the c1 capture's `Lars Kerman / Available / - / -`, Jebediah's
-    stand-in after Jebediah was lost. Omitted rather than shown as retired: "retired" has a
+    (unused)`); the slot keeps the NAME for later rewinds. Listing it would show an
+    `Available` kerbal the player cannot find anywhere. Omitted rather than shown as retired: "retired" has a
     meaning (flew a committed flight, then displaced) that this kerbal does not have, and
     he is in no stock list the player can open. `KerbalsPresentation.IsDeletedStandIn`.
-12. **The Since column is removed** (rec 3). It was `-` for four of six statuses, a
-    reservation's date could read in the future after a rewind, and it dated a mission by
-    its END while the Flights tab dated it by its START. The one useful fact it carried - when
-    a kerbal died - moved into the Lost hover text.
+12. **There is no Since column** (rec 3). It would be `-` for most statuses, a reservation's
+    date can read in the future after a rewind, and it would date a mission by its END while
+    the Flights tab dates it by its START. When a kerbal died is in the Lost hover text.
 13. **A finite hold reads its release date; an open-ended hold names what holds the
-    kerbal** (rec 2 + open question 1). SUPERSEDED IN PART 2026-09-23: this ruling first
-    said "never a date", because `KerbalReservationReleaseTests` measured that a Recovered
-    flight's reservation never lifted with time. That was the backend bug
-    KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME, now fixed: the kerbal is free once game time
-    reaches the flight's recorded end (design 9.3), and the window only ever receives the
-    reservations in force now (`KerbalsModule.ActiveReservations`). So a finite hold reads
+    kerbal** (rec 2 + open question 1). The kerbal is free once game time reaches the
+    flight's recorded end (design 9.3), and the window only ever receives the reservations
+    in force now (`KerbalsModule.ActiveReservations`). So a finite hold reads
     `Reserved until <date>` (`KerbalsPresentation.FormatReleaseDate`, the window's own date
     formatter) and its hover ends `Free again from <date>, when that flight ends.`
     (`FormatReservationReleaseRule`). An open-ended hold (the flight ends with the kerbal
@@ -100,9 +81,8 @@ bdock-recorded captures; the owner approved these, and each is a row of this doc
     crossed-an-end check, but in flight the release lands at the next warp exit, commit or
     scene change, so the cell can briefly show a date that has just passed.
 14. **The Roster is grouped by slot** (rec 7). Each owner row is followed directly by its
-    chain members as rows of their own (tree glyph in the Name cell), so the per-owner chain
-    fold - which repeated what the stand-in rows already said - is gone, and with it the
-    `roster:<kerbal name>` expand key.
+    chain members as rows of their own (tree glyph in the Name cell), so there is no
+    per-owner chain fold and no `roster:<kerbal name>` expand key.
 15. **Lost points at the way back** (rec 4): the status hover names the mission and says a
     re-fly from a rewind point can undo the loss - only when an open Re-Fly actually reaches
     that death (owner ruling 2026-09-27; see the Status hover table) (TRUE: a Re-Fly merge tombstones the
@@ -110,12 +90,11 @@ bdock-recorded captures; the owner approved these, and each is a row of this doc
     which is what the permanent reservation came from; flown by
     `CL-3-refly-crew-tombstone`), and every Roster row's Last flight cell is the same
     Timeline cross-link a Flights row is.
-16. **`On EVA`** replaces `Assigned (<own name>)` (rec 5): an EVA kerbal is his own vessel.
+16. **`On EVA`**, not `Assigned (<own name>)` (rec 5): an EVA kerbal is his own vessel.
 17. **Flights: one date, no Crew column** (rec 8). The Date is the mission's LAUNCH - the
-    date the Missions window's first date column and the Timeline place a mission by - and
-    with Since gone nothing in the window dates a mission by its end any more (the Lost
-    hover says "launched <date>" too). The rare stand-in note moved into the Mission cell as
-    `(flown by <stand-in>)`; the Crew column read `-` on every row of every capture.
+    date the Missions window's `Start time` column and the Timeline place a mission by - and
+    nothing in the window dates a mission by its end (the Lost hover says "launched <date>"
+    too). The rare stand-in note is in the Mission cell as `(flown by <stand-in>)`.
 18. **Crew consequences get their existing channels** (rec 6, outside this window): a
     one-shot screen message when `CrewReservationManager.SwapReservedCrewInFlight` actually
     swaps a reserved kerbal out of a seat, and a refused dismissal raises the existing
@@ -123,8 +102,9 @@ bdock-recorded captures; the owner approved these, and each is a row of this doc
 19. **One crew vocabulary** (rec 9): the Astronaut Complex overlay's badge tooltips use the
     window's words - `Reserved - held by a committed flight (Parsek)`, `Reserved for <owner>
     - ...` only for a stand-in in someone else's slot, `Lost on a committed flight (Parsek)`
-    for a death reservation (permanent, or with the stock respawn pending: the Status cell then reads `Lost until <date>`, owner ruling S8), `Retired stand-in (Parsek)` - and no longer read
-    "Reserved by Parsek for slot 'Jebediah Kerman'" on Jebediah himself.
+    for a death reservation (permanent, or with the stock respawn pending: the Status cell then
+    reads `Lost until <date>`, owner ruling S8), `Retired stand-in (Parsek)` - and an owner is
+    never labelled as reserved for his own slot.
 
 ### Two readings the rulings did not spell out, decided here
 
@@ -169,7 +149,7 @@ stand-in gets one) carries his own members one level deeper. Not user-selectable
 
 | Status | Text | Predicate |
 |---|---|---|
-| Lost | `Lost` | `KerbalSlot.OwnerPermanentlyGone`, or a permanent (`IsPermanent`) reservation |
+| Lost | `Lost` / `Lost until <date>` | `KerbalSlot.OwnerPermanentlyGone`, or a loss hold (`KerbalsModule.IsLossHold`: a permanent death, or a death whose stock respawn is still pending). `Lost until <date>` names the respawn (`FormatLostUntilDate`) when one is pending and the text fits the cell |
 | Retired | `Retired` | in the retired set |
 | Reserved | `Reserved until <date>` / `Reserved: aboard <vessel>` / `Reserved: <mission>` / `Reserved` / `Reserved for <owner>` | a reservation in force NOW (`KerbalsModule.ActiveReservations`). A finite hold (a Recovered flight's end) reads `Reserved until <date>` (ruling 13). Otherwise the flight is `ResolveHoldFlight`: for an open-ended (`+inf`) hold the latest mission that ends Still aboard, else the latest-ending mission; `aboard <vessel>` when that mission ends with the kerbal aboard (vessel = its last segment's recorded vessel), the mission name otherwise, bare `Reserved` when the kerbal has no flight of his own; a composed text past `StatusCellMaxChars` falls back to `Reserved: still aboard` / `Reserved`. The `for <owner>` form only when the kerbal is a stand-in in someone else's chain |
 | Stand-in | `Stand-in for <owner>` / `Stand-in for <owner> (aboard <vessel>)` / `(on EVA)` | the kerbal is the **ACTIVE** occupant of some OTHER kerbal's slot chain |
@@ -180,7 +160,7 @@ The status cell's hover text (`FormatStatusTooltip`):
 
 | Status | Hover |
 |---|---|
-| Lost | `Lost on <mission> (launched <date>). If that mission has a rewind point, re-flying it can undo the loss.` - the death mission is the latest mission that ends Dead; with none, `Lost on a flight on timeline.` The second sentence is shown ONLY when an open Unfinished Flight exists whose Re-Fly would reach this loss (the death recording lies in the stretch an open slot's re-fly rewrites: he died aboard that slot's vessel or on an EVA from it; `KerbalsPresentation.ShouldOfferLostReFlyRemedy` over `EffectiveState.ComputeOpenSlotReFlyReachRecordingIds`, owner ruling 2026-09-27); otherwise it is omitted. The stock-screen Lost explanation (`ReservationExplanation.KerbalLost`) follows the same rule. |
+| Lost | `Lost on <mission> (launched <date>).` - the death mission is the latest mission that ends Dead; with none, `Lost on a flight on timeline.` With a stock respawn pending, `Stock respawn returns this kerbal on <date>.` follows (`FormatLostRespawnRule`). Then `If that mission has a rewind point, re-flying it can undo the loss.` (`LostReFlyRemedy`), shown ONLY when an open Unfinished Flight exists whose Re-Fly would reach this loss (the death recording lies in the stretch an open slot's re-fly rewrites: he died aboard that slot's vessel or on an EVA from it; `KerbalsPresentation.ShouldOfferLostReFlyRemedy` over `EffectiveState.ComputeOpenSlotReFlyReachRecordingIds`, owner ruling 2026-09-27); otherwise it is omitted. The stock-screen Lost explanation (`ReservationExplanation.KerbalLost`) follows the same rule. |
 | Reserved | `Held on timeline by the flight <mission>, which ends with this kerbal aboard <vessel>` / `recovered` / `, which has no recorded ending`, then the release rule: `. Free again from <date>, when that flight ends.` for a finite hold (`FormatReservationReleaseRule`), `. Passing time does not release it; it lasts while that flight stays on timeline.` for an open-ended one (`ReservationHoldRule`); a reserved stand-in reads `Held by a flight on timeline flown in <owner>'s seat. ...` |
 | Stand-in aboard a craft | `Standing in for <owner>; aboard <vessel>.` (or `; on EVA.`) - only when the inline form does not fit |
 | others | none |
@@ -222,7 +202,7 @@ decides whether a reservation's vessel or mission name fits inline.
 by default and dimmed when opened (name and trait only in effect - every other cell is `-`).
 The fold state lives in the window, never on disk. It is the Roster tab's ONLY fold.
 
-The chain fold is gone (ruling 14). Its successor is the grouping itself: an owner row carries
+There is no chain fold (ruling 14); the grouping itself carries the chain: an owner row carries
 `SlotMemberCount`, each member row `Depth`, `IsLastInSlot` (the glyph) and `MemberStatus`
 (`Active` / `Retired` / `Displaced`, the chain's own classification), and `SlotOwnerName`,
 which its status cell spells out when it matters.
@@ -230,9 +210,7 @@ which its status cell spells out when it matters.
 ### Empty state
 
 One line, `No kerbals in the roster.`, reachable only on a save whose stock roster is empty -
-impossible in a career, constructible in a hand-built sandbox or science save. The old
-`No reserved crew, stand-ins, or retired kerbals.` is gone: on a career it was a lie about a
-roster that had four kerbals in it.
+impossible in a career, constructible in a hand-built sandbox or science save.
 
 ## 4. Tab 2 - Flights
 
@@ -248,14 +226,14 @@ unknown.
 | Column | Width | Source |
 |---|---|---|
 | Date | 130 px | `KerbalsWindowUI.FormatRowDate` = `KSPUtil.PrintDateCompact(ut, true)` with the Timeline's own F0 fallback, so both windows date the same flight identically. The UT is the kerbal's FIRST segment start in this mission - the mission's LAUNCH (ruling 17), the one date the whole window uses for a mission |
-| Mission | expands | `MissionStore.FindOriginalMission(rec.TreeId).Name`, falling back to `Recording.VesselName`, then `(unnamed)`, plus ` (flown by <stand-in>)` when someone else flew the seat (`FormatMissionCell`; it was a Crew column of its own until 2026-09-22). The raw recording name and id are in the cell's hover text (`DescribeFlightRow`), naming the LAST segment - the one a click jumps to |
+| Mission | expands | `MissionStore.FindOriginalMission(rec.TreeId).Name`, falling back to `Recording.VesselName`, then `(unnamed)`, plus ` (flown by <stand-in>)` when someone else flew the seat (`FormatMissionCell`). The raw recording name and id are in the cell's hover text (`DescribeFlightRow`), naming the LAST segment - the one a click jumps to |
 | Outcome | 110 px | `FormatOutcome` of the FINAL end state: `Recovered` / `Lost` / `Still aboard` / `Outcome unknown`. Its hover (`DescribeFlightRowOutcome`) is the outcome sentence plus the segment list, e.g. "... `3 segments: Still aboard, Still aboard, Recovered`." - dropped on a single-segment mission, where it would add nothing |
 
 Sort: the Date column ascending within a kerbal (mission start, ties broken on the end), kerbals
 by name (ordinal). Every cell is a label-styled button carrying the row's Timeline cross-link,
 so a click anywhere on the row scrolls the Timeline to the mission's LAST recorded segment
 (`OnFatesRowClicked` -> `TimelineWindowUI.ScrollToRecording`, which OPENS the Timeline when it
-is closed - finding P6).
+is closed).
 
 ### The mission collapse, per (kerbal, tree)
 
@@ -270,11 +248,10 @@ is closed - finding P6).
 | `SegmentCount` / `SegmentSummaryText` | the count and every segment's own outcome word in end-UT order, `1 segment: Still aboard` / `3 segments: Still aboard, Outcome unknown, Recovered` |
 | Stand-in note (`StandInName`, drawn in the Mission cell) | the FIRST segment that names a stand-in wins: a stand-in who flew the launch and handed over mid-mission still flew the mission |
 
-WHY the reading forced this: on `fixtures/saves/bdock-recorded` each of the three reserved
-kerbals had FIVE rows - one for the single-segment tree and four for the four-segment one, all
-four at `Y1, D01, 02:29` with the identical mission name, one of them `Outcome unknown` for a
-2-point mid-mission segment. Two missions, five rows, and the one number the player wanted (how
-it ended) was on the row he had no way to identify as last.
+Why: on `fixtures/saves/bdock-recorded` a per-segment row model gives each of the three
+reserved kerbals FIVE rows for two missions - four at `Y1, D01, 02:29` with one mission name,
+one of them `Outcome unknown` for a 2-point mid-mission segment - and the one fact the player
+wants (how it ended) sits on a row he cannot identify as last.
 
 Empty state: `No recorded flights with crew yet.`
 
@@ -303,46 +280,45 @@ The choice is the primary one BECAUSE the fallback is time-blind: the reverse-ma
 
 | Number | Value | Arithmetic |
 |---|---|---|
-| Roster fixed columns | 210 + 220 = **430 px** | longest realistic cells: `\u2514\u2500 Valentina Kerman [Scientist]` (31 chars with the glyph, the Name column went 190 -> 210 for it), `Reserved for Valentina Kerman` (29 chars) |
+| Roster fixed columns | 210 + 220 = **430 px** | longest realistic cells: `\u2514\u2500 Valentina Kerman [Scientist]` (31 chars with the glyph), `Reserved for Valentina Kerman` (29 chars) |
 | Flights fixed columns | 130 + 110 = **240 px** | the compact date and `Outcome unknown` (15 chars); Mission expands |
-| the Date column | **130** (80 on the first flight) | MEASURED: `KSPUtil.PrintDateCompact` renders to the minute, so a cell reads `Y1, D01, 02:29` - 14 chars, about 98 px at the skin's ~7 px advance - and the first flight (`2026-09-15_1557` / `_1559`) photographed it clipped inside 80 |
-| `DefaultWindowWidth` | **760** (unchanged 2026-09-22) | leaves the expanding Last flight column about 280 px beside the 430 px of fixed columns. The old 410 was half of Career's 820; 760 still leaves Career's 820 room on a 1920-wide screen |
-| `MinWindowWidth` | **586** (was 280, then 570, then 700) | 430 fixed + 8 inter-column cell margin + 4 before the expanding column + 100 of readable sliver for it + 28 of window chrome + 16 of scrollbar gutter. Below that IMGUI clips the pinned widths rather than reflowing them. It was 700 while the Roster carried the 130 px Since column beside a 190 px Name column (540 fixed + 12 margin); pinned term by term by `KerbalsWindowUITests.Sizing_*` |
-| the margin / chrome terms | 4 per fixed column / 28 / 16 | MEASURED off the 2026-09-15 census dumps: each column consumed its width + 4 (194 / 224 / 134 for 190 / 220 / 130) and the first cell sat 14 px inside the window edge; the gutter is `ParsekUI.DefaultVerticalScrollbarFootprintWidth` |
-| `DefaultWindowHeight` / `MinWindowHeight` | 400 / 150 | unchanged |
+| the Date column | **130** | `KSPUtil.PrintDateCompact` renders to the minute, so a cell reads `Y1, D01, 02:29` - 14 chars, about 98 px at the skin's ~7 px advance (it clips inside 80, measured) |
+| `DefaultWindowWidth` | **760** | leaves the expanding Last flight column about 280 px beside the 430 px of fixed columns |
+| `MinWindowWidth` | **586** | 430 fixed + 8 inter-column cell margin + 4 before the expanding column + 100 of readable sliver for it + 28 of window chrome + 16 of scrollbar gutter. Below that IMGUI clips the pinned widths rather than reflowing them. Pinned term by term by `KerbalsWindowUITests.Sizing_*` |
+| the margin / chrome terms | 4 per fixed column / 28 / 16 | measured off census dumps: each column consumes its width + 4 and the first cell sits 14 px inside the window edge; the gutter is `ParsekUI.DefaultVerticalScrollbarFootprintWidth` |
+| `DefaultWindowHeight` / `MinWindowHeight` | 400 / 150 | |
 
 Tooltip budget: `TooltipEchoBudgetTests.StripWindows` pins this file at `760f, 5,
-DoubleLine`, so the budget is `2 * (760 - 30) / 7 = 208` characters. The floor of 5 is
-unchanged; the file's literal `GUIContent` tooltips are the two tab labels, three column
+DoubleLine`, so the budget is `2 * (760 - 30) / 7 = 208` characters. The floor is 5;
+the file's literal `GUIContent` tooltips are the two tab labels, three column
 headers (`Last flight`, the Flights `Date` and `Mission`), the plain-bucket fold, the Flights
 group fold and the Flights row's Date cross-link, plus the Roster Last flight cell's
 `LastFlightJumpTooltip` constant. RUNTIME-built tooltips are skipped by the scanner by design:
 the Mission cell's `DescribeFlightRow`, the Outcome cell's `DescribeFlightRowOutcome`, and the
 Roster status cell's `StatusTooltipText`. The longest runtime tooltip is the Reserved-aboard
-hover, about 170 characters with two mission-length names, under the 208 budget; the
-Since / Crew header tooltips and the chain-expand tooltip left with their controls.
+hover, about 170 characters with two mission-length names, under the 208 budget.
 
 ## 6. Seam contracts
 
 | Contract | Value |
 |---|---|
 | `WindowIdKey` | `ParsekKerbals`, ONE literal, hashed at both the `GUILayoutWindow` call and `UiWindowHandle.GetWindowId` |
-| tab tokens | `roster`, `outcomes` - unchanged by the rename, so every committed census step keeps working |
-| `SelectedTabForTesting` / `TabCountForTesting` / `WindowRectForTesting` | unchanged |
-| `CachedViewModelForTesting` | NEW: the built view model, so the expand seam's key enumerations are unit-testable headlessly (in production the first drawn frame seeds it, which is why `op=expand` is two-phase) |
+| tab tokens | `roster`, `outcomes` |
+| `SelectedTabForTesting` / `TabCountForTesting` / `WindowRectForTesting` | the seam's window accessors |
+| `CachedViewModelForTesting` | the built view model, so the expand seam's key enumerations are unit-testable headlessly (in production the first drawn frame seeds it, which is why `op=expand` is two-phase) |
 
-**`op=expand window=kerbals` is new.** Two prefixes, one per tab, because the window keeps one
+**`op=expand window=kerbals`.** Two prefixes, one per tab, because the window keeps one
 expansion collection per tab:
 
 | Key | Drives |
 |---|---|
-| `roster:(available)` | the plain-kerbal fold row (`KerbalsWindowUI.PlainBucketKey`) - the ONLY Roster key since the 2026-09-22 slot grouping; `roster:<kerbal name>` (the chain fold) is no longer offered, and a roster with no plain kerbal offers no Roster key at all |
+| `roster:(available)` | the plain-kerbal fold row (`KerbalsWindowUI.PlainBucketKey`) - the ONLY Roster key; a roster with no plain kerbal offers no Roster key at all |
 | `flights:<kerbal name>` | that kerbal's flight group (INVERTED on the production side: `foldedKerbals` holds what is FOLDED; the wire speaks "expanded") |
 | `all` / `none` | both sets at once - what a census needs, since the ids are save-specific |
 
 Mirrored by `hlib.UIACTION_EXPAND_PREFIXES["kerbals"]`, and the two sides are kept byte-equal
 by `test_hlib.GuiCensusSeamVerbTests.test_the_expand_prefix_map_mirrors_the_c_sharp_tables`
-(new) plus `GuiCensusApplierSourceGateTests.ResolveExpandSets_WiresExactlyThePrefixesTheParse-
+plus `GuiCensusApplierSourceGateTests.ResolveExpandSets_WiresExactlyThePrefixesTheParse-
 Accepts`.
 
 ## 7. Data routing and logging
@@ -352,13 +328,12 @@ deliberately survive).
 
 ### What refreshes the tab
 
-`LedgerOrchestrator.OnTimelineDataChanged` covers every LEDGER-side change, and it was the
-only thing that did - but the view model is ALSO built from live state that no ledger write
-touches: the stock roster walk (`CrewRoster.Crew` / `.Applicants` / `.Tourist`) and the live
-crew-to-vessel map (`GatherAssignedVessels`). A transfer, an EVA, a board, a hire or a
-dismissal therefore left a stale `Assigned (<vessel>)` cell - or a missing row - until some
-unrelated ledger write happened to drop the cache. The window now subscribes eight stock
-events of its own:
+`LedgerOrchestrator.OnTimelineDataChanged` covers every LEDGER-side change, but the view model
+is ALSO built from live state that no ledger write touches: the stock roster walk
+(`CrewRoster.Crew` / `.Applicants` / `.Tourist`) and the live crew-to-vessel map
+(`GatherAssignedVessels`). Without more, a transfer, an EVA, a board, a hire or a dismissal
+would leave a stale `Assigned (<vessel>)` cell - or a missing row - until some unrelated ledger
+write dropped the cache. So the window subscribes eight stock events of its own:
 
 | Event | What it would otherwise leave stale |
 |---|---|
@@ -376,8 +351,7 @@ subscribed and unsubscribed exactly where the ledger hook is - `ParsekUI`'s two 
 and `ParsekUI.Cleanup` - so the subscriptions live and die with the owning scene's `ParsekUI`.
 Source-gated: `KerbalsWindowUITests.LiveCrewRefresh_*` read `KerbalsWindowUI.cs` and
 `ParsekUI.cs`, so an event added to the subscribe half without the documented set, or a
-subscribe without its matching remove, reds the suite.
- Recordings come from `EffectiveState.ComputeERS()` - never
+subscribe without its matching remove, reds the suite. Recordings come from `EffectiveState.ComputeERS()` - never
 `RecordingStore.CommittedRecordings`, which `scripts/grep-audit-ers-els.ps1` gates for this
 file. Every `FlightGlobals.Vessels` walk checks `GhostMapPresence.IsGhostMapVessel(pid)`
 first, so a ghost's recorded crew never reads as a live assignment.
@@ -389,99 +363,35 @@ Batch counters, one summary line each (the house convention): the roster gather
 fail-soft with a Verbose line naming the exception type: the headless xUnit host has no
 `HighLogic` and no `FlightGlobals`, and the pure builders then run off the ledger's own names.
 
-## 8. What the captures show
+## 8. Pictures
 
-Five lanes flew the rebuild on 2026-09-15, every one PASS on attempt 1 against the
-DEPLOYED-hash-pinned build `4763698...` (GUI-5 `_1615` 88 s, GUI-11 `_1616` 58 s, GUI-8
-`_1617` 66 s, GUI-6 `_1618` 79 s; the first pair `_1557` / `_1559` is the round that found
-the two defects the second commit fixes).
+Census captures of the window (PNG plus `.gui.json`), all read against the rulings above:
 
-**Then the review pass re-flew two of them on the deployed build
-`6c100d9029cfd7a9860650c236a5929522f672207f4746da6b5feb42ec81e957`** - GUI-11
-`2026-09-15_1744` and GUI-6 `2026-09-15_1746` - because three of the findings it acted on
-were READINGS OF THOSE CAPTURES rather than of the code: the Flights tab drawing a row per
-segment, a stand-in row carrying an expand arrow, and the minimum width. The rows below are
-the AFTER-REVIEW readings; the pre-review ones are named where they differ, because the diff
-is the evidence.
-
-| Label | Lane, run | Reads |
+| Label | Lane | Shows |
 |---|---|---|
-| `cek-kerbals-roster-advanced` BEFORE | GUI-5, `2026-09-11_1553` | ONE row on a career with four stock kerbals: `> Jebediah Kerman [Pilot] - deceased  (1)` (the reserved form on the wave-2 re-read) |
-| `cek-kerbals-outcomes-advanced` BEFORE | GUI-5, `2026-09-11_1553` | `v <b>Jebediah Kerman</b>` over `Jumping Flea - Recovered at UT 342` / `- Aboard at UT 348` |
-| `cek-kerbals-roster-advanced` AFTER | GUI-5, `2026-09-15_1615` | `Debwig Kerman [Pilot] / Stand-in for Jebediah Kerman / - / -` and `Jebediah Kerman [Pilot] / Reserved until recovery / Y1, D01, 00:05 / Jumping Flea - Still aboard`, with `Available, no recorded flights (3)` closed under them |
-| `cek-kerbals-roster-expanded-advanced` NEW | GUI-5, `2026-09-15_1615` | the same with every fold open: both rows' chain line `(branch) Debwig Kerman (active)`, and Bill / Bob / Valentina listed dimmed as `Available / - / -` |
-| `cek-kerbals-outcomes-advanced` AFTER | GUI-5, `2026-09-15_1615` | `Jebediah Kerman [Pilot] - 2 flights: 1 recovered, 1 aboard` over `Y1, D01, 00:05 | Jumping Flea | Recovered | -` and the `Still aboard` twin |
-| `bdk-kerbals-roster-collapsed-advanced` | GUI-11, `2026-09-15_1744` | the crewed corpus: Bill / Bob / Valentina each `Reserved until recovery`, `Y1, D01, 02:29`, `Kerbal X #2 - Still aboard`; Jane / Sizon / Kathdan each `Stand-in for <owner>` with `- / -`; `Available, no recorded flights (1)`. The three stand-in rows draw the two-space LEAF prefix, not an arrow - S1 in the picture |
-| `bdk-kerbals-roster-expanded-advanced` | GUI-11, `2026-09-15_1744` | THREE chains drawn, one per owner (`(branch) Jane Kerman (active)` / `Sizon` / `Kathdan`), plus Jebediah Kerman listed as the one plain `Available` row. The pre-review reading was SIX, because each chain also hung off its stand-in's row |
-| `bdk-kerbals-roster-owner-chain-advanced` | GUI-11, `2026-09-15_1744` | ONE expansion, on the OWNER's row: `(open) Bill Kerman [Engineer]` over `    (branch) Jane Kerman (active)`, with Bob / Valentina still closed. It replaces `bdk-kerbals-roster-standin-chain-advanced`, whose whole subject - a chain hanging off the stand-in - is the thing S1 removed |
-| `bdk-kerbals-flights-unfolded-advanced` | GUI-11, `2026-09-15_1744` | three groups, SIX rows - two per kerbal: `Y1, D01, 00:00 \| Kerbal X \| Still aboard \| -` and `Y1, D01, 00:06 \| Kerbal X #2 \| Still aboard \| -`. The pre-review reading was FIFTEEN (five per kerbal), four of them at the identical `Y1, D01, 02:29` with the identical `Kerbal X #2`, one of them `Outcome unknown` - a two-point mid-mission segment. That reading is S2 |
-| `bdk-kerbals-flights-folded-advanced` | GUI-11, `2026-09-15_1744` | the three headers alone: `Bill Kerman [Engineer] - 2 missions: 2 aboard`, `Bob Kerman [Scientist] - ...`, `Valentina Kerman [Pilot] - ...`. Pre-review: `5 flights: 4 aboard, 1 unknown` |
-| `fs-kerbals-roster-fresh-advanced` | GUI-8, `2026-09-15_1617` | a fresh science save: the column header row plus ONE fold row, `Available, no recorded flights (4)` - where the pre-rebuild window claimed `No reserved crew, stand-ins, or retired kerbals.` on a roster of four |
-| `fs-kerbals-outcomes-empty-advanced` | GUI-8, `2026-09-15_1617` | `No recorded flights with crew yet.` |
-| `play-kerbals-roster-precrew-advanced` NEW | GUI-6, `2026-09-15_1749` | the FLIGHT scene before a crew change: `Jebediah Kerman [Pilot] / Assigned (mk1-capsule) / - / -` over `Available, no recorded flights (3)`, and `op=rect` answering `min=700,150` - the R3 arithmetic, read off the seam rather than off the source |
-| `play-kerbals-roster-postcrew-advanced` NEW | GUI-6, `2026-09-15_1749` | THE SAME TAB after one real `EvaExit`, and the same cell now reads `Assigned (Jebediah Kerman)` - the EVA kerbal is his own vessel. No ledger write happened between the two captures, so this pair is the live-crew refresh: five of the eight subscribed events fired on the EVA and two dropped a live cache (`onKerbalStatusChange`, then `onVesselChange`). Without the subscription the second capture would be a picture of the first one's view model |
-| `play-kerbals-flights-postcrew-advanced` NEW | GUI-6, `2026-09-15_1749` | the Flights tab in FLIGHT on a corpus with no crewed recordings: `No recorded flights with crew yet.` |
-| `play-kerbals-roster-flight-advanced` | GUI-6, `2026-09-15_1618` | the FLIGHT scene, and the first picture of the live-crew column: `Jebediah Kerman [Pilot] / Assigned (mk1-capsule) / - / -` over `Available, no recorded flights (3)` - on a host with 243 injected ghost recordings, so it also shows the `IsGhostMapVessel` guard holding (no ghost crew reads as an assignment) |
+| `ksc-kerbals-roster-advanced` / `ksc-kerbals-outcomes-advanced` | GUI-1 (`c1-gui`) | one involved row (`Lost`, with the Lost hover in the dump) over `Available, no recorded flights (3)`; the Flights tab dated by launch |
+| `cek-kerbals-roster-advanced` / `-expanded-advanced` | GUI-5 (`career-earned-ksc`) | `Reserved: aboard Jumping Flea` with `\u2514\u2500 Debwig Kerman [Pilot] / Stand-in for Jebediah Kerman` directly under it; the expanded form opens the plain bucket |
+| `cek-kerbals-outcomes-advanced` | GUI-5 | one mission row under `Jebediah Kerman [Pilot] - 1 mission: 1 aboard` |
+| `bdk-kerbals-roster-collapsed-advanced` / `-expanded-advanced` / `-basic` | GUI-11 (`bdock-recorded`) | three slots, each owner `Reserved: aboard Kerbal X` over its own stand-in; the Basic capture is the same Roster after a switch to Basic with the window left open |
+| `bdk-kerbals-flights-unfolded-advanced` / `-folded-advanced` | GUI-11 | three groups, two mission rows each; the folded form shows the headers alone |
+| `fs-kerbals-roster-fresh-advanced` / `fs-kerbals-outcomes-empty-advanced` | GUI-8 (fresh science save) | the header plus one fold row `Available, no recorded flights (4)`; `No recorded flights with crew yet.` |
+| `play-kerbals-roster-precrew-advanced` / `-postcrew-advanced` / `play-kerbals-flights-postcrew-advanced` | GUI-6 (FLIGHT) | the live-crew column before and after one real `EvaExit` with no ledger write between, i.e. the live-crew refresh; the EVA kerbal reads as his own vessel |
 
-### The 2026-09-22 round (rulings 11-19), flown on the deployed build `e2afe9b2...`
-
-Three lanes, every one PASS on attempt 1 against the DEPLOYED-hash-pinned automation DLL
-`e2afe9b25699bbf835893003decf643b4f61d7cf1952fab15500cfc4801d3890` (re-asserted before each
-launch): GUI-11 `2026-09-22_2004`, GUI-5 `2026-09-22_2005`, GUI-1 `2026-09-22_2006` (c1; its
-analyzer row reads RED on the c1 host's own recordings, report-only by the spec's
-declaration, as on every earlier c1 flight).
-
-| Label | Lane, run | Reads |
-|---|---|---|
-| `ksc-kerbals-roster-advanced` | GUI-1, `2026-09-22_2006` | ONE involved row, `Jebediah Kerman [Pilot] / Lost / L5-B4L-U1-C1 - Lost`, over `Available, no recorded flights (3)`. The phantom `Lars Kerman / Available` row of every earlier c1 capture is GONE (ruling 11): the VM line reads `roster=1+3 omittedStandIns=1`, and the dump carries the Lost hover `Lost on L5-B4L-U1-C1 (launched Y1, D52, 00:10). If that mission has a rewind point, re-flying it can undo the loss.` No Since column |
-| `ksc-kerbals-outcomes-advanced` | GUI-1, `2026-09-22_2006` | `Date / Mission / Outcome`, no Crew column: `Y1, D51, 05:17 / L5-B4-U1-C1 / Still aboard` and `Y1, D52, 00:10 / L5-B4L-U1-C1 / Lost` - both dated by launch, the date the Lost hover repeats |
-| `ksc-main-basic` | GUI-1, `2026-09-22_2006` | the Basic main window with `Kerbals` between Logistics and Settings, one gap either side (ruling 1 amended) |
-| `cek-kerbals-roster-advanced` / `-expanded-` | GUI-5, `2026-09-22_2005` | `Jebediah Kerman [Pilot] / Reserved: aboard Jumping Flea / Jumping Flea - Still aboard` with `\u2514\u2500 Debwig Kerman [Pilot] / Stand-in for Jebediah Kerman / -` directly under it; the expanded capture opens only the plain bucket (Bill / Bob / Valentina `Available`) - there is no chain fold left to open |
-| `cek-kerbals-outcomes-advanced` | GUI-5, `2026-09-22_2005` | `Y1, D01, 00:00 / Jumping Flea / Still aboard` under `Jebediah Kerman [Pilot] - 1 mission: 1 aboard` |
-| `bdk-kerbals-roster-collapsed-advanced` / `-expanded-` | GUI-11, `2026-09-22_2004` | three slots, each owner `Reserved: aboard Kerbal X` / `Kerbal X #2 - Still aboard` over its own stand-in (`Jane` under Bill, `Sizon` under Bob, `Kathdan` under Valentina). The owner's hold names the VESSEL he ends aboard (`Kerbal X`, the last segment's recorded vessel) while Last flight names the MISSION (`Kerbal X #2`); the hover says both: `Held by the committed flight Kerbal X #2, which ends with this kerbal aboard Kerbal X. Passing time does not release it; ...` |
-| `bdk-kerbals-roster-basic` NEW | GUI-11, `2026-09-22_2004` | the same Roster in BASIC: the window was open across the switch and the describe echo after it reads `complexity=basic ... openWindows=main,kerbals` (the window left the close set); the main window beside it shows the Basic launcher set with Kerbals |
-| `bdk-kerbals-flights-unfolded-advanced` / `-folded-` | GUI-11, `2026-09-22_2004` | unchanged row content; the Mission column now expands and Outcome sits at the right edge |
-| `bdk-kerbals-roster-owner-chain-advanced` RETIRED | - | its subject (one owner's chain fold) no longer exists; the `roster:Bill Kerman` step left the lane with it |
-
-NO PICTURE THIS ROUND: `On EVA` (ruling 16) is photographed only by GUI-6's
-`play-kerbals-roster-postcrew-advanced`, which was not re-flown - a sibling session
-re-provisioned the automation instance (deployed hash `689f4033...`) between this round's
-flights, and re-provisioning over it would have replaced the DLL under that session. The
-swap screen message, the dismissal dialog and the Astronaut Complex badge tooltips (rulings
-18, 19) are drawn by no census lane; their wording is pinned by `KerbalCrewNoticeTests`,
-`ReservationExplanationTests` and `StockUiDecorationQueryTests`. The overlay's Lost badge
-landed after these flights (a `StockUiOverlayController`-only change), so the flown DLL
-lacks it; no lane draws that surface either way. Since the stock-UI reservation PR 1 the
-Astronaut Complex badges read the shared reservation explanation
-(`ReservationExplanation.KerbalOnFlight` / `KerbalLost`), which reuses this window's
-`Reserved until <date>` / `Reserved for <owner>` / `Lost` statuses and its Lost remedy.
-
-Header-vs-cell delta measured off the 2026-09-15 dumps: **0 px on both tabs**, in both scenes. Roster
-header cells at x=284 / 478 / 702 / 836 against body cells at the same four, widths
-190 / 220 / 130 / expanding; Flights 284 / 418 / 632 / 746, widths 130 / 210 / 110 /
-expanding. That is what the shared inset buys and what `TableRowInsetAlignmentTests`' two
-new rows keep true.
-
-NO PICTURE YET: the `as <stand-in>` crew note. Both crewed hosts reserve their owners
-because the owners are still ABOARD, so no committed flight in any committed fixture was
-flown BY a stand-in - every Crew cell in the readings above is `-`. The note's logic is
-covered by six unit cells (raw crew, owner-aboard, out-of-chain crewmate, the replacement
-fallback, raw-beats-map, no-slot); a photograph needs a fixture where a stand-in flew, and
-none exists. Also unphotographed: `Lost`, `Retired`, `Assigned` beside a reservation on one
-host, and the `Reserved for <owner> until <date>` form (it needs a reserved stand-in with a
-finite return UT).
+No picture: the `(flown by <stand-in>)` note (no committed fixture has a flight flown BY a
+stand-in; the logic is covered by unit cells), `Retired`, `Lost until <date>`, `Reserved for
+<owner> until <date>`, and `Assigned` beside a reservation on one host. The crew-swap screen
+message, the dismissal dialog and the Astronaut Complex labels (rulings 18, 19) are drawn by no
+census lane; their wording is pinned by `KerbalCrewNoticeTests`,
+`ReservationExplanationTests` and `StockUiDecorationQueryTests`. The Astronaut Complex labels
+read the shared reservation explanation (`ReservationExplanation.KerbalOnFlight` /
+`KerbalLost`), which reuses this window's statuses and its Lost remedy.
 
 ## 9. Residue
 
-- **A reservation never lifts with game time** (ruling 13). Pinned by
-  `KerbalReservationReleaseTests`; the window's wording tells the truth about it, and
-  whether the backend should release a recovered kerbal at the flight's end is an owner
-  decision filed in `docs/dev/todo-and-known-bugs.md`. (The old residue here - `Since`
-  blank for four of six statuses - left with the column.)
 - **The stand-in fallback is time-blind** (section 4). A flight whose recording lost its
   snapshot can be attributed to the CURRENT stand-in rather than the one who flew it. Fixing
   it properly means persisting the flown crew per recording, which is a schema change.
-- **No Tracking Station host.** The window draws in FLIGHT and SPACECENTER only, as before.
+- **No Tracking Station host.** The window draws in FLIGHT and SPACECENTER only.
 - The `Assigned (<vessel>)` cell names the vessel but does not link to it; the window has no
   navigation affordance and gaining one would be a new control.
 - **A stand-in's own flight is filed under the OWNER, always.** The producer is
