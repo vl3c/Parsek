@@ -425,6 +425,19 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   167,279; the two pre-change runs differ by ~980 m). B22 2026-10-03_1106 vs 2026-10-01_2235
   coast wall 368 s -> 315 s, corrections 124.10 / 72.73 (was 124.10 / 72.81), Jool park
   within 19 km of 584,339 km.
+- [ ] Opt B30 and B29 into the coast native lead (and `circularizeNodeWaitWarp` where the
+  lane has a park round-out node), then re-fly both and compare against their last runs:
+  phase list, correction dv, arrival periapsis, capture and park. Last-run recoverable per
+  the analyzer: B30 `2026-10-01_1009` ~740 s (capture 468 s and PARK 125 s are already fixed
+  by #1958; coast low-warp ~117 s is the new target), B29 `2026-10-01_0933` ~345 s (coast
+  low-warp ~199 s). Size each lead per lane: soiNativeLeadSeconds >= 120 s + 4 x
+  `RAILS_WARP_RATES[approachMaxWarpFactor]`. About 1.5 h of machine time; coordinate the
+  machine lock with the other sessions before provisioning. Queued 2026-10-03 (operator: no
+  more flights for now).
+- [ ] Optional refresh re-flies of the b5 lanes last flown before #1958: B24, B33, B34, B35,
+  B25, B28, B23 and B12. Their capture and PARK waste is already fixed in code; re-flying
+  only refreshes the analyzer totals (~150-250 s recoverable each on the stale runs) and
+  confirms the fix holds. Batch them (for example a nightly tier) rather than one by one.
 
 ## ~~RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON: the recording stats frame lookup matches a section end exactly, with no tolerance~~ [FILED 2026-10-01 from the PR #1943 review, branch `l7-nightly-residue`. FIXED 2026-10-03, branch `fix-stats-frame-epsilon`]
 
@@ -1851,6 +1864,11 @@ count. Flown once each on current main:
   and read 6 on `recordings.count 6 > max 5` alone with exactly one ascent-exit split
   (`committed=5->6`): re-pinned 5 -> 6 on branch `mission-warp-fix`, re-flown green on the pin
   (`2026-10-01_2235`, PASS attempt 1, count 6).
+- [ ] Re-pin B16, B18, B19, B20 and B21: fly each once on a post-#1931 build, re-pin
+  `recordings.count` exact by the measured delta (cite each `Split candidate ...
+  Atmospheric->ExoBallistic` line), re-fly to confirm, and file any non-count failure as a
+  finding. Five long operator lanes, roughly 3-5 h of machine time with the confirm flights.
+  Queued 2026-10-03 with no session assigned (operator ruling).
 
 ## ~~INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS: four lanes commit more than one extra recording since #1931, so their count windows were not re-pinned~~ [FILED 2026-10-01, branch `split-count-repin`. LANE WINDOWS, no Parsek defect. RULED AND RE-PINNED 2026-10-01, branch `mission-warp-fix`]
 
