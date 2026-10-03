@@ -135,6 +135,8 @@ namespace Parsek
         private const double BackgroundStateDriftCheckInterval = 5.0;
         private const double BranchBoundaryUTTolerance = 1e-6;
         private double lastBackgroundStateDriftCheckUT = double.MinValue;
+        // FixedUpdate-step physics callbacks that took no trajectory sample (diagnostics only).
+        private int fixedStepSampleSkipCount;
 
         // Debris TTL: stop recording debris after this many seconds
         internal const double DebrisTTLSeconds = 60.0;
@@ -2463,6 +2465,23 @@ namespace Parsek
             // Back in range (or a high-fidelity / debris tier overrides the range): the
             // designed silence ends on this tick, whether or not a sample follows.
             CloseProximitySilence(state, ut);
+
+            // A FixedUpdate-step callback reads a pre-physics vessel against post-advance
+            // bodies; the Update-step read at the end of the render frame samples instead
+            // (see PostPhysicsPoseCache).
+            if (PostPhysicsPoseCache.ShouldSkipBackgroundSampleInFixedStep(
+                    PostPhysicsPoseCache.ReadInFixedTimeStep(),
+                    PostPhysicsPoseCache.ReadStatsRunInUpdate(),
+                    bgVessel.packed))
+            {
+                fixedStepSampleSkipCount++;
+                ParsekLog.VerboseRateLimited("BgRecorder", "bg-fixed-step-skip",
+                    $"Fixed-step physics callback: background sample deferred to the Update step " +
+                    $"pid={pid} ut={ut.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"skippedCallbacks={fixedStepSampleSkipCount}",
+                    5.0);
+                return;
+            }
 
             // Adaptive sampling (velocity-based). Normal background sampling uses the
             // proximity tier as its min floor; high-fidelity proximity uses the player's

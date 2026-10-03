@@ -65,7 +65,7 @@ The B11 / B13 / B14 spec headers (and B16's dwell comment) described the PARK as
 DROPPED to 1x" / "the machine holds 1x through it", which predates #1958; the same branch
 rewords them (comments only).
 
-## PHYSWARP-RATE-CHANGE-SAMPLE-SKEW: a sample taken on a physics-warp rate-change frame carries a position one frame behind its UT [FILED 2026-10-02 from PWR-3 `2026-10-02_2108`, branch `physwarp-recording`. OPEN, low; operator decides the fix]
+## ~~PHYSWARP-RATE-CHANGE-SAMPLE-SKEW: a sample taken on a physics-warp rate-change frame carries a position one frame behind its UT~~ [FILED 2026-10-02 from PWR-3 `2026-10-02_2108`, branch `physwarp-recording`. FIXED 2026-10-03, branch `physwarp-sampling-fixes`]
 
 The High-density reading run's sampling block counted ONE continuity jump. Recording
 `988bacde` (the main ship's post-ascent-exit half), section 0, at the end of MechJeb's 2x
@@ -87,10 +87,12 @@ reports. Every density is exposed; only High's short gaps make it measurable (in
 3 s or 8 s gap the 55 m is under the jump tolerance). Playback effect: a one-sample hitch of
 0.04 s, not visible at playback speed.
 
-- [ ] Decide: accept (and widen nothing; the PWR-3 `jumps = 0` pin stays and the lane carries
-  the finding), or skip / re-stamp a sample on a frame whose `fixedDeltaTime` changed.
+- [x] Fix: see PHYSWARP-BACKSTOP-MISSED-FRAME below; both findings are one cause. The
+  hypothesis above (UT and position from different `fixedDeltaTime`s) was wrong: the skewed
+  sample was a pre-physics read inside FixedUpdate, and the rate change is just a long
+  render frame.
 
-## PHYSWARP-BACKSTOP-MISSED-FRAME: under 4x physics warp the max-interval backstop sample once landed a frame late [FILED 2026-10-02 from PWR-3 `2026-10-02_2133`, branch `physwarp-recording`. OPEN, low, intermittent; operator decides the fix]
+## ~~PHYSWARP-BACKSTOP-MISSED-FRAME: under 4x physics warp the max-interval backstop sample once landed a frame late~~ [FILED 2026-10-02 from PWR-3 `2026-10-02_2133`, branch `physwarp-recording`. FIXED 2026-10-03, branch `physwarp-sampling-fixes`]
 
 PWR-3's armed run counted ONE gap over the High backstop allowance: recording `8db2e7f1`
 (the main ship's post-ascent half), section 5, the 4x `WarpToUT ladder=phys` LKO coast. Every
@@ -111,8 +113,40 @@ The PWR-3 quarantine tolerates this token (`[expectedFail] optionalMismatches`,
 `optionalBugId = PHYSWARP-BACKSTOP-MISSED-FRAME`) because it is intermittent; a count other
 than 1 reds.
 
-- [ ] Instrument (a per-frame UT-delta check on the active recorder) and decide whether a
-  backstop can be guaranteed at `max + one frame` under physics warp.
+Cause (both findings): the recorder samples from a postfix on
+`VesselPrecalculate.CalculatePhysicsStats`. For an unpacked vessel KSP runs that from
+`VesselPrecalculate.Update`, once per render frame after all of the frame's physics steps,
+and from `FixedUpdate` only on the second and later steps of a frame that holds several
+(`physStatsNotDoneInUpdate`, decompiled `MainPhysics` / `Update`, KSP 1.12.5). That
+FixedUpdate call runs before the step's PhysX simulate, after UT advanced and the floating
+origin moved the bodies: the read pairs one step's UT with the previous step's rigidbody
+position, and the frame's first step is never offered. The `_2133` sample at 410.2244 has a
+chord of exactly 1.04 s of travel over its 1.12 s gap (the 13th step's position under the
+14th step's UT); the `_2108` sample at 212.5152 sits half a step back (the Krakensbane
+share of the motion already applied). A long render frame is all it takes, which is why
+the warp-rate change (deterministic, the same step in both runs) and a slow render stretch
+hit it; 1x staging hitches are exposed the same way.
+
+- [x] Fix: `PostPhysicsPoseCache` (`PostPhysicsPose.cs`). A `WaitForFixedUpdate` loop in
+  `ParsekFlight` stores the active vessel's lat / lon / alt and UT after every physics step
+  while a foreground recorder runs; `FlightRecorder.OnPhysicsFrame` samples that pose
+  (`ResolveSampleSource`): an Update callback's pose has the live UT, a FixedUpdate callback's
+  pose is the step the live read straddles, so every step is observed once with a matching
+  position and the backstop holds at `max + one step`. A FixedUpdate callback with no current
+  pose, or in Relative mode (the anchor offset resolves against the live world), takes no
+  sample, so there the backstop holds at `max + one render frame`; a packed vessel reads
+  live as before. `BackgroundRecorder` skips its FixedUpdate
+  callbacks' trajectory sample and samples at the Update step. FixedUpdate callbacks log
+  `Fixed-step physics callback:` (rate-limited, with tallies). The boundary checks that
+  sample the live vessel (atmosphere, altitude, environment, anchor) wait for the
+  Update-step callback that ends the same render frame. Left as is: the sample rotation
+  (`v.srfRelRotation`, read live as before), and event-driven
+  `SamplePosition` calls that fire inside FixedUpdate (an autostager's decouple) still read
+  live; their same-UT pairs are handled by SECTION-DUPLICATE-UT-SAMPLES.
+  Live proof: quarantined PWR-3 `2026-10-03_1030` XPASS (jumps 0, overMax 0; the FixedUpdate
+  callback at the rate change logged `source=PostPhysicsPose reason=fixed-step-pose
+  liveUT=212.5152 poseUT=212.4775`), armed `_1050` PASS; PWR-1 `_1039` / PWR-2 `_1044` PASS.
+  PWR-3's `[expectedFail]` block is removed and it claims D2 `physics-warp-high`.
 
 ## ~~SECTION-DUPLICATE-UT-SAMPLES: the recorder writes two samples with the same UT into one track section~~ [FILED 2026-10-02 from PWR-1 `2026-10-02_2122` / `_2141` and PWR-3 `2026-10-02_2108` / `_2133`, branch `physwarp-recording`. FIXED 2026-10-03, branch `section-duplicate-ut`]
 
