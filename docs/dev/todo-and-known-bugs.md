@@ -75,7 +75,8 @@ after 10 / 53.8 / 600 / 3000 s jumps on CI-9's LKO; the no-lag control reads 110
 zero-delta jumps unchanged). Live: `CI-9-chain-tip-dock` reading `2026-10-03_1833` and armed `_1841`
 PASS (`ghostSeparation=139.5m`, `spawnSeparation=139.5m`, first kRPC distance 138.1 m, MATCH-VELOCITY
 without a rendezvous; both lines now pinned); landed regressions `CI-6` `_1847` and `CI-8` `_1848`
-PASS. The near branch also needed the `chain-tip-dock` target's port turned toward the trailing
+PASS. After the collision-gate follow-up: CI-9 reading `_1915` and armed `_1922` PASS with the gate's
+`Physics.OverlapBox at (45,0,-131)` pinned (it read `(194684,982,-288814)` before), CI-8 `_1928` PASS. The near branch also needed the `chain-tip-dock` target's port turned toward the trailing
 Kerbal X (`_1812` / `_1820_a2` flaked with RCS spent against the target's side).
 
 **Left over, same class, not fixed** (filed below as REALSPAWN-JUMP-SHIFT-RESIDUE).
