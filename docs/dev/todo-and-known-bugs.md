@@ -189,6 +189,9 @@ defect on the PWR lanes with the right per-rate allowance.
   every xUnit section close; the read now returns false when `TimeWarp.fetch` is null. No
   lane forbids a WARN line generically (the log validator's WRN-001 checks only a redundant
   `WARNING:` prefix), so a legitimate physics-warp run reds nothing.
+  Flown on a DLL carrying this fix: PWR-1 `2026-10-03_1039`, PWR-2 `_1044`, PWR-3 `_1030` /
+  `_1050` log no foreground `TrackSection sparse sampling:` WARN; each logs the two
+  background debris WARNs every earlier PWR run already had (BG-PROXIMITY-GAP-READS-AS-SPARSE-SAMPLING).
 
 ## ~~KXRW-RESULT-NAN-DETAIL: a kx_rewind_watch flight that ends early writes no mission result at all~~ [FILED 2026-10-01 from the mutation checker's blind replay, branch `mutation-phase2-pr3`. FIXED 2026-10-01, branch `fix-kxrw-nan`]
 
