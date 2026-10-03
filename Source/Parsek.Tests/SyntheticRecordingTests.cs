@@ -9367,6 +9367,279 @@ namespace Parsek.Tests
             }
         }
 
+        // ---------------------------------------------------------------------------------
+        // chain-tip-recovery preset (CI-6-chain-tip-recover-no-respawn): ONE committed
+        // two-recording tree on gloops-airshow (RSC-1's host) whose chain tip is a Real Spawn
+        // Control candidate. Same production shape as background-claim (a PARENTLESS
+        // background recording carrying a ghosting-trigger part event, claimed by
+        // GhostChainWalker.ScanBackgroundEventClaims), but the claimed lander is LANDED next to
+        // the pad vessel (spawn-control-target's spot, ~130 m) and in progress at the save's
+        // UT, so the lane can RealSpawn it, switch to it and Recover it through stock. The
+        // claimed vessel is absent from the save, exactly as in the save CI-5 produces after
+        // its ghoster despawned the real probe. The root ends SubOrbital (not Destroyed) so a
+        // later Recovered continuation under the tip cannot make the whole tree fully
+        // terminated: GhostChainWalker.IsTreeFullyTerminated would then skip the tree before
+        // ResolveTermination ever reads the Recovered tip.
+        // ---------------------------------------------------------------------------------
+
+        internal const string ChainTipRecoveryCarrierName = "CTR Carrier";
+        internal const string ChainTipRecoveryLanderName = "CTR Lander";
+        internal const string ChainTipRecoveryRootRecordingId = "ctr-carrier-rec";
+        internal const string ChainTipRecoveryTipRecordingId = "ctr-tip-rec";
+        internal const double ChainTipRecoveryStartOffsetSeconds = 1.0;
+        internal const double ChainTipRecoveryDurationSeconds = 600.0;
+
+        /// <summary>Part pids inside the lander snapshot (VesselSnapshotBuilder order).</summary>
+        internal const uint ChainTipRecoveryCorePartPid = 100000u;
+        internal const uint ChainTipRecoveryEnginePartPid = 101111u;
+
+        /// <summary>The lander's vessel pid and launch guid (production-shaped, derived from its id).</summary>
+        internal static uint ChainTipRecoveryLanderPid =>
+            ScenarioWriter.DeriveVesselPersistentId(ChainTipRecoveryTipRecordingId);
+        internal static string ChainTipRecoveryLanderGuid =>
+            ScenarioWriter.DeriveVesselLaunchGuid(ChainTipRecoveryTipRecordingId);
+
+        /// <summary>
+        /// The tree's ROOT: a sounding flight east of the KSC committed while still in the air
+        /// (SubOrbital), 20 s before the save. It neither plays nor spawns in the lane, claims
+        /// nothing, and keeps one live leaf in the tree.
+        /// </summary>
+        internal static RecordingBuilder ChainTipRecoveryCarrier(double baseUT)
+        {
+            var b = new RecordingBuilder(ChainTipRecoveryCarrierName)
+                .WithRecordingId(ChainTipRecoveryRootRecordingId);
+            b.AddPoint(baseUT - 40.0, -0.20, -74.00, 6000.0);
+            b.AddPoint(baseUT - 20.0, -0.20, -73.98, 8000.0);
+            b.WithTerminalState((int)TerminalState.SubOrbital);
+            b.WithVesselSnapshot(VesselSnapshotBuilder.ProbeShip(ChainTipRecoveryCarrierName, pid: 71000301));
+            return b;
+        }
+
+        /// <summary>
+        /// The claimed chain tip: a stationary landed lander (OKTO core, Spark on top, so it
+        /// rests flat) recorded in the background, parentless, with an engine ignite /
+        /// shutdown pair (the trigger), in progress at the save's UT on
+        /// spawn-control-target's spot, Landed terminal with a vessel snapshot.
+        /// </summary>
+        internal static RecordingBuilder ChainTipRecoveryLander(double baseUT)
+        {
+            double t0 = baseUT + ChainTipRecoveryStartOffsetSeconds;
+            double tEnd = t0 + ChainTipRecoveryDurationSeconds;
+            var b = new RecordingBuilder(ChainTipRecoveryLanderName)
+                .WithRecordingId(ChainTipRecoveryTipRecordingId)
+                .WithVesselPersistentId(ChainTipRecoveryLanderPid)
+                .WithRecordedVesselGuid(ChainTipRecoveryLanderGuid)
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
+            const int pointCount = 10;
+            for (int i = 0; i <= pointCount; i++)
+            {
+                double ut = t0 + i * (ChainTipRecoveryDurationSeconds / pointCount);
+                b.AddPoint(ut, SpawnControlTargetLat, SpawnControlTargetLon, SpawnControlTargetAlt);
+            }
+            b.AddPartEvent(t0 + 2.0, ChainTipRecoveryEnginePartPid, (int)PartEventType.EngineIgnited,
+                "liquidEngineMini.v2", value: 1f);
+            b.AddPartEvent(t0 + 4.0, ChainTipRecoveryEnginePartPid, (int)PartEventType.EngineShutdown,
+                "liquidEngineMini.v2");
+            b.AddTrackSection(
+                SegmentEnvironment.SurfaceStationary, ReferenceFrame.Absolute,
+                TrackSectionSource.Background, t0, tEnd, sampleRateHz: 1.0f);
+            b.WithTerminalState((int)TerminalState.Landed);
+            b.WithTerrainHeightAtEnd(SpawnControlTargetAlt - 2.0);
+            b.WithGhostVisualSnapshot(ChainTipRecoveryLanderSnapshot());
+            b.WithVesselSnapshot(ChainTipRecoveryLanderSnapshot());
+            return b;
+        }
+
+        private static VesselSnapshotBuilder ChainTipRecoveryLanderSnapshot()
+        {
+            return VesselSnapshotBuilder.FlatProbeLander(ChainTipRecoveryLanderName, ChainTipRecoveryLanderPid)
+                .WithLaunchGuid(ChainTipRecoveryLanderGuid)
+                .AsLanded(SpawnControlTargetLat, SpawnControlTargetLon, SpawnControlTargetAlt);
+        }
+
+        internal static RecordingBuilder[] ChainTipRecoveryTree(double baseUT)
+        {
+            return new[] { ChainTipRecoveryCarrier(baseUT), ChainTipRecoveryLander(baseUT) };
+        }
+
+        /// <summary>
+        /// The tree as the lane's designed path would leave it: the switch-continuation
+        /// segment the committed-spawned-clone route attaches under the tip
+        /// (<see cref="BranchPointType.VesselSwitchContinuation"/>, same pid), ended
+        /// Recovered by the in-flight Recover.
+        /// </summary>
+        private static RecordingTree ChainTipRecoveryTreeWithRecoveredContinuation(
+            double baseUT, int carrierTerminal)
+        {
+            RecordingBuilder[] builders = ChainTipRecoveryTree(baseUT);
+            builders[0].WithTerminalState(carrierTerminal);
+            RecordingTree tree = MaterializeBackgroundClaimTree(builders);
+            Recording tip = tree.Recordings[ChainTipRecoveryTipRecordingId];
+            var cont = new Recording
+            {
+                RecordingId = "ctr-continuation-rec",
+                TreeId = tree.Id,
+                VesselName = ChainTipRecoveryLanderName,
+                VesselPersistentId = ChainTipRecoveryLanderPid,
+                RecordedVesselGuid = ChainTipRecoveryLanderGuid,
+                ParentBranchPointId = "ctr-switch-bp",
+                ExplicitStartUT = tip.EndUT,
+                ExplicitEndUT = tip.EndUT + 10.0,
+                TerminalStateValue = TerminalState.Recovered,
+            };
+            tree.Recordings[cont.RecordingId] = cont;
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "ctr-switch-bp",
+                UT = tip.EndUT,
+                Type = BranchPointType.VesselSwitchContinuation,
+                ParentRecordingIds = new List<string> { ChainTipRecoveryTipRecordingId },
+                ChildRecordingIds = new List<string> { cont.RecordingId },
+            });
+            tip.ChildBranchPointId = "ctr-switch-bp";
+            return tree;
+        }
+
+        [Fact]
+        public void ChainTipRecovery_TipSitsInsideTheWarpRadiusAndOutsideThePadExclusion()
+        {
+            double dist = SpawnCollisionDetector.SurfaceDistance(
+                LaunchPadLat, LaunchPadLon,
+                SpawnControlTargetLat, SpawnControlTargetLon, 600000.0);
+            Assert.InRange(dist, SpawnCollisionDetector.DefaultKscExclusionRadiusMeters + 50.0,
+                ParsekFlight.NearbySpawnRadius - 50.0);
+        }
+
+        [Fact]
+        public void ChainTipRecovery_WalkerBuildsOneLiveChainTippedByTheLander()
+        {
+            ParsekLog.ResetRateLimitsForTesting();
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            try
+            {
+                const double saveUT = 21.16;
+                RecordingTree tree = MaterializeBackgroundClaimTree(ChainTipRecoveryTree(saveUT));
+
+                Assert.Equal(ChainTipRecoveryRootRecordingId, tree.RootRecordingId);
+                Assert.Empty(tree.BranchPoints);
+                Recording tip = tree.Recordings[ChainTipRecoveryTipRecordingId];
+                Assert.Null(tip.ParentBranchPointId);
+                Assert.True(GhostingTriggerClassifier.HasGhostingTriggerEvents(tip));
+                Assert.False(GhostChainWalker.IsTreeFullyTerminated(tree));
+
+                var chains = GhostChainWalker.ComputeAllGhostChains(
+                    new List<RecordingTree> { tree }, saveUT);
+
+                Assert.Single(chains);
+                GhostChain chain = chains[ChainTipRecoveryLanderPid];
+                Assert.Equal("BACKGROUND_EVENT", chain.Links[0].interactionType);
+                Assert.Equal(ChainTipRecoveryTipRecordingId, chain.TipRecordingId);
+                Assert.False(chain.IsTerminated);
+                Assert.True(GhostChainWalker.ShouldGhostChainAtUT(chain, saveUT));
+                // The tip is an end-of-recording spawn candidate: the shape Real Spawn Control lists.
+                Assert.True(GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(tip, false).needsSpawn);
+                Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                    && l.Contains("Chain built: vessel="
+                        + ChainTipRecoveryLanderPid.ToString(CultureInfo.InvariantCulture)
+                        + " links=1 tip=" + ChainTipRecoveryTipRecordingId)
+                    && l.Contains("terminated=False"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void ChainTipRecovery_RecoveredContinuationTerminatesTheChainAndTheTipIsNonLeaf()
+        {
+            ParsekLog.ResetRateLimitsForTesting();
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            try
+            {
+                const double saveUT = 21.16;
+                RecordingTree tree = ChainTipRecoveryTreeWithRecoveredContinuation(
+                    saveUT, (int)TerminalState.SubOrbital);
+                Assert.False(GhostChainWalker.IsTreeFullyTerminated(tree));
+
+                var chains = GhostChainWalker.ComputeAllGhostChains(
+                    new List<RecordingTree> { tree }, saveUT);
+
+                GhostChain chain = chains[ChainTipRecoveryLanderPid];
+                Assert.Equal("ctr-continuation-rec", chain.TipRecordingId);
+                Assert.True(chain.IsTerminated);
+                Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                    && l.Contains("ResolveTermination: vessel="
+                        + ChainTipRecoveryLanderPid.ToString(CultureInfo.InvariantCulture)
+                        + " tip=ctr-continuation-rec terminalState=Recovered"));
+                // The spawn side: the old tip is now a non-leaf, so even a reset spawn state
+                // (the spawn-death path after the recovered vessel vanishes) cannot respawn it.
+                Recording oldTip = tree.Recordings[ChainTipRecoveryTipRecordingId];
+                var decision = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(oldTip, false, tree);
+                Assert.False(decision.needsSpawn);
+                Assert.Equal("non-leaf tree recording", decision.reason);
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void ChainTipRecovery_DestroyedRootMirror_FullyTerminatedTreeBuildsNoChain()
+        {
+            // Why the root ends SubOrbital: with CI-5's Destroyed root the same Recovered
+            // continuation leaves every leaf terminated, the walker skips the whole tree, and
+            // no chain (so no ResolveTermination line) is ever built.
+            RecordingTree tree = ChainTipRecoveryTreeWithRecoveredContinuation(
+                21.16, (int)TerminalState.Destroyed);
+            Assert.True(GhostChainWalker.IsTreeFullyTerminated(tree));
+            Assert.Empty(GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, 21.16));
+        }
+
+        [Fact]
+        public void ChainTipRecovery_TreeRecordCodecKeepsTheLanderIdentity()
+        {
+            RecordingTree tree = MaterializeBackgroundClaimTree(ChainTipRecoveryTree(21.16));
+            Recording tip = tree.Recordings[ChainTipRecoveryTipRecordingId];
+            var recNode = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(recNode, tip);
+            var reloaded = new Recording();
+            RecordingTreeRecordCodec.LoadRecordingFrom(recNode, reloaded);
+            Assert.Equal(ChainTipRecoveryLanderPid, reloaded.VesselPersistentId);
+            Assert.Equal(ChainTipRecoveryLanderGuid, reloaded.RecordedVesselGuid);
+            Assert.Equal(TerminalState.Landed, reloaded.TerminalStateValue);
+            Assert.Equal(TerminalState.SubOrbital,
+                tree.Recordings[ChainTipRecoveryRootRecordingId].TerminalStateValue);
+            Assert.Equal(ChainTipRecoveryLanderPid.ToString(CultureInfo.InvariantCulture),
+                tip.VesselSnapshot.GetValue("persistentId"));
+            Assert.Equal(ChainTipRecoveryLanderGuid, tip.VesselSnapshot.GetValue("pid"));
+        }
+
+        /// <summary>
+        /// Injects ONLY <see cref="ChainTipRecoveryTree"/> (the <c>chain-tip-recovery</c> preset
+        /// behind <c>CI-6-chain-tip-recover-no-respawn</c>): one committed two-recording tree,
+        /// no RewindPoint sidecar. Authored against a host whose active vessel sits on the
+        /// Launch Pad (<c>gloops-airshow</c>); the clock is read off the target save.
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("chain-tip-recovery-fixture")]
+        public void InjectChainTipRecovery()
+        {
+            InjectSingleSubjectPreset("chain-tip-recovery-fixture",
+                (writer, baseUT) => writer.AddRecordingsAsTree(ChainTipRecoveryTree(baseUT)),
+                content =>
+                {
+                    Assert.Contains("vesselName = " + ChainTipRecoveryCarrierName, content);
+                    Assert.Contains(ChainTipRecoveryTipRecordingId, content);
+                });
+        }
+
         [Trait("Category", "Manual")]
         [InjectTargetFact("test career")]
         public void InjectAllRecordings()

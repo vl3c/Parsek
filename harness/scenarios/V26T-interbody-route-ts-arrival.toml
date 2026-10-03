@@ -284,7 +284,12 @@ D14 = ["kerbin", "duna", "scene-ts", "sandbox"]
 #       line are NOT exercised here - this fixture's clock is past every terminated chain's
 #       spawn UT, so the flight scene drops those chains before the terminated check and
 #       no spawn is ever attempted - and both are filed as residue
-#       (D18-TERMINATED-CHAIN-RECOVERY-HALF-AND-SPAWN-SUPPRESSION-UNWITNESSED).
+#       (D18-TERMINATED-CHAIN-RECOVERY-HALF-AND-SPAWN-SUPPRESSION-UNWITNESSED, closed
+#       2026-10-03). The recovery half is now DRIVEN by `CI-6-chain-tip-recover-no-respawn`,
+#       which quarantines the defect it found (CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-
+#       DUPLICATE: no Recovered verdict is ever recorded on the player path), so this claim
+#       stays DESTROYED-ONLY until that lane flips to XPASS. The spawn-side line cannot fire
+#       in production (TERMINATED-CHAIN-SPAWN-SUPPRESSED-LINE-UNREACHABLE).
 # ARCHIVE EVIDENCE: all three literals match ONCE in each of the five archived V26T logs
 # (`2026-09-10_2153`, `2026-09-11_0203`, `2026-09-15_1536`, `2026-09-15_1638`,
 # `2026-09-22_1835`), the 23 `terminated=True` lines are byte-identical across all five,

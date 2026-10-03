@@ -310,7 +310,22 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # FLIGHTSTATE is untouched. `--filter
                                         # InjectVesselBudget`. No RP. Consumer:
                                         # VB-1-ghost-vessel-budget.
-                                        "vessel-budget")
+                                        "vessel-budget",
+                                        # chain-tip-recovery: ONE committed
+                                        # two-recording tree on gloops-airshow:
+                                        # a SubOrbital root ended before the
+                                        # save, and a PARENTLESS background
+                                        # recording of a landed lander (its own
+                                        # derived pid and launch guid, absent
+                                        # from the save) with an engine ignite /
+                                        # shutdown, in progress at the save UT
+                                        # ~130 m from the pad, so the walker
+                                        # claims it via BACKGROUND_EVENT and it
+                                        # is a Real Spawn Control candidate.
+                                        # `--filter InjectChainTipRecovery`. No
+                                        # RP. Consumer:
+                                        # CI-6-chain-tip-recover-no-respawn.
+                                        "chain-tip-recovery")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
