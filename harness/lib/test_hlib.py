@@ -4379,6 +4379,14 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # CommittedBatchTallySourceSyncTests gates its `total=`. It LEFT the same day: its
     # reading run 2026-09-27_1341 (PASS attempt 1) measured the prediction, `passed=1
     # failed=0 skipped=0`, and the spec pinned the line whole.
+    #
+    # VB-1-ghost-vessel-budget ENTERED on 2026-10-03 (`closing-flights`): its RunTests
+    # `VesselBudget` step (1 TRACKSTATION cell) was restored after the
+    # INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS fix, `total=1` literal with the split
+    # regexed, predicted 1 / 0. Like CN-1 it is not an H-series id, so this class's own
+    # cells never read it; CommittedBatchTallySourceSyncTests gates its `total=`. It LEFT
+    # the same day: its reading run 2026-10-03_1440 (PASS attempt 1) measured the
+    # prediction, `passed=1 failed=0 skipped=0`, and the spec pinned the line whole.
     INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -8735,6 +8743,9 @@ class UnityExceptionScanTests(unittest.TestCase):
             # record / commit / Rewind-to-Launch; its three driver-valid runs 2026-09-29
             # (_1745 / _1821 / _1831) all read total=0 in every counted class.
             "HC-1-hard-career-ledger.toml": 0,
+            # HC-2: L3's mission on a Hard sibling of L3's host, then a VAB probe launch, the
+            # LedgerGroundTruth batch and a Rewind-to-Launch; reading 2026-10-03_1523 total=0.
+            "HC-2-hard-career-earn-spend.toml": 0,
             "L1-dismiss-kerbal-career.toml": 0,
             "L1-hire-kerbal-career.toml": 0,
             "L1-passive-sandbox.toml": 0,
@@ -8893,6 +8904,10 @@ class UnityExceptionScanTests(unittest.TestCase):
         # `2026-07-31_1938`, `2026-09-23_2038`); control host `2026-09-23_2038`
         # (total 0). Keeps its maxTotal 3.
         "S4.1-rewind-merge.toml": 0,
+        # ZF-1: three driver-valid runs 2026-10-03, parsekFrames 0 in each (`_1521` total 0,
+        # `_1531` total 0, `_1540` total 2, both stock KnowledgeBase NREs after the quit);
+        # control host `_1540`. Arms no maxTotal.
+        "ZF-1-zero-funds-career.toml": 0,
     }
 
     # `maxParsekThrowSite` arming (operator ruling 2026-09-22 on todo

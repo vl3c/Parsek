@@ -894,6 +894,12 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # (harness/tools/build_career_pad_craft_hard.py), so it carries the same
         # ParsekScenario node career-pad-craft does.
         "career-pad-craft-hard": True,
+        # career-science-pad-hard (harness/tools/build_career_science_pad_hard.py) and
+        # career-pad-craft-zero-funds (harness/tools/build_career_pad_craft_zero_funds.py)
+        # change only PARAMETERS / pool values of their sources, so they carry the same
+        # ParsekScenario node career-science-pad and career-pad-craft do.
+        "career-science-pad-hard": True,
+        "career-pad-craft-zero-funds": True,
         "gs1-two-stage-pad": True,
         # coalescer-pad is gs1-two-stage-pad byte for byte except two parts' stage
         # assignments (harness/tools/build_coalescer_pad.py), so it carries the same

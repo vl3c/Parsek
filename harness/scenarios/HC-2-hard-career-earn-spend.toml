@@ -1,0 +1,182 @@
+schema = 1
+id = "HC-2-hard-career-earn-spend"
+tier = "nightly"
+# THE GAME-SETTINGS AXIS, REWARD MULTIPLIERS (operator request 2026-10-03, risk 1). HC-1
+# proved a Hard career boots, recalculates, commits and rewinds, but earned and spent nothing,
+# so no multiplier-scaled amount was ever checked. This lane makes a Hard career EARN through
+# every channel a reward multiplier touches, SPEND, commit and rewind, and hard-asserts that
+# Parsek's ledger reconstruction equals the pools stock computed.
+#
+# WHERE THE MULTIPLIERS LIVE (decompiled KSP 1.12.5). World-first milestones: `ProgressNode.
+# AwardProgress(desc, funds, science, rep)` receives amounts already multiplied by
+# `GameVariables.GetContract{Funds,Science,Reputation}CompletionFactor`, which carry
+# `Career.{Funds,Science,Rep}GainMultiplier` (`ProgressUtilities.WorldFirstStandardReward`);
+# Parsek's `ProgressRewardPatch` postfix captures those parameters, so it records the scaled
+# amount. Experiment science: stock scales by `ScienceGainMultiplier` AFTER adding the raw value
+# to the subject, so Parsek freezes the multiplier on the capture (S1, `gainMultiplier=` on the
+# `Science subject captured` line) and `ScienceModule` scales only the pool credit. Vessel
+# recovery: no multiplier (the craft's value) - the control.
+#
+# THE HOST. `career-science-pad-hard`, derived by harness/tools/build_career_science_pad_hard.py
+# from L3's host `career-science-pad` with HC-1's eleven Hard values (x0.6 gains, x2 losses,
+# quickload / restart / leave-to-editor off), drift-gated by lib/test_career_science_pad_hard.py.
+# So this lane is L3's flight with the multipliers as the only difference, and L3's measured
+# x1 amounts (identical on every green L3 flight, e.g. `2026-09-29_2153`) are the baseline:
+# milestones RecordsSpeed / RecordsAltitude 4800 per interval, FirstLaunch 800, Kerbin/Science
+# 1600, 32000 funds in all; science crewReport 3.0, mysteryGoo 3.6, recovery@KerbinFlew 5.0;
+# recovery 4558; final pools funds 536558, science 111.6, reputation 2.00.
+#
+# THE WALK. L3's mission verbatim (hop, land, collect, transmit, recover; autoMerge so the
+# recovery scene exit auto-commits). Then, in the Space Center: autoRecordOnLaunch off, open
+# the VAB on the one-part `Settings Probe` (a start-node Stayputnik; the stock Jumping
+# Flea's pod and chute are behind unresearched ProbesBeforeCrew nodes) and launch it (the PURCHASE: stock debits the rollout
+# cost), and in that FLIGHT scene - no live or pending tree - run LedgerGroundTruth (the recalc
+# against KSP's own quicksave, NON-circular, hard on funds / science / reputation). Then rewind
+# the committed hop to its launch (the Recordings-table R button; ignores CanQuickLoad by ruling).
+#
+# THE NON-CIRCULAR ASSERTIONS. (1) LedgerGroundTruth `hardFailures=0` after the earnings and
+# the purchase. (2) No keep-what-you-earned guard clamp anywhere in the run: before S1 the
+# ledger credited x1 science against a x0.6 pool and every recalc clamped (`GUARDED ...
+# clamped`), and that line is forbidden. (3) The capture lines carry the scaled amounts and
+# the stamped multiplier.
+#
+# STATUS: LIVE-PROVEN AND ARMED 2026-10-03 (branch `settings-risks`, automation DLL sha256
+# `938a8d46...`, origin/main `cb899a8f9`, no C# change). Reading `2026-10-03_1523` PASS attempt
+# 1: the funds total landed on 523758, the value predicted from L3's x1 amounts before the
+# flight; every milestone exactly 0.6x; `gainMultiplier=0.6` on all three science captures;
+# recovery 4558 unscaled; no guard clamp; LedgerGroundTruth `passed=3 ... facetsCompared=11
+# hardFailures=0`; the rewind patched funds / science / reputation back to the seed. Its batch
+# reloaded the flight before stock's rollout charge, so the settle marks were added and the
+# rollout tokens pinned prospectively; ARMED `_1533` PASS attempt 1 on every pin, including
+# `FundsChanged -300 (VesselRollout)` and the 523458 no-change line before the batch. Offline
+# negative control over `_1533`: 10 of 10 seeds red (x1 science stamp, x1 milestone, a science
+# clamp, the x1 funds total, a scaled recovery, an uncharged rollout, a hard divergence, a
+# vacuous batch, no rewind, a third recording), the green log green.
+description = "Parsek under KSP's Hard career preset with money and science changing hands: L3's hop on career-science-pad-hard earns x0.6 milestones and x0.6 science plus an unscaled recovery, auto-commits, a VAB launch spends, LedgerGroundTruth closes against KSP's own save with no guard clamp, then a Rewind-to-Launch."
+instanceProfile = "stock-minimal"
+tags = ["settings-axis", "hard-preset", "multipliers", "ledger", "ingame-batch", "ground-truth", "science",
+        "recovery", "editor", "rewind", "HC-2", "flown", "armed"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-science-pad-hard"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind    = "autopilot"
+mission = "science_bench_recover"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },    expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge",          value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { phase = "mission",                                                              expect = "MISSION-OK", budget = 1320 },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Settings Probe" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                       expect = "OK", budget = 180 },
+  # Settle: stock charges the rollout in FlightDriver.PostInit 15 frames after FLIGHT starts
+  # (OnVesselRollout -> Funding.AddFunds(-cost, VesselRollout)); a RunTests batch issued on
+  # the launch completion reloads the flight from its baseline first and the charge never
+  # happens (ZF-1 `2026-10-03_1521`: funds unchanged across the launch). Four marks ~1 s.
+  { cmd = "MissionMark",    args = { label = "hc2-rollout-settle" },             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "hc2-rollout-settle" },             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "hc2-rollout-settle" },             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "hc2-rollout-settle" },             expect = "OK" },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },              expect = "OK", budget = 540 },
+  { cmd = "MissionMark",    args = { label = "hc2-groundtruth-done" },              expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                       expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "hc2-rewound" },                       expect = "OK" },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                           expect = "OK" },
+]
+
+[driver.missionParams]
+# L3-career-science-recover's values verbatim (same craft, same flight leg, same career leg).
+throttle                 = 1.0
+apoapsisWindowMeters     = { min = 6000, max = 30000 }
+chuteArmMaxRateMps       = 30
+chuteFullDeployAltMeters = 2500
+landedSituations         = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds     = 90
+coastTimeoutSeconds      = 180
+descentTimeoutSeconds    = 360
+collectMinExperiments = 1
+collectTimeoutSeconds = 120
+transmitMinScienceGain = 0.3
+transmitTimeoutSeconds = 120
+recoverMinFundsGain = 1.0
+recoverTimeoutSeconds = 180
+
+[dimensionsCovered]
+D14 = ["kerbin", "career", "scene-flight", "hard-preset", "reward-multipliers"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The hop's main recording plus the post-recovery continuation, as on every green L3 flight;
+# the probe launch is unrecorded (autoRecordOnLaunch off) and the rewind removes nothing.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+# PINNED off the reading `2026-10-03_1523` (PASS attempt 1), against L3's x1 log
+# `2026-09-29_2153` on the identical flight:
+#   milestone             x1 (L3)   Hard (here)   ratio
+#   RecordsSpeed/interval   4800       2880         0.6
+#   RecordsAltitude/int.    4800       2880         0.6
+#   FirstLaunch              800        480         0.6
+#   Kerbin/Science          1600        960         0.6
+#   FirstCrewToSurvive       800        480         0.6
+#   science crewReport 3.0 -> 1.8, mysteryGoo 3.6 -> 2.2, recovery@KerbinFlew 5.0 -> 3.0 (x0.6,
+#   `gainMultiplier=0.6` stamped at capture; subject totals stay 3.0 / 3.6 / 5.0 raw)
+#   recovery              4558       4558          1 (no multiplier: the control)
+#   final pools: funds 536558 -> 523758 (500000 + 0.6 x 32000 + 4558, predicted before the
+#   flight), science 111.6 -> 107.0, reputation 2.00 -> 2.00 (stock itself awarded +1.0 per
+#   records milestone at both settings; Parsek's reconstruction matched stock's pool either way).
+# EXCEPT the two rollout tokens and the 523458 no-change line: the reading's batch reloaded the
+# flight before stock's rollout charge (see the settle marks), so those are first measured by
+# the run after the marks were added. The probe costs the Stayputnik's 300 (Hard has no cost
+# multiplier on parts).
+required = [
+  "Game state: MilestoneAchieved \\(standalone\\) 'RecordsSpeed' funds=2880 rep=0\\.0 sci=0\\.0",
+  "Game state: MilestoneAchieved \\(standalone\\) 'RecordsAltitude' funds=2880 rep=0\\.0 sci=0\\.0",
+  "Milestone enriched: 'FirstLaunch' funds=480 rep=0\\.0 sci=0\\.0",
+  "Milestone enriched: 'Kerbin/Science' funds=960 rep=0\\.0 sci=0\\.0",
+  "Milestone enriched: 'FirstCrewToSurvive' funds=480 rep=0\\.0 sci=0\\.0",
+  "Science subject captured: crewReport@KerbinSrfLandedLaunchPad amount=1\\.8 increment=3\\.00 total=3\\.0 gainMultiplier=0\\.6 ",
+  "Science subject captured: mysteryGoo@KerbinSrfLandedLaunchPad amount=2\\.2 increment=3\\.60 total=3\\.6 gainMultiplier=0\\.6 ",
+  "Science subject captured: recovery@KerbinFlew amount=3\\.0 increment=5\\.00 total=5\\.0 gainMultiplier=0\\.6 ",
+  "VesselRecovery funds patched: vessel='Jumping Flea' amount=4558 ",
+  "PatchFunds: no change needed \\(current=523758\\.0, target=523758\\.0\\)",
+  "PatchScience: balance unchanged \\(current=107\\.0, target=107\\.0\\)",
+  "PatchReputation: no change needed \\(current=2\\.00, target=2\\.00\\)",
+  "launchfromeditor complete scene=FLIGHT vessel=Settings Probe pid=1100000001 site=LaunchPad situation=PRELAUNCH",
+  "Game state: FundsChanged -300 \\(VesselRollout\\)",
+  "VesselRollout spending recorded: cost=300,",
+  "PatchFunds: no change needed \\(current=523458\\.0, target=523458\\.0\\)",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 reportOnly=0 facetsCompared=11 strict=False",
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT ",
+  "\\[Rewind\\] Rewind: adjustedUT=0\\.0, rewindUT=",
+  "PatchScience: 107\\.0 -> 100\\.0 \\(delta=-7\\.0, target=100\\.0\\)",
+  "PatchReputation: 2\\.00 -> 0\\.00 \\(target=0\\.00\\)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "gainMultiplier=1 ",
+]
+
+[expectations.unityExceptions]
+maxTotal = 0
+
+[runtime]
+budgetSeconds = 3300
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
