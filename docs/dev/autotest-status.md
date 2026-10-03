@@ -2861,6 +2861,11 @@ token (`harness/README.md` "Recording under physics warp"). Automation DLL sha25
 reading save with one seeded defect at a time (a gap past max, a duplicate UT, a swapped pair,
 a +0.5 deg teleport, a 90 deg velocity turn across one gap, the wrong density declared each
 way, the `warpRuns=` token stripped): PWR-1 7 of 7, PWR-2 8 of 8, PWR-3 7 of 7 red.
+2026-10-03 (branch `section-duplicate-ut`): with todo SECTION-DUPLICATE-UT-SAMPLES fixed, all
+three lanes also pin the all-class `duplicates = 0` beside `warpDuplicates = 0`, armed off the
+fixed-DLL runs `2026-10-03_1039` (PWR-1) / `_1044` (PWR-2) / `_1030` (PWR-3), each reading
+duplicates 0 (gone: the booster-staging duplicates of PWR-1 `2026-10-02_2122` / `_2141` and
+PWR-3 `_2133`, and the clamp-release one of PWR-3 `_2108`).
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|

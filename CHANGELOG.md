@@ -1364,6 +1364,12 @@ _(unreleased — entries accumulate here per commit)_
   vessel's position from the end of every physics step and samples that, so each point's
   position belongs to its time and every step is seen once. Background recordings skip the
   mid-step reading instead and sample at the end of the frame.
+- **Recording: no more doubled samples at staging and launch.** When two parts of the
+  recorder wrote a sample at the same moment (a staging joint break, the reopened section
+  after it, a launch-clamp release), the recording kept both, one right after the other.
+  One section now holds one sample per moment: a repeat is dropped, and when the two
+  differ the later one is kept (at clamp release, the one taken after the vessel went off
+  rails), with its event marker carried over. No recording format change.
 - **Dev: an in-game test batch in the Tracking Station no longer orphans the ghost map
   vessels.** Before a batch the test runner cleared Parsek's list of ghost map vessels without
   removing the vessels, and in the Tracking Station nothing else removed them. They then read
