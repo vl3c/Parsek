@@ -136,6 +136,15 @@ namespace Parsek
             // lockstep with frames in TrimParentAtBranchBoundary.
             public readonly List<bool> sectionFrameWarpFlags = new List<bool>();
 
+            // Out-of-proximity-range sampling silences (ShouldSkipTrajectorySamplingForProximity).
+            // The open one starts at the first skipped tick and closes at the first tick that
+            // is not skipped; the closed ones explain the section-close gaps they overlap.
+            // Cleared on StartBackgroundTrackSection; a window past a trimmed tail overlaps
+            // no gap.
+            public double proximitySilenceStartUT = double.NaN;
+            public readonly List<FlightRecorder.SamplingSilenceWindow> sectionProximitySilences =
+                new List<FlightRecorder.SamplingSilenceWindow>();
+
             // Part destruction/decoupling tracking
             public HashSet<uint> decoupledPartIds = new HashSet<uint>();
 

@@ -840,7 +840,76 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN][BgRecorder]")
                 && l.Contains("TrackSection sparse sampling: pid=7700004")
-                && l.Contains("largeGaps=1 largeGapsOffRails=1"));
+                && l.Contains("largeGaps=1 largeGapsOffRails=1 largeGapsOutOfRange=0"));
+        }
+
+        [Fact]
+        public void SectionClose_GapInsideProximitySilence_LogsVerboseNotWarn()
+        {
+            // todo BG-PROXIMITY-GAP-READS-AS-SPARSE-SAMPLING: the debris left proximity
+            // range (sampling skipped by design) and came back 14 s later.
+            uint pid = 7700005;
+            string recId = "rec_sparse_out_of_range";
+            var tree = MakeTree(pid, recId);
+            tree.Recordings[recId].Points.Clear();
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 19000.0);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(19000.0));
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(19000.5));
+            bgRecorder.NoteProximitySilenceTickForTesting(pid, 19000.52);
+            bgRecorder.NoteProximitySilenceTickForTesting(pid, 19007.0); // extends, does not reopen
+            bgRecorder.NoteInRangeTickForTesting(pid, 19014.48);           // back in range
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(19014.5)); // 14 s gap
+
+            bgRecorder.FlushLoadedStateForOnRailsTransitionForTesting(
+                pid,
+                SegmentEnvironment.Atmospheric,
+                willHavePlayableOnRailsPayload: false,
+                boundaryPoint: Point(19014.5),
+                ut: 19014.5);
+
+            Assert.Contains(logLines, l => l.Contains("[BgRecorder]")
+                && l.Contains("Proximity sampling silence started: pid=7700005 ut=19000.52"));
+            Assert.Contains(logLines, l => l.Contains("[BgRecorder]")
+                && l.Contains("Proximity sampling silence ended: pid=7700005 startUT=19000.52 endUT=19014.48"));
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE][BgRecorder]")
+                && l.Contains("TrackSection sparse sampling: pid=7700005")
+                && l.Contains("largeGaps=1 largeGapsOffRails=0 largeGapsOutOfRange=1"));
+            Assert.DoesNotContain(logLines, l => l.Contains("[WARN][BgRecorder]")
+                && l.Contains("TrackSection sparse sampling: pid=7700005"));
+        }
+
+        [Fact]
+        public void SectionClose_StallAfterReturningInRange_StillWarns()
+        {
+            // Out of range for 6.5 s, then back in range at 19007.0 but no sample for 7.5 s:
+            // the in-range part is a stall and must WARN.
+            uint pid = 7700006;
+            string recId = "rec_sparse_stall_after_return";
+            var tree = MakeTree(pid, recId);
+            tree.Recordings[recId].Points.Clear();
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 19000.0);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(19000.0));
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(19000.5));
+            bgRecorder.NoteProximitySilenceTickForTesting(pid, 19000.52);
+            bgRecorder.NoteInRangeTickForTesting(pid, 19007.0);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(19014.5));
+
+            bgRecorder.FlushLoadedStateForOnRailsTransitionForTesting(
+                pid,
+                SegmentEnvironment.Atmospheric,
+                willHavePlayableOnRailsPayload: false,
+                boundaryPoint: Point(19014.5),
+                ut: 19014.5);
+
+            Assert.Contains(logLines, l => l.Contains("[WARN][BgRecorder]")
+                && l.Contains("TrackSection sparse sampling: pid=7700006")
+                && l.Contains("largeGaps=1 largeGapsOffRails=1 largeGapsOutOfRange=0"));
         }
 
         [Fact]

@@ -200,7 +200,7 @@ decision 2026-10-02).
   the replace path at clamp release, `differs=speed(174.97->0.00)`, and at the second staging,
   `differs=rotation flags=1`); the PWR lanes now pin `duplicates = 0`.
 
-## BG-PROXIMITY-GAP-READS-AS-SPARSE-SAMPLING: a debris section that left proximity range WARNs `TrackSection sparse sampling:` on every booster launch [FILED 2026-10-03 from PWR-3 `2026-10-03_1030` and every PWR flight of 2026-10-02, branch `sparse-warn-physwarp`. OPEN, low, pre-existing]
+## ~~BG-PROXIMITY-GAP-READS-AS-SPARSE-SAMPLING: a debris section that left proximity range WARNs `TrackSection sparse sampling:` on every booster launch~~ [FILED 2026-10-03 from PWR-3 `2026-10-03_1030` and every PWR flight of 2026-10-02, branch `sparse-warn-physwarp`. FIXED 2026-10-03, branch `bg-proximity-gap`]
 
 Every PWR flight (`2026-10-02_2102` / `_2108` / `_2122` / `_2128` / `_2133` / `_2141` and
 `2026-10-03_1030`) logs two `[WARN][BgRecorder] TrackSection sparse sampling:` lines, one per
@@ -212,9 +212,19 @@ designed out-of-range silence, not a stalled sampler. It WARNed at 1x before
 SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP too (the old `largeGaps1x=1`), so that fix did
 not introduce it. No lane reads it.
 
-- [ ] Fix: classify a background gap whose earlier sample was taken while the vessel's
-  proximity interval was out of range (or whose span holds an `interval=none` stretch) as
-  expected, like a rails gap; or close the section when sampling stops for range.
+- [x] Fix: the background recorder records each out-of-range silence as a UT window
+  (`BackgroundVesselState.sectionProximitySilences`): it opens at the first tick
+  `ShouldSkipTrajectorySamplingForProximity` skips and closes at the first tick that is not
+  skipped (back in range, or a high-fidelity / debris tier overriding the range), and the
+  list is cleared when a section starts. Closing on the return tick rather than on the next
+  committed frame keeps an in-range stall after the return outside the window (it still
+  WARNs; `SectionClose_StallAfterReturningInRange_StillWarns`), and a boundary seed committed
+  during a silence no longer cuts the window short. `ComputeSectionGapStats` takes the windows: an off-rails
+  large gap counts toward the WARN only when its time outside them
+  (`ComputeGapSecondsOutsideSilences`) still exceeds the threshold, so a stall on either side
+  of a silence still WARNs; the rest count as `LargeGapCountInSilence`, logged as
+  `largeGapsOutOfRange=`. Logs `Proximity sampling silence started:` / `ended:` (Verbose,
+  once each per silence). The foreground recorder has no proximity silence and passes none.
 
 ## ~~SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP: the recorder's dropped-sample WARN is downgraded for every physics-warp gap~~ [FILED 2026-10-02 from the physics-warp recording investigation, branch `physwarp-recording`. FIXED 2026-10-03, branch `sparse-warn-physwarp`]
 
@@ -347,9 +357,20 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   node waits 5,100 s). The largest recoverable rows are now pre-#1964 BDOCK RENDEZVOUS
   waits, B22's outcome-sensitive CIRCULARIZE node wait (~590 s per run, policy undecided)
   and pre-#1958 CAPTURE-BURN waits.
-- [ ] B22's CIRCULARIZE node wait: owner ruling 2026-10-03 keeps it recoverable and
+- [x] B22's CIRCULARIZE node wait: owner ruling 2026-10-03 keeps it recoverable and
   outcome-sensitive in the analyzer. Backlog target: a verification flight before any warp
-  there (~590 s per run).
+  there (~590 s per run). Now a hold behind the default-off b5 key `circularizeNodeWaitWarp`
+  (branch `b5-circ-node-wait`, stacked on `coast-native-lead`): the CAPTURE node-wait hold
+  (`_b5_node_wait_begin` / `_b5_node_wait_step`) extended to the park round-out hand-off,
+  declined when the executor is not observed idle, the park is rails-illegal, or the warp
+  budget is spent; transfer nodes stay un-held. Only B22 opts in. The analyzer counts the
+  wait inside the lead (120 s + 5 s + half burn) as by design only in a visit whose own
+  `node-wait:` line printed its half burn; the rest stays recoverable and outcome-sensitive.
+  Re-fly proof 2026-10-03_1157 (with the coast lead): the hold warped to ut 2564.7 (node
+  2687.2, half burn 2.5 s) and released on arrival; trim ap 769,667 m (unheld runs 769,661 /
+  769,650); CIRCULARIZE wall 626 s -> 108 s; mission wall 2,767 s (2026-10-01_2235) ->
+  2,156 s; same 20-phase list, corrections 124.10 / 73.25 m/s (unheld 124.10 / 72.73-72.81),
+  Jool park ap 584,389 km (unheld 584,339 / 584,320 km, about 0.01%).
 - [x] BDOCK decisions (owner ruling 2026-10-03, resolved in the analyzer). STATION-ASCENT /
   INT-ASCENT node waits are by design (the same MechJeb ascent as MJ-ASCENT; BDOCK engages
   `ACTION_MJ_ENGAGE_ASCENT` on both legs). The RENDEZVOUS wait is by design from the hold's
@@ -363,6 +384,18 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   recoverable 18,712 s -> 14,450 s, by design 9,996 s -> 14,141 s; the top recoverable rows
   are now the pre-#1964 BDOCK-1 / BDOCK-2 RENDEZVOUS waits (3,499 s / 1,338 s), B22
   CIRCULARIZE (1,183 s) and pre-#1958 CAPTURE-BURN waits.
+- [x] Coast native lead (branch `coast-native-lead`): two default-off b5 `missionParams`.
+  `soiNativeLeadSeconds` moves the coast's native warp stop (and the approach clamp's lead)
+  closer to the SOI boundary than `soiLeadSeconds`, floored at 120 s + 4 x
+  `RAILS_WARP_RATES[approachMaxWarpFactor]` (rejected at spec load below it);
+  `triggerNativeLeadSeconds` keeps the time-mode correction-trigger native warp armed to
+  that many seconds before the trigger instead of `soiLeadSeconds`. Opted in on B26
+  (400 / 30) and B22 (10,000 / 30); every other lane is unchanged. Re-fly proof: B26
+  2026-10-03_1055 vs _0956 mission wall 707 s -> 596 s, same 20-phase list, corrections
+  63.72 / 11.63 m/s (was 63.72 / 11.67), Vall park 170,812 x 167,552 m (was 170,547 x
+  167,279; the two pre-change runs differ by ~980 m). B22 2026-10-03_1106 vs 2026-10-01_2235
+  coast wall 368 s -> 315 s, corrections 124.10 / 72.73 (was 124.10 / 72.81), Jool park
+  within 19 km of 584,339 km.
 
 ## ~~RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON: the recording stats frame lookup matches a section end exactly, with no tolerance~~ [FILED 2026-10-01 from the PR #1943 review, branch `l7-nightly-residue`. FIXED 2026-10-03, branch `fix-stats-frame-epsilon`]
 
@@ -6044,7 +6077,36 @@ and consider a second, pre-filter view (`ComputeAllGhostChains`' full output, or
 `digest=6ad6ec1c` (a fixture-derived literal in two required tokens), so it needs CI-3
 re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
 (`bbd83d3b`, `8952919c`) recomputed.
-## CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE: recovering a Real-Spawned chain tip right after switching to it drops the recovery, and the next flight scene spawns the vessel again [FILED 2026-10-03 on branch `d18-recovery` from `CI-6-chain-tip-recover-no-respawn`'s reading run `2026-10-03_1014`; OPEN]
+## ~~CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE: recovering a Real-Spawned chain tip right after switching to it drops the recovery, and the next flight scene spawns the vessel again~~ [FILED 2026-10-03 on branch `d18-recovery` from `CI-6-chain-tip-recover-no-respawn`'s reading run `2026-10-03_1014`; FIXED 2026-10-03 on branch `tip-recover-respawn`, CI-6 XPASS `2026-10-03_1234` and armed PASS `2026-10-03_1242`]
+
+**Fixed 2026-10-03 (branch `tip-recover-respawn`).** Three changes, all on the stored value:
+
+1. The three LoadScene-prefix auto-discard fast paths (3.5 no-op switch segment, 3.6 no-op
+   no-session resume, 5 idle-on-pad) ask `SceneExitInterceptor.PendingRecoveryKeepsLiveTree`
+   first: when the live tree is the armed committed-restore clone and the armed
+   `InFlightRecoveryRequest` has a stampable tip in it
+   (`InFlightRecoveryRequest.KeepsCommittedRestoreClone`), the fast path keeps the tree
+   (`[Recovery] Auto-discard refused: fastPath=...`), and the scene-exit finalize stamps the
+   tip Recovered. 3.5 asks only with a session armed, 3.6 only without. A fresh,
+   never-committed tree keeps its silent discard.
+2. The request binds, when armed, to the recording the live recorder is writing for the
+   recovered pid (`ParsekFlight.LiveRecordingIdForVessel`, `Request.BoundRecordingId`, logged
+   `boundRec=`). An end-of-recording spawn regenerates the vessel's identity (fresh pid and
+   guid); the resume moves the live pid onto the tip but the tip keeps the original launch
+   guid, so the launch match alone stamped nothing for that shape (found by the PR review;
+   unit-proven only, CI-6's chain-tip spawn keeps its identity).
+3. `RecordingStore.PreserveLiveRuntimeFieldsOnReplace` (its one caller is the tree commit)
+   no longer re-installs the replaced recording's spawn claim on a recording whose own
+   terminal leaves no vessel (Recovered / Destroyed / Disassembled). The commit runs at the
+   Space Center before stock removes the vessel, so the stale-stamp guard saw the pid live:
+   the first flight on changes 1-2 (`2026-10-03_1154`) committed Recovered and spawned
+   nothing, but still logged `Spawn-death detected` on the next flight.
+
+Unit tests: `RecoveryKeepsResumedCloneTests`. Mirror cases: switch, then Recover after a
+meaningful segment already committed Recovered (the classifier keeps a meaningful resume);
+a recovery that never reaches a live tree (Tracking Station, KSC marker, a non-active
+vessel) is filed separately as SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX.
+The text below is the original filing.
 
 **What the player does.** Real Spawn Control's "Warp to Spawn" on a ghost chain's tip (here a
 landed lander ~130 m from the pad), Switch-To the spawned vessel, press stock's Recover at
@@ -6100,6 +6162,32 @@ terminalState=Recovered`, and the forbidden `dropped unapplied`, `Spawn-death de
 the signature; a fixed-shape log (the three defect lines gone, the Recovered line present) has
 zero mismatches and would read XPASS; a half-fixed log (recovery recorded, respawn still
 there) and a no-spawn log do NOT match, so neither reads green.
+
+## SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX: a Parsek-spawned vessel recovered from the Tracking Station or the KSC marker leaves no evidence on a sandbox save when it carries no crew, and the next flight scene spawns it again [FILED 2026-10-03 on branch `tip-recover-respawn` from the mirror check of CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE; OPEN, derived from source, NOT FLOWN; needs an owner ruling on where the recovery is stored]
+
+The mirror of the closed in-flight case. Recovering a vessel Parsek spawned at a committed
+recording's end WITHOUT switching to it first (Tracking Station Recover, the KSC vessel
+marker, or kRPC's `Vessel.Recover` on a non-active vessel) never reaches a live tree, so
+nothing re-stamps the committed tip: `ParsekScenario.UpdateRecordingsForTerminalEvent`
+stamps only the pending tree by contract ("Committed recordings are never modified by
+terminal events"). The tip keeps its spawnable terminal, `VesselSpawned = True` and the
+spawned pid. What then stops the respawn is `RecoveredRecordingEvidence` (PR #1908), which
+reads a recovery ledger row tagged to the recording: a `FundsEarning(Recovery)` row (paired
+from stock's `FundsChanged(VesselRecovery)`, which a sandbox save never raises; CI-6's
+reading run logs `FlushStalePendingRecoveryFunds ... evicting 1 unclaimed recovery
+request(s)`) or a `KerbalRecovered` crew-close row (none for an uncrewed vessel: CI-6 logs
+`Recovery crew reservation close: ... no crew aboard, nothing to close`). With neither,
+the next FLIGHT scene's `ParsekPlaybackPolicy.RunSpawnDeathChecks` finds the spawned pid
+gone, resets the tip, and `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` spawns it again.
+Career saves and crewed vessels are covered by the existing rows.
+
+**Not covered by the in-flight fix**, which keeps a resumed clone so the commit stores
+Recovered; here there is no clone. Options, each a ruling: a vessel-recovery ledger row
+written on every `onVesselRecovered` of a genuine Parsek spawn pid regardless of funds
+(identity is unambiguous: a Parsek spawn pid is KSP-unique, or the chain tip's preserved
+pid plus its launch guid); or mutable spawn state on the committed recording (the
+`SpawnAbandoned` family lives in the .sfs, so an older save restores it). Lane: CI-6's host
+with `Recover` replaced by a Tracking Station recovery (no such seam verb yet).
 
 ## TERMINATED-CHAIN-SPAWN-SUPPRESSED-LINE-UNREACHABLE: `GhostPlaybackLogic.ShouldSuppressSpawnForChain`'s terminated-chain arm cannot fire in production [FILED 2026-10-03 on branch `d18-recovery`; OPEN, low priority, no player effect]
 

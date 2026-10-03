@@ -378,6 +378,16 @@
         "2026-09-25T22:45:42Z": 89.0
       }
     },
+    "CI-6-chain-tip-recover-no-respawn": {
+      "last": 85.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 85.0,
+      "p95": 85.0,
+      "samples": {
+        "2026-10-03T12:44:15Z": 85.0
+      }
+    },
     "CL-1-pod-impact": {
       "last": 158.0,
       "lastVsP50": 1.0,
