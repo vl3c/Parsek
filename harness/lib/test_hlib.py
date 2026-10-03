@@ -7894,6 +7894,100 @@ class ExpectedFailSignatureMatchTests(unittest.TestCase):
         self.assertTrue(v.ok, "a known PARSEK-FAIL subkind must validate; errors=%s" % (v.errors,))
 
 
+class ExpectedFailSaveStructureOptionalSignatureTests(unittest.TestCase):
+    """Guards the 2026-10-02 extension (PWR-3): per-token signatures for subkind
+    `save-structure` (read off `detail.saveParse.armedMismatches`), and the OPT-IN
+    `optionalMismatches` subset tolerance for an intermittent second filed defect."""
+
+    JUMP = "recordings.sampling.jumps 1 != 0"
+    OVERMAX = "recordings.sampling.overMax 1 != 0"
+    DUP = "recordings.sampling.warpDuplicates 1 != 0"
+
+    def _m(self, observed, required, optional=None):
+        return hlib.expected_fail_signature_matched(
+            "PARSEK-FAIL", "save-structure", "save-structure", required, observed, optional)
+
+    def test_observed_list_is_the_armed_save_parse_list(self):
+        detail = {"saveParse": {"mismatches": [self.JUMP, "x"], "armedMismatches": [self.JUMP]}}
+        self.assertEqual([self.JUMP],
+                         hlib.expected_fail_observed_mismatches("save-structure", detail))
+        self.assertIsNone(hlib.expected_fail_observed_mismatches("save-structure", {}))
+
+    def test_equality_stays_the_default(self):
+        self.assertTrue(self._m([self.JUMP], [self.JUMP]))
+        self.assertFalse(self._m([self.JUMP, self.OVERMAX], [self.JUMP]))
+
+    def test_optional_token_is_tolerated_only_beside_the_required_one(self):
+        self.assertTrue(self._m([self.JUMP], [self.JUMP], [self.OVERMAX]))
+        self.assertTrue(self._m([self.JUMP, self.OVERMAX], [self.JUMP], [self.OVERMAX]))
+        # The required defect fixed: no demotion, so the lane flips loud.
+        self.assertFalse(self._m([self.OVERMAX], [self.JUMP], [self.OVERMAX]))
+        # An unrelated new mismatch still reds.
+        self.assertFalse(self._m([self.JUMP, self.DUP], [self.JUMP], [self.OVERMAX]))
+        self.assertFalse(self._m([self.JUMP, self.OVERMAX, self.DUP], [self.JUMP], [self.OVERMAX]))
+
+    def _spec_exp(self):
+        return {"recordings": {"sampling": {"gating": True, "density": "high",
+                                            "jumps": 0, "overMax": 0}}}
+
+    def _validate(self, ef):
+        return hlib.validate_expected_fail_block(ef, self._spec_exp())
+
+    def test_validator_accepts_the_pwr3_shape(self):
+        self.assertEqual([], self._validate({
+            "bugId": "BUG-A", "subkind": "save-structure", "mismatches": [self.JUMP],
+            "optionalMismatches": [self.OVERMAX], "optionalBugId": "BUG-B"}))
+
+    def test_validator_refuses_optional_without_required(self):
+        errs = self._validate({"bugId": "BUG-A", "subkind": "save-structure",
+                               "optionalMismatches": [self.OVERMAX], "optionalBugId": "BUG-B"})
+        self.assertTrue(any("requires expectedFail.mismatches" in e for e in errs), errs)
+
+    def test_validator_requires_a_distinct_optional_bug_id(self):
+        base = {"bugId": "BUG-A", "subkind": "save-structure", "mismatches": [self.JUMP],
+                "optionalMismatches": [self.OVERMAX]}
+        self.assertTrue(any("optionalBugId" in e for e in self._validate(base)))
+        same = dict(base, optionalBugId="BUG-A")
+        self.assertTrue(any("DIFFERENT" in e for e in self._validate(same)))
+        alone = {"bugId": "BUG-A", "optionalBugId": "BUG-B"}
+        self.assertTrue(any("inert" in e for e in self._validate(alone)))
+
+    def test_validator_refuses_tokens_of_an_unarmed_or_undeclared_block(self):
+        errs = self._validate({"bugId": "BUG-A", "subkind": "save-structure",
+                               "mismatches": ["rewind.tombstones 1 != 0"]})
+        self.assertTrue(any("ARMED save-parse block" in e for e in errs), errs)
+        errs = self._validate({"bugId": "BUG-A", "subkind": "save-structure",
+                               "mismatches": [self.JUMP],
+                               "optionalMismatches": ["recordings.sampling: no active"],
+                               "optionalBugId": "BUG-B"})
+        self.assertTrue(any("ARMED save-parse block" in e for e in errs), errs)
+
+    def test_todo_heading_ids_resolve(self):
+        text = ("## PHYSWARP-RATE-CHANGE-SAMPLE-SKEW: a sample [FILED]\n"
+                "## ~~OLD-FIXED-BUG: done~~ [FIXED]\nsee B14 and H22-x\n")
+        ids = hlib.parse_todo_bug_ids(text)
+        for i in ("PHYSWARP-RATE-CHANGE-SAMPLE-SKEW", "OLD-FIXED-BUG", "B14", "H22-x"):
+            self.assertIn(i, ids)
+        self.assertEqual([], hlib.parse_todo_bug_ids(None))
+
+    def test_every_committed_quarantine_names_filed_todo_ids(self):
+        todo = os.path.join(os.path.dirname(SCENARIOS_DIR), "..", "docs", "dev",
+                            "todo-and-known-bugs.md")
+        with open(todo, "r", encoding="utf-8") as fh:
+            text = fh.read()
+        filed = set(re.findall(r"^## (?:~~)?([A-Z0-9][A-Z0-9-]+):", text, re.M))
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                ef = (tomllib.load(fh).get("expectedFail") or {})
+            opt = ef.get("optionalBugId")
+            if opt:
+                self.assertIn(opt, filed, "%s: optionalBugId %r is not a filed todo id" % (name, opt))
+                self.assertIn(ef.get("bugId"), filed, "%s: bugId %r is not a filed todo id"
+                              % (name, ef.get("bugId")))
+
+
 class ExpectedFailMismatchSignatureTests(unittest.TestCase):
     """Guards EXPECTEDFAIL-PER-TOKEN-SIGNATURES: an optional `[expectedFail]
     mismatches = [...]` narrows a subkind quarantine to ONE defect. A run demotes
@@ -11026,6 +11120,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # pin (body -> Eeloo), V15M `2026-09-10_1914` and V15T `2026-09-10_1917`, each
     # red on exactly the inverted element, drift gate met.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
+                       # PWR-1/2/3: `recordings.sampling` armed 2026-10-02 (branch
+                       # `physwarp-recording`) off the reading runs `2026-10-02_2102` /
+                       # `_2057` / `_2108`; offline negative control in the status row.
+                       "PWR-1-physwarp-ascent-low.toml", "PWR-2-physwarp-ascent-medium.toml",
+                       "PWR-3-physwarp-ascent-high.toml",
                        # CL-3 (on the line above) `recordings.structure`: armed 2026-09-29
                        # (branch `arm-batch2`) off `2026-09-29_1535`, the first flight since
                        # the TimeJump 61 fix (todo CL-LANES-INJECTED-RP-IN-THE-FUTURE); 5 of 5

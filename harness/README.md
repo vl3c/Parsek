@@ -23,7 +23,13 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   SOURCE rows, origin / destination bodies, route-id and endpoint-pid identity,
   plus a `codecRejects` counter for a route the game would DROP on the next
   load. There is deliberately NO escrow facet - `RouteStore`'s `cargoEscrow` is
-  pure RAM and no save carries it),
+  pure RAM and no save carries it; and `[expectations.recordings.sampling]`,
+  the recorder SAMPLING-QUALITY block measured by `samplingq.py` over the
+  produced save's `.prec.txt` mirrors: every gap of the focused vessel's
+  absolute per-frame sections held to the declared `samplingDensity` preset's
+  min / max / threshold bounds with a one-physics-frame allowance of
+  `0.02 * rate`, the rate per gap read off the recorder's `warpRuns=` token on
+  `TrackSection closed:` - see "Recording under physics warp" below),
   + `rendercompose.py`, the M-A7 pure render-composition parser / clock-math
   re-derivation / RC-* rule set behind the `renderCompose` verifier row
   (`[expectations.renderComposition]`, evaluated over the produced
@@ -178,6 +184,10 @@ python tools/flight_efficiency.py --results-glob "C:/.../Parsek-*/harness/result
     --since 2026-10-01 [--scenario B11-mun-orbit] [--per-run] [--top 10] [--json-out eff.json]
 ```
 
+Run ids carry the UTC date and minute (`run.py` stamps them with
+`datetime.now(timezone.utc)`, `hlib.RUN_ID_TIMESTAMP_FORMAT`), so `--since` filters by
+UTC date: a run started at 01:30 local in UTC+3 is filed under the previous day.
+
 Inputs per run, each optional: `<runId>_mission.stdout.log` (telemetry, phase
 changes, warp actions), `<runId>_mission.json` (`warpUtilisation` calibrates the
 wall clock per phase visit), `<runId>.json` (startedUtc / endedUtc / attempts /
@@ -191,17 +201,56 @@ The estimation contract (full text in the `lib/flighteff.py` docstring):
 
 - Each telemetry interval lands in exactly one bucket: `idle` (1x, orbit static
   within 1 m, outside any atmosphere and off the ground), `lowWarp` (rails below
-  the legal factor from mlib's `STOCK_WARP_ALTITUDE_LIMITS`, or physics warp on a
-  static orbit), `burn` (1x with a changing orbit; `thr=` is never read, MechJeb
+  the legal factor from mlib's `STOCK_WARP_ALTITUDE_LIMITS`), `physicsWarp` (any
+  PHYSICS warp above 1x: the policy's 4x PARK / kx COAST dwells, the DIY flip, and
+  kRPC `WarpTo`'s own PHYSICS x3-4 tail; shown as its own column and total, never
+  recoverable), `burn` (1x with a changing orbit; `thr=` is never read, MechJeb
   owns the throttle), `atmoOrGround`, `warped`, `unclassified`.
 - Idle is split by a deterministic cause: dwell phase, attitude-align (apErr
   above 5 deg), waiting-for-node, soi-approach, coast-to-apoapsis,
   coast-to-entry, coast-to-periapsis, other-coast.
-- Recoverable per contiguous idle / lowWarp run = wall - game / best legal rate
-  (at the run's minimum altitude) - a fixed 10 s ramp-and-settle overhead,
-  floored at 0. Attitude-align uses the 4x physics rate, because rails warp
-  freezes rotation. The ideal assumes a warp-to that lands exactly on the next
-  event, so treat the figure as an upper bound on what a warp policy can win.
+- Recoverable per contiguous idle / lowWarp run = wall - game / target rate - a
+  fixed 10 s ramp-and-settle overhead, floored at 0. The target is the best legal
+  rails rate at the run's minimum altitude, except attitude-align (4x physics,
+  because rails warp freezes rotation) and the POLICY-AWARE targets: B5's PARK
+  dwell and kx's COAST wait run at 4x physics warp by policy (the recorded
+  coverage needs per-frame physics), so their target is 4x, not rails (scoped to
+  the `b5_decide` / `kxrw_decide` machines; PARK and COAST name other machines'
+  phases too). The ideal assumes a warp-to that lands exactly on the next event,
+  so treat the figure as an upper bound on what a warp policy can win.
+- By design. 1x time the mission warp policy keeps on purpose is estimated the
+  same way but reported as `byDesign`, beside the recoverable total and never in
+  it (per phase, run, cause and lane; recommendation rows carry `byDesign: true`
+  and `byDesignReason` and print in their own "BY DESIGN (not counted)" section).
+  The policy table (`flighteff.BY_DESIGN_POLICY`): B4's DEORBIT attitude slew
+  (rails freezes rotation), the m3 HOLD-DEPART / HOLD-ARRIVE / HOLD-PARK render
+  holds, TRANSFER-BURN node waits (not held: a held TLI moved B13's landing site),
+  MJ-ASCENT's node wait and coast to apoapsis (MechJeb's ascent executor
+  cancels a second warp), and BDOCK's STATION-ASCENT / INT-ASCENT node waits (the
+  same MechJeb ascent, engaged on both legs). Plus the capture lead: a CAPTURE-BURN node wait whose
+  node is at most `NODE_WAIT_ORIENT_LEAD_SECONDS` (120 s) + the hold's 5 s
+  arrival tolerance + the half burn away is the executor's align-and-settle after
+  the hold released, so only the earlier seconds stay recoverable. The half burn
+  comes from the machine's own `node-wait: ... halfBurn=` action line; a visit
+  without one (a pre-policy run, or no hold) uses the constants alone, short by
+  the half burn (~10 s on a Mun capture). And the BDOCK rendezvous lead (the
+  `bdock_decide` / `sdock_decide` / `rdock_decide` machines only): the RENDEZVOUS
+  hold rails-warps to node UT - half burn - 120 s (earlier when the 5 km
+  closest-approach guard clamps it) and cancels 15 s before that target
+  (`RV_WARP_ARRIVAL_TOLERANCE_SECONDS`, which dodges kRPC WarpTo's PHYSICS tail),
+  so a RENDEZVOUS node wait is by design from the hold's warp target - 15 s on.
+  The target comes from the hold's `warp_to_ut` action for that node (matched by
+  `nodeUt=` within 1 s); a declined or window-capped hold uses its `node-wait:`
+  text (nodeUt - halfBurn - 120, or the ca-clamp UT when earlier, - 15); a node
+  with no hold line (a pre-hold run) uses nodeUt - 135 s, short by the half burn.
+  Each such node prints a `rendezvous lead:` line and a `rendezvousLeads` entry on
+  its phase row. The capture hold releases 5 s before its target, the rendezvous
+  hold 15 s; each lead uses its own machine's tolerance. The lead constants and the
+  4x index are mirrored from mlib and pinned by `lib/test_flighteff.py`.
+- Outcome-sensitive. CIRCULARIZE node waits (B22) stay recoverable, but the row
+  carries `outcomeSensitive: true` and says a warp there may move the outcome;
+  the owner kept them recoverable (2026-10-03), a backlog target that needs a
+  verification flight before any warp.
 - Long burns (60 s or more of 1x with a changing orbit) are reported as
   physics-warp candidates with an optional x2 saving that never enters a total.
 - Blocking `warp_to` hops emit no telemetry; such a gap is bucketed `warped` and
@@ -301,6 +350,34 @@ Never warped: a commanded burn, the inside of an atmosphere, a pending stage or
 seam step, a real-time replay (GS-8's WATCH / PLAYBACK-WAIT stay 1x by design).
 Every warp the policy emits carries its reason in the action's text, so the
 mission log line reads `action warp_to_ut value=... text=node-wait: ...`.
+
+### Recording under physics warp (the sampling block)
+
+KSP's physics warp (`TimeWarp.Modes.LOW`, 2x-4x) sets `Time.fixedDeltaTime =
+0.02 * rate` (decompiled `TimeWarp.updateRate`): every physics frame still runs,
+each one advancing GAME time by `0.02 * rate`. The recorder decides on game UT
+(`TrajectoryMath.ShouldRecordPoint` over `Planetarium.GetUniversalTime()`), so its
+bounds hold under physics warp up to that coarser frame. The PWR family
+(`PWR-1/2/3-physwarp-ascent-{low,medium,high}`) flies B2's ascent (MechJeb runs 2x
+physics warp from ~42 km to ~70 km with the engine burning) plus a 4x
+`WarpToUT ladder=phys` LKO coast at each density, and gates it through
+`[expectations.recordings.sampling]` (`harness/lib/samplingq.py`):
+
+| key | measured over every in-scope gap |
+|---|---|
+| `density` | REQUIRED: `low` / `medium` / `high`; the bounds come from it (`samplingq.DENSITY_PRESETS`, source-synced to `ParsekSettings.cs`) |
+| `overMax` | gap > maxInterval + one frame at that gap's rate |
+| `subMin` | 0 < gap < minInterval (forced / high-fidelity samples; the "denser than declared" tell) |
+| `duplicates` / `backsteps` | repeated / reversed UT inside one section (a boundary seed shared by two sections is legitimate) |
+| `dirMisses` / `speedMisses` | the turn / speed change one frame before the later sample already exceeded the threshold (linear estimate, 25 % tolerance) |
+| `jumps` | chord longer than (faster speed + surface rotation) x gap |
+| `physGaps` / `physTriggered` | anti-vacuity: gaps recorded under physics warp, and those that closed on a trigger |
+
+In scope: ACTIVE (`src` absent / 0), ABSOLUTE (`ref = 0`) sections with two or
+more points; background and relative sections run proximity cadences and
+anchor-local coordinates. A `.prec` with no `.prec.txt` mirror, an unparseable
+mirror, no in-scope section, or (with a `phys*` window declared) a log with no
+`warpRuns=` token are DEFINED mismatches.
 
 ## Contact sheets (V3): what a run leaves for the human eye
 
@@ -1268,7 +1345,12 @@ the narrower the better, because EXPECTED-FAIL absorbs everything it matches:
   `expectation` that is still EVERY log-contract token in the spec.
 - `subkind = "expectation"` plus `mismatches = [...]` - only a run whose
   `verifiers.expectations.mismatches` list (in `results/<runId>.json`) is EXACTLY
-  that set demotes. Copy the strings from the defect's red run, e.g.
+  that set demotes. `subkind = "save-structure"` works the same way over the
+  saveParse row's ARMED mismatch list (`verifiers.saveParse.armedMismatches`, e.g.
+  `"recordings.sampling.jumps 1 != 0"`). An opt-in `optionalMismatches = [...]`
+  plus a filed `optionalBugId` tolerates ONE intermittent second defect: the run
+  demotes when every `mismatches` token is present and nothing outside the two
+  lists is (PWR-3 is the one user). Copy the strings from the defect's red run, e.g.
   `"logContracts.required not matched: <pattern>"` or
   `"logContracts.forbidden matched: <pattern>"`. An extra red, or a declared one
   that stopped failing, stays PARSEK-FAIL, and run.py Warn-logs the

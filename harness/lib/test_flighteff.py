@@ -275,14 +275,37 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(self._cls({"warp": "RAILSx50.000", "alt": 130000.0},
                                    {"warp": "RAILSx50.000", "alt": 110000.0})[0], "warped")
 
-    def test_physics_warp(self):
-        coast = {"warp": "PHYSICSx2.000"}
-        self.assertEqual(self._cls(coast, coast), ("lowWarp", "low-warp"))
+    def test_physics_warp_is_its_own_bucket(self):
+        coast = {"warp": "PHYSICSx4.000"}
+        self.assertEqual(self._cls(coast, coast), ("physicsWarp", ""))
         flip = {"warp": "PHYSICSx2.000", "ap_err": 40.0}
-        self.assertEqual(self._cls(flip, flip), ("lowWarp", "attitude-align"))
-        self.assertEqual(self._cls(coast, {"warp": "PHYSICSx2.000", "ap": 100500.0})[0], "burn")
+        self.assertEqual(self._cls(flip, flip), ("physicsWarp", ""))
+        self.assertEqual(self._cls(coast, {"warp": "PHYSICSx4.000", "ap": 100500.0}),
+                         ("physicsWarp", ""))
         atmo = {"warp": "PHYSICSx2.000", "situation": "FLYING", "alt": 30000.0}
-        self.assertEqual(self._cls(atmo, atmo)[0], "warped")
+        self.assertEqual(self._cls(atmo, atmo), ("physicsWarp", ""))
+        unknown = {"warp": "PHYSICSx3.000", "ap": "nan"}
+        self.assertEqual(self._cls(unknown, unknown), ("physicsWarp", ""))
+        # at or below the 1x tolerance a PHYSICS reading is 1x
+        settle = {"warp": "PHYSICSx1.040"}
+        self.assertEqual(self._cls(settle, settle), ("idle", "coast-to-apoapsis"))
+
+    def test_physics_warp_is_never_recoverable(self):
+        lines = [_phase("A", "PARK", 0.0)]
+        lines += [_tel(phase="PARK", warp="PHYSICSx4.000", ut=4.0 * i, alt=700000.0)
+                  for i in range(60)]
+        lines.insert(0, "[Mission][Info][PRELAUNCH] mission start name=b11_mun_orbit")
+        res = fe.analyze_mission("\n".join(lines), None)
+        self.assertGreater(res["buckets"]["physicsWarp"], 50.0)
+        self.assertEqual(res["buckets"]["lowWarp"], 0.0)
+        self.assertEqual(res["recoverable"], 0.0)
+        self.assertEqual(res["byDesign"], 0.0)
+        self.assertEqual(res["recommendations"], [])
+        self.assertAlmostEqual(sum(res["buckets"].values()), res["sampledWallSeconds"], places=3)
+
+    def test_bucket_set(self):
+        self.assertEqual(fe.BUCKETS, ("idle", "lowWarp", "physicsWarp", "burn", "atmoOrGround",
+                                      "warped", "unclassified"))
 
     def test_each_idle_cause(self):
         cases = [
@@ -435,7 +458,7 @@ class RealExcerptTests(unittest.TestCase):
         log = fe.parse_mission_log(_read(_ASCENT).splitlines())
         ivs = fe.build_intervals(log)
         buckets = [(iv.bucket, iv.cause) for iv in ivs]
-        self.assertEqual(buckets[0], ("warped", ""))  # physics warp inside the atmosphere
+        self.assertEqual(buckets[0], ("physicsWarp", ""))  # physics warp inside the atmosphere
         self.assertIn(("idle", "waiting-for-node"), buckets)  # 1x coast to the circ node
         self.assertIn(("lowWarp", "low-warp"), buckets)  # MechJeb rails 5-10x where 50x is legal
         burn = [iv for iv in ivs if iv.bucket == "burn"]
@@ -444,6 +467,9 @@ class RealExcerptTests(unittest.TestCase):
         site = [e["site"] for e in res["recommendations"]
                 if (e["phase"], e["cause"]) == ("MJ-ASCENT", "waiting-for-node")]
         self.assertTrue(site and "ACTION_MJ_ENGAGE_ASCENT" in site[0])
+        rows = [e for e in res["recommendations"] if e["phase"] == "MJ-ASCENT"
+                and e["cause"] in ("waiting-for-node", "coast-to-apoapsis")]
+        self.assertTrue(rows and all(e["byDesign"] and e["recoverable"] == 0.0 for e in rows))
 
 
 class KspAnchorTests(unittest.TestCase):
@@ -582,7 +608,8 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual([l["scenario"] for l in agg["lanes"]], ["B", "A"])
         self.assertEqual(agg["lanes"][0]["recoverable"], 80.0)
         self.assertEqual(agg["idleShareOfMissionWall"], 0.5)
-        self.assertEqual(agg["causes"][0], {"cause": "dwell", "recoverable": 90.0, "runs": 3})
+        self.assertEqual(agg["causes"][0], {"cause": "dwell", "recoverable": 90.0, "runs": 3,
+                                            "byDesign": 0.0, "byDesignRuns": 0})
         self.assertEqual(agg["overhead"]["kspBoot"]["mean"], 24.0)
         self.assertEqual(agg["stepsByVerb"][0]["count"], 3)
 
@@ -593,7 +620,8 @@ class AggregateTests(unittest.TestCase):
              "optional": False, "site": "s"})
         run["mission"]["recoverable"] = 15.0
         agg = fe.aggregate([run, self._run("2026-10-01_1100_A", 20.0)])
-        self.assertEqual(agg["causes"][0], {"cause": "dwell", "recoverable": 35.0, "runs": 2})
+        self.assertEqual(agg["causes"][0], {"cause": "dwell", "recoverable": 35.0, "runs": 2,
+                                            "byDesign": 0.0, "byDesignRuns": 0})
         park = [r for r in agg["laneCauses"] if r["phase"] == "PARK"][0]
         self.assertEqual(park["runs"], 2)
 
@@ -617,21 +645,37 @@ class AggregateTests(unittest.TestCase):
 class DocumentTests(unittest.TestCase):
     def test_json_schema_keys_and_nan_safety(self):
         run = fe.analyze_run("2026-10-01_1231_B11-mun-orbit", _b11_result(), None,
-                             _read(_CAPTURE), _read(_KSP).splitlines(), None)
+                             _old_capture_log(), _read(_KSP).splitlines(), None)
         doc = fe.build_document([run], [{"runId": "x", "dir": "d", "reason": "r"}], 0)
         text = fe.to_json(doc)
         back = json.loads(text)
         self.assertEqual(back["schema"], "flight-efficiency")
         self.assertEqual(back["schemaVersion"], fe.SCHEMA_VERSION)
-        self.assertEqual(sorted(back), ["aggregate", "constants", "duplicatesDropped", "runs",
-                                        "schema", "schemaVersion", "skipped"])
+        self.assertEqual(back["schemaVersion"], 2)
+        self.assertEqual(sorted(back), ["aggregate", "byDesignPolicy", "constants",
+                                        "duplicatesDropped", "runs", "schema", "schemaVersion",
+                                        "skipped"])
+        self.assertEqual(len(back["byDesignPolicy"]), len(fe.BY_DESIGN_POLICY) + 2)
+        self.assertEqual(back["constants"]["rendezvousEarlyCancelSeconds"], 15.0)
         r = back["runs"][0]
         for key in ("runId", "scenario", "verdict", "totalWallSeconds", "missionWallSeconds",
                     "harnessResidueSeconds", "mission", "overhead", "notes"):
             self.assertIn(key, r)
         for key in ("buckets", "phases", "runs", "flags", "recommendations",
-                    "recoverableByCause", "idleByCause"):
+                    "recoverableByCause", "idleByCause", "byDesign", "byDesignWall",
+                    "byDesignByCause"):
             self.assertIn(key, r["mission"])
+        self.assertIn("physicsWarp", r["mission"]["buckets"])
+        for p in r["mission"]["phases"]:
+            for key in ("physicsWarp", "byDesign", "byDesignWall", "byDesignByCause",
+                        "captureLeadSeconds", "captureLeadHalfBurnKnown", "rendezvousLeads"):
+                self.assertIn(key, p)
+        for e in r["mission"]["recommendations"]:
+            for key in ("byDesign", "byDesignReason", "byDesignSeconds", "outcomeSensitive"):
+                self.assertIn(key, e)
+        self.assertTrue(any(e["byDesign"] for e in r["mission"]["recommendations"]))
+        for key in ("physicsWarpSeconds", "byDesignSeconds", "byDesignWallSeconds"):
+            self.assertIn(key, back["aggregate"])
         self.assertNotIn("NaN", text)
         self.assertIsNone(fe.sanitize(float("nan")))
         self.assertEqual(fe.sanitize((1, float("inf"))), [1, None])
@@ -688,6 +732,496 @@ class CodeSiteTests(unittest.TestCase):
     def test_every_idle_cause_has_a_hint(self):
         for cause in fe.IDLE_CAUSES + (fe.LOW_WARP_CAUSE, fe.BURN_CAUSE):
             self.assertIn((cause, "*"), fe.SITE_HINTS, cause)
+
+
+def _mission_log(mission, phase, n, step=1.0, prefix=(), **kw):
+    lines = ["[Mission][Info][PRELAUNCH] mission start name=%s" % mission] if mission else []
+    lines += list(prefix)
+    lines.append(_phase("PRELAUNCH", phase, 0.0))
+    lines += [_tel(phase=phase, ut=step * i, **kw) for i in range(n)]
+    return "\n".join(lines)
+
+
+class PolicyTableTests(unittest.TestCase):
+    """The by-design / policy-target / outcome tables (contract items 5, 8, 9)."""
+
+    _ORBIT = dict(alt=700000.0, ap=800000.0, pe=650000.0)
+
+    def _mlib_phase_literals(self):
+        tree = ast.parse(_read(_MLIB_PATH))
+        return {n.value.value for n in ast.walk(tree)
+                if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant)
+                and isinstance(n.value.value, str)}
+
+    def test_table_keys(self):
+        self.assertEqual(sorted(fe.BY_DESIGN_POLICY), sorted([
+            ("attitude-align", "DEORBIT"), ("dwell", "HOLD-DEPART"), ("dwell", "HOLD-ARRIVE"),
+            ("dwell", "HOLD-PARK"), ("waiting-for-node", "TRANSFER-BURN"),
+            ("waiting-for-node", "MJ-ASCENT"), ("coast-to-apoapsis", "MJ-ASCENT"),
+            ("waiting-for-node", "STATION-ASCENT"), ("waiting-for-node", "INT-ASCENT")]))
+        self.assertEqual(sorted(fe.OUTCOME_SENSITIVE), [("waiting-for-node", "CIRCULARIZE")])
+        self.assertEqual(fe.CAPTURE_LEAD_KEY, ("waiting-for-node", "CAPTURE-BURN"))
+        self.assertEqual(fe.RENDEZVOUS_LEAD_KEY, ("waiting-for-node", "RENDEZVOUS"))
+        self.assertTrue(all(fe.BY_DESIGN_POLICY.values()))
+
+    def test_every_policy_key_names_a_real_cause_and_mlib_phase(self):
+        phases = self._mlib_phase_literals()
+        keys = (list(fe.BY_DESIGN_POLICY) + list(fe.OUTCOME_SENSITIVE)
+                + list(fe.POLICY_PHYSICS_TARGETS) + [fe.CAPTURE_LEAD_KEY,
+                                                     fe.RENDEZVOUS_LEAD_KEY])
+        for cause, phase in keys:
+            self.assertIn(cause, fe.IDLE_CAUSES, (cause, phase))
+            self.assertIn(phase, phases, (cause, phase))
+        for machine in (list(fe.POLICY_PHYSICS_TARGETS.values())
+                        + list(fe.RENDEZVOUS_LEAD_MACHINES)):
+            self.assertIn(machine, fe.MISSION_MACHINES.values())
+
+    def test_bdock_ascent_phases_are_bdock_only_and_engage_mechjeb_ascent(self):
+        # The two unscoped BDOCK ascent rows are safe only while no other
+        # machine names a phase STATION-ASCENT / INT-ASCENT (AST, not regex).
+        tree = ast.parse(_read(_MLIB_PATH))
+        owners = {}
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant) \
+                    and n.value.value in ("STATION-ASCENT", "INT-ASCENT", "RENDEZVOUS"):
+                for t in n.targets:
+                    owners.setdefault(n.value.value, set()).add(getattr(t, "id", "?"))
+        self.assertEqual(owners, {"STATION-ASCENT": {"BDOCK_STATION_ASCENT"},
+                                  "INT-ASCENT": {"BDOCK_INT_ASCENT"},
+                                  "RENDEZVOUS": {"BDOCK_RENDEZVOUS"}})
+        sys.path.insert(0, os.path.join(_HARNESS, "missions", "lib"))
+        try:
+            import mlib
+        finally:
+            sys.path.pop(0)
+        kinds = [a.kind for a in mlib._bdock_ascent_entry_actions(80000.0)]
+        self.assertIn(mlib.ACTION_MJ_ENGAGE_ASCENT, kinds)
+        for phase in ("STATION-ASCENT", "INT-ASCENT"):
+            self.assertEqual(fe.by_design_reason("waiting-for-node", phase),
+                             fe.by_design_reason("waiting-for-node", "MJ-ASCENT"))
+            self.assertEqual(fe.by_design_reason("coast-to-apoapsis", phase), "")
+
+    def test_each_by_design_entry(self):
+        cases = {
+            "attitude-align": dict(ap_err=90.0),
+            "dwell": {},
+            "waiting-for-node": dict(nodes=1, node_ut="99999"),
+            "coast-to-apoapsis": dict(vspd=10.0),
+        }
+        for (cause, phase), reason in fe.BY_DESIGN_POLICY.items():
+            kw = dict(self._ORBIT, **cases[cause])
+            res = fe.analyze_mission(_mission_log("b4_reentry", phase, 61, **kw), None)
+            self.assertEqual(res["idleByCause"], {cause: 60.0}, (cause, phase))
+            self.assertEqual(res["recoverable"], 0.0, (cause, phase))
+            self.assertGreater(res["byDesign"], 0.0, (cause, phase))
+            self.assertAlmostEqual(res["byDesignWall"], 60.0, places=6)
+            rows = res["recommendations"]
+            self.assertEqual(len(rows), 1, (cause, phase))
+            self.assertTrue(rows[0]["byDesign"])
+            self.assertEqual(rows[0]["byDesignReason"], reason)
+            self.assertEqual(rows[0]["recoverable"], 0.0)
+            self.assertEqual(rows[0]["byDesignSeconds"], res["byDesign"])
+            self.assertFalse(rows[0]["outcomeSensitive"])
+            phase_row = [p for p in res["phases"] if p["phase"] == phase][0]
+            self.assertEqual(phase_row["byDesign"], res["byDesign"])
+            self.assertEqual(phase_row["recoverable"], 0.0)
+
+    def test_same_cause_elsewhere_stays_recoverable(self):
+        kw = dict(self._ORBIT, ap_err=90.0)
+        res = fe.analyze_mission(_mission_log("b4_reentry", "CORRECTION-BURN", 61, **kw), None)
+        self.assertGreater(res["recoverable"], 0.0)
+        self.assertEqual(res["byDesign"], 0.0)
+        self.assertFalse(res["recommendations"][0]["byDesign"])
+
+    def test_outcome_sensitive_flag(self):
+        kw = dict(self._ORBIT, nodes=1, node_ut="99999")
+        res = fe.analyze_mission(_mission_log("b22_jool_orbit", "CIRCULARIZE", 61, **kw), None)
+        row = res["recommendations"][0]
+        self.assertGreater(row["recoverable"], 0.0)
+        self.assertEqual(res["byDesign"], 0.0)
+        self.assertTrue(row["outcomeSensitive"])
+        self.assertFalse(row["byDesign"])
+        self.assertIn("OUTCOME-SENSITIVE: ", row["site"])
+        self.assertIn(fe.OUTCOME_SENSITIVE[("waiting-for-node", "CIRCULARIZE")], row["site"])
+        other = fe.analyze_mission(_mission_log("b22_jool_orbit", "ORBIT", 61, **kw), None)
+        self.assertFalse(other["recommendations"][0]["outcomeSensitive"])
+        self.assertNotIn("OUTCOME-SENSITIVE", other["recommendations"][0]["site"])
+
+
+class PolicyTargetTests(unittest.TestCase):
+    """PARK / kx COAST recoverable uses the 4x physics target (contract item 5)."""
+
+    def _rec(self, mission, phase, **kw):
+        kw = dict(dict(alt=700000.0, ap=800000.0, pe=650000.0), **kw)
+        return fe.analyze_mission(_mission_log(mission, phase, 101, **kw), None)
+
+    def test_park_dwell_targets_4x_physics_for_b5(self):
+        res = self._rec("b11_mun_orbit", "PARK")
+        self.assertAlmostEqual(res["recoverable"],
+                               100.0 - 100.0 / 4.0 - fe.RAMP_SETTLE_OVERHEAD_SECONDS, places=3)
+        self.assertTrue(res["runs"][0]["policyTarget"])
+
+    def test_park_of_another_machine_or_unknown_mission_targets_rails(self):
+        for mission in ("forge_lko", None):
+            res = self._rec(mission, "PARK")
+            self.assertAlmostEqual(res["recoverable"],
+                                   100.0 - 100.0 / 100000.0 - fe.RAMP_SETTLE_OVERHEAD_SECONDS,
+                                   places=3, msg=mission)
+            self.assertFalse(res["runs"][0]["policyTarget"])
+
+    def test_kx_coast_targets_4x_physics(self):
+        up = self._rec("kx_rewind_watch", "COAST", vspd=50.0)
+        self.assertAlmostEqual(up["recoverable"], 100.0 - 25.0 - fe.RAMP_SETTLE_OVERHEAD_SECONDS,
+                               places=3)
+        down = self._rec("kx_rewind_watch", "COAST", vspd=-50.0, pe=40000.0, alt=80000.0)
+        self.assertEqual(list(down["recoverableByCause"]), ["coast-to-entry"])
+        self.assertAlmostEqual(down["recoverable"], 100.0 - 25.0 - fe.RAMP_SETTLE_OVERHEAD_SECONDS,
+                               places=3)
+        other = self._rec("gs1_auto_chute_booster", "COAST", vspd=50.0)
+        self.assertGreater(other["recoverable"], 89.0)
+
+    def test_policy_target_rate(self):
+        self.assertEqual(fe.policy_target_rate("dwell", "PARK", "b5_decide"), 4.0)
+        self.assertIsNone(fe.policy_target_rate("dwell", "PARK", None))
+        self.assertIsNone(fe.policy_target_rate("dwell", "PARK", "forge_lko_decide"))
+        self.assertIsNone(fe.policy_target_rate("coast-to-periapsis", "COAST", "kxrw_decide"))
+
+
+def _old_capture_log():
+    """A pre-policy CAPTURE-BURN: 600 s of 1x node wait, no node-wait line."""
+    return "\n".join(
+        ["[Mission][Info][PRELAUNCH] mission start name=b11_mun_orbit",
+         _phase("PLAN-CAPTURE", "CAPTURE-BURN", 400.0)]
+        + [_tel(phase="CAPTURE-BURN", ut=400.0 + i, nodes=1, node_ut="1000",
+                alt=700000.0, ap=800000.0, pe=650000.0) for i in range(601)])
+
+
+class CaptureLeadTests(unittest.TestCase):
+    """The CAPTURE-BURN node wait inside the capture lead is by design."""
+
+    NODE_UT = 1000.0
+
+    def _intervals(self, prefix=(), start=800.0, n=101):
+        lines = ["[Mission][Info][PRELAUNCH] mission start name=b11_mun_orbit"]
+        lines.append(_phase("PLAN-CAPTURE", "CAPTURE-BURN", start))
+        lines += list(prefix)
+        lines += [_tel(phase="CAPTURE-BURN", ut=start + i, nodes=1, node_ut=str(self.NODE_UT),
+                       alt=700000.0, ap=800000.0, pe=650000.0) for i in range(n)]
+        log = fe.parse_mission_log(lines)
+        ivs = fe.build_intervals(log)
+        return log, ivs, fe.apply_policy(log, ivs)
+
+    def test_lead_seconds(self):
+        base = fe.NODE_WAIT_ORIENT_LEAD_SECONDS + fe.NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS
+        self.assertEqual(fe.capture_lead_seconds(8.2), (base + 8.2, True))
+        self.assertEqual(fe.capture_lead_seconds(float("nan")), (base, False))
+        self.assertEqual(fe.capture_lead_seconds(None), (base, False))
+
+    def test_half_burn_from_the_node_wait_lines(self):
+        hold = ("[Mission][Info][CAPTURE-BURN] action warp_to_ut value=871.800 "
+                "text=node-wait: nodeUt=1000.0 halfBurn=8.2 lead=120")
+        log, _ivs, leads = self._intervals(prefix=[hold])
+        self.assertAlmostEqual(log.visits[-1].half_burn, 8.2)
+        self.assertAlmostEqual(leads[log.visits[-1].index][0], 133.2)
+        self.assertTrue(leads[log.visits[-1].index][1])
+        declined = ("[Mission][Info][CAPTURE-BURN] action mj_execute_nodes value=none "
+                    "text=node-wait declined: warp window 30 s < 60 s (node-wait: "
+                    "nodeUt=1000.0 halfBurn=12.5 lead=120)")
+        log2, _ivs2, _l = self._intervals(prefix=[declined])
+        self.assertAlmostEqual(log2.visits[-1].half_burn, 12.5)
+        other = "[Mission][Info][CAPTURE-BURN] gate x halfBurn=99"  # not an action line
+        log3, _ivs3, leads3 = self._intervals(prefix=[other])
+        self.assertNotEqual(log3.visits[-1].half_burn, log3.visits[-1].half_burn)
+        self.assertFalse(leads3[log3.visits[-1].index][1])
+
+    def test_split_at_the_boundary(self):
+        # halfBurn 5 -> lead 120 + 5 + 5 = 130 s: ut 870 sits exactly on it.
+        hold = ("[Mission][Info][CAPTURE-BURN] action warp_to_ut value=875.000 "
+                "text=node-wait: nodeUt=1000.0 halfBurn=5 lead=120")
+        _log, ivs, leads = self._intervals(prefix=[hold], start=860.0, n=20)
+        self.assertEqual(list(leads.values()), [(130.0, True)])
+        by_ut = {iv.ut: iv for iv in ivs}
+        self.assertEqual(by_ut[869.0].by_design, "")
+        self.assertEqual(by_ut[870.0].by_design, fe.CAPTURE_LEAD_REASON)
+        self.assertEqual(by_ut[871.0].by_design, fe.CAPTURE_LEAD_REASON)
+        runs = fe.build_runs(ivs, "b5_decide")
+        self.assertEqual([(r.by_design, r.last - r.first + 1) for r in runs],
+                         [(False, 10), (True, 9)])
+
+    def test_old_run_constants_only(self):
+        res = fe.analyze_mission(_old_capture_log(), None)
+        row = [p for p in res["phases"] if p["phase"] == "CAPTURE-BURN"][0]
+        self.assertEqual(row["captureLeadSeconds"], 125.0)
+        self.assertFalse(row["captureLeadHalfBurnKnown"])
+        # 600 s of node wait: 475 s before the lead (recoverable), 125 s inside it
+        self.assertAlmostEqual(res["byDesignWall"], 125.0, places=6)
+        self.assertAlmostEqual(res["recoverable"], 475.0 - fe.RAMP_SETTLE_OVERHEAD_SECONDS,
+                               places=2)
+        self.assertAlmostEqual(res["byDesign"], 125.0 - fe.RAMP_SETTLE_OVERHEAD_SECONDS,
+                               places=2)
+        rows = {r["byDesign"]: r for r in res["recommendations"]}
+        self.assertEqual(rows[True]["byDesignReason"], fe.CAPTURE_LEAD_REASON)
+        self.assertFalse(rows[False]["byDesign"])
+        self.assertEqual(res["recommendations"][0]["byDesign"], False)  # counted rows first
+
+    def test_capture_excerpt_lead(self):
+        # the trimmed excerpt keeps only a few lines inside the lead
+        res = fe.analyze_mission(_read(_CAPTURE), None)
+        row = [p for p in res["phases"] if p["phase"] == "CAPTURE-BURN"][0]
+        self.assertGreater(row["byDesignWall"], 0.0)
+        self.assertGreater(row["recoverable"], 500.0)
+
+    def test_render_has_by_design_sections(self):
+        run = fe.analyze_run("2026-10-01_1231_B11-mun-orbit", _b11_result(), None,
+                             _old_capture_log(), None, None)
+        text = fe.render_run(run)
+        self.assertIn("BY DESIGN (not counted", text)
+        self.assertIn("capture lead: visit", text)
+        self.assertIn("PHYSWARP", text)
+        agg = fe.render_aggregate(fe.build_document([run], [], 0))
+        self.assertIn("BY DESIGN (not counted", agg)
+
+
+# Real BDOCK-1 hold lines (2026-10-02_2011_BDOCK-1-station-interceptor).
+_RV_WARP = ("[Mission][Info][RENDEZVOUS] action warp_to_ut value=7614.554 text=rendezvous "
+            "node-wait: nodeUt=7735.1 halfBurn=0.5 lead=120")
+_RV_CLAMPED = ("[Mission][Info][RENDEZVOUS] action warp_to_ut value=8325.885 text=rendezvous "
+               "node-wait: nodeUt=8663.9 halfBurn=0.5 lead=120 ca-clamp caUt=8670.2 caDist=68 "
+               "vSecant=26.24 nodeDv=14.521 guard=344")
+_RV_DECLINED = ("[Mission][Info][RENDEZVOUS] gate rvWarp released:warp-down warp-down->"
+                "declined:node-plan warp window -110 s < 0 s (node-wait: nodeUt=8686.6 "
+                "halfBurn=0.0 lead=120) | ut=8676.503 alt=116271.008 nodeDv=1.409 apErr=nan "
+                "thr=0.000 avThr=249999.984 nextPe=nan warp=NONEx1.000 vessels=4 parts=28")
+_RV_HELD_GATE = ("[Mission][Info][RENDEZVOUS] gate rvWarp released:warp-down warp-down->held "
+                 "rendezvous node-wait: nodeUt=8663.9 halfBurn=0.5 lead=120 | ut=8062.313 "
+                 "warp=NONEx1.000")
+
+
+class RendezvousLeadTests(unittest.TestCase):
+    """The BDOCK RENDEZVOUS node wait after the hold's release is by design."""
+
+    _ORBIT = dict(alt=100000.0, ap=117000.0, pe=90000.0)
+
+    def _run(self, node_ut, start, n, prefix=(), mission="bdock_dock_transfer"):
+        lines = ["[Mission][Info][PRELAUNCH] mission start name=%s" % mission,
+                 _phase("SET-TARGET", "RENDEZVOUS", start)]
+        lines += list(prefix)
+        lines += [_tel(phase="RENDEZVOUS", ut=start + i, nodes=1, node_ut=str(node_ut),
+                       **self._ORBIT) for i in range(n)]
+        log = fe.parse_mission_log(lines)
+        ivs = fe.build_intervals(log)
+        fe.apply_policy(log, ivs, fe.MISSION_MACHINES.get(mission))
+        return log, {iv.ut: iv for iv in ivs}
+
+    def test_parse_hold_lines(self):
+        log, _ = self._run(7735.1, 7590.0, 3, prefix=[_RV_WARP, _RV_CLAMPED, _RV_DECLINED,
+                                                     _RV_HELD_GATE])
+        w = log.visits[-1].rv_waits
+        self.assertEqual(len(w), 3)  # the held gate line duplicates the action: not parsed
+        self.assertEqual((w[0].node_ut, w[0].half_burn, w[0].lead, w[0].warp_target),
+                         (7735.1, 0.5, 120.0, 7614.554))
+        self.assertNotEqual(w[0].clamp_ut, w[0].clamp_ut)
+        self.assertAlmostEqual(w[1].clamp_ut, 8670.2 - 344.0)
+        self.assertEqual(w[1].warp_target, 8325.885)
+        self.assertEqual((w[2].node_ut, w[2].half_burn, w[2].warp_target), (8686.6, 0.0, None))
+
+    def test_unclamped_warp_target(self):
+        # T = 7614.554: by design from T - 15 = 7599.554
+        log, by_ut = self._run(7735.1, 7590.0, 20, prefix=[_RV_WARP])
+        self.assertEqual(by_ut[7599.0].by_design, "")
+        self.assertEqual(by_ut[7600.0].by_design, fe.RENDEZVOUS_LEAD_REASON)
+        self.assertEqual(log.visits[-1].rv_leads, {7735.1: (7614.554 - 15.0, "warp")})
+
+    def test_clamped_warp_target(self):
+        # the 5 km guard pulled T to 8325.885, 338 s before node - half burn - 120
+        log, by_ut = self._run(8663.9, 8300.0, 30, prefix=[_RV_CLAMPED])
+        self.assertEqual(by_ut[8310.0].by_design, "")
+        self.assertEqual(by_ut[8311.0].by_design, fe.RENDEZVOUS_LEAD_REASON)
+        self.assertEqual(log.visits[-1].rv_leads[8663.9][1], "warp")
+        # the text alone agrees within its print rounding
+        self.assertAlmostEqual(fe.rendezvous_text_boundary(log.visits[-1].rv_waits[0]),
+                               8325.885 - 15.0, delta=0.5)
+
+    def test_declined_uses_the_node_wait_text(self):
+        # nodeUt 8686.6 - halfBurn 0.0 - 120 - 15 = 8551.6
+        log, by_ut = self._run(8686.6, 8545.0, 20, prefix=[_RV_DECLINED])
+        self.assertEqual(log.visits[-1].rv_leads[8686.6][1], "text")
+        self.assertAlmostEqual(log.visits[-1].rv_leads[8686.6][0], 8551.6)
+        self.assertEqual(by_ut[8551.0].by_design, "")
+        self.assertEqual(by_ut[8552.0].by_design, fe.RENDEZVOUS_LEAD_REASON)
+
+    def test_boundary_is_inclusive_and_constants_without_a_line(self):
+        # no hold line (a pre-hold run): node 1000 - 120 - 15 = 865 exactly
+        log, by_ut = self._run(1000.0, 860.0, 10)
+        self.assertEqual(log.visits[-1].rv_leads, {1000.0: (865.0, "constants")})
+        self.assertEqual(by_ut[864.0].by_design, "")
+        self.assertEqual(by_ut[865.0].by_design, fe.RENDEZVOUS_LEAD_REASON)
+
+    def test_other_node_and_window_cap(self):
+        # a warp line for another node (> 1 s away) does not set this node's lead
+        _log, by_ut = self._run(7737.0, 7590.0, 20, prefix=[_RV_WARP])
+        self.assertEqual(by_ut[7600.0].by_design, "")
+        capped = _RV_WARP + " window-capped 900 s"
+        log, _ = self._run(7735.1, 7590.0, 3, prefix=[capped])
+        self.assertEqual(log.visits[-1].rv_leads[7735.1][1], "text")
+        self.assertAlmostEqual(log.visits[-1].rv_leads[7735.1][0], 7735.1 - 0.5 - 120.0 - 15.0)
+
+    def test_scoped_to_the_bdock_machines(self):
+        for mission in ("bdock_dock_transfer", "bdock_second_dock", "d5_redock"):
+            _log, by_ut = self._run(1000.0, 860.0, 10, mission=mission)
+            self.assertEqual(by_ut[866.0].by_design, fe.RENDEZVOUS_LEAD_REASON, mission)
+        for mission in ("b11_mun_orbit", "nonexistent_m"):
+            _log, by_ut = self._run(1000.0, 860.0, 10, mission=mission)
+            self.assertEqual(by_ut[866.0].by_design, "", mission)
+
+    def test_analyze_and_render(self):
+        lines = ["[Mission][Info][PRELAUNCH] mission start name=bdock_dock_transfer",
+                 _phase("SET-TARGET", "RENDEZVOUS", 7400.0), _RV_WARP]
+        lines += [_tel(phase="RENDEZVOUS", ut=7400.0 + i, nodes=1, node_ut="7735.1",
+                       **self._ORBIT) for i in range(331)]
+        res = fe.analyze_mission("\n".join(lines), None)
+        row = [p for p in res["phases"] if p["phase"] == "RENDEZVOUS"][0]
+        self.assertEqual(row["rendezvousLeads"],
+                         [{"nodeUt": 7735.1, "byDesignFromUt": 7599.554, "source": "warp"}])
+        # 330 s of wait: 7400..7599 recoverable (200 lines), 7600..7729 by design (130)
+        self.assertAlmostEqual(res["byDesignWall"], 130.0, places=6)
+        legal = fe.max_legal_rails_rate("Kerbin", self._ORBIT["alt"])
+        self.assertAlmostEqual(res["recoverable"],
+                               200.0 - 200.0 / legal - fe.RAMP_SETTLE_OVERHEAD_SECONDS, delta=0.1)
+        run = fe.analyze_run("2026-10-02_2011_BDOCK-1-station-interceptor", None, None,
+                             "\n".join(lines), None, None)
+        self.assertIn("rendezvous lead: visit 1 RENDEZVOUS nodeUt=7735.1 by design from "
+                      "ut 7599.6 (hold warp target - early cancel)", fe.render_run(run))
+
+
+class PolicyMirrorTests(unittest.TestCase):
+    """The mirrored mission warp policy constants agree with mlib."""
+
+    def _mlib(self):
+        sys.path.insert(0, os.path.join(_HARNESS, "missions", "lib"))
+        try:
+            import mlib
+        finally:
+            sys.path.pop(0)
+        return mlib
+
+    def test_constants_match_mlib(self):
+        mlib = self._mlib()
+        self.assertEqual(fe.NODE_WAIT_ORIENT_LEAD_SECONDS, mlib.NODE_WAIT_ORIENT_LEAD_SECONDS)
+        self.assertEqual(fe.NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS,
+                         mlib.NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS)
+        self.assertEqual(fe.PHYSICS_DWELL_WARP_INDEX, mlib.PHYSICS_DWELL_WARP_INDEX)
+        self.assertEqual(fe.POLICY_PHYSICS_RATE, 4.0)
+        self.assertEqual(mlib._B5_NODE_WAIT_PHASES, (fe.CAPTURE_LEAD_KEY[1],))
+        self.assertEqual(fe.RV_EARLY_CANCEL_SECONDS, mlib.RV_WARP_ARRIVAL_TOLERANCE_SECONDS)
+        self.assertEqual(fe.RV_NODE_IDENTITY_SECONDS, mlib.RV_WARP_NODE_IDENTITY_SECONDS)
+        self.assertEqual(mlib.BDOCK_RENDEZVOUS, fe.RENDEZVOUS_LEAD_KEY[1])
+
+    @staticmethod
+    def _names_in(func_name):
+        tree = ast.parse(_read(_MLIB_PATH))
+        fn = [n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == func_name][0]
+        return {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
+
+    def test_release_tolerances(self):
+        # The rendezvous hold releases RV_WARP_ARRIVAL_TOLERANCE_SECONDS (15 s)
+        # before its target; the capture hold releases
+        # NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS (5 s) before its own, which the
+        # capture lead already carries. Two machines, two tolerances.
+        self.assertIn("RV_WARP_ARRIVAL_TOLERANCE_SECONDS", self._names_in("_bdock_rv_hold_step"))
+        cap = self._names_in("_b5_node_wait_step")
+        self.assertIn("NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS", cap)
+        self.assertNotIn("RV_WARP_ARRIVAL_TOLERANCE_SECONDS", cap)
+        # sdock / rdock run bdock_decide's RENDEZVOUS phase
+        for machine in ("sdock_decide", "rdock_decide"):
+            self.assertIn("bdock_decide", self._names_in(machine), machine)
+
+    def test_machine_rendezvous_target_is_the_analyzer_boundary(self):
+        mlib = self._mlib()
+        # unclamped (the 2011 flight's first hold) and ca-clamped (its second)
+        cases = [
+            (7133.461, 7735.1, 17.218, 50000.0, 7740.0, 9000.0),
+            (8062.313, 8663.9, 14.521, 15951.0, 8670.2, 68.0),
+        ]
+        for now, node, dv, dist, ca_ut, ca_d in cases:
+            mass = 0.5 * 2.0 * 250000.0 / dv  # half burn 0.5 s
+            target, key, detail = mlib.rendezvous_node_wait_plan(
+                now, node, dv, 250000.0, mass, float("nan"), 91000.0, 90000.0, 70000.0,
+                dist, ca_ut, ca_d, "Kerbin")
+            self.assertEqual(key, "held", detail)
+            w = fe.parse_rv_node_wait(detail, target)
+            self.assertIsNotNone(w)
+            self.assertEqual(fe.rendezvous_lead_boundary(node, [w]),
+                             (target - mlib.RV_WARP_ARRIVAL_TOLERANCE_SECONDS, "warp"))
+            # the text alone rebuilds the same boundary within its print rounding
+            self.assertAlmostEqual(fe.rendezvous_text_boundary(w),
+                                   target - mlib.RV_WARP_ARRIVAL_TOLERANCE_SECONDS, delta=0.6)
+
+    def test_machine_lead_is_the_analyzer_lead(self):
+        mlib = self._mlib()
+        half = mlib.half_burn_seconds(277.0, 250000.0, 15000.0)
+        target, _why = mlib.node_wait_warp_plan(0.0, 5000.0, 277.0, 250000.0, 15000.0,
+                                                float("nan"), 700000.0, 650000.0, 0.0)
+        lead, known = fe.capture_lead_seconds(half)
+        self.assertTrue(known)
+        self.assertAlmostEqual(5000.0 - target + fe.NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS, lead)
+
+    def test_kx_coast_ceiling_is_the_policy_rate(self):
+        import types
+        mlib = self._mlib()
+        self.assertEqual(mlib.kxrw_max_physics_warp(types.SimpleNamespace(phase="COAST")),
+                         fe.POLICY_PHYSICS_RATE)
+        self.assertEqual(fe.PHYSICS_WARP_RATES[mlib.PHYSICS_DWELL_WARP_INDEX],
+                         fe.POLICY_PHYSICS_RATE)
+
+
+class AggregateByDesignTests(unittest.TestCase):
+    def _run(self, rid, recs):
+        return {"runId": rid, "scenario": fe.scenario_from_run_id(rid), "totalWallSeconds": 100.0,
+                "missionWallSeconds": 80.0, "overhead": {"rows": [], "steps": []},
+                "mission": {"sampledWallSeconds": 80.0,
+                            "recoverable": sum(r["recoverable"] for r in recs),
+                            "byDesign": sum(r["byDesignSeconds"] for r in recs),
+                            "byDesignWall": 2.0 * sum(r["byDesignSeconds"] for r in recs),
+                            "optionalBurnSaving": 0.0,
+                            "buckets": dict({b: 0.0 for b in fe.BUCKETS}, idle=40.0,
+                                            physicsWarp=7.0),
+                            "recommendations": recs}}
+
+    @staticmethod
+    def _rec(phase, cause, rec=0.0, design=0.0):
+        return {"phase": phase, "cause": cause, "recoverable": rec, "byDesignSeconds": design,
+                "optional": False, "byDesign": design > 0, "outcomeSensitive": False,
+                "byDesignReason": "why" if design > 0 else "", "site": "s"}
+
+    def test_by_design_totals_and_distinct_runs(self):
+        a = self._run("2026-10-01_1000_B4", [
+            self._rec("DEORBIT", "attitude-align", design=100.0),
+            self._rec("CORRECTION-BURN", "attitude-align", design=20.0),
+            self._rec("CORRECTION-BURN", "attitude-align", rec=5.0)])
+        b = self._run("2026-10-01_1100_B4", [
+            self._rec("DEORBIT", "attitude-align", design=50.0)])
+        agg = fe.aggregate([a, b])
+        self.assertEqual(agg["byDesignSeconds"], 170.0)
+        self.assertEqual(agg["byDesignWallSeconds"], 340.0)
+        self.assertEqual(agg["recoverableSeconds"], 5.0)
+        self.assertEqual(agg["physicsWarpSeconds"], 14.0)
+        self.assertEqual(agg["causes"], [{"cause": "attitude-align", "recoverable": 5.0, "runs": 1,
+                                          "byDesign": 170.0, "byDesignRuns": 2}])
+        self.assertEqual(agg["lanes"][0]["byDesign"], 170.0)
+        self.assertEqual(agg["lanes"][0]["physicsWarp"], 14.0)
+        lc = {(e["phase"], e["byDesign"]): e for e in agg["laneCauses"]}
+        self.assertEqual(lc[("DEORBIT", True)]["byDesignSeconds"], 150.0)
+        self.assertEqual(lc[("DEORBIT", True)]["runs"], 2)
+        self.assertEqual(lc[("CORRECTION-BURN", True)]["runs"], 1)
+        self.assertEqual(lc[("CORRECTION-BURN", False)]["recoverable"], 5.0)
+        self.assertFalse(agg["laneCauses"][0]["byDesign"])  # counted rows rank first
+        text = fe.render_aggregate({"aggregate": agg, "skipped": [], "duplicatesDropped": 0})
+        top = text.split("TOP LANE / PHASE / CAUSE")[1].split("BY CAUSE")[0]
+        self.assertNotIn("DEORBIT", top)
+        self.assertIn("DEORBIT/attitude-align -> why",
+                      text.split("BY DESIGN (not counted")[1])
 
 
 class ShellTests(unittest.TestCase):

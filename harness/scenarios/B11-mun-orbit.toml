@@ -107,7 +107,8 @@
 #   PARK               PARKED CONFIGURATION, and the RECORDED coverage the whole
 #                      lane exists for: throttle CUT, every maneuver node
 #                      CLEARED, attitude HELD (SAS stability-assist + RCS on),
-#                      rails DROPPED to 1x and self-healed there. Requires
+#                      rails DROPPED and the dwell run under 4x PHYSICS warp
+#                      (#1958; 1x for its last 15 s). Requires
 #                      parkDebounceFrames consecutive in-gate frames HELD across
 #                      parkDwellSeconds of game time. NAMED give-ups separate
 #                      "never stabilized" from "stabilized but never HELD".
@@ -231,9 +232,10 @@ mission = "b11_mun_orbit"
 #                                    nearly free, and the ~277 m/s burn is ~20 s.
 #                                    The ORIGINAL ~150 wall estimate was wrong
 #                                    because it did not know about the hold.)
-#   PARK                            ~200 wall (parkDwellSeconds of GAME time at
-#                                    1x - this dwell IS the recorded coverage,
-#                                    so it is deliberately NOT warped)
+#   PARK                            ~57 wall since #1958 (~200 at 1x before):
+#                                    parkDwellSeconds of GAME time under 4x
+#                                    PHYSICS warp - this dwell IS the recorded
+#                                    coverage, so it is never RAILS-warped
 #   ORBIT-COMMIT                    <1 wall typical, 120 wall worst case (the
 #                                    runner's SEAM_COMMIT_POLL_SECONDS bound)
 # => ~1,300 wall expected nominal. WORST case adds one bounded stale-node
@@ -323,14 +325,16 @@ parkMaxEccentricity        = 0.25
 parkMaxAngularVelocityRadPerSec = 0.05
 parkSituations             = ["ORBITING"]
 # GAME seconds the stable park is HELD before the commit. This dwell IS the
-# recorded parked-in-foreign-SOI coverage (the machine holds 1x through it), so
-# it is also the flight's main added wall cost: 180 game-s ~= 180 wall-s.
+# recorded parked-in-foreign-SOI coverage. The machine runs it under 4x PHYSICS
+# warp since #1958 (never rails, which would pack the vessel; 1x for the last
+# 15 s), so 180 game-s ~= 57 wall-s; the recorded spacing equals 1x up to one
+# 0.08 s frame (todo PHYSWARP-HARNESS-PHASES-VERDICT).
 # PROVISIONAL: raise only if flight 1 shows the committed recording carrying too
 # little in-Mun-SOI coverage to be a useful playback / ghost fixture.
 parkDwellSeconds           = 180
 parkDebounceFrames         = 3
-# PARK budget (GAME seconds) = the dwell + 420 s of stabilization slack. At 1x
-# that is a 10-minute wall worst case, so the NAMED park give-up always fires
+# PARK budget (GAME seconds) = the dwell + 420 s of stabilization slack. Even at
+# 1x (warp is in-gate only) that is a 10-minute wall worst case, so the NAMED park give-up always fires
 # before the 3000 s mission wall budget could reap the run generically.
 parkTimeoutSeconds         = 600
 commitTimeoutSeconds       = 300
