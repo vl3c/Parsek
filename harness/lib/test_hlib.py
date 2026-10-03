@@ -1100,7 +1100,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # directions): the Recordings table's Stash button, consumed by RF-20.
         # 46 / 4 after the D18 player-action pair (RealSpawn / Recover), an ADDITION
         # by two: the reserved envelope never carried a spawn or a recovery verb.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 46)
+        # 47 / 4 after TrackingStationRecover, an ADDITION by one: the Tracking
+        # Station half of a player's recovery, for a vessel that is not the active one.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 47)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -11245,6 +11247,10 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # fix `2026-10-03_1234` (trees / committedTrees 1, recordings 2,
                        # Recovered 1 / SubOrbital 1, spawnedVessels 0, CTR Lander 0).
                        "CI-6-chain-tip-recover-no-respawn.toml",
+                       # CI-7: `structure` armed 2026-10-03 off its reading `2026-10-03_1611`
+                       # (trees / committedTrees 1, recordings 2, Landed 1 / SubOrbital 1,
+                       # spawnedVessels 0, CTR Lander 0).
+                       "CI-7-chain-tip-ts-recover-no-respawn.toml",
                        # SS-1: `structure` + `points` armed 2026-09-26 off its reading
                        # `2026-09-25_2102`; re-scoped 2026-09-27 (the probe is a real
                        # 71 x 90 km Orbiting orbit that defers, then spawns) and re-armed
@@ -16249,6 +16255,65 @@ class RealSpawnRecoverSourceSyncTests(unittest.TestCase):
         self.assertIn("recover-pid-arg-invalid", v(0, "Recover", {"pid": "²"})[0])
         self.assertIn("recover-pid-arg-invalid", v(0, "Recover", {"pid": "+5"})[0])
         self.assertIn("recover-pid-arg-invalid", v(0, "Recover", {"pid": " 5"})[0])
+
+
+class TrackingStationRecoverSourceSyncTests(unittest.TestCase):
+    """`TrackingStationRecover`. Reads OUTSIDE harness/: the verb, the arg key and the
+    refusal reasons (the `Reasons` array, IN ORDER) of the comment-stripped
+    TestCommands/TestCommandTrackingStationRecover.cs."""
+
+    def _source(self):
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                            "TestCommandTrackingStationRecover.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# TrackingStationRecover tables moved; this mirror is vacuous: %s"
+                        % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_key_and_reasons_mirror_the_c_sharp(self):
+        text = self._source()
+        self.assertIn('internal const string Verb = "%s";' % hlib.TSRECOVER_VERB, text)
+        self.assertIn('internal const string PidKey = "%s";' % hlib.TSRECOVER_PID_KEY, text)
+        self.assertEqual(list(hlib.TSRECOVER_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        for reason in hlib.TSRECOVER_REASONS:
+            self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason), ("driver-arg", "driver-gate"))
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.TSRECOVER_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(120.0, hlib.dispatch_deferral_budget(verb))
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+        # Every refusal maps; the in-Tracking-Station one is a gate, not the spec's fault.
+        self.assertEqual("driver-gate",
+                         hlib.classify_seam_refusal_subkind("tsrecover-button-locked"))
+        self.assertEqual("driver-arg",
+                         hlib.classify_seam_refusal_subkind("tsrecover-pid-arg-invalid"))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_tracking_station_recover_step
+        self.assertEqual([], v(0, {"pid": "4000000001"}))
+        self.assertEqual([], v(0, {"pid": "4294967295"}))
+        self.assertEqual([], v(0, {"pid": "${spawn.pid}"}))
+        self.assertIn("tsrecover-pid-arg-missing", v(0, {})[0])
+        self.assertIn("tsrecover-pid-arg-missing", v(0, {"pid": ""})[0])
+        for bad in ("0", "abc", "4294967296", "\u00b2", "+5", " 5"):
+            with self.subTest(pid=bad):
+                self.assertIn("tsrecover-pid-arg-invalid", v(0, {"pid": bad})[0])
+
+    def test_validate_spec_runs_the_step_validator(self):
+        # The wiring, not just the function: a pid-less step inserted into a committed
+        # spec must surface from validate_spec's per-step dispatch.
+        spec = copy.deepcopy(load_spec("B10-career-passive-safety.toml"))
+        steps = spec["driver"]["steps"]
+        steps.insert(len(steps) - 1, {"cmd": hlib.TSRECOVER_VERB, "args": {}})
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertTrue(any("tsrecover-pid-arg-missing" in e for e in v.errors), v.errors)
 
 
 class GuiCensusSeamVerbTests(unittest.TestCase):

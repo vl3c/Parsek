@@ -10,6 +10,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: a test command recovers a vessel from the Tracking Station.**
+  `TrackingStationRecover pid=<pid>` walks the stock route a player takes from the Space
+  Center: it enters the Tracking Station, selects the vessel, presses stock's Recover and
+  confirms it, closes the recovery summary if one opens, and leaves back to the Space Center,
+  answering once stock has recovered the vessel. The flag stock passes with that event is its
+  "quick" flag and is false for this route, so nothing waits on it.
 - **Dev: lanes for a Hard career that earns and spends, and for a career that starts with no
   money.** `HC-2-hard-career-earn-spend` (flown green 2026-10-03, nightly) flies L3's science
   hop on `career-science-pad-hard`, a copy of L3's save at KSP's Hard preset built by
@@ -1393,6 +1399,19 @@ _(unreleased — entries accumulate here per commit)_
   new atlas section. No player-visible behavior changes.
 
 ### Fixed
+
+- **A vessel Parsek brought into the world that you recover from the Tracking Station or
+  the KSC no longer comes back.** Recover a vessel Parsek spawned at the end of a recorded
+  flight without flying it first (the Tracking Station Recover button, the KSC vessel
+  marker), on a sandbox save or with no crew aboard, and the next flight scene used to read
+  the vessel's absence as a crash and spawn it again. Parsek only learned of such a
+  recovery through the recovery payout (which a sandbox save never pays) or the crew coming
+  home (which an uncrewed vessel has none of). Every recovery you make of a vessel that
+  continues a recorded flight now writes its own ledger entry, in every game mode, and that
+  recording's vessel is never spawned again, also after a rewind to before the recovery.
+  A vanished vessel whose recording reads recovered is no longer counted as a death either.
+  Parsek's own housekeeping recoveries write nothing. A Re-Fly that puts the vessel back in
+  the world retires the entry with the recovery payout. No new interface.
 
 - **A vessel you recover right after switching to it no longer comes back.** Bring a
   recorded flight's vessel into the world (Real Spawn Control, or its end-of-recording

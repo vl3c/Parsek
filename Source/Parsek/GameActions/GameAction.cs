@@ -239,7 +239,35 @@ namespace Parsek
         /// becomes UT 0 -> recovery UT and a rewind to before it holds him again. Not
         /// resource-impacting; retired with the owner recording by a re-fly supersede.</para>
         /// </summary>
-        KerbalRecovered = 34
+        KerbalRecovered = 34,
+
+        /// <summary>
+        /// The player recovered a REAL vessel that is the live continuation of a committed
+        /// recording (the same launch by positive guid match, or the vessel Parsek spawned
+        /// from it): from the Tracking Station, the KSC vessel marker, the flight Recover
+        /// button or kRPC. Carries <see cref="GameAction.RecordingId"/> (the owning committed
+        /// recording, one row per owning tree), <see cref="GameAction.RecoveredVesselName"/>
+        /// and <see cref="GameAction.RecoveredVesselPid"/>; the row's
+        /// <see cref="GameAction.UT"/> is the recovery instant.
+        ///
+        /// <para>Non-economic and written in every game mode. It exists because the other two
+        /// recovery rows are conditional: <see cref="FundsEarning"/> with
+        /// <see cref="FundsEarningSource.Recovery"/> needs stock's
+        /// <c>FundsChanged(VesselRecovery)</c>, which a sandbox save never raises, and
+        /// <see cref="KerbalRecovered"/> needs crew aboard. A committed recording is never
+        /// re-stamped by a terminal event, so without this row an uncrewed sandbox recovery
+        /// of a Parsek-spawned vessel left no trace and the next flight scene spawned it
+        /// again. Read by <see cref="RecoveredRecordingEvidence"/> beside the other two.</para>
+        ///
+        /// <para>Player recoveries only: Parsek's own programmatic recoveries run under
+        /// <c>SuppressionGuard.Crew()</c> and write none. Not resource-impacting, not a
+        /// strict-block for a supersede, retired with its owner by a Re-Fly supersede and
+        /// with the recovery funds row by a Re-Fly resurrection. Explicitly numbered and
+        /// append-only; an older build reads the value as an unknown type (Warn) and the
+        /// row's evidence is lost there, the accepted one-way downgrade of an additive
+        /// enum member.</para>
+        /// </summary>
+        VesselRecovered = 35
     }
 
     /// <summary>
@@ -740,6 +768,22 @@ namespace Parsek
         /// </summary>
         public string KerbalCareerEntries;
 
+        // ---- Vessel recovery fields (VesselRecovered) ----
+
+        /// <summary>
+        /// Display name of the recovered vessel on a <see cref="GameActionType.VesselRecovered"/>
+        /// row. Null on every other action type.
+        /// </summary>
+        public string RecoveredVesselName;
+
+        /// <summary>
+        /// Persistent id of the recovered live vessel on a
+        /// <see cref="GameActionType.VesselRecovered"/> row (a Parsek spawn pid or the
+        /// recorded launch's pid). Diagnostic only: identity was decided at write time.
+        /// 0 on every other action type.
+        /// </summary>
+        public uint RecoveredVesselPid;
+
         /// <summary>Mission start UT.</summary>
         public float StartUT;
 
@@ -1147,6 +1191,9 @@ namespace Parsek
                 case GameActionType.KerbalRecovered:
                     SerializeKerbalRecovered(node);
                     break;
+                case GameActionType.VesselRecovered:
+                    SerializeVesselRecovered(node);
+                    break;
                 case GameActionType.FacilityUpgrade:
                     SerializeFacilityUpgrade(node);
                     break;
@@ -1306,6 +1353,9 @@ namespace Parsek
                     break;
                 case GameActionType.KerbalRecovered:
                     DeserializeKerbalRecovered(node, a);
+                    break;
+                case GameActionType.VesselRecovered:
+                    DeserializeVesselRecovered(node, a);
                     break;
                 case GameActionType.FacilityUpgrade:
                     DeserializeFacilityUpgrade(node, a);
@@ -1791,6 +1841,22 @@ namespace Parsek
         {
             a.KerbalName = n.GetValue("kerbalName");
             a.KerbalRole = n.GetValue("kerbalRole");
+        }
+
+        private void SerializeVesselRecovered(ConfigNode n)
+        {
+            if (RecoveredVesselName != null) n.AddValue("vesselName", RecoveredVesselName);
+            if (RecoveredVesselPid != 0u)
+                n.AddValue("vesselPid", RecoveredVesselPid.ToString(IC));
+        }
+
+        private static void DeserializeVesselRecovered(ConfigNode n, GameAction a)
+        {
+            a.RecoveredVesselName = n.GetValue("vesselName");
+            string pidStr = n.GetValue("vesselPid");
+            uint pid;
+            if (pidStr != null && uint.TryParse(pidStr, NumberStyles.Integer, IC, out pid))
+                a.RecoveredVesselPid = pid;
         }
 
         private void SerializeFacilityUpgrade(ConfigNode n)
