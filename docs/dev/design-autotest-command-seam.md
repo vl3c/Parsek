@@ -3889,8 +3889,9 @@ bookkeeping, `Recover`'s is "stock recovered the pid and the Space Center settle
 whether Parsek stamped `Recovered` is asserted from the log lines a spec pins. hlib mirrors
 the reasons (`REALSPAWN_REASONS` / `RECOVER_REASONS`, pinned by
 `RealSpawnRecoverSourceSyncTests`) and `validate_real_spawn_recover_step` checks the
-required arg pre-launch. Pure halves `TestCommandRealSpawn` / `TestCommandRecover`. Lanes:
-none yet; they are owed (todo D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR).
+required arg pre-launch. Pure halves `TestCommandRealSpawn` / `TestCommandRecover`. Lane:
+`CI-6-chain-tip-recover-no-respawn` (both verbs, on the `chain-tip-recovery` injected host;
+first flown 2026-10-03, quarantined on CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE).
 
 ### Addon lifecycle
 

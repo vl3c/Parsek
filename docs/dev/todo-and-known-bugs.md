@@ -5958,7 +5958,102 @@ and consider a second, pre-filter view (`ComputeAllGhostChains`' full output, or
 `digest=6ad6ec1c` (a fixture-derived literal in two required tokens), so it needs CI-3
 re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
 (`bbd83d3b`, `8952919c`) recomputed.
-## D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR: the player-action half of D18 needs a RealSpawn / Recover seam verb pair [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A, on the operator ruling that no player-action verbs are built in that wave. VERBS BUILT 2026-10-01 on branch `realspawn-recover-verbs` (operator decision 2026-10-01, the second half of the chain-tip track after PR #1953); LANES OWED, BLOCKED ON A HOST: the 2026-10-02 survey found no committed fixture that can stand an active vessel beside a future chain tip's ghost]
+## CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE: recovering a Real-Spawned chain tip right after switching to it drops the recovery, and the next flight scene spawns the vessel again [FILED 2026-10-03 on branch `d18-recovery` from `CI-6-chain-tip-recover-no-respawn`'s reading run `2026-10-03_1014`; OPEN]
+
+**What the player does.** Real Spawn Control's "Warp to Spawn" on a ghost chain's tip (here a
+landed lander ~130 m from the pad), Switch-To the spawned vessel, press stock's Recover at
+once. Stock recovers it and loads the Space Center. Back in flight (here a launch from the
+SPH), the same vessel is standing at the tip's end position again: a duplicate of a vessel the
+player recovered (on a career save, recoverable a second time).
+
+**Measured** (reading run `2026-10-03_1014`, automation DLL sha256 `cdb8e2e7...`, an origin/main
+build; the run's `_shots/KSP.log`):
+
+1. The switch onto the landed spawned vessel takes the post-switch trigger route
+   (`SwitchIntent refused: reason=on-surface-defer-to-trigger`), and
+   `TryRestoreCommittedTreeForSpawnedActiveVessel` resumes the committed tip recording
+   `ctr-tip-rec` IN PLACE (`via PromoteFromBackground`, no `SwitchSegmentSession`).
+2. Recover: `In-flight recovery requested: vessel='CTR Lander' pid=1344998135 ... the
+   scene-exit finalize will commit its recording Recovered`.
+3. Stock's `HighLogic.LoadScene(SPACECENTER)` reaches Parsek's LoadScene prefix, whose step
+   3.6 `SceneExitInterceptor.TryAutoDiscardNoOpNoSessionCommittedResume` sees a resume tail
+   that changed nothing and reverts the clone to the committed original
+   (`no-op committed-restore resume detected dest=SPACECENTER - reverting to committed
+   original`). The prefix runs BEFORE the flight scene-exit finalize that would apply the
+   request, so the request finds nothing: `In-flight recovery request dropped unapplied:
+   vessel='CTR Lander' pid=1344998135 reason=scene change requested dest=SPACECENTER`.
+   (`SwitchSegmentNoOpClassifier` / the no-session tail variant never read
+   `InFlightRecoveryRequest`.)
+4. The committed tip keeps `terminalState = Landed`, `VesselSpawned = True` and the spawned
+   pid. On a sandbox save with an uncrewed vessel no recovery ledger row exists either
+   (`FlushStalePendingRecoveryFunds ... evicting 1 unclaimed recovery request(s)`), so
+   `RecoveredRecordingEvidence` has nothing to read.
+5. The next FLIGHT scene: `ParsekPlaybackPolicy.RunSpawnDeathChecks` finds the spawned pid
+   gone, `Spawn-death detected: #1 "CTR Lander" pid=1344998135 deathCount=1 - reset for
+   re-spawn`, and the tip, a Landed leaf past its EndUT, spawns again: `Vessel spawn for #1
+   (CTR Lander) pid=3842087101 sit=LANDED`. The produced save holds that vessel and the tip's
+   `spawnedPid = 3842087101`.
+
+**Why it matters beyond chains.** Nothing in steps 1-5 is chain-specific: any committed
+landed recording whose spawned vessel the player switches to and recovers without doing
+anything first should take the same path (the chain only made the vessel spawnable from the
+lane's host). Not separately flown.
+
+**Fix direction (not decided here).** Either the no-op discards at the LoadScene prefix
+(3.5 session, 3.6 no-session) must keep, or still stamp, a resumed recording whose vessel has
+an armed `InFlightRecoveryRequest` (a recovery is a world-state change, like the Destroyed
+keep the classifier already has), or the spawn-death pass must tell a vessel the player
+recovered from one that died, which needs the recovery recorded somewhere it can read. Check
+the mirror direction: the session-based 3.5 discard has the same ordering against the request.
+
+**Lane.** `CI-6-chain-tip-recover-no-respawn` (nightly) is the quarantine: `[expectedFail]
+subkind = "expectation"` with a four-token signature (the missing `ResolveTermination ...
+terminalState=Recovered`, and the forbidden `dropped unapplied`, `Spawn-death detected` and
+`Vessel spawn for ... (CTR Lander)`). Offline controls over the flown log
+(`hlib.evaluate_expectations` + `hlib.expected_fail_signature_matched`): the flown log matches
+the signature; a fixed-shape log (the three defect lines gone, the Recovered line present) has
+zero mismatches and would read XPASS; a half-fixed log (recovery recorded, respawn still
+there) and a no-spawn log do NOT match, so neither reads green.
+
+## TERMINATED-CHAIN-SPAWN-SUPPRESSED-LINE-UNREACHABLE: `GhostPlaybackLogic.ShouldSuppressSpawnForChain`'s terminated-chain arm cannot fire in production [FILED 2026-10-03 on branch `d18-recovery`; OPEN, low priority, no player effect]
+
+The arm logs `Terminated chain spawn suppressed: rec=... vessel=... vesselPid=...` when the
+chain is `IsTerminated` and `rec` is its tip. Its three callers:
+
+- `ParsekFlight` playback spawn decision and `ParsekFlight` nearby-spawn candidates: both pass
+  `activeGhostChains`, whose only writer is `EvaluateAndApplyGhostChains` from
+  `FilterAndGhostChains`, which `continue`s past every terminated chain (`Skipping terminated
+  chain for pid=`) before adding it. A terminated chain is never in that map.
+- `GhostMapPresence.ShouldSpawnAtTrackingStationEnd`: calls it only after
+  `ShouldSpawnAtRecordingEnd` answered `needsSpawn`, which needs a spawnable terminal
+  (Orbiting / Landed / Splashed) on `rec`, while `IsTerminated` needs the tip's terminal to be
+  Destroyed / Recovered / Disassembled. `rec` being the tip makes the two exclusive.
+
+What actually keeps a terminated chain from spawning is the tip's own non-spawnable terminal
+and, for the links before it, the non-leaf rule. Either delete the arm or route the
+terminated case somewhere it can run; until then no lane can witness the line, and
+`chain-terminated-destruction-recovery` is not owed it.
+
+## ~~D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR: the player-action half of D18 needs a RealSpawn / Recover seam verb pair~~ [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A, on the operator ruling that no player-action verbs are built in that wave. VERBS BUILT 2026-10-01 on branch `realspawn-recover-verbs` (operator decision 2026-10-01, the second half of the chain-tip track after PR #1953). HOST BUILT AND THE RECOVERY LANE FLOWN 2026-10-03 on branch `d18-recovery`: the `chain-tip-recovery` injected preset and `CI-6-chain-tip-recover-no-respawn`, which found CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE]
+
+**Closed 2026-10-03 (branch `d18-recovery`).** The host the survey below could not find in
+a committed fixture is an injected preset, route (d), the shape CI-5 already uses
+(operator-confirmed 2026-09-26): `chain-tip-recovery` adds to `gloops-airshow` ONE
+committed tree whose PARENTLESS background recording of a landed lander (engine ignite /
+shutdown, pid and launch guid derived from its id, absent from the save) is in progress at
+the save UT on spawn-control-target's spot ~130 m from the pad vessel. The walker claims it
+via BACKGROUND_EVENT, so it is a live chain tip, and Real Spawn Control lists it with "Warp
+to Spawn" live: the clock problem of every recorded fixture does not arise because the
+preset reads its clock off the target save. Its root ends SubOrbital, not Destroyed, so a
+Recovered tip cannot make the tree fully terminated (`GhostChainWalker.IsTreeFullyTerminated`
+would skip it before `ResolveTermination`). `CI-6-chain-tip-recover-no-respawn` drives
+RealSpawn -> SimulateStockSwitchClick -> Recover -> a new flight through the SPH, and both
+verbs answered OK on their first flight (reading run `2026-10-03_1014`). The product's
+answer is a defect, filed as CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE; the lane is
+committed as its EXPECTED-FAIL quarantine. Still open from the list below: the
+`chain-tip-original-pid` re-claim lane (the RealSpawn answered `pid=1344998135`, the chain's
+own pid, on this host too, but no lane pins it as a claim) and the docking mission.
+
 
 **Status 2026-10-01: both verbs built, no lane flown.** Contract in
 `design-autotest-command-seam.md` `#### RealSpawn / Recover`. `RealSpawn rec=<id>` finds the
@@ -6047,7 +6142,20 @@ Both need the M-A2 design pass (design-autotest-command-seam.md), the pure / app
 split, the dispatch rows, the hlib verb and role tables and `GuiCensusSeamVerbTests`'s
 vocabulary sync, before any lane can use them.
 
-## D18-TERMINATED-CHAIN-RECOVERY-HALF-AND-SPAWN-SUPPRESSION-UNWITNESSED: the recovery half of `chain-terminated-destruction-recovery` and the spawn-side suppression line have no driven subject [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A. OPEN; the RealSpawn / Recover verbs it needed were built 2026-10-01 (D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR), the lane is owed]
+## ~~D18-TERMINATED-CHAIN-RECOVERY-HALF-AND-SPAWN-SUPPRESSION-UNWITNESSED: the recovery half of `chain-terminated-destruction-recovery` and the spawn-side suppression line have no driven subject~~ [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A. CLOSED 2026-10-03 on branch `d18-recovery`: the recovery half has a driven subject (`CI-6-chain-tip-recover-no-respawn`, quarantined on CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE); the spawn-side line is unreachable by construction (TERMINATED-CHAIN-SPAWN-SUPPRESSED-LINE-UNREACHABLE)]
+
+**Closed 2026-10-03 (branch `d18-recovery`).** Part 1, the Recovered half: driven by
+`CI-6-chain-tip-recover-no-respawn` (host and route under D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR).
+The player path runs end to end, but no `Recovered` verdict is ever recorded on it, so
+the walker's `ResolveTermination: ... terminalState=Recovered` line is the lane's missing
+required token and the cell stays claimed for the DESTROYED half only until the defect is
+fixed (CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE; the fixed shape flips the lane to
+XPASS). The walker half of the designed path is pinned headless by
+`SyntheticRecordingTests.ChainTipRecovery_RecoveredContinuationTerminatesTheChainAndTheTipIsNonLeaf`.
+Part 2, the spawn-side `Terminated chain spawn suppressed:` line: re-derived from the full
+caller set, it cannot fire in production, so no lane can witness it
+(TERMINATED-CHAIN-SPAWN-SUPPRESSED-LINE-UNREACHABLE).
+
 
 PR-A claims `chain-terminated-destruction-recovery` on V26T for the DESTROYED half only,
 off the walker's `ResolveTermination: ... terminalState=Destroyed` and
