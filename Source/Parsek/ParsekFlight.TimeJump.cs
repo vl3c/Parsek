@@ -39,6 +39,7 @@ namespace Parsek
             // as WarpToRecordingEnd does.
             TimeJumpManager.ExecuteJump(
                 targetUT, null, vesselGhoster, CollectBubbleGhostsForTimeJump());
+            RefreshBlockedChainTipGhostOrbitsAfterJump();
             return true;
         }
     }

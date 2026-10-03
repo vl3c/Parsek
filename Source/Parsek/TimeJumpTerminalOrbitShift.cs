@@ -43,7 +43,39 @@ namespace Parsek
         private static readonly Dictionary<string, TerminalOrbitJumpShift> pending =
             new Dictionary<string, TerminalOrbitJumpShift>(StringComparer.Ordinal);
 
+        // Recordings whose jump-shifted spawn resolution has already been logged at Info, so
+        // a blocked tip retried every frame does not repeat the line.
+        private static readonly HashSet<string> spawnResolutionLogged =
+            new HashSet<string>(StringComparer.Ordinal);
+
         internal static int PendingCount => pending.Count;
+
+        /// <summary>
+        /// Pure: the shift a pending (still unspawned) recording carries after ANOTHER
+        /// epoch-shift jump froze its ghost again. The second jump translates the loaded
+        /// vessels by its own delta, so the lags add and the shift belongs to the new jump.
+        /// </summary>
+        internal static TerminalOrbitJumpShift AccumulateShift(
+            TerminalOrbitJumpShift existing, double preJumpUT, double jumpTargetUT,
+            double ghostSeparationMeters)
+        {
+            existing.LagSeconds += jumpTargetUT - preJumpUT;
+            existing.PreJumpUT = preJumpUT;
+            existing.JumpTargetUT = jumpTargetUT;
+            existing.GhostSeparationMeters = ghostSeparationMeters;
+            return existing;
+        }
+
+        /// <summary>
+        /// True the first time a spawn resolution for this armed shift is logged; false for
+        /// every repeat until the shift is released, re-armed or cleared.
+        /// </summary>
+        internal static bool TryMarkSpawnResolutionLogged(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+            return spawnResolutionLogged.Add(recordingId);
+        }
 
         internal const string ReasonArm = "arm";
         internal const string ReasonEndNotCrossed = "end-not-crossed";
@@ -121,6 +153,7 @@ namespace Parsek
             }
 
             int armed = 0;
+            int accumulated = 0;
             int endNotCrossed = 0;
             int notTerminalOrbit = 0;
             int alreadySpawned = 0;
@@ -132,6 +165,26 @@ namespace Parsek
                 double separation = bubbleGhosts[i].Value;
                 if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
                     continue;
+
+                // A tip still unspawned from an earlier jump (a blocked spawn held beside the
+                // player) is frozen again by this one: its lag grows by this jump's delta.
+                if (!rec.VesselSpawned
+                    && pending.TryGetValue(rec.RecordingId, out TerminalOrbitJumpShift existing)
+                    && IsShiftLiveAt(existing, preJumpUT)
+                    && IsFiniteValue(separation) && separation >= 0.0 && separation <= bubbleMeters
+                    && jumpTargetUT > preJumpUT)
+                {
+                    TerminalOrbitJumpShift grown = AccumulateShift(existing, preJumpUT, jumpTargetUT, separation);
+                    pending[rec.RecordingId] = grown;
+                    spawnResolutionLogged.Remove(rec.RecordingId);
+                    accumulated++;
+                    ParsekLog.Info(Tag,
+                        string.Format(ic,
+                            "Terminal-orbit jump shift accumulated: rec={0} vessel={1} T0={2:F1} target={3:F1} lag={4:F1}s (was {5:F1}s) ghostSeparation={6:F1}m",
+                            rec.RecordingId, rec.VesselName ?? "(unknown)",
+                            preJumpUT, jumpTargetUT, grown.LagSeconds, existing.LagSeconds, separation));
+                    continue;
+                }
 
                 bool usesTerminalOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(
                     rec, !string.IsNullOrEmpty(rec.EvaCrewName));
@@ -151,6 +204,7 @@ namespace Parsek
                             LagSeconds = lag,
                             GhostSeparationMeters = separation,
                         };
+                        spawnResolutionLogged.Remove(rec.RecordingId);
                         armed++;
                         ParsekLog.Info(Tag,
                             string.Format(ic,
@@ -167,10 +221,10 @@ namespace Parsek
 
             ParsekLog.Verbose(Tag,
                 string.Format(ic,
-                    "Terminal-orbit jump shift capture: bubbleGhosts={0} armed={1} endNotCrossed={2} notTerminalOrbit={3} alreadySpawned={4} outsideBubble={5}",
-                    bubbleGhosts.Count, armed, endNotCrossed, notTerminalOrbit,
+                    "Terminal-orbit jump shift capture: bubbleGhosts={0} armed={1} accumulated={2} endNotCrossed={3} notTerminalOrbit={4} alreadySpawned={5} outsideBubble={6}",
+                    bubbleGhosts.Count, armed, accumulated, endNotCrossed, notTerminalOrbit,
                     alreadySpawned, outsideBubble));
-            return armed;
+            return armed + accumulated;
         }
 
         /// <summary>
@@ -189,6 +243,7 @@ namespace Parsek
                 return true;
 
             pending.Remove(recordingId);
+            spawnResolutionLogged.Remove(recordingId);
             ParsekLog.Info(Tag,
                 string.Format(ic,
                     "Terminal-orbit jump shift dropped: rec={0} reason=clock-behind-jump currentUT={1:F1} target={2:F1}",
@@ -199,7 +254,10 @@ namespace Parsek
 
         internal static void Release(string recordingId, string reason)
         {
-            if (string.IsNullOrEmpty(recordingId) || !pending.Remove(recordingId))
+            if (string.IsNullOrEmpty(recordingId))
+                return;
+            spawnResolutionLogged.Remove(recordingId);
+            if (!pending.Remove(recordingId))
                 return;
             ParsekLog.Verbose(Tag,
                 string.Format(ic,
@@ -209,6 +267,7 @@ namespace Parsek
 
         internal static void Clear(string reason)
         {
+            spawnResolutionLogged.Clear();
             if (pending.Count == 0)
                 return;
             int count = pending.Count;
@@ -222,6 +281,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             pending.Clear();
+            spawnResolutionLogged.Clear();
         }
 
         private static bool IsFiniteValue(double value)

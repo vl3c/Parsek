@@ -6632,16 +6632,20 @@ namespace Parsek
                 if (jumpShifted)
                 {
                     double spawnSeparation = MeasureActiveVesselSeparation(orbit, body, ut);
-                    ParsekLog.Info("Spawner",
-                        string.Format(CultureInfo.InvariantCulture,
-                            "Jump-shifted terminal orbit spawn: rec={0} vessel={1} spawnUT={2:F2} phaseUT={3:F2} lag={4:F1}s ghostSeparationAtJump={5:F1}m spawnSeparation={6:F1}m",
-                            rec.RecordingId,
-                            rec.VesselName ?? "(unknown)",
-                            ut,
-                            TimeJumpTerminalOrbitShift.ResolvePhaseUT(ut, phaseLagSeconds),
-                            phaseLagSeconds,
-                            jumpShift.GhostSeparationMeters,
-                            spawnSeparation));
+                    string message = string.Format(CultureInfo.InvariantCulture,
+                        "Jump-shifted terminal orbit spawn: rec={0} vessel={1} spawnUT={2:F2} phaseUT={3:F2} lag={4:F1}s ghostSeparationAtJump={5:F1}m spawnSeparation={6:F1}m",
+                        rec.RecordingId,
+                        rec.VesselName ?? "(unknown)",
+                        ut,
+                        TimeJumpTerminalOrbitShift.ResolvePhaseUT(ut, phaseLagSeconds),
+                        phaseLagSeconds,
+                        jumpShift.GhostSeparationMeters,
+                        spawnSeparation);
+                    // Once per armed shift at Info; a blocked tip re-resolves every retry.
+                    if (TimeJumpTerminalOrbitShift.TryMarkSpawnResolutionLogged(rec.RecordingId))
+                        ParsekLog.Info("Spawner", message);
+                    else
+                        ParsekLog.VerboseRateLimited("Spawner", "jump-shifted-spawn-" + rec.RecordingId, message);
                 }
 
                 return true;

@@ -256,7 +256,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[TimeJump]")
                 && l.Contains("Terminal-orbit jump shift armed: rec=ctd-tip-rec vessel=Tip ctd-tip-rec T0=427.4 target=481.2 lag=53.8s ghostSeparation=140.2m"));
             Assert.Contains(logLines, l => l.Contains("[TimeJump]")
-                && l.Contains("bubbleGhosts=4 armed=1 endNotCrossed=1 notTerminalOrbit=1 alreadySpawned=0 outsideBubble=1"));
+                && l.Contains("bubbleGhosts=4 armed=1 accumulated=0 endNotCrossed=1 notTerminalOrbit=1 alreadySpawned=0 outsideBubble=1"));
         }
 
         [Fact]
@@ -301,6 +301,128 @@ namespace Parsek.Tests
             TimeJumpTerminalOrbitShift.Clear("flight-scene-destroyed");
             Assert.Equal(0, TimeJumpTerminalOrbitShift.PendingCount);
             Assert.Contains(logLines, l => l.Contains("Terminal-orbit jump shifts cleared: count=1 reason=flight-scene-destroyed"));
+        }
+
+        private static void AssertSameVector(Vector3d expected, Vector3d actual)
+        {
+            Assert.Equal(expected.x, actual.x);
+            Assert.Equal(expected.y, actual.y);
+            Assert.Equal(expected.z, actual.z);
+        }
+
+        // ---------------------------------------------------------------- the collision gate
+
+        [Fact]
+        public void CollisionCheck_JumpShiftArmed_TestsTheShiftedSpawnPosition()
+        {
+            // The pre-fix gate always tested the unshifted snapshot endpoint, ~120 km along
+            // the orbit on CI-9, while the tip spawned 140 m from the player.
+            var shiftedSpawn = new Vector3d(110.3, 0.2, -95.1);
+            var snapshotEndpoint = new Vector3d(194684.0, 982.0, -288814.0);
+
+            Vector3d check = VesselGhoster.SelectChainTipCollisionCheckPosition(
+                true, shiftedSpawn, snapshotEndpoint, "snapshot-endpoint", out string source);
+
+            AssertSameVector(shiftedSpawn, check);
+            Assert.Equal(VesselGhoster.CollisionCheckSourceJumpShifted, source);
+        }
+
+        [Fact]
+        public void CollisionCheck_NoShift_KeepsTheDefaultPosition()
+        {
+            var snapshotEndpoint = new Vector3d(194684.0, 982.0, -288814.0);
+            Vector3d check = VesselGhoster.SelectChainTipCollisionCheckPosition(
+                false, new Vector3d(1.0, 2.0, 3.0), snapshotEndpoint, "snapshot-endpoint", out string source);
+            AssertSameVector(snapshotEndpoint, check);
+            Assert.Equal("snapshot-endpoint", source);
+
+            var propagated = new Vector3d(5.0, 6.0, 7.0);
+            check = VesselGhoster.SelectChainTipCollisionCheckPosition(
+                false, Vector3d.zero, propagated, "propagated", out source);
+            AssertSameVector(propagated, check);
+            Assert.Equal("propagated", source);
+        }
+
+        [Fact]
+        public void CollisionCheck_ShiftArmedButPositionNonFinite_KeepsTheDefault()
+        {
+            var propagated = new Vector3d(5.0, 6.0, 7.0);
+            Vector3d check = VesselGhoster.SelectChainTipCollisionCheckPosition(
+                true, new Vector3d(double.NaN, 0.0, 0.0), propagated, "propagated", out string source);
+            AssertSameVector(propagated, check);
+            Assert.Equal("propagated", source);
+        }
+
+        // ---------------------------------------------------------------- a second jump
+
+        [Fact]
+        public void AccumulateShift_AddsTheSecondJumpsDelta()
+        {
+            var first = new TerminalOrbitJumpShift
+            {
+                RecordingId = "r", PreJumpUT = 427.4, JumpTargetUT = 481.2,
+                LagSeconds = 53.8, GhostSeparationMeters = 140.0,
+            };
+            TerminalOrbitJumpShift grown = TimeJumpTerminalOrbitShift.AccumulateShift(first, 500.0, 600.0, 141.0);
+            Assert.Equal(153.8, grown.LagSeconds, 9);
+            Assert.Equal(600.0, grown.JumpTargetUT);
+            Assert.Equal(500.0, grown.PreJumpUT);
+            Assert.Equal(141.0, grown.GhostSeparationMeters);
+        }
+
+        [Fact]
+        public void CaptureForJump_SecondJump_AccumulatesAStillBlockedTipsLag()
+        {
+            var tip = MakeOrbitingRecording("ctd-tip-rec", 481.2);
+            var bubble = new List<KeyValuePair<Recording, double>> { new KeyValuePair<Recording, double>(tip, 140.0) };
+            TimeJumpTerminalOrbitShift.CaptureForJump(bubble, 427.4, 481.2, Bubble);
+
+            // The tip's spawn is blocked; a second jump 500 -> 600 freezes its held ghost again.
+            int changed = TimeJumpTerminalOrbitShift.CaptureForJump(bubble, 500.0, 600.0, Bubble);
+
+            Assert.Equal(1, changed);
+            Assert.True(TimeJumpTerminalOrbitShift.TryGetShift("ctd-tip-rec", 600.0, out var shift));
+            Assert.Equal(53.8 + 100.0, shift.LagSeconds, 9);
+            Assert.Contains(logLines, l => l.Contains("[TimeJump]")
+                && l.Contains("Terminal-orbit jump shift accumulated: rec=ctd-tip-rec")
+                && l.Contains("lag=153.8s (was 53.8s)"));
+            Assert.Contains(logLines, l => l.Contains("armed=0 accumulated=1"));
+        }
+
+        [Fact]
+        public void CaptureForJump_SecondJump_HeldGhostOutsideBubble_KeepsTheFirstLag()
+        {
+            var tip = MakeOrbitingRecording("ctd-tip-rec", 481.2);
+            TimeJumpTerminalOrbitShift.CaptureForJump(
+                new List<KeyValuePair<Recording, double>> { new KeyValuePair<Recording, double>(tip, 140.0) },
+                427.4, 481.2, Bubble);
+
+            TimeJumpTerminalOrbitShift.CaptureForJump(
+                new List<KeyValuePair<Recording, double>> { new KeyValuePair<Recording, double>(tip, 5000.0) },
+                500.0, 600.0, Bubble);
+
+            Assert.True(TimeJumpTerminalOrbitShift.TryGetShift("ctd-tip-rec", 600.0, out var shift));
+            Assert.Equal(53.8, shift.LagSeconds, 9);
+        }
+
+        // ---------------------------------------------------------------- the one-shot log
+
+        [Fact]
+        public void SpawnResolutionLog_IsOneShotPerArmedShift()
+        {
+            var tip = MakeOrbitingRecording("ctd-tip-rec", 481.2);
+            var bubble = new List<KeyValuePair<Recording, double>> { new KeyValuePair<Recording, double>(tip, 140.0) };
+            TimeJumpTerminalOrbitShift.CaptureForJump(bubble, 427.4, 481.2, Bubble);
+
+            Assert.True(TimeJumpTerminalOrbitShift.TryMarkSpawnResolutionLogged("ctd-tip-rec"));
+            Assert.False(TimeJumpTerminalOrbitShift.TryMarkSpawnResolutionLogged("ctd-tip-rec"));
+
+            // A second jump re-arms (accumulates) the shift, so its spawn logs once more.
+            TimeJumpTerminalOrbitShift.CaptureForJump(bubble, 500.0, 600.0, Bubble);
+            Assert.True(TimeJumpTerminalOrbitShift.TryMarkSpawnResolutionLogged("ctd-tip-rec"));
+
+            TimeJumpTerminalOrbitShift.Release("ctd-tip-rec", "spawned");
+            Assert.True(TimeJumpTerminalOrbitShift.TryMarkSpawnResolutionLogged("ctd-tip-rec"));
         }
     }
 }
