@@ -13,8 +13,8 @@ namespace Parsek
     /// gap under the title bar (<see cref="DrawTitleGap"/>), then an optional heading
     /// in the shared table section-header style, then its entries inside the shared dark
     /// table body box (<see cref="ParsekUI.GetTableBodyBoxStyle"/>) holding a scroll view on
-    /// the shared table scroll style, one shared table row container per entry with the
-    /// house row floor (<see cref="RowMinHeight"/>), entry text in the shared table cell
+    /// the shared table scroll style, one row per entry at the Missions tab's expanded
+    /// sub-row spacing (<see cref="BeginEntryRow"/>), entry text in the shared table cell
     /// style, and buttons at the Missions Interact widths (<see cref="ButtonWidth"/> single,
     /// <see cref="SmallButtonWidth"/> for the one-glyph "+").</para>
     ///
@@ -41,9 +41,9 @@ namespace Parsek
         /// half.</summary>
         internal const float SmallButtonWidth = MissionsWindowUI.InteractPairButtonWidth;
 
-        /// <summary>Floor on each entry row's height: the recordings table's per-row stride,
-        /// the floor the Missions composition rows take too.</summary>
-        internal const float RowMinHeight = 22f;
+        /// <summary>Floor on each entry row's height: the Missions tab's expanded sub-row
+        /// (vessel / segment row) floor.</summary>
+        internal const float RowMinHeight = MissionsWindowUI.CompositionRowMinHeight;
 
         /// <summary>How far from the click point a click-opened picker's nearest edge
         /// sits, so the picker does not open under the cursor.</summary>
@@ -177,11 +177,14 @@ namespace Parsek
             GUILayout.EndVertical();
         }
 
-        /// <summary>Opens one entry row in the shared table row container at the house row
-        /// floor. Pair with <c>GUILayout.EndHorizontal()</c>.</summary>
-        internal static void BeginEntryRow(ParsekUI ui)
+        /// <summary>Opens one entry row the way the Missions tab opens its expanded vessel /
+        /// segment sub-rows: a style-less horizontal group at <see cref="RowMinHeight"/>, so
+        /// it adds none of the shared table row style's 4 px vertical margin and the rows
+        /// keep the Missions sub-rows' tighter spacing. Pair with
+        /// <c>GUILayout.EndHorizontal()</c>.</summary>
+        internal static void BeginEntryRow()
         {
-            GUILayout.BeginHorizontal(ui.GetTableRowStyle(), GUILayout.MinHeight(RowMinHeight));
+            GUILayout.BeginHorizontal(GUILayout.MinHeight(RowMinHeight));
         }
     }
 }

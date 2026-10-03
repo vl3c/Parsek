@@ -652,8 +652,10 @@ seam opens it. Pictures: see row 14 of 3.0.
 Missions, Logistics, Kerbals, Settings and Log windows open with), a heading in the
 shared table section-header style (`ParsekUI.GetTableSectionHeaderStyle`), then the entries
 inside the shared dark table body box (`GetTableBodyBoxStyle`, the Recordings tab's list-area
-box) around a scroll view on `GetTableScrollViewStyle`, one `GetTableRowStyle` row per entry
-with a 22 px floor (the recordings stride), group names in `GetTableCellStyle`, and buttons at
+box) around a scroll view on `GetTableScrollViewStyle`, one row per entry at the Missions
+tab's expanded sub-row spacing (a style-less `BeginHorizontal` at
+`MissionsWindowUI.CompositionRowMinHeight`, 22 px, with no table-row vertical margin), group
+names in `GetTableCellStyle`, and buttons at
 the Missions Interact widths (100 px single, 48 px for the one-glyph `+`, 4 px gap). Placement
 (`PickerWindowLayout.PlaceOnOpen`, pure): a click-opened picker opens to the right of the
 click with its top level with it, or to its left when the right side has no room; a picker

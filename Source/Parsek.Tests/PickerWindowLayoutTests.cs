@@ -260,9 +260,31 @@ namespace Parsek.Tests
             int endBox = end.IndexOf("GUILayout.EndVertical()", StringComparison.Ordinal);
             Assert.True(endScroll >= 0 && endBox > endScroll);
 
-            string row = MethodBody(src, "BeginEntryRow");
-            Assert.Contains("GUILayout.BeginHorizontal(ui.GetTableRowStyle()", row);
-            Assert.Contains("GUILayout.MinHeight(RowMinHeight)", row);
+        }
+
+        /// <summary>
+        /// Picker entry rows take the Missions tab's expanded sub-row spacing: the same
+        /// style-less <c>BeginHorizontal(GUILayout.MinHeight(...))</c> the vessel / segment
+        /// rows open with, at the same floor, and NOT the shared table row style (whose 4 px
+        /// vertical margin made the picker rows taller than the Missions sub-rows).
+        /// </summary>
+        [Fact]
+        public void EntryRowsUseTheMissionsExpandedSubRowSpacing()
+        {
+            Assert.Equal(MissionsWindowUI.CompositionRowMinHeight, PickerWindowLayout.RowMinHeight);
+            Assert.Equal(22f, PickerWindowLayout.RowMinHeight);
+
+            string row = MethodBody(Prepared("UI", "PickerWindowLayout.cs"), "BeginEntryRow");
+            Assert.Contains("GUILayout.BeginHorizontal(GUILayout.MinHeight(RowMinHeight))", row);
+            Assert.DoesNotContain("GetTableRowStyle", row);
+
+            // The Missions sub-rows still open that way, so the two cannot drift apart
+            // without this cell noticing.
+            string missions = Prepared("UI", "MissionsWindowUI.cs");
+            Assert.True(
+                Regex.Matches(missions,
+                    Regex.Escape("GUILayout.BeginHorizontal(GUILayout.MinHeight(CompositionRowMinHeight))")).Count >= 3,
+                "MissionsWindowUI no longer opens its expanded sub-rows as a style-less MinHeight row");
         }
 
         [Theory]
@@ -284,7 +306,7 @@ namespace Parsek.Tests
                 file + "." + method + ": heading, then the entry list, then its close (heading="
                 + heading + " list=" + list + " end=" + endList + ")");
             // Entries live inside the list, each in a shared row.
-            Assert.Contains("PickerWindowLayout.BeginEntryRow(parentUI)",
+            Assert.Contains("PickerWindowLayout.BeginEntryRow()",
                 file == "GroupPickerUI.cs"
                     ? body + MethodBody(Prepared("UI", file), "DrawGroupPopupNode")
                     : body.Substring(list, endList - list));
@@ -326,7 +348,7 @@ namespace Parsek.Tests
         public void GroupPickerEntryTextUsesTheSharedTableCellStyle()
         {
             string node = MethodBody(Prepared("UI", "GroupPickerUI.cs"), "DrawGroupPopupNode");
-            Assert.Contains("PickerWindowLayout.BeginEntryRow(parentUI)", node);
+            Assert.Contains("PickerWindowLayout.BeginEntryRow()", node);
             Assert.Contains("parentUI.GetTableCellStyle()", node);
         }
 

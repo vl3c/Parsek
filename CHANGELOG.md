@@ -2535,7 +2535,8 @@ _(unreleased — entries accumulate here per commit)_
 
 - **The group pickers and the round-trip link picker now look like the main windows.**
   Manage Groups, Set Parent Group and Link round-trip partner list their entries in the
-  same dark table box as the Recordings tab, one table row per entry, under a heading that
+  same dark table box as the Recordings tab, spaced like the Missions tab's expanded
+  vessel rows, under a heading a small gap below the title bar that
   says what the choice is for ("Groups for 'Kerbal X':", "Parent of 'Kerbal X #3':",
   "Link 'Route: KSC -> Duna' with:"). OK, Cancel and Link are the Missions window's
   100 px buttons. Each picker now opens next to the button that opened it (to its left

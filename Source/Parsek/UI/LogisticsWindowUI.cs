@@ -2166,7 +2166,7 @@ namespace Parsek
                 {
                     LogisticsLinkPresentation.LinkCandidate c = candidates[i];
                     bool selected = string.Equals(linkPickerSelectedId, c.Id, System.StringComparison.Ordinal);
-                    PickerWindowLayout.BeginEntryRow(parentUI);
+                    PickerWindowLayout.BeginEntryRow();
                     bool now = GUILayout.Toggle(selected, "  " + c.Name);
                     GUILayout.EndHorizontal();
                     if (now && !selected)

@@ -276,7 +276,7 @@ namespace Parsek
             // For group-in-group: add "(None / Root)" option
             if (isGroupPopup)
             {
-                PickerWindowLayout.BeginEntryRow(parentUI);
+                PickerWindowLayout.BeginEntryRow();
                 bool noneChecked = groupPopupChecked.Count == 0;
                 bool newNone = GUILayout.Toggle(noneChecked, "(None / Root level)");
                 if (newNone && !noneChecked)
@@ -355,7 +355,7 @@ namespace Parsek
             List<string> children;
             bool hasChildren = parentToChildren.TryGetValue(groupName, out children) && children.Count > 0;
 
-            PickerWindowLayout.BeginEntryRow(parentUI);
+            PickerWindowLayout.BeginEntryRow();
             if (depth > 0) GUILayout.Space(depth * 12f);
 
             bool isChecked = groupPopupChecked.Contains(groupName);
