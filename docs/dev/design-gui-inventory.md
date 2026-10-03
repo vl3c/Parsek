@@ -322,14 +322,11 @@ the code yet, and each is a one-grep check for whoever next touches the area.
 
 ## 3. The structure
 
-HOW TO READ THE PER-SECTION `Picture:` / `No picture:` LINES BELOW. They are the WAVE-1 reading
-(GUI-1 + GUI-2, 26 captures), written before wave 2 flew, so each names what had a picture on
-the morning of 2026-09-11. The window INDEX in 3.0 and the overlay table in 3.13 ARE updated to
-the wave-2 reading; the per-variant lists inside 3.1 to 3.12 are deliberately not re-walked,
-because the authority for what wave 2 photographed is section 2's tally plus section 6's per-row
-lane column, and copying 79 labels into ten prose lists would give the next author two places to
-disagree. Read a `No picture:` line below as "no picture in wave 1", then check section 6 for
-whether wave 2 took one.
+Each window section below says what the window draws at HEAD: sections, columns, buttons and
+their states, hovers, Basic vs Advanced, and empty states. Code is cited by type and method
+rather than by line. A `Pictures:` line names census captures that show the surface; what the
+census has and has not photographed is section 2's tally and section 6's per-row lane column,
+not these lines.
 
 ### 3.0 Window index
 
@@ -339,379 +336,375 @@ removed 2026-09-27, so 13 remain) - the order
 
 | # | title | class + host line | scenes | seam token | census labels |
 |---|---|---|---|---|---|
-| 1 | `Parsek` (main) | `ParsekUI.cs:743`; hosts `ParsekFlight.cs:2118`, `ParsekKSC.cs:245` | FLIGHT, SPACECENTER | `main` | `ksc-main-basic/advanced`, `flight-main-basic/advanced` |
-| 2 | `Parsek - Missions` | `UI/RecordingsTableUI.cs:651` | FLIGHT, SPACECENTER | `missions` (tabs `missions`, `recordings`) | 4 labels (3.2) |
-| 3 | `Parsek - Timeline` | `UI/TimelineWindowUI.cs:281` | FLIGHT, SPACECENTER | `timeline` (tabs `overview`, `details`, `rewindff`, `refly`, `contracts`, `strategies`, `facilities`, `milestones`, `tech`) | 5 labels (3.3) |
-| 4 | `Parsek - Kerbals` | `UI/KerbalsWindowUI.cs:205` | FLIGHT, SPACECENTER | `kerbals` (tabs `roster`, `outcomes`) | 2 labels |
-| 5 | ~~`Parsek - Career State`~~ REMOVED 2026-09-27 | - | - | - (the `career` token is gone) | historical only |
+| 1 | `Parsek` (main) | `ParsekUI.DrawWindow`; hosts `ParsekFlight.OnGUI`, `ParsekKSC.OnGUI` | FLIGHT, SPACECENTER | `main` | `ksc-main-basic/advanced`, `flight-main-basic/advanced` |
+| 2 | `Parsek - Missions` | `UI/RecordingsTableUI.cs` (chrome and the Recordings tab), `UI/MissionsWindowUI.cs` (the Missions tab) | FLIGHT, SPACECENTER | `missions` (tabs `missions`, `recordings`) | 3.2 |
+| 3 | `Parsek - Timeline` | `UI/TimelineWindowUI.cs` | FLIGHT, SPACECENTER | `timeline` (tabs `overview`, `details`, `rewindff`, `refly`, `contracts`, `strategies`, `facilities`, `milestones`, `tech`) | 3.3 |
+| 4 | `Parsek - Kerbals` | `UI/KerbalsWindowUI.cs` | FLIGHT, SPACECENTER | `kerbals` (tabs `roster`, `outcomes`) | 3.4 |
 | 6 | `Parsek - Logistics` | `UI/LogisticsWindowUI.cs:444` | FLIGHT, SPACECENTER | `logistics` | `ksc-logistics-advanced/basic` |
 | 7 | Logistics round-trip link picker (`Link round-trip partner`) | `UI/LogisticsWindowUI.cs:1762` | as its host | excluded `TestCommandUiAction.cs:374-377`; reached by `op=picker picker=link` | `ib-logistics-linkpicker-advanced` (GUI-3, 198 nodes, `windows=4`) |
 | 8 | `Parsek - Log: <mission or route>` (bare `Parsek - Log` untargeted; was `Parsek - Structure` until 2026-09-29) | `UI/StructureListWindowUI.cs` (`BuildWindowTitle`) | FLIGHT, SPACECENTER | `structure` (the seam token keeps the class's name; an alias of the Log) | `ksc-structure-advanced` (empty chrome) |
-| 9 | `Parsek - Settings` | `UI/SettingsWindowUI.cs:128` | FLIGHT, SPACECENTER | `settings` | `ksc-settings-advanced/basic` |
-| 10 | `Real Spawn Control` | `UI/SpawnControlUI.cs:162` | FLIGHT only | `spawncontrol` | `play-spawncontrol-advanced` (GUI-6, 69 nodes, one candidate row) |
-| 11 | `Gloops Flight Recorder` | `UI/GloopsRecorderUI.cs:94` | FLIGHT only | `gloops` | `flight-gloops-advanced` |
-| 12 | `Parsek - Test Runner` (Settings-launched) | `UI/TestRunnerUI.cs:133` | FLIGHT, SPACECENTER | `testrunner` | `ksc-testrunner-advanced` (4217 nodes) plus four GUI-12 labels, all `cek-` on `career-earned-ksc`: `-testrunner-idle-advanced` (4217 in this window's subtree, the same figure GUI-1 read), `-testrunner-collapsed-advanced` (473), `-testrunner-category-advanced` (479) and `-testrunner-results-advanced` (479, one real pass in the table). Four states, not one picture (3.11) |
-| 13 | `Parsek - Test Runner` (global Ctrl+Shift+T) | `InGameTests/TestRunnerShortcut.cs:291` | ANY scene | `testrunnerglobal` | three GUI-12 labels: `cek-testrunnerglobal-idle-advanced` (4214 in this window's subtree), `-collapsed-advanced` (470) and `-category-advanced` (476) - ITS FIRST PICTURES OF ANY KIND. The delta against row 12 is EXACTLY 3 nodes at every comparable state, and the dumps say which three: the `Search:` label, the text field and the 24 px `x` clear button this window does not draw (3.11) |
-| 14 | `Set Parent Group` / `Manage Groups` | `UI/GroupPickerUI.cs:224` | as its host | excluded `TestCommandUiAction.cs:369-373`; reached by `op=picker picker=manage|setparent` | both titles on GUI-3 (`ib-missions-grouppicker-manage/setparent-advanced`) and GUI-4 (`bd-missions-grouppicker-manage/setparent-advanced`) |
+| 9 | `Parsek - Settings` | `UI/SettingsWindowUI.cs` | FLIGHT, SPACECENTER | `settings` | `ksc-settings-advanced/basic` |
+| 10 | `Parsek - Real Spawn Control` | `UI/SpawnControlUI.cs` | FLIGHT only | `spawncontrol` | `play-spawncontrol-advanced` (GUI-6, one candidate row) |
+| 11 | `Gloops Flight Recorder` | `UI/GloopsRecorderUI.cs` | FLIGHT only | `gloops` | `flight-gloops-advanced` |
+| 12 | `Parsek - Test Runner` (Settings-launched) | `UI/TestRunnerUI.cs` | FLIGHT, SPACECENTER | `testrunner` | `ksc-testrunner-advanced`, and four GUI-12 states on `career-earned-ksc`: `cek-testrunner-idle-advanced`, `-collapsed-advanced`, `-category-advanced`, `-results-advanced` (3.11) |
+| 13 | `Parsek - Test Runner` (global Ctrl+Shift+T) | `InGameTests/TestRunnerShortcut.cs` | ANY scene but LOADING | `testrunnerglobal` | three GUI-12 states: `cek-testrunnerglobal-idle-advanced`, `-collapsed-advanced`, `-category-advanced` (3.11) |
+| 14 | `Set Parent Group` / `Manage Groups` | `UI/GroupPickerUI.cs` | as its host | excluded from the window table; reached by `op=picker picker=manage|setparent` | both titles on GUI-3 (`ib-missions-grouppicker-manage/setparent-advanced`) and GUI-4 (`bd-missions-grouppicker-manage/setparent-advanced`) |
 
 Two asymmetries in that table are mechanical facts, not presentation choices:
 
 - Window 13 is the ONLY one that calls raw `GUILayout.Window` instead of
-  `ClickThruBlocker.GUILayoutWindow` (`InGameTests/TestRunnerShortcut.cs:291`), so it is the
-  only Parsek window with no click-through protection; it compensates with its own
-  `windowRect.Contains(Event.current.mousePosition)` input lock at `:300`. It is also the only
-  row drawn OUTSIDE both scene hosts' `showUI` gate - its draw is in its own `OnGUI`
-  (`:264`) - which is why the seam exempts it, and only it besides `main`, from the
-  hidden-host settle refusal (`TestCommandUiAction.WindowDrawsOutsideHostShowUi`, `:857`).
-- The TRACKING STATION hosts no Parsek window at all. `ParsekTrackingStation.cs:350` has an
-  `OnGUI`, and its whole body is the pause gate plus `DrawAtmosphericMarkers()`; the source
-  says so in place at `:394-395`, and `UiAction` answers `REJECTED ui-host-unavailable` there.
+  `ClickThruBlocker.GUILayoutWindow`, so it is the only Parsek window with no click-through
+  protection; it compensates with its own `windowRect.Contains(Event.current.mousePosition)`
+  input lock. It is also the only row drawn OUTSIDE both scene hosts' `showUI` gate - its draw
+  is in its own `OnGUI` - which is why the seam exempts it, and only it besides `main`, from
+  the hidden-host settle refusal (`TestCommandUiAction.WindowDrawsOutsideHostShowUi`).
+- The TRACKING STATION hosts no Parsek window at all. `ParsekTrackingStation.OnGUI` is the
+  pause gate plus `DrawAtmosphericMarkers()`, and `UiAction` answers
+  `REJECTED ui-host-unavailable` there.
 
 House layout rules that hold across every window: the footer order is tooltip echo strip, then
 `Close` as the last content row, then the resize handle and `GUI.DragWindow()`; and window
 BODIES are never complexity-gated - only launchers, content draw sites and the mode-change
-close handler are (`UI/UiComplexityMode.cs:124-126`, rationale `ParsekUI.cs:296-300`).
+close handler are (`UiSurfaceVisibility`, 3.16).
 
 ### 3.1 Parsek (main window)
 
 Purpose: the mod's single entry point. Its body IS the launcher column; there is no row model.
 
-Hosts and gates: FLIGHT + MAPVIEW (`ParsekFlight.cs:2087`, gated `!PauseMenuGate.IsPauseMenuOpen()`
-then `showUI` then a non-null opaque style) and SPACECENTER (`ParsekKSC.cs:227`, same three gates
-in the opposite order). `showUI` is written only by the toolbar handlers
-(`ParsekFlight.cs:1352-1353`, `ParsekKSC.cs:155-156`) and the Close handler. No `UiSurface` key
-gates the window itself. The flight host draws 10 sub-windows (`:2132-2141`), the KSC host 8
-(`ParsekKSC.cs:254-261`) - Spawn Control and Gloops are flight-only.
+Hosts and gates: FLIGHT + MAPVIEW (`ParsekFlight.OnGUI`: `!PauseMenuGate.IsPauseMenuOpen()`,
+then `showUI`, then a non-null `ParsekUI.GetMainWindowStyle()`) and SPACECENTER
+(`ParsekKSC.OnGUI`: the same three gates, `showUI` first). `showUI` is written only by the
+stock toolbar button handlers and the window's `Close`. Both hosts draw the window at
+`GUILayout.Width(250)` and reset its height to 0 each frame, so it is always exactly as tall as
+its content; it has no resize handle. The title `Parsek` uses `GetMainWindowStyle()`, the
+shared opaque window style, bold and 2 px larger than every sub-window title. No `UiSurface`
+key gates the window itself. After it, the flight host draws nine sub-windows (Missions,
+Timeline, Kerbals, Logistics, Log, Settings, Real Spawn Control, Gloops, Test Runner) and the
+KSC host seven (the same minus Real Spawn Control and Gloops). The flight host also draws the
+ghost map markers and the in-world ghost labels outside the `showUI` gate (3.13).
 
-Contents, top-down (`ParsekUI.cs:745-986`): the launcher column, the supply-route banner when
-armed, the tooltip echo strip (`:977`), a version label and `Close` (`:979-986`). The flight
-and KSC forms now start the same way (a 10 px gap, then the first launcher); the only flight
-difference is the Real Spawn Control launcher on top. The title `Parsek` is drawn with
-`ParsekUI.GetMainWindowStyle()` - the shared opaque window style, bold and 2 px larger - so it
-stands out from every sub-window title (2026-09-22, owner review round 1).
+Contents, top-down (`ParsekUI.DrawWindow`): a 10 px gap, the launcher column, the Supply
+Route candidate banner between `Missions` and `Logistics` while one is pending, the two-line
+tooltip echo strip, then a footer row with the version label on the left and `Close` filling
+the rest.
 
-| launcher | tooltip | line | gate | action |
-|---|---|---|---|---|
-| `Real Spawn Control ({N})` | `Turn a recorded craft passing nearby into a real vessel.` | `:775` | `InFlight && IsVisible(MainButtonSpawnControl)` `:770` | toggles `spawnControlUI.IsOpen` `:784`; greyed when `NearbySpawnCandidates.Count == 0`, reason `No recorded craft is passing nearby` (`:142`) carried by `DisabledHoverEcho` `:780` |
-| `Timeline` | `Every recorded flight and career event on one clock.` | `:794` | none | `timelineUI.IsOpen` `:798` |
-| `Missions` | `Your missions, and the recordings they are built from.` | `:806` | none | `ToggleRecordingsWindow()` `:809` |
-| `Logistics` | `Supply routes that repeat a delivery you already flew.` | `:885` | none | `logisticsUI.IsOpen` `:889`; tinted red when `LogisticsButtonState.AnyRouteHardBroken` (`UI/LogisticsButtonState.cs:27`), else cyan while a route prompt pends (`:874-884`, broken outranks hint) |
-| `Kerbals` | `Who is reserved, flying or retired on timeline.` | `:914` | `IsVisible(MainButtonKerbals)` `:904` | `kerbalsUI.IsOpen` `:918` |
-| `Gloops Flight Recorder` | `Record a ghost-only flight that your career ignores.` | `:943` | `IsVisible(MainButtonGloops)` `:941` - **never true** (`UI/UiComplexityMode.cs:140-143`, short-circuit `:162`) | would flip `gloopsUI.IsOpen` `:947` |
-| `Settings` | `Recording, looping, ghost and diagnostic options.` | `:955` | none | `ToggleSettingsWindow()` `:958` |
+| launcher | hover | gate | action |
+|---|---|---|---|
+| `Real Spawn Control ({N})` | `Turn a recorded craft passing nearby into a real vessel.` | `InFlight && IsVisible(MainButtonSpawnControl)` | toggles the Real Spawn Control window; greyed when `NearbySpawnCandidates.Count == 0`, reason `No recorded craft is passing nearby` carried by `DisabledHoverEcho`; followed by its own gap |
+| `Timeline` | `Every recorded flight and career event on one clock.` | `IsVisible(MainButtonTimeline)` | toggles the Timeline |
+| `Missions` | `Your missions, and the recordings they are built from.` | `IsVisible(MainButtonRecordings)` | `ToggleRecordingsWindow()` |
+| `Logistics` | `Supply routes that repeat a delivery you already flew.` | `IsVisible(MainButtonLogistics)` | toggles the Logistics window; tinted red when `LogisticsButtonState.AnyRouteHardBroken`, else cyan while a Supply Route candidate banner is pending (broken outranks the hint) |
+| `Kerbals` | `Who is reserved, flying or retired on timeline.` | `IsVisible(MainButtonKerbals)` | toggles the Kerbals window; a gap opens the group only when the button draws |
+| `Gloops Flight Recorder` | `Record a ghost-only flight that your career ignores.` | `InFlight && IsVisible(MainButtonGloops)` - **never true**: the key is retired in both modes (3.10, 3.16) | would toggle the Gloops window |
+| `Settings` | `Interface, ghosts and data - plus more in Advanced.` | `IsVisible(MainButtonSettings)` | `ToggleSettingsWindow()` |
 
-Basic vs Advanced: Basic drops Real Spawn Control (the `Career` launcher it also dropped was
-removed with its window on 2026-09-27, so Advanced KSC is now 5 buttons and Advanced FLIGHT 6);
-the `Space(10f)` that opens the Kerbals group is gated on the group being non-empty so a hidden
-Kerbals launcher never leaves two gaps. Census-verified sets (2026-09-11): KSC Basic 4 buttons, KSC Advanced 6, FLIGHT Basic 4,
-FLIGHT Advanced 7. **Since the 2026-09-22 owner re-ruling the Kerbals launcher draws in Basic
-too** (`design-gui-kerbals-window.md` ruling 1), so Basic is 5 buttons in both scenes from
-that build on.
+The Supply Route candidate banner (`RouteRunPrompt.HasPendingPrompt`): a boxed label
+`Supply Route candidate:` over the candidate's name, then `Open Logistics` (opens the
+Logistics window and clears the prompt) and `Dismiss` (hover `Drops the suggestion; undo it in
+Logistics > Dismissed.`; dismisses the candidate). A prompt dismissed elsewhere is cleared on
+a Layout pass only, so Layout and Repaint draw the same controls.
 
-The flight status block (`DrawFlightStatus`: `State:` / `Recorded Points:` / `Duration:` /
-`Active Ghosts:`) was REMOVED on 2026-09-22 at the owner's review: Parsek records everything,
-so a recorder-state readout has nothing left to tell the player. Its pictures in GUI-2 / GUI-6
-/ GUI-7 runs before that date are history, not the current window.
+Basic vs Advanced: every launcher reads the frame-latched mode through its `UiSurface` key.
+Basic drops `Real Spawn Control`, so both modes draw five buttons at the Space Center
+(`Timeline`, `Missions`, `Logistics`, `Kerbals`, `Settings`), and in flight Advanced draws six
+and Basic five. Each separator lives inside the block it separates, so a hidden button never
+leaves a double gap.
 
-State variants without a picture: the RouteRunPrompt banner (`:817-855`, `Open Logistics` /
-`Dismiss`), either Logistics tint, an enabled Real Spawn Control, and a populated tooltip
-strip.
+Pictures: `ksc-main-basic` / `ksc-main-advanced` (GUI-1, `2026-10-01_1221`),
+`bd-main-basic` / `bd-main-advanced` (GUI-4). No picture: the Supply Route candidate banner,
+either Logistics tint, an enabled `Real Spawn Control`, a populated tooltip strip.
 
 ### 3.2 Parsek - Missions (chrome, Missions tab, Recordings tab)
 
 Purpose: two views of the same recorded data - missions as whole units, and the raw
-per-recording table. Chrome and the Recordings tab live in `UI/RecordingsTableUI.cs`; the
-Missions tab body in `UI/MissionsWindowUI.cs`.
+per-recording table. The chrome and the Recordings tab live in `UI/RecordingsTableUI.cs`; the
+Missions tab body in `UI/MissionsWindowUI.cs`, drawn inside this window.
 
-Chrome (`UI/RecordingsTableUI.cs:615-655`): title `Parsek - Missions`, a two-entry
-`GUILayout.Toolbar` (`:1551`) drawn only when `VisibleTabCount(complexity) > 0` (`:1549`),
-tab content, then the per-tab bottom bar. Default tab `TabMissions`, transient. Input lock
-`Parsek_RecordingsWindow` on CAMERACONTROLS while the mouse is inside (`:673-684`).
+Chrome: title `Parsek - Missions`; a two-entry `GUILayout.Toolbar` (`Missions` hover `Your
+flights grouped as whole missions - the higher-level view.`, `Recordings` hover `The raw table
+of every recorded vessel, one row each.`) drawn only when `VisibleTabCount(complexity) > 0`;
+the tab content; then the tab's bottom bar. The default tab is `Missions` (`TabMissions = 0`),
+transient, never persisted. Input lock `Parsek_RecordingsWindow` on CAMERACONTROLS while the
+mouse is inside. Minimum and first-open width 1355 (`DefaultWindowWidth`); on a narrower screen
+the window is capped to the screen and the pinned header scrolls sideways with the rows
+(`WideWindowScroll`, section 7). Bottom bar: the single-line tooltip echo strip, then
+`New Group` (Recordings tab only; hover `Create an empty folder and name it. Put recordings in
+it with the G button on each row.`) and `Close`, the resize handle and drag.
 
-Basic/Advanced: the single `IsVisible` call in these files is `:189` inside `VisibleTabCount`,
-which returns 2 in Advanced and **0** in Basic - deliberately zero, not one, because a
-one-entry toolbar is noise and the title already carries the identity (`:174-186`). Three
-consumers: `ClampTabIndexForMode` (`:202`), the tab-bar draw guard (`:1549`), and a content
-dispatch pin (`:1562`). So Basic hides the Recordings tab button and with it the whole table,
-the New Group footer button (the Info button was removed 2026-09-26), and every route to the group picker - which is why
-`CloseGroupPickerForModeChange` (`:231`) exists.
+Basic/Advanced: the only `IsVisible` call in `RecordingsTableUI.cs` is inside
+`VisibleTabCount`, which returns 2 in Advanced and **0** in Basic - zero, not one, because a
+one-entry toolbar is noise and the title already carries the identity. Its consumers are
+`ClampTabIndexForMode`, the tab-bar draw guard and the content dispatch, which is PINNED to
+the Missions tab when no toolbar draws. So Basic hides the tab bar, the whole Recordings table,
+`New Group` and every route to the group picker, which is why
+`CloseGroupPickerForModeChange` exists. The Missions tab reads `MissionsLoopControls` (below).
 
 **Missions tab.** Row model: one row per physical vessel or EVA kerbal, built by
-`MissionVesselRowBuilder.Build` (`MissionVesselRows.cs:59`); depth is SEPARATION LINEAGE only,
-never time (`:118-123`); roster atoms are not rows (`:99-101`). Vessel names (2026-10-01) come
-from `MissionVesselNaming`, shared with the Log: another mission's vessel reads
-`X (mission 'Y')`, and two genuinely different own vessels with one name are numbered
-`Kerbal X [2]` in the row, in every phrase piece that names it and in the expanded
-`after undock: X left` line (a ship KSP re-pidded at an undock is the same vessel and keeps
-its name).
+`MissionVesselRowBuilder.Build` (`MissionVesselRows.cs`); depth is SEPARATION LINEAGE only,
+never time; roster atoms are not rows. Vessel names come from `MissionVesselNaming`, shared
+with the Log: another mission's vessel reads `X (mission 'Y')`, and two genuinely different
+own vessels with one name are numbered `Kerbal X [2]` in the row, in every phrase piece that
+names it and in the expanded `after undock: X left` line (a ship KSP re-pidded at an undock is
+the same vessel and keeps its name). Empty state: `No missions recorded yet.`
+
+The header row sits outside the scroll view and every header cell is 32 px tall
+(`ColHeaderHeight`). Each mission is a two-line BAR whose lines lay out the same columns as
+every row under them (`DrawMissionValueRow` / `DrawMissionActionLine`), so each heading
+describes the first row under it:
 
 | # | header | width const | mission bar line 1 | mission bar line 2 | vessel / interval / partner / chapter rows |
 |---|---|---|---|---|---|
 | 1 | (blank enable slot) | `ColW_Enable` 20 | blank | blank | blank |
 | 2 | `#` (sortable) | `ColW_Index` 30 | per-TREE index | blank | include checkbox (Advanced) or blank |
-| 3 | `Missions and vessels` (sortable) | expand | bold title (double-click renames), then (Advanced) `Clone` and `Warp to...` and `Log`, right-aligned (`DrawMissionNameCell`) | the summary, then (Advanced) `Delete` and the loop cell, right-aligned (`DrawMissionSummaryNameCell`) | connector + caret + name + `EventPhrase` |
+| 3 | `Missions and vessels` (sortable) | expand | bold title (double-click renames), then right-aligned (Advanced) `Clone` and `Warp to...`, then `Log` (`DrawMissionNameCell`) | the summary, then (Advanced) `Delete` and the loop row, right-aligned (`DrawMissionSummaryNameCell`) | connector + caret + name + `EventPhrase` |
 | 4 | `Start time` (sortable) | `ColW_StartTime` 120 | the mission span's start date | blank | `PrintDateCompact` |
-| 5 | `Start event` | `ColW_StartEvent` 110 | the first vessel row's start event (`MissionPresentation.MissionStartEventText`) | blank | event word; a resolvable dock partner (`Docked with <partner>`) rides the cell's hover, never the cell |
+| 5 | `Start event` | `ColW_StartEvent` 110 | the first vessel row's start event (`MissionPresentation.MissionStartEventText`) | blank | event word |
 | 6 | `End event` | `ColW_EndEvent` 85 | the primary vessel's outcome | blank | terminal word |
 | 7 | `End time` | `ColW_EndTime` 120 | the mission span's end date | blank | date |
-| 8 | `Interact` (plain label) | `ColW_Interact` 116 | `Watch` (+ `Rewind` / `Forward` as a pair) | `Collapse` / `Expand` toggle button | Fly / Stash + Seal (vessel, interval rows), `Go to` (Docked partner rows), blank (chapter rows) |
+| 8 | `Interact` (centred plain label) | `ColW_Interact` 116 | `Watch` / `W*`, paired with `Rewind` or `Forward` when one applies | `Collapse` / `Expand` | `Stash` + `Seal` or `Fly` + `Seal` (vessel and interval rows), `Go to` (Docked partner rows), blank (chapter rows) |
 
-Missions Model 1 (2026-09-29, Interact column and Collapse 2026-09-30 from the owner's mock-up)
-made the mission bar TWO TABLE ROWS: both lines lay out the same columns as every row under
-them (`DrawMissionValueRow` / `DrawMissionActionLine`), so every heading describes the first
-row under it. `MissionsTabColumnSequenceTests` pins the column sequence of the header against
-both bar lines, the vessel row, the interval row, the chapter header row and both Docked
-partner row kinds, in both modes. The Re-Fly and Archive columns merged into the ONE right-hand
-`Interact` column, which carries every per-row action. Its buttons share one width system:
-`InteractButtonWidth` 100 for a single (Watch alone, Collapse / Expand, Go to, and Log in the
-name cell), `InteractPairButtonWidth` 48 for each half of a pair (Fly / Stash + Seal, Watch +
-Rewind), `InteractButtonGap` 4, pinned `2 * pair + gap == single`; the column is the single
-plus an 8 px inset each side. The Advanced loop controls form a fixed 2x2 grid inside the name cell,
-right-aligned (owner mock-up 2026-09-30): column A (`LoopGridColumnAWidth` 70) holds Clone over
-Delete, column B (`LoopGridColumnBWidth` 92) holds `Warp to...` at its full width, so no gap
-opens before Log; since 2026-10-01 it is drawn in every Advanced state, greyed with its reason
-when it cannot act. Line 2's loop row (`LoopCellWidth` 192 = column B + the Log slot, its own
-`loopCellRowStyle` carrying the buttons' top margin so its 22 px line sits on Delete's) reads
-`Loop [x] every [10] [sec]`: under Warp, `Loop` (28) + the checkbox slot (22) + `every` (42) fill
-column B, so `Loop` starts at Warp's left edge; under Log, the value field (56) + 4 + the unit
-button (40) fill the Log slot, so the period ends at Log's right edge, and a value-only locked
-period (`Loop [x] every ~13d-19d`) is one label of that slot. Every control is fixed-width, has
-zero horizontal margin and is centred on the line (the checkbox, field and unit button each in a
-22 px centring slot), so nothing moves between looping off / on, Auto / manual or locked. A
-route-bound tree draws `Looped by route` across the WHOLE row instead (a route clears the manual
-loop when it binds, so the toggle and period could only draw greyed and inert; the hover names
-the route). `MissionsTabColumnSequenceTests.TheLoopGridColumnsAreFixedAndLineUpAcrossBothLines`
-pins those edges and the zero margins. The locked period cell shows the value only (`~13d-19d`, `~6h`); the
-qualifier (`Mun window, varies`, `Kerbin rot`) and the locked-state sentence ride its hover
-(`MissionPresentation.BuildLockedPeriodTooltip`). Iteration 4 (2026-09-30) shrank the grid from
-A 70 / B 164 / cell 264 to A 70 / B 92 / cell 192 on those two changes, 72 px handed to the
-summary; `MissionsTabColumnSequenceTests` pins the widths. The summary line no longer carries
-`Loops ~P`: the period cell beside it shows the period. Basic draws no grid: the summary takes the whole
-name cell and `Looped by route` sits right-aligned after it. (The owner asked for single = old Watch 70 + 10 and pairs wider
-than today's; at 80 a pair half is 38, exactly today's cramped Stash, so the single is 100.)
-The Re-Fly pair is the Recordings tab's own cell drawn at that geometry
-(`RecordingsTableUI.DrawReFlyColumnCell(rec, ri, now, cellWidth, leftInset)`). The `Next
-launch` column (`ColW_TMinus` 105) is GONE: the countdown lives in the summary line, amber, and
-the warning its amber tint carried (station drift, arrival refusal, a launch outside its
-alignment tolerance) rides the summary's tooltip with the two state words' explanations. A
-WARNED countdown ends in `(!)` inside the same amber segment
-(`MissionPresentation.SummaryCountdownWarningMarker`, `Next launch T- 5h 47m (!)`), so it reads
-differently from a plain one before the hover; the window has no warning colour of its own to
-reuse, so the marker is text, not a second tint. The marker's appearance and clearing are logged
-once per transition (`next-launch countdown warned=`). The summary is the title's font size,
-muted colour, and wraps rather than clipping.
+`MissionsTabColumnSequenceTests` pins the column sequence of the header against both bar
+lines, the vessel row, the interval row, the chapter header row and both Docked partner row
+kinds, in both modes: no column is mode-gated.
+
+The Interact column carries every per-row action, on one width system:
+`InteractButtonWidth` 100 for a single button (Watch alone, `Collapse` / `Expand`, `Go to`, and
+`Log` in the name cell), `InteractPairButtonWidth` 48 for each half of a pair (`Fly` /
+`Stash` + `Seal`, `Watch` + `Rewind`), `InteractButtonGap` 4, so `2 * pair + gap == single`;
+the column is the single plus an 8 px inset each side (`InteractCellInset`). The Re-Fly pair
+is the Recordings tab's own cell drawn at that geometry
+(`RecordingsTableUI.DrawReFlyColumnCell`).
+
+The Advanced loop controls form a fixed 2x2 grid in the name cell, right-aligned beside `Log`:
+column A (`LoopGridColumnAWidth` 70) holds `Clone` over `Delete`; column B
+(`LoopGridColumnBWidth` 92) holds `Warp to...` on line 1 and, on line 2, `Loop` (28) + the
+checkbox slot (22) + `every` (42), so `Loop` starts at Warp's left edge; under `Log` the value
+field (56) + 4 + the unit button (40) fill the 100 px Log slot, so the period ends at Log's
+right edge (`LoopCellWidth` 192 = column B + the Log slot). The line reads
+`Loop [x] every [10] [sec]`. A locked period (phase-locked or re-aim) is one value-only label
+in the Log slot (`Loop [x] every ~13d-19d`); its qualifier (`Mun window, varies`,
+`Kerbin rot`) and the locked-state sentence ride its hover
+(`MissionPresentation.BuildLockedPeriodTooltip`). Every control is fixed-width, has zero
+horizontal margin and is centred on its 22 px line (the checkbox, field and unit button each in
+a 22 px centring slot), so nothing moves between looping off and on, Auto and manual, or
+locked. `Warp to...` draws in every Advanced state and is greyed with its reason when it
+cannot act. A route-bound tree draws `Looped by route` across the whole loop row instead of
+the toggle and period (the route owns the repeats; the hover names the route).
+`MissionsTabColumnSequenceTests.TheLoopGridColumnsAreFixedAndLineUpAcrossBothLines` pins those
+edges and the zero margins. Basic draws no grid: the summary takes the whole name cell, `Log`
+sits right-aligned on line 1, and `Looped by route` sits right-aligned after the summary.
+
+The summary line (line 2) is the title's font size in a muted colour
+(`MissionSummaryTextColor`) and wraps rather than clipping: body, duration, crew and outcome,
+joined by middle dots (`MissionPresentation.SummarySeparator`). In Advanced a looping mission's summary also
+carries the amber `Next launch T- <countdown>`; a WARNED countdown (station drift, an arrival
+refusal, a launch outside its alignment tolerance) ends in `(!)` inside the same amber segment
+(`MissionPresentation.SummaryCountdownWarningMarker`), and the warning's explanation rides the
+summary's hover with the two state words' explanations. The marker's appearance and clearing
+are logged once per transition (`next-launch countdown warned=`).
 
 **Event cells never clip silently.** Every Start event / End event cell, and the mission bar's
-four value cells, draws through `DrawEventCell`: the cell shows the event word, and its hover
+value cells, draws through `DrawEventCell`: the cell shows the event word, and its hover
 (`MissionPresentation.BuildEventCellTooltip`) is the fuller phrase when one exists - the
 same-tree dock partner (`Docked with Depot Station Duna I`) or the dock-graph partner with its
-mission - else the word itself when it measures wider than the cell, else nothing. Until
-2026-10-01 the dock partner was printed in the 110 px cell and clipped mid-name (`Docked with
-Depo...`). All event words are single short words (`Launch`, `Decoupled`, `Undocked`, `Docked`,
-`Boarded`, `EVA`, `Broke off`, `Broke up`, `Placed`, `Switch`, and the terminal words up to
-`Disassembled`), so in practice only the dock phrase needed the hover.
+mission - else the word itself when it measures wider than the cell, else nothing. The event
+words are single short words (`Launch`, `Decoupled`, `Undocked`, `Docked`, `Boarded`, `EVA`,
+`Broke off`, `Broke up`, `Placed`, `Switch`, and the terminal words up to `Disassembled`).
 
-**Collapse replaces Archive.** `Mission.Collapsed` (saved as `collapsed`; an older save's
-per-mission `archived` loads as collapsed) hides a mission's vessel, interval, chapter and
-partner rows; the whole two-line bar stays. The draw loop reads the flag once before the bar
-draws, so a click lands next frame. The list's "hide archived missions" filter
-(`MissionStore.HideArchived`, saved `missionHideArchived`, purged on save) and its header
-checkbox are REMOVED; the header reads a plain `Interact`. The Timeline GoTo cross-link, which
-cleared that filter, now QUEUES expanding a collapsed target and applies it on a Layout pass.
-Seam: `op=state key=archivedMissions` is gone; `op=expand window=missions key=mission:<id>`
-drives Collapse / Expand (expanded = not collapsed). It is a NAMED-KEYS-ONLY set: `key=all` /
-`key=none` skip it and its counts, so the tab's "collapsed" / "expanded" census pictures keep
-every mission's rows.
+**Collapse / Expand.** `Mission.Collapsed` (saved as `collapsed`; a save's older per-mission
+`archived` key loads into it) hides a mission's vessel, interval, chapter and partner rows;
+the two-line bar stays. The button reads `Collapse` while the rows show and `Expand` (pressed)
+while they are hidden. The draw loop reads the flag once before the bar draws, so a click
+lands next frame. The Timeline GoTo cross-link QUEUES expanding a collapsed target and applies
+it on a Layout pass. Seam: `op=expand window=missions key=mission:<id>` drives it (expanded =
+not collapsed); it is a NAMED-KEYS-ONLY set, so `key=all` / `key=none` skip it and its counts.
 The Recordings tab's per-recording Archive (`rec.Hidden`) and the Timeline's `Archived` filter
-are a different mechanism and are unchanged.
+are a different mechanism.
 
 Mission bar controls, with their gates:
 
 | control | where | backend | disabled / hidden |
 |---|---|---|---|
-| title double-click | line 1 name cell | `CommitMissionRename` -> `MissionGroupLink.RenameMissionGroup` (`MissionGroupLink.cs:57`) for an original, `MissionStore.RenameMission` for a clone | a group-name collision refuses the whole rename, Warn-only |
+| title double-click | line 1 name cell | `CommitMissionRename` -> `MissionGroupLink.RenameMissionGroup` for an original, `MissionStore.RenameMission` for a clone | a group-name collision refuses the whole rename, Warn-only |
 | `Log` | line 1 name cell, right-aligned (right of the Advanced loop grid) | `ParsekUI.OpenStructureWindowForMission` | never |
-| `Watch` / `W*` | line 1 Interact | `flight.EnterWatchMode` / `ExitWatchMode` | two reasons (`MissionWatchDisabledReason`). Not Basic-gated |
-| `Rewind` / `Forward` | line 1 Interact, paired with Watch when shown | `RecordingsTableUI.DrawMissionRewindForwardButton` over the mission root recording | greys on `CanRewind` / `CanFastForward` with the store's reason; not drawn when neither applies (Watch then takes the full width). Not drawn at all when the mission's root recording owns no launch save (`RecordingStore.GetRewindRecording` null): the same rule as the Recordings tab's blank Rewind cell, in every scene. The committed harness fixtures carry no launch save by policy (`CommittedFixtureRewindSaveTests`), so GUI-4 / GUI-17 / GUI-18 (`bdock-recorded`, `mun-orbit-recorded`, `duna-direct-recorded`) draw Watch alone, while GUI-1's operator career (`c1-gui`, 18 `rewindSave` hints) draws Watch + Rewind; checked 2026-10-01, not a flight gate. No hover words: a blank Rewind cell is what the Recordings tab already shows for the same state |
-| `Collapse` / `Expand` | line 2 Interact | writes `Mission.Collapsed` | never |
-| `Clone` | loop grid column A, line 1, Advanced | `MissionStore.Clone` | HIDDEN in Basic |
-| `Delete` | loop grid column A, line 2, Advanced | `MissionStore.Delete` | greyed by `CanDelete` (`A flight always keeps its first mission`). HIDDEN in Basic since Missions Model 1 |
-| `Warp to...` | loop grid column B, line 1, Advanced | confirm dialog then a forward jump | drawn in every Advanced state (2026-10-01), HIDDEN in Basic; four ordered reasons (`MissionWarpToDisabledReason`: scene, loop - `Turn Loop on to warp to the next launch`, or the route wording on a route-bound tree - schedule, launch ahead) |
-| `Loop` + toggle + `every` | loop row column B (under Warp), line 2, Advanced; centred on one 22 px line | `CommitMissionLoopToggle` -> `MissionStore.SetLoopEnabled` | HIDDEN in Basic; not drawn on a route-bound tree (the route label fills the row) |
+| `Watch` / `W*` | line 1 Interact | `flight.EnterWatchMode` / `ExitWatchMode` | greyed with one of two reasons (`MissionWatchDisabledReason`: `Watching only works while you are flying`, `Nothing from this mission is flying right now`). Both modes |
+| `Rewind` / `Forward` | line 1 Interact, paired with Watch | `RecordingsTableUI.DrawMissionRewindForwardButton` over the mission root recording | greyed on `CanRewind` / `CanFastForward` with the store's reason; not drawn when neither applies (Watch then takes the full width), and not drawn at all when the mission's root recording owns no launch save (`RecordingStore.GetRewindRecording` null), the same rule as the Recordings tab's blank Rewind cell. Both modes |
+| `Collapse` / `Expand` | line 2 Interact | writes `Mission.Collapsed` | never. Both modes |
+| `Clone` | loop grid column A, line 1 | `MissionStore.Clone` | HIDDEN in Basic |
+| `Delete` | loop grid column A, line 2 | `MissionStore.Delete` | greyed by `CanDelete` (`A flight always keeps its first mission`); HIDDEN in Basic |
+| `Warp to...` | loop grid column B, line 1 | confirm dialog, then an in-place forward jump to 15 s before the next relaunch | HIDDEN in Basic; in Advanced always drawn, greyed with the first failing reason in order (`MissionWarpToDisabledReason`): `Warping works in flight or at the Space Center`; `Turn Loop on to warp to the next launch` (on a route-bound tree `A supply route repeats this mission, not Loop`); `This mission does not repeat on a schedule yet`; `The next launch is not ahead of you` |
+| `Loop` + toggle + `every` | loop row column B, line 2 | `CommitMissionLoopToggle` -> `MissionStore.SetLoopEnabled` | HIDDEN in Basic; not drawn on a route-bound tree |
 | `Looped by route` | line 2: across the whole loop row (Advanced) or right-aligned after the summary (Basic) | label (route name in the hover) | only on a route-bound tree |
-| loop-period cell | loop row's Log slot (under Log), line 2, Advanced | `CommitMissionLoopPeriod`, four states (locked / auto / manual / editing) | HIDDEN in Basic; not drawn on a route-bound tree; an open edit is DROPPED uncommitted on a Basic switch |
+| loop-period cell | loop row, Log slot, line 2 | `CommitMissionLoopPeriod`, four states (locked / auto / manual / editing) | HIDDEN in Basic; not drawn on a route-bound tree; an open edit is DROPPED uncommitted on a Basic switch |
 
-The rest of the tab: expanded per-vessel interval rows (Advanced only), chapter group header
-rows (their tri-state toggle, the `[~]` marker and the dimming are Advanced-only: the P21 fix
-gated the toggle, and Missions Model 1 gated the styling), `Docked partner:` rows plus the
-foreign partner-journey staircase (Basic draws the row plain and never the journey). Every
-Docked partner row carries a `Go to` in the Interact column that opens the partner's mission
-(`DrawInteractGoTo` -> `ShowMissionForRecording`), and a dock THIS mission recorded with
-another mission's vessel draws a Docked partner row of its own (`DrawRecordedDockPartnerRow`,
-no include toggle). The `Events (N)` digest foldout is REMOVED: its only unique content, the
-other-mission partner naming and its `Go to`, is on those rows; `MissionEventDigest` survives
-only as their source. Vessel and interval rows' single-line data cells no longer clip
-descenders (`compositionCellLabel.clipping = Overflow`: its 5 px bottom padding, kept for the
-wrapped name cell, left a 17 px content rect in a 22 px row).
+The rows under the bar: one row per vessel with a caret (Advanced) that opens its per-vessel
+interval rows (`Kerbal X (pod x1, probe x1, crew x3)`, `after decouple: Kerbal X Probe left -
+...`; Advanced only), chapter group header rows (their tri-state toggle, the `[~]` marker and
+the dimming are Advanced-only), and `Docked partner:` rows naming the partner vessel and its
+mission (`Docked partner: Kerbal X (mission 'Kerbal X #2') (loiter, 2h 25m - not recorded)`),
+plus the foreign partner-journey rows an include pulls in (Advanced only). Every Docked
+partner row carries `Go to` in the Interact column, which opens the partner's mission
+(`DrawInteractGoTo` -> `ShowMissionForRecording`); a dock THIS mission recorded with another
+mission's vessel draws a Docked partner row of its own (`DrawRecordedDockPartnerRow`, no
+include toggle). `MissionEventDigest` is the source of the partner naming and the `Go to`
+target. Vessel and interval rows' single-line data cells use
+`compositionCellLabel.clipping = Overflow`, so descenders are not clipped in a 22 px row.
 
-Missions Model 1 made every loop surface Advanced-only: Clone, Delete, `Warp to...`, the
-summary line's `Next launch T- ...` piece (its `Loops ~P` piece is gone since iteration 4),
-and the loop-selection styling
-(dimmed excluded vessels, the `(partial)` suffix). Basic keeps Log, Watch, Rewind / Forward,
-Collapse, Fly / Seal, Go to, the chapter headers, the Docked partner rows and the `Looped by
-route` label.
+What `MissionsLoopControls` hides in Basic: the include checkboxes, the loop grid (`Clone`,
+`Delete`, `Warp to...`, `Loop`, the period cell), the summary's `Next launch T- ...` piece, the
+per-vessel interval rows, the vessel caret, the foreign partner-journey rows and the
+loop-selection styling (dimmed excluded vessels, the `(partial)` suffix, the chapter header's
+toggle, dimming and `[~]` marker). Basic keeps the title and rename, the summary, `Log`,
+`Watch`, `Rewind` / `Forward`, `Collapse` / `Expand`, `Fly` / `Stash` / `Seal`, `Go to`, the
+chapter headers, the Docked partner rows and the `Looped by route` label.
 
-Pictures: `ksc-missions-missions-advanced` (922 nodes, 18 missions, every Loop off, every
-period `10` / `sec`), `ksc-missions-basic` (813 - no tab bar, no Clone, no Loop, no period, no
-row checkboxes), `flight-missions-missions-advanced` (922, structurally identical), and since
-the 2026-09-22 fold re-fly `ksc-missions-missions-collapsed-advanced` (922 - MEASURED identical
-to the restored picture, i.e. this window opens fully collapsed),
-`ksc-missions-missions-expanded-advanced` (1769, every vessel row, interval and digest open at
-once) and `ksc-missions-missions-events-advanced` (999 - ONE mission's `Events (N)` digest open
-with everything else shut; that label is RETIRED with the foldout, GUI-1 no longer takes it). No picture:
-loop ON with a phase-locked read-only period, `Looped by route`, `Forward` instead of `Rewind`,
-`W*`, inline rename, `(partial)` / dimmed rows, `Docked with <partner>` in the Start event
-cell's hover, Fly/Seal, chapter headers, partner rows.
+Pictures: `ksc-missions-missions-advanced`, `ksc-missions-basic`,
+`ksc-missions-missions-collapsed-advanced` and `ksc-missions-missions-expanded-advanced`
+(GUI-1, `2026-10-01_1221`, the `c1-gui` career); `bd-missions-missions-collapsed-advanced`,
+`bd-missions-missions-expanded-advanced` and `bd-missions-basic` (GUI-4, `2026-10-01_2044`,
+`bdock-recorded`: two missions, Docked partner rows, `Fly` / `Stash` / `Seal`, greyed `Watch`
+and `Warp to...`). No picture: loop ON with a locked period, `Looped by route`, `Forward`,
+`W*`, an inline rename, `(partial)` / dimmed rows, a warned countdown.
 
-**Recordings tab.** A fixed 21-cell header (`:1196`) outside the scroll view, then a body of
-four row kinds. Columns, left to right, with the shared header/body width constants: merged
-[toggle + `#`] 58 (`ColW_Enable` 20 + `ColW_Index` 30 + 8), `Name` expand, `Phase` 120,
-`Site` 80, `Launch` 110, `Duration` 70, `Status` 120, `Group` 60, `Loop` 60,
-`Period` 90, `Watch` 50 (flight only, `:1346`), `Rewind` 60, `Re-Fly` 90, `Archive` 80. Since
-2026-09-26 the table is on the house table styles: the pinned header row opens with
-`GetTableHeaderRowStyle()` (the scrollbar gutter is its right padding; it was a trailing
-spacer), the four row kinds with `GetTableRowStyle()`, the list area with
+**Recordings tab.** A pinned header row outside the scroll view (`DrawRecordingsTableHeader`),
+then a body of four row kinds. Columns, left to right, with the shared header / body width
+constants: merged [toggle + `#`] 58 (`ColW_Enable` 20 + `ColW_Index` 30 + 8), `Name` expand,
+`Phase` 120, `Site` 80, `Launch` 110, `Duration` 70, `Status` 120, `Group` 60, `Loop` 60,
+`Period` 90, `Watch` 50 (flight only), `Rewind` 60, `Re-Fly` 90, `Archive` 80. The table uses
+the house table styles: the pinned header opens with `GetTableHeaderRowStyle()` (the scrollbar
+gutter is its right padding), the four row kinds with `GetTableRowStyle()`, the list area with
 `GetTableBodyBoxStyle()`, and the body labels are built on `GetTableCellStyle()`
-(`TableRowInsetAlignmentTests`, including a four-row-kind column-sequence gate). Every header cell is forced to `ColHeaderHeight = 32`
-(`:73`). Seven headers are sortable (`#`, Name, Phase, Site, Launch, Duration, Status);
-`SortColumn.LaunchTime` ascending is the default. The Info toggle and its columns (`MaxAlt` /
-`MaxSpd` / `Dist` / `Pts` / `Start` / `End`) were REMOVED 2026-09-26 with its second window
-width and its `op=state key=expandedStats` seam key; the window stays 1355 px
-(`DefaultWindowWidth`), and the 120 px Phase column (one line for `Kerbin -> Mun exo`) came
-out of Name, Site (90 -> 80) and Duration (80 -> 70). The Status cell's hover leads with where
-the flight ended (`Ends: ...`), an EVA's `EVA from <vessel>` (`BuildStatusPlaceTooltip`) and
-`Max altitude <a>, max speed <v>` (`BuildStatusStatsTooltip`); a leaf's Status shows its
-terminal word for debris too, while a folder's (`GetGroupStatus`) still ignores debris.
+(`TableRowInsetAlignmentTests`, including a four-row-kind column-sequence gate). Every header
+cell is 32 px tall. Seven headers sort (`#`, `Name`, `Phase`, `Site`, `Launch`, `Duration`,
+`Status`); `SortColumn.LaunchTime` ascending is the default. The Status cell's hover leads with
+where the flight ended (`Ends: ...`), an EVA's `EVA from <vessel>` (`BuildStatusPlaceTooltip`)
+and `Max altitude <a>, max speed <v>` (`BuildStatusStatsTooltip`); a leaf's Status shows its
+terminal word for debris too, while a folder's (`GetGroupStatus`) ignores debris.
 
-Row kinds and what each blanks: GROUP HEADER (`DrawGroupTree` `:2399`, Period and Re-Fly always
-blank), CHAIN BLOCK and GROUPED BLOCK (`:4038` / `:4048` into `DrawRecordingBlock` `:4057`;
-Phase, Period, Watch, Re-Fly, Archive blank), VIRTUAL STASH group (`:3036`; Group, Loop, Period,
-Watch, Rewind, Re-Fly blank), and the RECORDING leaf (`:1820`, all columns). There is no
-separate detail row: expansion is a caret that renders CHILD rows of the same kinds, with
-box-drawing connectors (`:2283`) and per-level indents.
+Above the table, while the shared time-range filter is active (`DrawTimeRangeFilterIndicator`):
+`Filtered: <preset>` or `Filtered: <from> - <to>`, and `Clear` (hover: it also resets the
+Timeline's range sliders). Empty state: `No recordings.`
 
-Aggregate cells (2026-09-26 round): a folder's `Duration` is the SPAN its descendants cover
+Row kinds and what each blanks: GROUP HEADER (`DrawGroupTree`; Period and Re-Fly always blank),
+CHAIN BLOCK and GROUPED BLOCK (`DrawRecordingBlock`; Phase, Period, Watch, Re-Fly, Archive
+blank), the virtual STASH group (the Unfinished Flights group, `UI/UnfinishedFlightsGroup.cs`;
+Group, Loop, Period, Watch, Rewind, Re-Fly blank), and the RECORDING leaf (all columns). There
+is no separate detail row: expansion is a caret that renders CHILD rows of the same kinds,
+with box-drawing connectors and per-level indents.
+
+Aggregate cells: a folder's `Duration` is the SPAN its descendants cover
 (`GetGroupSpanDuration`: latest EndUT - earliest StartUT, dataless members skipped), the same
 figure a chain block shows, and the folder / chain Duration sort keys use it; the STASH row's
 Duration is blank. A subfolder's LABEL drops its parent's `parent + " / "` prefix when drawn
 under that parent (`GroupPickerPresentation.DisplayLabelUnderParent`; the group picker tree
-does the same), so a mission's auto subfolders read `Debris` / `Crew`. A leaf's `Period` cell is
-BLANK while its Loop is off, with the loop-off reason as the blank cell's hover
-(`LoopPeriodBlankCellTooltip`). A MISSION folder (a tree's auto-generated root group) draws
-no block row for its tree-root vessel: that vessel's segments are its own direct child rows
+does the same), so a mission's auto subfolders read `Debris` / `Crew`. A leaf's `Period` cell
+is BLANK while its Loop is off, with the loop-off reason as the blank cell's hover
+(`LoopPeriodBlankCellTooltip`). A MISSION folder (a tree's auto-generated root group) draws no
+block row for its tree-root vessel: that vessel's segments are its own direct child rows
 (`FindRootVesselBlockIndex` / `FlattenAbsorbedBlock`), while every other vessel keeps its
 block. The mission row then writes Loop to those absorbed segments WITH the auto loop range
 and to its other loopable descendants WITHOUT (`SplitAbsorbedLoopWrite`), and its Group cell
-is `G` (folder parent) + `S` (every segment of the launched vessel, `OpenForRecordings`).
+is `G` (folder parent) + `S` (every segment of the launched vessel).
 
 Notable control semantics in the body:
 
 | control | backend | gate |
 |---|---|---|
 | per-row Enable toggle | `rec.PlaybackEnabled` | never disabled. See finding P1 |
-| header select-all Enable | writes every committed recording (`:1225`) | never; ignores the filters, and the tooltip says so |
-| Loop toggle (row) | `rec.LoopPlayback` + `ApplyAutoLoopRange` (`:2057`) | blank when `ShouldSuppressRowLoopUi` (`:5544`); greyed and write-blocked when route-bound (`:2049`) |
-| Loop toggle (header / folder) | `BulkSetLoopPlayback(..., applyAutoRange: false)` (`:1336`, `:2643`); a mission folder that absorbed its launched vessel's block writes those segments with `applyAutoRange: true` (`SplitAbsorbedLoopWrite`) | same route gate (over descendants plus absorbed segments); deliberately does NOT re-narrow the window for the rest (`:5616-5630`) |
-| Loop toggle (chain / block) | `BulkSetLoopPlayback(..., applyAutoRange: TRUE)` (`:4207`) | same glyph, different semantics, by design |
-| `Archive` header toggle | `GroupHierarchyStore.HideActive` (`:1377`) | the one header toggle that writes NOTHING to a recording; it is a view filter |
-| per-row Archive toggle | `rec.Hidden` + `NotifyTimelineOfArchiveChange` | REFUSED with a Warn + ScreenMessage when the row is an Unfinished Flight (`:2158-2167`) |
-| folder Archive toggle | writes every descendant `Hidden` (`:2860`) | never. See finding P17 |
-| `G` (+ `S` on a mission folder that absorbed its launched vessel's block) | `groupPicker.OpenForRecording / ForChain / ForRecordings / ForGroup`; `S` is `OpenForRecordings` over the absorbed segments | never disabled; adds later rejected by `CanAddToUserGroup` (`UI/GroupPickerUI.cs:24`) |
-| `X` on a row | REMOVED 2026-09-26 (recordings are never player-deletable); was `DeleteGhostOnlyRecording` (`:4570`), NO confirmation | was only when `rec.IsGhostOnly && Mode != TrackingStation` (`:1982`, `:4611`) |
-| `X` on a folder | `ShowDisbandGroupConfirmation` (`:4399`) | only for a non-permanent group |
-| `W` / `W*` | `flight.EnterWatchMode(ri)` | `IsWatchButtonEnabled` (`:947`); column hidden outside flight |
-| `FF` / `R` | `ShowFastForwardConfirmation` (`:4496`) / `ShowRewindConfirmation` (`:4450`) | `RecordingStore.CanFastForward` / `CanRewind`, refusal as tooltip; `R` is suppressed entirely on an unfinished-flight row (`:3754`). SHOWN ONCE (2026-09-26): a row under a folder / block that DREW the same target (same committed index) draws a blank cell (`IsTimeTargetShownByEnclosingRow`, `ResolveChildEnclosingTimeTargets`); STASH resets the inherited targets, so its rows keep theirs |
-| `Fly` + `Seal` / `Stash` + `Seal` | `RewindInvoker.ShowDialog` / `UnfinishedFlightSealHandler.ShowConfirmation` / `UnfinishedFlightStashHandler.TryStash` | `ResolveReFlyColumnAction` (`:3416`, `:3420`) |
+| header select-all Enable | writes every committed recording | never; ignores the filters, and the hover says so |
+| Loop toggle (row) | `rec.LoopPlayback` + `ApplyAutoLoopRange` | blank when `ShouldSuppressRowLoopUi`; greyed and write-blocked when route-bound |
+| Loop toggle (header / folder) | `BulkSetLoopPlayback(..., applyAutoRange: false)`; a mission folder that absorbed its launched vessel's block writes those segments with `applyAutoRange: true` (`SplitAbsorbedLoopWrite`) | same route gate (over descendants plus absorbed segments); deliberately does NOT re-narrow the window for the rest |
+| Loop toggle (chain / block) | `BulkSetLoopPlayback(..., applyAutoRange: true)` | same glyph, different semantics, by design |
+| `Archive` header toggle | `GroupHierarchyStore.HideActive` | the one header toggle that writes NOTHING to a recording; it is a view filter |
+| per-row Archive toggle | `rec.Hidden` + `NotifyTimelineOfArchiveChange` | a hide is REFUSED with a Warn + ScreenMessage when the row is an Unfinished Flight (`IsArchiveRefusedForUnfinishedFlight`); an un-hide never is |
+| folder / block Archive toggle | writes every descendant `Hidden` | the same refusal when any member is an Unfinished Flight |
+| `G` (+ `S` on a mission folder that absorbed its launched vessel's block) | `groupPicker.OpenForRecording / ForChain / ForRecordings / ForGroup`; `S` is `OpenForRecordings` over the absorbed segments | never disabled; adds later rejected by `CanAddToUserGroup` |
+| `X` on a folder | `ShowDisbandGroupConfirmation` (hover: its recordings and subfolders move up to the parent, nothing is deleted) | only for a non-permanent group. A recording row has no `X`: recordings are never player-deletable |
+| `W` / `W*` | `flight.EnterWatchMode(ri)` | `IsWatchButtonEnabled`; the column draws only in flight |
+| `FF` / `R` | `ShowFastForwardConfirmation` / `ShowRewindConfirmation` | `RecordingStore.CanFastForward` / `CanRewind`, refusal as the hover; `R` is suppressed entirely on an unfinished-flight row. SHOWN ONCE: a row under a folder / block that DREW the same target (same committed index) draws a blank cell (`IsTimeTargetShownByEnclosingRow`, `ResolveChildEnclosingTimeTargets`); STASH resets the inherited targets, so its rows keep theirs |
+| `Fly` + `Seal` / `Stash` + `Seal` | `RewindInvoker.ShowDialog` / `UnfinishedFlightSealHandler.ShowConfirmation` / `UnfinishedFlightStashHandler.TryStash` | `ResolveReFlyColumnAction` |
 
-Pictures: `ksc-missions-recordings-advanced` (415 nodes, 16 collapsed group rows, `Status`
-values `past` / `Destroyed` / `Splashed` / `Landed` / `Orbiting`, all 16 folder `R` buttons
-enabled with resolved targets), and since the 2026-09-22 fold re-fly
-`ksc-missions-recordings-collapsed-advanced` (415 - MEASURED identical to the restored
-picture), `ksc-missions-recordings-chain-advanced` (453 - ONE group folder open with ONE chain
-block expanded inside it, the other fifteen folders shut) and
-`ksc-missions-recordings-expanded-advanced` (1915 - every folder, chain block and leaf row at
-once). No picture: STASH, the
-the Watch column, route-bound greyed Loop toggles, any inline rename,
-the time-range filter strip.
+Pictures: `ksc-missions-recordings-advanced`, `ksc-missions-recordings-collapsed-advanced`,
+`ksc-missions-recordings-chain-advanced` (one group folder open with one chain block expanded)
+and `ksc-missions-recordings-expanded-advanced` (every folder, chain block and leaf row at
+once), GUI-1 `2026-10-01_1221`; `bd-missions-recordings-collapsed-advanced` /
+`-expanded-advanced`, GUI-4. No picture: STASH, the Watch column, route-bound greyed Loop
+toggles, an inline rename, the time-range filter strip.
 
-**Group picker** (window 14, `UI/GroupPickerUI.cs:193-307`): title `Set Parent Group` in
-group-parent mode else `Manage Groups`; a `(None / Root level)` toggle, a recursive checkbox
-tree that SKIPS any group in `treeModel.CycleInvalid` (`:315`), a new-group text field plus
-`+`, then `OK` / `Cancel`. `ApplyGroupPopupChanges` (`:356`) has four exclusive branches
-(group-parent, chain all-or-nothing, multi-recording per-recording, single recording). Removes
-are never gated. No picture; no verb opens it.
+**Group picker** (window 14, `UI/GroupPickerUI.cs`): title `Set Parent Group` in group-parent
+mode, else `Manage Groups`; a `(None / Root level)` toggle, a recursive checkbox tree that
+SKIPS any group in `treeModel.CycleInvalid`, a new-group text field plus `+`, then `OK` /
+`Cancel`. `ApplyGroupPopupChanges` has four exclusive branches (group-parent, chain
+all-or-nothing, multi-recording per-recording, single recording). Removes are never gated. It
+has no tooltip strip. Minimum 220 x 200, first opened at 280 x 300 clamped to the screen at the
+click point. Pictures: see row 14 of 3.0.
 
 ### 3.3 Parsek - Timeline
 
 Purpose: every recorded flight and career event on one clock, and the only access to rewind,
-fast-forward and warp-to-time - which is why its launcher is deliberately kept in Basic
-(`UI/UiComplexityMode.cs:171`).
+fast-forward and warp-to-time - which is why its launcher is kept in Basic.
 
-Hosts: `ParsekFlight.cs:2133` and `ParsekKSC.cs:255`; not the Tracking Station. Input lock
-`Parsek_TimelineWindow` (`:297-308`).
+Hosts: `ParsekFlight` and `ParsekKSC`; not the Tracking Station. Input lock
+`Parsek_TimelineWindow` on CAMERACONTROLS while the mouse is inside. First opened to the left of
+the main window at 820 x max(600, main window height).
 
-Structure: a three-row filter area (below), the From / To sliders while `Custom` is lit, the
-entry scroll view with a "now" divider, a warp row, the single-line echo strip, `Close`,
-resize handle, drag. Minimum size 610x150 (`MinWindowWidth`): all three filter rows sit on one
-six-cell grid (`FilterRowCellWidth` over `ComputeFilterCellWidth`, the same width for every
-row), the widest labels (`Recordings`, `Strategies`, `Milestones`) fit the 93 px cell floor,
-and six floor cells plus margins and chrome are 608 px.
+Structure, top-down (`DrawTimelineWindow`): the three-row filter area (below), the From / To
+sliders while `Custom` is lit, the entry scroll view with a "now" divider, the warp row, the
+single-line echo strip, `Close`, the resize handle and drag. Minimum size 610 x 150
+(`MinWindowWidth`): all three filter rows sit on one six-cell grid (`FilterRowCellWidth` over
+`ComputeFilterCellWidth`, the same width for every row), the widest labels (`Recordings`,
+`Strategies`, `Milestones`) fit the 93 px cell floor, and six floor cells plus margins and
+chrome are 608 px.
 
-Filter area (2026-09-24, `DrawFilterBar` + `DrawTimeRangeFilterBar`). Row 1 is the
-one-at-a-time view group `Overview` / `Details` / `Rewind/FF` / `Re-Fly` / `Career` (four in
-Sandbox) followed by the `Archived` filter as the last cell (owner ruling 2026-09-25: it
-applies in every view, so it is not a context control). Every filter button has the grid cell's width and every row is left-aligned, so a
-row of fewer than six buttons leaves its unused cells empty on the right (room for later
-filters; owner ruling 2026-09-25) rather than stretching. Row 2 is the
-selected view's context row, always drawn and always one button tall so the list never moves
-(`ResolveContextRow`): the source toggles `Recordings` / `Actions` / `Events` under Overview
-and Details; an EMPTY button-high row under Rewind/FF and Re-Fly (the sources are forced or
-inert there, so they are hidden rather than greyed; `GUILayoutUtility.GetRect` reserves the
-height); the category buttons
-`Contracts` / `Strategies` / `Facilities` / `Milestones` / `Tech` under Career (single-select;
-`Career` reopens the last one used). The Career cell and the category set read the GAME mode,
-never the UI complexity mode: Career mode draws all five, Science draws Facilities /
-Milestones / Tech, Sandbox draws no Career cell, and a category view the loaded mode does not
-show falls back to one it does. In Career mode the `Contracts` and `Strategies` buttons' hover
-ends with the slot counts the removed Career window used to head its tabs with (2026-09-27,
-`CareerSlotSummary.FormatSlotSentence`, free first: `Only contract rows, past and future.
-Contract slots: 4 of 7 free now (2 active, 1 reserved for later).`, `no slot limit (2
-active)` at an unlimited building, the reserved clause dropped when nothing is reserved);
-contracts read the shared `ContractSlotReservation` forecast, strategies the peak walk; the
-counts rebuild on a ledger change, a rewind, or a new game minute, and only while that row
-draws. Row 3 is always drawn: `Last Day` / `Last 7d` / `Last 30d` /
-`This Year` / `All` / `Custom`, exactly one lit (`ResolveLitTimeRangeButton`; `All` by
-default), so the range in force is always visible. `Custom` shows the sliders
-(`SetCustomRangeSelected`; on over a preset keeps that range without its preset name, off
-clears to `All`); a slider drag lights `Custom` (`ApplyCustomSliderRange`); a preset turns
-`Custom` off (`ApplyTimeRangePreset`). `Custom` is disabled while the data spans no range.
-The earlier `Time: <range>` fold button (PR #1792) is gone.
+Filter area (`DrawFilterBar` + `DrawTimeRangeFilterBar`). Every filter button has the grid
+cell's width and every row is left-aligned, so a row of fewer than six buttons leaves its
+unused cells empty on the right.
 
-Row model: one row per `TimelineEntry` surviving `IsEntryVisible` (`:1162`); the list is built
-by `TimelineBuilder.Build` from `EffectiveState.ComputeERS()` + `ComputeELS()` +
-`MilestoneStore.Milestones` (`:455-462`) and sorted by UT only. **There are no sort controls
-and no header row** - chronological is the only order. Cells: a 160 px time label
-(`TimeColumnWidth` `:70`), a 14 px gutter spacer, an expanding description label, then zero or
-more right-aligned action buttons. Row colour is one of six cached styles (`:1269-1277`):
-strikethrough when `!IsEffective`, dim when future, blue when `IsPlayerAction`, else green /
-red / white.
+- Row 1: the one-at-a-time view group `Overview` / `Details` / `Rewind/FF` / `Re-Fly` /
+  `Career` (four in Sandbox), then the `Archived` filter as the last cell (it applies in every
+  view, so it is not a context control).
+- Row 2: the selected view's context row, always drawn and always one button tall so the list
+  never moves (`ResolveContextRow`). The source toggles `Recordings` / `Actions` / `Events`
+  under Overview and Details; an EMPTY button-high row under Rewind/FF and Re-Fly (the sources
+  are forced or inert there, so they are hidden rather than greyed; `GUILayoutUtility.GetRect`
+  reserves the height); the category buttons `Contracts` / `Strategies` / `Facilities` /
+  `Milestones` / `Tech` under Career (single-select; `Career` reopens the last one used). The
+  Career cell and the category set read the GAME mode, never the UI complexity mode: Career
+  mode draws all five, Science draws Facilities / Milestones / Tech, Sandbox draws no Career
+  cell, and a category view the loaded mode does not show falls back to one it does. In Career
+  mode the `Contracts` and `Strategies` hovers end with the slot counts
+  (`CareerSlotSummary.FormatSlotSentence`, free first: `Only contract rows, past and future.
+  Contract slots: 4 of 7 free now (2 active, 1 reserved for later).`, `no slot limit (2
+  active)` at an unlimited building, the reserved clause dropped when nothing is reserved);
+  contracts read the shared `ContractSlotReservation` forecast, strategies the peak walk; the
+  counts rebuild on a ledger change, a rewind or a new game minute, and only while that row
+  draws.
+- Row 3, always drawn: `Last Day` / `Last 7d` / `Last 30d` / `This Year` / `All` / `Custom`,
+  exactly one lit (`ResolveLitTimeRangeButton`; `All` by default), so the range in force is
+  always visible. `Custom` shows the sliders (`SetCustomRangeSelected`; switched on over a
+  preset it keeps that range without the preset's name, switched off it clears to `All`); a
+  slider drag lights `Custom` (`ApplyCustomSliderRange`); a preset turns `Custom` off
+  (`ApplyTimeRangePreset`). `Custom` is disabled while the data spans no range. Each slider
+  prints its own value. The range is the shared time-range filter the Recordings tab also
+  applies (3.2).
 
-Row hover (2026-09-28, `timeline-row-hovers`): the description label carries a tooltip that
-the single-line echo strip shows, and only the row hovered on the last Repaint gets one
-(`TimelineRowHoverTracker`: the row index whose rect held the mouse is published at the end of
-the Repaint pass, the text is memoized per `TimelineEntry` and rebuilt when the row crosses
-now, the memo clears on every cache rebuild; the label stays ONE control either way). The text
-is `TimelineRowHover.Compose` of three parts: the walk's not-counted reason on a grey row
+Row model: one row per `TimelineEntry` surviving `IsEntryVisible`; the list is built by
+`TimelineBuilder.Build` from `EffectiveState.ComputeERS()` + `ComputeELS()` +
+`MilestoneStore.Milestones` and sorted by UT only. **There are no sort controls and no header
+row** - chronological is the only order. Cells: a 160 px time label (`TimeColumnWidth`), a
+14 px gutter, an expanding description label, then zero or more right-aligned action buttons.
+Row colour is one of the cached styles: grey when `!IsEffective`, dim when future, blue when
+`IsPlayerAction`, else green / red / white. The "now" divider is a grey `-- <date> (now)`
+label (drawn with box-drawing characters) followed by a rule; its hover is
+`NowDividerTooltip` (`Rows below happen on their date and hold stock controls until then.`).
+Empty state: `No timeline entries.`
+
+Row hover (`TimelineRowHoverTracker`): the description label carries a tooltip that the
+single-line echo strip shows, and only the row hovered on the last Repaint gets one: the row
+index whose rect held the mouse is published at the end of the Repaint pass, the text is
+memoized per `TimelineEntry` and rebuilt when the row crosses now, the memo clears on every
+cache rebuild, and the label stays ONE control either way. The text is
+`TimelineRowHover.Compose` of three parts: the walk's not-counted reason on a grey row
 (`GameAction.NotCountedReason`, runtime only, stamped at the `ContractsModule` /
 `MilestonesModule` / `FundsModule` repair sites that clear `Effective` and reset with it in
 `RecalculationEngine.ResetDerivedFields`); on a future row, the stock control it holds
@@ -719,14 +712,14 @@ is `TimelineRowHover.Compose` of three parts: the walk's not-counted reason on a
 `CommittedFutureIndexCache.Current`, `Holds <control> until <row date>.`; a repair row never
 claims one, a part purchase reads `StockUiPartPurchase.DecideLive`, a strategy names only the
 button stock shows now - Activate while inactive, Deactivate while active - from
-`StrategyReservationGate.ActiveStrategyIds`); then the row kind's
-details (contract accept: deadline, advance, the rewards of the first counted completion
+`StrategyReservationGate.ActiveStrategyIds`); then the row kind's details (contract accept:
+deadline, advance, the rewards of the first counted completion
 `TimelineBuilder.FindPairedContractComplete` stamps on `TimelineEntry.PairedContractComplete`,
 the snapshot agent; contract end: flight, rep / science or penalty; launch: crew from the
 snapshot, `ResolveLaunchEnd` over the same launch's chain and tree, the original mission's
-name). The "now" divider label hovers `NowDividerTooltip`. Budget: the literal floor is 19,
-and `TooltipEchoBudgetTests.TimelineRowHovers_FitTheTimelineStrip` pins each builder's worst
-case; a future accept (hold plus terms) is the one composition that runs into the marquee.
+name). Budget: `TooltipEchoBudgetTests.TimelineRowHovers_FitTheTimelineStrip` pins each
+builder's worst case; a future accept (hold plus terms) is the one composition that runs into
+the marquee.
 
 Row text for career rows: a contract row (Accept / Complete / Fail / Cancel) names the
 contract - its own `ContractTitle`, else the title of the same contract's accept in the ELS
@@ -736,25 +729,23 @@ contract fail row reads `Expired: <name>` when it lands at or after the deadline
 it closes (the latest accept of that id at or before it,
 `GameActionDisplay.BuildContractAcceptHistory` / `FindAcceptForOutcome`), else `Fail: <name>`:
 stock reports a deadline expiry with the same `onFailed` event, and this is the ledger's own
-deadline test. A facility row names the facility through `FacilityDisplayNames.ResolveBuildingDisplayName`,
-the Career window's resolver, so a building-level destructible id reads as its facility
-(`Launchpad destroyed`). The ledger keys a destruction or repair by ONE building, so one
-facility event is several rows (a Runway repair is up to ten, one per destroyed building, at
-one UT); `TimelineBuilder.CompactFacilityBuildingActions` folds rows of the same type,
-facility, owner and effectiveness within 1 s into one, summing the repair cost. Destruction
-and repair rows come from the moment stock fires `OnKSCStructureCollapsing` /
-`OnKSCStructureRepairing` (a flight-tagged collapse at its commit, a KSC repair at once), so
-a repair made at the Space Center is on the Timeline. The three source toggles route rows by
+deadline test. A facility row names the facility through
+`FacilityDisplayNames.ResolveBuildingDisplayName`, so a building-level destructible id reads as
+its facility (`Launchpad destroyed`). The ledger keys a destruction or repair by ONE building,
+so one facility event is several rows (a Runway repair is up to ten, one per destroyed
+building, at one UT); `TimelineBuilder.CompactFacilityBuildingActions` folds rows of the same
+type, facility, owner and effectiveness within 1 s into one, summing the repair cost.
+Destruction and repair rows come from the moment stock fires `OnKSCStructureCollapsing` /
+`OnKSCStructureRepairing` (a flight-tagged collapse at its commit, a KSC repair at once), so a
+repair made at the Space Center is on the Timeline. The three source toggles route rows by
 `TimelineWindowUI.ResolveSourceToggle`: every recording-sourced row (crew deaths included) is
-Recordings; a ledger or legacy row is Actions when `TimelineEntryDisplay.IsPlayerAction`,
-else Events (milestones, contract completions and failures, earnings, recoveries,
-destructions). The toggle tooltips are consts pinned to that routing by
-`TimelineCareerNamesTests`.
+Recordings; a ledger or legacy row is Actions when `TimelineEntryDisplay.IsPlayerAction`, else
+Events (milestones, contract completions and failures, earnings, recoveries, destructions).
+The toggle hovers are consts pinned to that routing by `TimelineCareerNamesTests`.
 
-Nine mutually exclusive views (`TimelineTierFilterMode`, default `Overview`; the five
-category members are appended after `ReFly` so the index stays 1:1 with the seam's tab
-tokens). The row predicate is the pure `IsEntryVisibleInView`, and the time range applies in
-every view:
+Nine mutually exclusive views (`TimelineTierFilterMode`, default `Overview`; the five category
+members are appended after `ReFly` so the index stays 1:1 with the seam's tab tokens). The row
+predicate is the pure `IsEntryVisibleInView`, and the time range applies in every view:
 
 | mode | row predicate | effect on the three source toggles |
 |---|---|---|
@@ -764,9 +755,9 @@ every view:
 | Re-Fly | keeps only rows where `HasActionableFlyOrSealButton` | same |
 | Contracts ... Tech | keeps only rows whose `TimelineEntry.CareerCategory` is that category, both tiers | ignored (hidden, values kept) |
 
-Both action tiers hide rows whose button would be GREYED, not merely absent. The category
-and the row's subject id (`CareerSubjectId`: contract, strategy, facility, milestone or tech
-node id) are stamped by `TimelineBuilder` from the LEDGER ACTION TYPE through
+Both action views hide rows whose button would be GREYED, not merely absent. The category and
+the row's subject id (`CareerSubjectId`: contract, strategy, facility, milestone or tech node
+id) are stamped by `TimelineBuilder` from the LEDGER ACTION TYPE through
 `TimelineCareerCategories.Classify`, never from the display type: Contracts = accept /
 complete / fail / cancel, Strategies = activate / deactivate, Facilities = upgrade /
 destruction / repair, Milestones = milestone credits, Tech = a `ScienceSpending` that names a
@@ -774,154 +765,93 @@ node. The strategy currency-exchange science legs share the `ScienceSpending` di
 and are in no category. Recording, legacy and other ledger rows (earnings, hires, builds,
 recoveries, seeds) are in none either. `ScrollToCareerSubject(category, subjectId)` opens the
 window on the category's view and scrolls to the subject's first visible row (for a contract,
-its accept row), the career twin of `ScrollToRecording`; the Career State window's
-contract and strategy name cells call it (3.5).
+its accept row), the career twin of `ScrollToRecording`; it has no production caller today.
 
-Row actions: `W` / `W*` 40 px (flight only, `:1314`), `FF` 40 (future rows, `:1364`), `R` 40
-(past rows, `:1381`), `Fly` + `Seal` 40 on `UnfinishedFlightSeparation` rows (`:1478-1519`;
-Seal stays live when Fly is greyed, `:1681`), and `GoTo` 48 gated by
-`IsVisible(UiSurface.TabMissions, ...)` (`:1265`) - the only `IsVisible` call in the file, and
-it hides nothing today. FF and R are mutually exclusive on one row, so a `RecordingStart` row
-carries at most W + one of FF/R + GoTo.
+Row actions: `W` / `W*` 40 px (flight only), `FF` 40 (future rows), `R` 40 (past rows),
+`Fly` + `Seal` 40 each on `UnfinishedFlightSeparation` rows (`Seal` stays live when `Fly` is
+greyed), and `GoTo` 48 (hover `Show this recording's mission`, greyed `This recording is not
+part of a mission`), which opens the Missions tab on the recording's original mission
+(`RecordingsTableUI.ShowMissionForRecording`). `GoTo` is gated by
+`IsVisible(UiSurface.TabMissions, ...)`, the only `IsVisible` call in the file, which hides
+nothing today. FF and R are mutually exclusive on one row, so a `RecordingStart` row carries at
+most W + one of FF / R + GoTo.
 
 The rewind gate is five preconditions evaluated in this order, and the failing one's string
-becomes both the tooltip and the disabled-hover echo: `Rewind already in progress`
-(`RecordingStore.cs:5233`), `No rewind save available` (`:5240`), `Stop recording before
-rewinding` (`:5247`), `Merge or discard pending tree first` (`:5254`), `Rewind save file
-missing` (`:5219`). Precondition 2 also removes the button, so only 1, 3, 4 and 5 are reachable
-as greyed states. The FF gate is a six-condition near-mirror (`RecordingStore.cs:5281-5340`).
+becomes both the hover and the disabled-hover echo: `Rewind already in progress`,
+`No rewind save available`, `Stop recording before rewinding`, `Merge or discard pending tree
+first`, `Rewind save file missing` (`RecordingStore.CanRewind`). Precondition 2 also removes
+the button, so only 1, 3, 4 and 5 are reachable as greyed states. The FF gate is a
+six-condition near-mirror (`RecordingStore.CanFastForward`).
 
-Warp row: a 186 px `Warp to time` button plus four 36 px Y/D/H/M fields (`:563-582`); the plan
-comes from `WarpToTimeMath.DecideWarpPlan` (`:547`) and the confirmation is a stock dialog
-(`WarpToTimeController.cs:223`). In flight the warp NEVER executes in place - it is deferred to
-the next Space Center arrival (`WarpToTimeController.cs:133-143`) so the scene-exit merge
+Warp row: a 186 px `Warp to time` button (twice the filter-cell floor) plus four 36 px
+Year / Day / Hour / Minute fields; the plan comes from `WarpToTimeMath.DecideWarpPlan`, the
+button is greyed while no plan is actionable or a warp is pending (`WarpToTimeDisabledReason`),
+and the confirmation is a stock dialog (`WarpToTimeController`). In flight the warp NEVER
+executes in place - it is deferred to the next Space Center arrival so the scene-exit merge
 dialog handles the live recording first.
 
 The `Archived` toggle (`DrawArchivedToggle`, row 1) writes the INVERSE of
 `GroupHierarchyStore.HideActive`, the same single flag the Recordings tab's Archive header
 checkbox writes - and because that tab is Basic-hidden, this toggle is **the only archive
-control a Basic player can reach**. What it governs: whether recordings with
-`Recording.Hidden` set (the recordings list's per-row and per-group Archive boxes) contribute
-their flight rows (launch, separation, spawn, crew death), each marked `[archived]`
+control a Basic player can reach**. It governs whether recordings with `Recording.Hidden` set
+(the Recordings tab's per-row and per-group Archive boxes) contribute their flight rows
+(launch, separation, spawn, crew death), each marked `[archived]`
 (`TimelineBuilder.CollectRecordingEntries`). It is in force in every view; the Career views
 list ledger rows only, which archiving never hides, so there it changes nothing. The Missions
-window's own Archive box (`Mission.Archived` / `MissionStore.HideArchived`, replaced by the
-per-mission Collapse / Expand in Missions Model 1, 2026-09-30) was a different
-flag and does not reach the Timeline. Hover: "Lists archived flights, marked [archived], in
-all views. Same switch as the recordings list's Archive filter."
+tab's `Collapse` is a different flag and does not reach the Timeline. Hover: "Lists archived
+flights, marked [archived], in all views. Same switch as the recordings list's Archive
+filter."
 
-Career-view pictures (GUI-24 `2026-09-23_2134`): `ksc-timeline-contracts-advanced`,
-`ksc-timeline-milestones-advanced`, `ksc-timeline-tech-advanced` and
-`ksc-timeline-milestones-thisyear-advanced` (then a fold closed with `Time: This Year` lit; since
-the preset-row revert, GUI-24 `2026-09-24_1942`, the `This Year` preset lit on row 3). The same
-re-fly adds `ksc-timeline-customlastday-advanced` (Custom over Last Day: moved thumbs; the dim
-range readout it also showed above the sliders was removed 2026-09-25, each slider prints its own value)
-and `ksc-timeline-minwidth-advanced` (all three rows at the 610 px floor). The Contracts
-view is also the first picture of the grey `!IsEffective` row: the host's duplicate contract
-completions (the `ContractsModule` already-resolved arm) draw grey between the effective ones.
-
-Pictures: `ksc-timeline-overview-advanced` (338 nodes, 22 `R` + 22 `GoTo`),
-`ksc-timeline-details-advanced` (1154, 22 `R` + 34 `GoTo`), `ksc-timeline-rewindff-advanced`
-(152, exactly the 22 actionable rows), `ksc-timeline-refly-advanced` (39, empty list - the save
-has no resolvable `UnfinishedFlightSeparation`), `ksc-timeline-basic` (39). The Basic capture is
-a Re-Fly view photographed in Basic: the tier mode is a plain instance field with no reset, the
-Advanced pass ended on `tab=refly`, and the Basic pass issued no `op=tab` (`KSP.log:14869`,
-`:15684`, `:15707`). It proves the Basic chrome is mode-identical; it does not show Basic rows.
-No picture: any flight-scene state (so the whole Watch button), `FF`, `Fly` / `Seal`, the custom
-sliders, any non-default preset, `Archived` ON, the countdown label, every disabled tooltip.
+Pictures: `ksc-timeline-overview-advanced`, `ksc-timeline-details-advanced`,
+`ksc-timeline-rewindff-advanced`, `ksc-timeline-refly-advanced` and `ksc-timeline-basic`
+(GUI-1, `2026-10-01_1221`); `bd-timeline-overview-advanced`, `-overview-basic`,
+`-details-advanced`, `-rewindff-advanced`, `-refly-advanced` and `-refly-minsize-advanced`
+(GUI-4); the Career views `ksc-timeline-contracts-advanced`, `-milestones-advanced`,
+`-tech-advanced`, `-milestones-thisyear-advanced`, `-customlastday-advanced` and
+`-minwidth-advanced` (GUI-24). The Contracts view shows the grey `!IsEffective` row (the host's
+duplicate contract completions). No picture: any flight-scene state (so the Watch button), `FF`,
+`Archived` ON, every disabled hover.
 
 ### 3.4 Parsek - Kerbals
 
-**REBUILT 2026-09-15, REVISED 2026-09-22.** Both tabs are now COLUMN TABLES, the tabs are
-named `Roster` and `Flights`, and the row model, the status vocabulary, the sizing numbers and
-the `op=expand window=kerbals` seam row live in their own authority:
-**`docs/dev/design-gui-kerbals-window.md`**. Everything below the divider is the 2026-09-11
-measurement of the PRE-rebuild window, kept because the captures it cites are the "before"
-half of that document's section 8.
+The row model, the status vocabulary, the sizing and the `op=expand window=kerbals` seam row
+live in their own authority: **`docs/dev/design-gui-kerbals-window.md`**. In short:
 
-The 2026-09-22 round (that document's rulings 11-19): the Roster is grouped by slot (each
-stand-in a row under the kerbal he covers; the chain fold and its `roster:<name>` expand key
-are gone), deleted stand-ins are no longer listed as `Available`, the `Since` column is gone
-(`MinWindowWidth` 700 -> 586), a reservation reads `Reserved: aboard <vessel>` /
-`Reserved: <mission>` with the release rule in its hover (a reservation does not lift when
-its date passes - `KerbalReservationReleaseTests`), Lost rows carry the re-fly remedy in their
-hover and every Last flight cell is a Timeline cross-link, an EVA kerbal reads `On EVA`, the
-Flights tab dropped its Crew column (the stand-in note is `(flown by <stand-in>)` in the
-Mission cell) and dates a mission by its launch only. **The window draws in Basic too**
-(owner re-ruling): `MainButtonKerbals` is KEEP and the window left the Advanced -> Basic close
-set.
+Purpose: read-only. What each kerbal is doing now, and how every recorded mission a kerbal
+flew ended. No reserve / unreserve / swap / clear control; its only mutations are transient
+fold states. Hosts: FLIGHT and SPACECENTER; drawn in both complexity modes and not in the
+Basic close set.
 
-Purpose (unchanged): read-only. What each kerbal is doing now, and how every recorded flight
-a kerbal took ended. No reserve / unreserve / swap / clear control; its only mutations are
-three transient fold states.
+Two tabs, each a COLUMN TABLE sharing one inset (`ParsekUI.GetTableRowStyle` /
+`GetTableBodyBoxStyle`, header text and body text aligned through `GetTableCellStyle`):
 
-Hosts (unchanged): FLIGHT and SPACECENTER. Basic-HIDDEN at the launcher from 2026-09-15
-until the 2026-09-22 owner re-ruling; since then it draws in both modes and survives the
-switch to Basic (its Basic picture: `GUI-11` `bdk-kerbals-roster-basic`).
+- `Roster` (seam token `roster`): `Kerbal` 210 / `Status now` 220 / `Last flight` (expands),
+  grouped by slot (each stand-in a row under the kerbal whose seat he covers), plain available
+  kerbals with no recorded flight behind one fold row `Available, no recorded flights (N)`.
+  Statuses `Lost` / `Lost until <date>`, `Retired`, `Reserved ...`, `Stand-in for <owner>`,
+  `Assigned (<vessel>)` / `On EVA`, `Available`, with the hold, the release rule or the
+  re-fly remedy in the status cell's hover. Every `Last flight` cell is a Timeline cross-link.
+  Empty state `No kerbals in the roster.`
+- `Flights` (seam token `outcomes`): per-kerbal fold groups headed `Name [Trait] - N
+  missions: ...`, one row per MISSION: `Date` 130 (the launch) / `Mission` (expands, plus
+  `(flown by <stand-in>)`) / `Outcome` 110 (`Recovered` / `Lost` / `Still aboard` /
+  `Outcome unknown`). A click anywhere on a row scrolls the Timeline to the mission's last
+  segment. Empty state `No recorded flights with crew yet.`
 
-What the rebuild changed against the rows below: two indented outlines became two column
-tables sharing one inset (`ParsekUI.GetTableRowStyle` / `GetTableBodyBoxStyle`, zero
-header-vs-cell delta); the Roster tab lists EVERY visible kerbal rather than only
-ledger-created slots, with plain available kerbals behind one fold row; the status words
-changed to `Available` / `Assigned (<vessel>)` / `Reserved ...` / `Stand-in for <owner>` /
-`Retired` / `Lost`; raw `UT n` stamps became calendar dates; the `Unlinked Retired` tail is
-gone (a retiree with no slot is now an ordinary row); the Flights tab's row unit became the
-MISSION rather than the recorded segment; and `DefaultWindowWidth` went 410 -> 760 with
-`MinWindowWidth` 280 -> 700 (the arithmetic for both is in that document's section 5).
+Size: first opened at 760 x 400, minimum 586 x 150, two-line tooltip strip.
 
-Body text alignment (2026-09-25): every body cell of both tables - the tinted status labels,
-the Roster `Last flight` cell and the Flights row cells (label-styled buttons), and the fold
-rows inside the bodies (the plain-kerbals fold and each Flights group) - draws with a style
-built on `ParsekUI.GetTableCellStyle()`, so body text starts at its header's text x. The
-2026-09-25 census measured the Roster header text at x=289 and the body text at x=285 before
-this. Gated by `TableRowInsetAlignmentTests.TintedTableRowsDrawEveryCellWithACellStyleBuiltOnTheSharedOne`
-and `...TintedTableBodyFoldAndEmptyLinesUseTheSharedCellStyle`.
+Pictures: `ksc-kerbals-roster-advanced` / `ksc-kerbals-outcomes-advanced` (GUI-1,
+`2026-10-01_1221`); the GUI-5, GUI-6, GUI-8 and GUI-11 labels listed in the Kerbals document's
+section 8.
 
----
+### 3.5 Contracts and strategies (no Parsek window)
 
-*The 2026-09-11 measurement of the pre-rebuild window follows.*
-
-Purpose: read-only. Who fills each crew slot now, and how every recorded flight a kerbal took
-ended. It has no reserve / unreserve / swap / clear control and mutates nothing but two
-transient fold sets (`UI/KerbalsWindowUI.cs:64`, `:70`); `CrewReservationManager` is not
-referenced by the file at all.
-
-Hosts: `ParsekFlight.cs:2134`, `ParsekKSC.cs:256`. Basic-HIDDEN at the launcher
-(`ParsekUI.cs:904`, decision `UI/UiComplexityMode.cs:181`), and an Advanced -> Basic switch
-force-closes it (`ParsekUI.cs:498-503`), so it has **no Basic picture by construction**.
-
-Both tabs are two-level indented OUTLINES, not column tables: there is no `GUILayout.Width`
-call in any row and no user-selectable sort.
-
-| tab | row model | sort | empty state |
-|---|---|---|---|
-| `Roster State` | owner header `"{Name} [{Trait}] - {status}  ({N})"` (`:504`, `:522`), status `deceased` / `reserved` / `reserved until UT n` / `active`; expanded chain-member subrows `"    \- {Name} ({tag})"` with tag `active`/`retired`/`displaced` (`:592`, `:525`); tail section `Unlinked Retired (N)` (`:481`) | owner name, ordinal ascending (`:795`) | `No reserved crew, stand-ins, or retired kerbals.` (`:352`) |
-| `Mission Outcomes` | per-kerbal fold header (folded adds `FormatKerbalSummary`, `:701`); per-recording subrow `"{name} - {Dead\|Recovered\|Aboard\|Unknown} at UT {n}"` (`:739`) | kerbal name then `EndUT` (`:894-899`) | `No committed crew history yet.` (`:364`) |
-
-Controls: the tab toolbar, the owner fold button (drawn as a plain LABEL when the chain has no
-expandable entries, `:445-450`), the per-kerbal fold, the per-recording row button (a cross-link
-into `TimelineWindowUI.ScrollToRecording`, `:653`), `Close`, resize handle.
-
-Pictures: `ksc-kerbals-roster-advanced` is **9 nodes** - one collapsed owner row
-(`> Jebediah Kerman [Pilot] - deceased  (1)`), and it is NOT a picture of a populated roster.
-`ksc-kerbals-outcomes-advanced` (24 nodes) is the better one: one unfolded kerbal with 15
-subrows covering all four end states. No picture: an expanded chain, the orphan tail, the
-reserved / active statuses, either empty state, a folded outcomes header, the flight scene.
-
-### 3.5 Parsek - Career State (REMOVED 2026-09-27)
-
-Removed by owner decision. It was the read-only STATE view of contracts and strategies (a
-slot heading per tab, the rows holding a slot now, and an `Accepted later` / `Activated later`
-fold for rows the recorded timeline adds), Advanced-only and Career-mode only. Everything it
-showed is elsewhere: stock Mission Control and Administration carry Parsek's reservation
-overlays (active counts, deadlines, accept dates, the `- completes Y1 D7` labels, strategy
-effects and end dates) and the Timeline's Career view (3.3) lists every dated contract and
-strategy event, past and future. The one fact only it showed - the slots the committed future
-reserves - moved into the Timeline's `Contracts` / `Strategies` button hovers
-(`CareerSlotSummary`, contracts through the shared `ContractSlotReservation` forecast the C2
-accept block reads). The deadline of a contract the timeline accepts later was dropped. Its
-flights are recorded in `docs/dev/autotest-status.md` (GUI-1, GUI-5, GUI-6, GUI-15) and in
-todo `CAREER-WINDOW-REMOVED-2026-09-27`.
+Parsek has no window of its own for contracts and strategies. Stock Mission Control and
+Administration carry Parsek's reservation annotations (3.13: active counts, deadlines, accept
+dates, completion labels, greyed Accept / Activate with the reason), and the Timeline's Career
+view (3.3) lists every dated contract and strategy event, past and future. The slots the
+committed future reserves are the last sentence of the Timeline's `Contracts` /
+`Strategies` button hovers in Career mode.
 
 ### 3.6 Parsek - Logistics
 
@@ -1037,397 +967,330 @@ spec files that as a follow-up rather than faking it
 ### 3.8 Parsek - Settings
 
 Purpose: the nine settings that still have a control and the complexity toggle itself. Five
-sections drawn top to bottom in one pass; no tabs, no scroll view. (A sixth, Data Management,
-held `Wipe All Recordings (N)` and `Wipe All Milestones (N)` until 2026-09-26, when the
-no-player-deletion ruling removed it.)
+sections drawn top to bottom in one pass; no tabs, no scroll view.
 
-Hosts: `ParsekFlight.cs:2138`, `ParsekKSC.cs:260`. `UiSurface.MainButtonSettings` is visible in
-both modes by design - it hosts the mode toggle - and is deliberately left unwrapped at the
-draw site (`UI/UiComplexityMode.cs:174`).
+Hosts: `ParsekFlight`, `ParsekKSC`. `UiSurface.MainButtonSettings` is visible in both modes by
+design - it hosts the mode toggle. First opened to the right of the main window at 280 px wide;
+it has no resize handle, and its height is fitted to its content on first open and on every
+mode change (`SettingsWindowUI.RequestHeightRemeasure`, `design-ui-basic-advanced.md` 7.2).
+Without an active game it draws `Settings unavailable (no active game).` and `Close`.
 
 | # | section | gate | controls |
 |---|---|---|---|
-| 1 | Interface | always | `Basic` / `Advanced` pressed toggles of one fixed equal width (`SettingsWindowPresentation.OptionCellWidth`) plus a hint label; `Basic` is greyed while a Gloops recording runs (predicate `IsModeOptionDisabled`) |
-| 2 | Ghosts | always | ghost-audio slider 0..1 with a 35 px percent label, and the ` Show supply route paths on map` toggle |
+| 1 | Interface | always | `Basic` / `Advanced` pressed toggles of one fixed equal width (`SettingsWindowPresentation.OptionCellWidth`) plus the hint `Basic hides power-user windows. Advanced is the full UI.`; `Basic` is greyed while a Gloops recording runs (`IsModeOptionDisabled`), and the hint then adds `Stop the Gloops recording first.` |
+| 2 | Ghosts | always | `Ghost audio` label (85 px), a 0..1 slider and a 35 px percent label; the ` Show supply route paths on map` toggle |
 | 3 | Looping | `SettingsSectionLooping` | `Auto-launch every` label, a 45 px value field, a 40 px unit button |
 | 4 | Recorder Sample Density | `SettingsSectionSampleDensity` | `Low` / `Medium` / `High` pressed toggles of one fixed equal width, plus a summary label |
-| 5 | Diagnostics | `SettingsSectionDiagnostics` | five toggles (` Verbose logging`, three tracers, ` Write readable .txt recording copies`), `In-Game Test Runner`, `Run Diagnostics Report`, and the `Rewind points on disk: <size> (<n> files)` readout whose hover carries the live / crashed / stable / concluded counts |
+| 5 | Diagnostics | `SettingsSectionDiagnostics` | five toggles (` Verbose logging`, ` Ghost render tracing (Warning: huge logs)`, ` Map/TS render tracing (Warning: huge logs)`, ` Ledger apply tracing (Warning: huge logs)`, ` Write readable .txt recording copies`), `In-Game Test Runner`, `Run Diagnostics Report`, and the `Rewind points on disk: <size> (<n> files)` readout whose hover carries the live / crashed / stable / concluded counts |
 
-Order since 2026-09-26: Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics (it
-was Interface, Looping, Ghosts, Diagnostics, Sample Density, Data Management).
-
-Footer: `Defaults` (resets the values in `SettingsWindowPresentation.BuildDefaults`, the
-Advanced-only ones included, and never the interface mode) and `Close`. Each hidden section's
-trailing `Space` lives INSIDE its gate, so Basic shows no double gap.
+Footer: the two-line tooltip echo strip, then `Defaults` (resets the values in
+`SettingsWindowPresentation.BuildDefaults`, the Advanced-only ones included, never the
+interface mode) and `Close`. Each hidden section's trailing gap lives INSIDE its gate, so
+Basic shows no double gap. In Basic the window's click-away commit for the auto-launch field is
+replaced by dropping an open edit, since the Looping section is not drawn.
 
 Persistence: the interface mode, ghost audio, route paths, sample density, verbose logging, the
 three tracers and the readable copies are install-wide (`ParsekSettingsPersistence`,
 `GameData/Parsek/PluginData/settings.cfg`; the audio slider is written once per finished drag);
-only the auto-launch period is per save. The readable copies default OFF for players since
-2026-09-26 with no migration (a stored key keeps its value), and the harness settings baseline
-stamps them ON for every automation run.
+only the auto-launch period is per save. The readable copies default OFF for players, and the
+harness settings baseline stamps them ON for every automation run.
 
-Settings that no longer have a control at all (2026-08-27 simplification): `autoRecordOnLaunch`
-/ `autoRecordOnEva` / `autoRecordOnFirstModificationAfterSwitch` and `autoMerge` are hidden
-fields clamped `true` on load, `forceFaithfulLoopPlayback` clamped `false`
-(`ParsekSettings.cs:38-42`, `:71`, `:251`, clamps `:290-297`); `autoBackupExistingSaves`,
-`showCommittedFutureOverlays`, `blockCommittedActions` and `transitedBodyRotationModeIndex` were
-deleted outright (`ParsekSettings.cs:93-99`, `:233-238`).
+Settings with no control: `autoRecordOnLaunch` / `autoRecordOnEva` /
+`autoRecordOnFirstModificationAfterSwitch` and `autoMerge` are hidden fields clamped `true` on
+load and `forceFaithfulLoopPlayback` is clamped `false`, unless an automation env hook is armed
+(`ParsekScenario.OnLoad`); landing-body alignment is the compile-time
+`ParsekSettings.LandingBodyAlignmentMode` (Loose).
 
-Pictures: `ksc-settings-advanced` (39 nodes) and `ksc-settings-basic` (19). The 20-node
-difference is exactly the three Basic-hidden sections, diffed node for node: 5 Looping + 9
-Diagnostics + 6 Sample Density. Nothing else differed but the two mode buttons' widths (the
-selected one rendered with `GUI.skin.box`); since 2026-09-26 both option rows draw pressed
-toggles of one fixed width, so the mode switch no longer moves them. No picture: the null-settings fallback, a greyed
-`Basic`, a mid-edit auto-loop field. (Those pictures carry the Data Management section, which
-no longer draws.)
+Pictures: `ksc-settings-advanced` and `ksc-settings-basic` (GUI-1, `2026-10-01_1221`); the
+difference between them is exactly the three Basic-hidden sections. No picture: the
+null-settings fallback, a greyed `Basic`, a mid-edit auto-launch field.
 
 ### 3.9 Real Spawn Control
 
 Purpose: turn a recorded craft passing nearby into a real vessel. FLIGHT only, Basic-hidden
-(`ParsekUI.cs:771`, `UI/UiComplexityMode.cs:180`).
+(`MainButtonSpawnControl`). Title `Parsek - Real Spawn Control`; first opened at 750 x 200,
+minimum 350 x 150.
 
-Columns (`UI/SpawnControlUI.cs:56-60`, header `DrawSpawnColumnHeader`): `Craft` expand,
-`Dist` 55, `Rel Speed` 70, `Spawns at` 100, `In T-` 95, `State` 110 (not sortable) and `Warp`
-118 (not sortable; the row's `Warp to Spawn` / `Warp to Depart` button). `State` holds the
-departure text (`Departs T-..` / `Departing -> ..`, tinted) and `-` for a craft that spawns
-and stays (`SpawnControlPresentation.NoDepartureStateText`), so every header has a cell under
-it; until 2026-09-25 the warp button sat under an empty header cell and a non-departing row's
-State cell was blank. Layout (2026-09-25): ONE dark body box holds the pinned header row and
-the scroll view of rows (`DrawSpawnCandidateTable`), and the row labels use the shared table
-cell style (`ParsekUI.GetTableCellStyle`). Before, the box wrapped the rows only and started
-4 px left of the header cells, and every column's text sat 4 px left of its header's (GUI-6
-`2026-09-24_2043`, `play-spawncontrol-advanced`).
-Five headers sort; default is `Distance` ascending. Row model is one `NearbySpawnCandidate`
-wrapped by the pure `SpawnCandidateRowPresentation` (`UI/SpawnControlPresentation.cs:21-39`).
+Columns (`UI/SpawnControlUI.cs`, header `DrawSpawnColumnHeader`): `Craft` expand, `Dist` 55,
+`Rel Speed` 70, `Spawns at` 100, `In T-` 95, `State` 110 (not sortable) and `Warp` 118 (not
+sortable; the row's `Warp to Spawn` / `Warp to Depart` button). `State` holds the departure
+text (`Departs T-...` / `Departing -> <destination>`, drawn with an arrow and tinted) and `-`
+for a craft that spawns and stays (`SpawnControlPresentation.NoDepartureStateText`). ONE dark
+body box holds the pinned header row and the scroll view of rows (`DrawSpawnCandidateTable`),
+and the row labels use the shared table cell style (`ParsekUI.GetTableCellStyle`). Five headers
+sort; the default is `Dist` ascending. The row model is one `NearbySpawnCandidate` wrapped by
+the pure `SpawnCandidateRowPresentation` (`UI/SpawnControlPresentation.cs`).
 
 Two envelopes, and the window exists to show the difference: the INNER gate that enables the
-warp button is 250 m / 2 m/s (`ParsekFlight.cs:423`, `:429`), the OUTER "show in the list"
-bound is 1000 m / 50 m/s (`:434-435`). A candidate between them is listed with a disabled warp
-button and no green tint. The three disabled reasons in priority order
-(`UI/SpawnControlPresentation.cs:71-81`) are `Too far away to spawn`, `Passing too fast to
-spawn`, `This pass has already happened`, and they reach the player only through
-`DisabledHoverEcho` because the row buttons carry no `GUIContent` at all (`:332-335`).
+warp button is `ParsekFlight.NearbySpawnRadius` 250 m and `MaxRelativeSpeed`; the OUTER "show
+in the list" bound is `NearbySpawnListRadius` 1000 m. A candidate between them is listed with a
+disabled warp button and no green tint. The three disabled reasons in priority order are
+`Too far away to spawn`, `Passing too fast to spawn`, `This pass has already happened`, and they
+reach the player only through `DisabledHoverEcho`, because the row buttons carry no
+`GUIContent`.
 
-Self-close: `ResolveAutoCloseReason(inFlight, hasFlight, candidateCount)` (`:88-100`) shuts the
-window on its FIRST draw when any of `not-in-flight` / `flight-null` / `zero-candidates` fires.
+Footer: the single-line tooltip echo strip, then `Warp to Next Spawn` (expands; greyed when no
+candidate is inside the inner gate; its hover names the next spawn and is handed to the strip
+explicitly, because the button draws below it) and `Close` (132 px), the resize handle and drag.
 
-**No capture exists in either run, by design.** `GUI-2-census-flight.toml:152` declares
-`op=open window=spawncontrol` with `expect = "ERROR"` and nothing follows it; the seam answered
-`window-self-closed frames=1` because the census host's sub-orbital probe has zero nearby
-candidates, which is the normal state. Tracked as
-`GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST` (`GUI-2-census-flight.toml:147-151`).
+Self-close: `ResolveAutoCloseReason(inFlight, hasFlight, candidateCount)` shuts the window on
+its FIRST draw when any of `not-in-flight` / `flight-null` / `zero-candidates` fires. That
+makes the `No nearby craft to spawn.` branch further down unreachable (todo
+`GUI-STATE-COVERAGE-RESIDUE-2026-09-21`).
+
+Pictures: `play-spawncontrol-advanced` (GUI-6, one candidate row, `Watching` overlay standing).
 
 ### 3.10 Gloops Flight Recorder
 
-Purpose: record a ghost-only flight the career ignores. FLIGHT only
-(`ParsekUI.cs:1742-1744`).
+Purpose: record a ghost-only flight the career ignores. FLIGHT only. First opened at 280 x 230,
+no resize handle.
 
 **Its launcher is RETIRED in BOTH modes.** `UiSurfaceVisibility.IsRetired` returns true for
-`MainButtonGloops` (`UI/UiComplexityMode.cs:140-143`) and `IsVisible` short-circuits before
-consulting the mode (`:162-163`), so the block at `ParsekUI.cs:941-952` never draws, in
-Advanced either. The window BODY is not gated, so it still draws when its flag is set - and the
-only remaining writer of that flag is the harness seam
-(`TestCommands/ParsekTestCommandAddon.UiAction.cs:659-665`). The cost of that state, and why
-un-retiring it is not a one-line change, is finding 5.2 "Is Gloops retired".
+`MainButtonGloops` and `IsVisible` short-circuits before consulting the mode, so the launcher
+never draws, in Advanced either. The window BODY is not gated, so it still draws when its flag
+is set - and the only remaining writer of that flag is the harness seam. The cost of that
+state, and why un-retiring it is not a one-line change, is finding 5.2 "Is Gloops retired".
 
-Contents: a FIXED button order so positions never shift between states (`:226-228`) - primary
-(`Stop Recording` / `Start New Recording` / `Start Recording`), `Preview` / `Stop Preview`,
-`Discard Recording` - then a three-block status ladder selected by
-`SelectStatusBlock(isRecording, hasLastRecording)` (`:172-177`) on a snapshot RE-READ after the
-button handlers (`:305-310`, the #446 NRE guard), then `Close`.
+Contents: a FIXED button order so positions never shift between states - the primary button
+(`Stop Recording` / `Start New Recording` / `Start Recording`, hover `Records a ghost-only
+flight; your career never sees it.`), `Preview` / `Stop Preview` (greyed with no last take or
+while recording), a gap, `Discard Recording` (greyed with nothing to discard) - then a
+three-block status ladder selected by `SelectStatusBlock(isRecording, hasLastRecording)` on a
+snapshot RE-READ after the button handlers (the #446 NRE guard): `Recording...` with `Points:`
+and `Duration:`; `Saved: "<name>"` with `Points:` and `Duration:`; or `Vessel: <name>` with
+`Ghost-only - loops by default`. Then the two-line tooltip strip and `Close`.
 
-Picture: `flight-gloops-advanced`, 8 nodes, the `Empty` block with Preview and Discard both
-greyed. No picture: the `Recording` or `Saved` blocks, `Stop Preview`.
+Picture: `flight-gloops-advanced`, the empty block with Preview and Discard greyed. No picture:
+the `Recording` or `Saved` blocks, `Stop Preview`.
 
 ### 3.11 The two Test Runner windows
 
-EVERY `file:line` IN THIS SUBSECTION WAS RE-DERIVED ON 2026-09-15 against both runner files,
-because that is where the GUI-12 authoring pass hit them; the rest of section 3 is still the
-2026-09-11 reading.
-
 They share a row model, status icons, colours, category labels and `Run` / `Run+` / play
 semantics (both call into `InGameTests/TestRunnerPresentation.cs` and the same
-`InGameTestRunner` API). Two row kinds, no columns, no sort keys (categories are ordinal-sorted):
-a category header `"{arrow} {category} ({passed}/{total})"` plus `Run` 40 and `Run+` 44, and a
-test row with a 20 px status icon, an expanding name label with `[isolated]` / `[single]` /
-`(NNNms)` suffixes, and a 24 px play button - followed by an ALWAYS-rendered error row that
-collapses to `Height(0)` when empty, because a conditional begin/end would desync the
-Layout/Repaint control count (`UI/TestRunnerUI.cs:386-398`).
+`InGameTestRunner` API). Top row: `Run All`, `Run All + Isolated` (hover: runs batch-safe plus
+`[isolated]` FLIGHT tests, quickloading a baseline after each destructive test), `Reset` (hover:
+clears the table AND the per-scene history the results file uses) - all three greyed while a
+run is going - and `Cancel` (live only while running). Then a summary label
+(`idle | 1 passed  0 failed  0 skipped  (624 total)`). Two row kinds, no columns, no sort keys
+(categories are ordinal-sorted): a category header `"{arrow} {category} ({passed}/{total})"`
+plus `Run` 40 and `Run+` 44, and a test row with a 20 px status icon, an expanding name label
+with `[isolated]` / `[single]` / `(NNNms)` suffixes, and a 24 px play button - followed by an
+ALWAYS-rendered error row that collapses to `Height(0)` when empty, because a conditional
+begin / end would desync the Layout / Repaint control count. Both windows are first opened at
+440 x 600 with a 320 x 600 minimum and a two-line tooltip strip.
 
 | difference | global (Ctrl+Shift+T) | Settings-launched |
 |---|---|---|
-| search / filter bar | absent | present (`UI/TestRunnerUI.cs:497-512`) |
-| footer labels | two (`InGameTests/TestRunnerShortcut.cs:638`, `:640`) | one (`UI/TestRunnerUI.cs:555`) |
-| window host | raw `GUILayout.Window` (`:291`) | `ClickThruBlocker` (`UI/TestRunnerUI.cs:133`) |
-| input lock | CAMERACONTROLS + six editor types + `KSC_ALL` (`:304-310`) | CAMERACONTROLS only |
-| open-flag accessor | `IsOpenForTesting` + `WindowRectForTesting` (`:134`, `:148`), reached through this MonoBehaviour's OWN singleton `Instance` (`:109`) rather than through `ParsekUI` | `IsOpen` + `WindowRectForTesting` |
-| complexity | never gated; draws in every scene but LOADING (`:267`) | launcher lives inside the Basic-hidden Diagnostics section, and the close handler shuts an open instance (`ParsekUI.cs:516-521`) |
-| extra responsibility | hosts the M-A3 autorun hooks (env consts `:69`-`:80`, read-once parse `:223`, `UpdateAutorun` `:722`, `FireAutorun` `:815`, the multi-category driver `:874`) | none |
+| search / filter bar | absent | present: `Search:` (48 px), a text field and a 24 px `x` clear button; an empty filter result reads `No categories or tests match "<query>".` |
+| footer labels | two: `Results file auto-updates after each run. Multi-scene runs accumulate.` and `Ctrl+Shift+T to toggle from any scene` | one: `Ctrl+Shift+T opens a separate runner window, in any scene` |
+| window host | raw `GUILayout.Window` at a FIXED screen position (20, 60) | `ClickThruBlocker`, anchored beside the main window |
+| input lock | CAMERACONTROLS + six editor types + `KSC_ALL`, taken while the mouse is inside | CAMERACONTROLS only |
+| open-flag accessor | `IsOpenForTesting` + `WindowRectForTesting`, reached through this MonoBehaviour's OWN singleton `Instance` rather than through `ParsekUI` | `IsOpen` + `WindowRectForTesting` |
+| complexity | never gated; draws in every scene but LOADING | launcher lives inside the Basic-hidden Diagnostics section, and the Basic close set shuts an open instance |
+| extra responsibility | hosts the M-A3 autorun hooks (`UpdateAutorun`, `FireAutorun`, the multi-category driver) | none |
 
-BOTH WINDOWS ARE NOW PHOTOGRAPHED, by `GUI-12-census-testrunners` (run `2026-09-15_2057`, host
-the committed `career-earned-ksc` fixture at SPACECENTER, 113 categories and 624 play rows on
-that build). Seven captures, and the node counts below are the window's OWN SUBTREE with the
-whole dump's total in brackets: the Settings-launched runner idle 4217 (4253), every fold closed
-473 (509), one category expanded over the closed list 479 (515), and the same rows after a real
-run 479 (515); the global runner idle 4214 (4250), closed 470 (506), one category 476 (512).
 IDLE MEANS EVERY CATEGORY EXPANDED for both, because each seeds its fold set from its own
-discovery at lazy init (`UI/TestRunnerUI.cs:111-116`, `InGameTests/TestRunnerShortcut.cs:471-477`),
-which is why GUI-1's single 4217-node picture was the largest dump in the census and still showed
-one state of four - and why the load-bearing seam direction is `key=none` rather than `key=all`.
+discovery at lazy init; a full idle runner is the largest dump in the census. The measured
+difference between the two windows is exactly 3 nodes at every comparable state - the
+`Search:` label, the text field and the `x` button the global window does not draw.
 
-THE DIFFERENCE BETWEEN THE TWO WINDOWS IS MEASURED, not inferred: exactly 3 nodes at every
-comparable state (4217/4214, 473/470, 479/476), and the dumps name them - the `Search:` label,
-the text field and the 24 px `x` clear button the global window does not draw. The footer
-asymmetry the table above states is confirmed in the same dumps and in that direction: the
-GLOBAL window draws TWO footer labels (`Results file auto-updates after each run. Multi-scene
-runs accumulate.` and `Ctrl+Shift+T to toggle from any scene`) while the Settings-launched one
-draws ONE (`Ctrl+Shift+T opens a separate runner window, in any scene`, the P16 fix).
+Seam routes, all automation-only, all writing state a click already writes:
 
-THE SEAM ROUTES THAT BOUGHT THOSE PICTURES, all automation-only, all writing internal state a
-click already writes, and none of them a player-facing surface:
-
-- `testrunnerglobal` is a twelfth window-table row, so every `op=describe` payload in the census
-  now reads `windows=12`. The count is the seam's whole TABLE rather than the scene's drawn set,
-  which is why the eleven older census specs had their pinned echoes bumped from `windows=11` in
-  the same commit. It is the only row besides `main` exempt from the hidden-host settle refusal
-  (`TestCommands/TestCommandUiAction.cs:857`), because its draw is in its own `OnGUI` outside
-  both scene hosts' `showUI` gate, so a settled read-back over it describes a frame that really
-  did draw it.
+- `testrunnerglobal` is its own window-table row. It is the only row besides `main` exempt from
+  the hidden-host settle refusal (`TestCommandUiAction.WindowDrawsOutsideHostShowUi`), because
+  its draw is in its own `OnGUI` outside both scene hosts' `showUI` gate.
 - `op=expand key=category:<name>` drives either window's fold set through ONE key prefix
-  (`TestCommands/TestCommandUiState.cs:121`), one set per window, with `window=` saying which -
-  the prefix names the same collection shape in both, so a second one would only invite the two
-  to drift. The flown readings: `key=none` answered `changed=113 expanded=0 total=113` on each
-  window, and `key=category:GuiTree state=true` answered `changed=1 expanded=1 total=113`.
+  (`TestCommandUiState`), one set per window, with `window=` saying which.
 - `op=run window=<runner> category=<name>` runs one in-game test category through THAT WINDOW'S
   OWN `InGameTestRunner` - the category header `Run` button's body, `ResetCategory` then
-  `RunCategory` (`TestCommands/ParsekTestCommandAddon.UiRun.cs:106-107`). It is NOT the
-  `RunTests` verb, and that is the whole reason it exists: each runner window constructs its own
-  runner with its own reflection discovery, so a `RunTests` batch drives a THIRD runner and
-  leaves both windows' tables reading "not run" - a capture labelled "results" over a table of
-  dots. The flown reading is `uiaction run ok ... discovered=1 total=1 passed=1 failed=0
-  skipped=0` over `GuiTree`, and the window followed it. The summary label moved from
-  `idle | 0 passed  0 failed  0 skipped  (624 total)` to
-  `idle | 1 passed  0 failed  0 skipped  (624 total)`, and the category header from
-  `GuiTree (0/1)` to `GuiTree (1/1)`. So
-  `cek-testrunner-results-advanced` is the product's own rendering of a real outcome rather than
-  a seeded status. That runner is also read by the addon's safe-point gate (`IsBatchRunning` /
-  `CommandRunnerIsRunningForGating`), which now covers the Settings-launched window's runner as
-  well, since this op can start a batch on it.
+  `RunCategory` (`ParsekTestCommandAddon.UiRun`). It is NOT the `RunTests` verb: each runner
+  window constructs its own runner with its own reflection discovery, so a `RunTests` batch
+  drives a THIRD runner and leaves both windows' tables reading "not run". That runner is also
+  read by the addon's safe-point gate (`IsBatchRunning` /
+  `CommandRunnerIsRunningForGating`).
 
-NO PICTURE STILL: a FAILED row (the red error row that expands out of its `Height(0)` collapse),
-the `Run+` isolated path, and either window MID-RUN - `op=run` is two-phase and polls
-`!runner.IsRunning`, so a frame between the dispatch and the finish is not something a lane can
-time.
+Pictures: `ksc-testrunner-advanced` (GUI-1); `cek-testrunner-idle-advanced`,
+`-collapsed-advanced`, `-category-advanced`, `-results-advanced` and
+`cek-testrunnerglobal-idle-advanced`, `-collapsed-advanced`, `-category-advanced` (GUI-12,
+`career-earned-ksc`). No picture: a FAILED row (the red error row that expands out of its
+`Height(0)` collapse), the `Run+` isolated path, and either window MID-RUN.
 
 ### 3.12 Dialogs (19)
 
-Since 2026-09-26 the two Settings wipe confirmations (`Confirm: Wipe Recordings`, and
-`Confirm: Wipe Game Actions` / `Confirm: Wipe Milestones`) no longer exist; their rows are
-removed from the table below, which otherwise stays the 2026-09-11 reading.
+All are stock `PopupDialog` / `MultiOptionDialog` on `HighLogic.UISkin`, so all are invisible
+to `DumpGuiTree` (PNG only). The population is the 18 production spawn sites below
+(`PopupDialog.SpawnPopupDialog(` outside `InGameTests/` and `TestCommands/`) plus the in-game
+test runner's `Parsek Test Isolation` dialog (`ParsekTestRestoreDegraded`, one `OK`, spawned in
+`InGameTests/InGameTestRunner.cs`). `Confirm: Re-Fly` pins an explicit 420 px width
+(`RewindInvoker.AdvisoryDialogWidth`); the no-width constructor inherits KSP's 300 px default;
+the two cursor-anchored ghost menus size themselves.
 
-All are stock `PopupDialog` / `MultiOptionDialog` on `HighLogic.UISkin`, so all 21 are
-invisible to `DumpGuiTree`, and as of wave 3 **six have a picture** (PNG only, for that same
-reason - see the dialog row of section 2 for the six and the 14 that stay filed). Only one pins
-an explicit width (08.6, 420 px); eight use the no-width ctor and inherit KSP's 300 px default;
-the two cursor-anchored menus use 160 and 180.
+| dialog title | popup name | spawn site | trigger | buttons |
+|---|---|---|---|---|
+| `Confirm: Merge to Timeline` / `Confirm: Commit to Timeline` (post-transition) | `MergeDialog.DialogName` | `MergeDialog` (post-transition show) | a pending tree surviving into FLIGHT (`ParsekFlight` finalization) or the deferred non-FLIGHT coroutine (`ParsekScenario`) | 2 or 3: the merge label, `Merge & Seal` for a not-yet-sealable Re-Fly attempt, `Discard` |
+| `Confirm: Merge to Timeline` / `Re-Fly attempt - leaving flight` (pre-transition) | `MergeDialog.DialogName` | `MergeDialog` (pre-transition show) | the `HighLogic.LoadScene` prefix blocking a flight exit (`SceneExitInterceptor`) | 1 (journal active), 2 or 3 |
+| `Pending switch-segment recording` | - | `MergeDialog.ShowPreSwitchDecisionDialog` | `MapContextMenuOptions.FocusObject.OnSelect` prefix, cases A and B (`Patches/MapFocusObjectOnSelectPatch.cs`) | 2: `Merge`, `Discard`. No Cancel by design; Esc is defeated by a re-spawn |
+| `Revert during Re-Fly` | - | `ReFlyRevertDialog` | `RevertInterceptor.Prefix` on stock Revert while a Re-Fly marker lives | 2 (journal active) or 3: `Retry from Rewind Point`, `Discard Re-Fly`, `Continue Flying` |
+| `Action Blocked` | `ParsekResourceBlock` | `CommittedActionDialog` | the stock-control click-blocks (3.13) | 1: `OK` |
+| `Confirm: Re-Fly` | `ParsekRewindInvoke` | `RewindInvoker` | the Recordings-table, Missions-tab and Timeline `Fly` buttons | 2: `Fly`, `Cancel` |
+| `Save failed` | `ParsekSceneExitSaveFailed` | `SceneExitInterceptor` | a throwing `SaveGame` on a flight -> main-menu exit | 1: `OK` |
+| ghost icon context menu (title = vessel name) | `ParsekGhostIconMenu` | `Patches/GhostVesselLoadPatch.cs` | left-click on a ghost orbit node in map view | 3: `Focus`, `Set As Target`, one dynamic third |
+| `Ghost` (Tracking Station popup) | `ParsekTrackingStationGhostMenu` | `ParsekTrackingStation` | TS ghost selection (`UpdateSelectedGhostPopup`) | 1: `Warp to Spawn` or a duration-suffixed label |
+| `Confirm: Seal Unfinished Flight` | - | `UnfinishedFlightSealHandler` | any `Seal` button | 2: `Seal Permanently`, `Cancel` |
+| `Confirm: Warp to Time` | `ParsekWarpToTimeConfirm` | `WarpToTimeController` | the Timeline `Warp to time` button | 2: `Warp`, `Cancel` |
+| `Confirm: Disband Group` | `ParsekDisbandGroupConfirm` | `RecordingsTableUI.ShowDisbandGroupConfirmation` | `X` on a non-permanent folder | 2: `Disband Group`, `Cancel` |
+| `Confirm: Rewind` | `ParsekRewindConfirm` | `RecordingsTableUI.ShowRewindConfirmation` | `R` / `Rewind` on a row, folder, block or mission | 2: `Rewind`, `Cancel` |
+| `Confirm: Fast-Forward` | `ParsekFastForwardConfirm` | `RecordingsTableUI.ShowFastForwardConfirmation` | `FF` / `Forward` on a row, folder, block or mission | 2: `Fast-Forward`, `Cancel` |
+| `Confirm: Warp to Launch` | `ParsekMissionWarpToWindowConfirm` | `MissionsWindowUI.ShowMissionWarpToWindowConfirmation` | an enabled mission `Warp to...` | 2: `Warp`, `Cancel` |
+| `Confirm: Delete Route` | `ParsekLogisticsDeleteRouteConfirm` | `LogisticsWindowUI` | Delete on an Active or Paused route | 2: `Delete`, `Cancel` |
+| `Confirm: Delete Dormant Route` | `ParsekLogisticsDeleteDormantRouteConfirm` | `LogisticsWindowUI` | Delete in the Dormant disclosure | 2: `Delete`, `Cancel` |
+| `Create Supply Route?` | `ParsekLogisticsCreateRouteConfirm` | `LogisticsWindowUI` | `Create Route` on a candidate row | 3: `Create Paused`, `Create and Activate`, `Cancel` |
 
-**CORRECTION TO THE TABLE BELOW, measured 2026-09-15 while authoring `GUI-10-census-dialogs`
-against the source rather than against this table.** The 21 rows are LEFT AS THEY WERE - they
-are the 2026-09-11 reading against `4eb427e9e` and re-measuring them is its own task - but
-three of them are known wrong today and every `file:line` in the table has moved:
-
-- `Confirm: Wipe Game Actions` is now `ShowWipeMilestonesConfirmation`, title
-  `Confirm: Wipe Milestones`, popup name `ParsekWipeMilestonesConfirm` (`ParsekUI.cs:1793`,
-  spawn at `:1795`).
-- the post-commit `Create Supply Route?` row (`UI/RouteCreationDialog.cs:312`) is GONE: that
-  dialog was DELETED as unreachable (GUI census finding D4) and the class is now a pure span
-  helper. The deletion is stated at the surviving confirm's own site,
-  `UI/LogisticsWindowUI.cs:2801-2803`.
-- one dialog the table omits entirely EXISTS: `Parsek Test Isolation` /
-  `ParsekTestRestoreDegraded`, spawned at `InGameTests/InGameTestRunner.cs:2580`. It sits under
-  `InGameTests/`, which is exactly the directory section 1's counting grep excludes, so it was
-  never in the 21.
-- so the population is STILL 21 but its MEMBERSHIP differs by those rows: the table's own grep
-  (`PopupDialog.SpawnPopupDialog(` outside `InGameTests/` and `TestCommands/`) now returns
-  **20**, and the 21st is the test-isolation dialog the exclusion hid.
-- line numbers, re-derived: `MergeDialog.cs` 274 / 468 / 726 -> 308 / 502 / 764;
-  `ParsekTrackingStation.cs` 1276 -> 1319; `SceneExitInterceptor.cs` 585 -> 590;
-  `UI/RecordingsTableUI.cs` 4431 / 4474 / 4510 -> 4696 / 4739 / 4775;
-  `UI/LogisticsWindowUI.cs` 2582 / 2623 / 2726 -> 2686 / 2727 / 2831;
-  `UI/MissionsWindowUI.cs` 3006 -> 3192; `ParsekUI.cs` 1505 / 1538 -> 1755 / 1795.
-  `CommittedActionDialog.cs:31`, `ReFlyRevertDialog.cs:236`, `RewindInvoker.cs:509`,
-  `UnfinishedFlightSealHandler.cs:214`, `WarpToTimeController.cs:223` and
-  `Patches/GhostVesselLoadPatch.cs:324` are unmoved.
-
-| dialog title | spawn site | trigger | buttons |
-|---|---|---|---|
-| `Confirm: Merge to Timeline` / `Confirm: Commit to Timeline` (post-transition) | `MergeDialog.cs:274` | a pending tree surviving into FLIGHT (`ParsekFlight.Finalization.cs:45`) or the deferred non-FLIGHT coroutine (`ParsekScenario.cs:6114`) | 2 or 3: merge label, optional `Merge & Seal`, `Discard` (`:240`) |
-| `Confirm: Merge to Timeline` / `Re-Fly attempt - leaving flight` (pre-transition) | `MergeDialog.cs:468` | the `HighLogic.LoadScene` prefix blocking a flight exit (`SceneExitInterceptor.cs:763`, `:796`, `:843`) | 1 (journal active), 2 or 3 (`:419-461`) |
-| `Pending switch-segment recording` | `MergeDialog.cs:726` | `MapContextMenuOptions.FocusObject.OnSelect` prefix, cases A and B (`Patches/MapFocusObjectOnSelectPatch.cs:503`, `:547`) | 2: `Merge`, `Discard`. No Cancel by design; Esc is defeated by a re-spawn (`:747-784`) |
-| `Revert during Re-Fly` | `ReFlyRevertDialog.cs:236` | `RevertInterceptor.Prefix` on stock Revert while a Re-Fly marker lives (`RevertInterceptor.cs:176`) | 2 (journal active) or 3: `Retry from Rewind Point`, `Discard Re-Fly`, `Continue Flying` |
-| `Action Blocked` | `CommittedActionDialog.cs:31` | four stock-UI Harmony hooks: contract accept, facility upgrade, kerbal hire, tech research | 1: `OK` |
-| `Confirm: Re-Fly` | `RewindInvoker.cs:509` | the Recordings-table and Timeline `Fly` buttons | 2: `Fly`, `Cancel` |
-| `Save failed` | `SceneExitInterceptor.cs:585` | a throwing `SaveGame` on a flight -> main-menu exit | 1: `OK` |
-| ghost icon context menu (title = vessel name) | `Patches/GhostVesselLoadPatch.cs:324` | left-click on a ghost orbit node in map view | 3: `Focus`, `Set As Target`, one dynamic third |
-| `Ghost` (Tracking Station popup) | `ParsekTrackingStation.cs:1276` | TS ghost selection, driven from `UpdateSelectedGhostPopup` (`:1154`) | 1: `Warp to Spawn` or a duration-suffixed label |
-| `Confirm: Seal Unfinished Flight` | `UnfinishedFlightSealHandler.cs:214` | the Seal button in the Re-Fly column | 2: `Seal Permanently`, `Cancel` |
-| `Confirm: Warp to Time` | `WarpToTimeController.cs:223` | the Timeline `Warp to time` button | 2: `Warp`, `Cancel` |
-| `Confirm: Disband Group` | `UI/RecordingsTableUI.cs:4431` | `X` on a non-permanent folder | 2: `Disband Group`, `Cancel` |
-| `Confirm: Rewind` | `UI/RecordingsTableUI.cs:4474` | `R` on a row, folder or block | 2 |
-| `Confirm: Fast-Forward` | `UI/RecordingsTableUI.cs:4510` | `FF` on a row, folder or block | 2 |
-| `Confirm: Warp to Launch` | `UI/MissionsWindowUI.cs:3006` | an enabled mission `Warp to...` | 2: `Warp`, `Cancel` |
-| `Confirm: Delete Route` | `UI/LogisticsWindowUI.cs:2582` | `X` on an Active or Paused row | 2 |
-| `Confirm: Delete Dormant Route` | `UI/LogisticsWindowUI.cs:2623` | Delete in the Dormant disclosure | 2 |
-| `Create Supply Route?` (window-raised) | `UI/LogisticsWindowUI.cs:2726` | `Create Route` on a candidate row | 3: `Create Paused`, `Create and Activate`, `Cancel` |
-| `Create Supply Route?` (post-commit) | `UI/RouteCreationDialog.cs:312` | `MergeDialog.OnTreeCommitted` - test-only callers today (finding D4) | 2: `Create Route`, `Cancel` |
-
-Two seam facts that shape any future dialog lane: `AnswerMergeDialog` finds the live popup by
-`MergeDialog.DialogName` and picks buttons by ORDER (`TestCommands/ParsekTestCommandAddon.cs:2536`,
-`:2544-2577`), and it is HARD-GATED on `ActiveReFlySessionMarker != null` (`:2258-2260`), so it
-can answer the merge dialog only in its Re-Fly variant. Three dialogs bypass themselves under
-test through hooks (`CommittedActionDialog.cs:12`, `ReFlyRevertDialog.cs:40`/`:49`/`:57`,
-`SceneExitInterceptor.ShowDialogForTesting`), so an in-game test never renders them.
+Two seam facts that shape any dialog lane: `AnswerMergeDialog` finds the live popup by
+`MergeDialog.DialogName` and picks buttons by ORDER, and it is HARD-GATED on
+`ActiveReFlySessionMarker != null`, so it can answer the merge dialog only in its Re-Fly
+variant. Three dialogs bypass themselves under test through hooks (`CommittedActionDialog`,
+`ReFlyRevertDialog`, `SceneExitInterceptor.ShowDialogForTesting`), so an in-game test never
+renders them. `GUI-10-census-dialogs` raises and photographs `Action Blocked`, `Save failed`,
+`Confirm: Fast-Forward` and `Confirm: Seal Unfinished Flight` through their production spawn
+sites (`op=dialog`); the rest need state section 6.2 lists.
 
 ### 3.13 Overlays, markers and badges (7)
 
-None is inside a `GUI.Window` and the badges are uGUI, so none is in any `.gui.json` - WITH ONE
-MEASURED EXCEPTION, and TWO now have a picture (updated 2026-09-11 off the wave-2 reading runs).
-
-- **In the tree after all:** the Watch Mode overlay. Its two labels are ROOT-LEVEL nodes in
-  `play-main-watchmode-advanced.gui.json` (`Watching: Part Showcase - Lights v1  (295 m)
-  [Horizon]` at `rect=[170,15,300,22]`, `[ ] return  |  V camera  |  W cycle` at
-  `[170,37,300,18]`), because the recorder patches `GUI.DoLabel` and not only `GUI.DoWindow`.
-  The rule is the FUNNEL, not the window: IMGUI drawn outside a window is captured when it goes
-  through one of the 17, and what stays invisible is uGUI plus anything drawn through
-  `GUI.DrawTextureWithTexCoords` / `GUI.DrawTexture` (which is how the markers' icons are
-  painted - neither call is a patched funnel).
-- **Photographed:** the Watch Mode overlay (above) and the flight-map ghost markers
-  (`play-mapview-ghostmarkers-advanced`, PNG only, with 243 `[GhostMap] Marker DRAWN` lines
-  behind the frame).
-- **Still with no picture (5):** the currency reservation tooltip and the stock-UI annotations' tooltip text (both
-  hover-only, and hover does not paint - see 6.2), the Tracking Station markers (no driveable
-  scene), the in-world ghost labels (no `SpawnWarningUI` producer fired on either flight lane),
-  and the Logistics launcher TINT in its broken state (zero
-  `Logistics button broken-state tint applied` lines in any lane, so only the untinted button
-  has a picture).
-- **Marker LABELS are a separate miss from marker ICONS:**
-  `MapMarkerRenderer.ShouldDrawLabel(sticky, hover) => sticky || hover` (`:324`), and the map
-  capture had neither - the cursor was parked at the client corner and there is no click op to
-  pin one - so that frame carries 243 icons and no label text.
+None is inside a `GUI.Window` and the stock-screen annotations are uGUI, so most are in no
+`.gui.json`. The exception is the Watch Mode overlay: its labels are ROOT-LEVEL nodes in the
+dump (`Watching: Part Showcase - Lights v1  (295 m) [Horizon]`, `[ ] return  |  V camera  |  W
+cycle` in `play-main-watchmode-advanced.gui.json`), because the recorder patches `GUI.DoLabel`
+and not only `GUI.DoWindow`. IMGUI drawn outside a window is captured when it goes through one
+of the 17 patched funnels; uGUI and anything drawn through `GUI.DrawTextureWithTexCoords` /
+`GUI.DrawTexture` (the markers' icons) are not. Marker LABELS are separate from marker ICONS:
+`MapMarkerRenderer.ShouldDrawLabel(sticky, hover) => sticky || hover`, so a capture with the
+pointer parked off the map carries icons and no label text.
 
 | surface | draw site | scene | interaction | what only it carries |
 |---|---|---|---|---|
-| Watch Mode overlay | `WatchModeController.cs:1054`, called `ParsekFlight.cs:2103` | FLIGHT | none (pure output) | the ghost-to-vessel distance and the `[Horizon]` / `[Free]` camera mode; a fixed 300x50 box centred in the LEFT half of the screen (`:1094-1096`) |
-| Currency reservation tooltip | `CurrencyReservationOverlay.cs:87`, paint `:129` | SPACECENTER + FLIGHT | hover only | the Total / Reserved split and the `Short by` overdraw; the stock bar shows only Available. Reputation is deliberately undecorated (`:22-24`). Unconditional since the 2026-08-27 simplification (`:89-90`) |
-| Stock-UI annotations (the badges until 2026-09-25) | Harmony postfixes: `Patches/RnDStockDecorationPatches.cs`, `Patches/AstronautComplexDecorationPatches.cs`, `Patches/MissionControlStockUiPatches.cs`; refresh host `StockUiOverlayController.cs`. No Parsek-drawn object: `OverlayBadge.cs` is deleted | R&D and Mission Control (SPACECENTER); Astronaut Complex in any scene that opens it (also from the VAB/SPH) | the tint, row labels and greyed buttons are always visible; the explanation is in the stock hover tooltip / description | a tinted R&D node icon, the stock row label of a kerbal or contract, stock's disabled Research / hire / dismiss / Accept / Decline buttons, and the explanation text (fact, rule, when it frees up) appended to the stock tooltip or detail text |
-| Ghost map markers (flight map) | `MapMarkerRenderer.cs:208` via `ParsekUI.cs:1901` | FLIGHT map | LEFT click falls through to stock (no handler is supplied, `ParsekUI.cs:2763`); RIGHT click toggles a sticky label | a marker for a ghost with no ProtoVessel; eight distinct skip conditions decide absence (`ParsekUI.cs:2021-2296`) |
-| Ghost map markers (Tracking Station) | `ParsekTrackingStation.cs:364` | TRACKSTATION | LEFT click opens the ghost popup; RIGHT click pins | the same, plus a click-block while the popup is open (`:380-388`) |
-| In-world ghost labels | `ParsekFlight.cs:27052`, call `:2106` | FLIGHT | none | a 250x40 two-line label per chain ghost: `Ghost -- spawn blocked` (also after an exhausted walkback, 2026-10-01) / `chain terminated` / `spawns at UT=n` (`SpawnWarningUI.cs:130-147`) |
-| Logistics launcher tint | `ParsekUI.cs:874-884` | wherever the main window draws | none | the ONLY at-a-glance broken-route signal |
+| Watch Mode overlay | `WatchModeController`, called from `ParsekFlight.OnGUI` | FLIGHT | none (pure output) | the ghost-to-vessel distance and the `[Horizon]` / `[Free]` camera mode; a fixed 300 x 50 box centred in the LEFT half of the screen |
+| Currency reservation tooltip | `CurrencyReservationOverlay.OnGUI` | SPACECENTER + FLIGHT | hover only | the Total / Reserved split and the `Short by` overdraw on the stock funds / science widgets; the stock bar shows only Available. Reputation is deliberately undecorated. Unconditional |
+| Stock-control annotations (the D1 exception) | Harmony patches: `Patches/RnDStockDecorationPatches.cs`, `PartPurchaseBlockPatches.cs`, `AstronautComplexDecorationPatches.cs`, `CrewDialogReservationPatches.cs`, `FlightCrewReservationPatches.cs`, `MissionControlStockUiPatches.cs`, `StrategyReservationPatch.cs`, `FacilityMenuDecorationPatch.cs` / `FacilityRepairBlock.cs`; refresh host `StockUiOverlayController`; marks from `StockUiDecorationQuery`, text from `ReservationExplanation` | R&D, Mission Control, Administration, the facility menus (SPACECENTER); the Astronaut Complex and the VAB / SPH crew dialog in any scene that opens them; the flight crew portraits and hatch dialog | the tint, row labels and greyed buttons are always visible; the explanation is in the stock hover tooltip, description or reason field | a tinted R&D node icon; greyed Research / part Purchase / hire / dismiss / Accept / Cancel / Activate / facility Upgrade and Repair buttons, and a held kerbal's EVA / Transfer in flight; the stock row label of a kerbal (`Reserved ...`, `Lost ...`, `Stand-in for <owner>`, retired stand-in) or of a contract (a committed completion on an Active contract); the reservation explanation appended to the stock tooltip, description or reason. Every click-blocked control carries a mark read from the same predicate, and a refused click raises `Action Blocked` with the same text. No Parsek-drawn box, badge or panel |
+| Ghost map markers (flight map) | `MapMarkerRenderer` via `ParsekUI.DrawMapMarkers` | FLIGHT map | LEFT click falls through to stock; RIGHT click toggles a sticky label | a marker for a ghost with no ProtoVessel; `ParsekUI.DrawMapMarkers` decides absence through its skip conditions |
+| Ghost map markers (Tracking Station) | `ParsekTrackingStation.DrawAtmosphericMarkers` | TRACKSTATION | LEFT click opens the `Ghost` popup; RIGHT click pins | the same, plus a click-block while the popup is open |
+| In-world ghost labels | `ParsekFlight.DrawGhostLabels` | FLIGHT | none | a 250 x 40 two-line label per chain ghost: `Ghost -- spawn blocked` (also after an exhausted walkback) / `chain terminated` / `spawns at UT=n` (`SpawnWarningUI`) |
+| Logistics launcher tint | `ParsekUI.DrawWindow` | wherever the main window draws | none | the ONLY at-a-glance broken-route signal (red), and the cyan pending-candidate hint |
 
-Two tooltip-infrastructure surfaces sit behind all of the above. `TooltipEchoBox`
-(`UI/TooltipEchoBox.cs:215`) is the permanently visible one- or two-line help strip in 11
-windows; it draws exactly one `Space` plus one `Label` per pass so the control count and the
-window height never move on hover (`:233-250`, probe `:78-79`), and it marquee-scrolls
-overflowing text at 60 px/s rather than clipping (`UI/TooltipMarquee.cs:20`). Two windows have
-NO strip: `GroupPickerUI` and the link picker (`StructureListWindowUI` gained a single-line one
-on 2026-10-01 for its shortened Event cells). `DisabledHoverEcho`
-(`UI/DisabledHoverEcho.cs:92`) paints an invisible zero-layout `GUI.Label` over a DISABLED
-control's rect on Repaint so its reason reaches that strip; it exists because in KSP 1.12.5's
-Unity build only `GUI.DoLabel` and `GUI.DoButtonGrid` publish a tooltip from managed code and
-neither reads `GUI.enabled` (`:17-27`), and `GUI.Label(Rect, ...)` reserves no layout slot
-(`:29-37`). At most one carrier paints per frame (`:39-43`).
+Photographed: the Watch Mode overlay (`play-main-watchmode-advanced`) and the flight-map ghost
+markers (`play-mapview-ghostmarkers-advanced`, PNG only). Not photographed: the currency
+tooltip and the annotations' tooltip text (hover-only, and hover does not paint, 6.2), the
+Tracking Station markers, the in-world ghost labels, the Logistics tint.
+
+**The hover strip.** `TooltipEchoBox` (`UI/TooltipEchoBox.cs`) is the permanently visible one-
+or two-line help strip in 11 windows: single-line in Missions, Timeline, Logistics, Log and Real
+Spawn Control; two-line in the main window, Kerbals, Settings, Gloops and both Test Runners.
+The group picker and the Logistics link picker have none. It draws exactly one `Space` plus one
+`Label` per pass at a probe-measured fixed height (23 px single-line, 38 px two-line), so the
+control count and the window height never move on hover, and it marquee-scrolls overflowing
+text at 60 px/s rather than clipping (`UI/TooltipMarquee.cs`). It sits directly above the
+window's `Close` row. `DisabledHoverEcho` (`UI/DisabledHoverEcho.cs`) paints an invisible
+zero-layout `GUI.Label` over a DISABLED control's rect on Repaint so its reason reaches that
+strip: in KSP 1.12.5's Unity build only `GUI.DoLabel` and `GUI.DoButtonGrid` publish a tooltip
+from managed code and neither reads `GUI.enabled`, and `GUI.Label(Rect, ...)` reserves no layout
+slot. At most one carrier paints per frame.
+
+**The tooltip budget.** `TooltipEchoBudgetTests` holds every literal hover to what its own
+window's strip shows without scrolling: `budget = floor(lines * (firstOpenWidth - 30) / 7)`
+characters (`TooltipEchoBox.BudgetChars`; 30 px of chrome and padding, a pessimistic 7 px
+average advance). The `StripWindows` rows are the main window 250 px (two lines), Settings 280
+(two), Gloops 280 (two), Kerbals 760 (two), Timeline 820 (one), Missions / Recordings 1355
+(one), Logistics 1556 (one), Real Spawn Control 750 (one), Log 900 (one) and both Test Runners
+440 (two). The scan covers every `new GUIContent(label, tooltip)` whose tooltip is a literal or
+a same-file `const string`; each row pins a minimum literal count so a parser regression cannot
+make the gate vacuous; hard newlines are rejected; and each row's line count must match the
+window's own `new TooltipEchoBox(...)`. Runtime-built hovers are pinned by cells on their pure
+builders (the Timeline row hovers, the Career-mode slot sentences, the Logistics hold and cost
+texts).
 
 ### 3.14 Screen messages (95 producers)
 
-The whole non-window notification budget, grouped by trigger class. Full per-site table with
-exact text: research note appendix 2.
+The whole non-window notification budget, grouped by trigger class: 91 producing call sites of
+`ParsekLog.ScreenMessage` / `ScreenMessages.PostScreenMessage` outside `InGameTests/` and
+`TestCommands/` (the sink itself and one forwarding wrapper excluded). Full per-site table with
+exact text: research note appendix 2 (its 2026-09-11 reading).
 
 | trigger class | producers | notes |
 |---|---|---|
-| Recorder lifecycle (start / stop / block / auto-start) | ~17 across `FlightRecorder.cs` and `ParsekFlight.cs` | the densest notified area in the mod |
-| Recorder refusals | 4 (`ParsekFlight.cs:8539`, `:8550`, `:8560`, `:13373`) | four named refusals reach the screen |
-| Commit / discard / unstash | 7 across `ParsekFlight.cs` and `ParsekScenario.cs` | auto-commit IS announced |
-| Merge dialog tail | 7 (`MergeDialog.Commit.cs:153`-`:389`) | `:258` explicitly pushes the player to `KSP.log` |
-| Re-Fly / switch discard | 5 (`MergeDialog.ReFlyDiscard.cs`) | |
+| Recorder lifecycle | 7 (`FlightRecorder` 4, `ParsekFlight` 1, `ParsekScenario` 2) | `Recording STARTED`, `Recording STOPPED: N points`, `Recording stopped - vessel changed`, `Cannot record while paused`, `Recording unstashed (revert)`, `Recording discarded - vessel idle on pad` |
+| Commit / merge | 11 (`ParsekFlight` 3, `ParsekScenario` 1, `MergeDialog.Commit` 7) | auto-commit IS announced |
+| Re-Fly / rewind | 10 (`MergeDialog.ReFlyDiscard` 5, `RecordingStore` 2, `ParsekFlight` 1, `RewindInvoker` 1, `RevertInterceptor` 1) | |
 | Stock switch-to interception | 6 (`Patches/MapFocusObjectOnSelectPatch.cs`) | |
-| Ghost click refusals (map + TS) | 10 (`Patches/GhostVesselLoadPatch.cs`, `Patches/GhostTrackingStationPatch.cs`) | the main REFUSAL surface that is not log-only |
-| Warp / fast-forward | 10 (`ParsekFlight.cs` 3, `WarpToTimeController.cs` 7) | |
-| Watch mode | 3 (`WatchModeController.cs:1839`, `:1858`, `:2390`) | only the 300 km entry refusal posts; every auto-exit is silent |
-| Logistics | 9 (`RouteOrchestrator.cs` 4, `RouteRunPrompt.cs`, `RouteEndpointTransfer.cs`, `RouteStore.cs`, `UI/LogisticsWindowUI.cs` 2) | |
-| Missions tab | 3 (`UI/MissionsWindowUI.cs:1084`, `:2746`, `:3038`) | |
-| Recordings table / group picker | 4 | |
-| Spawning / proximity / delete / wipe | 7 | the proximity toast drops its "open that window" call to action in Basic (`ParsekUI.cs:261`) |
-| Tracking Station | 2 (`ParsekTrackingStation.cs:1990`, `:2011`) | |
-| Save lifecycle / pre-Parsek backup | 5 | backup success is silent, failure is not |
-| Ledger | **1** (`GameActions/KspStatePatcher.cs:3514`, latched once per session) | the only player-visible signal that the reconstructed ledger disagreed with the live pool |
-| Gloops | 7 (`ParsekFlight.cs:17014`-`:17499`) | all seven are player-unreachable: every trigger starts in the retired window or the seam |
-| Playback seam / test runner / the sink itself | 4 | |
+| Ghost click refusals (map + TS) | 10 (`Patches/GhostVesselLoadPatch.cs` 6, `Patches/GhostTrackingStationPatch.cs` 4) | the main REFUSAL surface that is not log-only |
+| Warp / fast-forward | 12 (`WarpToTimeController` 7, `ParsekFlight` 3, `ParsekTrackingStation` 2) | |
+| Watch mode | 3 (`WatchModeController`) | the 300 km entry refusal, `Your vessel continues unattended`, `Camera: Horizon Locked` |
+| Logistics | 9 (`RouteOrchestrator` 4, `RouteStore`, `RouteRunPrompt`, `RouteEndpointTransfer`, `UI/LogisticsWindowUI.cs` 2) | |
+| Missions tab | 3 (`UI/MissionsWindowUI.cs`) | the loop-moved notice, the double-clock advisory, the `Warp to...` landing |
+| Recordings table / group picker | 6 (`UI/RecordingsTableUI.cs` 5, `UI/GroupPickerUI.cs` 1) | |
+| Spawning / proximity | 3 (`VesselSpawner` 2, `ParsekFlight` 1) | the proximity toast drops its "open that window" call to action when Real Spawn Control is unreachable (`ParsekUI.IsSpawnControlReachable`) |
+| Crew | 1 (`CrewReservationManager`) | posted only when a reserved kerbal is actually swapped out of a seat |
+| Save lifecycle / pre-Parsek backup | 2 (`PreParsekBackup`) | |
+| Ledger | **1** (`GameActions/KspStatePatcher.cs`, latched once per session) | the only player-visible signal that the reconstructed ledger disagreed with the live pool |
+| Gloops | 6 (`ParsekFlight`) | all player-unreachable: every trigger starts in the retired window or the seam |
+| Playback seam | 1 (`ParsekPlaybackPolicy`) | throttled |
 
-A separate 46 sites use `InfoRateLimited` / `WarnRateLimited` - STANDING conditions (route
+Separately, the `InfoRateLimited` / `WarnRateLimited` sites report STANDING conditions (route
 refusals, playback skips, anchor failures) that by construction reach `KSP.log` and nowhere
-else. See finding "46 rate-limited refusals" in section 6.
+else.
 
 ### 3.15 Tooltip-only information
 
-Information that exists ONLY in a tooltip - no label, no column, no message. Research note
-appendix 3 lists all of it with per-site citations; the load-bearing groups are:
+Information that exists ONLY in a hover - no label, no column, no message. Research note
+appendix 3 lists it with per-site citations at its 2026-09-11 reading; the load-bearing groups:
 
 | group | example | why it matters |
 |---|---|---|
-| every disabled-control reason | `No recorded craft is passing nearby` (`ParsekUI.cs:142`), `A supply route already drives one of these flights` (`UI/RecordingsTableUI.cs:1018`), the five rewind refusals, the three spawn refusals, `A warp is already running` (`UI/TimelineWindowUI.cs:1558`) | the control itself is only greyed; the reason has no other surface |
-| the meaning of one- and two-letter buttons | `W`, `FF`, `R`, `G`, `X`, `Fly`, `Seal`, `Stash`, `GoTo` | every glyph's meaning is hover-only |
-| scope statements on bulk controls | the two header select-alls IGNORE the active filters (`UI/RecordingsTableUI.cs:1220`, `:1309`) | the visible position implies otherwise |
-| filter-vs-write distinctions | the `Archive` header toggle is a FILTER and archives nothing (`:1366`) | it sits where a select-all would |
-| numeric constants | the 300 km watch range (`:1348`), the launch-to-launch period definition and its overlap consequence (`:1342`), the interval grammar `30m / 2h / 1d` (`Logistics/LogisticsIntervalPresentation.cs:24`) | no label carries any of them |
-| status-word definitions | `static` and `stationary` (`UI/RecordingsTableUI.cs:4738`, `:4740`), the STASH group's entire meaning (`UI/UnfinishedFlightsGroup.cs:42`), `(pending)` / `(closing)` (`UI/CareerStateWindowUI.cs`; the Career window has two tables since 2026-09-24) | the word alone is not self-describing |
-| cross-window side effects | clearing the time filter also resets the Timeline sliders (`UI/RecordingsTableUI.cs:1510`); (the Recordings tab's `Info >` widened the window until it was removed 2026-09-26) | the click changes something off-screen |
-| full values the cell truncates | the untruncated hold clause (`UI/LogisticsWindowUI.cs:1074`), the full crew roster and span dates (`UI/MissionsWindowUI.cs:2700`), endpoint coordinates (`:1003`) | the cell shows a capped form |
-| the Gloops tooltips | `Record a ghost-only flight that your career ignores.` (`ParsekUI.cs:945`) | reaches nobody: the launcher is retired |
+| every disabled-control reason | `No recorded craft is passing nearby` (main window), `A supply route already drives one of these flights` (Recordings tab), the five rewind refusals, the three spawn refusals, the four `Warp to...` refusals, `A warp is already running` (Timeline) | the control itself is only greyed; the reason has no other surface |
+| the meaning of one- and two-letter buttons | `W`, `FF`, `R`, `G`, `S`, `X`, `GoTo` | every glyph's meaning is hover-only |
+| scope statements on bulk controls | the two Recordings-tab header select-alls IGNORE the active filters | the visible position implies otherwise |
+| filter-vs-write distinctions | the Recordings tab's `Archive` header toggle is a FILTER and archives nothing | it sits where a select-all would |
+| numeric constants | the 300 km watch range, the launch-to-launch period definition and its overlap consequence (Recordings `Period` header), the interval grammar `30m / 2h / 1d` (`Logistics/LogisticsIntervalPresentation.cs`) | no label carries any of them |
+| status-word definitions | `static` and `stationary` (Recordings tab), the STASH group's entire meaning (`UI/UnfinishedFlightsGroup.cs`), a locked loop period's qualifier (`Mun window, varies`) | the word alone is not self-describing |
+| cross-window side effects | the Recordings tab's `Clear` of the time filter also resets the Timeline sliders; the Timeline's `Archived` is the same switch as the Recordings tab's Archive header | the click changes something off-screen |
+| full values a cell shortens | an event cell's dock partner (`Docked with <partner>`), the full crew roster and span dates of a mission, endpoint coordinates in Logistics, the untruncated hold clause | the cell shows a capped form |
+| the Gloops hovers | `Record a ghost-only flight that your career ignores.` | reach nobody: the launcher is retired |
 
-`GUIContent` tooltips do not exist at all on `PopupDialog` surfaces (grep over the nine dialog
-files returns zero two-arg `GUIContent` constructions), and a `GUILayout.TextField` takes no
-`GUIContent`, which is why the Missions period cell's state is carried by the unit button
-beside it (`UI/MissionsWindowUI.cs:4151-4171`).
+`GUIContent` tooltips do not exist on `PopupDialog` surfaces, and a `GUILayout.TextField` takes
+no `GUIContent`, which is why the Missions period cell's state is carried by the unit button
+beside it.
 
 ### 3.16 The UiSurface gate
 
 One pure decision point, `UiSurfaceVisibility.IsVisible(UiSurface, UiComplexityMode)`
-(`UI/UiComplexityMode.cs:156`), with an exhaustive switch that THROWS on an undecided value
-(`:191-197`); retirement outranks the mode and short-circuits first (`:162-163`). The mode is
-frame-latched: `SetUiComplexityMode` sets a PENDING value and `ApplyPendingUiComplexityModeIfAny`
-latches it from `Update()`, so Layout and Repaint of one frame can never disagree about the
-control count (`ParsekUI.cs:294-297`, `:246`).
+(`UI/UiComplexityMode.cs`), with an exhaustive switch that THROWS on an undecided value;
+retirement (`IsRetired`) outranks the mode and short-circuits first. The mode is
+frame-latched: `SetUiComplexityMode` sets a PENDING value and
+`ApplyPendingUiComplexityModeIfAny` latches it from `Update()`, so Layout and Repaint of one
+frame can never disagree about the control count. Every draw site reads
+`ParsekUI.AppliedUiComplexityMode`, never the settings field.
 
-| key | declared | Basic | enforcement | what Basic actually hides |
-|---|---|---|---|---|
-| `MainButtonSpawnControl` | `:47` | HIDE (`:180`) | `ParsekUI.cs:771`, `:262` | the launcher, and the proximity toast's call to action |
-| `MainButtonTimeline` | `:50` | KEEP (`:171`) | **none** | nothing |
-| `MainButtonRecordings` | `:53` | KEEP (`:172`) | **none** | nothing |
-| `MainButtonLogistics` | `:56` | KEEP (`:173`) | **none** | nothing |
-| `MainButtonKerbals` | `:59` | KEEP since 2026-09-22 (was HIDE `:181`) | `ParsekUI.cs:904` | nothing in Basic any more; the launcher draws in both modes |
-| `MainButtonGloops` | `:69` | RETIRED in both (`:140-143`) | `ParsekUI.cs:941` | the Gloops launcher, in Advanced too |
-| `MainButtonSettings` | `:72` | KEEP (`:174`) | **none** | nothing |
-| `TabRecordings` | `:75` | HIDE (`:183`) | `UI/RecordingsTableUI.cs:189` | the Recordings tab and its whole body |
-| `TabMissions` | `:78` | KEEP (`:175`) | `UI/TimelineWindowUI.cs:1265` | nothing today; the GoTo button is gated by its TARGET's key by design (`:35-41`) |
-| `MissionsLoopControls` | `:95` | HIDE (`:184`) | `UI/MissionsWindowUI.cs:735` (+7 consumers) | the Loop toggle, the period cell, Clone, Delete, `Warp to...`, the summary's loop pieces, the loop-selection styling and every interval / partner checkbox (Missions Model 1, 2026-09-29). NOT the route label, Watch, Rewind / Forward, Log, Collapse, Fly / Seal or Go to |
-| `SettingsSectionLooping` | `:110` | HIDE (`:185`) | `UI/SettingsWindowUI.cs:345`, `:378` | the Looping section |
-| `SettingsSectionDiagnostics` | `:113` | HIDE (`:186`) | `UI/SettingsWindowUI.cs:393` | the Diagnostics section, and with it the only reopen path to `TestRunnerUI` |
-| `SettingsSectionSampleDensity` | `:116` | HIDE (`:187`) | `UI/SettingsWindowUI.cs:401` | the sample-density section |
+| key | Basic | enforcement | what Basic hides |
+|---|---|---|---|
+| `MainButtonSpawnControl` | HIDE | `ParsekUI.DrawWindow`, `ParsekUI.IsSpawnControlReachable` | the launcher, and the proximity toast's call to action |
+| `MainButtonTimeline` | KEEP | `ParsekUI.DrawWindow` | nothing |
+| `MainButtonRecordings` | KEEP | `ParsekUI.DrawWindow` | nothing (the `Missions` launcher) |
+| `MainButtonLogistics` | KEEP | `ParsekUI.DrawWindow` | nothing |
+| `MainButtonKerbals` | KEEP | `ParsekUI.DrawWindow` | nothing |
+| `MainButtonGloops` | RETIRED in both | `ParsekUI.DrawWindow` | the Gloops launcher, in Advanced too |
+| `MainButtonSettings` | KEEP | `ParsekUI.DrawWindow` | nothing |
+| `TabRecordings` | HIDE | `RecordingsTableUI.VisibleTabCount` | the tab bar, the Recordings tab and its whole body |
+| `TabMissions` | KEEP | `TimelineWindowUI` (the `GoTo` button) | nothing; `GoTo` is gated by its TARGET's key, so re-pointing it at a hidden surface would hide it |
+| `MissionsLoopControls` | HIDE | `MissionsWindowUI.ShowsLoopAuthoringControls` (read at each draw site) | the loop grid (`Clone`, `Delete`, `Warp to...`, `Loop`, the period cell), the summary's `Next launch` piece, the include checkboxes, the per-vessel interval rows, the foreign partner-journey rows and the loop-selection styling. NOT `Looped by route`, `Watch`, `Rewind` / `Forward`, `Log`, `Collapse`, `Fly` / `Stash` / `Seal` or `Go to` |
+| `SettingsSectionLooping` | HIDE | `SettingsWindowUI.DrawSettingsWindow` (the section and its click-away commit) | the Looping section |
+| `SettingsSectionDiagnostics` | HIDE | `SettingsWindowUI.DrawSettingsWindow` | the Diagnostics section, and with it the only reopen path to the Settings-launched Test Runner |
+| `SettingsSectionSampleDensity` | HIDE | `SettingsWindowUI.DrawSettingsWindow` | the sample-density section |
 
-Four keys have zero enforcement points, so Basic and Advanced agree on them by accident rather
-than by enforcement; flipping any of the four to `visibleInBasic = false` would change nothing
-on screen. Separately, `UiSurfaceVisibility.HiddenSurfaces` (`UI/UiComplexityMode.cs:214`) has
-no production consumer: its only reference outside its own file is a doc comment at
-`ParsekUI.cs:471` explaining why the real close set is the hand-written
-`BuildGatedWindowCloseSet` (`ParsekUI.cs:488-529`). That set carried five targets after the
-2026-09-22 Kerbals re-ruling (six before it: Kerbals was the second) and four since the
-2026-09-27 removal of the Career window (CareerState was the first) - GloopsRecorder,
-SpawnControl, TestRunner (maps to no `UiSurface`; its launcher lives
-in the hidden Diagnostics section) and GroupPicker (maps to no `UiSurface`; a reachability rule,
-not a lock rule, `ParsekUI.cs:479-482`) - and deliberately omits the Missions, Structure,
-Timeline, Logistics and Settings windows (`ParsekUI.cs:484-487`).
+`UiSurfaceVisibility.HiddenSurfaces` has no production consumer: the real Advanced -> Basic
+close set is the hand-written `ParsekUI.BuildGatedWindowCloseSet`, four targets in close
+order - GloopsRecorder, SpawnControl, TestRunner (maps to no `UiSurface`; its launcher lives in
+the hidden Diagnostics section) and GroupPicker (maps to no `UiSurface`; a reachability rule,
+not a lock rule) - and deliberately omits the Missions, Log, Timeline, Kerbals, Logistics and
+Settings windows. `design-ui-basic-advanced.md` section 7.2 owns the apply sequence.
 
 ## 4. Backend exposure per subsystem
 
@@ -2031,26 +1894,23 @@ instance and a 1920x1080 player screen. "First-open" rects are seeded only when
 
 | window | min W x H | first-open W x H | resize? | fits 1280x720 | fits 1920x1080 |
 |---|---|---|---|---|---|
-| main | none | 250 x content (flight `ParsekFlight.cs:962`, KSC `ParsekKSC.cs:23`) | NO handle | yes | yes |
-| Missions | **1355** x 150 (`UI/RecordingsTableUI.cs:48`, `:49`, `:63`) | 1355 x main height (KSC 2x) | yes | capped to 1280, both tabs scroll sideways (header with the rows) | yes, unchanged |
-| Timeline | 520 x 150 (`UI/TimelineWindowUI.cs:67`, `:68`) | 820 x max(600, main height) | yes | yes | yes |
-| Kerbals | 280 x 150 (`UI/KerbalsWindowUI.cs:42-43`) | 410 x 400 (half of Career's 820, so the two sit side by side, `:44-46`) | yes | yes | yes |
-| Career State | 520 x 200 (`UI/CareerStateWindowUI.cs:74-75`) | 820 x 400 | yes | yes | yes |
+| main | none | 250 x content (both hosts draw it at `GUILayout.Width(250)` and reset its height each frame) | NO handle | yes | yes |
+| Missions | **1355** x 150 (`RecordingsTableUI.MinWindowWidth` / `MinWindowHeight`) | 1355 x main height (KSC 2x) | yes | capped to 1280, both tabs scroll sideways (header with the rows) | yes, unchanged |
+| Timeline | 610 x 150 (`TimelineWindowUI.MinWindowWidth` / `MinWindowHeight`) | 820 x max(600, main height) | yes | yes | yes |
+| Kerbals | 586 x 150 (`KerbalsWindowUI.MinWindowWidth` / `MinWindowHeight`) | 760 x 400 | yes | yes | yes |
 | Logistics | **1410** x 500 (`UI/LogisticsWindowUI.cs:390-391`) | 1556 x 500 | yes | capped to 1280, its section stack keeps its 1410 layout and scrolls sideways in its own scroll view | yes, unchanged |
 | Structure | 420 x 160 (`UI/StructureListWindowUI.cs:69-70`) | 820 x 320 | yes | yes | yes |
-| Settings | none | 280 x 600 (the 600 is a guess; every first open requests a height fit, `:75-86`) | NO handle; height is fixed between fits | yes | yes |
-| Real Spawn Control | 350 x 150 (`UI/SpawnControlUI.cs:74-75`) | 750 x 200 | yes | yes | yes |
-| Gloops | none | 280 x 230 (`UI/GloopsRecorderUI.cs:48-49`) | NO handle | yes | yes |
-| Test Runner (Settings) | 320 x 600 (`UI/TestRunnerUI.cs:79-84`, re-derived 2026-09-15) | 440 x 600 | yes | yes, 600 of 720 | yes |
-| Test Runner (global) | 320 x 600 (`InGameTests/TestRunnerShortcut.cs:83-91`, re-derived 2026-09-15) | 440 x 600 at a FIXED screen position (20, 60), not anchored to the main window (`:282`) | yes | yes | yes. GUI-12 commands it to 620x700 through `op=rect window=testrunnerglobal`, the same rect as its twin, so the two are comparable at a glance |
-| Group picker | 220 x 200 (`UI/GroupPickerUI.cs:88-89`) | 280 x 300, clamped to the screen at the click point (`:207-213`) | yes | yes | yes |
+| Settings | none | 280 x 600 (the 600 is replaced by a height fit on first open and on every mode change) | NO handle; height is fixed between fits | yes | yes |
+| Real Spawn Control | 350 x 150 (`SpawnControlUI.MinWindowWidth` / `MinWindowHeight`) | 750 x 200 | yes | yes | yes |
+| Gloops | none | 280 x 230 (`GloopsRecorderUI.DefaultWindowWidth` / `DefaultWindowHeight`) | NO handle | yes | yes |
+| Test Runner (Settings) | 320 x 600 (`TestRunnerUI.MinWindowWidth` / `MinWindowHeight`) | 440 x 600 | yes | yes, 600 of 720 | yes |
+| Test Runner (global) | 320 x 600 (`TestRunnerShortcut.MinWindowWidth` / `MinWindowHeight`) | 440 x 600 at a FIXED screen position (20, 60), not anchored to the main window | yes | yes | yes. GUI-12 commands it to 620x700 through `op=rect window=testrunnerglobal`, the same rect as its twin, so the two are comparable at a glance |
+| Group picker | 220 x 200 (`GroupPickerUI.GroupPopupMinW` / `GroupPopupMinH`) | 280 x 300, clamped to the screen at the click point | yes | yes | yes |
 | Logistics link picker | 240 x 180 (`UI/LogisticsWindowUI.cs:329-330`) | 340 x 380, clamped at the arming mouse position | yes | yes | yes |
 
-Two windows are laid out wider than a 1280 px screen: Logistics (1410) and Missions (1355; its
-Info-expanded 1813 / 1493 form was removed 2026-09-26). Every other window's minimum and
-first-open default fit 1024 px. Since 2026-09-26 (`UI/WideWindowLayout.cs`,
-WIDE-WINDOWS-OFF-SCREEN-AT-1280) a window with a resize handle that cannot fit the screen at
-its own width is fitted before each draw (`ParsekUI.HandleResizeDrag` -> `FitWindowToScreen`):
+Two windows are laid out wider than a 1280 px screen: Logistics (1410) and Missions (1355).
+Every other window's minimum and first-open default fit 1024 px. A window with a resize handle
+that cannot fit the screen at its own width is fitted before each draw (`UI/WideWindowLayout.cs`) (`ParsekUI.HandleResizeDrag` -> `FitWindowToScreen`):
 its width is capped to `Screen.width` (and raised back to `min(MinWindowWidth, Screen.width)`
 once a wider screen allows), it is moved fully on-screen horizontally and top-on-screen
 vertically, and its height is never touched. A window that fits is never moved, wherever the
@@ -2071,22 +1931,21 @@ class of defect the Milestones `Rewards` overflow belongs to:
 
 | window | pins |
 |---|---|
-| Recordings tab | `ColW_*` 20 / 30 / expand / 120 / 80 / 110 / 70 / 120 / 60 / 60 / 90 / 50 / 60 / 90 / 80 (header order, since 2026-09-26; `UI/RecordingsTableUI.cs`); `ColHeaderHeight` 32 (`:73`); body row height 29 measured |
-| Missions tab | 20 / 30 / expand / 105 / 120 / 110 / 85 / 120 / 90 / 80 (`UI/MissionsWindowUI.cs:302-355`); `ColW_HeaderButton` 70 (`:314`); `CompositionRowMinHeight` 22 (`:351`) |
-| Timeline | `TimeColumnWidth` 160, row action 40, `GoTo` 48, warp button 186, warp fields 36; the six filter/preset columns are responsive at `Max(93, (width - 50) / 6)` - 158 at the census width (`UI/TimelineWindowUI.cs:70-78`, `:417-424`, `:155`, `:564`) |
-| Career State | (since 2026-09-24 only the Contracts and Strategies tables remain; the widths below predate that) Contracts 240/90/90/70, Strategies 220/90/140/**70**, Facilities 200/120/180, Milestones 90/200/**180**/70 (`UI/CareerStateWindowUI.cs:83-98`). `ColW_PendingTag` (70) is shared by three tabs; `ColW_Rewards` (180) demonstrably overflows |
-| Kerbals | NONE - no `GUILayout.Width` call in any row; the two tabs are indented outlines |
+| Recordings tab | `ColW_*` 20 / 30 / expand / 120 / 80 / 110 / 70 / 120 / 60 / 60 / 90 / 50 / 60 / 90 / 80 (header order; `UI/RecordingsTableUI.cs`); `ColHeaderHeight` 32; body row height 29 measured |
+| Missions tab | 20 / 30 / expand / 120 / 110 / 85 / 120 / 116 (`ColW_*`; Interact = `InteractButtonWidth` 100 + 2 x `InteractCellInset` 8); Interact pair halves 48 + gap 4; loop grid column A 70 (`ColW_HeaderButton`), column B 92, Log slot 100, `LoopCellWidth` 192; `ColHeaderHeight` 32; `CompositionRowMinHeight` 22 |
+| Timeline | `TimeColumnWidth` 160, row action 40, `GoTo` 48, warp button 186, warp fields 36; the six filter / preset cells are responsive at `Max(93, (width - 50) / 6)` (`ComputeFilterCellWidth`) |
+| Kerbals | Roster 210 / 220 / expand; Flights 130 / expand / 110 (`KerbalsWindowUI.ColW_*`) |
 | Logistics | routes 30 / expand / 95 / 180 / 150 / 80 / 135 / 240 / 120 / 190 = 1220 fixed; candidates 30 / expand / 95 / 180 / 260 / 80 / 190 = 835 fixed (`UI/LogisticsWindowUI.cs:343-372`). The `MinWindowWidth` comment at `:383-389` is stale: it still totals a 90 px Next column and claims about 1175 |
 | Structure | 28 / 110 / expand / 95 / 185 / 140 (`UI/StructureListWindowUI.cs:62-67`) |
 | Settings | 45 auto-loop field, 40 unit button, 85 audio label, 35 percent label |
-| Real Spawn Control | expand / 55 / 70 / 100 / 95 / 110 / 118 (`UI/SpawnControlUI.cs:56-60`) |
+| Real Spawn Control | expand / 55 / 70 / 100 / 95 / 110 / 118 (`SpawnControlUI.SpawnColW_*`); `Close` 132 |
 | Test Runner | status icon 20, `Run` 40, `Run+` 44, play 24, search label 48, clear 24; `ErrorIndent` 40, `ErrorMaxWidth` 380 |
-| overlays | watch box 300x50 pinned; currency tooltip 147 wide; stock-UI annotations draw no Parsek box (the 18x18 badge and its 320x54 tooltip were retired 2026-09-25); map icon 20 with 6 px click and 24 px toggle pads; ghost label 250x40 |
+| overlays | watch box 300x50 pinned; currency tooltip 147 wide; stock-control annotations draw no Parsek box; map icon 20 with 6 px click and 24 px toggle pads; ghost label 250x40 |
 
-The tooltip echo strip is 23 px in single-line windows (Timeline, Logistics, Career State,
-Missions, Real Spawn Control) and 38 px in two-line windows (main, Kerbals, Settings, Gloops,
+The tooltip echo strip is 23 px in single-line windows (Timeline, Logistics, Log, Missions,
+Real Spawn Control) and 38 px in two-line windows (main, Kerbals, Settings, Gloops,
 both Test Runners); its height is pinned to a probe measurement so the window never changes
-height on hover (`UI/TooltipEchoBox.cs:78-79`).
+height on hover (`TooltipEchoBox`'s probe lines).
 
 **Table row inset.** A column-header row and its body rows share a left origin only when
 both open with an EXPLICIT container style whose horizontal margin and padding are
@@ -2111,10 +1970,8 @@ header style is a box (padding L4/R4), so its text starts 4 px inside its rect, 
 style by the pure `ComposeTableCellPadding` (vertical padding stays the label's) - and the
 text delta is `ParsekUI.HeaderToCellTextDeltaPx` = 0. Built once per skin with a
 `Table cell style built: colHdr.padding=... cell.padding=...` Verbose line, which is the
-number a dump measurement adds to each rect's x. Real Spawn Control and the Structure window
-use it (pinned by `TableRowInsetAlignmentTests`); the Kerbals and Career tables still draw
-plain labels under boxed headers and so still read 4 px (measured on GUI-6
-`2026-09-24_2043`, `play-kerbals-roster-flight-advanced`: header ink x=289, body x=285).
+number a dump measurement adds to each rect's x. The Recordings tab, Kerbals, Real Spawn
+Control and the Log window use it (pinned by `TableRowInsetAlignmentTests`).
 
 **The gutter itself is TWO skin terms, not the scrollbar width.** Both are read off the live
 skin by `ParsekUI.VerticalScrollbarFootprintWidth()` + `TableCellHorizontalMarginPx()`,
@@ -2134,9 +1991,8 @@ combined by `VerticalScrollbarGutterWidth()` and printed in the same
    its group; the header's reserved padding REPLACES that margin rather than adding to it, so
    it has to cover both terms.
 
-Gutter = 20. Reserving `fixedWidth` alone left every pinned header exactly 5 px wider than its
-body (1 px of scrollbar margin plus the 4 px the MAX replaces), which is what the 2026-09-11
-re-flights measured after PR #1679.
+Gutter = 20. Reserving `fixedWidth` alone leaves every pinned header exactly 5 px wider than
+its body (1 px of scrollbar margin plus the 4 px the MAX replaces).
 
 A header that reserves the gutter as a trailing `GUILayout.Space` instead owes the same 20
 when its body's list-area box spends a `padding.right` of its own - the Recordings tab, whose
