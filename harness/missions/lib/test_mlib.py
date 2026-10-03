@@ -11009,6 +11009,266 @@ class ApproachWarpClampTests(unittest.TestCase):
         self.assertLessEqual(rate * 1.0, 25000.0 / 5.0)
 
 
+def _scenario_mission_params(name):
+    with open(os.path.join(HARNESS_ROOT, "scenarios", name), "rb") as fh:
+        return dict(tomllib.load(fh)["driver"]["missionParams"])
+
+
+class CoastNativeLeadTests(unittest.TestCase):
+    """soiNativeLeadSeconds / triggerNativeLeadSeconds (COAST-TO-TARGET wall
+    time). Both default 0 = off; B26 and B22 opt in.
+
+    The decide-level cells drive the REAL B26 spec params in its stage-2 Jool
+    frame (target Vall, soi_lead 3,000, approach window 10,000, cap 3 = x50,
+    coast factor 5), with the two keys popped for the OFF cells, so the OFF
+    expectations are the pre-change formulas written out by hand
+    (``ut + tts - soi_lead`` and ``dt > soi_lead``). Frames advance UT and
+    time_to_soi 1:1, the way a real coast reads them."""
+
+    UT0 = 28_900_000.0
+    B26 = "B26-laythe-vall-transfer.toml"
+    B22 = "B22-jool-orbit.toml"
+    KEYS = ("soiNativeLeadSeconds", "triggerNativeLeadSeconds")
+
+    def _params(self, **keys):
+        mp = _scenario_mission_params(self.B26)
+        for k in self.KEYS:
+            mp.pop(k, None)
+        mp.update(keys)
+        return mlib.b5_params_from_dict(mp)
+
+    def _state(self, params, rounds_done=2):
+        st = mlib._b5_enter(mlib.b5_initial_state(params),
+                            mlib.B5_COAST_TO_TARGET, self.UT0 - 100.0, None)
+        return replace(st, relay_stage=mlib.RELAY_STAGE_TRANSFER,
+                       correction_rounds_done=rounds_done)
+
+    def _snap(self, ut, tts, **kw):
+        base = dict(ut=ut, body="Jool", next_body="Vall", time_to_soi=tts,
+                    situation="ORBITING", altitude=2.1e7, apoapsis=4.3e7,
+                    periapsis=2.1e7, eccentricity=0.3, node_count=0)
+        base.update(kw)
+        return snap(**base)
+
+    def _drive(self, params, frames, rounds_done=2):
+        """Run ``frames`` [(ut, tts, extra-snapshot-kwargs)] through b5_decide;
+        returns [(actions, gate changes, state)] per frame."""
+        st = self._state(params, rounds_done)
+        out = []
+        for ut, tts, kw in frames:
+            prev = st
+            st, actions = mlib.b5_decide(st, self._snap(ut, tts, **kw))
+            self.assertFalse(st.done, (ut, tts, st.loss_reason, st.flake_reason))
+            out.append((actions, mlib.diff_machine_state(prev, st), st))
+        return out
+
+    # --- the floor and the lead resolution -------------------------------
+
+    def test_the_floor_is_retarget_drift_plus_one_pessimistic_frame_at_the_ceiling(self):
+        self.assertEqual(120.0 + 4.0 * 50.0, mlib.soi_native_lead_floor(3, 5))
+        self.assertEqual(120.0 + 4.0 * 1000.0, mlib.soi_native_lead_floor(5, 7))
+        # No approach cap: the rails fallback's own ceiling is the coast factor.
+        self.assertEqual(120.0 + 4.0 * 10000.0, mlib.soi_native_lead_floor(0, 6))
+
+    def test_the_soi_lead_resolves_default_armed_and_clamped(self):
+        off = self._params()
+        self.assertEqual((3000.0, "default"), mlib.coast_soi_native_lead(off))
+        self.assertEqual((400.0, "soi-native"),
+                         mlib.coast_soi_native_lead(replace(off, soi_native_lead=400.0)))
+        self.assertEqual((320.0, "soi-native"),
+                         mlib.coast_soi_native_lead(replace(off, soi_native_lead=320.0)))
+        # Built in code under the floor: raised TO the floor, never below it.
+        self.assertEqual((320.0, "clamped-to-floor"),
+                         mlib.coast_soi_native_lead(replace(off, soi_native_lead=100.0)))
+
+    def test_the_trigger_lead_resolves_default_and_armed(self):
+        off = self._params()
+        self.assertEqual((3000.0, "default"), mlib.coast_trigger_native_lead(off))
+        self.assertEqual((30.0, "trigger-native"), mlib.coast_trigger_native_lead(
+            replace(off, trigger_native_lead=30.0)))
+
+    def test_spec_load_rejects_a_lead_under_the_floor(self):
+        with self.assertRaisesRegex(ValueError,
+                                    r"soiNativeLeadSeconds 319\.9 is under its floor 320\.0"):
+            self._params(soiNativeLeadSeconds=319.9)
+        self.assertEqual(320.0, self._params(soiNativeLeadSeconds=320.0).soi_native_lead)
+
+    def test_the_keys_default_off(self):
+        p = self._params()
+        self.assertEqual((0.0, 0.0), (p.soi_native_lead, p.trigger_native_lead))
+        p = mlib.b5_params_from_dict({})
+        self.assertEqual((0.0, 0.0), (p.soi_native_lead, p.trigger_native_lead))
+
+    def test_the_two_opt_in_specs_arm_a_shorter_lead_above_the_floor(self):
+        for name, soi_native in ((self.B26, 400.0), (self.B22, 10000.0)):
+            p = mlib.b5_params_from_dict(_scenario_mission_params(name))
+            lead, reason = mlib.coast_soi_native_lead(p)
+            self.assertEqual((soi_native, "soi-native"), (lead, reason), name)
+            self.assertGreaterEqual(lead, mlib.soi_native_lead_floor(
+                p.approach_max_warp_factor, p.coast_warp_factor), name)
+            self.assertLess(lead, p.soi_lead, name)
+            self.assertEqual((30.0, "trigger-native"),
+                             mlib.coast_trigger_native_lead(p), name)
+
+    # --- approach_warp_clamp with the new lead ---------------------------
+
+    def test_the_clamp_keeps_a_native_target_at_the_new_lead(self):
+        ut, tts = 1000.0, 9000.0
+        target = ut + tts - 400.0
+        self.assertEqual((0, target), mlib.approach_warp_clamp(
+            tts, ut, 400.0, 10000.0, 3, 0, target, True))
+        # Handed the raw soi_lead instead, the clamp pulls it straight back.
+        self.assertEqual((0, ut + tts - 3000.0), mlib.approach_warp_clamp(
+            tts, ut, 3000.0, 10000.0, 3, 0, target, True))
+
+    def test_between_the_leads_the_native_target_survives_only_with_the_new_lead(self):
+        ut, tts = 1000.0, 2000.0
+        target = ut + tts - 400.0
+        self.assertEqual((0, target), mlib.approach_warp_clamp(
+            tts, ut, 400.0, 10000.0, 3, 0, target, True))
+        self.assertEqual((3, None), mlib.approach_warp_clamp(
+            tts, ut, 3000.0, 10000.0, 3, 0, target, True))
+
+    def test_inside_the_new_lead_the_native_target_is_dropped_to_the_cap(self):
+        self.assertEqual((3, None), mlib.approach_warp_clamp(
+            399.0, 1000.0, 400.0, 10000.0, 3, 0, 1000.0 + 1.0, True))
+
+    # --- the SOI-approach branch -----------------------------------------
+
+    def test_soi_off_is_byte_identical_to_the_soi_lead_contract(self):
+        """DEFAULT-OFF IDENTITY (soiNativeLeadSeconds). The sequence a real coast
+        reads, against the pre-change contract written out: arm at
+        ut + tts - soi_lead, hold while warping, arrive at tts = soi_lead, hand
+        to the capped rails last-mile; and no coastLead gate line anywhere."""
+        n = mlib.ACTION_WARP_TO_UT
+        frames = ((self.UT0, 9000.0, {}),
+                  (self.UT0 + 3000.0, 6000.0, dict(warping_to=self.UT0 + 6000.0)),
+                  (self.UT0 + 6000.0, 3000.0, {}),
+                  (self.UT0 + 6100.0, 2900.0, dict(warp_mode="RAILS", warp_rate=50.0)))
+        expected = ([Action(n, self.UT0 + 9000.0 - 3000.0)], [],
+                    [Action(mlib.ACTION_SET_RAILS_WARP, 3.0)], [])
+        for params in (self._params(), self._params(soiNativeLeadSeconds=0)):
+            out = self._drive(params, frames)
+            self.assertEqual(list(expected), [o[0] for o in out])
+            for _, changes, st in out:
+                self.assertEqual("", st.coast_lead_decision)
+                self.assertFalse([c for c in changes if c.startswith("coastLead")])
+
+    def test_soi_off_cancels_the_native_warp_once_inside_soi_lead(self):
+        """The crawl the key removes: with the key off, a frame inside soi_lead
+        hands to rails (cancel, then x50) even though the native warp could
+        have carried the craft on."""
+        out = self._drive(self._params(), (
+            (self.UT0, 9000.0, {}),
+            (self.UT0 + 6500.0, 2500.0, dict(warping_to=self.UT0 + 6000.0))))
+        self.assertEqual([Action(mlib.ACTION_CANCEL_WARP)], out[1][0])
+
+    def test_soi_armed_warps_natively_to_the_shorter_lead(self):
+        out = self._drive(self._params(soiNativeLeadSeconds=400), (
+            (self.UT0, 9000.0, {}),
+            (self.UT0 + 3000.0, 6000.0, dict(warping_to=self.UT0 + 8600.0)),
+            (self.UT0 + 6500.0, 2500.0, dict(warping_to=self.UT0 + 8600.0)),
+            (self.UT0 + 8600.0, 400.0, {}),
+            (self.UT0 + 8604.0, 396.0, dict(warp_mode="RAILS", warp_rate=50.0))))
+        self.assertEqual([Action(mlib.ACTION_WARP_TO_UT, self.UT0 + 8600.0)], out[0][0])
+        # Inside soi_lead but outside the native lead: HELD, not cancelled.
+        self.assertEqual([], out[1][0])
+        self.assertEqual([], out[2][0])
+        self.assertEqual(self.UT0 + 8600.0, out[2][2].warp_to_cmd)
+        # Arrival at the native lead: the unchanged rails last-mile at the cap.
+        self.assertEqual([Action(mlib.ACTION_SET_RAILS_WARP, 3.0)], out[3][0])
+        self.assertIsNone(out[3][2].warp_to_cmd)
+        self.assertEqual([], out[4][0])
+        # One gate line per decision, each naming the lead and its reason.
+        gates = [c for o in out for c in o[1] if c.startswith("coastLead")]
+        self.assertEqual(2, len(gates), gates)
+        self.assertIn("soi:native:Jool lead=400.000 (soi-native)", gates[0])
+        self.assertIn("soi:rails:Jool lead=400.000 (soi-native)", gates[1])
+
+    def test_soi_armed_never_runs_two_warp_writers_in_one_frame(self):
+        """A frame inside the native lead with the native warp still reported
+        active cancels first; the rails factor follows on the next poll."""
+        out = self._drive(self._params(soiNativeLeadSeconds=400), (
+            (self.UT0, 9000.0, {}),
+            (self.UT0 + 8700.0, 300.0, dict(warping_to=self.UT0 + 8600.0)),
+            (self.UT0 + 8701.0, 299.0, {})))
+        self.assertEqual([Action(mlib.ACTION_CANCEL_WARP)], out[1][0])
+        self.assertEqual([Action(mlib.ACTION_SET_RAILS_WARP, 3.0)], out[2][0])
+
+    def test_soi_clamped_lead_targets_the_floor(self):
+        params = replace(self._params(), soi_native_lead=100.0)
+        out = self._drive(params, ((self.UT0, 9000.0, {}),))
+        self.assertEqual([Action(mlib.ACTION_WARP_TO_UT, self.UT0 + 9000.0 - 320.0)],
+                         out[0][0])
+        self.assertIn("(clamped-to-floor)", out[0][2].coast_lead_decision)
+
+    def test_the_flyby_exit_warp_keeps_soi_lead(self):
+        """TARGET-FLYBY's outer-leg warp to the SOI EXIT is not a coast warp
+        and keeps soi_lead with the key armed."""
+        params = replace(B7_PARAMS, soi_native_lead=500000.0)
+        st = _b7_state(mlib.B5_TARGET_FLYBY)
+        st = replace(st, params=params)
+        _, actions = mlib.b5_decide(st, snap(
+            ut=1000.0, body="Duna", altitude=4.0e7, periapsis=1.0e6,
+            apoapsis=-1.0, situation="ESCAPING", time_to_soi=1.0e6))
+        self.assertEqual([Action(mlib.ACTION_WARP_TO_UT,
+                                 1000.0 + 1.0e6 - params.soi_lead)], actions)
+
+    # --- the correction-trigger branch -----------------------------------
+    # Round 1's threshold on B26 is 8,000 s, so dt = tts - 8,000.
+
+    def test_trigger_off_is_byte_identical_to_the_soi_lead_contract(self):
+        """DEFAULT-OFF IDENTITY (triggerNativeLeadSeconds): native to the trigger
+        UT while dt > soi_lead, cancelled at dt == soi_lead, then the
+        factor-2-floored rails stair (x1,000 above the approach window, the x50
+        cap inside it); no coastLead gate line."""
+        frames = ((self.UT0, 20000.0, {}),
+                  (self.UT0 + 9000.0, 11000.0, dict(warping_to=self.UT0 + 12000.0)),
+                  (self.UT0 + 9001.0, 10999.0, {}),
+                  (self.UT0 + 10000.0, 10000.0, dict(warp_mode="RAILS", warp_rate=1000.0)))
+        expected = ([Action(mlib.ACTION_WARP_TO_UT, self.UT0 + 12000.0)],
+                    [Action(mlib.ACTION_CANCEL_WARP)],
+                    [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)],
+                    [Action(mlib.ACTION_SET_RAILS_WARP, 3.0)])
+        for params in (self._params(), self._params(triggerNativeLeadSeconds=0)):
+            out = self._drive(params, frames, rounds_done=1)
+            self.assertEqual(list(expected), [o[0] for o in out])
+            for _, changes, st in out:
+                self.assertEqual("", st.coast_lead_decision)
+                self.assertFalse([c for c in changes if c.startswith("coastLead")])
+
+    def test_trigger_off_boundary_is_strictly_greater_than_soi_lead(self):
+        p = self._params()
+        out = self._drive(p, ((self.UT0, 8000.0 + 3000.5, {}),), rounds_done=1)
+        self.assertEqual([Action(mlib.ACTION_WARP_TO_UT, self.UT0 + 3000.5)], out[0][0])
+        out = self._drive(p, ((self.UT0, 8000.0 + 3000.0, {}),), rounds_done=1)
+        self.assertEqual([Action(mlib.ACTION_SET_RAILS_WARP, 5.0)], out[0][0])
+
+    def test_trigger_armed_boundary_is_strictly_greater_than_the_trigger_lead(self):
+        p = self._params(triggerNativeLeadSeconds=30)
+        out = self._drive(p, ((self.UT0, 8000.0 + 30.5, {}),), rounds_done=1)
+        self.assertEqual([Action(mlib.ACTION_WARP_TO_UT, self.UT0 + 30.5)], out[0][0])
+        self.assertIn("trigger:native:r1 lead=30.000 (trigger-native)",
+                      out[0][2].coast_lead_decision)
+        out = self._drive(p, ((self.UT0, 8000.0 + 30.0, {}),), rounds_done=1)
+        # dt 30 -> the floored rails stair: rails_factor_for_time(30) = 2.
+        self.assertEqual([Action(mlib.ACTION_SET_RAILS_WARP, 2.0)], out[0][0])
+        self.assertIn("trigger:rails:r1", out[0][2].coast_lead_decision)
+
+    def test_trigger_armed_holds_the_native_warp_to_the_trigger(self):
+        out = self._drive(self._params(triggerNativeLeadSeconds=30), (
+            (self.UT0, 20000.0, {}),
+            (self.UT0 + 9000.0, 11000.0, dict(warping_to=self.UT0 + 12000.0)),
+            (self.UT0 + 11970.0, 8030.0, dict(warping_to=self.UT0 + 12000.0)),
+            (self.UT0 + 11971.0, 8029.0, {})), rounds_done=1)
+        self.assertEqual([Action(mlib.ACTION_WARP_TO_UT, self.UT0 + 12000.0)], out[0][0])
+        # dt == soi_lead: the OFF lane cancels here; armed, the warp is held.
+        self.assertEqual([], out[1][0])
+        # dt == the trigger lead: cancel first, the rails stair next poll.
+        self.assertEqual([Action(mlib.ACTION_CANCEL_WARP)], out[2][0])
+        self.assertEqual([Action(mlib.ACTION_SET_RAILS_WARP, 2.0)], out[3][0])
+
+
 class B5PreTransferJettisonTests(unittest.TestCase):
     """The optional pre-transfer jettison: armed, it pops an EXACT number of
     stages thrust-safe and then certifies BOTH that a stack separated and that

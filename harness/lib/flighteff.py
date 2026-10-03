@@ -1072,8 +1072,11 @@ SITE_HINTS: Dict[Tuple[str, str], Tuple[str, Tuple[str, ...]]] = {
         "mission_runner.py ACTION_MJ_EXECUTE_NODES hands the node to MechJeb "
         "with autowarp on; " + NE_HINT, ()),
     ("soi-approach", "*"): (
-        "1x around the SOI boundary; the machine stairs down inside soiLeadSeconds",
-        ("soiLeadSeconds", "coastWarpFactor", "approachMaxWarpFactor")),
+        "1x around the SOI boundary; the machine stairs down inside soiLeadSeconds "
+        "(soiNativeLeadSeconds / triggerNativeLeadSeconds when armed; the 'gate "
+        "coastLead' lines name the lead applied)",
+        ("soiLeadSeconds", "soiNativeLeadSeconds", "triggerNativeLeadSeconds",
+         "coastWarpFactor", "approachMaxWarpFactor")),
     ("coast-to-apoapsis", "MJ-ASCENT"): (
         "MechJeb's ascent (mission_runner.py ACTION_MJ_ENGAGE_ASCENT) coasts to "
         "its circularization node with autowarp on by default; " + NE_HINT, ()),
@@ -1108,7 +1111,8 @@ SITE_HINTS: Dict[Tuple[str, str], Tuple[str, Tuple[str, ...]]] = {
         ("warpAboveAltMeters", "warpHopSeconds")),
     ("low-warp", "COAST-TO-TARGET"): (
         "coast rails factor below the altitude-legal maximum",
-        ("coastWarpFactor", "approachMaxWarpFactor")),
+        ("coastWarpFactor", "approachMaxWarpFactor", "soiNativeLeadSeconds",
+         "triggerNativeLeadSeconds")),
     ("low-warp", "TARGET-FLYBY"): (
         "flyby rails factor below the altitude-legal maximum",
         ("flybyWarpFactor", "flybyMaxWarpFactor")),

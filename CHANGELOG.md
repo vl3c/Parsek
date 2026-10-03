@@ -65,6 +65,17 @@ _(unreleased — entries accumulate here per commit)_
   "by design" beside the recoverable total instead of in it, the PARK and kx COAST dwells
   are judged against the 4x physics warp the policy uses, and CIRCULARIZE node waits are
   flagged outcome-sensitive. JSON schema version 2.
+- **Dev: the b5 coast can warp natively closer to an SOI boundary and to a correction
+  trigger.** Two new `missionParams` keys, both off by default so every other lane flies as
+  before. `soiNativeLeadSeconds` makes the coast's native warp stop that many game seconds
+  short of the SOI boundary instead of `soiLeadSeconds` (the approach warp clamp uses the
+  same lead, the rails last-mile then runs unchanged, and the flyby exit warp keeps
+  `soiLeadSeconds`); a spec value under 120 s plus one 4 s frame at the rails ceiling is
+  rejected at load. `triggerNativeLeadSeconds` keeps the native warp to a time-mode
+  correction trigger armed until that many seconds before it, instead of `soiLeadSeconds`.
+  Each decision prints a `gate coastLead` line naming the lead and why. B26 (400 / 30) and
+  B22 (10,000 / 30) opt in, to cut ~3,000 game s per leg crawled at x50 on B26 and ~96
+  x1,000 frames on B22; a re-fly must confirm the outcomes match.
 - **Timeline rows explain themselves on hover.** Hovering a row's description in the
   Timeline now explains it in the window's bottom help line. A future row that holds a stock
   control names it, from the same check the stock screen's block uses: `Holds Research in R&D

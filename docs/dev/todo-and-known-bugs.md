@@ -277,6 +277,16 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   recoverable 18,712 s -> 14,450 s, by design 9,996 s -> 14,141 s; the top recoverable rows
   are now the pre-#1964 BDOCK-1 / BDOCK-2 RENDEZVOUS waits (3,499 s / 1,338 s), B22
   CIRCULARIZE (1,183 s) and pre-#1958 CAPTURE-BURN waits.
+- [ ] Coast native lead (branch `coast-native-lead`): two default-off b5 `missionParams`.
+  `soiNativeLeadSeconds` moves the coast's native warp stop (and the approach clamp's lead)
+  closer to the SOI boundary than `soiLeadSeconds`, floored at 120 s + 4 x
+  `RAILS_WARP_RATES[approachMaxWarpFactor]` (rejected at spec load below it);
+  `triggerNativeLeadSeconds` keeps the time-mode correction-trigger native warp armed to
+  that many seconds before the trigger instead of `soiLeadSeconds`. Opted in on B26
+  (400 / 30) and B22 (10,000 / 30); every other lane is unchanged. Pending re-fly proof on
+  both: the same phase list, SOI-crossing UT, first TARGET-FLYBY frame, correction dv,
+  nextPe, capture dv and park, with the x50 / x1,000 rails crawl before each boundary and
+  the round-1 trigger gone from the flight-efficiency report.
 
 ## ~~RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON: the recording stats frame lookup matches a section end exactly, with no tolerance~~ [FILED 2026-10-01 from the PR #1943 review, branch `l7-nightly-residue`. FIXED 2026-10-03, branch `fix-stats-frame-epsilon`]
 
