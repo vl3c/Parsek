@@ -250,7 +250,11 @@ The estimation contract (full text in the `lib/flighteff.py` docstring):
 - Outcome-sensitive. CIRCULARIZE node waits (B22) stay recoverable, but the row
   carries `outcomeSensitive: true` and says a warp there may move the outcome;
   the owner kept them recoverable (2026-10-03), a backlog target that needs a
-  verification flight before any warp.
+  verification flight before any warp. B22 now holds the park round-out behind
+  `circularizeNodeWaitWarp` (pending that re-fly): in a CIRCULARIZE visit whose
+  own `node-wait:` action line printed a half burn, the wait inside the capture
+  lead formula (120 s + 5 s + half burn) is by design and prints a
+  `circularize lead:` line; a visit without such a line gets no lead.
 - Long burns (60 s or more of 1x with a changing orbit) are reported as
   physics-warp candidates with an optional x2 saving that never enters a total.
 - Blocking `warp_to` hops emit no telemetry; such a gap is bucketed `warped` and

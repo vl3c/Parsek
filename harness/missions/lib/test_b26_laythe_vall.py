@@ -2915,10 +2915,16 @@ class Flight2DefectBTests(unittest.TestCase):
         self.assertTrue(mlib.coast_foreign_soi_clock_hold(
             "Jool", "Vall", ut0 + 5_000.0, ut0))
 
+        # The coast's EFFECTIVE SOI native lead: the spec arms
+        # soiNativeLeadSeconds, so the native target sits that far short of
+        # the boundary rather than soiLeadSeconds short of it.
+        lead, reason = mlib.coast_soi_native_lead(p)
+        self.assertEqual((float(mp["soiNativeLeadSeconds"]), "soi-native"),
+                         (lead, reason))
         # (a) ARMS. Pre-change this frame returned [] and never commanded a warp.
         st, actions = mlib.b5_decide(st, exit_leg(ut0, 9_000.0))
         self.assertEqual([mlib.ACTION_WARP_TO_UT], [a.kind for a in actions])
-        self.assertAlmostEqual(ut0 + 9_000.0 - p.soi_lead, st.warp_to_cmd,
+        self.assertAlmostEqual(ut0 + 9_000.0 - lead, st.warp_to_cmd,
                                delta=0.01)
         armed = st.warp_to_cmd
 
@@ -2929,7 +2935,7 @@ class Flight2DefectBTests(unittest.TestCase):
             st, exit_leg(ut0 + 1.0, 5_000.0, warping_to=armed))
         self.assertEqual([mlib.ACTION_WARP_TO_UT], [a.kind for a in actions])
         self.assertLess(st.warp_to_cmd, armed)
-        self.assertAlmostEqual(ut0 + 1.0 + 5_000.0 - p.soi_lead, st.warp_to_cmd,
+        self.assertAlmostEqual(ut0 + 1.0 + 5_000.0 - lead, st.warp_to_cmd,
                                delta=0.01)
         retargeted = st.warp_to_cmd
 

@@ -655,7 +655,7 @@ class DocumentTests(unittest.TestCase):
         self.assertEqual(sorted(back), ["aggregate", "byDesignPolicy", "constants",
                                         "duplicatesDropped", "runs", "schema", "schemaVersion",
                                         "skipped"])
-        self.assertEqual(len(back["byDesignPolicy"]), len(fe.BY_DESIGN_POLICY) + 2)
+        self.assertEqual(len(back["byDesignPolicy"]), len(fe.BY_DESIGN_POLICY) + 3)
         self.assertEqual(back["constants"]["rendezvousEarlyCancelSeconds"], 15.0)
         r = back["runs"][0]
         for key in ("runId", "scenario", "verdict", "totalWallSeconds", "missionWallSeconds",
@@ -761,6 +761,7 @@ class PolicyTableTests(unittest.TestCase):
             ("waiting-for-node", "STATION-ASCENT"), ("waiting-for-node", "INT-ASCENT")]))
         self.assertEqual(sorted(fe.OUTCOME_SENSITIVE), [("waiting-for-node", "CIRCULARIZE")])
         self.assertEqual(fe.CAPTURE_LEAD_KEY, ("waiting-for-node", "CAPTURE-BURN"))
+        self.assertEqual(fe.CIRCULARIZE_LEAD_KEY, ("waiting-for-node", "CIRCULARIZE"))
         self.assertEqual(fe.RENDEZVOUS_LEAD_KEY, ("waiting-for-node", "RENDEZVOUS"))
         self.assertTrue(all(fe.BY_DESIGN_POLICY.values()))
 
@@ -768,6 +769,7 @@ class PolicyTableTests(unittest.TestCase):
         phases = self._mlib_phase_literals()
         keys = (list(fe.BY_DESIGN_POLICY) + list(fe.OUTCOME_SENSITIVE)
                 + list(fe.POLICY_PHYSICS_TARGETS) + [fe.CAPTURE_LEAD_KEY,
+                                                     fe.CIRCULARIZE_LEAD_KEY,
                                                      fe.RENDEZVOUS_LEAD_KEY])
         for cause, phase in keys:
             self.assertIn(cause, fe.IDLE_CAUSES, (cause, phase))
@@ -982,6 +984,87 @@ class CaptureLeadTests(unittest.TestCase):
         self.assertIn("BY DESIGN (not counted", agg)
 
 
+class CircularizeLeadTests(unittest.TestCase):
+    """A CIRCULARIZE park round-out wait is by design inside the lead only when
+    the visit carries the opt-in hold's own node-wait line
+    (circularizeNodeWaitWarp); everything else in CIRCULARIZE stays recoverable
+    and outcome-sensitive."""
+
+    NODE_UT = 2687.2
+    # The line the machine prints when the hold arms (mlib node_wait_warp_plan
+    # text; B22 numbers, 100 t stack).
+    HOLD = ("[Mission][Info][CIRCULARIZE] action warp_to_ut value=2561.985 "
+            "text=node-wait: nodeUt=2687.2 halfBurn=5.2 lead=120")
+
+    def _run(self, prefix=(), start=2500.0, n=181):
+        lines = ["[Mission][Info][PRELAUNCH] mission start name=b22_jool_orbit",
+                 _phase("MJ-ASCENT", "CIRCULARIZE", start)]
+        lines += list(prefix)
+        lines += [_tel(phase="CIRCULARIZE", ut=start + i, nodes=1,
+                       node_ut=str(self.NODE_UT), alt=702000.0, ap=769634.0,
+                       pe=560640.0) for i in range(n)]
+        return "\n".join(lines)
+
+    def test_a_held_visit_splits_at_the_lead(self):
+        # lead = 120 + 5 + 5.2 = 130.2 s before 2687.2 -> 2557.0
+        log = fe.parse_mission_log(self._run(prefix=[self.HOLD]).splitlines())
+        ivs = fe.build_intervals(log)
+        leads = fe.apply_policy(log, ivs, "b5_decide")
+        self.assertEqual(list(leads.values()), [(130.2, True)])
+        by_ut = {iv.ut: iv for iv in ivs}
+        self.assertEqual(by_ut[2556.0].by_design, "")
+        self.assertEqual(by_ut[2557.0].by_design, fe.CIRCULARIZE_LEAD_REASON)
+        res = fe.analyze_mission(self._run(prefix=[self.HOLD]), None)
+        rows = {r["byDesign"]: r for r in res["recommendations"]}
+        self.assertEqual(rows[True]["byDesignReason"], fe.CIRCULARIZE_LEAD_REASON)
+        self.assertFalse(rows[True]["outcomeSensitive"])
+        # The wait before the lead stays recoverable and flagged.
+        self.assertTrue(rows[False]["outcomeSensitive"])
+        self.assertGreater(rows[False]["recoverable"], 0.0)
+        row = [p for p in res["phases"] if p["phase"] == "CIRCULARIZE"][0]
+        self.assertEqual(row["captureLeadSeconds"], 130.2)
+        self.assertTrue(row["captureLeadHalfBurnKnown"])
+
+    def test_an_unheld_visit_has_no_lead(self):
+        """No node-wait line = the lane did not opt in: the whole wait stays
+        recoverable (the capture lead's constants-only fallback must NOT
+        apply here). MUTATION: give CIRCULARIZE the capture fallback."""
+        log = fe.parse_mission_log(self._run().splitlines())
+        ivs = fe.build_intervals(log)
+        self.assertEqual({}, fe.apply_policy(log, ivs, "b5_decide"))
+        self.assertFalse(any(iv.by_design for iv in ivs))
+        res = fe.analyze_mission(self._run(), None)
+        self.assertEqual(res["byDesign"], 0.0)
+        self.assertTrue(all(r["outcomeSensitive"] for r in res["recommendations"]))
+        row = [p for p in res["phases"] if p["phase"] == "CIRCULARIZE"][0]
+        self.assertIsNone(row["captureLeadSeconds"])
+
+    def test_render_names_the_circularize_lead(self):
+        run = fe.analyze_run("2026-10-03_1106_B22-jool-orbit", None, None,
+                             self._run(prefix=[self.HOLD]), None, None)
+        text = fe.render_run(run)
+        self.assertIn("circularize lead: visit", text)
+        self.assertNotIn("capture lead: visit", text)
+
+    def test_machine_lead_is_the_analyzer_lead(self):
+        sys.path.insert(0, os.path.join(_HARNESS, "missions", "lib"))
+        try:
+            import mlib
+        finally:
+            sys.path.pop(0)
+        half = mlib.half_burn_seconds(67.745, 650000.0, 100000.0)
+        target, why = mlib.node_wait_warp_plan(1716.317, 2687.196, 67.745, 650000.0,
+                                               100000.0, float("nan"), 702284.0,
+                                               560640.0, 70000.0)
+        self.assertIsNotNone(target)
+        hb = fe._HALF_BURN_RE.search(why)
+        self.assertAlmostEqual(float(hb.group(1)), half, places=1)
+        lead, known = fe.capture_lead_seconds(half)
+        self.assertTrue(known)
+        self.assertAlmostEqual(
+            2687.196 - target + fe.NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS, lead)
+
+
 # Real BDOCK-1 hold lines (2026-10-02_2011_BDOCK-1-station-interceptor).
 _RV_WARP = ("[Mission][Info][RENDEZVOUS] action warp_to_ut value=7614.554 text=rendezvous "
             "node-wait: nodeUt=7735.1 halfBurn=0.5 lead=120")
@@ -1113,6 +1196,7 @@ class PolicyMirrorTests(unittest.TestCase):
         self.assertEqual(fe.PHYSICS_DWELL_WARP_INDEX, mlib.PHYSICS_DWELL_WARP_INDEX)
         self.assertEqual(fe.POLICY_PHYSICS_RATE, 4.0)
         self.assertEqual(mlib._B5_NODE_WAIT_PHASES, (fe.CAPTURE_LEAD_KEY[1],))
+        self.assertEqual(mlib._B5_CIRCULARIZE_NODE_WAIT_PHASE, fe.CIRCULARIZE_LEAD_KEY[1])
         self.assertEqual(fe.RV_EARLY_CANCEL_SECONDS, mlib.RV_WARP_ARRIVAL_TOLERANCE_SECONDS)
         self.assertEqual(fe.RV_NODE_IDENTITY_SECONDS, mlib.RV_WARP_NODE_IDENTITY_SECONDS)
         self.assertEqual(mlib.BDOCK_RENDEZVOUS, fe.RENDEZVOUS_LEAD_KEY[1])

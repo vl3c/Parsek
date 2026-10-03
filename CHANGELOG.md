@@ -74,7 +74,31 @@ _(unreleased — entries accumulate here per commit)_
   minus the 15 s early cancel) is reported as
   "by design" beside the recoverable total instead of in it, the PARK and kx COAST dwells
   are judged against the 4x physics warp the policy uses, and CIRCULARIZE node waits are
-  flagged outcome-sensitive. JSON schema version 2.
+  flagged outcome-sensitive (by design inside the lead of a held park round-out).
+  JSON schema version 2.
+- **Dev: the b5 coast can warp natively closer to an SOI boundary and to a correction
+  trigger.** Two new `missionParams` keys, both off by default so every other lane flies as
+  before. `soiNativeLeadSeconds` makes the coast's native warp stop that many game seconds
+  short of the SOI boundary instead of `soiLeadSeconds` (the approach warp clamp uses the
+  same lead, the rails last-mile then runs unchanged, and the flyby exit warp keeps
+  `soiLeadSeconds`); a spec value under 120 s plus one 4 s frame at the rails ceiling is
+  rejected at load. `triggerNativeLeadSeconds` keeps the native warp to a time-mode
+  correction trigger armed until that many seconds before it, instead of `soiLeadSeconds`.
+  Each decision prints a `gate coastLead` line naming the lead and why. B26 (400 / 30) and
+  B22 (10,000 / 30) opt in, to cut ~3,000 game s per leg crawled at x50 on B26 and ~96
+  x1,000 frames on B22. Re-flown with unchanged outcomes: B26 mission 707 s -> 596 s, B22 coast
+  368 s -> 315 s.
+- **Dev: the b5 park round-out can skip MechJeb's 1x node wait.** A new `missionParams` key
+  `circularizeNodeWaitWarp` (off by default, so every other lane flies as before) extends
+  the capture node-wait hold to the CIRCULARIZE park round-out node: the machine
+  rails-warps itself to node UT - half burn - 120 s and only then hands the node to
+  MechJeb's executor, instead of letting the executor warp to 600 s before ignition and
+  idle there at 1x. The hold is declined (plain hand-off, reason on the action line) when
+  the executor is not seen idle, the park is below the body's rails limit, or the warp
+  budget is spent; transfer nodes are never held. The flight-efficiency analyzer counts
+  the wait inside that lead as by design in a visit whose `node-wait:` line printed its
+  half burn. B22 opts in; its re-fly cut CIRCULARIZE from 626 s to 108 s and the mission from
+  2,767 s to 2,156 s, with the same trim, corrections and Jool park.
 - **Timeline rows explain themselves on hover.** Hovering a row's description in the
   Timeline now explains it in the window's bottom help line. A future row that holds a stock
   control names it, from the same check the stock screen's block uses: `Holds Research in R&D

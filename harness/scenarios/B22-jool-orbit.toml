@@ -829,6 +829,16 @@ circularizeTimeoutSeconds  = 12000
 # the round-out should be a no-op -- it is armed anyway, because a capture that arrives
 # off-target has no periapsis to circularize at.
 parkTrimEccMax             = 0.02
+# CIRCULARIZE NODE WAIT (wall time). MechJeb's executor rails-warps the round-out
+# node only to ignition - 600 s, then idles at 1x until AlignedAndSettled: ~590 s
+# per run here (2026-10-03_1106: node at ut 1716, nodeUt 2687). True holds that
+# hand-off and rails-warps to node UT - half burn - 120 s first, the CAPTURE
+# hold's own mechanism (mlib _b5_node_wait_begin); the executor then aligns and
+# burns as before. Declined (bare hand-off) when the executor is not observed
+# idle or the park is rails-illegal. PENDING RE-FLY: the trim's ap / pe / ecc
+# and the Jool arrival must match the unheld runs (a held TLI once moved B13's
+# landing site). Default false = off.
+circularizeNodeWaitWarp    = true
 
 # --- THE JETTISON. A CRAFT signature, not a body constant (Nerv 60 kN / Skipper
 # 650 kN / Mainsail 1,500 kN); full derivation in B19-dres-orbit.toml's header.
@@ -969,6 +979,22 @@ planWarpFactor             = 2
 soiLeadSeconds             = 100000
 approachWindowSeconds      = 200000
 approachMaxWarpFactor      = 5
+# COAST NATIVE LEADS (wall time). The coast's native warp_to_ut is stepped
+# server-side and lands on its target UT, so soiLeadSeconds 100,000 only
+# protects a ROLLING rails warp; the gap between the native stop and the Jool
+# boundary is otherwise flown at the x1,000 approach cap (~96 frames), and the
+# round-1 trigger approach crawls its last 100,000 s on the rails stair.
+#   soiNativeLeadSeconds 10,000: the SOI native warp stops 10,000 game s short of
+#     the boundary; the approach clamp limits native targets with the same lead
+#     and the rails last-mile (time stair + x1,000 cap) runs unchanged from
+#     there. CONSTRAINT (mlib rejects a smaller value at load): >= 120 + 4 x
+#     RAILS_WARP_RATES[approachMaxWarpFactor] = 120 + 4 x 1,000 = 4,120 -- the
+#     120 s retarget drift plus one pessimistic 4 s frame at the cap.
+#   triggerNativeLeadSeconds 30: the correction-trigger native warp (target = the
+#     trigger UT) stays armed until 30 game s before the trigger.
+# The flyby EXIT warp keeps soiLeadSeconds. Both default 0 = off.
+soiNativeLeadSeconds       = 10000
+triggerNativeLeadSeconds   = 30
 flipPhysicsWarpFactor      = 1
 # CHANGED: 50,000 -> 1,000,000. B21's 50,000 is one of the three values a copy would
 # make ACTIVELY DANGEROUS: Jool's atmosphere top is 200,000 m, so a 50,000 m floor
