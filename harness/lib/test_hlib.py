@@ -11232,6 +11232,10 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # fix `2026-10-03_1234` (trees / committedTrees 1, recordings 2,
                        # Recovered 1 / SubOrbital 1, spawnedVessels 0, CTR Lander 0).
                        "CI-6-chain-tip-recover-no-respawn.toml",
+                       # CI-7: `structure` armed 2026-10-03 off its reading `2026-10-03_1611`
+                       # (trees / committedTrees 1, recordings 2, Landed 1 / SubOrbital 1,
+                       # spawnedVessels 0, CTR Lander 0).
+                       "CI-7-chain-tip-ts-recover-no-respawn.toml",
                        # SS-1: `structure` + `points` armed 2026-09-26 off its reading
                        # `2026-09-25_2102`; re-scoped 2026-09-27 (the probe is a real
                        # 71 x 90 km Orbiting orbit that defers, then spawns) and re-armed

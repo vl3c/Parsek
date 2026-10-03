@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -22,6 +23,8 @@ namespace Parsek.TestCommands
     internal enum TsRecoverPollAction
     {
         NotYet,
+        DismissIntro,
+        IntroNotDismissed,
         SelectVessel,
         SelectFailed,
         PressRecover,
@@ -30,6 +33,7 @@ namespace Parsek.TestCommands
         ConfirmNotFound,
         DismissSummary,
         PressLeave,
+        PressLeaveForced,
         Ok,
         ReturnedToMenu,
         Timeout,
@@ -86,6 +90,7 @@ namespace Parsek.TestCommands
         internal const string NotRecoveredReason = "tsrecover-not-recovered";
         internal const string ReturnedToMenuReason = "tsrecover-returned-to-menu";
         internal const string TimeoutReason = "tsrecover-timeout";
+        internal const string IntroNotDismissedReason = "tsrecover-intro-not-dismissed";
 
         /// <summary>The REJECTED vocabulary, in gate order (button-locked last: it is the
         /// one refusal decided inside the Tracking Station). hlib.TSRECOVER_REASONS mirrors
@@ -111,6 +116,7 @@ namespace Parsek.TestCommands
             "tsrecover-not-recovered",
             "tsrecover-returned-to-menu",
             "tsrecover-timeout",
+            "tsrecover-intro-not-dismissed",
         };
 
         /// <summary>The stock confirm popup's <c>MultiOptionDialog</c> name.</summary>
@@ -134,6 +140,49 @@ namespace Parsek.TestCommands
 
         /// <summary>Frames the seam waits for the confirm popup after the Recover press.</summary>
         internal const int ConfirmWaitFrames = 30;
+
+        /// <summary>The control lock stock's new-game intro (<c>ScenarioNewGameIntro</c>, a
+        /// sandbox/science-save tutorial) sets over <c>TRACKINGSTATION_ALL</c> on a save's
+        /// first Tracking Station visit (<c>tsComplete = False</c>). It holds until the player
+        /// presses the intro page's button, which sets <c>tsComplete</c>, closes the window
+        /// and saves; while it holds, stock's <c>unlockUI</c> never re-enables Leave
+        /// (decompiled KSP 1.12.5; CI-7 `2026-10-03_1548` measured it held from arrival).</summary>
+        internal const string IntroLockId = "intro_TS";
+
+        /// <summary>Frames past the settle the seam waits for the intro lock to clear after
+        /// pressing the intro's button.</summary>
+        internal const int IntroWaitFrames = 60;
+
+        /// <summary>Frames the seam waits, after the recovery and with no summary dialog up,
+        /// for stock to re-enable Leave. Stock's <c>unlockUI</c> runs from inside
+        /// <c>OnRecoverConfirm</c> and re-enables Leave only while no control lock covers
+        /// <c>TRACKINGSTATION_UI</c>; it re-runs only when such a lock is removed. Past this
+        /// the seam names the locks and invokes the Leave button's click handler itself, and
+        /// says so in its answer (<c>leaveForced=true</c>), so a lane can forbid it.</summary>
+        internal const int LeaveWaitFrames = 60;
+
+        /// <summary><c>ControlTypes.TRACKINGSTATION_UI</c> (decompiled KSP 1.12.5).</summary>
+        internal const ulong TrackingStationUiLockBit = 0x400000000000UL;
+
+        /// <summary>The ids of the control locks in <paramref name="lockStack"/> that cover
+        /// the Tracking Station UI, sorted and comma-joined; <c>(none)</c> when there are
+        /// none.</summary>
+        internal static string DescribeTrackingStationLocks(
+            IEnumerable<KeyValuePair<string, ulong>> lockStack)
+        {
+            var ids = new List<string>();
+            if (lockStack != null)
+            {
+                foreach (var kv in lockStack)
+                {
+                    if ((kv.Value & TrackingStationUiLockBit) != 0UL)
+                        ids.Add(string.IsNullOrEmpty(kv.Key) ? "(unnamed)" : kv.Key);
+                }
+            }
+            if (ids.Count == 0) return "(none)";
+            ids.Sort(StringComparer.Ordinal);
+            return string.Join(",", ids.ToArray());
+        }
 
         /// <summary>Parses <c>pid=</c> (invariant, ASCII decimal uint, nonzero); returns
         /// null on success or the refusal reason. Recover's parse, with this verb's tokens.</summary>
@@ -180,7 +229,8 @@ namespace Parsek.TestCommands
             TsRecoverPhase phase, TestCommandScene scene, bool gameLoaded,
             bool trackingStationUp, int framesInPhase, bool vesselSelected,
             bool recoverButtonInteractable, bool confirmPopupFound,
-            bool summaryDialogOpen, bool leaveButtonInteractable, bool expired)
+            bool summaryDialogOpen, bool leaveButtonInteractable, bool expired,
+            bool introLockHeld = false)
         {
             if (scene == TestCommandScene.MainMenu)
                 return TsRecoverPollAction.ReturnedToMenu;
@@ -193,6 +243,10 @@ namespace Parsek.TestCommands
                 case TsRecoverPhase.EnteringTrackingStation:
                     if (!inTs || framesInPhase < TrackingStationSettleFrames)
                         return TsRecoverPollAction.NotYet;
+                    if (introLockHeld)
+                        return framesInPhase >= TrackingStationSettleFrames + IntroWaitFrames
+                            ? TsRecoverPollAction.IntroNotDismissed
+                            : TsRecoverPollAction.DismissIntro;
                     return TsRecoverPollAction.SelectVessel;
 
                 case TsRecoverPhase.Selecting:
@@ -213,8 +267,11 @@ namespace Parsek.TestCommands
 
                 case TsRecoverPhase.Recovered:
                     if (summaryDialogOpen) return TsRecoverPollAction.DismissSummary;
-                    if (!inTs || !leaveButtonInteractable) return TsRecoverPollAction.NotYet;
-                    return TsRecoverPollAction.PressLeave;
+                    if (!inTs) return TsRecoverPollAction.NotYet;
+                    if (leaveButtonInteractable) return TsRecoverPollAction.PressLeave;
+                    return framesInPhase >= LeaveWaitFrames
+                        ? TsRecoverPollAction.PressLeaveForced
+                        : TsRecoverPollAction.NotYet;
 
                 case TsRecoverPhase.Leaving:
                     if (scene == TestCommandScene.SpaceCenter && gameLoaded)
@@ -224,18 +281,24 @@ namespace Parsek.TestCommands
             return TsRecoverPollAction.NotYet;
         }
 
-        /// <summary>The OK payload: <c>pid= vessel= scene= recovered=true quick=</c>.</summary>
+        /// <summary>The OK payload: <c>pid= vessel= scene= recovered=true quick= leaveForced=</c>,
+        /// plus <c>leaveLocks=</c> when the seam had to force the Leave press.</summary>
         internal static List<KeyValuePair<string, string>> BuildOkPayload(
-            uint pid, string vesselName, string sceneName, bool quick)
+            uint pid, string vesselName, string sceneName, bool quick,
+            bool leaveForced = false, string leaveLocks = null)
         {
-            return new List<KeyValuePair<string, string>>
+            var payload = new List<KeyValuePair<string, string>>
             {
                 new KeyValuePair<string, string>("pid", pid.ToString(CultureInfo.InvariantCulture)),
                 new KeyValuePair<string, string>("vessel", vesselName ?? string.Empty),
                 new KeyValuePair<string, string>("scene", sceneName ?? string.Empty),
                 new KeyValuePair<string, string>("recovered", "true"),
                 new KeyValuePair<string, string>("quick", quick ? "true" : "false"),
+                new KeyValuePair<string, string>("leaveForced", leaveForced ? "true" : "false"),
             };
+            if (leaveForced)
+                payload.Add(new KeyValuePair<string, string>("leaveLocks", leaveLocks ?? "(none)"));
+            return payload;
         }
 
         /// <summary>The grep-stable building-click line.</summary>
@@ -259,13 +322,15 @@ namespace Parsek.TestCommands
 
         /// <summary>The grep-stable completion line.</summary>
         internal static string FormatCompleteLine(
-            uint pid, string vesselName, string sceneName, bool quick, double elapsed)
+            uint pid, string vesselName, string sceneName, bool quick, double elapsed,
+            bool leaveForced = false)
         {
             CultureInfo ic = CultureInfo.InvariantCulture;
             return "tsrecover complete pid=" + pid.ToString(ic)
                 + " vessel=" + (vesselName ?? string.Empty)
                 + " scene=" + (sceneName ?? string.Empty)
                 + " quick=" + (quick ? "true" : "false")
+                + " leaveForced=" + (leaveForced ? "true" : "false")
                 + " elapsed=" + elapsed.ToString("F1", ic) + "s";
         }
     }

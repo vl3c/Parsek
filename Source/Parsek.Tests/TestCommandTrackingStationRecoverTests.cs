@@ -34,10 +34,34 @@ namespace Parsek.Tests
             TestCommandScene scene = TestCommandScene.TrackingStation,
             bool gameLoaded = true, bool tsUp = true, int frames = 100,
             bool selected = false, bool recoverLive = false, bool popup = false,
-            bool summary = false, bool leaveLive = false, bool expired = false)
+            bool summary = false, bool leaveLive = false, bool expired = false,
+            bool intro = false)
             => TestCommandTrackingStationRecover.DecidePoll(
                 phase, scene, gameLoaded, tsUp, frames, selected, recoverLive, popup,
-                summary, leaveLive, expired);
+                summary, leaveLive, expired, intro);
+
+        // catches: CI-7 `2026-10-03_1548` - stock's first-visit Tracking Station intro
+        // (ScenarioNewGameIntro, tsComplete=False on 51 fixtures) holds lock intro_TS over the
+        // whole TS UI, so Leave never re-enables after the recovery. The seam must press the
+        // intro's button before selecting, and fail typed if the lock survives the wait.
+        [Fact]
+        public void Entering_DismissesTheStockIntroBeforeSelecting()
+        {
+            int settle = TestCommandTrackingStationRecover.TrackingStationSettleFrames;
+            int wait = TestCommandTrackingStationRecover.IntroWaitFrames;
+            Assert.Equal(TsRecoverPollAction.NotYet,
+                Poll(TsRecoverPhase.EnteringTrackingStation, frames: settle - 1, intro: true));
+            Assert.Equal(TsRecoverPollAction.DismissIntro,
+                Poll(TsRecoverPhase.EnteringTrackingStation, frames: settle, intro: true));
+            Assert.Equal(TsRecoverPollAction.DismissIntro,
+                Poll(TsRecoverPhase.EnteringTrackingStation, frames: settle + wait - 1, intro: true));
+            Assert.Equal(TsRecoverPollAction.IntroNotDismissed,
+                Poll(TsRecoverPhase.EnteringTrackingStation, frames: settle + wait, intro: true));
+            Assert.Equal(TsRecoverPollAction.SelectVessel,
+                Poll(TsRecoverPhase.EnteringTrackingStation, frames: settle + wait, intro: false));
+            Assert.Contains(TestCommandTrackingStationRecover.IntroNotDismissedReason,
+                TestCommandTrackingStationRecover.ErrorReasons);
+        }
 
         // ----- dispatch -----
 
@@ -158,6 +182,7 @@ namespace Parsek.Tests
                 TestCommandTrackingStationRecover.NotRecoveredReason,
                 TestCommandTrackingStationRecover.ReturnedToMenuReason,
                 TestCommandTrackingStationRecover.TimeoutReason,
+                TestCommandTrackingStationRecover.IntroNotDismissedReason,
             };
             Assert.Equal(errors, TestCommandTrackingStationRecover.ErrorReasons);
         }
@@ -225,8 +250,55 @@ namespace Parsek.Tests
             // Stock keeps Leave locked while the MissionRecoveryDialog is up.
             Assert.Equal(TsRecoverPollAction.DismissSummary,
                 Poll(TsRecoverPhase.Recovered, summary: true, leaveLive: true));
-            Assert.Equal(TsRecoverPollAction.NotYet, Poll(TsRecoverPhase.Recovered, leaveLive: false));
+            Assert.Equal(TsRecoverPollAction.NotYet, Poll(TsRecoverPhase.Recovered, frames: 0, leaveLive: false));
             Assert.Equal(TsRecoverPollAction.PressLeave, Poll(TsRecoverPhase.Recovered, leaveLive: true));
+        }
+
+        // catches: the seam waiting out its whole budget in the Tracking Station when stock
+        // never re-enables Leave (CI-7 `2026-10-03_1512`: recovered, then 120 s at phase
+        // Recovered with leave=false), and forcing the press before stock had its chance.
+        [Fact]
+        public void Recovered_ForcesLeaveOnlyAfterTheWait()
+        {
+            int wait = TestCommandTrackingStationRecover.LeaveWaitFrames;
+            Assert.Equal(TsRecoverPollAction.NotYet,
+                Poll(TsRecoverPhase.Recovered, frames: wait - 1, leaveLive: false));
+            Assert.Equal(TsRecoverPollAction.PressLeaveForced,
+                Poll(TsRecoverPhase.Recovered, frames: wait, leaveLive: false));
+            Assert.Equal(TsRecoverPollAction.DismissSummary,
+                Poll(TsRecoverPhase.Recovered, frames: wait, summary: true, leaveLive: false));
+            Assert.Equal(TsRecoverPollAction.NotYet,
+                Poll(TsRecoverPhase.Recovered, frames: wait, tsUp: false, leaveLive: false));
+        }
+
+        [Fact]
+        public void DescribeTrackingStationLocks_NamesOnlyTheLocksCoveringTheTsUi()
+        {
+            var stack = new Dictionary<string, ulong>
+            {
+                { "zLock", TestCommandTrackingStationRecover.TrackingStationUiLockBit | 0x1UL },
+                { "cameraHover", 0x400UL },
+                { "aLock", ulong.MaxValue >> 4 },
+            };
+            Assert.Equal("aLock,zLock",
+                TestCommandTrackingStationRecover.DescribeTrackingStationLocks(stack));
+            Assert.Equal("(none)", TestCommandTrackingStationRecover.DescribeTrackingStationLocks(
+                new Dictionary<string, ulong> { { "cameraHover", 0x400UL } }));
+            Assert.Equal("(none)", TestCommandTrackingStationRecover.DescribeTrackingStationLocks(null));
+        }
+
+        [Fact]
+        public void OkPayload_AndCompleteLine_CarryLeaveForced()
+        {
+            var plain = TestCommandTrackingStationRecover.BuildOkPayload(77u, "Pod", "SPACECENTER", false);
+            Assert.Contains(plain, kv => kv.Key == "leaveForced" && kv.Value == "false");
+            Assert.DoesNotContain(plain, kv => kv.Key == "leaveLocks");
+            var forced = TestCommandTrackingStationRecover.BuildOkPayload(
+                77u, "Pod", "SPACECENTER", false, leaveForced: true, leaveLocks: "aLock");
+            Assert.Contains(forced, kv => kv.Key == "leaveForced" && kv.Value == "true");
+            Assert.Contains(forced, kv => kv.Key == "leaveLocks" && kv.Value == "aLock");
+            Assert.Contains(" quick=false leaveForced=true elapsed=3.2s",
+                TestCommandTrackingStationRecover.FormatCompleteLine(77u, "Pod", "SPACECENTER", false, 3.2, true));
         }
 
         [Fact]
@@ -264,7 +336,7 @@ namespace Parsek.Tests
             {
                 Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
                 var p = TestCommandTrackingStationRecover.BuildOkPayload(77u, "Pod", "SPACECENTER", false);
-                Assert.Equal(new[] { "pid", "vessel", "scene", "recovered", "quick" },
+                Assert.Equal(new[] { "pid", "vessel", "scene", "recovered", "quick", "leaveForced" },
                     p.Select(kv => kv.Key).ToArray());
                 Assert.Equal("77", Value(p, "pid"));
                 Assert.Equal("SPACECENTER", Value(p, "scene"));
@@ -274,7 +346,7 @@ namespace Parsek.Tests
                     TestCommandTrackingStationRecover.FormatEnterLine(77u, "Pod", "LANDED", 1234.5));
                 Assert.Equal("tsrecover pressed pid=77 vessel=Pod framesInTs=16",
                     TestCommandTrackingStationRecover.FormatPressedLine(77u, "Pod", 16));
-                Assert.Equal("tsrecover complete pid=77 vessel=Pod scene=SPACECENTER quick=false elapsed=3.2s",
+                Assert.Equal("tsrecover complete pid=77 vessel=Pod scene=SPACECENTER quick=false leaveForced=false elapsed=3.2s",
                     TestCommandTrackingStationRecover.FormatCompleteLine(77u, "Pod", "SPACECENTER", false, 3.2));
             }
             finally

@@ -3974,10 +3974,24 @@ inside the call), `tsrecover-returned-to-menu`, `tsrecover-timeout`.
 `SpaceTracking.Instance` up for 15 frames) -> `Selecting` -> `Confirming` -> `Recovered`
 (summary closed, then Leave) -> `Leaving`. OK needs the recovery observed (by Guid or pid)
 AND a settled SPACECENTER with a game loaded. Payload `pid= vessel= scene=SPACECENTER
-recovered=true quick=<bool>`; lines `tsrecover enter pid= vessel= situation= ut=`,
+recovered=true quick=<bool> leaveForced=<bool>` (plus `leaveLocks=` when forced); lines `tsrecover enter pid= vessel= situation= ut=`,
 `tsrecover pressed pid= vessel= framesInTs=`, `tsrecover confirm`, `tsrecover observed
 onVesselRecovered pid= vessel= quick=`, `tsrecover dismiss MissionRecoveryDialog`,
-`tsrecover leave`, `tsrecover complete pid= vessel= scene= quick= elapsed=`.
+`tsrecover leave`, `tsrecover leave forced pid= ... TRACKINGSTATION_UI locks= lockMask=` (Warn), `tsrecover complete pid= vessel= scene= quick= leaveForced= elapsed=`.
+Stock re-enables Leave from `unlockUI`, which runs inside `OnRecoverConfirm` and only while no
+control lock covers `TRACKINGSTATION_UI` (it re-runs when such a lock is removed). If Leave stays
+locked `LeaveWaitFrames` (60) frames after the recovery with no summary dialog up, the seam names
+the covering locks, invokes the Leave button's own click handler, and answers `leaveForced=true`;
+a lane forbids that line so a lock that would strand a player still reads red.
+Stock's new-game intro (`ScenarioNewGameIntro`, `tsComplete = False` on 51 committed fixtures)
+sets control lock `intro_TS` over `TRACKINGSTATION_ALL` on a save's first Tracking Station
+visit and holds it until the player presses the intro page's button; while it holds, Leave never
+re-enables (CI-7 `2026-10-03_1548` measured it held from arrival). After the settle, while that
+lock is held, the seam presses the intro's own button (`tsrecover dismiss intro`, the callback
+that sets `tsComplete`, closes the window and saves) before selecting, and answers ERROR
+`tsrecover-intro-not-dismissed` if the lock survives `IntroWaitFrames` (60). Each stage logs a
+`tsrecover locks at=<stage>` snapshot (every control lock id:mask, the TS-UI ones, the confirm
+popup, the summary dialog, Leave's state).
 
 **Phases and roles.** TWO-PHASE, `RequiresGameLoaded` (the GoToEditor row: one valid
 scene, refused typed elsewhere), 120 s (the `Recover` size: two scene loads that re-read no

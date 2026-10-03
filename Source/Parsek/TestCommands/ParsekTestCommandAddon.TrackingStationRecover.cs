@@ -36,6 +36,15 @@ namespace Parsek.TestCommands
         private int tsRecoverTsUpFrame = -1;
         private bool tsRecoverRecoveredObserved;
         private bool tsRecoverQuick;
+        private bool tsRecoverLeaveForced;
+        private int tsRecoverLastLockLogFrame;
+        private bool tsRecoverIntroPressed;
+
+        private static readonly System.Reflection.FieldInfo TutorialDialogDisplayField =
+            typeof(TutorialScenario).GetField("dialogDisplay",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Public);
+        private string tsRecoverLeaveLocks;
         private bool tsRecoverListenersAdded;
 
         private void TrackingStationRecoverImpl(ParsedCommand cmd)
@@ -82,6 +91,9 @@ namespace Parsek.TestCommands
             tsRecoverVesselName = target.vesselName;
             tsRecoverRecoveredObserved = false;
             tsRecoverQuick = false;
+            tsRecoverLeaveForced = false;
+            tsRecoverLeaveLocks = null;
+            tsRecoverIntroPressed = false;
             tsRecoverTsUpFrame = -1;
             SetTsRecoverPhase(TsRecoverPhase.EnteringTrackingStation);
             AddTsRecoverListeners();
@@ -118,21 +130,58 @@ namespace Parsek.TestCommands
                 ? Object.FindObjectOfType<MissionRecoveryDialog>() : null;
             bool leaveInteractable = tsUp && ts.LeaveBtn != null && ts.LeaveBtn.interactable;
 
+            bool introLockHeld = tsUp
+                && InputLockManager.lockStack.ContainsKey(TestCommandTrackingStationRecover.IntroLockId);
+
             TsRecoverPollAction action = TestCommandTrackingStationRecover.DecidePoll(
                 tsRecoverPhase, scene, gameLoaded, tsUp, framesInPhase, vesselSelected,
-                recoverInteractable, confirm != null, summary != null, leaveInteractable, expired);
+                recoverInteractable, confirm != null, summary != null, leaveInteractable, expired,
+                introLockHeld);
 
             CultureInfo ic = CultureInfo.InvariantCulture;
             string pidText = tsRecoverPid.ToString(ic);
             switch (action)
             {
                 case TsRecoverPollAction.NotYet:
+                    if (tsRecoverPhase == TsRecoverPhase.Recovered
+                        && Time.frameCount - tsRecoverLastLockLogFrame >= 30)
+                        LogTsRecoverLocks("waiting-for-leave", ts);
+                    return;
+
+                case TsRecoverPollAction.DismissIntro:
+                {
+                    if (tsRecoverIntroPressed) return;
+                    tsRecoverIntroPressed = true;
+                    LogTsRecoverLocks("intro", ts);
+                    DialogGUIButton introButton = FindNewGameIntroButton(out string introDetail);
+                    if (introButton == null || DialogGuiButtonOptionSelectedMethod == null)
+                    {
+                        ParsekLog.Warn(Tag, $"tsrecover dismiss intro pid={pidText}: no intro button "
+                            + $"({introDetail}) - the lock will run out the wait");
+                        return;
+                    }
+                    ParsekLog.Info(Tag, $"tsrecover dismiss intro pid={pidText} - stock new-game "
+                        + $"Tracking Station intro holds lock {TestCommandTrackingStationRecover.IntroLockId}; "
+                        + $"pressing its button '{introButton.OptionText}' ({introDetail})");
+                    // The page button's own callback: tsComplete = true, CloseTutorialWindow,
+                    // SaveGame - what the player's click does.
+                    DialogGuiButtonOptionSelectedMethod.Invoke(introButton, null);
+                    return;
+                }
+
+                case TsRecoverPollAction.IntroNotDismissed:
+                    FinishTsRecover("ERROR", null, TestCommandTrackingStationRecover.IntroNotDismissedReason,
+                        $"lock={TestCommandTrackingStationRecover.IntroLockId} pressed={Bool(tsRecoverIntroPressed)}",
+                        elapsed);
                     return;
 
                 case TsRecoverPollAction.SelectVessel:
                 {
                     if (tsRecoverPhase != TsRecoverPhase.Selecting)
+                    {
+                        LogTsRecoverLocks("arrived", ts);
                         SetTsRecoverPhase(TsRecoverPhase.Selecting);
+                    }
                     Vessel v = FindRealVesselByPid(tsRecoverPid);
                     if (v == null)
                     {
@@ -165,6 +214,7 @@ namespace Parsek.TestCommands
                         tsRecoverPid, tsRecoverVesselName, Time.frameCount - tsRecoverTsUpFrame));
                     // Stock's BtnOnclick_RecoverSelectedVessel: lockUI + the confirm popup.
                     ts.RecoverButton.onClick.Invoke();
+                    LogTsRecoverLocks("after-recover-press", ts);
                     SetTsRecoverPhase(TsRecoverPhase.Confirming);
                     return;
 
@@ -187,6 +237,7 @@ namespace Parsek.TestCommands
                     // The button's own callback: OnRecoverConfirm (onVesselRecovered fires
                     // synchronously inside it) and then the popup's dismiss.
                     DialogGuiButtonOptionSelectedMethod.Invoke(button, null);
+                    LogTsRecoverLocks("after-confirm", ts);
                     if (!tsRecoverRecoveredObserved)
                     {
                         FinishTsRecover("ERROR", null, TestCommandTrackingStationRecover.NotRecoveredReason,
@@ -211,9 +262,23 @@ namespace Parsek.TestCommands
                     SetTsRecoverPhase(TsRecoverPhase.Leaving);
                     return;
 
+                case TsRecoverPollAction.PressLeaveForced:
+                    tsRecoverLeaveForced = true;
+                    tsRecoverLeaveLocks = TestCommandTrackingStationRecover
+                        .DescribeTrackingStationLocks(InputLockManager.lockStack);
+                    ParsekLog.Warn(Tag, $"tsrecover leave forced pid={pidText} - Leave stayed locked "
+                        + $"{framesInPhase.ToString(CultureInfo.InvariantCulture)} frames after the recovery; "
+                        + $"TRACKINGSTATION_UI locks={tsRecoverLeaveLocks} lockMask=0x"
+                        + InputLockManager.lockMask.ToString("X", CultureInfo.InvariantCulture)
+                        + " - invoking the Leave button's click handler");
+                    ts.LeaveBtn.onClick.Invoke();
+                    SetTsRecoverPhase(TsRecoverPhase.Leaving);
+                    return;
+
                 case TsRecoverPollAction.Ok:
                     FinishTsRecover("OK", TestCommandTrackingStationRecover.BuildOkPayload(
-                        tsRecoverPid, tsRecoverVesselName, HighLogic.LoadedScene.ToString(), tsRecoverQuick),
+                        tsRecoverPid, tsRecoverVesselName, HighLogic.LoadedScene.ToString(), tsRecoverQuick,
+                        tsRecoverLeaveForced, tsRecoverLeaveLocks),
                         null, null, elapsed);
                     return;
 
@@ -240,12 +305,13 @@ namespace Parsek.TestCommands
             uint pid = tsRecoverPid;
             string vesselName = tsRecoverVesselName;
             bool quick = tsRecoverQuick;
+            bool leaveForced = tsRecoverLeaveForced;
             ClearTwoPhase();
             CultureInfo ic = CultureInfo.InvariantCulture;
             if (verdict == "OK")
             {
                 ParsekLog.Info(Tag, TestCommandTrackingStationRecover.FormatCompleteLine(
-                    pid, vesselName, HighLogic.LoadedScene.ToString(), quick, elapsed));
+                    pid, vesselName, HighLogic.LoadedScene.ToString(), quick, elapsed, leaveForced));
                 EmitExecutedTerminal(id, seq, verb, "OK", payload, null, dequeueHead: true);
                 return;
             }
@@ -254,6 +320,59 @@ namespace Parsek.TestCommands
             if (verdict == "REJECTED") ParsekLog.Warn(Tag, line);
             else ParsekLog.Error(Tag, line);
             EmitExecutedTerminal(id, seq, verb, verdict, null, reason, dequeueHead: true);
+        }
+
+        // Debug snapshot for the Leave lock: which control locks exist (id:mask), which of
+        // them cover TRACKINGSTATION_UI, whether the confirm popup and the recovery summary
+        // still exist, and Leave's own state. Bounded: four call sites, the waiting one at most
+        // every 30 frames over LeaveWaitFrames.
+        private void LogTsRecoverLocks(string at, SpaceTracking ts)
+        {
+            tsRecoverLastLockLogFrame = Time.frameCount;
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            var all = new List<string>();
+            foreach (var kv in InputLockManager.lockStack)
+                all.Add(kv.Key + ":0x" + kv.Value.ToString("X", ic));
+            all.Sort(System.StringComparer.Ordinal);
+            bool popup = FindPopupByName(TestCommandTrackingStationRecover.ConfirmDialogName) != null;
+            bool summary = Object.FindObjectOfType<MissionRecoveryDialog>() != null;
+            bool leave = ts != null && ts.LeaveBtn != null && ts.LeaveBtn.interactable;
+            ParsekLog.Info(Tag, $"tsrecover locks at={at} pid={tsRecoverPid.ToString(ic)} "
+                + $"tsUiLocks={TestCommandTrackingStationRecover.DescribeTrackingStationLocks(InputLockManager.lockStack)} "
+                + $"lockMask=0x{InputLockManager.lockMask.ToString("X", ic)} "
+                + $"all=[{string.Join(",", all.ToArray())}] recoverPopup={Bool(popup)} "
+                + $"summary={Bool(summary)} leave={Bool(leave)} frame={Time.frameCount.ToString(ic)}");
+        }
+
+        // The intro page's button: the one DialogGUIButton in ScenarioNewGameIntro's tutorial
+        // window whose callback was built by ScenarioNewGameIntro (its welcome page closure).
+        private static DialogGUIButton FindNewGameIntroButton(out string detail)
+        {
+            var intro = Object.FindObjectOfType<ScenarioNewGameIntro>();
+            if (intro == null) { detail = "no ScenarioNewGameIntro"; return null; }
+            if (TutorialDialogDisplayField == null) { detail = "no dialogDisplay field"; return null; }
+            var popup = TutorialDialogDisplayField.GetValue(intro) as PopupDialog;
+            if (popup == null) { detail = "no intro window"; return null; }
+            List<DialogGUIButton> buttons = GetDialogButtons(popup);
+            DialogGUIButton only = buttons.Count == 1 ? buttons[0] : null;
+            for (int i = 0; i < buttons.Count; i++)
+            {
+                Callback cb = buttons[i].onOptionSelected;
+                if (cb == null) continue;
+                foreach (System.Delegate d in cb.GetInvocationList())
+                {
+                    System.Type owner = d.Method.DeclaringType;
+                    while (owner != null && owner.DeclaringType != null) owner = owner.DeclaringType;
+                    if (owner == typeof(ScenarioNewGameIntro))
+                    {
+                        detail = "buttons=" + buttons.Count.ToString(CultureInfo.InvariantCulture) + " by-owner";
+                        return buttons[i];
+                    }
+                }
+            }
+            detail = "buttons=" + buttons.Count.ToString(CultureInfo.InvariantCulture)
+                + (only != null ? " single" : " no-owner-match");
+            return only;
         }
 
         private void SetTsRecoverPhase(TsRecoverPhase phase)

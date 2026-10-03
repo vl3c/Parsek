@@ -5650,6 +5650,19 @@ namespace Parsek
                     $"Vessel recovery row skipped: vessel='{vesselText}' ut={utText} - no vessel pid");
                 return 0;
             }
+            // A Re-Fly session owns its in-flight recovery: the Recovered stamp lands on the
+            // session's provisional, and Merge / Discard decide the outcome. A row written here
+            // would tag the committed origin (same launch guid) and survive a Discard.
+            var scenarioForReFly = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenarioForReFly)
+                && scenarioForReFly.ActiveReFlySessionMarker != null)
+            {
+                ParsekLog.Info(Tag,
+                    $"Vessel recovery row skipped: vessel='{vesselText}' pid={vesselPid.ToString(ic)} " +
+                    $"ut={utText} - Re-Fly session " +
+                    $"{scenarioForReFly.ActiveReFlySessionMarker.SessionId ?? "<no-id>"} active");
+                return 0;
+            }
 
             Initialize();
 

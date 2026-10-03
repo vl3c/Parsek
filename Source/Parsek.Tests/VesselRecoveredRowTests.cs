@@ -181,6 +181,35 @@ namespace Parsek.Tests
                 && l.Contains("owners=1 written=1 deduped=0"));
         }
 
+        // catches: an in-flight recovery during a Re-Fly session tagging the committed origin
+        // (same launch guid) with a row that would survive a Discard of the session.
+        [Fact]
+        public void ReFlySessionActive_WritesNothing()
+        {
+            var tip = SpawnedTip("rec-tip");
+            RecordingStore.AddRecordingWithTreeForTesting(tip);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_vr_skip",
+                    OriginChildRecordingId = tip.RecordingId,
+                    ActiveReFlyRecordingId = tip.RecordingId,
+                    RewindPointId = "rp_test",
+                    TreeId = tip.TreeId,
+                },
+            });
+
+            int written = LedgerOrchestrator.OnRealVesselRecovered(
+                RecoveryUT, SpawnPid, SpawnGuid, Name);
+
+            Assert.Equal(0, written);
+            Assert.Empty(RowsOfType(GameActionType.VesselRecovered));
+            Assert.Contains(logLines, l => l.Contains("[LedgerOrchestrator]")
+                && l.Contains("Vessel recovery row skipped: vessel='CTR Lander'")
+                && l.Contains("Re-Fly session sess_vr_skip active"));
+        }
+
         [Fact]
         public void PositiveLaunchGuidMatch_WritesARow()
         {
