@@ -10,6 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: KSP.log now records when the crash screen and the recovery summary open and close.**
+  Stock KSP's flight results dialog ("Outcome: Catastrophic Failure!", also the F3 flight
+  status screen) and its "Mission Summary" recovery dialog left no reliable trace in the log,
+  so a scan of harness runs could not tell how long either stayed up. Parsek now writes one
+  `[PostFlightDialog]` line when each opens, with the scene, the vessel and, for the flight
+  results dialog, whether the game is paused and whether it is the crash screen
+  (`exitControls=true`), and one when each closes, with the time it stayed on screen in wall
+  seconds (`onScreenWallSeconds=`). Logging only: nothing on screen changes.
 - **Dev: a lane for spawning a ghost chain's final vessel through Real Spawn Control.**
   `CI-8-chain-tip-original-pid` (flown green 2026-10-03, nightly) reads a ghost chain's
   vessel id, presses the chain's Real Spawn Control button, and requires the vessel that
@@ -5671,6 +5679,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: the player docks with a ghost-chain tip spawned through Real Spawn
+  Control (CI-9).** A new nightly lane, `CI-9-chain-tip-dock`, puts an orbital ghost-chain
+  tip (the new `chain-tip-dock` injected preset) 140 m ahead of the focused Kerbal X,
+  presses "Warp to Spawn" for it, starts a recording and flies a new mission,
+  `ci9_tip_dock`, that rendezvous with the spawned tip and docks to it. It gates the
+  single-parent Dock branch point, the dock superseding the tip's committed spawn so the
+  absorbed vessel never comes back, and the committed save shape. The flight found that
+  in orbit the spawned tip appears on its recorded orbit 120 km away instead of where its
+  ghost stood (todo REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST, open).
 - **Automated testing: PWR-3 (recording under physics warp at the High density) is armed;
   every registry coverage cell is now claimed (251 of 251).** Its two quarantining findings
   were fixed in the recorder (see Fixed: "a sample taken when a frame runs long"), the

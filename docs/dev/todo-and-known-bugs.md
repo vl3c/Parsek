@@ -15,6 +15,47 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST: Real Spawn Control's "Warp to Spawn" puts an orbital tip on its recorded orbit at the new UT, not where its ghost stood [FILED 2026-10-03 from CI-9 `2026-10-03_1642` / `_1647`, branch `lane-ci9-dock-tip`. OPEN; product]
+
+**What the player sees.** In orbit, the player parks 140 m from a ghost whose recording ends
+Orbiting, opens Real Spawn Control and presses "Warp to Spawn". The vessel that appears is
+not beside them: on CI-9's host it spawned 120.4 km ahead along the shared orbit.
+
+**Measured** (`eva2-lko-crewed` + the `chain-tip-dock` preset, origin/main DLL, no C#
+change): `Proximity notification: 'CTD Target' recording #1 distance=140m endUT=481.2`;
+`realspawn pressed ... utBefore=427.4`; `WarpToRecordingEnd: jumping to UT=481.2 ...
+(delta=53.8s)`; `Epoch-shifted vessel: pid=3620499050 name=Kerbal X ... dMeanAnomaly=0.000000`;
+`Chain tip spawn: pid=3156176881 ... real vessel created`; `realspawn complete ... loaded=false`.
+The produced save of the probe flight `_1642` puts the Kerbal X and the CTD Target 120392 m
+apart (both orbits propagated to the save UT), and the mission's first kRPC read on `_1647`
+was `tgtD=120413.977`.
+
+**Why.** `ParsekFlight.WarpToRecordingEnd` -> `TimeJumpManager.ExecuteJump(targetUT, null, ...)`
+epoch-shifts every loaded vessel so it keeps its position and velocity (design 14.5 step 3),
+then leaves the spawn to the playback loop (`chains` is null). The playback loop's
+`VesselGhoster.SpawnAtChainTip` (and the non-chain end spawn) places an Orbiting tip through
+`VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState` at the CURRENT UT, i.e. on its
+recorded orbit at EndUT. The ghost moved n * delta along its orbit during the jump while the
+player did not, so the separation grows by orbital speed times the jump (here ~2.2 km/s x
+53.8 s). `SpawnCrossedChainTips` takes the same `SpawnAtChainTip` path, so passing the chains
+would not change it.
+
+**The contract it breaks.** `docs/parsek-flight-recorder-design.md` principle 13 and section
+14.5 steps 4 and 6: a chain tip crossed during the jump spawns "at the ghost's current
+position (which has not moved)", and the player resumes "at the same position and velocity
+relative to the now-real vessel, with the same approach geometry". On the surface the two
+agree (both surface-fixed); in orbit they do not.
+
+**Fix direction** (not designed here): when the jump crosses a tip, capture the tip ghost's
+pre-jump state vector alongside `CaptureOrbitalStates` and spawn the tip from it with the same
+epoch shift the loaded vessels get, instead of from the recorded orbit at the new UT.
+Whatever the fix, `CI-9-chain-tip-dock` keeps passing: its mission rendezvous only when the
+first target distance exceeds `rendezvousAboveMeters` (250 m), and on the fixed product that distance
+is ~140 m, so it takes the MATCH-VELOCITY branch. A lane that gates the geometry itself (the
+first target distance under, say, 250 m) is the witness to add with the fix.
+
+---
+
 ## LOGISTICS-MODEL1-FOLLOWUPS: the parts of the Logistics redesign left out of Model 1 [FILED 2026-10-02, branch `logistics-model1`]
 
 Model 1 (the merged Status cell, the two-line Route cell, the Interact grid, the Route History
@@ -356,7 +397,7 @@ all 8 rows), `test_mlib.NonFiniteDetailScrubTests`, `test_shells.ResultSerialize
   of its bound it compares. Reaching it needs the mission to archive its frames (or the
   per-assertion evidence the compare reads).
 
-## HARNESS-POST-FLIGHT-DIALOG-STALLS: harness runs sit behind KSP's post-flight screens until a timeout or the wall budget ends [FILED 2026-10-03, branch `todo-stuck-dialogs`. CONFIRMED in the collected logs; the paused-clock watchdog, the seam active-vessel-loss fail-fast and the CommitTree fast reject FIXED 2026-10-03, branch `harness-dialog-stalls`; the frozen-telemetry and observability items open]
+## HARNESS-POST-FLIGHT-DIALOG-STALLS: harness runs sit behind KSP's post-flight screens until a timeout or the wall budget ends [FILED 2026-10-03, branch `todo-stuck-dialogs`. CONFIRMED in the collected logs; observability done on branch `post-flight-dialog-logging`; the paused-clock watchdog, the seam active-vessel-loss fail-fast and the CommitTree fast reject FIXED 2026-10-03, branch `harness-dialog-stalls`; the frozen-telemetry item open]
 
 Operator observation: auto tests sometimes sit on the post-flight "Mission Summary" screen.
 A scan of all 894 collected `_shots/KSP.log` files found two stock dialogs, neither of which
@@ -447,9 +488,24 @@ Lost: about 26 min with a dialog up, about 25 min of it avoidable (RB-1 is about
   defer. L3 / L5 / both L6 lanes now expect `REJECTED`. SE-1 needs no change: its two
   deferrals came after an upstream `LaunchFromEditor` failure left the run outside FLIGHT,
   which now rejects fast too. Tests: `TestCommandDispatchTests.CommitTree_*`.
-- [ ] Observability: subscribe to `onGUIRecoveryDialogSpawn` / `Despawn` and log the crash
+- [x] ~~Observability: subscribe to `onGUIRecoveryDialogSpawn` / `Despawn` and log the crash
   dialog. Neither dialog logs its own close today, so a stall longer than about 62 s on the
-  recovery screen cannot be confirmed from logs.
+  recovery screen cannot be confirmed from logs.~~ Fix: `PostFlightDialogLog` (pure state and
+  formatting) writes four Info lines under the `[PostFlightDialog]` subsystem, each with the
+  scene and the vessel name in quotes (`"?"` when unknown):
+  `FlightResultsDialog shown: scene=FLIGHT vessel="..." paused=true exitControls=true outcome="..."`,
+  `FlightResultsDialog dismissed: scene=... vessel="..." via=Close|Destroyed onScreenWallSeconds=N.NN paused=...`,
+  `MissionRecoveryDialog shown: scene=SPACECENTER vessel="..."` and
+  `MissionRecoveryDialog dismissed: scene=... vessel="..." onScreenWallSeconds=N.NN` (`unknown`
+  for a dialog that opened before the subscription). Wall seconds come from
+  `Time.realtimeSinceStartup` and format culture-invariant. `exitControls=true` is the crash
+  screen; `false` is the F3 flight status screen, which is the same stock dialog. The flight
+  results feed is three Harmony postfixes (`Patches/FlightResultsDialogLogPatches.cs` on
+  `Display(string)`, `Close()` and the private `OnDestroy()`, since that dialog has no
+  GameEvent); the recovery feed is `PostFlightDialogLogHost`, a process-lifetime addon on
+  stock `onGUIRecoveryDialogSpawn` / `onGUIRecoveryDialogDespawn` plus
+  `onVesselRecoveryProcessing` for the vessel name (stock fires the spawn inside the dialog's
+  Awake, before the name is set). No harness cell reads these lines yet.
 
 ## HARNESS-FLIGHT-WALL-TIME: auto-flights spend ~40% of their mission wall time idle at 1x [FILED 2026-10-01, branch `flight-efficiency`. MEASURED; the warp-policy fix is a separate session]
 
@@ -6550,6 +6606,15 @@ mission. The `chain-tip-original-pid` re-claim lane is FLOWN (2026-10-03, branch
 `ListHandles kind=chains` answers before the spawn with the pid `RealSpawn` answers after
 it, capture to capture (reading `2026-10-03_1637`, armed `_1640`, both PASS; both read
 1344998135, and the produced save holds exactly one vessel with that pid).
+
+**Docking mission flown 2026-10-03 (branch `lane-ci9-dock-tip`).** `CI-9-chain-tip-dock`
+is the RealSpawn -> dock lane, on an ORBITAL host (the `chain-tip-dock` preset on
+`eva2-lko-crewed`): RealSpawn hands the tip to the new mission `ci9_tip_dock`, which
+finds it by name, rendezvous and docks. The dock lands as a single-parent Dock branch
+point in the Kerbal X's own tree and supersedes the tip's committed terminal spawn
+(`match=baked-pid`), so the absorbed tip is never reset or respawned. The flight found
+REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST: the tip spawned 120 km from where its
+ghost stood.
 
 
 **Status 2026-10-01: both verbs built, no lane flown.** Contract in

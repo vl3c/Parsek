@@ -18094,6 +18094,204 @@ def evaluate_rdock_assertions(frames, params: RDockParams, phases_reached=(),
 
 
 # ---------------------------------------------------------------------------
+# TIP-DOCK phase state machine (mission ci9_tip_dock: CI-9, the player docks with
+# a Real-Spawned ghost-chain tip). Pure. The seam's RealSpawn step has already
+# turned the chain tip into a real vessel before the mission starts; the mission
+# finds it by name and docks the ACTIVE vessel to it:
+#
+#   TD-START    -> dwell start_settle_seconds (the spawned vessel loads and the
+#                  recorder the spec started settles), then target the nearest
+#                  vessel named target_name
+#   TD-TARGET   -> wait for a finite target distance; stamp it (the spawn
+#                  geometry the jump left behind) and hand off to B-DOCK:
+#                  farther than rendezvousAboveMeters -> RENDEZVOUS, else
+#                  MATCH-VELOCITY
+#   RENDEZVOUS / MATCH-VELOCITY / DOCK
+#               -> B-DOCK's own phases, delegated verbatim (MechJeb rendezvous
+#                  AP with the node-wait warp, kill-rel-vel, the deferred
+#                  docking-AP enable, liveness watchdogs, corroborated Docked)
+#   TD-SETTLE   -> dwell settle_seconds on the docked pair
+#   TD-TERMINAL -> done; the assertions judge
+#
+# The machine never reads what Parsek recorded at the dock; the spec's log
+# contract and save facets do.
+# ---------------------------------------------------------------------------
+
+TDOCK_START = "TD-START"
+TDOCK_TARGET = "TD-TARGET"
+TDOCK_SETTLE = "TD-SETTLE"
+TDOCK_TERMINAL = "TD-TERMINAL"
+# The delegated phases keep B-DOCK's own names, so their flake reasons read the same.
+TDOCK_DELEGATED: Tuple[str, ...] = (BDOCK_RENDEZVOUS, BDOCK_MATCH_VELOCITY, BDOCK_DOCK)
+TDOCK_PHASES: Tuple[str, ...] = (
+    TDOCK_START, TDOCK_TARGET, BDOCK_RENDEZVOUS, BDOCK_MATCH_VELOCITY, BDOCK_DOCK,
+    TDOCK_SETTLE, TDOCK_TERMINAL)
+
+
+@dataclass(frozen=True)
+class TDockParams:
+    """TIP-DOCK tuning (spec [driver.missionParams] for ci9_tip_dock). The B-DOCK
+    rendezvous / match / dock keys keep B-DOCK's own names and semantics."""
+    bdock: BDockParams = field(default_factory=BDockParams)
+    target_name: str = "CTD Target"
+    # A first target distance above this flies B-DOCK's rendezvous; at or below it the
+    # docking AP closes from where the target is. Default: Real Spawn Control's own
+    # button radius, the farthest a correct spawn can sit.
+    rendezvous_above: float = 250.0
+    start_settle_seconds: float = 5.0
+    target_timeout: float = 60.0
+    settle_seconds: float = 10.0
+
+
+def tdock_params_from_dict(params: Dict) -> TDockParams:
+    params = params or {}
+    return TDockParams(
+        bdock=bdock_params_from_dict(params),
+        target_name=str(params.get("targetName", "CTD Target")),
+        rendezvous_above=float(params.get("rendezvousAboveMeters", 250)),
+        start_settle_seconds=float(params.get("startSettleSeconds", 5)),
+        target_timeout=float(params.get("targetTimeoutSeconds", 60)),
+        settle_seconds=float(params.get("settleSeconds", 10)),
+    )
+
+
+@dataclass(frozen=True)
+class TDockState:
+    """TIP-DOCK machine state. ``inner`` is the delegated B-DOCK state, live from
+    the hand-off to the docked read."""
+    params: TDockParams
+    inner: BDockState
+    phase: str = TDOCK_START
+    phase_entry_ut: float = float("nan")
+    phases_reached: Tuple[str, ...] = (TDOCK_START,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+    # Evidence for the assertions.
+    target_acquired: bool = False
+    # The first finite distance to the spawned target: what the RealSpawn jump left.
+    acquired_target_distance: float = float("nan")
+    rendezvous_needed: bool = False
+    docked_confirmed: bool = False
+
+
+def tdock_initial_state(params: TDockParams) -> TDockState:
+    return TDockState(params=params, inner=bdock_initial_state(params.bdock))
+
+
+def _tdock_enter(state: TDockState, new_phase: str, ut: float,
+                 **fields) -> TDockState:
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(state, phase=new_phase, phase_entry_ut=entry,
+                   phases_reached=state.phases_reached + (new_phase,),
+                   done=(new_phase == TDOCK_TERMINAL), **fields)
+
+
+def _tdock_elapsed(state: TDockState, snapshot: TelemetrySnapshot) -> float:
+    if not _is_finite(snapshot.ut) or not _is_finite(state.phase_entry_ut):
+        return 0.0
+    return snapshot.ut - state.phase_entry_ut
+
+
+def _tdock_flake(state: TDockState, reason: str) -> TDockState:
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason="phase %s: %s" % (state.phase, reason), done=True)
+
+
+def tdock_decide(state: TDockState,
+                 snapshot: TelemetrySnapshot) -> Tuple[TDockState, List[Action]]:
+    """Advance the TIP-DOCK machine one frame; return (new_state, actions)."""
+    if state.done:
+        return state, []
+    p = state.params
+
+    if state.phase == TDOCK_START:
+        if not _is_finite(state.phase_entry_ut) and _is_finite(snapshot.ut):
+            state = replace(state, phase_entry_ut=snapshot.ut)
+        if _tdock_elapsed(state, snapshot) < p.start_settle_seconds:
+            return state, []
+        return (_tdock_enter(state, TDOCK_TARGET, snapshot.ut),
+                [Action(ACTION_SET_SAS), Action(ACTION_SET_RCS, value=1.0),
+                 Action(ACTION_TARGET_NEAREST_NAMED_VESSEL, text=p.target_name)])
+
+    if state.phase == TDOCK_TARGET:
+        if snapshot.target_set and _is_finite(snapshot.target_distance):
+            d = float(snapshot.target_distance)
+            far = d > p.rendezvous_above
+            if far:
+                inner = _bdock_enter(state.inner, BDOCK_RENDEZVOUS, snapshot.ut,
+                                     rendezvous_min_distance=float("inf"),
+                                     rendezvous_noprogress_count=0)
+                actions = [Action(ACTION_MJ_ENABLE_RENDEZVOUS,
+                                  value=p.bdock.approach_distance,
+                                  limit=p.bdock.max_phasing_orbits)]
+            else:
+                inner = _bdock_enter(state.inner, BDOCK_MATCH_VELOCITY, snapshot.ut)
+                actions = [Action(ACTION_MJ_KILL_REL_VEL)]
+            st = _tdock_enter(state, inner.phase, snapshot.ut, inner=inner,
+                              target_acquired=True, acquired_target_distance=d,
+                              rendezvous_needed=far)
+            return st, actions
+        if _tdock_elapsed(state, snapshot) > p.target_timeout:
+            return _tdock_flake(state, (
+                "no target acquired on a vessel named %r (target_set=%s "
+                "target_distance=%s)" % (p.target_name, snapshot.target_set,
+                                         snapshot.target_distance))), []
+        return state, []
+
+    if state.phase in TDOCK_DELEGATED:
+        inner, actions = bdock_decide(state.inner, snapshot)
+        if inner.phase == BDOCK_TRANSFER and inner.docked_confirmed:
+            # B-DOCK completed DOCK on a corroborated read; drop its transfer.
+            st = replace(state, inner=inner)
+            return (_tdock_enter(st, TDOCK_SETTLE, snapshot.ut, docked_confirmed=True),
+                    [Action(ACTION_MJ_DISABLE_DOCKING)])
+        if inner.done:
+            return replace(state, inner=inner, verdict=inner.verdict,
+                           flake_phase=inner.flake_phase,
+                           flake_reason=inner.flake_reason,
+                           loss_reason=inner.loss_reason, done=True), actions
+        st = replace(state, inner=inner)
+        if inner.phase != state.phase:
+            st = _tdock_enter(st, inner.phase, snapshot.ut)
+        return st, actions
+
+    if state.phase == TDOCK_SETTLE:
+        if _tdock_elapsed(state, snapshot) < p.settle_seconds:
+            return state, []
+        return _tdock_enter(state, TDOCK_TERMINAL, snapshot.ut), []
+
+    return _tdock_flake(state, "unknown phase"), []
+
+
+def evaluate_tdock_assertions(frames, params: TDockParams, phases_reached=(),
+                              state=None) -> List[AssertionOutcome]:
+    """Two TIP-DOCK driver-validity assertions:
+
+    - ``targetAcquired``  a vessel named target_name was targeted at a finite
+                          distance; the value is that first distance (the
+                          spawn geometry the RealSpawn jump left behind).
+    - ``docked``          DOCK completed on B-DOCK's corroborated Docked read.
+    """
+    del frames
+    phases = tuple(phases_reached or ())
+    acquired = bool(getattr(state, "target_acquired", False))
+    distance = getattr(state, "acquired_target_distance", float("nan"))
+    docked = bool(getattr(state, "docked_confirmed", False))
+    return [
+        AssertionOutcome("targetAcquired", acquired,
+                         distance if _is_finite(distance) else None,
+                         {"targetName": params.target_name,
+                          "rendezvousNeeded": bool(getattr(state, "rendezvous_needed", False)),
+                          "rendezvousAboveMeters": params.rendezvous_above}),
+        AssertionOutcome("docked", (TDOCK_SETTLE in phases) and docked, docked,
+                         {"required": TDOCK_SETTLE}),
+    ]
+
+
+# ---------------------------------------------------------------------------
 # FORGE-LKO phase state machine (mission forge_lko: the ORBITAL fixture forge).
 # Pure. The B-DOCK Interceptor-leg shape, truncated at the park:
 #
