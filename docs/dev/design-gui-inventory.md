@@ -339,11 +339,12 @@ removed 2026-09-27, so 13 remain) - the order
 | 1 | `Parsek` (main) | `ParsekUI.DrawWindow`; hosts `ParsekFlight.OnGUI`, `ParsekKSC.OnGUI` | FLIGHT, SPACECENTER | `main` | `ksc-main-basic/advanced`, `flight-main-basic/advanced` |
 | 2 | `Parsek - Missions` | `UI/RecordingsTableUI.cs` (chrome and the Recordings tab), `UI/MissionsWindowUI.cs` (the Missions tab) | FLIGHT, SPACECENTER | `missions` (tabs `missions`, `recordings`) | 3.2 |
 | 3 | `Parsek - Timeline` | `UI/TimelineWindowUI.cs` | FLIGHT, SPACECENTER | `timeline` (tabs `overview`, `details`, `rewindff`, `refly`, `contracts`, `strategies`, `facilities`, `milestones`, `tech`) | 3.3 |
-| 4 | `Parsek - Kerbals` | `UI/KerbalsWindowUI.cs` | FLIGHT, SPACECENTER | `kerbals` (tabs `roster`, `outcomes`) | 3.4 |
+| 4 | `Parsek - Kerbals` | `UI/KerbalsWindowUI.cs:205` | FLIGHT, SPACECENTER | `kerbals` (tabs `roster`, `outcomes`) | 2 labels |
+| 5 | ~~`Parsek - Career State`~~ REMOVED 2026-09-27 | - | - | - (the `career` token is gone) | historical only |
 | 6 | `Parsek - Logistics` | `UI/LogisticsWindowUI.cs:444` | FLIGHT, SPACECENTER | `logistics` | `ksc-logistics-advanced/basic` |
 | 7 | Logistics round-trip link picker (`Link round-trip partner`) | `UI/LogisticsWindowUI.cs:1762` | as its host | excluded `TestCommandUiAction.cs:374-377`; reached by `op=picker picker=link` | `ib-logistics-linkpicker-advanced` (GUI-3, 198 nodes, `windows=4`) |
 | 8 | `Parsek - Log: <mission or route>` (bare `Parsek - Log` untargeted; was `Parsek - Structure` until 2026-09-29) | `UI/StructureListWindowUI.cs` (`BuildWindowTitle`) | FLIGHT, SPACECENTER | `structure` (the seam token keeps the class's name; an alias of the Log) | `ksc-structure-advanced` (empty chrome) |
-| 9 | `Parsek - Settings` | `UI/SettingsWindowUI.cs` | FLIGHT, SPACECENTER | `settings` | `ksc-settings-advanced/basic` |
+| 9 | `Parsek - Settings` | `UI/SettingsWindowUI.cs:128` | FLIGHT, SPACECENTER | `settings` | `ksc-settings-advanced/basic` |
 | 10 | `Parsek - Real Spawn Control` | `UI/SpawnControlUI.cs` | FLIGHT only | `spawncontrol` | `play-spawncontrol-advanced` (GUI-6, one candidate row) |
 | 11 | `Gloops Flight Recorder` | `UI/GloopsRecorderUI.cs` | FLIGHT only | `gloops` | `flight-gloops-advanced` |
 | 12 | `Parsek - Test Runner` (Settings-launched) | `UI/TestRunnerUI.cs` | FLIGHT, SPACECENTER | `testrunner` | `ksc-testrunner-advanced`, and four GUI-12 states on `career-earned-ksc`: `cek-testrunner-idle-advanced`, `-collapsed-advanced`, `-category-advanced`, `-results-advanced` (3.11) |
@@ -1269,28 +1270,34 @@ frame-latched: `SetUiComplexityMode` sets a PENDING value and
 frame can never disagree about the control count. Every draw site reads
 `ParsekUI.AppliedUiComplexityMode`, never the settings field.
 
-| key | Basic | enforcement | what Basic hides |
-|---|---|---|---|
-| `MainButtonSpawnControl` | HIDE | `ParsekUI.DrawWindow`, `ParsekUI.IsSpawnControlReachable` | the launcher, and the proximity toast's call to action |
-| `MainButtonTimeline` | KEEP | `ParsekUI.DrawWindow` | nothing |
-| `MainButtonRecordings` | KEEP | `ParsekUI.DrawWindow` | nothing (the `Missions` launcher) |
-| `MainButtonLogistics` | KEEP | `ParsekUI.DrawWindow` | nothing |
-| `MainButtonKerbals` | KEEP | `ParsekUI.DrawWindow` | nothing |
-| `MainButtonGloops` | RETIRED in both | `ParsekUI.DrawWindow` | the Gloops launcher, in Advanced too |
-| `MainButtonSettings` | KEEP | `ParsekUI.DrawWindow` | nothing |
-| `TabRecordings` | HIDE | `RecordingsTableUI.VisibleTabCount` | the tab bar, the Recordings tab and its whole body |
-| `TabMissions` | KEEP | `TimelineWindowUI` (the `GoTo` button) | nothing; `GoTo` is gated by its TARGET's key, so re-pointing it at a hidden surface would hide it |
-| `MissionsLoopControls` | HIDE | `MissionsWindowUI.ShowsLoopAuthoringControls` (read at each draw site) | the loop grid (`Clone`, `Delete`, `Warp to...`, `Loop`, the period cell), the summary's `Next launch` piece, the include checkboxes, the per-vessel interval rows, the foreign partner-journey rows and the loop-selection styling. NOT `Looped by route`, `Watch`, `Rewind` / `Forward`, `Log`, `Collapse`, `Fly` / `Stash` / `Seal` or `Go to` |
-| `SettingsSectionLooping` | HIDE | `SettingsWindowUI.DrawSettingsWindow` (the section and its click-away commit) | the Looping section |
-| `SettingsSectionDiagnostics` | HIDE | `SettingsWindowUI.DrawSettingsWindow` | the Diagnostics section, and with it the only reopen path to the Settings-launched Test Runner |
-| `SettingsSectionSampleDensity` | HIDE | `SettingsWindowUI.DrawSettingsWindow` | the sample-density section |
+| key | declared | Basic | enforcement | what Basic actually hides |
+|---|---|---|---|---|
+| `MainButtonSpawnControl` | `UiComplexityMode.cs` | HIDE | `ParsekUI.DrawWindow`, `ParsekUI.IsSpawnControlReachable` | the launcher, and the proximity toast's call to action |
+| `MainButtonTimeline` | `UiComplexityMode.cs` | KEEP | `ParsekUI.DrawWindow` | nothing |
+| `MainButtonRecordings` | `UiComplexityMode.cs` | KEEP | `ParsekUI.DrawWindow` | nothing (the `Missions` launcher) |
+| `MainButtonLogistics` | `UiComplexityMode.cs` | KEEP | `ParsekUI.DrawWindow` | nothing |
+| `MainButtonKerbals` | `UiComplexityMode.cs` | KEEP | `ParsekUI.DrawWindow` | nothing |
+| `MainButtonGloops` | `UiComplexityMode.cs` | RETIRED in both (`IsRetired`) | `ParsekUI.DrawWindow` | the Gloops launcher, in Advanced too |
+| `MainButtonSettings` | `UiComplexityMode.cs` | KEEP | `ParsekUI.DrawWindow` | nothing |
+| `TabRecordings` | `UiComplexityMode.cs` | HIDE | `RecordingsTableUI.VisibleTabCount` | the tab bar, the Recordings tab and its whole body |
+| `TabMissions` | `UiComplexityMode.cs` | KEEP | `TimelineWindowUI` (the `GoTo` button) | nothing; `GoTo` is gated by its TARGET's key, so re-pointing it at a hidden surface would hide it |
+| `MissionsLoopControls` | `UiComplexityMode.cs` | HIDE | `MissionsWindowUI.ShowsLoopAuthoringControls` (read at each draw site) | the loop grid (`Clone`, `Delete`, `Warp to...`, `Loop`, the period cell), the summary's `Next launch` piece, the include checkboxes, the per-vessel interval rows, the foreign partner-journey rows and the loop-selection styling. NOT `Looped by route`, `Watch`, `Rewind` / `Forward`, `Log`, `Collapse`, `Fly` / `Stash` / `Seal` or `Go to` |
+| `SettingsSectionLooping` | `:110` | HIDE (`:185`) | `UI/SettingsWindowUI.cs:345`, `:378` | the Looping section |
+| `SettingsSectionDiagnostics` | `:113` | HIDE (`:186`) | `UI/SettingsWindowUI.cs:393` | the Diagnostics section, and with it the only reopen path to `TestRunnerUI` |
+| `SettingsSectionSampleDensity` | `UiComplexityMode.cs` | HIDE | `SettingsWindowUI.DrawSettingsWindow` | the sample-density section |
 
-`UiSurfaceVisibility.HiddenSurfaces` has no production consumer: the real Advanced -> Basic
-close set is the hand-written `ParsekUI.BuildGatedWindowCloseSet`, four targets in close
-order - GloopsRecorder, SpawnControl, TestRunner (maps to no `UiSurface`; its launcher lives in
-the hidden Diagnostics section) and GroupPicker (maps to no `UiSurface`; a reachability rule,
-not a lock rule) - and deliberately omits the Missions, Log, Timeline, Kerbals, Logistics and
-Settings windows. `design-ui-basic-advanced.md` section 7.2 owns the apply sequence.
+Every key has at least one enforcement site (`UiComplexityModeTests.EverySurfaceKeyHasAtLeastOneEnforcementSite`),
+and the `SettingsSectionLooping` gate is read twice in `SettingsWindowUI.DrawSettingsWindow`
+(the section and its click-away commit). `UiSurfaceVisibility.HiddenSurfaces` feeds only the
+mode-change log line (`ParsekUI.FormatHiddenSurfaces`) and is the subject of a doc comment at
+`ParsekUI.cs:471` explaining why the real close set is the hand-written
+`BuildGatedWindowCloseSet` (`ParsekUI.cs:488-529`). That set carried five targets after the
+2026-09-22 Kerbals re-ruling (six before it: Kerbals was the second) and four since the
+2026-09-27 removal of the Career window (CareerState was the first) - GloopsRecorder,
+SpawnControl, TestRunner (maps to no `UiSurface`; its launcher lives
+in the hidden Diagnostics section) and GroupPicker (maps to no `UiSurface`; a reachability rule,
+not a lock rule, `ParsekUI.cs:479-482`) - and deliberately omits the Missions, Structure,
+Timeline, Logistics and Settings windows (`ParsekUI.cs:484-487`).
 
 ## 4. Backend exposure per subsystem
 
