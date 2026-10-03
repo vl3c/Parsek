@@ -19,9 +19,17 @@ namespace Parsek
     ///   at that stop and its vessel (the row's endpoint pid first).</item>
     ///   <item>RouteCargoDelivered: "Run N: Delivered ..." (with "of" amounts when the run
     ///   fell short), the row that finishes a run, located at its stop.</item>
+    ///   <item>RouteHeld: "Held: origin is short 108.8 LiquidFuel" - the hold's reason as
+    ///   the Logistics window words it, without its live-route advice, and with no run
+    ///   number (a held run is not a run). One row per hold episode and reason. Located at
+    ///   the origin for an origin-cargo or funds hold, at the named pickup source's vessel
+    ///   for a source hold, "-" otherwise.</item>
     ///   <item>RoutePaused / RouteResumed / RouteEndpointLost: state rows ("Paused",
     ///   "Paused after the run", "Activated", "Stopped: destination lost", ...).</item>
     /// </list>
+    /// Cargo reads amount first everywhere ("150.0 LiquidFuel, 40.0 Oxidizer"), as the Sent
+    /// cost and a short delivery do. Stored parts in a held reason are named by
+    /// <c>partTitle</c> (the part's title; the raw name when it does not resolve).
     /// N is the run's position in dispatch order (a run's first row assigns it). The input
     /// is the Effective Ledger Set (<see cref="EffectiveState.ComputeELS"/>), so a rewound or
     /// tombstoned run is simply absent, its debit with it. Debit rows (funds or origin
@@ -46,7 +54,8 @@ namespace Parsek
             IReadOnlyList<GameAction> els, string routeId,
             string originPlace, string originVessel,
             Func<int, string> stopPlace, Func<int, string> stopVessel,
-            Func<uint, string> vesselByPid)
+            Func<uint, string> vesselByPid, Func<string, string> partTitle = null,
+            Func<string, string> routeName = null)
         {
             var rows = new List<KeyValuePair<int, StructureStep>>();
             if (els == null || string.IsNullOrEmpty(routeId))
@@ -107,6 +116,18 @@ namespace Parsek
                             Or(stopPlace != null ? stopPlace(a.RouteStopIndex) : null),
                             Or(stopVessel != null ? stopVessel(a.RouteStopIndex) : null));
                         break;
+                    case GameActionType.RouteHeld:
+                    {
+                        HeldPlace(a, originPlace, originVessel, vesselByPid,
+                            out string heldPlace, out string heldVessel);
+                        step = Row(a.UT, StructureStepKind.Terminal,
+                            LogisticsHoldPresentation.FormatHistoryHeldRow(
+                                LogisticsHoldPresentation.DescribeHoldForHistory(
+                                    a.RouteHoldKind, HeldDetailForDisplay(a, routeName),
+                                    a.RouteHoldShortfall, partTitle)),
+                            heldPlace, heldVessel);
+                        break;
+                    }
                     case GameActionType.RoutePaused:
                         step = Row(a.UT, StructureStepKind.Terminal, PausedLabel(a.RouteEndpointReason),
                             StructureLocationFormatter.Missing, StructureLocationFormatter.Missing);
@@ -188,6 +209,68 @@ namespace Parsek
             return taken.Count == 0 ? null : string.Join(", ", taken.ToArray());
         }
 
+        /// <summary>
+        /// Where a held row is located. An origin-cargo or funds hold sits at the origin
+        /// (<paramref name="originPlace"/> / <paramref name="originVessel"/>); a pickup-source
+        /// hold ("source:" / "source-reserved:" tokens carry the source's pid and name) names
+        /// that vessel, live name first; every other hold (destination full, endpoint lost,
+        /// a linked-route wait, unavailable flights) has no single place, so "-".
+        /// </summary>
+        internal static void HeldPlace(GameAction held, string originPlace, string originVessel,
+            Func<uint, string> vesselByPid, out string place, out string vessel)
+        {
+            place = StructureLocationFormatter.Missing;
+            vessel = StructureLocationFormatter.Missing;
+            if (held == null)
+                return;
+            bool originKind = held.RouteHoldKind == RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo
+                || held.RouteHoldKind == RouteDispatchEvaluator.EligibilityFailureKind.FundsShort;
+            if (!originKind)
+                return;
+            string token = held.RouteEndpointReason ?? "";
+            if (token.StartsWith("origin-lacks-", StringComparison.Ordinal))
+                token = token.Substring("origin-lacks-".Length);
+            string sourceBody = token.StartsWith("source:", StringComparison.Ordinal)
+                ? token.Substring("source:".Length)
+                : token.StartsWith("source-reserved:", StringComparison.Ordinal)
+                    ? token.Substring("source-reserved:".Length)
+                    : null;
+            if (sourceBody != null)
+            {
+                string[] parts = sourceBody.Split(new[] { ':' }, 3);
+                string live = null;
+                if (parts.Length > 0 && vesselByPid != null
+                    && uint.TryParse(parts[0], NumberStyles.Integer, IC, out uint pid) && pid != 0u)
+                    live = vesselByPid(pid);
+                vessel = Or(live ?? (parts.Length > 1 ? parts[1] : null));
+                return;
+            }
+            if (token.StartsWith("pickup-source-unresolved:", StringComparison.Ordinal))
+                return;
+            place = Or(originPlace);
+            vessel = Or(originVessel);
+        }
+
+        /// <summary>
+        /// A held row's detail as the reason sentence wants it. A linked-route wait stores
+        /// the partner route's ID (stable across a rename); the sentence names the partner's
+        /// current name through <paramref name="routeName"/>, or "the linked route" when it
+        /// no longer resolves. Every other detail passes through.
+        /// </summary>
+        internal static string HeldDetailForDisplay(GameAction held, Func<string, string> routeName)
+        {
+            if (held == null)
+                return null;
+            string detail = held.RouteEndpointReason;
+            if (held.RouteHoldKind != RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner
+                || detail == null
+                || !detail.StartsWith(RouteOrchestrator.HeldPartnerDetailPrefix, StringComparison.Ordinal))
+                return detail;
+            string id = detail.Substring(RouteOrchestrator.HeldPartnerDetailPrefix.Length);
+            string name = routeName != null && id.Length > 0 ? routeName(id) : null;
+            return RouteOrchestrator.HeldPartnerDetailPrefix + (name ?? "");
+        }
+
         /// <summary>The state row label of a RoutePaused reason.</summary>
         internal static string PausedLabel(string reason)
         {
@@ -246,8 +329,9 @@ namespace Parsek
         }
 
         // A delivery that fell short: "40.0 of 150.0 LiquidFuel (110.0 did not fit), 2 stored
-        // parts" (the delivered-row wording); otherwise
-        // "150.0 LiquidFuel, 2 stored parts"; "nothing" when nothing moved.
+        // parts" (the delivered-row wording); otherwise amount first, resources in ordinal
+        // order: "150.0 LiquidFuel, 40.0 Oxidizer, 2 stored parts"; "nothing" when nothing
+        // moved. (The Logistics table's Delivers column keeps its own "LiquidFuel 150.0".)
         private static string Amounts(
             IReadOnlyDictionary<string, double> requested, IReadOnlyDictionary<string, double> actual,
             List<InventoryPayloadItem> inventory)
@@ -259,10 +343,15 @@ namespace Parsek
                 if (text.StartsWith("delivered ", StringComparison.Ordinal))
                     text = text.Substring("delivered ".Length);
             }
+            else if (actual != null && actual.Count > 0)
+            {
+                text = LogisticsDeliveryPresentation.FormatRealizedDelivery(null, actual);
+                if (text.StartsWith("delivered ", StringComparison.Ordinal))
+                    text = text.Substring("delivered ".Length);
+            }
             else
             {
-                text = LogisticsDeliveryPresentation.FormatWouldDeliver(actual, null);
-                if (text == "(nothing)") text = null;
+                text = null;
             }
             int parts = inventory?.Count ?? 0;
             if (parts > 0)

@@ -69,11 +69,37 @@ these, each deferred as its own change:
   shows one identical "No dock was recorded on this flight, so there is nothing to repeat."
   line per mission; one grouped line with the names in the hover would read better.
 - **Part titles in the create dialog and stored-part holds.** The create dialog lists stored
-  parts by internal name (`evaChute`) and the hold clauses name a stored part the same way;
-  both want the part TITLE through a PartLoader lookup.
+  parts by internal name (`evaChute`) and the Logistics window's hold clauses name a stored
+  part the same way; both want the part TITLE through a PartLoader lookup. The Route History's
+  Held rows already do (`DescribeHold`'s optional `partTitle` resolver, fed
+  `StructureListWindowUI.ResolvePartTitle`); the window's callers pass none yet.
 - **Default route names.** The name still repeats the from/to line ("Route: KSC -> Duna"
   over "KSC -> Depot Station Duna I"); naming a new route after its mission was ruled out of
   this change (it needs "Name [2]" dedupe and makes the Missions route hover tautological).
+
+---
+
+## ~~ROUTE-HISTORY-HOLDS: the Route History did not say when or why a route's runs were held~~ [FILED 2026-10-03, branch `route-holds`, stacked on PR #1966. DONE]
+
+The Route History listed runs, pauses and stops, but a held run left nothing: the only trace
+was `Route.LastHold*` (the LAST check, overwritten every crossing and cleared by the next
+eligible one) and the Runs column's held count.
+
+Fix: a new additive ledger action `RouteHeld` (36), written once per hold episode and reason
+by `RouteOrchestrator.TryEmitRouteHeldRow` at the loop blocked branches and the legacy wait
+applier; the "already recorded?" check reads the effective ledger
+(`IsHoldReasonRecordedInOpenEpisode`), never `Route.LastHold*`, so a re-hold after a rewind
+writes no duplicate, over a stable detail (`HeldRowDetail`: `funds-short` for every funds hold,
+the partner route id for a linked-route wait). Retired at rewind with the route rows (`RouteLedgerRetire`), excluded from
+the supersede block, inert to every module. The Route History renders it `Held: <reason>`
+without the live advice or a run number, and every cargo row now reads amount first. Design:
+`docs/parsek-logistics-supply-routes-design.md` section 6.7; rows:
+`docs/dev/design-gui-inventory.md` section 3.7. Unit-pinned (`RouteHeldLedgerTests`,
+`RouteHistoryTests`, the serialization and enum-sweep cells); no flight yet - the lanes that
+would show it are RVR-17 (two blocked crossings on one FundsShort reason; the `RouteHeld:` row
+line and the produced save's ledger say how many rows the episode wrote), RVR-8 / RVR-10 /
+RVR-13 / RVR-16 (second-cycle, origin-empty, destination-full and slots-full holds) and the
+GUI-20..23 census hosts (the same four holds) for a Route History capture.
 
 ---
 

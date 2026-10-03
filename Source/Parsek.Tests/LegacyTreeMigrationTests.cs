@@ -111,6 +111,8 @@ namespace Parsek.Tests
         // VesselRecovered (SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX):
         // spawn evidence for a recovered recording; moves no pool.
         [InlineData(GameActionType.VesselRecovered,      false)]
+        // RouteHeld: records that a route's run was held; moves no pool.
+        [InlineData(GameActionType.RouteHeld,            false)]
         public void IsResourceImpactingAction_Theory(GameActionType type, bool expected)
         {
             Assert.Equal(expected, LedgerOrchestrator.IsResourceImpactingAction(type));

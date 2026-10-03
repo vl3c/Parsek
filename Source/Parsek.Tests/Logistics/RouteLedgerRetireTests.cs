@@ -24,6 +24,7 @@ namespace Parsek.Tests.Logistics
             GameActionType.RouteRecoveryCredited,  // 28
             GameActionType.RouteCargoPickedUp,     // 29
             GameActionType.RouteResumed,           // 30
+            GameActionType.RouteHeld,              // 36
         };
 
         private static readonly GameActionType[] NonRouteTypes =
