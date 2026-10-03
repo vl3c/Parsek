@@ -408,6 +408,18 @@ class MissionControl:
         was spawned with seam args, so a non-B-DOCK control cleanly ignores it."""
         return None
 
+    def read_game_paused(self) -> Optional[bool]:
+        """The game's paused state for the paused-clock watchdog, or None when
+        unread. The default None is NO evidence, so a control that does not
+        implement it (every fake) can never trip the watchdog."""
+        return None
+
+    def paused_clock_exempt(self) -> bool:
+        """True while the control itself owns the game's pause handling, so the
+        paused-clock watchdog must re-arm instead of judging (the kRPC control:
+        a native warp is running and ``_warp_watchdog`` clears pauses)."""
+        return False
+
 
 class KrpcMissionControl(MissionControl):
     """Real telemetry/control seam: wraps the kRPC client. ``import krpc`` is
@@ -3852,6 +3864,22 @@ class KrpcMissionControl(MissionControl):
                                      client_name=self._client_name + "-warp")
         return self._warp
 
+    def read_game_paused(self) -> Optional[bool]:
+        """KRPC.Paused over the primary connection (the same read
+        ``_warp_watchdog`` probes: a dialog pause does not freeze the kRPC
+        server). Best-effort: any fault is None, which never trips."""
+        conn = self._conn
+        if conn is None:
+            return None
+        try:
+            return bool(conn.krpc.paused)
+        except Exception:
+            return None
+
+    def paused_clock_exempt(self) -> bool:
+        warp = self._warp
+        return warp is not None and bool(warp.active)
+
     def _warp_watchdog(self, sc, ut: float) -> None:
         """Per-poll native-warp watchdog (fly-loop contract, research doc):
         while a WarpService warp is active, a game-UT standstill of
@@ -4389,6 +4417,10 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
     # mlib.warp_liveness_starved.
     wl_wall_start: Optional[float] = None
     wl_ut_start: Optional[float] = None
+    # PAUSED-CLOCK WATCHDOG (todo HARNESS-POST-FLIGHT-DIALOG-STALLS): the pure
+    # watch mlib.paused_clock_step advances once per poll; see the block note
+    # there for the scope rules.
+    pc_watch = mlib.PausedClockWatch()
 
     def _wu_close(end_ut: Optional[float]) -> None:
         wu.close(end_ut)
@@ -4451,6 +4483,50 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                 return replace(state, verdict=mlib.MISSION_FLAKE, flake_phase=state.phase, done=True), frames
         else:
             warp_violations = 0
+        # PAUSED-CLOCK WATCHDOG. A game paused with UT frozen stops every GAME-time
+        # phase budget, and the frozen-telemetry detector ignores a stopped clock,
+        # so without this the mission rides a FlightResultsDialog pause to the
+        # wall reaper. The pause RPC is spent only on a poll whose UT
+        # did not move, so a healthy flight issues no extra read. A vessel_lost
+        # snapshot re-arms the watch and is left to the machine's own loss
+        # terminal. The wall clock is read only on a paused frozen poll, so a
+        # control that never reports a pause (every fake) keeps its clock read
+        # sequence unchanged.
+        if snapshot.vessel_lost:
+            pc_watch = mlib.PausedClockWatch()
+        else:
+            pc_exempt = (control.paused_clock_exempt()
+                         or bool(getattr(state, "game_pause_owned", False)))
+            pc_paused = (control.read_game_paused()
+                         if not pc_exempt and mlib.paused_clock_needs_probe(
+                             pc_watch, snapshot.ut)
+                         else None)
+            pc_wall = clock() if pc_paused is True else float("nan")
+            pc_prev = pc_watch
+            pc_watch, pc_reading = mlib.paused_clock_step(
+                pc_watch, snapshot.ut, pc_paused, pc_wall, exempt=pc_exempt)
+            if pc_prev.paused_since is None and pc_watch.paused_since is not None:
+                log.info(state.phase,
+                         "gate %s armed | game PAUSED with UT frozen at %s "
+                         "limit=%.0fs"
+                         % (mlib.PAUSED_CLOCK_GIVEUP, _fmt(snapshot.ut),
+                            mlib.PAUSED_CLOCK_WALL_SECONDS))
+            elif pc_prev.paused_since is not None and pc_watch.paused_since is None:
+                log.info(state.phase,
+                         "gate %s cleared | ut=%s paused=%s exempt=%s"
+                         % (mlib.PAUSED_CLOCK_GIVEUP, _fmt(snapshot.ut),
+                            pc_paused, pc_exempt))
+            if pc_reading.tripped:
+                reason = mlib.format_paused_clock_reason(state.phase, pc_reading)
+                log.warn(state.phase,
+                         "gate %s TRIP | frozenUt=%s pausedFor=%.1fs limit=%.0fs "
+                         "-> %s"
+                         % (mlib.PAUSED_CLOCK_GIVEUP, _fmt(pc_reading.frozen_ut),
+                            pc_reading.paused_seconds,
+                            mlib.PAUSED_CLOCK_WALL_SECONDS, reason))
+                _dump_event_window(log, state.phase, ring, "paused-clock")
+                _wu_close(snapshot.ut if math.isfinite(snapshot.ut) else None)
+                return mlib.paused_clock_terminal(state, reason), frames
         prev_state = state
         prev_phase = state.phase
         state, actions = decide(state, snapshot)
@@ -4500,6 +4576,10 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             log.info(state.phase, "action %s value=%s%s"
                      % (action.kind, _fmt(action.value),
                         (" text=%s" % action.text) if getattr(action, "text", None) else ""))
+            # A seam step's perform() blocked until its terminal: re-arm the
+            # paused-clock watch so that wall time never counts as a stall.
+            if action.kind in mlib.PAUSED_CLOCK_REARM_ACTION_KINDS:
+                pc_watch = mlib.PausedClockWatch()
         # NATIVE-WARP LIVENESS FLOOR (reviewer finding, 2026-07-25). The thrash
         # watchdog inside the machine bounds a warp being RE-ISSUED; nothing
         # bounded a warp armed ONCE that simply crawls. The warp-stall watchdog

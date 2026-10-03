@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Parsek.TestCommands
@@ -315,6 +316,37 @@ namespace Parsek.TestCommands
         /// </summary>
         internal const string AdministrationNotReadyDeferReason = "administration-not-ready";
 
+        /// <summary>
+        /// The wrong-scene token for a FLIGHT verb: the DEFER reason for most of them and
+        /// the REJECTED msg for the <see cref="RejectOutsideFlightVerbs"/> set.
+        /// </summary>
+        internal const string NotInFlightReason = "not-in-flight";
+
+        /// <summary>
+        /// FLIGHT verbs that answer <c>REJECTED not-in-flight</c> at once in a settled
+        /// non-FLIGHT scene instead of deferring to their budget.
+        ///
+        /// <para>CommitTree only. Its post-mission use after a stock recovery (L3 / L5 /
+        /// L6) reaches the head in a settled SPACECENTER with no tree left to commit, and
+        /// the defer could only end TIMEOUT after 60 s with the KSC "Mission Summary"
+        /// dialog up. Nothing can bridge that wait into FLIGHT: the head blocks every other
+        /// seam verb (strict FIFO), and a scene load requested by anything else (a kRPC
+        /// launch, a revert) raises the safe-point gate's transition flag synchronously, so
+        /// a pending transition still defers <c>not-safe-point</c> above this check. The
+        /// collected record agrees: in 217 runs that sent CommitTree, 213 dispatched
+        /// straight to OK with no defer and all 10 that deferred <c>not-in-flight</c> ended
+        /// TIMEOUT; none ever executed after one.</para>
+        ///
+        /// <para>The other FLIGHT verbs keep the defer, because their wrong-scene case is
+        /// the bounded scene-arrival wait their budgets are sized for (StartRecording 180 s).</para>
+        /// </summary>
+        private static readonly HashSet<string> RejectOutsideFlightVerbs =
+            new HashSet<string>(StringComparer.Ordinal) { "CommitTree" };
+
+        /// <summary>True when <paramref name="verb"/> refuses at once outside FLIGHT.</summary>
+        internal static bool RejectsOutsideFlight(string verb)
+            => verb != null && RejectOutsideFlightVerbs.Contains(verb);
+
         // Per-verb scene/state precondition. LoadGame's recording-active /
         // load-in-flight guards and the global batch-running / safe-point gates are
         // applied in DecideDispatch on top of this table.
@@ -560,7 +592,13 @@ namespace Parsek.TestCommands
 
             VerbSceneRequirement req = RequirementFor(parsed.Verb);
             if (req == VerbSceneRequirement.RequiresFlight && state.Scene != TestCommandScene.Flight)
-                return DispatchResult.Defer("not-in-flight");
+            {
+                // A verb in RejectOutsideFlightVerbs refuses at once; every other FLIGHT
+                // verb keeps the bounded DEFER.
+                return RejectsOutsideFlight(parsed.Verb)
+                    ? DispatchResult.Reject(NotInFlightReason)
+                    : DispatchResult.Defer(NotInFlightReason);
+            }
             if (req == VerbSceneRequirement.RequiresGameLoaded && !state.SettingsPresent)
                 return DispatchResult.Defer("game-not-loaded");
 

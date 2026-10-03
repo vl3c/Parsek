@@ -3473,6 +3473,141 @@ def _advance_frozen_count(prev_sig: Optional[FrozenSignature], prev_count: int,
     return curr_sig, new_count, (new_count >= limit)
 
 
+# ---------------------------------------------------------------------------
+# Paused-clock watchdog (todo HARNESS-POST-FLIGHT-DIALOG-STALLS). Pure.
+#
+# The frozen-telemetry detector above is blind to a STOPPED clock by design, and
+# every phase budget is GAME time. Stock KSP's FlightLogger opens
+# FlightResultsDialog about 60 s after the active vessel's root part is destroyed
+# and calls FlightDriver.SetPause(true), so from then on UT does not move, no
+# phase budget can elapse and the mission polls frozen telemetry until the WALL
+# budget reaps it (RB-1 2026-09-27_1353: about 1,100 s lost). This watchdog
+# closes that hole: a game that reports PAUSED while UT has not moved for
+# PAUSED_CLOCK_WALL_SECONDS of wall time ends the mission as a vessel loss.
+#
+# Scope, so a deliberate or harmless pause cannot false-trip:
+#   - ONE wall window, debounced: the trip needs an unbroken run of polls on
+#     which UT read UNCHANGED from the previous poll AND the game read PAUSED,
+#     lasting PAUSED_CLOCK_WALL_SECONDS. Any poll that moves UT (backwards too: a
+#     rewind or load is not a stall) or reads not-paused ends the run, so one
+#     paused read (the seam StockScreen open pauses for about 0.1 s) never trips.
+#     A run cannot start on the poll that first sees a UT value, so UT has been
+#     frozen for at least one poll longer than the window when it trips.
+#   - an EXEMPT poll re-arms the watch from scratch. The shell exempts a poll
+#     while a native warp runs (the warp watchdog owns pauses then and clears
+#     them) and when the machine state declares ``game_pause_owned`` (no mission
+#     pauses the game today; the hook is the one place a future one opts out).
+#     It also re-arms after every seam action: perform() blocks for the whole
+#     step, so wall time spent inside it must never count against the window.
+#   - an unread pause state (None), a non-finite UT and a non-finite wall clock
+#     are NO evidence: none can ever trip, because a trip ends the mission.
+# ---------------------------------------------------------------------------
+
+# Wall seconds the game must read paused, with UT unchanged, before the watchdog
+# trips. Sized well above the 0.5 s poll and every transient pause seen in the
+# collected logs, and far below the ~60 s a FlightResultsDialog stays up before
+# anything else could notice.
+PAUSED_CLOCK_WALL_SECONDS = 15.0
+
+# Token naming this give-up in the verdict reason and the gate lines.
+PAUSED_CLOCK_GIVEUP = "paused-clock"
+
+# Action kinds after which the shell re-arms the watch: each is a mission-issued
+# seam step whose perform() blocks until the step's terminal, so the game may be
+# paused by the step itself (scene-straddling verbs) and no poll runs meanwhile.
+PAUSED_CLOCK_REARM_ACTION_KINDS = frozenset((
+    ACTION_PARSEK_COMMIT_TREE,
+    ACTION_PARSEK_SEAM_COMMAND,
+))
+
+
+@dataclass(frozen=True)
+class PausedClockWatch:
+    """Watch state carried by the shell between polls. ``last_ut`` is the last
+    finite UT seen; ``paused_since`` the wall stamp of the first poll of the
+    current run of frozen-UT paused polls (None while there is no run)."""
+    last_ut: Optional[float] = None
+    paused_since: Optional[float] = None
+
+
+@dataclass(frozen=True)
+class PausedClockReading:
+    """One poll's watchdog outcome: ``frozen_ut`` is the UT the run is frozen at
+    (NaN when unread) and ``paused_seconds`` the run's wall length so far."""
+    tripped: bool = False
+    frozen_ut: float = float("nan")
+    paused_seconds: float = 0.0
+
+
+def paused_clock_needs_probe(watch: PausedClockWatch, ut: float) -> bool:
+    """True iff the shell should spend the pause RPC on this poll: UT is finite
+    and unchanged since the last poll. A moving clock is not paused, so a healthy
+    flight never issues the extra read and its RPC traffic is unchanged."""
+    return (_is_finite(ut) and watch.last_ut is not None
+            and float(ut) == watch.last_ut)
+
+
+def paused_clock_step(watch: PausedClockWatch, ut: float,
+                      paused: Optional[bool], wall_now: float,
+                      exempt: bool = False,
+                      window: float = PAUSED_CLOCK_WALL_SECONDS
+                      ) -> Tuple[PausedClockWatch, PausedClockReading]:
+    """Advance the paused-clock watch by one poll. Returns ``(new_watch,
+    reading)``; ``reading.tripped`` is True iff the current run of polls with UT
+    unchanged AND ``paused`` exactly True has lasted at least ``window`` wall
+    seconds.
+
+    ``paused`` None (unread) or False ends the run; so does any change of UT.
+    ``exempt`` or a non-finite UT re-arms the watch from scratch. ``wall_now`` is
+    read only on a paused frozen poll, so the shell may pass NaN otherwise; a
+    non-finite one there ends the run."""
+    if exempt or not _is_finite(ut):
+        return PausedClockWatch(), PausedClockReading()
+    ut = float(ut)
+    if watch.last_ut is None or ut != watch.last_ut:
+        return PausedClockWatch(last_ut=ut), PausedClockReading(frozen_ut=ut)
+    if paused is not True or not _is_finite(wall_now):
+        return PausedClockWatch(last_ut=ut), PausedClockReading(frozen_ut=ut)
+    wall_now = float(wall_now)
+    since = watch.paused_since if watch.paused_since is not None else wall_now
+    paused_s = wall_now - since
+    return (PausedClockWatch(last_ut=ut, paused_since=since),
+            PausedClockReading(tripped=paused_s >= window, frozen_ut=ut,
+                               paused_seconds=paused_s))
+
+
+def format_paused_clock_reason(phase: str, reading: PausedClockReading,
+                               window: float = PAUSED_CLOCK_WALL_SECONDS) -> str:
+    """The verdict reason for a paused-clock trip. Leads with ``vessel-lost`` like
+    every other loss reason, then names the pause and the measured window."""
+    return ("vessel-lost (%s: game PAUSED with UT frozen at %.3f for %.0f wall-s, "
+            "limit %.0f; stock FlightResultsDialog pauses the game about 60 s "
+            "after the active vessel is destroyed) in phase %s"
+            % (PAUSED_CLOCK_GIVEUP, reading.frozen_ut, reading.paused_seconds,
+               window, phase))
+
+
+def paused_clock_terminal(state, reason: str):
+    """The terminal machine state for a paused-clock trip.
+
+    A machine with a ``loss_reason`` channel ends exactly like its own vessel-lost
+    terminal: MISSION-ASSERT-FAIL with the reason, which ``resolve_flight_verdict``
+    returns verbatim before any assertion is evaluated (hlib reads ASSERT-FAIL as
+    INVALID(mission): a mission that did not fly is never PARSEK-FAIL). A machine
+    with no loss channel (M3) gets MISSION-FLAKE with the reason instead, because
+    ASSERT-FAIL without ``loss_reason`` would let ``resolve_flight_verdict`` grade
+    the frozen telemetry's assertions and could resolve OK."""
+    if hasattr(state, "loss_reason"):
+        return replace(state, done=True, verdict=MISSION_ASSERT_FAIL,
+                       loss_reason=reason)
+    terminal = dict(done=True, verdict=MISSION_FLAKE)
+    if hasattr(state, "flake_phase"):
+        terminal["flake_phase"] = state.phase
+    if hasattr(state, "flake_reason"):
+        terminal["flake_reason"] = reason
+    return replace(state, **terminal)
+
+
 @dataclass(frozen=True)
 class Action:
     """One control action the phase machine asks the shell to perform this frame.
