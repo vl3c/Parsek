@@ -18,7 +18,7 @@ This document supersedes both pre-impl specs as the source of truth for what shi
 
 A Parsek career is a committed timeline of missions. The player flies, commits, the ghost plays back, and the next mission begins on top. Before v0.9 the timeline had a sharp edge: once a multi-controllable split happened — a stage decoupled with a probe core on each side, a lander undocked from a station — whichever half the player did not personally fly was recorded in the background and, if things went badly, committed as a crashed or destroyed sibling. There was no in-game path back to re-fly that half. The successful side was locked in with the failed side, and the only "fix" was to discard the entire tree and re-fly the whole mission.
 
-Rewind to Separation is the feature that unsticks that edge. At every vessel separation that produces two or more controllable vessels, Parsek writes a transient KSP quicksave — a **Rewind Point** — plus a compact persistent-id-to-slot table captured at save time. If any sibling ends as an **unfinished flight** — a crashed booster, a destroyed lander, a probe abandoned in orbit, an upper stage left coasting sub-orbital — the recording appears in a read-only **Unfinished Flights** group in the Recordings Manager. Clicking Rewind on an Unfinished-Flight row, either in that virtual group or on the same recording's normal table row, reloads the quicksave, strips the non-selected siblings (they play back as ghosts from their committed recordings), and hands the player the other half at the exact split moment. When the re-fly ends and the player merges, the new recording supersedes the old one via an **append-only relation** — the original recording is never mutated or deleted, the ghost/claim subsystems just filter it out.
+Rewind to Separation is the feature that unsticks that edge. At every vessel separation that produces two or more controllable vessels, Parsek writes a transient KSP quicksave — a **Rewind Point** — plus a compact persistent-id-to-slot table captured at save time. If any sibling ends as an **unfinished flight** — a crashed booster, a destroyed lander, a probe abandoned in orbit, an upper stage left coasting sub-orbital — the recording appears in a read-only **Unfinished Flights** group in the Recordings tab. Clicking Fly on an Unfinished-Flight row, either in that virtual group or on the same recording's normal table row, reloads the quicksave, strips the non-selected siblings (they play back as ghosts from their committed recordings), and hands the player the other half at the exact split moment. When the re-fly ends and the player merges, the new recording supersedes the old one via an **append-only relation** — the original recording is never mutated or deleted, the ghost/claim subsystems just filter it out.
 
 **Two membership tiers, one feature.** The v0.9.0 release shipped the narrow "rescue from destruction" predicate: only `TerminalKind.Crashed` siblings of multi-controllable splits qualified. The v0.9.1 stable-leaf extension broadens the predicate to also include orbiting / sub-orbital non-focus siblings (the 4-probe deploy case, the upper-stage-left-coasting case), while preserving the focus-continuation exclusion so a routine upper stage that the player flew to orbit does not pollute the list. A per-row **Seal** button lets the player close any slot permanently when they have decided the recording is canonical, and a per-row **Stash** button lets the player promote a default-excluded stable leaf into Unfinished Flights when they want it back later. Re-Fly merges of player-chosen slots that reach a stable terminal auto-seal the slot — the player explicitly engaged the slot to fly it, and the merge concludes that engagement. Terminal-failure outcomes (Destroyed) without a retry-blocking action stay open so the player can retry the failure. Crashed sibling rows from v0.9.0 keep their behaviour exactly.
 
@@ -30,7 +30,7 @@ The shipped feature covers:
 
 - **Split detection** at joint-break and undock boundaries. `SegmentBoundaryLogic.IsMultiControllableSplit` (`Source/Parsek/SegmentBoundaryLogic.cs`) is the gate; debris-only splits and single-controllable splits do not receive a Rewind Point, and neither does an EVA split (`RewindPointAuthor.IsReFlySplitType`, §1.5).
 - **Rewind Point capture.** `RewindPointAuthor.Begin` (`Source/Parsek/RewindPointAuthor.cs:52`) synchronously attaches the RP to its `BranchPoint` and to `ParsekScenario.RewindPoints`, then a one-frame-deferred coroutine drops warp to zero, populates both PID-to-slot maps from live vessels, writes a stock KSP save, and atomically moves the result into `saves/<save>/Parsek/RewindPoints/<rpId>.sfs`. The author also captures `RewindPoint.FocusSlotIndex` (the slot index of the active vessel at split time, or `-1` when no live slot matches the active focus) for the v0.9.1 predicate to consume.
-- **Unfinished Flights UI group.** A virtual, read-only group in the Recordings Manager (`Source/Parsek/UI/UnfinishedFlightsGroup.cs`) computed per-frame from ERS filtered by `EffectiveState.IsUnfinishedFlight`. Membership updates automatically as flights are flown, sealed, stashed, and merged.
+- **Unfinished Flights UI group.** A virtual, read-only group in the Recordings tab (`Source/Parsek/UI/UnfinishedFlightsGroup.cs`) computed per-frame from ERS filtered by `EffectiveState.IsUnfinishedFlight`. Membership updates automatically as flights are flown, sealed, stashed, and merged.
 - **Invocation.** `RewindInvoker` (`Source/Parsek/RewindInvoker.cs`) runs a five-precondition gate, captures a pre-load reconciliation bundle, copies the RP quicksave to the save-root (KSP's `LoadGame` does not accept subdirectory paths), triggers `GamePersistence.LoadGame` + `HighLogic.LoadScene(FLIGHT)`, then on the reloaded scene atomically runs Restore → Strip → Activate → provisional + `ReFlySessionMarker` write.
 - **Append-only supersede.** On merge, `SupersedeCommit.AppendRelations` (`Source/Parsek/SupersedeCommit.cs:108`) appends one `RecordingSupersedeRelation` per recording in the forward-only merge-guarded subtree closure of the retired sibling. No field on a committed Recording is mutated post-commit.
 - **Broad reviewed-career tombstone scope.** Merge tombstones retire reviewed, non-seed, recording-scoped career actions from the superseded subtree, including contracts, milestones, science, funds/reputation, facilities, strategies, and kerbal consequences. Null-scoped KSC/system rows, initial seeds, already-paid rollout costs, and unknown future action types are preserved until reviewed. Tombstone refreshes immediately recalculate and patch KSP state so removed science, contract, facility, and roster consequences are actively reconciled where safe.
@@ -251,7 +251,7 @@ ABC (I)                                     (V)
      Unfinished Flights = {A}
 ```
 
-`A` now satisfies `IsUnfinishedFlight`: visible, terminal kind classified as Crashed, parent BranchPoint has a live RP. The Recordings Manager shows it in the Unfinished Flights virtual group with a Rewind button.
+`A` now satisfies `IsUnfinishedFlight`: visible, terminal kind classified as Crashed, parent BranchPoint has a live RP. The Recordings tab shows it in the Unfinished Flights virtual group (`STASH`) with `Fly` + `Seal` buttons.
 
 **Invocation:** player clicks Rewind on row A. `RewindInvoker` runs through preconditions, captures the reconciliation bundle, copies the RP quicksave to the save-root as `Parsek_Rewind_<sessionId>.sfs`, triggers `GamePersistence.LoadGame` + `HighLogic.LoadScene(FLIGHT)`. On the reloaded scene, `ParsekScenario.OnLoad` calls `RewindInvoker.ConsumePostLoad`, which atomically:
 1. Restores the pre-load reconciliation bundle over the quicksave-loaded state (recordings, supersedes, tombstones, reservations, etc. preserved).
@@ -390,7 +390,7 @@ Site A (ApplyRewindProvisionalMergeStates) walks tree.Recordings:
   P4:  non-focus, terminal Orbiting (Mun)     -> UF        -> CommittedProvisional
 
 RewindPointReaper.IsReapEligible: 4 slots are CP (open) -> RP-1 stays alive.
-Recordings Manager Unfinished Flights group shows P1, P2, P3, P4 with Fly + Seal buttons.
+Recordings tab Unfinished Flights group shows P1, P2, P3, P4 with Fly + Seal buttons.
 ```
 
 Player can pick any probe individually, hit Fly, rewind to the staging UT, and fly that probe to a real mission (land it, transfer it elsewhere, etc.). The other three probes ghost-play-back from their committed coast. Merge produces a re-fly that supersedes the original probe. Per the v0.9.1 auto-seal contract (§4.9): if the re-fly reaches a stable terminal (`Orbiting`, `Landed`, `Splashed`) on the chosen slot, OR authors a structural branch point during the session (decouple / stage / undock / joint break / EVA), the merge commits `Immutable` and auto-seals the slot — the player engaged this slot to fly it themselves and the merge concludes that engagement. `SubOrbital` is excluded: a suborbital arc is still in flight, so the slot stays open (`CommittedProvisional`) until the arc resolves. Recovers, docks, boards, downstream structural/world interaction, and retry-blocking recording-linked actions all still trigger the existing safety-close path. Destroyed outcomes stay `CommittedProvisional` for another retry unless they also contain a retry-blocking action. If the player decides one probe is "done" before re-flying it, they hit Seal and the row drops.
@@ -1441,7 +1441,7 @@ Logging on reap:
 
 > SUPERSEDED (collapse-seal-into-mergestate): the original v0.9.1 design below used a separate `ChildSlot.Sealed` bit decoupled from `MergeState`. That bit (and `SealedRealTime`, the `considerSealed` classifier parameter, and the `sealedSlotsContributing` reaper counter) was removed. Open/closed is now read solely from the slot's effective chain+supersede tip `MergeState`: `CommittedProvisional` = open, `Immutable` = sealed/closed. Seal flips the tip `CommittedProvisional -> Immutable` (permanent); the step "slot.Sealed = true" below is now "set the tip recording's MergeState = Immutable". The rest of the handler (dialog, lock, SupersedeStateVersion bump, reaperImpact, logging, persist-before-reap) is unchanged. See §2.2 and the plan `docs/dev/done/plans/collapse-seal-into-mergestate.md`.
 
-The Seal action lives on each Unfinished Flight row in the Recordings Manager. Visual layout per §6.25.
+The Seal action lives on each Unfinished Flight row in the Recordings tab. Visual layout per §6.25.
 
 Handler (in a new `UnfinishedFlightSealHandler` static class or as a method on the classifier):
 
@@ -1484,11 +1484,13 @@ The separate Re-Fly column is chosen over widening/overloading the Rewind cell, 
 - UF rows need visible `Fly`, `Stash`, and `Seal` affordances. A menu would make the safety/cleanup path too easy to miss.
 - KSP's stock UI has no strong right-click table-row precedent, and the mod already uses explicit row buttons for primary actions.
 
-Cascade: every row in the Recordings Manager table gets the Rewind and Re-Fly columns. Non-UF rows leave the Re-Fly cell empty unless the row can be manually Stashed. Tooltip refresh on the UF group header.
+Cascade: every row in the Recordings tab gets the Rewind and Re-Fly columns. Non-UF rows leave the Re-Fly cell empty unless the row can be manually Stashed. Tooltip refresh on the UF group header.
+
+The same cell appears in two more places. The Missions tab draws it in its `Interact` column at the Interact geometry (`RecordingsTableUI.DrawReFlyColumnCell`: `Fly` / `Stash` + `Seal` as two 48 px halves) on vessel and interval rows, in both UI complexity modes. The Timeline draws `Fly` + `Seal` on `UnfinishedFlightSeparation` rows, resolving the slot through the same `RecordingsTableUI.ResolveUnfinishedFlightRewindRoute`, and its `Re-Fly` view lists only rows whose `Fly` or `Seal` is actionable.
 
 #### 6.25.2 Seal confirmation dialog
 
-`PopupDialog.SpawnPopupDialog` with a `MultiOptionDialog`. Title: `Confirm Seal Unfinished Flight`. Dialog id and input-lock id: `ParsekUFSealDialog` (`UnfinishedFlightSealHandler.DialogName` / `DialogLockId`). Body, as emitted by `UnfinishedFlightSealHandler` (`UnfinishedFlightSealHandler.cs:160`):
+`PopupDialog.SpawnPopupDialog` with a `MultiOptionDialog`. Title: `Confirm: Seal Unfinished Flight`. Dialog id and input-lock id: `ParsekUFSealDialog` (`UnfinishedFlightSealHandler.DialogName` / `DialogLockId`). Body, as emitted by `UnfinishedFlightSealHandler` (`UnfinishedFlightSealHandler.cs:160`):
 
 ```
 Seal "<vessel-name>" (<terminal-state> at UT <ut>)?
@@ -1503,9 +1505,9 @@ Buttons: `Seal Permanently` (destructive style, fires the seal handler), `Cancel
 
 ### 6.26 Unfinished Flights group tooltip refresh (v0.9.1)
 
-`UI/UnfinishedFlightsGroup.cs` tooltip changes from the v0.9.0 wording to:
+The group draws in the Recordings tab under the name `STASH` (`UnfinishedFlightsGroup.GroupName`), and its header tooltip (`UnfinishedFlightsGroup.Tooltip`) reads:
 
-> Vessels that ended up in a state where you might want to re-fly them — crashed or abandoned in orbit after a separation. Click Fly to take control at the separation moment; click Seal to close the slot permanently if you're done with it.
+> Vessels and kerbals you may want to re-fly - crashed, abandoned in orbit, stranded on a surface. Fly takes control at the separation moment; Seal closes the slot for good.
 
 ---
 
@@ -2279,8 +2281,8 @@ The pre-impl spec's v0.5 sign-off condition was "crash recovery matrix covers ev
 1. Player launches an AB stack: upper stage B (crewed capsule) on top of booster A (probe core + parachute, intended for recovery).
 2. Staging: the decoupler fires. A and B split. Both controllable → RP-1 is captured (one-frame-deferred quicksave under `Parsek/RewindPoints/`). PidSlotMap records B and A by Vessel.persistentId; RootPartPidMap records their root-part PIDs.
 3. Player flies B to orbit. A is BG-recorded; the player gets no chance to deploy the chute in time and A crashes into the ocean.
-4. Player returns to Space Center. Merge dialog → Merge to Timeline. Tree commits: ABC Immutable, B Immutable (Orbited), A CommittedProvisional (Crashed, terminal kind classifies as Crashed). RP-1 survives the scene load as a normal staging RP (`SessionProvisional=true`, `CreatingSessionId=null`) and is promoted to persistent when the tree commits. Recordings Manager shows a new "Unfinished Flights" virtual group containing A with a Rewind button.
-5. Player opens Recordings Manager, finds A under Unfinished Flights, clicks **Rewind**. Dialog names the split UT and the supersede/recalculation advisory. Player clicks **Rewind**.
+4. Player returns to Space Center. Merge dialog → Merge to Timeline. Tree commits: ABC Immutable, B Immutable (Orbited), A CommittedProvisional (Crashed, terminal kind classifies as Crashed). RP-1 survives the scene load as a normal staging RP (`SessionProvisional=true`, `CreatingSessionId=null`) and is promoted to persistent when the tree commits. Recordings tab shows the Unfinished Flights virtual group (`STASH`) containing A with `Fly` + `Seal` buttons.
+5. Player opens the Recordings tab, finds A under Unfinished Flights, clicks **Fly**. The `Confirm: Re-Fly` dialog names the split UT and the supersede/recalculation advisory. Player clicks **Fly**.
 6. Scene reloads into FLIGHT at the staging moment. A is the active vessel (live physics); B has been stripped and now plays back as a ghost from its committed recording. ABC plays back as a ghost up to the split moment, then terminates. Player's career state matches what it was immediately before Rewind (B's orbit entry + all milestones / contracts are intact).
 7. Player deploys A's parachute and lands it safely on the launch pad. Recorder finalizes A' with TerminalKind=Landed.
 8. Merge dialog → Merge to Timeline. `MergeJournalOrchestrator.RunMerge` drives through the eleven phases. A → hidden (superseded); A' → Immutable + effective slot-1 representative. This example writes no tombstones because A has no reviewed recording-scoped career action rows to retire. RP-1 reap-eligible (both slots Immutable) → quicksave deleted, scenario entry removed, BranchPoint back-reference cleared.
