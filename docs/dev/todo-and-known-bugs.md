@@ -86,7 +86,7 @@ Kerbal X (`_1812` / `_1820_a2` flaked with RCS spent against the target's side).
 ## REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. OPEN; product, low]
 
 The fix shifts only a spawn that resolves through the recorded terminal orbit. Read from source,
-three neighbours keep the old geometry; none is flown:
+four neighbours keep the old geometry; none is flown:
 
 - **A ghost that stays a ghost after the jump.** `WarpToDeparture` (and any jump that does not
   reach a bubble ghost's end) leaves the ghost to playback, which draws it at its recorded state
@@ -97,6 +97,11 @@ three neighbours keep the old geometry; none is flown:
   the spawn falls back to the endpoint lat/lon/alt at EndUT, unshifted.
 - **The blocked-tip trajectory walkback** (`VesselGhoster.TryWalkbackSpawn`) still walks the
   recorded points unshifted, so a tip held long enough to walk back leaves the frozen geometry.
+- **A second jump before an armed tip spawns, when the tip is not held.** Accumulation reads
+  the held blocked-tip ghosts; a tip armed by a first jump that has neither spawned nor been
+  blocked (its plain ghost is not held) is not re-captured, so a second jump in that window
+  leaves its lag at the first jump's value. Unlikely: the spawn normally follows the jump at
+  once (found by the PR #1995 follow-up review).
 
 ---
 
