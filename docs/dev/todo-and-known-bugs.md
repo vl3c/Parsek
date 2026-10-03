@@ -6372,7 +6372,23 @@ the signature; a fixed-shape log (the three defect lines gone, the Recovered lin
 zero mismatches and would read XPASS; a half-fixed log (recovery recorded, respawn still
 there) and a no-spawn log do NOT match, so neither reads green.
 
-## SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX: a Parsek-spawned vessel recovered from the Tracking Station or the KSC marker leaves no evidence on a sandbox save when it carries no crew, and the next flight scene spawns it again [FILED 2026-10-03 on branch `tip-recover-respawn` from the mirror check of CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE; OPEN, derived from source, NOT FLOWN; needs an owner ruling on where the recovery is stored]
+## ~~SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX: a Parsek-spawned vessel recovered from the Tracking Station or the KSC marker leaves no evidence on a sandbox save when it carries no crew, and the next flight scene spawns it again~~ [FILED 2026-10-03 on branch `tip-recover-respawn` from the mirror check of CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE; OPEN, derived from source, NOT FLOWN; needs an owner ruling on where the recovery is stored; RULED 2026-10-03; FIXED 2026-10-03 on branch `ts-recover-row`, CI-7 armed PASS `2026-10-03_1620`, live negative control `_1615`]
+
+**Fixed 2026-10-03 (branch `ts-recover-row`).** Per the rulings below: a new non-economic `GameActionType.VesselRecovered` row (vessel name + pid payload), written by `LedgerOrchestrator.OnRealVesselRecovered` from `ParsekScenario.OnVesselRecovered` for every player recovery whose vessel continues a committed recording (`CrewRecoveryReservationClose.SelectOwnerRecordings`: positive launch guid or genuine spawn pid; one owner per tree), skipped under `SuppressCrewEvents` (Parsek's own recoveries) and during a Re-Fly session (the in-flight stamp on the provisional owns that recovery, and a Discard must not leave a row on the origin). `RecoveredRecordingEvidence` reads it; it is tombstone-eligible, retired with the funds row on a Re-Fly resurrection, never blocks a supersede, and is skipped by the Timeline. `ParsekPlaybackPolicy.TryClearRecoveredSpawnClaim` makes `RunSpawnDeathChecks` clear a recovered recording's spawn claim (`Spawned vessel recovered: ... no respawn`) instead of counting a death. Proof: the new seam verb `TrackingStationRecover` and `CI-7-chain-tip-ts-recover-no-respawn`; the LIVE negative control `2026-10-03_1615` (only the row write disabled) respawned the lander, so the defect below is now measured. Found on the way: stock's first-visit Tracking Station intro (`ScenarioNewGameIntro`, `tsComplete = False` on 51 committed fixtures) holds lock `intro_TS` over the whole Tracking Station UI until its button is pressed; the verb presses it. Not covered: the KSC vessel-marker and kRPC non-active recoveries share the same writer but are not flown.
+
+**Owner rulings 2026-10-03 (interview):**
+
+1. Storage: a NEW dedicated ledger row (a non-economic "vessel recovered" `GameActionType`,
+   additive, no schema bump), written on every player recovery that maps to a committed
+   recording, in every game mode, through the existing recovery picker, and read by
+   `RecoveredRecordingEvidence` beside the funds and crew-close rows. Not a zero-funds
+   `FundsEarning(Recovery)` row, and not mutable state on the committed recording.
+2. Rewind: a recovered recording's vessel never spawns again, also after a rewind to before
+   the recovery UT (today's career behavior with the funds row, #1908).
+3. Scope: player recoveries only (Tracking Station, KSC marker, flight Recover, kRPC);
+   Parsek's own programmatic recoveries (crew events suppressed) do not write the row.
+4. Proof: a Tracking Station recovery seam verb plus a CI-6 sibling lane (Real Spawn, go to
+   the Tracking Station, recover there, a new flight, no respawn).
 
 The mirror of the closed in-flight case. Recovering a vessel Parsek spawned at a committed
 recording's end WITHOUT switching to it first (Tracking Station Recover, the KSC vessel

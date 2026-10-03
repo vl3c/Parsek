@@ -208,12 +208,14 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// Design section 3.3: "the route action types have no timeline entry". Every
-        /// other type, KerbalExperience included, must render as its own row.
+        /// Design section 3.3: "the route action types have no timeline entry", and the
+        /// VesselRecovered spawn-evidence row has none either. Every other type,
+        /// KerbalExperience included, must render as its own row.
         /// </summary>
         internal static bool IsDesignLedgerOnlyType(GameActionType type)
         {
-            return Logistics.RouteLedgerRetire.IsRouteActionType(type);
+            return Logistics.RouteLedgerRetire.IsRouteActionType(type)
+                || TimelineBuilder.IsSpawnEvidenceOnlyActionType(type);
         }
 
         private static bool IsEvaCrewNoise(

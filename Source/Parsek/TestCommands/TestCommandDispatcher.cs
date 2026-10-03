@@ -273,6 +273,9 @@ namespace Parsek.TestCommands
         // warp for one recording, and the flight scene's stock Recover button) -----
         void RealSpawn(ParsedCommand cmd);
         void Recover(ParsedCommand cmd);
+        // ----- TrackingStationRecover (the Tracking Station half of a player's recovery:
+        // building click, select, Recover, confirm, Leave) -----
+        void TrackingStationRecover(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -512,6 +515,12 @@ namespace Parsek.TestCommands
                 // Recover. RequiresFlight: the stock Recover button is the flight scene's
                 // altimeter button and acts on the active vessel.
                 ["Recover"] = VerbSceneRequirement.RequiresFlight,
+                // TrackingStationRecover. RequiresGameLoaded, the GoToEditor row: it is
+                // issued at the Space Center only and there is no SpaceCenter requirement
+                // kind, so the wrong scene is its own typed REJECTED
+                // (tsrecover-wrong-scene). The dispatch row only waits out a scene still
+                // loading its game.
+                ["TrackingStationRecover"] = VerbSceneRequirement.RequiresGameLoaded,
             };
 
         /// <summary>
@@ -702,8 +711,10 @@ namespace Parsek.TestCommands
 
                 case "RealSpawn":
                 case "Recover":
+                case "TrackingStationRecover":
                     // The ExitToSpaceCenter pair, for its two reasons: Recover drives a
-                    // scene exit and RealSpawn a time jump plus a vessel spawn, neither of
+                    // scene exit (TrackingStationRecover two: into the Tracking Station and
+                    // back) and RealSpawn a time jump plus a vessel spawn, neither of
                     // which may race a LoadGame's scene change or a re-fly merge journal
                     // mid-finalize. No recording-active guard: a live recorder is the
                     // ordinary case (the product's own jump and recovery paths handle it).
@@ -930,6 +941,11 @@ namespace Parsek.TestCommands
         /// same scene exit plus a few frames.</summary>
         internal const double RecoverSeconds = 120.0;
 
+        /// <summary>TrackingStationRecover: two scene loads that re-read no save (Space
+        /// Center -> Tracking Station and back) plus a few frames of selection, confirm and
+        /// summary dismissal. Sized like Recover (120 s).</summary>
+        internal const double TrackingStationRecoverSeconds = 120.0;
+
         /// <summary>
         /// The deferral budget (seconds) for <paramref name="verb"/>. For RunTests the
         /// scenario's declared runtime budget is authoritative when supplied via
@@ -977,6 +993,8 @@ namespace Parsek.TestCommands
                     return RealSpawnSeconds;
                 case "Recover":
                     return RecoverSeconds;
+                case "TrackingStationRecover":
+                    return TrackingStationRecoverSeconds;
                 // KscAction rides the default 60 s (career-ready / SPACECENTER wait; the
                 // action itself is immediate). SimulateStockSwitchClick rides it too: it is
                 // SINGLE-phase (the switch and its consume are synchronous inside

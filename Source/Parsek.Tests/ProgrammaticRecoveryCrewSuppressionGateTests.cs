@@ -111,6 +111,56 @@ namespace Parsek.Tests
                 + "A new call site needs its own crew suppression and this count updated.");
         }
 
+        // ================================================================
+        // SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX (ruling 3): the
+        // VesselRecovered row is written only for PLAYER recoveries. The writer refuses
+        // under SuppressCrewEvents itself (VesselRecoveredRowTests pins that); this gate
+        // holds the single production call site inside the else-branch of the same
+        // SuppressCrewEvents filter in ParsekScenario.OnVesselRecovered.
+        // ================================================================
+
+        [Fact]
+        public void VesselRecoveredRowWriter_IsCalledOnlyOnTheUnsuppressedBranch()
+        {
+            string src = ReadParsekSource("ParsekScenario.cs");
+            var lines = src.Replace("\r\n", "\n").Split('\n');
+
+            int callLine = -1;
+            int calls = 0;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i];
+                int idx = line.IndexOf("LedgerOrchestrator.OnRealVesselRecovered(", StringComparison.Ordinal);
+                if (idx < 0) continue;
+                int commentIdx = line.IndexOf("//", StringComparison.Ordinal);
+                if (commentIdx >= 0 && commentIdx < idx) continue;
+                calls++;
+                callLine = i;
+            }
+            Assert.True(calls == 1,
+                $"ParsekScenario.cs: expected exactly 1 LedgerOrchestrator.OnRealVesselRecovered call, found {calls}");
+
+            int elseLine = -1;
+            int ifLine = -1;
+            for (int back = callLine - 1; back >= 0 && back >= callLine - 30; back--)
+            {
+                string trimmed = lines[back].Trim();
+                if (elseLine < 0 && trimmed == "else")
+                    elseLine = back;
+                if (elseLine >= 0 && trimmed == "if (GameStateRecorder.SuppressCrewEvents)")
+                {
+                    ifLine = back;
+                    break;
+                }
+            }
+
+            Assert.True(elseLine > 0 && ifLine >= 0 && ifLine < elseLine,
+                $"ParsekScenario.cs line {callLine + 1}: LedgerOrchestrator.OnRealVesselRecovered "
+                + "must sit in the else-branch of `if (GameStateRecorder.SuppressCrewEvents)`. "
+                + "Parsek's own programmatic recoveries run crew-suppressed and must not write "
+                + "vessel recovery evidence (owner ruling 3, 2026-10-03).");
+        }
+
         private static string ReadParsekSource(string relPath)
         {
             string root = Path.GetFullPath(Path.Combine(

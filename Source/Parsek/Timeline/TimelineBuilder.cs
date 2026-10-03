@@ -738,6 +738,7 @@ namespace Parsek
             int count = 0;
             int evaReassignSkipped = 0;
             int routeSkipped = 0;
+            int spawnEvidenceSkipped = 0;
             int modeSeedSkipped = 0;
             int hireCostSuffixSuppressed = 0;
             int noopSpendSkipped = 0;
@@ -769,6 +770,15 @@ namespace Parsek
                 if (IsRouteOnlyActionType(action.Type))
                 {
                     routeSkipped++;
+                    continue;
+                }
+
+                // VesselRecovered is spawn evidence for RecoveredRecordingEvidence, not a
+                // player-facing event: on a career save the paired FundsEarning(Recovery)
+                // row already shows the recovery, so a second row would duplicate it.
+                if (IsSpawnEvidenceOnlyActionType(action.Type))
+                {
+                    spawnEvidenceSkipped++;
                     continue;
                 }
 
@@ -883,6 +893,10 @@ namespace Parsek
             if (routeSkipped > 0)
                 ParsekLog.Verbose("Timeline",
                     $"Filtered {routeSkipped} route action(s) (no timeline entry by design)");
+
+            if (spawnEvidenceSkipped > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"Filtered {spawnEvidenceSkipped} vessel-recovered action(s) (spawn evidence, no timeline entry by design)");
 
             if (modeSeedSkipped > 0)
                 ParsekLog.Verbose("Timeline",
@@ -1067,6 +1081,15 @@ namespace Parsek
         internal static bool IsRouteOnlyActionType(GameActionType type)
         {
             return Logistics.RouteLedgerRetire.IsRouteActionType(type);
+        }
+
+        /// <summary>
+        /// Ledger rows that exist only as spawn evidence and get no timeline entry:
+        /// <see cref="GameActionType.VesselRecovered"/>.
+        /// </summary>
+        internal static bool IsSpawnEvidenceOnlyActionType(GameActionType type)
+        {
+            return type == GameActionType.VesselRecovered;
         }
 
         private static bool IsInitialResourceSeed(GameActionType type)
