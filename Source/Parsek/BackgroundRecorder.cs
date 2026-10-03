@@ -2457,6 +2457,7 @@ namespace Parsek
                     highFidelityActive,
                     debrisTier))
             {
+                NoteProximitySilenceTick(state, ut);
                 return;
             }
 
@@ -7309,6 +7310,7 @@ namespace Parsek
             state.surfaceMobileMaxClearanceThisSection = double.NaN;
             state.surfaceMobileClearanceSumThisSection = 0.0;
             state.sectionFrameWarpFlags.Clear();
+            state.sectionProximitySilences.Clear();
             ParsekLog.Info("BgRecorder",
                 $"TrackSection started: env={env} ref={refFrame} source=Background " +
                 $"pid={state.vesselPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
@@ -7326,6 +7328,44 @@ namespace Parsek
         private static void AppendSectionFrameWarpFlag(BackgroundVesselState state)
         {
             state?.sectionFrameWarpFlags.Add(FlightRecorder.IsRailsWarpActiveForDiagnostics());
+            CloseProximitySilenceAtFrame(state);
+        }
+
+        /// <summary>
+        /// Opens a sampling silence at the first tick the vessel is skipped for being out of
+        /// proximity range (later skipped ticks extend the same silence).
+        /// </summary>
+        private static void NoteProximitySilenceTick(BackgroundVesselState state, double ut)
+        {
+            if (state == null || !double.IsNaN(state.proximitySilenceStartUT))
+                return;
+            state.proximitySilenceStartUT = ut;
+            ParsekLog.Verbose("BgRecorder",
+                $"Proximity sampling silence started: pid={state.vesselPid} " +
+                $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Closes an open proximity silence at the frame just committed to the section, so
+        /// the section-close gap check knows the silence was designed.
+        /// </summary>
+        private static void CloseProximitySilenceAtFrame(BackgroundVesselState state)
+        {
+            if (state == null || double.IsNaN(state.proximitySilenceStartUT))
+                return;
+            List<TrajectoryPoint> frames = state.currentTrackSection.frames;
+            if (frames == null || frames.Count == 0)
+                return;
+            double endUT = frames[frames.Count - 1].ut;
+            double startUT = state.proximitySilenceStartUT;
+            state.proximitySilenceStartUT = double.NaN;
+            if (endUT > startUT)
+                state.sectionProximitySilences.Add(
+                    new FlightRecorder.SamplingSilenceWindow(startUT, endUT));
+            ParsekLog.Verbose("BgRecorder",
+                $"Proximity sampling silence ended: pid={state.vesselPid} " +
+                $"startUT={startUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"endUT={endUT.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         private static void AppendFrameToCurrentTrackSection(
@@ -7605,7 +7645,8 @@ namespace Parsek
                 FlightRecorder.ComputeSectionGapStats(
                     state.currentTrackSection.frames,
                     largeGapThresholdSeconds: sparseGapThreshold,
-                    warpFlags: state.sectionFrameWarpFlags);
+                    warpFlags: state.sectionFrameWarpFlags,
+                    silences: state.sectionProximitySilences);
             if (state.currentTrackSection.referenceFrame == ReferenceFrame.Relative
                 && string.IsNullOrWhiteSpace(state.currentTrackSection.anchorRecordingId))
             {
@@ -7638,7 +7679,8 @@ namespace Parsek
                     $"ref={state.currentTrackSection.referenceFrame} frames={frameCount} " +
                     $"maxGap={gapStats.MaxGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
                     $"threshold={sparseGapThreshold.ToString("F2", CultureInfo.InvariantCulture)}s " +
-                    $"largeGaps={gapStats.LargeGapCount} largeGapsOffRails={gapStats.LargeGapCountOffRails}";
+                    $"largeGaps={gapStats.LargeGapCount} largeGapsOffRails={gapStats.LargeGapCountOffRails} " +
+                    $"largeGapsOutOfRange={gapStats.LargeGapCountInSilence}";
                 if (warn)
                     ParsekLog.Warn("BgRecorder", message);
                 else

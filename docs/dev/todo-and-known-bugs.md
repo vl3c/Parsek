@@ -166,7 +166,7 @@ decision 2026-10-02).
   the replace path at clamp release, `differs=speed(174.97->0.00)`, and at the second staging,
   `differs=rotation flags=1`); the PWR lanes now pin `duplicates = 0`.
 
-## BG-PROXIMITY-GAP-READS-AS-SPARSE-SAMPLING: a debris section that left proximity range WARNs `TrackSection sparse sampling:` on every booster launch [FILED 2026-10-03 from PWR-3 `2026-10-03_1030` and every PWR flight of 2026-10-02, branch `sparse-warn-physwarp`. OPEN, low, pre-existing]
+## ~~BG-PROXIMITY-GAP-READS-AS-SPARSE-SAMPLING: a debris section that left proximity range WARNs `TrackSection sparse sampling:` on every booster launch~~ [FILED 2026-10-03 from PWR-3 `2026-10-03_1030` and every PWR flight of 2026-10-02, branch `sparse-warn-physwarp`. FIXED 2026-10-03, branch `bg-proximity-gap`]
 
 Every PWR flight (`2026-10-02_2102` / `_2108` / `_2122` / `_2128` / `_2133` / `_2141` and
 `2026-10-03_1030`) logs two `[WARN][BgRecorder] TrackSection sparse sampling:` lines, one per
@@ -178,9 +178,16 @@ designed out-of-range silence, not a stalled sampler. It WARNed at 1x before
 SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP too (the old `largeGaps1x=1`), so that fix did
 not introduce it. No lane reads it.
 
-- [ ] Fix: classify a background gap whose earlier sample was taken while the vessel's
-  proximity interval was out of range (or whose span holds an `interval=none` stretch) as
-  expected, like a rails gap; or close the section when sampling stops for range.
+- [x] Fix: the background recorder records each out-of-range silence as a UT window
+  (`BackgroundVesselState.sectionProximitySilences`): it opens at the first tick
+  `ShouldSkipTrajectorySamplingForProximity` skips and closes at the next frame committed to
+  the section (`AppendSectionFrameWarpFlag`, the lockstep append point), and the list is
+  cleared when a section starts. `ComputeSectionGapStats` takes the windows: an off-rails
+  large gap counts toward the WARN only when its time outside them
+  (`ComputeGapSecondsOutsideSilences`) still exceeds the threshold, so a stall that merely
+  borders a silence still WARNs; the rest count as `LargeGapCountInSilence`, logged as
+  `largeGapsOutOfRange=`. Logs `Proximity sampling silence started:` / `ended:` (Verbose,
+  once each per silence). The foreground recorder has no proximity silence and passes none.
 
 ## ~~SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP: the recorder's dropped-sample WARN is downgraded for every physics-warp gap~~ [FILED 2026-10-02 from the physics-warp recording investigation, branch `physwarp-recording`. FIXED 2026-10-03, branch `sparse-warn-physwarp`]
 

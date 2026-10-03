@@ -735,6 +735,73 @@ namespace Parsek
             // per-sample rails data is supplied (warpFlags == null), this equals
             // LargeGapCount so the WARN behaviour is unchanged.
             public int LargeGapCountOffRails;
+
+            // Subset of the off-rails large gaps that a designed sampling silence
+            // explains: the time left after removing the overlap with the supplied
+            // silence windows is within the threshold. Logged, never WARNed.
+            public int LargeGapCountInSilence;
+        }
+
+        /// <summary>
+        /// A UT span during which a recorder took no trajectory samples by design (the
+        /// background recorder's out-of-proximity-range silence). A section gap that
+        /// overlaps one is only as large as the part of it outside the window.
+        /// </summary>
+        internal struct SamplingSilenceWindow
+        {
+            public double StartUT;
+            public double EndUT;
+
+            public SamplingSilenceWindow(double startUT, double endUT)
+            {
+                StartUT = startUT;
+                EndUT = endUT;
+            }
+        }
+
+        /// <summary>
+        /// The seconds of the gap [<paramref name="fromUT"/>, <paramref name="toUT"/>] not
+        /// covered by any silence window (windows may overlap each other; each is clipped
+        /// to the gap and their union is subtracted).
+        /// </summary>
+        internal static double ComputeGapSecondsOutsideSilences(
+            double fromUT, double toUT, IList<SamplingSilenceWindow> silences)
+        {
+            double gap = toUT - fromUT;
+            if (silences == null || silences.Count == 0 || gap <= 0.0)
+                return gap;
+
+            var clipped = new List<SamplingSilenceWindow>();
+            for (int i = 0; i < silences.Count; i++)
+            {
+                double a = Math.Max(fromUT, silences[i].StartUT);
+                double b = Math.Min(toUT, silences[i].EndUT);
+                if (b > a)
+                    clipped.Add(new SamplingSilenceWindow(a, b));
+            }
+            if (clipped.Count == 0)
+                return gap;
+
+            clipped.Sort((x, y) => x.StartUT.CompareTo(y.StartUT));
+            double covered = 0.0;
+            double runStart = clipped[0].StartUT;
+            double runEnd = clipped[0].EndUT;
+            for (int i = 1; i < clipped.Count; i++)
+            {
+                if (clipped[i].StartUT <= runEnd)
+                {
+                    if (clipped[i].EndUT > runEnd)
+                        runEnd = clipped[i].EndUT;
+                }
+                else
+                {
+                    covered += runEnd - runStart;
+                    runStart = clipped[i].StartUT;
+                    runEnd = clipped[i].EndUT;
+                }
+            }
+            covered += runEnd - runStart;
+            return Math.Max(0.0, gap - covered);
         }
 
         /// <summary>
@@ -751,10 +818,17 @@ namespace Parsek
         /// When null or length-mismatched, every large gap counts as normal-rate
         /// (conservative -- preserves the unconditional-WARN behaviour).
         /// </param>
+        /// <param name="silences">
+        /// Optional designed sampling silences. An off-rails large gap whose time outside
+        /// them is within the threshold counts in
+        /// <see cref="SectionGapStats.LargeGapCountInSilence"/> instead of
+        /// <see cref="SectionGapStats.LargeGapCountOffRails"/>.
+        /// </param>
         internal static SectionGapStats ComputeSectionGapStats(
             IList<TrajectoryPoint> frames,
             double largeGapThresholdSeconds = SparseSectionGapWarningThresholdSeconds,
-            IList<bool> warpFlags = null)
+            IList<bool> warpFlags = null,
+            IList<SamplingSilenceWindow> silences = null)
         {
             var stats = new SectionGapStats
             {
@@ -786,6 +860,7 @@ namespace Parsek
             int gapCount = 0;
             int largeGapCount = 0;
             int largeGapCountOffRails = 0;
+            int largeGapCountInSilence = 0;
             for (int i = 1; i < frames.Count; i++)
             {
                 double gap = frames[i].ut - frames[i - 1].ut;
@@ -801,7 +876,14 @@ namespace Parsek
                     largeGapCount++;
                     bool gapTouchesRails = haveWarpFlags && (warpFlags[i - 1] || warpFlags[i]);
                     if (!gapTouchesRails)
-                        largeGapCountOffRails++;
+                    {
+                        double unexplained = ComputeGapSecondsOutsideSilences(
+                            frames[i - 1].ut, frames[i].ut, silences);
+                        if (unexplained > largeGapThresholdSeconds)
+                            largeGapCountOffRails++;
+                        else
+                            largeGapCountInSilence++;
+                    }
                 }
             }
 
@@ -809,6 +891,7 @@ namespace Parsek
             stats.MaxGapSeconds = maxGap;
             stats.LargeGapCount = largeGapCount;
             stats.LargeGapCountOffRails = largeGapCountOffRails;
+            stats.LargeGapCountInSilence = largeGapCountInSilence;
             return stats;
         }
 

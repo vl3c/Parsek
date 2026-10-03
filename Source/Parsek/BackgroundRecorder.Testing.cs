@@ -351,6 +351,13 @@ namespace Parsek
             };
         }
 
+        internal void NoteProximitySilenceTickForTesting(uint vesselPid, double ut)
+        {
+            BackgroundVesselState state;
+            if (loadedStates.TryGetValue(vesselPid, out state))
+                NoteProximitySilenceTick(state, ut);
+        }
+
         internal void InjectCurrentTrackSectionFrameForTesting(uint vesselPid, TrajectoryPoint point)
         {
             BackgroundVesselState state;
