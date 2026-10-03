@@ -306,6 +306,7 @@ namespace Parsek
                 case GameActionType.KerbalRescue:
                 case GameActionType.KerbalStandIn:
                 case GameActionType.KerbalRecovered:
+                case GameActionType.VesselRecovered:
                 case GameActionType.FacilityDestruction:
                 case GameActionType.StrategyDeactivate:
                 case GameActionType.FundsInitial:

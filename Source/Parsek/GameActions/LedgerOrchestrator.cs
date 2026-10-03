@@ -1411,6 +1411,10 @@ namespace Parsek
                 // delivered twice collapses to one.
                 case GameActionType.KerbalRecovered:
                     return (a.RecordingId ?? "") + "|" + (a.KerbalName ?? "");
+                // VesselRecovered: one row per owner recording; the same recovery
+                // delivered twice collapses to one, two owning trees keep both.
+                case GameActionType.VesselRecovered:
+                    return a.RecordingId ?? "";
                 default: return "";
             }
         }
@@ -5598,6 +5602,109 @@ namespace Parsek
 
             if (written > 0)
                 RecalculateAndPatchForLiveTimelineEvent(ut, "recovery-crew-reservation-close");
+            return written;
+        }
+
+        /// <summary>
+        /// SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX: the player recovered a
+        /// real vessel. When it continues a committed recording
+        /// (<see cref="CrewRecoveryReservationClose.SelectOwnerRecordings"/>: the same launch
+        /// by POSITIVE guid match, or the vessel Parsek spawned from it; committed ERS only, one
+        /// owner per tree, recordings ending after the recovery dropped), write one
+        /// <see cref="GameActionType.VesselRecovered"/> row per owner at <paramref name="ut"/>.
+        /// <see cref="RecoveredRecordingEvidence"/> reads it so the owner's vessel is never
+        /// spawned again, in every game mode and with or without crew (the funds and
+        /// crew-close rows are both conditional).
+        ///
+        /// <para>Player recoveries only: Parsek's own programmatic recoveries run under
+        /// <c>SuppressionGuard.Crew()</c>, and this writer refuses while
+        /// <see cref="GameStateRecorder.SuppressCrewEvents"/> is set (the caller filters the
+        /// same flag, plus ghost-map vessels and rewind strips). A recording owned only by the
+        /// pending tree gets no row: ERS excludes it and the pending tree's own terminal stamp
+        /// records the recovery.</para>
+        ///
+        /// <para>Deduplicated per owner recording inside the 0.1 s dedup window
+        /// (<see cref="GetActionKey"/>), so the same recovery delivered twice writes once.</para>
+        /// </summary>
+        /// <returns>Rows written (0 when no committed recording owns the vessel, the recovery
+        /// was programmatic, or every row was a duplicate).</returns>
+        internal static int OnRealVesselRecovered(
+            double ut,
+            uint vesselPid,
+            string launchGuid,
+            string vesselName)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            string utText = ut.ToString("F1", ic);
+            string vesselText = vesselName ?? "(null)";
+            if (GameStateRecorder.SuppressCrewEvents)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Vessel recovery row skipped: vessel='{vesselText}' pid={vesselPid.ToString(ic)} " +
+                    $"ut={utText} - crew events suppressed (programmatic recovery)");
+                return 0;
+            }
+            if (vesselPid == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Vessel recovery row skipped: vessel='{vesselText}' ut={utText} - no vessel pid");
+                return 0;
+            }
+
+            Initialize();
+
+            var ers = EffectiveState.ComputeERS();
+            var owners = CrewRecoveryReservationClose.SelectOwnerRecordings(
+                ers, vesselPid, launchGuid, ut);
+            if (owners.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Vessel recovery row: vessel='{vesselText}' pid={vesselPid.ToString(ic)} " +
+                    $"guid={launchGuid ?? "(null)"} ut={utText} - no committed recording continues " +
+                    "this vessel, nothing to write");
+                return 0;
+            }
+
+            int written = 0;
+            int deduped = 0;
+            for (int i = 0; i < owners.Count; i++)
+            {
+                var owner = owners[i];
+                var row = new GameAction
+                {
+                    UT = ut,
+                    Type = GameActionType.VesselRecovered,
+                    RecordingId = owner.RecordingId,
+                    RecoveredVesselName = vesselName,
+                    RecoveredVesselPid = vesselPid,
+                };
+                var single = DeduplicateAgainstLedger(new List<GameAction> { row });
+                if (single.Count == 0)
+                {
+                    deduped++;
+                    ParsekLog.Verbose(Tag,
+                        $"Vessel recovery row: recordingId={owner.RecordingId} ut={utText} " +
+                        "already in the ledger");
+                    continue;
+                }
+
+                row.Sequence = AllocateKscSequence();
+                Ledger.AddAction(row);
+                written++;
+                ParsekLog.Info(Tag,
+                    $"Vessel recovered recorded: vessel='{vesselText}' pid={vesselPid.ToString(ic)} " +
+                    $"recoveryUT={utText} recordingId={owner.RecordingId} " +
+                    $"terminal={(owner.TerminalStateValue.HasValue ? owner.TerminalStateValue.Value.ToString() : "<none>")} " +
+                    $"spawnedPid={owner.SpawnedVesselPersistentId.ToString(ic)}");
+            }
+
+            ParsekLog.Info(Tag,
+                $"Vessel recovery rows: vessel='{vesselText}' pid={vesselPid.ToString(ic)} ut={utText} " +
+                $"owners={owners.Count.ToString(ic)} written={written.ToString(ic)} " +
+                $"deduped={deduped.ToString(ic)}");
+
+            if (written > 0)
+                RecalculateAndPatchForLiveTimelineEvent(ut, "vessel-recovered");
             return written;
         }
 

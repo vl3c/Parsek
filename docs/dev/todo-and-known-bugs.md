@@ -6196,7 +6196,21 @@ the signature; a fixed-shape log (the three defect lines gone, the Recovered lin
 zero mismatches and would read XPASS; a half-fixed log (recovery recorded, respawn still
 there) and a no-spawn log do NOT match, so neither reads green.
 
-## SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX: a Parsek-spawned vessel recovered from the Tracking Station or the KSC marker leaves no evidence on a sandbox save when it carries no crew, and the next flight scene spawns it again [FILED 2026-10-03 on branch `tip-recover-respawn` from the mirror check of CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE; OPEN, derived from source, NOT FLOWN; needs an owner ruling on where the recovery is stored]
+## SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX: a Parsek-spawned vessel recovered from the Tracking Station or the KSC marker leaves no evidence on a sandbox save when it carries no crew, and the next flight scene spawns it again [FILED 2026-10-03 on branch `tip-recover-respawn` from the mirror check of CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE; OPEN, derived from source, NOT FLOWN; needs an owner ruling on where the recovery is stored; RULED 2026-10-03, IN PROGRESS on branch `ts-recover-row`]
+
+**Owner rulings 2026-10-03 (interview):**
+
+1. Storage: a NEW dedicated ledger row (a non-economic "vessel recovered" `GameActionType`,
+   additive, no schema bump), written on every player recovery that maps to a committed
+   recording, in every game mode, through the existing recovery picker, and read by
+   `RecoveredRecordingEvidence` beside the funds and crew-close rows. Not a zero-funds
+   `FundsEarning(Recovery)` row, and not mutable state on the committed recording.
+2. Rewind: a recovered recording's vessel never spawns again, also after a rewind to before
+   the recovery UT (today's career behavior with the funds row, #1908).
+3. Scope: player recoveries only (Tracking Station, KSC marker, flight Recover, kRPC);
+   Parsek's own programmatic recoveries (crew events suppressed) do not write the row.
+4. Proof: a Tracking Station recovery seam verb plus a CI-6 sibling lane (Real Spawn, go to
+   the Tracking Station, recover there, a new flight, no respawn).
 
 The mirror of the closed in-flight case. Recovering a vessel Parsek spawned at a committed
 recording's end WITHOUT switching to it first (Tracking Station Recover, the KSC vessel

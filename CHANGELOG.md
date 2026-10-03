@@ -1379,6 +1379,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel Parsek brought into the world that you recover from the Tracking Station or
+  the KSC no longer comes back.** Recover a vessel Parsek spawned at the end of a recorded
+  flight without flying it first (the Tracking Station Recover button, the KSC vessel
+  marker), on a sandbox save or with no crew aboard, and the next flight scene used to read
+  the vessel's absence as a crash and spawn it again. Parsek only learned of such a
+  recovery through the recovery payout (which a sandbox save never pays) or the crew coming
+  home (which an uncrewed vessel has none of). Every recovery you make of a vessel that
+  continues a recorded flight now writes its own ledger entry, in every game mode, and that
+  recording's vessel is never spawned again, also after a rewind to before the recovery.
+  A vanished vessel whose recording reads recovered is no longer counted as a death either.
+  Parsek's own housekeeping recoveries write nothing. A Re-Fly that puts the vessel back in
+  the world retires the entry with the recovery payout. No new interface.
+
 - **A vessel you recover right after switching to it no longer comes back.** Bring a
   recorded flight's vessel into the world (Real Spawn Control, or its end-of-recording
   spawn), switch to it and press stock's Recover at once, and the next flight scene used to
