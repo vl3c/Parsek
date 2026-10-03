@@ -89,14 +89,15 @@ namespace Parsek.Tests.Logistics
         // catches: the reflection walk going vacuous (an empty constants class,
         // or a rename that makes DeclaredConstants find nothing, would pass
         // every cell above). The floors are the counts measured at extraction:
-        // 29 long-form hold clauses + 29 compact + 6 frames, and 12 reject
-        // clauses (11 RouteAnalysisStatus arms + the not-fully-sealed gate).
+        // 29 long-form hold clauses + 29 compact + 8 frames (the two Route
+        // History held rows included), and 12 reject clauses (11
+        // RouteAnalysisStatus arms + the not-fully-sealed gate).
         [Fact]
         public void TheWalkIsNotVacuous()
         {
-            Assert.Equal(64, LogisticsHoldClauses.All.Count);
+            Assert.Equal(66, LogisticsHoldClauses.All.Count);
             Assert.Equal(12, LogisticsRejectClauses.All.Count);
-            Assert.Equal(64, DeclaredConstants(typeof(LogisticsHoldClauses)).Count);
+            Assert.Equal(66, DeclaredConstants(typeof(LogisticsHoldClauses)).Count);
             Assert.Equal(12, DeclaredConstants(typeof(LogisticsRejectClauses)).Count);
         }
 

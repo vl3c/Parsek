@@ -50,5 +50,52 @@ namespace Parsek.Tests.Logistics
             // The one color shared with the Recordings table (its Stationary tail).
             Assert.Equal(new Color(0.65f, 0.85f, 1f), ParsekUI.StatusColor(ParsekUI.StatusColorKind.Cyan));
         }
+
+        [Fact]
+        public void StatusColor_Violet_IsSoftVioletB39DDB()
+        {
+            Color32 c = ParsekUI.StatusColor(ParsekUI.StatusColorKind.Violet);
+            Assert.Equal((byte)0xb3, c.r);
+            Assert.Equal((byte)0x9d, c.g);
+            Assert.Equal((byte)0xdb, c.b);
+            Assert.Equal((byte)0xff, c.a);
+        }
+
+        // The shared stepper value cell holds the widest Every readout: every windowed
+        // form up to two digits, the flat two-digit / four-digit-day form, a Priority;
+        // a narrow measure keeps the floor, NaN never wins.
+        [Fact]
+        public void StepperValueCell_IsTheWidestMeasuredSamplePlusPadding()
+        {
+            var samples = LogisticsRoutePresentation.StepperValueSamples();
+            Assert.Contains("1x (every window)", samples);
+            Assert.Contains("23x (every 23rd window)", samples);
+            Assert.Contains("99x (~9999.9d)", samples);
+            Assert.Contains("999", samples);
+            System.Func<string, float> measure = s => s.Length * 7f;
+            float longest = 0f;
+            foreach (string s in samples) longest = System.Math.Max(longest, s.Length * 7f);
+            Assert.Equal((float)System.Math.Ceiling(longest + LogisticsRoutePresentation.StepperValuePadding),
+                LogisticsRoutePresentation.StepperValueCellWidth(measure));
+            Assert.Equal(LogisticsRoutePresentation.StepperValueMinWidth,
+                LogisticsRoutePresentation.StepperValueCellWidth(s => 1f));
+            Assert.Equal(LogisticsRoutePresentation.StepperValueMinWidth,
+                LogisticsRoutePresentation.StepperValueCellWidth(s => float.NaN));
+            Assert.Equal(70f, LogisticsRoutePresentation.StepperLabelWidth);
+            Assert.Equal(24f, LogisticsRoutePresentation.StepperButtonWidth);
+        }
+
+        // The Logistics section accent bars: green Active, soft violet Paused, cyan
+        // Candidates, all named palette slots rather than inline literals.
+        [Fact]
+        public void LogisticsSectionAccents_AreTheNamedPaletteSlots()
+        {
+            Assert.Equal(ParsekUI.StatusColorKind.Green,
+                LogisticsRoutePresentation.SectionAccent(LogisticsRoutePresentation.ActiveSectionName));
+            Assert.Equal(ParsekUI.StatusColorKind.Violet,
+                LogisticsRoutePresentation.SectionAccent(LogisticsRoutePresentation.PausedSectionName));
+            Assert.Equal(ParsekUI.StatusColorKind.Cyan,
+                LogisticsRoutePresentation.SectionAccent(LogisticsRoutePresentation.CandidatesSectionName));
+        }
     }
 }

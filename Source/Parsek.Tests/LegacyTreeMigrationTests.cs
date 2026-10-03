@@ -108,6 +108,8 @@ namespace Parsek.Tests
         // KerbalRecovered (KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL): bounds a
         // crew reservation at a real-vessel recovery; moves no pool.
         [InlineData(GameActionType.KerbalRecovered,      false)]
+        // RouteHeld: records that a route's run was held; moves no pool.
+        [InlineData(GameActionType.RouteHeld,            false)]
         public void IsResourceImpactingAction_Theory(GameActionType type, bool expected)
         {
             Assert.Equal(expected, LedgerOrchestrator.IsResourceImpactingAction(type));

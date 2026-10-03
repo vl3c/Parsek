@@ -554,6 +554,8 @@ namespace Parsek
         private GUIStyle statusStyleCyan;    // New / Sending one run / Pausing after this run
         private GUIStyle statusStyleWhite;   // Scheduled
         private GUIStyle detailStyle;
+        // The Every / Priority steppers' shared value-cell width (measured with detailStyle).
+        private float stepperValueWidth = LogisticsRoutePresentation.StepperValueMinWidth;
         // The two-line Route cell: line 1 the caret + name, line 2 the grey from/to at the
         // same font size. Both clip rather than wrap, so every row is exactly two lines
         // tall and the grid of single-line cells beside it never shifts. The muted colour
@@ -960,8 +962,7 @@ namespace Parsek
             string key = section == RouteSection.Active
                 ? LogisticsRoutePresentation.ActiveSectionName
                 : LogisticsRoutePresentation.PausedSectionName;
-            if (!DrawSectionHeader(key, title, rows.Count,
-                    section == RouteSection.Active ? ParsekUI.StatusColorKind.Green : ParsekUI.StatusColorKind.Grey))
+            if (!DrawSectionHeader(key, title, rows.Count, LogisticsRoutePresentation.SectionAccent(key)))
             {
                 GUILayout.Space(SpacingSmall);
                 return;
@@ -1079,7 +1080,7 @@ namespace Parsek
         private void DrawCandidateSectionBubble(string title, List<RouteCandidate> rows, List<RouteNearMiss> nearMisses)
         {
             if (!DrawSectionHeader(LogisticsRoutePresentation.CandidatesSectionName, title, rows.Count,
-                    ParsekUI.StatusColorKind.Cyan))
+                    LogisticsRoutePresentation.SectionAccent(LogisticsRoutePresentation.CandidatesSectionName)))
             {
                 GUILayout.Space(SpacingSmall);
                 return;
@@ -2679,7 +2680,7 @@ namespace Parsek
             GUILayout.Label(
                 new GUIContent("Every:",
                     "How often the route runs, as a multiple of the run duration. 1x is the floor (the fastest the run allows); raise it to run less often."),
-                detailStyle, GUILayout.Width(70f));
+                detailStyle, GUILayout.Width(LogisticsRoutePresentation.StepperLabelWidth));
 
             // "-" decrements (no-op + greyed at the 1x floor).
             bool atFloor = n <= 1;
@@ -2688,7 +2689,7 @@ namespace Parsek
             GUI.enabled = !atFloor;
             bool cadenceDownClicked = GUILayout.Button(new GUIContent("-",
                     atFloor ? cadenceAtFloorReason : "Run more often"),
-                    GUILayout.Width(24f));
+                    GUI.skin.button, GUILayout.Width(LogisticsRoutePresentation.StepperButtonWidth));
             DisabledHoverEcho.CarryLastControl(!atFloor, cadenceAtFloorReason);
             if (cadenceDownClicked)
             {
@@ -2698,12 +2699,13 @@ namespace Parsek
             GUI.enabled = true;
 
             // Current N x + the resulting human cadence (windowed wording for a
-            // windowed basis; wider cell to fit "2x (every 2nd window)").
+            // windowed basis), in the value cell both steppers share.
             GUILayout.Label(
                 windowed ? RouteWindowBasisPresentation.FormatWindowedCadence(n) : FormatCadence(route),
-                detailStyle, GUILayout.Width(windowed ? 170f : 110f));
+                detailStyle, GUILayout.Width(stepperValueWidth));
 
-            if (GUILayout.Button(new GUIContent("+", "Run less often"), GUILayout.Width(24f)))
+            if (GUILayout.Button(new GUIContent("+", "Run less often"), GUI.skin.button,
+                    GUILayout.Width(LogisticsRoutePresentation.StepperButtonWidth)))
             {
                 pendingCadenceRoute = route;
                 pendingCadenceMultiplier = RouteCadence.StepMultiplier(n, +1);
@@ -2728,7 +2730,7 @@ namespace Parsek
             GUILayout.Label(
                 new GUIContent("Priority:",
                     "When several routes are due at once, the lower number runs first. 0 is the highest priority (and the default)."),
-                detailStyle, GUILayout.Width(70f));
+                detailStyle, GUILayout.Width(LogisticsRoutePresentation.StepperLabelWidth));
 
             // "-" decrements (no-op + greyed at the 0 floor).
             bool atFloor = p <= 0;
@@ -2736,7 +2738,7 @@ namespace Parsek
             GUI.enabled = !atFloor;
             bool priorityDownClicked = GUILayout.Button(new GUIContent("-",
                     atFloor ? priorityAtFloorReason : "Run earlier when routes are due at once"),
-                    GUILayout.Width(24f));
+                    GUI.skin.button, GUILayout.Width(LogisticsRoutePresentation.StepperButtonWidth));
             DisabledHoverEcho.CarryLastControl(!atFloor, priorityAtFloorReason);
             if (priorityDownClicked)
             {
@@ -2745,9 +2747,10 @@ namespace Parsek
             }
             GUI.enabled = true;
 
-            GUILayout.Label(p.ToString(CultureInfo.InvariantCulture), detailStyle, GUILayout.Width(110f));
+            GUILayout.Label(p.ToString(CultureInfo.InvariantCulture), detailStyle, GUILayout.Width(stepperValueWidth));
 
-            if (GUILayout.Button(new GUIContent("+", "Run later when routes are due at once"), GUILayout.Width(24f)))
+            if (GUILayout.Button(new GUIContent("+", "Run later when routes are due at once"), GUI.skin.button,
+                    GUILayout.Width(LogisticsRoutePresentation.StepperButtonWidth)))
             {
                 pendingPriorityRoute = route;
                 pendingPriorityValue = RoutePriority.Step(p, +1);
@@ -4037,7 +4040,7 @@ namespace Parsek
                 els, route.Id, originPlace, originVesselName,
                 index => stopAt(index) != null ? FormatEndpointPlace(stopAt(index).Endpoint) : null,
                 index => stopAt(index) != null ? TryResolveLiveVesselName(stopAt(index).Endpoint.VesselPersistentId) : null,
-                TryResolveLiveVesselName);
+                TryResolveLiveVesselName, StructureListWindowUI.ResolvePartTitle);
             ParsekLog.Verbose("UI",
                 $"Route History rows built: route={ShortId(route.Id)} rows={steps.Count.ToString(CultureInfo.InvariantCulture)}");
             return steps;
@@ -4450,7 +4453,7 @@ namespace Parsek
         {
             int n = Route.ClampCadenceMultiplier(route.CadenceMultiplier);
             string human = FormatDuration(route.DispatchInterval);
-            return string.Format(CultureInfo.InvariantCulture, "{0}x (~{1})", n, human);
+            return string.Format(CultureInfo.InvariantCulture, LogisticsRoutePresentation.CadenceReadoutFormat, n, human);
         }
 
         internal static string FormatDuration(double seconds)
@@ -4537,6 +4540,10 @@ namespace Parsek
 
             detailStyle = new GUIStyle(GUI.skin.label) { wordWrap = true };
             detailStyle.normal.textColor = new Color(0.8f, 0.8f, 0.8f);
+            // The Every / Priority steppers' shared value cell, measured once with the
+            // style that draws it.
+            stepperValueWidth = LogisticsRoutePresentation.StepperValueCellWidth(
+                text => detailStyle.CalcSize(new GUIContent(text)).x);
 
             routeNameStyle = new GUIStyle(GUI.skin.label) { wordWrap = false, clipping = TextClipping.Clip };
             routeFromToStyle = new GUIStyle(routeNameStyle);

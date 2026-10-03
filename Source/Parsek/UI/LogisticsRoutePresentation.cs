@@ -76,6 +76,83 @@ namespace Parsek
         internal const float SectionAccentHeight = 2f;
 
         /// <summary>
+        /// A section's accent bar colour: green Active Routes, soft violet Paused Routes,
+        /// cyan Candidates; grey for any other name.
+        /// </summary>
+        internal static ParsekUI.StatusColorKind SectionAccent(string sectionName)
+        {
+            switch (sectionName)
+            {
+                case ActiveSectionName: return ParsekUI.StatusColorKind.Green;
+                case PausedSectionName: return ParsekUI.StatusColorKind.Violet;
+                case CandidatesSectionName: return ParsekUI.StatusColorKind.Cyan;
+                default: return ParsekUI.StatusColorKind.Grey;
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Detail-block steppers (Every / Priority): one fixed grid
+        // ------------------------------------------------------------------
+
+        /// <summary>The label column ("Every:" / "Priority:") both steppers share.</summary>
+        internal const float StepperLabelWidth = 70f;
+
+        /// <summary>The width of every stepper "-" and "+" button.</summary>
+        internal const float StepperButtonWidth = 24f;
+
+        /// <summary>Space added to the widest measured value so the text never touches "+".</summary>
+        internal const float StepperValuePadding = 8f;
+
+        /// <summary>The narrowest the shared value cell gets, whatever the measure says.</summary>
+        internal const float StepperValueMinWidth = 110f;
+
+        /// <summary>The largest multiplier the width samples cover (two digits).</summary>
+        internal const int StepperSampleMaxMultiplier = 99;
+
+        /// <summary>The Every readout on a flat schedule: "2x (~4.0d)".</summary>
+        internal const string CadenceReadoutFormat = "{0}x (~{1})";
+
+        /// <summary>
+        /// The value texts the shared stepper cell must hold: every windowed Every readout up
+        /// to <see cref="StepperSampleMaxMultiplier"/> ("1x (every window)", "23x (every 23rd
+        /// window)"), the flat readout with a two-digit multiplier and a four-digit day count
+        /// ("99x (~9999.9d)"), and a three-digit Priority. The window measures each with its
+        /// label style once, so both steppers get one value width.
+        /// </summary>
+        internal static List<string> StepperValueSamples()
+        {
+            var samples = new List<string>(StepperSampleMaxMultiplier + 2);
+            for (int n = 1; n <= StepperSampleMaxMultiplier; n++)
+                samples.Add(RouteWindowBasisPresentation.FormatWindowedCadence(n));
+            samples.Add(string.Format(IC, CadenceReadoutFormat, StepperSampleMaxMultiplier, "9999.9d"));
+            samples.Add("999");
+            return samples;
+        }
+
+        /// <summary>
+        /// The one value-cell width both steppers use: the widest of
+        /// <see cref="StepperValueSamples"/> under <paramref name="measure"/> (the label
+        /// style's width of a text) plus <see cref="StepperValuePadding"/>, rounded up, never
+        /// under <see cref="StepperValueMinWidth"/>. So both "-" buttons share one column and
+        /// both "+" buttons another, whatever the values.
+        /// </summary>
+        internal static float StepperValueCellWidth(Func<string, float> measure)
+        {
+            float widest = 0f;
+            if (measure != null)
+            {
+                List<string> samples = StepperValueSamples();
+                for (int i = 0; i < samples.Count; i++)
+                {
+                    float w = measure(samples[i]);
+                    if (w > widest && !float.IsNaN(w) && !float.IsInfinity(w))
+                        widest = w;
+                }
+            }
+            return Math.Max(StepperValueMinWidth, (float)Math.Ceiling(widest + StepperValuePadding));
+        }
+
+        /// <summary>
         /// A section title bar's text: the caret (the route rows' glyphs, down when
         /// expanded, right when collapsed), the name and its count, "\u25bc Active Routes (2)".
         /// </summary>

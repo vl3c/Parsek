@@ -10,7 +10,7 @@ namespace Parsek.Tests
     {
         // Keep this count in sync with CreateAction's switch below so a new
         // GameActionType cannot land without an explicit fuzzer payload.
-        private const int ExpectedGameActionTypeCount = 35;
+        private const int ExpectedGameActionTypeCount = 36;
         private readonly bool priorSuppressLogging;
 
         public RecalculationFuzzerTests()
@@ -401,6 +401,12 @@ namespace Parsek.Tests
                 case GameActionType.RouteResumed:
                     action.RouteId = "route-" + iteration;
                     action.RouteEndpointReason = "player-activate";
+                    break;
+                case GameActionType.RouteHeld:
+                    action.RouteId = "route-" + iteration;
+                    action.RouteCycleId = "cycle-" + iteration + "-" + sequence;
+                    action.RouteHoldKind = Parsek.Logistics.RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull;
+                    action.RouteEndpointReason = "LiquidFuel";
                     break;
                 case GameActionType.RouteEndpointLost:
                     action.RouteId = "route-" + iteration;

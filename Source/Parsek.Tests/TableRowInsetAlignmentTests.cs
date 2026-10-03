@@ -691,6 +691,33 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// The Every and Priority steppers in the expanded detail block are one fixed grid:
+        /// the same label column, the same "-" / "+" button width and the same value cell
+        /// (measured once from the widest value the Every formatter can produce), so both
+        /// "-" buttons sit in one column and both "+" buttons in another whatever the
+        /// values. Both buttons of a stepper draw with the same explicit button style.
+        /// </summary>
+        [Fact]
+        public void LogisticsDetailSteppersShareOneGrid()
+        {
+            string file = Path.Combine("UI", "LogisticsWindowUI.cs");
+            string prepared = ReadPreparedSource(file);
+            foreach (string method in new[] { "DrawCadenceStepper", "DrawPriorityStepper" })
+            {
+                string body = MethodBody(prepared, method, file);
+                Assert.Equal(1, Regex.Matches(body,
+                    @"GUILayout\.Width\(LogisticsRoutePresentation\.StepperLabelWidth\)").Count);
+                Assert.Equal(1, Regex.Matches(body, @"GUILayout\.Width\(stepperValueWidth\)").Count);
+                Assert.Equal(2, Regex.Matches(body,
+                    @"GUI\.skin\.button,\s*GUILayout\.Width\(LogisticsRoutePresentation\.StepperButtonWidth\)").Count);
+                Assert.Equal(4, Regex.Matches(body, @"GUILayout\.(Label|Button)\(").Count);
+                Assert.DoesNotMatch(@"GUILayout\.Width\(\s*\d", body);
+            }
+            Assert.Contains("stepperValueWidth = LogisticsRoutePresentation.StepperValueCellWidth(", prepared);
+            Assert.Contains("detailStyle.CalcSize(", prepared);
+        }
+
+        /// <summary>
         /// Decision 1a, as laid out 2026-10-03: Delete lives in the expanded detail block,
         /// out of the scan line, as a 100 px single in the block's own Interact column
         /// (Rename on the first line, Delete on the second, Link round-trip... on the third

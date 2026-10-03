@@ -282,6 +282,16 @@ namespace Parsek
         internal const string StatusCellHeld = "Held: {0}";
 
         /// <summary>
+        /// A Route History held row, wrapped around the long clause with its live-route
+        /// advice removed (<see cref="LogisticsHoldPresentation.DescribeHoldForHistory"/>).
+        /// The row's Time column carries the date, so the frame carries none.
+        /// </summary>
+        internal const string HistoryHeldRow = "Held: {0}";
+
+        /// <summary>A Route History held row whose failure kind did not read back.</summary>
+        internal const string HistoryHeldRowBare = "Held";
+
+        /// <summary>
         /// The Send toast's belt-and-braces clause when a held run somehow
         /// carried no failure kind (<c>RouteSendOncePresentation</c>).
         /// </summary>
@@ -366,6 +376,8 @@ namespace Parsek
                 Hold("PartialDeliveryLine", PartialDeliveryLine),
                 Hold("PartialDeliveryLineOnDate", PartialDeliveryLineOnDate),
                 Hold("StatusCellHeld", StatusCellHeld),
+                Hold("HistoryHeldRow", HistoryHeldRow),
+                Hold("HistoryHeldRowBare", HistoryHeldRowBare),
                 Hold("SendOnceNotEligible", SendOnceNotEligible)
             };
             return list.AsReadOnly();

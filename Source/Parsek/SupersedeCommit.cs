@@ -2136,6 +2136,9 @@ namespace Parsek
                 // marker, scheduler-emitted like RoutePaused; carries no world
                 // mutation, so supersede must not strict-block or retry-block on it.
                 case GameActionType.RouteResumed:
+                // RouteHeld: a scheduler-emitted record that a route's run was held;
+                // no world mutation, so it must not strict-block or retry-block.
+                case GameActionType.RouteHeld:
                 // KerbalExperience (P9a): a RECORD of career-log entries stock already
                 // archived, not a world mutation this predicate should block on. The
                 // recovery that produced it already strict-blocks through its own
