@@ -203,4 +203,63 @@ namespace Parsek
             pending.Clear();
         }
     }
+
+    /// <summary>
+    /// One-frame step of the startup-notice poster, driven by a coroutine on
+    /// <see cref="ParsekHarmony"/>. Waits until one postable scene has stayed current for
+    /// <see cref="StartupNotices.SceneSettleSeconds"/> with ScreenMessages present, then
+    /// posts every queued notice; a post stock drops (a scene load in progress) goes back
+    /// in the queue and is retried on the next tick.
+    /// </summary>
+    internal sealed class StartupNoticePoster
+    {
+        private GameScenes candidateScene = GameScenes.LOADING;
+        private float candidateSince = -1f;
+        private bool settled;
+
+        internal bool Settled => settled;
+        internal int DroppedAttempts { get; private set; }
+
+        /// <summary>Returns true once the queue is empty (the coroutine can stop).</summary>
+        internal bool Tick(GameScenes scene, bool screenMessagesReady, float realtimeNow,
+            Func<string, bool> tryPost)
+        {
+            if (StartupNotices.PendingCount == 0)
+                return true;
+
+            if (!settled)
+            {
+                if (!StartupNotices.IsPostableScene(scene) || !screenMessagesReady)
+                {
+                    candidateSince = -1f;
+                    return false;
+                }
+                if (candidateSince < 0f || scene != candidateScene)
+                {
+                    candidateScene = scene;
+                    candidateSince = realtimeNow;
+                    return false;
+                }
+                if (realtimeNow - candidateSince < StartupNotices.SceneSettleSeconds)
+                    return false;
+                settled = true;
+            }
+
+            foreach (var notice in StartupNotices.TakePending())
+            {
+                if (tryPost(notice))
+                {
+                    ParsekLog.Info("Init", string.Format(CultureInfo.InvariantCulture,
+                        "Startup notice posted in {0} after {1} dropped attempt(s): {2}",
+                        scene, DroppedAttempts, notice));
+                }
+                else
+                {
+                    DroppedAttempts++;
+                    StartupNotices.Enqueue(notice);
+                }
+            }
+            return StartupNotices.PendingCount == 0;
+        }
+    }
 }

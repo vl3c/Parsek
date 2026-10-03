@@ -20,6 +20,12 @@ startup EVENTS, once per process, through `StartupNotices.cs` (pure) and `Parsek
   which already sets `HighLogic.LoadedScene`, until `onLevelWasLoaded`. The poster waits for a
   playable scene to stay current 3 s, then posts through `ParsekLog.TryScreenMessage` and
   re-queues a dropped notice for the next frame.
+- **Tests.** xUnit: `StartupNoticesTests` (text, feature map, install paths) and
+  `StartupNoticePipelineTests` (`StartupNoticePoster` settle / scene-change / drop-retry,
+  `ParsekHarmony.ApplyPatches` with real Harmony over a missing-target and a `Prepare()`-false
+  class, failed patch to posted text end to end). Live: the `StartupNotices` in-game category,
+  driven by `SN-1-startup-notices-clean-install` on the automation install, which also forbids
+  every startup-notice line so a false alarm on a correct install reds the lane.
 
 KSP version range and dependencies stay with `Parsek.version` and CKAN; a missing Harmony,
 ClickThroughBlocker or ToolbarControl keeps `Parsek.dll` from loading at all, so Parsek cannot

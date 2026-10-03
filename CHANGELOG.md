@@ -17,7 +17,9 @@ _(unreleased — entries accumulate here per commit)_
   wrong place (inside a second `GameData` folder, inside the zip's own folder, loose in
   `GameData`, or a leftover copy in another folder), a message says where it was found and
   how to fix it. Each shows once per game start and never on a correct install; a notice that
-  lands during a scene load stays queued until the game accepts it.
+  lands during a scene load stays queued until the game accepts it. Covered by xUnit (the
+  poster's settle and drop-retry, the patch sweep with real Harmony) and by the new
+  `StartupNotices` in-game category and its never-flown lane `SN-1-startup-notices-clean-install`.
 - **Dev: a lane for recovering a ghost chain's final vessel, and the duplicate it found.**
   The new `chain-tip-recovery` injected recording set gives a test save a ghost chain whose
   last vessel lands next to the pad vessel while its ghost is still playing, so a lane can
