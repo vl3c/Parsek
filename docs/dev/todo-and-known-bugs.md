@@ -161,7 +161,10 @@ decision 2026-10-02).
   merges rate-limited). A first frame in a fresh section still appends: the flat list's
   equal-UT seam point belongs to the closed section. No schema change. The background
   recorder is unchanged (its sections showed no in-section duplicate in the PWR saves; its
-  equal-UT tolerance in `ApplyTrajectoryPointToRecording` stays).
+  equal-UT tolerance in `ApplyTrajectoryPointToRecording` stays). Live proof on the fixed DLL:
+  PWR-1 `2026-10-03_1039`, PWR-2 `_1044`, PWR-3 `_1030` all read duplicates 0 (the log shows
+  the replace path at clamp release, `differs=speed(174.97->0.00)`, and at the second staging,
+  `differs=rotation flags=1`); the PWR lanes now pin `duplicates = 0`.
 
 ## SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP: the recorder's dropped-sample WARN is downgraded for every physics-warp gap [FILED 2026-10-02 from the physics-warp recording investigation, branch `physwarp-recording`. OPEN, low, pre-existing; operator decides]
 
