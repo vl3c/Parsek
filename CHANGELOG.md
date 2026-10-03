@@ -5680,8 +5680,10 @@ _(unreleased — entries accumulate here per commit)_
   `ci9_tip_dock`, that rendezvous with the spawned tip and docks to it. It gates the
   single-parent Dock branch point, the dock superseding the tip's committed spawn so the
   absorbed vessel never comes back, and the committed save shape. The flight found that
-  in orbit the spawned tip appears on its recorded orbit 120 km away instead of where its
-  ghost stood (todo REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST, open).
+  in orbit the spawned tip appeared on its recorded orbit 120 km away instead of where its
+  ghost stood (now fixed, see Fixed: "Warp to Spawn puts an orbiting vessel where its ghost
+  stood"); the lane now pins the tip spawning beside the Kerbal X and docks without a
+  rendezvous, with the preset's target turned so its port faces the trailing Kerbal X.
 - **Automated testing: PWR-3 (recording under physics warp at the High density) is armed;
   every registry coverage cell is now claimed (251 of 251).** Its two quarantining findings
   were fixed in the recorder (see Fixed: "a sample taken when a frame runs long"), the
