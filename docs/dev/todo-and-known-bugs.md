@@ -356,7 +356,7 @@ all 8 rows), `test_mlib.NonFiniteDetailScrubTests`, `test_shells.ResultSerialize
   of its bound it compares. Reaching it needs the mission to archive its frames (or the
   per-assertion evidence the compare reads).
 
-## HARNESS-POST-FLIGHT-DIALOG-STALLS: harness runs sit behind KSP's post-flight screens until a timeout or the wall budget ends [FILED 2026-10-03, branch `todo-stuck-dialogs`. CONFIRMED in the collected logs; the paused-clock watchdog FIXED 2026-10-03, branch `harness-dialog-stalls`; the other items open]
+## HARNESS-POST-FLIGHT-DIALOG-STALLS: harness runs sit behind KSP's post-flight screens until a timeout or the wall budget ends [FILED 2026-10-03, branch `todo-stuck-dialogs`. CONFIRMED in the collected logs; the paused-clock watchdog, the seam active-vessel-loss fail-fast and the CommitTree fast reject FIXED 2026-10-03, branch `harness-dialog-stalls`; the frozen-telemetry and observability items open]
 
 Operator observation: auto tests sometimes sit on the post-flight "Mission Summary" screen.
 A scan of all 894 collected `_shots/KSP.log` files found two stock dialogs, neither of which
@@ -414,14 +414,39 @@ Lost: about 26 min with a dialog up, about 25 min of it avoidable (RB-1 is about
   10-sample limit (inside `sbr_decide`) never tripped. Unexplained; a low-bit jitter in one
   of the four signature fields would explain it. Reproduce against the raw snapshot floats
   before changing the detector.
-- [ ] Seam: a two-phase pending step fails fast when the active vessel is destroyed or
+- [x] Seam: a two-phase pending step fails fast when the active vessel is destroyed or
   `FlightResultsDialog.isDisplaying`, instead of waiting its full timeout
   (`ParsekTestCommandAddon.EvaGroundScience.cs` step-move path first). Also log the
   dialog's display and the active-vessel loss so a scan can find the next case.
-- [ ] Recovery-screen class: `CommitTree` returns a fast `REJECTED not-in-flight` in
+  Fix: one shared guard on the two-phase completion poll
+  (`ParsekTestCommandAddon.ActiveVesselLoss.cs`, pure decision
+  `TestCommandActiveVesselLoss`). A watched verb (`EvaGroundScience`, `PlantFlag`) captures
+  the active vessel when it goes PENDING; each completion poll checks it before the verb's
+  own completion and ends the step `ERROR active-vessel-lost` with one Warn line
+  (`active-vessel lost id= cmd= vessel= pid= state=dead|destroyed elapsed=`). Lost means
+  Unity-null OR `Vessel.State.DEAD`: decompiled `Vessel.Die` leaves the dead ACTIVE vessel in
+  place, which is why the old `kerbal == null` check never fired and each EVA-8 run sat out
+  the full 120 s. The kerbal's death precedes the crash dialog by about 60 s, so no dialog
+  check is needed to fail fast; logging the dialog belongs to the observability item below
+  and to game-side PR #1992. EvaChuteDeploy keeps its own debounced `eva-chute-kerbal-lost`;
+  EvaBoard / EvaExit / scene-leaving verbs / WarpToUT are not watched. Saves about 120 s on
+  each of the six EVA-8 runs. Tests: `TestCommandActiveVesselLossTests`.
+- [x] Recovery-screen class: `CommitTree` returns a fast `REJECTED not-in-flight` in
   SPACECENTER instead of deferring 60 s, or L3 / L5 / L6 drop that step. L3 keeps the step
   verbatim as a tripwire, so its `expect` must change with it. Saves about 60 s on each of
   those runs (SE-1 hits the same deferral).
+  Fix: option (a). `TestCommandDispatcher.RejectOutsideFlightVerbs` = {`CommitTree`}: in a
+  settled non-FLIGHT scene it answers `REJECTED not-in-flight` at once; every other FLIGHT
+  verb keeps its defer. A pending scene load still defers `not-safe-point` above the scene
+  check (the transition flag is set synchronously by any load request, kRPC included), and
+  the FIFO head blocks every other seam verb, so no deferral could bridge into FLIGHT. Caller
+  audit: 38 specs drive CommitTree as a step (previous step StopRecording x20, the mission
+  phase x15, WarpToUT x3) plus in-mission seam calls from the mission shells; across all 217
+  collected runs that sent it, 213 dispatched straight to OK with no defer and all 10 that
+  deferred `not-in-flight` ended TIMEOUT (L3 x5, L5, L6 x2, SE-1 x2), none executing after a
+  defer. L3 / L5 / both L6 lanes now expect `REJECTED`. SE-1 needs no change: its two
+  deferrals came after an upstream `LaunchFromEditor` failure left the run outside FLIGHT,
+  which now rejects fast too. Tests: `TestCommandDispatchTests.CommitTree_*`.
 - [ ] Observability: subscribe to `onGUIRecoveryDialogSpawn` / `Despawn` and log the crash
   dialog. Neither dialog logs its own close today, so a stall longer than about 62 s on the
   recovery screen cannot be confirmed from logs.

@@ -764,6 +764,7 @@ namespace Parsek.TestCommands
                 completionSeq = seq;
                 completionVerb = head.Verb;
                 completionStartedAt = WallClockSeconds();
+                ArmActiveVesselWatch(id, head.Verb);
                 TestCommandDiagnostics.ExecPending(id);
                 return;
             }
@@ -854,6 +855,12 @@ namespace Parsek.TestCommands
         private void TryCompleteTwoPhaseCore()
         {
             double now = WallClockSeconds();
+
+            // The shared active-vessel-loss guard runs BEFORE every per-verb completion: a
+            // watched verb (TestCommandActiveVesselLoss) whose kerbal died mid-step ends
+            // ERROR active-vessel-lost on this poll instead of waiting out its budget.
+            if (TryFailPendingOnActiveVesselLoss(now))
+                return;
 
             // LoadGame has its own bounded, observable completion (F2): a settled FLIGHT
             // scene -> OK, a settle-back to MAINMENU -> ERROR load-failed-returned-to-menu,
@@ -1164,6 +1171,7 @@ namespace Parsek.TestCommands
         private void ClearTwoPhase()
         {
             awaitingCompletion = false;
+            ClearActiveVesselWatch();
             completionId = null;
             completionVerb = null;
             rewindRpArg = null;

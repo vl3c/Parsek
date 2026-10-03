@@ -1444,6 +1444,14 @@ _(unreleased — entries accumulate here per commit)_
   `vessel-lost (paused-clock: ...)`, the same class as every other vessel loss). It never
   fires during a native warp, right after a seam step, or on a pause shorter than 15 s, and it
   reads the pause state only when the clock did not move.
+- **Dev: two harness waits behind KSP's post-flight screens now end at once.** A test
+  command waiting on the EVA kerbal (`EvaGroundScience`, `PlantFlag`) now ends with
+  `ERROR active-vessel-lost` on the first check after the kerbal dies, instead of sitting out
+  its whole budget. Stock KSP keeps a dead active vessel in place rather than deleting it, so
+  the old check never saw the loss; six EVA-8 runs each lost 120 s this way. And `CommitTree`
+  sent after a stock recovery, when the game is already back at the Space Center with nothing
+  to commit, now answers `REJECTED not-in-flight` straight away instead of waiting 60 s with
+  the recovery summary up. L3, L5 and both L6 lanes expect that answer now.
 - **Dev: booster debris no longer logs a sparse-sampling warning on every launch.** Once
   a background vessel leaves proximity range the recorder stops sampling it by design, and
   the long gap until it came back (about 14 s for each booster pair) read as a stalled
