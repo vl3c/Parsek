@@ -392,7 +392,7 @@ namespace Parsek.Logistics
             }
             sb.Append("Origin: ").Append(originLabel).Append('\n');
 
-            sb.Append("Endpoint: ");
+            sb.Append("Destination: ");
             if (analysis.ConnectionWindow != null && analysis.ConnectionWindow.EndpointAtDock.HasValue)
             {
                 sb.Append(FormatEndpoint(analysis.ConnectionWindow.EndpointAtDock.Value));

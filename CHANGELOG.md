@@ -2533,6 +2533,40 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Logistics window redesign (Model 1).** The Active Routes, Paused Routes and Candidates
+  sections now have bigger centred title bars with a count ("Active Routes (2)"), a thin
+  accent line in the section's colour and a caret: click a bar to fold its section. A grey
+  rule separates the sections. Each route row is two lines: the route name over a grey
+  "KSC to Depot Station Duna I" line drawn with the route names' arrow (the separate Origin
+  and Destination columns are gone), then what each run delivers, how often it runs, the
+  next run as the Missions-style amber countdown ("T- 1y 291d", " (!)" when the last run
+  was held, exact date on hover), and ONE Status word with a short reason that replaces the
+  old Status and Delivery columns: Delivering, Scheduled, Held: ..., Paused, New, Sending
+  one run, Pausing after this run, or Broken: ... . A paused route that was held now says
+  why instead of reading "New". The action column is "Interact", a 2x2 grid sized to its
+  longest label: Activate or Pause with Send beside it, then Go to (the mission the route
+  repeats, on the Missions tab) and Log. A route sent once stays in the Active table while
+  it sends, with a live Cancel before launch (nothing is spent and nothing is logged) and a greyed Delivering...
+  once in flight (launch and arrival dates on hover); when the run completes it drops back
+  to Paused. Greyed buttons say why on hover, including "Stopped: destination lost. Fix or
+  delete the route first" on a broken route. Log opens a new Route History window
+  ("Parsek - Route History: <route>", the Mission Log's table): every run the route sent,
+  picked up and delivered, with its pauses, each row dated, each launch with what it cost
+  ("Run 1: Sent, cost 7,410 funds", or the cargo taken from the origin vessel); it can stay open beside a
+  Mission Log (it opens offset from it, keeps its column headers when empty, and closes when
+  its route is deleted). Click a route's name for its details: what each run delivers and where, the
+  next run, "Last run held on <date>: ..." (the date of the last held run), the last
+  delivery and the running total, and "Built from mission 'X'.", with Rename and Delete (same
+  confirmation) stacked at the right of its first lines, plus Link round-trip in Advanced.
+  In Basic mode the interval is shown read-only ("every 4.0d") and the Runs column, Every /
+  Priority steppers, round-trip linking and the flight list are Advanced-only; switching to
+  Basic closes an open link picker and drops a half-typed interval. A destination hold ends
+  "delivers when it has room for the full load", and creating a route over a mission that
+  was repeating on its own now says "Mission 'X' now repeats only on this route's
+  schedule.". Player text says "run" and "flight" instead of cycle, dispatch, tree and
+  recording; the Candidates destination names the place instead of raw coordinates, and
+  the create dialog says "Destination:".
+
 - **Dev: the BDOCK rendezvous waits are rails-warped.** Operator ruling 2026-10-02 (rails
   warp only): MechJeb's rendezvous autopilot hands each node to its NodeExecutor, which
   warps only to 600 s before ignition and then sits at 1x until the craft is aligned and

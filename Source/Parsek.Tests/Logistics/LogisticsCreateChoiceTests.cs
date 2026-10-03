@@ -96,23 +96,16 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
-        public void FormatManualLoopTurnedOffToast_NamesTreeAndExplainsOwnership()
+        public void MissionNowRepeatsOnRouteToast_NamesMissionWithoutLoopOrTreeWords()
         {
-            string toast = LogisticsCreatePresentation.FormatManualLoopTurnedOffToast("Munar Logistics");
+            // The toast can fire in Basic, which has no loop control: no "loop", no "tree".
+            string toast = LogisticsCreatePresentation.FormatMissionNowRepeatsOnRouteToast("Munar Logistics");
 
             Assert.Equal(
-                "Manual loop on 'Munar Logistics' turned off: a route now owns this tree",
+                "Mission 'Munar Logistics' now repeats only on this route's schedule.",
                 toast);
-        }
-
-        [Fact]
-        public void FormatRouteOwnsTreeNote_NamesTreeAndStatesLoopingDisabled()
-        {
-            string note = LogisticsCreatePresentation.FormatRouteOwnsTreeNote("Munar Logistics");
-
-            Assert.Equal(
-                "This route owns tree 'Munar Logistics'; manual looping is disabled while it exists.",
-                note);
+            Assert.DoesNotContain("loop", toast, System.StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("tree", toast, System.StringComparison.OrdinalIgnoreCase);
         }
     }
 }

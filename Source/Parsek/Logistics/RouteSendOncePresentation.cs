@@ -48,7 +48,7 @@ namespace Parsek.Logistics
         internal static string BuildDeliveredMessage(
             string routeName, string routeId, int resourceLines, int inventoryUnits, bool isPartial)
         {
-            return "Send Once: route '" + DisplayName(routeName, routeId) + "' delivered "
+            return "Send: route '" + DisplayName(routeName, routeId) + "' delivered "
                 + Count(resourceLines, "resource line", "resource lines") + " and "
                 + Count(inventoryUnits, "item", "items")
                 + (isPartial ? " (PARTIAL - see the route's detail panel)" : string.Empty)
@@ -69,7 +69,7 @@ namespace Parsek.Logistics
         internal static string BuildCycleDeliveredMessage(
             string routeName, string routeId, bool isPartial)
         {
-            return "Send Once: route '" + DisplayName(routeName, routeId)
+            return "Send: route '" + DisplayName(routeName, routeId)
                 + "' completed its delivery run"
                 + (isPartial ? " (PARTIAL - see the route's detail panel)" : string.Empty)
                 + " - route is now Paused";
@@ -88,8 +88,8 @@ namespace Parsek.Logistics
         /// <param name="routeId">The route id, for the unnamed-route fallback label.</param>
         internal static string BuildAlreadyDeliveredMessage(string routeName, string routeId)
         {
-            return "Send Once: route '" + DisplayName(routeName, routeId)
-                + "' - this cycle had already been delivered - route is now Paused";
+            return "Send: route '" + DisplayName(routeName, routeId)
+                + "' - this run had already been delivered - route is now Paused";
         }
 
         /// <summary>
@@ -117,7 +117,7 @@ namespace Parsek.Logistics
             // "did not run: ." if a future kind slips through as None.
             string why = LogisticsHoldPresentation.DescribeHold(kind, detail, shortfall)
                 ?? LogisticsHoldClauses.SendOnceNotEligible;
-            return "Send Once: route '" + DisplayName(routeName, routeId) + "' did not run - "
+            return "Send: route '" + DisplayName(routeName, routeId) + "' did not run - "
                 + why + " - route is now Paused";
         }
 

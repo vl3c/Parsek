@@ -49,12 +49,14 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
         }
 
-        // Every gated, lock-owning window plus the two review additions that map to no
-        // UiSurface (design 7.2: the Settings-launched test runner and the group picker).
-        // Kerbals left the set with the 2026-09-22 owner re-ruling: it draws in Basic.
+        // Every gated, lock-owning window plus the review additions that map to no
+        // launcher UiSurface (design 7.2: the Settings-launched test runner and the group
+        // picker; then the Logistics round-trip link picker, whose opener is
+        // LogisticsRouteTuning). Kerbals left the set with the 2026-09-22 owner
+        // re-ruling: it draws in Basic.
         private static readonly string[] ExpectedCloseSet =
         {
-            "GloopsRecorder", "SpawnControl", "TestRunner", "GroupPicker"
+            "GloopsRecorder", "SpawnControl", "TestRunner", "GroupPicker", "LogisticsLinkPicker"
         };
 
         // ------------------------------------------------------------------
@@ -97,6 +99,7 @@ namespace Parsek.Tests
                 Assert.DoesNotContain(KerbalsWindowUI.KerbalsInputLockId,
                     set.Where(t => t.OwnsInputLock).Select(t => t.InputLockId));
                 Assert.Null(set.Single(t => t.Name == "GroupPicker").InputLockId);
+                Assert.Null(set.Single(t => t.Name == "LogisticsLinkPicker").InputLockId);
 
                 string[] lockIds = set.Where(t => t.OwnsInputLock).Select(t => t.InputLockId).ToArray();
                 Assert.Equal(lockIds.Length, lockIds.Distinct(StringComparer.Ordinal).Count());
@@ -614,6 +617,9 @@ namespace Parsek.Tests
             ui.GetTestRunnerUI().IsOpen = true;
             // Opened the way a Recordings-tab row's `G` button opens it (edge case 4).
             ui.GetRecordingsTableUI().GroupPickerForTesting.OpenForGroup("test-group", Vector2.zero);
+            // Opened through the production opener the detail block's Link control uses.
+            Assert.True(ui.GetLogisticsUI().OpenLinkPickerForTesting(
+                new Parsek.Logistics.Route { Id = "route-close-set", Name = "Close set route" }));
         }
 
         // ParsekUI.Cleanup resets cached Unity GUI styles, which headless xUnit cannot do

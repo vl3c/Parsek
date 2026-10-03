@@ -408,20 +408,21 @@ namespace Parsek.Tests
                     + "single-line Logistics help-strip budget: \"{2}\"",
                     windowedNx.Length, budget, windowedNx));
 
-            // Status-cell hold tooltip, fed REAL DescribeHold productions - a
-            // hand-typed clause can drift from what the builder actually emits (it
-            // once omitted the raw token DescribeHold appends in parentheses). The
-            // unresolved-pickup-source family is the longest FIXED wording and must
-            // fit the one-line budget outright.
+            // Status-cell hold hover: the dated detail line, fed REAL DescribeHold
+            // productions - a hand-typed clause can drift from what the builder actually
+            // emits (it once omitted the raw token DescribeHold appends in parentheses).
+            // The unresolved-pickup-source family is the longest FIXED wording and must
+            // fit the one-line budget outright, with the longest KSP compact date
+            // ("Y999, D426, 23:59") in front of it.
             string unresolvedClause = LogisticsHoldPresentation.DescribeHold(
                 RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
                 "pickup-source-unresolved:origin", 0.0);
             Assert.Contains("could not be found", unresolvedClause);
-            string statusTip = LogisticsHoldPresentation.StatusCellTooltip(
-                RouteStatus.Active, unresolvedClause);
+            string statusTip = LogisticsHoldPresentation.FormatHoldDetailLine(
+                unresolvedClause, 1.0, ut => "Y999, D426, 23:59");
             Assert.DoesNotContain("\n", statusTip);
             Assert.True(statusTip.Length <= budget,
-                string.Format("StatusCellTooltip with the unresolved-source clause is {0} "
+                string.Format("The dated hold hover with the unresolved-source clause is {0} "
                     + "chars, over the {1}-char single-line Logistics help-strip budget: \"{2}\"",
                     statusTip.Length, budget, statusTip));
 
@@ -436,8 +437,8 @@ namespace Parsek.Tests
                 + ":Ore:Duna Transfer Window Resupply Run 3",
                 0.0);
             Assert.Contains("Minmus Flats Refinery Complex Alpha", reservedClause);
-            string reservedTip = LogisticsHoldPresentation.StatusCellTooltip(
-                RouteStatus.Active, reservedClause);
+            string reservedTip = LogisticsHoldPresentation.FormatHoldDetailLine(
+                reservedClause, 1.0, ut => "Y1, D06, 14:05");
             Assert.DoesNotContain("\n", reservedTip);
 
             // GUI-P20 multi-stop Destination tooltip: a list composed per stop, so its
@@ -467,6 +468,48 @@ namespace Parsek.Tests
                 string.Format("FormatStopListTooltip(8 coords stops) is {0} chars, over the {1}-char "
                     + "single-line Logistics help-strip budget: \"{2}\"",
                     stopList.Length, budget, stopList));
+        }
+
+        // catches: a Logistics Model 1 hover (the merged Status sentence, the dated Next
+        // hover, the Every hover, the sort-header hovers) growing past the single-line
+        // strip or gaining a hard newline. All are composed at runtime or handed to the
+        // shared sortable header, so the literal scanner cannot see them. The dates use
+        // the longest KSP compact form.
+        [Fact]
+        public void LogisticsRouteHovers_FitTheSingleLineStrip()
+        {
+            int budget = BudgetChars(1556f, TooltipEchoBox.SingleLine);
+            System.Func<double, string> date = ut => "Y999, D426, 23:59";
+            var texts = new List<string>
+            {
+                LogisticsRoutePresentation.RouteHeaderTooltip,
+                LogisticsRoutePresentation.EveryHeaderTooltip,
+                LogisticsRoutePresentation.NextHeaderTooltip,
+                LogisticsRoutePresentation.StatusHeaderTooltip,
+                LogisticsRoutePresentation.RunsTooltip,
+                LogisticsRoutePresentation.CancelButtonTooltip,
+                "Sending one run. " + LogisticsRoutePresentation.FormatDeliveringTooltip(1.0, 2.0, date),
+                LogisticsRoutePresentation.EveryTooltip(true, "(launch window schedule)"),
+                LogisticsRoutePresentation.FormatNextTooltip(
+                    LogisticsCountdownPresentation.CountdownBranch.RechecksIn, 100.0, true, true, date),
+                LogisticsRoutePresentation.FormatNextTooltip(
+                    LogisticsCountdownPresentation.CountdownBranch.None, 100.0, false, false, date),
+            };
+            foreach (RouteStatus status in (RouteStatus[])System.Enum.GetValues(typeof(RouteStatus)))
+            foreach (bool sending in new[] { false, true })
+            foreach (bool lost in new[] { false, true })
+            {
+                var cell = LogisticsRoutePresentation.ClassifyStatus(status, sending, false, null, 0, lost);
+                texts.Add(LogisticsRoutePresentation.StatusTooltip(
+                    cell, status, null, 0, 100.0, 200.0, lost, date));
+            }
+            foreach (string t in texts)
+            {
+                Assert.DoesNotContain("\n", t);
+                Assert.True(t.Length <= budget, string.Format(
+                    "Logistics hover is {0} chars, over the {1}-char single-line strip budget: \"{2}\"",
+                    t.Length, budget, t));
+            }
         }
 
         // catches: a Recordings sort-header tooltip growing past that window's SINGLE-line

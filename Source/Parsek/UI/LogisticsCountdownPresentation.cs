@@ -10,9 +10,9 @@ namespace Parsek
     /// <see cref="RouteOrchestrator.TryComputeSecondsToNextDockCrossing"/>), and the
     /// wait-state retry UT (<see cref="Route.NextEligibilityCheckUT"/>). Unity-free
     /// and side-effect-free, so it is unit tested directly off the IMGUI path
-    /// (mirrors <see cref="LogisticsButtonState"/>). The window owns the actual
-    /// <c>FormatCountdown</c> formatting; this helper only picks the branch and the
-    /// seconds to feed it.
+    /// (mirrors <see cref="LogisticsButtonState"/>). This helper only picks the branch
+    /// and the seconds; <see cref="LogisticsRoutePresentation"/> renders the Next cell,
+    /// its dated hover and the detail line from them.
     /// </summary>
     internal static class LogisticsCountdownPresentation
     {
@@ -149,53 +149,6 @@ namespace Parsek
                 return new CountdownDecision(CountdownBranch.NextDelivery, secondsToNextDockCrossing);
 
             return new CountdownDecision(CountdownBranch.None, 0.0);
-        }
-
-        /// <summary>
-        /// The compact always-visible "Next" COLUMN cell text for a countdown branch.
-        /// The window resolves <paramref name="formattedCountdown"/> with its real
-        /// countdown helper (<c>SelectiveSpawnUI.FormatCountdown</c>) and passes it in,
-        /// so this helper stays Unity-free and the cell wording is unit tested. Both the
-        /// next-delivery and the wait-state "rechecks in" branch show the bare countdown
-        /// in the narrow column (the branch wording lives in the detail line); the
-        /// no-countdown branch shows a dash. Pure.
-        /// </summary>
-        internal static string FormatNextDeliveryCell(CountdownBranch branch, string formattedCountdown)
-        {
-            switch (branch)
-            {
-                case CountdownBranch.NextDelivery:
-                case CountdownBranch.RechecksIn:
-                case CountdownBranch.NextWindow:
-                    return string.IsNullOrEmpty(formattedCountdown) ? "-" : formattedCountdown;
-                case CountdownBranch.None:
-                default:
-                    return "-";
-            }
-        }
-
-        /// <summary>
-        /// The detail-panel countdown line for a branch, e.g.
-        /// "Next delivery T-12m 5s" or "Rechecks in T-0m 23s". The window passes the
-        /// already-formatted countdown string (from its real countdown helper); this
-        /// helper only prefixes the branch wording, so it is Unity-free and testable.
-        /// Returns null for <see cref="CountdownBranch.None"/> (the window draws no
-        /// countdown line). Pure.
-        /// </summary>
-        internal static string FormatDetailCountdownLine(CountdownBranch branch, string formattedCountdown)
-        {
-            switch (branch)
-            {
-                case CountdownBranch.NextDelivery:
-                    return $"Next delivery {formattedCountdown}";
-                case CountdownBranch.NextWindow:
-                    return $"Next launch window {formattedCountdown}";
-                case CountdownBranch.RechecksIn:
-                    return $"Rechecks in {formattedCountdown}";
-                case CountdownBranch.None:
-                default:
-                    return null;
-            }
         }
     }
 }

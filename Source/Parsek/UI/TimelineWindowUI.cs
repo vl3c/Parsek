@@ -713,14 +713,10 @@ namespace Parsek
             // current-time line shows a separator filling the description column that grows
             // with the window. Top margin nudges the 2px bar down to roughly center it on the
             // adjacent date label's row. Created once (EnsureStyles is guarded).
-            nowDividerLineTex = new Texture2D(1, 1);
             // A bit darker than the divider's gray label text (Color.gray = 0.5).
-            nowDividerLineTex.SetPixel(0, 0, new Color(0.4f, 0.4f, 0.4f, 1f));
-            nowDividerLineTex.Apply();
-            nowDividerLineStyle = new GUIStyle();
-            nowDividerLineStyle.normal.background = nowDividerLineTex;
+            nowDividerLineStyle = ParsekUI.CreateRuleLineStyle(ParsekUI.RuleLineColor);
+            nowDividerLineTex = nowDividerLineStyle.normal.background;
             nowDividerLineStyle.margin = new RectOffset(0, 0, 12, 0);
-            nowDividerLineStyle.padding = new RectOffset(0, 0, 0, 0);
         }
 
         /// <summary>

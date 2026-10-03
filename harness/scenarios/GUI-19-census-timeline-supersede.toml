@@ -223,9 +223,9 @@ count = { min = 10, max = 11 }
 # supersede load surface says the relation is live. There is no rendering half, because a
 # supersede draws no Timeline pixel - see the header.
 required = [
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,timeline",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,missions",
   "d096297d815647de988c380fb6931d0a",
   "missionconfig applied: mission='.*' tree=47cea2fe7d9e4e9eb6a729a7e280cc41 loop=True",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=ra-timeline-details-flight-advanced",

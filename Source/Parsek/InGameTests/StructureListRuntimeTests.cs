@@ -47,7 +47,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "Structure",
-            Description = "A committed route's Log button resolves to its source mission, whose Log builds steps")]
+            Description = "A committed route's Go to button resolves to its source mission, whose Mission Log builds steps")]
         public void RouteLog_OpensTheSourceMissionLog()
         {
             var routes = Logistics.RouteStore.CommittedRoutes;
@@ -62,7 +62,7 @@ namespace Parsek.InGameTests
                 if (string.IsNullOrEmpty(treeId)) continue; // a hand-made route: the button greys out
                 Mission mission = MissionStore.FindOriginalMission(treeId);
                 InGameAssert.IsTrue(mission != null,
-                    $"Route {route.Id} source tree {treeId} has no mission for its Log button to open");
+                    $"Route {route.Id} source tree {treeId} has no mission for its Go to button to reveal");
                 RecordingTree tree = null;
                 var trees = RecordingStore.CommittedTrees;
                 for (int i = 0; i < trees.Count; i++)
