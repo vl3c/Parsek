@@ -143,7 +143,7 @@ decision 2026-10-02).
 - [ ] Decide: skip (or replace) a commit whose UT equals `lastRecordedUT` in
   `CommitRecordedPoint` / the off-rails boundary path / the section-close seed.
 
-## SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP: the recorder's dropped-sample WARN is downgraded for every physics-warp gap [FILED 2026-10-02 from the physics-warp recording investigation, branch `physwarp-recording`. OPEN, low, pre-existing; operator decides]
+## ~~SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP: the recorder's dropped-sample WARN is downgraded for every physics-warp gap~~ [FILED 2026-10-02 from the physics-warp recording investigation, branch `physwarp-recording`. FIXED 2026-10-03, branch `sparse-warn-physwarp`]
 
 `FlightRecorder.CloseCurrentTrackSection` WARNs `TrackSection sparse sampling:` when a closed
 section holds a gap beyond `ResolveSparseGapWarningThreshold(maxSampleInterval)` whose two
@@ -161,8 +161,18 @@ Impact is low: the line is diagnostic, the log validator's WRN-001 does not read
 new `[expectations.recordings.sampling]` block (`harness/lib/samplingq.py`) now gates the same
 defect on the PWR lanes with the right per-rate allowance. Not changed here (operator decides).
 
-- [ ] Classify the warn flag by mode: rails / on-rails stays exempt, physics warp WARNs above
-  the threshold plus one `0.02 * rate` frame.
+- [x] Fix: the per-frame flag is now `isOnRails || IsRailsWarpActiveForDiagnostics()` (rate
+  index above 0 in `TimeWarp.Modes.HIGH`; pure `IsRailsWarpState`), in both recorders, so
+  only a gap touching a rails / on-rails sample downgrades to Verbose. No extra per-rate
+  allowance was needed: `ResolveSparseGapWarningThreshold` (1.5x the max, floored at 0.5 s)
+  exceeds `max + 0.08 s` for every max interval (pinned by
+  `ResolveSparseGapWarningThreshold_ClearsMaxPlusOne4xFrame`), so an on-schedule 4x gap
+  never reaches it. The counter is `LargeGapCountOffRails` / log token `largeGapsOffRails=`
+  (no harness spec or tool reads the old `largeGaps1x=`). Headless, `TimeWarp`'s static
+  accessors answer rate index 1 in HIGH mode without the singleton, which read as warp in
+  every xUnit section close; the read now returns false when `TimeWarp.fetch` is null. No
+  lane forbids a WARN line generically (the log validator's WRN-001 checks only a redundant
+  `WARNING:` prefix), so a legitimate physics-warp run reds nothing.
 
 ## ~~KXRW-RESULT-NAN-DETAIL: a kx_rewind_watch flight that ends early writes no mission result at all~~ [FILED 2026-10-01 from the mutation checker's blind replay, branch `mutation-phase2-pr3`. FIXED 2026-10-01, branch `fix-kxrw-nan`]
 

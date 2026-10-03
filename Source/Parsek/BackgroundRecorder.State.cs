@@ -125,15 +125,14 @@ namespace Parsek
             public double surfaceMobileMaxClearanceThisSection = double.NaN;
             public double surfaceMobileClearanceSumThisSection;
 
-            // Per-frame warp flags for the current section, index-aligned with
+            // Per-frame rails flags for the current section, index-aligned with
             // currentTrackSection.frames (flag[i] == true means frame i was
-            // sampled under physics time-warp). Used at section close to
-            // classify each large gap: a gap touching a warp sample is a
-            // structurally-expected jump (Verbose), a large gap whose both ends
-            // were at 1x is a genuine dropped-sample signal (WARN). On-rails BG
-            // samples never reach the per-frame tick (OnBackgroundPhysicsFrame
-            // early-returns on bgVessel.packed), so physics warp is the only
-            // signal here. Reset on StartBackgroundTrackSection, trimmed in
+            // sampled under rails warp). Used at section close to classify each
+            // large gap: a gap touching a rails sample is a structurally-expected
+            // jump (Verbose); any other large gap, at 1x or under physics warp, is
+            // a dropped-sample signal (WARN). On-rails BG samples never reach the
+            // per-frame tick (OnBackgroundPhysicsFrame early-returns on
+            // bgVessel.packed). Reset on StartBackgroundTrackSection, trimmed in
             // lockstep with frames in TrimParentAtBranchBoundary.
             public readonly List<bool> sectionFrameWarpFlags = new List<bool>();
 

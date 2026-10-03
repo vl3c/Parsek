@@ -7315,16 +7315,17 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Appends one entry to <paramref name="state"/>'s per-section warp-flag
+        /// Appends one entry to <paramref name="state"/>'s per-section rails-flag
         /// list in lockstep with a <c>currentTrackSection.frames.Add</c>. Records
-        /// whether the sample was taken under physics time-warp so the section-
-        /// close sparse-sampling check can classify each gap. On-rails BG samples
-        /// never reach these append paths (the per-frame tick early-returns on
-        /// <c>bgVessel.packed</c>), so physics warp is the only signal.
+        /// whether the sample was taken under rails warp so the section-close
+        /// sparse-sampling check can classify each gap; physics warp reads false
+        /// because its frames are sampled like 1x frames. On-rails BG samples never
+        /// reach these append paths (the per-frame tick early-returns on
+        /// <c>bgVessel.packed</c>).
         /// </summary>
         private static void AppendSectionFrameWarpFlag(BackgroundVesselState state)
         {
-            state?.sectionFrameWarpFlags.Add(FlightRecorder.IsTimeWarpActiveForDiagnostics());
+            state?.sectionFrameWarpFlags.Add(FlightRecorder.IsRailsWarpActiveForDiagnostics());
         }
 
         private static void AppendFrameToCurrentTrackSection(
@@ -7630,14 +7631,14 @@ namespace Parsek
             if (gapStats.LargeGapCount > 0)
             {
                 bool warn = FlightRecorder.ShouldWarnOnSparseSampling(
-                    gapStats.LargeGapCountAtNormalRate);
+                    gapStats.LargeGapCountOffRails);
                 string message =
                     $"TrackSection sparse sampling: pid={state.vesselPid} " +
                     $"env={state.currentTrackSection.environment} " +
                     $"ref={state.currentTrackSection.referenceFrame} frames={frameCount} " +
                     $"maxGap={gapStats.MaxGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
                     $"threshold={sparseGapThreshold.ToString("F2", CultureInfo.InvariantCulture)}s " +
-                    $"largeGaps={gapStats.LargeGapCount} largeGaps1x={gapStats.LargeGapCountAtNormalRate}";
+                    $"largeGaps={gapStats.LargeGapCount} largeGapsOffRails={gapStats.LargeGapCountOffRails}";
                 if (warn)
                     ParsekLog.Warn("BgRecorder", message);
                 else

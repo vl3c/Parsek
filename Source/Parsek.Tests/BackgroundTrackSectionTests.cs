@@ -813,6 +813,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SectionClose_OffRailsGapOverThreshold_WarnsWithOffRailsCount()
+        {
+            // todo SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP: a gap whose two
+            // samples were off rails (1x or physics warp) WARNs. Headless, the rails
+            // flag reads false, which is what a physics-warp frame now records.
+            uint pid = 7700004;
+            string recId = "rec_sparse_off_rails";
+            var tree = MakeTree(pid, recId);
+            tree.Recordings[recId].Points.Clear();
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.ExoBallistic, 18000.0);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(18000.0));
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(18003.0));
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(18013.0)); // 10 s gap
+
+            bgRecorder.FlushLoadedStateForOnRailsTransitionForTesting(
+                pid,
+                SegmentEnvironment.ExoBallistic,
+                willHavePlayableOnRailsPayload: false,
+                boundaryPoint: Point(18013.0),
+                ut: 18013.0);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN][BgRecorder]")
+                && l.Contains("TrackSection sparse sampling: pid=7700004")
+                && l.Contains("largeGaps=1 largeGapsOffRails=1"));
+        }
+
+        [Fact]
         public void FlushLoadedStateForOnRailsTransition_NoPayloadSeam_OptimizerSkipsItAndLogsSeamSkipped()
         {
             // Headless twin of the in-game Optimizer cell OnRailsBoundarySeam_SuppressesSplit_InGame:

@@ -73,11 +73,11 @@ namespace Parsek
         private double surfaceMobileMaxClearanceThisSection = double.NaN;
         private double surfaceMobileClearanceSumThisSection;
 
-        // Per-frame warp flags for the current section, index-aligned with
+        // Per-frame rails flags for the current section, index-aligned with
         // currentTrackSection.frames (flag[i] == true means frame i was sampled
-        // under time-warp / on-rails). Used at section close to classify each
-        // large gap: a gap touching a warp sample is a structurally-expected
-        // jump (Verbose), a large gap whose both ends were at 1x is a genuine
+        // on rails or under rails warp). Used at section close to classify each
+        // large gap: a gap touching a rails sample is a structurally-expected
+        // jump (Verbose); any other large gap, at 1x or under physics warp, is a
         // dropped-sample signal (WARN). Reset per section in StartNewTrackSection,
         // trimmed in lockstep with frames in TrimRecordingToUT.
         private readonly List<bool> sectionFrameWarpFlags = new List<bool>();
@@ -727,14 +727,14 @@ namespace Parsek
             public double MaxGapSeconds;
             public int LargeGapCount;
 
-            // Subset of LargeGapCount whose bounding samples were BOTH taken at
-            // normal (1x, not-on-rails) rate. A large gap at 1x is a genuine
-            // dropped / stalled-sampler signal worth a WARN; a large gap whose
-            // either bounding sample was under time-warp / on-rails is a
+            // Subset of LargeGapCount whose bounding samples were BOTH taken off
+            // rails (1x or physics warp). Such a gap is a genuine dropped /
+            // stalled-sampler signal worth a WARN; a large gap whose either
+            // bounding sample was on rails / under rails warp is a
             // structurally-expected jump that belongs at Verbose. When no
-            // per-sample warp data is supplied (warpFlags == null), this equals
+            // per-sample rails data is supplied (warpFlags == null), this equals
             // LargeGapCount so the WARN behaviour is unchanged.
-            public int LargeGapCountAtNormalRate;
+            public int LargeGapCountOffRails;
         }
 
         /// <summary>
@@ -743,11 +743,11 @@ namespace Parsek
         /// <param name="frames">The section's sampled points (UT-ordered).</param>
         /// <param name="largeGapThresholdSeconds">Gap size above which a gap counts as "large".</param>
         /// <param name="warpFlags">
-        /// Optional per-sample warp flags, index-aligned with <paramref name="frames"/>
-        /// (flag[i] == true means sample i was committed under time-warp / on-rails).
-        /// When supplied and aligned, a large gap is classified as "at normal rate"
-        /// only if BOTH bounding samples were at 1x; gaps touching a warp sample are
-        /// excluded from <see cref="SectionGapStats.LargeGapCountAtNormalRate"/>.
+        /// Optional per-sample rails flags, index-aligned with <paramref name="frames"/>
+        /// (flag[i] == true means sample i was committed on rails / under rails warp).
+        /// When supplied and aligned, a large gap counts as "off rails" only if BOTH
+        /// bounding samples were off rails; gaps touching a rails sample are excluded
+        /// from <see cref="SectionGapStats.LargeGapCountOffRails"/>.
         /// When null or length-mismatched, every large gap counts as normal-rate
         /// (conservative -- preserves the unconditional-WARN behaviour).
         /// </param>
@@ -764,7 +764,7 @@ namespace Parsek
                 AverageGapSeconds = 0.0,
                 MaxGapSeconds = 0.0,
                 LargeGapCount = 0,
-                LargeGapCountAtNormalRate = 0
+                LargeGapCountOffRails = 0
             };
 
             if (frames == null || frames.Count == 0)
@@ -785,7 +785,7 @@ namespace Parsek
             double maxGap = 0.0;
             int gapCount = 0;
             int largeGapCount = 0;
-            int largeGapCountAtNormalRate = 0;
+            int largeGapCountOffRails = 0;
             for (int i = 1; i < frames.Count; i++)
             {
                 double gap = frames[i].ut - frames[i - 1].ut;
@@ -799,16 +799,16 @@ namespace Parsek
                 if (gap > largeGapThresholdSeconds)
                 {
                     largeGapCount++;
-                    bool gapTouchesWarp = haveWarpFlags && (warpFlags[i - 1] || warpFlags[i]);
-                    if (!gapTouchesWarp)
-                        largeGapCountAtNormalRate++;
+                    bool gapTouchesRails = haveWarpFlags && (warpFlags[i - 1] || warpFlags[i]);
+                    if (!gapTouchesRails)
+                        largeGapCountOffRails++;
                 }
             }
 
             stats.AverageGapSeconds = gapCount > 0 ? totalGap / gapCount : 0.0;
             stats.MaxGapSeconds = maxGap;
             stats.LargeGapCount = largeGapCount;
-            stats.LargeGapCountAtNormalRate = largeGapCountAtNormalRate;
+            stats.LargeGapCountOffRails = largeGapCountOffRails;
             return stats;
         }
 
@@ -817,25 +817,28 @@ namespace Parsek
         /// worth a WARN or are a structurally-expected condition that belongs at
         /// Verbose.
         ///
-        /// Time-warp (physics warp rate &gt; 1) and on-rails recording produce
-        /// large UT jumps between physics frames by design -- dense sampling is
-        /// impossible and the gap is harmless, not data loss. Flooding WARN with
-        /// these makes the genuine signal (a sparse gap at 1x, which indicates a
-        /// dropped sample or a stalled sampler) impossible to spot.
+        /// Rails warp and on-rails recording produce large UT jumps by design: the
+        /// vessel is packed, dense sampling is impossible and the gap is harmless,
+        /// not data loss. Physics warp is different: every physics frame still runs
+        /// (<c>TimeWarp.updateRate</c> sets <c>fixedDeltaTime = 0.02 * rate</c>) and
+        /// the sampler keeps its bounds to within one 0.08 s frame at 4x, so a large
+        /// physics-warp gap is the same stalled-sampler signal as a 1x one. The
+        /// threshold (<see cref="ResolveSparseGapWarningThreshold"/>) already exceeds
+        /// the max interval plus one 4x frame for every max interval (1.5x the max,
+        /// floored at 0.5 s), so an on-schedule physics-warp gap never reaches it.
         ///
         /// Classification is per-gap, NOT per-section: a single section can hold
-        /// both a real 1x gap and a later warp gap (physics warp never goes
-        /// on-rails and does not close the section). We WARN whenever at least
-        /// one large gap had BOTH bounding samples at 1x
-        /// (<paramref name="largeGapCountAtNormalRate"/> &gt; 0), and downgrade
-        /// to Verbose only when every large gap touched a warp / on-rails sample.
+        /// both a real off-rails gap and a rails-touching gap. We WARN whenever at
+        /// least one large gap had BOTH bounding samples off rails
+        /// (<paramref name="largeGapCountOffRails"/> &gt; 0), and downgrade to
+        /// Verbose only when every large gap touched a rails sample.
         ///
         /// Pure static so the recorder hot path stays a one-line call and the
         /// decision is unit-testable. Returns true to WARN, false to log Verbose.
         /// </summary>
-        internal static bool ShouldWarnOnSparseSampling(int largeGapCountAtNormalRate)
+        internal static bool ShouldWarnOnSparseSampling(int largeGapCountOffRails)
         {
-            return largeGapCountAtNormalRate > 0;
+            return largeGapCountOffRails > 0;
         }
 
         /// <summary>
@@ -5614,13 +5617,13 @@ namespace Parsek
 
             if (gapStats.LargeGapCount > 0)
             {
-                bool warn = ShouldWarnOnSparseSampling(gapStats.LargeGapCountAtNormalRate);
+                bool warn = ShouldWarnOnSparseSampling(gapStats.LargeGapCountOffRails);
                 string message =
                     $"TrackSection sparse sampling: env={currentTrackSection.environment} " +
                     $"ref={currentTrackSection.referenceFrame} frames={frameCount} " +
                     $"maxGap={gapStats.MaxGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
                     $"threshold={sparseGapThreshold.ToString("F2", CultureInfo.InvariantCulture)}s " +
-                    $"largeGaps={gapStats.LargeGapCount} largeGaps1x={gapStats.LargeGapCountAtNormalRate}";
+                    $"largeGaps={gapStats.LargeGapCount} largeGapsOffRails={gapStats.LargeGapCountOffRails}";
                 if (warn)
                     ParsekLog.Warn("Recorder", message);
                 else
@@ -9894,7 +9897,7 @@ namespace Parsek
         /// </summary>
         private void AppendCurrentSectionFrameWarpFlag()
         {
-            sectionFrameWarpFlags.Add(isOnRails || IsTimeWarpActiveForDiagnostics());
+            sectionFrameWarpFlags.Add(isOnRails || IsRailsWarpActiveForDiagnostics());
             if (trackSectionActive && currentTrackSection.frames != null
                 && currentTrackSection.frames.Count > 0)
             {
@@ -9926,15 +9929,32 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Reads the active time-warp rate index defensively. Returns false when
-        /// the Unity <c>TimeWarp</c> singleton is unavailable (xUnit / headless).
-        /// Rate index &gt; 0 means physics or rails warp is engaged. Used only
-        /// to classify sparse-sampling diagnostics, never to gate recording.
+        /// Reads whether RAILS warp is engaged, defensively. Returns false when the
+        /// Unity <c>TimeWarp</c> singleton is unavailable (xUnit / headless). Physics
+        /// warp reads false: its frames are sampled like 1x frames. Used only to
+        /// classify sparse-sampling diagnostics, never to gate recording.
         /// </summary>
-        internal static bool IsTimeWarpActiveForDiagnostics()
+        internal static bool IsRailsWarpActiveForDiagnostics()
         {
-            try { return TimeWarp.CurrentRateIndex > 0; }
+            try
+            {
+                // Without the singleton TimeWarp's static accessors answer rate index 1
+                // in HIGH mode (decompiled), which would read as rails warp.
+                if (object.ReferenceEquals(TimeWarp.fetch, null))
+                    return false;
+                return IsRailsWarpState(
+                    TimeWarp.CurrentRateIndex, TimeWarp.WarpMode == TimeWarp.Modes.LOW);
+            }
             catch { return false; }
+        }
+
+        /// <summary>
+        /// Rails warp is a rate index above 0 in the HIGH (rails) warp mode;
+        /// LOW is physics warp.
+        /// </summary>
+        internal static bool IsRailsWarpState(int currentRateIndex, bool physicsWarpMode)
+        {
+            return currentRateIndex > 0 && !physicsWarpMode;
         }
 
         internal static bool IsSurfaceClearanceEnvironment(SegmentEnvironment env)

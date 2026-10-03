@@ -1345,6 +1345,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Dev: the recorder's sparse-sampling warning fires under physics warp again.** A recorded
+  section whose samples sat further apart than the sampler allows logs
+  `TrackSection sparse sampling:` as a warning, but any time warp downgraded it to a verbose
+  line, including physics warp, where every physics frame still runs and the sampler keeps
+  its spacing. Only rails warp (and on-rails recording) now downgrades it; the count token
+  is renamed `largeGapsOffRails=`. An on-schedule physics-warp gap stays under the
+  threshold, which already clears the max interval plus one 4x frame. Headless runs no
+  longer read a missing `TimeWarp` as rails warp.
 - **Dev: an in-game test batch in the Tracking Station no longer orphans the ghost map
   vessels.** Before a batch the test runner cleared Parsek's list of ghost map vessels without
   removing the vessels, and in the Tracking Station nothing else removed them. They then read
