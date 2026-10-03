@@ -2232,6 +2232,7 @@ namespace Parsek
                 return; // never subscribed, never became Instance (S9 game-mode gate)
             Instance = null;
             PostPhysicsPoseCache.Clear();
+            TimeJumpTerminalOrbitShift.Clear("flight-scene-destroyed");
             // #267: clear the static restore-reentrancy guard. The restore coroutines
             // set it true and clear it in a finally, but Unity abandons a running
             // coroutine when the MonoBehaviour is destroyed (scene change) WITHOUT
@@ -18729,6 +18730,10 @@ namespace Parsek
                     preserveIdentity: false,
                     allowExistingSourceDuplicate: allowExistingSourceDuplicate);
             }
+
+            // A jump-armed terminal-orbit shift is spent once its vessel exists.
+            if (rec.VesselSpawned)
+                TimeJumpTerminalOrbitShift.Release(rec.RecordingId, "spawned");
         }
 
         internal static GhostPlaybackSkipReason ResolveGhostPlaybackSkipReason(
@@ -28120,7 +28125,50 @@ namespace Parsek
 
             TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
             // Pass null chains — let the engine playback loop handle spawn naturally
-            TimeJumpManager.ExecuteJump(targetUT, null, vesselGhoster);
+            TimeJumpManager.ExecuteJump(
+                targetUT, null, vesselGhoster, CollectBubbleGhostsForTimeJump());
+        }
+
+        /// <summary>
+        /// The committed recordings whose ghosts stand in the loaded physics bubble right
+        /// now, with each ghost's distance from the active vessel. An epoch-shift jump
+        /// freezes these with the real vessels (design 14.5), so a terminal-orbit spawn the
+        /// jump crosses keeps its ghost's place (<see cref="TimeJumpTerminalOrbitShift"/>).
+        /// Read from the ghost transforms in the same frame as the active vessel, so the
+        /// floating origin cancels.
+        /// </summary>
+        internal List<KeyValuePair<Recording, double>> CollectBubbleGhostsForTimeJump()
+        {
+            var result = new List<KeyValuePair<Recording, double>>();
+            Vessel active = FlightGlobals.ActiveVessel;
+            if (active == null || engine == null)
+                return result;
+
+            Vector3d activePos = active.GetWorldPos3D();
+            var committed = RecordingStore.CommittedRecordings;
+            int beyondBubble = 0;
+            foreach (var kvp in ghostStates)
+            {
+                GhostPlaybackState state = kvp.Value;
+                if (state == null || state.ghost == null || !state.ghost.activeSelf)
+                    continue;
+                int i = kvp.Key;
+                if (i < 0 || i >= committed.Count || committed[i] == null)
+                    continue;
+                double dist = Vector3d.Distance(activePos, state.ghost.transform.position);
+                if (dist > DistanceThresholds.PhysicsBubbleMeters)
+                {
+                    beyondBubble++;
+                    continue;
+                }
+                result.Add(new KeyValuePair<Recording, double>(committed[i], dist));
+            }
+
+            ParsekLog.Verbose("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "CollectBubbleGhostsForTimeJump: inBubble={0} beyondBubble={1} bubble={2:F0}m",
+                    result.Count, beyondBubble, DistanceThresholds.PhysicsBubbleMeters));
+            return result;
         }
 
         /// <summary>
@@ -28160,7 +28208,8 @@ namespace Parsek
 
             TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
             // Epoch-shifted jump: preserves rendezvous geometry
-            TimeJumpManager.ExecuteJump(targetUT, null, vesselGhoster);
+            TimeJumpManager.ExecuteJump(
+                targetUT, null, vesselGhoster, CollectBubbleGhostsForTimeJump());
 
             ParsekLog.ScreenMessage(
                 string.Format(CultureInfo.InvariantCulture,

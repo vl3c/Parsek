@@ -1413,6 +1413,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Real Spawn Control's "Warp to Spawn" puts an orbiting vessel where its ghost stood.**
+  Park beside a ghost in orbit whose flight ends Orbiting and press "Warp to Spawn": the
+  clock jumps to the flight's end while your own vessel keeps its place, as designed, but
+  the vessel that appeared used to sit on its recorded orbit at the new time, tens or
+  hundreds of kilometres along the orbit (120 km after a 54 s jump in low Kerbin orbit).
+  A ghost standing within the physics bubble when the jump crosses its end now gets the
+  same time shift your vessel gets, so the real vessel appears where the ghost was, with
+  the same distance and relative speed to you. Ghosts outside the bubble, and landed or
+  splashed ones (the planet carries both vessels), spawn as before. The same applies to
+  "Warp to departure" and every other epoch-shift jump. No new interface.
+
 - **A vessel Parsek brought into the world that you recover from the Tracking Station or
   the KSC no longer comes back.** Recover a vessel Parsek spawned at the end of a recorded
   flight without flying it first (the Tracking Station Recover button, the KSC vessel
