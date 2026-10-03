@@ -317,7 +317,8 @@ namespace Parsek
         internal static void ExecuteJump(
             double targetUT,
             Dictionary<uint, GhostChain> chains,
-            VesselGhoster ghoster)
+            VesselGhoster ghoster,
+            IList<KeyValuePair<Recording, double>> bubbleGhosts = null)
         {
             // Stop time warp before jumping — SetUniversalTime during warp can cause desync
             if (TimeWarp.CurrentRateIndex > 0)
@@ -360,6 +361,12 @@ namespace Parsek
                 // If UT is set first, KSP's orbit propagation runs at the new UT with old epochs,
                 // moving vessels before we can freeze them.
                 var capturedStates = CaptureOrbitalStates();
+
+                // Step 1b: a ghost in the same bubble whose orbital terminal spawn the jump
+                // crosses inherits the same epoch shift (design 14.5 step 4: the tip spawns
+                // where its ghost stood, not on its recorded orbit at the new UT).
+                TimeJumpTerminalOrbitShift.CaptureForJump(
+                    bubbleGhosts, t0, targetUT, DistanceThresholds.PhysicsBubbleMeters);
 
                 // Step 2: Set game clock to target UT
                 Planetarium.SetUniversalTime(targetUT);

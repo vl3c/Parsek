@@ -9736,11 +9736,33 @@ namespace Parsek.Tests
             return b;
         }
 
+        /// <summary>
+        /// The target's surface-relative attitude: vessel +Y along local EAST at the Kerbal
+        /// X's longitude, so the Clamp-O-Tron (on the vessel's -Y end, facing -Y) faces
+        /// WEST, back along the near-equatorial prograde orbit at the Kerbal X trailing it.
+        /// A spawn beside the ghost then leaves the Kerbal X on the port axis, and MechJeb's
+        /// docking autopilot flies a straight final approach. With the identity attitude the
+        /// port faced south, the Kerbal X sat in the port's plane, and the autopilot's
+        /// lateral move toward its starting point ran into the target (CI-9 `2026-10-03_1812`,
+        /// RCS spent pressed against the hull 2.2 m from the port). Body-local axes: +Y the
+        /// spin axis, surface normal (cos lat cos lon, sin lat, cos lat sin lon).
+        /// </summary>
+        internal static Quaternion ChainTipDockTargetSurfaceRotation()
+        {
+            double lonRad = ChainTipDockKerbalXLon * Math.PI / 180.0;
+            double eastX = -Math.Sin(lonRad);
+            double eastZ = Math.Cos(lonRad);
+            // +90 deg about (up x east) = (eastZ, 0, -eastX) takes +Y onto east.
+            double s = Math.Sqrt(0.5);
+            return new Quaternion((float)(eastZ * s), 0f, (float)(-eastX * s), (float)s);
+        }
+
         private static VesselSnapshotBuilder ChainTipDockTargetSnapshot(double mna)
         {
             return VesselSnapshotBuilder.FlatProbeLander(ChainTipDockTargetName, ChainTipDockTargetPid)
                 .WithType("Probe")
                 .WithLaunchGuid(ChainTipDockTargetGuid)
+                .WithSurfaceRelativeRotation(ChainTipDockTargetSurfaceRotation())
                 .AddPart("dockingPort2", position: "0,-0.3,0", rotation: "1,0,0,0")
                 .AddModuleToPart(2, "ModuleDockingNode",
                     ("acquireForceTweak", "100"),
@@ -9761,6 +9783,24 @@ namespace Parsek.Tests
         internal static RecordingBuilder[] ChainTipDockTree(double baseUT)
         {
             return new[] { ChainTipDockCarrier(baseUT), ChainTipDockTarget(baseUT) };
+        }
+
+        [Fact]
+        public void ChainTipDock_TargetPortFacesWestAlongTheOrbitAtTheTrailingKerbalX()
+        {
+            Quaternion q = ChainTipDockTargetSurfaceRotation();
+            double lonRad = ChainTipDockKerbalXLon * Math.PI / 180.0;
+            Vector3 up = q * Vector3.up;
+            // Vessel +Y is local east (unit, horizontal); the port faces vessel -Y, i.e. west.
+            Assert.Equal(-Math.Sin(lonRad), up.x, 5);
+            Assert.Equal(0.0, up.y, 5);
+            Assert.Equal(Math.Cos(lonRad), up.z, 5);
+            Vector3 normal = new Vector3((float)Math.Cos(lonRad), 0f, (float)Math.Sin(lonRad));
+            Assert.Equal(0.0, Vector3.Dot(up, normal), 5);
+
+            ConfigNode snapshot = ChainTipDockTarget(SinglePointHoldSaveUT).GetVesselSnapshot();
+            Assert.NotNull(snapshot);
+            Assert.NotEqual("0,0,0,1", snapshot.GetValue("rot"));
         }
 
         [Fact]

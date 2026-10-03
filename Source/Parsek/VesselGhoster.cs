@@ -202,10 +202,24 @@ namespace Parsek
                 return 0;
             }
 
+            TrajectoryPoint? tipPoint = tipRecording != null && tipRecording.Points != null && tipRecording.Points.Count > 0
+                ? (TrajectoryPoint?)tipRecording.Points[tipRecording.Points.Count - 1]
+                : null;
+            double spawnUT = Planetarium.GetUniversalTime();
+            // A tip an epoch-shift jump froze in the bubble spawns from its jump-shifted
+            // orbit; resolve that once and check overlap where it will actually appear.
+            JumpShiftedTipSpawn shifted = tipPoint.HasValue
+                ? TryResolveJumpShiftedTipSpawn(tipRecording, tipPoint, spawnUT)
+                : default(JumpShiftedTipSpawn);
+
             // Collision check: use snapshot lat/lon/alt (where RespawnVessel actually places
             // the vessel), falling back to trajectory/terminal position (#127).
             Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(vesselSnapshot);
-            Vector3d spawnPos = ResolveSpawnPosition(tipRecording, vesselSnapshot);
+            Vector3d spawnPos = SelectChainTipCollisionCheckPosition(
+                shifted.Resolved, shifted.WorldPos,
+                ResolveSpawnPosition(tipRecording, vesselSnapshot), "snapshot-endpoint",
+                out string checkSource);
+            LogJumpShiftedCollisionCheck(tipRecording, "chain-tip", checkSource, spawnPos, rateLimitKey: null);
             var (overlap, distance, blockerName, _) =
                 SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
                     spawnPos, spawnBounds, SpawnCollisionPadding,
@@ -223,10 +237,6 @@ namespace Parsek
                 return 0;
             }
 
-            TrajectoryPoint? tipPoint = tipRecording != null && tipRecording.Points != null && tipRecording.Points.Count > 0
-                ? (TrajectoryPoint?)tipRecording.Points[tipRecording.Points.Count - 1]
-                : null;
-            double spawnUT = Planetarium.GetUniversalTime();
             uint spawnedPid;
             if (tipPoint.HasValue)
             {
@@ -245,7 +255,15 @@ namespace Parsek
                     !string.IsNullOrEmpty(tipRecording.EvaCrewName));
                 Vector3d spawnVelocity;
                 Orbit orbitOverride = null;
-                if (useRecordedTerminalOrbit
+                if (shifted.Resolved)
+                {
+                    spawnLat = shifted.Lat;
+                    spawnLon = shifted.Lon;
+                    spawnAlt = shifted.Alt;
+                    spawnVelocity = shifted.Velocity;
+                    orbitOverride = shifted.Orbit;
+                }
+                else if (useRecordedTerminalOrbit
                     && spawnBody != null
                     && VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState(
                         tipRecording,
@@ -368,14 +386,26 @@ namespace Parsek
                 return 0;
             }
 
+            TrajectoryPoint? tipPoint = tipRecording.Points != null && tipRecording.Points.Count > 0
+                ? (TrajectoryPoint?)tipRecording.Points[tipRecording.Points.Count - 1]
+                : null;
+
             // Propagate ghost position using GhostExtender
             Vector3d propagatedPos = ComputePropagatedPosition(tipRecording, currentUT);
+            // A tip an epoch-shift jump froze in the bubble spawns from its jump-shifted
+            // orbit; resolve that once and recheck overlap where it will actually appear.
+            JumpShiftedTipSpawn shifted = TryResolveJumpShiftedTipSpawn(tipRecording, tipPoint, currentUT);
+            Vector3d checkPos = SelectChainTipCollisionCheckPosition(
+                shifted.Resolved, shifted.WorldPos, propagatedPos, "propagated",
+                out string checkSource);
+            LogJumpShiftedCollisionCheck(tipRecording, "chain-tip-blocked", checkSource, checkPos,
+                rateLimitKey: "jump-shift-check-" + chain.OriginalVesselPid);
 
             // Recheck overlap at propagated position
             Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(vesselSnapshot);
             var (overlap, distance, blockerName, _) =
                 SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
-                    propagatedPos, spawnBounds, SpawnCollisionPadding,
+                    checkPos, spawnBounds, SpawnCollisionPadding,
                     spawningRecording: tipRecording, site: "chain-tip-blocked");
 
             if (overlap)
@@ -419,9 +449,6 @@ namespace Parsek
                     "Spawn cleared: vessel={0} — overlap resolved after {1}s",
                     tipRecording.VesselName ?? "(unknown)", clearDuration.ToString("F1", ic)));
 
-            TrajectoryPoint? tipPoint = tipRecording.Points != null && tipRecording.Points.Count > 0
-                ? (TrajectoryPoint?)tipRecording.Points[tipRecording.Points.Count - 1]
-                : null;
             uint spawnedPid;
             CelestialBody spawnBody = VesselSpawner.ResolveSpawnRotationBody(tipRecording, tipPoint);
             if (spawnBody != null)
@@ -436,7 +463,16 @@ namespace Parsek
                 Orbit orbitOverride = null;
                 bool haveResolvedSpawnPosition = false;
 
-                if (useRecordedTerminalOrbit
+                if (shifted.Resolved)
+                {
+                    spawnLat = shifted.Lat;
+                    spawnLon = shifted.Lon;
+                    spawnAlt = shifted.Alt;
+                    spawnVelocity = shifted.Velocity;
+                    orbitOverride = shifted.Orbit;
+                    haveResolvedSpawnPosition = true;
+                }
+                else if (useRecordedTerminalOrbit
                     && VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState(
                         tipRecording,
                         spawnBody,
@@ -1033,6 +1069,108 @@ namespace Parsek
         /// For surface recordings, returns terminal surface position.
         /// Falls back to last recorded position.
         /// </summary>
+        /// <summary>The orbital spawn state of a tip an epoch-shift jump froze in the bubble.</summary>
+        private struct JumpShiftedTipSpawn
+        {
+            internal bool Resolved;
+            internal double Lat;
+            internal double Lon;
+            internal double Alt;
+            internal Vector3d Velocity;
+            internal Orbit Orbit;
+            internal Vector3d WorldPos;
+        }
+
+        internal const string CollisionCheckSourceJumpShifted = "jump-shifted-spawn";
+
+        /// <summary>
+        /// Pure: where a chain-tip spawn's collision gate looks. When the tip will spawn from
+        /// its jump-shifted orbit (<see cref="TimeJumpTerminalOrbitShift"/>), the gate must
+        /// test that position: the unshifted snapshot endpoint / propagated orbit lies n *
+        /// delta along the orbit, so a tip whose ghost stood inside the bubble would pass the
+        /// gate far away and spawn into whatever stood beside it. Otherwise the caller's
+        /// default position (unchanged behaviour).
+        /// </summary>
+        internal static Vector3d SelectChainTipCollisionCheckPosition(
+            bool haveJumpShiftedSpawn, Vector3d jumpShiftedSpawnPos,
+            Vector3d defaultPos, string defaultSource, out string source)
+        {
+            if (haveJumpShiftedSpawn
+                && !double.IsNaN(jumpShiftedSpawnPos.x) && !double.IsNaN(jumpShiftedSpawnPos.y)
+                && !double.IsNaN(jumpShiftedSpawnPos.z)
+                && !double.IsInfinity(jumpShiftedSpawnPos.x) && !double.IsInfinity(jumpShiftedSpawnPos.y)
+                && !double.IsInfinity(jumpShiftedSpawnPos.z))
+            {
+                source = CollisionCheckSourceJumpShifted;
+                return jumpShiftedSpawnPos;
+            }
+
+            source = defaultSource;
+            return defaultPos;
+        }
+
+        /// <summary>
+        /// Resolves the jump-shifted orbital spawn state when one is armed for this tip;
+        /// otherwise returns an unresolved result and the caller keeps its own path.
+        /// </summary>
+        private static JumpShiftedTipSpawn TryResolveJumpShiftedTipSpawn(
+            Recording tip, TrajectoryPoint? tipPoint, double ut)
+        {
+            var result = default(JumpShiftedTipSpawn);
+            if (tip == null
+                || !VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(
+                    tip, !string.IsNullOrEmpty(tip.EvaCrewName))
+                || !TimeJumpTerminalOrbitShift.TryGetShift(tip.RecordingId, ut, out _))
+                return result;
+
+            CelestialBody body = VesselSpawner.ResolveSpawnRotationBody(tip, tipPoint);
+            if (body == null
+                || !VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState(
+                    tip, body, ut,
+                    out double lat, out double lon, out double alt,
+                    out Vector3d velocity, out Orbit orbit))
+                return result;
+
+            result.Resolved = true;
+            result.Lat = lat;
+            result.Lon = lon;
+            result.Alt = alt;
+            result.Velocity = velocity;
+            result.Orbit = orbit;
+            result.WorldPos = body.GetWorldSurfacePosition(lat, lon, alt);
+            return result;
+        }
+
+        private static void LogJumpShiftedCollisionCheck(
+            Recording tip, string site, string source, Vector3d checkPos, string rateLimitKey)
+        {
+            if (source != CollisionCheckSourceJumpShifted)
+                return;
+            string message = string.Format(ic,
+                "Chain tip collision check at the jump-shifted spawn: rec={0} vessel={1} site={2} checkSeparation={3:F1}m",
+                tip?.RecordingId ?? "(none)", tip?.VesselName ?? "(unknown)", site,
+                MeasureDistanceFromActiveVessel(checkPos));
+            if (rateLimitKey == null)
+                ParsekLog.Info(Tag, message);
+            else
+                ParsekLog.VerboseRateLimited(Tag, rateLimitKey, message);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double MeasureDistanceFromActiveVessel(Vector3d worldPos)
+        {
+            try
+            {
+                Vessel active = FlightGlobals.ActiveVessel;
+                return active != null ? Vector3d.Distance(active.GetWorldPos3D(), worldPos) : double.NaN;
+            }
+            catch (Exception)
+            {
+                return double.NaN;
+            }
+        }
+
         private static Vector3d ComputePropagatedPosition(Recording rec, double currentUT)
         {
             if (rec == null)

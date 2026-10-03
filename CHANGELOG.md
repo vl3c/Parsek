@@ -1413,6 +1413,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Real Spawn Control's "Warp to Spawn" puts an orbiting vessel where its ghost stood.**
+  Park beside a ghost in orbit whose flight ends Orbiting and press "Warp to Spawn": the
+  clock jumps to the flight's end while your own vessel keeps its place, as designed, but
+  the vessel that appeared used to sit on its recorded orbit at the new time, tens or
+  hundreds of kilometres along the orbit (120 km after a 54 s jump in low Kerbin orbit).
+  A ghost standing within the physics bubble when the jump crosses its end now gets the
+  same time shift your vessel gets, so the real vessel appears where the ghost was, with
+  the same distance and relative speed to you. Ghosts outside the bubble, and landed or
+  splashed ones (the planet carries both vessels), spawn as before. The same applies to
+  "Warp to departure" and every other epoch-shift jump. The spawn's collision check looks
+  at that same spot, so a vessel that would appear inside something beside you is held
+  back as before, and a held ghost is drawn where its vessel would appear. No new
+  interface.
+
 - **A vessel Parsek brought into the world that you recover from the Tracking Station or
   the KSC no longer comes back.** Recover a vessel Parsek spawned at the end of a recorded
   flight without flying it first (the Tracking Station Recover button, the KSC vessel
@@ -5686,8 +5700,10 @@ _(unreleased — entries accumulate here per commit)_
   `ci9_tip_dock`, that rendezvous with the spawned tip and docks to it. It gates the
   single-parent Dock branch point, the dock superseding the tip's committed spawn so the
   absorbed vessel never comes back, and the committed save shape. The flight found that
-  in orbit the spawned tip appears on its recorded orbit 120 km away instead of where its
-  ghost stood (todo REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST, open).
+  in orbit the spawned tip appeared on its recorded orbit 120 km away instead of where its
+  ghost stood (now fixed, see Fixed: "Warp to Spawn puts an orbiting vessel where its ghost
+  stood"); the lane now pins the tip spawning beside the Kerbal X and docks without a
+  rendezvous, with the preset's target turned so its port faces the trailing Kerbal X.
 - **Automated testing: PWR-3 (recording under physics warp at the High density) is armed;
   every registry coverage cell is now claimed (251 of 251).** Its two quarantining findings
   were fixed in the recorder (see Fixed: "a sample taken when a frame runs long"), the
