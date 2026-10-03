@@ -12,8 +12,8 @@ tier = "operator"
 #     photographed Info is now a Phase-column sort, `ib-missions-recordings-sortphaseasc`.)
 #   - `op=state key=archived`: the Recordings tab's archive filter - see below. (Until
 #     2026-09-30 also `key=archivedMissions`, the Missions tab's own "hide archived missions"
-#     filter; Missions Model 1 removed it and turned the per-mission mark into Collapse /
-#     Expand, which this lane now photographs through `op=expand key=mission:<id>`.)
+#     filter; Missions Model 1 removed it and turned the per-mission mark into the
+#     collapse caret, which this lane now photographs through `op=expand key=mission:<id>`.)
 #   - `op=sort`: the 44 unphotographed sort states. Four of them here, over two tables
 #     that COLLIDE on their index and name columns, which is why the op applies to the
 #     live tab and REJECTS a column of the other one.
@@ -184,7 +184,7 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "ib-missions-missions-sortstartdesc-advanced" }, expect = "OK" },
 
   # ONE mission collapsed next to the expanded others: its two-line bar stays (values,
-  # summary, Log, Watch, the Expand button pressed), its vessel and partner rows go. It is
+  # summary, Log, Watch, the right caret under its number), its vessel and partner rows go. It is
   # `Duna Supply 1`, the fixture's latest mission, so under the start-time-descending sort
   # just applied it is the FIRST block and the expanded `Kerbal X #5` is drawn right under
   # it in the same frame (the title editor's `Kerbal X #3` sorts off the bottom).

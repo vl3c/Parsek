@@ -35,7 +35,7 @@ It deliberately does NOT cover logistics (the supply-run / supply-route layer ab
 | Situation | What happens |
 |-----------|--------------|
 | Commits a flown mission (a tree) | A default Mission (everything included) is auto-created, named after the tree's root group |
-| Opens the Missions window (its first tab) | Each mission is a two-line bar (title, summary, `Log`, `Watch` / `Rewind`, `Collapse`) over one row per physical vessel or EVA kerbal, indented by separation lineage, debris hidden |
+| Opens the Missions window (its first tab) | Each mission is a two-line bar (title, summary, `Log`, `Watch` over `Rewind`, a collapse caret under the index) over one row per physical vessel or EVA kerbal, indented by separation lineage, debris hidden |
 | Unchecks a vessel or an interval (Advanced) | That part drops from the loop selection (start / end trim) |
 | Clones a Mission (Advanced) | A cheap duplicate of the selection + settings (no recording data copied), to make a variant |
 | Toggles Loop on a Mission (Advanced) | The whole selected subtree replays together over its span and relaunches on a cadence |
@@ -49,15 +49,17 @@ A mothership stack (controller M) carries a drop pod (controller D). At separati
 
 ```
 #    Missions and vessels                                              Interact
-1    Drop pod        [Clone] [Warp to...]  [Log]                     [Watch][Rewind]
-     Kerbin . 41m . Jebediah Kerman . Landed
-                     [Delete] Loop [x] every [30] [sec]               [Collapse]
+1    Drop pod        [Clone] [Warp to...]  [Log]                     [  Watch  ]
+v    Kerbin . 41m . Jebediah Kerman . Landed
+                     [Delete] Loop [x] every [30] [sec]               [ Rewind  ]
 [x]  \- M   Launch -> Decoupled (D) -> Recovered
 [x]     \- D   Decoupled -> Landed                                   [Fly][Seal]
 ```
 
 The bar's first line is the title and the Advanced loop grid beside `Log`; its second line is
-the summary, `Delete` and the `Loop ... every ...` row. Each vessel row carries an include
+the collapse caret under the index (`v` here: a down caret while the rows show, a right caret
+while they are hidden), the summary, `Delete` and the `Loop ... every ...` row. `Watch` and
+`Rewind` stack in the Interact column, one per line. Each vessel row carries an include
 checkbox (Advanced); unchecking the pod (D) drops its stretch from the loop selection and greys
 its row.
 
@@ -285,7 +287,7 @@ Mission state persists through `ParsekScenario` OnSave / OnLoad into the `.sfs` 
 
 ### 7.1 Creating and configuring a Mission
 
-A default Mission (everything included) is auto-created when a tree is first committed, named after the tree's root group. In Advanced the player can clone it and trim the loop selection by unchecking vessels / intervals. Renaming a Mission renames the matching Recordings-tab group too (Section 8). `Collapse` hides a mission's rows under its bar; it changes nothing else.
+A default Mission (everything included) is auto-created when a tree is first committed, named after the tree's root group. In Advanced the player can clone it and trim the loop selection by unchecking vessels / intervals. Renaming a Mission renames the matching Recordings-tab group too (Section 8). The collapse caret hides a mission's rows under its bar; it changes nothing else.
 
 ### 7.2 Looping a Mission (the span clock)
 
@@ -366,10 +368,12 @@ is `docs/dev/design-ui-basic-advanced.md` section 4.5. In short:
   lay out the same columns in both modes.
 - The mission bar is two table rows. Line 1: index, bold title (double-click renames, through
   `MissionGroupLink`), then right-aligned (Advanced) `Clone` and `Warp to...` and `Log`; dates
-  and events; `Watch` paired with `Rewind` or `Forward`. Line 2: the muted summary (body,
-  duration, crew, outcome, and in Advanced the amber `Next launch T- ...` of a looping
-  mission), then (Advanced) `Delete` and `Loop [x] every [N] [unit]`; `Collapse` / `Expand` in
-  the Interact column. A route-bound tree reads `Looped by route` instead of the loop row.
+  and events; `Watch`. Line 2: the collapse caret in the `#` column under the index (a
+  clickable glyph, down while the rows show and right while they are hidden, hover
+  `Collapse this mission` / `Expand this mission`), the muted summary (body, duration, crew,
+  outcome, and in Advanced the amber `Next launch T- ...` of a looping mission), then
+  (Advanced) `Delete` and `Loop [x] every [N] [unit]`; `Rewind` or `Forward` in the Interact
+  column under `Watch`, at the same width. A route-bound tree reads `Looped by route` instead of the loop row.
 - Loop toggle (`CommitMissionLoopToggle` -> `MissionStore.SetLoopEnabled(mission, on, UT)`) is
   not drawn on a route-bound tree (`RouteTreeGuard` mutual exclusion: logistics is the
   downstream consumer).

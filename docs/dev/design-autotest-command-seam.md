@@ -2788,7 +2788,7 @@ Timeline's positive sense - `state=true` means archived rows contribute. Two key
 opposite polarities for one flag would have made every lane that touched it read the source
 to find out which it had. (The Missions tab's own "hide archived missions" filter, once the
 key `archivedMissions`, was removed by Missions Model 1 on 2026-09-30: the per-mission mark
-became Collapse / Expand, which `op=expand key=mission:<id>` drives.) `archived` is
+became the collapse caret, which `op=expand key=mission:<id>` drives.) `archived` is
 PERSISTED, so a lane that sets it runs on a throwaway staged save - the op cannot enforce
 that and does not pretend to.
 
