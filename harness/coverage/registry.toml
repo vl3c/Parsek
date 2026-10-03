@@ -849,6 +849,9 @@ values = ["waterfall-swe-fallback", "restock", "persistent-rotation", "better-ti
 # driven (no seam verb; todo SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX). The
 # spawn-side `Terminated chain spawn suppressed:` line is unreachable and not owed
 # (TERMINATED-CHAIN-SPAWN-SUPPRESSED-LINE-UNREACHABLE).
+# Docking with a Real-Spawned chain tip has no D18 value: CI-9-chain-tip-dock (2026-10-03)
+# drives it and declares only second witnesses of D5 `cross-tree-foreign-dock` and D13
+# `real-spawn-control`.
 [D18]  # ghost chains / paradox prevention
 values = ["committed-interaction-claiming", "ghost-conversion-quicksave",
           "intermediate-spawn-suppression", "chain-tip-original-pid",

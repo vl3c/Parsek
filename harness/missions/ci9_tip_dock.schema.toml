@@ -1,0 +1,86 @@
+# Declared param schema for mission ci9_tip_dock (CI-9: the player docks with a
+# Real-Spawned ghost-chain tip). run.py parses this with tomllib and injects it as
+# validate_spec's `mission_schemas` argument. Only DECLARED params are checked. The
+# rendezvous / match / dock keys are bdock_dock_transfer's own (the delegated phases
+# run mlib.bdock_decide).
+
+# The spawned chain tip's vessel name (the mission targets the nearest one).
+[params.targetName]
+required = true
+type = "string"
+
+# TD-START dwell before targeting (the spawned vessel loads, the recorder settles).
+[params.startSettleSeconds]
+required = false
+type = "number"
+min = 0.0
+
+# A first target distance above this flies the rendezvous; at or below it the docking
+# AP closes directly (default 250, Real Spawn Control's button radius).
+[params.rendezvousAboveMeters]
+required = false
+type = "number"
+min = 0.0
+
+[params.targetTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.settleSeconds]
+required = false
+type = "number"
+min = 0.0
+
+# --- Rendezvous / match / dock (bdock_dock_transfer's semantics). ---
+[params.approachDistanceMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.maxPhasingOrbits]
+required = true
+type = "number"
+min = 1.0
+
+[params.matchSpeedMetersPerSec]
+required = true
+type = "number"
+min = 0.0
+
+[params.matchTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.dockSpeedMetersPerSec]
+required = true
+type = "number"
+min = 0.0
+
+[params.rendezvousTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.dockTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.dockNoProgressSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.rendezvousNoProgressFrames]
+required = false
+type = "int"
+min = 2
+max = 100000
+
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000

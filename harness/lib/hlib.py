@@ -325,7 +325,24 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # `--filter InjectChainTipRecovery`. No
                                         # RP. Consumer:
                                         # CI-6-chain-tip-recover-no-respawn.
-                                        "chain-tip-recovery")
+                                        "chain-tip-recovery",
+                                        # chain-tip-dock: ONE committed
+                                        # two-recording tree on eva2-lko-crewed:
+                                        # a Destroyed root ended before the
+                                        # save, and a PARENTLESS background
+                                        # recording of a small docking target
+                                        # (its own derived pid and launch guid,
+                                        # absent from the save) with an engine
+                                        # ignite / shutdown and a 60 s orbit
+                                        # tail on the focused Kerbal X's own
+                                        # orbit ~140 m ahead, so the walker
+                                        # claims it via BACKGROUND_EVENT and it
+                                        # is an orbital Real Spawn Control
+                                        # candidate. `--filter
+                                        # InjectChainTipDock`; the injector
+                                        # refuses a target save at another UT.
+                                        # No RP. Consumer: CI-9-chain-tip-dock.
+                                        "chain-tip-dock")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")

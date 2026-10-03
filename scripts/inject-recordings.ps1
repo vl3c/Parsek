@@ -34,6 +34,7 @@ $injectFilterByPreset = @{
     "rewind-readback"       = "InjectRewindReadback"
     "vessel-budget"         = "InjectVesselBudget"
     "chain-tip-recovery"    = "InjectChainTipRecovery"
+    "chain-tip-dock"        = "InjectChainTipDock"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -60,6 +61,7 @@ $defaultSaveByPreset = @{
     "rewind-readback"       = "rewind-readback-fixture"
     "vessel-budget"         = "vessel-budget-fixture"
     "chain-tip-recovery"    = "chain-tip-recovery-fixture"
+    "chain-tip-dock"        = "chain-tip-dock-fixture"
 }
 
 $ErrorActionPreference = "Stop"

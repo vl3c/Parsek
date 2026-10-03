@@ -5630,6 +5630,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: the player docks with a ghost-chain tip spawned through Real Spawn
+  Control (CI-9).** A new nightly lane, `CI-9-chain-tip-dock`, puts an orbital ghost-chain
+  tip (the new `chain-tip-dock` injected preset) 140 m ahead of the focused Kerbal X,
+  presses "Warp to Spawn" for it, starts a recording and flies a new mission,
+  `ci9_tip_dock`, that rendezvous with the spawned tip and docks to it. It gates the
+  single-parent Dock branch point, the dock superseding the tip's committed spawn so the
+  absorbed vessel never comes back, and the committed save shape. The flight found that
+  in orbit the spawned tip appears on its recorded orbit 120 km away instead of where its
+  ghost stood (todo REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST, open).
 - **Automated testing: PWR-3 (recording under physics warp at the High density) is armed;
   every registry coverage cell is now claimed (251 of 251).** Its two quarantining findings
   were fixed in the recorder (see Fixed: "a sample taken when a frame runs long"), the

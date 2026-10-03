@@ -15,6 +15,47 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST: Real Spawn Control's "Warp to Spawn" puts an orbital tip on its recorded orbit at the new UT, not where its ghost stood [FILED 2026-10-03 from CI-9 `2026-10-03_1642` / `_1647`, branch `lane-ci9-dock-tip`. OPEN; product]
+
+**What the player sees.** In orbit, the player parks 140 m from a ghost whose recording ends
+Orbiting, opens Real Spawn Control and presses "Warp to Spawn". The vessel that appears is
+not beside them: on CI-9's host it spawned 120.4 km ahead along the shared orbit.
+
+**Measured** (`eva2-lko-crewed` + the `chain-tip-dock` preset, origin/main DLL, no C#
+change): `Proximity notification: 'CTD Target' recording #1 distance=140m endUT=481.2`;
+`realspawn pressed ... utBefore=427.4`; `WarpToRecordingEnd: jumping to UT=481.2 ...
+(delta=53.8s)`; `Epoch-shifted vessel: pid=3620499050 name=Kerbal X ... dMeanAnomaly=0.000000`;
+`Chain tip spawn: pid=3156176881 ... real vessel created`; `realspawn complete ... loaded=false`.
+The produced save of the probe flight `_1642` puts the Kerbal X and the CTD Target 120392 m
+apart (both orbits propagated to the save UT), and the mission's first kRPC read on `_1647`
+was `tgtD=120413.977`.
+
+**Why.** `ParsekFlight.WarpToRecordingEnd` -> `TimeJumpManager.ExecuteJump(targetUT, null, ...)`
+epoch-shifts every loaded vessel so it keeps its position and velocity (design 14.5 step 3),
+then leaves the spawn to the playback loop (`chains` is null). The playback loop's
+`VesselGhoster.SpawnAtChainTip` (and the non-chain end spawn) places an Orbiting tip through
+`VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState` at the CURRENT UT, i.e. on its
+recorded orbit at EndUT. The ghost moved n * delta along its orbit during the jump while the
+player did not, so the separation grows by orbital speed times the jump (here ~2.2 km/s x
+53.8 s). `SpawnCrossedChainTips` takes the same `SpawnAtChainTip` path, so passing the chains
+would not change it.
+
+**The contract it breaks.** `docs/parsek-flight-recorder-design.md` principle 13 and section
+14.5 steps 4 and 6: a chain tip crossed during the jump spawns "at the ghost's current
+position (which has not moved)", and the player resumes "at the same position and velocity
+relative to the now-real vessel, with the same approach geometry". On the surface the two
+agree (both surface-fixed); in orbit they do not.
+
+**Fix direction** (not designed here): when the jump crosses a tip, capture the tip ghost's
+pre-jump state vector alongside `CaptureOrbitalStates` and spawn the tip from it with the same
+epoch shift the loaded vessels get, instead of from the recorded orbit at the new UT.
+Whatever the fix, `CI-9-chain-tip-dock` keeps passing: its mission rendezvous only when the
+first target distance exceeds the approach distance, and on the fixed product that distance
+is ~140 m, so it takes the MATCH-VELOCITY branch. A lane that gates the geometry itself (the
+first target distance under, say, 250 m) is the witness to add with the fix.
+
+---
+
 ## LOGISTICS-MODEL1-FOLLOWUPS: the parts of the Logistics redesign left out of Model 1 [FILED 2026-10-02, branch `logistics-model1`]
 
 Model 1 (the merged Status cell, the two-line Route cell, the Interact grid, the Route History
@@ -6436,6 +6477,15 @@ answer is a defect, filed as CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE; 
 committed as its EXPECTED-FAIL quarantine. Still open from the list below: the
 `chain-tip-original-pid` re-claim lane (the RealSpawn answered `pid=1344998135`, the chain's
 own pid, on this host too, but no lane pins it as a claim) and the docking mission.
+
+**Docking mission flown 2026-10-03 (branch `lane-ci9-dock-tip`).** `CI-9-chain-tip-dock`
+is the RealSpawn -> dock lane, on an ORBITAL host (the `chain-tip-dock` preset on
+`eva2-lko-crewed`): RealSpawn hands the tip to the new mission `ci9_tip_dock`, which
+finds it by name, rendezvous and docks. The dock lands as a single-parent Dock branch
+point in the Kerbal X's own tree and supersedes the tip's committed terminal spawn
+(`match=baked-pid`), so the absorbed tip is never reset or respawned. The flight found
+REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST: the tip spawned 120 km from where its
+ghost stood.
 
 
 **Status 2026-10-01: both verbs built, no lane flown.** Contract in
