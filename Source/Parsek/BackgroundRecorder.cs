@@ -2460,6 +2460,9 @@ namespace Parsek
                 NoteProximitySilenceTick(state, ut);
                 return;
             }
+            // Back in range (or a high-fidelity / debris tier overrides the range): the
+            // designed silence ends on this tick, whether or not a sample follows.
+            CloseProximitySilence(state, ut);
 
             // Adaptive sampling (velocity-based). Normal background sampling uses the
             // proximity tier as its min floor; high-fidelity proximity uses the player's
@@ -7328,7 +7331,6 @@ namespace Parsek
         private static void AppendSectionFrameWarpFlag(BackgroundVesselState state)
         {
             state?.sectionFrameWarpFlags.Add(FlightRecorder.IsRailsWarpActiveForDiagnostics());
-            CloseProximitySilenceAtFrame(state);
         }
 
         /// <summary>
@@ -7346,17 +7348,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Closes an open proximity silence at the frame just committed to the section, so
-        /// the section-close gap check knows the silence was designed.
+        /// Closes an open proximity silence at the first tick the vessel is no longer
+        /// skipped for range, so the section-close gap check excuses exactly the out-of-range
+        /// time: an in-range stall after the return stays outside the window and still WARNs.
         /// </summary>
-        private static void CloseProximitySilenceAtFrame(BackgroundVesselState state)
+        private static void CloseProximitySilence(BackgroundVesselState state, double endUT)
         {
             if (state == null || double.IsNaN(state.proximitySilenceStartUT))
                 return;
-            List<TrajectoryPoint> frames = state.currentTrackSection.frames;
-            if (frames == null || frames.Count == 0)
-                return;
-            double endUT = frames[frames.Count - 1].ut;
             double startUT = state.proximitySilenceStartUT;
             state.proximitySilenceStartUT = double.NaN;
             if (endUT > startUT)

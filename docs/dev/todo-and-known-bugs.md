@@ -180,12 +180,15 @@ not introduce it. No lane reads it.
 
 - [x] Fix: the background recorder records each out-of-range silence as a UT window
   (`BackgroundVesselState.sectionProximitySilences`): it opens at the first tick
-  `ShouldSkipTrajectorySamplingForProximity` skips and closes at the next frame committed to
-  the section (`AppendSectionFrameWarpFlag`, the lockstep append point), and the list is
-  cleared when a section starts. `ComputeSectionGapStats` takes the windows: an off-rails
+  `ShouldSkipTrajectorySamplingForProximity` skips and closes at the first tick that is not
+  skipped (back in range, or a high-fidelity / debris tier overriding the range), and the
+  list is cleared when a section starts. Closing on the return tick rather than on the next
+  committed frame keeps an in-range stall after the return outside the window (it still
+  WARNs; `SectionClose_StallAfterReturningInRange_StillWarns`), and a boundary seed committed
+  during a silence no longer cuts the window short. `ComputeSectionGapStats` takes the windows: an off-rails
   large gap counts toward the WARN only when its time outside them
-  (`ComputeGapSecondsOutsideSilences`) still exceeds the threshold, so a stall that merely
-  borders a silence still WARNs; the rest count as `LargeGapCountInSilence`, logged as
+  (`ComputeGapSecondsOutsideSilences`) still exceeds the threshold, so a stall on either side
+  of a silence still WARNs; the rest count as `LargeGapCountInSilence`, logged as
   `largeGapsOutOfRange=`. Logs `Proximity sampling silence started:` / `ended:` (Verbose,
   once each per silence). The foreground recorder has no proximity silence and passes none.
 

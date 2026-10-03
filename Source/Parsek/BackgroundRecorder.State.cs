@@ -137,9 +137,10 @@ namespace Parsek
             public readonly List<bool> sectionFrameWarpFlags = new List<bool>();
 
             // Out-of-proximity-range sampling silences (ShouldSkipTrajectorySamplingForProximity).
-            // The open one starts at the first skipped tick and closes at the next committed
-            // frame; the closed ones explain the section-close gaps they overlap. Cleared on
-            // StartBackgroundTrackSection; a window past a trimmed tail overlaps no gap.
+            // The open one starts at the first skipped tick and closes at the first tick that
+            // is not skipped; the closed ones explain the section-close gaps they overlap.
+            // Cleared on StartBackgroundTrackSection; a window past a trimmed tail overlaps
+            // no gap.
             public double proximitySilenceStartUT = double.NaN;
             public readonly List<FlightRecorder.SamplingSilenceWindow> sectionProximitySilences =
                 new List<FlightRecorder.SamplingSilenceWindow>();
