@@ -48,7 +48,8 @@ Fix: a new additive ledger action `RouteHeld` (35), written once per hold episod
 by `RouteOrchestrator.TryEmitRouteHeldRow` at the loop blocked branches and the legacy wait
 applier; the "already recorded?" check reads the effective ledger
 (`IsHoldReasonRecordedInOpenEpisode`), never `Route.LastHold*`, so a re-hold after a rewind
-writes no duplicate. Retired at rewind with the route rows (`RouteLedgerRetire`), excluded from
+writes no duplicate, over a stable detail (`HeldRowDetail`: `funds-short` for every funds hold,
+the partner route id for a linked-route wait). Retired at rewind with the route rows (`RouteLedgerRetire`), excluded from
 the supersede block, inert to every module. The Route History renders it `Held: <reason>`
 without the live advice or a run number, and every cargo row now reads amount first. Design:
 `docs/parsek-logistics-supply-routes-design.md` section 6.7; rows:

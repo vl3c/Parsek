@@ -54,7 +54,8 @@ namespace Parsek
             IReadOnlyList<GameAction> els, string routeId,
             string originPlace, string originVessel,
             Func<int, string> stopPlace, Func<int, string> stopVessel,
-            Func<uint, string> vesselByPid, Func<string, string> partTitle = null)
+            Func<uint, string> vesselByPid, Func<string, string> partTitle = null,
+            Func<string, string> routeName = null)
         {
             var rows = new List<KeyValuePair<int, StructureStep>>();
             if (els == null || string.IsNullOrEmpty(routeId))
@@ -122,7 +123,8 @@ namespace Parsek
                         step = Row(a.UT, StructureStepKind.Terminal,
                             LogisticsHoldPresentation.FormatHistoryHeldRow(
                                 LogisticsHoldPresentation.DescribeHoldForHistory(
-                                    a.RouteHoldKind, a.RouteEndpointReason, a.RouteHoldShortfall, partTitle)),
+                                    a.RouteHoldKind, HeldDetailForDisplay(a, routeName),
+                                    a.RouteHoldShortfall, partTitle)),
                             heldPlace, heldVessel);
                         break;
                     }
@@ -247,6 +249,26 @@ namespace Parsek
                 return;
             place = Or(originPlace);
             vessel = Or(originVessel);
+        }
+
+        /// <summary>
+        /// A held row's detail as the reason sentence wants it. A linked-route wait stores
+        /// the partner route's ID (stable across a rename); the sentence names the partner's
+        /// current name through <paramref name="routeName"/>, or "the linked route" when it
+        /// no longer resolves. Every other detail passes through.
+        /// </summary>
+        internal static string HeldDetailForDisplay(GameAction held, Func<string, string> routeName)
+        {
+            if (held == null)
+                return null;
+            string detail = held.RouteEndpointReason;
+            if (held.RouteHoldKind != RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner
+                || detail == null
+                || !detail.StartsWith(RouteOrchestrator.HeldPartnerDetailPrefix, StringComparison.Ordinal))
+                return detail;
+            string id = detail.Substring(RouteOrchestrator.HeldPartnerDetailPrefix.Length);
+            string name = routeName != null && id.Length > 0 ? routeName(id) : null;
+            return RouteOrchestrator.HeldPartnerDetailPrefix + (name ?? "");
         }
 
         /// <summary>The state row label of a RoutePaused reason.</summary>

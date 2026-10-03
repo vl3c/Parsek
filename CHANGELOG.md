@@ -2577,7 +2577,10 @@ _(unreleased — entries accumulate here per commit)_
   and holding again after a rewind never writes the same reason twice. Every cargo row now
   reads amount first ("Delivered 150.0 LiquidFuel, 40.0 Oxidizer", "Picked up 50.0 Ore"),
   matching the Sent cost and a short delivery; the Logistics table's Delivers column is
-  unchanged. Holds from before this build are not in the history.
+  unchanged. Holds from before this build are not in the history. Renaming a linked route
+  while its partner waits adds no row (the row names the partner by id and shows its current
+  name). An older build loading a save with these rows logs a warning per row and reads each
+  as an empty entry that changes nothing.
 - **Logistics: a violet Paused Routes bar and aligned steppers.** The Paused Routes section's
   accent bar is soft violet instead of grey, so it no longer reads as a divider. In a route's
   Advanced details the Every and Priority steppers line up: both labels, both value cells and

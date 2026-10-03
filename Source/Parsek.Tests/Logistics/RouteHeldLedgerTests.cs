@@ -209,6 +209,48 @@ namespace Parsek.Tests.Logistics
             Assert.Single(Held());
         }
 
+        // catches: the legacy funds token "funds-shortfall-N" carrying the amount, so a
+        // shortfall-only change between two waits read as a new reason and wrote a row.
+        [Fact]
+        public void FundsHold_AmountInTheToken_IsNotANewReason()
+        {
+            Route route = PlainRoute();
+            var funds = RouteDispatchEvaluator.EligibilityFailureKind.FundsShort;
+            Assert.True(Hold(route, funds, "funds-shortfall-750", 750.0, 1000.0));
+            Assert.False(Hold(route, funds, "funds-shortfall-500", 500.0, 1030.0));
+            Assert.False(Hold(route, funds, "funds-short", 400.0, 1060.0));
+            GameAction row = Assert.Single(Held());
+            Assert.Equal(RouteOrchestrator.HeldFundsShortDetail, row.RouteEndpointReason);
+            Assert.Equal(750.0, row.RouteHoldShortfall);
+        }
+
+        // The legacy decision carries the funds amount as a number, not only in its token.
+        [Fact]
+        public void WaitFundsDecision_CarriesTheShortfall()
+        {
+            RouteDispatchDecision d = RouteDispatchDecision.WaitFunds(100.0, 750.4);
+            Assert.Equal(750.4, d.Shortfall);
+            Assert.Equal("funds-shortfall-750", d.Reason);
+            Assert.Equal(0.0, RouteDispatchDecision.WaitResources(100.0, "Ore").Shortfall);
+        }
+
+        // catches: the partner hold keyed on the partner's NAME, so renaming the linked
+        // route mid-hold wrote a second row for the same wait.
+        [Fact]
+        public void PartnerHold_IsKeyedOnThePartnerId_SoARenameWritesNoRow()
+        {
+            Route route = PlainRoute();
+            route.LinkedRouteId = "route-partner";
+            var wait = RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner;
+            Assert.True(Hold(route, wait, "partner:Return Run", 0.0, 1000.0));
+            Assert.False(Hold(route, wait, "partner:Return Run Renamed", 0.0, 1300.0));
+            GameAction row = Assert.Single(Held());
+            Assert.Equal("partner:route-partner", row.RouteEndpointReason);
+            // Unlinked (no id to key on): the evaluator token passes through.
+            Assert.Equal("partner:X", RouteOrchestrator.HeldRowDetail(PlainRoute(), wait, "partner:X"));
+            Assert.Equal("LiquidFuel", RouteOrchestrator.HeldRowDetail(route, OriginLacksCargo, "LiquidFuel"));
+        }
+
         // ==================================================================
         // Rewind
         // ==================================================================

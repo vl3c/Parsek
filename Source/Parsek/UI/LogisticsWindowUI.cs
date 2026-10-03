@@ -4042,7 +4042,8 @@ namespace Parsek
                 els, route.Id, originPlace, originVesselName,
                 index => stopAt(index) != null ? FormatEndpointPlace(stopAt(index).Endpoint) : null,
                 index => stopAt(index) != null ? TryResolveLiveVesselName(stopAt(index).Endpoint.VesselPersistentId) : null,
-                TryResolveLiveVesselName, StructureListWindowUI.ResolvePartTitle);
+                TryResolveLiveVesselName, StructureListWindowUI.ResolvePartTitle,
+                id => RouteStore.TryGetRoute(id, out Route partner) && partner != null ? partner.Name : null);
             ParsekLog.Verbose("UI",
                 $"Route History rows built: route={ShortId(route.Id)} rows={steps.Count.ToString(CultureInfo.InvariantCulture)}");
             return steps;

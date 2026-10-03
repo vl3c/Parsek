@@ -253,7 +253,8 @@ namespace Parsek.Tests.Logistics
         {
             return RouteHistoryBuilder.Build(els, RouteId, "Mun (surface)", "Mun Base",
                 stop => "Minmus (orbit)", stop => "Depot",
-                pid => pid == 42u ? "Relay B" : null, partTitle);
+                pid => pid == 42u ? "Relay B" : null, partTitle,
+                id => id == "route-b" ? "Return Run" : null);
         }
 
         // A held run reads "Held: <reason>" in the Logistics window's words, without the
@@ -273,7 +274,7 @@ namespace Parsek.Tests.Logistics
                 Held(500, RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
                     "source:77:Depot C:Ore", 20.0),
                 Held(600, RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost, "stop-0-no-live-vessels"),
-                Held(700, RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner, "partner:Return Run"),
+                Held(700, RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner, "partner:route-b"),
                 Act(GameActionType.RouteDispatched, 800, "c2"),
             });
             Assert.Equal(new[]
@@ -323,6 +324,20 @@ namespace Parsek.Tests.Logistics
                     "Held",
                 },
                 rows.Select(r => r.Label).ToArray());
+        }
+
+        // A linked-route wait stores the partner's id; the row names its CURRENT name, and
+        // reads "the linked route" once the partner no longer exists.
+        [Fact]
+        public void PartnerHeldRow_NamesThePartnerById()
+        {
+            var rows = BuildFromOrigin(new List<GameAction>
+            {
+                Held(100, RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner, "partner:route-b"),
+                Held(200, RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner, "partner:route-gone"),
+            });
+            Assert.Equal("Held: waiting for the linked route 'Return Run' to complete its run", rows[0].Label);
+            Assert.Equal("Held: waiting for the linked route to complete its run", rows[1].Label);
         }
 
         // The history sentence never carries live-route advice, whatever the clause.
