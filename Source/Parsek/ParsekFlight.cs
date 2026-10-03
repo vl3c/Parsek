@@ -2499,6 +2499,28 @@ namespace Parsek
         internal RecordingTree ActiveTreeForDisplay => activeTree;
 
         /// <summary>
+        /// The active tree's recording that the live recorder is writing for the vessel
+        /// <paramref name="vesselPid"/> right now, or null. The live binding is the identity
+        /// proof for an in-flight Recover: a resumed spawned vessel whose spawn regenerated
+        /// its identity carries the original launch guid on its recording but a fresh one on
+        /// the vessel, so a launch-identity match alone cannot find its recording.
+        /// </summary>
+        internal string LiveRecordingIdForVessel(uint vesselPid)
+        {
+            if (vesselPid == 0 || activeTree?.Recordings == null || recorder == null)
+                return null;
+            if (!recorder.IsRecording || recorder.RecordingVesselId != vesselPid)
+                return null;
+            string id = activeTree.ActiveRecordingId;
+            if (string.IsNullOrEmpty(id)
+                || !activeTree.Recordings.TryGetValue(id, out Recording rec)
+                || rec == null
+                || rec.VesselPersistentId != vesselPid)
+                return null;
+            return id;
+        }
+
+        /// <summary>
         /// Live-state idle-on-pad check used by the
         /// <c>HighLogic.LoadScene</c> prefix's fast path. Returns true if
         /// every recording in the active tree is idle-on-pad (max

@@ -39,9 +39,14 @@ namespace Parsek
     ///
     /// <para>
     /// Identity is the launch (<see cref="VesselLaunchIdentity.LiveVesselIsRecordedLaunch"/>:
-    /// pid plus a launch guid that does not conclusively differ), never the vessel name, and
-    /// only the vessel's tip segment is stamped
-    /// (<see cref="ParsekScenario.IsTerminalEventTarget"/>), as on the pending-tree path.
+    /// pid plus a launch guid that does not conclusively differ), or the recording the live
+    /// recorder was writing for the vessel when the request armed
+    /// (<see cref="Request.BoundRecordingId"/>), never the vessel name; only the vessel's tip
+    /// segment is stamped (<see cref="ParsekScenario.IsTerminalEventTarget"/>), as on the
+    /// pending-tree path. The bound recording covers a resumed Parsek-spawned vessel whose
+    /// spawn regenerated its identity: the resume moves the live pid onto the recording but
+    /// the recording keeps the original launch guid, which conclusively differs from the
+    /// spawned vessel's.
     /// </para>
     /// </summary>
     internal static class InFlightRecoveryRequest
@@ -54,6 +59,12 @@ namespace Parsek
             public string LaunchGuid;
             public string VesselName;
             public double RequestUT;
+
+            /// <summary>
+            /// The active tree's recording the live recorder was writing for this vessel when
+            /// the request armed (null when none was).
+            /// </summary>
+            public string BoundRecordingId;
         }
 
         private static Request armed;
@@ -68,7 +79,9 @@ namespace Parsek
 
         internal static Request Armed => armed;
 
-        internal static void Arm(uint vesselPid, string launchGuid, string vesselName, double requestUT)
+        internal static void Arm(
+            uint vesselPid, string launchGuid, string vesselName, double requestUT,
+            string boundRecordingId = null)
         {
             armed = new Request
             {
@@ -76,10 +89,11 @@ namespace Parsek
                 LaunchGuid = VesselLaunchIdentity.NormalizeGuid(launchGuid),
                 VesselName = vesselName,
                 RequestUT = requestUT,
+                BoundRecordingId = string.IsNullOrEmpty(boundRecordingId) ? null : boundRecordingId,
             };
             ParsekLog.Info(Tag,
                 $"In-flight recovery requested: vessel='{vesselName ?? "(null)"}' pid={vesselPid} " +
-                $"guid={armed.LaunchGuid ?? "(none)"} " +
+                $"guid={armed.LaunchGuid ?? "(none)"} boundRec={armed.BoundRecordingId ?? "(none)"} " +
                 $"ut={requestUT.ToString("F1", CultureInfo.InvariantCulture)} - " +
                 "the scene-exit finalize will commit its recording Recovered");
         }
@@ -130,6 +144,52 @@ namespace Parsek
             return StampRecovered(pendingTree, req, context);
         }
 
+        /// <summary>
+        /// True when the armed request must keep a live committed-restore clone from the
+        /// LoadScene-prefix auto-discard fast paths (no-op switch segment, no-op no-session
+        /// resume, idle-on-pad). Those run inside stock's <c>HighLogic.LoadScene</c>, BEFORE
+        /// the scene-exit finalize that applies the request, and revert the clone to the
+        /// committed original: the request then reaches no tree, the committed tip keeps its
+        /// spawnable terminal, and the next flight scene's spawn-death pass spawns the
+        /// recovered vessel again. A recovery changes the world, so the resume is not a
+        /// no-op: keeping the clone lets the finalize stamp the tip Recovered and the commit
+        /// store it. A tree that is not a clone has no committed history a discard could
+        /// leave behind, so the fast paths keep their behavior there. Does not consume the
+        /// request.
+        /// </summary>
+        internal static bool KeepsCommittedRestoreClone(
+            RecordingTree tree,
+            bool treeIsCommittedRestoreClone,
+            GameScenes destination,
+            string fastPath)
+        {
+            var req = armed;
+            if (req == null || tree == null) return false;
+            if (destination != GameScenes.SPACECENTER) return false;
+            if (!treeIsCommittedRestoreClone)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Auto-discard not held by recovery: fastPath={fastPath ?? "(none)"} " +
+                    $"tree={tree.Id ?? "(null)"} is not a committed-restore clone " +
+                    $"(vessel='{req.VesselName ?? "(null)"}' pid={req.VesselPid})");
+                return false;
+            }
+            if (!HasStampTarget(tree, req))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Auto-discard not held by recovery: fastPath={fastPath ?? "(none)"} " +
+                    $"tree={tree.Id ?? "(null)"} records no tip of vessel='{req.VesselName ?? "(null)"}' " +
+                    $"pid={req.VesselPid}");
+                return false;
+            }
+            ParsekLog.Info(Tag,
+                $"Auto-discard refused: fastPath={fastPath ?? "(none)"} dest={destination} " +
+                $"tree='{tree.TreeName ?? "(unnamed)"}' (id={tree.Id ?? "(null)"}) holds the in-flight " +
+                $"recovery of vessel='{req.VesselName ?? "(null)"}' pid={req.VesselPid} - keeping the " +
+                "committed-restore clone so the scene-exit finalize commits its tip Recovered");
+            return true;
+        }
+
         internal static bool HasStampTarget(RecordingTree tree, Request req)
         {
             if (tree?.Recordings == null || req == null) return false;
@@ -143,10 +203,25 @@ namespace Parsek
 
         private static bool IsStampTarget(Recording rec, RecordingTree tree, Request req)
         {
-            return rec != null
-                && VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, req.VesselPid, req.LaunchGuid)
+            return RecordsRecoveredVessel(rec, req)
                 && ParsekScenario.CanOverwriteTerminalState(rec.TerminalStateValue, TerminalState.Recovered)
                 && ParsekScenario.IsTerminalEventTarget(rec, tree);
+        }
+
+        /// <summary>
+        /// True when <paramref name="rec"/> records the vessel the request recovers: the same
+        /// launch, or the recording the live recorder was writing for that vessel's pid when
+        /// the request armed.
+        /// </summary>
+        internal static bool RecordsRecoveredVessel(Recording rec, Request req)
+        {
+            if (rec == null || req == null) return false;
+            if (VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, req.VesselPid, req.LaunchGuid))
+                return true;
+            return req.BoundRecordingId != null
+                && req.VesselPid != 0
+                && rec.VesselPersistentId == req.VesselPid
+                && string.Equals(rec.RecordingId, req.BoundRecordingId, StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -162,8 +237,7 @@ namespace Parsek
             int launchMatches = 0;
             foreach (var rec in tree.Recordings.Values)
             {
-                if (rec == null
-                    || !VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, req.VesselPid, req.LaunchGuid))
+                if (!RecordsRecoveredVessel(rec, req))
                     continue;
                 launchMatches++;
                 if (!IsStampTarget(rec, tree, req))

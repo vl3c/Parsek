@@ -1355,6 +1355,23 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel you recover right after switching to it no longer comes back.** Bring a
+  recorded flight's vessel into the world (Real Spawn Control, or its end-of-recording
+  spawn), switch to it and press stock's Recover at once, and the next flight scene used to
+  spawn the same vessel again, which on a career save could be recovered a second time.
+  Switching to the vessel resumes its committed recording; on the way to the Space Center,
+  Parsek's "nothing changed, drop the resume" check ran before the recovery was written
+  into the recording, so the recording kept its landed ending and the vessel's absence
+  later read as a death to be undone. That check, and the two like it on the same exit
+  (the switch-segment and idle-on-the-pad versions), now keep a resumed recording whose
+  vessel is being recovered, and the recording is committed ending Recovered. The recovery
+  now also finds a vessel whose spawn gave it a new identity: it follows the recording that
+  was recording the vessel when Recover was pressed. And a recording committed ending
+  Recovered, Destroyed or Disassembled no longer inherits the old "already spawned" claim
+  from the version it replaces, so the next flight scene does not read the recovered vessel
+  as one that died. A fresh, never-committed flight recovered from the pad is still dropped
+  silently.
+
 - **Dev: an in-game test batch in the Tracking Station no longer orphans the ghost map
   vessels.** Before a batch the test runner cleared Parsek's list of ghost map vessels without
   removing the vessels, and in the Tracking Station nothing else removed them. They then read

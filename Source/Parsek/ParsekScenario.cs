@@ -7852,8 +7852,13 @@ namespace Parsek
             string guid = v.id != Guid.Empty
                 ? v.id.ToString("N", CultureInfo.InvariantCulture)
                 : null;
+            var flight = ParsekFlight.Instance;
+            string boundRecordingId = flight != null
+                ? flight.LiveRecordingIdForVessel(v.persistentId)
+                : null;
             InFlightRecoveryRequest.Arm(
-                v.persistentId, guid, v.vesselName, Planetarium.GetUniversalTime());
+                v.persistentId, guid, v.vesselName, Planetarium.GetUniversalTime(),
+                boundRecordingId);
 
             if (RecordingStore.HasPendingTree
                 && RecordingStore.PendingTreeStateValue == PendingTreeState.Finalized)
