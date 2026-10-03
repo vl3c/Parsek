@@ -367,6 +367,9 @@ namespace Parsek
             }
 
             if (flight == null || !flight.HasActiveTree) return false;
+            if (PendingRecoveryKeepsLiveTree(
+                    flight.ActiveTreeForDisplay, destination, "idle-on-pad"))
+                return false;
             if (!flight.IsActiveTreeIdleOnPad()) return false;
 
             string reason = $"scene-exit idle-on-pad auto-discard dest={destination}";
@@ -383,6 +386,32 @@ namespace Parsek
                 flight.AutoDiscardIdleActiveTree(reason);
             }
             return true;
+        }
+
+        /// <summary>
+        /// Shared guard of the three LoadScene-prefix auto-discard fast paths: true when
+        /// an armed <see cref="InFlightRecoveryRequest"/> must keep
+        /// <paramref name="liveTree"/> (a committed-restore clone holding the recovered
+        /// launch's tip) for the scene-exit finalize that stamps it Recovered. The fast
+        /// paths run before that finalize, so a discard here would lose the recovery and
+        /// let the committed tip spawn the recovered vessel again.
+        /// </summary>
+        private static bool IsSwitchSegmentSessionArmed()
+        {
+            var scenario = ParsekScenario.Instance;
+            return !object.ReferenceEquals(null, scenario)
+                && scenario.ActiveSwitchSegmentSession != null;
+        }
+
+        internal static bool PendingRecoveryKeepsLiveTree(
+            RecordingTree liveTree, GameScenes destination, string fastPath)
+        {
+            if (liveTree == null || InFlightRecoveryRequest.Armed == null) return false;
+            return InFlightRecoveryRequest.KeepsCommittedRestoreClone(
+                liveTree,
+                RecordingStore.IsCommittedTreeRestoreAttemptTree(liveTree.Id),
+                destination,
+                fastPath);
         }
 
         /// <summary>
@@ -409,6 +438,12 @@ namespace Parsek
             GameScenes destination, ParsekFlight flight)
         {
             if (flight == null) return false;
+            // Only an armed session reaches this discard; without one the evaluator
+            // refuses on its own (no-session) and the 3.6 path owns the resume.
+            if (IsSwitchSegmentSessionArmed()
+                && PendingRecoveryKeepsLiveTree(
+                    flight.ActiveTreeForDisplay, destination, "noop-switch-segment"))
+                return false;
             if (!flight.TryEvaluateActiveSwitchSegmentNoOp(
                     out string reason, out SwitchSegmentDisposition disposition))
             {
@@ -466,6 +501,10 @@ namespace Parsek
             GameScenes destination, ParsekFlight flight)
         {
             if (flight == null) return false;
+            if (!IsSwitchSegmentSessionArmed()
+                && PendingRecoveryKeepsLiveTree(
+                    flight.ActiveTreeForDisplay, destination, "noop-no-session-resume"))
+                return false;
             if (!flight.TryEvaluateNoSessionCommittedResumeNoOp(out string reason))
                 return false;
 
@@ -741,6 +780,10 @@ namespace Parsek
             //     committedTrees); only BgMemberOrMixed defers. Runs BEFORE the
             //     HasActiveTree routing check so that check is taken on
             //     post-discard state (the teardown nulls activeTree).
+            //     All three fast paths (3.5, 3.6, 5) run BEFORE the scene-exit
+            //     finalize that applies an in-flight Recover, so each keeps a
+            //     committed-restore clone holding the recovered launch's tip
+            //     (PendingRecoveryKeepsLiveTree).
             if (flight != null
                 && SceneExitInterceptor.TryAutoDiscardNoOpSwitchSegment(scene, flight))
             {

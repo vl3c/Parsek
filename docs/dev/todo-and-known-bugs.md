@@ -86,7 +86,7 @@ The B11 / B13 / B14 spec headers (and B16's dwell comment) described the PARK as
 DROPPED to 1x" / "the machine holds 1x through it", which predates #1958; the same branch
 rewords them (comments only).
 
-## PHYSWARP-RATE-CHANGE-SAMPLE-SKEW: a sample taken on a physics-warp rate-change frame carries a position one frame behind its UT [FILED 2026-10-02 from PWR-3 `2026-10-02_2108`, branch `physwarp-recording`. OPEN, low; operator decides the fix]
+## ~~PHYSWARP-RATE-CHANGE-SAMPLE-SKEW: a sample taken on a physics-warp rate-change frame carries a position one frame behind its UT~~ [FILED 2026-10-02 from PWR-3 `2026-10-02_2108`, branch `physwarp-recording`. FIXED 2026-10-03, branch `physwarp-sampling-fixes`]
 
 The High-density reading run's sampling block counted ONE continuity jump. Recording
 `988bacde` (the main ship's post-ascent-exit half), section 0, at the end of MechJeb's 2x
@@ -108,10 +108,12 @@ reports. Every density is exposed; only High's short gaps make it measurable (in
 3 s or 8 s gap the 55 m is under the jump tolerance). Playback effect: a one-sample hitch of
 0.04 s, not visible at playback speed.
 
-- [ ] Decide: accept (and widen nothing; the PWR-3 `jumps = 0` pin stays and the lane carries
-  the finding), or skip / re-stamp a sample on a frame whose `fixedDeltaTime` changed.
+- [x] Fix: see PHYSWARP-BACKSTOP-MISSED-FRAME below; both findings are one cause. The
+  hypothesis above (UT and position from different `fixedDeltaTime`s) was wrong: the skewed
+  sample was a pre-physics read inside FixedUpdate, and the rate change is just a long
+  render frame.
 
-## PHYSWARP-BACKSTOP-MISSED-FRAME: under 4x physics warp the max-interval backstop sample once landed a frame late [FILED 2026-10-02 from PWR-3 `2026-10-02_2133`, branch `physwarp-recording`. OPEN, low, intermittent; operator decides the fix]
+## ~~PHYSWARP-BACKSTOP-MISSED-FRAME: under 4x physics warp the max-interval backstop sample once landed a frame late~~ [FILED 2026-10-02 from PWR-3 `2026-10-02_2133`, branch `physwarp-recording`. FIXED 2026-10-03, branch `physwarp-sampling-fixes`]
 
 PWR-3's armed run counted ONE gap over the High backstop allowance: recording `8db2e7f1`
 (the main ship's post-ascent half), section 5, the 4x `WarpToUT ladder=phys` LKO coast. Every
@@ -132,10 +134,42 @@ The PWR-3 quarantine tolerates this token (`[expectedFail] optionalMismatches`,
 `optionalBugId = PHYSWARP-BACKSTOP-MISSED-FRAME`) because it is intermittent; a count other
 than 1 reds.
 
-- [ ] Instrument (a per-frame UT-delta check on the active recorder) and decide whether a
-  backstop can be guaranteed at `max + one frame` under physics warp.
+Cause (both findings): the recorder samples from a postfix on
+`VesselPrecalculate.CalculatePhysicsStats`. For an unpacked vessel KSP runs that from
+`VesselPrecalculate.Update`, once per render frame after all of the frame's physics steps,
+and from `FixedUpdate` only on the second and later steps of a frame that holds several
+(`physStatsNotDoneInUpdate`, decompiled `MainPhysics` / `Update`, KSP 1.12.5). That
+FixedUpdate call runs before the step's PhysX simulate, after UT advanced and the floating
+origin moved the bodies: the read pairs one step's UT with the previous step's rigidbody
+position, and the frame's first step is never offered. The `_2133` sample at 410.2244 has a
+chord of exactly 1.04 s of travel over its 1.12 s gap (the 13th step's position under the
+14th step's UT); the `_2108` sample at 212.5152 sits half a step back (the Krakensbane
+share of the motion already applied). A long render frame is all it takes, which is why
+the warp-rate change (deterministic, the same step in both runs) and a slow render stretch
+hit it; 1x staging hitches are exposed the same way.
 
-## SECTION-DUPLICATE-UT-SAMPLES: the recorder writes two samples with the same UT into one track section [FILED 2026-10-02 from PWR-1 `2026-10-02_2122` / `_2141` and PWR-3 `2026-10-02_2108` / `_2133`, branch `physwarp-recording`. OPEN, low, pre-existing at 1x; operator decides the fix]
+- [x] Fix: `PostPhysicsPoseCache` (`PostPhysicsPose.cs`). A `WaitForFixedUpdate` loop in
+  `ParsekFlight` stores the active vessel's lat / lon / alt and UT after every physics step
+  while a foreground recorder runs; `FlightRecorder.OnPhysicsFrame` samples that pose
+  (`ResolveSampleSource`): an Update callback's pose has the live UT, a FixedUpdate callback's
+  pose is the step the live read straddles, so every step is observed once with a matching
+  position and the backstop holds at `max + one step`. A FixedUpdate callback with no current
+  pose, or in Relative mode (the anchor offset resolves against the live world), takes no
+  sample, so there the backstop holds at `max + one render frame`; a packed vessel reads
+  live as before. `BackgroundRecorder` skips its FixedUpdate
+  callbacks' trajectory sample and samples at the Update step. FixedUpdate callbacks log
+  `Fixed-step physics callback:` (rate-limited, with tallies). The boundary checks that
+  sample the live vessel (atmosphere, altitude, environment, anchor) wait for the
+  Update-step callback that ends the same render frame. Left as is: the sample rotation
+  (`v.srfRelRotation`, read live as before), and event-driven
+  `SamplePosition` calls that fire inside FixedUpdate (an autostager's decouple) still read
+  live; their same-UT pairs are handled by SECTION-DUPLICATE-UT-SAMPLES.
+  Live proof: quarantined PWR-3 `2026-10-03_1030` XPASS (jumps 0, overMax 0; the FixedUpdate
+  callback at the rate change logged `source=PostPhysicsPose reason=fixed-step-pose
+  liveUT=212.5152 poseUT=212.4775`), armed `_1050` PASS; PWR-1 `_1039` / PWR-2 `_1044` PASS.
+  PWR-3's `[expectedFail]` block is removed and it claims D2 `physics-warp-high`.
+
+## ~~SECTION-DUPLICATE-UT-SAMPLES: the recorder writes two samples with the same UT into one track section~~ [FILED 2026-10-02 from PWR-1 `2026-10-02_2122` / `_2141` and PWR-3 `2026-10-02_2108` / `_2133`, branch `physwarp-recording`. FIXED 2026-10-03, branch `section-duplicate-ut`]
 
 The PWR sampling block counts in-section duplicate UTs. It found them in four of the six
 PWR flights, every one at 1x and none on a physics-warp gap:
@@ -161,10 +195,59 @@ The PWR lanes REPORT the all-class total and pin only `warpDuplicates = 0` (dupl
 pairs touching physics warp), because this defect is not a physics-warp degradation (operator
 decision 2026-10-02).
 
-- [ ] Decide: skip (or replace) a commit whose UT equals `lastRecordedUT` in
-  `CommitRecordedPoint` / the off-rails boundary path / the section-close seed.
+- [x] Fix: one choke point instead of per-site guards. Every foreground sample reaches
+  `CommitRecordedPointWithVessel` / `WithoutVessel`, which now classify the commit against the
+  point it would follow in its own section (the section's last frame, or the flat list's last
+  point with no section open; `ClassifySameUTCommit`). The PWR-1 "byte-identical" double at
+  48.50 is the periodic sample followed by the JointBreak structural snapshot of the same
+  callback: same position and velocity, but the snapshot carries `flags = 1` and a rotation
+  differing in the fourth decimal (`HasStructuralEventSnapshotAtTail` dedupes only against
+  an earlier structural point), so it takes the replace path and the flagged point stays.
+  An identical sample (every field but `flags`, NaN clearances equal) is not appended and its
+  flag bits are OR-ed into the stored point, so a structural-event marker is never lost. A
+  differing one replaces the stored point (flags OR-ed, Relative `bodyFixedFrames` shadow
+  replaced in step, flat list updated in place, except when the section's only frame is a
+  boundary seed: the flat list's same-UT point then belongs to the closed section and stays,
+  the new sample is appended after it): the later commit is the later observation of
+  that instant, taken after the event that caused it, and the following samples continue from
+  its state (the clamp-release pair: the off-rails sample's unpacked velocity is the
+  convention every later sample uses, the packed one carried `obt_velocity`). It logs
+  `Same-UT sample replaced the section's last point: ... differs=...` (Verbose; identical
+  merges rate-limited). A first frame in a fresh section still appends: the flat list's
+  equal-UT seam point belongs to the closed section. No schema change. The background
+  recorder is unchanged (its sections showed no in-section duplicate in the PWR saves; its
+  equal-UT tolerance in `ApplyTrajectoryPointToRecording` stays). Live proof on the fixed DLL:
+  PWR-1 `2026-10-03_1039`, PWR-2 `_1044`, PWR-3 `_1030` all read duplicates 0 (the log shows
+  the replace path at clamp release, `differs=speed(174.97->0.00)`, and at the second staging,
+  `differs=rotation flags=1`); the PWR lanes now pin `duplicates = 0`.
 
-## SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP: the recorder's dropped-sample WARN is downgraded for every physics-warp gap [FILED 2026-10-02 from the physics-warp recording investigation, branch `physwarp-recording`. OPEN, low, pre-existing; operator decides]
+## ~~BG-PROXIMITY-GAP-READS-AS-SPARSE-SAMPLING: a debris section that left proximity range WARNs `TrackSection sparse sampling:` on every booster launch~~ [FILED 2026-10-03 from PWR-3 `2026-10-03_1030` and every PWR flight of 2026-10-02, branch `sparse-warn-physwarp`. FIXED 2026-10-03, branch `bg-proximity-gap`]
+
+Every PWR flight (`2026-10-02_2102` / `_2108` / `_2122` / `_2128` / `_2133` / `_2141` and
+`2026-10-03_1030`) logs two `[WARN][BgRecorder] TrackSection sparse sampling:` lines, one per
+booster debris, `maxGap` 13.8-14.2 s. The debris leaves the 2.3 km proximity tier
+(`Sample rate changed: ... interval=none`), `ShouldSkipTrajectorySamplingForProximity` stops
+its samples by design, and the next sample comes when a structural event reopens a
+high-fidelity window (`structural-event-JointBreak` at the second staging), so the gap is the
+designed out-of-range silence, not a stalled sampler. It WARNed at 1x before
+SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP too (the old `largeGaps1x=1`), so that fix did
+not introduce it. No lane reads it.
+
+- [x] Fix: the background recorder records each out-of-range silence as a UT window
+  (`BackgroundVesselState.sectionProximitySilences`): it opens at the first tick
+  `ShouldSkipTrajectorySamplingForProximity` skips and closes at the first tick that is not
+  skipped (back in range, or a high-fidelity / debris tier overriding the range), and the
+  list is cleared when a section starts. Closing on the return tick rather than on the next
+  committed frame keeps an in-range stall after the return outside the window (it still
+  WARNs; `SectionClose_StallAfterReturningInRange_StillWarns`), and a boundary seed committed
+  during a silence no longer cuts the window short. `ComputeSectionGapStats` takes the windows: an off-rails
+  large gap counts toward the WARN only when its time outside them
+  (`ComputeGapSecondsOutsideSilences`) still exceeds the threshold, so a stall on either side
+  of a silence still WARNs; the rest count as `LargeGapCountInSilence`, logged as
+  `largeGapsOutOfRange=`. Logs `Proximity sampling silence started:` / `ended:` (Verbose,
+  once each per silence). The foreground recorder has no proximity silence and passes none.
+
+## ~~SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP: the recorder's dropped-sample WARN is downgraded for every physics-warp gap~~ [FILED 2026-10-02 from the physics-warp recording investigation, branch `physwarp-recording`. FIXED 2026-10-03, branch `sparse-warn-physwarp`]
 
 `FlightRecorder.CloseCurrentTrackSection` WARNs `TrackSection sparse sampling:` when a closed
 section holds a gap beyond `ResolveSparseGapWarningThreshold(maxSampleInterval)` whose two
@@ -180,10 +263,23 @@ shares the classification.
 
 Impact is low: the line is diagnostic, the log validator's WRN-001 does not read it, and the
 new `[expectations.recordings.sampling]` block (`harness/lib/samplingq.py`) now gates the same
-defect on the PWR lanes with the right per-rate allowance. Not changed here (operator decides).
+defect on the PWR lanes with the right per-rate allowance.
 
-- [ ] Classify the warn flag by mode: rails / on-rails stays exempt, physics warp WARNs above
-  the threshold plus one `0.02 * rate` frame.
+- [x] Fix: the per-frame flag is now `isOnRails || IsRailsWarpActiveForDiagnostics()` (rate
+  index above 0 in `TimeWarp.Modes.HIGH`; pure `IsRailsWarpState`), in both recorders, so
+  only a gap touching a rails / on-rails sample downgrades to Verbose. No extra per-rate
+  allowance was needed: `ResolveSparseGapWarningThreshold` (1.5x the max, floored at 0.5 s)
+  exceeds `max + 0.08 s` for every max interval (pinned by
+  `ResolveSparseGapWarningThreshold_ClearsMaxPlusOne4xFrame`), so an on-schedule 4x gap
+  never reaches it. The counter is `LargeGapCountOffRails` / log token `largeGapsOffRails=`
+  (no harness spec or tool reads the old `largeGaps1x=`). Headless, `TimeWarp`'s static
+  accessors answer rate index 1 in HIGH mode without the singleton, which read as warp in
+  every xUnit section close; the read now returns false when `TimeWarp.fetch` is null. No
+  lane forbids a WARN line generically (the log validator's WRN-001 checks only a redundant
+  `WARNING:` prefix), so a legitimate physics-warp run reds nothing.
+  Flown on a DLL carrying this fix: PWR-1 `2026-10-03_1039`, PWR-2 `_1044`, PWR-3 `_1030` /
+  `_1050` log no foreground `TrackSection sparse sampling:` WARN; each logs the two
+  background debris WARNs every earlier PWR run already had (BG-PROXIMITY-GAP-READS-AS-SPARSE-SAMPLING).
 
 ## ~~KXRW-RESULT-NAN-DETAIL: a kx_rewind_watch flight that ends early writes no mission result at all~~ [FILED 2026-10-01 from the mutation checker's blind replay, branch `mutation-phase2-pr3`. FIXED 2026-10-01, branch `fix-kxrw-nan`]
 
@@ -282,9 +378,20 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   node waits 5,100 s). The largest recoverable rows are now pre-#1964 BDOCK RENDEZVOUS
   waits, B22's outcome-sensitive CIRCULARIZE node wait (~590 s per run, policy undecided)
   and pre-#1958 CAPTURE-BURN waits.
-- [ ] B22's CIRCULARIZE node wait: owner ruling 2026-10-03 keeps it recoverable and
+- [x] B22's CIRCULARIZE node wait: owner ruling 2026-10-03 keeps it recoverable and
   outcome-sensitive in the analyzer. Backlog target: a verification flight before any warp
-  there (~590 s per run).
+  there (~590 s per run). Now a hold behind the default-off b5 key `circularizeNodeWaitWarp`
+  (branch `b5-circ-node-wait`, stacked on `coast-native-lead`): the CAPTURE node-wait hold
+  (`_b5_node_wait_begin` / `_b5_node_wait_step`) extended to the park round-out hand-off,
+  declined when the executor is not observed idle, the park is rails-illegal, or the warp
+  budget is spent; transfer nodes stay un-held. Only B22 opts in. The analyzer counts the
+  wait inside the lead (120 s + 5 s + half burn) as by design only in a visit whose own
+  `node-wait:` line printed its half burn; the rest stays recoverable and outcome-sensitive.
+  Re-fly proof 2026-10-03_1157 (with the coast lead): the hold warped to ut 2564.7 (node
+  2687.2, half burn 2.5 s) and released on arrival; trim ap 769,667 m (unheld runs 769,661 /
+  769,650); CIRCULARIZE wall 626 s -> 108 s; mission wall 2,767 s (2026-10-01_2235) ->
+  2,156 s; same 20-phase list, corrections 124.10 / 73.25 m/s (unheld 124.10 / 72.73-72.81),
+  Jool park ap 584,389 km (unheld 584,339 / 584,320 km, about 0.01%).
 - [x] BDOCK decisions (owner ruling 2026-10-03, resolved in the analyzer). STATION-ASCENT /
   INT-ASCENT node waits are by design (the same MechJeb ascent as MJ-ASCENT; BDOCK engages
   `ACTION_MJ_ENGAGE_ASCENT` on both legs). The RENDEZVOUS wait is by design from the hold's
@@ -298,6 +405,18 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   recoverable 18,712 s -> 14,450 s, by design 9,996 s -> 14,141 s; the top recoverable rows
   are now the pre-#1964 BDOCK-1 / BDOCK-2 RENDEZVOUS waits (3,499 s / 1,338 s), B22
   CIRCULARIZE (1,183 s) and pre-#1958 CAPTURE-BURN waits.
+- [x] Coast native lead (branch `coast-native-lead`): two default-off b5 `missionParams`.
+  `soiNativeLeadSeconds` moves the coast's native warp stop (and the approach clamp's lead)
+  closer to the SOI boundary than `soiLeadSeconds`, floored at 120 s + 4 x
+  `RAILS_WARP_RATES[approachMaxWarpFactor]` (rejected at spec load below it);
+  `triggerNativeLeadSeconds` keeps the time-mode correction-trigger native warp armed to
+  that many seconds before the trigger instead of `soiLeadSeconds`. Opted in on B26
+  (400 / 30) and B22 (10,000 / 30); every other lane is unchanged. Re-fly proof: B26
+  2026-10-03_1055 vs _0956 mission wall 707 s -> 596 s, same 20-phase list, corrections
+  63.72 / 11.63 m/s (was 63.72 / 11.67), Vall park 170,812 x 167,552 m (was 170,547 x
+  167,279; the two pre-change runs differ by ~980 m). B22 2026-10-03_1106 vs 2026-10-01_2235
+  coast wall 368 s -> 315 s, corrections 124.10 / 72.73 (was 124.10 / 72.81), Jool park
+  within 19 km of 584,339 km.
 
 ## ~~RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON: the recording stats frame lookup matches a section end exactly, with no tolerance~~ [FILED 2026-10-01 from the PR #1943 review, branch `l7-nightly-residue`. FIXED 2026-10-03, branch `fix-stats-frame-epsilon`]
 
@@ -5983,7 +6102,36 @@ and consider a second, pre-filter view (`ComputeAllGhostChains`' full output, or
 `digest=6ad6ec1c` (a fixture-derived literal in two required tokens), so it needs CI-3
 re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
 (`bbd83d3b`, `8952919c`) recomputed.
-## CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE: recovering a Real-Spawned chain tip right after switching to it drops the recovery, and the next flight scene spawns the vessel again [FILED 2026-10-03 on branch `d18-recovery` from `CI-6-chain-tip-recover-no-respawn`'s reading run `2026-10-03_1014`; OPEN]
+## ~~CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE: recovering a Real-Spawned chain tip right after switching to it drops the recovery, and the next flight scene spawns the vessel again~~ [FILED 2026-10-03 on branch `d18-recovery` from `CI-6-chain-tip-recover-no-respawn`'s reading run `2026-10-03_1014`; FIXED 2026-10-03 on branch `tip-recover-respawn`, CI-6 XPASS `2026-10-03_1234` and armed PASS `2026-10-03_1242`]
+
+**Fixed 2026-10-03 (branch `tip-recover-respawn`).** Three changes, all on the stored value:
+
+1. The three LoadScene-prefix auto-discard fast paths (3.5 no-op switch segment, 3.6 no-op
+   no-session resume, 5 idle-on-pad) ask `SceneExitInterceptor.PendingRecoveryKeepsLiveTree`
+   first: when the live tree is the armed committed-restore clone and the armed
+   `InFlightRecoveryRequest` has a stampable tip in it
+   (`InFlightRecoveryRequest.KeepsCommittedRestoreClone`), the fast path keeps the tree
+   (`[Recovery] Auto-discard refused: fastPath=...`), and the scene-exit finalize stamps the
+   tip Recovered. 3.5 asks only with a session armed, 3.6 only without. A fresh,
+   never-committed tree keeps its silent discard.
+2. The request binds, when armed, to the recording the live recorder is writing for the
+   recovered pid (`ParsekFlight.LiveRecordingIdForVessel`, `Request.BoundRecordingId`, logged
+   `boundRec=`). An end-of-recording spawn regenerates the vessel's identity (fresh pid and
+   guid); the resume moves the live pid onto the tip but the tip keeps the original launch
+   guid, so the launch match alone stamped nothing for that shape (found by the PR review;
+   unit-proven only, CI-6's chain-tip spawn keeps its identity).
+3. `RecordingStore.PreserveLiveRuntimeFieldsOnReplace` (its one caller is the tree commit)
+   no longer re-installs the replaced recording's spawn claim on a recording whose own
+   terminal leaves no vessel (Recovered / Destroyed / Disassembled). The commit runs at the
+   Space Center before stock removes the vessel, so the stale-stamp guard saw the pid live:
+   the first flight on changes 1-2 (`2026-10-03_1154`) committed Recovered and spawned
+   nothing, but still logged `Spawn-death detected` on the next flight.
+
+Unit tests: `RecoveryKeepsResumedCloneTests`. Mirror cases: switch, then Recover after a
+meaningful segment already committed Recovered (the classifier keeps a meaningful resume);
+a recovery that never reaches a live tree (Tracking Station, KSC marker, a non-active
+vessel) is filed separately as SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX.
+The text below is the original filing.
 
 **What the player does.** Real Spawn Control's "Warp to Spawn" on a ghost chain's tip (here a
 landed lander ~130 m from the pad), Switch-To the spawned vessel, press stock's Recover at
@@ -6039,6 +6187,32 @@ terminalState=Recovered`, and the forbidden `dropped unapplied`, `Spawn-death de
 the signature; a fixed-shape log (the three defect lines gone, the Recovered line present) has
 zero mismatches and would read XPASS; a half-fixed log (recovery recorded, respawn still
 there) and a no-spawn log do NOT match, so neither reads green.
+
+## SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX: a Parsek-spawned vessel recovered from the Tracking Station or the KSC marker leaves no evidence on a sandbox save when it carries no crew, and the next flight scene spawns it again [FILED 2026-10-03 on branch `tip-recover-respawn` from the mirror check of CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE; OPEN, derived from source, NOT FLOWN; needs an owner ruling on where the recovery is stored]
+
+The mirror of the closed in-flight case. Recovering a vessel Parsek spawned at a committed
+recording's end WITHOUT switching to it first (Tracking Station Recover, the KSC vessel
+marker, or kRPC's `Vessel.Recover` on a non-active vessel) never reaches a live tree, so
+nothing re-stamps the committed tip: `ParsekScenario.UpdateRecordingsForTerminalEvent`
+stamps only the pending tree by contract ("Committed recordings are never modified by
+terminal events"). The tip keeps its spawnable terminal, `VesselSpawned = True` and the
+spawned pid. What then stops the respawn is `RecoveredRecordingEvidence` (PR #1908), which
+reads a recovery ledger row tagged to the recording: a `FundsEarning(Recovery)` row (paired
+from stock's `FundsChanged(VesselRecovery)`, which a sandbox save never raises; CI-6's
+reading run logs `FlushStalePendingRecoveryFunds ... evicting 1 unclaimed recovery
+request(s)`) or a `KerbalRecovered` crew-close row (none for an uncrewed vessel: CI-6 logs
+`Recovery crew reservation close: ... no crew aboard, nothing to close`). With neither,
+the next FLIGHT scene's `ParsekPlaybackPolicy.RunSpawnDeathChecks` finds the spawned pid
+gone, resets the tip, and `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` spawns it again.
+Career saves and crewed vessels are covered by the existing rows.
+
+**Not covered by the in-flight fix**, which keeps a resumed clone so the commit stores
+Recovered; here there is no clone. Options, each a ruling: a vessel-recovery ledger row
+written on every `onVesselRecovered` of a genuine Parsek spawn pid regardless of funds
+(identity is unambiguous: a Parsek spawn pid is KSP-unique, or the chain tip's preserved
+pid plus its launch guid); or mutable spawn state on the committed recording (the
+`SpawnAbandoned` family lives in the .sfs, so an older save restores it). Lane: CI-6's host
+with `Recover` replaced by a Tracking Station recovery (no such seam verb yet).
 
 ## TERMINATED-CHAIN-SPAWN-SUPPRESSED-LINE-UNREACHABLE: `GhostPlaybackLogic.ShouldSuppressSpawnForChain`'s terminated-chain arm cannot fire in production [FILED 2026-10-03 on branch `d18-recovery`; OPEN, low priority, no player effect]
 

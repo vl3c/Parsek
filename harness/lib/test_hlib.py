@@ -11226,6 +11226,10 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # Destroyed 1 / Orbiting 1, ghostChainNodes 0, spawnedVessels 0,
                        # Kerbal X 1 / Kerbal X Probe 0, pointCount total 3 / largest 2).
                        "CI-5-background-event-claim.toml",
+                       # CI-6: `structure` armed 2026-10-03 off its XPASS reading on the
+                       # fix `2026-10-03_1234` (trees / committedTrees 1, recordings 2,
+                       # Recovered 1 / SubOrbital 1, spawnedVessels 0, CTR Lander 0).
+                       "CI-6-chain-tip-recover-no-respawn.toml",
                        # SS-1: `structure` + `points` armed 2026-09-26 off its reading
                        # `2026-09-25_2102`; re-scoped 2026-09-27 (the probe is a real
                        # 71 x 90 km Orbiting orbit that defers, then spawns) and re-armed

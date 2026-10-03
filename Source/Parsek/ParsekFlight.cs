@@ -1340,6 +1340,7 @@ namespace Parsek
             GameEvents.onGamePause.Add(OnGamePause);
             GameEvents.onGameUnpause.Add(OnGameUnpause);
             Camera.onPreCull += OnCameraPreCull;
+            StartCoroutine(PostPhysicsPoseCaptureLoop());
 
             CaptureFreshRolloutVesselPidIfApplicable();
 
@@ -2230,6 +2231,7 @@ namespace Parsek
             if (inertForGameMode)
                 return; // never subscribed, never became Instance (S9 game-mode gate)
             Instance = null;
+            PostPhysicsPoseCache.Clear();
             // #267: clear the static restore-reentrancy guard. The restore coroutines
             // set it true and clear it in a finally, but Unity abandons a running
             // coroutine when the MonoBehaviour is destroyed (scene change) WITHOUT
@@ -2497,6 +2499,28 @@ namespace Parsek
         /// pending tree.
         /// </summary>
         internal RecordingTree ActiveTreeForDisplay => activeTree;
+
+        /// <summary>
+        /// The active tree's recording that the live recorder is writing for the vessel
+        /// <paramref name="vesselPid"/> right now, or null. The live binding is the identity
+        /// proof for an in-flight Recover: a resumed spawned vessel whose spawn regenerated
+        /// its identity carries the original launch guid on its recording but a fresh one on
+        /// the vessel, so a launch-identity match alone cannot find its recording.
+        /// </summary>
+        internal string LiveRecordingIdForVessel(uint vesselPid)
+        {
+            if (vesselPid == 0 || activeTree?.Recordings == null || recorder == null)
+                return null;
+            if (!recorder.IsRecording || recorder.RecordingVesselId != vesselPid)
+                return null;
+            string id = activeTree.ActiveRecordingId;
+            if (string.IsNullOrEmpty(id)
+                || !activeTree.Recordings.TryGetValue(id, out Recording rec)
+                || rec == null
+                || rec.VesselPersistentId != vesselPid)
+                return null;
+            return id;
+        }
 
         /// <summary>
         /// Live-state idle-on-pad check used by the
@@ -4361,6 +4385,39 @@ namespace Parsek
             StartCoroutine(DeferredResumeScreenMessage());
             RecorderStateLog.RecState("CommittedSpawnedRestore:post", CaptureRecorderState());
             return true;
+        }
+
+        /// <summary>
+        /// Captures the active vessel's pose after every physics step while a foreground
+        /// recorder runs, so a physics callback that fires inside FixedUpdate (before that
+        /// step's PhysX simulate) can still sample a UT and position from one step. See
+        /// <see cref="PostPhysicsPoseCache"/>.
+        /// </summary>
+        private IEnumerator PostPhysicsPoseCaptureLoop()
+        {
+            var waitForFixedUpdate = new WaitForFixedUpdate();
+            ParsekLog.Verbose("Recorder", "Post-physics pose capture loop started");
+            while (true)
+            {
+                yield return waitForFixedUpdate;
+                if (Patches.PhysicsFramePatch.ActiveRecorder == null
+                    && Patches.PhysicsFramePatch.GloopsRecorderInstance == null)
+                {
+                    PostPhysicsPoseCache.Clear();
+                    continue;
+                }
+
+                try
+                {
+                    PostPhysicsPoseCache.Capture(FlightGlobals.ActiveVessel);
+                }
+                catch (Exception ex)
+                {
+                    PostPhysicsPoseCache.Clear();
+                    ParsekLog.WarnRateLimited("Recorder", "post-physics-pose-capture-failed",
+                        $"Post-physics pose capture failed: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
         }
 
         private System.Collections.IEnumerator DeferredResumeScreenMessage()

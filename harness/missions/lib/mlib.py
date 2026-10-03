@@ -2041,7 +2041,8 @@ def max_legal_rails_factor(body: str, altitude_m: float) -> int:
 #     AlignedAndSettled (1 deg AND |omega| < 0.001 rad/s, roll included) before
 #     warping on, and while it aligns it calls MinimumWarp every tick, so a
 #     second warp writer is cancelled. A vessel that never settles idles the
-#     whole 600 s. The machine therefore HOLDS the CAPTURE hand-off, rails-warps
+#     whole 600 s. The machine therefore HOLDS the CAPTURE hand-off (and, per
+#     lane via circularizeNodeWaitWarp, the CIRCULARIZE park round-out), rails-warps
 #     itself to NODE_WAIT_ORIENT_LEAD_SECONDS before ignition, and only then
 #     engages the executor, which aligns and burns exactly as before (see
 #     _B5_NODE_WAIT_PHASES for why transfers are not held).
@@ -2168,6 +2169,30 @@ def node_wait_warp_plan(now_ut: float, node_ut: float, node_dv: float,
         return None, ("warp window %.0f s < %.0f s (%s)"
                       % (target - now_ut, min_window, why))
     return float(target), why
+
+
+def node_wait_rails_legal(body: str, altitude: float, periapsis: float
+                          ) -> Tuple[bool, str]:
+    """Whether a node-wait hold may rails-warp here: ``(legal, why_not)``.
+
+    kRPC's SpaceCenter.WarpTo falls back to PHYSICS warp when CanRailsWarpAt
+    fails (decompiled: the vessel below the body's rails limit at factor 1),
+    so the hold needs ``max_legal_rails_factor`` >= 1 at the LOWER of the
+    altitude and the periapsis (the warp may cross the periapsis). Unlike
+    ``max_legal_rails_factor`` itself this fails CLOSED: a body outside the
+    committed rails table or an unread altitude / periapsis is no warp."""
+    limits = STOCK_WARP_ALTITUDE_LIMITS.get(body)
+    if limits is None or len(limits) < 2:
+        return False, "no rails table for body %r" % (body,)
+    if not (_is_finite(altitude) and _is_finite(periapsis)):
+        return False, "alt=%s pe=%s unread" % (_obs_fmt(altitude),
+                                               _obs_fmt(periapsis))
+    low = min(altitude, periapsis)
+    if max_legal_rails_factor(body, low) < 1:
+        return False, ("alt=%s pe=%s below the %.0f m rails limit (WarpTo "
+                       "would physics-warp)"
+                       % (_obs_fmt(altitude), _obs_fmt(periapsis), limits[1]))
+    return True, ""
 
 
 def descent_warp_floor(body: str) -> Optional[float]:
@@ -4718,6 +4743,43 @@ class B5Params:
                                            # SOI-entry -> periapsis coast. 0 =
                                            # no ceiling. Spec key
                                            # approachMaxWarpFactor.
+    # --- COAST NATIVE LEADS (wall-time; both OFF by default) -------------------
+    # soi_lead serves two jobs on the post-correction coast: it is where the
+    # NATIVE warp_to_ut stops short of the SOI boundary, and it is where the
+    # rails last-mile (time stair + approach cap) takes over. The native warp
+    # is stepped server-side and lands on its target UT, so the big leads that
+    # B19/B22/B26 carry protect only against a ROLLING rails warp; every game
+    # second between the native stop and the boundary is flown at the capped
+    # rails rate instead (B26: ~2,975 s at x50 per leg). These two keys let the
+    # native warp run closer while the rails last-mile runs unchanged from
+    # there. 0 = off (soi_lead as before), so every lane that does not set
+    # them is byte-identical.
+    soi_native_lead: float = 0.0           # GAME s. When > 0, the coast's SOI
+                                           # native warp targets ut + tts - this
+                                           # (not - soi_lead), and the approach
+                                           # clamp limits native targets with
+                                           # it. Must be >= soi_native_lead_floor
+                                           # (120 s retarget drift + one
+                                           # pessimistic 4 s frame at the rails
+                                           # ceiling); b5_params_from_dict
+                                           # rejects a smaller value. The flyby
+                                           # EXIT warp keeps soi_lead. Spec key
+                                           # soiNativeLeadSeconds.
+    trigger_native_lead: float = 0.0       # GAME s. When > 0, the TIME-mode
+                                           # correction-trigger native warp
+                                           # (target = the trigger UT) stays
+                                           # armed while dt > this (not
+                                           # dt > soi_lead). Spec key
+                                           # triggerNativeLeadSeconds.
+    # --- CIRCULARIZE NODE WAIT (wall time; OFF by default) --------------------
+    # The park round-out (park_trim_ecc_max) hands its node to MechJeb's
+    # executor, which rails-warps only to ignition - 600 s and then idles at 1x
+    # until AlignedAndSettled (B22: ~590 s per run). True extends the CAPTURE
+    # node-wait hold (_b5_node_wait_begin / _b5_node_wait_step) to that
+    # CIRCULARIZE hand-off: the machine rails-warps itself to node UT - half
+    # burn - NODE_WAIT_ORIENT_LEAD_SECONDS first. False = every lane flown to
+    # date, byte for byte. Spec key circularizeNodeWaitWarp.
+    circularize_node_wait_warp: bool = False
 
 
 def b5_params_from_dict(params: Dict) -> B5Params:
@@ -4977,6 +5039,24 @@ def b5_params_from_dict(params: Dict) -> B5Params:
                     "elements for %r (known: %s); add the body to "
                     "STOCK_HELIO_ELEMENTS with a cited source before flying"
                     % (body, sorted(STOCK_HELIO_ELEMENTS)))
+    _soi_native_lead = float(params.get("soiNativeLeadSeconds", 0.0))
+    if _soi_native_lead > 0.0:
+        _floor = soi_native_lead_floor(
+            int(params.get("approachMaxWarpFactor", 0)),
+            int(params.get("coastWarpFactor", 6)))
+        if _soi_native_lead < _floor:
+            raise ValueError(
+                "soiNativeLeadSeconds %.1f is under its floor %.1f: the native "
+                "warp target is only re-issued when the SOI estimate moves more "
+                "than %.0f s, so it can land that much closer to the boundary "
+                "than commanded, and the rails last-mile then needs one "
+                "pessimistic %.0f s frame at the rails ceiling (factor %d) "
+                "before the boundary"
+                % (_soi_native_lead, _floor, WARP_RETARGET_THRESHOLD_SECONDS,
+                   COAST_NATIVE_LEAD_FRAME_SECONDS,
+                   _soi_native_lead_ceiling_index(
+                       int(params.get("approachMaxWarpFactor", 0)),
+                       int(params.get("coastWarpFactor", 6)))))
     return B5Params(
         target_apoapsis=float(params.get("targetApoapsisMeters", 80000)),
         target_periapsis=float(params.get("targetPeriapsisMeters", 80000)),
@@ -5084,6 +5164,11 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         # Target-SOI approach clamp: off (0/0) unless a spec arms it.
         approach_window=float(params.get("approachWindowSeconds", 0.0)),
         approach_max_warp_factor=int(params.get("approachMaxWarpFactor", 0)),
+        # Coast native leads: off (0/0) unless a spec arms them.
+        soi_native_lead=_soi_native_lead,
+        trigger_native_lead=float(params.get("triggerNativeLeadSeconds", 0.0)),
+        # Circularize node-wait hold: off unless a spec arms it.
+        circularize_node_wait_warp=bool(params.get("circularizeNodeWaitWarp", False)),
     )
 
 
@@ -10751,6 +10836,12 @@ class B5State:
     # approaching anything -- slow, never wrong, and bounded by the phase's own
     # game-time budget.
     approach_latched: bool = False
+    # Coast native-lead decision (soiNativeLeadSeconds / triggerNativeLeadSeconds):
+    # the stable key of the last decision and its gate-line text (a
+    # MACHINE_DIFF_FIELDS entry). Written only while a lead key is armed, so
+    # both stay "" on every other lane.
+    coast_lead_key: str = ""
+    coast_lead_decision: str = ""
     # Game-time stamp of the last warp_to_ut emission (initial, retarget, or
     # self-heal re-issue) - bounds the self-healing re-issue to once per
     # WARP_REISSUE_SECONDS.
@@ -11271,6 +11362,11 @@ def approach_warp_clamp(time_to_soi, ut, soi_lead, window, cap,
     A bigger lead alone only moves WHERE control is regained; the cap is what
     makes the remaining distance survivable. Neither is sufficient alone.
 
+    The coast passes its EFFECTIVE native lead as ``soi_lead``
+    (``coast_soi_native_lead``): ``soi_lead`` itself unless the spec arms
+    ``soiNativeLeadSeconds``. Passing the raw soi_lead with that key armed
+    would pull the shorter native target straight back to ``tts - soi_lead``.
+
     OFF BY DEFAULT: ``window <= 0`` returns the inputs untouched, so every lane
     that does not arm it is byte-identical. Fails OPEN on a non-finite
     ``time_to_soi`` (an unread clock never triggers a clamp) and only ever
@@ -11304,6 +11400,86 @@ def approach_warp_clamp(time_to_soi, ut, soi_lead, window, cap,
     if cap > 0 and desired > 0:
         desired = min(desired, cap)
     return desired, native_target
+
+
+# One pessimistic poll frame (wall s) for the soiNativeLeadSeconds floor. The
+# nominal poll is ~0.5 s; 4 s is the pessimistic frame the lane specs already
+# size their approach windows against.
+COAST_NATIVE_LEAD_FRAME_SECONDS = 4.0
+
+
+def _soi_native_lead_ceiling_index(approach_max_warp_factor: int,
+                                   coast_warp_factor: int) -> int:
+    """The highest rails factor index the coast's rails last-mile can command:
+    the approach cap when one is armed, else the coast factor (the fallback's
+    own ceiling, ``min(coast_warp_factor, ...)``). Clamped to the table."""
+    idx = approach_max_warp_factor if approach_max_warp_factor > 0 \
+        else coast_warp_factor
+    return max(0, min(int(idx), len(RAILS_WARP_RATES) - 1))
+
+
+def soi_native_lead_floor(approach_max_warp_factor: int,
+                          coast_warp_factor: int) -> float:
+    """PURE. The smallest legal ``soiNativeLeadSeconds``.
+
+    The native warp lands on its commanded UT, but that UT is re-issued only
+    when the SOI estimate moves by more than WARP_RETARGET_THRESHOLD_SECONDS,
+    so the real boundary can sit up to that much closer than ``lead``. From
+    there the rails last-mile must still have room for one pessimistic frame
+    at its ceiling rate before the boundary: floor = 120 + 4 x
+    RAILS_WARP_RATES[ceiling]. B26 (cap 3 = x50) -> 320 s; B22 (cap 5 =
+    x1,000) -> 4,120 s."""
+    idx = _soi_native_lead_ceiling_index(approach_max_warp_factor,
+                                         coast_warp_factor)
+    return (WARP_RETARGET_THRESHOLD_SECONDS
+            + COAST_NATIVE_LEAD_FRAME_SECONDS * RAILS_WARP_RATES[idx])
+
+
+def coast_soi_native_lead(params: "B5Params") -> Tuple[float, str]:
+    """PURE. ``(lead, reason)`` for the coast's SOI native warp and the
+    approach clamp's lead.
+
+      - ``default``: ``soiNativeLeadSeconds`` unset (0), so ``soi_lead`` as it
+        always was. Every lane that does not arm the key takes this branch.
+      - ``soi-native``: the armed key, at or above its floor.
+      - ``clamped-to-floor``: an armed key under the floor is raised TO the
+        floor. ``b5_params_from_dict`` already rejects such a spec at load, so
+        this only fires for params built in code; it can lengthen the lead,
+        never shorten it below the safe value."""
+    if params.soi_native_lead <= 0.0:
+        return params.soi_lead, "default"
+    floor = soi_native_lead_floor(params.approach_max_warp_factor,
+                                  params.coast_warp_factor)
+    if params.soi_native_lead < floor:
+        return floor, "clamped-to-floor"
+    return params.soi_native_lead, "soi-native"
+
+
+def coast_trigger_native_lead(params: "B5Params") -> Tuple[float, str]:
+    """PURE. ``(lead, reason)`` for the TIME-mode correction-trigger native
+    warp: it stays armed while ``dt > lead``. ``default`` is ``soi_lead`` (the
+    key unset); ``trigger-native`` is the armed ``triggerNativeLeadSeconds``.
+
+    No floor: the target IS the trigger UT, which precedes the SOI boundary by
+    the trigger threshold, so landing on it (or up to the 120 s retarget drift
+    past it) only fires the correction slightly later -- a trigger is a
+    refinement point, not a wall."""
+    if params.trigger_native_lead <= 0.0:
+        return params.soi_lead, "default"
+    return params.trigger_native_lead, "trigger-native"
+
+
+def _b5_coast_lead_note(state: "B5State", key: str,
+                        detail: str = "") -> "B5State":
+    """Record a coast native-lead decision. ``coast_lead_decision`` is a
+    MACHINE_DIFF_FIELDS entry (one ``gate coastLead`` line per change) and is
+    rewritten only when the stable ``key`` changes, carrying that first frame's
+    numbers. Called only while a lead key is armed, so an unarmed lane never
+    prints the line."""
+    if key == state.coast_lead_key:
+        return state
+    return replace(state, coast_lead_key=key,
+                   coast_lead_decision=(key + " " + detail) if detail else key)
 
 
 def _b5_enter_plan_transfer(state: B5State, snapshot: TelemetrySnapshot,
@@ -11605,8 +11781,11 @@ def _b5_park_trim_step(state: B5State, snapshot: TelemetrySnapshot,
             return (replace(stayed,
                             park_trim_attempts=state.park_trim_attempts + 1),
                     [Action(ACTION_MJ_PLAN_PARK_TRIM)])
-        return (replace(stayed, park_trim_execs=state.park_trim_execs + 1),
-                [Action(ACTION_MJ_EXECUTE_NODES)])
+        # The executor hand-off goes through the node-wait hold, a pass-through
+        # (the bare action, byte for byte) unless circularizeNodeWaitWarp is set.
+        return _b5_node_wait_begin(
+            replace(stayed, park_trim_execs=state.park_trim_execs + 1),
+            snapshot, Action(ACTION_MJ_EXECUTE_NODES))
     if verdict == PARK_TRIM_GIVEUP:
         return _b5_named_flake(
             state,
@@ -12363,16 +12542,34 @@ def _b5_flameout_stage(state: B5State,
 # Past it the hold releases to the executor, which then warps itself exactly
 # as it did before the policy: slower, never wrong.
 NODE_WAIT_MAX_ISSUES = 5
-# The ONE phase a held executor hand-off lives in: CAPTURE-BURN, where the
-# executor's never-settling 1x align ate ~590 s on B11 and B13. NOT the
-# transfer, the ejection or the park round-out: there the executor settles
-# within its own lead (2026-10-01 B11 / B13 / B15 transfers: 52-93 s), so a
-# hold saves nothing, and flying it MOVED THE BURN. The first verification
-# flights ended the TLI 3.7 s earlier with apoapsis 11.503 Mm instead of
-# 11.480 Mm on all three Mun runs (the executor's own warp to ignition - 3 s,
-# started from 600 s out, lands late; from a 120 s hold it does not), which
-# re-timed the whole arrival and moved B13's landing site onto a slope.
+# The ONE phase a held executor hand-off lives in by default: CAPTURE-BURN,
+# where the executor's never-settling 1x align ate ~590 s on B11 and B13. NOT
+# the transfer, the ejection or (unless opted in below) the park round-out:
+# there the executor settled within its own lead (2026-10-01 B11 / B13 / B15
+# transfers: 52-93 s), so a hold saves nothing, and flying it MOVED THE BURN.
+# The first verification flights ended the TLI 3.7 s earlier with apoapsis
+# 11.503 Mm instead of 11.480 Mm on all three Mun runs (the executor's own warp
+# to ignition - 3 s, started from 600 s out, lands late; from a 120 s hold it
+# does not), which re-timed the whole arrival and moved B13's landing site onto
+# a slope.
 _B5_NODE_WAIT_PHASES = (B5_CAPTURE_BURN,)
+# OPT-IN: the CIRCULARIZE park round-out node (spec key circularizeNodeWaitWarp,
+# B22 only). Unlike the Mun transfers above, B22's park-trim executor idles the
+# full ~590 s at 1x (2026-10-03_1106: node issued ut 1716, nodeUt 2687, then
+# NONEx1 from ~2087 on). Whether the shorter executor warp moves the trim's
+# result the way it moved the TLI is what the key's re-fly proves: the
+# round-out parks the craft for the Jool ejection, so its ap / pe / ecc and
+# the arrival downstream are the comparison. Transfer nodes stay un-held.
+_B5_CIRCULARIZE_NODE_WAIT_PHASE = B5_CIRCULARIZE
+
+
+def _b5_node_wait_phases(params: B5Params) -> Tuple[str, ...]:
+    """The phases whose executor hand-off the node-wait hold may own:
+    _B5_NODE_WAIT_PHASES, plus CIRCULARIZE when circularizeNodeWaitWarp is
+    set."""
+    if params.circularize_node_wait_warp:
+        return _B5_NODE_WAIT_PHASES + (_B5_CIRCULARIZE_NODE_WAIT_PHASE,)
+    return _B5_NODE_WAIT_PHASES
 
 
 def _b5_node_wait_begin(state: B5State, snapshot: TelemetrySnapshot,
@@ -12383,10 +12580,32 @@ def _b5_node_wait_begin(state: B5State, snapshot: TelemetrySnapshot,
     Only the executor hand-off is ever held; any other hand-off (the DIY
     correction burner's ap_point_node) passes through untouched. With the
     vessel mass unread the hand-off is the pre-policy action byte for byte; a
-    readable refusal rides the hand-off's text so the action line names it."""
+    readable refusal rides the hand-off's text so the action line names it.
+
+    The opt-in CIRCULARIZE hold refuses three more cases before planning, each
+    as a named decline: the executor not OBSERVED idle (an engaged executor
+    already owns the warp, so a machine warp would be a second writer; -1
+    unread fails closed), a spent warp budget from an earlier round-out
+    attempt in the same phase, and a rails-illegal altitude or periapsis
+    (``node_wait_rails_legal``: WarpTo would physics-warp)."""
     if (handoff.kind != ACTION_MJ_EXECUTE_NODES or not state.params.node_wait_warp
-            or state.phase not in _B5_NODE_WAIT_PHASES):
+            or state.phase not in _b5_node_wait_phases(state.params)):
         return state, [handoff]
+    if state.phase == _B5_CIRCULARIZE_NODE_WAIT_PHASE:
+        refusal = ""
+        if snapshot.node_executor_enabled != 0:
+            refusal = ("executor not observed idle (nodeExec=%d)"
+                       % snapshot.node_executor_enabled)
+        elif state.phase_warp_issues >= NODE_WAIT_MAX_ISSUES:
+            refusal = ("warp budget spent (%d issues this phase)"
+                       % state.phase_warp_issues)
+        else:
+            legal, why_not = node_wait_rails_legal(
+                snapshot.body, snapshot.altitude, snapshot.periapsis)
+            if not legal:
+                refusal = "rails-illegal " + why_not
+        if refusal:
+            return state, [replace(handoff, text="node-wait declined: %s" % refusal)]
     target, why = node_wait_warp_plan(
         snapshot.ut, snapshot.node_ut, snapshot.node_dv,
         snapshot.available_thrust, snapshot.vessel_mass, snapshot.time_to_soi,
@@ -12421,7 +12640,7 @@ def _b5_node_wait_step(state: B5State, snapshot: TelemetrySnapshot,
     if state.node_wait_ut is None:
         return None
     target = state.node_wait_ut
-    if state.phase not in _B5_NODE_WAIT_PHASES:
+    if state.phase not in _b5_node_wait_phases(state.params):
         return None
     ut = snapshot.ut
     release = ""
@@ -13781,7 +14000,8 @@ def _b5_policy_physics_field(state) -> str:
 
 
 def _b5_policy_native_warp(state) -> bool:
-    """A held capture hand-off or a DESCENT coast warp is the policy's."""
+    """A held capture (or opt-in circularize) hand-off or a DESCENT coast warp
+    is the policy's."""
     return (state.warp_to_cmd is not None
             and (state.node_wait_ut is not None or state.phase == B5_DESCENT))
 
@@ -13823,7 +14043,8 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         LIVE-PROVEN rails distance stair floored at factor 2 (SOI time
         bound + altitude-legality clamp); the
         post-correction coast issues a NATIVE warp_to_ut to
-        now + time_to_soi - soiLeadSeconds (re-issued only when the SOI
+        now + time_to_soi - soiLeadSeconds (soiNativeLeadSeconds instead
+        when armed; re-issued only when the SOI
         estimate shifts > WARP_RETARGET_THRESHOLD_SECONDS; self-healed at
         most once per WARP_REISSUE_SECONDS when the game reports no active
         warp); otherwise the held rails coast factor. While a native warp is
@@ -13831,7 +14052,8 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         B7 (correctionTriggerTimeToSoiSeconds non-empty) triggers rounds on
         TIME-TO-TARGET-SOI thresholds over a via body instead, approaching a
         pending trigger with a native warp_to_ut to the trigger UT and a
-        factor-2-floored rails time stair inside soiLeadSeconds of it.
+        factor-2-floored rails time stair inside soiLeadSeconds of it
+        (triggerNativeLeadSeconds instead when armed).
         body == target -> TARGET-FLYBY. body not in the coast set (home +
         viaBodyNames; "" HOLDS with no warp change) -> ASSERT-FAIL (ejected:
         the craft left the allowed coast bodies without meeting the target).
@@ -14738,6 +14960,10 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # stairs) keeps its exact pre-existing cancel behaviour.
         blind_soi_hold = False
         desired = 0
+        # The SOI native lead for branch (b) AND the approach clamp below
+        # (soi_lead unless soiNativeLeadSeconds is armed). The flyby EXIT warp
+        # in TARGET-FLYBY keeps soi_lead.
+        soi_native_lead, soi_native_reason = coast_soi_native_lead(state.params)
         if snapshot.node_count != 0:
             # (a) Pending node: NATIVE warp to node_ut minus the ARRIVAL
             # MARGIN (operator PR gate: nodeWarpLeadSeconds retired -- the
@@ -14808,7 +15034,20 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             # above).
             dt = (snapshot.time_to_soi
                   - state.params.correction_trigger_time_to_soi[state.correction_rounds_done])
-            if dt > state.params.soi_lead:
+            # The native warp to the trigger stays armed while dt exceeds the
+            # trigger lead: soi_lead unless triggerNativeLeadSeconds is armed.
+            # The target is the trigger UT either way, so a shorter lead only
+            # stops the rails stair crawling the gap between the two.
+            trig_lead, trig_reason = coast_trigger_native_lead(state.params)
+            if trig_reason != "default":
+                stayed = _b5_coast_lead_note(
+                    stayed,
+                    "trigger:%s:r%d" % ("native" if dt > trig_lead else "rails",
+                                        state.correction_rounds_done),
+                    "lead=%s (%s) dt=%s tts=%s ut=%s"
+                    % (_obs_fmt(trig_lead), trig_reason, _obs_fmt(dt),
+                       _obs_fmt(snapshot.time_to_soi), _obs_fmt(snapshot.ut)))
+            if dt > trig_lead:
                 native_target = snapshot.ut + dt
             else:
                 desired = max(rails_factor_for_time(
@@ -14820,14 +15059,23 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 desired = min(desired, max_legal_rails_factor(
                     snapshot.body, snapshot.altitude))
         elif (_is_finite(snapshot.time_to_soi) and _is_finite(snapshot.ut)
-                and snapshot.time_to_soi > state.params.soi_lead
+                and snapshot.time_to_soi > soi_native_lead
                 and (target_clock or not in_parent_frame)):
             # (b) Post-correction coast: NATIVE warp to the SOI boundary
-            # minus soi_lead, so the machine regains 1x-poll control just
-            # before the body change (never crosses inside a high-rate warp;
-            # the old 10,000x poll overshoot class is gone). Re-issued only
-            # when the SOI estimate shifts > WARP_RETARGET_THRESHOLD_SECONDS.
-            native_target = snapshot.ut + snapshot.time_to_soi - state.params.soi_lead
+            # minus the native lead, so the machine regains 1x-poll control
+            # just before the body change (never crosses inside a high-rate
+            # warp; the old 10,000x poll overshoot class is gone). Re-issued
+            # only when the SOI estimate shifts > WARP_RETARGET_THRESHOLD_SECONDS.
+            # The lead is soi_lead unless soiNativeLeadSeconds is armed; the
+            # branch condition uses the SAME lead, or a native warp in flight
+            # would be cancelled the frame tts crossed soi_lead.
+            native_target = snapshot.ut + snapshot.time_to_soi - soi_native_lead
+            if soi_native_reason != "default":
+                stayed = _b5_coast_lead_note(
+                    stayed, "soi:native:%s" % snapshot.body,
+                    "lead=%s (%s) tts=%s target=%s"
+                    % (_obs_fmt(soi_native_lead), soi_native_reason,
+                       _obs_fmt(snapshot.time_to_soi), _obs_fmt(native_target)))
         else:
             # No encounter (or inside the SOI lead window): held rails coast
             # factor with the legacy SOI time bound + legality clamp -- the
@@ -14849,6 +15097,14 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             blind_soi_hold = coast_native_warp_hold(
                 snapshot.time_to_soi, stayed.warp_to_cmd, snapshot.ut,
                 snapshot.warp_mode, snapshot.warp_rate, snapshot.warping_to)
+            if (soi_native_reason != "default"
+                    and _is_finite(snapshot.time_to_soi)
+                    and 0.0 < snapshot.time_to_soi <= soi_native_lead):
+                stayed = _b5_coast_lead_note(
+                    stayed, "soi:rails:%s" % snapshot.body,
+                    "lead=%s (%s) tts=%s inside the native lead; rails last-mile"
+                    % (_obs_fmt(soi_native_lead), soi_native_reason,
+                       _obs_fmt(snapshot.time_to_soi)))
         # TARGET-SOI APPROACH CLAMP (B19 flight 4). Applied HERE, at the single
         # point every branch above converges on, rather than inside each branch:
         # the overshoot frame was the hand-off itself, so the clamp has to see
@@ -14864,7 +15120,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         if approach_latched != stayed.approach_latched:
             stayed = replace(stayed, approach_latched=approach_latched)
         desired, native_target = approach_warp_clamp(
-            snapshot.time_to_soi, snapshot.ut, state.params.soi_lead,
+            snapshot.time_to_soi, snapshot.ut, soi_native_lead,
             state.params.approach_window, state.params.approach_max_warp_factor,
             desired, native_target, approach_latched)
         if native_target is not None:
@@ -19994,6 +20250,9 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     # its decision token (one line per changed decision, numbers included).
     ("rv_hold_ut", "rvHoldUt"),
     ("rv_warp_decision", "rvWarp"),
+    # Coast native leads (b5): which lead a coast native warp or
+    # its rails hand-off used, and why. "" on every lane without the keys.
+    ("coast_lead_decision", "coastLead"),
     ("planned_node_count", "plannedNodes"),
     # Twenty-second flight additions, both bounded by their debounce depths:
     # a flameout-stage pop and the impact-certain countdown are exactly the

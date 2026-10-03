@@ -3,10 +3,14 @@
 # (D18 `chain-terminated-destruction-recovery`, the RECOVERY half).
 #
 # FLOWN 2026-10-03 (branch `d18-recovery`, automation DLL sha256 `cdb8e2e7...`, an origin/main
-# build: no C# product change): reading `2026-10-03_1014` PASS (report-only contracts) measured
-# the defect; armed `2026-10-03_1021` EXPECTED-FAIL, signature matched. The player path runs end
-# to end and the recovered lander SPAWNS AGAIN on the next flight scene: todo
-# CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE. This lane is that defect's quarantine.
+# build): reading `2026-10-03_1014` measured the defect, armed `2026-10-03_1021` EXPECTED-FAIL:
+# the recovered lander SPAWNED AGAIN on the next flight scene (todo
+# CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE). FIXED 2026-10-03 (branch
+# `tip-recover-respawn`): the LoadScene prefix's no-op discards keep a resumed clone holding an
+# armed in-flight recovery, the scene-exit finalize stamps the tip Recovered, and the commit no
+# longer re-installs the old spawn claim on a Recovered recording. On the fix: `2026-10-03_1154`
+# (the discard half only) PARSEK-FAIL on `Spawn-death detected`, `2026-10-03_1234` XPASS; the
+# quarantine came off and the census was armed off `_1234`'s facets.
 #
 # HOST: `gloops-airshow` (RSC-1's host: the mk1-capsule on the Launch Pad) plus the
 # `chain-tip-recovery` preset: ONE committed tree `tree-ctr-carrier-rec`:
@@ -120,28 +124,30 @@ steps = [
 ]
 
 [dimensionsCovered]
-# D18 `chain-terminated-destruction-recovery` is NOT claimed here: this lane drives the whole
-# RECOVERY half (Real Spawn of a chain tip, Switch-To, stock Recover, a new flight scene) and
-# the product's answer is the respawn defect quarantined below, so it has not flown green.
-# V26T keeps the cell for the DESTROYED half; the recovery half is claimed when the fix flips
-# this lane to XPASS and the quarantine comes off.
+# D18 `chain-terminated-destruction-recovery`, the RECOVERY half (V26T holds the DESTROYED
+# half): a player-recovered chain tip is recorded Recovered, the next flight's walker resolves
+# the chain terminated by recovery, and the vessel does not come back.
 D14 = ["kerbin", "sandbox", "scene-flight"]
+D18 = ["chain-terminated-destruction-recovery"]
 
 [expectations]
 allowedAnomalies = []
 
-# Fixed: the tip recording, re-stamped Recovered (or a Recovered continuation under it).
-# Defect (reading run `2026-10-03_1014`): the two injected recordings, unchanged.
+# The two injected recordings; the tip re-committed in place, ending Recovered.
 [expectations.recordings]
-count = { min = 2, max = 3 }
+count = { min = 2, max = 2 }
 
-# REPORT-ONLY census (not armed: the expectation row carries the quarantine signature, and
-# one PARSEK-FAIL classifies under one subkind). On the reading run the produced save holds
-# ONE `CTR Lander`: the respawn, pid 3842087101, stamped as the tip's spawnedPid.
+# ARMED 2026-10-03 off the XPASS reading `2026-10-03_1234` (trees / committedTrees 1,
+# recordings 2, Recovered 1 / SubOrbital 1, spawnedVessels 0, no `CTR Lander` in the save).
+# On the defect (`2026-10-03_1014`) the save held ONE `CTR Lander`, the respawn, pid
+# 3842087101, stamped as the tip's spawnedPid.
 [expectations.recordings.structure]
-gating         = false
+gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2, max = 2 }
+terminalStates = { Recovered = { min = 1, max = 1 }, SubOrbital = { min = 1, max = 1 } }
+spawnedVessels = { min = 0, max = 0 }
 vesselNames    = { "CTR Lander" = { min = 0, max = 0 }, "mk1-capsule" = { min = 1, max = 1 } }
 
 [expectations.logContracts]
@@ -157,18 +163,23 @@ required  = [
   "recover complete pid=1344998135 vessel=CTR Lander scene=SPACECENTER",
   # Act 2: a new flight scene, where the walker re-reads the committed tree.
   "launchfromeditor complete scene=FLIGHT vessel=Kerbal X ",
-  # DESIGNED, MISSING ON THE DEFECT: the recovery is recorded, so the new flight's walker
-  # resolves the chain as terminated by recovery.
+  # The fix: the no-session resume discard keeps the clone, the finalize stamps the tip,
+  # and the commit leaves the old spawn claim off the Recovered recording.
+  "\\[Recovery\\] Auto-discard refused: fastPath=noop-no-session-resume dest=SPACECENTER tree='CTR Carrier' ",
+  "\\[Recovery\\] In-flight recovery: recording 'ctr-tip-rec' vessel='CTR Lander' pid=1344998135 terminal Landed -> Recovered ",
+  "\\[RecordingStore\\] PreserveLiveRuntimeFieldsOnReplace: spawn stamp pid=1344998135 not re-installed for recording \"CTR Lander\" id=ctr-tip-rec: its terminal Recovered leaves no vessel",
+  # The recovery is recorded, so the new flight's walker resolves the chain as terminated
+  # by recovery.
   "\\[ChainWalker\\] ResolveTermination: vessel=1344998135 tip=[^ ]+ terminalState=Recovered",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "realspawn rejected",
   "recover rejected",
-  # THE DEFECT, measured on the reading run `2026-10-03_1014`: the scene-exit no-op resume
-  # discard reverts the resumed tip to its committed original, the recovery request is then
-  # dropped, and on the next flight scene the spawn-death pass resets the tip and spawns the
-  # recovered lander again.
+  # THE DEFECT, measured on `2026-10-03_1014` before the fix: the scene-exit no-op resume
+  # discard reverted the resumed tip to its committed original, the recovery request was
+  # dropped, and on the next flight scene the spawn-death pass reset the tip and spawned the
+  # recovered lander again. No lane may print these again.
   "\\[Recovery\\] In-flight recovery request dropped unapplied: vessel='CTR Lander'",
   "\\[Policy\\] Spawn-death detected: #[0-9]+ \"CTR Lander\"",
   "\\[Spawner\\] Vessel spawn for #[0-9]+ \\(CTR Lander\\)",
@@ -179,13 +190,3 @@ budgetSeconds = 1800
 
 [retry]
 policy = "once"
-
-[expectedFail]
-bugId = "CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE"
-subkind = "expectation"
-mismatches = [
-  "logContracts.required not matched: \\[ChainWalker\\] ResolveTermination: vessel=1344998135 tip=[^ ]+ terminalState=Recovered",
-  "logContracts.forbidden matched: \\[Recovery\\] In-flight recovery request dropped unapplied: vessel='CTR Lander'",
-  "logContracts.forbidden matched: \\[Policy\\] Spawn-death detected: #[0-9]+ \"CTR Lander\"",
-  "logContracts.forbidden matched: \\[Spawner\\] Vessel spawn for #[0-9]+ \\(CTR Lander\\)",
-]

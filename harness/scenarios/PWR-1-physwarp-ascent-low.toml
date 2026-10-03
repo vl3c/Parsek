@@ -97,11 +97,11 @@ gating = true
 density = "low"
 overMax = 0
 subMin = { max = 20 }
-# Duplicate UTs on pairs touching physics warp. The all-class `duplicates` total is
-# REPORTED, not pinned: duplicate sample UTs at 1x staging / off-rails boundaries are a
-# pre-existing recorder defect (todo SECTION-DUPLICATE-UT-SAMPLES, 1524 over 542
-# archived saves) and not a physics-warp degradation; PWR-1's first armed run
-# `2026-10-02_2122` red on exactly one such 1x duplicate at booster staging.
+# Duplicate UTs, all pair classes and the pairs touching physics warp. The all-class total
+# was REPORTED only while duplicate sample UTs at 1x staging / off-rails boundaries were an
+# open recorder defect (todo SECTION-DUPLICATE-UT-SAMPLES, PWR-1 `2026-10-02_2122` red on one
+# at booster staging); pinned 2026-10-03 after the fix, off `2026-10-03_1039` (duplicates 0).
+duplicates = 0
 warpDuplicates = 0
 backsteps = 0
 dirMisses = 0

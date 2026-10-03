@@ -681,6 +681,30 @@ type = "int"
 min = 0
 max = 7
 
+# COAST NATIVE LEADS (wall time; both off when omitted or 0). The coast's
+# native warp_to_ut lands on its target UT, so soiLeadSeconds only has to
+# protect a ROLLING rails warp; these two keys let the native warp run closer
+# and leave the rails last-mile unchanged from there.
+# soiNativeLeadSeconds: the coast's SOI native warp stops this many GAME s
+# short of the boundary instead of soiLeadSeconds, and the approach clamp
+# limits native targets with it. mlib rejects a value under
+# 120 + 4 x RAILS_WARP_RATES[ceiling] (ceiling = approachMaxWarpFactor, else
+# coastWarpFactor). The flyby EXIT warp keeps soiLeadSeconds. Optional; 0 = off.
+[params.soiNativeLeadSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 3600.0
+
+# triggerNativeLeadSeconds: the TIME-mode correction-trigger native warp (target
+# = the trigger UT) stays armed while time-to-trigger exceeds this many GAME s,
+# instead of soiLeadSeconds. Optional; 0 = off.
+[params.triggerNativeLeadSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 3600.0
+
 # =============================================================================
 # ORBIT-START (the b23/b24 block, LIVE-PROVEN on B23 flight 2). With
 # startInOrbit false or absent every one of these is inert and PRELAUNCH is the
