@@ -1400,8 +1400,9 @@ _(unreleased — entries accumulate here per commit)_
   a background vessel leaves proximity range the recorder stops sampling it by design, and
   the long gap until it came back (about 14 s for each booster pair) read as a stalled
   sampler. The recorder now notes each out-of-range silence, from the first skipped moment to
-  the moment the vessel is back in range, and a gap counts toward the warning only by the
-  part of it outside that silence; the line stays at Verbose with a
+  the moment the vessel is back in range or records an event out of range (a booster hitting
+  the ground), and a gap counts toward the warning only by the part of it outside that
+  silence; the line stays at Verbose with a
   `largeGapsOutOfRange=` count.
 - **Dev: the recorder's sparse-sampling warning fires under physics warp again.** A recorded
   section whose samples sat further apart than the sampler allows logs

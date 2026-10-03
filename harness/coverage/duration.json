@@ -2112,6 +2112,26 @@
         "2026-08-29T11:08:13Z": 46.0
       }
     },
+    "PWR-1-physwarp-ascent-low": {
+      "last": 303.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 303.0,
+      "p95": 303.0,
+      "samples": {
+        "2026-10-03T13:29:48Z": 303.0
+      }
+    },
+    "PWR-3-physwarp-ascent-high": {
+      "last": 303.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 303.0,
+      "p95": 303.0,
+      "samples": {
+        "2026-10-03T13:34:52Z": 303.0
+      }
+    },
     "R1-rewind-loop-flown": {
       "last": 304.0,
       "lastVsP50": 1.0,
