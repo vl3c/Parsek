@@ -200,7 +200,33 @@ decision 2026-10-02).
   the replace path at clamp release, `differs=speed(174.97->0.00)`, and at the second staging,
   `differs=rotation flags=1`); the PWR lanes now pin `duplicates = 0`.
 
-## SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP: the recorder's dropped-sample WARN is downgraded for every physics-warp gap [FILED 2026-10-02 from the physics-warp recording investigation, branch `physwarp-recording`. OPEN, low, pre-existing; operator decides]
+## ~~BG-PROXIMITY-GAP-READS-AS-SPARSE-SAMPLING: a debris section that left proximity range WARNs `TrackSection sparse sampling:` on every booster launch~~ [FILED 2026-10-03 from PWR-3 `2026-10-03_1030` and every PWR flight of 2026-10-02, branch `sparse-warn-physwarp`. FIXED 2026-10-03, branch `bg-proximity-gap`]
+
+Every PWR flight (`2026-10-02_2102` / `_2108` / `_2122` / `_2128` / `_2133` / `_2141` and
+`2026-10-03_1030`) logs two `[WARN][BgRecorder] TrackSection sparse sampling:` lines, one per
+booster debris, `maxGap` 13.8-14.2 s. The debris leaves the 2.3 km proximity tier
+(`Sample rate changed: ... interval=none`), `ShouldSkipTrajectorySamplingForProximity` stops
+its samples by design, and the next sample comes when a structural event reopens a
+high-fidelity window (`structural-event-JointBreak` at the second staging), so the gap is the
+designed out-of-range silence, not a stalled sampler. It WARNed at 1x before
+SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP too (the old `largeGaps1x=1`), so that fix did
+not introduce it. No lane reads it.
+
+- [x] Fix: the background recorder records each out-of-range silence as a UT window
+  (`BackgroundVesselState.sectionProximitySilences`): it opens at the first tick
+  `ShouldSkipTrajectorySamplingForProximity` skips and closes at the first tick that is not
+  skipped (back in range, or a high-fidelity / debris tier overriding the range), and the
+  list is cleared when a section starts. Closing on the return tick rather than on the next
+  committed frame keeps an in-range stall after the return outside the window (it still
+  WARNs; `SectionClose_StallAfterReturningInRange_StillWarns`), and a boundary seed committed
+  during a silence no longer cuts the window short. `ComputeSectionGapStats` takes the windows: an off-rails
+  large gap counts toward the WARN only when its time outside them
+  (`ComputeGapSecondsOutsideSilences`) still exceeds the threshold, so a stall on either side
+  of a silence still WARNs; the rest count as `LargeGapCountInSilence`, logged as
+  `largeGapsOutOfRange=`. Logs `Proximity sampling silence started:` / `ended:` (Verbose,
+  once each per silence). The foreground recorder has no proximity silence and passes none.
+
+## ~~SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP: the recorder's dropped-sample WARN is downgraded for every physics-warp gap~~ [FILED 2026-10-02 from the physics-warp recording investigation, branch `physwarp-recording`. FIXED 2026-10-03, branch `sparse-warn-physwarp`]
 
 `FlightRecorder.CloseCurrentTrackSection` WARNs `TrackSection sparse sampling:` when a closed
 section holds a gap beyond `ResolveSparseGapWarningThreshold(maxSampleInterval)` whose two
@@ -216,10 +242,23 @@ shares the classification.
 
 Impact is low: the line is diagnostic, the log validator's WRN-001 does not read it, and the
 new `[expectations.recordings.sampling]` block (`harness/lib/samplingq.py`) now gates the same
-defect on the PWR lanes with the right per-rate allowance. Not changed here (operator decides).
+defect on the PWR lanes with the right per-rate allowance.
 
-- [ ] Classify the warn flag by mode: rails / on-rails stays exempt, physics warp WARNs above
-  the threshold plus one `0.02 * rate` frame.
+- [x] Fix: the per-frame flag is now `isOnRails || IsRailsWarpActiveForDiagnostics()` (rate
+  index above 0 in `TimeWarp.Modes.HIGH`; pure `IsRailsWarpState`), in both recorders, so
+  only a gap touching a rails / on-rails sample downgrades to Verbose. No extra per-rate
+  allowance was needed: `ResolveSparseGapWarningThreshold` (1.5x the max, floored at 0.5 s)
+  exceeds `max + 0.08 s` for every max interval (pinned by
+  `ResolveSparseGapWarningThreshold_ClearsMaxPlusOne4xFrame`), so an on-schedule 4x gap
+  never reaches it. The counter is `LargeGapCountOffRails` / log token `largeGapsOffRails=`
+  (no harness spec or tool reads the old `largeGaps1x=`). Headless, `TimeWarp`'s static
+  accessors answer rate index 1 in HIGH mode without the singleton, which read as warp in
+  every xUnit section close; the read now returns false when `TimeWarp.fetch` is null. No
+  lane forbids a WARN line generically (the log validator's WRN-001 checks only a redundant
+  `WARNING:` prefix), so a legitimate physics-warp run reds nothing.
+  Flown on a DLL carrying this fix: PWR-1 `2026-10-03_1039`, PWR-2 `_1044`, PWR-3 `_1030` /
+  `_1050` log no foreground `TrackSection sparse sampling:` WARN; each logs the two
+  background debris WARNs every earlier PWR run already had (BG-PROXIMITY-GAP-READS-AS-SPARSE-SAMPLING).
 
 ## ~~KXRW-RESULT-NAN-DETAIL: a kx_rewind_watch flight that ends early writes no mission result at all~~ [FILED 2026-10-01 from the mutation checker's blind replay, branch `mutation-phase2-pr3`. FIXED 2026-10-01, branch `fix-kxrw-nan`]
 

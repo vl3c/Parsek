@@ -850,15 +850,15 @@ namespace Parsek.Tests
             Assert.Equal(0.3, stats.AverageGapSeconds, precision: 6);
             Assert.Equal(0.6, stats.MaxGapSeconds, precision: 6);
             Assert.Equal(1, stats.LargeGapCount);
-            // No per-sample warp data supplied: every large gap counts as
-            // normal-rate so the WARN behaviour is unchanged.
-            Assert.Equal(1, stats.LargeGapCountAtNormalRate);
+            // No per-sample rails data supplied: every large gap counts as
+            // off-rails so the WARN behaviour is unchanged.
+            Assert.Equal(1, stats.LargeGapCountOffRails);
         }
 
         [Fact]
-        public void SectionGapStats_AllGapsUnderWarp_NoNormalRateLargeGap()
+        public void SectionGapStats_AllGapsOnRails_NoOffRailsLargeGap()
         {
-            // Two large gaps, every bounding sample taken under warp.
+            // Two large gaps, every bounding sample taken under rails warp.
             var frames = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 100.0 },
@@ -871,23 +871,23 @@ namespace Parsek.Tests
                 FlightRecorder.ComputeSectionGapStats(frames, largeGapThresholdSeconds: 0.5, warpFlags: warpFlags);
 
             Assert.Equal(2, stats.LargeGapCount);
-            Assert.Equal(0, stats.LargeGapCountAtNormalRate);
+            Assert.Equal(0, stats.LargeGapCountOffRails);
         }
 
         [Fact]
-        public void SectionGapStats_MixedSection_OneNormalRateGapAndOneWarpGap()
+        public void SectionGapStats_MixedSection_OneOffRailsGapAndOneRailsGap()
         {
             // The reviewer's edge case: a single section holds BOTH a real 1x
-            // dropped-sample gap AND a later physics-warp gap. The 1x gap must
-            // still count toward LargeGapCountAtNormalRate so it WARNs; the warp
+            // dropped-sample gap AND a later rails-touching gap. The 1x gap must
+            // still count toward LargeGapCountOffRails so it WARNs; the rails
             // gap must not.
-            // frames:  0     1(0.7s gap @1x)  2(warp on)  3(20s gap, warp->warp)
+            // frames:  0     1(0.7s gap @1x)  2(rails on)  3(20s gap, rails->rails)
             var frames = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 50.0 },
-                new TrajectoryPoint { ut = 50.7 },  // 0.7s gap, both ends 1x  -> normal-rate large gap
-                new TrajectoryPoint { ut = 51.0 },  // small gap (warp just engaged at this sample)
-                new TrajectoryPoint { ut = 71.0 }   // 20s gap, both ends warp -> warp gap
+                new TrajectoryPoint { ut = 50.7 },  // 0.7s gap, both ends 1x  -> off-rails large gap
+                new TrajectoryPoint { ut = 51.0 },  // small gap (rails warp just engaged at this sample)
+                new TrajectoryPoint { ut = 71.0 }   // 20s gap, both ends rails -> rails gap
             };
             var warpFlags = new List<bool> { false, false, true, true };
 
@@ -895,21 +895,21 @@ namespace Parsek.Tests
                 FlightRecorder.ComputeSectionGapStats(frames, largeGapThresholdSeconds: 0.5, warpFlags: warpFlags);
 
             Assert.Equal(2, stats.LargeGapCount);
-            Assert.Equal(1, stats.LargeGapCountAtNormalRate);
+            Assert.Equal(1, stats.LargeGapCountOffRails);
             // The mixed section still WARNs because a 1x gap is present.
-            Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(stats.LargeGapCountAtNormalRate));
+            Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(stats.LargeGapCountOffRails));
         }
 
         [Fact]
-        public void SectionGapStats_LargeGapTouchingWarpSampleOnEitherEnd_NotNormalRate()
+        public void SectionGapStats_LargeGapTouchingRailsSampleOnEitherEnd_NotOffRails()
         {
-            // A large gap with warp active at only ONE bounding sample (e.g. the
-            // frame straddling a warp transition) is still warp-attributable.
+            // A large gap with rails warp active at only ONE bounding sample (e.g.
+            // the frame straddling a warp transition) is still rails-attributable.
             var frames = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 0.0 },
-                new TrajectoryPoint { ut = 5.0 },  // 5s gap: prev 1x, cur warp
-                new TrajectoryPoint { ut = 11.0 }  // 6s gap: prev warp, cur 1x
+                new TrajectoryPoint { ut = 5.0 },  // 5s gap: prev 1x, cur rails
+                new TrajectoryPoint { ut = 11.0 }  // 6s gap: prev rails, cur 1x
             };
             var warpFlags = new List<bool> { false, true, false };
 
@@ -917,13 +917,13 @@ namespace Parsek.Tests
                 FlightRecorder.ComputeSectionGapStats(frames, largeGapThresholdSeconds: 0.5, warpFlags: warpFlags);
 
             Assert.Equal(2, stats.LargeGapCount);
-            Assert.Equal(0, stats.LargeGapCountAtNormalRate);
+            Assert.Equal(0, stats.LargeGapCountOffRails);
         }
 
         [Fact]
-        public void SectionGapStats_MismatchedWarpFlagLength_TreatsAllAsNormalRate()
+        public void SectionGapStats_MismatchedWarpFlagLength_TreatsAllAsOffRails()
         {
-            // Defensive: a length mismatch falls back to "no warp data" so every
+            // Defensive: a length mismatch falls back to "no rails data" so every
             // large gap stays WARN-eligible rather than being silently downgraded.
             var frames = new List<TrajectoryPoint>
             {
@@ -936,20 +936,161 @@ namespace Parsek.Tests
                 FlightRecorder.ComputeSectionGapStats(frames, largeGapThresholdSeconds: 0.5, warpFlags: warpFlags);
 
             Assert.Equal(1, stats.LargeGapCount);
-            Assert.Equal(1, stats.LargeGapCountAtNormalRate);
+            Assert.Equal(1, stats.LargeGapCountOffRails);
         }
 
         [Fact]
-        public void ShouldWarnOnSparseSampling_NoNormalRateLargeGaps_DoesNotWarn()
+        public void ShouldWarnOnSparseSampling_NoOffRailsLargeGaps_DoesNotWarn()
         {
             Assert.False(FlightRecorder.ShouldWarnOnSparseSampling(0));
         }
 
         [Fact]
-        public void ShouldWarnOnSparseSampling_HasNormalRateLargeGap_Warns()
+        public void ShouldWarnOnSparseSampling_HasOffRailsLargeGap_Warns()
         {
             Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(1));
             Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(11));
+        }
+
+        [Theory]
+        // todo SPARSE-SAMPLING-WARN-SILENT-UNDER-PHYSICS-WARP: only rails warp
+        // exempts a gap; physics warp (LOW mode) samples every frame like 1x.
+        [InlineData(0, false, false)]
+        [InlineData(0, true, false)]
+        [InlineData(1, true, false)]
+        [InlineData(3, true, false)]
+        [InlineData(1, false, true)]
+        [InlineData(7, false, true)]
+        public void IsRailsWarpState_OnlyHighModeAboveIndexZero(
+            int rateIndex, bool physicsWarpMode, bool expected)
+        {
+            Assert.Equal(expected, FlightRecorder.IsRailsWarpState(rateIndex, physicsWarpMode));
+        }
+
+        private static FlightRecorder.SamplingSilenceWindow Silence(double a, double b)
+        {
+            return new FlightRecorder.SamplingSilenceWindow(a, b);
+        }
+
+        [Fact]
+        public void GapSecondsOutsideSilences_SubtractsTheCoveredPart()
+        {
+            // No silences, or one that misses the gap: the whole gap.
+            Assert.Equal(14.0, FlightRecorder.ComputeGapSecondsOutsideSilences(60.0, 74.0, null), 9);
+            Assert.Equal(14.0, FlightRecorder.ComputeGapSecondsOutsideSilences(
+                60.0, 74.0, new[] { Silence(80.0, 90.0) }), 9);
+            // Covered from just after the earlier sample to the later one.
+            Assert.Equal(0.02, FlightRecorder.ComputeGapSecondsOutsideSilences(
+                60.0, 74.0, new[] { Silence(60.02, 74.0) }), 9);
+            // A window wider than the gap is clipped to it.
+            Assert.Equal(0.0, FlightRecorder.ComputeGapSecondsOutsideSilences(
+                60.0, 74.0, new[] { Silence(50.0, 90.0) }), 9);
+            // Overlapping windows count once.
+            Assert.Equal(4.0, FlightRecorder.ComputeGapSecondsOutsideSilences(
+                60.0, 74.0, new[] { Silence(64.0, 70.0), Silence(66.0, 74.0) }), 9);
+            // Two disjoint windows.
+            Assert.Equal(8.0, FlightRecorder.ComputeGapSecondsOutsideSilences(
+                60.0, 74.0, new[] { Silence(70.0, 72.0), Silence(62.0, 66.0) }), 9);
+        }
+
+        [Fact]
+        public void SectionGapStats_GapInsideAProximitySilence_DoesNotWarn()
+        {
+            // todo BG-PROXIMITY-GAP-READS-AS-SPARSE-SAMPLING: a booster debris left the
+            // proximity range at ~62.7 and the next sample came at the second staging.
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 62.20 },
+                new TrajectoryPoint { ut = 62.72 },
+                new TrajectoryPoint { ut = 76.80 }, // 14.08 s gap
+                new TrajectoryPoint { ut = 76.82 }
+            };
+            var railsFlags = new List<bool> { false, false, false, false };
+
+            FlightRecorder.SectionGapStats stats = FlightRecorder.ComputeSectionGapStats(
+                frames, 1.5, railsFlags, new[] { Silence(62.74, 76.80) });
+
+            Assert.Equal(1, stats.LargeGapCount);
+            Assert.Equal(0, stats.LargeGapCountOffRails);
+            Assert.Equal(1, stats.LargeGapCountInSilence);
+            Assert.False(FlightRecorder.ShouldWarnOnSparseSampling(stats.LargeGapCountOffRails));
+        }
+
+        [Fact]
+        public void SectionGapStats_StallBeforeTheSilence_StillWarns()
+        {
+            // The sampler stalled 4 s in range before the vessel left range: the part of
+            // the gap outside the silence exceeds the threshold.
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 60.0 },
+                new TrajectoryPoint { ut = 74.0 }
+            };
+
+            FlightRecorder.SectionGapStats stats = FlightRecorder.ComputeSectionGapStats(
+                frames, 1.5, null, new[] { Silence(64.0, 74.0) });
+
+            Assert.Equal(1, stats.LargeGapCountOffRails);
+            Assert.Equal(0, stats.LargeGapCountInSilence);
+            Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(stats.LargeGapCountOffRails));
+        }
+
+        [Fact]
+        public void SectionGapStats_RailsGapIsNotCountedAsSilence()
+        {
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 0.0 },
+                new TrajectoryPoint { ut = 10.0 }
+            };
+
+            FlightRecorder.SectionGapStats stats = FlightRecorder.ComputeSectionGapStats(
+                frames, 1.5, new List<bool> { true, true }, new[] { Silence(0.0, 10.0) });
+
+            Assert.Equal(1, stats.LargeGapCount);
+            Assert.Equal(0, stats.LargeGapCountOffRails);
+            Assert.Equal(0, stats.LargeGapCountInSilence);
+        }
+
+        [Fact]
+        public void SectionGapStats_PhysicsWarpGapOverThreshold_Warns()
+        {
+            // A 4x physics-warp section (flags false: physics warp is not rails)
+            // whose sampler stalled for 3 s at High density (threshold 1.5 s).
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 400.00 },
+                new TrajectoryPoint { ut = 401.04 }, // on-schedule 13-frame backstop gap
+                new TrajectoryPoint { ut = 404.04 }  // 3.0 s stall
+            };
+            var railsFlags = new List<bool> { false, false, false };
+            double threshold = FlightRecorder.ResolveSparseGapWarningThreshold(
+                ParsekSettings.GetMaxSampleInterval(SamplingDensity.High));
+
+            FlightRecorder.SectionGapStats stats =
+                FlightRecorder.ComputeSectionGapStats(frames, threshold, railsFlags);
+
+            Assert.Equal(1, stats.LargeGapCount);
+            Assert.Equal(1, stats.LargeGapCountOffRails);
+            Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(stats.LargeGapCountOffRails));
+        }
+
+        [Theory]
+        // The threshold must clear the max interval plus one 4x physics frame
+        // (0.08 s) for every max interval, so an on-schedule physics-warp gap
+        // never WARNs now that physics warp is no longer exempt.
+        [InlineData(0.01f)]
+        [InlineData(0.1f)]
+        [InlineData(0.16f)]
+        [InlineData(0.3f)]
+        [InlineData(1.0f)]
+        [InlineData(3.0f)]
+        [InlineData(8.0f)]
+        public void ResolveSparseGapWarningThreshold_ClearsMaxPlusOne4xFrame(float maxInterval)
+        {
+            double threshold = FlightRecorder.ResolveSparseGapWarningThreshold(maxInterval);
+            Assert.True(threshold > maxInterval + 0.08,
+                $"threshold {threshold} must exceed {maxInterval} + 0.08");
         }
 
         [Theory]
@@ -1007,8 +1148,8 @@ namespace Parsek.Tests
                     frames, largeGapThresholdSeconds: threshold, warpFlags: warpFlags);
 
             Assert.Equal(0, stats.LargeGapCount);
-            Assert.Equal(0, stats.LargeGapCountAtNormalRate);
-            Assert.False(FlightRecorder.ShouldWarnOnSparseSampling(stats.LargeGapCountAtNormalRate));
+            Assert.Equal(0, stats.LargeGapCountOffRails);
+            Assert.False(FlightRecorder.ShouldWarnOnSparseSampling(stats.LargeGapCountOffRails));
         }
 
         [Fact]
@@ -1033,8 +1174,8 @@ namespace Parsek.Tests
                     frames, largeGapThresholdSeconds: threshold, warpFlags: warpFlags);
 
             Assert.Equal(1, stats.LargeGapCount);
-            Assert.Equal(1, stats.LargeGapCountAtNormalRate);
-            Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(stats.LargeGapCountAtNormalRate));
+            Assert.Equal(1, stats.LargeGapCountOffRails);
+            Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(stats.LargeGapCountOffRails));
         }
 
         [Fact]
@@ -1069,7 +1210,7 @@ namespace Parsek.Tests
             FlightRecorder.SectionGapStats stats =
                 FlightRecorder.ComputeSectionGapStats(frames, largeGapThresholdSeconds: 0.5, warpFlags: warpFlags);
             Assert.Equal(2, stats.LargeGapCount);          // both 1s gaps are "large" vs 0.5s
-            Assert.Equal(1, stats.LargeGapCountAtNormalRate); // only 100->101 is 1x->1x
+            Assert.Equal(1, stats.LargeGapCountOffRails); // only 100->101 is 1x->1x
         }
 
         [Fact]

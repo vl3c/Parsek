@@ -1355,6 +1355,21 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Dev: booster debris no longer logs a sparse-sampling warning on every launch.** Once
+  a background vessel leaves proximity range the recorder stops sampling it by design, and
+  the long gap until it came back (about 14 s for each booster pair) read as a stalled
+  sampler. The recorder now notes each out-of-range silence, from the first skipped moment to
+  the moment the vessel is back in range, and a gap counts toward the warning only by the
+  part of it outside that silence; the line stays at Verbose with a
+  `largeGapsOutOfRange=` count.
+- **Dev: the recorder's sparse-sampling warning fires under physics warp again.** A recorded
+  section whose samples sat further apart than the sampler allows logs
+  `TrackSection sparse sampling:` as a warning, but any time warp downgraded it to a verbose
+  line, including physics warp, where every physics frame still runs and the sampler keeps
+  its spacing. Only rails warp (and on-rails recording) now downgrades it; the count token
+  is renamed `largeGapsOffRails=`. An on-schedule physics-warp gap stays under the
+  threshold, which already clears the max interval plus one 4x frame. Headless runs no
+  longer read a missing `TimeWarp` as rails warp.
 - **Recording: a sample taken when a frame runs long now sits where the vessel was at that
   moment.** When one rendered frame holds several physics steps (a warp-rate change, staging,
   a slow stretch), KSP hands the recorder a mid-step reading on the later steps: the clock
