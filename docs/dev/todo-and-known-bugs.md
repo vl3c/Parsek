@@ -356,6 +356,53 @@ all 8 rows), `test_mlib.NonFiniteDetailScrubTests`, `test_shells.ResultSerialize
   of its bound it compares. Reaching it needs the mission to archive its frames (or the
   per-assertion evidence the compare reads).
 
+## HARNESS-POST-FLIGHT-DIALOG-STALLS: harness runs sit behind KSP's post-flight screens until a timeout or the wall budget ends [FILED 2026-10-03, branch `todo-stuck-dialogs`. CONFIRMED in the collected logs; fixes not started]
+
+Operator observation: auto tests sometimes sit on the post-flight "Mission Summary" screen.
+A scan of all 894 collected `_shots/KSP.log` files found two stock dialogs, neither of which
+Parsek, `run.py` or the seam detects or dismisses (the old FlightResults patch is gone;
+`UiAction op=dismiss` reaches only Parsek popups; `mission_runner.py` `_warp_watchdog`
+clears a pause only while a warp is running). In every case something else held the run.
+
+- **Crash screen (`FlightResultsDialog`, "Outcome: Catastrophic Failure!") pauses the game.**
+  Stock `FlightLogger` opens it about 60 s after the active vessel's root part is destroyed.
+  It calls `FlightDriver.SetPause(true)`, so `timeScale` is 0. KSP.log marker:
+  `Game State Saved to saves/<x>/persistent` followed within about 10 ms by `Game Paused!`.
+  The seam's `StockScreen` VAB open makes the same pair but unpauses within 0.1 s; exclude it.
+  - RB-1 `2026-09-27_1353` (PARSEK-FAIL batch-crashed): the Flea crashed on descent, which
+    the lane never intends. `Game Paused!` at 16:56:51, `Game Unpaused!` at 17:15:41: about
+    1,130 s on the crash screen, 1,337 s wall against 410-422 s for passing runs. Nothing
+    tripped earlier because every phase budget is game time and `mlib` `advances_frozen`
+    deliberately ignores a stopped clock, so the mission polled frozen telemetry until its
+    wall budget ran out.
+  - EVA-8 x6 (2026-09-29, INVALID): Jeb died just after a seam `evagroundscience step move`.
+    The pending two-phase step waited out its 120 s `step-timeout`, about half of it with the
+    crash screen up. This was a lane-development defect; the lane passes since `_1819`.
+- **KSC recovery screen (`MissionRecoveryDialog`, "Mission Summary for <vessel>").**
+  The marker is the stock `[VesselRecovery]: ... recovered` line. 22 runs in 9 lanes, median
+  1.7 s to the next scene. In 7 of them (L3 x5, L5, L6 x2) it stayed about 62 s, while the
+  post-mission `CommitTree` was deferred `not-in-flight` until its 60 s timeout. That timeout
+  is measured and non-gating by design in `L3-career-science-recover.toml`; the dialog is a
+  bystander.
+
+Lost: about 26 min with a dialog up, about 25 min of it avoidable (RB-1 is about 19 min).
+
+- [ ] Mission shell: an always-on paused-clock watchdog (extend `_warp_watchdog`, called
+  from the fly loop). If game time has not advanced for about 15 wall s while `krpc.paused`
+  is true in an airborne phase, with no seam step in flight, end the mission as vessel lost
+  rather than waiting out the wall budget. This would have saved about 1,100 s on RB-1.
+- [ ] Seam: a two-phase pending step fails fast when the active vessel is destroyed or
+  `FlightResultsDialog.isDisplaying`, instead of waiting its full timeout
+  (`ParsekTestCommandAddon.EvaGroundScience.cs` step-move path first). Also log the
+  dialog's display and the active-vessel loss so a scan can find the next case.
+- [ ] Recovery-screen class: `CommitTree` returns a fast `REJECTED not-in-flight` in
+  SPACECENTER instead of deferring 60 s, or L3 / L5 / L6 drop that step. L3 keeps the step
+  verbatim as a tripwire, so its `expect` must change with it. Saves about 60 s on each of
+  those runs (SE-1 hits the same deferral).
+- [ ] Observability: subscribe to `onGUIRecoveryDialogSpawn` / `Despawn` and log the crash
+  dialog. Neither dialog logs its own close today, so a stall longer than about 62 s on the
+  recovery screen cannot be confirmed from logs.
+
 ## HARNESS-FLIGHT-WALL-TIME: auto-flights spend ~40% of their mission wall time idle at 1x [FILED 2026-10-01, branch `flight-efficiency`. MEASURED; the warp-policy fix is a separate session]
 
 `harness/tools/flight_efficiency.py` (pure core `harness/lib/flighteff.py`, contract in its
