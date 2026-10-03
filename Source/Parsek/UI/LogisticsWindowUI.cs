@@ -556,6 +556,8 @@ namespace Parsek
         private GUIStyle detailStyle;
         // The Every / Priority steppers' shared value-cell width (measured with detailStyle).
         private float stepperValueWidth = LogisticsRoutePresentation.StepperValueMinWidth;
+        // The Every / Priority steppers' shared row height (a slot-button line's height).
+        private float stepperRowHeight;
         // The two-line Route cell: line 1 the caret + name, line 2 the grey from/to at the
         // same font size. Both clip rather than wrap, so every row is exactly two lines
         // tall and the grid of single-line cells beside it never shifts. The muted colour
@@ -2675,7 +2677,7 @@ namespace Parsek
             // actively misleading on synodic spacing. Flat routes unchanged.
             bool windowed = RouteWindowBasisPresentation.IsWindowedBasis(leg.Basis);
 
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(GUILayout.Height(stepperRowHeight));
             GUILayout.Space(24f);
             GUILayout.Label(
                 new GUIContent("Every:",
@@ -2725,7 +2727,7 @@ namespace Parsek
         {
             int p = Route.ClampPriority(route.DispatchPriority);
 
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(GUILayout.Height(stepperRowHeight));
             GUILayout.Space(24f);
             GUILayout.Label(
                 new GUIContent("Priority:",
@@ -4588,6 +4590,11 @@ namespace Parsek
                 padding = new RectOffset(
                     2, 2, GUI.skin.button.padding.top, GUI.skin.button.padding.bottom)
             };
+            stepperRowHeight = LogisticsRoutePresentation.StepperRowHeight(
+                detailSlotButtonStyle.CalcHeight(new GUIContent("Link round-trip..."), InteractSingleWidth)
+                    + detailSlotButtonStyle.margin.vertical,
+                detailStyle.CalcHeight(new GUIContent("Every:"), LogisticsRoutePresentation.StepperLabelWidth)
+                    + detailStyle.margin.vertical);
             GUIStyle columnHeader = parentUI.GetColumnHeaderStyle();
             interactHeaderContainerStyle = new GUIStyle(columnHeader)
             {

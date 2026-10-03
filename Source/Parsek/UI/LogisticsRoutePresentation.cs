@@ -153,6 +153,24 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The one height both stepper rows take: the taller of a detail line that carries a
+        /// slot button (<paramref name="slotRowHeight"/>, e.g. "Link round-trip...") and a
+        /// plain label line (<paramref name="labelRowHeight"/>), rounded up. Whether the
+        /// block's slot column reaches the Every line depends on how many lines precede it,
+        /// so a fixed height keeps the two stepper rows equal in every block.
+        /// </summary>
+        internal static float StepperRowHeight(float slotRowHeight, float labelRowHeight)
+        {
+            float h = Math.Max(Sanitize(slotRowHeight), Sanitize(labelRowHeight));
+            return (float)Math.Ceiling(h);
+        }
+
+        private static float Sanitize(float v)
+        {
+            return float.IsNaN(v) || float.IsInfinity(v) || v < 0f ? 0f : v;
+        }
+
+        /// <summary>
         /// A section title bar's text: the caret (the route rows' glyphs, down when
         /// expanded, right when collapsed), the name and its count, "\u25bc Active Routes (2)".
         /// </summary>

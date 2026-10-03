@@ -85,6 +85,15 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(24f, LogisticsRoutePresentation.StepperButtonWidth);
         }
 
+        // Both stepper rows take the taller of a slot-button line and a label line.
+        [Fact]
+        public void StepperRowHeight_IsTheTallerLineRoundedUp()
+        {
+            Assert.Equal(29f, LogisticsRoutePresentation.StepperRowHeight(28.2f, 21f));
+            Assert.Equal(22f, LogisticsRoutePresentation.StepperRowHeight(float.NaN, 21.5f));
+            Assert.Equal(0f, LogisticsRoutePresentation.StepperRowHeight(-1f, float.PositiveInfinity));
+        }
+
         // The Logistics section accent bars: green Active, soft violet Paused, cyan
         // Candidates, all named palette slots rather than inline literals.
         [Fact]

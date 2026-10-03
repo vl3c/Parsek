@@ -2581,7 +2581,8 @@ _(unreleased — entries accumulate here per commit)_
 - **Logistics: a violet Paused Routes bar and aligned steppers.** The Paused Routes section's
   accent bar is soft violet instead of grey, so it no longer reads as a divider. In a route's
   Advanced details the Every and Priority steppers line up: both labels, both value cells and
-  both pairs of - / + buttons share one column each, whatever the values read.
+  both pairs of - / + buttons share one column each, whatever the values read, and the two
+  rows are the same height.
 
 - **Dev: the BDOCK rendezvous waits are rails-warped.** Operator ruling 2026-10-02 (rails
   warp only): MechJeb's rendezvous autopilot hands each node to its NodeExecutor, which

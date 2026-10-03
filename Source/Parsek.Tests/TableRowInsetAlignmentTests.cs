@@ -712,7 +712,9 @@ namespace Parsek.Tests
                     @"GUI\.skin\.button,\s*GUILayout\.Width\(LogisticsRoutePresentation\.StepperButtonWidth\)").Count);
                 Assert.Equal(4, Regex.Matches(body, @"GUILayout\.(Label|Button)\(").Count);
                 Assert.DoesNotMatch(@"GUILayout\.Width\(\s*\d", body);
+                Assert.Contains("GUILayout.BeginHorizontal(GUILayout.Height(stepperRowHeight))", body);
             }
+            Assert.Contains("stepperRowHeight = LogisticsRoutePresentation.StepperRowHeight(", prepared);
             Assert.Contains("stepperValueWidth = LogisticsRoutePresentation.StepperValueCellWidth(", prepared);
             Assert.Contains("detailStyle.CalcSize(", prepared);
         }

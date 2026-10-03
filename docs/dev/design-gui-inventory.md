@@ -993,7 +993,9 @@ when linked. Advanced adds the `Every:` and `Priority:` steppers, one fixed grid
 label column, 24 px `-` / `+` buttons in the same button style, and one value cell measured once
 with the block's label style from the widest Every readout (`1x (every window)` up to
 `99x (every 99th window)`, `99x (~9999.9d)`; `LogisticsRoutePresentation.StepperValueCellWidth`),
-so both `-` buttons share a column and both `+` buttons another whatever the values; a `-` at its
+so both `-` buttons share a column and both `+` buttons another whatever the values; both rows
+take one height, a slot-button line's (`StepperRowHeight`), whether or not the block's slot
+column reaches them; a `-` at its
 floor (1x / 0) is greyed with its reason on hover. Then `Flights used:` (names, a
 repeated name numbered `Name [1]`, `Name [2]`) and the manual-looping clause after
 `Built from mission 'X'.`. The route's runs are the Route History's, not the block's.
