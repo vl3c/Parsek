@@ -41,7 +41,7 @@ saves. Cheats are process-static, never saved.
 | ScienceGainMultiplier (Easy 2, Mod 0.9, Hard 0.6) | Stock adds the PRE-multiplier value to `subject.science`, then `scienceValue *= ScienceGainMultiplier` before AddScience (`ResearchAndDevelopment.cs:1813`). Parsek captures `subject.science` (`GameStateRecorder.cs:933`) and credits it as ScienceAwarded (`GameStateEventConverter.cs:418`). Ledger earns x1, stock earns xM. On non-Normal careers the drawdown clamp holds the live value with a toast, and a rewind recalc resets science to the x1 total. | BUG. Fix: stamp the multiplier (or the post-multiplier awarded value) on the ScienceEarning at capture time; keep subject-cap math pre-multiplier. Must NOT read the current multiplier at replay (mid-career edits must not rescale history). |
 | RepLossDeclined (Easy 0, Normal 1, Mod 2, Hard 3) | Stock `Contract.Decline` takes rep. ContractDeclined events are dropped (`GameStateEventConverter.cs:331`); `ReputationPenaltySource.ContractDecline` exists but is never constructed. Loss is held only by the rep DOWN clamp, refunded on rewind. Affects Normal too. | BUG. Fix: emit a KSC-origin ReputationPenalty(ContractDecline) row with the amount stock actually applied. |
 | FundsGain/RepGain/FundsLoss/RepLoss multipliers | Stock bakes them into contract rewards at generation, hire cost, death rep, facility repair; Parsek records the resulting amounts and reads FundsLossMultiplier at repair time. | OK (mid-career edits correctly affect only the future) |
-| StartingFunds / Science / Reputation | Ledger seeds from the live pool, not the parameter. | OK, except StartingFunds = 0 (slider allows it): `EnsureInitialFundsSeed` only seeds non-zero, PatchFunds then skips as "unseeded", and the 600-frame value wait spins ~10 s every load (also Science mode with 0 science). BUG (small): treat a zero pool as a valid seed once singletons are present. |
+| StartingFunds / Science / Reputation | Ledger seeds from the live pool, not the parameter. | OK. StartingFunds = 0 FIXED 2026-09-26 and live-proven by ZF-1 2026-10-03 (see the closing section); originally: StartingFunds = 0 (slider allows it): `EnsureInitialFundsSeed` only seeds non-zero, PatchFunds then skips as "unseeded", and the 600-frame value wait spins ~10 s every load (also Science mode with 0 science). BUG (small): treat a zero pool as a valid seed once singletons are present. |
 | TechTreeUrl | tech ids are strings; custom trees (HETTN in c2) work | OK |
 
 ### 2.2 Difficulty (DifficultyParams)
@@ -216,3 +216,31 @@ half of the Q4 ruling. Re-derivation from a fresh decompile (KSP 1.12.5 Assembly
   save builds, no stock prune, all six debris kept; D14 `vessel-budget` claimed.
 - Harness: a spec now declares a per-run delta, `[runtime] kspSettings`, so the line above
   ("no per-scenario settings override") is no longer true.
+
+### Closing the three remaining settings risks (2026-10-03, branch `settings-risks`)
+
+Operator request 2026-10-03: non-default reward multipliers where money or science change
+hands, quickload off during a Re-Fly, and a career that starts at zero funds.
+
+- Quickload off during a Re-Fly: CLOSED BY EVIDENCE, no flight. Readers of
+  `Flight.CanQuickLoad` in a full decompile: `QuickSaveLoad` (F9 and the hold-F9 load dialog),
+  `PauseMenu` (Esc load) and `KSCPauseMenu` (Space Center load button) only; of
+  `Flight.CanQuickSave`: the same three. `GamePersistence.SaveGame` / `LoadGame` and
+  `FlightDriver.StartAndFocusVessel` read neither, and they are the only stock calls behind
+  RP authoring, the Re-Fly load, merge durable saves and the commit quicksave refresh. RF-16
+  (`2026-09-27_1341`) re-flew with the flag off in the persistent save, the RP quicksave and the
+  loaded game. Ruling Q1 stands as built.
+- Zero starting funds (S4): FIXED in d5e3ec399 (2026-09-26, confirmed-zero seed keyed on
+  Funding's OnLoad signal) and now LIVE-PROVEN: `ZF-1-zero-funds-career` on
+  `career-pad-craft-zero-funds`, reading `2026-10-03_1521`, armed `_1542`. The seed is
+  `amount=0 confirmedZero=True`, the deferred seed waits 0 frames, a 4182 recovery and a 300
+  rollout reconcile with no guard clamp, an unaffordable hire is refused, LedgerGroundTruth
+  `hardFailures=0`. Section 2.1's StartingFunds row and work-list item 4 are therefore done.
+- Reward multipliers with money changing hands: LIVE-PROVEN by
+  `HC-2-hard-career-earn-spend` on `career-science-pad-hard` (reading `2026-10-03_1523`, armed
+  `_1533`). Milestones are scaled by stock inside `AwardProgress`'s arguments (the
+  `GetContract*CompletionFactor` multipliers), so Parsek records the paid amount; the science
+  multiplier is stamped at capture (S1). Every amount was exactly 0.6x L3's x1 flight, the
+  recovery unscaled, the funds total equal to the pre-flight prediction (523758), no guard
+  clamp, LedgerGroundTruth `hardFailures=0`, then a clean Rewind-to-Launch. Not exercised: the
+  x2 loss multipliers and contract rewards.

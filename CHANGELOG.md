@@ -10,6 +10,21 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: lanes for a Hard career that earns and spends, and for a career that starts with no
+  money.** `HC-2-hard-career-earn-spend` (flown green 2026-10-03, nightly) flies L3's science
+  hop on `career-science-pad-hard`, a copy of L3's save at KSP's Hard preset built by
+  `harness/tools/build_career_science_pad_hard.py` and pinned byte for byte. It then launches a
+  probe from the VAB, runs the ledger ground-truth check and rewinds the hop. Every milestone
+  reward came in at exactly 0.6 times the Normal amount and every science result carried the
+  0.6 multiplier, while the recovery stayed unscaled. The funds total matched the value
+  predicted before the flight, Parsek's ledger matched the game's own balances with no
+  correction, and the rewind put the balances back. `ZF-1-zero-funds-career` (flown green
+  2026-10-03, nightly) loads `career-pad-craft-zero-funds`, a career that starts at 0 funds.
+  It checks that the starting balance is recorded as zero without the old 10-second wait, that
+  a recovery and a launch then add up with no correction, and that a hire the career cannot
+  afford is refused. Both lanes launch `Settings Probe`, a new one-part shared craft. These
+  careers cannot build the stock Jumping Flea: with Probes Before Crew installed its pod and
+  parachute are not yet researched.
 - **Dev: a lane for recovering a ghost chain's final vessel, and the duplicate it found.**
   The new `chain-tip-recovery` injected recording set gives a test save a ghost chain whose
   last vessel lands next to the pad vessel while its ghost is still playing, so a lane can

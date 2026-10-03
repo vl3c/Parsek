@@ -729,6 +729,21 @@ values = ["bbox-block", "trajectory-walkback", "terrain-correction",
 # 1: `excluded 8 ghost map vessel(s) ... 10 -> 18` on both save builds, no stock prune, all six
 # debris in the produced save; offline negative control 9 of 9 seeds red).
 #
+# `reward-multipliers` IS CLAIMED (2026-10-03, branch `settings-risks`) as "under non-1x
+# Funds/Science/RepGainMultiplier a career earns (world-first milestones, transmitted and
+# recovered science, a recovery), spends (a VAB rollout), commits and rewinds with Parsek's
+# ledger equal to the pools stock computed". DECLARER: HC-2-hard-career-earn-spend on the
+# derived `career-science-pad-hard` (reading `2026-10-03_1523`, armed `_1533`, both PASS
+# attempt 1: every milestone exactly 0.6x L3's x1 amount, `gainMultiplier=0.6` on each science
+# capture, funds 523758 as predicted from L3's 536558, no guard clamp, LedgerGroundTruth
+# `hardFailures=0 facetsCompared=11`; offline negative control 10 of 10 seeds red).
+#
+# `zero-starting-funds` IS CLAIMED (2026-10-03, branch `settings-risks`) as "a career that starts
+# at 0 funds seeds a confirmed-zero FundsInitial with no value wait, credits and spends on top
+# of it without a guard clamp, and closes against KSP's own save" (KSP-SETTINGS-AUDIT S4).
+# DECLARER: ZF-1-zero-funds-career on the derived `career-pad-craft-zero-funds` (reading
+# `2026-10-03_1521`, armed `_1542`, both PASS attempt 1; `Seeded initial funds: amount=0 confirmedZero=True`, the deferred seed `loaded after 0 frames`, a 4182 recovery on top with no guard clamp, a refused hire, a 300 rollout, LedgerGroundTruth `hardFailures=0`; offline negative control 10 of 10 seeds red).
+#
 # Proposed, NOT added until flown: later cells such as `declutter-ksc`, `respawn-timer` and
 # `earth-calendar` from the KSP-SETTINGS-AUDIT list.
 values = ["kerbin", "mun", "minmus", "moho", "eve", "gilly", "duna", "ike", "dres",
@@ -737,7 +752,7 @@ values = ["kerbin", "mun", "minmus", "moho", "eve", "gilly", "duna", "ike", "dre
           "warp-1x", "warp-phys", "warp-rails", "warp-high",
           "scene-flight", "scene-map", "scene-ts", "scene-ksc", "scene-editor",
           "career", "science-mode", "sandbox", "cold-load-ut0",
-          "hard-preset", "vessel-budget"]
+          "hard-preset", "vessel-budget", "reward-multipliers", "zero-starting-funds"]
 
 [D15]  # UI surfaces (OUT OF SCOPE except the one honest automated cell)
 values = ["timeline-projection"]

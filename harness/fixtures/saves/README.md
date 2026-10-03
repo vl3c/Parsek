@@ -645,6 +645,29 @@ drift-gated by `harness/tools/build_career_pad_craft_hard.py` (`--check`) and
 `harness/lib/test_career_pad_craft_hard.py`; no `AddOns` copy (seam-only lanes). Host of
 `HC-1-hard-career-ledger`.
 
+## career-science-pad-hard (GAME Mode = CAREER, 1 VESSEL, derived from career-science-pad)
+
+`career-science-pad`'s `persistent.sfs` (CRLF, as committed) and `persistent.loadmeta` byte
+for byte, except the same eleven `PARAMETERS` values `career-pad-craft-hard` sets (KSP 1.12.5's
+Hard preset: x0.6 funds / science / reputation gain, x2 losses, quickload / restart /
+leave-to-editor off, entry purchase required, other launch sites allowed). The EDITS table is
+imported from `build_career_pad_craft_hard.py`, so the two Hard hosts cannot disagree; the
+source's PARAMETERS node equals `career-pad-craft`'s, which the drift test asserts. The Hard
+host for a career that EARNS: L3's science-bench pad craft (antenna + batteries) under Hard
+multipliers. Built and drift-gated by `harness/tools/build_career_science_pad_hard.py`
+(`--check`) and `harness/lib/test_career_science_pad_hard.py`; no `AddOns` copy. Host of
+`HC-2-hard-career-earn-spend`.
+
+## career-pad-craft-zero-funds (GAME Mode = CAREER, 1 VESSEL, derived from career-pad-craft)
+
+`career-pad-craft`'s `persistent.sfs` and `persistent.loadmeta` byte for byte, except three
+lines: `SCENARIO Funding funds = 500000 -> 0`, `PARAMETERS CAREER StartingFunds = 10000 -> 0`
+and the loadmeta's cached `funds = 500000 -> 0`. No `Parsek/` directory, so its first boot is
+a first-ever Parsek load of a career that starts at zero funds (KSP-SETTINGS-AUDIT S4). Built
+and drift-gated by `harness/tools/build_career_pad_craft_zero_funds.py` (`--check`) and
+`harness/lib/test_career_pad_craft_zero_funds.py`; no `AddOns` copy (seam-only lane). Host of
+`ZF-1-zero-funds-career`.
+
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 
 Science pool only: `ResearchAndDevelopment sci = 100`, no Funding / Reputation /
