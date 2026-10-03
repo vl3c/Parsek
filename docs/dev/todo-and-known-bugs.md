@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST: Real Spawn Control's "Warp to Spawn" puts an orbital tip on its recorded orbit at the new UT, not where its ghost stood [FILED 2026-10-03 from CI-9 `2026-10-03_1642` / `_1647`, branch `lane-ci9-dock-tip`. OPEN; product]
+## ~~REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST: Real Spawn Control's "Warp to Spawn" puts an orbital tip on its recorded orbit at the new UT, not where its ghost stood~~ [FILED 2026-10-03 from CI-9 `2026-10-03_1642` / `_1647`, branch `lane-ci9-dock-tip`. FIXED 2026-10-03, branch `fix-orbital-tip-spawn`]
 
 **What the player sees.** In orbit, the player parks 140 m from a ghost whose recording ends
 Orbiting, opens Real Spawn Control and presses "Warp to Spawn". The vessel that appears is
@@ -46,13 +46,50 @@ position (which has not moved)", and the player resumes "at the same position an
 relative to the now-real vessel, with the same approach geometry". On the surface the two
 agree (both surface-fixed); in orbit they do not.
 
-**Fix direction** (not designed here): when the jump crosses a tip, capture the tip ghost's
-pre-jump state vector alongside `CaptureOrbitalStates` and spawn the tip from it with the same
-epoch shift the loaded vessels get, instead of from the recorded orbit at the new UT.
-Whatever the fix, `CI-9-chain-tip-dock` keeps passing: its mission rendezvous only when the
-first target distance exceeds `rendezvousAboveMeters` (250 m), and on the fixed product that distance
-is ~140 m, so it takes the MATCH-VELOCITY branch. A lane that gates the geometry itself (the
-first target distance under, say, 250 m) is the witness to add with the fix.
+**Fix (2026-10-03, branch `fix-orbital-tip-spawn`).** Root cause as verified in source:
+`ApplyEpochShifts` re-epochs each loaded vessel with `Orbit.UpdateFromStateVectors(pos, vel, body,
+targetUT)` from its pre-jump state, a pure time translation of the orbit by the jump delta; the
+playback loop then spawned the crossed tip through `TryBuildRecordedTerminalOrbitForSpawn`, whose
+mean anomaly is the recorded orbit's AT the spawn UT, untranslated. A landed tip never meets this:
+its spawn is surface-fixed and `CaptureOrbitalStates` skips surface vessels, so the body carries
+both. Now `ParsekFlight.CollectBubbleGhostsForTimeJump` hands every jump (`WarpToRecordingEnd`,
+`WarpToDeparture`, the `TimeJump` seam) the committed recordings whose ghosts stand within
+`PhysicsBubbleMeters` of the active vessel, and `TimeJumpManager.ExecuteJump` arms a per-recording
+lag in `TimeJumpTerminalOrbitShift` before the clock moves when the jump crosses an end whose spawn
+uses the recorded terminal orbit (`ClassifyCapture`; landed, already-spawned, out-of-bubble and
+uncrossed recordings are skipped). `TryResolveRecordedTerminalOrbitSpawnState` (every orbital spawn
+site: chain tip, blocked-chain retry, the non-chain end spawn) evaluates the orbit's phase at
+`spawnUT - lag` with `spawnUT` as the epoch (`VesselSpawner.ComputeSpawnMeanAnomaly`), the same
+translation the player got. The shift is released once the vessel exists, dropped when the clock is
+behind the jump (a rewind), and cleared with the flight scene. Logs: `Terminal-orbit jump shift
+armed: ... ghostSeparation=`, `Jump-shifted terminal orbit spawn: ... spawnSeparation=`. Unit cells
+in `TimeJumpTerminalOrbitShiftTests` (relative position and velocity preserved to 0.05 m / 1e-4 m/s
+after 10 / 53.8 / 600 / 3000 s jumps on CI-9's LKO; the no-lag control reads 110-130 km; landed and
+zero-delta jumps unchanged). Live: `CI-9-chain-tip-dock` reading `2026-10-03_1833` and armed `_1841`
+PASS (`ghostSeparation=139.5m`, `spawnSeparation=139.5m`, first kRPC distance 138.1 m, MATCH-VELOCITY
+without a rendezvous; both lines now pinned); landed regressions `CI-6` `_1847` and `CI-8` `_1848`
+PASS. The near branch also needed the `chain-tip-dock` target's port turned toward the trailing
+Kerbal X (`_1812` / `_1820_a2` flaked with RCS spent against the target's side).
+
+**Left over, same class, not fixed** (filed below as REALSPAWN-JUMP-SHIFT-RESIDUE).
+
+---
+
+## REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. OPEN; product, low]
+
+The fix shifts only a spawn that resolves through the recorded terminal orbit. Read from source,
+three neighbours keep the old geometry; none is flown:
+
+- **A ghost that stays a ghost after the jump.** `WarpToDeparture` (and any jump that does not
+  reach a bubble ghost's end) leaves the ghost to playback, which draws it at its recorded state
+  for the new UT while the player was frozen, so an orbital ghost beside the player jumps
+  n * delta along its orbit. Design 14.5 freezes ghosts too ("Looped ghosts ... stay at their
+  current positions"); playback has no per-recording time offset to honour that.
+- **An orbital end without a recorded terminal orbit**, and a SubOrbital / Docked bubble tip:
+  the spawn falls back to the endpoint lat/lon/alt at EndUT, unshifted.
+- **The chain-tip collision check** (`VesselGhoster.SpawnAtChainTip`) tests the snapshot /
+  endpoint position, not the resolved spawn position, so a tip whose ghost overlaps the player
+  is not caught before the shifted spawn (CI-9 logs the OverlapBox ~350 km away).
 
 ---
 
