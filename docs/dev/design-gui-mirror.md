@@ -90,6 +90,17 @@ one capture painted `#292929` while every other Kerbals capture painted `#444444
 and the same mechanism waited for any container whose sample point fell inside an
 opaque child. A leaf has no children, so nothing about labels or buttons changed.
 
+### A thin coloured bar is read off its own pixels
+
+A textless, childless `box` with no style name and a height of at most
+`THIN_BAR_MAX_PX` (4 px) is a bar or rule, not a container: Logistics draws each
+section's 2 px accent as `GUILayout.Box(GUIContent.none, <tinted style>)` and the
+dump records no colour for it. Its fill is sampled off its own pixels and always
+stored (green for Active, violet for Paused, cyan for Candidates; a grey rule comes
+out grey). It never lends its colour to, or borrows one from, a row container of
+the same kind, style and depth, and scrolled out or with no photo it is drawn in
+the separator grey.
+
 ### A scrolled-out row is not sampled
 
 IMGUI lays out a scroll view's whole list and the scroll view clips the drawing,
@@ -410,9 +421,11 @@ The PNG codec is stdlib `zlib` + `struct` (read, crop, subsample, re-encode);
 
 The size is measured before the output file is opened, and an over-budget page is
 REFUSED rather than written and then complained about: a page that exists is a page
-someone opens. A modal capture is the one exception to the crop rule - a
-`PopupDialog` is a centred uGUI canvas outside every window rect, so its photo is
-the whole frame, captioned as such.
+someone opens. A modal capture crops to its windows like any other: a
+`PopupDialog` is a centred uGUI canvas outside every window rect, and neither the
+control tree nor the seam's report gives its bounds, so no crop of the modal is
+taken. The modal stand-in draws only the seam's title and button labels, under a
+muted note that it is reconstructed.
 
 And a frame whose dimensions disagree with the dump's own `screen` is not sampled
 at all (`-v` says which): the rects are in the frame the dump was taken at, so a
@@ -445,7 +458,7 @@ python harness/tools/gui_mirror.py \
 ```
 
 Later runs of the same lane may be passed alongside earlier ones; that is what
-populates Compare. `--no-photos` drops the photo toggle and the dialog crops and
+populates Compare. `--no-photos` drops the photo toggle and the window crops and
 makes the page about a third of the size. `--default-fixture` pins the dataset the
 page opens on (section 3) and `--stamp` pins the generation stamp, which is
 otherwise now (UTC) and which travels in the exported notes blob so a verdict
@@ -834,8 +847,8 @@ fixed. What is left:
 5. **A capture with a stock modal is not measured at all** - 6 of 230. A
    `PopupDialog` is a centred uGUI canvas that overdraws the window rects in the
    FRAME and appears in no control tree, so every rect under it would read as a
-   difference the page could not have avoided. The page shows the photograph for
-   those, which is the honest rendering.
+   difference the page could not have avoided. The page draws only the seam's
+   title and buttons for the modal itself.
 
 `docs/dev/todo-and-known-bugs.md` T42b carries the same list as work items.
 
@@ -1110,9 +1123,10 @@ branch without it - and are harmless only because later runs superseded them.
 | `kerbals` | 2026-09-22T20:04:25Z | #1762, 2026-09-22T20:38:41Z | GUI-11-census-kerbals-crewed 2026-09-22_2004 |
 | `timeline` | 2026-09-25T18:38:07Z | #1828 (after #1818, #1809, #1792) | GUI-6-census-flight-playback 2026-09-25_1838 (Custom sliders: GUI-24 2026-09-25_1842) |
 | `spawncontrol` | 2026-09-25T18:38:07Z | #1828 | GUI-6-census-flight-playback 2026-09-25_1838 |
-| `structure` | 2026-09-25T18:39:56Z | #1828 | GUI-4-census-missions-docked 2026-09-25_1839 |
+| `structure` | 2026-10-01T20:45:00Z | #1955 | GUI-4-census-missions-docked 2026-10-01_2044 |
 | `settings` | 2026-09-26T10:10:05Z | #1867 | GUI-14-census-settings-and-facility 2026-09-26_1009 |
 | `missions` | 2026-09-30T20:17:21Z | #1927 | GUI-17-census-missions-loop-mun 2026-09-30_2016 |
+| `logistics` | 2026-10-03T10:18:00Z | #1966 | GUI-3-census-logistics-routes 2026-10-03_1017 |
 
 The `career` row (2026-09-25T20:21:53Z, #1834) was removed 2026-09-27 with the Career State
 window itself: `LayoutEpochTests` holds every key to the seam's window vocabulary, which no
