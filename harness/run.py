@@ -163,6 +163,8 @@ RP_SIDECAR_BY_PRESET = {
     "rewind-readback": "rp_rb_root",
     # VB-1's eight in-window probe ghosts: eight committed trees, no RP.
     "vessel-budget": None,
+    # CI-6's chain-tip-recovery tree: one committed two-recording tree, no RP.
+    "chain-tip-recovery": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 

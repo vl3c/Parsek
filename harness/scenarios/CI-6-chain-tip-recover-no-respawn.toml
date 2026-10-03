@@ -1,0 +1,191 @@
+# CI-6: the player spawns a ghost chain's tip through Real Spawn Control, switches to it and
+# recovers it through stock's Recover button; the recovered vessel must not come back
+# (D18 `chain-terminated-destruction-recovery`, the RECOVERY half).
+#
+# FLOWN 2026-10-03 (branch `d18-recovery`, automation DLL sha256 `cdb8e2e7...`, an origin/main
+# build: no C# product change): reading `2026-10-03_1014` PASS (report-only contracts) measured
+# the defect; armed `2026-10-03_1021` EXPECTED-FAIL, signature matched. The player path runs end
+# to end and the recovered lander SPAWNS AGAIN on the next flight scene: todo
+# CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE. This lane is that defect's quarantine.
+#
+# HOST: `gloops-airshow` (RSC-1's host: the mk1-capsule on the Launch Pad) plus the
+# `chain-tip-recovery` preset: ONE committed tree `tree-ctr-carrier-rec`:
+#   ctr-carrier-rec  ROOT, `CTR Carrier`, ended SubOrbital 20 s before the save (plays and
+#                    spawns nothing, claims nothing, keeps one live leaf in the tree);
+#   ctr-tip-rec      `CTR Lander`, a PARENTLESS background recording (no branch point) with
+#                    an engine ignite / shutdown, in progress at the save UT on
+#                    spawn-control-target's spot ~130 m from the pad, Landed. The walker
+#                    claims its pid via BACKGROUND_EVENT (CI-5's production shape), so it is
+#                    a chain tip, and Real Spawn Control lists it with "Warp to Spawn" live.
+#
+# ACT 1 (flight): RealSpawn the chain tip, Switch-To it through the stock click, let the
+# continuation record a few seconds, Recover it through stock's own button (the scene goes
+# to the Space Center, stock fires onVesselRecovered).
+# ACT 2 (back to flight through the SPH): the walker re-reads the committed tree on the new
+# flight scene, and the spawn pass meets the tip recording whose spawned vessel is gone.
+
+schema = 1
+id = "CI-6-chain-tip-recover-no-respawn"
+tier = "nightly"
+description = "D18 chain-terminated-destruction-recovery, the RECOVERY half: over gloops-airshow plus the chain-tip-recovery preset (a committed tree whose parentless background recording of a landed lander is a ghost chain tip ~130 m from the pad), RealSpawn the tip, switch to it, Recover it through stock, then re-enter flight through the SPH and require that the recovered lander does not spawn again."
+instanceProfile = "stock-minimal"
+tags = ["CI-6", "D18", "chain-interaction", "ghost-chain", "real-spawn", "recover",
+        "injected-recordings", "R10", "runtime-handles", "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "chain-tip-recovery"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # The supported shape for a scene-exit verb: no merge modal can stand at the exit.
+  { cmd = "SetSetting", args = { name = "autoMerge", value = "true" }, expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "chains" }, label = "chains", expect = "OK" },
+  # THE SETTLE: the proximity scan admits a row only on its second sighting, 1.5 s apart.
+  # Eight inert steps (~2 s) were too few on the first reading run (`realspawn-not-a-candidate
+  # candidates=0` 130 ms before the `Proximity notification`); twenty buy ~5 s.
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # ACT 1.
+  { cmd = "RealSpawn", args = { rec = "${chains.chain0tip}" }, label = "spawn", expect = "OK", budget = 120 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "SimulateStockSwitchClick", args = { pid = "${spawn.pid}" }, expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "Recover", args = { pid = "${spawn.pid}" }, expect = "OK", budget = 120 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "ctr-recovered-count-${c1.count}" }, expect = "OK" },
+  # ACT 2.
+  { cmd = "GoToEditor", args = { facility = "SPH", craft = "Kerbal X" }, expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor", expect = "OK", budget = 180 },
+  { cmd = "ListHandles", args = { kind = "chains" }, label = "chains2", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# D18 `chain-terminated-destruction-recovery` is NOT claimed here: this lane drives the whole
+# RECOVERY half (Real Spawn of a chain tip, Switch-To, stock Recover, a new flight scene) and
+# the product's answer is the respawn defect quarantined below, so it has not flown green.
+# V26T keeps the cell for the DESTROYED half; the recovery half is claimed when the fix flips
+# this lane to XPASS and the quarantine comes off.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+# Fixed: the tip recording, re-stamped Recovered (or a Recovered continuation under it).
+# Defect (reading run `2026-10-03_1014`): the two injected recordings, unchanged.
+[expectations.recordings]
+count = { min = 2, max = 3 }
+
+# REPORT-ONLY census (not armed: the expectation row carries the quarantine signature, and
+# one PARSEK-FAIL classifies under one subkind). On the reading run the produced save holds
+# ONE `CTR Lander`: the respawn, pid 3842087101, stamped as the tip's spawnedPid.
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+vesselNames    = { "CTR Lander" = { min = 0, max = 0 }, "mk1-capsule" = { min = 1, max = 1 } }
+
+[expectations.logContracts]
+required  = [
+  # Boot: the walker claims the lander via BACKGROUND_EVENT and builds a live chain.
+  "\\[ChainWalker\\] Chain built: vessel=1344998135 links=1 tip=ctr-tip-rec spawnUT=622\\.2 terminated=False",
+  # Act 1: Real Spawn Control spawns the chain tip with its original pid.
+  "\\[Ghoster\\] Chain tip spawn: pid=1344998135 vessel=CTR Lander preserveIdentity=true",
+  "realspawn complete rec=ctr-tip-rec pid=1344998135 vessel=CTR Lander ",
+  # Act 1: stock's Recover button, the request Parsek arms, stock's recovery.
+  "\\[Recovery\\] In-flight recovery requested: vessel='CTR Lander' pid=1344998135 ",
+  "recover observed onVesselRecovered pid=1344998135 vessel=CTR Lander fromTrackingStation=false",
+  "recover complete pid=1344998135 vessel=CTR Lander scene=SPACECENTER",
+  # Act 2: a new flight scene, where the walker re-reads the committed tree.
+  "launchfromeditor complete scene=FLIGHT vessel=Kerbal X ",
+  # DESIGNED, MISSING ON THE DEFECT: the recovery is recorded, so the new flight's walker
+  # resolves the chain as terminated by recovery.
+  "\\[ChainWalker\\] ResolveTermination: vessel=1344998135 tip=[^ ]+ terminalState=Recovered",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "realspawn rejected",
+  "recover rejected",
+  # THE DEFECT, measured on the reading run `2026-10-03_1014`: the scene-exit no-op resume
+  # discard reverts the resumed tip to its committed original, the recovery request is then
+  # dropped, and on the next flight scene the spawn-death pass resets the tip and spawns the
+  # recovered lander again.
+  "\\[Recovery\\] In-flight recovery request dropped unapplied: vessel='CTR Lander'",
+  "\\[Policy\\] Spawn-death detected: #[0-9]+ \"CTR Lander\"",
+  "\\[Spawner\\] Vessel spawn for #[0-9]+ \\(CTR Lander\\)",
+]
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = "CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE"
+subkind = "expectation"
+mismatches = [
+  "logContracts.required not matched: \\[ChainWalker\\] ResolveTermination: vessel=1344998135 tip=[^ ]+ terminalState=Recovered",
+  "logContracts.forbidden matched: \\[Recovery\\] In-flight recovery request dropped unapplied: vessel='CTR Lander'",
+  "logContracts.forbidden matched: \\[Policy\\] Spawn-death detected: #[0-9]+ \"CTR Lander\"",
+  "logContracts.forbidden matched: \\[Spawner\\] Vessel spawn for #[0-9]+ \\(CTR Lander\\)",
+]
