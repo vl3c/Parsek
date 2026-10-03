@@ -708,7 +708,7 @@ namespace Parsek.Tests
                 Assert.DoesNotContain("pendingConfirmDeleteRoute =", MethodBody(prepared, method, file));
             string slotButton = MethodBody(prepared, "DrawDetailSlotButton", file);
             Assert.Contains("pendingConfirmDeleteRoute = route", slotButton);
-            Assert.Contains("MissionsWindowUI.InteractButtonWidth", slotButton);
+            Assert.Contains("InteractSingleWidth", slotButton);
             Assert.DoesNotContain("DrawRouteDetailButtonRow", prepared);
             // Every route-detail line shape ends in the slot cell; a shape that skipped it
             // would shift the slots and leave its label wider than the rest.
@@ -723,6 +723,24 @@ namespace Parsek.Tests
                 Assert.True(Regex.IsMatch(prepared,
                         @"void\s+DetailLine\(\s*" + overload + @"\s*\)\s*\{[^}]*DrawDetailSlotCell\(\)"),
                     "LogisticsWindowUI.DetailLine(" + overload + ") must end in DrawDetailSlotCell().");
+            // The Interact grid: line 1 is the state button then Send, line 2 Go to then Log;
+            // every cell the same measured pair width, the column the measured column width
+            // in the header and every row, Go to through the Missions cross-link and Log to
+            // the Route History.
+            string grid = MethodBody(prepared, "DrawRouteInteractCell", file);
+            int send = grid.IndexOf("SendButtonLabel", StringComparison.Ordinal);
+            int goTo = grid.IndexOf("DrawRouteGoToButton(", StringComparison.Ordinal);
+            int log = grid.IndexOf("LogButtonLabel", StringComparison.Ordinal);
+            int line2 = grid.IndexOf("GUILayout.BeginHorizontal()", send < 0 ? 0 : send, StringComparison.Ordinal);
+            Assert.True(send > 0 && line2 > send && goTo > line2 && log > goTo,
+                "LogisticsWindowUI.DrawRouteInteractCell: line 1 must end in Send, line 2 be Go to then Log.");
+            Assert.Contains("GUILayout.Width(interactColumnWidth)", grid);
+            Assert.DoesNotContain("InteractButtonWidth", grid);
+            Assert.Contains("GUILayout.Width(interactColumnWidth)",
+                MethodBody(prepared, "DrawRouteSortableHeader", file));
+            Assert.Contains("ShowMissionForRecording(", MethodBody(prepared, "DrawRouteGoToButton", file));
+            Assert.Contains("OpenRouteHistoryWindow(", grid);
+
             // Decision 3b: the live Cancel of a Send-armed route before launch goes through
             // the Pause path (TryPause clears the pending arm with nothing dispatched).
             string interact = MethodBody(prepared, "DrawRouteInteractCell", file);

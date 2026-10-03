@@ -471,6 +471,54 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(3, LogisticsWindowUI.RouteDetailSlotCount(true));
         }
 
+        // ------------------------------------------------------------------
+        // Section title bars, the Interact grid, Go to, the filler line
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void SectionTitle_CaretNameAndCount()
+        {
+            Assert.Equal("\u25bc Active Routes (2)",
+                LogisticsRoutePresentation.FormatSectionTitle(LogisticsRoutePresentation.ActiveSectionName, 2, true));
+            Assert.Equal("\u25b6 Paused Routes (0)",
+                LogisticsRoutePresentation.FormatSectionTitle(LogisticsRoutePresentation.PausedSectionName, 0, false));
+            Assert.Equal("\u25bc Candidates (3)",
+                LogisticsRoutePresentation.FormatSectionTitle(LogisticsRoutePresentation.CandidatesSectionName, 3, true));
+        }
+
+        // The grid cell fits the widest measured label, never below the Missions pair half,
+        // and the column is exactly two cells, the gap and the two insets.
+        [Fact]
+        public void InteractGrid_CellFitsTheWidestLabel_ColumnFitsTwoCells()
+        {
+            Assert.Equal(MissionsWindowUI.InteractPairButtonWidth, LogisticsRoutePresentation.InteractPairWidth(10f));
+            Assert.Equal(83f, LogisticsRoutePresentation.InteractPairWidth(80.4f));
+            float pair = 83f;
+            Assert.Equal(2f * pair + MissionsWindowUI.InteractButtonGap + 2f * MissionsWindowUI.InteractCellInset,
+                LogisticsRoutePresentation.InteractColumnWidth(pair));
+            foreach (string label in new[] { "Activate", "Pause", "Cancel", "Delivering...", "Pausing...", "Send", "Go to", "Log" })
+                Assert.Contains(label, LogisticsRoutePresentation.InteractGridLabels);
+        }
+
+        [Fact]
+        public void GoTo_GreysWithAReasonWhenTheMissionIsGone()
+        {
+            Assert.Equal(string.Empty, LogisticsRoutePresentation.GoToDisabledReason(true));
+            Assert.Equal("The mission this route was built from no longer exists",
+                LogisticsRoutePresentation.GoToDisabledReason(false));
+            Assert.Equal("Go to", LogisticsRoutePresentation.GoToButtonLabel);
+        }
+
+        // A block short of lines for its buttons gets an information line, never an empty one.
+        [Fact]
+        public void FillerInfoLine_DeliveredTotalElseNotRunYet()
+        {
+            Assert.Equal("Delivered so far: 400.0 LiquidFuel.",
+                LogisticsRoutePresentation.FormatFillerInfoLine(true, "400.0 LiquidFuel"));
+            Assert.Equal("Not run yet.", LogisticsRoutePresentation.FormatFillerInfoLine(false, null));
+            Assert.Equal("Not run yet.", LogisticsRoutePresentation.FormatFillerInfoLine(true, "(none)"));
+        }
+
         // The armed labels fit the 100 px single (the long words live in the Status cell).
         [Fact]
         public void ArmedButtonLabels_AreShort()

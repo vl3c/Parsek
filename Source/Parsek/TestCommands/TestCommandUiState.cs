@@ -18,13 +18,13 @@ namespace Parsek.TestCommands
         None = 2,
     }
 
-    /// <summary>Which production opener an <c>op=target</c> call resolves to. One kind
-    /// since the route Log was retired (a route's Log opens its source mission's Log, so
-    /// a lane names that mission); the enum stays so the payload's <c>target=</c> token
-    /// keeps one source.</summary>
+    /// <summary>Which production opener an <c>op=target</c> call resolves to: the Mission
+    /// Log (<c>window=structure mission=</c>) or the Route History
+    /// (<c>window=routehistory route=</c>).</summary>
     internal enum UiTargetKind
     {
         Mission = 0,
+        Route = 1,
     }
 
     /// <summary>Which popup an <c>op=picker</c> call opens, and therefore which production
@@ -274,10 +274,10 @@ namespace Parsek.TestCommands
         /// <summary>No <c>mission=</c>.</summary>
         internal const string TargetArgMissingReason = "target-arg-missing";
 
-        /// <summary>A <c>route=</c> on <c>op=target</c>. The route Log is retired: a route's
-        /// Log button opens the Log of the mission it was built from, so a lane names that
-        /// mission (<c>mission=</c> takes its tree id). Refused rather than ignored, because
-        /// an ignored selector would photograph something else under the caller's
+        /// <summary>A <c>route=</c> on <c>op=target window=structure</c>. The Mission Log
+        /// takes <c>mission=</c>; a route's runs are its own window
+        /// (<c>window=routehistory route=</c>). Refused rather than ignored, because an
+        /// ignored selector would photograph something else under the caller's
         /// label.</summary>
         internal const string TargetRouteRetiredReason = "target-route-retired";
 
@@ -426,14 +426,28 @@ namespace Parsek.TestCommands
             return false;
         }
 
-        /// <summary>Parses <c>op=target</c>'s selector: <c>mission=</c>, and a
-        /// <c>route=</c> refused as retired.</summary>
+        /// <summary>Parses <c>op=target</c>'s selector, which is per-window: the Mission
+        /// Log (<c>structure</c>) takes <c>mission=</c> (a <c>route=</c> there is refused:
+        /// a route's history is its own window), the Route History (<c>routehistory</c>)
+        /// takes <c>route=</c>.</summary>
         internal static bool TryParseTarget(string window, string rawMission, string rawRoute,
                                             out UiTargetKind kind, out string value,
                                             out string rejectReason)
         {
             kind = UiTargetKind.Mission;
             value = null;
+            if (window == TestCommandUiAction.RouteHistoryWindow)
+            {
+                kind = UiTargetKind.Route;
+                if (string.IsNullOrEmpty(rawRoute))
+                {
+                    rejectReason = TargetArgMissingReason;
+                    return false;
+                }
+                value = rawRoute;
+                rejectReason = null;
+                return true;
+            }
             if (window != TestCommandUiAction.StructureWindow)
             {
                 rejectReason = TargetUnsupportedWindowReason;
@@ -455,7 +469,8 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>The wire token for a target kind.</summary>
-        internal static string TargetKindToken(UiTargetKind kind) => "mission";
+        internal static string TargetKindToken(UiTargetKind kind) =>
+            kind == UiTargetKind.Route ? "route" : "mission";
 
         /// <summary>
         /// Parses <c>op=picker</c>'s selector, which is per-window: the Missions window

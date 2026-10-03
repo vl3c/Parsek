@@ -1094,6 +1094,15 @@ namespace Parsek.TestCommands
                                   minH: StructureListWindowUI.MinWindowHeight,
                                   windowId: () => StructureListWindowUI.WindowIdKey.GetHashCode());
                 }
+                case TestCommandUiAction.RouteHistoryWindow:
+                {
+                    StructureListWindowUI w = ui.GetRouteHistoryUI();
+                    return Handle(() => w.IsOpen, v => w.IsOpen = v,
+                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
+                                  minW: StructureListWindowUI.MinWindowWidth,
+                                  minH: StructureListWindowUI.MinWindowHeight,
+                                  windowId: () => StructureListWindowUI.RouteHistoryWindowIdKey.GetHashCode());
+                }
                 case TestCommandUiAction.SettingsWindow:
                 {
                     SettingsWindowUI w = ui.GetSettingsWindowUI();

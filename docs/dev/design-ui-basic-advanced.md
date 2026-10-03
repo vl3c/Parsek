@@ -5,7 +5,7 @@
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies the UI complexity mode: which surfaces Basic hides, how the gate is implemented, and the visibility-only guarantee.*
 
 **Status:** IMPLEMENTED (phases 1-8 landed on branch `claude/mods-ui-basic-advanced-amrgy9`, in-game validation pending). All blocking decisions are RESOLVED. First-run default (section 7.3): the stored setting always wins, Basic is the default for new installs only, an existing install is never changed. Basic hide-set (section 4): as specified, with Logistics explicitly kept visible for discoverability (philosophy 7); the conditional "appear once used" variant is rejected in section 10. Naming (section 4.1): the main-window button, window title, and first/default tab all become Missions in BOTH modes, the one deliberate Advanced-visible change in this feature; section 4.2 lists the "Recordings" strings that must NOT be renamed.
-**Amendment 2026-10-02 (Logistics Model 1, section 4.6):** the Logistics window keeps its launcher and its route tables in Basic, but route TUNING is hidden under the new `UiSurface.LogisticsRouteTuning` key: the editable Every stepper (Basic reads the interval read-only, "every 4.0d"), the Runs column, the Priority stepper, the round-trip Link / Unlink control and its picker (a new `LogisticsLinkPicker` entry in the section 7.2 close set), the Recent runs lines, the Flights used line and the manual-looping clause of the "Built from mission" note. This retires the claim in sections 4 and 4.5 that route cadence is authored in a window Basic keeps editable.
+**Logistics (section 4.6):** the Logistics window draws in both modes; its route TUNING controls are hidden in Basic under `UiSurface.LogisticsRouteTuning`.
 
 **Amendment 2026-09-27 (owner decision, section 4 Career row):** the Career State window is REMOVED in both modes - its class, its launcher, `UiSurface.MainButtonCareer` and its entry in the section 7.2 close set. Its one unique fact, the slots the committed future reserves, is the last sentence of the Timeline's `Contracts` / `Strategies` button hovers in Career mode (the Timeline is kept in Basic, so that fact is now visible in Basic too). The Career rows below are kept as the record of the decision they took.
 
@@ -127,7 +127,8 @@ The Career window's four `Button(` hits are two `Close` and the two row name cel
 
 | Surface | File | Opened from |
 |---------|------|-------------|
-| Log window (mission step list) | `UI/StructureListWindowUI.cs` | Missions row `Log`, Logistics route `Log` (the source mission's Log) |
+| Mission Log (mission step list) | `UI/StructureListWindowUI.cs` | Missions row `Log` |
+| Route History (a route's runs; second instance of the same class) | `UI/StructureListWindowUI.cs` | Logistics route `Log` |
 | Group picker popup | `UI/GroupPickerUI.cs` | Recordings tab group assignment |
 | Route creation dialog | `UI/RouteCreationDialog.cs` | Logistics `Create` |
 | Logistics link picker (second top-level IMGUI window) | `UI/LogisticsWindowUI.cs:1707` | Logistics |
@@ -157,7 +158,7 @@ The test applied to each surface: **can a player complete the core loop (fly -> 
 | Surface | Basic | Rationale |
 |---------|-------|-----------|
 | Timeline | **Keep** | The only access to rewind (`R`), fast-forward (`FF`), and `Warp to time`. Irreplaceable. |
-| Logistics | **Keep** (route tuning hidden, section 4.6) | The only surface for supply routes. Broken-route red tint is a player-visible error channel. Kept visible even for a player with zero routes, per philosophy 7: it is the button that teaches them supply routes exist. See section 10 for the rejected conditional-visibility variant. Since Logistics Model 1 (2026-10-02) the window itself is gated inside: its tuning controls are Advanced-only (section 4.6), while every route, its read-only interval, its status, its next run and Activate / Pause / Send / Log / Rename / Delete stay. |
+| Logistics | **Keep** (route tuning hidden, section 4.6) | The only surface for supply routes. Broken-route red tint is a player-visible error channel. Kept visible even for a player with zero routes, per philosophy 7: it is the button that teaches them supply routes exist. See section 10 for the rejected conditional-visibility variant. Inside the window, route tuning is Advanced-only (section 4.6); every route, its read-only interval, status and next run, and Activate / Pause / Cancel / Send / Go to / Log / Rename / Delete show in both modes. |
 | Settings | **Keep** | Hosts the mode toggle itself. Must always be reachable. |
 | Missions tab | **Keep** | The player-facing mission abstraction: name, Watch, Log, Collapse / Expand, Rewind / Forward (Missions Model 1, 2026-09-29/30: Delete, Warp to... and the TTL countdown became Advanced-only, and Archive became Collapse / Expand). Sufficient for all routine recording management. Its manual-loop AUTHORING controls (the `Loop` toggle, the loop-period cell, the include checkboxes, and since 2026-08-20 the `Clone` button) are the one carve-out: hidden in Basic per section 4.5. |
 | Recordings tab | **Hide** | The raw per-recording table (62 buttons, 13 toggles). Almost everything a normal player needs is expressed at the Mission level; the one known exception is retroactive per-recording playback-disable, accepted as a v1 limitation in section 4.3. This is the single largest complexity reduction available. |
@@ -300,7 +301,7 @@ Kept in Basic, deliberately: the `Looped by route` status label, `Watch`, `Rewin
 **Philosophy 1 is untouched.** The gate is visibility only, in both directions:
 
 - Nothing here writes `Mission.LoopPlayback`, `Mission.LoopIntervalSeconds`, `ExcludedIntervalKeys` or `IncludedForeignDockLinkIds`. A mission looped in Advanced KEEPS LOOPING after the switch, with its selection intact; the ghosts keep flying and the player keeps seeing them, and `Watch` still reaches them. (The TTL countdown and `Warp to...` were kept for the same reason until Missions Model 1, 2026-09-29, which ruled them Advanced-only: Basic reads no loop word.)
-- Supply route DELIVERY is unaffected, and route CADENCE is not reachable from either key. A route drives its tree through `RouteBackingMission`, a synthesized mission never inserted into `MissionStore` and never rendered on the Missions tab, built `LoopPlayback=true` / `LoopTimeUnit.Sec` / `LoopIntervalSeconds = route.DispatchInterval` - so its period comes from the route, authored in the Logistics window. The auto-launch period never touches it (that value is only read for an `Auto`-unit mission). (Until 2026-10-02 this bullet added "a surface Basic keeps" as the reason the hide was harmless. Logistics Model 1 made route cadence an Advanced-only control too, under its own key `LogisticsRouteTuning` (section 4.6): Basic still SEES each route's interval, read-only, but retunes it only in Advanced. The 4.5 argument does not depend on it: the two keys gate different values, and neither writes the other's.)
+- Supply route DELIVERY is unaffected, and route CADENCE is not reachable from either key. A route drives its tree through `RouteBackingMission`, a synthesized mission never inserted into `MissionStore` and never rendered on the Missions tab, built `LoopPlayback=true` / `LoopTimeUnit.Sec` / `LoopIntervalSeconds = route.DispatchInterval` - so its period comes from the route, authored in the Logistics window's Every stepper, which is Advanced-only under its own key `LogisticsRouteTuning` (section 4.6); Basic shows each route's interval read-only. The auto-launch period never touches it (that value is only read for an `Auto`-unit mission). The two keys gate different values, and neither writes the other's.
 - Honest exception, accepted, and narrower than it first reads (OVERTAKEN 2026-08-27: the settings simplification pinned landing-body alignment at Loose via the compile-time `ParsekSettings.LandingBodyAlignmentMode` and made `forceFaithfulLoopPlayback` harness-only, so neither value is player-reachable in ANY mode any more and the reachability delta below is moot; kept for the record of the original decision): two of the `Looping` section's values were also read by routes. `RouteOrchestrator` took `TransitedBodyRotationMode` and `forceFaithfulLoopPlayback` off `ParsekSettings` and folds them into the delivery clock's builder signature, so the clock phase-locks identically to the rendered ghost. This is NOT one window's gate reaching another - the Logistics window's own gate (section 4.6) hides only route-local controls and reads neither value, and the Missions-tab half of 4.5 has no route relevance whatever; it is two global settings with a second consumer.
   What Basic changes here is REACHABILITY ONLY, not behavior: the stored values are untouched and keep driving route playback exactly as before the switch, so a route in flight is bit-identical across the mode change. What goes away is the ability to RETUNE those two values without returning to Advanced. Accepted for the usual reason - both ship on the value a route wants (`Loose`, re-aim ON) and both are explicitly A/B tuning knobs, the "advanced staging tool" shape section 4 hides everywhere else - and recorded here rather than filed under a blanket "routes are untouched", which would be true of the Missions half and too broad for this one.
 - Switching back to Advanced restores every hidden control - the tab's three and the whole `Looping` section - with its state (philosophy 2).
@@ -315,26 +316,26 @@ The `Looping` section has the SAME shape and takes the same treatment: `DrawSett
 
 ---
 
-### 4.6 Logistics route tuning is Advanced-only (DECIDED 2026-10-02)
+### 4.6 Logistics route tuning is Advanced-only
 
-Logistics Model 1 (owner decisions 1a, 2b, 3b, 4a, 5b; 3b replaced 3a on 2026-10-03) redesigned the route tables and split them by mode under one key, `UiSurface.LogisticsRouteTuning`.
+One key, `UiSurface.LogisticsRouteTuning`, splits the Logistics window by mode.
 
 > **Basic shows every route and what it is doing, and every action that starts, stops, tests, opens, renames or deletes it. It hides the controls that TUNE how an existing route is scheduled.**
 
-| Hidden in Basic | Kept in Basic |
+| Hidden in Basic | Shown in both modes |
 |---|---|
 | The editable Every stepper (row and detail) | The Every column, read-only ("every 4.0d", "every 2nd window") |
-| The Runs column ("3, 1 held") | Route (name + grey "KSC -> Depot" line, U+2192 arrow as in route names), Delivers, Next (the Missions amber countdown), the merged Status cell |
-| Priority stepper | Activate / Pause, Send, Log (the Interact column) |
+| The Runs column ("3, 1 held") | Route (name over a grey from/to line), Delivers, Next (the Missions amber countdown), the Status cell |
+| Priority stepper | The Interact grid: Activate / Pause / Cancel with Send, then Go to and Log |
 | Link round-trip... / Unlink and the link picker | The round-trip pairing note when a route is linked |
-| Recent runs, Flights used | Delivers each run, next run, dated hold / partial lines, Last delivered, run cost, "Built from mission 'X'." |
-| The manual-looping clause after "Built from mission 'X'." | Rename, Delete (in the detail block), Re-scan for a lost endpoint |
+| Flights used | Delivers each run, next run, dated hold / partial lines, Last delivered, run cost, "Built from mission 'X'." |
+| The manual-looping clause after "Built from mission 'X'." | Rename, Delete (the detail block's Interact stack), Re-scan for a lost endpoint, the Route History window |
 
-**Why.** Every, Priority and Link change WHEN a route that already runs makes its runs. A Basic player reads when (Every, Next) without needing to author it, and the Advanced steppers are the window's densest controls ("[-] 4.0d [+] 1x (Duna transfer)"). Run history and the flight list are diagnostics. The column exists in both modes so a switch never moves a column or resizes the window (one `MinWindowWidth`).
+**Why.** Every, Priority and Link change WHEN a route that already runs makes its runs. A Basic player reads when (Every, Next) without needing to author it, and the Advanced steppers are the window's densest controls. The flight list is a diagnostic. The Every column exists in both modes, so a switch never moves a column or resizes the window (one `MinWindowWidth`).
 
-**Philosophy 1 holds.** Nothing here writes a route field. A route retimed, re-prioritised or linked in Advanced keeps that schedule after the switch.
+**Philosophy 1 holds.** Nothing here writes a route field. A route retimed, re-prioritised or linked in Advanced keeps that schedule in Basic.
 
-**Edit-state cleanup.** As in 4.5: the first Basic pass drops an open Every edit (its field is no longer drawn, so its click-away commit would land on a control that is gone; the edit is discarded like Escape, never committed) and closes a standing link picker (also in the 7.2 close set). Sorting by the Advanced-only Runs column reads as a Route-name sort in Basic without changing the stored sort. The header and every row read ONE bool latched at the top of `LogisticsWindowUI.DrawWindow`, so the Layout and Repaint passes of a frame always draw the same columns. The automation seam's `op=picker window=logistics` refuses with `picker-hidden-in-basic` in Basic instead of opening a picker the next Basic pass would close.
+**Edit state.** The first Basic pass drops an open Every edit (its field is no longer drawn, so its click-away commit would land on a control that is gone; the edit is discarded like Escape, never committed) and closes a standing link picker (also in the 7.2 close set). Sorting by the Advanced-only Runs column reads as a Route-name sort in Basic without changing the stored sort. The header and every row read ONE bool latched at the top of `LogisticsWindowUI.DrawWindow`, so the Layout and Repaint passes of a frame always draw the same columns. The automation seam's `op=picker window=logistics` refuses with `picker-hidden-in-basic` in Basic.
 
 ---
 
@@ -491,7 +492,7 @@ Apply sequence (in `Update()`, not mid-OnGUI):
 
 Notes on the close set:
 - It is enumerated from `HiddenSurfaces(Basic)` PLUS the two review additions that do not map 1:1 to a surface: `testRunnerUI` (its launcher lives in the hidden Diagnostics section; without closing it, an open instance has no reopen path in Basic - the Ctrl+Shift+T shortcut opens the SEPARATE global `ParsekTestRunnerGlobal` window, which is never gated) and `groupPicker`.
-- `RecordingsTableUI` itself is NOT closed (it survives as the Missions window); `StructureListWindowUI` is NOT closed (reachable from Missions and Logistics rows, both kept).
+- `RecordingsTableUI` itself is NOT closed (it survives as the Missions window); neither `StructureListWindowUI` instance is closed (the Mission Log and the Route History open from the Missions and Logistics rows, both kept).
 - Do not copy `ParsekUI.Cleanup()` (`ParsekUI.cs:2047-2053`) as the enumeration source: it omits `gloopsUI`, `logisticsUI`, and `testRunnerUI`. The handler owns its own explicit list, and 13.1 has a test pinning that list to the lock-owning gated windows.
 - A missed close self-heals in bounded time: `DrawIfOpen` keeps running ungated (7.1) and releases the lock next frame once `IsOpen` is false, and KSP clears all input locks on scene transition regardless.
 

@@ -311,6 +311,7 @@ namespace Parsek.TestCommands
         internal const string KerbalsWindow = "kerbals";
         internal const string LogisticsWindow = "logistics";
         internal const string StructureWindow = "structure";
+        internal const string RouteHistoryWindow = "routehistory";
         internal const string SettingsWindow = "settings";
         internal const string SpawnControlWindow = "spawncontrol";
         internal const string GloopsWindow = "gloops";
@@ -655,6 +656,12 @@ namespace Parsek.TestCommands
             // shows the empty chrome; the populated form is reached through
             // `op=target`, which calls the production opener.
             NewSpec(StructureWindow, true, true),
+
+            // The Route History: the second instance of the same log-table window class,
+            // titled "Parsek - Route History" (plus ": <route>" once targeted). Its own id,
+            // rect and open state, so it stands beside an open Mission Log. Populated
+            // through `op=target route=`, which calls the production opener.
+            NewSpec(RouteHistoryWindow, true, true),
 
             // SettingsWindowUI. NO tabs: its six sections all draw in one pass, and three
             // of them are hidden in Basic - so the Basic/Advanced pair of captures IS the

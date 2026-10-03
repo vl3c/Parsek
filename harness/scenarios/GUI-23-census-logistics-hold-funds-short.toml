@@ -135,10 +135,10 @@ tier = "operator"
 #      only, and GLOOPS recording (`WouldRefuseModeChange` -> `IsGloopsRecordingNow()`,
 #      `:705-708`), not a flight recording. The preamble still sits after `StopRecording` /
 #      `DiscardTree` because that reads best, but the placement is not load-bearing.
-#   2. `windows=11` IS SCENE-INDEPENDENT: the echo prints `windows={Int(rows.Count)}` over the
+#   2. `windows=12` IS SCENE-INDEPENDENT: the echo prints `windows={Int(rows.Count)}` over the
 #      whole window TABLE (`ParsekTestCommandAddon.UiAction.cs:835`, rows built at `:796-821`),
 #      not the scene-available subset. GUI-2 and GUI-6 already pin
-#      `scene=FLIGHT ... windows=11`.
+#      `scene=FLIGHT ... windows=12`.
 #
 # THE WINDOW DOES NOT FIT THIS INSTANCE, the GUI-1 / GUI-13 residue: `MinWindowWidth` is
 # 1410 px against the profile's 1280x720 screen and `op=rect` clamps to that floor, so the
@@ -289,8 +289,8 @@ required  = [
   "reason=blocked-then-paused armedBy=send-once hold kind=FundsShort",
   "EmitPendingRecoveryCredit: route [0-9a-f]{8} no pending credit at ut=",
   "LifecycleMarker: route .* type=RoutePaused reason=blocked-then-paused",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,logistics",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=logistics key=all state=true changed=[1-9][0-9]* expanded=[1-9][0-9]* total=[1-9][0-9]*",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=rvr17-logistics-hold-funds-short-advanced",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=rvr17-logistics-hold-funds-short-advanced .*patched=17/17",

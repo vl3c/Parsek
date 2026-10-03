@@ -156,8 +156,8 @@ namespace Parsek.Tests
 
             yield return Row(LogisticsWindowUI.LinkButtonDisabledReason(null),
                 LogisticsBudget, "Logistics link - no partner");
-            yield return Row(LogisticsWindowUI.MissionLogButtonDisabledReason(null),
-                LogisticsBudget, "Logistics mission log - no source");
+            yield return Row(LogisticsRoutePresentation.GoToDisabledReason(false),
+                LogisticsBudget, "Logistics go to - mission gone");
             yield return Row(LogisticsRoutePresentation.SendDisabledReason(true, false),
                 LogisticsBudget, "Logistics send - active row");
             yield return Row(LogisticsRoutePresentation.SendDisabledReason(false, true),
@@ -225,7 +225,7 @@ namespace Parsek.Tests
             Assert.Equal(string.Empty,
                 MissionsWindowUI.MissionWarpToDisabledReason(true, true, false, true, true));
             Assert.Equal(string.Empty, LogisticsWindowUI.LinkButtonDisabledReason("route-7"));
-            Assert.Equal(string.Empty, LogisticsWindowUI.MissionLogButtonDisabledReason("tree-3"));
+            Assert.Equal(string.Empty, LogisticsRoutePresentation.GoToDisabledReason(true));
             Assert.Equal(string.Empty, LogisticsRoutePresentation.SendDisabledReason(false, false));
         }
     }

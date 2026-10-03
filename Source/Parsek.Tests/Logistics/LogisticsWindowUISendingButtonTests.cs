@@ -101,7 +101,6 @@ namespace Parsek.Tests.Logistics
         {
             var kind = LogisticsWindowUI.ClassifyArmedSend(RouteStatus.InTransit);
             Assert.Equal(LogisticsWindowUI.ArmedSendKind.PauseAfterCycle, kind);
-            Assert.Equal("Pausing...", LogisticsWindowUI.LabelForArmedState(kind));
         }
 
         // catches: a Send-Once-armed dispatchable status being mislabeled as a pause.
@@ -116,23 +115,6 @@ namespace Parsek.Tests.Logistics
         {
             var kind = LogisticsWindowUI.ClassifyArmedSend((RouteStatus)statusOrdinal);
             Assert.Equal(LogisticsWindowUI.ArmedSendKind.SendOnce, kind);
-            Assert.Equal("Delivering...", LogisticsWindowUI.LabelForArmedState(kind));
-        }
-
-        // catches: the two labels collapsing into one. The whole point of M6 is that
-        // a pause-armed route reads differently from a send-once-armed route, and
-        // neither is the raw enum token.
-        [Fact]
-        public void Labels_DifferAndAreNotEnumTokens()
-        {
-            string pause = LogisticsWindowUI.LabelForArmedState(
-                LogisticsWindowUI.ArmedSendKind.PauseAfterCycle);
-            string send = LogisticsWindowUI.LabelForArmedState(
-                LogisticsWindowUI.ArmedSendKind.SendOnce);
-
-            Assert.NotEqual(pause, send);
-            Assert.NotEqual(LogisticsWindowUI.ArmedSendKind.PauseAfterCycle.ToString(), pause);
-            Assert.NotEqual(LogisticsWindowUI.ArmedSendKind.SendOnce.ToString(), send);
         }
 
         // catches: empty or shared tooltips. Each armed state carries a distinct,
@@ -160,7 +142,6 @@ namespace Parsek.Tests.Logistics
         {
             var kind = LogisticsWindowUI.ResolveArmedKind(sendOnceArmed: true, RouteStatus.InTransit);
             Assert.Equal(LogisticsWindowUI.ArmedSendKind.SendOnce, kind);
-            Assert.Equal("Delivering...", LogisticsWindowUI.LabelForArmedState(kind));
         }
 
         // A genuine Pause-mid-cycle arm (not in the send-once set) reads PauseAfterCycle.

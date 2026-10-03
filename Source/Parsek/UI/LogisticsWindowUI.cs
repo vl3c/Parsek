@@ -449,10 +449,10 @@ namespace Parsek
             // arrival dates); null otherwise.
             public string DeliveringTooltip;
 
-            // Advanced "Recent runs": one compact line per recent completed run, newest
-            // first, bounded to LogisticsFlowPresentation.MaxCyclesShown. Null when the
-            // route has no run-scoped ledger rows yet.
-            public List<LogisticsFlowPresentation.CycleFlowLine> FlowLines;
+            // Go to: a recording of the route's source mission still in the effective set
+            // (what the Missions cross-link resolves from), or null when the mission is
+            // gone and the button greys.
+            public string GoToRecordingId;
         }
 
         // Deferred mutations: collected during the draw loop and applied after the
@@ -573,6 +573,14 @@ namespace Parsek
         private GUIStyle interactButtonStyle;
         private GUIStyle interactPairButtonStyle;
         private GUIStyle interactHeaderContainerStyle;
+        // The Interact grid's measured widths (EnsureStyles, once per style build): one
+        // pair cell fits the widest grid label in the skin's pair-button style; the column
+        // is two cells, the gap and the two insets; a detail-block single spans both cells
+        // and the gap. Fields, not constants, because the label widths come from the skin;
+        // the header, every row and every detail block read the same values.
+        private float interactPairWidth = MissionsWindowUI.InteractPairButtonWidth;
+        private float interactColumnWidth = MissionsWindowUI.ColW_Interact;
+        private float InteractSingleWidth => 2f * interactPairWidth + MissionsWindowUI.InteractButtonGap;
         // The detail block's Interact singles (Rename / Delete / Link round-trip...): the
         // zero-margin single, with the compact 2 px text padding so the longest label fits
         // the 100 px Missions single.
@@ -795,6 +803,7 @@ namespace Parsek
             pendingDismissLabel = null;
             pendingRestoreTreeId = null;
             pendingRestoreLabel = null;
+            pendingSectionToggle = null;
 
             scrollPos = GUILayout.BeginScrollView(scrollPos, GUILayout.ExpandHeight(true));
             wideScroll.BeginContentFloor(ContentFloorReservedWidth());
@@ -802,13 +811,17 @@ namespace Parsek
             // Each section is its own gray bubble with its own header row, so the
             // header and data columns share the box and line up exactly. Titles are the
             // plain section name (no count), centered (see DrawSectionHeader).
-            DrawRouteSectionBubble("Active Routes", "No active routes.", activeRoutes, RouteSection.Active, currentUT);
-            DrawRouteSectionBubble("Paused Routes", "No paused routes.", pausedRoutes, RouteSection.Paused, currentUT);
+            DrawRouteSectionBubble(LogisticsRoutePresentation.ActiveSectionName, "No active routes.",
+                activeRoutes, RouteSection.Active, currentUT);
+            DrawSectionSeparator();
+            DrawRouteSectionBubble(LogisticsRoutePresentation.PausedSectionName, "No paused routes.",
+                pausedRoutes, RouteSection.Paused, currentUT);
             // Rewind-visibility follow-up: the collapsed "Dormant Routes (N)"
             // disclosure. Renders nothing when no route is dormant (the common
             // no-rewind save shows no extra chrome).
             DrawDormantSectionBubble();
-            DrawCandidateSectionBubble("Candidates", candidates, nearMisses);
+            DrawSectionSeparator();
+            DrawCandidateSectionBubble(LogisticsRoutePresentation.CandidatesSectionName, candidates, nearMisses);
 
             wideScroll.EndContentFloor();
             GUILayout.EndScrollView();
@@ -942,7 +955,15 @@ namespace Parsek
         private void DrawRouteSectionBubble(string title, string emptyText, List<Route> rows,
             RouteSection section, double currentUT)
         {
-            DrawSectionHeader(title);
+            string key = section == RouteSection.Active
+                ? LogisticsRoutePresentation.ActiveSectionName
+                : LogisticsRoutePresentation.PausedSectionName;
+            if (!DrawSectionHeader(key, title, rows.Count,
+                    section == RouteSection.Active ? ParsekUI.StatusColorKind.Green : ParsekUI.StatusColorKind.Grey))
+            {
+                GUILayout.Space(SpacingSmall);
+                return;
+            }
             GUILayout.BeginVertical(GUI.skin.box);
             // L2: clickable sort headers (cached re-sort). The Active and Paused tables
             // share the sort column / direction; clicking a header re-sorts both.
@@ -1055,7 +1076,12 @@ namespace Parsek
 
         private void DrawCandidateSectionBubble(string title, List<RouteCandidate> rows, List<RouteNearMiss> nearMisses)
         {
-            DrawSectionHeader(title);
+            if (!DrawSectionHeader(LogisticsRoutePresentation.CandidatesSectionName, title, rows.Count,
+                    ParsekUI.StatusColorKind.Cyan))
+            {
+                GUILayout.Space(SpacingSmall);
+                return;
+            }
             GUILayout.BeginVertical(GUI.skin.box);
             DrawCandidateColumnHeader();
             if (rows.Count == 0)
@@ -1267,7 +1293,7 @@ namespace Parsek
             // Interact: a centred label in a zero-margin dark box exactly ColW_Interact wide,
             // like each row's zero-margin Interact cell below it (the Missions header shape).
             GUILayout.BeginHorizontal(interactHeaderContainerStyle,
-                GUILayout.Width(MissionsWindowUI.ColW_Interact));
+                GUILayout.Width(interactColumnWidth));
             GUILayout.FlexibleSpace();
             GUILayout.Label("Interact", interactHeaderLabelStyle);
             GUILayout.FlexibleSpace();
@@ -1374,24 +1400,32 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The Interact column (Missions Model 1 shape: a 100 px single on line 1, two 48 px
-        /// halves of one single on line 2, 8 px inset). Line 1: Activate (Paused table) /
-        /// Pause (Active table); for a Send-armed route a live Cancel before launch and a
-        /// greyed Delivering... in flight; for a Pause-armed route a greyed Pausing...
-        /// Line 2: Send (one run, then stay Paused; live only on an unarmed Paused row) and
-        /// Log (the Mission Log of the mission the route was built from). Every greyed button
-        /// carries its reason to the hover strip (DisabledHoverEcho). Deliberate difference
-        /// from Missions: Log is a pair half here, because Logistics has no name-cell grid.
+        /// The Interact column: a 2x2 grid of pair buttons, every cell the same measured
+        /// width (<see cref="interactPairWidth"/>, the widest label in the skin's button
+        /// style) and the column exactly two cells, a gap and the two insets wide
+        /// (<see cref="interactColumnWidth"/>).
+        /// <list type="bullet">
+        ///   <item>Line 1, the state and Send: [Activate][Send] on a paused route,
+        ///   [Pause][Send] on an active one, [Cancel][Send] while a Send counts down to its
+        ///   window, greyed [Delivering...][Send] while it is in flight, greyed
+        ///   [Pausing...][Send] for a Pause armed in flight. Send is live only on an
+        ///   unarmed Paused route; otherwise it is greyed with its reason (running,
+        ///   sending, armed, or "Stopped: ..." on a broken route).</item>
+        ///   <item>Line 2: [Go to] (the mission the route repeats, on the Missions tab)
+        ///   and [Log] (the route's Route History window).</item>
+        /// </list>
+        /// Every cell is exactly one button in every state, so a state change never
+        /// changes the control count between a frame's Layout and Repaint passes; every
+        /// greyed button carries its reason to the hover strip (DisabledHoverEcho).
         /// </summary>
         private void DrawRouteInteractCell(Route route, RouteSection section, bool sendingOnce, bool pausingAfterRun,
             string brokenReason, RouteLegibility leg)
         {
             bool armed = sendingOnce || pausingAfterRun;
-            GUILayout.BeginVertical(GUILayout.Width(MissionsWindowUI.ColW_Interact));
+            float pair = interactPairWidth;
+            GUILayout.BeginVertical(GUILayout.Width(interactColumnWidth));
 
-            // Line 1 is ONE 100 px button in every state (Activate, Pause, Cancel,
-            // Delivering... or Pausing...), so a phase change never changes the control
-            // count between a frame's Layout and Repaint.
+            // ---- line 1: the state button, then Send ----
             GUILayout.BeginHorizontal();
             GUILayout.Space(MissionsWindowUI.InteractCellInset);
             LogisticsRoutePresentation.ArmedLine1 line1 =
@@ -1404,7 +1438,7 @@ namespace Parsek
                     // with nothing dispatched and returns the route to Paused.
                     if (GUILayout.Button(new GUIContent(LogisticsRoutePresentation.CancelButtonLabel,
                             LogisticsRoutePresentation.CancelButtonTooltip),
-                            interactButtonStyle, GUILayout.Width(MissionsWindowUI.InteractButtonWidth)))
+                            interactPairButtonStyle, GUILayout.Width(pair)))
                         pendingPause = route;
                     break;
                 case LogisticsRoutePresentation.ArmedLine1.Delivering:
@@ -1421,7 +1455,7 @@ namespace Parsek
                     bool prevEnabled = GUI.enabled;
                     GUI.enabled = false;
                     GUILayout.Button(new GUIContent(label, reason),
-                        interactButtonStyle, GUILayout.Width(MissionsWindowUI.InteractButtonWidth));
+                        interactPairButtonStyle, GUILayout.Width(pair));
                     DisabledHoverEcho.CarryLastControl(false, reason);
                     GUI.enabled = prevEnabled;
                     break;
@@ -1429,38 +1463,47 @@ namespace Parsek
                 default:
                     if (section == RouteSection.Active)
                     {
-                        if (GUILayout.Button(new GUIContent("Pause",
+                        if (GUILayout.Button(new GUIContent(LogisticsRoutePresentation.PauseButtonLabel,
                                 "Stop running this route on its schedule. A run already in flight finishes first."),
-                                interactButtonStyle, GUILayout.Width(MissionsWindowUI.InteractButtonWidth)))
+                                interactPairButtonStyle, GUILayout.Width(pair)))
                             pendingPause = route;
                     }
-                    else if (GUILayout.Button(new GUIContent("Activate",
+                    else if (GUILayout.Button(new GUIContent(LogisticsRoutePresentation.ActivateButtonLabel,
                                  "Run this route on its schedule."),
-                                 interactButtonStyle, GUILayout.Width(MissionsWindowUI.InteractButtonWidth)))
+                                 interactPairButtonStyle, GUILayout.Width(pair)))
                         pendingActivate = route;
                     break;
             }
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Space(MissionsWindowUI.InteractCellInset);
+            GUILayout.Space(MissionsWindowUI.InteractButtonGap);
             string sendReason = LogisticsRoutePresentation.SendDisabledReason(
                 section == RouteSection.Active, armed, brokenReason, sendingOnce);
             bool sendEnabled = string.IsNullOrEmpty(sendReason);
             bool prev = GUI.enabled;
             GUI.enabled = sendEnabled;
-            bool sendClicked = GUILayout.Button(new GUIContent("Send",
+            bool sendClicked = GUILayout.Button(new GUIContent(LogisticsRoutePresentation.SendButtonLabel,
                     sendEnabled
                         ? "Make one run at the next moment conditions allow (funds, cargo, destination, launch window), then stay Paused."
                         : sendReason),
-                interactPairButtonStyle, GUILayout.Width(MissionsWindowUI.InteractPairButtonWidth));
+                interactPairButtonStyle, GUILayout.Width(pair));
             DisabledHoverEcho.CarryLastControl(sendEnabled, sendReason);
             GUI.enabled = prev;
             if (sendClicked && sendEnabled)
                 pendingSendOnce = route;
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+
+            // ---- line 2: Go to, then Log (the Route History) ----
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(MissionsWindowUI.InteractCellInset);
+            DrawRouteGoToButton(route, leg, pair);
             GUILayout.Space(MissionsWindowUI.InteractButtonGap);
-            DrawRouteLogButton(route);
+            if (GUILayout.Button(new GUIContent(LogisticsRoutePresentation.LogButtonLabel,
+                    "This route's history: every run it sent, picked up and delivered, with its pauses."),
+                    interactPairButtonStyle, GUILayout.Width(pair)))
+            {
+                ParsekLog.Info("UI", $"Route Log button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} opens Route History");
+                parentUI.OpenRouteHistoryWindow(route.Id, route.Name);
+            }
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
@@ -1468,34 +1511,29 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The route's Log: the Log of the mission the route was built from (the same window
-        /// the Missions-tab Log opens). Greyed with its reason for a route not built from a
-        /// recorded mission.
+        /// Go to: opens the Missions tab on the mission the route repeats, through the same
+        /// cross-link the Timeline and the Missions partner rows use
+        /// (<see cref="RecordingsTableUI.ShowMissionForRecording"/> ->
+        /// <see cref="MissionsWindowUI.RevealMissionForRecording"/>, which resolves a
+        /// recording to its tree's ORIGINAL mission). The recording it names and the
+        /// greyed reason are resolved on the ~1 Hz refresh, never here.
         /// </summary>
-        private void DrawRouteLogButton(Route route)
+        private void DrawRouteGoToButton(Route route, RouteLegibility leg, float width)
         {
-            string sourceTreeId = ResolveRouteSourceTreeId(route);
-            bool hasSourceMission = !string.IsNullOrEmpty(sourceTreeId);
+            string reason = LogisticsRoutePresentation.GoToDisabledReason(leg.GoToRecordingId != null);
+            bool enabled = string.IsNullOrEmpty(reason);
             bool prevEnabled = GUI.enabled;
-            GUI.enabled = hasSourceMission;
-            bool missionLogClicked = GUILayout.Button(new GUIContent("Log",
-                    "Step-by-step log of the mission this route was built from"),
-                interactPairButtonStyle, GUILayout.Width(MissionsWindowUI.InteractPairButtonWidth));
-            DisabledHoverEcho.CarryLastControl(
-                hasSourceMission, MissionLogButtonDisabledReason(sourceTreeId));
+            GUI.enabled = enabled;
+            bool clicked = GUILayout.Button(new GUIContent(LogisticsRoutePresentation.GoToButtonLabel,
+                    enabled ? "Show the mission this route repeats on the Missions tab." : reason),
+                interactPairButtonStyle, GUILayout.Width(width));
+            DisabledHoverEcho.CarryLastControl(enabled, reason);
             GUI.enabled = prevEnabled;
-            if (missionLogClicked && hasSourceMission)
+            if (clicked && enabled)
             {
-                // The source tree's ORIGINAL mission: clones share the tree, and the
-                // route was built from the flight the original stands for.
-                Mission sourceMission = MissionStore.FindOriginalMission(sourceTreeId);
                 ParsekLog.Info("UI",
-                    $"Route Log button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} tree={sourceTreeId ?? "<null>"} " +
-                    $"mission={sourceMission?.Id ?? "<none>"}");
-                parentUI.OpenStructureWindowForMission(sourceTreeId, sourceMission?.Id,
-                    !string.IsNullOrEmpty(sourceMission?.Name)
-                        ? sourceMission.Name
-                        : ResolveTreeDisplayName(sourceTreeId));
+                    $"Route Go to: route={ShortId(route.Id)} recording={leg.GoToRecordingId}");
+                parentUI.GetRecordingsTableUI().ShowMissionForRecording(leg.GoToRecordingId);
             }
         }
 
@@ -1726,18 +1764,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Why the route's "Log" is greyed out. The button opens the Log of the mission a
-        /// route was built from, so a route created by hand rather than from a flown mission
-        /// has nothing to open. Pure for unit testing.
-        /// </summary>
-        internal static string MissionLogButtonDisabledReason(string sourceTreeId)
-        {
-            return string.IsNullOrEmpty(sourceTreeId)
-                ? "This route was not built from a recorded mission"
-                : string.Empty;
-        }
-
-        /// <summary>
         /// Which action armed a route's <see cref="Route.PauseAfterCurrentCycle"/>
         /// flag (M6). There is no separately tracked armedBy field; both arming
         /// paths set the same bool, so the armer is inferred from the route's status
@@ -1784,25 +1810,6 @@ namespace Parsek
         internal static ArmedSendKind ResolveArmedKind(bool sendOnceArmed, RouteStatus priorStatus)
         {
             return sendOnceArmed ? ArmedSendKind.SendOnce : ClassifyArmedSend(priorStatus);
-        }
-
-        /// <summary>
-        /// The greyed Interact line-1 label for an armed state (M6). A Pause-armed route
-        /// shows "Pausing..."; a Send-armed run in flight shows "Delivering..." (before it
-        /// launches, a Send-armed route shows the live Cancel instead). Both fit the 100 px
-        /// single; the Status cell carries the longer words. Plain ASCII (literal three
-        /// dots), no glyphs.
-        /// </summary>
-        internal static string LabelForArmedState(ArmedSendKind kind)
-        {
-            switch (kind)
-            {
-                case ArmedSendKind.PauseAfterCycle:
-                    return LogisticsRoutePresentation.PausingButtonLabel;
-                case ArmedSendKind.SendOnce:
-                default:
-                    return LogisticsRoutePresentation.DeliveringButtonLabel;
-            }
         }
 
         /// <summary>
@@ -1915,7 +1922,8 @@ namespace Parsek
         /// run, the dated hold / partial lines, the capacity context and Re-scan of a broken
         /// route, the last delivery from the ledger, the run cost, the mission the route was
         /// built from, the round-trip partner, and Rename / Delete. Advanced adds the Every
-        /// and Priority steppers, Recent runs, Flights used and Link round-trip. Every
+        /// and Priority steppers, Flights used and Link round-trip. A route's runs live in
+        /// its Route History window (the Log button), not here. Every
         /// conditional line is keyed on a CACHED legibility field (never on live route state
         /// combined with it) or on the latched drawTuning, so the IMGUI control count stays
         /// stable across Layout/Repaint while the ~1 Hz cache and the live route drift apart.
@@ -1981,27 +1989,17 @@ namespace Parsek
                 DrawCadenceStepper(route, leg);
                 DrawPriorityStepper(route);
 
-                // Recent runs: what each recent completed run paid, picked up and
-                // delivered, newest first. Shortfall runs tint yellow.
-                if (leg.FlowLines != null && leg.FlowLines.Count > 0)
-                {
-                    DetailLine(LogisticsFlowPresentation.RecentCyclesHeader);
-                    for (int i = 0; i < leg.FlowLines.Count; i++)
-                    {
-                        LogisticsFlowPresentation.CycleFlowLine flowLine = leg.FlowLines[i];
-                        DetailLine("  " + flowLine.Text,
-                            flowLine.Shortfall ? statusStyleYellow : detailStyle);
-                    }
-                }
-
                 DrawFlightsUsedLine(route);
             }
 
-            // A block too short to host every Interact button (a degenerate route with
-            // no source mission) still gets them, one per line: Delete must never be
-            // unreachable. Ordinary blocks never reach this (two lines in Basic, three
-            // or more in Advanced).
+            // The buttons take detail lines and never sit on an empty one. A block short of
+            // lines (no source mission to name) gets one more INFORMATION line - the
+            // delivered total, or "Not run yet." - before anything else; only a block
+            // still short after that (none today: Basic has Delivers + this line, Advanced
+            // its two steppers) gets a bare button line, so Delete is always reachable.
             int required = RouteDetailSlotCount(drawTuning);
+            if (detailSlotNext < required)
+                DetailLine(LogisticsRoutePresentation.FormatFillerInfoLine(leg.HasDeliveries, leg.CumulativeText));
             while (detailSlotNext < required)
             {
                 GUILayout.BeginHorizontal();
@@ -2419,12 +2417,12 @@ namespace Parsek
 
         // The slot cell's width: the row's Interact column, less the detail box's own right
         // margin and padding, so a slot button's left edge lines up with Activate / Pause.
-        private static float DetailSlotCellWidth()
+        private float DetailSlotCellWidth()
         {
-            float w = MissionsWindowUI.ColW_Interact;
+            float w = interactColumnWidth;
             if (GUI.skin != null && GUI.skin.box != null)
                 w -= GUI.skin.box.margin.right + GUI.skin.box.padding.right;
-            return Mathf.Max(w, MissionsWindowUI.InteractCellInset + MissionsWindowUI.InteractButtonWidth);
+            return Mathf.Max(w, MissionsWindowUI.InteractCellInset + InteractSingleWidth);
         }
 
         /// <summary>
@@ -2450,7 +2448,7 @@ namespace Parsek
 
         private void DrawDetailSlotButton(Route route, int slot)
         {
-            float w = MissionsWindowUI.InteractButtonWidth;
+            float w = InteractSingleWidth;
             switch (slot)
             {
                 case RenameSlot:
@@ -2811,32 +2809,132 @@ namespace Parsek
             GUILayout.EndHorizontal();
         }
 
-        private void DrawSectionHeader(string text)
+        // ----- Section headers (Active / Paused / Candidates) -----
+        //
+        // Each title bar is ONE button over the whole width: the caret, the centred title
+        // with its count ("Active Routes (2)") in a font 2 pt over the shared section header,
+        // and a thin accent bar in the section's status colour along the bottom of the
+        // header box (green Active, grey Paused, cyan Candidates) - a bar rather than a
+        // coloured title, because it marks where a section starts even when its title has
+        // scrolled out of view. A click queues the toggle (pendingSectionToggle) and
+        // ApplyPendingActions flips it after the draw, so a frame's Layout and Repaint draw
+        // the same controls. Collapsed sections draw only the bar. Session state only.
+        private readonly HashSet<string> collapsedSections = new HashSet<string>();
+        private string pendingSectionToggle;
+        private GUIStyle sectionTitleButtonStyle;
+        private readonly Dictionary<ParsekUI.StatusColorKind, GUIStyle> sectionAccentStyles =
+            new Dictionary<ParsekUI.StatusColorKind, GUIStyle>();
+        private GUIStyle sectionRuleStyle;
+
+        /// <summary>Whether a section is collapsed, for tests and the census.</summary>
+        internal bool IsSectionCollapsedForTesting(string sectionName)
+            => sectionName != null && collapsedSections.Contains(sectionName);
+
+        /// <summary>Flips a section the way a title-bar click does (applied at once; the
+        /// draw-path click queues the same flip for after the draw).</summary>
+        internal void ToggleSectionForTesting(string sectionName)
         {
-            // Use the shared house section-header bar (bold label in a box, full-width)
-            // so Logistics headers match Settings / Recordings / Timeline / Missions,
-            // but CENTER the text via a local clone so the shared (left-aligned) style
-            // those other windows use is not changed. Built once and reused.
-            if (sectionHeaderCenteredStyle == null)
+            ApplySectionToggle(sectionName);
+        }
+
+        /// <summary>
+        /// Draws a section's title bar and returns whether the section is expanded (whether
+        /// its body draws this pass). Reads the collapse state as it stood at the start of
+        /// the pass; a click only queues the flip.
+        /// </summary>
+        private bool DrawSectionHeader(string sectionName, string title, int count,
+            ParsekUI.StatusColorKind accent)
+        {
+            if (sectionTitleButtonStyle == null)
             {
-                sectionHeaderCenteredStyle = new GUIStyle(parentUI.GetSectionHeaderStyle())
+                GUIStyle shared = parentUI.GetSectionHeaderStyle();
+                sectionTitleButtonStyle = new GUIStyle(shared)
                 {
-                    alignment = TextAnchor.MiddleCenter
+                    alignment = TextAnchor.MiddleCenter,
+                    fontSize = (shared.fontSize > 0 ? shared.fontSize : GUI.skin.label.fontSize > 0 ? GUI.skin.label.fontSize : 12)
+                        + LogisticsRoutePresentation.SectionTitleFontStep,
                 };
             }
+            bool expanded = !collapsedSections.Contains(sectionName);
             GUILayout.Space(SpacingSmall);
-            // Nest the header label inside a skin box so the section-subtitle cell carries
-            // the SAME dark "box-on-box" background the column-header row has. The column
-            // header draws its box-styled cells INSIDE a BeginVertical(GUI.skin.box)
-            // container (two box layers, reading as a solid dark bar); a bare full-width
-            // box-label sits on only the window background (one layer) and looks lighter.
-            // Wrapping the label in a box horizontal adds the second box layer so the
-            // subtitle matches the table-header shade.
-            GUILayout.BeginHorizontal(GUI.skin.box);
-            GUILayout.Label(text, sectionHeaderCenteredStyle, GUILayout.ExpandWidth(true));
-            GUILayout.EndHorizontal();
+            // The box-on-box shade the column-header row has (a bare box-label on the window
+            // background reads lighter), with the accent bar along its bottom edge.
+            GUILayout.BeginVertical(GUI.skin.box);
+            if (GUILayout.Button(new GUIContent(
+                    LogisticsRoutePresentation.FormatSectionTitle(title, count, expanded),
+                    expanded ? "Collapse this section" : "Expand this section"),
+                    sectionTitleButtonStyle, GUILayout.ExpandWidth(true)))
+                pendingSectionToggle = sectionName;
+            GUILayout.Box(GUIContent.none, SectionAccentStyle(accent),
+                GUILayout.ExpandWidth(true), GUILayout.Height(LogisticsRoutePresentation.SectionAccentHeight));
+            GUILayout.EndVertical();
+            return expanded;
         }
-        private GUIStyle sectionHeaderCenteredStyle;
+
+        private GUIStyle SectionAccentStyle(ParsekUI.StatusColorKind kind)
+        {
+            if (sectionAccentStyles.TryGetValue(kind, out GUIStyle style) && style != null
+                && style.normal.background != null)
+                return style;
+            style = ParsekUI.CreateRuleLineStyle(parentUI.GetStatusColor(kind));
+            style.margin = new RectOffset(0, 0, 0, 0);
+            sectionAccentStyles[kind] = style;
+            return style;
+        }
+
+        /// <summary>
+        /// The rule between two sections, in the middle of a gap twice the old one: the same
+        /// 2 px grey rule the Timeline draws for "now" (<see cref="ParsekUI.CreateRuleLineStyle"/>).
+        /// </summary>
+        private void DrawSectionSeparator()
+        {
+            if (sectionRuleStyle == null || sectionRuleStyle.normal.background == null)
+            {
+                sectionRuleStyle = ParsekUI.CreateRuleLineStyle(ParsekUI.RuleLineColor);
+                sectionRuleStyle.margin = new RectOffset(0, 0, 0, 0);
+            }
+            GUILayout.Space(SpacingSmall);
+            GUILayout.Box(GUIContent.none, sectionRuleStyle, GUILayout.ExpandWidth(true), GUILayout.Height(2f));
+            GUILayout.Space(SpacingSmall);
+        }
+
+        /// <summary>
+        /// Flips a section. Collapsing one drops an open interval or rename edit on a route
+        /// inside it, exactly as the switch to Basic drops an Every edit (discarded like
+        /// Escape, never committed): its field is about to stop drawing, so its click-away
+        /// commit would land on a control that is gone.
+        /// </summary>
+        private void ApplySectionToggle(string sectionName)
+        {
+            if (string.IsNullOrEmpty(sectionName))
+                return;
+            bool collapse = !collapsedSections.Contains(sectionName);
+            if (collapse)
+            {
+                collapsedSections.Add(sectionName);
+                if (intervalEditRouteId != null && RouteIsInSection(intervalEditRouteId, sectionName))
+                    ClearIntervalEdit();
+                if (renamingRouteId != null && RouteIsInSection(renamingRouteId, sectionName))
+                    ClearRouteRename();
+            }
+            else
+            {
+                collapsedSections.Remove(sectionName);
+            }
+            ParsekLog.Verbose("UI",
+                $"Logistics section {(collapse ? "collapsed" : "expanded")}: '{sectionName}'");
+        }
+
+        private static bool RouteIsInSection(string routeId, string sectionName)
+        {
+            if (!RouteStore.TryGetRoute(routeId, out Route route) || route == null)
+                return false;
+            bool paused = LogisticsRoutePresentation.BelongsInPausedTable(route.Status);
+            return sectionName == (paused
+                ? LogisticsRoutePresentation.PausedSectionName
+                : LogisticsRoutePresentation.ActiveSectionName);
+        }
+
 
         private void ToggleExpanded(string key, string nameForLog)
         {
@@ -2963,6 +3061,12 @@ namespace Parsek
                     lastCandidateComputeRealtime = -1f;
                     lastNearMissComputeRealtime = -1f;
                 }
+            }
+
+            if (pendingSectionToggle != null)
+            {
+                ApplySectionToggle(pendingSectionToggle);
+                pendingSectionToggle = null;
             }
 
             if (routeStateMutated)
@@ -3415,7 +3519,7 @@ namespace Parsek
             int withCountdown = 0;
             int withDeliveries = 0;
             int withHold = 0;
-            int withFlow = 0;
+            int withGoTo = 0;
             for (int i = 0; i < routeCount; i++)
             {
                 Route route = routes[i];
@@ -3432,9 +3536,9 @@ namespace Parsek
                 // M6 hold reasons: batch counter, one summary line below.
                 if (leg.HoldText != null)
                     withHold++;
-                // M6 per-cycle flow: batch counter, same summary line.
-                if (leg.FlowLines != null)
-                    withFlow++;
+                // Go to: how many routes still resolve their source mission.
+                if (leg.GoToRecordingId != null)
+                    withGoTo++;
             }
             if (pruneArmed)
                 sendOnceArmedRouteIds.RemoveWhere(id => !stillArmed.Contains(id));
@@ -3444,7 +3548,7 @@ namespace Parsek
                 $"withCountdown={withCountdown.ToString(CultureInfo.InvariantCulture)} " +
                 $"withDeliveries={withDeliveries.ToString(CultureInfo.InvariantCulture)} " +
                 $"withHold={withHold.ToString(CultureInfo.InvariantCulture)} " +
-                $"withFlow={withFlow.ToString(CultureInfo.InvariantCulture)}");
+                $"withGoTo={withGoTo.ToString(CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>
@@ -3497,11 +3601,10 @@ namespace Parsek
             leg.EveryTooltip = LogisticsRoutePresentation.EveryTooltip(windowed, leg.BasisLabel);
 
             // Realized deliveries: one ELS scan -> the latest run, its shortfall flag and
-            // the cumulative total. The SAME walk collects the debit / pickup / delivery
-            // rows the Advanced Recent runs lines bucket below (no second ledger walk).
-            var flowRows = new List<LogisticsFlowPresentation.FlowRow>();
+            // the cumulative total. (The route's runs themselves are the Route History
+            // window's, built on open from the same ELS.)
             LogisticsDeliveryPresentation.RouteDeliverySummary summary =
-                CollectRouteDeliverySummary(route.Id, flowRows);
+                CollectRouteDeliverySummary(route.Id, null);
             leg.HasDeliveries = summary.HasAny;
             leg.LastCycleText = summary.HasAny
                 ? LogisticsDeliveryPresentation.FormatRealizedDelivery(summary.LastRequested, summary.LastActual)
@@ -3513,10 +3616,8 @@ namespace Parsek
                 summary.HasAny, summary.LastUt, leg.LastCycleText, leg.CumulativeText,
                 route.CompletedCycles, formatDate);
 
-            // Recent runs (Advanced): bucket the collected rows by run and render the
-            // bounded newest-first lines HERE (endpoint name resolution touches
-            // FlightGlobals, never the IMGUI draw path). Null when there are none.
-            leg.FlowLines = BuildPerCycleFlowLines(route, flowRows, currentUT);
+            // Go to: a recording of the source mission still in the effective set.
+            leg.GoToRecordingId = ResolveGoToRecordingId(route);
 
             // Destination name (the Delivers line, the from/to line and the sort key). It
             // touches FlightGlobals and, on an unresolved surface endpoint, scans all
@@ -3839,65 +3940,112 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Builds the M6 per-cycle flow lines for the legibility cache from the
-        /// rows collected in the shared ELS walk. This is the non-pure half (it
-        /// resolves live vessel names), so it stays in the window file and runs
-        /// only on the ~1 Hz refresh: endpoint pids on debit / pickup rows
-        /// resolve through the O(1) <c>FlightGlobals.FindVessel</c> (the
-        /// RouteEndpointResolver.ResolveByPid idiom - a vanished vessel misses
-        /// the map and the pure formatter renders its "vessel pid=N" fallback,
-        /// never blank), and per-stop delivery destinations resolve to the live
-        /// vessel name by the stop endpoint's baked pid with the recorded
-        /// coords as the fallback (the H4 name-else-coords contract, without
-        /// the O(vessels) surface re-scan). The pure
-        /// <see cref="LogisticsFlowPresentation.FormatPerCycleFlow"/> does the
-        /// bucketing / bounding / wording. Returns null when there is nothing
-        /// to show so the detail panel draws no header.
+        /// The recording Go to hands the Missions cross-link: one of the route's source
+        /// tree's recordings that is still in the effective set (ERS), preferring the
+        /// route's own copied flights in order, so the cross-link resolves it to the tree's
+        /// ORIGINAL mission. Null when the source tree has no original mission any more or
+        /// none of its recordings is effective (the button then greys). Runs on the ~1 Hz
+        /// refresh only.
         /// </summary>
-        private static List<LogisticsFlowPresentation.CycleFlowLine> BuildPerCycleFlowLines(
-            Route route, List<LogisticsFlowPresentation.FlowRow> flowRows, double currentUT)
+        private static string ResolveGoToRecordingId(Route route)
         {
-            if (flowRows == null || flowRows.Count == 0)
+            string treeId = ResolveRouteSourceTreeId(route);
+            if (string.IsNullOrEmpty(treeId) || MissionStore.FindOriginalMission(treeId) == null)
                 return null;
-
-            // Live names for the endpoint pids that appear on the rows.
-            var endpointNames = new Dictionary<uint, string>();
-            for (int i = 0; i < flowRows.Count; i++)
+            IReadOnlyList<Recording> effective;
+            try
             {
-                uint pid = flowRows[i].EndpointPid;
-                if (pid == 0u || endpointNames.ContainsKey(pid)) continue;
-                string name = TryResolveLiveVesselName(pid);
-                if (!string.IsNullOrEmpty(name))
-                    endpointNames[pid] = name;
+                effective = EffectiveState.ComputeERS();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose("UI",
+                    $"Logistics Go to: ComputeERS threw {ex.GetType().Name}: {ex.Message}; greyed");
+                return null;
+            }
+            if (effective == null)
+                return null;
+            string firstOfTree = null;
+            for (int i = 0; i < effective.Count; i++)
+            {
+                Recording rec = effective[i];
+                if (rec == null || !string.Equals(rec.TreeId, treeId, System.StringComparison.Ordinal))
+                    continue;
+                if (route.RecordingIds != null && route.RecordingIds.Contains(rec.RecordingId))
+                    return rec.RecordingId;
+                if (firstOfTree == null)
+                    firstOfTree = rec.RecordingId;
+            }
+            return firstOfTree;
+        }
+
+        // ------------------------------------------------------------------
+        // Route History (the route's Log button opens it)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The Route History rows for one route: its ledger rows from the Effective Ledger
+        /// Set (<see cref="EffectiveState.ComputeELS"/>, so a rewound or tombstoned run is
+        /// absent) through the pure <see cref="RouteHistoryBuilder"/>, with the origin and
+        /// each stop named by its live vessel (the place, never raw coordinates, when the
+        /// vessel no longer resolves). Called on open and when
+        /// <see cref="RouteHistorySignature"/> moves, never per frame.
+        /// </summary>
+        internal static List<StructureStep> BuildRouteHistorySteps(string routeId)
+        {
+            if (string.IsNullOrEmpty(routeId) || !RouteStore.TryGetRoute(routeId, out Route route) || route == null)
+                return new List<StructureStep>();
+            IReadOnlyList<GameAction> els;
+            try
+            {
+                els = EffectiveState.ComputeELS();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose("UI",
+                    $"Route History: ComputeELS threw {ex.GetType().Name}: {ex.Message}; no rows");
+                return new List<StructureStep>();
             }
 
-            // Per-stop delivery destination names, indexed by stop index.
-            List<string> stopDestinations = null;
-            if (route?.Stops != null && route.Stops.Count > 0)
+            string originVesselName = route.IsKscOrigin || route.IsHarvestOrigin
+                ? null : TryResolveLiveVesselName(route.Origin.VesselPersistentId);
+            string originPlace = route.IsKscOrigin ? "KSC"
+                : route.IsHarvestOrigin ? "Harvested en route"
+                : FormatEndpointPlace(route.Origin);
+            System.Func<int, RouteStop> stopAt = index =>
             {
-                stopDestinations = new List<string>(route.Stops.Count);
-                for (int i = 0; i < route.Stops.Count; i++)
-                {
-                    RouteStop stop = route.Stops[i];
-                    if (stop == null)
-                    {
-                        stopDestinations.Add(null);
-                        continue;
-                    }
-                    string name = TryResolveLiveVesselName(stop.Endpoint.VesselPersistentId);
-                    string destination = !string.IsNullOrEmpty(name)
-                        ? name
-                        : LogisticsDeliveryPresentation.FormatEndpointCoords(stop.Endpoint);
-                    destination += RouteCreationFormatters.ConnectionKindSuffix(stop.ConnectionKind);
-                    stopDestinations.Add(destination);
-                }
-            }
+                if (route.Stops == null || route.Stops.Count == 0) return null;
+                int i = index < 0 ? 0 : index;
+                return i < route.Stops.Count ? route.Stops[i] : null;
+            };
+            List<StructureStep> steps = RouteHistoryBuilder.Build(
+                els, route.Id, originPlace, originVesselName,
+                index => stopAt(index) != null ? FormatEndpointPlace(stopAt(index).Endpoint) : null,
+                index => stopAt(index) != null ? TryResolveLiveVesselName(stopAt(index).Endpoint.VesselPersistentId) : null,
+                TryResolveLiveVesselName);
+            ParsekLog.Verbose("UI",
+                $"Route History rows built: route={ShortId(route.Id)} rows={steps.Count.ToString(CultureInfo.InvariantCulture)}");
+            return steps;
+        }
 
-            List<LogisticsFlowPresentation.CycleFlowLine> lines =
-                LogisticsFlowPresentation.FormatPerCycleFlow(
-                    flowRows, endpointNames, FormatOrigin(route), stopDestinations,
-                    currentUT, LogisticsFlowPresentation.MaxCyclesShown);
-            return lines.Count > 0 ? lines : null;
+        /// <summary>
+        /// The Route History's change signature: the ledger and tombstone versions (the
+        /// ELS inputs), whether the route still resolves, and its name (the title follows a
+        /// rename). An in-memory compare value, read on Layout passes only.
+        /// </summary>
+        internal static int RouteHistorySignature(string routeId, out string routeName)
+        {
+            routeName = null;
+            bool found = !string.IsNullOrEmpty(routeId) && RouteStore.TryGetRoute(routeId, out Route route)
+                && route != null;
+            if (found && RouteStore.TryGetRoute(routeId, out Route named))
+                routeName = named.Name;
+            int tombstoneVersion = 0;
+            ParsekScenario scenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenario))
+                tombstoneVersion = scenario.TombstoneStateVersion;
+            return LogisticsRoutePresentation.RouteHistoryChangeSignature(
+                Ledger.StateVersion, tombstoneVersion, found, routeName);
         }
 
         /// <summary>
@@ -4403,6 +4551,16 @@ namespace Parsek
                 padding = new RectOffset(
                     2, 2, GUI.skin.button.padding.top, GUI.skin.button.padding.bottom)
             };
+            float widestLabel = 0f;
+            for (int i = 0; i < LogisticsRoutePresentation.InteractGridLabels.Length; i++)
+                widestLabel = Mathf.Max(widestLabel,
+                    interactPairButtonStyle.CalcSize(new GUIContent(LogisticsRoutePresentation.InteractGridLabels[i])).x);
+            interactPairWidth = LogisticsRoutePresentation.InteractPairWidth(widestLabel);
+            interactColumnWidth = LogisticsRoutePresentation.InteractColumnWidth(interactPairWidth);
+            ParsekLog.Verbose("UI",
+                $"Logistics Interact grid measured: widestLabel={widestLabel.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"pair={interactPairWidth.ToString("F0", CultureInfo.InvariantCulture)} " +
+                $"column={interactColumnWidth.ToString("F0", CultureInfo.InvariantCulture)}");
             detailSlotButtonStyle = new GUIStyle(interactButtonStyle)
             {
                 padding = new RectOffset(

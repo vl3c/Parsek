@@ -199,7 +199,7 @@ count = { min = 243, max = 243 }
 required = [
   # --- the host recipe landed where the corpus is playing.
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] timejump complete reachedUT=5[0-9]",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
   # --- the runtime handle really enumerated this host's committed family (R10).
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] listhandles kind=committed count=[1-9][0-9]* truncated=",
   # --- THE FINGERPRINT: hide one, hide the rest, restore all. Three exact numbers no

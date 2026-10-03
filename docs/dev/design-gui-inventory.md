@@ -333,9 +333,10 @@ whether wave 2 took one.
 
 ### 3.0 Window index
 
-The 14 distinct IMGUI windows as measured, in the main window's own button order (row 5 was
-removed 2026-09-27, so 13 remain) - the order
-`TestCommands/TestCommandUiAction.cs:361-364` pins for the same reason.
+The 14 IMGUI windows Parsek draws, in the main window's own button order (the order
+`TestCommands/TestCommandUiAction.cs` pins for the same reason). Row 5 is an unused number kept
+so the rows other sections cite keep their numbers; the Route History is row 8b, the second
+instance of row 8's class.
 
 | # | title | class + host line | scenes | seam token | census labels |
 |---|---|---|---|---|---|
@@ -343,10 +344,11 @@ removed 2026-09-27, so 13 remain) - the order
 | 2 | `Parsek - Missions` | `UI/RecordingsTableUI.cs:651` | FLIGHT, SPACECENTER | `missions` (tabs `missions`, `recordings`) | 4 labels (3.2) |
 | 3 | `Parsek - Timeline` | `UI/TimelineWindowUI.cs:281` | FLIGHT, SPACECENTER | `timeline` (tabs `overview`, `details`, `rewindff`, `refly`, `contracts`, `strategies`, `facilities`, `milestones`, `tech`) | 5 labels (3.3) |
 | 4 | `Parsek - Kerbals` | `UI/KerbalsWindowUI.cs:205` | FLIGHT, SPACECENTER | `kerbals` (tabs `roster`, `outcomes`) | 2 labels |
-| 5 | ~~`Parsek - Career State`~~ REMOVED 2026-09-27 | - | - | - (the `career` token is gone) | historical only |
+| 5 | (unused number) | - | - | - | - |
 | 6 | `Parsek - Logistics` | `UI/LogisticsWindowUI.cs:444` | FLIGHT, SPACECENTER | `logistics` | `ksc-logistics-advanced/basic` |
 | 7 | Logistics round-trip link picker (`Link round-trip partner`) | `UI/LogisticsWindowUI.cs:1762` | as its host | excluded `TestCommandUiAction.cs:374-377`; reached by `op=picker picker=link` | `ib-logistics-linkpicker-advanced` (GUI-3, 198 nodes, `windows=4`) |
-| 8 | `Parsek - Log: <mission or route>` (bare `Parsek - Log` untargeted; was `Parsek - Structure` until 2026-09-29) | `UI/StructureListWindowUI.cs` (`BuildWindowTitle`) | FLIGHT, SPACECENTER | `structure` (the seam token keeps the class's name; an alias of the Log) | `ksc-structure-advanced` (empty chrome) |
+| 8 | `Parsek - Log: <mission>` (bare `Parsek - Log` untargeted) | `UI/StructureListWindowUI.cs` (`BuildWindowTitle`) | FLIGHT, SPACECENTER | `structure` (`op=target mission=`) | `ib-structure-route-log-advanced`, `ib-structure-mission-advanced` (GUI-3), `ksc-structure-advanced` (GUI-1) |
+| 8b | `Parsek - Route History: <route>` | `UI/StructureListWindowUI.cs` (second instance, `RouteHistoryWindowIdKey`) | FLIGHT, SPACECENTER | `routehistory` (`op=target route=`) | `ib-routehistory-advanced` (GUI-3) |
 | 9 | `Parsek - Settings` | `UI/SettingsWindowUI.cs:128` | FLIGHT, SPACECENTER | `settings` | `ksc-settings-advanced/basic` |
 | 10 | `Real Spawn Control` | `UI/SpawnControlUI.cs:162` | FLIGHT only | `spawncontrol` | `play-spawncontrol-advanced` (GUI-6, 69 nodes, one candidate row) |
 | 11 | `Gloops Flight Recorder` | `UI/GloopsRecorderUI.cs:94` | FLIGHT only | `gloops` | `flight-gloops-advanced` |
@@ -925,143 +927,146 @@ todo `CAREER-WINDOW-REMOVED-2026-09-27`.
 
 ### 3.6 Parsek - Logistics
 
-Purpose: supply routes derived from flights already flown. Hosts `ParsekFlight.cs:2136`,
-`ParsekKSC.cs:258`; not the Tracking Station.
+Purpose: supply routes derived from flights already flown. Hosts `ParsekFlight` and
+`ParsekKSC`; not the Tracking Station.
 
-Complexity (Logistics Model 1, 2026-10-02): the window is gated INSIDE by one key,
-`UiSurface.LogisticsRouteTuning` (design-ui-basic-advanced.md 4.6), read once per pass into
-`drawTuning` at the top of `DrawWindow` through `LogisticsRoutePresentation.ShowsRouteTuning`.
-The header, every row and every detail block read that one bool. (Before 2026-10-02 the window
-had zero `IsVisible` calls and the two census trees were byte-identical at 58 nodes.)
+Complexity: one gate key, `UiSurface.LogisticsRouteTuning` (design-ui-basic-advanced.md 4.6),
+read once per pass into `drawTuning` at the top of `DrawWindow` through
+`LogisticsRoutePresentation.ShowsRouteTuning`. The header, every row and every detail block read
+that one bool, so a frame's Layout and Repaint passes draw the same columns.
 
-Bubbles inside one scroll view: Active, Paused and Candidates are drawn unconditionally with a
-plain centred title; the Dormant Routes, `Missions that cannot become routes yet (N)` and
-`Hidden missions (N)` disclosures are caret folds with a count. Per-ROW expand is separate. An
-empty route table reads one grey sentence (`No active routes.` / `No paused routes.`), no
-longer `(none)`.
+**Sections.** One scroll view holds, top to bottom: Active Routes, Paused Routes, the Dormant
+Routes disclosure (only when a route is dormant), Candidates. Each of the three main sections
+has a title bar: ONE button across the width with the caret (U+25BC expanded / U+25B6 collapsed, the
+route rows' glyphs), the centred title and its count (`Active Routes (2)`, `Paused Routes (1)`,
+`Candidates (3)`), in a font 2 pt over the shared section header, and a 2 px accent bar along the
+bottom of the header box in the section's `ParsekUI.StatusColor` (green Active, grey Paused,
+cyan Candidates; a bar rather than a coloured title, so a section's start stays marked when its
+title has scrolled away). A click folds or unfolds the section on the next frame (the queued
+toggle is applied after the draw); a folded section draws only its bar; the state is per
+section, session-only, all expanded by default. Folding a section drops an open interval or
+rename edit on a route inside it (discarded like Escape). Between Active and Paused, and before
+Candidates, a 2 px grey rule (`ParsekUI.CreateRuleLineStyle`, the Timeline's "now" rule) sits
+in the middle of a doubled gap. An empty route table reads one grey sentence (`No active
+routes.` / `No paused routes.`).
 
-Table membership (owner decision 3b, 2026-10-03, which replaced 3a): the Paused table holds
-Paused routes only (`LogisticsRoutePresentation.BelongsInPausedTable`). A route armed by Send sits
-in ACTIVE while it sends - through the countdown to its window and while the run is in flight -
-reading `Sending one run` with its amber countdown (to the window, then to the arrival, like any
-scheduled run); when the run completes the backend's PauseAfterCurrentCycle returns it to Paused
-and the row moves with it. A Pause-armed route also stays in Active.
+**Table membership.** The Paused table holds Paused routes; the Active table holds everything
+else: running, held, broken, Pause-armed, and a route armed by Send while it sends (through the
+countdown to its window and while its run is in flight). When that run completes, the backend's
+PauseAfterCurrentCycle returns the route to Paused and the row moves with it.
 
-Route table (Active and Paused share `DrawRouteSortableHeader` and `DrawRouteRow`; both sections
-share one sort state). Every row is two lines tall:
+**Route table** (Active and Paused share `DrawRouteSortableHeader` and `DrawRouteRow`, one sort
+state). Every row is two lines tall:
 
 | # | column | width | Basic | Advanced | value |
 |---|---|---|---|---|---|
 | 1 | `#` | 30 | yes | yes | display position; not sortable |
-| 2 | Route | expand | yes | yes | line 1 caret + `route.Name`; line 2 grey (`MissionsWindowUI.MissionSummaryTextColor`, same font; measured 199/255 in the GUI-3 capture against 230 for row text, identical to the Missions summary line) `KSC -> Depot Station Duna I` (drawn with U+2192, the arrow the default route names use) (a multi-stop route `Depot (+2 stops)`; an unresolved endpoint names the place, never coordinates). Hover: the full origin and destination with coordinates. Sorts by name |
-| 3 | Delivers | 200 | yes | yes | per-run manifest (wraps); hover `Delivers each run: ... to <destination>.` Not sortable |
+| 2 | Route | expand | yes | yes | line 1 caret + `route.Name`; line 2 grey (`MissionsWindowUI.MissionSummaryTextColor`, same font) `KSC [U+2192] Depot Station Duna I` (the U+2192 arrow, the arrow the default route names use; a multi-stop route `Depot (+2 stops)`; an unresolved endpoint names the place, never coordinates). Hover: origin and destination with coordinates. Sorts by name |
+| 3 | Delivers | 200 | yes | yes | per-run manifest (wraps); hover `Delivers each run: ... to <destination>.` |
 | 4 | Every | 150 | read-only `every 4.0d` / `every 2nd window` | inline `[-] field [+] Nx` stepper | a Send-armed route shows the read-only form in both modes |
 | 5 | Runs | 80 | no | yes | `3` or `3, 1 held` |
-| 6 | Next | 135 | yes | yes | the Missions countdown exactly: amber `T- ` + `FormatCountdownCompact`, ` (!)` when the last run was held; grey `-` when no run is scheduled (a Paused route not armed by Send). Hover: the exact date |
-| 7 | Status | 260 | yes | yes | ONE colour-coded word + short reason (`LogisticsRoutePresentation.ClassifyStatus`): `Delivering` green, `Scheduled` white, `Held: ...` yellow (on Paused rows too), `Paused` grey, `New` cyan, `Sending one run` / `Pausing after this run` cyan, `Broken: destination lost` / `flight missing` / `flight changed` red. Replaces the old Status + Delivery columns. Hover: one dated sentence, never the raw enum |
-| 8 | Interact | 116 | yes | yes | centred header; Missions Model 1 shape (100 px single, two 48 px halves, 8 px inset, the Missions constants): line 1 `Activate` (Paused) / `Pause` (Active); for a Send-armed route a live `Cancel` before launch (hover `Cancels the run before launch; nothing is spent.`; it goes through TryPause, which clears the pending arm with nothing dispatched) and a greyed `Delivering...` once the run is in flight (hover `Launched on <date>; arrives on <date>, then pauses again. A launched run cannot be called back.`; there is no abort path); a greyed `Pausing...` for a Pause-armed route - one 100 px button in the same slot in every state; line 2 `Send` (live only on an unarmed Paused row, greyed with its reason otherwise: running, `Already sending one run`, armed, or `Stopped: <reason>. Fix or delete the route first` on a broken route) and `Log` (the source mission's Log, greyed with its reason when there is none) |
+| 6 | Next | 135 | yes | yes | the Missions countdown: amber `T- ` + `FormatCountdownCompact`, ` (!)` when the last run was held; grey `-` when no run is scheduled (a Paused route). A Send-armed route counts down to its window, then to the arrival. Hover: the exact date |
+| 7 | Status | 260 | yes | yes | ONE colour-coded word + short reason (`LogisticsRoutePresentation.ClassifyStatus`): `Delivering` green, `Scheduled` white, `Held: ...` yellow (in either table), `Paused` grey, `New` cyan, `Sending one run` / `Pausing after this run` cyan, `Broken: destination lost` / `origin lost` / `flight missing` / `flight changed` red. Hover: one dated sentence, never the raw enum |
+| 8 | Interact | measured | yes | yes | a 2x2 grid, below |
 
-The fixed columns total 891 px in Basic and 971 in Advanced; `MinWindowWidth` stays 1410 in both
-modes, so a switch never resizes the window and Route keeps over 400 px. The retired sort members
-(`Origin`, `Destination`, `Delivery`) stay in `LogisticsRouteSortColumn` so the seam's sort
-vocabulary parses: Origin / Destination still sort, `Delivery` aliases Status. In Basic a sort by
-the Advanced-only Runs column reads as a Route-name sort without changing the stored sort.
+**Interact grid.** Every cell is the same width: the widest grid label (`Activate`, `Pause`,
+`Cancel`, `Delivering...`, `Pausing...`, `Send`, `Go to`, `Log`) measured in the skin's
+pair-button style at style build, plus 2 px, never below the Missions pair half
+(`LogisticsRoutePresentation.InteractPairWidth`). The column is two cells, the 4 px gap and the
+two 8 px insets (`InteractColumnWidth`); its header cell is a centred `Interact` in the same
+width. Each cell is exactly one button in every state.
 
-Candidates table: `#` 30, Name expand, Origin 95, Destination 180 (`Kerbin (surface)`, the
-coordinates in the hover), `Would deliver` 260, `Transit` 80, Actions 190 (its own
-`ColW_CandidateActions`: `Create Route` 100 + `Dismiss` 70). Its empty state is a grey sentence:
-`No supply runs to offer yet. Fly a cargo run that docks, transfers cargo and undocks, then finish
-the mission.` The near-miss reason for a flight with no dock reads `No dock was recorded on this
-flight, so there is nothing to repeat.`
+| line | cell 1 | cell 2 |
+|---|---|---|
+| 1 | `Activate` (Paused table) / `Pause` (Active table) / live `Cancel` (Send-armed, before launch: routes through TryPause, which clears the arm with nothing dispatched; hover `Cancels the run before launch; nothing is spent.`) / greyed `Delivering...` (Send-armed, in flight; hover `Launched on <date>; arrives on <date>, then pauses again. A launched run cannot be called back.`) / greyed `Pausing...` (Pause-armed in flight) | `Send`: live only on an unarmed Paused route; greyed with its reason otherwise (`Already running on its schedule; pause it first to send a single run`, `Already sending one run`, `Already armed: ...`, or `Stopped: <reason>. Fix or delete the route first` on a broken route) |
+| 2 | `Go to`: opens the Missions tab on the mission the route repeats, through `RecordingsTableUI.ShowMissionForRecording` / `MissionsWindowUI.RevealMissionForRecording` (the Missions partner rows' spelling, not the Timeline's `GoTo`); greyed `The mission this route was built from no longer exists` when no recording of its source tree is effective | `Log`: opens the route's Route History window (3.7) |
 
-The expanded route detail panel (`DrawRouteDetail`) says only what the row cannot. Basic:
-`Delivers each run: <manifest> to <destination>.`, the next run (`Next launch window on <date>;
-arrives <duration> later.`), the dated hold (`Last run held on <date>: <clause>.`, yellow; the
-date is `Route.LastHoldUT`, the LAST check, so it names the last held run, never when the hold
-began) and partial-delivery lines, the capacity line and `Re-scan for endpoint` of a broken
-route, `Last delivered on <date>: ... Delivered so far: ...` (from the route's
-RouteCargoDelivered ledger rows; the route stores no delivered UT), cost/run, `Built from
-mission 'X'.`, and the round-trip note when linked. The block has its own Interact column
-under the row's: every route-detail line ends in one slot cell (`DrawDetailSlotCell`), and
-the first lines carry `Rename` (line 1), `Delete` (line 2; moved here from the row, its
-confirm dialog unchanged) and, in Advanced, `Link round-trip...` / `Unlink` (line 3), each a
-100 px Missions single lined up with Activate / Pause; every later line keeps a same-width
-space. There is no button row. While a route is renamed, its name field leads the block
-without taking a slot, and Rename greys with its reason. A block too short to host its
-buttons (no source mission) still gets them, one per extra line, so Delete is always
-reachable. Advanced adds the `Every:` and
-`Priority:` steppers, `Recent runs:` (up to five `Run N (age ago): ...` lines), `Flights used:`
-(names, a repeated name numbered `Name [1]`, `Name [2]`), the manual-looping clause after
-`Built from mission 'X'.`, and the `Link round-trip...` / `Unlink` slot. Dropped: the
-`Status: <Enum> - <reason>` line, the Interval / Transit / Cycles line, the owns-tree sentence and
-the `rec N of tree 'X'` source list. The candidate detail panel is the cost line and `Built from
-mission 'X'.` with NO controls.
+**Detail block** (`DrawRouteDetail`, the route's basic information). Basic:
+`Delivers each run: <manifest> to <destination>.`, the next run (`Next launch window on
+<date>; arrives <duration> later.`), the dated hold (`Last run held on <date>: <clause>.`,
+yellow; the date is `Route.LastHoldUT`, the LAST check, so it names the last held run, never
+when the hold began) and partial-delivery lines, the capacity line and `Re-scan for endpoint`
+of a broken route, `Last delivered on <date>: ... Delivered so far: ...` (from the route's
+RouteCargoDelivered ledger rows), cost/run, `Built from mission 'X'.` and the round-trip note
+when linked. Advanced adds the `Every:` and `Priority:` steppers, `Flights used:` (names, a
+repeated name numbered `Name [1]`, `Name [2]`) and the manual-looping clause after
+`Built from mission 'X'.`. The route's runs are the Route History's, not the block's.
 
-The link picker (window 7) is its own `GUILayoutWindow`, armed only from an expanded route
-row's `Link round-trip...` button (Advanced only); it is a declared census exclusion
-(`TestCommands/TestCommandUiAction.cs:373-376`), reached by `op=picker picker=link`, which
+The block has its own Interact column under the row's: every detail line ends in one slot cell
+of the column's width (`DrawDetailSlotCell`), and the first lines carry full-width singles
+(two grid cells and the gap): `Rename` (line 1), `Delete` (line 2; its confirm dialog
+`Confirm: Delete Route`), and in Advanced `Link round-trip...` / `Unlink` (line 3); every later
+line keeps a same-width space. A block short of lines for its buttons gets one information line
+(`Delivered so far: ...` or `Not run yet.`), never an empty line. While a route is renamed, its
+name field leads the block without taking a slot and Rename greys with its reason.
+
+**Candidates table** (its own columns, unchanged by the route grid): `#` 30, Name expand,
+Origin 95, Destination 180 (`Kerbin (surface)`, coordinates in the hover), `Would deliver` 260,
+`Transit` 80, Actions 190 (`ColW_CandidateActions`: `Create Route` 100 + `Dismiss` 70). Empty
+state: `No supply runs to offer yet. Fly a cargo run that docks, transfers cargo and undocks,
+then finish the mission.` Below it, the `Missions that cannot become routes yet (N)` and
+`Hidden missions (N)` disclosures; a flight with no dock reads `No dock was recorded on this
+flight, so there is nothing to repeat.` The expanded candidate is the cost line and
+`Built from mission 'X'.`.
+
+`MinWindowWidth` is 1410 in both modes, so a mode switch never resizes the window.
+
+The link picker (window 7) is its own `GUILayoutWindow`, armed only from an expanded route's
+`Link round-trip...` (Advanced only), reached by the seam's `op=picker picker=link`, which
 refuses `picker-hidden-in-basic` in Basic. A switch to Basic closes it (the `LogisticsLinkPicker`
 entry of the Basic close set).
 
-Pictures (before Model 1; GUI-1 and GUI-3 were re-flown on the redesign, see the PR):
-`ksc-logistics-advanced` and `ksc-logistics-basic` (58 nodes each, identical) show
-the whole chrome, three section headers, two route sort headers, both `(none)` rows, the
-candidate empty sentence, and the collapsed near-miss disclosure reading `(18)`. The census
-forced the window to 1280 px - BELOW its own 1410 minimum, which is legal because `op=rect`
-writes the field directly and only a resize DRAG clamps (`:436`) - so the shipped picture shows
-a squeezed layout with a horizontal scrollbar and a Name column collapsed to 60 px. No picture:
-any populated route or candidate row, any of the three disclosures expanded, any detail panel,
-the link picker, any of the four dialogs.
+Pictures: GUI-3 (`ib-logistics-collapsed-advanced`, `ib-logistics-expanded-advanced`,
+`ib-logistics-linkpicker-advanced`, `ib-logistics-basic`), GUI-1 (`ksc-logistics-advanced`,
+`ksc-logistics-basic`, `ksc-logistics-nearmiss-advanced`), GUI-13 (populated candidates),
+GUI-20..23 (the hold states).
 
-### 3.7 Parsek - Log (the Structure window)
+### 3.7 Parsek - Log and Parsek - Route History (the log-table window)
 
-Purpose: a read-only step list for one mission. No sorting, no filters, no per-row controls
-(`UI/StructureListWindowUI.cs:14-16`). Title (Missions Model 1, 2026-09-29):
-`Parsek - Log: <mission name>` from the Missions `Log` button and the Logistics route `Log`
-button (the route's source mission), and the bare `Parsek - Log` when opened with no target
-(the census's empty chrome). The route mode (`Log (Route)`, origin / dock / delivery / undock
-rows) was retired 2026-10-01 (MISSION-LOG-REWORK part 4): the route detail panel already shows
-origin, destination, per-cycle delivery and transit. It read `Parsek - <name>` before, with a
-`Mission structure` / `Route structure` fallback. The class, its log lines and the seam window
-token keep the name `structure` (`GuiCensusSeamVerbTests` pins the token), so `structure` is
-the seam's alias for the Log.
+One class, `UI/StructureListWindowUI.cs`, in two instances owned by `ParsekUI`, each with its
+own window id (`WindowIdKey` / `RouteHistoryWindowIdKey`), rect, input lock and open state, so
+the two can be open at once. Neither persists its rect across scenes. Both are read-only, have
+no complexity gate, are drawn by `ParsekUI.DrawStructureWindowIfOpen` and release their locks in
+`ParsekUI.Cleanup`.
 
-Opened by `OpenForMission` (from the Missions tab `Log` button, or the Logistics detail
-panel's `Log`, which resolves the route's source tree to its ORIGINAL mission); one reusable
-instance, retargeted and rebuilt on each open, and rebuilt while open when its mission's
-include set, name or the committed recordings move (a Layout-only change signature). No
-complexity gate.
+| instance | title | opened by | rows | Time cell | empty state | seam token |
+|---|---|---|---|---|---|---|
+| Mission Log | `Parsek - Log: <mission>` (bare `Parsek - Log` untargeted) | the Missions tab `Log` (`OpenForMission`) | one per mission event (`MissionStructureListBuilder`) | first row the date, later rows `T+h:mm:ss` since it | `This mission has no recorded flight.` | `structure` (`op=target mission=`) |
+| Route History | `Parsek - Route History: <route>` | a route's Interact `Log` (`ParsekUI.OpenRouteHistoryWindow` -> `OpenForRoute`) | one per route ledger row in the Effective Ledger Set (`RouteHistoryBuilder`; a rewound or tombstoned run is absent) | every row its own date | `No runs yet.` | `routehistory` (`op=target route=`) |
 
-Columns (Log rework, 2026-10-01): `Time` 110, `Event` expand, `Location` 185, `Vessel` 160,
-plus a reserved scrollbar gutter; first-open width 900 (`DefaultWindowWidth`). The `#` and
-`Status` columns are gone. Time: the first row shows the date (`KSPUtil.PrintDateCompact`, the
-Missions start-time cell's formatter), every later row `T+h:mm:ss` since it
-(`StructureTimeFormatter`, computed once when the rows are set, never per frame). Event: one
-row per real event (`MissionStructureListBuilder`): `Launch`, one `Staged: N pieces (<part
-title> xK, ...)` row per recorded separation, `Decoupled (<piece>)` / `Docked (<partner>)` /
-`Undocked (<piece>)` naming the other vessel (cross-mission partners as
-`X (mission 'Y')`), and `End: <terminal word>` (no End row for a leg that ended Docked or
-Boarded; and only from a vessel's last chain segment). Vessel names in the Event and Vessel
-cells are the Missions rows' own (`MissionVesselNaming`): another mission's vessel reads
-`X (mission 'Y')`, two genuinely different own vessels with one name `Kerbal X [2]`. Location: `<body> orbit` only for an orbital ending or a separation whose piece
-recorded an orbit, else body and biome where recorded at that moment, else the body, else `-`.
-An Event list longer than `EventCellCharBudget` (60) is shortened in the cell and carried whole
-as the cell's tooltip, read in a single-line `TooltipEchoBox` strip above `Close` (the window's
-first strip). Layout (2026-09-25): ONE dark body box holds the pinned header row
-and the forced-vertical-bar scroll view of step rows (`DrawStepTable`), so the box frames the
-header too, and the row labels are the shared table cell style (`ParsekUI.GetTableCellStyle`,
-the boxed header's own horizontal padding) with the vertical padding dropped for this log's
-compact pitch. Before, the rows had no box and a hand-set 5 px indent, so body text sat 1 px
-right of the header text (GUI-4 `2026-09-24_2041`, `bd-structure-mission-advanced`). Empty state is a single label (`This mission has no recorded flight.` for a
-mission target, `Nothing to show.` with no target; `EmptyText`) plus `Close`, then an early
-return that suppresses the
-header, the scroll view, the hover strip and the resize handle.
+Columns: `Time` 110, `Event` expand, `Location` 185, `Vessel` 160, plus a reserved scrollbar
+gutter; first-open width 900. ONE dark body box holds the pinned header row and the
+forced-vertical-bar scroll view of rows; the row labels are the shared table cell style with the
+vertical padding dropped. A long Event cell is shortened and carried whole as its tooltip, read
+in the single-line hover strip above `Close`. Empty state: one label plus `Close`.
 
-Picture: `ksc-structure-advanced`, 3 nodes - window, label, button. That is the no-target
-wording, because `op=open window=structure` raises `IsOpen` without ever calling
-`OpenForMission`, so `targetId` stays null and `Rebuild` never runs. The census
-spec files that as a follow-up rather than faking it
-(`TestCommands/TestCommandUiAction.cs:414-418`).
+Mission Log rows: `Launch`, one `Staged: N pieces (<part title> xK, ...)` per recorded
+separation, `Decoupled (<piece>)` / `Docked (<partner>)` / `Undocked (<piece>)` naming the other
+vessel (another mission's vessel as `X (mission 'Y')`), and `End: <terminal word>`. Vessel names
+follow the Missions rows (`MissionVesselNaming`, `Kerbal X [2]`). Location: `<body> orbit` for an
+orbital ending, else body and biome where recorded, else the body, else `-`. It rebuilds while
+open when the mission's include set, its name or the committed recordings move (a Layout-only
+change signature).
+
+Route History rows (N is the run's position in dispatch order):
+
+| ledger row | Event | Location / Vessel |
+|---|---|---|
+| RouteDispatched | `Run N: Sent`, or `Run N: Sent once` for a run armed by Send | the origin (`KSC` / `-` for a funds-paid launch) |
+| RouteCargoPickedUp | `Run N: Picked up <amounts>` (`(the source was short)` when it was) | the pickup stop's place and vessel |
+| RouteCargoDelivered | `Run N: Delivered <amounts>` (`40.0 of 150.0 LiquidFuel (110.0 did not fit)` when short); the row that finishes a run | the stop's place and vessel |
+| RoutePaused | `Paused`, `Paused after the run`, `Paused after a held run`, `Stopped: flight missing` / `flight changed` | `-` |
+| RouteResumed | `Activated` (player), `Resumed` (automatic) | `-` |
+| RouteEndpointLost | `Stopped: destination lost` / `origin lost` | `-` |
+
+Debit rows (funds or origin cargo) are not shown; the run's Sent row stands for them. The
+ledger carries a UT on every row, so each pickup and each delivery has its own time; no extra
+field is stored. It rebuilds while open when the ledger version, the tombstone version or the
+route's name move (`RouteHistorySignature`, read on Layout passes only).
+
+Pictures: Mission Log `ib-structure-route-log-advanced` (the Mun route's source mission) and
+`ib-structure-mission-advanced` (GUI-3); Route History `ib-routehistory-advanced` (GUI-3, the
+Mun route; this fixture's routes carry no runs of their own, so it shows the empty state).
 
 ### 3.8 Parsek - Settings
 
@@ -1442,6 +1447,7 @@ control count (`ParsekUI.cs:294-297`, `:246`).
 | `TabMissions` | `:78` | KEEP (`:175`) | `UI/TimelineWindowUI.cs:1265` | nothing today; the GoTo button is gated by its TARGET's key by design (`:35-41`) |
 | `MissionsLoopControls` | `:95` | HIDE (`:184`) | `UI/MissionsWindowUI.cs:735` (+7 consumers) | the Loop toggle, the period cell, Clone, Delete, `Warp to...`, the summary's loop pieces, the loop-selection styling and every interval / partner checkbox (Missions Model 1, 2026-09-29). NOT the route label, Watch, Rewind / Forward, Log, Collapse, Fly / Seal or Go to |
 | `SettingsSectionLooping` | `:110` | HIDE (`:185`) | `UI/SettingsWindowUI.cs:345`, `:378` | the Looping section |
+| `LogisticsRouteTuning` | `UI/UiComplexityMode.cs` | HIDE | `UI/LogisticsRoutePresentation.cs` (`ShowsRouteTuning`, latched once per pass in `LogisticsWindowUI.DrawWindow`) | the Every stepper (Basic reads the interval), the Runs column, Priority, Link round-trip and its picker, Flights used, the manual-looping clause |
 | `SettingsSectionDiagnostics` | `:113` | HIDE (`:186`) | `UI/SettingsWindowUI.cs:393` | the Diagnostics section, and with it the only reopen path to `TestRunnerUI` |
 | `SettingsSectionSampleDensity` | `:116` | HIDE (`:187`) | `UI/SettingsWindowUI.cs:401` | the sample-density section |
 
@@ -1450,13 +1456,11 @@ than by enforcement; flipping any of the four to `visibleInBasic = false` would 
 on screen. Separately, `UiSurfaceVisibility.HiddenSurfaces` (`UI/UiComplexityMode.cs:214`) has
 no production consumer: its only reference outside its own file is a doc comment at
 `ParsekUI.cs:471` explaining why the real close set is the hand-written
-`BuildGatedWindowCloseSet` (`ParsekUI.cs:488-529`). That set carried five targets after the
-2026-09-22 Kerbals re-ruling (six before it: Kerbals was the second) and four since the
-2026-09-27 removal of the Career window (CareerState was the first) - GloopsRecorder,
-SpawnControl, TestRunner (maps to no `UiSurface`; its launcher lives
-in the hidden Diagnostics section) and GroupPicker (maps to no `UiSurface`; a reachability rule,
-not a lock rule, `ParsekUI.cs:479-482`) - and deliberately omits the Missions, Structure,
-Timeline, Logistics and Settings windows (`ParsekUI.cs:484-487`).
+`BuildGatedWindowCloseSet`. That set has five targets - GloopsRecorder, SpawnControl,
+TestRunner (maps to no `UiSurface`; its launcher lives in the hidden Diagnostics section),
+GroupPicker (a reachability rule, not a lock rule) and LogisticsLinkPicker (its opener is the
+Advanced-only Link control; no lock) - and deliberately omits the Missions, Mission Log, Route
+History, Timeline, Logistics and Settings windows.
 
 ## 4. Backend exposure per subsystem
 

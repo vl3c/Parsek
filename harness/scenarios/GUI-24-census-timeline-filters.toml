@@ -246,8 +246,8 @@ allowedAnomalies = []
 # the offset to its own content), so its line regexes the value instead of pinning 600.
 # Pinning 600 would pin the host's row count.
 required = [
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,timeline",
 
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=srcActions want=false after=false changed=true frames=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=srcEvents want=false after=false changed=true frames=[0-9]+",

@@ -107,6 +107,9 @@ namespace Parsek
 
         // Structure-list window (one reusable instance, retargeted per mission / route)
         private StructureListWindowUI structureListUI;
+        // The Route History: a second instance of the log-table window, opened from a
+        // supply route's Log button (its own id, rect, lock and open state).
+        private StructureListWindowUI routeHistoryUI;
 
         // Gloops Flight Recorder window (extracted to GloopsRecorderUI)
         private GloopsRecorderUI gloopsUI;
@@ -142,6 +145,7 @@ namespace Parsek
         // Advanced -> Basic close set, which is why neither needed an accessor before.
         internal LogisticsWindowUI GetLogisticsUI() { return logisticsUI; }
         internal StructureListWindowUI GetStructureListUI() { return structureListUI; }
+        internal StructureListWindowUI GetRouteHistoryUI() { return routeHistoryUI; }
 
         /// <summary>
         /// Why the Real Spawn Control launcher is greyed out. The window turns a recorded
@@ -176,6 +180,7 @@ namespace Parsek
             this.settingsUI = new SettingsWindowUI(this);
             this.logisticsUI = new LogisticsWindowUI(this);
             this.structureListUI = new StructureListWindowUI(this);
+            this.routeHistoryUI = new StructureListWindowUI(this, routeHistory: true);
             activeInstance = this;
             InitializeAppliedUiComplexityModeFromSettings();
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
@@ -196,6 +201,7 @@ namespace Parsek
             this.settingsUI = new SettingsWindowUI(this);
             this.logisticsUI = new LogisticsWindowUI(this);
             this.structureListUI = new StructureListWindowUI(this);
+            this.routeHistoryUI = new StructureListWindowUI(this, routeHistory: true);
             activeInstance = this;
             InitializeAppliedUiComplexityModeFromSettings();
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
@@ -1069,10 +1075,18 @@ namespace Parsek
         public void DrawStructureWindowIfOpen(Rect mainWindowRect)
         {
             structureListUI.DrawIfOpen(mainWindowRect);
+            routeHistoryUI.DrawIfOpen(mainWindowRect);
         }
 
-        /// <summary>Opens the Log window on one Mission (Missions tab button, Logistics route
-        /// Log button). <paramref name="missionId"/> null opens the whole tree.</summary>
+        /// <summary>Opens the Route History window on one supply route (the route's Log
+        /// button). It can stand beside an open Mission Log.</summary>
+        internal void OpenRouteHistoryWindow(string routeId, string routeName)
+        {
+            routeHistoryUI.OpenForRoute(routeId, routeName);
+        }
+
+        /// <summary>Opens the Mission Log on one Mission (the Missions tab's Log button).
+        /// <paramref name="missionId"/> null opens the whole tree.</summary>
         internal void OpenStructureWindowForMission(string treeId, string missionId, string title)
         {
             structureListUI.OpenForMission(treeId, missionId, title);
@@ -1860,6 +1874,26 @@ namespace Parsek
         // ════════════════════════════════════════════════════════════════
         //  Sortable header helper (shared by RecordingsTableUI + SpawnControlUI)
         // ════════════════════════════════════════════════════════════════
+
+        /// <summary>The house rule-line grey (the Timeline's "now" divider, a bit darker
+        /// than its grey label text).</summary>
+        internal static readonly Color RuleLineColor = new Color(0.4f, 0.4f, 0.4f, 1f);
+
+        /// <summary>
+        /// A thin rule: a 1x1 texture of <paramref name="color"/> stretched by a Box
+        /// (callers give the height and ExpandWidth). The Timeline's "now" divider and the
+        /// Logistics section separators and accent bars are drawn with it.
+        /// </summary>
+        internal static GUIStyle CreateRuleLineStyle(Color color)
+        {
+            var tex = new Texture2D(1, 1);
+            tex.SetPixel(0, 0, color);
+            tex.Apply();
+            var style = new GUIStyle();
+            style.normal.background = tex;
+            style.padding = new RectOffset(0, 0, 0, 0);
+            return style;
+        }
 
         internal void DrawSortableHeaderCore<TCol>(
             string label, TCol col, ref TCol currentCol, ref bool ascending,
@@ -3036,6 +3070,7 @@ namespace Parsek
             settingsUI.ReleaseInputLock();
             spawnControlUI.ReleaseInputLock();
             structureListUI.ReleaseInputLock();
+            routeHistoryUI.ReleaseInputLock();
             ResetCachedWindowStylesForSceneChange();
             // Map marker resources (icon atlas, fallback diamond, label style) are
             // owned by MapMarkerRenderer and reset per scene via ResetForSceneChange.

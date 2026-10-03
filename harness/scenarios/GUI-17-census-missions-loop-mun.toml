@@ -153,8 +153,8 @@ count = { min = 9, max = 9 }
 # rather than pinned - it is the fixture's own generated group name and not this lane's
 # subject.
 required = [
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,missions",
   "missionconfig applied: mission='.*' tree=d18969d6121444c1a30e4a55ae87a442 loop=True",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=all state=true changed=[0-9]+ expanded=[0-9]+ total=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=mo-missions-loopon-advanced",

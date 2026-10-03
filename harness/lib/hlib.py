@@ -2485,6 +2485,10 @@ UIACTION_OP_VALUES: Tuple[str, ...] = (
 UIACTION_WINDOW_KEY = "window"
 UIACTION_WINDOW_VALUES: Tuple[str, ...] = (
     "main", "missions", "timeline", "kerbals", "logistics", "structure",
+    # The Route History: the second instance of the log-table window (StructureListWindowUI
+    # in route mode), opened from a supply route's Log button; populated by
+    # op=target route=.
+    "routehistory",
     "settings", "spawncontrol", "gloops", "testrunner",
     # LAST, because it is the one window the main window has no button for: the global
     # Ctrl+Shift+T runner (TestRunnerShortcut), a separate MonoBehaviour that carries the
@@ -3813,18 +3817,22 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
 
     if op == "target":
         window_name = str(window) if window is not None else None
-        if window_name is not None and window_name != "structure":
+        if window_name is not None and window_name not in ("structure", "routehistory"):
             errors.append(
-                "driver.steps[%d].args.%s: only the 'structure' window has a targeted "
-                "opener, so op=target against %r answers REJECTED "
-                "target-unsupported-window"
+                "driver.steps[%d].args.%s: only the 'structure' (Mission Log) and "
+                "'routehistory' (Route History) windows have a targeted opener, so "
+                "op=target against %r answers REJECTED target-unsupported-window"
                 % (index, UIACTION_WINDOW_KEY, window_name))
-        if step_args.get("route") is not None:
+        if window_name == "routehistory":
+            if step_args.get("route") is None:
+                errors.append(
+                    "driver.steps[%d].args: op=target window=routehistory REQUIRES "
+                    "route=; the seam answers REJECTED target-arg-missing" % index)
+        elif step_args.get("route") is not None:
             errors.append(
-                "driver.steps[%d].args.route: the route Log is retired - a route's Log "
-                "button opens the Log of the mission it was built from, so name that "
-                "mission (mission= takes its tree id); the seam answers REJECTED "
-                "target-route-retired" % index)
+                "driver.steps[%d].args.route: the Mission Log takes mission=; a route's "
+                "runs are the Route History window (window=routehistory route=). The "
+                "seam answers REJECTED target-route-retired" % index)
         elif step_args.get("mission") is None:
             errors.append(
                 "driver.steps[%d].args: op=target REQUIRES mission=; the seam answers "

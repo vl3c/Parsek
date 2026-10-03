@@ -57,6 +57,35 @@ namespace Parsek
         }
 
         // ------------------------------------------------------------------
+        // Section title bars
+        // ------------------------------------------------------------------
+
+        /// <summary>The Active section's name (also its collapse-state key).</summary>
+        internal const string ActiveSectionName = "Active Routes";
+
+        /// <summary>The Paused section's name (also its collapse-state key).</summary>
+        internal const string PausedSectionName = "Paused Routes";
+
+        /// <summary>The Candidates section's name (also its collapse-state key).</summary>
+        internal const string CandidatesSectionName = "Candidates";
+
+        /// <summary>How many points the section title is over the shared section header.</summary>
+        internal const int SectionTitleFontStep = 2;
+
+        /// <summary>The height of the section accent bar, in pixels.</summary>
+        internal const float SectionAccentHeight = 2f;
+
+        /// <summary>
+        /// A section title bar's text: the caret (the route rows' glyphs, down when
+        /// expanded, right when collapsed), the name and its count, "\u25bc Active Routes (2)".
+        /// </summary>
+        internal static string FormatSectionTitle(string name, int count, bool expanded)
+        {
+            return (expanded ? "\u25bc " : "\u25b6 ") + (name ?? string.Empty)
+                + " (" + Math.Max(0, count).ToString(IC) + ")";
+        }
+
+        // ------------------------------------------------------------------
         // Which table a route sits in
         // ------------------------------------------------------------------
 
@@ -481,6 +510,18 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The information line a detail block too short to host its Interact buttons gets
+        /// (never an empty line): "Delivered so far: 400.0 LiquidFuel." when the ledger has a
+        /// delivery, else "Not run yet.".
+        /// </summary>
+        internal static string FormatFillerInfoLine(bool hasDeliveries, string cumulativeText)
+        {
+            return hasDeliveries && !string.IsNullOrEmpty(cumulativeText) && cumulativeText != "(none)"
+                ? "Delivered so far: " + cumulativeText + "."
+                : "Not run yet.";
+        }
+
+        /// <summary>
         /// "Built from mission 'Duna Supply 1'." In Advanced the manual-looping clause
         /// follows ("Manual looping of that mission is off while this route exists.");
         /// Basic has no loop control for it to explain.
@@ -535,12 +576,83 @@ namespace Parsek
             return sb.ToString();
         }
 
+        /// <summary>
+        /// The Route History's change signature from its inputs: the ledger version, the
+        /// tombstone version, whether the route resolves and its name. Pure; an in-memory
+        /// compare value, never persisted.
+        /// </summary>
+        internal static int RouteHistoryChangeSignature(
+            int ledgerVersion, int tombstoneVersion, bool routeFound, string routeName)
+        {
+            unchecked
+            {
+                int h = 17;
+                h = h * 31 + ledgerVersion;
+                h = h * 31 + tombstoneVersion;
+                h = h * 31 + (routeFound ? 1 : 0);
+                h = h * 31 + (routeName != null ? StringComparer.Ordinal.GetHashCode(routeName) : 0);
+                return h;
+            }
+        }
+
         // ------------------------------------------------------------------
         // Interact column
         // ------------------------------------------------------------------
 
         /// <summary>The greyed line-1 label of a route armed by Pause.</summary>
         internal const string PausingButtonLabel = "Pausing...";
+
+        /// <summary>Line-1 state label of a paused route.</summary>
+        internal const string ActivateButtonLabel = "Activate";
+
+        /// <summary>Line-1 state label of an active route.</summary>
+        internal const string PauseButtonLabel = "Pause";
+
+        /// <summary>Line-1 Send label (one run, then stay Paused).</summary>
+        internal const string SendButtonLabel = "Send";
+
+        /// <summary>Line-2 label: the mission the route repeats, on the Missions tab. The
+        /// Missions partner rows' spelling ("Go to"), not the Timeline's "GoTo".</summary>
+        internal const string GoToButtonLabel = "Go to";
+
+        /// <summary>Line-2 label: the route's Route History window.</summary>
+        internal const string LogButtonLabel = "Log";
+
+        /// <summary>Every label the Interact grid can draw; the pair cell is sized to the
+        /// widest of them in the skin's pair-button style.</summary>
+        internal static readonly string[] InteractGridLabels =
+        {
+            ActivateButtonLabel, PauseButtonLabel, CancelButtonLabel, DeliveringButtonLabel, PausingButtonLabel,
+            SendButtonLabel, GoToButtonLabel, LogButtonLabel,
+        };
+
+        /// <summary>
+        /// One grid cell's width from the widest measured label: never narrower than the
+        /// Missions pair half, and rounded up to a whole pixel plus 2 px so the measured
+        /// label never clips. Pure.
+        /// </summary>
+        internal static float InteractPairWidth(float widestLabelWidth)
+        {
+            float w = (float)Math.Ceiling(Math.Max(0f, widestLabelWidth)) + 2f;
+            return Math.Max(MissionsWindowUI.InteractPairButtonWidth, w);
+        }
+
+        /// <summary>The Interact column's width for a pair cell: two cells, the gap and the
+        /// two insets, so the 2x2 grid fills it exactly. Pure.</summary>
+        internal static float InteractColumnWidth(float pairWidth)
+        {
+            return 2f * pairWidth + MissionsWindowUI.InteractButtonGap
+                + 2f * MissionsWindowUI.InteractCellInset;
+        }
+
+        /// <summary>Why Go to is greyed, or empty when it is live: it needs a recording of
+        /// the route's source mission that is still in the effective set.</summary>
+        internal static string GoToDisabledReason(bool sourceMissionFound)
+        {
+            return sourceMissionFound
+                ? string.Empty
+                : "The mission this route was built from no longer exists";
+        }
 
         /// <summary>The live line-1 label of a Send-armed route before its run launches.</summary>
         internal const string CancelButtonLabel = "Cancel";
