@@ -125,10 +125,10 @@ LAYOUT_EPOCHS = {
     # PR #1867: section order, pressed equal-width option rows, reworded labels.
     # First run on it: GUI-14-census-settings-and-facility 2026-09-26_1009.
     "settings": {"utc": "2026-09-26T10:10:05Z", "pr": 1867},
-    # PR #1984: the collapse caret sits under the mission's number in the # column, and
-    # Watch (line 1) stacks over Rewind / Forward (line 2) in Interact.
-    # First run on it: GUI-1-census-ksc 2026-10-03_1519.
-    "missions": {"utc": "2026-10-03T15:20:28Z", "pr": 1984},
+    # PR #1984: the collapse caret sits under the mission's number in the # column,
+    # Watch (line 1) stacks over Rewind / Forward (line 2) in Interact, and the # header
+    # sits over the index numbers. First run on it: GUI-1-census-ksc 2026-10-03_1704.
+    "missions": {"utc": "2026-10-03T17:05:18Z", "pr": 1984},
 }
 
 
