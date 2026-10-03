@@ -1993,6 +1993,76 @@ class RichTextTests(unittest.TestCase):
         self.assertIn("/^[0-9]{1,3}$/.test(arg)", body)
 
 
+class ThinBarColourTests(unittest.TestCase):
+    """An unnamed-style 2 px box is a coloured bar (Logistics' section accents)
+    whose fill exists only in the photo; it is read off its own pixels."""
+
+    W, H = 400, 200
+
+    def frame(self):
+        # Built in memory: window fill #444444, a green bar, a violet bar and a
+        # grey rule, the colours the Logistics capture measures.
+        px = bytearray(bytes((68, 68, 68)) * (self.W * self.H))
+
+        def fill(x0, y0, w, h, rgb):
+            for y in range(y0, y0 + h):
+                for x in range(x0, x0 + w):
+                    o = (y * self.W + x) * 3
+                    px[o:o + 3] = bytes(rgb)
+        fill(18, 40, 300, 2, (140, 255, 140))
+        fill(18, 120, 300, 2, (179, 157, 219))
+        fill(10, 90, 320, 2, (102, 102, 102))
+        return bytes(px)
+
+    def tree(self):
+        def box(rect, style=""):
+            return {"kind": "box", "rect": list(rect), "style": style}
+        return {"kind": "window", "rect": [0, 0, self.W, self.H],
+                "style": "window", "text": "Parsek - Logistics",
+                "children": [box([18, 40, 300, 2]), box([18, 50, 300, 30]),
+                             box([10, 90, 320, 2]), box([18, 120, 300, 2])]}
+
+    def compact(self, with_photo=True):
+        sampler = None
+        if with_photo:
+            px = self.frame()
+
+            def sampler(rect, exclude=()):
+                return gmi.sample_colors(self.W, self.H, 3, px, rect,
+                                         exclude=exclude)
+        return gmi.compact_tree(self.tree(), [0, 0], sampler)["c"]
+
+    def test_each_bar_takes_its_own_colour_off_the_photo(self):
+        green, row, rule, violet = self.compact()
+        self.assertEqual(green.get("bg"), "#8cff8c")
+        self.assertEqual(violet.get("bg"), "#b39ddb")
+        self.assertEqual(rule.get("bg"), "#666666")
+        self.assertEqual([green.get("bar"), rule.get("bar"), violet.get("bar")],
+                         [1, 1, 1])
+
+    def test_a_row_container_is_not_a_bar_and_keeps_its_own_fill(self):
+        _green, row, _rule, _violet = self.compact()
+        self.assertNotIn("bar", row)
+        self.assertNotEqual(row.get("bg"), "#8cff8c")
+
+    def test_a_named_style_or_tall_box_is_not_a_bar(self):
+        self.assertFalse(gmi._is_thin_bar(
+            {"kind": "box", "rect": [0, 0, 300, 2], "style": "box"}))
+        self.assertFalse(gmi._is_thin_bar(
+            {"kind": "box", "rect": [0, 0, 300, 5], "style": ""}))
+        self.assertTrue(gmi._is_thin_bar(
+            {"kind": "box", "rect": [0, 0, 300, 4], "style": ""}))
+
+    def test_without_a_photo_a_bar_falls_back_to_the_separator_grey(self):
+        green = self.compact(with_photo=False)[0]
+        self.assertEqual(green.get("bar"), 1)
+        self.assertNotIn("bg", green)
+        with open(gmi.__file__, encoding="utf-8") as fh:
+            page_source = fh.read()
+        self.assertIn(".gn.k-box.bar{background:#666", page_source)
+        self.assertIn("(n.bar ? ' bar' : '')", page_source)
+
+
 class DialogCaptureTests(unittest.TestCase):
     """A PopupDialog is a centred uGUI canvas with no presence in any control
     tree, so the Parsek windows' bounding box does not contain it. Cropping to
@@ -2019,13 +2089,23 @@ class DialogCaptureTests(unittest.TestCase):
         return gmi.build_model([shots], make_scenarios(root),
                                with_photos=with_photos)
 
-    def test_a_modal_capture_photographs_the_whole_frame(self):
+    def test_a_modal_capture_crops_to_its_windows_not_the_whole_frame(self):
         model = self.build()
         dlg = [c for c in model["captures"] if c["dialog"]][0]
-        self.assertEqual([dlg["photo"]["x"], dlg["photo"]["y"],
-                          dlg["photo"]["w"], dlg["photo"]["h"]],
-                         [0, 0, 1280, 720])
-        self.assertEqual(dlg["photo"]["whole"], 1)
+        plain = [c for c in model["captures"] if not c["dialog"]][0]
+        self.assertNotEqual(dlg["photo"]["w"], 1280)
+        self.assertNotIn("whole", dlg["photo"])
+        self.assertEqual([dlg["photo"][k] for k in "xywh"],
+                         [plain["photo"][k] for k in "xywh"])
+
+    def test_the_modal_stand_in_embeds_no_frame(self):
+        html = gmi.render_html(self.build())
+        body = html[html.index("function buildDialog("):]
+        body = body[:body.index("\nfunction ", 1)]
+        self.assertNotIn("img", body)
+        self.assertNotIn("cap.photo", body)
+        self.assertIn("reconstructed", body)
+        self.assertIn("cap.dialog.buttons", body)
 
     def test_a_capture_with_no_modal_still_crops_to_the_windows(self):
         model = self.build()
@@ -2051,8 +2131,7 @@ class DialogCaptureTests(unittest.TestCase):
 
     def test_the_modal_block_is_suppressed_in_overlay_mode_too(self):
         html = gmi.render_html(self.build())
-        self.assertIn(".stage.overlay .dlg .dt,.stage.overlay .dlg .db,"
-                      ".stage.overlay .dlg .dcap{display:none}", html)
+        self.assertIn(".stage.overlay .dlg{display:none}", html)
 
 
 class CensusFrameSizeTests(unittest.TestCase):
@@ -2426,8 +2505,7 @@ class MutationPinningTests(unittest.TestCase):
         for rule in (".stage.overlay .gn .tx,.stage.overlay .gn .cb,"
                      ".stage.overlay .gn .gl{display:none}",
                      ".stage.overlay .kwin>.kt{display:none}",
-                     ".stage.overlay .dlg .dt,.stage.overlay .dlg .db,"
-                     ".stage.overlay .dlg .dcap{display:none}"):
+                     ".stage.overlay .dlg{display:none}"):
             self.assertIn(rule, html, "overlay mode lost a text-suppression rule")
         self.assertIn(".stage.overlay .gn{background:none !important;"
                       "color:transparent !important;", html)
