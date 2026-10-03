@@ -533,8 +533,9 @@ namespace Parsek
         ///     lock; the Logistics window itself stays open.</description></item>
         /// </list>
         /// <para>Deliberately ABSENT: <c>recordingsTableUI</c> (survives as the Missions
-        /// window), <c>structureListUI</c> (reachable from the Missions and Logistics rows,
-        /// both kept), <c>kerbalsUI</c> (drawn in Basic since the 2026-09-22 owner
+        /// window), <c>structureListUI</c> (the Mission Log, reachable from the Missions
+        /// rows), <c>routeHistoryUI</c> (the Route History, reachable from every Logistics
+        /// route's Log in both modes), <c>kerbalsUI</c> (drawn in Basic since the 2026-09-22 owner
         /// re-ruling: it is the only surface that explains why a reserved kerbal is
         /// missing from stock crew assignment), and the ungated <c>timelineUI</c> /
         /// <c>logisticsUI</c> / <c>settingsUI</c> / <c>missionsUI</c>.</para>

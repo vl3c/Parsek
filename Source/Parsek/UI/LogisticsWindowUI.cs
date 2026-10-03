@@ -458,6 +458,7 @@ namespace Parsek
         // Deferred mutations: collected during the draw loop and applied after the
         // scroll view so we never mutate RouteStore.CommittedRoutes mid-iteration.
         private Route pendingPause;
+        private Route pendingCancelSend;
         private Route pendingActivate;
         private Route pendingSendOnce;
         // M6: which routes were armed via Send Once (not Pause). Both arming paths set
@@ -790,6 +791,7 @@ namespace Parsek
 
             // Reset deferred actions for this frame.
             pendingPause = null;
+            pendingCancelSend = null;
             pendingActivate = null;
             pendingSendOnce = null;
             pendingConfirmDeleteRoute = null;
@@ -1434,12 +1436,12 @@ namespace Parsek
             {
                 case LogisticsRoutePresentation.ArmedLine1.Cancel:
                     // The countdown phase: nothing has launched, so the arm can be taken
-                    // back. Routes through TryPause, which clears the pending Send arm
-                    // with nothing dispatched and returns the route to Paused.
+                    // back. RouteOrchestrator.TryCancelSendOnce returns the route to Paused
+                    // and writes no ledger row (the arm wrote none).
                     if (GUILayout.Button(new GUIContent(LogisticsRoutePresentation.CancelButtonLabel,
                             LogisticsRoutePresentation.CancelButtonTooltip),
                             interactPairButtonStyle, GUILayout.Width(pair)))
-                        pendingPause = route;
+                        pendingCancelSend = route;
                     break;
                 case LogisticsRoutePresentation.ArmedLine1.Delivering:
                 case LogisticsRoutePresentation.ArmedLine1.Pausing:
@@ -2966,7 +2968,8 @@ namespace Parsek
             // removes the route, whose stale cache entry is never drawn again). Listing
             // them here would force a wasted full recompute on every dialog open / Cancel.
             bool routeStateMutated =
-                pendingPause != null || pendingActivate != null || pendingSendOnce != null
+                pendingPause != null || pendingCancelSend != null
+                || pendingActivate != null || pendingSendOnce != null
                 || pendingCadenceRoute != null;
 
             if (pendingPause != null)
@@ -2978,6 +2981,13 @@ namespace Parsek
                 if (ok && !string.IsNullOrEmpty(pendingPause.Id))
                     sendOnceArmedRouteIds.Remove(pendingPause.Id);
                 ParsekLog.Info("UI", $"Logistics: Pause route={ShortId(pendingPause.Id)} result={(ok ? "paused" : "rejected")}");
+            }
+            if (pendingCancelSend != null)
+            {
+                bool ok = RouteOrchestrator.TryCancelSendOnce(pendingCancelSend);
+                if (ok && !string.IsNullOrEmpty(pendingCancelSend.Id))
+                    sendOnceArmedRouteIds.Remove(pendingCancelSend.Id);
+                ParsekLog.Info("UI", $"Logistics: Cancel Send route={ShortId(pendingCancelSend.Id)} result={(ok ? "cancelled" : "rejected")}");
             }
             if (pendingActivate != null)
             {
@@ -3077,6 +3087,7 @@ namespace Parsek
                 lastLegibilityComputeRealtime = -1f;
 
             pendingPause = null;
+            pendingCancelSend = null;
             pendingActivate = null;
             pendingSendOnce = null;
             pendingConfirmDeleteRoute = null;

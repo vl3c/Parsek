@@ -742,13 +742,14 @@ namespace Parsek.Tests
             Assert.Contains("OpenRouteHistoryWindow(", grid);
 
             // Decision 3b: the live Cancel of a Send-armed route before launch goes through
-            // the Pause path (TryPause clears the pending arm with nothing dispatched).
+            // the dedicated cancel path (TryCancelSendOnce, no ledger row), never TryPause.
             string interact = MethodBody(prepared, "DrawRouteInteractCell", file);
             int cancel = interact.IndexOf("ArmedLine1.Cancel:", StringComparison.Ordinal);
             int nextCase = interact.IndexOf("case ", cancel + 1, StringComparison.Ordinal);
             Assert.True(cancel >= 0 && nextCase > cancel
-                        && interact.Substring(cancel, nextCase - cancel).Contains("pendingPause = route"),
-                "LogisticsWindowUI.DrawRouteInteractCell: the Cancel branch must set pendingPause.");
+                        && interact.Substring(cancel, nextCase - cancel).Contains("pendingCancelSend = route")
+                        && !interact.Substring(cancel, nextCase - cancel).Contains("pendingPause = route"),
+                "LogisticsWindowUI.DrawRouteInteractCell: the Cancel branch must set pendingCancelSend, not pendingPause.");
             foreach (string method in new[] { "DrawCandidateColumnHeader", "DrawCandidateRow" })
             {
                 string body = MethodBody(prepared, method, file);

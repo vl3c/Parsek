@@ -2464,13 +2464,14 @@ _(unreleased — entries accumulate here per commit)_
   why instead of reading "New". The action column is "Interact", a 2x2 grid sized to its
   longest label: Activate or Pause with Send beside it, then Go to (the mission the route
   repeats, on the Missions tab) and Log. A route sent once stays in the Active table while
-  it sends, with a live Cancel before launch (nothing is spent) and a greyed Delivering...
+  it sends, with a live Cancel before launch (nothing is spent and nothing is logged) and a greyed Delivering...
   once in flight (launch and arrival dates on hover); when the run completes it drops back
   to Paused. Greyed buttons say why on hover, including "Stopped: destination lost. Fix or
   delete the route first" on a broken route. Log opens a new Route History window
   ("Parsek - Route History: <route>", the Mission Log's table): every run the route sent,
   picked up and delivered, with its pauses, each row dated; it can stay open beside a
-  Mission Log. Click a route's name for its details: what each run delivers and where, the
+  Mission Log (it opens offset from it, keeps its column headers when empty, and closes when
+  its route is deleted). Click a route's name for its details: what each run delivers and where, the
   next run, "Last run held on <date>: ..." (the date of the last held run), the last
   delivery and the running total, and "Built from mission 'X'.", with Rename and Delete (same
   confirmation) stacked at the right of its first lines, plus Link round-trip in Advanced.

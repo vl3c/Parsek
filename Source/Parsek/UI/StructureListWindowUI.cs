@@ -367,6 +367,15 @@ namespace Parsek
         {
             if (mode == TargetMode.Route && !string.IsNullOrEmpty(targetId))
             {
+                bool routeFound = Logistics.RouteStore.TryGetRoute(targetId, out Logistics.Route live) && live != null;
+                if (ShouldCloseForDeletedRoute(mode, targetId, routeFound))
+                {
+                    ParsekLog.Info("UI",
+                        $"{logName} closed: route={targetId} no longer exists (deleted) " +
+                        $"title='{BuildWindowTitle(instanceTitlePrefix, title)}'");
+                    Close();
+                    return;
+                }
                 int routeSignature = LogisticsWindowUI.RouteHistorySignature(targetId, out string routeName);
                 if (routeSignature == changeSignature)
                     return;
@@ -396,6 +405,40 @@ namespace Parsek
                 $"found={(mission != null ? "yes" : "no")} " +
                 $"excludedKeys={(mission != null ? mission.ExcludedIntervalKeys.Count : 0)} " +
                 $"steps={before}->{steps.Count} title='{BuildWindowTitle(title)}'");
+        }
+
+        /// <summary>
+        /// A Route History whose route is gone (deleted, or removed by a rewind past its
+        /// creation) closes rather than titling a route that no longer exists. Pure.
+        /// </summary>
+        internal static bool ShouldCloseForDeletedRoute(TargetMode targetMode, string routeId, bool routeFound)
+        {
+            return targetMode == TargetMode.Route && !string.IsNullOrEmpty(routeId) && !routeFound;
+        }
+
+        /// <summary>How far the Route History's first-open position sits from the Mission
+        /// Log's, down and right, so the two windows never open exactly stacked.</summary>
+        internal const float RouteHistoryCascadeOffset = 40f;
+
+        /// <summary>
+        /// First-open rect: right of the main window, top-aligned with it; the Route History
+        /// instance is offset by <see cref="RouteHistoryCascadeOffset"/> on both axes. Pure.
+        /// </summary>
+        internal static Rect DefaultWindowRect(Rect mainWindowRect, bool routeHistory)
+        {
+            float offset = routeHistory ? RouteHistoryCascadeOffset : 0f;
+            return new Rect(mainWindowRect.x + mainWindowRect.width + 10 + offset,
+                mainWindowRect.y + offset, DefaultWindowWidth, DefaultWindowHeight);
+        }
+
+        /// <summary>
+        /// Whether an empty window still draws its table: the Route History keeps its
+        /// column headers and reads "No runs yet." as the one body row; the Mission Log's
+        /// empty state is a single label. Pure.
+        /// </summary>
+        internal static bool DrawsTableWhenEmpty(TargetMode targetMode)
+        {
+            return targetMode == TargetMode.Route;
         }
 
         /// <summary>
@@ -475,10 +518,7 @@ namespace Parsek
                 RefreshIfChanged();
 
             if (windowRect.width < 1f)
-            {
-                float x = mainWindowRect.x + mainWindowRect.width + 10;
-                windowRect = new Rect(x, mainWindowRect.y, DefaultWindowWidth, DefaultWindowHeight);
-            }
+                windowRect = DefaultWindowRect(mainWindowRect, isRouteHistory);
 
             ParsekUI.HandleResizeDrag(ref windowRect, ref isResizing,
                 MinWindowWidth, MinWindowHeight, logName);
@@ -541,7 +581,7 @@ namespace Parsek
 
             GUILayout.Space(5);
 
-            if (steps.Count == 0)
+            if (steps.Count == 0 && !DrawsTableWhenEmpty(mode))
             {
                 GUILayout.Label(EmptyText(mode));
                 if (GUILayout.Button("Close"))
@@ -585,7 +625,10 @@ namespace Parsek
             scrollPos = GUILayout.BeginScrollView(scrollPos, false, true,
                 GUI.skin.horizontalScrollbar, GUI.skin.verticalScrollbar,
                 parentUI.GetTableScrollViewStyle(), GUILayout.ExpandHeight(true));
-            DrawStepRows();
+            if (steps.Count == 0)
+                DrawEmptyBodyRow();
+            else
+                DrawStepRows();
             GUILayout.EndScrollView();
             GUILayout.EndVertical();
         }
@@ -597,6 +640,14 @@ namespace Parsek
             GUILayout.Label("Event", parentUI.GetColumnHeaderStyle(), GUILayout.ExpandWidth(true));
             GUILayout.Label("Location", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Location));
             GUILayout.Label("Vessel", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Vessel));
+            GUILayout.EndHorizontal();
+        }
+
+        // The empty table's one body row (DrawsTableWhenEmpty), under the column headers.
+        private void DrawEmptyBodyRow()
+        {
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
+            GUILayout.Label(EmptyText(mode), bodyCellLabel);
             GUILayout.EndHorizontal();
         }
 

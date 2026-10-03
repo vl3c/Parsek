@@ -978,7 +978,7 @@ width. Each cell is exactly one button in every state.
 
 | line | cell 1 | cell 2 |
 |---|---|---|
-| 1 | `Activate` (Paused table) / `Pause` (Active table) / live `Cancel` (Send-armed, before launch: routes through TryPause, which clears the arm with nothing dispatched; hover `Cancels the run before launch; nothing is spent.`) / greyed `Delivering...` (Send-armed, in flight; hover `Launched on <date>; arrives on <date>, then pauses again. A launched run cannot be called back.`) / greyed `Pausing...` (Pause-armed in flight) | `Send`: live only on an unarmed Paused route; greyed with its reason otherwise (`Already running on its schedule; pause it first to send a single run`, `Already sending one run`, `Already armed: ...`, or `Stopped: <reason>. Fix or delete the route first` on a broken route) |
+| 1 | `Activate` (Paused table) / `Pause` (Active table) / live `Cancel` (Send-armed, before launch: `RouteOrchestrator.TryCancelSendOnce` clears the arm and returns the route to Paused with NO ledger row, so its Route History is unchanged; hover `Cancels the run before launch; nothing is spent.`) / greyed `Delivering...` (Send-armed, in flight; hover `Launched on <date>; arrives on <date>, then pauses again. A launched run cannot be called back.`) / greyed `Pausing...` (Pause-armed in flight) | `Send`: live only on an unarmed Paused route; greyed with its reason otherwise (`Already running on its schedule; pause it first to send a single run`, `Already sending one run`, `Already armed: ...`, or `Stopped: <reason>. Fix or delete the route first` on a broken route) |
 | 2 | `Go to`: opens the Missions tab on the mission the route repeats, through `RecordingsTableUI.ShowMissionForRecording` / `MissionsWindowUI.RevealMissionForRecording` (the Missions partner rows' spelling, not the Timeline's `GoTo`); greyed `The mission this route was built from no longer exists` when no recording of its source tree is effective | `Log`: opens the route's Route History window (3.7) |
 
 **Detail block** (`DrawRouteDetail`, the route's basic information). Basic:
@@ -1025,7 +1025,9 @@ GUI-20..23 (the hold states).
 
 One class, `UI/StructureListWindowUI.cs`, in two instances owned by `ParsekUI`, each with its
 own window id (`WindowIdKey` / `RouteHistoryWindowIdKey`), rect, input lock and open state, so
-the two can be open at once. Neither persists its rect across scenes. Both are read-only, have
+the two can be open at once. Neither persists its rect across scenes; the Route History first
+opens 40 px right of and below where the Mission Log first opens (`DefaultWindowRect`), so the
+two never open stacked. Both are read-only, have
 no complexity gate, are drawn by `ParsekUI.DrawStructureWindowIfOpen` and release their locks in
 `ParsekUI.Cleanup`.
 
@@ -1038,7 +1040,9 @@ Columns: `Time` 110, `Event` expand, `Location` 185, `Vessel` 160, plus a reserv
 gutter; first-open width 900. ONE dark body box holds the pinned header row and the
 forced-vertical-bar scroll view of rows; the row labels are the shared table cell style with the
 vertical padding dropped. A long Event cell is shortened and carried whole as its tooltip, read
-in the single-line hover strip above `Close`. Empty state: one label plus `Close`.
+in the single-line hover strip above `Close`. Empty state: the Mission Log draws one label plus
+`Close`; the Route History keeps its table, the column headers over one body row `No runs yet.`,
+with `Close` at the bottom (`DrawsTableWhenEmpty`).
 
 Mission Log rows: `Launch`, one `Staged: N pieces (<part title> xK, ...)` per recorded
 separation, `Decoupled (<piece>)` / `Docked (<partner>)` / `Undocked (<piece>)` naming the other
@@ -1055,14 +1059,17 @@ Route History rows (N is the run's position in dispatch order):
 | RouteDispatched | `Run N: Sent`, or `Run N: Sent once` for a run armed by Send | the origin (`KSC` / `-` for a funds-paid launch) |
 | RouteCargoPickedUp | `Run N: Picked up <amounts>` (`(the source was short)` when it was) | the pickup stop's place and vessel |
 | RouteCargoDelivered | `Run N: Delivered <amounts>` (`40.0 of 150.0 LiquidFuel (110.0 did not fit)` when short); the row that finishes a run | the stop's place and vessel |
-| RoutePaused | `Paused`, `Paused after the run`, `Paused after a held run`, `Stopped: flight missing` / `flight changed` | `-` |
+| RoutePaused | `Paused` (a player Pause), `Paused after the run` (delivered, partly delivered, or delivered on a replayed crossing), `Paused after a held run`, `Stopped: flight missing` / `flight changed` | `-` |
 | RouteResumed | `Activated` (player), `Resumed` (automatic) | `-` |
 | RouteEndpointLost | `Stopped: destination lost` / `origin lost` | `-` |
 
 Debit rows (funds or origin cargo) are not shown; the run's Sent row stands for them. The
 ledger carries a UT on every row, so each pickup and each delivery has its own time; no extra
 field is stored. It rebuilds while open when the ledger version, the tombstone version or the
-route's name move (`RouteHistorySignature`, read on Layout passes only).
+route's name move (`RouteHistorySignature`, read on Layout passes only). When its route no
+longer exists (deleted, or removed by a rewind) it closes and logs `Route History window closed: route=...
+no longer exists`. A Send taken back with Cancel before launch writes no ledger row, so it adds
+no row here.
 
 Pictures: Mission Log `ib-structure-route-log-advanced` (the Mun route's source mission) and
 `ib-structure-mission-advanced` (GUI-3); Route History `ib-routehistory-advanced` (GUI-3, the

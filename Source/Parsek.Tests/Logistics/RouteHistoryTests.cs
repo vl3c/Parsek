@@ -149,6 +149,47 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(new[] { "D", "-" }, RouteHistoryBuilder.FormatRowTimes(steps, ut => "D"));
         }
 
+        // A Send-armed run that delivered on a replayed crossing pauses with its own
+        // reason; it reads the same as any other run that finished and paused.
+        [Fact]
+        public void DeliveredReplayThenPaused_ReadsPausedAfterTheRun()
+        {
+            Assert.Equal("Paused after the run",
+                RouteHistoryBuilder.PausedLabel(RouteOrchestrator.DeliveredReplayThenPausedReason));
+            var rows = Build(new List<GameAction>
+            {
+                Act(GameActionType.RoutePaused, 10, reason: RouteOrchestrator.DeliveredReplayThenPausedReason),
+            });
+            Assert.Equal("Paused after the run", rows.Single().Label);
+        }
+
+        // The window chrome: the Route History opens offset from the Mission Log, keeps its
+        // table (headers and a "No runs yet." row) when empty, and closes when its route
+        // is gone.
+        [Fact]
+        public void RouteHistoryOpensOffset_KeepsItsTableEmpty_AndClosesOnDeletedRoute()
+        {
+            var main = new UnityEngine.Rect(10f, 20f, 250f, 300f);
+            UnityEngine.Rect log = StructureListWindowUI.DefaultWindowRect(main, false);
+            UnityEngine.Rect history = StructureListWindowUI.DefaultWindowRect(main, true);
+            Assert.Equal(270f, log.x);
+            Assert.Equal(20f, log.y);
+            Assert.Equal(log.x + StructureListWindowUI.RouteHistoryCascadeOffset, history.x);
+            Assert.Equal(log.y + StructureListWindowUI.RouteHistoryCascadeOffset, history.y);
+            Assert.Equal(log.width, history.width);
+            Assert.Equal(log.height, history.height);
+
+            Assert.True(StructureListWindowUI.DrawsTableWhenEmpty(StructureListWindowUI.TargetMode.Route));
+            Assert.False(StructureListWindowUI.DrawsTableWhenEmpty(StructureListWindowUI.TargetMode.Mission));
+
+            var route = StructureListWindowUI.TargetMode.Route;
+            Assert.True(StructureListWindowUI.ShouldCloseForDeletedRoute(route, "r1", false));
+            Assert.False(StructureListWindowUI.ShouldCloseForDeletedRoute(route, "r1", true));
+            Assert.False(StructureListWindowUI.ShouldCloseForDeletedRoute(route, null, false));
+            Assert.False(StructureListWindowUI.ShouldCloseForDeletedRoute(
+                StructureListWindowUI.TargetMode.Mission, "r1", false));
+        }
+
         [Fact]
         public void TitleEmptyStateAndSeamToken()
         {

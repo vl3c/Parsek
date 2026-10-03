@@ -125,6 +125,7 @@ namespace Parsek
             {
                 case "delivered-then-paused":
                 case "delivered-partial-then-paused":
+                case RouteOrchestrator.DeliveredReplayThenPausedReason:
                     return "Paused after the run";
                 case "blocked-then-paused":
                     return "Paused after a held run";
