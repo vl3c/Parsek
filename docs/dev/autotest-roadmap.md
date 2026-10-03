@@ -115,7 +115,9 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 251 of 251 registry cells (the game-settings axis added D14 `hard-preset` on 2026-09-29, claimed by HC-1, and `vessel-budget` on 2026-09-30, claimed by VB-1; D2 `physics-warp-{low,medium,high}` added 2026-10-02, claimed by PWR-1 / PWR-2 / PWR-3)
+### Coverage: 253 of 253 registry cells (the game-settings axis added D14 `hard-preset` on 2026-09-29, claimed by HC-1, `vessel-budget` on 2026-09-30, claimed by VB-1, and `reward-multipliers` / `zero-starting-funds` on 2026-10-03, claimed by HC-2 / ZF-1; D2 `physics-warp-{low,medium,high}` added 2026-10-02, claimed by PWR-1 / PWR-2 / PWR-3)
+
+RE-DERIVED 2026-10-03 on `settings-risks`: `hlib.compute_coverage(specs, [], registry)` over the 361 committed specs prints 253 of 253. The operator's three remaining game-settings risks: reward multipliers where money and science change hands (HC-2, Hard career earning, spending, committing and rewinding, every amount 0.6x L3's x1 flight), a zero-funds career (ZF-1, KSP-SETTINGS-AUDIT S4 live-proven) and quickload off during a Re-Fly (closed by evidence, no flight; todo KSP-SETTINGS-AUDIT-2026-09-26 S7). Rows in `autotest-status.md`.
 
 RE-DERIVED 2026-10-03 on `physwarp-sampling-fixes` (after merging #1972): `hlib.compute_coverage(specs, [], registry)` over the 359 committed specs prints 251 of 251. The last open cell, D2 `physics-warp-high`, is claimed by PWR-3: its two quarantining findings (todo PHYSWARP-RATE-CHANGE-SAMPLE-SKEW, PHYSWARP-BACKSTOP-MISSED-FRAME) were one recorder cause, fixed by sampling each physics step's post-physics pose; the quarantined run `2026-10-03_1030` XPASSed and the armed run `_1050` passed. Rows in `autotest-status.md`.
 

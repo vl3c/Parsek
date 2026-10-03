@@ -425,6 +425,19 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   167,279; the two pre-change runs differ by ~980 m). B22 2026-10-03_1106 vs 2026-10-01_2235
   coast wall 368 s -> 315 s, corrections 124.10 / 72.73 (was 124.10 / 72.81), Jool park
   within 19 km of 584,339 km.
+- [ ] Opt B30 and B29 into the coast native lead (and `circularizeNodeWaitWarp` where the
+  lane has a park round-out node), then re-fly both and compare against their last runs:
+  phase list, correction dv, arrival periapsis, capture and park. Last-run recoverable per
+  the analyzer: B30 `2026-10-01_1009` ~740 s (capture 468 s and PARK 125 s are already fixed
+  by #1958; coast low-warp ~117 s is the new target), B29 `2026-10-01_0933` ~345 s (coast
+  low-warp ~199 s). Size each lead per lane: soiNativeLeadSeconds >= 120 s + 4 x
+  `RAILS_WARP_RATES[approachMaxWarpFactor]`. About 1.5 h of machine time; coordinate the
+  machine lock with the other sessions before provisioning. Queued 2026-10-03 (operator: no
+  more flights for now).
+- [ ] Optional refresh re-flies of the b5 lanes last flown before #1958: B24, B33, B34, B35,
+  B25, B28, B23 and B12. Their capture and PARK waste is already fixed in code; re-flying
+  only refreshes the analyzer totals (~150-250 s recoverable each on the stale runs) and
+  confirms the fix holds. Batch them (for example a nightly tier) rather than one by one.
 
 ## ~~RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON: the recording stats frame lookup matches a section end exactly, with no tolerance~~ [FILED 2026-10-01 from the PR #1943 review, branch `l7-nightly-residue`. FIXED 2026-10-03, branch `fix-stats-frame-epsilon`]
 
@@ -1934,6 +1947,11 @@ count. Flown once each on current main:
   and read 6 on `recordings.count 6 > max 5` alone with exactly one ascent-exit split
   (`committed=5->6`): re-pinned 5 -> 6 on branch `mission-warp-fix`, re-flown green on the pin
   (`2026-10-01_2235`, PASS attempt 1, count 6).
+- [ ] Re-pin B16, B18, B19, B20 and B21: fly each once on a post-#1931 build, re-pin
+  `recordings.count` exact by the measured delta (cite each `Split candidate ...
+  Atmospheric->ExoBallistic` line), re-fly to confirm, and file any non-count failure as a
+  finding. Five long operator lanes, roughly 3-5 h of machine time with the confirm flights.
+  Queued 2026-10-03 with no session assigned (operator ruling).
 
 ## ~~INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS: four lanes commit more than one extra recording since #1931, so their count windows were not re-pinned~~ [FILED 2026-10-01, branch `split-count-repin`. LANE WINDOWS, no Parsek defect. RULED AND RE-PINNED 2026-10-01, branch `mission-warp-fix`]
 
@@ -2658,7 +2676,7 @@ retired with this ruling (it would only have proved that an unintegrated mod is 
 
 ---
 
-## KSP-SETTINGS-AUDIT-2026-09-26: stock difficulty, game-mode and settings.cfg values Parsek mishandles or has never run under [FILED 2026-09-26 from the stock-settings audit, branch `ksp-settings-audit`. OPEN; owner rulings taken 2026-09-26 (Q1-Q4); Q5 and Q6 are supervisor defaults the owner did not override]
+## KSP-SETTINGS-AUDIT-2026-09-26: stock difficulty, game-mode and settings.cfg values Parsek mishandles or has never run under [FILED 2026-09-26 from the stock-settings audit, branch `ksp-settings-audit`. OPEN; owner rulings taken 2026-09-26 (Q1-Q4); Q5 and Q6 are supervisor defaults the owner did not override; 2026-10-03 (branch `settings-risks`): S4 struck and live-proven by ZF-1, reward multipliers with money changing hands live-proven by HC-2, the quickload-off Re-Fly closed by evidence under S7; still open: S10 (UI_SCALE)]
 
 Audit of every player-facing stock KSP 1.12.5 setting (new-game modes and presets, the 103
 `GameParameters` fields, the 306 `settings.cfg` keys, the Alt+F12 cheats) against what
@@ -2684,6 +2702,22 @@ Bugs (no ruling needed):
   it on the row (`GameAction.ScienceGainMultiplier`, sparse key `scienceGainMultiplier`), and
   `ScienceModule` scales only the pool credit, so the pool receives exactly stock's amount while
   subject caps stay in pre-multiplier units.
+  LIVE PROOF WITH MONEY AND SCIENCE CHANGING HANDS 2026-10-03 (branch `settings-risks`, operator
+  risk 1; HC-1 had earned nothing): `HC-2-hard-career-earn-spend` flies L3's science hop on the
+  derived fixture `career-science-pad-hard` (L3's host with HC-1's eleven Hard values), then
+  launches a probe from the VAB (the purchase), runs LedgerGroundTruth in that FLIGHT scene and
+  rewinds the hop to its launch. Reading `2026-10-03_1523`, armed `_1533`, both PASS attempt 1.
+  Against L3's x1 flight (`2026-09-29_2153`): every world-first milestone exactly 0.6x (stock
+  bakes `{Funds,Science,Rep}GainMultiplier` into `ProgressNode.AwardProgress`'s arguments via
+  `GameVariables.GetContract*CompletionFactor`, and `ProgressRewardPatch` captures those),
+  science captures stamped `gainMultiplier=0.6` (1.8 / 2.2 / 3.0 against 3.0 / 3.6 / 5.0 raw),
+  the recovery unscaled (4558, the control), funds 523758 (predicted from L3's 536558 before the
+  flight), science 107.0, reputation 2.00 (stock itself awarded +1.0 per records milestone at
+  both settings); no keep-what-you-earned clamp anywhere; the 300 rollout lands the recalc on
+  523458; LedgerGroundTruth `passed=3 hardFailures=0 facetsCompared=11`; the rewind patches
+  funds / science / reputation back to the seed. Offline negative control 10 of 10 seeds red.
+  Not flown: a contract reward (baked at generation by the same factors, recorded as the
+  amount paid) and the x2 loss multipliers (no loss channel fired).
 - ~~S2. `Career.RepLossDeclined` (Normal 1, Hard 3) never reaches the ledger: `ContractDeclined`
   is dropped in `GameStateEventConverter` and `ReputationPenaltySource.ContractDecline` is
   never constructed, so a rewind refunds the reputation. Fix: a KSC-origin reputation
@@ -2698,11 +2732,29 @@ Bugs (no ruling needed):
   FIXED 2026-09-26, branch `kss-debris`: `FormatDuration` switches to days at and divides by
   `ParsekTimeFormat.SecsPerDay`, and `RouteCadence.ParseAndSnapInterval` reads "d" as the same
   value, so a shown "Nd" round-trips on both calendars (cells at Kerbin and Earth time).
-- S4. A zero starting pool is never seeded (`EnsureInitialFundsSeed` seeds non-zero only;
+- ~~S4. A zero starting pool is never seeded (`EnsureInitialFundsSeed` seeds non-zero only;
   the stock slider allows 0 funds, Science mode can start at 0 science), and the value wait
   spins its full 600 frames on every load. Also `DeferredSeed` and
   `ApplyBudgetDeductionWhenReady` wait 120 frames for currency singletons Science and
-  Sandbox never create.
+  Sandbox never create.~~ FIXED 2026-09-26 in commit d5e3ec399 (branch `kss-ledger`; this
+  entry was left unstruck): `LedgerOrchestrator.DecideInitialFundsSeed` takes a CONFIRMED zero
+  (Funding present, its OnLoad provably run via `CurrencyScenarioReadiness.IsScenarioModuleLoaded`,
+  pool 0, no funds history) and `Ledger.SeedConfirmedZeroFunds` seals it
+  (`initialFundsConfirmedZero`) against the stale-zero repair; the science seed takes a loaded
+  zero the same way; the waits key on the OnLoad signal and on the singletons the mode creates.
+  LIVE PROOF 2026-10-03 (branch `settings-risks`, operator risk 3): `ZF-1-zero-funds-career` on
+  the derived fixture `career-pad-craft-zero-funds` (`career-pad-craft` with Funding funds and
+  CAREER StartingFunds at 0, no `Parsek/` directory), reading `2026-10-03_1521` and armed
+  `_1542`, both PASS attempt 1. The first load logs `Seeded initial funds: amount=0
+  confirmedZero=True` and the deferred seed `loaded after 0 frames` (no 600-frame wait); a stock
+  recovery of the unrecorded pad craft credits 4182 as a `recordingId=(none)` FundsEarning and
+  the recalc reads `PatchFunds: no change needed (current=4182.0, target=4182.0)` with no guard
+  clamp (before the fix the next seed would have taken the live 4182 as the start value and
+  carried 8364); a hire is refused `insufficient-funds`; a VAB probe rollout charges 300 and the
+  recalc lands on 3882; LedgerGroundTruth in that FLIGHT scene reads `hardFailures=0
+  facetsCompared=8`. Offline negative control 10 of 10 seeds red. The science-mode zero seed and
+  the Science / Sandbox singleton waits stay unit-only (`KspSettingsLedgerTests`,
+  `CareerSeedReadinessTests`).
 - ~~S5. Ghost map vessels count toward the stock vessel budget: `Game.Updated` builds the
   pruned `FlightState` before `ParsekScenario.OnSave` strips ghosts, and ghosts are live,
   `prst=True`, non-Debris vessels in FLIGHT and TRACKSTATION, so each one pushes one real
@@ -2803,6 +2855,24 @@ Owner rulings (2026-09-26):
   three Hard FLIGHT flags off), require the gate line, the scene-exit drive to the Space
   Center and the `labels=ReFlyAttempt` merge dialog, answer Merge / Discard, and forbid every
   revert road. Both reading runs matched every token as written; nothing owed.
+  QUICKLOAD-OFF RE-FLY CLOSED BY EVIDENCE 2026-10-03 (branch `settings-risks`, operator risk 2,
+  no flight): a full decompile of the KSP 1.12.5 Assembly-CSharp finds exactly three readers
+  of `Flight.CanQuickLoad` - `QuickSaveLoad` (the F9 handler and the hold-F9 load dialog,
+  `:345` / `:414`), `PauseMenu` (`:711`, the Esc load entry) and `KSCPauseMenu` (`:791`, the
+  Space Center load button) - and three of `Flight.CanQuickSave` (`QuickSaveLoad:500`,
+  `PauseMenu:751`, `KSCPauseMenu:571`); the player's difficulty screen exposes only
+  `CanQuickLoad` (`DifficultyOptionsMenu:348`), `CanQuickSave` is debug-toolbar only.
+  `GamePersistence.SaveGame` / `LoadGame` and `FlightDriver.StartAndFocusVessel` read neither
+  (`SaveGame` only refuses writing `persistent` when `CanAutoSave` is off, a scenario-only
+  flag), and those three are the only stock calls Parsek's RP authoring
+  (`RewindPointAuthor.cs:610`), Re-Fly invoke (`RewindInvoker.cs:987` / `:1030`), commit
+  quicksave refresh (`RecordingStore`), merge durable saves and the ground-truth quicksave
+  make. Parsek reads neither flag in production. Live: RF-16 `2026-09-27_1341` ran its re-fly
+  with `CanQuickLoad = False` in `persistent.sfs`, in `rp_b9_root.sfs` and therefore in the
+  game the Re-Fly loaded (`Loading quicksave` -> `StartAndFocusVessel` -> `Invocation
+  complete`, `End reason=merged`, zero `[ERROR]`), RF-17 the discard twin, HC-1 the
+  Rewind-to-Launch. With quickload off the only Parsek path that goes dark is the
+  player-quickload-during-re-fly handling, because stock no longer lets the player quickload.
 - ~~S8 (Q2). A recorded crew death follows stock `Difficulty.MissingCrewsRespawn`: when on, the
   kerbal is free again at death UT + `Difficulty.RespawnTimer`; permanent only when off.~~
   FIXED 2026-09-26, branch `kss-respawn`: `KerbalsModule.PopulateCrewEndStates` stamps the
