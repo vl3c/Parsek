@@ -458,22 +458,23 @@ describes the first row under it:
 | # | header | width const | mission bar line 1 | mission bar line 2 | vessel / interval / partner / chapter rows |
 |---|---|---|---|---|---|
 | 1 | (blank enable slot) | `ColW_Enable` 20 | blank | blank | blank |
-| 2 | `#` (sortable) | `ColW_Index` 30 | per-TREE index | blank | include checkbox (Advanced) or blank |
+| 2 | `#` (sortable) | `ColW_Index` 30 | per-TREE index | the collapse caret (down / right) | include checkbox (Advanced) or blank |
 | 3 | `Missions and vessels` (sortable) | expand | bold title (double-click renames), then right-aligned (Advanced) `Clone` and `Warp to...`, then `Log` (`DrawMissionNameCell`) | the summary, then (Advanced) `Delete` and the loop row, right-aligned (`DrawMissionSummaryNameCell`) | connector + caret + name + `EventPhrase` |
 | 4 | `Start time` (sortable) | `ColW_StartTime` 120 | the mission span's start date | blank | `PrintDateCompact` |
 | 5 | `Start event` | `ColW_StartEvent` 110 | the first vessel row's start event (`MissionPresentation.MissionStartEventText`) | blank | event word |
 | 6 | `End event` | `ColW_EndEvent` 85 | the primary vessel's outcome | blank | terminal word |
 | 7 | `End time` | `ColW_EndTime` 120 | the mission span's end date | blank | date |
-| 8 | `Interact` (centred plain label) | `ColW_Interact` 116 | `Watch` / `W*`, paired with `Rewind` or `Forward` when one applies | `Collapse` / `Expand` | `Stash` + `Seal` or `Fly` + `Seal` (vessel and interval rows), `Go to` (Docked partner rows), blank (chapter rows) |
+| 8 | `Interact` (centred plain label) | `ColW_Interact` 116 | `Watch` / `W*` | `Rewind` or `Forward` when one applies, else a reserved button-sized slot | `Stash` + `Seal` or `Fly` + `Seal` (vessel and interval rows), `Go to` (Docked partner rows), blank (chapter rows) |
 
 `MissionsTabColumnSequenceTests` pins the column sequence of the header against both bar
 lines, the vessel row, the interval row, the chapter header row and both Docked partner row
 kinds, in both modes: no column is mode-gated.
 
 The Interact column carries every per-row action, on one width system:
-`InteractButtonWidth` 100 for a single button (Watch alone, `Collapse` / `Expand`, `Go to`, and
-`Log` in the name cell), `InteractPairButtonWidth` 48 for each half of a pair (`Fly` /
-`Stash` + `Seal`, `Watch` + `Rewind`), `InteractButtonGap` 4, so `2 * pair + gap == single`;
+`InteractButtonWidth` 100 for a single button (`Watch` on line 1 and `Rewind` / `Forward` on
+line 2 at the same x, `Go to`, and `Log` in the name cell), `InteractPairButtonWidth` 48 for
+each half of a pair (`Fly` / `Stash` + `Seal`), `InteractButtonGap` 4, so
+`2 * pair + gap == single`;
 the column is the single plus an 8 px inset each side (`InteractCellInset`). The Re-Fly pair
 is the Recordings tab's own cell drawn at that geometry
 (`RecordingsTableUI.DrawReFlyColumnCell`).
@@ -514,11 +515,17 @@ mission - else the word itself when it measures wider than the cell, else nothin
 words are single short words (`Launch`, `Decoupled`, `Undocked`, `Docked`, `Boarded`, `EVA`,
 `Broke off`, `Broke up`, `Placed`, `Switch`, and the terminal words up to `Disassembled`).
 
-**Collapse / Expand.** `Mission.Collapsed` (saved as `collapsed`; a save's older per-mission
+**Collapse caret.** `Mission.Collapsed` (saved as `collapsed`; a save's older per-mission
 `archived` key loads into it) hides a mission's vessel, interval, chapter and partner rows;
-the two-line bar stays. The button reads `Collapse` while the rows show and `Expand` (pressed)
-while they are hidden. The draw loop reads the flag once before the bar draws, so a click
-lands next frame. The Timeline GoTo cross-link QUEUES expanding a collapsed target and applies
+the two-line bar stays. The toggle is a clickable caret glyph in the `#` column on line 2,
+under the index number (`DrawMissionCollapseCaret`): a down caret (U+25BC) while the rows
+show and a right caret (U+25B6) while they are hidden
+(`MissionPresentation.MissionCollapseCaretGlyph`), hover `Collapse this mission` /
+`Expand this mission`. It is a frameless Button in a label style (the click style of the
+Recordings group carets and the Logistics section carets), and its hit area is the whole
+`ColW_Index` cell (30 px) at least one row (22 px) tall. The draw loop reads the flag once
+before the bar draws, so a click lands next frame. The Timeline GoTo cross-link QUEUES
+expanding a collapsed target and applies
 it on a Layout pass. Seam: `op=expand window=missions key=mission:<id>` drives it (expanded =
 not collapsed); it is a NAMED-KEYS-ONLY set, so `key=all` / `key=none` skip it and its counts.
 The Recordings tab's per-recording Archive (`rec.Hidden`) and the Timeline's `Archived` filter
@@ -530,9 +537,9 @@ Mission bar controls, with their gates:
 |---|---|---|---|
 | title double-click | line 1 name cell | `CommitMissionRename` -> `MissionGroupLink.RenameMissionGroup` for an original, `MissionStore.RenameMission` for a clone | a group-name collision refuses the whole rename, Warn-only |
 | `Log` | line 1 name cell, right-aligned (right of the Advanced loop grid) | `ParsekUI.OpenStructureWindowForMission` | never |
-| `Watch` / `W*` | line 1 Interact | `flight.EnterWatchMode` / `ExitWatchMode` | greyed with one of two reasons (`MissionWatchDisabledReason`: `Watching only works while you are flying`, `Nothing from this mission is flying right now`). Both modes |
-| `Rewind` / `Forward` | line 1 Interact, paired with Watch | `RecordingsTableUI.DrawMissionRewindForwardButton` over the mission root recording | greyed on `CanRewind` / `CanFastForward` with the store's reason; not drawn when neither applies (Watch then takes the full width), and not drawn at all when the mission's root recording owns no launch save (`RecordingStore.GetRewindRecording` null), the same rule as the Recordings tab's blank Rewind cell. Both modes |
-| `Collapse` / `Expand` | line 2 Interact | writes `Mission.Collapsed` | never. Both modes |
+| `Watch` / `W*` | line 1 Interact, single width | `flight.EnterWatchMode` / `ExitWatchMode` | greyed with one of two reasons (`MissionWatchDisabledReason`: `Watching only works while you are flying`, `Nothing from this mission is flying right now`). Both modes |
+| `Rewind` / `Forward` | line 2 Interact, single width, under Watch | `RecordingsTableUI.DrawMissionRewindForwardButton` over the mission root recording | greyed on `CanRewind` / `CanFastForward` with the store's reason; not drawn when neither applies (a button-sized rect is reserved instead, so line 2 keeps its height), and not drawn at all when the mission's root recording owns no launch save (`RecordingStore.GetRewindRecording` null), the same rule as the Recordings tab's blank Rewind cell. Both modes |
+| collapse caret (down / right) | line 2 `#` cell, under the index | writes `Mission.Collapsed` | never. Both modes |
 | `Clone` | loop grid column A, line 1 | `MissionStore.Clone` | HIDDEN in Basic |
 | `Delete` | loop grid column A, line 2 | `MissionStore.Delete` | greyed by `CanDelete` (`A flight always keeps its first mission`); HIDDEN in Basic |
 | `Warp to...` | loop grid column B, line 1 | confirm dialog, then an in-place forward jump to 15 s before the next relaunch | HIDDEN in Basic; in Advanced always drawn, greyed with the first failing reason in order (`MissionWarpToDisabledReason`): `Warping works in flight or at the Space Center`; `Turn Loop on to warp to the next launch` (on a route-bound tree `A supply route repeats this mission, not Loop`); `This mission does not repeat on a schedule yet`; `The next launch is not ahead of you` |
@@ -558,7 +565,7 @@ What `MissionsLoopControls` hides in Basic: the include checkboxes, the loop gri
 per-vessel interval rows, the vessel caret, the foreign partner-journey rows and the
 loop-selection styling (dimmed excluded vessels, the `(partial)` suffix, the chapter header's
 toggle, dimming and `[~]` marker). Basic keeps the title and rename, the summary, `Log`,
-`Watch`, `Rewind` / `Forward`, `Collapse` / `Expand`, `Fly` / `Stash` / `Seal`, `Go to`, the
+`Watch`, `Rewind` / `Forward`, the collapse caret, `Fly` / `Stash` / `Seal`, `Go to`, the
 chapter headers, the Docked partner rows and the `Looped by route` label.
 
 Pictures: `ksc-missions-missions-advanced`, `ksc-missions-basic`,
@@ -801,7 +808,7 @@ control a Basic player can reach**. It governs whether recordings with `Recordin
 (launch, separation, spawn, crew death), each marked `[archived]`
 (`TimelineBuilder.CollectRecordingEntries`). It is in force in every view; the Career views
 list ledger rows only, which archiving never hides, so there it changes nothing. The Missions
-tab's `Collapse` is a different flag and does not reach the Timeline. Hover: "Lists archived
+tab's collapse caret is a different flag and does not reach the Timeline. Hover: "Lists archived
 flights, marked [archived], in all views. Same switch as the recordings list's Archive
 filter."
 
@@ -1330,7 +1337,7 @@ frame can never disagree about the control count. Every draw site reads
 | `MainButtonSettings` | `UiComplexityMode.cs` | KEEP | `ParsekUI.DrawWindow` | nothing |
 | `TabRecordings` | `UiComplexityMode.cs` | HIDE | `RecordingsTableUI.VisibleTabCount` | the tab bar, the Recordings tab and its whole body |
 | `TabMissions` | `UiComplexityMode.cs` | KEEP | `TimelineWindowUI` (the `GoTo` button) | nothing; `GoTo` is gated by its TARGET's key, so re-pointing it at a hidden surface would hide it |
-| `MissionsLoopControls` | `UiComplexityMode.cs` | HIDE | `MissionsWindowUI.ShowsLoopAuthoringControls` (read at each draw site) | the loop grid (`Clone`, `Delete`, `Warp to...`, `Loop`, the period cell), the summary's `Next launch` piece, the include checkboxes, the per-vessel interval rows, the foreign partner-journey rows and the loop-selection styling. NOT `Looped by route`, `Watch`, `Rewind` / `Forward`, `Log`, `Collapse`, `Fly` / `Stash` / `Seal` or `Go to` |
+| `MissionsLoopControls` | `UiComplexityMode.cs` | HIDE | `MissionsWindowUI.ShowsLoopAuthoringControls` (read at each draw site) | the loop grid (`Clone`, `Delete`, `Warp to...`, `Loop`, the period cell), the summary's `Next launch` piece, the include checkboxes, the per-vessel interval rows, the foreign partner-journey rows and the loop-selection styling. NOT `Looped by route`, `Watch`, `Rewind` / `Forward`, `Log`, the collapse caret, `Fly` / `Stash` / `Seal` or `Go to` |
 | `SettingsSectionLooping` | `:110` | HIDE (`:185`) | `UI/SettingsWindowUI.cs:345`, `:378` | the Looping section |
 | `LogisticsRouteTuning` | `UI/UiComplexityMode.cs` | HIDE | `UI/LogisticsRoutePresentation.cs` (`ShowsRouteTuning`, latched once per pass in `LogisticsWindowUI.DrawWindow`) | the Every stepper (Basic reads the interval), the Runs column, Priority, Link round-trip and its picker, Flights used, the manual-looping clause |
 | `SettingsSectionDiagnostics` | `:113` | HIDE (`:186`) | `UI/SettingsWindowUI.cs:393` | the Diagnostics section, and with it the only reopen path to `TestRunnerUI` |

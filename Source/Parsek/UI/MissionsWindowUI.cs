@@ -90,7 +90,7 @@ namespace Parsek
         // ----- GUI-census seam accessors (UiAction op=expand) -----
         //
         // Three INDEPENDENT expansion collections back this tab (vessel rows, interval legs
-        // and each mission's Collapse / Expand), and the seam addresses them through one
+        // and each mission's collapse caret), and the seam addresses them through one
         // namespaced key grammar (TestCommandUiState). They are exposed
         // rather than driven by a synthesised click for the reason the UiAction applier's
         // header gives: every click handler's whole body IS one of these writes, so the
@@ -124,7 +124,7 @@ namespace Parsek
 
         internal int ExpandedVesselCountForTesting => expandedVessels.Count;
 
-        /// <summary>Every mission id: the key a mission's Collapse / Expand is driven by.</summary>
+        /// <summary>Every mission id: the key a mission's collapse caret is driven by.</summary>
         internal List<string> EnumerateMissionExpandKeysForTesting()
         {
             var keys = new List<string>();
@@ -135,7 +135,7 @@ namespace Parsek
             return keys;
         }
 
-        /// <summary>Writes a mission's Collapse / Expand the way its Interact button does,
+        /// <summary>Writes a mission's collapse flag the way its caret in the # column does,
         /// with the same log line. True when the flag changed.</summary>
         internal bool SetMissionExpandedForTesting(string missionId, bool expanded)
         {
@@ -512,12 +512,13 @@ namespace Parsek
         private const float LoopCellHeight = 22f;
         // ----- the Interact column (Missions Model 1, owner mock-up 2026-09-30) -----
         //
-        // ONE right-hand column carries every per-row action: Watch (+ Rewind / Forward) on a
-        // mission's first line, the Archive toggle button on its second, Stash / Fly + Seal on
-        // vessel and interval rows, Go to on Docked partner rows. Every button in it is either a
-        // SINGLE (full width) or half of a PAIR, and a pair spans exactly one single, so the
-        // column's button edges line up on every row. Log (in the name cell of a mission's first
-        // line) takes the single width too. MissionsTabColumnSequenceTests pins
+        // ONE right-hand column carries every per-row action: Watch on a mission's first line,
+        // Rewind / Forward on its second (a reserved slot of the same size when neither
+        // applies), Stash / Fly + Seal on vessel and interval rows, Go to on Docked partner
+        // rows. Every button in it is either a SINGLE (full width) or half of a PAIR, and a pair
+        // spans exactly one single, so the column's button edges line up on every row. Log (in
+        // the name cell of a mission's first line) takes the single width too.
+        // MissionsTabColumnSequenceTests pins
         // 2 * InteractPairButtonWidth + InteractButtonGap == InteractButtonWidth.
         //
         // Sizing: the owner asked for the single width at the old Watch width (70) + 10 and for
@@ -718,8 +719,9 @@ namespace Parsek
         private GUIStyle missionSummaryLabel;
         private GUIStyle tableBodyBoxStyle;
         private GUIStyle interactButtonStyle;
-        private GUIStyle interactPairButtonStyle;
-        private GUIStyle interactToggleButtonStyle;
+        // The mission's collapse caret on line 2 of the # column: a clickable glyph with no
+        // button frame (the house expand-caret click style: a Button drawn in a label style).
+        private GUIStyle missionCaretStyle;
         private GUIStyle loopGridButtonStyle;
         // The Advanced loop row (line 2 of the grid): the row itself carries the grid buttons'
         // top / bottom margin so its 22 px line sits on Delete's line; every control inside has
@@ -763,6 +765,15 @@ namespace Parsek
             new string(new[] { (char)0x25BC, ' ' });
         private static readonly string CaretRight =
             new string(new[] { (char)0x25B6, ' ' });
+
+        // The mission's collapse caret contents: the glyph alone (MissionPresentation owns which
+        // glyph and hover go with which state), allocated once.
+        private static readonly GUIContent MissionCaretExpandedContent = new GUIContent(
+            MissionPresentation.MissionCollapseCaretGlyph(false),
+            MissionPresentation.MissionCollapseCaretTooltip(false));
+        private static readonly GUIContent MissionCaretCollapsedContent = new GUIContent(
+            MissionPresentation.MissionCollapseCaretGlyph(true),
+            MissionPresentation.MissionCollapseCaretTooltip(true));
 
         public MissionsWindowUI(ParsekUI parentUI)
         {
@@ -821,20 +832,12 @@ namespace Parsek
 
             // Interact column buttons: zero horizontal margin, so a button's rect starts exactly
             // at the column's inset on every row (a skin button's 4 px margin would shift a
-            // single button against a pair drawn with explicit gaps). The pair halves take the
-            // compact 2 px text padding the Recordings tab's Fly / Seal use.
+            // single button against a pair drawn with explicit gaps).
             interactButtonStyle = new GUIStyle(GUI.skin.button)
             {
                 margin = new RectOffset(
                     0, 0, GUI.skin.button.margin.top, GUI.skin.button.margin.bottom)
             };
-            interactPairButtonStyle = new GUIStyle(interactButtonStyle)
-            {
-                padding = new RectOffset(
-                    2, 2, GUI.skin.button.padding.top, GUI.skin.button.padding.bottom)
-            };
-            // The Archive toggle BUTTON: pressed look while archived, the house toggle-button
-            // shape (the Timeline filter buttons: onNormal / onHover take the pressed background).
             // The loop grid's buttons (Clone, Delete, Warp to...): the same zero horizontal
             // margin, so the grid's columns are exactly their constants wide on both lines.
             loopGridButtonStyle = new GUIStyle(interactButtonStyle);
@@ -873,12 +876,6 @@ namespace Parsek
             {
                 margin = new RectOffset(0, 0, 0, 0)
             };
-            interactToggleButtonStyle = new GUIStyle(interactButtonStyle);
-            interactToggleButtonStyle.onNormal.background = GUI.skin.button.active.background;
-            interactToggleButtonStyle.onHover.background = GUI.skin.button.active.background;
-            interactToggleButtonStyle.onNormal.textColor = Color.white;
-            interactToggleButtonStyle.onHover.textColor = Color.white;
-
             // Boxed container for the Archive header cell: clone the shared column-header
             // box but zero only the LEFT/RIGHT margin so the BeginHorizontal footprint is
             // exactly Width(ColW_Archive) (top/bottom margin kept for the header-to-list gap).
@@ -927,6 +924,18 @@ namespace Parsek
             // (GUI-17, 2026-09-30). Non-wrapping, each takes its one-line width and the summary
             // (MinWidth 0) wraps into what is left.
             missionHeaderInlineLabel = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                stretchHeight = true,
+                wordWrap = false
+            };
+
+            // The collapse caret: the plain label skin the Recordings group rows and the
+            // Logistics section headers click their carets through, left-aligned like the index
+            // number above it so the glyph sits under the digit, and stretched to the line's
+            // height so the whole # cell of line 2 (ColW_Index wide, at least one row tall) is
+            // the hit area. A label skin has no background, so no frame draws.
+            missionCaretStyle = new GUIStyle(GUI.skin.label)
             {
                 alignment = TextAnchor.MiddleLeft,
                 stretchHeight = true,
@@ -1021,7 +1030,7 @@ namespace Parsek
             }
 
             // A collapsed destination still lists its bar, but the rows the player navigated to
-            // see are hidden, so the reveal EXPANDS it (one click on its Collapse button folds it
+            // see are hidden, so the reveal EXPANDS it (one click on its collapse caret folds it
             // back). DEFERRED, not written here: this runs inside the Timeline's button handler,
             // i.e. mid-frame, and the flag decides how many rows the mission's block draws.
             // Flipping it between a frame's Layout and Repaint passes changes the control count
@@ -1273,8 +1282,8 @@ namespace Parsek
                 if (tree == null)
                     continue;
                 missionCount++;
-                // Collapse: read ONCE, before the bar draws. The bar's own Collapse / Expand
-                // button writes the flag mid-pass, and the rows below it must follow the value
+                // Collapse: read ONCE, before the bar draws. The bar's own collapse caret
+                // writes the flag mid-pass, and the rows below it must follow the value
                 // this pass's Layout used, or the control count desyncs; the click shows next
                 // frame. A collapsed mission keeps its whole two-line bar.
                 bool collapsed = mission.Collapsed;
@@ -2657,51 +2666,55 @@ namespace Parsek
             EndInteractCell();
         }
 
-        // A mission's first line: Watch, and Rewind / Forward beside it when it applies. Watch
-        // takes the full single width when it is alone and a pair half when Rewind / Forward
-        // draws, so the pair spans exactly one single.
+        // A mission's first line: Watch alone, at the single width.
+        private void DrawInteractWatch(Mission mission, MissionThroughLineView view)
+        {
+            BeginInteractCell();
+            DrawMissionWatchButton(mission, view, InteractButtonWidth, interactButtonStyle);
+            EndInteractCell();
+        }
+
+        // A mission's second line: Rewind or Forward at the single width, under Watch, when one
+        // applies to the mission's root (launch) recording. When neither applies the same
+        // button-sized rect is reserved (GetRect draws nothing and takes no control id), so the
+        // line keeps its height and the column its alignment in every state.
         // [ERS-exempt] reason: the rewind/forward path is keyed on the RAW committed index (it
         // takes a committed index + recording and resolves the rewind owner / save by
         // identity), not the ERS index; same rationale as the watch button.
-        private void DrawInteractWatchRewind(Mission mission, MissionThroughLineView view)
+        private void DrawInteractRewindForward(MissionThroughLineView view)
         {
             var rewindCommitted = RecordingStore.CommittedRecordings;
             int rootIdx = ResolveMissionRootRecordingIndex(view, rewindCommitted);
             Recording rootRec = rootIdx >= 0 ? rewindCommitted[rootIdx] : null;
             double now = Planetarium.GetUniversalTime();
             RecordingsTableUI table = parentUI.GetRecordingsTableUI();
-            bool rewindShown = table.MissionRewindForwardVisible(rootRec, now);
 
             BeginInteractCell();
-            if (rewindShown)
-            {
-                DrawMissionWatchButton(mission, view, InteractPairButtonWidth, interactPairButtonStyle);
-                GUILayout.Space(InteractButtonGap);
+            if (table.MissionRewindForwardVisible(rootRec, now))
                 table.DrawMissionRewindForwardButton(rootRec, rootIdx, now, parentUI.Flight,
-                    InteractPairButtonWidth, interactPairButtonStyle);
-            }
+                    InteractButtonWidth, interactButtonStyle);
             else
-            {
-                DrawMissionWatchButton(mission, view, InteractButtonWidth, interactButtonStyle);
-            }
+                GUILayoutUtility.GetRect(InteractReservedSlotContent, interactButtonStyle,
+                    GUILayout.Width(InteractButtonWidth));
             EndInteractCell();
         }
 
-        // A mission's second line: the Collapse / Expand toggle BUTTON, "Collapse" while the
-        // mission's rows show and "Expand" (pressed) while they are hidden. `collapsed` is the
-        // value the draw loop latched before the bar drew, so the label matches the rows this
-        // pass draws; the click writes Mission.Collapsed and takes effect next frame.
-        private void DrawInteractCollapse(Mission mission, bool collapsed)
+        // Sizes the reserved line-2 slot like a one-line Interact button.
+        private static readonly GUIContent InteractReservedSlotContent = new GUIContent(" ");
+
+        // Line 2 of the # column: the mission's collapse caret, a clickable glyph under the index
+        // number (down while the mission's rows show, right while they are hidden; the hover says
+        // which). `collapsed` is the value the draw loop latched before the bar drew, so the
+        // glyph matches the rows this pass draws; the click writes Mission.Collapsed and takes
+        // effect next frame. Drawn in both modes and in every state, so the control count is the
+        // same on the Layout and Repaint passes.
+        private void DrawMissionCollapseCaret(Mission mission, bool collapsed)
         {
-            BeginInteractCell();
-            bool nowCollapsed = GUILayout.Toggle(collapsed,
-                new GUIContent(collapsed ? "Expand" : "Collapse",
-                    collapsed ? MissionPresentation.ExpandButtonTooltip
-                              : MissionPresentation.CollapseButtonTooltip),
-                interactToggleButtonStyle, GUILayout.Width(InteractButtonWidth));
-            EndInteractCell();
-            if (nowCollapsed != collapsed)
+            GUIContent content = collapsed ? MissionCaretCollapsedContent : MissionCaretExpandedContent;
+            if (GUILayout.Button(content, missionCaretStyle,
+                    GUILayout.Width(ColW_Index), GUILayout.MinHeight(CompositionRowMinHeight)))
             {
+                bool nowCollapsed = !collapsed;
                 mission.Collapsed = nowCollapsed;
                 ParsekLog.Info("Mission", $"Mission '{mission.Name}' collapsed={nowCollapsed}");
             }
@@ -2888,10 +2901,10 @@ namespace Parsek
         // holding TWO table rows, each laying out the same columns as every vessel row under it
         // (MissionsTabColumnSequenceTests holds both to the column header's sequence).
         //   Line 1: index | bold title + Log (right-aligned in the name cell) | the mission's
-        //           start time, start event, outcome, end time | Interact: Watch (+ Rewind /
-        //           Forward).
-        //   Line 2: blank | the summary, then (Advanced) the loop group right-aligned in the name
-        //           cell | four blank data cells | Interact: Collapse / Expand.
+        //           start time, start event, outcome, end time | Interact: Watch.
+        //   Line 2: the collapse caret under the index | the summary, then (Advanced) the loop
+        //           group right-aligned in the name cell | four blank data cells | Interact:
+        //           Rewind / Forward (a reserved slot when neither applies).
         // Clone/Delete mutate MissionStore; the draw loop iterates a snapshot so that is safe. The
         // loop toggle goes through MissionStore.SetLoopEnabled, which allows concurrent looping
         // across trees but at most one looping mission per tree (it only flips bools on same-tree
@@ -2945,7 +2958,7 @@ namespace Parsek
             DrawMissionValueCell(summary.TerminalWord, ColW_EndEvent);
             DrawMissionValueCell(summary.EndDateText, ColW_EndTime);
 
-            DrawInteractWatchRewind(mission, view);
+            DrawInteractWatch(mission, view);
 
             GUILayout.EndHorizontal();
         }
@@ -2996,23 +3009,25 @@ namespace Parsek
             DrawEventCell(value, null, compositionCellLabelNoWrap, width);
         }
 
-        // Line 2 of the mission bar: the summary (+ the Advanced loop grid's second row) in the
-        // name cell, blank data cells, and Collapse / Expand in the Interact column.
+        // Line 2 of the mission bar: the collapse caret in the # column, the summary (+ the
+        // Advanced loop grid's second row) in the name cell, blank data cells, and Rewind /
+        // Forward in the Interact column.
         private void DrawMissionActionLine(Mission mission, MissionThroughLineView view,
             MissionPeriodicityDisplay periodicity, MissionPresentation.MissionSummaryFacts summary,
             bool collapsed)
         {
             GUILayout.BeginHorizontal(GUILayout.MinHeight(CompositionRowMinHeight));
-            // Same leading cells as line 1, so the summary starts under the title.
+            // Same leading cells as line 1, so the caret sits under the index and the summary
+            // starts under the title.
             GUILayout.Label("", missionHeaderInlineLabel, GUILayout.Width(ColW_Enable));
-            GUILayout.Label("", missionHeaderInlineLabel, GUILayout.Width(ColW_Index));
+            DrawMissionCollapseCaret(mission, collapsed);
             GUILayout.Space(BodyCellTextIndent);
             DrawMissionSummaryNameCell(mission, view, periodicity, summary);
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartTime));
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartEvent));
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
-            DrawInteractCollapse(mission, collapsed);
+            DrawInteractRewindForward(view);
             GUILayout.EndHorizontal();
         }
 
@@ -4938,7 +4953,7 @@ namespace Parsek
             GUILayout.Label("End time", colHdr, GUILayout.Width(ColW_EndTime), GUILayout.Height(ColHeaderHeight));
 
             // Interact column header: a plain label over the one right-hand column that carries
-            // every per-row action (Watch / Rewind, Collapse, Fly / Stash + Seal, Go to). The
+            // every per-row action (Watch, Rewind / Forward, Fly / Stash + Seal, Go to). The
             // dark box (colHdrCellContainerStyle, zero horizontal margin) spans exactly
             // ColW_Interact, like each row's margin-0 Interact cell below it, so the data columns
             // left of it line up with their headers.

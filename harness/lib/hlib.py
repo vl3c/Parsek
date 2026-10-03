@@ -2637,7 +2637,7 @@ UIACTION_NUDGE_VALUES: Tuple[str, ...] = ("true", "false")
 # from this map keeps no expansion state the seam can drive, and `op=expand` against it
 # is the `expand-unsupported-window` REJECTED - so the absence is meaningful here too.
 # The `missions` row covers BOTH tabs of that one window: group folders and chain blocks
-# on the Recordings tab, vessel / leg rows and each mission's Collapse / Expand
+# on the Recordings tab, vessel / leg rows and each mission's collapse caret
 # (`mission:<id>`) on the Missions tab. The `kerbals`
 # row takes one prefix per TAB instead: `roster` drives a Roster row's replacement-chain
 # view plus that tab's plain-kerbal fold row (key `(available)`), `flights` drives a
@@ -2671,7 +2671,7 @@ UIACTION_EXPAND_BULK_KEYS: Tuple[str, ...] = ("all", "none")
 # (GroupHierarchyStore.HideActive) in opposite label senses; two keys with opposite
 # polarities for one flag would have made every lane read the source to learn which it
 # had. (The Missions tab's own "hide archived missions" filter, once `archivedMissions`,
-# is gone: Missions Model 1 turned its per-mission mark into Collapse / Expand, driven by
+# is gone: Missions Model 1 turned its per-mission mark into the collapse caret, driven by
 # the `op=expand` key `mission:<id>`.)
 UIACTION_STATE_KEYS: Dict[str, Tuple[str, ...]] = {
     "timeline": ("srcRecordings", "srcActions", "srcEvents", "archived", "customRange",
