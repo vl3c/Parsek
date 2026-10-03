@@ -130,19 +130,23 @@ mission = "science_bench_recover"
 #     THIS spec the commit is also what runs the recalc whose `nowUT` has finally
 #     passed B's deadline. Without the setting there is no injecting walk.
 #
-# (2) `CommitTree` is KEPT VERBATIM though it is EXPECTED TO FAIL. L3 measured
-#     `TIMEOUT` here on both of its green flights (the recovery has already
-#     destroyed the vessel, so there is no active tree to commit), run
-#     `2026-08-20_2217` measured it a third time on this fixture, and
-#     `hlib.SEAM_VERB_POST_MISSION_ROLE` files the verb as `recording`, which is
-#     NON-GATING on a MISSION-OK run. Keeping it means a future change to the
-#     recovery teardown reds here rather than passing silently.
+# (2) `CommitTree` is KEPT, and it EXPECTS `REJECTED`. L3 measured `TIMEOUT` here
+#     on both of its green flights (the recovery has already destroyed the vessel
+#     and left the run in a settled SPACECENTER, so the step deferred
+#     `not-in-flight` for its whole 60 s budget), and run `2026-08-20_2217`
+#     measured it a third time on this fixture. Since 2026-10-03 the seam answers
+#     that shape at once with `REJECTED not-in-flight`
+#     (`TestCommandDispatcher.RejectOutsideFlightVerbs`; todo
+#     HARNESS-POST-FLIGHT-DIALOG-STALLS). `hlib.SEAM_VERB_POST_MISSION_ROLE` files
+#     the verb as `recording`, which is NON-GATING on a MISSION-OK run. Keeping it
+#     means a future change to the recovery teardown reds here rather than passing
+#     silently.
 steps = [
   { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },    expect = "OK", budget = 300 },
   { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
   { cmd = "SetSetting",     args = { name = "autoMerge",          value = "true" }, expect = "OK" },
   { phase = "mission",                                                              expect = "MISSION-OK", budget = 1320 },
-  { cmd = "CommitTree",                                                             expect = "OK" },
+  { cmd = "CommitTree",                                                             expect = "REJECTED" },
   { cmd = "RecordingState",                                                         expect = "OK" },
   { cmd = "FlushAndQuit",                                                           expect = "OK" },
 ]

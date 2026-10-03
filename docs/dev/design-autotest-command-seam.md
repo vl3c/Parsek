@@ -3703,7 +3703,9 @@ post-mission role `outcome`.
 `placement-mode-refused`, `key-injection-unavailable`, `placement-not-accepted`,
 `placement-timeout`, `preview-timeout`, `placed-vessel-timeout`, `pickup-threw`,
 `pickup-timeout`, `take-threw`, `take-timeout`, `step-threw`, `step-timeout`, `kerbal-lost`, each with an
-`evagroundscience failed reason=` Error line.
+`evagroundscience failed reason=` Error line. A kerbal that dies mid-step ends the step
+earlier still, through the shared `active-vessel-lost` guard (see "Active-vessel loss
+fails a pending step" below).
 
 **Known product consequence.** The recorder keys the Placed event to the placed part's pid,
 which is its OWN vessel, so the kerbal's recording carries a pid its snapshot lacks
@@ -4057,7 +4059,7 @@ parsed, N deferred), with bounded per-command Info lines (command counts are sma
 | `SetSetting` | game loaded (`ParsekSettings.Current != null`), any scene; else Defer | typed whitelist setter mutates `ParsekSettings.Current` | `name`, `value` echoed |
 | `StartRecording` | FLIGHT with a loaded, unpacked active vessel, not restoring/re-fly/merge-journal; else Defer | `ParsekFlight.StartRecording(...)`, then RE-SAMPLE `HasLiveRecorderForTagging()`; a refusal (vessel not ready / packed / guard blocked) is `ERROR msg=start-refused`, never a false OK (F4) | `recordingId`, `already=true` if a recorder was live |
 | `StopRecording` | FLIGHT; else Defer | `ParsekFlight.StopRecording()` (idempotent: OK with `idle=true` if no recorder) | `stopped` bool |
-| `CommitTree` | FLIGHT with `activeTree != null`; if no tree -> `ERROR msg=no-active-tree` (mirrors `CommitTreeFlight`'s guard) | `ParsekFlight.CommitTreeFlight()` | `committed=true` |
+| `CommitTree` | FLIGHT with `activeTree != null`; if no tree -> `ERROR msg=no-active-tree` (mirrors `CommitTreeFlight`'s guard). In a SETTLED non-FLIGHT scene it is `REJECTED msg=not-in-flight` at once rather than the usual FLIGHT-verb defer (`TestCommandDispatcher.RejectOutsideFlightVerbs`, below) | `ParsekFlight.CommitTreeFlight()` | `committed=true` |
 | `DiscardTree` | FLIGHT; if no active tree -> OK `nothing=true` | stop recorder if live, then `ParsekFlight.AutoDiscardActiveTreeWithMessage(reason, screenMessage, ledgerRecalcReason)` (the wrong-context-caller entry point) with test-command-specific strings | `discarded` bool |
 | `RecordingState` | any scene (read-only) | snapshot recorder/tree state (reuses `RecorderStateLog.FormatRecState` inputs) | `recording`, `tree` (the `RecordingTree.Id` of the active tree, empty when none - adjudication B), `points`, `scene` |
 | `RunTests` | any scene the runner supports; else Defer | `InGameTestRunner.RunAll()` (no `category`) or `RunCategory(category)`; with `isolated=true` (R5) the `*IncludingFlightRestore` variant instead, which also admits `RestoreBatchFlightBaselineAfterExecution` tests and restores a flight baseline after each. An `isolated` value other than the exact lowercase `true`/`false` is REJECTED `isolated-arg-invalid` (fail-closed: a silent fallback would run the ordinary filter and print an all-skipped tally that reads like a Parsek defect). Response deferred until `IsRunning` goes true->false and `ExportResultsFile` ran | `passed`, `failed`, `skipped`, `results=parsek-test-results.txt` |
@@ -4129,6 +4131,35 @@ wall-clock. Some verbs need a different bound and override the default:
 
 Budgets are measured from when the command first reaches the head and begins deferring. On
 expiry the pump writes `TIMEOUT` with `msg` carrying the last defer reason and advances.
+
+**CommitTree rejects outside FLIGHT instead of deferring (2026-10-03).** Every
+`RequiresFlight` verb defers `not-in-flight` in a non-FLIGHT scene, except the verbs in
+`TestCommandDispatcher.RejectOutsideFlightVerbs`, which answer `REJECTED msg=not-in-flight`
+at once. The set is `CommitTree` alone. Its post-mission use after a stock recovery (L3 / L5
+/ L6) reached the head in a settled SPACECENTER with no tree to commit and could only end
+`TIMEOUT` after 60 s, with the KSC "Mission Summary" dialog up the whole time. Nothing can
+bridge that wait into FLIGHT: the head blocks every other seam verb, and a scene load
+requested by anything else (a kRPC launch, a revert) sets the transition flag synchronously,
+so a pending transition still defers `not-safe-point` before the scene check runs. The
+collected record agreed before the change: of 217 runs that sent `CommitTree`, 213
+dispatched straight to OK and all 10 that deferred `not-in-flight` ended `TIMEOUT`. The
+other FLIGHT verbs keep the defer, because their wrong-scene case is the bounded
+scene-arrival wait their budgets are sized for.
+
+**Active-vessel loss fails a pending step (2026-10-03).** A two-phase verb in
+`TestCommandActiveVesselLoss`'s watched set (`EvaGroundScience`, `PlantFlag`) captures the
+active vessel when its executor returns PENDING. Every completion poll checks that vessel
+BEFORE the verb's own completion runs, and a vessel that is gone ends the step on that poll
+with `ERROR msg=active-vessel-lost` and one Warn line, `active-vessel lost id= cmd= vessel=
+pid= state=dead|destroyed elapsed= reason=active-vessel-lost`. Gone means a Unity-null
+reference OR `Vessel.State.DEAD`: stock `Vessel.Die` destroys a non-active vessel's
+GameObject but leaves the dead ACTIVE vessel in place as `FlightGlobals.ActiveVessel`, so a
+dead kerbal never reads null. That is why the EVA-8 step-move runs of 2026-09-29 each sat
+their full 120 s `step-timeout` after Jeb died. Not watched: `EvaChuteDeploy` (its own
+debounced `eva-chute-kerbal-lost`), `EvaBoard` (boarding removes the EVA vessel by design),
+`EvaExit` (switches focus), the scene-leaving verbs, and `WarpToUT` (a crash under warp is
+a spec's own subject, asserted from log lines). The guard is part of the seam, so it exists
+only when `PARSEK_TEST_COMMANDS=1` arms the addon.
 
 ### Reserved / phase-3 forward map (design only, not implemented)
 
