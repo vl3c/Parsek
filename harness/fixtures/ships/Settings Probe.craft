@@ -1,0 +1,45 @@
+ship = Settings Probe
+version = 1.12.5
+description = A lone Stayputnik: the cheapest craft a fresh career can launch under ProbesBeforeCrew (probeCoreSphere_v2 is a start-node part there, the Mk1 pod is not).
+type = VAB
+size = 0.6,0.6,0.6
+steamPublishedFileId = 0
+persistentId = 1100000001
+rot = 0,0,0,1
+missionFlag = Squad/Flags/default
+vesselType = Probe
+PART
+{
+	part = probeCoreSphere.v2_4294000001
+	partName = Part
+	persistentId = 1100000002
+	pos = 0,15,0
+	attPos = 0,0,0
+	attPos0 = 0,15,0
+	rot = 0,0,0,1
+	attRot = 0,0,0,1
+	attRot0 = 0,0,0,1
+	mir = 1,1,1
+	symMethod = Radial
+	autostrutMode = Off
+	rigidAttachment = False
+	istg = 0
+	resPri = 0
+	dstg = 0
+	sidx = -1
+	sqor = -1
+	sepI = -1
+	attm = 0
+	modCost = 0
+	modMass = 0
+	modSize = 0,0,0
+	EVENTS
+	{
+	}
+	ACTIONS
+	{
+	}
+	PARTDATA
+	{
+	}
+}
