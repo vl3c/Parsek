@@ -5506,6 +5506,11 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: PWR-3 (recording under physics warp at the High density) is armed;
+  every registry coverage cell is now claimed (251 of 251).** Its two quarantining findings
+  were fixed in the recorder (see Fixed: "a sample taken when a frame runs long"), the
+  quarantined flight passed unexpectedly, and the lane now gates without an expected-fail
+  block and claims D2 `physics-warp-high`.
 - **Automated testing: recording under physics warp, at every sampling density.** Three new
   nightly lanes, `PWR-1/2/3-physwarp-ascent-{low,medium,high}`, fly the LKO ascent (MechJeb
   runs 2x physics warp through the upper ascent with the engine burning) plus a 4x

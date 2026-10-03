@@ -143,6 +143,10 @@ hit it; 1x staging hitches are exposed the same way.
   (`v.srfRelRotation`, read live as before), and event-driven
   `SamplePosition` calls that fire inside FixedUpdate (an autostager's decouple) still read
   live; their same-UT pairs are handled by SECTION-DUPLICATE-UT-SAMPLES.
+  Live proof: quarantined PWR-3 `2026-10-03_1030` XPASS (jumps 0, overMax 0; the FixedUpdate
+  callback at the rate change logged `source=PostPhysicsPose reason=fixed-step-pose
+  liveUT=212.5152 poseUT=212.4775`), armed `_1050` PASS; PWR-1 `_1039` / PWR-2 `_1044` PASS.
+  PWR-3's `[expectedFail]` block is removed and it claims D2 `physics-warp-high`.
 
 ## SECTION-DUPLICATE-UT-SAMPLES: the recorder writes two samples with the same UT into one track section [FILED 2026-10-02 from PWR-1 `2026-10-02_2122` / `_2141` and PWR-3 `2026-10-02_2108` / `_2133`, branch `physwarp-recording`. OPEN, low, pre-existing at 1x; operator decides the fix]
 
