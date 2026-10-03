@@ -63,6 +63,28 @@ namespace Parsek
             return groupName;
         }
 
+        /// <summary>
+        /// The heading the picker draws above its group list, naming what the choice is
+        /// for. Set-parent mode (<paramref name="groupName"/> non-null):
+        /// <c>Parent of 'G':</c>. Otherwise one recording with a name:
+        /// <c>Groups for 'V':</c>; any other count (a chain, a block, a multi-selection):
+        /// <c>Groups for N recordings:</c>. A blank recording name reads
+        /// <c>Groups for this recording:</c>.
+        /// </summary>
+        internal static string FormatHeading(string groupName, string recordingName,
+            int recordingCount)
+        {
+            if (groupName != null)
+                return "Parent of '" + groupName + "':";
+            if (recordingCount == 1)
+                return string.IsNullOrEmpty(recordingName)
+                    ? "Groups for this recording:"
+                    : "Groups for '" + recordingName + "':";
+            return "Groups for "
+                + recordingCount.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + " recordings:";
+        }
+
         internal static List<int> NormalizeRecordingSelection(
             IReadOnlyList<int> recordingIndices,
             int committedCount)

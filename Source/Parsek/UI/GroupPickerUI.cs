@@ -81,12 +81,14 @@ namespace Parsek
         private HashSet<string> groupPopupOriginal;
         private HashSet<string> groupPopupExpanded;
         private string groupPopupNewName = "";
+        private string groupPopupHeading = "";
         private Rect groupPopupRect;
         private Vector2 groupPopupScrollPos;
         private bool isResizingGroupPopup;
-        private const float ColW_Group = 50f;
-        private const float GroupPopupMinW = 220f;
-        private const float GroupPopupMinH = 200f;
+        internal const float GroupPopupMinW = 260f;
+        internal const float GroupPopupMinH = 220f;
+        internal const float GroupPopupDefaultW = 320f;
+        internal const float GroupPopupDefaultH = 360f;
 
         public bool IsOpen => groupPopupOpen;
 
@@ -116,6 +118,7 @@ namespace Parsek
                 ? new HashSet<string>(rec.RecordingGroups) : new HashSet<string>();
             groupPopupOriginal = new HashSet<string>(groupPopupChecked);
             groupPopupNewName = "";
+            groupPopupHeading = GroupPickerPresentation.FormatHeading(null, rec.VesselName, 1);
             groupPopupPosition = mousePos;
             InitGroupPopupExpansion();
         }
@@ -127,12 +130,15 @@ namespace Parsek
             groupPopupRecIndices = null;
             groupPopupChainId = chainId;
             groupPopupGroup = null;
+            List<int> chainMembers = RecordingStore.GetChainMemberIndices(chainId);
             groupPopupChecked = GroupPickerPresentation.GetCommonGroups(
-                RecordingStore.GetChainMemberIndices(chainId),
+                chainMembers,
                 RecordingStore.CommittedRecordings,
                 RecordingStore.GetGroupNames());
             groupPopupOriginal = new HashSet<string>(groupPopupChecked);
             groupPopupNewName = "";
+            groupPopupHeading = GroupPickerPresentation.FormatHeading(
+                null, SingleRecordingName(chainMembers), chainMembers.Count);
             groupPopupPosition = mousePos;
             InitGroupPopupExpansion();
         }
@@ -153,6 +159,8 @@ namespace Parsek
                 RecordingStore.GetGroupNames());
             groupPopupOriginal = new HashSet<string>(groupPopupChecked);
             groupPopupNewName = "";
+            groupPopupHeading = GroupPickerPresentation.FormatHeading(
+                null, SingleRecordingName(groupPopupRecIndices), groupPopupRecIndices.Count);
             groupPopupPosition = mousePos;
             InitGroupPopupExpansion();
         }
@@ -171,13 +179,27 @@ namespace Parsek
                 groupPopupChecked.Add(parent);
             groupPopupOriginal = new HashSet<string>(groupPopupChecked);
             groupPopupNewName = "";
+            groupPopupHeading = GroupPickerPresentation.FormatHeading(groupName, null, 0);
             groupPopupPosition = mousePos;
             InitGroupPopupExpansion();
         }
 
+        /// <summary>The vessel name of the one recording in <paramref name="indices"/>, or
+        /// null when there is not exactly one (the heading then counts them).</summary>
+        private static string SingleRecordingName(List<int> indices)
+        {
+            if (indices == null || indices.Count != 1) return null;
+            // [ERS-exempt] reason: indices are into the raw committed list, as above.
+            IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+            int ri = indices[0];
+            return ri >= 0 && ri < committed.Count && committed[ri] != null
+                ? committed[ri].VesselName : null;
+        }
+
         private void InitGroupPopupExpansion()
         {
-            // Reset popup rect so it repositions near the clicked G button
+            // An empty rect is re-placed on the next draw: next to the clicked G button,
+            // or centred over the Missions window when the opener had no click point.
             groupPopupRect = new Rect(0, 0, 0, 0);
             isResizingGroupPopup = false;
             groupPopupExpanded = GroupPickerPresentation.BuildExpandedGroups(
@@ -188,9 +210,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Draws the group picker popup. Called from OnGUI or after the recordings window.
+        /// Draws the group picker popup after the Missions window, whose rect
+        /// (<paramref name="parentWindowRect"/>) a picker opened with no click point centres
+        /// over.
         /// </summary>
-        public void Draw()
+        public void Draw(Rect parentWindowRect)
         {
             if (!groupPopupOpen) return;
 
@@ -200,17 +224,21 @@ namespace Parsek
                 parentUI.KnownEmptyGroups,
                 groupPopupGroup);
 
-            ParsekUI.HandleResizeDrag(ref groupPopupRect, ref isResizingGroupPopup,
-                GroupPopupMinW, GroupPopupMinH, null);
-
-            // Initialize popup rect on first open
+            // Place the first-open rect BEFORE the resize/screen fit: the fit would widen an
+            // unplaced zero rect to the minimum width at the screen origin, and the placement
+            // would then never run (PickerWindowLayout).
             if (groupPopupRect.width < 1f)
             {
-                groupPopupRect = new Rect(
-                    Mathf.Clamp(groupPopupPosition.x, 0, Screen.width - 280f),
-                    Mathf.Clamp(groupPopupPosition.y, 0, Screen.height - 300f),
-                    280f, 300f);
+                groupPopupRect = PickerWindowLayout.PlaceOnOpen(
+                    groupPopupPosition, parentWindowRect,
+                    GroupPopupDefaultW, GroupPopupDefaultH, Screen.width, Screen.height);
+                ParsekLog.Verbose("UI", PickerWindowLayout.FormatPlacementLog(
+                    "Group picker", groupPopupPosition, groupPopupRect,
+                    Screen.width, Screen.height));
             }
+
+            ParsekUI.HandleResizeDrag(ref groupPopupRect, ref isResizingGroupPopup,
+                GroupPopupMinW, GroupPopupMinH, null);
 
             bool isGroupPopup = groupPopupGroup != null;
             string popupTitle = isGroupPopup ? "Set Parent Group" : "Manage Groups";
@@ -238,15 +266,22 @@ namespace Parsek
 
         private void DrawGroupPopupContents(GroupPickerTreeModel treeModel, bool isGroupPopup)
         {
-            groupPopupScrollPos = GUILayout.BeginScrollView(groupPopupScrollPos, GUILayout.ExpandHeight(true));
+            // The house picker look (PickerWindowLayout): a heading in the shared table
+            // section style below the main windows' title gap, then the entries inside the
+            // shared dark table body box.
+            PickerWindowLayout.DrawTitleGap();
+            GUILayout.Label(groupPopupHeading, parentUI.GetTableSectionHeaderStyle());
+            groupPopupScrollPos = PickerWindowLayout.BeginEntryList(parentUI, groupPopupScrollPos);
 
             // For group-in-group: add "(None / Root)" option
             if (isGroupPopup)
             {
+                PickerWindowLayout.BeginEntryRow();
                 bool noneChecked = groupPopupChecked.Count == 0;
                 bool newNone = GUILayout.Toggle(noneChecked, "(None / Root level)");
                 if (newNone && !noneChecked)
                     groupPopupChecked.Clear();
+                GUILayout.EndHorizontal();
             }
 
             // Draw group hierarchy with checkboxes
@@ -261,14 +296,14 @@ namespace Parsek
                     parentName: null);
             }
 
-            GUILayout.EndScrollView();
+            PickerWindowLayout.EndEntryList();
 
             GUILayout.Space(3);
 
             // New group creation
             GUILayout.BeginHorizontal();
             groupPopupNewName = GUILayout.TextField(groupPopupNewName, GUILayout.ExpandWidth(true));
-            if (GUILayout.Button("+", GUILayout.Width(25)))
+            if (GUILayout.Button("+", GUILayout.Width(PickerWindowLayout.SmallButtonWidth)))
             {
                 var knownEmptyGroups = parentUI.KnownEmptyGroups;
                 if (GroupPickerPresentation.TryCreateGroupName(
@@ -291,12 +326,13 @@ namespace Parsek
             // Done / Cancel
             GUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button("OK", GUILayout.Width(60)))
+            if (GUILayout.Button("OK", GUILayout.Width(PickerWindowLayout.ButtonWidth)))
             {
                 ApplyGroupPopupChanges();
                 groupPopupOpen = false;
             }
-            if (GUILayout.Button("Cancel", GUILayout.Width(60)))
+            GUILayout.Space(PickerWindowLayout.ButtonGap);
+            if (GUILayout.Button("Cancel", GUILayout.Width(PickerWindowLayout.ButtonWidth)))
             {
                 groupPopupOpen = false;
             }
@@ -319,7 +355,7 @@ namespace Parsek
             List<string> children;
             bool hasChildren = parentToChildren.TryGetValue(groupName, out children) && children.Count > 0;
 
-            GUILayout.BeginHorizontal();
+            PickerWindowLayout.BeginEntryRow();
             if (depth > 0) GUILayout.Space(depth * 12f);
 
             bool isChecked = groupPopupChecked.Contains(groupName);
@@ -346,6 +382,7 @@ namespace Parsek
             // "Sub" (the checkbox and every write below keep the full stored name).
             GUILayout.Label(
                 GroupPickerPresentation.DisplayLabelUnderParent(groupName, parentName),
+                parentUI.GetTableCellStyle(),
                 GUILayout.ExpandWidth(true));
 
             GUILayout.EndHorizontal();

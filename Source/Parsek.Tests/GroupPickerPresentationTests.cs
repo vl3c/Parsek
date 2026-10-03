@@ -143,5 +143,21 @@ namespace Parsek.Tests
             Assert.True(delta.Added.SetEquals(new[] { "Science" }));
             Assert.True(delta.Removed.SetEquals(new[] { "Crew" }));
         }
+
+        [Theory]
+        [InlineData("Kerbal X #3", null, 0, "Parent of 'Kerbal X #3':")]
+        [InlineData("Kerbal X #3", "ignored", 1, "Parent of 'Kerbal X #3':")]
+        [InlineData(null, "Kerbal X", 1, "Groups for 'Kerbal X':")]
+        [InlineData(null, "", 1, "Groups for this recording:")]
+        [InlineData(null, null, 1, "Groups for this recording:")]
+        [InlineData(null, null, 3, "Groups for 3 recordings:")]
+        [InlineData(null, "Kerbal X", 12, "Groups for 12 recordings:")]
+        [InlineData(null, null, 0, "Groups for 0 recordings:")]
+        public void FormatHeading_NamesWhatThePickerChoosesFor(
+            string groupName, string recordingName, int count, string expected)
+        {
+            Assert.Equal(expected,
+                GroupPickerPresentation.FormatHeading(groupName, recordingName, count));
+        }
     }
 }

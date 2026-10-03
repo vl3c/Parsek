@@ -2550,6 +2550,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **The group pickers and the round-trip link picker now look like the main windows.**
+  Manage Groups, Set Parent Group and Link round-trip partner list their entries in the
+  same dark table box as the Recordings tab, spaced like the Missions tab's expanded
+  vessel rows, under a heading a small gap below the title bar that
+  says what the choice is for ("Groups for 'Kerbal X':", "Parent of 'Kerbal X #3':",
+  "Link 'Route: KSC -> Duna' with:"). OK, Cancel and Link are the Missions window's
+  100 px buttons. Each picker now opens next to the button that opened it (to its left
+  near the screen's right edge), fully on screen; they used to open shrunk into the
+  screen's top-left corner, because the on-screen fit ran before the picker was placed.
+  Selection, OK / Cancel, the new-group field and "+", and the Link enable rule are
+  unchanged.
+
 - **Logistics window redesign (Model 1).** The Active Routes, Paused Routes and Candidates
   sections now have bigger centred title bars with a count ("Active Routes (2)"), a thin
   accent line in the section's colour and a caret: click a bar to fold its section. A grey
