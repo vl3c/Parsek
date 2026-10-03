@@ -50,7 +50,7 @@ agree (both surface-fixed); in orbit they do not.
 pre-jump state vector alongside `CaptureOrbitalStates` and spawn the tip from it with the same
 epoch shift the loaded vessels get, instead of from the recorded orbit at the new UT.
 Whatever the fix, `CI-9-chain-tip-dock` keeps passing: its mission rendezvous only when the
-first target distance exceeds the approach distance, and on the fixed product that distance
+first target distance exceeds `rendezvousAboveMeters` (250 m), and on the fixed product that distance
 is ~140 m, so it takes the MATCH-VELOCITY branch. A lane that gates the geometry itself (the
 first target distance under, say, 250 m) is the witness to add with the fix.
 
