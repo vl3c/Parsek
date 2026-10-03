@@ -151,7 +151,9 @@ decision 2026-10-02).
   An identical sample (every field but `flags`, NaN clearances equal) is not appended and its
   flag bits are OR-ed into the stored point, so a structural-event marker is never lost. A
   differing one replaces the stored point (flags OR-ed, Relative `bodyFixedFrames` shadow
-  replaced in step, flat list updated in place): the later commit is the later observation of
+  replaced in step, flat list updated in place, except when the section's only frame is a
+  boundary seed: the flat list's same-UT point then belongs to the closed section and stays,
+  the new sample is appended after it): the later commit is the later observation of
   that instant, taken after the event that caused it, and the following samples continue from
   its state (the clamp-release pair: the off-rails sample's unpacked velocity is the
   convention every later sample uses, the packed one carried `obt_velocity`). It logs

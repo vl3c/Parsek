@@ -1132,6 +1132,10 @@ namespace Parsek
         internal const float AnimateHeatMediumThreshold = 0.40f;
         internal const float AnimateHeatMediumFallbackThreshold = 0.35f; // hysteresis: fall from Medium at 0.35, rise at 0.40
         private double lastRecordedUT = -1;
+        // True while the open section's only frame is a boundary seed copied from the
+        // closed section (SeedBoundaryPoint); the flat list's same-UT tail then belongs
+        // to the closed section.
+        private bool currentSectionHoldsOnlySeed;
         private Vector3 lastRecordedVelocity;
         private Quaternion lastRecordedWorldRotation = Quaternion.identity;
         private bool hasLastRecordedWorldRotation;
@@ -5465,6 +5469,7 @@ namespace Parsek
             surfaceMobileClearanceSumThisSection = 0.0;
             sectionFrameWarpFlags.Clear();
             sectionWarpRuns.Clear();
+            currentSectionHoldsOnlySeed = false;
             ParsekLog.Info("Recorder",
                 $"TrackSection started: env={env} ref={refFrame} source={source} " +
                 $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
@@ -10056,6 +10061,7 @@ namespace Parsek
             }
 
             Recording.Add(point);
+            currentSectionHoldsOnlySeed = false;
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
             lastRecordedWorldRotation = hasVessel
@@ -10171,6 +10177,7 @@ namespace Parsek
                 return;
 
             Recording.Add(point);
+            currentSectionHoldsOnlySeed = false;
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
             lastRecordedWorldRotation = default(Quaternion);
@@ -10347,10 +10354,36 @@ namespace Parsek
                     UpdateTrackSectionAltitude((float)point.altitude);
             }
 
-            if (Recording.Count > 0 && Recording[Recording.Count - 1].ut == point.ut)
+            // A seed-only section's flat-list twin is the closed section's last point: a
+            // replacement leaves it there and appends (the equal-UT seam the flat list
+            // has always carried); an identical merge only ORs the flags into it.
+            bool flatTailAtUT = Recording.Count > 0 && Recording[Recording.Count - 1].ut == point.ut;
+            bool flatTailBelongsToClosedSection = sectionReference
+                && currentSectionHoldsOnlySeed
+                && referenceList.Count == 1;
+            if (flatTailAtUT && flatTailBelongsToClosedSection)
+            {
+                if (disposition == SameUTCommitDisposition.ReplaceLast)
+                {
+                    Recording.Add(stored);
+                }
+                else
+                {
+                    TrajectoryPoint tail = Recording[Recording.Count - 1];
+                    tail.flags = (byte)(tail.flags | mergedFlags);
+                    Recording[Recording.Count - 1] = tail;
+                }
+            }
+            else if (flatTailAtUT)
+            {
                 Recording[Recording.Count - 1] = stored;
+            }
             else
+            {
                 Recording.Add(stored);
+            }
+            if (disposition == SameUTCommitDisposition.ReplaceLast)
+                currentSectionHoldsOnlySeed = false;
 
             if (disposition == SameUTCommitDisposition.ReplaceLast)
             {
@@ -10367,6 +10400,11 @@ namespace Parsek
                 {
                     lastRecordedWorldRotation = ReadSanitizedWorldRotation(v);
                     hasLastRecordedWorldRotation = true;
+                }
+                else
+                {
+                    lastRecordedWorldRotation = default(Quaternion);
+                    hasLastRecordedWorldRotation = false;
                 }
                 LastRecordedAltitude = point.altitude;
                 ParsekLog.Verbose("Recorder",
@@ -10755,6 +10793,11 @@ namespace Parsek
             CommitRecordedPoint(point, null);
         }
 
+        internal void SeedBoundaryPointForTesting(TrajectoryPoint point)
+        {
+            SeedBoundaryPoint(point);
+        }
+
         private void AppendSectionStartSeamPoint(TrajectoryPoint seamPoint, Vessel v, string reason)
         {
             if (ShouldSuppressReFlyPostLoadTrajectoryWrite(seamPoint.ut, "section-start-seam-" + (reason ?? "unknown")))
@@ -11133,6 +11176,7 @@ namespace Parsek
                 return;
             if (!trackSectionActive || currentTrackSection.frames == null) return;
             currentTrackSection.frames.Add(point.Value);
+            currentSectionHoldsOnlySeed = currentTrackSection.frames.Count == 1;
             AppendCurrentSectionFrameWarpFlag();
             if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
                 && bodyFixedPrimaryPoint.HasValue)

@@ -166,6 +166,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SeededSection_DifferingCommitReplacesTheSeed_KeepsTheClosedSectionsFlatPoint()
+        {
+            recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, 40.0);
+            recorder.CommitRecordedPointForTesting(Pt(48.5, speed: 100f));
+            recorder.CloseCurrentTrackSection(48.5);
+            recorder.StartNewTrackSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, 48.5);
+            recorder.SeedBoundaryPointForTesting(Pt(48.5, speed: 100f));
+            recorder.CommitRecordedPointForTesting(Pt(48.5, speed: 90f));
+
+            List<TrajectoryPoint> frames = recorder.CurrentTrackSectionForTesting.frames;
+            Assert.Single(frames);
+            Assert.Equal(90f, frames[0].velocity.magnitude);
+            // The closed section's point stays in the flat list; the new one follows it.
+            Assert.Equal(new[] { 48.5, 48.5 }, Uts(recorder.Recording));
+            Assert.Equal(100f, recorder.Recording[0].velocity.magnitude);
+            Assert.Equal(90f, recorder.Recording[1].velocity.magnitude);
+            Assert.Equal(100f, recorder.TrackSections[0].frames[0].velocity.magnitude);
+        }
+
+        [Fact]
+        public void SeededSection_IdenticalCommitMergesFlagsWithoutAppending()
+        {
+            recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, 40.0);
+            recorder.CommitRecordedPointForTesting(Pt(48.5));
+            recorder.CloseCurrentTrackSection(48.5);
+            recorder.StartNewTrackSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, 48.5);
+            recorder.SeedBoundaryPointForTesting(Pt(48.5));
+            recorder.CommitRecordedPointForTesting(Pt(48.5, flags: 1));
+
+            Assert.Single(recorder.CurrentTrackSectionForTesting.frames);
+            Assert.Equal(1, recorder.CurrentTrackSectionForTesting.frames[0].flags);
+            Assert.Single(recorder.Recording);
+            Assert.Equal(1, recorder.Recording[0].flags);
+        }
+
+        [Fact]
         public void NoOpenSection_DedupesAgainstTheFlatList()
         {
             recorder.CommitRecordedPointForTesting(Pt(10.0));
