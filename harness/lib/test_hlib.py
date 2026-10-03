@@ -4377,6 +4377,14 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # CommittedBatchTallySourceSyncTests gates its `total=`. It LEFT the same day: its
     # reading run 2026-09-27_1341 (PASS attempt 1) measured the prediction, `passed=1
     # failed=0 skipped=0`, and the spec pinned the line whole.
+    #
+    # VB-1-ghost-vessel-budget ENTERED on 2026-10-03 (`closing-flights`): its RunTests
+    # `VesselBudget` step (1 TRACKSTATION cell) was restored after the
+    # INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS fix, `total=1` literal with the split
+    # regexed, predicted 1 / 0. Like CN-1 it is not an H-series id, so this class's own
+    # cells never read it; CommittedBatchTallySourceSyncTests gates its `total=`. It LEFT
+    # the same day: its reading run 2026-10-03_1440 (PASS attempt 1) measured the
+    # prediction, `passed=1 failed=0 skipped=0`, and the spec pinned the line whole.
     INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.

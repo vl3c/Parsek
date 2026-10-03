@@ -909,7 +909,7 @@ precedent requires a clean seed session), and an operator-local fixture may only
 a window drew, which none of these lanes needs. Nothing from that save is committed or
 staged.
 
-## ~~HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE: a recorded-fixture lane's boot `DiscardTree` can be undone by the 1 Hz restore retry~~ [FILED 2026-09-29 from EVA-6's `2026-09-28_2059` attempt 1 (INVALID, passed on retry), branch `deployables-lanes`; FIXED 2026-10-02 on `fix-discard-restore-race`, live proof owed]
+## ~~HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE: a recorded-fixture lane's boot `DiscardTree` can be undone by the 1 Hz restore retry~~ [FILED 2026-09-29 from EVA-6's `2026-09-28_2059` attempt 1 (INVALID, passed on retry), branch `deployables-lanes`; FIXED 2026-10-02 on `fix-discard-restore-race`; live check 2026-10-03 PARTIAL (no re-adoption, armed path not reached), see below]
 
 **Fix (2026-10-02).** The seam's `DiscardTree` verb now arms a committed-spawned restore
 suppression for the active vessel right after its discard (and on the `nothing=true` path,
@@ -949,6 +949,21 @@ tree` line before the `EvaExit`, a `cleared ... reason=active-vessel-changed act
 line at the exit, and the kerbal's `startrecording recordingId=...` OK (no
 `active-recording-id-missing` refusal). The four lanes keep `retry policy = "once"` until
 that flight is read; drop it per lane afterwards.
+
+**Live check 2026-10-03 (`closing-flights`, automation DLL sha256 `9078cb1c...`, origin/main
+`cb899a8f9`): PARTIAL.** `EVA-6-placed-part-spawn-after-rewind` `2026-10-03_1437` PASS attempt
+1, no retry. An earlier `_1426` on an unpinned automation DLL read the same. Present: no second
+`restored tree 'Kerbal X'` line before the `EvaExit`, the kerbal's `startrecording
+recordingId=... already=false` OK, and no `active-recording-id-missing` refusal. Not reached:
+the armed path. In both runs the boot ordering was restore -> `StopRecording` -> OnFlightReady
+`Resetting flight-ready state` (drops the live tree) -> `DiscardTree`, which logged
+`CommittedSpawnedRestoreSuppression: not armed reason=test-command-discard-nothing
+pid=2708531065 (live tree=False recorder=True)` and `discardtree nothing=true`. The stopped
+recorder object keeps `recorder != null`, and that predicate closes both the arm and the 1 Hz
+retry gate (`ShouldAttemptCommittedSpawnedRestoreInUpdate`), so the race cannot fire on this
+ordering. The `armed` / `cleared ... reason=active-vessel-changed` pair still needs a flight
+whose discard reports `discarded=true` (the `_2059` ordering). Until then the four lanes keep
+`retry policy = "once"`.
 
 **Evidence.** On `kerbin-splashdown-recorded` the boot promotes the committed Kerbal X tip
 (`TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'Kerbal X' ... via
@@ -2294,7 +2309,7 @@ the committed fixture). Not fixed here: Relative-section flat points are not uni
 metres either way.
 
 ---
-## ~~REWIND-NAME-STRIP-TAKES-EARLIER-SAME-CRAFT-VESSEL: rewinding a relaunch of a craft strips the earlier launch of that craft from the rewind save~~ [FILED AND FIXED 2026-09-27, branch `fix-rewind-name-strip`; the open half of REWIND-STRIPS-RESUMED-COMMITTED-TIP. Headless-proven; NOT yet live-proven]
+## ~~REWIND-NAME-STRIP-TAKES-EARLIER-SAME-CRAFT-VESSEL: rewinding a relaunch of a craft strips the earlier launch of that craft from the rewind save~~ [FILED AND FIXED 2026-09-27, branch `fix-rewind-name-strip`; the open half of REWIND-STRIPS-RESUMED-COMMITTED-TIP. LIVE-PROVEN 2026-10-03 by RR-1 `2026-10-03_1441`]
 
 **What the name strip is for.** The plain rewind's pre-load strip (`RecordingStore.ExecuteRewindSaveLoad`
 -> `PreProcessRewindSave`) removes the rewind OWNER's own vessel from the `parsek_rw_` quicksave: the
@@ -2353,6 +2368,15 @@ onto the Runway, commits, rewinds `tree=latest`, and gates on the keep line nami
 (pid 2708531065), the summary `1 by name [Kerbal X], 0 by owner guid, ... kept 1 other launch(es)`, the
 OnLoad keep of `#autoLOC_501232` and the committed store still holding the capsule's spawn pid. The live
 proof is owed by that lane's reading flight.
+
+**LIVE-PROVEN 2026-10-03 (`closing-flights`, automation DLL sha256 `9078cb1c...`, origin/main
+`cb899a8f9`).** `RR-1-relaunch-rewind-keeps-earlier-launch` `2026-10-03_1441` PASS attempt 1 met
+every gated token as written, and its armed structure block passed. Logged: `Rewind owner strip:
+keeping vessel 'Kerbal X' (pid=2708531065, guid=5493223fe49b42b181998849a9a2aefa) in rewind save:
+owner's name but a different launch (owner guid=ee4b1d42...)` and `Stripped 1 vessel(s) from save (1
+by name [Kerbal X], 0 by owner guid, 0 by PID; kept 1 other launch(es) of the owner's craft)`. The
+OnLoad pass logged `Keeping vessel '#autoLOC_501232' (pid=2708531065, ...) ... pre-existing in
+launch/rewind quicksave`. The only orphan strip named the relaunch itself (pid 2539291220).
 
 ---
 
@@ -2809,7 +2833,7 @@ KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN); alternate launch sites with
 
 ---
 
-## ~~INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS: an in-game batch in the Tracking Station orphans every ghost map vessel~~ [FILED 2026-09-29 from VB-1's first reading run, branch `settings-axis`. FIXED 2026-10-03, branch `fix-ts-batch-orphans`; live proof owed (VB-1 / a TS batch); test runner only, no player path]
+## ~~INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS: an in-game batch in the Tracking Station orphans every ghost map vessel~~ [FILED 2026-09-29 from VB-1's first reading run, branch `settings-axis`. FIXED 2026-10-03, branch `fix-ts-batch-orphans`; LIVE-PROVEN 2026-10-03 by VB-1 `2026-10-03_1440`; test runner only, no player path]
 
 Found by `VB-1-ghost-vessel-budget` reading `2026-09-29_1657` (its KSP.log). Before a batch,
 `InGameTestRunner.PerformBetweenRunCleanup` destroys the flight-scene ghosts through
@@ -2868,6 +2892,20 @@ A live Tracking Station batch should show the removal line with `tracked=8` on V
 `Too many vessels in scene` line from the baseline / marker saves, one set of `Created ghost
 vessel` lines after the batch start, and `VesselBudget` PASS; after that read, VB-1 can restore
 its RunTests `VesselBudget` step (it re-pins the lane's batch tally).
+
+**LIVE-PROVEN 2026-10-03 (`closing-flights`, automation DLL sha256 `9078cb1c...`, origin/main
+`cb899a8f9`).** VB-1 restored its RunTests `VesselBudget` step (after the SaveGame under
+test). Reading `2026-10-03_1440` PASS attempt 1, armed structure PASS. Logged:
+`Between-run ghost vessel removal: reason=run-category:VesselBudget scene=TRACKSTATION
+tracked=8 untrackedLive=0 untrackedRemoved=0 staleRegisteredPids=0 liveVesselsBefore=17
+liveVesselsAfter=9` and `PerformBetweenRunCleanup: end ... ghostVesselsRemoved=8`, the same
+pair again at the batch-complete restore, `FlightStateGhostBudget: 8 ghost map vessel(s)
+present after 0.07 s` and `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0
+category=VesselBudget scene=TRACKSTATION`. No `Too many vessels in scene` line anywhere. One
+correction to the prediction: every cleanup is followed by its own rebuild, so the log holds
+four sets of eight `Created ghost vessel` lines. Each set follows a removal, and no two sets
+are live together (`liveVesselsBefore=17` = nine real vessels plus eight ghosts). VB-1 pins
+the batch line whole.
 
 ## KSP-SETTINGS-FOLLOWUPS-2026-09-27: fixes from the traces of the settings audit [FILED 2026-09-27, branch `kss2-career`]
 
