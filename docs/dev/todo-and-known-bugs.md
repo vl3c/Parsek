@@ -134,11 +134,15 @@ hit it; 1x staging hitches are exposed the same way.
   pose is the step the live read straddles, so every step is observed once with a matching
   position and the backstop holds at `max + one step`. A FixedUpdate callback with no current
   pose, or in Relative mode (the anchor offset resolves against the live world), takes no
-  sample; a packed vessel reads live as before. `BackgroundRecorder` skips its FixedUpdate
+  sample, so there the backstop holds at `max + one render frame`; a packed vessel reads
+  live as before. `BackgroundRecorder` skips its FixedUpdate
   callbacks' trajectory sample and samples at the Update step. FixedUpdate callbacks log
   `Fixed-step physics callback:` (rate-limited, with tallies). The boundary checks that
   sample the live vessel (atmosphere, altitude, environment, anchor) wait for the
-  Update-step callback that ends the same render frame.
+  Update-step callback that ends the same render frame. Left as is: the sample rotation
+  (`v.srfRelRotation`, read live as before), and event-driven
+  `SamplePosition` calls that fire inside FixedUpdate (an autostager's decouple) still read
+  live; their same-UT pairs are handled by SECTION-DUPLICATE-UT-SAMPLES.
 
 ## SECTION-DUPLICATE-UT-SAMPLES: the recorder writes two samples with the same UT into one track section [FILED 2026-10-02 from PWR-1 `2026-10-02_2122` / `_2141` and PWR-3 `2026-10-02_2108` / `_2133`, branch `physwarp-recording`. OPEN, low, pre-existing at 1x; operator decides the fix]
 

@@ -75,9 +75,11 @@ ascentTimeoutSeconds      = 420
 circularizeTimeoutSeconds = 300
 
 [dimensionsCovered]
-# D2 `physics-warp-high` is NOT claimed: the lane carries two open physics-warp
-# findings (the [expectedFail] block below), so it has not flown green.
-D2  = ["density-presets"]
+# D2 `physics-warp-high` CLAIMED 2026-10-03 (branch `physwarp-sampling-fixes`): the two
+# physics-warp findings that quarantined this lane are fixed (todo
+# PHYSWARP-RATE-CHANGE-SAMPLE-SKEW, PHYSWARP-BACKSTOP-MISSED-FRAME) and the quarantined
+# run `2026-10-03_1030` XPASSed with every count 0.
+D2  = ["density-presets", "physics-warp-high"]
 D14 = ["kerbin", "warp-phys"]
 
 [expectations]
@@ -93,7 +95,9 @@ count = { min = 7, max = 8 }
 # gaps 914 (1x 662 p50 0.08 s max 1.02 s; phys 247 p50 1.04 s max 1.04 s at 4x, 16 triggered), subMin 2, duplicates 1 (1x, launch; todo SECTION-DUPLICATE-UT-SAMPLES, reported only) and
 # jumps 1 (physics-warp rate change; todo PHYSWARP-RATE-CHANGE-SAMPLE-SKEW), every other
 # count 0. Armed `2026-10-02_2133`: the same jump plus one 4x backstop gap of 1.12 s
-# (todo PHYSWARP-BACKSTOP-MISSED-FRAME); quarantined per token in [expectedFail] below.
+# (todo PHYSWARP-BACKSTOP-MISSED-FRAME). Both fixed 2026-10-03 (the recorder samples each
+# physics step's post-physics pose); `2026-10-03_1030` XPASS: gaps 914 (1x 662 max 1.02 s;
+# phys 247 max 1.04 s at 4x, 16 triggered), subMin 1, duplicates 0, jumps 0, overMax 0.
 # Windows: the zero pins are the quality contract and are NOT loosened for a
 # finding; subMin ~2x the reading (a denser preset than declared leaves 100+);
 # physGaps / physTriggered at about half the reading (anti-vacuity: the stretch
@@ -136,19 +140,3 @@ budgetSeconds = 1500
 
 [retry]
 policy = "once"
-
-# QUARANTINED 2026-10-02 (operator decision) on two filed physics-warp findings, per
-# token, so any OTHER failure still reds and fixing the skew flips the lane loud
-# (XPASS, or PARSEK-FAIL on the optional token alone):
-#   mismatches          REQUIRED, deterministic: the rate-change sample skew, `jumps 1`
-#                       at the same frame (UT ~212.5) in `2026-10-02_2108` and `_2133`.
-#   optionalMismatches  TOLERATED if present, intermittent: one missed 4x backstop
-#                       frame, `overMax 1` (gap 1.12 s vs the 1.08 s allowance) in
-#                       `_2133` only.
-# A different count ("jumps 2", "overMax 2") is a different defect shape and reds.
-[expectedFail]
-bugId = "PHYSWARP-RATE-CHANGE-SAMPLE-SKEW"
-subkind = "save-structure"
-mismatches = ["recordings.sampling.jumps 1 != 0"]
-optionalMismatches = ["recordings.sampling.overMax 1 != 0"]
-optionalBugId = "PHYSWARP-BACKSTOP-MISSED-FRAME"
