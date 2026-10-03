@@ -922,7 +922,7 @@ precedent requires a clean seed session), and an operator-local fixture may only
 a window drew, which none of these lanes needs. Nothing from that save is committed or
 staged.
 
-## ~~HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE: a recorded-fixture lane's boot `DiscardTree` can be undone by the 1 Hz restore retry~~ [FILED 2026-09-29 from EVA-6's `2026-09-28_2059` attempt 1 (INVALID, passed on retry), branch `deployables-lanes`; FIXED 2026-10-02 on `fix-discard-restore-race`, live proof owed]
+## ~~HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE: a recorded-fixture lane's boot `DiscardTree` can be undone by the 1 Hz restore retry~~ [FILED 2026-09-29 from EVA-6's `2026-09-28_2059` attempt 1 (INVALID, passed on retry), branch `deployables-lanes`; FIXED 2026-10-02 on `fix-discard-restore-race`; live check 2026-10-03 PARTIAL (no re-adoption, armed path not reached), see below]
 
 **Fix (2026-10-02).** The seam's `DiscardTree` verb now arms a committed-spawned restore
 suppression for the active vessel right after its discard (and on the `nothing=true` path,
@@ -963,6 +963,26 @@ line at the exit, and the kerbal's `startrecording recordingId=...` OK (no
 `active-recording-id-missing` refusal). The four lanes keep `retry policy = "once"` until
 that flight is read; drop it per lane afterwards.
 
+**Live check 2026-10-03 (`closing-flights`, automation DLL sha256 `9078cb1c...`, origin/main
+`cb899a8f9`): PARTIAL.** `EVA-6-placed-part-spawn-after-rewind` `2026-10-03_1437` PASS attempt
+1, no retry. An earlier `_1426` on an unpinned automation DLL read the same. Present: no second
+`restored tree 'Kerbal X'` line before the `EvaExit`, the kerbal's `startrecording
+recordingId=... already=false` OK, and no `active-recording-id-missing` refusal. Not reached:
+the armed path. In both runs the boot ordering was restore -> `StopRecording` -> OnFlightReady
+`Resetting flight-ready state` (drops the live tree) -> `DiscardTree`, which logged
+`CommittedSpawnedRestoreSuppression: not armed reason=test-command-discard-nothing
+pid=2708531065 (live tree=False recorder=True)` and `discardtree nothing=true`. The stopped
+recorder object keeps `recorder != null`, and that predicate closes both the arm and the 1 Hz
+retry gate (`ShouldAttemptCommittedSpawnedRestoreInUpdate`), so the race cannot fire on this
+ordering. The `armed` / `cleared ... reason=active-vessel-changed` pair still needs a flight
+whose discard reports `discarded=true` (the `_2059` ordering). Until then the four lanes keep
+`retry policy = "once"`. Both runs passed on that nothing=true ordering: no re-adoption, with
+every restore entry point held shut by the stopped recorder. TryRestoreCommittedTreeForSpawnedActiveVessel's first
+gate is `activeTree != null || recorder != null || restoringActiveTree`, and the EvaExit path
+disposes the lingering recorder (`FallbackCommitSplitRecorder: discarded capture of dropped
+tree 'Kerbal X' ... points=1`). Which ordering a run gets is decided by
+LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY below.
+
 **Evidence.** On `kerbin-splashdown-recorded` the boot promotes the committed Kerbal X tip
 (`TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'Kerbal X' ... via
 ResumeActiveRecording`), and every EVA-6 / EVA-7 / EVA-8 / EVA-9 lane stops and discards it
@@ -987,6 +1007,69 @@ branched. A deterministic fix is seam-side: make the `DiscardTree` verb push
 `nextCommittedSpawnedRestoreRetryAt` out for the rest of the scene (or until the next
 `StartRecording`), with a pure cell for the decision. Until then these lanes carry `retry
 policy = "once"`, which absorbed it in `_2059`.
+
+## LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY: the seam's FLIGHT `LoadGame` reports complete before stock's onFlightReady, so a lane's boot preamble races Parsek's flight-ready reset [FILED 2026-10-03 from EVA-6 `2026-10-03_1437` / `_1426`, branch `closing-flights`; harness seam only, no player path]
+
+**Evidence.** `EVA-6-placed-part-spawn-after-rewind` `2026-10-03_1437` (automation DLL sha256
+`9078cb1c...`, origin/main `cb899a8f9`), KSP.log in order:
+- 17:38:33.081 `Armed committed-tree restore attempt for 'Kerbal X' (id=c05c834c...)`
+- 17:38:33.122 `TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'Kerbal X' ...
+  via ResumeActiveRecording`
+- 17:38:33.968 `loadgame complete scene=FLIGHT ...`
+- 17:38:34.019 to 34.027: `StopRecording called`, `Recording stopped. 1 points`, `stoprecording
+  stopped=true idle=false`
+- 17:38:34.219 / 34.398: stock's flight-start save (`Flight State Captured`, `Game State Saved
+  as persistent`)
+- 17:38:34.399 `[OnFlightReady] ...`, `Resetting flight-ready state`
+- 17:38:34.414 `CommittedSpawnedRestoreSuppression: not armed
+  reason=test-command-discard-nothing pid=2708531065 (live tree=False recorder=True)` and
+  `discardtree nothing=true`
+
+The earlier `_1426` shows the same sequence.
+
+**Cause (from source).** `ParsekTestCommandAddon.TryCompleteLoadGame` completes through
+`TestCommandLoadGame.DecideLoadCompletion` on `HighLogic.LoadedScene` == the expected scene
+and `HighLogic.CurrentGame != null`. In FLIGHT that is true before stock fires
+`onFlightReady`. The lane's next verbs (`StopRecording`, `DiscardTree`) therefore run either
+before or after `ParsekFlight.OnFlightReady` -> `ResetFlightReadyState`, which sets
+`activeTree = null`. If the discard runs after the reset, it finds no tree (`nothing=true`), as
+here. If it runs before, it discards a live tree (`discarded=true`), as in EVA-6's `_2059`;
+there the 1 Hz committed-spawned retry used to re-adopt the vessel (HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE).
+The outcome depends on frame timing, not on the spec.
+
+**Fix direction (seam-side).** In FLIGHT, make the LoadGame completion also wait until
+`ParsekFlight` has run its onFlightReady for this scene load (for example a per-load flag set
+at the end of `OnFlightReady`). Fold that into `DecideLoadCompletion` as one more input, with
+a pure cell, inside the existing bounded budget. Every recorded-fixture lane then reaches its
+first verb after the reset, with one deterministic ordering. The `StopRecording` +
+`DiscardTree` preamble lanes EVA-6..EVA-10 could then drop `retry policy = "once"` after one
+green flight each. 121 committed specs name `DiscardTree`; the same race applies to any of
+them that boots FLIGHT on a recorded fixture.
+
+## RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED: the flight-ready reset drops a committed-restore clone tree but leaves its restore attempt armed [FILED 2026-10-03 from EVA-6 `2026-10-03_1437`, branch `closing-flights`; observed in a harness boot, not traced on a player path]
+
+**Evidence.** Same run as LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY:
+- 17:38:33.081 `Armed committed-tree restore attempt for 'Kerbal X'
+  (id=c05c834cd2754892b4588e7ce9220c3f, recordings=9, cutoffs=9, reason=TryTakeCommittedTreeForSpawnedVesselRestore ...)`
+- 17:38:34.399 `ResetFlightReadyState` nulls the clone tree (`activeTree = null`). No clear line
+  follows for that attempt.
+- 17:38:34.377 and 17:38:36.847: `OnSave: deferred pending event milestone flush while a
+  committed-tree restore attempt is active; unmerged same-id attempt events remain memory-only`.
+  The 17:38:36.847 save is after the reset, the EvaExit and the kerbal's `startrecording`.
+- 17:38:39.886 `ArmCommittedTreeRestoreAttempt: replacing stale context tree=c05c834c...`,
+  when the kerbal's own committed tree is restored after the rewind.
+
+**Why it matters.** While the stale attempt stays armed, every OnSave defers the pending-event
+milestone flush. Same-id events then stay memory-only for saves that have no live clone to
+merge them into. Harmless in this run (the rewind reloaded state 3 s later), but it is stale
+state that outlives the tree it guarded.
+
+**Fix direction.** When `ResetFlightReadyState` nulls an `activeTree` that is the armed
+attempt's clone (same tree id), clear the attempt with a reset reason (the
+`Cleared committed-tree restore attempt tree=... reason=...` path the no-op revert already
+uses) and log it. Add a pure cell for the "is this the attempt's clone" decision. Trace first
+whether any player path reaches ResetFlightReadyState with a live clone. A revert or quickload
+re-enters FLIGHT through OnFlightReady, so it plausibly does.
 
 ## DEPLOYED-SCIENCE-FLOW-LANE-NEEDS-A-HOST: no committed science or career fixture can place a powered Breaking Ground cluster [FILED 2026-09-28, branch `deployables-lanes`]
 
@@ -2312,7 +2395,7 @@ the committed fixture). Not fixed here: Relative-section flat points are not uni
 metres either way.
 
 ---
-## ~~REWIND-NAME-STRIP-TAKES-EARLIER-SAME-CRAFT-VESSEL: rewinding a relaunch of a craft strips the earlier launch of that craft from the rewind save~~ [FILED AND FIXED 2026-09-27, branch `fix-rewind-name-strip`; the open half of REWIND-STRIPS-RESUMED-COMMITTED-TIP. Headless-proven; NOT yet live-proven]
+## ~~REWIND-NAME-STRIP-TAKES-EARLIER-SAME-CRAFT-VESSEL: rewinding a relaunch of a craft strips the earlier launch of that craft from the rewind save~~ [FILED AND FIXED 2026-09-27, branch `fix-rewind-name-strip`; the open half of REWIND-STRIPS-RESUMED-COMMITTED-TIP. LIVE-PROVEN 2026-10-03 by RR-1 `2026-10-03_1441`]
 
 **What the name strip is for.** The plain rewind's pre-load strip (`RecordingStore.ExecuteRewindSaveLoad`
 -> `PreProcessRewindSave`) removes the rewind OWNER's own vessel from the `parsek_rw_` quicksave: the
@@ -2371,6 +2454,15 @@ onto the Runway, commits, rewinds `tree=latest`, and gates on the keep line nami
 (pid 2708531065), the summary `1 by name [Kerbal X], 0 by owner guid, ... kept 1 other launch(es)`, the
 OnLoad keep of `#autoLOC_501232` and the committed store still holding the capsule's spawn pid. The live
 proof is owed by that lane's reading flight.
+
+**LIVE-PROVEN 2026-10-03 (`closing-flights`, automation DLL sha256 `9078cb1c...`, origin/main
+`cb899a8f9`).** `RR-1-relaunch-rewind-keeps-earlier-launch` `2026-10-03_1441` PASS attempt 1 met
+every gated token as written, and its armed structure block passed. Logged: `Rewind owner strip:
+keeping vessel 'Kerbal X' (pid=2708531065, guid=5493223fe49b42b181998849a9a2aefa) in rewind save:
+owner's name but a different launch (owner guid=ee4b1d42...)` and `Stripped 1 vessel(s) from save (1
+by name [Kerbal X], 0 by owner guid, 0 by PID; kept 1 other launch(es) of the owner's craft)`. The
+OnLoad pass logged `Keeping vessel '#autoLOC_501232' (pid=2708531065, ...) ... pre-existing in
+launch/rewind quicksave`. The only orphan strip named the relaunch itself (pid 2539291220).
 
 ---
 
@@ -2879,7 +2971,7 @@ KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN); alternate launch sites with
 
 ---
 
-## ~~INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS: an in-game batch in the Tracking Station orphans every ghost map vessel~~ [FILED 2026-09-29 from VB-1's first reading run, branch `settings-axis`. FIXED 2026-10-03, branch `fix-ts-batch-orphans`; live proof owed (VB-1 / a TS batch); test runner only, no player path]
+## ~~INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS: an in-game batch in the Tracking Station orphans every ghost map vessel~~ [FILED 2026-09-29 from VB-1's first reading run, branch `settings-axis`. FIXED 2026-10-03, branch `fix-ts-batch-orphans`; LIVE-PROVEN 2026-10-03 by VB-1 `2026-10-03_1440`; test runner only, no player path]
 
 Found by `VB-1-ghost-vessel-budget` reading `2026-09-29_1657` (its KSP.log). Before a batch,
 `InGameTestRunner.PerformBetweenRunCleanup` destroys the flight-scene ghosts through
@@ -2938,6 +3030,20 @@ A live Tracking Station batch should show the removal line with `tracked=8` on V
 `Too many vessels in scene` line from the baseline / marker saves, one set of `Created ghost
 vessel` lines after the batch start, and `VesselBudget` PASS; after that read, VB-1 can restore
 its RunTests `VesselBudget` step (it re-pins the lane's batch tally).
+
+**LIVE-PROVEN 2026-10-03 (`closing-flights`, automation DLL sha256 `9078cb1c...`, origin/main
+`cb899a8f9`).** VB-1 restored its RunTests `VesselBudget` step (after the SaveGame under
+test). Reading `2026-10-03_1440` PASS attempt 1, armed structure PASS. Logged:
+`Between-run ghost vessel removal: reason=run-category:VesselBudget scene=TRACKSTATION
+tracked=8 untrackedLive=0 untrackedRemoved=0 staleRegisteredPids=0 liveVesselsBefore=17
+liveVesselsAfter=9` and `PerformBetweenRunCleanup: end ... ghostVesselsRemoved=8`, the same
+pair again at the batch-complete restore, `FlightStateGhostBudget: 8 ghost map vessel(s)
+present after 0.07 s` and `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0
+category=VesselBudget scene=TRACKSTATION`. No `Too many vessels in scene` line anywhere. One
+correction to the prediction: every cleanup is followed by its own rebuild, so the log holds
+four sets of eight `Created ghost vessel` lines. Each set follows a removal, and no two sets
+are live together (`liveVesselsBefore=17` = nine real vessels plus eight ghosts). VB-1 pins
+the batch line whole.
 
 ## KSP-SETTINGS-FOLLOWUPS-2026-09-27: fixes from the traces of the settings audit [FILED 2026-09-27, branch `kss2-career`]
 
@@ -9061,7 +9167,7 @@ A recording now qualifies when a survivor is POSITIVELY its launch and it either
 
 **Sibling, filed below:** the committed Landed terminal of a recovered vessel is read by two other consumers that assume a recovery reads Recovered (RECOVERED-AFTER-COMMIT-READS-LANDED-ELSEWHERE).
 
-## ~~RECOVERED-AFTER-COMMIT-READS-LANDED-ELSEWHERE~~: with auto-merge on, a recovered flight is committed Landed, and two more consumers read that as "not recovered" [FILED 2026-09-27 while fixing REFLY-RESURRECTED-RECOVERY-STAYS-BANKED, branch `recovered-after-commit`. FIXED 2026-10-01 on branch `fix-recovered-after-commit` (headless; not flown yet); see Fix below]
+## ~~RECOVERED-AFTER-COMMIT-READS-LANDED-ELSEWHERE~~: with auto-merge on, a recovered flight is committed Landed, and two more consumers read that as "not recovered" [FILED 2026-09-27 while fixing REFLY-RESURRECTED-RECOVERY-STAYS-BANKED, branch `recovered-after-commit`. FIXED 2026-10-01 on branch `fix-recovered-after-commit`; LIVE-PROVEN 2026-10-03 by RB-1 `2026-10-03_1456` / RB-2 `_1504`; see Fix below]
 
 The ordering is measured (RB-1 `2026-09-27_1249`: `FinalizeIndividualRecording ... stable terminal state Landed (vessel.situation=LANDED, isSceneExit=True)`, then `Silent full-fidelity auto-commit (scene-exit)`, then `[VesselRecovery]: Jumping Flea recovered` at the Space Center). With a manual merge the same flight commits `Recovered`. Step 3b now reads the ledger instead. Two other readers still key on the terminal alone:
 
@@ -9085,6 +9191,15 @@ The candidate fix is one shared predicate, "recovered by the Recovered terminal 
 - Tests: `RecoveredAfterCommitTests` (24 cases; mutation-checked: disabling the predicate or the scene-exit stamp fails 8).
 - Live proof still to run: `RB-1-rewind-readback-divergence` / `RB-2-rewind-readback-within-range` recover the Flea in flight with auto-merge on. Expect `In-flight recovery: recording '...' ... terminal Landed -> Recovered`, Step 3b's `evidence=terminal-recovered` instead of `recovery-row`, `terminalState = 5` (Recovered) on the Flea's recording in the produced save, and no change to the `VesselRecovery funds patched ... amount=4558` line (both lanes' log contracts already accept either evidence).
 - Open after the PR #1946 review: the live proof above is still owed (RB-1 / RB-2; the expected log line is `[Recovery] In-flight recovery: recording ... terminal Landed -> Recovered`). The stamp's WIRING has no unit test (`RecoveredAfterCommitTests` calls `Arm` / `ApplyAtSceneExit` / `TryApplyToFinalizedPendingTree` directly): the event handler (`ParsekScenario.OnVesselRecoveryRequested`, `Source/Parsek/ParsekScenario.cs:7840`, arm at `:7855`), the two `InFlightRecoveryRequest.ApplyAtSceneExit` call sites (`Source/Parsek/ParsekFlight.cs:3215` and `:15705`; method at `Source/Parsek/InFlightRecoveryRequest.cs:102`), and the clear ordering (`ParsekFlight.cs:2432`, `:3257`, `ParsekScenario.cs:3520`) - so the RB lanes are the only proof that they fire in that order. Known, accepted: a save written before #1946 still holds Landed on a recovered flight, so its Missions wording still reads "Landed" (the spawn and Stash readers use the shared predicate and are right there).
+- **Live proof DONE 2026-10-03 (`closing-flights`, automation DLL sha256 `9078cb1c...`, origin/main
+  `cb899a8f9`).** RB-1 `2026-10-03_1456` and RB-2 `_1504` both PASS attempt 1. Each logs `In-flight
+  recovery requested: ... pid=2905720181 ... boundRec=<rec>`, then `In-flight recovery: recording
+  '<rec>' vessel='Jumping Flea' pid=2905720181 terminal Landed -> Recovered ... context=scene-exit
+  autoMerge-on`, and the single `VesselRecovery funds patched ... amount=4558`. Step 3b reads
+  `evidence=terminal-recovered`: RB-1 5 actions then `FLAGGED DIVERGENCE ... delta=-4558`; RB-2 6
+  actions then `within-expected-range resource=funds`. Both of the Flea's chain segments carry
+  `terminalState = 5` in each produced save. So the event handler, the scene-exit apply and the
+  clear ordering all fired live.
 
 ## ~~REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE~~ [FILED 2026-09-14 by the guard-retire decision. UPDATED 2026-09-27: the lane exists (RB-1) and found that its designed cause cannot happen in the shipping configuration. CLOSED 2026-09-27 (branch `recovered-after-commit`): with REFLY-RESURRECTED-RECOVERY-STAYS-BANKED fixed, RB-1 `2026-09-27_1423` is the first live `FLAGGED DIVERGENCE` and RB-2 `2026-09-27_1431` its within-range control. The A7 strategy / mod-grant follow-up below stays OPEN]
 
@@ -22204,7 +22319,7 @@ nameMatches=K`. The summary line gains `path=` after `ut=`, and on the identity 
 reads `guidDropped=n/a` (the filter did not run; `nameMatches` is diagnostic). The
 `guid filter:` line prints only on the name fallback.
 
-**L6 re-read DONE 2026-10-01 for `L6-career-same-name-recover`** (`2026-10-01_1621`, PASS attempt 1, 463 s, every re-cut token as written; the natural-dwell sibling stays an unflown A/B control and its row in `autotest-status.md` still owes its own re-read, which does not gate this entry). Both L6 specs were re-cut: the flight's own two segments
+**L6 re-read DONE 2026-10-01 for `L6-career-same-name-recover`** (`2026-10-01_1621`, PASS attempt 1, 463 s, every re-cut token as written; the natural-dwell sibling's own re-read followed on 2026-10-03: `L6-career-same-name-natural-dwell` `2026-10-03_1552` PASS attempt 1, every re-cut token as written, with `path=launch-guid identityMatches=2 ... nameOnlyIgnored=2` and no `path=name-fallback`). Both L6 specs were re-cut: the flight's own two segments
 carry the recovering guid, so every leg takes the launch-guid path and should print
 `PickRecoveryRecordingId path: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=<t>
 path=launch-guid identityMatches=2 identityNameMismatch=0 nameOnlyIgnored=2

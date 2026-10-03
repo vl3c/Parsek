@@ -2,8 +2,9 @@ schema = 1
 id = "RR-1-relaunch-rewind-keeps-earlier-launch"
 # =====================================================================================
 # THE LIVE PROOF OF PR #1894 (todo REWIND-NAME-STRIP-TAKES-EARLIER-SAME-CRAFT-VESSEL).
-# NEVER FLOWN: every token below is derived from the source and from the EVA-6 / SE-1
-# logs on this same host, not from a flight of this lane.
+# Every token below was derived from the source and from the EVA-6 / SE-1 logs on this
+# same host. LIVE-PROVEN 2026-10-03: `2026-10-03_1441` PASS attempt 1 met every token as
+# written (automation DLL built from origin/main `cb899a8f9`); see the status row.
 #
 # THE DEFECT. A plain rewind removes the rewind owner's own vessel from the parsek_rw_
 # quicksave before loading it (RecordingStore.PreProcessRewindSave). It matched by NAME.
