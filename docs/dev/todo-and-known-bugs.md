@@ -963,7 +963,12 @@ recorder object keeps `recorder != null`, and that predicate closes both the arm
 retry gate (`ShouldAttemptCommittedSpawnedRestoreInUpdate`), so the race cannot fire on this
 ordering. The `armed` / `cleared ... reason=active-vessel-changed` pair still needs a flight
 whose discard reports `discarded=true` (the `_2059` ordering). Until then the four lanes keep
-`retry policy = "once"`.
+`retry policy = "once"`. Both runs passed on that nothing=true ordering: no re-adoption, with
+every restore entry point held shut by the stopped recorder. TryRestoreCommittedTreeForSpawnedActiveVessel's first
+gate is `activeTree != null || recorder != null || restoringActiveTree`, and the EvaExit path
+disposes the lingering recorder (`FallbackCommitSplitRecorder: discarded capture of dropped
+tree 'Kerbal X' ... points=1`). Which ordering a run gets is decided by
+LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY below.
 
 **Evidence.** On `kerbin-splashdown-recorded` the boot promotes the committed Kerbal X tip
 (`TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'Kerbal X' ... via
@@ -989,6 +994,69 @@ branched. A deterministic fix is seam-side: make the `DiscardTree` verb push
 `nextCommittedSpawnedRestoreRetryAt` out for the rest of the scene (or until the next
 `StartRecording`), with a pure cell for the decision. Until then these lanes carry `retry
 policy = "once"`, which absorbed it in `_2059`.
+
+## LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY: the seam's FLIGHT `LoadGame` reports complete before stock's onFlightReady, so a lane's boot preamble races Parsek's flight-ready reset [FILED 2026-10-03 from EVA-6 `2026-10-03_1437` / `_1426`, branch `closing-flights`; harness seam only, no player path]
+
+**Evidence.** `EVA-6-placed-part-spawn-after-rewind` `2026-10-03_1437` (automation DLL sha256
+`9078cb1c...`, origin/main `cb899a8f9`), KSP.log in order:
+- 17:38:33.081 `Armed committed-tree restore attempt for 'Kerbal X' (id=c05c834c...)`
+- 17:38:33.122 `TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'Kerbal X' ...
+  via ResumeActiveRecording`
+- 17:38:33.968 `loadgame complete scene=FLIGHT ...`
+- 17:38:34.019 to 34.027: `StopRecording called`, `Recording stopped. 1 points`, `stoprecording
+  stopped=true idle=false`
+- 17:38:34.219 / 34.398: stock's flight-start save (`Flight State Captured`, `Game State Saved
+  as persistent`)
+- 17:38:34.399 `[OnFlightReady] ...`, `Resetting flight-ready state`
+- 17:38:34.414 `CommittedSpawnedRestoreSuppression: not armed
+  reason=test-command-discard-nothing pid=2708531065 (live tree=False recorder=True)` and
+  `discardtree nothing=true`
+
+The earlier `_1426` shows the same sequence.
+
+**Cause (from source).** `ParsekTestCommandAddon.TryCompleteLoadGame` completes through
+`TestCommandLoadGame.DecideLoadCompletion` on `HighLogic.LoadedScene` == the expected scene
+and `HighLogic.CurrentGame != null`. In FLIGHT that is true before stock fires
+`onFlightReady`. The lane's next verbs (`StopRecording`, `DiscardTree`) therefore run either
+before or after `ParsekFlight.OnFlightReady` -> `ResetFlightReadyState`, which sets
+`activeTree = null`. If the discard runs after the reset, it finds no tree (`nothing=true`), as
+here. If it runs before, it discards a live tree (`discarded=true`), as in EVA-6's `_2059`;
+there the 1 Hz committed-spawned retry used to re-adopt the vessel (HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE).
+The outcome depends on frame timing, not on the spec.
+
+**Fix direction (seam-side).** In FLIGHT, make the LoadGame completion also wait until
+`ParsekFlight` has run its onFlightReady for this scene load (for example a per-load flag set
+at the end of `OnFlightReady`). Fold that into `DecideLoadCompletion` as one more input, with
+a pure cell, inside the existing bounded budget. Every recorded-fixture lane then reaches its
+first verb after the reset, with one deterministic ordering. The `StopRecording` +
+`DiscardTree` preamble lanes EVA-6..EVA-10 could then drop `retry policy = "once"` after one
+green flight each. 121 committed specs name `DiscardTree`; the same race applies to any of
+them that boots FLIGHT on a recorded fixture.
+
+## RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED: the flight-ready reset drops a committed-restore clone tree but leaves its restore attempt armed [FILED 2026-10-03 from EVA-6 `2026-10-03_1437`, branch `closing-flights`; observed in a harness boot, not traced on a player path]
+
+**Evidence.** Same run as LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY:
+- 17:38:33.081 `Armed committed-tree restore attempt for 'Kerbal X'
+  (id=c05c834cd2754892b4588e7ce9220c3f, recordings=9, cutoffs=9, reason=TryTakeCommittedTreeForSpawnedVesselRestore ...)`
+- 17:38:34.399 `ResetFlightReadyState` nulls the clone tree (`activeTree = null`). No clear line
+  follows for that attempt.
+- 17:38:34.377 and 17:38:36.847: `OnSave: deferred pending event milestone flush while a
+  committed-tree restore attempt is active; unmerged same-id attempt events remain memory-only`.
+  The 17:38:36.847 save is after the reset, the EvaExit and the kerbal's `startrecording`.
+- 17:38:39.886 `ArmCommittedTreeRestoreAttempt: replacing stale context tree=c05c834c...`,
+  when the kerbal's own committed tree is restored after the rewind.
+
+**Why it matters.** While the stale attempt stays armed, every OnSave defers the pending-event
+milestone flush. Same-id events then stay memory-only for saves that have no live clone to
+merge them into. Harmless in this run (the rewind reloaded state 3 s later), but it is stale
+state that outlives the tree it guarded.
+
+**Fix direction.** When `ResetFlightReadyState` nulls an `activeTree` that is the armed
+attempt's clone (same tree id), clear the attempt with a reset reason (the
+`Cleared committed-tree restore attempt tree=... reason=...` path the no-op revert already
+uses) and log it. Add a pure cell for the "is this the attempt's clone" decision. Trace first
+whether any player path reaches ResetFlightReadyState with a live clone. A revert or quickload
+re-enters FLIGHT through OnFlightReady, so it plausibly does.
 
 ## DEPLOYED-SCIENCE-FLOW-LANE-NEEDS-A-HOST: no committed science or career fixture can place a powered Breaking Ground cluster [FILED 2026-09-28, branch `deployables-lanes`]
 
