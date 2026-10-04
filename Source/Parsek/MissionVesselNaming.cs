@@ -136,6 +136,8 @@ namespace Parsek
                 new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
             private readonly Dictionary<string, HashSet<uint>> pidsByRecording =
                 new Dictionary<string, HashSet<uint>>(StringComparer.Ordinal);
+            private readonly Dictionary<string, HashSet<string>> partnersByTree =
+                new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
 
             /// <summary>Naming passes run since construction (a cache miss each).</summary>
             internal int Rebuilds { get; private set; }
@@ -164,6 +166,7 @@ namespace Parsek
                     || currentNameVersion != nameVersion)
                 {
                     namesByTree.Clear();
+                    partnersByTree.Clear();
                     pidsByRecording.Clear();
                     index = null;
                     stateVersion = currentStateVersion;
@@ -177,13 +180,22 @@ namespace Parsek
                     return cached;
                 }
                 if (index == null) index = LaunchIndex.Build(allTrees);
+                var partners = new HashSet<string>(StringComparer.Ordinal);
                 Dictionary<string, string> names = Build(tree, structure != null ? structure(tree) : null,
-                    index, missionNameOfTree, out Tally tally, CachedPartPids);
+                    index, missionNameOfTree, out Tally tally, CachedPartPids, partners);
                 namesByTree[tree.Id] = names;
+                partnersByTree[tree.Id] = partners;
                 Rebuilds++;
                 LastTally = tally;
                 return names;
             }
+
+            /// <summary>
+            /// The legs the last <see cref="GetOrBuild"/> of <paramref name="treeId"/> named as
+            /// another mission's vessel (same key as its names); null before that call.
+            /// </summary>
+            internal HashSet<string> PartnerLegIds(string treeId)
+                => treeId != null && partnersByTree.TryGetValue(treeId, out HashSet<string> p) ? p : null;
 
             private HashSet<uint> CachedPartPids(Recording rec)
             {
@@ -235,12 +247,15 @@ namespace Parsek
         /// by RecordingId: the partner phrase, a numbered name, or the plain vessel name.
         /// <paramref name="missionNameOfTree"/> names the mission that owns another tree
         /// (the window passes the tree's original mission's name); null falls back to the
-        /// tree's own name.
+        /// tree's own name. <paramref name="partnerLegIds"/>, when given, receives the id of
+        /// every leg named as another mission's vessel (the mission Log's Dock / Undock rows
+        /// read it to put this mission's own ship in the Vessel column).
         /// </summary>
         internal static Dictionary<string, string> Build(
             RecordingTree tree, MissionStructure structure, LaunchIndex index,
             Func<string, string> missionNameOfTree, out Tally tally,
-            Func<Recording, HashSet<uint>> partPids = null)
+            Func<Recording, HashSet<uint>> partPids = null,
+            ICollection<string> partnerLegIds = null)
         {
             if (partPids == null) partPids = PartPids;
             tally = default;
@@ -269,6 +284,7 @@ namespace Parsek
                     names[leg.RecordingId] = MissionChapters.FormatPartnerWithMission(
                         LegName(leg), mission) ?? LegName(leg);
                     tally.Partners++;
+                    partnerLegIds?.Add(leg.RecordingId);
                     continue;
                 }
                 own.Add(leg);

@@ -1676,12 +1676,18 @@ namespace Parsek
             {
                 var (structure, view) = GetMissionView(tree);
                 Dictionary<string, string> vesselNames = GetVesselNames(tree);
+                // The naming pass's partner legs: another mission's vessel that joined this
+                // flight draws beside the vessel it joined, not under it.
                 rows = MissionVesselRowBuilder.Build(
                     GetCompositionRoots(tree),
                     (ownerHeadId, boundaryUT) =>
                         MissionPresentation.ResolveSameTreeDockPartnerVesselName(
                             structure, view, ownerHeadId, boundaryUT, vesselNames),
-                    vesselNames);
+                    vesselNames,
+                    vesselNamingCache.PartnerLegIds(tree.Id),
+                    (ownerHeadId, endUT) =>
+                        MissionPresentation.ResolveTerminalDockPartnerVesselName(
+                            structure, ownerHeadId, endUT, vesselNames));
                 vesselRowsCache[tree.Id] = rows;
             }
             return rows;
@@ -1730,7 +1736,9 @@ namespace Parsek
             {
                 var (structure, view) = GetMissionView(tree);
                 var compRoots = GetCompositionRoots(tree);
-                facts = MissionPresentation.ComputeSummaryFacts(structure, view, compRoots);
+                GetVesselNames(tree); // primes the partner legs the vessel count leaves out
+                facts = MissionPresentation.ComputeSummaryFacts(structure, view, compRoots,
+                    vesselNamingCache.PartnerLegIds(tree.Id));
                 // T2.1: the narrative body path, from the SAME primary vessel the terminal word
                 // came from (composition roots[0]) - deriving the two halves of one sentence
                 // from two independently-sorted root lists could narrate one vessel's journey
