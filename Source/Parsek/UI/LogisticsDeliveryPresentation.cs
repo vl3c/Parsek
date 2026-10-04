@@ -505,7 +505,8 @@ namespace Parsek
 
         /// <summary>
         /// A picked-up manifest, amount first like the Route History's cargo rows:
-        /// "154.4 LiquidFuel, 20.0 Oxidizer, 2 stored parts". Resources sorted
+        /// "154.4 LiquidFuel, 20.0 Oxidizer, 2 inventory item(s)" (stored parts counted in
+        /// the delivery manifest's words, so one cell never names them two ways). Resources sorted
         /// (ordinal) so the text is stable across refreshes; F1 InvariantCulture. Empty
         /// string when there is nothing.
         /// </summary>
@@ -531,7 +532,7 @@ namespace Parsek
             {
                 if (sb.Length > 0) sb.Append(", ");
                 sb.Append(parts.ToString(CultureInfo.InvariantCulture))
-                  .Append(parts == 1 ? " stored part" : " stored parts");
+                  .Append(" inventory item(s)");
             }
             return sb.ToString();
         }

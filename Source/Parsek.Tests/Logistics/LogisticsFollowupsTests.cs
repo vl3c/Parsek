@@ -298,14 +298,14 @@ namespace Parsek.Tests.Logistics
                 Stop(Res("LiquidFuel", 200.0), null),
             };
             var names = new[] { "B", "A" };
-            Assert.Equal("LiquidFuel 200.0; picks up 154.4 LiquidFuel, 1 stored part at B",
+            Assert.Equal("LiquidFuel 200.0; picks up 154.4 LiquidFuel, 1 inventory item(s) at B",
                 LogisticsDeliveryPresentation.FormatRouteCargoCell(stops, names));
-            Assert.Equal("Picks up each run: 154.4 LiquidFuel, 1 stored part at B, then delivers LiquidFuel 200.0 to A.",
+            Assert.Equal("Picks up each run: 154.4 LiquidFuel, 1 inventory item(s) at B, then delivers LiquidFuel 200.0 to A.",
                 LogisticsDeliveryPresentation.FormatRouteCargoLine(stops, names, "A (+1 stop)"));
 
             // Delivery visited first: the line opens with it.
             var reversed = new List<RouteStop> { stops[1], stops[0] };
-            Assert.Equal("Delivers each run: LiquidFuel 200.0 to A, then picks up 154.4 LiquidFuel, 1 stored part at B.",
+            Assert.Equal("Delivers each run: LiquidFuel 200.0 to A, then picks up 154.4 LiquidFuel, 1 inventory item(s) at B.",
                 LogisticsDeliveryPresentation.FormatRouteCargoLine(reversed, new[] { "A", "B" }, "A"));
             // A stop with no name reads "-", never blank.
             Assert.Equal("picks up 154.4 LiquidFuel at -",
@@ -339,7 +339,7 @@ namespace Parsek.Tests.Logistics
                 LogisticsDeliveryPresentation.FormatCandidateCargo(Res("LiquidFuel", 97.6), null, null, null, "Depot"));
             Assert.Equal("LiquidFuel 97.6; picks up 30.0 Ore at Depot",
                 LogisticsDeliveryPresentation.FormatCandidateCargo(Res("LiquidFuel", 97.6), null, Res("Ore", 30.0), null, "Depot"));
-            Assert.Equal("picks up 1 stored part at Depot",
+            Assert.Equal("picks up 1 inventory item(s) at Depot",
                 LogisticsDeliveryPresentation.FormatCandidateCargo(null, null, null,
                     new List<InventoryPayloadItem> { new InventoryPayloadItem { PartName = "evaChute" } }, "Depot"));
         }
