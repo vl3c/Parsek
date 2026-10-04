@@ -363,6 +363,14 @@ steps = [
   { cmd = "UiAction", args = { op = "expand", window = "logistics", key = "row:nearmiss:section" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-logistics-nearmiss-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-logistics-nearmiss-advanced" }, expect = "OK" },
+  # ONE REASON GROUP OPENED. The near-miss list draws one line per reason
+  # (LogisticsNearMissPresentation.Group); this host's missions all lack a dock, so the
+  # `MissingRouteProof` group holds them. Opened, it shows the shared sentence once and one
+  # row per mission with its own Dismiss. Key: `LogisticsWindowUI.NearMissGroupRowKey`
+  # ("nearmiss:group:<status>"), enumerated by `EnumerateRowKeysForTesting`.
+  { cmd = "UiAction", args = { op = "expand", window = "logistics", key = "row:nearmiss:group:MissingRouteProof" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-logistics-nearmiss-group-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-logistics-nearmiss-group-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },
 
   # structure list (empty chrome - see KNOWN THIN CAPTURE above)
@@ -487,18 +495,18 @@ allowedAnomalies = []
 # whole census ran where it said (GUI-2's twin pins `scene=FLIGHT`), and `complexity=`
 # separates the two passes.
 #
-# ONE CAPTURE LINE is pinned, not twenty-seven: `capturescreenshot ok` is emitted only after
+# ONE CAPTURE LINE is pinned, not twenty-eight: `capturescreenshot ok` is emitted only after
 # the file settled at a stable non-zero size, so one is proof the write-and-poll path
-# works end to end, and the other twenty-six are the PRODUCT - a reviewer counts them in
+# works end to end, and the other twenty-seven are the PRODUCT - a reviewer counts them in
 # the contact sheet. `bytes=` is deliberately not pinned; it is a real file size and would
 # pin a machine.
 #
-# ALL TWENTY-SEVEN DUMP LINES ARE PINNED, and the asymmetry with the captures above is
+# ALL TWENTY-EIGHT DUMP LINES ARE PINNED, and the asymmetry with the captures above is
 # deliberate rather than untidy. `patched=<ok>/<of>` is the recorder's ARM-TIME
 # Harmony.GetPatchInfo reading, taken FRESH on every arm - the patches are applied at arm
 # and removed again when each capture flushes - so it is a per-dump measurement and not a
 # property of the build. `patched=17/17` therefore asserts that all seventeen
-# interceptions were installed for THAT frame, twenty-seven times over, and one funnel
+# interceptions were installed for THAT frame, twenty-eight times over, and one funnel
 # whose signature drifted out from under the patch reds the lane at the dump where it
 # happened. It is also the pinning that MADE this lane's first flight a measurement of the
 # interception layer, which had never run inside KSP: all 22 read `patched=17/17` on both
@@ -584,6 +592,7 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-kerbals-outcomes-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-logistics-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-logistics-nearmiss-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-logistics-nearmiss-group-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-structure-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-settings-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-testrunner-advanced .*patched=17/17",
