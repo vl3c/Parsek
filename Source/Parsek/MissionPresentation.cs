@@ -72,12 +72,26 @@ namespace Parsek
             "(its own include set, loop period, and Archive flag). A looping mission's copy " +
             "starts with Loop off.";
 
-        internal const string CollapseButtonTooltip =
-            "Hide this mission's vessel rows; its title bar stays. Does not change looping or " +
-            "ghost playback.";
+        // The mission's collapse caret (line 2 of the Missions tab's # column, under the index):
+        // the house expand-caret glyphs, down while the mission's vessel rows show and right
+        // while they are hidden, and a hover naming what the click does.
+        internal const string MissionCaretExpandedGlyph = "▼";
+        internal const string MissionCaretCollapsedGlyph = "▶";
+        internal const string CollapseCaretTooltip = "Collapse this mission";
+        internal const string ExpandCaretTooltip = "Expand this mission";
 
-        internal const string ExpandButtonTooltip =
-            "Show this mission's vessel rows again.";
+        /// <summary>The caret glyph for a mission whose rows are hidden
+        /// (<paramref name="collapsed"/>) or shown.</summary>
+        internal static string MissionCollapseCaretGlyph(bool collapsed)
+        {
+            return collapsed ? MissionCaretCollapsedGlyph : MissionCaretExpandedGlyph;
+        }
+
+        /// <summary>The caret's hover: what one click does in the given state.</summary>
+        internal static string MissionCollapseCaretTooltip(bool collapsed)
+        {
+            return collapsed ? ExpandCaretTooltip : CollapseCaretTooltip;
+        }
 
         internal const string WarpToButtonTooltip =
             "Fast-forward the game clock to just before this mission's next launch.";

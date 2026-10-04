@@ -732,6 +732,17 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   DESIGN: those committed fixtures carry no launch save (`CommittedFixtureRewindSaveTests`
   policy), so `GetRewindRecording` is null in every scene (GUI-4 is a Space Center capture
   and draws no Rewind either); GUI-1's operator career has launch saves and draws it.
+- [x] Caret (owner ruling 2026-10-03, branch `missions-caret`): Collapse / Expand leaves the
+  Interact column and becomes a clickable caret glyph in the `#` column on line 2, under the
+  index number (`DrawMissionCollapseCaret`: down while the rows show, right while they are
+  hidden, hover `Collapse this mission` / `Expand this mission`; a frameless Button in a
+  label style over the whole 30 px `ColW_Index` cell). Watch and Rewind / Forward stop
+  sharing line 1 as a 48 + 48 pair: Watch is line 1's single, Rewind / Forward line 2's single
+  at the same x, and line 2 reserves a button-sized rect when neither applies.
+  `MissionsTabColumnSequenceTests.TheCollapseCaretSitsUnderTheIndexAndWatchStacksOverRewind`
+  pins both. The `#` header now sits over the index numbers and carets (it drew 4 px
+  right of them and centred): no left inset in its cell, left-aligned like the numbers, width
+  unchanged (`TheIndexHeaderSitsOverTheIndexColumnContents`).
 
 ## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branches `log-rework` (parts 1-2) and `log-rework-2` (part 3 on). PARTS 1-6 DONE]
 

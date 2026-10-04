@@ -30,6 +30,20 @@ namespace Parsek.Tests
                 "Clone tooltip is " + MissionPresentation.CloneButtonTooltip.Length + " chars");
         }
 
+        // The mission's collapse caret (# column, line 2): the house expand-caret glyphs, down
+        // while the rows show and right while they are hidden, with the hover naming the click.
+        [Theory]
+        [InlineData(false, "▼", "Collapse this mission")]
+        [InlineData(true, "▶", "Expand this mission")]
+        public void MissionCollapseCaret_GlyphAndHoverFollowTheCollapsedState(
+            bool collapsed, string glyph, string hover)
+        {
+            Assert.Equal(glyph, MissionPresentation.MissionCollapseCaretGlyph(collapsed));
+            Assert.Equal(hover, MissionPresentation.MissionCollapseCaretTooltip(collapsed));
+            Assert.True(hover.Length
+                <= TooltipEchoBudgetTests.BudgetChars(1355f, TooltipEchoBox.SingleLine));
+        }
+
         // ---- fixture helpers (mirrors MissionCompositionTests) ----
 
         private static Recording Leg(

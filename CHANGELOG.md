@@ -2740,11 +2740,14 @@ _(unreleased — entries accumulate here per commit)_
   holds every per-row button at one shared width (a two-button pair spans one button). Each
   mission's dark bar is two rows of the table: the first puts the mission's start time,
   start event, outcome and end time under the headings, with Log beside the title and Watch
-  (plus Rewind / Forward) in Interact; the second is a one-line story (where it went, how
-  long, who flew, how it ended) with a Collapse / Expand button in Interact. The story is
-  now the title's size, and in Advanced its next-launch countdown (`Next launch T- 5h 47m`)
-  is amber; it no longer repeats the loop period (`Loops ~P`), which the period cell beside
-  it shows. Collapse hides a mission's vessel rows; its title bar stays. It replaces the
+  in Interact; the second is a one-line story (where it went, how long, who flew, how it
+  ended), with Rewind / Forward in Interact right under Watch at the same width, and a
+  clickable caret under the mission's number (down while the mission is open, right while it
+  is folded; hover "Collapse this mission" / "Expand this mission"). The `#` header sits
+  over the mission numbers and carets, with its sort arrow after it. The story is now the
+  title's size, and in Advanced its next-launch countdown (`Next launch T- 5h 47m`) is
+  amber; it no longer repeats the loop period (`Loops ~P`), which the period cell beside it
+  shows. The caret hides a mission's vessel rows; its title bar stays. It replaces the
   per-mission Archive box and the list's "hide archived" filter; a mission archived in an
   older save loads collapsed. Stash / Fly + Seal and the Docked partner's Go to sit in
   Interact too. Everything that exists only because of mission looping is Advanced-only
