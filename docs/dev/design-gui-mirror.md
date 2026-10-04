@@ -1121,7 +1121,7 @@ branch without it - and are harmless only because later runs superseded them.
 | --- | --- | --- | --- |
 | `main` | 2026-09-22T18:41:11Z | #1755, 2026-09-22T19:16:54Z | GUI-1-census-ksc 2026-09-22_1841 |
 | `kerbals` | 2026-09-22T20:04:25Z | #1762, 2026-09-22T20:38:41Z | GUI-11-census-kerbals-crewed 2026-09-22_2004 |
-| `timeline` | 2026-09-25T18:38:07Z | #1828 (after #1818, #1809, #1792) | GUI-6-census-flight-playback 2026-09-25_1838 (Custom sliders: GUI-24 2026-09-25_1842) |
+| `timeline` | 2026-10-04T17:56:09Z | #2002 (after #1999, #1828, #1818, #1809, #1792) | GUI-24-census-timeline-filters 2026-10-04_1754 |
 | `spawncontrol` | 2026-09-25T18:38:07Z | #1828 | GUI-6-census-flight-playback 2026-09-25_1838 |
 | `structure` | 2026-10-01T20:45:00Z | #1955 | GUI-4-census-missions-docked 2026-10-01_2044 |
 | `settings` | 2026-09-26T10:10:05Z | #1867 | GUI-14-census-settings-and-facility 2026-09-26_1009 |

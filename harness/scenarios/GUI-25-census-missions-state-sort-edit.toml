@@ -39,17 +39,17 @@ tier = "operator"
 # tabs below, which have nine and thirteen rows.
 #
 # READ THE ARCHIVE POLARITY BEFORE EDITING THIS LANE. `archived state=true` SHOWS
-# archived recordings (the Timeline's positive sense over
-# `GroupHierarchyStore.HideActive`, the same persisted flag the Recordings tab's Archive
-# header checkbox writes in the opposite LABEL sense). The Missions tab's collapse speaks
+# archived recordings (the positive sense over `GroupHierarchyStore.HideActive`, the
+# persisted flag the Recordings tab's Archive header checkbox writes in the opposite LABEL
+# sense). The Missions tab's collapse speaks
 # "expanded" like every `op=expand` set: `key=mission:<id> state=false` COLLAPSES it.
 #
 # THE RECORDINGS FILTER MOVES NO ROW ON ANY HOST, and that is measured rather than a
 # limitation of this fixture. The `hidden` key a `Recording.Hidden` row would write appears
 # ZERO times across all 59 committed fixtures and in the operator's own career. So what
 # that capture honestly shows is the FILTER CONTROL in its other position, which the dump
-# proves because `GuiTreeJson` records a toggle's own `value`. The row-level `[archived]`
-# marker has no host at all and is filed as
+# proves because `GuiTreeJson` records a toggle's own `value`. An archived ROW has no
+# host at all and is filed as
 # GUI-CENSUS-NO-HOST-CARRIES-AN-ARCHIVED-RECORDING-OR-MISSION. The collapsed-mission
 # capture DOES move rows: the collapse writes the mission's own flag, which needs no host.
 #
@@ -156,7 +156,7 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "ib-missions-recordings-sortphaseasc-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ib-missions-recordings-sortphaseasc-advanced" }, expect = "OK" },
 
-  # --- the Recordings tab's Archive header filter, in the Timeline's positive sense.
+  # --- the Recordings tab's Archive header filter, in the positive sense.
   { cmd = "UiAction", args = { op = "state", window = "missions", key = "archived", state = "true" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ib-missions-recordings-archivedfilter-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ib-missions-recordings-archivedfilter-advanced" }, expect = "OK" },

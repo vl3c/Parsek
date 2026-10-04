@@ -314,7 +314,7 @@ namespace Parsek.Tests
         [Theory]
         [InlineData(0, 0)] // Overview -> Sources
         [InlineData(1, 0)] // Details -> Sources
-        [InlineData(2, 1)] // Rewind/FF -> Empty (Archived moved to row 1)
+        [InlineData(2, 1)] // Rewind/FF -> Empty (no row drawn)
         [InlineData(3, 1)] // Re-Fly -> Empty
         [InlineData(4, 2)] // Contracts -> Categories
         [InlineData(8, 2)] // Tech -> Categories
@@ -324,15 +324,76 @@ namespace Parsek.Tests
                 TimelineWindowUI.ResolveContextRow((TimelineWindowUI.TimelineTierFilterMode)mode));
         }
 
+        // catches: an empty line between the view row and the time-range row. Owner ruling
+        // 2026-10-04: a context row with nothing to show takes no line.
+        [Theory]
+        [InlineData(0, true)]  // Sources
+        [InlineData(1, false)] // Empty
+        [InlineData(2, true)]  // Categories
+        public void ContextRow_TakesALineOnlyWhenItHasButtons(int row, bool drawn)
+        {
+            Assert.Equal(drawn, TimelineWindowUI.ShouldDrawContextRow(
+                (TimelineWindowUI.TimelineContextRow)row));
+        }
+
+        [Fact]
+        public void ContextRow_RewindFFAndReFlyDrawNoRow_OtherViewsDo()
+        {
+            foreach (TimelineWindowUI.TimelineTierFilterMode mode in
+                     Enum.GetValues(typeof(TimelineWindowUI.TimelineTierFilterMode)))
+            {
+                bool expected = mode != TimelineWindowUI.TimelineTierFilterMode.RewindOrFastForward
+                    && mode != TimelineWindowUI.TimelineTierFilterMode.ReFly;
+                Assert.Equal(expected, TimelineWindowUI.ShouldDrawContextRow(
+                    TimelineWindowUI.ResolveContextRow(mode)));
+            }
+        }
+
+        // catches: the row composition re-read from the live view mid-frame. A view click in
+        // the MouseUp pass must not change which row the rest of that pass draws, or the
+        // pass emits a different control set than its Layout pass recorded.
+        [Fact]
+        public void LatchContextRow_KeepsTheLayoutAnswerOnLaterPasses()
+        {
+            var reFly = TimelineWindowUI.TimelineTierFilterMode.ReFly;
+            var overview = TimelineWindowUI.TimelineTierFilterMode.Overview;
+
+            // Layout pass under Overview latches Sources.
+            var latched = TimelineWindowUI.LatchContextRow(
+                isLayoutPass: true, hasLatched: true,
+                latched: TimelineWindowUI.TimelineContextRow.Empty, mode: overview);
+            Assert.Equal(TimelineWindowUI.TimelineContextRow.Sources, latched);
+
+            // A later pass of the same frame after a click on Re-Fly keeps Sources.
+            Assert.Equal(TimelineWindowUI.TimelineContextRow.Sources,
+                TimelineWindowUI.LatchContextRow(
+                    isLayoutPass: false, hasLatched: true, latched: latched, mode: reFly));
+
+            // The next Layout pass picks the new view up.
+            Assert.Equal(TimelineWindowUI.TimelineContextRow.Empty,
+                TimelineWindowUI.LatchContextRow(
+                    isLayoutPass: true, hasLatched: true, latched: latched, mode: reFly));
+        }
+
+        [Fact]
+        public void LatchContextRow_ResolvesWhenNothingWasLatchedYet()
+        {
+            Assert.Equal(TimelineWindowUI.TimelineContextRow.Categories,
+                TimelineWindowUI.LatchContextRow(
+                    isLayoutPass: false, hasLatched: false,
+                    latched: TimelineWindowUI.TimelineContextRow.Sources,
+                    mode: TimelineWindowUI.TimelineTierFilterMode.Tech));
+        }
+
         /// <summary>
-        /// Owner ruling 2026-09-25: Archived is the LAST cell of row 1 (after the view
-        /// group, on the view row's cell width), never a row-2 control, because it applies
-        /// in every view. Row 2 of Rewind/FF and Re-Fly still reserves a button-high rect
-        /// so the list does not jump. No headless seam can run an IMGUI draw, so the
-        /// witness is a source scan with comments blanked and literals masked.
+        /// The draw wiring the pure cells above cannot reach: row 1 ends after the view
+        /// group (no Archived cell), row 2 is drawn from the LATCHED row behind
+        /// <c>ShouldDrawContextRow</c>, and nothing reserves an empty rect any more. No
+        /// headless seam can run an IMGUI draw, so the witness is a source scan with
+        /// comments blanked and literals masked.
         /// </summary>
         [Fact]
-        public void ArchivedToggle_IsTheLastCellOfTheViewRow()
+        public void FilterBar_RowTwoIsLatchedAndSkippedWhenEmpty()
         {
             string path = System.IO.Path.Combine(ResolveRepoRoot(), "Source", "Parsek", "UI",
                 "TimelineWindowUI.cs");
@@ -345,19 +406,21 @@ namespace Parsek.Tests
             string body = src.Substring(start, end - start);
 
             int career = body.IndexOf("SelectView(ViewOfCategory(category))", StringComparison.Ordinal);
-            int archived = body.IndexOf("DrawArchivedToggle(viewW)", StringComparison.Ordinal);
             int firstRowEnd = body.IndexOf("GUILayout.EndHorizontal()", StringComparison.Ordinal);
-            Assert.True(career >= 0 && archived > career,
-                "Archived must be drawn after the Career cell in row 1.");
-            Assert.True(archived < firstRowEnd, "Archived must be drawn inside row 1.");
-            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(
-                body, @"DrawArchivedToggle\(").Count);
+            Assert.True(career >= 0 && firstRowEnd > career,
+                "Career must be the last cell drawn in row 1.");
+            Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(
+                body.Substring(0, firstRowEnd), @"GUILayout\.Toggle\(|DrawViewToggle\(").Count);
 
-            int emptyCase = body.IndexOf("case TimelineContextRow.Empty:", StringComparison.Ordinal);
-            Assert.True(emptyCase > firstRowEnd, "row 2 has no Empty arm.");
-            int emptyBreak = body.IndexOf("break;", emptyCase, StringComparison.Ordinal);
-            Assert.Contains("GUILayoutUtility.GetRect(",
-                body.Substring(emptyCase, emptyBreak - emptyCase));
+            int latch = body.IndexOf("LatchContextRow(", StringComparison.Ordinal);
+            int skip = body.IndexOf("if (!ShouldDrawContextRow(drawnContextRow))", StringComparison.Ordinal);
+            int secondRowBegin = body.IndexOf("GUILayout.BeginHorizontal()", firstRowEnd, StringComparison.Ordinal);
+            Assert.True(latch > firstRowEnd, "row 2 must be latched after row 1.");
+            Assert.True(skip > latch && secondRowBegin > skip,
+                "row 2 must be skipped, before its BeginHorizontal, when the latched row is empty.");
+            Assert.DoesNotContain("ResolveContextRow(tierFilterMode)", body);
+            Assert.DoesNotContain("GUILayoutUtility.GetRect(", body);
+            Assert.DoesNotContain("TimelineContextRow.Empty", body);
         }
 
         private static string ResolveRepoRoot()

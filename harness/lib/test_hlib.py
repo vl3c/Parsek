@@ -17444,6 +17444,15 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
             0, {"op": "state", "window": "timeline", "key": "scrollX",
                 "state": "true"})
         self.assertTrue(any("is not a state key of window" in e for e in errors), errors)
+        # The Timeline has no archive control; the key lives on the Missions window's
+        # Recordings tab only.
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "state", "window": "timeline", "key": "archived",
+                "state": "true"})
+        self.assertTrue(any("is not a state key of window" in e for e in errors), errors)
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "state", "window": "missions", "key": "archived",
+                "state": "true"}))
         # A window with no scalar state names the two that have it.
         errors = hlib.validate_ui_action_step(
             0, {"op": "state", "window": "settings", "key": "archived",
@@ -17466,13 +17475,13 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertTrue(
             any("state-bool-arg-not-for-key" in e for e in errors), errors)
         errors = hlib.validate_ui_action_step(
-            0, {"op": "state", "window": "timeline", "key": "archived",
+            0, {"op": "state", "window": "missions", "key": "archived",
                 "value": "Last Day"})
         self.assertTrue(
             any("state-value-arg-not-for-key" in e for e in errors), errors)
         # Each half is REQUIRED for its own kind of key.
         errors = hlib.validate_ui_action_step(
-            0, {"op": "state", "window": "timeline", "key": "archived"})
+            0, {"op": "state", "window": "missions", "key": "archived"})
         self.assertTrue(any("state-arg-missing" in e for e in errors), errors)
         errors = hlib.validate_ui_action_step(
             0, {"op": "state", "window": "timeline", "key": "scrollY"})
@@ -18629,7 +18638,7 @@ class AnalyzerReportOnlyModeTests(unittest.TestCase):
         "GUI-2-census-flight.toml",
         # GUI-24, 2026-09-22 (wave 6). THE SAME HOST and therefore the same row, for the
         # same measured reason: it stages `fixtures/local-saves/c1-gui` because the
-        # Timeline's source toggles, archive filter and scroll offset only produce a
+        # Timeline's source toggles, time range and scroll offset only produce a
         # DIFFERENT picture over a dense entry list, and that density is the operator's
         # career. Nothing about this lane's subject touches a recording invariant.
         "GUI-24-census-timeline-filters.toml",

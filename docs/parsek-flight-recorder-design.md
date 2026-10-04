@@ -1451,33 +1451,25 @@ BubbleSnapshot
 
 **Interaction with active recording:** If the player is recording during a time jump, a TIME_JUMP SegmentEvent is stored with pre-jump and post-jump state vectors. Playback handles the discontinuity as a visual cut — no interpolation across the gap.
 
-### 14.6 Selective Spawning UI
+### 14.6 Selective Spawning UI (Real Spawn Control)
 
-The player does not need to jump to the furthest chain tip. A spawn control panel appears when the player is within the physics bubble of one or more ghosts:
+The player does not need to jump to the furthest chain tip. The Real Spawn Control window (flight scene, Advanced mode; the main window's `Real Spawn Control (N)` button) lists the ghosts the player can turn into real vessels from where they are, each with a one-word status and a `Warp` button that performs the time jump of Section 14.5:
 
 ```
-Ghosts in physics bubble:
-
-  [Sync & Spawn] Station Alpha
-    Becomes real at UT=1600 (Recording R1)
-
-  [Sync & Spawn] Fuel Depot + Cargo Pod
-    Becomes real as combined vessel at UT=3000
-    (Chain: R2 -> R3)
-
-  [Info] Tanker Ghost
-    Loop iteration -- visual only, no spawn
+Craft                 Dist    Speed     Spawns     Spawn date        Status    Actions
+Station Alpha         80 m    0.1 m/s   T- 18m 20s Y1, D01, 00:18    Ready     [ Warp ]
+Fuel Depot + Cargo    140 m   0.3 m/s   T- 41m 40s Y1, D01, 00:41    Ready     [ Warp ]
+Mun Lander            190 m   0.2 m/s   T- 3m 0s   Y1, D01, 00:03    Leaves    [ Warp ]
+Rover                 210 m   8.1 m/s   T- 1h 5m   Y1, D01, 01:05    Too fast  [ Warp ]  (greyed)
 ```
 
-**Rules:**
-- Only chain tips where a real vessel actually spawns are offered — not intermediate chain links (Section 12.9.5).
-- Linked chains are grouped and shown as a single spawn option with the combined vessel name.
-- Loop iterations beyond the first are shown as informational only — no spawn button.
-- Each option shows: vessel name, spawn UT, and which recording(s) created the chain.
+**Which ghosts are listed (the spawn distance rule).** A ghost is a candidate when it is active at the current UT, its recording ends in the future and spawns a vessel there (`GhostPlaybackLogic.ShouldSpawnAtRecordingEnd`), it is not an intermediate chain link (`ShouldSuppressSpawnForChain`, Section 12.9.5), and it is within the spawn radius, `ParsekFlight.NearbySpawnRadius` = 250 m, of the active vessel. The radius is the spawn gate itself: a time jump spawns a vessel where its ghost stands, so the window offers only ghosts the player has actually rendezvoused with, and a ghost farther away cannot be spawned from here and is not listed. Relative speed (derived frame-agnostically from the change in the active-vessel-to-ghost separation between two 1.5 s scans) gates the warp at `MaxRelativeSpeed` = 2 m/s; a listed ghost passing faster (up to `MaxListRelativeSpeed` = 50 m/s) stays in the list as a greyed `Too fast` row, because matching speed is what the player can still do. The scan samples ghosts out to 1000 m so a ghost that closes inside the radius is listed with its speed already measured.
 
-**Spawn selection behavior:** When the player selects a spawn option, the target UT is the selected chain tip's UT. Any independent chain tips chronologically before the target are also spawned — a ghost cannot remain ghost past its chain tip. The UI warns: "Also spawns: [vessel name] at UT=[earlier tip]." Ghosts with chain tips after the target UT remain ghost at their current positions.
+**Status and Warp.** `Ready`: inside both gates, Warp jumps to the recording's end, when the vessel spawns here. `Leaves`: the ghost leaves its current orbit (into another body's SOI, onto a new orbit around the same body, or down to the surface) before its recording ends; Warp jumps to just before it leaves (the jump lead), and the hover says it does not spawn here, because the spawn happens later and elsewhere. `Leaving`: that departure is due now (Warp greyed). `Passed`: the spawn time is behind the clock (Warp greyed). `Too fast`: as above. The `Spawns` countdown and `Spawn date` cells show the moment the Warp acts on, and `Warp to Next Spawn` picks the earliest such moment among the rows inside both gates.
 
-**Chronological constraint:** The player cannot jump backward — only forward. The player also cannot jump to a UT before the earliest unresolved chain tip in the bubble if that would require a ghost to exist past its tip.
+**Spawn selection behavior:** the jump spawns the selected ghost's vessel at its chain tip. Any independent chain tips chronologically before the target are also spawned - a ghost cannot remain ghost past its chain tip. Ghosts with chain tips after the target UT remain ghost at their current positions.
+
+**Chronological constraint:** The player cannot jump backward - only forward.
 
 **Chained jumps:** The player can perform multiple jumps in sequence. Each jump epoch-shifts whatever is currently in the bubble (including real vessels spawned by previous jumps).
 
@@ -1488,13 +1480,13 @@ Ghosts in physics bubble:
 | UT | State | Action |
 |---|---|---|
 | T0=500 | A: real. Ghost-S: 80m away. | Player sets up docking approach. |
-| — | — | Player selects "Spawn Station Alpha (T1=1600)" |
+| - | - | Player presses Warp on Station Alpha's `Ready` row (T1=1600) |
 | T1=1600 | A: real, same position. S: real, still 80m away. | UT jumped. Planet rotated. Nothing in the bubble moved. |
 | T1+ | A docks to real S. | Recording R2 starts. |
 
 **Three vessels, player picks the middle one:**
 
-Physics bubble at T0=500: A (real), Ghost-S1 (tip T1=1600), Ghost-S2 (tip T2=2000), Ghost-S3 (tip T3=5000). Player selects "Spawn S2 (T2=2000)." UI warns: "Also spawns: S1 (T1=1600)."
+Physics bubble at T0=500: A (real), Ghost-S1 (tip T1=1600), Ghost-S2 (tip T2=2000), Ghost-S3 (tip T3=5000). Player presses Warp on S2's row (T2=2000); S1's tip (T1=1600) is crossed on the way.
 
 | Object | Before jump (T0) | After jump (T2=2000) |
 |---|---|---|
@@ -1503,25 +1495,19 @@ Physics bubble at T0=500: A (real), Ghost-S1 (tip T1=1600), Ghost-S2 (tip T2=200
 | S2 | ghost (tip T2=2000) | real (tip T2 = target) at same position |
 | S3 | ghost (tip T3=5000) | ghost, same position |
 
-Player docks to S2. Later, if needed, selects "Spawn S3" for another jump.
+Player docks to S2. Later, if needed, presses Warp on S3's row for another jump.
 
-**Linked chain — player must wait for full chain:**
+**Linked chain - player must wait for full chain:**
 
-R1 docks X to S at T1. R2 docks Y to S+X at T2. Chain: bare-S -> S+X -> S+X+Y. UI shows only the chain tip:
+R1 docks X to S at T1. R2 docks Y to S+X at T2. Chain: bare-S -> S+X -> S+X+Y. Real Spawn Control lists only the chain tip, the combined vessel spawning at UT=2000.
 
-```
-  [Sync & Spawn] Station Alpha + X + Y
-    Becomes real as combined vessel at UT=2000
-    (Chain: R1 -> R2)
-```
-
-T1 is NOT offered as a spawn option — intermediate spawn suppression prevents it.
+T1 is NOT offered as a spawn option - intermediate spawn suppression prevents it.
 
 **Surface base approach:**
 
-Rover A is 50m from ghost-base S on the Mun. Chain tip at T1. Player selects "Spawn Base S." Jump to T1. Both surface-fixed — Mun rotates, sun angle changes, but relative positions identical. Base spawns as real. Rover drives up and docks.
+Rover A is 50m from ghost-base S on the Mun. Chain tip at T1. Player presses Warp on Base S's row. Jump to T1. Both surface-fixed - Mun rotates, sun angle changes, but relative positions identical. Base spawns as real. Rover drives up and docks.
 
-**Jump, then rewind:** Player jumps to T1, S1 spawns real. Player docks A to S1, commits R2. Player then rewinds to T0. Everything resets: S1 is ghost again (R1 claims it), R2 is committed and plays as ghost. The time jump left no persistent state — standard rewind rules apply.
+**Jump, then rewind:** Player jumps to T1, S1 spawns real. Player docks A to S1, commits R2. Player then rewinds to T0. Everything resets: S1 is ghost again (R1 claims it), R2 is committed and plays as ghost. The time jump left no persistent state - standard rewind rules apply.
 
 ### 14.8 Quicksave Pruning
 

@@ -1,7 +1,7 @@
 """Mission ci11_krpc_recover: CI-11, the player recovers a Real-Spawned chain tip
 they are NOT flying, through kRPC's ``Vessel.Recover()``.
 
-Runs AFTER the spec's seam steps have pressed Real Spawn Control's "Warp to Spawn"
+Runs AFTER the spec's seam steps have pressed a Real Spawn Control row's "Warp"
 for a landed chain tip (``RealSpawn``) while the pad vessel stays active. The
 mission picks the ONE vessel named ``targetName`` (kRPC 0.5.4 has no persistent
 id; an absent or ambiguous name refuses and asks nothing), calls ``recover()`` on
