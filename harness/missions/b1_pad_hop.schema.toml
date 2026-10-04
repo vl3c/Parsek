@@ -94,6 +94,18 @@ type = "int"
 min = 2
 max = 1000
 
+# Optional: per-field tolerance of the frozen-telemetry compare (altitude, vertical
+# speed, apoapsis, periapsis; metres or m/s). Absent = mlib.HOP_FROZEN_TOLERANCE_ABS
+# (1e-3) for mlib.B1Params (and the science_bench_recover delegate); 0.0 = the exact
+# bit-identical compare. A destroyed craft's frozen readings were seen to differ by
+# less than a millimetre per poll (RB-1 2026-09-27_1353), while a live hop craft
+# always moves far more than this between two 0.5 s polls.
+[params.frozenToleranceAbs]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
+
 # DOWN eligibility: the last finite altitude must be at/below this for a
 # post-chute vessel loss to count as the DOWN success terminal (option A:
 # "reached the ground"). A loss at altitude stays an ASSERT-FAIL.

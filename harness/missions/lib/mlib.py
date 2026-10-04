@@ -3409,9 +3409,31 @@ class TelemetrySnapshot:
 # otherwise wait out its whole descent budget. These helpers detect that stall.
 # ---------------------------------------------------------------------------
 
-# The five telemetry fields whose bitwise-identical repetition (while UT advances)
-# marks a dead/stale vessel object.
+# The five telemetry fields whose repetition (while UT advances) marks a
+# dead/stale vessel object.
 FrozenSignature = Tuple[float, float, float, float, float]
+
+# Names of the FrozenSignature slots, in order. The reset note names a slot by
+# this spelling, which is the TelemetrySnapshot attribute it was read from.
+FROZEN_SIGNATURE_FIELDS: Tuple[str, ...] = (
+    "ut", "altitude", "vertical_speed", "apoapsis", "periapsis")
+
+# Default frozen-field tolerance (metres / m/s) for the AIRBORNE HOP machines
+# only (B1 and its SBR delegate, EVA-4, GS-1, and B4's REENTRY / SPLASHDOWN
+# descent). Spec key frozenToleranceAbs. Every other machine compares exactly.
+#
+# Why a hop machine can afford it: in every gated hop phase a LIVE craft is
+# either moving (altitude changes by |vspd| * 0.5 s per poll) or accelerating
+# (vspd changes by about g * 0.5 s = 4.9 m/s per poll at a ballistic apex), so
+# at least one of altitude / vertical speed moves by orders of magnitude more
+# than 1e-3 between two polls; a chute descent at 6 m/s moves the altitude 3 m.
+# Why an orbit machine cannot: near an apsis of a near-circular orbit both the
+# altitude change and the vertical-speed change per poll can sit inside 1e-3,
+# so a tolerance there is a false vessel-lost trip on a live craft.
+# Why it is needed at all: RB-1 2026-09-27_1353 polled a destroyed Flea's
+# frozen values for about 118 polls at 1x and the exact compare never reached
+# 10, so a sub-millimetre difference in one field kept resetting the count.
+HOP_FROZEN_TOLERANCE_ABS = 1e-3
 
 
 def frozen_signature(snapshot: TelemetrySnapshot) -> FrozenSignature:
@@ -3422,22 +3444,59 @@ def frozen_signature(snapshot: TelemetrySnapshot) -> FrozenSignature:
             snapshot.apoapsis, snapshot.periapsis)
 
 
+def _tolerance_active(tolerance) -> bool:
+    """True iff ``tolerance`` selects the tolerant compare. Anything not a
+    finite positive number (0.0, negative, NaN, None) keeps the exact compare,
+    so a malformed value fails safe to the pre-tolerance behaviour."""
+    return _is_finite(tolerance) and tolerance > 0.0
+
+
+def frozen_field_matches(prev_value, curr_value, tolerance: float = 0.0) -> bool:
+    """One signature field's frozen comparison. Exact ``==`` unless
+    ``tolerance`` is active, then ``abs(prev - curr) <= tolerance`` where a
+    NaN or infinite value on either side never matches."""
+    if not _tolerance_active(tolerance):
+        return prev_value == curr_value
+    if not (_is_finite(prev_value) and _is_finite(curr_value)):
+        return False
+    return abs(float(prev_value) - float(curr_value)) <= tolerance
+
+
+def frozen_fields_match(prev: FrozenSignature, curr: FrozenSignature,
+                        tolerance: float = 0.0) -> bool:
+    """True iff the four non-UT fields of ``curr`` match ``prev``'s. At
+    tolerance 0 this is the tuple ``==`` the detector always used, kept
+    verbatim so the exact path stays byte-identical."""
+    if not _tolerance_active(tolerance):
+        return curr[1:] == prev[1:]
+    return all(frozen_field_matches(p, c, tolerance)
+               for p, c in zip(prev[1:], curr[1:]))
+
+
+def frozen_mismatched_fields(prev: FrozenSignature, curr: FrozenSignature,
+                             tolerance: float = 0.0) -> Tuple[int, ...]:
+    """Indices (1..4) of the non-UT fields that FAIL the frozen comparison at
+    ``tolerance``: the fields that broke (or would break) a frozen run."""
+    return tuple(i for i in range(1, len(FROZEN_SIGNATURE_FIELDS))
+                 if not frozen_field_matches(prev[i], curr[i], tolerance))
+
+
 def advances_frozen(prev: Optional[FrozenSignature],
-                    curr: Optional[FrozenSignature]) -> bool:
+                    curr: Optional[FrozenSignature],
+                    tolerance: float = 0.0) -> bool:
     """True iff ``curr`` is a FROZEN advance over ``prev``: the mission clock
     strictly advanced (``curr`` UT finite and STRICTLY greater than ``prev`` UT)
-    while the OTHER four fields (altitude, vertical_speed, apoapsis, periapsis) are
-    BITWISE-EXACTLY equal (``==``) to ``prev``'s.
+    while the OTHER four fields (altitude, vertical_speed, apoapsis, periapsis)
+    match ``prev``'s: BITWISE-EXACTLY (``==``) at the default tolerance 0, or
+    within ``tolerance`` when one is given (``frozen_field_matches``).
 
-    Exact equality is safe -- and in fact REQUIRED -- here: a LIVE craft's physics
-    jitters the low mantissa bits of altitude / vertical speed / apsides on every
-    single frame (integration noise, floating-origin re-centering), so two
-    consecutive live frames are essentially never bit-identical across all four.
-    Only a DEAD / stale vessel object -- KSP handed active-vessel to a destroyed
-    craft's debris and kRPC keeps returning the last cached orbit -- returns the
-    SAME floats forever while UT keeps ticking. A FROZEN UT (a paused game) does
-    NOT count: UT must strictly advance, so a legitimately paused sim (identical
-    full signature) is never mistaken for a dead vessel."""
+    Exact equality is the default for the orbit machines: a LIVE craft's physics
+    normally jitters the low mantissa bits of altitude / vertical speed /
+    apsides on every frame, and only a DEAD / stale vessel object returns the
+    SAME floats while UT keeps ticking. The airborne hop machines pass a small
+    tolerance instead (see HOP_FROZEN_TOLERANCE_ABS) because a destroyed craft
+    was seen to differ by less than a millimetre between polls. A FROZEN UT (a
+    paused game) is never an advance: UT must strictly advance."""
     if prev is None or curr is None:
         return False
     prev_ut, curr_ut = prev[0], curr[0]
@@ -3445,32 +3504,162 @@ def advances_frozen(prev: Optional[FrozenSignature],
         return False
     if not (curr_ut > prev_ut):
         return False
-    return curr[1:] == prev[1:]
+    return frozen_fields_match(prev, curr, tolerance)
 
 
 def _advance_frozen_count(prev_sig: Optional[FrozenSignature], prev_count: int,
-                          snapshot: TelemetrySnapshot,
-                          limit: int) -> Tuple[FrozenSignature, int, bool]:
-    """Advance the airborne frozen-telemetry counter for one frame (shared by the
-    B1 and B2 machines). Returns ``(new_sig, new_count, tripped)``: a FROZEN advance
-    over ``prev_sig`` increments the count, ANY non-frozen sample resets it to 0,
-    and ``tripped`` is True iff the count reached ``limit`` (a vessel-lost terminal).
-    The signature is always updated to the current frame so the next comparison uses
-    the latest UT.
+                          snapshot: TelemetrySnapshot, limit: int,
+                          tolerance: float = 0.0
+                          ) -> Tuple[Optional[FrozenSignature], int, bool]:
+    """Advance the airborne frozen-telemetry counter for one frame (shared by
+    every flight machine). Returns ``(new_sig, new_count, tripped)``: a FROZEN
+    advance over ``prev_sig`` increments the count, a sample whose UT advanced
+    with a field that does not match resets it to 0, and ``tripped`` is True iff
+    the count reached ``limit`` (a vessel-lost terminal). ``tolerance`` is the
+    per-field match tolerance (0.0 = exact; see ``advances_frozen``).
 
-    WARP GATE (review N-A4): the detector only advances at 1x (warp_mode
-    NONE). Frozen-vessel staleness is a 1x symptom -- kRPC returning the same
-    cached floats while the physics runs -- whereas an ON-RAILS craft in a
-    (near-)circular orbit can legitimately report bit-identical apsides while
-    UT advances (the latent false-trip class). A warped frame HOLDS the
-    signature and count unchanged: it is evidence in neither direction, and a
-    genuinely dead vessel still trips on the surrounding 1x frames (its
-    fields never change across the warp either)."""
+    HOLD rules: a sample that is evidence in neither direction leaves the
+    count unchanged instead of resetting it.
+      - WARP GATE (review N-A4): the detector only advances at 1x (warp_mode
+        NONE). An ON-RAILS craft in a (near-)circular orbit can legitimately
+        report bit-identical apsides while UT advances, so a warped frame HOLDS
+        the signature and count unchanged; a dead vessel still trips on the
+        surrounding 1x frames.
+      - NON-ADVANCING UT: a poll whose UT did not strictly advance carries no
+        new physics, so it cannot say whether the craft is alive. A non-finite
+        or REPEATED UT holds the signature and count unchanged (a duplicate
+        poll inside a frozen run must not restart the run); a LOWER UT (a load
+        or rewind) holds the count but re-baselines the signature to the new
+        UT, otherwise the detector would stall until UT re-passed the old
+        stamp. A stopped clock therefore never trips this detector (no
+        increment without a UT advance); the shell's paused-clock watchdog
+        owns that case, so the two never compete for one poll."""
     if snapshot.warp_mode != WARP_NONE:
         return prev_sig, prev_count, False
     curr_sig = frozen_signature(snapshot)
-    new_count = prev_count + 1 if advances_frozen(prev_sig, curr_sig) else 0
+    curr_ut = curr_sig[0]
+    if not _is_finite(curr_ut):
+        return prev_sig, prev_count, False
+    if prev_sig is not None and _is_finite(prev_sig[0]):
+        if curr_ut == prev_sig[0]:
+            return prev_sig, prev_count, False
+        if curr_ut < prev_sig[0]:
+            return curr_sig, prev_count, False
+    new_count = (prev_count + 1 if advances_frozen(prev_sig, curr_sig, tolerance)
+                 else 0)
     return curr_sig, new_count, (new_count >= limit)
+
+
+# B4 phases where the hop tolerance applies: the descent after the deorbit
+# burn. REENTRY flies a suborbital arc with periapsis at or below
+# deorbitPeriapsisMeters (eccentricity about 0.04 from an 80 km orbit), so its
+# radial acceleration never drops near zero where the vertical speed does, and
+# SPLASHDOWN is a chute descent. MJ-ASCENT / CIRCULARIZE / ORBIT / DEORBIT hold
+# a near-circular orbit at 1x and keep the exact compare.
+B4_FROZEN_TOLERANCE_PHASES: Tuple[str, ...] = (B4_REENTRY, B4_SPLASHDOWN)
+
+
+def frozen_tolerance_for_state(state) -> float:
+    """The frozen-field tolerance the machine applies on a frame decided from
+    ``state``: its params' ``frozen_tolerance_abs`` (0.0 when the params carry
+    none, i.e. every orbit machine), narrowed to B4_FROZEN_TOLERANCE_PHASES for
+    a B4 state. The detector call sites and the reset note both read it here,
+    so the note always reports the tolerance that was actually used."""
+    params = getattr(state, "params", None)
+    tolerance = getattr(params, "frozen_tolerance_abs", 0.0)
+    if not _tolerance_active(tolerance):
+        return 0.0
+    if isinstance(state, B4State) and state.phase not in B4_FROZEN_TOLERANCE_PHASES:
+        return 0.0
+    return float(tolerance)
+
+
+# Attributes under which a wrapper machine carries its delegated flight
+# machine, and with it the frozen counter: SBR.flight (B1), V1.flight (B5),
+# R1.ascent (B2), and S/R/T-DOCK.inner (B-DOCK).
+_FROZEN_NESTED_STATE_ATTRS: Tuple[str, ...] = ("flight", "ascent", "inner")
+
+
+def frozen_detector_holder(state):
+    """The state object that carries the frozen counter for ``state``: the
+    state itself when it has one, else its delegated sub-machine under one of
+    _FROZEN_NESTED_STATE_ATTRS, else None (a machine with no detector)."""
+    if state is None:
+        return None
+    if hasattr(state, "frozen_count"):
+        return state
+    for attr in _FROZEN_NESTED_STATE_ATTRS:
+        sub = getattr(state, attr, None)
+        if sub is not None and hasattr(sub, "frozen_count"):
+            return sub
+    return None
+
+
+# Per-flight cap on frozen-telemetry note lines. A healthy flight emits none
+# (its count never leaves 0 and its live fields never fall inside a hop
+# tolerance), so the cap only bounds a dead craft whose readings alternate
+# frozen / not frozen; the shell logs one suppression line at the cap.
+FROZEN_NOTE_LIMIT = 20
+
+
+def frozen_count_note(prev_sig: Optional[FrozenSignature], prev_count: int,
+                      curr_sig: Optional[FrozenSignature], new_count: int,
+                      tolerance: float, warp_mode: str) -> Optional[str]:
+    """One diagnostic line for a frozen-counter event, or None.
+
+    Two events, both silent on a healthy flight:
+      - ``reset``: the count dropped from 1 or more to 0. Names every field
+        that failed the comparison at ``tolerance`` with ``repr()`` of its
+        previous and current value. A healthy flight never logs it because its
+        count never leaves 0.
+      - ``within-tolerance``: a tolerant machine counted the poll as frozen
+        although some field was not bit-identical: the reset the exact compare
+        WOULD have made. Names the inexact fields the same way, so the field
+        that kept RB-1's exact count from tripping is named on the next crash.
+    ``dUt`` and the warp mode ride both, so a reset can be told apart from a
+    clock or warp artefact."""
+    if prev_sig is None or curr_sig is None:
+        return None
+    if prev_count >= 1 and new_count == 0:
+        kind = "reset"
+        fields = frozen_mismatched_fields(prev_sig, curr_sig, tolerance)
+    elif _tolerance_active(tolerance) and new_count > prev_count:
+        kind = "within-tolerance"
+        fields = frozen_mismatched_fields(prev_sig, curr_sig, 0.0)
+        if not fields:
+            return None
+    else:
+        return None
+    names = ",".join(FROZEN_SIGNATURE_FIELDS[i] for i in fields) or "none"
+    values = "".join(" %s=%r->%r" % (FROZEN_SIGNATURE_FIELDS[i], prev_sig[i], curr_sig[i])
+                     for i in fields)
+    if _is_finite(prev_sig[0]) and _is_finite(curr_sig[0]):
+        d_ut = float(curr_sig[0]) - float(prev_sig[0])
+    else:
+        d_ut = float("nan")
+    return ("frozen-telemetry %s count=%d->%d field=%s%s dUt=%r warp=%s tol=%r"
+            % (kind, prev_count, new_count, names, values, d_ut, warp_mode,
+               float(tolerance) if _tolerance_active(tolerance) else 0.0))
+
+
+def frozen_detector_note(prev_state, new_state,
+                         snapshot: TelemetrySnapshot) -> Optional[str]:
+    """``frozen_count_note`` for one fly-loop frame, read off the machine state
+    before and after ``decide`` (nested counters resolved through
+    ``frozen_detector_holder``). The tolerance is the one the detector used,
+    read from the PRE-decide state, whose phase is the one it ran in."""
+    prev_holder = frozen_detector_holder(prev_state)
+    new_holder = frozen_detector_holder(new_state)
+    if prev_holder is None or new_holder is None:
+        return None
+    prev_count = getattr(prev_holder, "frozen_count", 0)
+    new_count = getattr(new_holder, "frozen_count", 0)
+    if not isinstance(prev_count, int) or not isinstance(new_count, int):
+        return None
+    return frozen_count_note(getattr(prev_holder, "frozen_sig", None), prev_count,
+                             frozen_signature(snapshot), new_count,
+                             frozen_tolerance_for_state(prev_holder),
+                             snapshot.warp_mode)
 
 
 # ---------------------------------------------------------------------------
@@ -3942,6 +4131,10 @@ class B1Params:
                                            # the ground", so a post-chute loss AT
                                            # ALTITUDE stays an ASSERT-FAIL (spec
                                            # key downMaxAltMeters)
+    # Per-field frozen-telemetry match tolerance (spec key frozenToleranceAbs).
+    # 0.0 = exact compare; the params builder defaults it to
+    # HOP_FROZEN_TOLERANCE_ABS (see that constant for the gated-phase argument).
+    frozen_tolerance_abs: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -4026,6 +4219,12 @@ class B4Params:
     frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
                                            # vessel-lost terminal (spec key
                                            # frozenTelemetrySamples)
+    # Applied ONLY in B4_FROZEN_TOLERANCE_PHASES (the descent); the orbit
+    # phases keep the exact compare.
+    # Per-field frozen-telemetry match tolerance (spec key frozenToleranceAbs).
+    # 0.0 = exact compare; the params builder defaults it to
+    # HOP_FROZEN_TOLERANCE_ABS (see that constant for the gated-phase argument).
+    frozen_tolerance_abs: float = 0.0
 
 
 def b1_params_from_dict(params: Dict) -> B1Params:
@@ -4044,6 +4243,8 @@ def b1_params_from_dict(params: Dict) -> B1Params:
         apoapsis_window=(float(window.get("min", 0.0)), float(window.get("max", 0.0))),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
         down_max_alt=float(params.get("downMaxAltMeters", 500)),
+        frozen_tolerance_abs=float(params.get("frozenToleranceAbs",
+                                              HOP_FROZEN_TOLERANCE_ABS)),
     )
 
 
@@ -4075,6 +4276,10 @@ class Eva4Params:
     # LANDED is the EVA-1 ground case, not this scenario's mid-flight surface, so the
     # window requires an airborne situation.
     airborne_situations: Tuple[str, ...] = ("FLYING", "SUB_ORBITAL")
+    # Per-field frozen-telemetry match tolerance (spec key frozenToleranceAbs).
+    # 0.0 = exact compare; the params builder defaults it to
+    # HOP_FROZEN_TOLERANCE_ABS (see that constant for the gated-phase argument).
+    frozen_tolerance_abs: float = 0.0
 
 
 def eva4_params_from_dict(params: Dict) -> Eva4Params:
@@ -4095,6 +4300,8 @@ def eva4_params_from_dict(params: Dict) -> Eva4Params:
         apoapsis_window=(float(window.get("min", 0.0)), float(window.get("max", 0.0))),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
         airborne_situations=tuple(params.get("airborneSituations", ("FLYING", "SUB_ORBITAL"))),
+        frozen_tolerance_abs=float(params.get("frozenToleranceAbs",
+                                              HOP_FROZEN_TOLERANCE_ABS)),
     )
 
 
@@ -4138,6 +4345,8 @@ def b4_params_from_dict(params: Dict) -> B4Params:
         descent_timeout=float(params.get("descentTimeoutSeconds", 600)),
         landed_situations=tuple(params.get("landedSituations", ("LANDED", "SPLASHED"))),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
+        frozen_tolerance_abs=float(params.get("frozenToleranceAbs",
+                                              HOP_FROZEN_TOLERANCE_ABS)),
     )
 
 
@@ -5528,7 +5737,8 @@ def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, Lis
     if state.phase in (B1_ASCENT, B1_COAST, B1_DESCENT):
         limit = state.params.frozen_sample_limit
         new_sig, new_count, tripped = _advance_frozen_count(
-            state.frozen_sig, state.frozen_count, snapshot, limit)
+            state.frozen_sig, state.frozen_count, snapshot, limit,
+            frozen_tolerance_for_state(state))
         if tripped:
             if _b1_down_eligible(state):
                 down = _b1_enter_down(state, snapshot.ut, peak)
@@ -7407,7 +7617,8 @@ def eva4_decide(state: Eva4State, snapshot: TelemetrySnapshot) -> Tuple[Eva4Stat
     if state.phase in (EVA4_ASCENT, EVA4_COAST, EVA4_DESCENT):
         limit = state.params.frozen_sample_limit
         new_sig, new_count, tripped = _advance_frozen_count(
-            state.frozen_sig, state.frozen_count, snapshot, limit)
+            state.frozen_sig, state.frozen_count, snapshot, limit,
+            frozen_tolerance_for_state(state))
         if tripped:
             return replace(
                 state, peak_apoapsis=peak, frozen_sig=new_sig, frozen_count=new_count,
@@ -10706,7 +10917,8 @@ def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, Lis
     if state.phase != B4_PRELAUNCH:
         limit = state.params.frozen_sample_limit
         new_sig, new_count, tripped = _advance_frozen_count(
-            state.frozen_sig, state.frozen_count, snapshot, limit)
+            state.frozen_sig, state.frozen_count, snapshot, limit,
+            frozen_tolerance_for_state(state))
         if tripped:
             return replace(
                 state, peak_apoapsis=peak, frozen_sig=new_sig, frozen_count=new_count,
@@ -20817,6 +21029,25 @@ def _json_safe(value):
     return value
 
 
+# Machine fields that a wrapper machine (SBR, R1, V1, S/R/T-DOCK) keeps on its
+# delegated flight machine rather than on itself. Without this the SBR line
+# printed frozenCount=- through the whole RB-1 crash while the real counter sat
+# in state.flight.frozen_count.
+_MACHINE_NESTED_FIELDS: Tuple[str, ...] = ("frozen_count",)
+
+
+def _machine_field_value(state, attr: str):
+    """``getattr(state, attr)`` for the machine line / dict, falling back to
+    the delegated sub-machine (``frozen_detector_holder``) for the fields in
+    _MACHINE_NESTED_FIELDS. _MACHINE_FIELD_ABSENT when neither carries it."""
+    value = getattr(state, attr, _MACHINE_FIELD_ABSENT)
+    if value is _MACHINE_FIELD_ABSENT and attr in _MACHINE_NESTED_FIELDS:
+        holder = frozen_detector_holder(state)
+        if holder is not None:
+            value = getattr(holder, attr, _MACHINE_FIELD_ABSENT)
+    return value
+
+
 def machine_state_dict(state, ut: float = float("nan")) -> Dict:
     """The machine's decision state as a JSON-safe {key: value} dict (the
     status-file ``machine`` block, design 2d). Fields the state object lacks
@@ -20824,7 +21055,7 @@ def machine_state_dict(state, ut: float = float("nan")) -> Dict:
     the current ``ut`` (None while not static or unknown)."""
     out: Dict = {}
     for attr, key in MACHINE_STATE_FIELDS:
-        value = getattr(state, attr, _MACHINE_FIELD_ABSENT)
+        value = _machine_field_value(state, attr)
         if value is _MACHINE_FIELD_ABSENT:
             continue
         out[key] = _json_safe(value)
@@ -20843,7 +21074,7 @@ def format_machine_state(state, ut: float = float("nan")) -> str:
     emits it unconditionally."""
     parts = ["machine"]
     for attr, key in MACHINE_STATE_FIELDS:
-        raw = getattr(state, attr, _MACHINE_FIELD_ABSENT)
+        raw = _machine_field_value(state, attr)
         render = _obs_fmt_token if attr in _MACHINE_TOKEN_FIELDS else _obs_fmt
         parts.append("%s=%s" % (key, render(raw)))
     since = getattr(state, "burn_static_since", _MACHINE_FIELD_ABSENT)
@@ -21307,6 +21538,10 @@ class Gs1Params:
     separation_thrust_epsilon: float = 100.0
     frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
                                            # vessel-lost terminal
+    # Per-field frozen-telemetry match tolerance (spec key frozenToleranceAbs).
+    # 0.0 = exact compare; the params builder defaults it to
+    # HOP_FROZEN_TOLERANCE_ABS (see that constant for the gated-phase argument).
+    frozen_tolerance_abs: float = 0.0
 
 
 def gs1_params_from_dict(params: Dict) -> Gs1Params:
@@ -21333,6 +21568,8 @@ def gs1_params_from_dict(params: Dict) -> Gs1Params:
         focus_impact_at_exit=bool(params.get("focusImpactAtExit", False)),
         separation_thrust_epsilon=float(params.get("separationThrustEpsilonNewtons", 100)),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
+        frozen_tolerance_abs=float(params.get("frozenToleranceAbs",
+                                              HOP_FROZEN_TOLERANCE_ABS)),
     )
 
 
@@ -21693,7 +21930,8 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
     if state.phase in (GS1_ASCENT, GS1_COAST, GS1_STAGE, GS1_DESCENT):
         limit = state.params.frozen_sample_limit
         new_sig, new_count, tripped = _advance_frozen_count(
-            state.frozen_sig, state.frozen_count, snapshot, limit)
+            state.frozen_sig, state.frozen_count, snapshot, limit,
+            frozen_tolerance_for_state(state))
         if tripped and _gs1_focus_impact_eligible(state):
             return _gs1_enter_impacted(
                 replace(state, frozen_sig=new_sig, frozen_count=new_count), peak), []
