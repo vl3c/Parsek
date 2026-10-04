@@ -60,6 +60,9 @@ namespace Parsek
             internal Color StockSpriteColor;
             internal bool HasTraitText;
             internal string StockTraitText;
+            internal bool HasTraitOverflow;
+            internal object StockTraitOverflow;
+            internal object StockTraitWrap;
         }
 
         private static ConditionalWeakTable<CrewListItem, RowState> rowStates =
@@ -332,10 +335,53 @@ namespace Parsek
             if (trait == null) return;
             string status = TraitLineStatus(DescribeCurrent(kerbalName, ReservationExplanation.DateOnlyFormatter));
             if (string.IsNullOrEmpty(status)) return;
+            // The trait label is sized for a trait word and ellipsizes past it ("Reserved
+            // until Y1..." in the GUI-28 census), so the status line is drawn on one line
+            // past the label's own width, into the row's empty space; the stock overflow
+            // and wrapping go back in Restore.
+            if (!state.HasTraitOverflow)
+            {
+                state.StockTraitOverflow = GetProperty(trait, "overflowMode");
+                state.StockTraitWrap = GetProperty(trait, "enableWordWrapping");
+                state.HasTraitOverflow = true;
+            }
+            SetEnumProperty(trait, "overflowMode", "Overflow");
+            SetProperty(trait, "enableWordWrapping", false);
             if (!string.Equals(StockUiText.Get(trait), status, StringComparison.Ordinal)
                 && StockUiText.Set(trait, status))
                 ParsekLog.VerboseRateLimited(Tag, "crew-dialog-trait-" + kerbalName,
                     "crew dialog row for " + kerbalName + " shows '" + status + "' in place of its trait");
+        }
+
+        private static object GetProperty(object target, string name)
+        {
+            PropertyInfo p = target.GetType().GetProperty(name, BindingFlags.Instance | BindingFlags.Public);
+            return p != null && p.CanRead ? p.GetValue(target, null) : null;
+        }
+
+        private static void SetProperty(object target, string name, object value)
+        {
+            if (value == null) return;
+            PropertyInfo p = target.GetType().GetProperty(name, BindingFlags.Instance | BindingFlags.Public);
+            if (p == null || !p.CanWrite || !p.PropertyType.IsInstanceOfType(value))
+            {
+                ParsekLog.VerboseRateLimited(Tag, "crew-dialog-trait-prop-" + name,
+                    "crew dialog trait label has no writable '" + name + "' - left as stock set it");
+                return;
+            }
+            p.SetValue(target, value, null);
+        }
+
+        private static void SetEnumProperty(object target, string name, string member)
+        {
+            PropertyInfo p = target.GetType().GetProperty(name, BindingFlags.Instance | BindingFlags.Public);
+            if (p == null || !p.CanWrite || !p.PropertyType.IsEnum || !Enum.IsDefined(p.PropertyType, member))
+            {
+                ParsekLog.VerboseRateLimited(Tag, "crew-dialog-trait-prop-" + name,
+                    "crew dialog trait label has no '" + name + "." + member + "' - left as stock set it");
+                return;
+            }
+            p.SetValue(target, Enum.Parse(p.PropertyType, member), null);
         }
 
         /// <summary>Stock's <c>crew.inactive</c> look, member for member
@@ -398,6 +444,16 @@ namespace Parsek
             {
                 object trait = xpTraitField.GetValue(row);
                 if (trait != null) StockUiText.Set(trait, state.StockTraitText);
+            }
+            if (state.HasTraitOverflow && xpTraitField != null)
+            {
+                object trait = xpTraitField.GetValue(row);
+                if (trait != null)
+                {
+                    if (state.StockTraitOverflow != null) SetProperty(trait, "overflowMode", state.StockTraitOverflow);
+                    SetProperty(trait, "enableWordWrapping", state.StockTraitWrap);
+                }
+                state.HasTraitOverflow = false;
             }
             if (state.HasSpriteColor && row.kerbalSprite != null) row.kerbalSprite.color = state.StockSpriteColor;
             row.MouseoverEnabled = state.StockMouseover;
