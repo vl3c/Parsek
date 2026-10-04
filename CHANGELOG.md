@@ -2658,7 +2658,7 @@ _(unreleased — entries accumulate here per commit)_
   0.5/0.7/1) take the palette red (1/0.4/0.4), green (0.55/1/0.55) and cyan (0.65/0.85/1); the
   Recordings Status of an active flight is the palette green instead of pure green and a
   future flight's countdown is amber instead of white; the Logistics launcher's broken and
-  prompt tints, Real Spawn Control's green and yellow, and the Test Runner's status colours
+  prompt tints, Real Spawn Control's green, and the Test Runner's status colours
   use the palette too; muted text is one grey (0.78) where Kerbals used 0.75 and the
   Logistics detail lines 0.8; the Timeline's dimmed future rows use the Missions dim (white at
   45%, was 50%). Empty lists read one grey sentence in every window (`No recordings yet.`,

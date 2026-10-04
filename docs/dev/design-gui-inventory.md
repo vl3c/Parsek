@@ -1196,7 +1196,7 @@ Columns (`UI/SpawnControlUI.cs`, header `DrawSpawnColumnHeader`): `Craft` expand
 `Rel Speed` 70, `Spawns at` 100, `In T-` 95 (the house countdown in the countdown amber),
 `State` 110 (not sortable) and `Warp` 118 (not sortable; the row's `Warp to Spawn` / `Warp to
 Depart` button, wider than an Interact single because its label is). `State` holds the departure
-text (`Departs T- 2m 0s` / `Departing -> <destination>`, drawn with an arrow and tinted) and `-`
+text (`Departs T- 2m 0s` in the countdown amber / `Departing -> <destination>` in orange, drawn with an arrow) and `-`
 for a craft that spawns and stays (`SpawnControlPresentation.NoDepartureStateText`). ONE dark
 body box holds the pinned header row and the scroll view of rows (`DrawSpawnCandidateTable`),
 and the row labels use the shared table cell style (`ParsekUI.GetTableCellStyle`). Five headers

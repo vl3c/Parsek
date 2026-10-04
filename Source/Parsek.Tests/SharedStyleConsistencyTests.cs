@@ -118,6 +118,9 @@ namespace Parsek.Tests
             Assert.Equal(ParsekUI.CountdownTextColor, MissionsWindowUI.LoopPeriodClampColor);
             string spawn = Dense(StripComments(ReadSource("UI", "SpawnControlUI.cs")));
             Assert.Contains("GUI.contentColor=ParsekUI.CountdownTextColor;GUILayout.Label(ParsekTimeFormat.FormatCountdown(delta)", spawn);
+            // The State cell's "Departs T- ..." is a countdown too: amber, not the palette yellow.
+            Assert.Contains(":ParsekUI.CountdownTextColor;}GUILayout.Label(row.StateText,", spawn);
+            Assert.DoesNotContain("StatusColorKind.Yellow", spawn);
             string timeline = Dense(StripComments(ReadSource("UI", "TimelineWindowUI.cs")));
             Assert.Contains("timelineCountdownStyle.normal.textColor=ParsekUI.CountdownTextColor;", timeline);
             Assert.Contains("GUILayout.Label(time,showCountdownTime?timelineCountdownStyle:style,", timeline);

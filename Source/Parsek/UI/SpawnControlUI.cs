@@ -389,13 +389,15 @@ namespace Parsek
                     cellStyle, GUILayout.Width(SpawnColW_Countdown));
                 GUI.contentColor = savedCountdownColor;
 
-                // State column: departure info, tinted while a departure is pending.
+                // State column: departure info, tinted while a departure is pending. An
+                // upcoming departure carries the house countdown ("Departs T- ..."), so it
+                // takes the house countdown amber; departing now is orange.
                 var prevColor = GUI.contentColor;
                 if (row.StateTone != SpawnCandidateStateTone.None)
                 {
                     GUI.contentColor = row.StateTone == SpawnCandidateStateTone.DepartingNow
                         ? new Color(1f, 0.65f, 0.2f) // orange
-                        : ParsekUI.StatusColor(ParsekUI.StatusColorKind.Yellow);
+                        : ParsekUI.CountdownTextColor;
                 }
                 GUILayout.Label(row.StateText, cellStyle, GUILayout.Width(SpawnColW_State));
                 GUI.contentColor = prevColor;

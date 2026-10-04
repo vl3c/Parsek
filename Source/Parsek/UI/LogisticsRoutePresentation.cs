@@ -688,8 +688,8 @@ namespace Parsek
         /// <summary>Line-1 Send label (one run, then stay Paused).</summary>
         internal const string SendButtonLabel = "Send";
 
-        /// <summary>Line-2 label: the mission the route repeats, on the Missions tab. The
-        /// Missions partner rows' spelling ("Go to"), not the Timeline's "GoTo".</summary>
+        /// <summary>Line-2 label: the mission the route repeats, on the Missions tab. Spelled
+        /// "Go to", as every window spells the cross-link.</summary>
         internal const string GoToButtonLabel = "Go to";
 
         /// <summary>Line-2 label: the route's Route History window.</summary>
