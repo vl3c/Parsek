@@ -70,11 +70,27 @@ namespace Parsek.Tests
             List<RecordingTree> trees = LoadTrees();
             RecordingTree tree = trees.Single(t => t.Id == treeId);
             MissionStructure structure = MissionStructureBuilder.Build(tree);
+            return BuildRowsLikeTheWindow(tree, structure, trees, out _);
+        }
+
+        // The Missions tab's wiring (MissionsWindowUI.GetVesselRows): the naming pass's names
+        // and partner legs, the same-tree dock resolver and the terminal dock resolver.
+        private static List<MissionVesselRow> BuildRowsLikeTheWindow(RecordingTree tree,
+            MissionStructure structure, List<RecordingTree> trees, out HashSet<string> partners)
+        {
+            var partnerSet = new HashSet<string>(StringComparer.Ordinal);
             Dictionary<string, string> names = MissionVesselNaming.Build(
                 tree, structure, MissionVesselNaming.LaunchIndex.Build(trees), MissionOf,
-                out MissionVesselNaming.Tally _);
+                out MissionVesselNaming.Tally _, null, partnerSet);
+            partners = partnerSet;
+            MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
             return MissionVesselRowBuilder.Build(
-                MissionCompositionBuilder.Build(structure), null, names);
+                MissionCompositionBuilder.Build(structure),
+                (head, ut) => MissionPresentation.ResolveSameTreeDockPartnerVesselName(
+                    structure, view, head, ut, names),
+                names, partnerSet,
+                (head, ut) => MissionPresentation.ResolveTerminalDockPartnerVesselName(
+                    structure, head, ut, names));
         }
 
         private static IEnumerable<MissionVesselRow> AllRows(List<MissionVesselRow> rows)
@@ -108,21 +124,67 @@ namespace Parsek.Tests
 
         // catches: "Depot Station Duna I (mission 'Kerbal X #5')   Launch -> Docked" and
         // "Kerbal X (mission 'Kerbal X #3')   Launch -> Docked" listed as pieces that separated
-        // from the ship they docked with.
+        // from the ship they docked with. The partner is a row BESIDE the ship (the ship is a
+        // root here, so at the top level), named with its mission, with no "Launch".
         [Theory]
-        [InlineData(DunaTreeId, DunaJoinedDepot)]
-        [InlineData(MunTreeId, MunJoinedPartner)]
-        public void JoinedPartner_IsNoVesselRowOfThisMission(string treeId, string joinedId)
+        [InlineData(DunaTreeId, DunaHead, DunaJoinedDepot,
+            "Depot Station Duna I (mission 'Kerbal X #5')", "Docked (Duna Supply 1)")]
+        [InlineData(MunTreeId, MunHead, MunJoinedPartner,
+            "Kerbal X (mission 'Kerbal X #3')", "Docked (Kerbal X)")]
+        public void JoinedPartner_IsASiblingRowOfTheShipItDockedWith(string treeId, string shipHead,
+            string joinedId, string partnerName, string partnerPhrase)
         {
             List<MissionVesselRow> rows = BuildRows(treeId);
             foreach (MissionVesselRow r in AllRows(rows))
-                output.WriteLine(r.VesselName + "   " + r.EventPhrase);
+                output.WriteLine((r.IsPartner ? "[partner] " : "") + r.VesselName + "   " + r.EventPhrase);
 
-            Assert.DoesNotContain(AllRows(rows), r => r.OwnerHeadId == joinedId);
-            Assert.DoesNotContain(AllRows(rows), r => r.VesselName.Contains("(mission '"));
-            // Every row below the top is a real separation (decouple / undock), never a launch.
-            foreach (MissionVesselRow top in rows)
-                Assert.All(AllRows(top.Children), r => Assert.NotEqual("Launch", r.StartEvent));
+            int shipAt = rows.FindIndex(r => r.OwnerHeadId == shipHead);
+            Assert.True(shipAt >= 0);
+            Assert.DoesNotContain(AllRows(rows[shipAt].Children), r => r.OwnerHeadId == joinedId);
+            MissionVesselRow partner = Assert.Single(rows, r => r.OwnerHeadId == joinedId);
+            Assert.True(partner.IsPartner);
+            Assert.Equal(partnerName, partner.VesselName);
+            Assert.Equal("", partner.StartEvent);
+            Assert.Equal(partnerPhrase, partner.EventPhrase);
+            Assert.Equal(new[] { joinedId }, MissionVesselRowBuilder.IntervalKeys(partner).ToArray());
+            // No row anywhere starts at, or names, a mid-flight "Launch" except the real one.
+            Assert.All(AllRows(rows).Where(r => r.OwnerHeadId != shipHead),
+                r => Assert.NotEqual("Launch", r.StartEvent));
+            Assert.All(AllRows(rows), r => Assert.DoesNotContain("Launch (", r.EventPhrase));
+        }
+
+        // catches: the Missions tab's cached naming pass not handing the window the partner
+        // legs its rows and vessel count read, or keeping them past a state change.
+        [Fact]
+        public void NamingCache_HandsBackThePartnerLegs()
+        {
+            List<RecordingTree> trees = LoadTrees();
+            RecordingTree tree = trees.Single(t => t.Id == DunaTreeId);
+            var cache = new MissionVesselNaming.Cache();
+            Assert.Null(cache.PartnerLegIds(DunaTreeId));
+            cache.GetOrBuild(tree, MissionStructureBuilder.Build, trees, 1, 1, MissionOf);
+            HashSet<string> partners = cache.PartnerLegIds(DunaTreeId);
+            Assert.Contains(DunaJoinedDepot, partners);
+            Assert.DoesNotContain(DunaHead, partners);
+            cache.GetOrBuild(trees[0].Id == DunaTreeId ? trees[1] : trees[0],
+                MissionStructureBuilder.Build, trees, 2, 1, MissionOf);
+            Assert.Null(cache.PartnerLegIds(DunaTreeId));   // the state version moved
+        }
+
+        // catches: a partner key the player excluded before the fix becoming unreachable: the
+        // partner row's checkbox re-includes it (and trims it again), touching no other key.
+        [Fact]
+        public void JoinedPartner_ExcludedKey_CanBeReincludedThroughItsRow()
+        {
+            MissionVesselRow partner = BuildRows(DunaTreeId).Single(r => r.IsPartner);
+            var excluded = new List<string> { DunaJoinedDepot, DunaHead + "/seg1" };
+            Assert.Equal(MissionVesselInclusion.None,
+                MissionVesselRowBuilder.ClassifyInclusion(partner, excluded));
+            Assert.Equal(1, MissionVesselRowBuilder.ApplyVesselInclusion(partner, true, excluded));
+            Assert.Equal(new[] { DunaHead + "/seg1" }, excluded.ToArray());
+            Assert.Equal(1, MissionVesselRowBuilder.ApplyVesselInclusion(partner, false, excluded));
+            Assert.Equal(MissionVesselInclusion.None,
+                MissionVesselRowBuilder.ClassifyInclusion(partner, excluded));
         }
 
         // catches: the fix renumbering the interval keys Mission.ExcludedIntervalKeys stores.
@@ -155,8 +217,14 @@ namespace Parsek.Tests
                 MunHead + "/seg3",
             }, SelectableKeys(MunTreeId).ToArray());
 
-            // The ship's own row still owns the same five keys, and a key stored before the fix
-            // still selects the same interval (the one from the join to the dock).
+            // Each ship's own row still owns exactly its five keys, and a key stored before the
+            // fix still selects the same interval (the one from the join to the dock).
+            MissionVesselRow munShip = BuildRows(MunTreeId).Single(r => r.OwnerHeadId == MunHead);
+            Assert.Equal(new[]
+            {
+                MunHead, MunHead + "/seg1", MunHead + "/seg2", MunHead + "/seg2@dock1",
+                MunHead + "/seg3",
+            }, MissionVesselRowBuilder.IntervalKeys(munShip).ToArray());
             MissionVesselRow ship = BuildRows(DunaTreeId).Single(r => r.OwnerHeadId == DunaHead);
             Assert.Equal(new[]
             {
@@ -199,18 +267,78 @@ namespace Parsek.Tests
             Assert.DoesNotContain("Launch", ship.EventPhrase.Substring("Launch".Length));
         }
 
-        // catches: the mission summary counting the joined vessel as one of its own.
+        // catches: the mission summary counting another mission's joined vessel as its own.
         [Fact]
         public void JoinedPartner_IsNotCountedAsAMissionVessel()
         {
-            RecordingTree tree = LoadTrees().Single(t => t.Id == DunaTreeId);
+            List<RecordingTree> trees = LoadTrees();
+            RecordingTree tree = trees.Single(t => t.Id == DunaTreeId);
             MissionStructure structure = MissionStructureBuilder.Build(tree);
+            List<MissionVesselRow> rows = BuildRowsLikeTheWindow(tree, structure, trees,
+                out HashSet<string> partners);
+            Assert.Contains(DunaJoinedDepot, partners);
             MissionPresentation.MissionSummaryFacts facts = MissionPresentation.ComputeSummaryFacts(
                 structure, MissionThroughLineBuilder.Build(structure),
-                MissionCompositionBuilder.Build(structure));
+                MissionCompositionBuilder.Build(structure), partners);
             // Duna Supply 1, its probe, and its post-undock half (a separate row today).
             Assert.Equal(3, facts.VesselCount);
-            Assert.Equal(3, AllRows(BuildRows(DunaTreeId)).Count());
+            Assert.Equal(3, AllRows(rows).Count(r => !r.IsPartner));
+        }
+
+        // catches (review): a joined leg the naming pass calls this mission's own - in no
+        // other tree's launch index (a pre-Parsek station, a stock or contract vessel, a craft
+        // from a never-committed tree, this tree's own debris) - hidden and uncounted because
+        // the join is structural. It keeps an ordinary row under the vessel it joined at, and
+        // it counts.
+        [Fact]
+        public void JoinedLegInNoLaunchIndex_KeepsAnOrdinaryRowAndItsCount()
+        {
+            var ship = new Recording
+            {
+                RecordingId = "ship", VesselName = "Ship", VesselPersistentId = 11,
+                RecordedVesselGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ChainId = "c", ChainIndex = 0,
+                ExplicitStartUT = 0, ExplicitEndUT = 50,
+                Controllers = new List<ControllerInfo> { new ControllerInfo { type = "ProbeCore" } },
+            };
+            var shipCont = new Recording
+            {
+                RecordingId = "shipCont", VesselName = "Ship", VesselPersistentId = 11,
+                RecordedVesselGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ChainId = "c", ChainIndex = 1,
+                ExplicitStartUT = 50, ExplicitEndUT = 200, TerminalStateValue = TerminalState.Orbiting,
+                Controllers = new List<ControllerInfo> { new ControllerInfo { type = "ProbeCore" } },
+            };
+            var station = new Recording
+            {
+                RecordingId = "station", VesselName = "Old Station", VesselPersistentId = 22,
+                RecordedVesselGuid = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                ExplicitStartUT = 50, ExplicitEndUT = 180, TerminalStateValue = TerminalState.Orbiting,
+                Controllers = new List<ControllerInfo> { new ControllerInfo { type = "ProbeCore" } },
+            };
+            var tree = new RecordingTree { Id = "own", TreeName = "Ship", RootRecordingId = "ship" };
+            foreach (Recording r in new[] { ship, shipCont, station }) tree.Recordings[r.RecordingId] = r;
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "launchbp", Type = BranchPointType.Launch, UT = 50,
+                ParentRecordingIds = new List<string> { "ship" },
+                ChildRecordingIds = new List<string> { "station" },
+            });
+            station.ParentBranchPointId = "launchbp";
+
+            var trees = new List<RecordingTree> { tree };
+            MissionStructure structure = MissionStructureBuilder.Build(tree);
+            List<MissionVesselRow> rows = BuildRowsLikeTheWindow(tree, structure, trees,
+                out HashSet<string> partners);
+            Assert.Empty(partners);
+            MissionVesselRow shipRow = Assert.Single(rows);
+            MissionVesselRow stationRow = Assert.Single(shipRow.Children);
+            Assert.Equal("station", stationRow.OwnerHeadId);
+            Assert.Equal("Old Station", stationRow.VesselName);
+            Assert.False(stationRow.IsPartner);
+            Assert.Equal("", stationRow.StartEvent);   // it did not launch there
+            MissionPresentation.MissionSummaryFacts facts = MissionPresentation.ComputeSummaryFacts(
+                structure, MissionThroughLineBuilder.Build(structure),
+                MissionCompositionBuilder.Build(structure), partners);
+            Assert.Equal(2, facts.VesselCount);
         }
 
         // ------------------------------------------------------------------ the mission Log
@@ -389,6 +517,23 @@ namespace Parsek.Tests
             StructureStep dock = Log(tree, "tug").Single(s => s.Kind == StructureStepKind.Dock);
             Assert.Equal("Docked (Tug)", dock.Label);
             Assert.Equal("Station", dock.VesselName);
+        }
+
+        // catches (review): an own child with no other child recorded naming nothing; the
+        // label falls back to the combined vessel the ship undocked from.
+        [Fact]
+        public void UndockWithOnlyTheOwnChildRecorded_NamesTheCombinedVessel()
+        {
+            RecordingTree tree = Tree(new[]
+                {
+                    Rec("combined", "Depot", 0, 100, 2),
+                    Rec("ship", "Deliverer", 100, 200, 3, TerminalState.Orbiting),
+                },
+                BP("undock", BranchPointType.Undock, 100, new[] { "combined" }, new[] { "ship" }));
+            StructureStep undock = Log(tree, "combined").Single(s => s.Kind == StructureStepKind.Undock);
+            Assert.Equal("Undocked (Depot)", undock.Label);
+            Assert.Equal("Deliverer", undock.VesselName);
+            Assert.Equal("combined", undock.RecordingId);
         }
 
         // catches: an undock where every recorded side is another mission's vessel inventing

@@ -1572,11 +1572,14 @@ _(unreleased — entries accumulate here per commit)_
   (mission 'Kerbal X #5')   Launch -> Docked"), your ship's event chain read "Launch ->
   Launch (Depot Station Duna I ...) -> Docked", the expanded interval rows (Advanced) read
   "Decoupled -> Launch" and "Launch -> Docked", and the interval after the switch lost the
-  other vessel's pod from your ship's count ("Kerbal X (crew x1)"). The other vessel now has
-  no row in your mission (it belongs to its own), your ship's "Docked (...)" step still names
-  it with its mission, the interval rows split at the switch with blank event cells, the
-  count stays your ship's own ("pod x1, crew x1"), and the mission's vessel count leaves it
-  out. Mission selections are unaffected: the interval keys a mission stores do not change.
+  other vessel's pod from your ship's count ("Kerbal X (crew x1)"). The other vessel's row
+  now sits beside your ship instead of under it, reads "Docked (Duna Supply 1)" with no
+  launch, keeps its own include checkbox in Advanced (so its part of the loop can still be
+  kept or trimmed), and is not counted as one of your mission's vessels. Your ship's
+  interval rows split at the switch with blank event cells, and its count stays its own
+  ("pod x1, crew x1"). A vessel you switched to that belongs to no other mission (an old
+  station, a stock vessel) stays under your ship as before, without the false "Launch".
+  Mission selections are unaffected: the interval keys a mission stores do not change.
 - **The mission Log's Undocked row names your ship, not the vessel it undocked from.** KSP
   keeps a docked pair under one vessel's identity, often the other mission's, so the Log of
   a mission that docked with another mission's vessel read e.g. "Undocked (Deliverer Mun 1)"

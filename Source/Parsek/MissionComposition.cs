@@ -76,8 +76,10 @@ namespace Parsek
         // ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording. The node stays a child
         // of the interval it joined at, and its join UT stays a structural edge, so the
         // "/segN" interval keys a mission's ExcludedIntervalKeys stores never renumber. The
-        // edge carries no event word and takes nothing off the vessel's label, and the
-        // per-vessel rows (MissionVesselRowBuilder) do not list the node as a separated piece.
+        // edge carries no event word (neither does the joined run's own start) and takes
+        // nothing off the vessel's label. Whether the joined vessel is another mission's is a
+        // naming question (MissionVesselNaming's partner legs), answered by the per-vessel
+        // rows (MissionVesselRowBuilder), not here.
         public bool IsJoinedVessel;
 
         public readonly List<MissionCompositionNode> Children = new List<MissionCompositionNode>();
@@ -366,8 +368,9 @@ namespace Parsek
                     CompositionLabel = FormatComposition(segLeg),
                     StartUT = segStart,
                     EndUT = segEnd,
+                    // A joined run did not launch here: the player switched to it.
                     StartEvent = (i == 0)
-                        ? startEvent
+                        ? (runJoined ? "" : startEvent)
                         : (intervals[i].MergeLegAtStart != null
                             ? MergeEventName(intervals[i].MergeLegAtStart)
                             : StructuralPeelEventAt(s, structuralPeels, segStart)),

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Parsek;
 using Xunit;
 
@@ -65,13 +66,16 @@ namespace Parsek.Tests
                 SplitCause = splitCause,
             };
 
-        private static List<MissionVesselRow> BuildRows(Recording[] recs, BranchPoint[] bps)
+        // partners: the legs a naming pass would call another mission's vessel.
+        private static List<MissionVesselRow> BuildRows(Recording[] recs, BranchPoint[] bps,
+            params string[] partners)
         {
             var tree = new RecordingTree { Id = "t", RootRecordingId = recs[0].RecordingId };
             foreach (var r in recs) tree.Recordings[r.RecordingId] = r;
             if (bps != null) tree.BranchPoints.AddRange(bps);
             MissionStructure structure = MissionStructureBuilder.Build(tree);
-            return MissionVesselRowBuilder.Build(MissionCompositionBuilder.Build(structure));
+            return MissionVesselRowBuilder.Build(MissionCompositionBuilder.Build(structure), null, null,
+                partners != null && partners.Length > 0 ? new HashSet<string>(partners) : null);
         }
 
         private static string Arrow => MissionPresentation.SummarySpanArrow;
@@ -138,32 +142,32 @@ namespace Parsek.Tests
             Assert.Equal("Decoupled" + Arrow + "Destroyed", rows[0].Children[0].EventPhrase);
         }
 
-        // A fresh post-switch recording (another mission's vessel) joins the tree under a
-        // BranchPointType.Launch edge off this mission's vessel, mid-run: the shape
+        // A fresh post-switch recording (another vessel the player switched to) joins the tree
+        // under a BranchPointType.Launch edge off this mission's vessel, mid-run: the shape
         // ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording produces (the joined
         // recording is the branch point's only child; the ship's own line goes on through
         // its chain continuation).
-        private static List<MissionVesselRow> BuildPartnerJoinRows()
+        private static Recording[] PartnerJoinRecs() => new[]
         {
-            return BuildRows(
-                new[]
-                {
-                    Leg("L", "C", 0, 0, 50, probes: 1, vessel: "Duna Supply 1"),
-                    Leg("cont", "C", 1, 50, 200, probes: 1, vessel: "Duna Supply 1",
-                        terminal: TerminalState.Orbiting),
-                    Leg("partner", "C3", 0, 50, 180, probes: 2,
-                        vessel: "Depot Station Duna I", terminal: TerminalState.Orbiting),
-                },
-                new[]
-                {
-                    BP("launchbp", BranchPointType.Launch, new[] { "L" }, new[] { "partner" }),
-                });
-        }
+            Leg("L", "C", 0, 0, 50, probes: 1, vessel: "Duna Supply 1"),
+            Leg("cont", "C", 1, 50, 200, probes: 1, vessel: "Duna Supply 1",
+                terminal: TerminalState.Orbiting),
+            Leg("partner", "C3", 0, 50, 180, probes: 2,
+                vessel: "Depot Station Duna I", terminal: TerminalState.Orbiting),
+        };
 
-        // catches: the joined vessel listed as a piece that separated from the ship it hangs
-        // under ("Depot Station Duna I   Launch -> Docked" as a child row).
+        private static BranchPoint[] PartnerJoinBps() => new[]
+        {
+            BP("launchbp", BranchPointType.Launch, new[] { "L" }, new[] { "partner" }),
+        };
+
+        private static List<MissionVesselRow> BuildPartnerJoinRows(params string[] partners)
+            => BuildRows(PartnerJoinRecs(), PartnerJoinBps(), partners);
+
+        // catches: another mission's joined vessel listed as a piece that separated from the
+        // ship it hangs under ("Depot Station Duna I   Launch -> Docked" as a child row).
         [Fact]
-        public void Build_PartnerJoinedAtLaunchEdge_IsNotAChildRow()
+        public void Build_PartnerJoin_IsASiblingRowNotAChild()
         {
             var logLines = new List<string>();
             ParsekLog.ResetTestOverrides();
@@ -171,17 +175,55 @@ namespace Parsek.Tests
             ParsekLog.VerboseOverrideForTesting = true;
             try
             {
-                List<MissionVesselRow> rows = BuildPartnerJoinRows();
-                MissionVesselRow ship = Assert.Single(rows);
-                Assert.Equal("L", ship.OwnerHeadId);
+                List<MissionVesselRow> rows = BuildPartnerJoinRows("partner");
+                Assert.Equal(new[] { "L", "partner" }, rows.Select(r => r.OwnerHeadId).ToArray());
+                MissionVesselRow ship = rows[0];
+                MissionVesselRow partner = rows[1];
                 Assert.Empty(ship.Children);
+                Assert.False(ship.IsPartner);
+                Assert.True(partner.IsPartner);
+                Assert.Equal("", partner.StartEvent);
+                Assert.Equal("Orbiting", partner.EventPhrase);
                 Assert.Contains(logLines, l => l.Contains("[Mission]")
-                    && l.Contains("1 joined vessel(s) not listed as separated pieces"));
+                    && l.Contains("1 partner row(s) placed beside the vessel they joined"));
             }
             finally
             {
                 ParsekLog.ResetTestOverrides();
             }
+        }
+
+        // catches: a joined vessel the naming pass calls this mission's own (a pre-Parsek
+        // station, a stock vessel, this tree's own debris) hidden or moved: it is not in any
+        // partner set, so it keeps an ordinary child row - minus the false "Launch".
+        [Fact]
+        public void Build_OwnJoinedVessel_KeepsAnOrdinaryChildRow()
+        {
+            List<MissionVesselRow> rows = BuildPartnerJoinRows();
+            MissionVesselRow ship = Assert.Single(rows);
+            MissionVesselRow joined = Assert.Single(ship.Children);
+            Assert.Equal("partner", joined.OwnerHeadId);
+            Assert.False(joined.IsPartner);
+            Assert.Equal("", joined.StartEvent);
+            Assert.Equal("Orbiting", joined.EventPhrase);
+        }
+
+        // catches: the partner row's include checkbox reaching anything but its own keys, or
+        // a key excluded earlier staying unreachable.
+        [Fact]
+        public void Build_PartnerRow_IncludeCoversExactlyItsOwnKeys()
+        {
+            List<MissionVesselRow> rows = BuildPartnerJoinRows("partner");
+            MissionVesselRow partner = rows.Single(r => r.IsPartner);
+            Assert.Equal(new[] { "partner" }, MissionVesselRowBuilder.IntervalKeys(partner).ToArray());
+
+            var excluded = new List<string> { "partner", "L/seg1" };
+            Assert.Equal(MissionVesselInclusion.None,
+                MissionVesselRowBuilder.ClassifyInclusion(partner, excluded));
+            Assert.Equal(1, MissionVesselRowBuilder.ApplyVesselInclusion(partner, true, excluded));
+            Assert.Equal(new[] { "L/seg1" }, excluded.ToArray());   // the ship's key untouched
+            Assert.Equal(1, MissionVesselRowBuilder.ApplyVesselInclusion(partner, false, excluded));
+            Assert.Contains("partner", excluded);
         }
 
         // catches: the join edge renumbering the ship's interval keys (Mission.ExcludedIntervalKeys
@@ -190,8 +232,7 @@ namespace Parsek.Tests
         [Fact]
         public void Build_PartnerJoin_KeepsTheKeysAndCarriesNoEventWord()
         {
-            List<MissionVesselRow> rows = BuildPartnerJoinRows();
-            MissionVesselRow ship = Assert.Single(rows);
+            MissionVesselRow ship = BuildPartnerJoinRows("partner")[0];
             Assert.Equal(new[] { "L", "L/seg1" }, MissionVesselRowBuilder.IntervalKeys(ship).ToArray());
             Assert.Equal("Launch", ship.Intervals[0].StartEvent);
             Assert.Equal("", ship.Intervals[0].EndEvent);
@@ -205,7 +246,7 @@ namespace Parsek.Tests
         [Fact]
         public void Build_PartnerJoin_TakesNothingFromTheShipsLabel()
         {
-            MissionVesselRow ship = Assert.Single(BuildPartnerJoinRows());
+            MissionVesselRow ship = BuildPartnerJoinRows()[0];
             Assert.Equal("probe x1", ship.Intervals[0].CompositionLabel);
             Assert.Equal("probe x1", ship.Intervals[1].CompositionLabel);
         }
@@ -214,9 +255,7 @@ namespace Parsek.Tests
         public void BuildEventPhrase_RowStartLaunch_IsUnaffectedByTheJoin()
         {
             // The row's OWN start event "Launch" is a real launch and stays first.
-            List<MissionVesselRow> rows = BuildPartnerJoinRows();
-            MissionVesselRow ship = rows.Find(r => r.OwnerHeadId == "L");
-            Assert.NotNull(ship);
+            MissionVesselRow ship = BuildPartnerJoinRows("partner")[0];
             Assert.Equal("Launch", ship.StartEvent);
             Assert.StartsWith("Launch" + Arrow, ship.EventPhrase);
 
@@ -249,7 +288,8 @@ namespace Parsek.Tests
                     BP("launchbp", BranchPointType.Launch, new[] { "L" }, new[] { "partner" }),
                     BP("decbp", BranchPointType.JointBreak, new[] { "cont" },
                         new[] { "cont2", "stage" }, splitCause: "DECOUPLE"),
-                });
+                },
+                "partner");
 
             MissionVesselRow ship = rows.Find(r => r.OwnerHeadId == "L");
             Assert.NotNull(ship);
@@ -261,10 +301,10 @@ namespace Parsek.Tests
             Assert.Equal("Duna Supply 1 Stage", stage.VesselName);
         }
 
-        // catches: a piece that separated from the joined vessel vanishing with the joined
-        // vessel's row. It moves up to the row the joined vessel hung under.
+        // catches: a piece that separated from the partner landing anywhere but under the
+        // partner's own row.
         [Fact]
-        public void Build_PieceThatLeftTheJoinedVessel_MovesUpToTheShipRow()
+        public void Build_PartnerRow_KeepsItsOwnSeparatedPieces()
         {
             List<MissionVesselRow> rows = BuildRows(
                 new[]
@@ -283,12 +323,47 @@ namespace Parsek.Tests
                     BP("launchbp", BranchPointType.Launch, new[] { "L" }, new[] { "partner" }),
                     BP("tugdec", BranchPointType.JointBreak, new[] { "partner" },
                         new[] { "tugCont", "tugStage" }, splitCause: "DECOUPLE"),
-                });
+                },
+                "partner", "tugCont");
+
+            Assert.Equal(2, rows.Count);
+            Assert.Empty(rows[0].Children);
+            MissionVesselRow tug = rows[1];
+            Assert.True(tug.IsPartner);
+            MissionVesselRow stage = Assert.Single(tug.Children);
+            Assert.Equal("Tug Stage", stage.VesselName);
+            Assert.Equal("Decoupled", stage.StartEvent);
+        }
+
+        // catches: a partner joined under a CHILD row escaping to the top level, or staying
+        // under the child: it sits beside the child it joined.
+        [Fact]
+        public void Build_PartnerJoinedUnderAChild_SitsBesideThatChild()
+        {
+            List<MissionVesselRow> rows = BuildRows(
+                new[]
+                {
+                    Leg("L", "C", 0, 0, 200, pods: 1, terminal: TerminalState.Orbiting),
+                    Leg("probe", "C2", 0, 20, 100, probes: 1, parentAnchor: "L",
+                        vessel: "Probe"),
+                    Leg("probeCont", "C2", 1, 100, 200, probes: 1, vessel: "Probe",
+                        terminal: TerminalState.Orbiting),
+                    Leg("partner", "C3", 0, 60, 150, probes: 2, vessel: "Depot",
+                        terminal: TerminalState.Orbiting),
+                },
+                new[]
+                {
+                    BP("dec", BranchPointType.JointBreak, new[] { "L" }, new[] { "probe" },
+                        splitCause: "DECOUPLE"),
+                    BP("launchbp", BranchPointType.Launch, new[] { "probe" }, new[] { "partner" }),
+                },
+                "partner");
 
             MissionVesselRow ship = Assert.Single(rows);
-            MissionVesselRow moved = Assert.Single(ship.Children);
-            Assert.Equal("Tug Stage", moved.VesselName);
-            Assert.Equal("Decoupled", moved.StartEvent);
+            Assert.Equal(new[] { "probe", "partner" },
+                ship.Children.Select(c => c.OwnerHeadId).ToArray());
+            Assert.Empty(ship.Children[0].Children);
+            Assert.True(ship.Children[1].IsPartner);
         }
 
         [Fact]

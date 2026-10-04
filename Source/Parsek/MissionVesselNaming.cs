@@ -136,6 +136,8 @@ namespace Parsek
                 new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
             private readonly Dictionary<string, HashSet<uint>> pidsByRecording =
                 new Dictionary<string, HashSet<uint>>(StringComparer.Ordinal);
+            private readonly Dictionary<string, HashSet<string>> partnersByTree =
+                new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
 
             /// <summary>Naming passes run since construction (a cache miss each).</summary>
             internal int Rebuilds { get; private set; }
@@ -164,6 +166,7 @@ namespace Parsek
                     || currentNameVersion != nameVersion)
                 {
                     namesByTree.Clear();
+                    partnersByTree.Clear();
                     pidsByRecording.Clear();
                     index = null;
                     stateVersion = currentStateVersion;
@@ -177,13 +180,22 @@ namespace Parsek
                     return cached;
                 }
                 if (index == null) index = LaunchIndex.Build(allTrees);
+                var partners = new HashSet<string>(StringComparer.Ordinal);
                 Dictionary<string, string> names = Build(tree, structure != null ? structure(tree) : null,
-                    index, missionNameOfTree, out Tally tally, CachedPartPids);
+                    index, missionNameOfTree, out Tally tally, CachedPartPids, partners);
                 namesByTree[tree.Id] = names;
+                partnersByTree[tree.Id] = partners;
                 Rebuilds++;
                 LastTally = tally;
                 return names;
             }
+
+            /// <summary>
+            /// The legs the last <see cref="GetOrBuild"/> of <paramref name="treeId"/> named as
+            /// another mission's vessel (same key as its names); null before that call.
+            /// </summary>
+            internal HashSet<string> PartnerLegIds(string treeId)
+                => treeId != null && partnersByTree.TryGetValue(treeId, out HashSet<string> p) ? p : null;
 
             private HashSet<uint> CachedPartPids(Recording rec)
             {

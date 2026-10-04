@@ -597,12 +597,15 @@ partner row carries `Go to` in the Interact column, which opens the partner's mi
 (`DrawInteractGoTo` -> `ShowMissionForRecording`); a dock THIS mission recorded with another
 mission's vessel draws a Docked partner row of its own (`DrawRecordedDockPartnerRow`, no
 include toggle). `MissionEventDigest` is the source of the partner naming and the `Go to`
-target. A vessel the player switched to mid-flight and recorded into this flight (another
-mission's ship flown to a dock, which joins the tree at a `Launch` branch point) is not a
-vessel row of this mission: the ship it docked with names it in its `Docked (...)` piece, and
-the ship's interval rows split at the switch with blank Start / End event cells there
-(`MissionCompositionNode.IsJoinedVessel`; the interval keys are unchanged). Vessel and
-interval rows' single-line data cells use
+target. A vessel the player switched to mid-flight and recorded into this flight joins the
+tree at a `Launch` branch point (`MissionCompositionNode.IsJoinedVessel`). When the naming pass
+names it as another mission's ship (a partner flown to a dock), its row sits BESIDE the vessel
+it joined at, not under it (`MissionVesselRow.IsPartner`): `Depot Station Duna I (mission
+'Kerbal X #5')   Docked (Duna Supply 1)`, a blank Start event cell, its own include checkbox
+over its own intervals (Advanced), and it is not counted as one of the mission's vessels. Any
+other joined vessel is an ordinary child row with a blank Start event cell. Either way the
+vessel it joined splits its interval rows at the switch with blank Start / End event cells
+there (the interval keys are unchanged). Vessel and interval rows' single-line data cells use
 `compositionCellLabel.clipping = Overflow`, so descenders are not clipped in a 22 px row.
 
 What `MissionsLoopControls` hides in Basic: the include checkboxes, the loop grid (`Clone`,

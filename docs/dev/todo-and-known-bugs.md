@@ -921,14 +921,27 @@ of. Reproduced on the committed `interbody-route-recorded` fixture (GUI-3's host
 Fix: the composition tags the joined run instead of dropping its edge
 (`MissionCompositionBuilder.IsJoinedLeg`: a non-root, non-EVA leg whose origin branch point is
 `Launch`; `MissionCompositionNode.IsJoinedVessel`). The join UT stays a structural edge, so the
-`/segN` interval keys a mission's `ExcludedIntervalKeys` stores do not move; the edge carries
-no event word (both cells at that boundary are blank, and the phrase adds no piece) and
-subtracts nothing from the ship's label. `MissionVesselRowBuilder` lists no row for a joined
-vessel and moves anything that separated from it up to the row it hung under; the mission
-summary's vessel count skips it too. The ship's `Docked (...)` piece still names the partner
-with its mission. `MissionJoinedPartnerTests` (fixture: no joined row, the pinned pre-fix key
-lists, blank join cells and the `pod x1, crew x1` label, the vessel count) and
-`MissionVesselRowsTests.Build_PartnerJoin*` / `Build_PieceThatLeftTheJoinedVessel_*`.
+`/segN` interval keys a mission's `ExcludedIntervalKeys` stores do not move. The edge carries no
+event word (both cells at that boundary are blank, and the phrase adds no piece), the joined
+run's own start carries none either (it did not launch there), and the edge subtracts nothing
+from the ship's label.
+
+Whether a joined vessel is another mission's is the naming pass's call, not the branch point's:
+a `Launch` join is made for ANY vessel the tree did not track (a pre-Parsek station, a stock or
+contract vessel, a craft from a never-committed tree, this tree's own debris). Only a joined
+leg `MissionVesselNaming.Build` also names as a partner is a partner join
+(`MissionVesselRowBuilder.IsPartnerJoin`): its row is a SIBLING of the vessel it joined at
+(`MissionVesselRow.IsPartner`; at the top level when that vessel is a root), named with its
+mission, with its own include checkbox over its own interval keys and its own separated pieces
+under it, and the mission summary's vessel count leaves it out. Its phrase starts at its first
+real event and names what it docked into (`Docked (Duna Supply 1)`,
+`MissionPresentation.ResolveTerminalDockPartnerVesselName`). Every other joined vessel keeps an
+ordinary child row and counts. The Missions tab reads the partner legs from its cached naming
+pass (`MissionVesselNaming.Cache.PartnerLegIds`). `MissionJoinedPartnerTests` (fixture: the
+sibling row, the pinned pre-fix key lists, each ship owning exactly its keys, an excluded
+partner key re-included through its row, blank join cells and the `pod x1, crew x1` label, the
+vessel count; a joined leg in no launch index keeping its row and count) and
+`MissionVesselRowsTests.Build_PartnerJoin*` / `Build_OwnJoinedVessel_*` / `Build_PartnerRow_*`.
 
 ## ~~MISSION-LOG-UNDOCK-NAMES-THE-PARTNER: the Log's Undocked row names the other mission's vessel in its Vessel column~~ [FILED AND FIXED 2026-10-04, branch `missions-log-fixes`]
 
@@ -953,8 +966,11 @@ the structural attribution stays. Counted on the build summary line (`ownSideRow
 
 ## MISSION-VESSEL-ROW-UNDOCK-FOLLOWS-PARTNER: after an undock, the ship's vessel row continues on the partner's half [FILED 2026-10-04 from the mirror check of MISSION-LOG-UNDOCK-NAMES-THE-PARTNER. OPEN]
 
-The Missions-tab mirror of the Log defect above. A vessel row's run follows the docked pair's
-continuing leg through the undock (`MissionThroughLineBuilder.ContinuationSuccessor` takes the
+The Missions-tab mirror of the Log defect above (MISSION-LOG-UNDOCK-NAMES-THE-PARTNER): the Log
+now tells the sides apart with the naming pass's partner legs (`ResolveOwnSide`), and the same
+set is what the vessel rows already read for partner joins (MISSION-VESSEL-ROW-PARTNER-LAUNCH),
+so it is the natural input for choosing this mission's half here too. A vessel row's run
+follows the docked pair's continuing leg through the undock (`MissionThroughLineBuilder.ContinuationSuccessor` takes the
 undock's first child, which the recorder lists as the half that kept the docked pair's
 persistent id), and when KSP kept the pair under the partner's identity that child is the
 PARTNER's half. On
