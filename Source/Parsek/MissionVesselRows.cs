@@ -9,7 +9,8 @@ namespace Parsek
     // never time; the vessel's own structural intervals become an expandable detail rather than
     // the default reading surface. Derived purely from the composition trees
     // (MissionCompositionBuilder output): a run of nodes sharing one OwnerHeadId is one vessel,
-    // a child with a different OwnerHeadId is a vessel that separated from it.
+    // a child with a different OwnerHeadId is a vessel that separated from it (except a
+    // joined vessel, MissionCompositionNode.IsJoinedVessel, which gets no row).
     //
     // Selection stays interval-keyed and NON-CASCADING: the per-vessel include affordance
     // expands to the vessel's OWN explicit interval keys (never a child vessel's), so
@@ -68,11 +69,22 @@ namespace Parsek
             var rows = new List<MissionVesselRow>();
             if (roots == null)
                 return rows;
+            int joinedSkipped = 0;
             for (int i = 0; i < roots.Count; i++)
             {
-                MissionVesselRow row = BuildRow(roots[i], dockPartnerResolver, vesselNames);
+                MissionVesselRow row = BuildRow(roots[i], dockPartnerResolver, vesselNames,
+                    ref joinedSkipped);
                 if (row != null)
                     rows.Add(row);
+            }
+            if (joinedSkipped > 0)
+            {
+                string firstHead = rows.Count > 0 ? rows[0].OwnerHeadId : "<none>";
+                int skipped = joinedSkipped;
+                ParsekLog.VerboseRateLimited("Mission", "vesselrow-joined-skip-" + firstHead,
+                    () => $"VesselRow: {skipped} joined vessel(s) not listed as separated " +
+                          $"pieces (a post-switch recording of another vessel; first row " +
+                          $"head={firstHead})");
             }
             return rows;
         }
@@ -99,10 +111,14 @@ namespace Parsek
         // i+1 as a child of interval i), collecting different-owner selectable children as
         // separated child vessels. Roster atoms (not selectable vessels) are skipped - the
         // interval rows already carry the composition label, and the crew are named on the
-        // header's narrative line.
+        // header's narrative line. A JOINED vessel (MissionCompositionNode.IsJoinedVessel:
+        // another vessel the player switched to, recorded into this tree from that moment)
+        // never separated from this one, so it gets no row here - it belongs to its own
+        // mission, and this vessel's "Docked (...)" piece names it. Anything that separated
+        // from it moves up to this row, so no other vessel drops out of the list.
         private static MissionVesselRow BuildRow(
             MissionCompositionNode head, System.Func<string, double, string> dockPartnerResolver,
-            IReadOnlyDictionary<string, string> vesselNames)
+            IReadOnlyDictionary<string, string> vesselNames, ref int joinedSkipped)
         {
             if (!IsRowHead(head))
                 return null;
@@ -146,9 +162,19 @@ namespace Parsek
                     }
                     else
                     {
-                        MissionVesselRow child = BuildRow(c, dockPartnerResolver, vesselNames);
-                        if (child != null)
+                        MissionVesselRow child = BuildRow(c, dockPartnerResolver, vesselNames,
+                            ref joinedSkipped);
+                        if (child == null)
+                            continue;
+                        if (c.IsJoinedVessel)
+                        {
+                            joinedSkipped++;
+                            row.Children.AddRange(child.Children);
+                        }
+                        else
+                        {
                             row.Children.Add(child);
+                        }
                     }
                 }
                 cur = next;
@@ -180,9 +206,8 @@ namespace Parsek
         /// limitation as the T1.3 labels), and a Dock / Board boundary (or start event) names
         /// the same-tree partner via <paramref name="dockPartnerResolver"/> when one resolves.
         /// A crew (EVA) departure is not a boundary, so it never appears here - the kerbal has
-        /// their own child row. A mid-run Launch boundary (a fresh recording joining the tree
-        /// after a vessel switch) is not an event of this vessel and is skipped; the row's own
-        /// start event "Launch" is unaffected.
+        /// their own child row. A boundary with no event word (the edge a joined vessel cuts,
+        /// <see cref="MissionCompositionNode.IsJoinedVessel"/>) adds no piece.
         /// </summary>
         internal static string BuildEventPhrase(
             MissionVesselRow row, System.Func<string, double, string> dockPartnerResolver = null)
@@ -190,7 +215,6 @@ namespace Parsek
             if (row == null || row.Intervals.Count == 0)
                 return "";
             var sb = new StringBuilder();
-            int skippedLaunch = 0;
             AppendPhrasePiece(sb, NameEventPiece(row, row.StartEvent, row.StartUT, dockPartnerResolver));
             for (int i = 0; i < row.Intervals.Count; i++)
             {
@@ -201,18 +225,6 @@ namespace Parsek
                     continue;
                 if (!isLast)
                 {
-                    // A launch cannot happen mid-run. A Launch boundary here is the edge a
-                    // fresh post-switch recording hangs off (ParsekFlight
-                    // PrepareActiveTreeForFreshPostSwitchRecording), usually another
-                    // mission's vessel, and naming it would read "Launch (<partner>)". The
-                    // edge itself stays in the composition: dropping it would renumber the
-                    // /segN interval keys that Mission.ExcludedIntervalKeys stores. The
-                    // following Dock / terminal piece already tells the story.
-                    if (string.Equals(boundaryEvent, LaunchEventWord, System.StringComparison.Ordinal))
-                    {
-                        skippedLaunch++;
-                        continue;
-                    }
                     string peeled = ResolveChildAtBoundary(row, interval.EndUT);
                     AppendPhrasePiece(sb, peeled != null
                         ? boundaryEvent + " (" + peeled + ")"
@@ -223,19 +235,8 @@ namespace Parsek
                     AppendPhrasePiece(sb, boundaryEvent);
                 }
             }
-            if (skippedLaunch > 0)
-            {
-                string owner = row.OwnerHeadId;
-                ParsekLog.VerboseRateLimited("Mission", "vesselrow-midrun-launch-skip-" + owner,
-                    () => $"VesselRow: skipped {skippedLaunch} mid-run Launch boundary piece(s) " +
-                          $"in the event phrase (owner={owner})");
-            }
             return sb.ToString();
         }
-
-        // The event word a Launch branch point maps to (MissionCompositionBuilder's own table).
-        private static readonly string LaunchEventWord =
-            MissionCompositionBuilder.BranchEventName(BranchPointType.Launch, null);
 
         // A Dock / Board piece gains the partner's name when the resolver knows it; every other
         // event word passes through unchanged. The boundary UT is the merged interval's start,

@@ -224,7 +224,9 @@ namespace Parsek
             }
 
             // Vessels: distinct composition OwnerHeadIds, counting only real vessel intervals -
-            // a roster atom is a part, and an EVA-kerbal leg is a person, so neither is a vessel.
+            // a roster atom is a part, an EVA-kerbal leg is a person, and a joined vessel
+            // (another vessel the player switched to) is not this mission's, so none of them
+            // counts. The per-vessel rows list the same set.
             var owners = new HashSet<string>(System.StringComparer.Ordinal);
             if (roots != null)
                 for (int i = 0; i < roots.Count; i++)
@@ -285,7 +287,8 @@ namespace Parsek
         {
             if (node == null)
                 return;
-            if (!node.IsAtom && !string.IsNullOrEmpty(node.OwnerHeadId) && !IsPersonNode(node))
+            if (!node.IsAtom && !string.IsNullOrEmpty(node.OwnerHeadId) && !IsPersonNode(node)
+                && !node.IsJoinedVessel)
                 owners.Add(node.OwnerHeadId);
             for (int i = 0; i < node.Children.Count; i++)
                 CollectVesselOwners(node.Children[i], owners);

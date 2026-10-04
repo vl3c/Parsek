@@ -235,12 +235,15 @@ namespace Parsek
         /// by RecordingId: the partner phrase, a numbered name, or the plain vessel name.
         /// <paramref name="missionNameOfTree"/> names the mission that owns another tree
         /// (the window passes the tree's original mission's name); null falls back to the
-        /// tree's own name.
+        /// tree's own name. <paramref name="partnerLegIds"/>, when given, receives the id of
+        /// every leg named as another mission's vessel (the mission Log's Dock / Undock rows
+        /// read it to put this mission's own ship in the Vessel column).
         /// </summary>
         internal static Dictionary<string, string> Build(
             RecordingTree tree, MissionStructure structure, LaunchIndex index,
             Func<string, string> missionNameOfTree, out Tally tally,
-            Func<Recording, HashSet<uint>> partPids = null)
+            Func<Recording, HashSet<uint>> partPids = null,
+            ICollection<string> partnerLegIds = null)
         {
             if (partPids == null) partPids = PartPids;
             tally = default;
@@ -269,6 +272,7 @@ namespace Parsek
                     names[leg.RecordingId] = MissionChapters.FormatPartnerWithMission(
                         LegName(leg), mission) ?? LegName(leg);
                     tally.Partners++;
+                    partnerLegIds?.Add(leg.RecordingId);
                     continue;
                 }
                 own.Add(leg);

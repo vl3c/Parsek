@@ -69,6 +69,17 @@ namespace Parsek
         // toggles these by HeadLegId; atoms carry no checkbox.
         public bool IsSelectable;
 
+        // True on every interval of a run that JOINED the tree mid-flight rather than
+        // separating from the vessel it hangs under: a fresh post-switch recording of a vessel
+        // the tree did not track (usually another mission's ship the player switched to and
+        // flew to a dock), attached under a BranchPointType.Launch branch point by
+        // ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording. The node stays a child
+        // of the interval it joined at, and its join UT stays a structural edge, so the
+        // "/segN" interval keys a mission's ExcludedIntervalKeys stores never renumber. The
+        // edge carries no event word and takes nothing off the vessel's label, and the
+        // per-vessel rows (MissionVesselRowBuilder) do not list the node as a separated piece.
+        public bool IsJoinedVessel;
+
         public readonly List<MissionCompositionNode> Children = new List<MissionCompositionNode>();
     }
 
@@ -89,6 +100,7 @@ namespace Parsek
             public int MergeEdges;
             public int Rebases;
             public int AdditiveFallbacks;
+            public int JoinedEdges;
         }
 
         /// <summary>
@@ -114,9 +126,21 @@ namespace Parsek
                 ParsekLog.Verbose("Mission",
                     $"BuildComposition: tree={s.TreeId ?? "<null>"} intervals={tally.Intervals} " +
                     $"structuralEdges={tally.StructuralEdges} mergeEdges={tally.MergeEdges} " +
-                    $"rebases={tally.Rebases} additiveFallbacks={tally.AdditiveFallbacks}");
+                    $"rebases={tally.Rebases} additiveFallbacks={tally.AdditiveFallbacks} " +
+                    $"joinedEdges={tally.JoinedEdges}");
             return roots;
         }
+
+        /// <summary>
+        /// True for a leg that joined the tree mid-flight at a Launch branch point (a fresh
+        /// post-switch recording of a vessel the tree did not track): it never separated from
+        /// the leg it hangs under. A root leg's launch is a real launch, and an EVA kerbal is a
+        /// crew peel, so neither qualifies. Pure.
+        /// </summary>
+        internal static bool IsJoinedLeg(MissionLeg leg)
+            => leg != null && !leg.IsRoot
+               && leg.OriginBranchPointType == BranchPointType.Launch
+               && string.IsNullOrEmpty(leg.EvaCrewName);
 
         // One flat (post-subdivision) interval of a run: a structural interval, or a dock/board
         // sub-interval of one. MergeLegAtStart is the merge leg whose edge begins this interval
@@ -183,6 +207,10 @@ namespace Parsek
             }
             structuralPeels.Sort((a, b) => CompareLegStart(s, a, b));
             crewPeels.Sort((a, b) => CompareLegStart(s, a, b));
+            for (int i = 0; i < structuralPeels.Count; i++)
+                if (s.LegsById.TryGetValue(structuralPeels[i], out MissionLeg jl) && IsJoinedLeg(jl))
+                    tally.JoinedEdges++;
+            bool runJoined = IsJoinedLeg(headLeg);
 
             // 2b. M-MIS-5 (D1): merge legs - run members (index >= 1) that BEGAN at a Dock/Board
             //     branch point. Each contributes an interval edge at its StartUT (clamped into the
@@ -332,6 +360,7 @@ namespace Parsek
                     // BuildIntervalLeg nulls EvaCrewName past the first interval, so the head is
                     // the only reliable source.
                     IsPerson = !string.IsNullOrEmpty(headLeg.EvaCrewName),
+                    IsJoinedVessel = runJoined,
                     IsSelectable = true,
                     VesselName = VesselLabel(segLeg),
                     CompositionLabel = FormatComposition(segLeg),
@@ -520,6 +549,10 @@ namespace Parsek
             {
                 if (!s.LegsById.TryGetValue(structuralPeels[p], out MissionLeg pl))
                     continue;
+                // A joined vessel was never part of this one: its edge splits the interval
+                // (key stability) but takes nothing away.
+                if (IsJoinedLeg(pl))
+                    continue;
                 double ut = pl.StartUT;
                 if (ut <= lowerExclusive || ut > upperInclusive)
                     continue;
@@ -578,11 +611,14 @@ namespace Parsek
         private static double PeelUT(MissionStructure s, string peelId, double fallback)
             => s.LegsById.TryGetValue(peelId, out MissionLeg pl) ? pl.StartUT : fallback;
 
-        // The origin event of the structural peel(s) at a given interval boundary UT.
+        // The origin event of the structural peel(s) at a given interval boundary UT. A joined
+        // vessel's edge is no event of this vessel ("" - the boundary reads as a plain
+        // continuation), unless a real separation shares the UT.
         private static string StructuralPeelEventAt(MissionStructure s, List<string> structuralPeels, double ut)
         {
             for (int i = 0; i < structuralPeels.Count; i++)
-                if (s.LegsById.TryGetValue(structuralPeels[i], out MissionLeg pl) && pl.StartUT == ut)
+                if (s.LegsById.TryGetValue(structuralPeels[i], out MissionLeg pl) && pl.StartUT == ut
+                    && !IsJoinedLeg(pl))
                     return OriginEventName(pl);
             return "";
         }

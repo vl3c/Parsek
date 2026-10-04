@@ -597,7 +597,12 @@ partner row carries `Go to` in the Interact column, which opens the partner's mi
 (`DrawInteractGoTo` -> `ShowMissionForRecording`); a dock THIS mission recorded with another
 mission's vessel draws a Docked partner row of its own (`DrawRecordedDockPartnerRow`, no
 include toggle). `MissionEventDigest` is the source of the partner naming and the `Go to`
-target. Vessel and interval rows' single-line data cells use
+target. A vessel the player switched to mid-flight and recorded into this flight (another
+mission's ship flown to a dock, which joins the tree at a `Launch` branch point) is not a
+vessel row of this mission: the ship it docked with names it in its `Docked (...)` piece, and
+the ship's interval rows split at the switch with blank Start / End event cells there
+(`MissionCompositionNode.IsJoinedVessel`; the interval keys are unchanged). Vessel and
+interval rows' single-line data cells use
 `compositionCellLabel.clipping = Overflow`, so descenders are not clipped in a 22 px row.
 
 What `MissionsLoopControls` hides in Basic: the include checkboxes, the loop grid (`Clone`,
@@ -1101,7 +1106,10 @@ flight.` / `No runs yet.`), then the hover strip and `Close` at the bottom.
 Mission Log rows: `Launch`, one `Staged: N pieces (<part title> xK, ...)` per recorded
 separation, `Decoupled (<piece>)` / `Docked (<partner>)` / `Undocked (<piece>)` naming the other
 vessel (another mission's vessel as `X (mission 'Y')`), and `End: <terminal word>`. Vessel names
-follow the Missions rows (`MissionVesselNaming`, `Kerbal X [2]`). Location: `<body> orbit` for an
+follow the Missions rows (`MissionVesselNaming`, `Kerbal X [2]`). A Dock / Undock row's Vessel
+column is this mission's own ship and its label the other side, also when KSP kept the docked
+pair under the other mission's identity (`Undocked (Depot (mission 'Kerbal X #3'))` on
+`Deliverer Mun 1`). Location: `<body> orbit` for an
 orbital ending, else body and biome where recorded, else the body, else `-`. It rebuilds while
 open when the mission's include set, its name or the committed recordings move (a Layout-only
 change signature).

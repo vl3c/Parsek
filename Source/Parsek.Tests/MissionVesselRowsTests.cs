@@ -140,27 +140,30 @@ namespace Parsek.Tests
 
         // A fresh post-switch recording (another mission's vessel) joins the tree under a
         // BranchPointType.Launch edge off this mission's vessel, mid-run: the shape
-        // ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording produces.
+        // ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording produces (the joined
+        // recording is the branch point's only child; the ship's own line goes on through
+        // its chain continuation).
         private static List<MissionVesselRow> BuildPartnerJoinRows()
         {
             return BuildRows(
                 new[]
                 {
                     Leg("L", "C", 0, 0, 50, probes: 1, vessel: "Duna Supply 1"),
-                    Leg("cont", "C2", 0, 50, 200, probes: 1, vessel: "Duna Supply 1",
+                    Leg("cont", "C", 1, 50, 200, probes: 1, vessel: "Duna Supply 1",
                         terminal: TerminalState.Orbiting),
                     Leg("partner", "C3", 0, 50, 180, probes: 2,
                         vessel: "Depot Station Duna I", terminal: TerminalState.Orbiting),
                 },
                 new[]
                 {
-                    BP("launchbp", BranchPointType.Launch, new[] { "L" },
-                        new[] { "cont", "partner" }),
+                    BP("launchbp", BranchPointType.Launch, new[] { "L" }, new[] { "partner" }),
                 });
         }
 
+        // catches: the joined vessel listed as a piece that separated from the ship it hangs
+        // under ("Depot Station Duna I   Launch -> Docked" as a child row).
         [Fact]
-        public void BuildEventPhrase_PartnerJoinAtMidRunLaunchBoundary_IsSkipped()
+        public void Build_PartnerJoinedAtLaunchEdge_IsNotAChildRow()
         {
             var logLines = new List<string>();
             ParsekLog.ResetTestOverrides();
@@ -169,20 +172,11 @@ namespace Parsek.Tests
             try
             {
                 List<MissionVesselRow> rows = BuildPartnerJoinRows();
-                MissionVesselRow ship = rows.Find(r => r.OwnerHeadId == "L");
-                Assert.NotNull(ship);
-                // Precondition: the Launch edge is still a real interval boundary (dropping it
-                // would renumber the /segN keys the mission's excluded set stores).
-                Assert.Equal(2, ship.Intervals.Count);
-                Assert.Equal("Launch", ship.Intervals[0].EndEvent);
-                Assert.Equal("L/seg1", ship.Intervals[1].HeadLegId);
-                Assert.Contains(ship.Children, c => c.VesselName == "Depot Station Duna I");
-
-                // Fails with "Launch -> Launch (Depot Station Duna I) -> Orbiting" without the skip.
-                Assert.Equal("Launch" + Arrow + "Orbiting", ship.EventPhrase);
+                MissionVesselRow ship = Assert.Single(rows);
+                Assert.Equal("L", ship.OwnerHeadId);
+                Assert.Empty(ship.Children);
                 Assert.Contains(logLines, l => l.Contains("[Mission]")
-                    && l.Contains("skipped 1 mid-run Launch boundary piece(s)")
-                    && l.Contains("owner=L"));
+                    && l.Contains("1 joined vessel(s) not listed as separated pieces"));
             }
             finally
             {
@@ -190,11 +184,36 @@ namespace Parsek.Tests
             }
         }
 
+        // catches: the join edge renumbering the ship's interval keys (Mission.ExcludedIntervalKeys
+        // stores them), and the "Launch" word at that boundary in the phrase and in the
+        // expanded interval rows' Start / End event cells.
         [Fact]
-        public void BuildEventPhrase_RowStartLaunch_IsUnaffectedBySkip()
+        public void Build_PartnerJoin_KeepsTheKeysAndCarriesNoEventWord()
         {
-            // The row's OWN start event "Launch" is not a boundary piece and must stay first;
-            // only mid-run Launch boundaries are skipped.
+            List<MissionVesselRow> rows = BuildPartnerJoinRows();
+            MissionVesselRow ship = Assert.Single(rows);
+            Assert.Equal(new[] { "L", "L/seg1" }, MissionVesselRowBuilder.IntervalKeys(ship).ToArray());
+            Assert.Equal("Launch", ship.Intervals[0].StartEvent);
+            Assert.Equal("", ship.Intervals[0].EndEvent);
+            Assert.Equal("", ship.Intervals[1].StartEvent);
+            Assert.Equal("Orbiting", ship.Intervals[1].EndEvent);
+            Assert.Equal("Launch" + Arrow + "Orbiting", ship.EventPhrase);
+        }
+
+        // catches: the joined vessel's controllers subtracted from the ship it joined, so the
+        // interval after the join read "(no controllers)" instead of the ship's own probe.
+        [Fact]
+        public void Build_PartnerJoin_TakesNothingFromTheShipsLabel()
+        {
+            MissionVesselRow ship = Assert.Single(BuildPartnerJoinRows());
+            Assert.Equal("probe x1", ship.Intervals[0].CompositionLabel);
+            Assert.Equal("probe x1", ship.Intervals[1].CompositionLabel);
+        }
+
+        [Fact]
+        public void BuildEventPhrase_RowStartLaunch_IsUnaffectedByTheJoin()
+        {
+            // The row's OWN start event "Launch" is a real launch and stays first.
             List<MissionVesselRow> rows = BuildPartnerJoinRows();
             MissionVesselRow ship = rows.Find(r => r.OwnerHeadId == "L");
             Assert.NotNull(ship);
@@ -209,15 +228,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildEventPhrase_OwnSeparationBoundary_StillRendersAlongsideSkippedLaunch()
+        public void BuildEventPhrase_OwnSeparationBoundary_StillRendersAlongsideTheJoin()
         {
             // A genuine own separation (decouple) on the same vessel still names the piece that
-            // left, even when a mid-run Launch edge is skipped earlier in the same row.
+            // left, with a joined vessel's edge earlier in the same row.
             List<MissionVesselRow> rows = BuildRows(
                 new[]
                 {
                     Leg("L", "C", 0, 0, 50, probes: 1, vessel: "Duna Supply 1"),
-                    Leg("cont", "C2", 0, 50, 100, probes: 1, vessel: "Duna Supply 1"),
+                    Leg("cont", "C", 1, 50, 100, probes: 1, vessel: "Duna Supply 1"),
                     Leg("partner", "C3", 0, 50, 180, probes: 2,
                         vessel: "Depot Station Duna I", terminal: TerminalState.Orbiting),
                     Leg("cont2", "C4", 0, 100, 200, probes: 1, vessel: "Duna Supply 1",
@@ -227,8 +246,7 @@ namespace Parsek.Tests
                 },
                 new[]
                 {
-                    BP("launchbp", BranchPointType.Launch, new[] { "L" },
-                        new[] { "cont", "partner" }),
+                    BP("launchbp", BranchPointType.Launch, new[] { "L" }, new[] { "partner" }),
                     BP("decbp", BranchPointType.JointBreak, new[] { "cont" },
                         new[] { "cont2", "stage" }, splitCause: "DECOUPLE"),
                 });
@@ -239,6 +257,38 @@ namespace Parsek.Tests
             Assert.Equal(
                 "Launch" + Arrow + "Decoupled (Duna Supply 1 Stage)" + Arrow + "Orbiting",
                 ship.EventPhrase);
+            MissionVesselRow stage = Assert.Single(ship.Children);
+            Assert.Equal("Duna Supply 1 Stage", stage.VesselName);
+        }
+
+        // catches: a piece that separated from the joined vessel vanishing with the joined
+        // vessel's row. It moves up to the row the joined vessel hung under.
+        [Fact]
+        public void Build_PieceThatLeftTheJoinedVessel_MovesUpToTheShipRow()
+        {
+            List<MissionVesselRow> rows = BuildRows(
+                new[]
+                {
+                    Leg("L", "C", 0, 0, 50, probes: 1, vessel: "Duna Supply 1"),
+                    Leg("cont", "C", 1, 50, 200, probes: 1, vessel: "Duna Supply 1",
+                        terminal: TerminalState.Orbiting),
+                    Leg("partner", "C3", 0, 50, 80, probes: 2, vessel: "Tug"),
+                    Leg("tugCont", "C6", 0, 80, 180, probes: 1, vessel: "Tug",
+                        terminal: TerminalState.Orbiting),
+                    Leg("tugStage", "C7", 0, 80, 120, probes: 1, parentAnchor: "partner",
+                        vessel: "Tug Stage", terminal: TerminalState.Destroyed),
+                },
+                new[]
+                {
+                    BP("launchbp", BranchPointType.Launch, new[] { "L" }, new[] { "partner" }),
+                    BP("tugdec", BranchPointType.JointBreak, new[] { "partner" },
+                        new[] { "tugCont", "tugStage" }, splitCause: "DECOUPLE"),
+                });
+
+            MissionVesselRow ship = Assert.Single(rows);
+            MissionVesselRow moved = Assert.Single(ship.Children);
+            Assert.Equal("Tug Stage", moved.VesselName);
+            Assert.Equal("Decoupled", moved.StartEvent);
         }
 
         [Fact]

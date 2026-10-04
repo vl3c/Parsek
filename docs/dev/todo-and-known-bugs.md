@@ -905,25 +905,67 @@ same tree (an optimizer split's later segment, a re-fly TIP). A chained recordin
 earlier segments are NOT in the tree keeps its launch row. The digest's summary line counts
 them (`skippedChainContinuations=N`); `MissionEventDigestTests.Digest_ChainContinuation_IsNotASecondLaunch`.
 
-## ~~MISSION-VESSEL-ROW-PARTNER-LAUNCH: a vessel row's event phrase reads "Launch (<another mission's vessel>)" mid-run~~ [FILED 2026-10-02 from the owner's Missions tab. FIXED 2026-10-02, branch `missions-partner-launch`]
+## ~~MISSION-VESSEL-ROW-PARTNER-LAUNCH: another mission's vessel shows as a child row "Launch -> Docked" under the ship it docked with~~ [FILED 2026-10-02 from the owner's Missions tab. Event phrase FIXED 2026-10-02, branch `missions-partner-launch`; child row, interval rows and label FIXED 2026-10-04, branch `missions-log-fixes`]
 
-The Duna Supply 1 row read `Launch -> Launch (Depot Station Duna I (mission 'Kerbal X #5')) -> ...`
-and Kerbal X #4 read `Launch (Kerbal X (mission 'Kerbal X #3')) -> Docked (...)`. A fresh
-recording started after switching to another mission's vessel joins the tree under a
-`BranchPointType.Launch` edge (`ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording`);
-`MissionCompositionBuilder` treats every non-EVA branch child as a structural peel, so the
-interval boundary's event word is `Launch` and `MissionVesselRowBuilder.BuildEventPhrase`
-named the partner as the piece that left. The Mission Log already skips Launch branch points
-(`MissionStructureListBuilder.AddBranchPointSteps`).
+The Duna Supply 1 mission listed `Depot Station Duna I (mission 'Kerbal X #5')   Launch ->
+Docked` as a piece under Duna Supply 1, and Kerbal X #4 listed `Kerbal X (mission 'Kerbal X
+#3')` the same way. A fresh recording started after switching to another mission's vessel
+joins the tree under a `BranchPointType.Launch` edge
+(`ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording`), and `MissionCompositionBuilder`
+treated every non-EVA branch child as a structural peel. So the joined vessel became a child
+row, the ship's phrase read `Launch (<partner>)`, its expanded interval rows (Advanced) read
+`Decoupled -> Launch` and `Launch -> Docked` at the switch, and the interval after the switch
+was labelled `Kerbal X (crew x1)`: the partner's pod subtracted from a ship it was never part
+of. Reproduced on the committed `interbody-route-recorded` fixture (GUI-3's host).
 
-Fix: `BuildEventPhrase` skips a mid-run boundary piece whose event word is `Launch` (logged
-rate-limited, `skipped N mid-run Launch boundary piece(s)`); the row's own start event is
-unaffected. The edge stays in the composition on purpose: dropping it would renumber the
-`/segN` interval keys a mission's `ExcludedIntervalKeys` stores. The vessel row's hover is the
-phrase and its End event cell is the terminal word, so both follow. Left as they are: the
-expanded interval detail rows (Advanced) still show `Launch` in the Start / End event cells
-at that boundary, and the partner still hangs under the vessel as a child row whose start
-event is `Launch`. `MissionVesselRowsTests.BuildEventPhrase_*`.
+Fix: the composition tags the joined run instead of dropping its edge
+(`MissionCompositionBuilder.IsJoinedLeg`: a non-root, non-EVA leg whose origin branch point is
+`Launch`; `MissionCompositionNode.IsJoinedVessel`). The join UT stays a structural edge, so the
+`/segN` interval keys a mission's `ExcludedIntervalKeys` stores do not move; the edge carries
+no event word (both cells at that boundary are blank, and the phrase adds no piece) and
+subtracts nothing from the ship's label. `MissionVesselRowBuilder` lists no row for a joined
+vessel and moves anything that separated from it up to the row it hung under; the mission
+summary's vessel count skips it too. The ship's `Docked (...)` piece still names the partner
+with its mission. `MissionJoinedPartnerTests` (fixture: no joined row, the pinned pre-fix key
+lists, blank join cells and the `pod x1, crew x1` label, the vessel count) and
+`MissionVesselRowsTests.Build_PartnerJoin*` / `Build_PieceThatLeftTheJoinedVessel_*`.
+
+## ~~MISSION-LOG-UNDOCK-NAMES-THE-PARTNER: the Log's Undocked row names the other mission's vessel in its Vessel column~~ [FILED AND FIXED 2026-10-04, branch `missions-log-fixes`]
+
+The Kerbal X #4 Log (GUI-3 capture `ib-structure-route-log-advanced`, run
+`2026-10-03_1238`) read `Undocked (Deliverer Mun 1) | Mun orbit | Kerbal X (mission 'Kerbal X
+#3')`: the ship that undocked was Deliverer Mun 1. KSP keeps one identity for a docked pair,
+here the partner's, so the undock branch point's parent (the combined vessel) is named as the
+partner, and `MissionStructureListBuilder.AddOtherBranchStep` put the first parent in the
+Vessel column. Duna Supply 1 (`Undocked (Duna Supply 1) | ... | Depot Station Duna I (mission
+'Kerbal X #5')`) and GUI-4's docking mission had the same shape.
+
+Fix: `MissionVesselNaming.Build` hands back the legs it named as another mission's vessel, and
+the Log window passes them to `MissionStructureListBuilder.Build`. When a Dock / Undock row's
+leg is a partner leg, `ResolveOwnSide` puts this mission's own ship in the Vessel column and
+the other side in the label: an Undock takes the own child (`Undocked (Depot (mission 'Kerbal
+X #3')) | Mun orbit | Deliverer Mun 1`); a Dock takes an own parent (a two-parent dock that
+lists the partner first) or, when the partner is the only parent, the own merged child. The
+row's leg for the include filter is unchanged. The passive side (this mission's ship kept the
+identity and the partner left) reads as before, and without the partner set (no naming pass)
+the structural attribution stays. Counted on the build summary line (`ownSideRows=`).
+`MissionJoinedPartnerTests.*Log*` and the synthetic mirror cells.
+
+## MISSION-VESSEL-ROW-UNDOCK-FOLLOWS-PARTNER: after an undock, the ship's vessel row continues on the partner's half [FILED 2026-10-04 from the mirror check of MISSION-LOG-UNDOCK-NAMES-THE-PARTNER. OPEN]
+
+The Missions-tab mirror of the Log defect above. A vessel row's run follows the docked pair's
+continuing leg through the undock (`MissionThroughLineBuilder.ContinuationSuccessor` takes the
+undock's first child, which the recorder lists as the half that kept the docked pair's
+persistent id), and when KSP kept the pair under the partner's identity that child is the
+PARTNER's half. On
+`interbody-route-recorded`: Duna Supply 1's row reads `Launch -> Decoupled (Duna Supply 1 Probe)
+-> Docked -> Undocked (Duna Supply 1) -> Orbiting`, its last interval is the depot's
+post-undock leg (ending when the depot's recording ends), and the real post-undock Duna Supply 1
+(`1331a21b`, which `MissionVesselNaming` already joins to the ship as a re-pidded continuation)
+is a separate child row `Duna Supply 1   Undocked -> Orbiting`. Kerbal X #4 and GUI-4's docking
+mission have the same shape (`Undocked (Deliverer Mun 1)` / `Undocked (Kerbal X)`). Not fixed
+with the Log: moving the undock continuation changes which run owns which legs, so the interval
+keys and the per-vessel include sets move; it needs a key-migration decision first.
 
 ## ~~BDOCK-1-STATION-SEPARATE-NOT-OBSERVED: the BDOCK-1 mission never sees the station separation it just performed~~ [FILED 2026-09-30 from the #1931 / #1932 verification flights. FIXED 2026-09-30, PR #1934, flight-proven]
 
