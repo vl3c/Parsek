@@ -18,21 +18,16 @@ tier = "operator"
 # it for exactly that: two in-game categories whose cells read active ghosts and which
 # self-skip everywhere else.
 #
-# THE ONE STEP THAT IS A QUESTION, and the todo entry it answers says so in those words.
-# GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST names this recipe as "a candidate and not
-# a reading", because `ParsekFlight.CollectNearbySpawnCandidates` wants more than a playing
-# ghost: an ACTIVE ghost at the run's UT, from a COMMITTED recording whose `EndUT` is still
-# in the future, spawn-eligible per `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd`, not
-# chain-suppressed, within `NearbySpawnListRadius = 1000 m` of the active vessel and under
-# `MaxListRelativeSpeed = 50 m/s` relative to it. The showcase corpus satisfies the first
-# three by construction and nobody has ever measured the last two on it. So
-# `op=open window=spawncontrol` is declared `expect = "OK"` - the outcome this lane is FOR -
-# and the alternative is named here rather than hedged: an `ERROR window-self-closed
-# window=spawncontrol` beside the window's own `[UI] Real Spawn Control auto-close:
-# reason=zero-candidates candidates=0` is the READING the todo entry asks for, not a Parsek
-# defect, and it reds this lane at that step alone. THAT IS WHY THE STEP IS LAST: a
-# driver-INVALID run still harvests every picture taken before it (GUI-1 and GUI-2 both
-# proved that on their first flights), so the other eleven captures land either way.
+# REAL SPAWN CONTROL ON THIS HOST IS A NEGATIVE READING. `ParsekFlight.CollectNearbySpawnCandidates`
+# lists a ghost only when it is an ACTIVE ghost at the run's UT, from a COMMITTED recording
+# whose `EndUT` is still ahead, spawn-eligible per `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd`,
+# not chain-suppressed, within the 250 m spawn radius (`NearbySpawnRadius`, also the list
+# bound since the Model 1 redesign) and under `MaxListRelativeSpeed = 50 m/s`. The showcase
+# corpus's only nearby ghost is its rover, measured at 435 m and 470 m on earlier flights,
+# so the window lists nothing and closes itself: `op=open window=spawncontrol` is declared
+# `expect = "ERROR"`, the reason is pinned in the log contracts, and the proximity scan's
+# `hidden beyond spawn radius` count proves the rover was sampled and hidden by distance.
+# The window's picture with a row in it is RSC-1's.
 #
 # WHAT IT PHOTOGRAPHS (12 PNGs, each with a `<label>.gui.json` dump beside it):
 #   - the main window's FLIGHT STATUS BLOCK with `Active Ghosts` non-zero. Inventory
@@ -113,14 +108,9 @@ tier = "operator"
 # inherited host facts LT-5 already pins (the corpus size is asserted through
 # `[expectations.recordings]` instead, where it belongs).
 #
-# THE STEP THAT WAS A QUESTION ANSWERED THE WAY THE LANE WANTED, and that is the one measured
-# fact this lane exists for: REAL SPAWN CONTROL OPENED AND HELD. `uiaction open
-# window=spawncontrol open=true already=false`, describe `w8open=true w8rect=268,8,750,200`,
-# `op=rect` answering `270,8,750,300 clamped=false minW=350 minH=150`, and a 69-node dump whose
-# `Parsek - Real Spawn Control` window carries ONE candidate row (`Surface Rover Drive / 435m /
-# 7.9 m/s / Y1, D01, 00:01 / T-11s / Warp to Spawn`) under a launcher reading `Real Spawn
-# Control (1)`. No `reason=zero-candidates` line was written, so
-# GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST is CLOSED by this run rather than re-read.
+# THE ROVER READING: before the Model 1 redesign the window opened here with ONE row,
+# `Surface Rover Drive / 435m / 7.9 m/s` and a greyed warp button, outside the 250 m spawn
+# gate. That distance is what the redesign now hides.
 #
 # THE OTHER MEASURED FACTS: `EnterWatchMode` picked its own ghost
 # (`index=0 recId=1c8931164f2d47eab3844b8d1249ea96 watching=true`) and the WATCH OVERLAY drew -
@@ -172,17 +162,15 @@ tier = "operator"
 # of those two tabs are filed as residue. The block also buys the `W*` watching-row marker, measured
 # at ZERO hits program-wide, by taking the overview capture while this lane's already-OK
 # `EnterWatchMode` is still live. It sits immediately after the watch entry for that
-# reason and BEFORE the Real Spawn Control question, which stays last.
+# reason and BEFORE the Real Spawn Control question.
 #
 # WHAT WAS DELIBERATELY NOT ADDED, and this is a decision rather than an omission: the
 # audit also asked for a MULTI-ROW Real Spawn Control capture, via a `WarpToUT` to "a UT
 # where several ghosts pass within NearbySpawnRadius". No such UT is derivable from the
-# fixture or from any collected log - the existing capture read ONE candidate at UT 55 -
-# and a warp that lands on ZERO candidates makes the window self-close, which turns
-# `op=open window=spawncontrol` into an ERROR and reds the lane. Guessing a UT is a
-# fishing expedition dressed as a step. The multi-row picture is filed as needing a
-# MEASUREMENT first (GUI-CENSUS-SPAWN-CONTROL-MULTI-ROW-NEEDS-A-MEASURED-UT).
-description = "GUI census wave 2, the flight scene mid-playback: photograph the main window's flight status with active ghosts, the Gloops recorder, the flight-only Watch column on the Recordings tab, the shared windows over a live scene, the map view with ghost markers, the watch-mode overlay and Real Spawn Control over the 243-ghost part-showcase corpus, then the Kerbals Roster tab either side of a real EvaExit so the live-crew cache refresh has a picture."
+# fixture or from any collected log, and guessing one is a fishing expedition dressed as a
+# step. The multi-row picture is filed as needing a MEASUREMENT first
+# (GUI-CENSUS-SPAWN-CONTROL-MULTI-ROW-NEEDS-A-MEASURED-UT).
+description = "GUI census wave 2, the flight scene mid-playback: photograph the main window's flight status with active ghosts, the Gloops recorder, the flight-only Watch column on the Recordings tab, the shared windows over a live scene, the map view with ghost markers and the watch-mode overlay over the 243-ghost part-showcase corpus, assert that Real Spawn Control hides the out-of-radius rover, then the Kerbals Roster tab either side of a real EvaExit so the live-crew cache refresh has a picture."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "playback", "GUI-6", "pending-operator"]
 
@@ -321,16 +309,15 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "play-timeline-refly-flight-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
 
-  # --- QUESTION 2, and the one this lane exists to answer: Real Spawn Control ---
-  # GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST. LAST, because an `ERROR
-  # window-self-closed` here is the reading the todo entry asks for and every capture above
-  # is already on disk when it lands.
-  { cmd = "UiAction", args = { op = "open", window = "spawncontrol" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "spawncontrol", x = "270", y = "8", w = "750", h = "300" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "play-spawncontrol-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "play-spawncontrol-advanced" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "close", window = "spawncontrol" }, expect = "OK" },
+  # --- QUESTION 2: Real Spawn Control hides a craft that is too far to spawn ---
+  # This host's only candidate is the showcase rover, measured at 435 m and 470 m on
+  # earlier flights: outside the 250 m spawn radius, which since the Model 1 redesign is
+  # also the list bound. So the window has no row and closes itself on its first draw,
+  # and `ERROR window-self-closed` is the verdict this step asserts (GUI-2's shape). The
+  # window's own picture comes from RSC-1, whose candidate is inside both gates. The
+  # `hidden beyond spawn radius` line below proves the rover was SEEN and hidden, rather
+  # than never sampled.
+  { cmd = "UiAction", args = { op = "open", window = "spawncontrol" }, expect = "ERROR" },
 
   # --- THE LIVE-CREW REFRESH, either side of a real crew change (see the header) ---
   # The Roster tab first, which is what BUILDS the cached view model: the `Assigned
@@ -404,10 +391,13 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,timeline",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,kerbals",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=basic windows=12 open=1 openWindows=main",
-  # --- THE TWO FLIGHT-ONLY WINDOWS, which appear in no other committed lane's log except
-  # GUI-2's (and `spawncontrol` there only as a refusal). This is the line that says Real
-  # Spawn Control DREW on this host, which is the whole question the lane asks.
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,spawncontrol",
+  # --- REAL SPAWN CONTROL HIDES THE OUT-OF-RADIUS ROVER. The step declares
+  # `expect = "ERROR"`; the wire message never reaches KSP.log, so the REASON is pinned
+  # here (any other error says something different), beside the window's own auto-close
+  # line and the proximity scan's count of ghosts it sampled and hid by distance.
+  "\\[Parsek\\]\\[ERROR\\]\\[TestCommands\\] uiaction error reason=window-self-closed window=spawncontrol frames=[0-9]+",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[UI\\] Real Spawn Control auto-close: reason=zero-candidates candidates=0",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[Flight\\] Proximity check: .* \\+ [1-9][0-9]* hidden beyond spawn radius 250m",
   # --- the negative dialog assertion (see the header) ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=false count=0",
   # --- one capture, proving the write-and-settle path end to end ---
@@ -428,7 +418,6 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-timeline-details-flight-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-timeline-rewindff-flight-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-timeline-refly-flight-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-spawncontrol-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-kerbals-roster-precrew-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-kerbals-roster-postcrew-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-kerbals-flights-postcrew-advanced .*patched=17/17",
@@ -444,7 +433,7 @@ required = [
 forbidden = []
 
 [runtime]
-# 18 captures and 18 dumps, a TimeJump, a map-view round trip, a watch-mode entry, one
+# 17 captures and 17 dumps, a TimeJump, a map-view round trip, a watch-mode entry, one
 # EvaExit and about 50 single-phase UI ops, over a corpus of 243 injected recordings whose
 # ghosts are all playing. LT-5 measured the same host and the same jump at 72 s wall for a two-category
 # in-game batch; GUI-1 measured 22 captures plus 22 dumps at 96 s. 1200 s is roughly ten

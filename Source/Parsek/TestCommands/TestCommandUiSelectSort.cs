@@ -107,8 +107,8 @@ namespace Parsek.TestCommands
         internal const string ColumnDeliveryToken = "delivery";
         internal const string ColumnCraftToken = "craft";
         internal const string ColumnDistToken = "dist";
-        internal const string ColumnRelSpeedToken = "relspeed";
-        internal const string ColumnSpawnTimeToken = "spawntime";
+        internal const string ColumnSpeedToken = "speed";
+        internal const string ColumnSpawnsToken = "spawns";
 
         // The Missions window's own tab tokens, as its row of the window table spells them
         // (NewSpec(MissionsWindow, true, true, "missions", "recordings")). Named here rather
@@ -156,20 +156,17 @@ namespace Parsek.TestCommands
             NewColumn(ColumnDeliveryToken, 7),     // Delivery     ("Delivery")
         };
 
-        // SpawnControlSortColumn {Name, Distance, RelativeSpeed, SpawnTime}.
-        //
-        // FOUR TOKENS FOR FIVE HEADER CELLS, and that is the table and not an omission: the
-        // candidate table draws BOTH "Spawns at" and "In T-" as sortable headers and BOTH
-        // write SpawnControlSortColumn.SpawnTime (the countdown is the same instant in a
-        // different presentation). So `spawntime` is the one token for the two cells; a
-        // second token would have to resolve to the same index and would then let two spec
-        // steps claim to sort by different columns while the window sorted by one.
+        // SpawnControlSortColumn {Name, Distance, RelativeSpeed, SpawnTime, Status}. One
+        // token per sortable header, and each header sorts on its own key: the Spawn date
+        // column shows the same moment as Spawns, so it is drawn as a plain header and has
+        // no token. Actions is not sortable either.
         private static readonly UiSortColumnSpec[] SpawnControlColumns = new[]
         {
-            NewColumn(ColumnCraftToken, 0),      // Name          ("Craft")
-            NewColumn(ColumnDistToken, 1),       // Distance      ("Dist")
-            NewColumn(ColumnRelSpeedToken, 2),   // RelativeSpeed ("Rel Speed")
-            NewColumn(ColumnSpawnTimeToken, 3),  // SpawnTime     ("Spawns at" AND "In T-")
+            NewColumn(ColumnCraftToken, 0),   // Name          ("Craft")
+            NewColumn(ColumnDistToken, 1),    // Distance      ("Dist")
+            NewColumn(ColumnSpeedToken, 2),   // RelativeSpeed ("Speed")
+            NewColumn(ColumnSpawnsToken, 3),  // SpawnTime     ("Spawns")
+            NewColumn(ColumnStatusToken, 4),  // Status        ("Status")
         };
 
         private static UiSortColumnSpec NewColumn(string token, int enumIndex)

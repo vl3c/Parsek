@@ -21,7 +21,7 @@ namespace Parsek.TestCommands
         /// <summary>The row exists but its warp button is drawn disabled.</summary>
         ButtonDisabled,
 
-        /// <summary>The row's button is "Warp to Depart": it jumps to the ghost's
+        /// <summary>The row is a "Leaves" row: its Warp jumps to just before the ghost's
         /// departure, which spawns nothing.</summary>
         RowWarpsToDeparture,
     }
@@ -51,7 +51,7 @@ namespace Parsek.TestCommands
     /// <para>The row comes from the same <c>ParsekFlight.NearbySpawnCandidates</c> list
     /// and the same <c>SpawnControlPresentation.BuildRowPresentation</c> the draw pass
     /// uses, so the verb can press exactly what a player can press and nothing else: no
-    /// row, a greyed button, or a "Warp to Depart" button is a REJECTED before any side
+    /// row, a greyed button, or a "Leaves" row's departure warp is a REJECTED before any side
     /// effect.</para>
     /// </summary>
     internal static class TestCommandRealSpawn
@@ -104,7 +104,7 @@ namespace Parsek.TestCommands
         /// <summary>
         /// The pre-press gate, in the order a player meets it: the recording must exist,
         /// must not have spawned already, must have a row in the table, the row's button
-        /// must be live, and it must be a "Warp to Spawn" button.
+        /// must be live, and it must warp to the spawn (a "Ready" row).
         /// </summary>
         internal static RealSpawnGateDecision DecideGate(
             bool recordingFound, bool alreadySpawned, bool hasRow,

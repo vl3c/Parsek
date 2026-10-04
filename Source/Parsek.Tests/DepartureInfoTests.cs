@@ -205,6 +205,7 @@ namespace Parsek.Tests
             Assert.True(info.willDepart);
             Assert.Equal(1000, info.departureUT);
             Assert.Equal("Mun", info.destination);
+            Assert.Equal(DepartureKind.OtherBody, info.kind);
         }
 
         [Fact]
@@ -219,7 +220,9 @@ namespace Parsek.Tests
                 segs, 5000, null, 0, 0, 0, 0, null, 500);
             Assert.True(info.willDepart);
             Assert.Equal(1000, info.departureUT);
-            Assert.Equal("maneuver", info.destination);
+            // Same body, new orbit: names the body it keeps orbiting, never "maneuver".
+            Assert.Equal(DepartureKind.NewOrbit, info.kind);
+            Assert.Equal("Kerbin", info.destination);
         }
 
         [Fact]
@@ -251,6 +254,7 @@ namespace Parsek.Tests
             Assert.True(info.willDepart);
             Assert.Equal(1000, info.departureUT);
             Assert.Equal("Mun", info.destination);
+            Assert.Equal(DepartureKind.OtherBody, info.kind);
         }
 
         [Fact]
@@ -281,6 +285,8 @@ namespace Parsek.Tests
                 TerminalState.Landed, 500);
             Assert.True(info.willDepart);
             Assert.Equal(1000, info.departureUT);
+            // It comes down on the body it orbits: a landing there, not a departure to it.
+            Assert.Equal(DepartureKind.Landing, info.kind);
             Assert.Equal("Kerbin", info.destination);
         }
 
@@ -298,7 +304,8 @@ namespace Parsek.Tests
             var info = SelectiveSpawnUI.ComputeDepartureInfo(
                 segs, 3500, null, 0, 0, 0, 0, null, 500);
             Assert.True(info.willDepart);
-            Assert.Equal("maneuver", info.destination);
+            Assert.Equal(DepartureKind.NewOrbit, info.kind);
+            Assert.Equal("Kerbin", info.destination);
         }
 
         [Fact]
@@ -343,6 +350,7 @@ namespace Parsek.Tests
                 segs, 5000, null, 0, 0, 0, 0,
                 TerminalState.Splashed, 500);
             Assert.True(info.willDepart);
+            Assert.Equal(DepartureKind.Landing, info.kind);
             Assert.Equal("Kerbin", info.destination);
         }
 
@@ -357,6 +365,7 @@ namespace Parsek.Tests
                 segs, 5000, null, 0, 0, 0, 0,
                 TerminalState.Destroyed, 500);
             Assert.True(info.willDepart);
+            Assert.Equal(DepartureKind.Crash, info.kind);
             Assert.Equal("Duna", info.destination);
         }
 
@@ -369,6 +378,7 @@ namespace Parsek.Tests
         {
             var info = SelectiveSpawnUI.ComputeDepartureInfo((Recording)null, 500);
             Assert.False(info.willDepart);
+            Assert.Equal(DepartureKind.None, info.kind);
         }
 
         [Fact]
@@ -400,7 +410,8 @@ namespace Parsek.Tests
                 TerminalState.SubOrbital, 500);
             // Last segment (transfer orbit) differs from current → departs
             Assert.True(info.willDepart);
-            Assert.Equal("maneuver", info.destination);
+            Assert.Equal(DepartureKind.NewOrbit, info.kind);
+            Assert.Equal("Kerbin", info.destination);
         }
 
         // ════════════════════════════════════════════════════════════════
