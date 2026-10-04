@@ -11253,6 +11253,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # (trees / committedTrees 1, recordings 2, Landed 1 / SubOrbital 1,
                        # spawnedVessels 0, CTR Lander 0).
                        "CI-7-chain-tip-ts-recover-no-respawn.toml",
+                       # CI-10 / CI-11: `structure` armed 2026-10-04 off their readings
+                       # `2026-10-04_1349` / `_1353` (CI-7's windows: trees / committedTrees 1,
+                       # recordings 2, Landed 1 / SubOrbital 1, spawnedVessels 0, CTR Lander 0).
+                       "CI-10-chain-tip-ksc-marker-recover-no-respawn.toml",
+                       "CI-11-chain-tip-krpc-recover-no-respawn.toml",
                        # CI-8: `structure` armed 2026-10-03 off its reading
                        # `2026-10-03_1637` (trees / committedTrees 1, recordings 2,
                        # Landed 1 / SubOrbital 1, spawnedVessels 1, CTR Lander 1).

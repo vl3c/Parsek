@@ -15,7 +15,7 @@ _(unreleased — entries accumulate here per commit)_
   vessel: at the Space Center it opens the vessel's marker and presses its Recover button,
   with no confirmation and no scene change, closes the recovery summary if one opens, and
   answers once stock has recovered the vessel. `CI-10-chain-tip-ksc-marker-recover-no-respawn`
-  (not yet flown) repeats CI-7 on the same save with that route: spawn the chain's final
+  (live-proven: reading `2026-10-04_1349`, armed `_1409`) repeats CI-7 on the same save with that route: spawn the chain's final
   lander, recover it from its marker, launch again, and require that the lander does not
   come back.
 - **Dev: the recovery event's flag is named `quick` in code and logs.** The second value of
@@ -26,7 +26,7 @@ _(unreleased — entries accumulate here per commit)_
   or several refuses without asking), recovers it through kRPC's `Vessel.Recover()` even
   though it is not the active vessel, and waits for the game to leave the flight scene.
   The new mission `ci11_krpc_recover` uses it in `CI-11-chain-tip-krpc-recover-no-respawn`
-  (nightly, not yet flown): Real Spawn Control spawns a ghost chain's final vessel beside
+  (nightly; live-proven: reading `2026-10-04_1353`, armed `_1412`): Real Spawn Control spawns a ghost chain's final vessel beside
   the pad, kRPC recovers it, and the next flight must not spawn it again.
 - **Dev: KSP.log now records when the crash screen and the recovery summary open and close.**
   Stock KSP's flight results dialog ("Outcome: Catastrophic Failure!", also the F3 flight

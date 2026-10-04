@@ -3,8 +3,9 @@
 # stays active); the recovered vessel must not come back. The third recovery shape beside
 # CI-6 (stock Recover after a Switch-To) and CI-7 (Tracking Station Recover).
 #
-# NEVER FLOWN. Every token below is predicted from CI-6 / CI-7's readings and the decompiled
-# paths, not read off a run; the census block is REPORT-ONLY until a reading run.
+# FLOWN 2026-10-04 (branch `recover-mirror-flights`): reading `2026-10-04_1353` PASS attempt 1
+# (MISSION-OK, every verifier PASS); every token below matched it, and the census block was
+# armed off its facets.
 #
 # THE PATH (decompiled kRPC 0.5.4 `KRPC.SpaceCenter.dll`, Services.Vessel.Recover): it throws
 # unless IsRecoverable (LandedOrSplashed on the home body), then fires
@@ -130,10 +131,10 @@ allowedAnomalies = []
 [expectations.recordings]
 count = { min = 2, max = 2 }
 
-# REPORT-ONLY until a reading run: CI-7's windows (trees / committedTrees 1, recordings 2,
-# Landed 1 / SubOrbital 1, spawnedVessels 0, no `CTR Lander` in the save).
+# ARMED 2026-10-04 off the reading `2026-10-04_1353` (trees / committedTrees 1, recordings 2,
+# Landed 1 / SubOrbital 1, spawnedVessels 0, no `CTR Lander` in the save; CI-7's windows).
 [expectations.recordings.structure]
-gating         = false
+gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 2, max = 2 }

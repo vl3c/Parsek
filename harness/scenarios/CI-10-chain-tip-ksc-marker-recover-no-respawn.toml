@@ -10,8 +10,8 @@
 # and the next flight's spawn-death pass reads that row and clears the spawn claim instead of
 # respawning the lander. Todo SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX.
 #
-# NEVER FLOWN. The structure block is REPORT-ONLY (gating = false) with CI-7's windows until a
-# reading run confirms them.
+# FLOWN 2026-10-04 (branch `recover-mirror-flights`): reading `2026-10-04_1349` PASS attempt 1
+# (every verifier PASS); the census block was armed off its facets.
 #
 # HOST: `gloops-airshow` + the `chain-tip-recovery` preset, exactly CI-6's / CI-7's:
 # `ctr-tip-rec`, `CTR Lander`, pid 1344998135, a live chain tip ~130 m from the pad vessel,
@@ -123,9 +123,10 @@ allowedAnomalies = []
 [expectations.recordings]
 count = { min = 2, max = 2 }
 
-# REPORT-ONLY until a reading run: CI-7's armed windows (the same host and the same outcome).
+# ARMED 2026-10-04 off the reading `2026-10-04_1349` (trees / committedTrees 1, recordings 2,
+# Landed 1 / SubOrbital 1, spawnedVessels 0, no `CTR Lander` in the save; CI-7's windows).
 [expectations.recordings.structure]
-gating         = false
+gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 2, max = 2 }

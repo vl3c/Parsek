@@ -351,8 +351,12 @@ class KRecSpecSyncTests(unittest.TestCase):
         self.assertEqual(set(between), {"RecordingState"})
         self.assertEqual(names[-1], "FlushAndQuit")
 
-    def test_the_census_is_report_only_until_a_reading_run(self):
-        self.assertFalse(self._spec()["expectations"]["recordings"]["structure"]["gating"])
+    def test_the_census_is_armed_off_the_reading_run(self):
+        # Armed 2026-10-04 off the reading `2026-10-04_1353` (CI-7's windows).
+        structure = self._spec()["expectations"]["recordings"]["structure"]
+        self.assertTrue(structure["gating"])
+        self.assertEqual(structure["vesselNames"]["CTR Lander"], {"min": 0, "max": 0})
+        self.assertEqual(structure["spawnedVessels"], {"min": 0, "max": 0})
 
     def test_the_handoff_contract_names_the_terminal(self):
         contract = mlib.mission_handoff_contract("ci11_krpc_recover")
