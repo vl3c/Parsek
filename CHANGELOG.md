@@ -10,6 +10,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: a lane for recovering a spawned vessel through kRPC while another vessel is active.**
+  A new mission action, `recover_named_vessel`, picks the one vessel with a given name (none
+  or several refuses without asking), recovers it through kRPC's `Vessel.Recover()` even
+  though it is not the active vessel, and waits for the game to leave the flight scene.
+  The new mission `ci11_krpc_recover` uses it in `CI-11-chain-tip-krpc-recover-no-respawn`
+  (nightly, not yet flown): Real Spawn Control spawns a ghost chain's final vessel beside
+  the pad, kRPC recovers it, and the next flight must not spawn it again.
 - **Dev: KSP.log now records when the crash screen and the recovery summary open and close.**
   Stock KSP's flight results dialog ("Outcome: Catastrophic Failure!", also the F3 flight
   status screen) and its "Mission Summary" recovery dialog left no reliable trace in the log,
