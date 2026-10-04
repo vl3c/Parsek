@@ -1579,7 +1579,9 @@ _(unreleased — entries accumulate here per commit)_
   interval rows split at the switch with blank event cells, and its count stays its own
   ("pod x1, crew x1"). A vessel you switched to that belongs to no other mission (an old
   station, a stock vessel) stays under your ship as before, without the false "Launch".
-  Mission selections are unaffected: the interval keys a mission stores do not change.
+  Any vessel or kerbal row whose flight ends by docking or boarding now names what it joined,
+  e.g. a kerbal's row ending "Boarded (Kerbal X)". Mission selections are unaffected: the
+  interval keys a mission stores do not change.
 - **The mission Log's Undocked row names your ship, not the vessel it undocked from.** KSP
   keeps a docked pair under one vessel's identity, often the other mission's, so the Log of
   a mission that docked with another mission's vessel read e.g. "Undocked (Deliverer Mun 1)"

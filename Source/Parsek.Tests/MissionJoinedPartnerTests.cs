@@ -341,6 +341,50 @@ namespace Parsek.Tests
             Assert.Equal(2, facts.VesselCount);
         }
 
+        // catches: a kerbal's row that ends boarding a vessel reading a bare "Boarded" - the
+        // terminal resolver names what the line joined (CHANGELOG: "Boarded (Kerbal X)").
+        [Fact]
+        public void KerbalRowEndingInBoarding_NamesTheVessel()
+        {
+            var ship = new Recording
+            {
+                RecordingId = "ship", VesselName = "Kerbal X", ExplicitStartUT = 0, ExplicitEndUT = 100,
+                Controllers = new List<ControllerInfo> { new ControllerInfo { type = "CrewedPod" } },
+            };
+            var eva = new Recording
+            {
+                RecordingId = "eva", VesselName = "Bob Kerman", EvaCrewName = "Bob Kerman",
+                ExplicitStartUT = 40, ExplicitEndUT = 100, TerminalStateValue = TerminalState.Boarded,
+                Controllers = new List<ControllerInfo> { new ControllerInfo { type = "KerbalEVA" } },
+            };
+            var merged = new Recording
+            {
+                RecordingId = "merged", VesselName = "Kerbal X", ExplicitStartUT = 100, ExplicitEndUT = 200,
+                TerminalStateValue = TerminalState.Orbiting,
+                Controllers = new List<ControllerInfo> { new ControllerInfo { type = "CrewedPod" } },
+            };
+            var tree = new RecordingTree { Id = "b", RootRecordingId = "ship" };
+            foreach (Recording r in new[] { ship, eva, merged }) tree.Recordings[r.RecordingId] = r;
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "evabp", Type = BranchPointType.EVA, UT = 40,
+                ParentRecordingIds = new List<string> { "ship" }, ChildRecordingIds = new List<string> { "eva" },
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "board", Type = BranchPointType.Board, UT = 100,
+                ParentRecordingIds = new List<string> { "ship", "eva" },
+                ChildRecordingIds = new List<string> { "merged" },
+            });
+            MissionStructure structure = MissionStructureBuilder.Build(tree);
+            List<MissionVesselRow> rows = MissionVesselRowBuilder.Build(
+                MissionCompositionBuilder.Build(structure), null, null, null,
+                (head, ut) => MissionPresentation.ResolveTerminalDockPartnerVesselName(structure, head, ut));
+            MissionVesselRow bob = AllRows(rows).Single(r => r.IsPerson);
+            output.WriteLine(bob.EventPhrase);
+            Assert.EndsWith("Boarded (Kerbal X)", bob.EventPhrase);
+        }
+
         // ------------------------------------------------------------------ the mission Log
 
         private static List<StructureStep> BuildLog(List<RecordingTree> trees, string treeId,

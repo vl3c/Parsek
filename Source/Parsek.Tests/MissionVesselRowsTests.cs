@@ -335,6 +335,37 @@ namespace Parsek.Tests
             Assert.Equal("Decoupled", stage.StartEvent);
         }
 
+        // catches: a partner joined under ANOTHER partner left nested under it, or dropped:
+        // it moves up through the outer partner's siblings, so both sit beside the ship.
+        [Fact]
+        public void Build_PartnerJoinedUnderAPartner_SitsBesideBoth()
+        {
+            List<MissionVesselRow> rows = BuildRows(
+                new[]
+                {
+                    Leg("L", "C", 0, 0, 50, probes: 1, vessel: "Ship"),
+                    Leg("cont", "C", 1, 50, 200, probes: 1, vessel: "Ship",
+                        terminal: TerminalState.Orbiting),
+                    Leg("p1", "C3", 0, 50, 100, probes: 1, vessel: "Tug"),
+                    Leg("p1cont", "C3", 1, 100, 180, probes: 1, vessel: "Tug",
+                        terminal: TerminalState.Orbiting),
+                    Leg("p2", "C4", 0, 100, 170, probes: 2, vessel: "Depot",
+                        terminal: TerminalState.Orbiting),
+                },
+                new[]
+                {
+                    BP("launch1", BranchPointType.Launch, new[] { "L" }, new[] { "p1" }),
+                    BP("launch2", BranchPointType.Launch, new[] { "p1" }, new[] { "p2" }),
+                },
+                "p1", "p2");
+
+            Assert.Equal(new[] { "L", "p1", "p2" }, rows.Select(r => r.OwnerHeadId).ToArray());
+            Assert.All(rows, r => Assert.Empty(r.Children));
+            Assert.False(rows[0].IsPartner);
+            Assert.True(rows[1].IsPartner);
+            Assert.True(rows[2].IsPartner);
+        }
+
         // catches: a partner joined under a CHILD row escaping to the top level, or staying
         // under the child: it sits beside the child it joined.
         [Fact]
