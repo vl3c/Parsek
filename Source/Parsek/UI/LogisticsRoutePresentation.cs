@@ -642,7 +642,6 @@ namespace Parsek
             if (count == 0)
                 return "Flights used: -";
             var resolved = new string[count];
-            var totals = new Dictionary<string, int>(StringComparer.Ordinal);
             for (int i = 0; i < count; i++)
             {
                 string n = names[i];
@@ -650,25 +649,9 @@ namespace Parsek
                     n = fallbacks != null && i < fallbacks.Count && !string.IsNullOrEmpty(fallbacks[i])
                         ? fallbacks[i] : "<unknown>";
                 resolved[i] = n;
-                totals.TryGetValue(n, out int t);
-                totals[n] = t + 1;
             }
-            var seen = new Dictionary<string, int>(StringComparer.Ordinal);
-            var sb = new StringBuilder("Flights used: ");
-            for (int i = 0; i < count; i++)
-            {
-                if (i > 0) sb.Append(", ");
-                string n = resolved[i];
-                sb.Append(n);
-                if (totals[n] > 1)
-                {
-                    seen.TryGetValue(n, out int k);
-                    k++;
-                    seen[n] = k;
-                    sb.Append(" [").Append(k.ToString(IC)).Append(']');
-                }
-            }
-            return sb.ToString();
+            return "Flights used: " + string.Join(", ",
+                LogisticsNearMissPresentation.NumberRepeatedNames(resolved));
         }
 
         /// <summary>
@@ -757,6 +740,24 @@ namespace Parsek
 
         /// <summary>The Cancel hover: the arm is cleared, nothing was dispatched.</summary>
         internal const string CancelButtonTooltip = "Cancels the run before launch; nothing is spent.";
+
+        /// <summary>Candidate Interact line 1: make the supply run a stored route.</summary>
+        internal const string CreateRouteButtonLabel = "Create route";
+
+        /// <summary>The Create route hover.</summary>
+        internal const string CreateRouteButtonTooltip =
+            "Make this supply run a route (created Paused; use Send to test it, then Activate).";
+
+        /// <summary>Candidate Interact line 2, and each mission row of the near-miss list.</summary>
+        internal const string DismissButtonLabel = "Dismiss";
+
+        /// <summary>The Dismiss hover.</summary>
+        internal const string DismissButtonTooltip =
+            "Hide this mission from the Candidates section. Restore it any time from the Hidden missions list below.";
+
+        /// <summary>The candidates' Transit header and cell hover.</summary>
+        internal const string CandidateTransitTooltip =
+            "How long one run takes, from launch to undock.";
 
         /// <summary>What an armed route's Interact line 1 draws. All three are ONE 100 px
         /// button in the same control slot, so a phase change never changes the control

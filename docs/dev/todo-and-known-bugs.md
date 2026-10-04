@@ -111,20 +111,23 @@ Model 1 (the merged Status cell, the two-line Route cell, the Interact grid, the
 window, the Basic gate `UiSurface.LogisticsRouteTuning`, the dated detail block) shipped without
 these, each deferred as its own change:
 
-- **Pickup-aware Delivers (D4).** A pure pickup relay still reads `(nothing)` in the Delivers
-  column and the "Delivers each run" line, while its Last delivered line names real cargo. Needs
-  new presentation logic over the relay manifest ("picks up 154 LiquidFuel at B").
-- **Group the near-miss list by reason (R10).** A save with many flights that never docked
-  shows one identical "No dock was recorded on this flight, so there is nothing to repeat."
-  line per mission; one grouped line with the names in the hover would read better.
-- **Part titles in the create dialog and stored-part holds.** The create dialog lists stored
-  parts by internal name (`evaChute`) and the Logistics window's hold clauses name a stored
-  part the same way; both want the part TITLE through a PartLoader lookup. The Route History's
-  Held rows already do (`DescribeHold`'s optional `partTitle` resolver, fed
-  `StructureListWindowUI.ResolvePartTitle`); the window's callers pass none yet.
+- ~~**Pickup-aware Delivers (D4).**~~ DONE (branch `logistics-followups`): the Delivers cell
+  reads "LiquidFuel 200.0; picks up 154.4 LiquidFuel at B" (alone on a pure pickup route) and
+  the detail line "Picks up each run: 154.4 LiquidFuel at B, then delivers LiquidFuel 200.0 to
+  A." in visit order (`LogisticsDeliveryPresentation.FormatRouteCargoCell` /
+  `FormatRouteCargoLine`); a pickup candidate's Would deliver cell and create dialog name the
+  cargo too.
+- ~~**Group the near-miss list by reason (R10).**~~ DONE (branch `logistics-followups`): one
+  line per reason with a count and a name preview, every name in the hover, a group opening to
+  one row per mission with its own Dismiss (`LogisticsNearMissPresentation`).
+- ~~**Part titles in the create dialog and stored-part holds.**~~ DONE (branch
+  `logistics-followups`): the create dialog and the window's hold cell / sentence pass
+  `StructureListWindowUI.ResolvePartTitle`, falling back to the internal name.
 - **Default route names.** The name still repeats the from/to line ("Route: KSC -> Duna"
   over "KSC -> Depot Station Duna I"); naming a new route after its mission was ruled out of
   this change (it needs "Name [2]" dedupe and makes the Missions route hover tautological).
+  Still open; the restyled Candidates table shows the same repetition (its Route cell is the
+  default name over the from/to line).
 
 ---
 

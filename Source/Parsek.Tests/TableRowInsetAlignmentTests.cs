@@ -725,11 +725,10 @@ namespace Parsek.Tests
         /// (Rename on the first line, Delete on the second, Link round-trip... on the third
         /// in Advanced) - never on a button row of its own. Every route-detail line ends in
         /// that slot cell, so the buttons take the block's first lines. The row and its
-        /// Interact cell never arm Delete. The candidates table keeps its own Actions width,
-        /// so the route tables' Interact width cannot squeeze Create Route + Dismiss.
+        /// Interact cell never arm Delete.
         /// </summary>
         [Fact]
-        public void LogisticsDeleteLivesInTheDetailBlockAndCandidatesKeepTheirWidth()
+        public void LogisticsDeleteLivesInTheDetailBlock()
         {
             string file = Path.Combine("UI", "LogisticsWindowUI.cs");
             string prepared = ReadPreparedSource(file);
@@ -765,7 +764,7 @@ namespace Parsek.Tests
                 "LogisticsWindowUI.DrawRouteInteractCell: line 1 must end in Send, line 2 be Go to then Log.");
             Assert.Contains("GUILayout.Width(interactColumnWidth)", grid);
             Assert.DoesNotContain("InteractButtonWidth", grid);
-            Assert.Contains("GUILayout.Width(interactColumnWidth)",
+            Assert.Contains("DrawInteractHeaderCell()",
                 MethodBody(prepared, "DrawRouteSortableHeader", file));
             Assert.Contains("ShowMissionForRecording(", MethodBody(prepared, "DrawRouteGoToButton", file));
             Assert.Contains("OpenRouteHistoryWindow(", grid);
@@ -779,12 +778,87 @@ namespace Parsek.Tests
                         && interact.Substring(cancel, nextCase - cancel).Contains("pendingCancelSend = route")
                         && !interact.Substring(cancel, nextCase - cancel).Contains("pendingPause = route"),
                 "LogisticsWindowUI.DrawRouteInteractCell: the Cancel branch must set pendingCancelSend, not pendingPause.");
-            foreach (string method in new[] { "DrawCandidateColumnHeader", "DrawCandidateRow" })
+        }
+
+        /// <summary>
+        /// The candidates table on the route tables' grid: # | Route (name over the grey
+        /// from/to line, in the route rows' two styles) | Would deliver | Transit (the Every
+        /// column's width) | Interact (the measured column, the shared centred header cell).
+        /// Its Interact cell is exactly two singles - Create route, then Dismiss - at the
+        /// detail block's single width, with no condition around either, so the control
+        /// count never depends on state. The Origin / Destination / Actions columns are gone.
+        /// </summary>
+        [Fact]
+        public void LogisticsCandidatesUseTheRouteGrid()
+        {
+            string file = Path.Combine("UI", "LogisticsWindowUI.cs");
+            string prepared = ReadPreparedSource(file);
+            foreach (string gone in new[] { "ColW_Origin", "ColW_Destination", "ColW_CandidateActions", "ColW_CandidateTransit" })
+                Assert.DoesNotContain(gone, prepared);
+
+            string header = MethodBody(prepared, "DrawCandidateColumnHeader", file);
+            int num = header.IndexOf("GUILayout.Width(ColW_Num)", StringComparison.Ordinal);
+            int route = header.IndexOf("GUILayout.ExpandWidth(true)", StringComparison.Ordinal);
+            int deliver = header.IndexOf("GUILayout.Width(ColW_WouldDeliver)", StringComparison.Ordinal);
+            int transit = header.IndexOf("GUILayout.Width(ColW_Interval)", StringComparison.Ordinal);
+            int interact = header.IndexOf("DrawInteractHeaderCell()", StringComparison.Ordinal);
+            Assert.True(num > 0 && route > num && deliver > route && transit > deliver && interact > transit,
+                "LogisticsWindowUI.DrawCandidateColumnHeader: columns must read # | Route | Would deliver | Transit | Interact.");
+            Assert.Contains("DrawInteractHeaderCell()", MethodBody(prepared, "DrawRouteSortableHeader", file));
+            Assert.Contains("GUILayout.Width(interactColumnWidth)", MethodBody(prepared, "DrawInteractHeaderCell", file));
+
+            string row = MethodBody(prepared, "DrawCandidateRow", file);
+            Assert.Contains("routeNameStyle", row);
+            Assert.Contains("routeFromToStyle", row);
+            Assert.True(
+                row.IndexOf("GUILayout.Width(ColW_WouldDeliver)", StringComparison.Ordinal)
+                < row.IndexOf("GUILayout.Width(ColW_Interval)", StringComparison.Ordinal)
+                && row.IndexOf("GUILayout.Width(ColW_Interval)", StringComparison.Ordinal)
+                < row.IndexOf("DrawCandidateInteractCell(", StringComparison.Ordinal),
+                "LogisticsWindowUI.DrawCandidateRow: cells must follow the header's order.");
+            // The row reads its cached display (from/to, cargo); nothing resolves a vessel here.
+            Assert.DoesNotContain("TryResolveEndpoint", row);
+
+            string cell = MethodBody(prepared, "DrawCandidateInteractCell", file);
+            Assert.Equal(2, Regex.Matches(cell, @"GUILayout\.Button\(").Count);
+            Assert.Equal(2, Regex.Matches(cell, @"GUILayout\.Width\(single\)").Count);
+            Assert.Contains("float single = InteractSingleWidth", cell);
+            Assert.Contains("GUILayout.BeginVertical(GUILayout.Width(interactColumnWidth))", cell);
+            Assert.DoesNotMatch(@"\bif\s*\((?!GUILayout\.Button)", cell);
+            int create = cell.IndexOf("CreateRouteButtonLabel", StringComparison.Ordinal);
+            int dismiss = cell.IndexOf("DismissButtonLabel", StringComparison.Ordinal);
+            Assert.True(create > 0 && dismiss > create,
+                "LogisticsWindowUI.DrawCandidateInteractCell: line 1 Create route, line 2 Dismiss.");
+            Assert.Contains("pendingCreate = candidate", cell);
+            Assert.Contains("pendingDismissTreeId = candidate.Tree?.Id", cell);
+        }
+
+        /// <summary>
+        /// The candidate list, the near-miss list and its groups are rebuilt only on a
+        /// Layout pass, so a refresh can never land between a frame's Layout and Repaint
+        /// and change the control count; every near-miss draw reads the cached groups,
+        /// and each grouped mission row dismisses exactly its own tree.
+        /// </summary>
+        [Fact]
+        public void LogisticsCandidateAndNearMissCachesRefreshOnLayoutOnly()
+        {
+            string file = Path.Combine("UI", "LogisticsWindowUI.cs");
+            string prepared = ReadPreparedSource(file);
+            foreach (string method in new[] { "GetCandidates", "GetNearMisses" })
             {
                 string body = MethodBody(prepared, method, file);
-                Assert.Contains("ColW_CandidateActions", body);
-                Assert.DoesNotContain("ColW_Interact", body);
+                Assert.Contains("Event.current.type == EventType.Layout", body);
+                Assert.Matches(@"if\s*\(\s*layoutPass\s*&&", body);
             }
+            Assert.Contains("cachedNearMissGroups = BuildNearMissGroups(", MethodBody(prepared, "GetNearMisses", file));
+            Assert.Contains("RebuildCandidateDisplayCache(", MethodBody(prepared, "GetCandidates", file));
+            string sub = MethodBody(prepared, "DrawNearMissSubsection", file);
+            Assert.Contains("cachedNearMissGroups", sub);
+            Assert.DoesNotContain("DescribeNearMiss", sub);
+            string group = MethodBody(prepared, "DrawNearMissGroup", file);
+            Assert.Contains("pendingDismissTreeId = m.TreeId", group);
+            Assert.DoesNotContain("for (int", group.Substring(0, group.IndexOf("if (!expanded)", StringComparison.Ordinal)));
+            Assert.Contains("NearMissGroupRowKey(groups[i])", MethodBody(prepared, "EnumerateRowKeysForTesting", file));
         }
 
         /// <summary>

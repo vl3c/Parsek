@@ -185,15 +185,24 @@ namespace Parsek.Logistics
         /// <summary>
         /// Format an inventory line. Quantity > 1 emits a "<c>xN</c>" suffix;
         /// quantity 1 omits the multiplier. Non-empty variant names render in
-        /// parens, e.g. <c>"evaJetpack (white) x2"</c>.
+        /// parens, e.g. <c>"evaJetpack (white) x2"</c>. <paramref name="partTitle"/>
+        /// maps the part name to its player-facing title (<c>"Jetpack (white) x2"</c>);
+        /// null, or a null / empty answer, keeps the internal name.
         /// </summary>
-        internal static string FormatInventoryLine(InventoryPayloadItem item)
+        internal static string FormatInventoryLine(
+            InventoryPayloadItem item, System.Func<string, string> partTitle = null)
         {
             // Bracket-free fallbacks ("unknown"): this text feeds the TMP-backed
             // PopupDialog body, which parses "<...>" as rich-text markup.
             if (item == null) return "unknown";
 
             string partLabel = string.IsNullOrEmpty(item.PartName) ? "unknown" : item.PartName;
+            if (partTitle != null && !string.IsNullOrEmpty(item.PartName))
+            {
+                string title = partTitle(item.PartName);
+                if (!string.IsNullOrEmpty(title))
+                    partLabel = title;
+            }
             string variant = item.VariantName;
             if (!string.IsNullOrEmpty(variant))
                 partLabel = partLabel + " (" + variant + ")";
@@ -347,7 +356,8 @@ namespace Parsek.Logistics
             RouteAnalysisResult analysis,
             Game.Modes mode,
             RecordingTree tree = null,
-            RouteRunCostCalculator.RouteRunCost? runCost = null)
+            RouteRunCostCalculator.RouteRunCost? runCost = null,
+            System.Func<string, string> partTitle = null)
         {
             var sb = new StringBuilder();
             if (analysis == null || !analysis.IsEligible)
@@ -422,11 +432,32 @@ namespace Parsek.Logistics
             if (analysis.InventoryDeliveryManifest != null && analysis.InventoryDeliveryManifest.Count > 0)
             {
                 for (int i = 0; i < analysis.InventoryDeliveryManifest.Count; i++)
-                    sb.Append("  - ").Append(FormatInventoryLine(analysis.InventoryDeliveryManifest[i])).Append('\n');
+                    sb.Append("  - ").Append(FormatInventoryLine(analysis.InventoryDeliveryManifest[i], partTitle)).Append('\n');
             }
             else
             {
                 sb.Append("  (none)\n");
+            }
+
+            // A run that loads cargo at the dock names it, so a pickup-only run does not
+            // read as carrying nothing. Absent on a delivery-only run.
+            bool loadsResources = analysis.ResourceLoadManifest != null && analysis.ResourceLoadManifest.Count > 0;
+            bool loadsParts = analysis.InventoryLoadManifest != null && analysis.InventoryLoadManifest.Count > 0;
+            if (loadsResources || loadsParts)
+            {
+                sb.Append("Picks up:\n");
+                if (loadsResources)
+                {
+                    var loadKeys = new List<string>(analysis.ResourceLoadManifest.Keys);
+                    loadKeys.Sort(System.StringComparer.Ordinal);
+                    for (int i = 0; i < loadKeys.Count; i++)
+                        sb.Append("  - ").Append(FormatResourceLine(loadKeys[i], analysis.ResourceLoadManifest[loadKeys[i]])).Append('\n');
+                }
+                if (loadsParts)
+                {
+                    for (int i = 0; i < analysis.InventoryLoadManifest.Count; i++)
+                        sb.Append("  - ").Append(FormatInventoryLine(analysis.InventoryLoadManifest[i], partTitle)).Append('\n');
+                }
             }
 
             // CRE-2: full [root..undock] span (matches the created route's
