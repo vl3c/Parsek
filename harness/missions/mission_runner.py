@@ -4421,6 +4421,9 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
     # watch mlib.paused_clock_step advances once per poll; see the block note
     # there for the scope rules.
     pc_watch = mlib.PausedClockWatch()
+    # FROZEN-TELEMETRY NOTES: lines emitted this flight by
+    # mlib.frozen_detector_note, capped at mlib.FROZEN_NOTE_LIMIT.
+    frozen_notes = 0
 
     def _wu_close(end_ut: Optional[float]) -> None:
         wu.close(end_ut)
@@ -4533,6 +4536,18 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         # Re-publish post-decide: a perform() failure below must report the
         # phase the machine had ALREADY entered this frame.
         _FLY_LOOP_LAST_STATE["state"] = state
+        # Frozen-telemetry reset / within-tolerance note: names the field that
+        # broke (or would have broken) a frozen run. Silent on a healthy
+        # flight, so no clock read and no line there; capped per flight.
+        frozen_note = mlib.frozen_detector_note(prev_state, state, snapshot)
+        if frozen_note is not None:
+            frozen_notes += 1
+            if frozen_notes <= mlib.FROZEN_NOTE_LIMIT:
+                log.info(state.phase, frozen_note)
+            elif frozen_notes == mlib.FROZEN_NOTE_LIMIT + 1:
+                log.info(state.phase,
+                         "frozen-telemetry notes reached %d this flight; "
+                         "further notes suppressed" % mlib.FROZEN_NOTE_LIMIT)
         if state.phase != prev_phase:
             _wu_close(snapshot.ut if math.isfinite(snapshot.ut) else None)
             wu.begin(state.phase,

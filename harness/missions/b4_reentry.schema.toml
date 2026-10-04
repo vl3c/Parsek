@@ -143,3 +143,16 @@ required = false
 type = "int"
 min = 2
 max = 1000
+
+# Optional: per-field tolerance of the frozen-telemetry compare (altitude, vertical
+# speed, apoapsis, periapsis; metres or m/s). Absent = mlib.HOP_FROZEN_TOLERANCE_ABS
+# (1e-3) for mlib.B4Params, applied only in REENTRY / SPLASHDOWN
+# (mlib.B4_FROZEN_TOLERANCE_PHASES; the orbit phases always compare exactly);
+# 0.0 = the exact bit-identical compare. A destroyed craft's frozen readings were seen to differ by
+# less than a millimetre per poll (RB-1 2026-09-27_1353), while a live hop craft
+# always moves far more than this between two 0.5 s polls.
+[params.frozenToleranceAbs]
+required = false
+type = "number"
+min = 0.0
+max = 1.0

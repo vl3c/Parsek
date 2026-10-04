@@ -1687,7 +1687,7 @@ class VesselLostTerminalTests(unittest.TestCase):
 class FrozenTelemetryTerminalTests(unittest.TestCase):
     """Guards the airborne frozen-telemetry terminal (design vessel-destroyed
     terminal): N consecutive frozen samples terminate as MISSION-ASSERT-FAIL, a
-    field change or a frozen UT resets the run, and PRELAUNCH is exempt."""
+    field change resets the run, a frozen UT holds it, and PRELAUNCH is exempt."""
 
     def _seed_sig(self, **kw):
         # A prior sample matching the frozen run's fields with a LOWER ut, so the

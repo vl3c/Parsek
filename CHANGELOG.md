@@ -1466,6 +1466,18 @@ _(unreleased — entries accumulate here per commit)_
   `vessel-lost (paused-clock: ...)`, the same class as every other vessel loss). It never
   fires during a native warp, right after a seam step, or on a pause shorter than 15 s, and it
   reads the pause state only when the clock did not move.
+- **Dev: a harness hop mission now notices a destroyed craft whose telemetry froze.**
+  After the craft is destroyed, kRPC can keep returning its last readings while the clock
+  runs. The mission ends as a vessel loss after 10 polls in a row whose altitude, vertical
+  speed and orbit did not change, but one run polled such readings about 118 times without
+  ending, because one value kept differing by less than a millimetre. The airborne hop
+  missions (pad hop and its science recovery, EVA-4, GS-1, and the reentry mission's
+  descent) now treat values within 0.001 as unchanged (`frozenToleranceAbs`); the orbit
+  missions still require identical values. A poll whose clock did not advance no longer
+  restarts the count, and the mission log names the value that broke a run (with its exact
+  previous and current readings), so the next crash shows which reading moved. The machine
+  status line also shows the real count for missions that delegate their flight
+  (`frozenCount=` used to print `-` there).
 - **Dev: two harness waits behind KSP's post-flight screens now end at once.** A test
   command waiting on the EVA kerbal (`EvaGroundScience`, `PlantFlag`) now ends with
   `ERROR active-vessel-lost` on the first check after the kerbal dies, instead of sitting out

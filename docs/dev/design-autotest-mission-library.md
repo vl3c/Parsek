@@ -919,6 +919,30 @@ Each: scenario -> expected behavior -> v1 or deferred.
     (its perform() blocks for the whole step), a machine state declaring
     `game_pause_owned` (no mission pauses the game today), an unread pause state, a
     non-finite UT. The pause RPC is issued only on a poll whose UT did not move. v1.
+21. **Destroyed craft whose telemetry freezes while the clock runs** (KSP hands
+    active-vessel to a dead object and kRPC keeps returning its last orbit while UT
+    advances at 1x). The shared `mlib._advance_frozen_count` counts consecutive 1x
+    polls whose UT strictly advanced while `(altitude, vertical_speed, apoapsis,
+    periapsis)` matched the previous poll; `frozenTelemetrySamples` (default 10) of
+    them end the machine through its own vessel-lost terminal. A poll that is
+    evidence in neither direction HOLDS the count: a warp frame, and (2026-10-04) a
+    poll whose UT repeated, went backwards (the signature re-baselines) or read
+    non-finite, so a stopped clock never increments it and the paused-clock
+    watchdog (case 20) keeps sole ownership of a pause. The orbit machines (B2 / R1,
+    B5 / V1, B-DOCK, FORGE-LKO, KXRW) match the four fields bit-exactly, because near
+    an apsis of a near-circular orbit a live craft can move less than a millimetre
+    per poll. The airborne hop machines match within `frozenToleranceAbs` (default
+    `HOP_FROZEN_TOLERANCE_ABS = 1e-3`; NaN never matches): B1 and its SBR delegate,
+    EVA-4, GS-1, and B4 in REENTRY / SPLASHDOWN only. In those phases a live craft
+    moves its altitude by |vspd| x 0.5 s or its vertical speed by about 4.9 m/s per
+    poll, while RB-1 `2026-09-27_1353` showed a destroyed Flea whose readings
+    differed by less than a millimetre and never reached the exact limit in about
+    118 polls. The fly loop logs `frozen-telemetry reset count=N->0 field=<f>
+    <f>=<prev repr>-><curr repr> dUt= warp= tol=` when a run of 1 or more breaks,
+    and `frozen-telemetry within-tolerance ...` when a tolerant machine counted a
+    poll that was not bit-identical, capped at `FROZEN_NOTE_LIMIT` lines per flight;
+    a healthy flight logs neither. The machine line reads `frozenCount` off a
+    delegated sub-machine (SBR, R1, V1, S/R/T-DOCK). v1.
 
 ## Amendment A (2026-08-19): the career-earning verbs and `science_bench_recover`
 

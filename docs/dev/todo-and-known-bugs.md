@@ -472,7 +472,7 @@ all 8 rows), `test_mlib.NonFiniteDetailScrubTests`, `test_shells.ResultSerialize
   of its bound it compares. Reaching it needs the mission to archive its frames (or the
   per-assertion evidence the compare reads).
 
-## HARNESS-POST-FLIGHT-DIALOG-STALLS: harness runs sit behind KSP's post-flight screens until a timeout or the wall budget ends [FILED 2026-10-03, branch `todo-stuck-dialogs`. CONFIRMED in the collected logs; observability done on branch `post-flight-dialog-logging`; the paused-clock watchdog, the seam active-vessel-loss fail-fast and the CommitTree fast reject FIXED 2026-10-03, branch `harness-dialog-stalls`; the frozen-telemetry item open]
+## HARNESS-POST-FLIGHT-DIALOG-STALLS: harness runs sit behind KSP's post-flight screens until a timeout or the wall budget ends [FILED 2026-10-03, branch `todo-stuck-dialogs`. CONFIRMED in the collected logs; observability done on branch `post-flight-dialog-logging`; the paused-clock watchdog, the seam active-vessel-loss fail-fast and the CommitTree fast reject FIXED 2026-10-03, branch `harness-dialog-stalls`; the frozen-telemetry item FIXED 2026-10-04, branch `frozen-detector-fix`; the RB-1 chute-read item open]
 
 Operator observation: auto tests sometimes sit on the post-flight "Mission Summary" screen.
 A scan of all 894 collected `_shots/KSP.log` files found two stock dialogs, neither of which
@@ -524,12 +524,34 @@ Lost: about 26 min with a dialog up, about 25 min of it avoidable (RB-1 is about
   RB-1 it would have tripped about 15.5 s after `Game Paused!` (16:57:07 instead of the
   wall reaper at about 17:15). Tests: `test_mlib.PausedClockWatchdogTests`,
   `test_shells.PausedClockWatchdogShellTests` / `KrpcPausedClockSeamTests`.
-- [ ] RB-1 also shows the frozen-telemetry detector NOT firing: from the crash (UT 98.72)
+- [x] RB-1 also shows the frozen-telemetry detector NOT firing: from the crash (UT 98.72)
   to the pause (UT 157.86) UT advanced at 1x for about 60 s while the logged altitude,
   vertical speed, apoapsis and periapsis stayed identical to 3 decimals, yet B1's
-  10-sample limit (inside `sbr_decide`) never tripped. Unexplained; a low-bit jitter in one
-  of the four signature fields would explain it. Reproduce against the raw snapshot floats
-  before changing the detector.
+  10-sample limit (inside `sbr_decide`) never tripped. Replaying the logged 3-decimal
+  values trips at sample 11 and the sibling RB-2 `2026-09-27_1417` (same code) tripped
+  live, so a sub-millimetre difference in one of the four fields kept resetting the count.
+  Fix: three changes to the shared `mlib._advance_frozen_count`. (1) A poll whose UT did
+  not strictly advance HOLDS the count, as a warp frame already did: a repeated or
+  non-finite UT keeps the signature, a lower UT (load, rewind) re-baselines it. A stopped
+  clock still never increments, so the paused-clock watchdog keeps sole ownership of a
+  pause. (2) The airborne hop machines compare the four fields within a tolerance: new
+  missionParams key `frozenToleranceAbs`, defaulting to `HOP_FROZEN_TOLERANCE_ABS = 1e-3`
+  in the B1 (and so SBR), EVA-4, GS-1 and B4 params builders, NaN never matching; B4
+  applies it only in REENTRY / SPLASHDOWN (`B4_FROZEN_TOLERANCE_PHASES`). Every orbit
+  machine (B2 / R1, B5 / V1, B-DOCK, FORGE-LKO, KXRW) keeps the exact compare: near an
+  apsis of a near-circular orbit a live craft can sit inside 1e-3 per poll. (3)
+  Observability: the machine line and status dict now read the counter off a delegated
+  sub-machine (`frozenCount=` was `-` on SBR, R1, V1 and S/R/T-DOCK), and the fly loop logs
+  one `frozen-telemetry reset count=N->0 field=<f> <f>=<prev repr>-><curr repr> dUt= warp=
+  tol=` line when a run of 1 or more breaks, plus a `frozen-telemetry within-tolerance`
+  line when a tolerant machine counts a poll that was not bit-identical (capped at
+  `FROZEN_NOTE_LIMIT = 20` per flight; silent on a healthy flight). The jittering field is
+  still UNPROVEN: the logs print 3 decimals. The next crash names it in those lines.
+  Tests: `test_frozen_detector.py`.
+- [ ] RB-1's chute channel read nothing useful: of the 1,261 telemetry lines, 1,254 print
+  `chute=-` and 7 `chute=Stowed`, and the Flea hit at about 230 m/s. Investigate why the
+  craft chute state was unread for almost the whole flight, and whether the chute ever
+  armed. Not fixed.
 - [x] Seam: a two-phase pending step fails fast when the active vessel is destroyed or
   `FlightResultsDialog.isDisplaying`, instead of waiting its full timeout
   (`ParsekTestCommandAddon.EvaGroundScience.cs` step-move path first). Also log the
