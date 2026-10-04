@@ -17,7 +17,7 @@ namespace Parsek
         {
             public double Ut;
             public RecoveredVesselIdentity Identity;
-            public bool FromTrackingStation;
+            public bool Quick;
             public VesselType VesselType;
             public RecoveryPayoutContext PayoutContext;
 
@@ -174,7 +174,7 @@ namespace Parsek
             if (tryAddRecoveryFundsAction(
                     request.Ut,
                     request.Identity,
-                    request.FromTrackingStation))
+                    request.Quick))
             {
                 pendingRecoveryFunds.RemoveAt(bestIndex);
             }
@@ -496,7 +496,7 @@ namespace Parsek
         internal static void OnVesselRecoveryFunds(
             double ut,
             RecoveredVesselIdentity identity,
-            bool fromTrackingStation,
+            bool quick,
             VesselType vesselType,
             RecoveryPayoutContext payoutContext,
             Func<double, RecoveredVesselIdentity, bool, bool> tryAddRecoveryFundsAction)
@@ -517,7 +517,7 @@ namespace Parsek
                 return;
             }
 
-            if (tryAddRecoveryFundsAction(ut, identity, fromTrackingStation))
+            if (tryAddRecoveryFundsAction(ut, identity, quick))
                 return;
 
             if (ShouldSkipDeferredRecoveryFunds(vesselType, payoutContext, out skipReason))
@@ -529,7 +529,7 @@ namespace Parsek
                 return;
             }
 
-            AddPendingRecoveryFundsRequest(ut, identity, fromTrackingStation, vesselType, payoutContext);
+            AddPendingRecoveryFundsRequest(ut, identity, quick, vesselType, payoutContext);
             ParsekLog.Verbose(Tag,
                 $"OnVesselRecoveryFunds: deferred pairing for {identity.FormatForLog()} " +
                 $"at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
@@ -542,7 +542,7 @@ namespace Parsek
         private static void AddPendingRecoveryFundsRequest(
             double ut,
             RecoveredVesselIdentity identity,
-            bool fromTrackingStation,
+            bool quick,
             VesselType vesselType,
             RecoveryPayoutContext payoutContext)
         {
@@ -550,7 +550,7 @@ namespace Parsek
             {
                 Ut = ut,
                 Identity = identity,
-                FromTrackingStation = fromTrackingStation,
+                Quick = quick,
                 VesselType = vesselType,
                 PayoutContext = payoutContext
             });
@@ -570,7 +570,7 @@ namespace Parsek
         internal static bool TryAddVesselRecoveryFundsAction(
             double ut,
             RecoveredVesselIdentity identity,
-            bool fromTrackingStation,
+            bool quick,
             Func<RecoveredVesselIdentity, double, string> pickRecoveryRecordingId,
             Func<int> allocateKscSequence,
             IReadOnlyList<GameAction> actions,
@@ -629,7 +629,7 @@ namespace Parsek
                 $"VesselRecovery funds patched: vessel='{identity.DisplayName}' " +
                 $"amount={delta.ToString("F0", CultureInfo.InvariantCulture)} " +
                 $"ut={matched.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
-                $"recordingId={recordingId ?? "(none)"} fromTrackingStation={fromTrackingStation}");
+                $"recordingId={recordingId ?? "(none)"} quick={quick}");
 
             recalculateAndPatch(matched.ut);
             return true;

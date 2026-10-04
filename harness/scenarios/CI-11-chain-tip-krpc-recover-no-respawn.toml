@@ -1,0 +1,176 @@
+# CI-11: the player spawns a ghost chain's tip through Real Spawn Control and recovers it
+# through kRPC's Vessel.Recover() while it is NOT the active vessel (the pad mk1-capsule
+# stays active); the recovered vessel must not come back. The third recovery shape beside
+# CI-6 (stock Recover after a Switch-To) and CI-7 (Tracking Station Recover).
+#
+# FLOWN 2026-10-04 (branch `recover-mirror-flights`): reading `2026-10-04_1353` PASS attempt 1
+# (MISSION-OK, every verifier PASS); every token below matched it, and the census block was
+# armed off its facets.
+#
+# THE PATH (decompiled kRPC 0.5.4 `KRPC.SpaceCenter.dll`, Services.Vessel.Recover): it throws
+# unless IsRecoverable (LandedOrSplashed on the home body), then fires
+# `GameEvents.OnVesselRecoveryRequested.Fire(vessel)` for ANY vessel, active or not. Parsek's
+# OnVesselRecoveryRequested arms the in-flight recovery request (no active tree is live, so
+# nothing stamps). Stock's VesselRetrieval saves and loads SPACECENTER and, 8 frames after
+# the Space Center loads, fires onVesselRecovered(pv, false); Parsek writes the
+# non-economic VesselRecovered ledger row against the committed tip (sandbox, uncrewed: no
+# funds row, no crew row), and the next flight's spawn-death pass clears the spawn claim
+# instead of respawning.
+#
+# HOST: `gloops-airshow` + the `chain-tip-recovery` preset, exactly CI-6's (see its header):
+# `ctr-tip-rec`, `CTR Lander`, pid 1344998135, a live chain tip ~130 m from the pad vessel.
+#
+# ACT 1 (seam): RealSpawn the chain tip (chain-tip spawn keeps the original pid and launch
+# guid); the pad mk1-capsule stays active (autoRecordOnLaunch is off, so no tree is live).
+# ACT 2 (mission ci11_krpc_recover): pick the ONE vessel named `CTR Lander` among
+# sc.vessels, Recover() it, and wait for FLIGHT to be torn down (the active vessel's
+# telemetry goes dark as stock loads the Space Center).
+# ACT 3 (seam, Space Center): read the committed list, then GoToEditor SPH + LaunchFromEditor;
+# the new flight's spawn-death pass meets the tip whose spawned vessel is gone.
+
+schema = 1
+id = "CI-11-chain-tip-krpc-recover-no-respawn"
+tier = "nightly"
+description = "The kRPC half of a recovered chain tip: over gloops-airshow plus the chain-tip-recovery preset, RealSpawn the tip, then fly mission ci11_krpc_recover to recover the spawned uncrewed lander through kRPC's Vessel.Recover() while the pad mk1-capsule stays active (sandbox: no funds row, no crew row), then launch a new flight from the SPH and require that the recovered lander does not spawn again."
+instanceProfile = "stock-minimal"
+tags = ["CI-11", "D18", "chain-interaction", "ghost-chain", "real-spawn", "recover",
+        "krpc", "injected-recordings", "R10", "runtime-handles", "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "chain-tip-recovery"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "ci11_krpc_recover"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # CI-7's shape: no merge modal can stand at the recovery's scene exit.
+  { cmd = "SetSetting", args = { name = "autoMerge", value = "true" }, expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "chains" }, label = "chains", expect = "OK" },
+  # THE SETTLE: the proximity scan admits a row only on its second sighting, 1.5 s apart
+  # (CI-6 / CI-7's twenty inert steps, ~5 s).
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # ACT 1: RealSpawn; the pad vessel stays active.
+  { cmd = "RealSpawn", args = { rec = "${chains.chain0tip}" }, label = "spawn", expect = "OK", budget = 120 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # ACT 2: the kRPC recovery of the NON-active lander; the mission ends in SPACECENTER.
+  { phase = "mission", expect = "MISSION-OK", budget = 600 },
+  # ACT 3.
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "GoToEditor", args = { facility = "SPH", craft = "Kerbal X" }, expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor", expect = "OK", budget = 180 },
+  { cmd = "ListHandles", args = { kind = "chains" }, label = "chains2", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[driver.missionParams]
+targetName            = "CTR Lander"
+startSettleSeconds    = 3
+requestTimeoutFrames  = 20
+sceneTimeoutFrames    = 240
+sceneLostFrames       = 3
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No D18 claim: the committed tip keeps
+# Landed (the recovery lives in the ledger row), CI-7's reason.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+# The two injected recordings; the committed tip keeps Landed.
+[expectations.recordings]
+count = { min = 2, max = 2 }
+
+# ARMED 2026-10-04 off the reading `2026-10-04_1353` (trees / committedTrees 1, recordings 2,
+# Landed 1 / SubOrbital 1, spawnedVessels 0, no `CTR Lander` in the save; CI-7's windows).
+[expectations.recordings.structure]
+gating         = true
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2, max = 2 }
+terminalStates = { Landed = { min = 1, max = 1 }, SubOrbital = { min = 1, max = 1 } }
+spawnedVessels = { min = 0, max = 0 }
+vesselNames    = { "CTR Lander" = { min = 0, max = 0 }, "mk1-capsule" = { min = 1, max = 1 } }
+
+[expectations.logContracts]
+required  = [
+  # Boot: the walker claims the lander via BACKGROUND_EVENT and builds a live chain.
+  "\\[ChainWalker\\] Chain built: vessel=1344998135 links=1 tip=ctr-tip-rec spawnUT=622\\.2 terminated=False",
+  # Act 1: Real Spawn Control spawns the chain tip with its original pid.
+  "\\[Ghoster\\] Chain tip spawn: pid=1344998135 vessel=CTR Lander preserveIdentity=true",
+  "realspawn complete rec=ctr-tip-rec pid=1344998135 vessel=CTR Lander ",
+  # Act 2: kRPC fires OnVesselRecoveryRequested for the non-active lander; Parsek arms the
+  # request (no live tree, so nothing stamps).
+  "\\[Recovery\\] In-flight recovery requested: vessel='CTR Lander' pid=1344998135 ",
+  # The recovery is recorded against the committed tip.
+  "\\[LedgerOrchestrator\\] Vessel recovered recorded: vessel='CTR Lander' pid=1344998135 recoveryUT=[0-9.]+ recordingId=ctr-tip-rec terminal=Landed ",
+  # Act 3: a new flight scene.
+  "launchfromeditor complete scene=FLIGHT vessel=Kerbal X ",
+  # The spawn-death pass reads the recovery, not a death.
+  "\\[Policy\\] Spawned vessel recovered: #[0-9]+ \"CTR Lander\" pid=1344998135 evidence=recovery-row - spawn claim cleared, no respawn",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "realspawn rejected",
+  # The vessel's recovery must reach the ledger, not be skipped as programmatic.
+  "Vessel recovery row skipped: vessel='CTR Lander'",
+  # The recovered lander read as dead and spawned again.
+  "\\[Policy\\] Spawn-death detected: #[0-9]+ \"CTR Lander\"",
+  "\\[Spawner\\] Vessel spawn for #[0-9]+ \\(CTR Lander\\)",
+]
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "once"

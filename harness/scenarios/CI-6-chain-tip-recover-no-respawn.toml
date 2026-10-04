@@ -159,7 +159,7 @@ required  = [
   "realspawn complete rec=ctr-tip-rec pid=1344998135 vessel=CTR Lander ",
   # Act 1: stock's Recover button, the request Parsek arms, stock's recovery.
   "\\[Recovery\\] In-flight recovery requested: vessel='CTR Lander' pid=1344998135 ",
-  "recover observed onVesselRecovered pid=1344998135 vessel=CTR Lander fromTrackingStation=false",
+  "recover observed onVesselRecovered pid=1344998135 vessel=CTR Lander quick=false",
   "recover complete pid=1344998135 vessel=CTR Lander scene=SPACECENTER",
   # Act 2: a new flight scene, where the walker re-reads the committed tree.
   "launchfromeditor complete scene=FLIGHT vessel=Kerbal X ",

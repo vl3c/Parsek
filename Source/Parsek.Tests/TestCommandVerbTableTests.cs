@@ -60,6 +60,7 @@ namespace Parsek.Tests
         [InlineData("RealSpawn")]
         [InlineData("Recover")]
         [InlineData("TrackingStationRecover")]
+        [InlineData("KscMarkerRecover")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -183,7 +184,9 @@ namespace Parsek.Tests
             // recovery verb.
             // TrackingStationRecover is ADDITIVE (46 -> 47; reserved unchanged at 4): the
             // Tracking Station half of a player's recovery, for a non-active vessel.
-            Assert.Equal(47, TestCommandVerbs.ImplementedVerbNames.Count);
+            // KscMarkerRecover is ADDITIVE (47 -> 48; reserved unchanged at 4): the Space
+            // Center marker's Recover, the recovery a player makes without leaving the KSC.
+            Assert.Equal(48, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

@@ -117,7 +117,7 @@ namespace Parsek.Tests
                 valueAfter = 44000.0
             };
             GameStateStore.AddEvent(ref evt);
-            LedgerOrchestrator.OnVesselRecoveryFunds(ut, identity, fromTrackingStation: true);
+            LedgerOrchestrator.OnVesselRecoveryFunds(ut, identity, quick: true);
             var row = Ledger.Actions.Single(a =>
                 a.Type == GameActionType.FundsEarning
                 && a.FundsSource == FundsEarningSource.Recovery);

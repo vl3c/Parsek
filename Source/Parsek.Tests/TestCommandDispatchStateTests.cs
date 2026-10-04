@@ -65,6 +65,7 @@ namespace Parsek.Tests
             public void RealSpawn(ParsedCommand cmd) => Calls.Add("RealSpawn");
             public void Recover(ParsedCommand cmd) => Calls.Add("Recover");
             public void TrackingStationRecover(ParsedCommand cmd) => Calls.Add("TrackingStationRecover");
+            public void KscMarkerRecover(ParsedCommand cmd) => Calls.Add("KscMarkerRecover");
         }
 
         [Fact]
@@ -183,6 +184,8 @@ namespace Parsek.Tests
         // TrackingStationRecover: issued at the Space Center only, refused typed elsewhere
         // (the GoToEditor shape), so the dispatch row only waits for a loaded game.
         [InlineData("TrackingStationRecover", "RequiresGameLoaded")]
+        // KscMarkerRecover: the same Space-Center-only shape.
+        [InlineData("KscMarkerRecover", "RequiresGameLoaded")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -240,6 +243,7 @@ namespace Parsek.Tests
             fake.RealSpawn(cmd);
             fake.Recover(cmd);
             fake.TrackingStationRecover(cmd);
+            fake.KscMarkerRecover(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

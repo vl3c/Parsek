@@ -108,7 +108,7 @@ required  = [
   "\\[Ledger\\] Seeded initial funds: amount=0 confirmedZero=True \\(Funding loaded at 0, no funds history\\)",
   "DeferredSeed: expected singletons=Funding\\+R&D\\+Reputation present=True after 0 frames, loaded after 0 frames, clock ready=True after 0 frames \\(currentUT=9\\.[0-9]+\\) . Funding=0, Science=100,",
   "recover complete pid=2905720181 vessel=#autoLOC_501224 scene=SPACECENTER",
-  "VesselRecovery funds patched: vessel='Jumping Flea' amount=4182 ut=[0-9.]+ recordingId=\\(none\\) fromTrackingStation=False",
+  "VesselRecovery funds patched: vessel='Jumping Flea' amount=4182 ut=[0-9.]+ recordingId=\\(none\\) quick=False",
   "PatchFunds: no change needed \\(current=4182\\.0, target=4182\\.0\\)",
   "kscaction refused action=hire-kerbal reason=insufficient-funds target=Verhat Kerman",
   "launchfromeditor complete scene=FLIGHT vessel=Settings Probe pid=1100000001 site=LaunchPad situation=PRELAUNCH",

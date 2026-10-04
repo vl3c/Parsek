@@ -1070,6 +1070,19 @@ ACTION_CAMERA_SET_POSE = "camera_set_pose"                 # camera_pose = tuple
 ACTION_RUN_SCIENCE_EXPERIMENTS = "run_science_experiments"  # value = None
 ACTION_TRANSMIT_SCIENCE = "transmit_science"               # value = None
 ACTION_RECOVER_VESSEL = "recover_vessel"                   # value = None
+# RECOVER_NAMED_VESSEL: recover the ONE vessel named `text` among sc.vessels,
+#   which need NOT be the active vessel (CI-11: the player recovers a vessel they
+#   are not flying). kRPC 0.5.4 has no persistent id, so the pick is by NAME and
+#   refuses ambiguity: exactly one vessel with that name, else nothing is asked
+#   and the refusal rides recover_request_result as RECOVER_REQUEST_NO_MATCH /
+#   RECOVER_REQUEST_AMBIGUOUS (`pick_unique_named`). The picked vessel then goes
+#   through RECOVER_VESSEL's read-before-ask lock verbatim (DECLINED /
+#   UNREADABLE / ISSUED / FAILED). kRPC's Recover() fires stock's
+#   OnVesselRecoveryRequested for ANY vessel, and stock's VesselRetrieval then
+#   saves and loads SPACECENTER, so the ACTIVE vessel's telemetry goes dark too:
+#   the success evidence is ISSUED followed by sustained vessel_lost frames. Emit
+#   it exactly ONCE, last, for RECOVER_VESSEL's scene-level reason.
+ACTION_RECOVER_NAMED_VESSEL = "recover_named_vessel"       # text = vessel name
 
 # ------------------------------------------------------------------------------
 # THE PART-SWEEP ACTIONS (GS-6). One per RECORDABLE PART-EVENT FAMILY that kRPC
@@ -1254,6 +1267,32 @@ RECOVER_REQUEST_FAILED = "FAILED"          # Recover() itself raised
 RECOVER_REQUEST_DECLINES: Tuple[str, ...] = (RECOVER_REQUEST_DECLINED,
                                              RECOVER_REQUEST_UNREADABLE,
                                              RECOVER_REQUEST_FAILED)
+# ACTION_RECOVER_NAMED_VESSEL's two PICK refusals: no vessel carries the name, or
+# more than one does. Nothing was asked on either. Kept OUT of
+# RECOVER_REQUEST_DECLINES on purpose: that tuple is science_bench_recover's
+# re-ask contract (a declined active craft may settle and be asked again), and a
+# missing or ambiguous NAME does not settle.
+RECOVER_REQUEST_NO_MATCH = "NO-MATCH"      # no vessel named so
+RECOVER_REQUEST_AMBIGUOUS = "AMBIGUOUS"    # more than one vessel named so
+RECOVER_NAMED_PICK_REFUSALS: Tuple[str, ...] = (RECOVER_REQUEST_NO_MATCH,
+                                                RECOVER_REQUEST_AMBIGUOUS)
+# classify_recover_request outcomes.
+RECOVER_OUTCOME_PENDING = "pending"
+RECOVER_OUTCOME_ISSUED = "issued"
+RECOVER_OUTCOME_REFUSED = "refused"
+
+
+def classify_recover_request(token: Optional[str]) -> str:
+    """The recover verb's perform-seam token as one of three outcomes: ISSUED ->
+    ``issued``; any decline or pick refusal -> ``refused``; the UNREAD sentinel or
+    an unknown token -> ``pending`` (fail-closed: nothing unknown grants an
+    issue)."""
+    t = str(token or RECOVER_REQUEST_UNREAD)
+    if t == RECOVER_REQUEST_ISSUED:
+        return RECOVER_OUTCOME_ISSUED
+    if t in RECOVER_REQUEST_DECLINES or t in RECOVER_NAMED_PICK_REFUSALS:
+        return RECOVER_OUTCOME_REFUSED
+    return RECOVER_OUTCOME_PENDING
 
 # The UNREAD sentinel shared by the three vessel-scoped science COUNT channels.
 # Named because the difference between it and a real 0 is the whole of the
@@ -18504,6 +18543,180 @@ def evaluate_tdock_assertions(frames, params: TDockParams, phases_reached=(),
 
 
 # ---------------------------------------------------------------------------
+# kRPC NAMED-RECOVER phase state machine (mission ci11_krpc_recover: CI-11, the
+# player recovers a Real-Spawned chain tip they are NOT flying, through kRPC's
+# Vessel.Recover). Pure. The seam's RealSpawn step has already turned the chain
+# tip into a real vessel beside the active one:
+#
+#   KR-START     -> dwell start_settle_seconds (game UT), then ask for the ONE
+#                   vessel named target_name (ACTION_RECOVER_NAMED_VESSEL)
+#   KR-RECOVER   -> read the perform-seam token (classify_recover_request):
+#                   issued -> KR-SCENE; a decline or pick refusal -> loss (nothing
+#                   was asked, MISSION-ASSERT-FAIL -> driver-INVALID); still
+#                   unread past request_timeout_frames -> flake
+#   KR-SCENE     -> stock leaves FLIGHT for SPACECENTER, so the ACTIVE vessel's
+#                   reads fail and the runner emits vessel_lost frames; done after
+#                   scene_lost_frames CONSECUTIVE ones, flake past
+#                   scene_timeout_frames
+#   KR-RECOVERED -> done; the settle tail is skipped (every read is dark)
+#
+# Both waits count FRAMES, not game seconds: the UT a vessel_lost frame carries is
+# best-effort and may read 0 across the scene load. The machine never reads what
+# Parsek did with the recovery; the spec's log contract and save facets do.
+# ---------------------------------------------------------------------------
+
+KREC_START = "KR-START"
+KREC_RECOVER = "KR-RECOVER"
+KREC_SCENE = "KR-SCENE"
+KREC_RECOVERED = "KR-RECOVERED"
+KREC_PHASES: Tuple[str, ...] = (KREC_START, KREC_RECOVER, KREC_SCENE, KREC_RECOVERED)
+
+
+@dataclass(frozen=True)
+class KRecParams:
+    """kRPC NAMED-RECOVER tuning (spec [driver.missionParams] for
+    ci11_krpc_recover)."""
+    target_name: str = "CTR Lander"
+    start_settle_seconds: float = 3.0
+    request_timeout_frames: int = 20
+    scene_timeout_frames: int = 240
+    scene_lost_frames: int = 3
+
+
+def krec_params_from_dict(params: Dict) -> KRecParams:
+    params = params or {}
+    return KRecParams(
+        target_name=str(params.get("targetName", "CTR Lander")),
+        start_settle_seconds=float(params.get("startSettleSeconds", 3)),
+        request_timeout_frames=int(params.get("requestTimeoutFrames", 20)),
+        scene_timeout_frames=int(params.get("sceneTimeoutFrames", 240)),
+        scene_lost_frames=int(params.get("sceneLostFrames", 3)),
+    )
+
+
+@dataclass(frozen=True)
+class KRecState:
+    params: KRecParams
+    phase: str = KREC_START
+    phase_entry_ut: float = float("nan")
+    phases_reached: Tuple[str, ...] = (KREC_START,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+    skip_settle_tail: bool = False
+    phase_frames: int = 0
+    lost_streak: int = 0
+    # Evidence for the assertions.
+    request_result: str = RECOVER_REQUEST_UNREAD
+    recover_issued: bool = False
+    scene_left: bool = False
+
+
+def krec_initial_state(params: KRecParams) -> KRecState:
+    return KRecState(params=params)
+
+
+def _krec_enter(state: KRecState, new_phase: str, ut: float, **fields) -> KRecState:
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(state, phase=new_phase, phase_entry_ut=entry,
+                   phases_reached=state.phases_reached + (new_phase,),
+                   phase_frames=0, **fields)
+
+
+def _krec_flake(state: KRecState, reason: str) -> KRecState:
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason="phase %s: %s" % (state.phase, reason), done=True)
+
+
+def krec_decide(state: KRecState,
+                snapshot: TelemetrySnapshot) -> Tuple[KRecState, List[Action]]:
+    """Advance the kRPC NAMED-RECOVER machine one frame; return (state, actions)."""
+    if state.done:
+        return state, []
+    p = state.params
+
+    if state.phase == KREC_START:
+        if snapshot.vessel_lost:
+            return replace(state, done=True, verdict=MISSION_ASSERT_FAIL,
+                           loss_reason=(
+                               "vessel-lost-before-recovery: the active vessel's "
+                               "telemetry went dark before %r was asked for"
+                               % (p.target_name,))), []
+        if not _is_finite(state.phase_entry_ut) and _is_finite(snapshot.ut):
+            state = replace(state, phase_entry_ut=snapshot.ut)
+        elapsed = (snapshot.ut - state.phase_entry_ut
+                   if _is_finite(snapshot.ut) and _is_finite(state.phase_entry_ut)
+                   else 0.0)
+        if elapsed < p.start_settle_seconds:
+            return state, []
+        return (_krec_enter(state, KREC_RECOVER, snapshot.ut),
+                [Action(ACTION_RECOVER_NAMED_VESSEL, text=p.target_name)])
+
+    if state.phase == KREC_RECOVER:
+        token = str(snapshot.recover_request_result or RECOVER_REQUEST_UNREAD)
+        outcome = classify_recover_request(token)
+        if outcome == RECOVER_OUTCOME_REFUSED:
+            return replace(state, request_result=token, done=True,
+                           verdict=MISSION_ASSERT_FAIL,
+                           loss_reason=(
+                               "recover-named-refused: %s for a vessel named %r "
+                               "(exactly one recoverable vessel by that name is "
+                               "required; nothing was asked)" % (token, p.target_name))), []
+        if outcome == RECOVER_OUTCOME_ISSUED:
+            # The issue and the first dark frame routinely share a snapshot, so the
+            # scene watch reads THIS frame too.
+            state = _krec_enter(state, KREC_SCENE, snapshot.ut, request_result=token,
+                                recover_issued=True, lost_streak=0)
+        else:
+            state = replace(state, phase_frames=state.phase_frames + 1)
+            if state.phase_frames > p.request_timeout_frames:
+                return _krec_flake(state, (
+                    "no recover result for %r after %d frames (token=%r)"
+                    % (p.target_name, state.phase_frames, token))), []
+            return state, []
+
+    if state.phase == KREC_SCENE:
+        streak = state.lost_streak + 1 if snapshot.vessel_lost else 0
+        state = replace(state, lost_streak=streak, phase_frames=state.phase_frames + 1)
+        if streak >= p.scene_lost_frames:
+            st = _krec_enter(state, KREC_RECOVERED, snapshot.ut, scene_left=True)
+            return replace(st, done=True, skip_settle_tail=True), []
+        if state.phase_frames > p.scene_timeout_frames:
+            return _krec_flake(state, (
+                "recovery of %r issued but FLIGHT was never torn down: %d frames "
+                "without %d consecutive vessel_lost reads"
+                % (p.target_name, state.phase_frames, p.scene_lost_frames))), []
+        return state, []
+
+    return _krec_flake(state, "unknown phase"), []
+
+
+def evaluate_krec_assertions(frames, params: KRecParams, phases_reached=(),
+                             state=None) -> List[AssertionOutcome]:
+    """Two kRPC NAMED-RECOVER driver-validity assertions:
+
+    - ``recoverIssued``    Vessel.Recover() was called on the one vessel named
+                           target_name and returned (the value is the token).
+    - ``sceneLeftFlight``  FLIGHT was torn down after the issue (sustained
+                           vessel_lost reads), the stock recovery's scene load.
+    """
+    del frames
+    phases = tuple(phases_reached or ())
+    issued = bool(getattr(state, "recover_issued", False))
+    left = bool(getattr(state, "scene_left", False))
+    return [
+        AssertionOutcome("recoverIssued", issued,
+                         getattr(state, "request_result", RECOVER_REQUEST_UNREAD) or None,
+                         {"targetName": params.target_name}),
+        AssertionOutcome("sceneLeftFlight", (KREC_RECOVERED in phases) and left, left,
+                         {"required": KREC_RECOVERED,
+                          "sceneLostFrames": params.scene_lost_frames}),
+    ]
+
+
+# ---------------------------------------------------------------------------
 # FORGE-LKO phase state machine (mission forge_lko: the ORBITAL fixture forge).
 # Pure. The B-DOCK Interceptor-leg shape, truncated at the park:
 #
@@ -20312,6 +20525,17 @@ MISSION_HANDOFF_CONTRACTS: Dict[str, Dict] = {
         "terminal": "ORBIT",
         "unverifiedByMission": ["tombstoneScreening", "reservationRecovery"],
         "verifiedBy": ["AnswerMergeDialog", "logContracts", "saveParse"],
+    },
+    # ci11_krpc_recover (CI-11) is SBR's kind of gap: it terminates ON its own outcome
+    # (Recover() issued, then FLIGHT observed torn down), and the reason it is flown is
+    # a Parsek claim it has no view of - whether the recovery reached the ledger as a
+    # VesselRecovered row and whether the next flight clears the spawn claim instead of
+    # respawning. Those are the spec's log contracts and census facets. The terminal is
+    # the literal because KREC_RECOVERED is defined below this table.
+    "ci11_krpc_recover": {
+        "terminal": "KR-RECOVERED",
+        "unverifiedByMission": ["ledgerRecoveryCapture", "spawnClaimCleared"],
+        "verifiedBy": ["logContracts", "saveParse"],
     },
 }
 
@@ -24304,6 +24528,21 @@ def pick_nearest_named(candidates: Sequence[Tuple[str, float, bool]],
         if float(d) < best_d:
             best, best_d = i, float(d)
     return best
+
+
+def pick_unique_named(names: Sequence[str], name: str) -> Tuple[Optional[int], str]:
+    """The pick ACTION_RECOVER_NAMED_VESSEL recovers: the index of the ONE entry
+    of ``names`` equal to ``name``, with ``RECOVER_REQUEST_UNREAD`` as the token.
+    Zero matches -> ``(None, RECOVER_REQUEST_NO_MATCH)``, more than one ->
+    ``(None, RECOVER_REQUEST_AMBIGUOUS)``. Active or not does not matter: the
+    verb exists to recover a vessel the player is not flying. Exact match only, so
+    an empty ``name`` never picks."""
+    hits = [i for i, n in enumerate(names or ()) if str(name) and str(n) == str(name)]
+    if not hits:
+        return None, RECOVER_REQUEST_NO_MATCH
+    if len(hits) > 1:
+        return None, RECOVER_REQUEST_AMBIGUOUS
+    return hits[0], RECOVER_REQUEST_UNREAD
 
 
 def kxrw_watch_probe_tag(probe: int) -> str:
