@@ -1596,11 +1596,30 @@ _(unreleased — entries accumulate here per commit)_
   `CommittedSpawnedRestoreSuppression: armed` / `cleared`. Player discards are unchanged.
   The lanes keep `retry policy = "once"`: the 2026-10-03 EVA-6 flight passed with no
   re-adoption, but its boot took the ordering where the discard finds nothing to discard.
-- **A Missions tab vessel row no longer shows another mission's vessel as a mid-flight
-  "Launch".** After switching to another mission's vessel, the row's event chain read e.g.
-  "Launch -> Launch (Depot Station Duna I (mission 'Kerbal X #5')) -> Docked". A launch
-  cannot happen mid-flight, so that step is now left out; the following "Docked" step
-  already names the partner. Mission selections are unaffected.
+- **The Missions tab no longer lists another mission's vessel as a piece of your ship.**
+  When you switched to another mission's vessel and flew it to a dock with your ship, that
+  vessel showed under your ship as if it had separated from it ("Depot Station Duna I
+  (mission 'Kerbal X #5')   Launch -> Docked"), your ship's event chain read "Launch ->
+  Launch (Depot Station Duna I ...) -> Docked", the expanded interval rows (Advanced) read
+  "Decoupled -> Launch" and "Launch -> Docked", and the interval after the switch lost the
+  other vessel's pod from your ship's count ("Kerbal X (crew x1)"). The other vessel's row
+  now sits beside your ship instead of under it, reads "Docked (Duna Supply 1)" with no
+  launch, keeps its own include checkbox in Advanced (so its part of the loop can still be
+  kept or trimmed), and is not counted as one of your mission's vessels. Your ship's
+  interval rows split at the switch with blank event cells, and its count stays its own
+  ("pod x1, crew x1"). A vessel you switched to that belongs to no other mission (an old
+  station, a stock vessel) stays under your ship as before, without the false "Launch".
+  Any vessel or kerbal row whose flight ends by docking or boarding now names what it joined,
+  e.g. a kerbal's row ending "Boarded (Kerbal X)". Mission selections are unaffected: the
+  interval keys a mission stores do not change.
+- **The mission Log's Undocked row names your ship, not the vessel it undocked from.** KSP
+  keeps a docked pair under one vessel's identity, often the other mission's, so the Log of
+  a mission that docked with another mission's vessel read e.g. "Undocked (Deliverer Mun 1)"
+  with "Kerbal X (mission 'Kerbal X #3')" in the Vessel column. It now reads "Undocked (Depot
+  (mission 'Kerbal X #3'))" on "Deliverer Mun 1", the same way the Docked row puts your ship
+  in the Vessel column and the other vessel in the event. A dock that lists the other vessel
+  first, or where the other vessel docked into yours, reads the same way. When your ship kept
+  the identity and the other vessel left, the row reads as before.
 - **Dev: a harness mission that ends early writes its result file again.** A mission's
   assertion rows could carry a reading still at its "not yet measured" NaN default (the
   `kx_rewind_watch` core discard altitude and time, peak booster thrust and rewind times, on

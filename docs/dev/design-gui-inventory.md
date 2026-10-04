@@ -596,7 +596,15 @@ partner row carries `Go to` in the Interact column, which opens the partner's mi
 (`DrawInteractGoTo` -> `ShowMissionForRecording`); a dock THIS mission recorded with another
 mission's vessel draws a Docked partner row of its own (`DrawRecordedDockPartnerRow`, no
 include toggle). `MissionEventDigest` is the source of the partner naming and the `Go to`
-target. Vessel and interval rows' single-line data cells use
+target. A vessel the player switched to mid-flight and recorded into this flight joins the
+tree at a `Launch` branch point (`MissionCompositionNode.IsJoinedVessel`). When the naming pass
+names it as another mission's ship (a partner flown to a dock), its row sits BESIDE the vessel
+it joined at, not under it (`MissionVesselRow.IsPartner`): `Depot Station Duna I (mission
+'Kerbal X #5')   Docked (Duna Supply 1)`, a blank Start event cell, its own include checkbox
+over its own intervals (Advanced), and it is not counted as one of the mission's vessels. Any
+other joined vessel is an ordinary child row with a blank Start event cell. Either way the
+vessel it joined splits its interval rows at the switch with blank Start / End event cells
+there (the interval keys are unchanged). Vessel and interval rows' single-line data cells use
 `compositionCellLabel.clipping = Overflow`, so descenders are not clipped in a 22 px row.
 
 What `MissionsLoopControls` hides in Basic: the include checkboxes, the loop grid (`Clone`,
@@ -1094,7 +1102,10 @@ flight.` / `No runs yet.`), then the hover strip and `Close` at the bottom.
 Mission Log rows: `Launch`, one `Staged: N pieces (<part title> xK, ...)` per recorded
 separation, `Decoupled (<piece>)` / `Docked (<partner>)` / `Undocked (<piece>)` naming the other
 vessel (another mission's vessel as `X (mission 'Y')`), and `End: <terminal word>`. Vessel names
-follow the Missions rows (`MissionVesselNaming`, `Kerbal X [2]`). Location: `<body> orbit` for an
+follow the Missions rows (`MissionVesselNaming`, `Kerbal X [2]`). A Dock / Undock row's Vessel
+column is this mission's own ship and its label the other side, also when KSP kept the docked
+pair under the other mission's identity (`Undocked (Depot (mission 'Kerbal X #3'))` on
+`Deliverer Mun 1`). Location: `<body> orbit` for an
 orbital ending, else body and biome where recorded, else the body, else `-`. It rebuilds while
 open when the mission's include set, its name or the committed recordings move (a Layout-only
 change signature).
