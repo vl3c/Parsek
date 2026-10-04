@@ -378,7 +378,9 @@ namespace Parsek.Tests.Logistics
 
             Assert.Equal(RouteStatus.Active, route.Status);
             Assert.Equal(1, route.SkippedCycles);
-            Assert.Empty(Ledger.Actions);
+            // The only row is the hold itself (the Route History's Held row): no
+            // pause marker, no run.
+            Assert.Equal(GameActionType.RouteHeld, Assert.Single(Ledger.Actions).Type);
             Assert.Empty(screenMessages);
         }
 

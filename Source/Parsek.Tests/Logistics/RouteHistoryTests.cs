@@ -63,10 +63,10 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("Run 1: Sent", rows[0].Label);
             Assert.Equal("KSC", rows[0].Location);
             Assert.Equal("-", rows[0].VesselName);
-            Assert.Equal("Run 1: Picked up LiquidFuel 50.0", rows[1].Label);
+            Assert.Equal("Run 1: Picked up 50.0 LiquidFuel", rows[1].Label);
             Assert.Equal("Mun (surface)", rows[1].Location);
             Assert.Equal("Relay B", rows[1].VesselName);
-            Assert.Equal("Run 1: Delivered LiquidFuel 150.0", rows[2].Label);
+            Assert.Equal("Run 1: Delivered 150.0 LiquidFuel", rows[2].Label);
             Assert.Equal("Mun (orbit)", rows[2].Location);
             Assert.Equal("Depot", rows[2].VesselName);
         }
@@ -187,6 +187,185 @@ namespace Parsek.Tests.Logistics
             }
         }
 
+        // Amount first throughout, like the Sent cost and a short delivery: several
+        // resources in ordinal order, stored parts counted after them; the Logistics
+        // table's Delivers column keeps its own "LiquidFuel 150.0" shape.
+        [Fact]
+        public void CargoRowsReadAmountFirst()
+        {
+            var two = new Dictionary<string, double> { { "Oxidizer", 40.0 }, { "LiquidFuel", 150.0 } };
+            var rows = Build(new List<GameAction>
+            {
+                Act(GameActionType.RouteDispatched, 100, "c1"),
+                Act(GameActionType.RouteCargoPickedUp, 200, "c1", 1, two, pid: 42u),
+                new GameAction
+                {
+                    Type = GameActionType.RouteCargoDelivered, UT = 300, RouteId = RouteId,
+                    RouteCycleId = "c1", RouteStopIndex = 0, RouteResourceManifest = two,
+                    RouteInventoryManifest = new List<InventoryPayloadItem> { new InventoryPayloadItem() },
+                },
+                Act(GameActionType.RouteCargoDelivered, 400, "c1", 0, new Dictionary<string, double>()),
+            });
+            Assert.Equal("Run 1: Picked up 150.0 LiquidFuel, 40.0 Oxidizer", rows[1].Label);
+            Assert.Equal("Run 1: Delivered 150.0 LiquidFuel, 40.0 Oxidizer, 1 stored part", rows[2].Label);
+            Assert.Equal("Run 1: Delivered nothing", rows[3].Label);
+            Assert.Equal("LiquidFuel 150.0", LogisticsDeliveryPresentation.FormatWouldDeliver(Fuel(150), null));
+        }
+
+        // Amount-first rows and held rows stay InvariantCulture under a comma locale.
+        [Fact]
+        public void CargoAndHeldRowsFormatInvariantly()
+        {
+            CultureInfo prior = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                var rows = Build(new List<GameAction>
+                {
+                    Act(GameActionType.RouteCargoDelivered, 300, "c1", 0, Fuel(1234.5)),
+                    Held(400, RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                        "LiquidFuel", 108.79999999999706),
+                    Held(500, RouteDispatchEvaluator.EligibilityFailureKind.FundsShort, "funds-short", 7410.4),
+                });
+                Assert.Equal("Run 1: Delivered 1234.5 LiquidFuel", rows[0].Label);
+                Assert.Equal("Held: origin is short 108.8 LiquidFuel", rows[1].Label);
+                Assert.Equal("Held: not enough funds at KSC - short 7410 funds for this run", rows[2].Label);
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = prior;
+            }
+        }
+
+        private static GameAction Held(double ut, RouteDispatchEvaluator.EligibilityFailureKind kind,
+            string detail, double shortfall = 0.0)
+        {
+            return new GameAction
+            {
+                Type = GameActionType.RouteHeld, UT = ut, RouteId = RouteId, RouteCycleId = "c9",
+                RouteStopIndex = -1, RouteHoldKind = kind, RouteEndpointReason = detail,
+                RouteHoldShortfall = shortfall,
+            };
+        }
+
+        private static List<StructureStep> BuildFromOrigin(List<GameAction> els,
+            Func<string, string> partTitle = null)
+        {
+            return RouteHistoryBuilder.Build(els, RouteId, "Mun (surface)", "Mun Base",
+                stop => "Minmus (orbit)", stop => "Depot",
+                pid => pid == 42u ? "Relay B" : null, partTitle,
+                id => id == "route-b" ? "Return Run" : null);
+        }
+
+        // A held run reads "Held: <reason>" in the Logistics window's words, without the
+        // live "- delivers when ..." advice and with no run number; the Time column
+        // carries the date. Origin-cargo and funds holds sit at the origin, a pickup
+        // source hold names that source's vessel (live name first), everything else "-".
+        [Fact]
+        public void HeldRowsReadTheReason_WithoutAdviceOrRunNumber_AtTheirPlace()
+        {
+            var rows = BuildFromOrigin(new List<GameAction>
+            {
+                Act(GameActionType.RouteDispatched, 100, "c1"),
+                Held(200, RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, "LiquidFuel", 108.8),
+                Held(300, RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull, "LiquidFuel"),
+                Held(400, RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                    "source:42:Depot B:Ore", 20.0),
+                Held(500, RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                    "source:77:Depot C:Ore", 20.0),
+                Held(600, RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost, "stop-0-no-live-vessels"),
+                Held(700, RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner, "partner:route-b"),
+                Act(GameActionType.RouteDispatched, 800, "c2"),
+            });
+            Assert.Equal(new[]
+                {
+                    "Run 1: Sent",
+                    "Held: origin is short 108.8 LiquidFuel",
+                    "Held: destination has no room for LiquidFuel",
+                    "Held: Depot B is short 20.0 Ore",
+                    "Held: Depot C is short 20.0 Ore",
+                    "Held: destination vessel could not be found",
+                    "Held: waiting for the linked route 'Return Run' to complete its run",
+                    "Run 2: Sent",
+                },
+                rows.Select(r => r.Label).ToArray());
+            Assert.Equal("Mun (surface)", rows[1].Location);
+            Assert.Equal("Mun Base", rows[1].VesselName);
+            Assert.Equal("-", rows[2].Location);
+            Assert.Equal("-", rows[2].VesselName);
+            Assert.Equal("-", rows[3].Location);
+            Assert.Equal("Relay B", rows[3].VesselName);
+            Assert.Equal("Depot C", rows[4].VesselName);
+            Assert.Equal("-", rows[5].VesselName);
+            Assert.Equal(200.0, rows[1].UT);
+            Assert.All(rows.Skip(1).Take(6), r => Assert.DoesNotContain("delivers when", r.Label));
+            Assert.All(rows.Skip(1).Take(6), r => Assert.DoesNotContain("Run ", r.Label));
+        }
+
+        // Stored parts in a held reason read by their title, not the internal name; a
+        // name with no title falls back to itself. A kind that did not read back (an
+        // unknown name from a newer build) renders plain "Held".
+        [Fact]
+        public void HeldRowsNamePartsByTitle_AndAnUnknownKindReadsHeld()
+        {
+            Func<string, string> title = name => name == "evaScienceKit" ? "EVA Science Kit" : null;
+            var rows = BuildFromOrigin(new List<GameAction>
+            {
+                Held(100, RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull, "stored-part:evaScienceKit"),
+                Held(200, RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, "inventory:evaScienceKit"),
+                Held(300, RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, "inventory:mysteryPart"),
+                Held(400, RouteDispatchEvaluator.EligibilityFailureKind.None, "whatever"),
+            }, title);
+            Assert.Equal(new[]
+                {
+                    "Held: destination has no free inventory slot for stored part 'EVA Science Kit'",
+                    "Held: origin is missing stored part 'EVA Science Kit'",
+                    "Held: origin is missing stored part 'mysteryPart'",
+                    "Held",
+                },
+                rows.Select(r => r.Label).ToArray());
+        }
+
+        // A linked-route wait stores the partner's id; the row names its CURRENT name, and
+        // reads "the linked route" once the partner no longer exists.
+        [Fact]
+        public void PartnerHeldRow_NamesThePartnerById()
+        {
+            var rows = BuildFromOrigin(new List<GameAction>
+            {
+                Held(100, RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner, "partner:route-b"),
+                Held(200, RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner, "partner:route-gone"),
+            });
+            Assert.Equal("Held: waiting for the linked route 'Return Run' to complete its run", rows[0].Label);
+            Assert.Equal("Held: waiting for the linked route to complete its run", rows[1].Label);
+        }
+
+        // The history sentence never carries live-route advice, whatever the clause.
+        [Fact]
+        public void HistorySentenceDropsEveryAdviceTail()
+        {
+            var cases = new[]
+            {
+                (RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, "LiquidFuel", 0.0, "origin is out of LiquidFuel"),
+                (RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, "origin-lacks-LiquidFuel", 12.0, "origin is short 12.0 LiquidFuel"),
+                (RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, "origin-unresolved:pid=7", 0.0, "origin vessel could not be found"),
+                (RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, "pickup-source-unresolved:pid=7", 0.0, "a pickup source vessel could not be found"),
+                (RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, "source-reserved:42:Depot B:Ore:Other Run", 0.0, "Depot B has Ore reserved by route 'Other Run'"),
+                (RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull, "destination-full-Ore", 0.0, "destination has no room for Ore"),
+                (RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull, "stored-part:", 0.0, "destination has no free inventory slot for a stored part"),
+                (RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost, "origin-gone", 0.0, "origin vessel could not be found"),
+                (RouteDispatchEvaluator.EligibilityFailureKind.SourcesStale, "sources-stale", 0.0, "a flight this route copies is unavailable right now"),
+                (RouteDispatchEvaluator.EligibilityFailureKind.FundsShort, "funds-short", 0.0, "not enough funds at KSC for this run"),
+            };
+            foreach (var c in cases)
+            {
+                Assert.Equal(c.Item4,
+                    LogisticsHoldPresentation.DescribeHoldForHistory(c.Item1, c.Item2, c.Item3, null));
+            }
+            Assert.Null(LogisticsHoldPresentation.DescribeHoldForHistory(
+                RouteDispatchEvaluator.EligibilityFailureKind.None, "x", 0.0, null));
+        }
+
         // State rows: pause, resume, endpoint loss, with their reasons in player words.
         [Fact]
         public void PauseResumeAndLossAreStateRows()
@@ -222,7 +401,7 @@ namespace Parsek.Tests.Logistics
             });
             Assert.Equal(2, rows.Count);
             Assert.Equal(100.0, rows[0].UT);
-            Assert.Equal("Run 1: Delivered LiquidFuel 10.0", rows[1].Label);
+            Assert.Equal("Run 1: Delivered 10.0 LiquidFuel", rows[1].Label);
             Assert.Empty(Build(new List<GameAction>()));
             Assert.Empty(RouteHistoryBuilder.Build(null, RouteId, null, null, null, null, null));
         }

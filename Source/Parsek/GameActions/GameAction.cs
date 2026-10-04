@@ -267,7 +267,28 @@ namespace Parsek
         /// row's evidence is lost there, the accepted one-way downgrade of an additive
         /// enum member.</para>
         /// </summary>
-        VesselRecovered = 35
+        VesselRecovered = 35,
+
+        /// <summary>
+        /// A supply route's run was held, recorded once per hold EPISODE and reason
+        /// (design doc section 6.7). Written by the loop crossing (single-stop and
+        /// multi-stop blocked branches) and the legacy wait applier when the route's
+        /// open episode - its effective-ledger rows since the last
+        /// <see cref="RouteDispatched"/> / <see cref="RoutePaused"/> /
+        /// <see cref="RouteResumed"/> / <see cref="RouteEndpointLost"/> row - holds no
+        /// RouteHeld row with the same (<see cref="GameAction.RouteHoldKind"/>,
+        /// <see cref="GameAction.RouteEndpointReason"/>) pair. A shortfall-only change
+        /// writes nothing, and nothing marks a release: the next Sent / Paused /
+        /// Activated / Stopped row closes the episode. Carries the route identity
+        /// (<see cref="GameAction.RouteId"/>, the held cycle's
+        /// <see cref="GameAction.RouteCycleId"/>), the evaluator detail token in
+        /// <see cref="GameAction.RouteEndpointReason"/>, the failure kind in
+        /// <see cref="GameAction.RouteHoldKind"/> and the measured shortfall in
+        /// <see cref="GameAction.RouteHoldShortfall"/>. Free-standing and inert: no
+        /// module consumes it, it moves no pool, and supersede never blocks on it.
+        /// Retired at rewind with the other route rows by <c>RouteLedgerRetire</c>.
+        /// </summary>
+        RouteHeld = 36
     }
 
     /// <summary>
@@ -985,6 +1006,22 @@ namespace Parsek
         /// </summary>
         public string RouteEndpointReason;
 
+        /// <summary>
+        /// The eligibility failure kind of a <see cref="GameActionType.RouteHeld"/> row
+        /// (the evaluator's first failing gate). Serialized sparsely BY NAME
+        /// (<c>routeHoldKind</c>), as <c>RouteCodec</c> writes <c>lastHoldKind</c>; an
+        /// unknown name reads back as None with a warn. None on every other row.
+        /// </summary>
+        internal Logistics.RouteDispatchEvaluator.EligibilityFailureKind RouteHoldKind;
+
+        /// <summary>
+        /// The measured shortfall a <see cref="GameActionType.RouteHeld"/> row was written
+        /// with (resource units, or whole funds for a funds hold); 0 when the gate measured
+        /// none. Informational only: a later shortfall change on the same reason writes no
+        /// row. Serialized sparsely (<c>routeHoldShortfall</c>, "R" invariant).
+        /// </summary>
+        public double RouteHoldShortfall;
+
         // ---- Initial seed fields ----
 
         /// <summary>Career starting funds, extracted from save file.</summary>
@@ -1242,6 +1279,9 @@ namespace Parsek
                 case GameActionType.RouteResumed:
                     SerializeRouteResumed(node);
                     break;
+                case GameActionType.RouteHeld:
+                    SerializeRouteHeld(node);
+                    break;
             }
         }
 
@@ -1404,6 +1444,9 @@ namespace Parsek
                     break;
                 case GameActionType.RouteResumed:
                     DeserializeRouteResumed(node, a);
+                    break;
+                case GameActionType.RouteHeld:
+                    DeserializeRouteHeld(node, a);
                     break;
             }
 
@@ -2066,6 +2109,44 @@ namespace Parsek
         {
             ReadRouteCommon(n, a);
             a.RouteEndpointReason = n.GetValue("routeEndpointReason");
+        }
+
+        // RouteHeld: route identity, the detail token (routeEndpointReason), and two keys
+        // only this type writes - the failure kind by NAME and the measured shortfall.
+        // Both sparse: a None kind and a zero shortfall write nothing.
+        private void SerializeRouteHeld(ConfigNode n)
+        {
+            WriteRouteCommon(n);
+            if (RouteHoldKind != Logistics.RouteDispatchEvaluator.EligibilityFailureKind.None)
+                n.AddValue("routeHoldKind", RouteHoldKind.ToString());
+            if (!string.IsNullOrEmpty(RouteEndpointReason))
+                n.AddValue("routeEndpointReason", RouteEndpointReason);
+            if (RouteHoldShortfall != 0.0)
+                n.AddValue("routeHoldShortfall", RouteHoldShortfall.ToString("R", IC));
+        }
+
+        private static void DeserializeRouteHeld(ConfigNode n, GameAction a)
+        {
+            ReadRouteCommon(n, a);
+            a.RouteEndpointReason = n.GetValue("routeEndpointReason");
+            string kindStr = n.GetValue("routeHoldKind");
+            if (!string.IsNullOrEmpty(kindStr))
+            {
+                if (Enum.TryParse(kindStr, out Logistics.RouteDispatchEvaluator.EligibilityFailureKind kind)
+                    && Enum.IsDefined(typeof(Logistics.RouteDispatchEvaluator.EligibilityFailureKind), kind))
+                {
+                    a.RouteHoldKind = kind;
+                }
+                else
+                {
+                    ParsekLog.Warn("GameAction",
+                        $"RouteHeld: unknown routeHoldKind '{kindStr}' on route '{a.RouteId ?? "<none>"}' " +
+                        "- reading None (the row renders the generic held text)");
+                }
+            }
+            string shortfallStr = n.GetValue("routeHoldShortfall");
+            if (shortfallStr != null)
+                double.TryParse(shortfallStr, NS, IC, out a.RouteHoldShortfall);
         }
 
         private void SerializeRouteEndpointLost(ConfigNode n)

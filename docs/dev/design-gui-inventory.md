@@ -885,9 +885,10 @@ Routes disclosure (only when a route is dormant), Candidates. Each of the three 
 has a title bar: ONE button across the width with the caret (U+25BC expanded / U+25B6 collapsed, the
 route rows' glyphs), the centred title and its count (`Active Routes (2)`, `Paused Routes (1)`,
 `Candidates (3)`), in a font 2 pt over the shared section header, and a 2 px accent bar along the
-bottom of the header box in the section's `ParsekUI.StatusColor` (green Active, grey Paused,
-cyan Candidates; a bar rather than a coloured title, so a section's start stays marked when its
-title has scrolled away). A click folds or unfolds the section on the next frame (the queued
+bottom of the header box in the section's `ParsekUI.StatusColor` slot
+(`LogisticsRoutePresentation.SectionAccent`: green Active, soft violet `#b39ddb` Paused
+(`StatusColorKind.Violet`), cyan Candidates; a bar rather than a coloured title, so a section's
+start stays marked when its title has scrolled away). A click folds or unfolds the section on the next frame (the queued
 toggle is applied after the draw); a folded section draws only its bar; the state is per
 section, session-only, all expanded by default. Folding a section drops an open interval or
 rename edit on a route inside it (discarded like Escape). Between Active and Paused, and before
@@ -933,7 +934,14 @@ yellow; the date is `Route.LastHoldUT`, the LAST check, so it names the last hel
 when the hold began) and partial-delivery lines, the capacity line and `Re-scan for endpoint`
 of a broken route, `Last delivered on <date>: ... Delivered so far: ...` (from the route's
 RouteCargoDelivered ledger rows), cost/run, `Built from mission 'X'.` and the round-trip note
-when linked. Advanced adds the `Every:` and `Priority:` steppers, `Flights used:` (names, a
+when linked. Advanced adds the `Every:` and `Priority:` steppers, one fixed grid: the same 70 px
+label column, 24 px `-` / `+` buttons in the same button style, and one value cell measured once
+with the block's label style from the widest Every readout (`1x (every window)` up to
+`99x (every 99th window)`, `99x (~9999.9d)`; `LogisticsRoutePresentation.StepperValueCellWidth`),
+so both `-` buttons share a column and both `+` buttons another whatever the values; both rows
+take one height, a slot-button line's (`StepperRowHeight`), whether or not the block's slot
+column reaches them; a `-` at its
+floor (1x / 0) is greyed with its reason on hover. Then `Flights used:` (names, a
 repeated name numbered `Name [1]`, `Name [2]`) and the manual-looping clause after
 `Built from mission 'X'.`. The route's runs are the Route History's, not the block's.
 
@@ -1004,9 +1012,17 @@ Route History rows (N is the run's position in dispatch order):
 | RouteDispatched | `Run N: Sent`, or `Run N: Sent once` for a run armed by Send, plus what the launch cost when it cost anything: `, cost 7,410 funds` (a Career KSC launch), `, cost 257.8 LiquidFuel, 315.1 Oxidizer` (cargo taken from an origin vessel), or both joined (`RouteHistoryBuilder.SentCostSuffix`) | the origin (`KSC` / `-` for a funds-paid launch) |
 | RouteCargoPickedUp | `Run N: Picked up <amounts>` (`(the source was short)` when it was) | the pickup stop's place and vessel |
 | RouteCargoDelivered | `Run N: Delivered <amounts>` (`40.0 of 150.0 LiquidFuel (110.0 did not fit)` when short); the row that finishes a run | the stop's place and vessel |
+| RouteHeld | `Held: <reason>`, the Logistics window's hold sentence without its live-route advice (`- delivers when ...`, `- use Re-scan ...`, `- it may have moved ...`): `Held: origin is short 108.8 LiquidFuel`, `Held: destination has no room for LiquidFuel`, `Held: Depot B is short 20.0 Ore`, `Held: destination has no free inventory slot for stored part 'EVA Science Kit'` (stored parts by title, `StructureListWindowUI.ResolvePartTitle`; a linked-route wait names the partner's current name from the stored partner id, `RouteHistoryBuilder.HeldDetailForDisplay`); no run number; plain `Held` when the row's kind did not read back (`LogisticsHoldPresentation.DescribeHoldForHistory` / `FormatHistoryHeldRow`) | the origin for an origin-cargo or funds hold; a pickup source hold names that source's vessel (live name first); `-` otherwise |
 | RoutePaused | `Paused` (a player Pause), `Paused after the run` (delivered, partly delivered, or delivered on a replayed crossing), `Paused after a held run`, `Stopped: flight missing` / `flight changed` | `-` |
 | RouteResumed | `Activated` (player), `Resumed` (automatic) | `-` |
 | RouteEndpointLost | `Stopped: destination lost` / `origin lost` | `-` |
+
+Amounts read amount first in every row (`150.0 LiquidFuel, 40.0 Oxidizer`, resources in ordinal
+order, then `N stored part(s)`), as the Sent cost and a short delivery do; the Logistics table's
+Delivers column keeps its own `LiquidFuel 150.0` shape. A Held row is written once per hold
+episode and reason (logistics design section 6.7): a route held for a year on one reason shows
+one row, a reason change (origin short, then destination full) a second, and the next `Sent`,
+`Paused`, `Activated` or `Stopped` row ends the episode; nothing marks the release.
 
 Debit rows (funds or origin cargo) are not shown as rows; each is folded into the Sent row of
 its own run (same `RouteCycleId`, so interleaved runs never borrow each other's cost), and a debit

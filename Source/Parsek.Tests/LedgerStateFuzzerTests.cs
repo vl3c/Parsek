@@ -1130,6 +1130,12 @@ namespace Parsek.Tests
                     ApplyRouteIdentity(action, rng);
                     action.RouteEndpointReason = "endpoint-lost";
                     break;
+                case GameActionType.RouteHeld:
+                    ApplyRouteIdentity(action, rng);
+                    action.RouteHoldKind = Parsek.Logistics.RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo;
+                    action.RouteEndpointReason = "LiquidFuel";
+                    action.RouteHoldShortfall = rng.Next(1, 200);
+                    break;
             }
 
             return action;

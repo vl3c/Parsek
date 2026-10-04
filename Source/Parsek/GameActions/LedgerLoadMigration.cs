@@ -241,6 +241,8 @@ namespace Parsek
                 // RoutePaused; moves no funds / science / reputation.
                 case GameActionType.RouteResumed:
                 case GameActionType.RouteEndpointLost:
+                // RouteHeld: records that a run was held; moves no pool.
+                case GameActionType.RouteHeld:
                     return false;
 
                 default:
