@@ -55,7 +55,7 @@ namespace Parsek
             set
             {
                 if (value < (int)SpawnControlSortColumn.Name
-                    || value > (int)SpawnControlSortColumn.SpawnTime)
+                    || value > (int)SpawnControlSortColumn.Status)
                     return;
                 spawnSortColumn = (SpawnControlSortColumn)value;
             }
@@ -91,18 +91,20 @@ namespace Parsek
         /// </summary>
         internal const string WindowIdKey = "ParsekSpawnControl";
 
-        private const float SpawnColW_Name = 0f;    // expand
-        private const float SpawnColW_Dist = 55f;
-        private const float SpawnColW_RelSpeed = 70f;
-        private const float SpawnColW_SpawnTime = 100f;
-        private const float SpawnColW_Countdown = 95f;
-        private const float SpawnColW_State = 110f;
-        private const float SpawnColW_Warp = 118f;
+        // Craft expands; the Actions column holds one 100 px single, the house row-action
+        // width. Spawn date fits a full "Y12, D426, 14:05".
+        private const float SpawnColW_Dist = 60f;
+        private const float SpawnColW_Speed = 70f;
+        private const float SpawnColW_Spawns = 90f;
+        private const float SpawnColW_SpawnDate = 110f;
+        private const float SpawnColW_Status = 70f;
+        private const float SpawnColW_Actions = 100f;
 
         // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
         // permanently visible box of constant height. Single-line: at this window's
-        // 750px first-open width its one tooltipped control's fixed text fits a line;
-        // long runtime vessel names overflow into the strip's marquee instead.
+        // 750px first-open width every hover (Status cell, row Warp, Warp to Next Spawn)
+        // fits a line for an ordinary craft name; long runtime vessel names overflow into
+        // the strip's marquee instead.
         private readonly TooltipEchoBox tooltipEcho =
             new TooltipEchoBox(SpacingSmall, TooltipEchoBox.SingleLine);
 
@@ -112,6 +114,7 @@ namespace Parsek
 
         private const float SpacingSmall = 3f;
         internal const float MinWindowWidth = 350f;
+        internal const float DefaultWindowWidth = 750f;
         internal const float MinWindowHeight = 150f;
 
         public bool IsOpen
@@ -183,11 +186,13 @@ namespace Parsek
 
             if (spawnControlWindowRect.width < 1f)
             {
+                // First open: tall enough for the rows it opens with, no taller.
                 float x = mainWindowRect.x + mainWindowRect.width + 10;
-                spawnControlWindowRect = new Rect(x, mainWindowRect.y, 750, 200);
+                float h = SpawnControlPresentation.FirstOpenHeight(candidateCount);
+                spawnControlWindowRect = new Rect(x, mainWindowRect.y, DefaultWindowWidth, h);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI",
-                    $"Real Spawn Control window initial position: x={spawnControlWindowRect.x.ToString("F0", ic)} y={spawnControlWindowRect.y.ToString("F0", ic)}");
+                    $"Real Spawn Control window initial position: x={spawnControlWindowRect.x.ToString("F0", ic)} y={spawnControlWindowRect.y.ToString("F0", ic)} h={h.ToString("F0", ic)} rows={candidateCount.ToString(ic)}");
             }
 
             ParsekUI.HandleResizeDrag(ref spawnControlWindowRect, ref isResizingSpawnControlWindow,
@@ -262,21 +267,12 @@ namespace Parsek
 
         private void DrawSpawnControlWindow(int windowID, ParsekFlight flight)
         {
-            // Breathing room below the title bar — matches Timeline's visual spacing.
+            // Breathing room below the title bar - matches Timeline's visual spacing.
             GUILayout.Space(5);
 
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             double currentUT = Planetarium.GetUniversalTime();
             var candidates = flight.NearbySpawnCandidates;
-
-            if (candidates.Count == 0)
-            {
-                GUILayout.Label("No nearby craft to spawn.");
-                if (GUILayout.Button("Close"))
-                    showSpawnControlWindow = false;
-                GUI.DragWindow();
-                return;
-            }
 
             // Re-sort when candidate list, sort state, or departure info changes
             int gen = flight.ProximityCheckGeneration;
@@ -288,7 +284,10 @@ namespace Parsek
                 cachedSortedCandidates = SpawnControlPresentation.SortCandidates(
                     candidates,
                     spawnSortColumn,
-                    spawnSortAscending);
+                    spawnSortAscending,
+                    currentUT,
+                    ParsekFlight.NearbySpawnRadius,
+                    ParsekFlight.MaxRelativeSpeed);
                 cachedCandidateCount = candidates.Count;
                 cachedProximityGeneration = gen;
                 cachedSortColumn = spawnSortColumn;
@@ -323,29 +322,60 @@ namespace Parsek
                 spawnControlScrollPos, false, true,
                 GUI.skin.horizontalScrollbar, GUI.skin.verticalScrollbar,
                 parentUI.GetTableScrollViewStyle(), GUILayout.ExpandHeight(true));
-            DrawSpawnCandidateRows(sorted, currentUT, ic, flight);
+            // An empty list keeps its column headers over one grey sentence row (the house
+            // empty-table shape). The window self-closes on zero candidates before this
+            // draws, so the row shows only if that rule ever changes.
+            if (sorted.Count == 0)
+                DrawSpawnEmptyRow();
+            else
+                DrawSpawnCandidateRows(sorted, currentUT, ic, flight);
             GUILayout.EndScrollView();
             GUILayout.EndVertical();
         }
 
-        // Sortable column headers, then the two static ones. Every column the rows draw
-        // has a header: "State" over the departure text, "Warp" over the row's warp
-        // button. Opened with the header-row container (shared inset + scrollbar gutter).
+        // Sortable column headers on distinct keys. Spawn date shows the same moment as
+        // Spawns, so it is a plain header rather than a second header for one key; Actions
+        // heads the row's Warp button. Opened with the header-row container (shared inset +
+        // scrollbar gutter).
         private void DrawSpawnColumnHeader()
         {
             GUILayout.BeginHorizontal(parentUI.GetTableHeaderRowStyle());
             DrawSpawnSortableHeader("Craft", SpawnControlSortColumn.Name, true);
             DrawSpawnSortableHeader("Dist", SpawnControlSortColumn.Distance, SpawnColW_Dist);
-            DrawSpawnSortableHeader("Rel Speed", SpawnControlSortColumn.RelativeSpeed, SpawnColW_RelSpeed);
-            DrawSpawnSortableHeader("Spawns at", SpawnControlSortColumn.SpawnTime, SpawnColW_SpawnTime);
-            DrawSpawnSortableHeader("In T-", SpawnControlSortColumn.SpawnTime, SpawnColW_Countdown);
-            GUILayout.Label("State", parentUI.GetColumnHeaderStyle(), GUILayout.Width(SpawnColW_State));
-            GUILayout.Label(WarpColumnHeaderText, parentUI.GetColumnHeaderStyle(), GUILayout.Width(SpawnColW_Warp));
+            DrawSpawnSortableHeader("Speed", SpawnControlSortColumn.RelativeSpeed, SpawnColW_Speed);
+            DrawSpawnSortableHeader("Spawns", SpawnControlSortColumn.SpawnTime, SpawnColW_Spawns);
+            GUILayout.Label(SpawnDateColumnHeaderText, parentUI.GetColumnHeaderStyle(), GUILayout.Width(SpawnColW_SpawnDate));
+            DrawSpawnSortableHeader("Status", SpawnControlSortColumn.Status, SpawnColW_Status);
+            GUILayout.Label(ActionsColumnHeaderText, parentUI.GetColumnHeaderStyle(), GUILayout.Width(SpawnColW_Actions));
             GUILayout.EndHorizontal();
         }
 
-        /// <summary>Header of the column holding each row's warp button.</summary>
-        internal const string WarpColumnHeaderText = "Warp";
+        /// <summary>Header of the column holding each row's Warp button.</summary>
+        internal const string ActionsColumnHeaderText = "Actions";
+
+        /// <summary>Header of the exact-date column (not sortable: Spawns sorts the same
+        /// moment).</summary>
+        internal const string SpawnDateColumnHeaderText = "Spawn date";
+
+        // The empty table's one body row, under the column headers: one grey sentence.
+        private void DrawSpawnEmptyRow()
+        {
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
+            GUILayout.Label("No nearby craft to spawn.", parentUI.GetEmptyStateStyle());
+            GUILayout.EndHorizontal();
+        }
+
+        /// <summary>
+        /// The house calendar date for a row's time cells and hovers, guarded so a caller
+        /// off the KSP runtime never throws (the presentation then prints the raw UT).
+        /// </summary>
+        internal static string FormatRowDate(double ut)
+        {
+            try { return KSPUtil.PrintDateCompact(ut, true); }
+            catch (System.Exception) { return null; }
+        }
+
+        private static readonly System.Func<double, string> RowDateFormatter = FormatRowDate;
 
         private void DrawSpawnCandidateRows(List<NearbySpawnCandidate> sorted,
             double currentUT, System.Globalization.CultureInfo ic, ParsekFlight flight)
@@ -354,53 +384,50 @@ namespace Parsek
             for (int i = 0; i < sorted.Count; i++)
             {
                 var cand = sorted[i];
-                double delta = cand.endUT - currentUT;
                 SpawnCandidateRowPresentation row =
                     SpawnControlPresentation.BuildRowPresentation(
                         cand, currentUT,
                         ParsekFlight.NearbySpawnRadius,
-                        ParsekFlight.MaxRelativeSpeed);
+                        ParsekFlight.MaxRelativeSpeed,
+                        RowDateFormatter);
+                // Both time cells show the moment the row's Warp acts on (a departure for a
+                // craft that leaves first), the same value the Spawns sort reads.
+                double delta = row.EffectiveUT - currentUT;
 
                 // Same shared row container as the header row above (one inset).
                 GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
                 GUILayout.Label(cand.vesselName, cellStyle, GUILayout.ExpandWidth(true));
-
-                // Distance + Rel Speed share a green tint when both gates pass (FF button enable
-                // preconditions) so the user can read the window at a glance: green = warpable.
-                Color savedColor = GUI.contentColor;
-                if (row.ConditionsMet)
-                    GUI.contentColor = new Color(0.55f, 1f, 0.55f);
                 GUILayout.Label(
-                    string.Format(ic, "{0:F0}m", cand.distance),
+                    SpawnControlPresentation.FormatDistance(cand.distance, ic),
                     cellStyle, GUILayout.Width(SpawnColW_Dist));
                 GUILayout.Label(
                     SpawnControlPresentation.FormatRelativeSpeed(cand.relativeSpeed, ic),
-                    cellStyle, GUILayout.Width(SpawnColW_RelSpeed));
-                GUI.contentColor = savedColor;
+                    cellStyle, GUILayout.Width(SpawnColW_Speed));
 
-                GUILayout.Label(
-                    KSPUtil.PrintDateCompact(cand.endUT, true),
-                    cellStyle, GUILayout.Width(SpawnColW_SpawnTime));
-                GUILayout.Label(
-                    SelectiveSpawnUI.FormatCountdown(delta),
-                    cellStyle, GUILayout.Width(SpawnColW_Countdown));
+                // The house countdown, in the house countdown amber.
+                Color savedCountdownColor = GUI.contentColor;
+                GUI.contentColor = ParsekUI.CountdownTextColor;
+                GUILayout.Label(ParsekTimeFormat.FormatCountdown(delta),
+                    cellStyle, GUILayout.Width(SpawnColW_Spawns));
+                GUI.contentColor = savedCountdownColor;
 
-                // State column: departure info, tinted while a departure is pending.
-                var prevColor = GUI.contentColor;
-                if (row.StateTone != SpawnCandidateStateTone.None)
-                {
-                    GUI.contentColor = row.StateTone == SpawnCandidateStateTone.DepartingNow
-                        ? new Color(1f, 0.65f, 0.2f) // orange
-                        : new Color(1f, 1f, 0.4f);    // yellow
-                }
-                GUILayout.Label(row.StateText, cellStyle, GUILayout.Width(SpawnColW_State));
-                GUI.contentColor = prevColor;
+                GUILayout.Label(row.DateText, cellStyle, GUILayout.Width(SpawnColW_SpawnDate));
 
-                // Warp column: "Warp to Depart" for departing, "Warp to Spawn" for normal
+                // Status: one word with its reason on hover. Ready is green, Leaves takes
+                // the countdown amber (a departure still ahead), Leaving is orange.
+                Color savedStatusColor = GUI.contentColor;
+                GUI.contentColor = StatusWordColor(row.Status, savedStatusColor);
+                GUILayout.Label(new GUIContent(row.StatusText, row.StatusHover),
+                    cellStyle, GUILayout.Width(SpawnColW_Status));
+                GUI.contentColor = savedStatusColor;
+
+                // Actions: one Warp button. Live, its hover says where it jumps; greyed,
+                // DisabledHoverEcho carries the Status reason (a disabled button's own
+                // tooltip is not proven to publish).
                 GUI.enabled = row.WarpButtonEnabled;
-                bool warpClicked = GUILayout.Button(row.WarpButtonLabel, GUILayout.Width(SpawnColW_Warp));
-                // Row warp buttons carry no GUIContent tooltip at all, so out-of-range /
-                // too-fast / already-passed rows used to grey out with no explanation.
+                bool warpClicked = GUILayout.Button(
+                    new GUIContent(row.WarpButtonLabel, row.WarpButtonHover),
+                    GUILayout.Width(SpawnColW_Actions));
                 DisabledHoverEcho.CarryLastControl(
                     row.WarpButtonEnabled, row.WarpButtonDisabledReason);
                 if (warpClicked)
@@ -409,6 +436,26 @@ namespace Parsek
                 GUILayout.EndHorizontal();
             }
         }
+
+        /// <summary>The Status word's colour: green Ready, amber Leaves, orange Leaving,
+        /// the cell's own colour otherwise.</summary>
+        private static Color StatusWordColor(SpawnCandidateStatus status, Color plain)
+        {
+            switch (status)
+            {
+                case SpawnCandidateStatus.Ready:
+                    return ParsekUI.StatusColor(ParsekUI.StatusColorKind.Green);
+                case SpawnCandidateStatus.Leaves:
+                    return ParsekUI.CountdownTextColor;
+                case SpawnCandidateStatus.Leaving:
+                    return LeavingTextColor;
+                default:
+                    return plain;
+            }
+        }
+
+        /// <summary>The orange of a departure that is due now.</summary>
+        internal static readonly Color LeavingTextColor = new Color(1f, 0.65f, 0.2f);
 
         /// <summary>
         /// The row warp button's click body: log the warp and hand it to the flight
@@ -464,13 +511,16 @@ namespace Parsek
                 refusal = WarpRefusalNoRow;
                 return false;
             }
+            double currentUT = ReadCurrentUT();
             List<NearbySpawnCandidate> sorted = SpawnControlPresentation.SortCandidates(
-                candidates, spawnSortColumn, spawnSortAscending);
+                candidates, spawnSortColumn, spawnSortAscending, currentUT,
+                ParsekFlight.NearbySpawnRadius, ParsekFlight.MaxRelativeSpeed);
             cand = sorted[0];
             row = SpawnControlPresentation.BuildRowPresentation(
-                cand, ReadCurrentUT(),
+                cand, currentUT,
                 ParsekFlight.NearbySpawnRadius,
-                ParsekFlight.MaxRelativeSpeed);
+                ParsekFlight.MaxRelativeSpeed,
+                RowDateFormatter);
             if (!row.WarpButtonEnabled)
             {
                 refusal = WarpRefusalButtonDisabled;
@@ -506,7 +556,8 @@ namespace Parsek
                 row = SpawnControlPresentation.BuildRowPresentation(
                     cand, currentUT,
                     ParsekFlight.NearbySpawnRadius,
-                    ParsekFlight.MaxRelativeSpeed);
+                    ParsekFlight.MaxRelativeSpeed,
+                    RowDateFormatter);
                 return true;
             }
             return false;
@@ -532,7 +583,7 @@ namespace Parsek
         internal const string WarpRefusalNoRow = "warp-no-candidate-row";
 
         /// <summary><see cref="TryPressFirstRowWarpForTesting"/>: the first row's warp
-        /// button is drawn disabled (too far, too fast, or already past its UT).</summary>
+        /// button is drawn disabled (too fast, leaving now, or already past its UT).</summary>
         internal const string WarpRefusalButtonDisabled = "warp-button-disabled";
 
         private void DrawSpawnControlBottomBar(List<NearbySpawnCandidate> candidates,
@@ -549,11 +600,11 @@ namespace Parsek
             // single-line height, always present, drawn directly above the button row so
             // Close stays the window's last content row.
             //
-            // "Warp to Next Spawn" is the ONLY tooltipped control in this window and it
-            // sits BELOW the strip, so GUI.tooltip cannot reach the strip in time (the
-            // hovered control fills it in as it draws). Hand the text in explicitly
-            // instead, using the button's rect from the previous pass against the live
-            // pointer - the same hover test IMGUI itself does. The rect is captured on
+            // The row Status cells and Warp buttons draw above the strip and reach it
+            // through GUI.tooltip. "Warp to Next Spawn" sits BELOW it, so its hover cannot
+            // (the hovered control fills GUI.tooltip in as it draws). Hand that text in
+            // explicitly instead, using the button's rect from the previous pass against
+            // the live pointer - the same hover test IMGUI itself does. The rect is captured on
             // Repaint below and only moves when the window is resized.
             string bottomBarEcho =
                 warpButtonRect.width > 0f && warpButtonRect.Contains(Event.current.mousePosition)

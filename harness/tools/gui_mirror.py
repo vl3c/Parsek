@@ -112,22 +112,27 @@ LAYOUT_EPOCHS = {
     # PR #1834: body cell text under the header text (the shared table cell style).
     # First run on it: GUI-11-census-kerbals-crewed 2026-09-25_2019.
     "kerbals": {"utc": "2026-09-25T20:19:20Z", "pr": 1834},
-    # PR #1834: Archived is the last cell of filter row 1; Rewind/FF and Re-Fly
-    # draw an empty row 2. First run on it: GUI-24 2026-09-25_2020.
-    "timeline": {"utc": "2026-09-25T20:20:39Z", "pr": 1834},
-    # PR #1828: header and rows in one body box, a Warp column header, cell text
-    # under the header text.
-    # First run on it: GUI-6-census-flight-playback 2026-09-25_1838.
-    "spawncontrol": {"utc": "2026-09-25T18:38:07Z", "pr": 1828},
-    # PR #1828: header and rows in one body box, cell text under the header text.
-    # First run on it: GUI-4-census-missions-docked 2026-09-25_1839.
-    "structure": {"utc": "2026-09-25T18:39:56Z", "pr": 1828},
+    # PR #2002: no Archived button in the view row, and no empty line under Rewind/FF
+    # and Re-Fly (the time-range row moves up). First run on it:
+    # GUI-24-census-timeline-filters 2026-10-04_1754.
+    "timeline": {"utc": "2026-10-04T17:56:09Z", "pr": 2002},
+    # PR #2000: the Model 1 table (Craft | Dist | Speed | Spawns | Spawn date | Status |
+    # Actions), one Warp button, a first-open height that fits the rows. GUI-6's host no
+    # longer lists a row (its rover is beyond the 250 m spawn radius), so the first capture
+    # on it is RSC-1-real-spawn-control-warp 2026-10-04_1742 (rsc-spawncontrol-before-warp).
+    "spawncontrol": {"utc": "2026-10-04T17:43:01Z", "pr": 2000},
+    # PR #1999: an empty Log keeps its column headers over one grey sentence row,
+    # with Close at the bottom. First run on it: GUI-1-census-ksc 2026-10-04_1519.
+    "structure": {"utc": "2026-10-04T15:23:31Z", "pr": 1999},
     # PR #1867: section order, pressed equal-width option rows, reworded labels.
     # First run on it: GUI-14-census-settings-and-facility 2026-09-26_1009.
     "settings": {"utc": "2026-09-26T10:10:05Z", "pr": 1867},
-    # PR #1927: the mission bar is a table row (values under the headings, buttons on
-    # line 2), no Next launch column, no Events foldout. First run on it (iteration 4: value-only period cell): GUI-17 2026-09-30_2016.
-    "missions": {"utc": "2026-09-30T20:17:21Z", "pr": 1927},
+    # PR #1984: the collapse caret sits under the mission's number in the # column,
+    # Watch (line 1) stacks over Rewind / Forward (line 2) in Interact, and the # header
+    # sits over the index numbers. First run on it: GUI-1-census-ksc 2026-10-03_1704.
+    "missions": {"utc": "2026-10-03T17:05:18Z", "pr": 1984},
+    # PR #1966. First run on it: GUI-3-census-logistics-routes 2026-10-03_1017.
+    "logistics": {"utc": "2026-10-03T10:18:00Z", "pr": 1966},
 }
 
 
@@ -1168,6 +1173,21 @@ def _node_paints(kind, style):
             or kind == "slider")
 
 
+# The tallest unnamed-style, textless, childless box read as a coloured bar (or a
+# rule) rather than as a container. Logistics draws its 2 px section accent bars
+# as `GUILayout.Box(GUIContent.none, <tinted style>)`; the dump records no colour
+# for them, so the fill can only come off the photo.
+THIN_BAR_MAX_PX = 4
+
+
+def _is_thin_bar(node):
+    rect = node.get("rect") or [0, 0, 0, 0]
+    return ((node.get("kind") or "label") == "box" and not node.get("style")
+            and not node.get("text") and not node.get("children")
+            and 0 < int(rect[3]) <= THIN_BAR_MAX_PX
+            and int(rect[2]) > int(rect[3]))
+
+
 def _clipped_exclusions(rect, children, later):
     """What hides a CLIPPED node's own surface inside the viewport: its painting
     children (not a child with its very rect, which is how the dump records a
@@ -1317,7 +1337,17 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
     inks = bool(text or out["k"] in ("box", "toggle"))
     key = (out["k"], style or "", _depth)
     cx, cy = rect[0] + rect[2] // 2, rect[1] + rect[3] // 2
-    if (sampler is not None and out["w"] > 0 and out["h"] > 0
+    # A thin bar's colour is its own and says which section it heads (green
+    # Active, violet Paused, cyan Candidates), so it is read only off its own
+    # pixels and always stored: it never lends its colour to a row container of
+    # the same key and never borrows one. Scrolled out, it stores nothing and
+    # the page draws the fallback grey.
+    bar = _is_thin_bar(node)
+    if bar:
+        out["bar"] = 1
+    if bar and visible is None:
+        pass
+    elif (sampler is not None and out["w"] > 0 and out["h"] > 0
             and visible is None):
         # Scrolled out of view: resolved once the whole tree has been walked,
         # when every visible node of its scroll view has been sampled.
@@ -1342,11 +1372,11 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
         bg, fg = sampler(visible, kid_rects)
         # A background identical to the parent's is what CSS already inherits,
         # so storing it again would only make the page bigger.
-        if bg and bg != parent_bg and paints:
+        if bg and (bar or (bg != parent_bg and paints)):
             out["bg"] = bg
         if fg and inks:
             out["fg"] = fg
-        if _scope is not None:
+        if _scope is not None and not bar:
             _scope.remember(key, whole, cx, cy, bg, fg, inks)
     if out["k"] == "scrollview":
         clip = (rect[0], rect[1], rect[0] + rect[2], rect[1] + rect[3])
@@ -3178,20 +3208,16 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         own_grid_si = _first_grid_index(own_roots)
 
         photo = None
-        if with_photos and pix and (parsek_rects or cap["log"].get("dialog")):
-            if cap["log"].get("dialog"):
-                # A PopupDialog is a CENTRED uGUI canvas with no presence in the
-                # control tree, so the Parsek windows' bounding box does not
-                # contain it - cropping to that box captioned another mod's window
-                # as a Parsek confirm dialog. The whole frame is the only honest
-                # crop, and inventing a modal rect would be worse than a big one.
-                photo = {"x": 0, "y": 0, "w": sw, "h": sh, "whole": 1}
-            else:
-                x0 = max(0, min(r[0] for r in parsek_rects) - 2)
-                y0 = max(0, min(r[1] for r in parsek_rects) - 2)
-                x1 = min(sw, max(r[0] + r[2] for r in parsek_rects) + 2)
-                y1 = min(sh, max(r[1] + r[3] for r in parsek_rects) + 2)
-                photo = {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0}
+        # A PopupDialog is a CENTRED uGUI canvas with no presence in the control
+        # tree and no bounds in the seam's report, so no crop of it can be taken
+        # without inventing a rect. A modal capture's photo is the windows' crop
+        # like any other, and the modal stand-in draws no picture.
+        if with_photos and pix and parsek_rects:
+            x0 = max(0, min(r[0] for r in parsek_rects) - 2)
+            y0 = max(0, min(r[1] for r in parsek_rects) - 2)
+            x1 = min(sw, max(r[0] + r[2] for r in parsek_rects) + 2)
+            y1 = min(sh, max(r[1] + r[3] for r in parsek_rects) + 2)
+            photo = {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0}
             photo_jobs.append((len(captures), pix, photo))
 
         cid = "%s/%s" % (cap["runId"], cap["label"])
@@ -3642,8 +3668,7 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
 .stage.overlay .gn.k-layoutgroup,.stage.overlay .gn.notext{border-color:transparent !important}
 .stage.overlay .gn .tx,.stage.overlay .gn .cb,.stage.overlay .gn .gl{display:none}
 /* The modal block is text over the frame too, so it obeys the same suppression. */
-.stage.overlay .dlg .dt,.stage.overlay .dlg .db,.stage.overlay .dlg .dcap{display:none}
-.stage.overlay .dlg{background:none;box-shadow:none;border-color:rgba(110,159,208,.7)}
+.stage.overlay .dlg{display:none}
 .stage.overlay.noboxes .gn,.stage.overlay.noboxes .kwin{border-color:transparent !important}
 .sidebyside{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
 .sidebyside>div{flex:0 1 auto;min-width:0}
@@ -3667,6 +3692,9 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
 /* A row container is a `box` with no text: KSP draws it in the panel colour, so
    a border here would invent a grid the game does not draw. */
 .gn.k-box.notext{border-color:transparent;background:none;padding-left:0}
+/* A thin coloured bar or rule (`bar`): the fill sampled off its own pixels
+   arrives inline; without a photo it is the separator grey. */
+.gn.k-box.bar{background:#666;border:0;border-radius:0}
 /* Measured on the ib-logistics-basic frame (Rename / Log / Logistics /
    Timeline): KSP draws a button as a NEAR-BLACK outline - grey 5 to 25 - with a
    light top bevel inside it (88, 71, 61, fading) over a fill of 25 to 76. A
@@ -3826,7 +3854,6 @@ table.sum .wlink:hover{text-decoration:underline}
   min-width:360px;box-shadow:0 8px 30px #000a}
 .dlg .dt{background:#3a3a3a;padding:6px 10px;font-weight:600;color:#fff;font-size:13px;
   border-radius:5px 5px 0 0}
-.dlg img{display:block;max-width:560px;margin:8px auto 6px;border:1px solid #111}
 .dlg .db{display:flex;gap:8px;justify-content:center;padding:4px 10px}
 .dlg .dcap{font-size:10px;color:var(--dim);text-align:center;padding:0 10px 4px}
 .small{font-size:11px;color:var(--dim)}
@@ -4635,7 +4662,7 @@ function renderNode(n, out, opts){
      every control with text - the sampled `fg` is already the greyed colour the
      game drew, and dimming it again put the Missions window's disabled interval
      field below the threshold of being visible at all. */
-  var d = el('div', 'gn k-' + n.k + (n.s ? ' s-' + n.s : '') +
+  var d = el('div', 'gn k-' + n.k + (n.s ? ' s-' + n.s : '') + (n.bar ? ' bar' : '') +
                    ((n.e === 0 && !n.fg) ? ' dis' : '') +
                    (n.t ? '' : ' notext'));
   d.style.left = n.x + 'px'; d.style.top = n.y + 'px';
@@ -4778,9 +4805,8 @@ function renderCapture(cap, host, opts){
     });
     host.appendChild(w);
   });
-  /* The modal block carries a PHOTOGRAPH of the whole frame, so bare mode leaves
-     it out: a measurement of the page's own rendering must not be handed a copy
-     of the thing it is being measured against. */
+  /* The modal stand-in is drawn over the windows at a position the page chose,
+     not one the census measured, so bare mode leaves it out of a measurement. */
   if (cap.dialog && opts.dialog !== false){
     host.appendChild(buildDialog(cap));
   }
@@ -4952,28 +4978,16 @@ function stockMeasuredBlock(m){
   return d;
 }
 
-/* The modals are stock uGUI: no control tree exists for them, so the picture is
-   the crop the census photographed and the buttons are the labels the seam
-   reported. Nothing about them is reconstructed. */
+/* The modals are stock uGUI: no control tree and no bounds exist for them, so
+   the stand-in is the title and button labels the seam reported and nothing
+   else - no picture, since no crop of the modal can be taken without inventing
+   its rect. */
 function buildDialog(cap){
   var box = el('div','dlg');
   box.appendChild(el('div','dt', cap.dialog.title || cap.dialog.name));
-  if (cap.photo && cap.photo.src && cap.photo.whole){
-    /* The WHOLE frame, captioned as such. A PopupDialog is a centred uGUI canvas
-       outside every window rect, so there is no modal crop to take and no honest
-       way to invent one. */
-    var img = el('img');
-    img.src = cap.photo.src;
-    img.alt = cap.dialog.title || '';
-    box.appendChild(img);
-    box.appendChild(el('div','dcap',
-      'the whole ' + cap.screen[0] + 'x' + cap.screen[1] + ' frame this modal '
-      + 'stood on - a PopupDialog is uGUI and appears in no control tree'));
-  } else {
-    box.appendChild(el('div','dcap',
-      'no frame inlined for this modal; its title and buttons are the seam\'s own '
-      + 'report'));
-  }
+  box.appendChild(el('div','dcap',
+    'reconstructed from the seam\'s report (title and buttons); the modal '
+    + 'itself is uGUI and is not drawn here'));
   /* Zero buttons reported means zero buttons. A fabricated OK would be the one
      control on this page that the census never saw. */
   if (cap.dialog.buttons.length){

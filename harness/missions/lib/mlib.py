@@ -1070,6 +1070,19 @@ ACTION_CAMERA_SET_POSE = "camera_set_pose"                 # camera_pose = tuple
 ACTION_RUN_SCIENCE_EXPERIMENTS = "run_science_experiments"  # value = None
 ACTION_TRANSMIT_SCIENCE = "transmit_science"               # value = None
 ACTION_RECOVER_VESSEL = "recover_vessel"                   # value = None
+# RECOVER_NAMED_VESSEL: recover the ONE vessel named `text` among sc.vessels,
+#   which need NOT be the active vessel (CI-11: the player recovers a vessel they
+#   are not flying). kRPC 0.5.4 has no persistent id, so the pick is by NAME and
+#   refuses ambiguity: exactly one vessel with that name, else nothing is asked
+#   and the refusal rides recover_request_result as RECOVER_REQUEST_NO_MATCH /
+#   RECOVER_REQUEST_AMBIGUOUS (`pick_unique_named`). The picked vessel then goes
+#   through RECOVER_VESSEL's read-before-ask lock verbatim (DECLINED /
+#   UNREADABLE / ISSUED / FAILED). kRPC's Recover() fires stock's
+#   OnVesselRecoveryRequested for ANY vessel, and stock's VesselRetrieval then
+#   saves and loads SPACECENTER, so the ACTIVE vessel's telemetry goes dark too:
+#   the success evidence is ISSUED followed by sustained vessel_lost frames. Emit
+#   it exactly ONCE, last, for RECOVER_VESSEL's scene-level reason.
+ACTION_RECOVER_NAMED_VESSEL = "recover_named_vessel"       # text = vessel name
 
 # ------------------------------------------------------------------------------
 # THE PART-SWEEP ACTIONS (GS-6). One per RECORDABLE PART-EVENT FAMILY that kRPC
@@ -1254,6 +1267,32 @@ RECOVER_REQUEST_FAILED = "FAILED"          # Recover() itself raised
 RECOVER_REQUEST_DECLINES: Tuple[str, ...] = (RECOVER_REQUEST_DECLINED,
                                              RECOVER_REQUEST_UNREADABLE,
                                              RECOVER_REQUEST_FAILED)
+# ACTION_RECOVER_NAMED_VESSEL's two PICK refusals: no vessel carries the name, or
+# more than one does. Nothing was asked on either. Kept OUT of
+# RECOVER_REQUEST_DECLINES on purpose: that tuple is science_bench_recover's
+# re-ask contract (a declined active craft may settle and be asked again), and a
+# missing or ambiguous NAME does not settle.
+RECOVER_REQUEST_NO_MATCH = "NO-MATCH"      # no vessel named so
+RECOVER_REQUEST_AMBIGUOUS = "AMBIGUOUS"    # more than one vessel named so
+RECOVER_NAMED_PICK_REFUSALS: Tuple[str, ...] = (RECOVER_REQUEST_NO_MATCH,
+                                                RECOVER_REQUEST_AMBIGUOUS)
+# classify_recover_request outcomes.
+RECOVER_OUTCOME_PENDING = "pending"
+RECOVER_OUTCOME_ISSUED = "issued"
+RECOVER_OUTCOME_REFUSED = "refused"
+
+
+def classify_recover_request(token: Optional[str]) -> str:
+    """The recover verb's perform-seam token as one of three outcomes: ISSUED ->
+    ``issued``; any decline or pick refusal -> ``refused``; the UNREAD sentinel or
+    an unknown token -> ``pending`` (fail-closed: nothing unknown grants an
+    issue)."""
+    t = str(token or RECOVER_REQUEST_UNREAD)
+    if t == RECOVER_REQUEST_ISSUED:
+        return RECOVER_OUTCOME_ISSUED
+    if t in RECOVER_REQUEST_DECLINES or t in RECOVER_NAMED_PICK_REFUSALS:
+        return RECOVER_OUTCOME_REFUSED
+    return RECOVER_OUTCOME_PENDING
 
 # The UNREAD sentinel shared by the three vessel-scoped science COUNT channels.
 # Named because the difference between it and a real 0 is the whole of the
@@ -3409,9 +3448,31 @@ class TelemetrySnapshot:
 # otherwise wait out its whole descent budget. These helpers detect that stall.
 # ---------------------------------------------------------------------------
 
-# The five telemetry fields whose bitwise-identical repetition (while UT advances)
-# marks a dead/stale vessel object.
+# The five telemetry fields whose repetition (while UT advances) marks a
+# dead/stale vessel object.
 FrozenSignature = Tuple[float, float, float, float, float]
+
+# Names of the FrozenSignature slots, in order. The reset note names a slot by
+# this spelling, which is the TelemetrySnapshot attribute it was read from.
+FROZEN_SIGNATURE_FIELDS: Tuple[str, ...] = (
+    "ut", "altitude", "vertical_speed", "apoapsis", "periapsis")
+
+# Default frozen-field tolerance (metres / m/s) for the AIRBORNE HOP machines
+# only (B1 and its SBR delegate, EVA-4, GS-1, and B4's REENTRY / SPLASHDOWN
+# descent). Spec key frozenToleranceAbs. Every other machine compares exactly.
+#
+# Why a hop machine can afford it: in every gated hop phase a LIVE craft is
+# either moving (altitude changes by |vspd| * 0.5 s per poll) or accelerating
+# (vspd changes by about g * 0.5 s = 4.9 m/s per poll at a ballistic apex), so
+# at least one of altitude / vertical speed moves by orders of magnitude more
+# than 1e-3 between two polls; a chute descent at 6 m/s moves the altitude 3 m.
+# Why an orbit machine cannot: near an apsis of a near-circular orbit both the
+# altitude change and the vertical-speed change per poll can sit inside 1e-3,
+# so a tolerance there is a false vessel-lost trip on a live craft.
+# Why it is needed at all: RB-1 2026-09-27_1353 polled a destroyed Flea's
+# frozen values for about 118 polls at 1x and the exact compare never reached
+# 10, so a sub-millimetre difference in one field kept resetting the count.
+HOP_FROZEN_TOLERANCE_ABS = 1e-3
 
 
 def frozen_signature(snapshot: TelemetrySnapshot) -> FrozenSignature:
@@ -3422,22 +3483,59 @@ def frozen_signature(snapshot: TelemetrySnapshot) -> FrozenSignature:
             snapshot.apoapsis, snapshot.periapsis)
 
 
+def _tolerance_active(tolerance) -> bool:
+    """True iff ``tolerance`` selects the tolerant compare. Anything not a
+    finite positive number (0.0, negative, NaN, None) keeps the exact compare,
+    so a malformed value fails safe to the pre-tolerance behaviour."""
+    return _is_finite(tolerance) and tolerance > 0.0
+
+
+def frozen_field_matches(prev_value, curr_value, tolerance: float = 0.0) -> bool:
+    """One signature field's frozen comparison. Exact ``==`` unless
+    ``tolerance`` is active, then ``abs(prev - curr) <= tolerance`` where a
+    NaN or infinite value on either side never matches."""
+    if not _tolerance_active(tolerance):
+        return prev_value == curr_value
+    if not (_is_finite(prev_value) and _is_finite(curr_value)):
+        return False
+    return abs(float(prev_value) - float(curr_value)) <= tolerance
+
+
+def frozen_fields_match(prev: FrozenSignature, curr: FrozenSignature,
+                        tolerance: float = 0.0) -> bool:
+    """True iff the four non-UT fields of ``curr`` match ``prev``'s. At
+    tolerance 0 this is the tuple ``==`` the detector always used, kept
+    verbatim so the exact path stays byte-identical."""
+    if not _tolerance_active(tolerance):
+        return curr[1:] == prev[1:]
+    return all(frozen_field_matches(p, c, tolerance)
+               for p, c in zip(prev[1:], curr[1:]))
+
+
+def frozen_mismatched_fields(prev: FrozenSignature, curr: FrozenSignature,
+                             tolerance: float = 0.0) -> Tuple[int, ...]:
+    """Indices (1..4) of the non-UT fields that FAIL the frozen comparison at
+    ``tolerance``: the fields that broke (or would break) a frozen run."""
+    return tuple(i for i in range(1, len(FROZEN_SIGNATURE_FIELDS))
+                 if not frozen_field_matches(prev[i], curr[i], tolerance))
+
+
 def advances_frozen(prev: Optional[FrozenSignature],
-                    curr: Optional[FrozenSignature]) -> bool:
+                    curr: Optional[FrozenSignature],
+                    tolerance: float = 0.0) -> bool:
     """True iff ``curr`` is a FROZEN advance over ``prev``: the mission clock
     strictly advanced (``curr`` UT finite and STRICTLY greater than ``prev`` UT)
-    while the OTHER four fields (altitude, vertical_speed, apoapsis, periapsis) are
-    BITWISE-EXACTLY equal (``==``) to ``prev``'s.
+    while the OTHER four fields (altitude, vertical_speed, apoapsis, periapsis)
+    match ``prev``'s: BITWISE-EXACTLY (``==``) at the default tolerance 0, or
+    within ``tolerance`` when one is given (``frozen_field_matches``).
 
-    Exact equality is safe -- and in fact REQUIRED -- here: a LIVE craft's physics
-    jitters the low mantissa bits of altitude / vertical speed / apsides on every
-    single frame (integration noise, floating-origin re-centering), so two
-    consecutive live frames are essentially never bit-identical across all four.
-    Only a DEAD / stale vessel object -- KSP handed active-vessel to a destroyed
-    craft's debris and kRPC keeps returning the last cached orbit -- returns the
-    SAME floats forever while UT keeps ticking. A FROZEN UT (a paused game) does
-    NOT count: UT must strictly advance, so a legitimately paused sim (identical
-    full signature) is never mistaken for a dead vessel."""
+    Exact equality is the default for the orbit machines: a LIVE craft's physics
+    normally jitters the low mantissa bits of altitude / vertical speed /
+    apsides on every frame, and only a DEAD / stale vessel object returns the
+    SAME floats while UT keeps ticking. The airborne hop machines pass a small
+    tolerance instead (see HOP_FROZEN_TOLERANCE_ABS) because a destroyed craft
+    was seen to differ by less than a millimetre between polls. A FROZEN UT (a
+    paused game) is never an advance: UT must strictly advance."""
     if prev is None or curr is None:
         return False
     prev_ut, curr_ut = prev[0], curr[0]
@@ -3445,32 +3543,297 @@ def advances_frozen(prev: Optional[FrozenSignature],
         return False
     if not (curr_ut > prev_ut):
         return False
-    return curr[1:] == prev[1:]
+    return frozen_fields_match(prev, curr, tolerance)
 
 
 def _advance_frozen_count(prev_sig: Optional[FrozenSignature], prev_count: int,
-                          snapshot: TelemetrySnapshot,
-                          limit: int) -> Tuple[FrozenSignature, int, bool]:
-    """Advance the airborne frozen-telemetry counter for one frame (shared by the
-    B1 and B2 machines). Returns ``(new_sig, new_count, tripped)``: a FROZEN advance
-    over ``prev_sig`` increments the count, ANY non-frozen sample resets it to 0,
-    and ``tripped`` is True iff the count reached ``limit`` (a vessel-lost terminal).
-    The signature is always updated to the current frame so the next comparison uses
-    the latest UT.
+                          snapshot: TelemetrySnapshot, limit: int,
+                          tolerance: float = 0.0
+                          ) -> Tuple[Optional[FrozenSignature], int, bool]:
+    """Advance the airborne frozen-telemetry counter for one frame (shared by
+    every flight machine). Returns ``(new_sig, new_count, tripped)``: a FROZEN
+    advance over ``prev_sig`` increments the count, a sample whose UT advanced
+    with a field that does not match resets it to 0, and ``tripped`` is True iff
+    the count reached ``limit`` (a vessel-lost terminal). ``tolerance`` is the
+    per-field match tolerance (0.0 = exact; see ``advances_frozen``).
 
-    WARP GATE (review N-A4): the detector only advances at 1x (warp_mode
-    NONE). Frozen-vessel staleness is a 1x symptom -- kRPC returning the same
-    cached floats while the physics runs -- whereas an ON-RAILS craft in a
-    (near-)circular orbit can legitimately report bit-identical apsides while
-    UT advances (the latent false-trip class). A warped frame HOLDS the
-    signature and count unchanged: it is evidence in neither direction, and a
-    genuinely dead vessel still trips on the surrounding 1x frames (its
-    fields never change across the warp either)."""
+    HOLD rules: a sample that is evidence in neither direction leaves the
+    count unchanged instead of resetting it.
+      - WARP GATE (review N-A4): the detector only advances at 1x (warp_mode
+        NONE). An ON-RAILS craft in a (near-)circular orbit can legitimately
+        report bit-identical apsides while UT advances, so a warped frame HOLDS
+        the signature and count unchanged; a dead vessel still trips on the
+        surrounding 1x frames.
+      - NON-ADVANCING UT: a poll whose UT did not strictly advance carries no
+        new physics, so it cannot say whether the craft is alive. A non-finite
+        or REPEATED UT holds the signature and count unchanged (a duplicate
+        poll inside a frozen run must not restart the run); a LOWER UT (a load
+        or rewind) holds the count but re-baselines the signature to the new
+        UT, otherwise the detector would stall until UT re-passed the old
+        stamp. A stopped clock therefore never trips this detector (no
+        increment without a UT advance); the shell's paused-clock watchdog
+        owns that case, so the two never compete for one poll."""
     if snapshot.warp_mode != WARP_NONE:
         return prev_sig, prev_count, False
     curr_sig = frozen_signature(snapshot)
-    new_count = prev_count + 1 if advances_frozen(prev_sig, curr_sig) else 0
+    curr_ut = curr_sig[0]
+    if not _is_finite(curr_ut):
+        return prev_sig, prev_count, False
+    if prev_sig is not None and _is_finite(prev_sig[0]):
+        if curr_ut == prev_sig[0]:
+            return prev_sig, prev_count, False
+        if curr_ut < prev_sig[0]:
+            return curr_sig, prev_count, False
+    new_count = (prev_count + 1 if advances_frozen(prev_sig, curr_sig, tolerance)
+                 else 0)
     return curr_sig, new_count, (new_count >= limit)
+
+
+# B4 phases where the hop tolerance applies: the descent after the deorbit
+# burn. REENTRY flies a suborbital arc with periapsis at or below
+# deorbitPeriapsisMeters (eccentricity about 0.04 from an 80 km orbit), so its
+# radial acceleration never drops near zero where the vertical speed does, and
+# SPLASHDOWN is a chute descent. MJ-ASCENT / CIRCULARIZE / ORBIT / DEORBIT hold
+# a near-circular orbit at 1x and keep the exact compare.
+B4_FROZEN_TOLERANCE_PHASES: Tuple[str, ...] = (B4_REENTRY, B4_SPLASHDOWN)
+
+
+def frozen_tolerance_for_state(state) -> float:
+    """The frozen-field tolerance the machine applies on a frame decided from
+    ``state``: its params' ``frozen_tolerance_abs`` (0.0 when the params carry
+    none, i.e. every orbit machine), narrowed to B4_FROZEN_TOLERANCE_PHASES for
+    a B4 state. The detector call sites and the reset note both read it here,
+    so the note always reports the tolerance that was actually used."""
+    params = getattr(state, "params", None)
+    tolerance = getattr(params, "frozen_tolerance_abs", 0.0)
+    if not _tolerance_active(tolerance):
+        return 0.0
+    if isinstance(state, B4State) and state.phase not in B4_FROZEN_TOLERANCE_PHASES:
+        return 0.0
+    return float(tolerance)
+
+
+# Attributes under which a wrapper machine carries its delegated flight
+# machine, and with it the frozen counter: SBR.flight (B1), V1.flight (B5),
+# R1.ascent (B2), and S/R/T-DOCK.inner (B-DOCK).
+_FROZEN_NESTED_STATE_ATTRS: Tuple[str, ...] = ("flight", "ascent", "inner")
+
+
+def frozen_detector_holder(state):
+    """The state object that carries the frozen counter for ``state``: the
+    state itself when it has one, else its delegated sub-machine under one of
+    _FROZEN_NESTED_STATE_ATTRS, else None (a machine with no detector)."""
+    if state is None:
+        return None
+    if hasattr(state, "frozen_count"):
+        return state
+    for attr in _FROZEN_NESTED_STATE_ATTRS:
+        sub = getattr(state, attr, None)
+        if sub is not None and hasattr(sub, "frozen_count"):
+            return sub
+    return None
+
+
+# Per-flight cap on frozen-telemetry note lines. A healthy flight emits none
+# (its count never leaves 0 and its live fields never fall inside a hop
+# tolerance), so the cap only bounds a dead craft whose readings alternate
+# frozen / not frozen; the shell logs one suppression line at the cap.
+FROZEN_NOTE_LIMIT = 20
+
+
+def frozen_count_note(prev_sig: Optional[FrozenSignature], prev_count: int,
+                      curr_sig: Optional[FrozenSignature], new_count: int,
+                      tolerance: float, warp_mode: str) -> Optional[str]:
+    """One diagnostic line for a frozen-counter event, or None.
+
+    Two events, both silent on a healthy flight:
+      - ``reset``: the count dropped from 1 or more to 0. Names every field
+        that failed the comparison at ``tolerance`` with ``repr()`` of its
+        previous and current value. A healthy flight never logs it because its
+        count never leaves 0.
+      - ``within-tolerance``: a tolerant machine counted the poll as frozen
+        although some field was not bit-identical: the reset the exact compare
+        WOULD have made. Names the inexact fields the same way, so the field
+        that kept RB-1's exact count from tripping is named on the next crash.
+    ``dUt`` and the warp mode ride both, so a reset can be told apart from a
+    clock or warp artefact."""
+    if prev_sig is None or curr_sig is None:
+        return None
+    if prev_count >= 1 and new_count == 0:
+        kind = "reset"
+        fields = frozen_mismatched_fields(prev_sig, curr_sig, tolerance)
+    elif _tolerance_active(tolerance) and new_count > prev_count:
+        kind = "within-tolerance"
+        fields = frozen_mismatched_fields(prev_sig, curr_sig, 0.0)
+        if not fields:
+            return None
+    else:
+        return None
+    names = ",".join(FROZEN_SIGNATURE_FIELDS[i] for i in fields) or "none"
+    values = "".join(" %s=%r->%r" % (FROZEN_SIGNATURE_FIELDS[i], prev_sig[i], curr_sig[i])
+                     for i in fields)
+    if _is_finite(prev_sig[0]) and _is_finite(curr_sig[0]):
+        d_ut = float(curr_sig[0]) - float(prev_sig[0])
+    else:
+        d_ut = float("nan")
+    return ("frozen-telemetry %s count=%d->%d field=%s%s dUt=%r warp=%s tol=%r"
+            % (kind, prev_count, new_count, names, values, d_ut, warp_mode,
+               float(tolerance) if _tolerance_active(tolerance) else 0.0))
+
+
+def frozen_detector_note(prev_state, new_state,
+                         snapshot: TelemetrySnapshot) -> Optional[str]:
+    """``frozen_count_note`` for one fly-loop frame, read off the machine state
+    before and after ``decide`` (nested counters resolved through
+    ``frozen_detector_holder``). The tolerance is the one the detector used,
+    read from the PRE-decide state, whose phase is the one it ran in."""
+    prev_holder = frozen_detector_holder(prev_state)
+    new_holder = frozen_detector_holder(new_state)
+    if prev_holder is None or new_holder is None:
+        return None
+    prev_count = getattr(prev_holder, "frozen_count", 0)
+    new_count = getattr(new_holder, "frozen_count", 0)
+    if not isinstance(prev_count, int) or not isinstance(new_count, int):
+        return None
+    return frozen_count_note(getattr(prev_holder, "frozen_sig", None), prev_count,
+                             frozen_signature(snapshot), new_count,
+                             frozen_tolerance_for_state(prev_holder),
+                             snapshot.warp_mode)
+
+
+# ---------------------------------------------------------------------------
+# Paused-clock watchdog (todo HARNESS-POST-FLIGHT-DIALOG-STALLS). Pure.
+#
+# The frozen-telemetry detector above is blind to a STOPPED clock by design, and
+# every phase budget is GAME time. Stock KSP's FlightLogger opens
+# FlightResultsDialog about 60 s after the active vessel's root part is destroyed
+# and calls FlightDriver.SetPause(true), so from then on UT does not move, no
+# phase budget can elapse and the mission polls frozen telemetry until the WALL
+# budget reaps it (RB-1 2026-09-27_1353: about 1,100 s lost). This watchdog
+# closes that hole: a game that reports PAUSED while UT has not moved for
+# PAUSED_CLOCK_WALL_SECONDS of wall time ends the mission as a vessel loss.
+#
+# Scope, so a deliberate or harmless pause cannot false-trip:
+#   - ONE wall window, debounced: the trip needs an unbroken run of polls on
+#     which UT read UNCHANGED from the previous poll AND the game read PAUSED,
+#     lasting PAUSED_CLOCK_WALL_SECONDS. Any poll that moves UT (backwards too: a
+#     rewind or load is not a stall) or reads not-paused ends the run, so one
+#     paused read (the seam StockScreen open pauses for about 0.1 s) never trips.
+#     A run cannot start on the poll that first sees a UT value, so UT has been
+#     frozen for at least one poll longer than the window when it trips.
+#   - an EXEMPT poll re-arms the watch from scratch. The shell exempts a poll
+#     while a native warp runs (the warp watchdog owns pauses then and clears
+#     them) and when the machine state declares ``game_pause_owned`` (no mission
+#     pauses the game today; the hook is the one place a future one opts out).
+#     It also re-arms after every seam action: perform() blocks for the whole
+#     step, so wall time spent inside it must never count against the window.
+#   - an unread pause state (None), a non-finite UT and a non-finite wall clock
+#     are NO evidence: none can ever trip, because a trip ends the mission.
+# ---------------------------------------------------------------------------
+
+# Wall seconds the game must read paused, with UT unchanged, before the watchdog
+# trips. Sized well above the 0.5 s poll and every transient pause seen in the
+# collected logs, and far below the ~60 s a FlightResultsDialog stays up before
+# anything else could notice.
+PAUSED_CLOCK_WALL_SECONDS = 15.0
+
+# Token naming this give-up in the verdict reason and the gate lines.
+PAUSED_CLOCK_GIVEUP = "paused-clock"
+
+# Action kinds after which the shell re-arms the watch: each is a mission-issued
+# seam step whose perform() blocks until the step's terminal, so the game may be
+# paused by the step itself (scene-straddling verbs) and no poll runs meanwhile.
+PAUSED_CLOCK_REARM_ACTION_KINDS = frozenset((
+    ACTION_PARSEK_COMMIT_TREE,
+    ACTION_PARSEK_SEAM_COMMAND,
+))
+
+
+@dataclass(frozen=True)
+class PausedClockWatch:
+    """Watch state carried by the shell between polls. ``last_ut`` is the last
+    finite UT seen; ``paused_since`` the wall stamp of the first poll of the
+    current run of frozen-UT paused polls (None while there is no run)."""
+    last_ut: Optional[float] = None
+    paused_since: Optional[float] = None
+
+
+@dataclass(frozen=True)
+class PausedClockReading:
+    """One poll's watchdog outcome: ``frozen_ut`` is the UT the run is frozen at
+    (NaN when unread) and ``paused_seconds`` the run's wall length so far."""
+    tripped: bool = False
+    frozen_ut: float = float("nan")
+    paused_seconds: float = 0.0
+
+
+def paused_clock_needs_probe(watch: PausedClockWatch, ut: float) -> bool:
+    """True iff the shell should spend the pause RPC on this poll: UT is finite
+    and unchanged since the last poll. A moving clock is not paused, so a healthy
+    flight never issues the extra read and its RPC traffic is unchanged."""
+    return (_is_finite(ut) and watch.last_ut is not None
+            and float(ut) == watch.last_ut)
+
+
+def paused_clock_step(watch: PausedClockWatch, ut: float,
+                      paused: Optional[bool], wall_now: float,
+                      exempt: bool = False,
+                      window: float = PAUSED_CLOCK_WALL_SECONDS
+                      ) -> Tuple[PausedClockWatch, PausedClockReading]:
+    """Advance the paused-clock watch by one poll. Returns ``(new_watch,
+    reading)``; ``reading.tripped`` is True iff the current run of polls with UT
+    unchanged AND ``paused`` exactly True has lasted at least ``window`` wall
+    seconds.
+
+    ``paused`` None (unread) or False ends the run; so does any change of UT.
+    ``exempt`` or a non-finite UT re-arms the watch from scratch. ``wall_now`` is
+    read only on a paused frozen poll, so the shell may pass NaN otherwise; a
+    non-finite one there ends the run."""
+    if exempt or not _is_finite(ut):
+        return PausedClockWatch(), PausedClockReading()
+    ut = float(ut)
+    if watch.last_ut is None or ut != watch.last_ut:
+        return PausedClockWatch(last_ut=ut), PausedClockReading(frozen_ut=ut)
+    if paused is not True or not _is_finite(wall_now):
+        return PausedClockWatch(last_ut=ut), PausedClockReading(frozen_ut=ut)
+    wall_now = float(wall_now)
+    since = watch.paused_since if watch.paused_since is not None else wall_now
+    paused_s = wall_now - since
+    return (PausedClockWatch(last_ut=ut, paused_since=since),
+            PausedClockReading(tripped=paused_s >= window, frozen_ut=ut,
+                               paused_seconds=paused_s))
+
+
+def format_paused_clock_reason(phase: str, reading: PausedClockReading,
+                               window: float = PAUSED_CLOCK_WALL_SECONDS) -> str:
+    """The verdict reason for a paused-clock trip. Leads with ``vessel-lost`` like
+    every other loss reason, then names the pause and the measured window."""
+    return ("vessel-lost (%s: game PAUSED with UT frozen at %.3f for %.0f wall-s, "
+            "limit %.0f; stock FlightResultsDialog pauses the game about 60 s "
+            "after the active vessel is destroyed) in phase %s"
+            % (PAUSED_CLOCK_GIVEUP, reading.frozen_ut, reading.paused_seconds,
+               window, phase))
+
+
+def paused_clock_terminal(state, reason: str):
+    """The terminal machine state for a paused-clock trip.
+
+    A machine with a ``loss_reason`` channel ends exactly like its own vessel-lost
+    terminal: MISSION-ASSERT-FAIL with the reason, which ``resolve_flight_verdict``
+    returns verbatim before any assertion is evaluated (hlib reads ASSERT-FAIL as
+    INVALID(mission): a mission that did not fly is never PARSEK-FAIL). A machine
+    with no loss channel (M3) gets MISSION-FLAKE with the reason instead, because
+    ASSERT-FAIL without ``loss_reason`` would let ``resolve_flight_verdict`` grade
+    the frozen telemetry's assertions and could resolve OK."""
+    if hasattr(state, "loss_reason"):
+        return replace(state, done=True, verdict=MISSION_ASSERT_FAIL,
+                       loss_reason=reason)
+    terminal = dict(done=True, verdict=MISSION_FLAKE)
+    if hasattr(state, "flake_phase"):
+        terminal["flake_phase"] = state.phase
+    if hasattr(state, "flake_reason"):
+        terminal["flake_reason"] = reason
+    return replace(state, **terminal)
 
 
 @dataclass(frozen=True)
@@ -3807,6 +4170,10 @@ class B1Params:
                                            # the ground", so a post-chute loss AT
                                            # ALTITUDE stays an ASSERT-FAIL (spec
                                            # key downMaxAltMeters)
+    # Per-field frozen-telemetry match tolerance (spec key frozenToleranceAbs).
+    # 0.0 = exact compare; the params builder defaults it to
+    # HOP_FROZEN_TOLERANCE_ABS (see that constant for the gated-phase argument).
+    frozen_tolerance_abs: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -3891,6 +4258,12 @@ class B4Params:
     frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
                                            # vessel-lost terminal (spec key
                                            # frozenTelemetrySamples)
+    # Applied ONLY in B4_FROZEN_TOLERANCE_PHASES (the descent); the orbit
+    # phases keep the exact compare.
+    # Per-field frozen-telemetry match tolerance (spec key frozenToleranceAbs).
+    # 0.0 = exact compare; the params builder defaults it to
+    # HOP_FROZEN_TOLERANCE_ABS (see that constant for the gated-phase argument).
+    frozen_tolerance_abs: float = 0.0
 
 
 def b1_params_from_dict(params: Dict) -> B1Params:
@@ -3909,6 +4282,8 @@ def b1_params_from_dict(params: Dict) -> B1Params:
         apoapsis_window=(float(window.get("min", 0.0)), float(window.get("max", 0.0))),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
         down_max_alt=float(params.get("downMaxAltMeters", 500)),
+        frozen_tolerance_abs=float(params.get("frozenToleranceAbs",
+                                              HOP_FROZEN_TOLERANCE_ABS)),
     )
 
 
@@ -3940,6 +4315,10 @@ class Eva4Params:
     # LANDED is the EVA-1 ground case, not this scenario's mid-flight surface, so the
     # window requires an airborne situation.
     airborne_situations: Tuple[str, ...] = ("FLYING", "SUB_ORBITAL")
+    # Per-field frozen-telemetry match tolerance (spec key frozenToleranceAbs).
+    # 0.0 = exact compare; the params builder defaults it to
+    # HOP_FROZEN_TOLERANCE_ABS (see that constant for the gated-phase argument).
+    frozen_tolerance_abs: float = 0.0
 
 
 def eva4_params_from_dict(params: Dict) -> Eva4Params:
@@ -3960,6 +4339,8 @@ def eva4_params_from_dict(params: Dict) -> Eva4Params:
         apoapsis_window=(float(window.get("min", 0.0)), float(window.get("max", 0.0))),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
         airborne_situations=tuple(params.get("airborneSituations", ("FLYING", "SUB_ORBITAL"))),
+        frozen_tolerance_abs=float(params.get("frozenToleranceAbs",
+                                              HOP_FROZEN_TOLERANCE_ABS)),
     )
 
 
@@ -4003,6 +4384,8 @@ def b4_params_from_dict(params: Dict) -> B4Params:
         descent_timeout=float(params.get("descentTimeoutSeconds", 600)),
         landed_situations=tuple(params.get("landedSituations", ("LANDED", "SPLASHED"))),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
+        frozen_tolerance_abs=float(params.get("frozenToleranceAbs",
+                                              HOP_FROZEN_TOLERANCE_ABS)),
     )
 
 
@@ -5393,7 +5776,8 @@ def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, Lis
     if state.phase in (B1_ASCENT, B1_COAST, B1_DESCENT):
         limit = state.params.frozen_sample_limit
         new_sig, new_count, tripped = _advance_frozen_count(
-            state.frozen_sig, state.frozen_count, snapshot, limit)
+            state.frozen_sig, state.frozen_count, snapshot, limit,
+            frozen_tolerance_for_state(state))
         if tripped:
             if _b1_down_eligible(state):
                 down = _b1_enter_down(state, snapshot.ut, peak)
@@ -7272,7 +7656,8 @@ def eva4_decide(state: Eva4State, snapshot: TelemetrySnapshot) -> Tuple[Eva4Stat
     if state.phase in (EVA4_ASCENT, EVA4_COAST, EVA4_DESCENT):
         limit = state.params.frozen_sample_limit
         new_sig, new_count, tripped = _advance_frozen_count(
-            state.frozen_sig, state.frozen_count, snapshot, limit)
+            state.frozen_sig, state.frozen_count, snapshot, limit,
+            frozen_tolerance_for_state(state))
         if tripped:
             return replace(
                 state, peak_apoapsis=peak, frozen_sig=new_sig, frozen_count=new_count,
@@ -10571,7 +10956,8 @@ def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, Lis
     if state.phase != B4_PRELAUNCH:
         limit = state.params.frozen_sample_limit
         new_sig, new_count, tripped = _advance_frozen_count(
-            state.frozen_sig, state.frozen_count, snapshot, limit)
+            state.frozen_sig, state.frozen_count, snapshot, limit,
+            frozen_tolerance_for_state(state))
         if tripped:
             return replace(
                 state, peak_apoapsis=peak, frozen_sig=new_sig, frozen_count=new_count,
@@ -17959,6 +18345,378 @@ def evaluate_rdock_assertions(frames, params: RDockParams, phases_reached=(),
 
 
 # ---------------------------------------------------------------------------
+# TIP-DOCK phase state machine (mission ci9_tip_dock: CI-9, the player docks with
+# a Real-Spawned ghost-chain tip). Pure. The seam's RealSpawn step has already
+# turned the chain tip into a real vessel before the mission starts; the mission
+# finds it by name and docks the ACTIVE vessel to it:
+#
+#   TD-START    -> dwell start_settle_seconds (the spawned vessel loads and the
+#                  recorder the spec started settles), then target the nearest
+#                  vessel named target_name
+#   TD-TARGET   -> wait for a finite target distance; stamp it (the spawn
+#                  geometry the jump left behind) and hand off to B-DOCK:
+#                  farther than rendezvousAboveMeters -> RENDEZVOUS, else
+#                  MATCH-VELOCITY
+#   RENDEZVOUS / MATCH-VELOCITY / DOCK
+#               -> B-DOCK's own phases, delegated verbatim (MechJeb rendezvous
+#                  AP with the node-wait warp, kill-rel-vel, the deferred
+#                  docking-AP enable, liveness watchdogs, corroborated Docked)
+#   TD-SETTLE   -> dwell settle_seconds on the docked pair
+#   TD-TERMINAL -> done; the assertions judge
+#
+# The machine never reads what Parsek recorded at the dock; the spec's log
+# contract and save facets do.
+# ---------------------------------------------------------------------------
+
+TDOCK_START = "TD-START"
+TDOCK_TARGET = "TD-TARGET"
+TDOCK_SETTLE = "TD-SETTLE"
+TDOCK_TERMINAL = "TD-TERMINAL"
+# The delegated phases keep B-DOCK's own names, so their flake reasons read the same.
+TDOCK_DELEGATED: Tuple[str, ...] = (BDOCK_RENDEZVOUS, BDOCK_MATCH_VELOCITY, BDOCK_DOCK)
+TDOCK_PHASES: Tuple[str, ...] = (
+    TDOCK_START, TDOCK_TARGET, BDOCK_RENDEZVOUS, BDOCK_MATCH_VELOCITY, BDOCK_DOCK,
+    TDOCK_SETTLE, TDOCK_TERMINAL)
+
+
+@dataclass(frozen=True)
+class TDockParams:
+    """TIP-DOCK tuning (spec [driver.missionParams] for ci9_tip_dock). The B-DOCK
+    rendezvous / match / dock keys keep B-DOCK's own names and semantics."""
+    bdock: BDockParams = field(default_factory=BDockParams)
+    target_name: str = "CTD Target"
+    # A first target distance above this flies B-DOCK's rendezvous; at or below it the
+    # docking AP closes from where the target is. Default: Real Spawn Control's own
+    # button radius, the farthest a correct spawn can sit.
+    rendezvous_above: float = 250.0
+    start_settle_seconds: float = 5.0
+    target_timeout: float = 60.0
+    settle_seconds: float = 10.0
+
+
+def tdock_params_from_dict(params: Dict) -> TDockParams:
+    params = params or {}
+    return TDockParams(
+        bdock=bdock_params_from_dict(params),
+        target_name=str(params.get("targetName", "CTD Target")),
+        rendezvous_above=float(params.get("rendezvousAboveMeters", 250)),
+        start_settle_seconds=float(params.get("startSettleSeconds", 5)),
+        target_timeout=float(params.get("targetTimeoutSeconds", 60)),
+        settle_seconds=float(params.get("settleSeconds", 10)),
+    )
+
+
+@dataclass(frozen=True)
+class TDockState:
+    """TIP-DOCK machine state. ``inner`` is the delegated B-DOCK state, live from
+    the hand-off to the docked read."""
+    params: TDockParams
+    inner: BDockState
+    phase: str = TDOCK_START
+    phase_entry_ut: float = float("nan")
+    phases_reached: Tuple[str, ...] = (TDOCK_START,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+    # Evidence for the assertions.
+    target_acquired: bool = False
+    # The first finite distance to the spawned target: what the RealSpawn jump left.
+    acquired_target_distance: float = float("nan")
+    rendezvous_needed: bool = False
+    docked_confirmed: bool = False
+
+
+def tdock_initial_state(params: TDockParams) -> TDockState:
+    return TDockState(params=params, inner=bdock_initial_state(params.bdock))
+
+
+def _tdock_enter(state: TDockState, new_phase: str, ut: float,
+                 **fields) -> TDockState:
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(state, phase=new_phase, phase_entry_ut=entry,
+                   phases_reached=state.phases_reached + (new_phase,),
+                   done=(new_phase == TDOCK_TERMINAL), **fields)
+
+
+def _tdock_elapsed(state: TDockState, snapshot: TelemetrySnapshot) -> float:
+    if not _is_finite(snapshot.ut) or not _is_finite(state.phase_entry_ut):
+        return 0.0
+    return snapshot.ut - state.phase_entry_ut
+
+
+def _tdock_flake(state: TDockState, reason: str) -> TDockState:
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason="phase %s: %s" % (state.phase, reason), done=True)
+
+
+def tdock_decide(state: TDockState,
+                 snapshot: TelemetrySnapshot) -> Tuple[TDockState, List[Action]]:
+    """Advance the TIP-DOCK machine one frame; return (new_state, actions)."""
+    if state.done:
+        return state, []
+    p = state.params
+
+    if state.phase == TDOCK_START:
+        if not _is_finite(state.phase_entry_ut) and _is_finite(snapshot.ut):
+            state = replace(state, phase_entry_ut=snapshot.ut)
+        if _tdock_elapsed(state, snapshot) < p.start_settle_seconds:
+            return state, []
+        return (_tdock_enter(state, TDOCK_TARGET, snapshot.ut),
+                [Action(ACTION_SET_SAS), Action(ACTION_SET_RCS, value=1.0),
+                 Action(ACTION_TARGET_NEAREST_NAMED_VESSEL, text=p.target_name)])
+
+    if state.phase == TDOCK_TARGET:
+        if snapshot.target_set and _is_finite(snapshot.target_distance):
+            d = float(snapshot.target_distance)
+            far = d > p.rendezvous_above
+            if far:
+                inner = _bdock_enter(state.inner, BDOCK_RENDEZVOUS, snapshot.ut,
+                                     rendezvous_min_distance=float("inf"),
+                                     rendezvous_noprogress_count=0)
+                actions = [Action(ACTION_MJ_ENABLE_RENDEZVOUS,
+                                  value=p.bdock.approach_distance,
+                                  limit=p.bdock.max_phasing_orbits)]
+            else:
+                inner = _bdock_enter(state.inner, BDOCK_MATCH_VELOCITY, snapshot.ut)
+                actions = [Action(ACTION_MJ_KILL_REL_VEL)]
+            st = _tdock_enter(state, inner.phase, snapshot.ut, inner=inner,
+                              target_acquired=True, acquired_target_distance=d,
+                              rendezvous_needed=far)
+            return st, actions
+        if _tdock_elapsed(state, snapshot) > p.target_timeout:
+            return _tdock_flake(state, (
+                "no target acquired on a vessel named %r (target_set=%s "
+                "target_distance=%s)" % (p.target_name, snapshot.target_set,
+                                         snapshot.target_distance))), []
+        return state, []
+
+    if state.phase in TDOCK_DELEGATED:
+        inner, actions = bdock_decide(state.inner, snapshot)
+        if inner.phase == BDOCK_TRANSFER and inner.docked_confirmed:
+            # B-DOCK completed DOCK on a corroborated read; drop its transfer.
+            st = replace(state, inner=inner)
+            return (_tdock_enter(st, TDOCK_SETTLE, snapshot.ut, docked_confirmed=True),
+                    [Action(ACTION_MJ_DISABLE_DOCKING)])
+        if inner.done:
+            return replace(state, inner=inner, verdict=inner.verdict,
+                           flake_phase=inner.flake_phase,
+                           flake_reason=inner.flake_reason,
+                           loss_reason=inner.loss_reason, done=True), actions
+        st = replace(state, inner=inner)
+        if inner.phase != state.phase:
+            st = _tdock_enter(st, inner.phase, snapshot.ut)
+        return st, actions
+
+    if state.phase == TDOCK_SETTLE:
+        if _tdock_elapsed(state, snapshot) < p.settle_seconds:
+            return state, []
+        return _tdock_enter(state, TDOCK_TERMINAL, snapshot.ut), []
+
+    return _tdock_flake(state, "unknown phase"), []
+
+
+def evaluate_tdock_assertions(frames, params: TDockParams, phases_reached=(),
+                              state=None) -> List[AssertionOutcome]:
+    """Two TIP-DOCK driver-validity assertions:
+
+    - ``targetAcquired``  a vessel named target_name was targeted at a finite
+                          distance; the value is that first distance (the
+                          spawn geometry the RealSpawn jump left behind).
+    - ``docked``          DOCK completed on B-DOCK's corroborated Docked read.
+    """
+    del frames
+    phases = tuple(phases_reached or ())
+    acquired = bool(getattr(state, "target_acquired", False))
+    distance = getattr(state, "acquired_target_distance", float("nan"))
+    docked = bool(getattr(state, "docked_confirmed", False))
+    return [
+        AssertionOutcome("targetAcquired", acquired,
+                         distance if _is_finite(distance) else None,
+                         {"targetName": params.target_name,
+                          "rendezvousNeeded": bool(getattr(state, "rendezvous_needed", False)),
+                          "rendezvousAboveMeters": params.rendezvous_above}),
+        AssertionOutcome("docked", (TDOCK_SETTLE in phases) and docked, docked,
+                         {"required": TDOCK_SETTLE}),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# kRPC NAMED-RECOVER phase state machine (mission ci11_krpc_recover: CI-11, the
+# player recovers a Real-Spawned chain tip they are NOT flying, through kRPC's
+# Vessel.Recover). Pure. The seam's RealSpawn step has already turned the chain
+# tip into a real vessel beside the active one:
+#
+#   KR-START     -> dwell start_settle_seconds (game UT), then ask for the ONE
+#                   vessel named target_name (ACTION_RECOVER_NAMED_VESSEL)
+#   KR-RECOVER   -> read the perform-seam token (classify_recover_request):
+#                   issued -> KR-SCENE; a decline or pick refusal -> loss (nothing
+#                   was asked, MISSION-ASSERT-FAIL -> driver-INVALID); still
+#                   unread past request_timeout_frames -> flake
+#   KR-SCENE     -> stock leaves FLIGHT for SPACECENTER, so the ACTIVE vessel's
+#                   reads fail and the runner emits vessel_lost frames; done after
+#                   scene_lost_frames CONSECUTIVE ones, flake past
+#                   scene_timeout_frames
+#   KR-RECOVERED -> done; the settle tail is skipped (every read is dark)
+#
+# Both waits count FRAMES, not game seconds: the UT a vessel_lost frame carries is
+# best-effort and may read 0 across the scene load. The machine never reads what
+# Parsek did with the recovery; the spec's log contract and save facets do.
+# ---------------------------------------------------------------------------
+
+KREC_START = "KR-START"
+KREC_RECOVER = "KR-RECOVER"
+KREC_SCENE = "KR-SCENE"
+KREC_RECOVERED = "KR-RECOVERED"
+KREC_PHASES: Tuple[str, ...] = (KREC_START, KREC_RECOVER, KREC_SCENE, KREC_RECOVERED)
+
+
+@dataclass(frozen=True)
+class KRecParams:
+    """kRPC NAMED-RECOVER tuning (spec [driver.missionParams] for
+    ci11_krpc_recover)."""
+    target_name: str = "CTR Lander"
+    start_settle_seconds: float = 3.0
+    request_timeout_frames: int = 20
+    scene_timeout_frames: int = 240
+    scene_lost_frames: int = 3
+
+
+def krec_params_from_dict(params: Dict) -> KRecParams:
+    params = params or {}
+    return KRecParams(
+        target_name=str(params.get("targetName", "CTR Lander")),
+        start_settle_seconds=float(params.get("startSettleSeconds", 3)),
+        request_timeout_frames=int(params.get("requestTimeoutFrames", 20)),
+        scene_timeout_frames=int(params.get("sceneTimeoutFrames", 240)),
+        scene_lost_frames=int(params.get("sceneLostFrames", 3)),
+    )
+
+
+@dataclass(frozen=True)
+class KRecState:
+    params: KRecParams
+    phase: str = KREC_START
+    phase_entry_ut: float = float("nan")
+    phases_reached: Tuple[str, ...] = (KREC_START,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+    skip_settle_tail: bool = False
+    phase_frames: int = 0
+    lost_streak: int = 0
+    # Evidence for the assertions.
+    request_result: str = RECOVER_REQUEST_UNREAD
+    recover_issued: bool = False
+    scene_left: bool = False
+
+
+def krec_initial_state(params: KRecParams) -> KRecState:
+    return KRecState(params=params)
+
+
+def _krec_enter(state: KRecState, new_phase: str, ut: float, **fields) -> KRecState:
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(state, phase=new_phase, phase_entry_ut=entry,
+                   phases_reached=state.phases_reached + (new_phase,),
+                   phase_frames=0, **fields)
+
+
+def _krec_flake(state: KRecState, reason: str) -> KRecState:
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason="phase %s: %s" % (state.phase, reason), done=True)
+
+
+def krec_decide(state: KRecState,
+                snapshot: TelemetrySnapshot) -> Tuple[KRecState, List[Action]]:
+    """Advance the kRPC NAMED-RECOVER machine one frame; return (state, actions)."""
+    if state.done:
+        return state, []
+    p = state.params
+
+    if state.phase == KREC_START:
+        if snapshot.vessel_lost:
+            return replace(state, done=True, verdict=MISSION_ASSERT_FAIL,
+                           loss_reason=(
+                               "vessel-lost-before-recovery: the active vessel's "
+                               "telemetry went dark before %r was asked for"
+                               % (p.target_name,))), []
+        if not _is_finite(state.phase_entry_ut) and _is_finite(snapshot.ut):
+            state = replace(state, phase_entry_ut=snapshot.ut)
+        elapsed = (snapshot.ut - state.phase_entry_ut
+                   if _is_finite(snapshot.ut) and _is_finite(state.phase_entry_ut)
+                   else 0.0)
+        if elapsed < p.start_settle_seconds:
+            return state, []
+        return (_krec_enter(state, KREC_RECOVER, snapshot.ut),
+                [Action(ACTION_RECOVER_NAMED_VESSEL, text=p.target_name)])
+
+    if state.phase == KREC_RECOVER:
+        token = str(snapshot.recover_request_result or RECOVER_REQUEST_UNREAD)
+        outcome = classify_recover_request(token)
+        if outcome == RECOVER_OUTCOME_REFUSED:
+            return replace(state, request_result=token, done=True,
+                           verdict=MISSION_ASSERT_FAIL,
+                           loss_reason=(
+                               "recover-named-refused: %s for a vessel named %r "
+                               "(exactly one recoverable vessel by that name is "
+                               "required; nothing was asked)" % (token, p.target_name))), []
+        if outcome == RECOVER_OUTCOME_ISSUED:
+            # The issue and the first dark frame routinely share a snapshot, so the
+            # scene watch reads THIS frame too.
+            state = _krec_enter(state, KREC_SCENE, snapshot.ut, request_result=token,
+                                recover_issued=True, lost_streak=0)
+        else:
+            state = replace(state, phase_frames=state.phase_frames + 1)
+            if state.phase_frames > p.request_timeout_frames:
+                return _krec_flake(state, (
+                    "no recover result for %r after %d frames (token=%r)"
+                    % (p.target_name, state.phase_frames, token))), []
+            return state, []
+
+    if state.phase == KREC_SCENE:
+        streak = state.lost_streak + 1 if snapshot.vessel_lost else 0
+        state = replace(state, lost_streak=streak, phase_frames=state.phase_frames + 1)
+        if streak >= p.scene_lost_frames:
+            st = _krec_enter(state, KREC_RECOVERED, snapshot.ut, scene_left=True)
+            return replace(st, done=True, skip_settle_tail=True), []
+        if state.phase_frames > p.scene_timeout_frames:
+            return _krec_flake(state, (
+                "recovery of %r issued but FLIGHT was never torn down: %d frames "
+                "without %d consecutive vessel_lost reads"
+                % (p.target_name, state.phase_frames, p.scene_lost_frames))), []
+        return state, []
+
+    return _krec_flake(state, "unknown phase"), []
+
+
+def evaluate_krec_assertions(frames, params: KRecParams, phases_reached=(),
+                             state=None) -> List[AssertionOutcome]:
+    """Two kRPC NAMED-RECOVER driver-validity assertions:
+
+    - ``recoverIssued``    Vessel.Recover() was called on the one vessel named
+                           target_name and returned (the value is the token).
+    - ``sceneLeftFlight``  FLIGHT was torn down after the issue (sustained
+                           vessel_lost reads), the stock recovery's scene load.
+    """
+    del frames
+    phases = tuple(phases_reached or ())
+    issued = bool(getattr(state, "recover_issued", False))
+    left = bool(getattr(state, "scene_left", False))
+    return [
+        AssertionOutcome("recoverIssued", issued,
+                         getattr(state, "request_result", RECOVER_REQUEST_UNREAD) or None,
+                         {"targetName": params.target_name}),
+        AssertionOutcome("sceneLeftFlight", (KREC_RECOVERED in phases) and left, left,
+                         {"required": KREC_RECOVERED,
+                          "sceneLostFrames": params.scene_lost_frames}),
+    ]
+
+
+# ---------------------------------------------------------------------------
 # FORGE-LKO phase state machine (mission forge_lko: the ORBITAL fixture forge).
 # Pure. The B-DOCK Interceptor-leg shape, truncated at the park:
 #
@@ -19768,6 +20526,17 @@ MISSION_HANDOFF_CONTRACTS: Dict[str, Dict] = {
         "unverifiedByMission": ["tombstoneScreening", "reservationRecovery"],
         "verifiedBy": ["AnswerMergeDialog", "logContracts", "saveParse"],
     },
+    # ci11_krpc_recover (CI-11) is SBR's kind of gap: it terminates ON its own outcome
+    # (Recover() issued, then FLIGHT observed torn down), and the reason it is flown is
+    # a Parsek claim it has no view of - whether the recovery reached the ledger as a
+    # VesselRecovered row and whether the next flight clears the spawn claim instead of
+    # respawning. Those are the spec's log contracts and census facets. The terminal is
+    # the literal because KREC_RECOVERED is defined below this table.
+    "ci11_krpc_recover": {
+        "terminal": "KR-RECOVERED",
+        "unverifiedByMission": ["ledgerRecoveryCapture", "spawnClaimCleared"],
+        "verifiedBy": ["logContracts", "saveParse"],
+    },
 }
 
 # What MISSION-OK means for a handoff mission, spelled out in the reason line the
@@ -20484,6 +21253,25 @@ def _json_safe(value):
     return value
 
 
+# Machine fields that a wrapper machine (SBR, R1, V1, S/R/T-DOCK) keeps on its
+# delegated flight machine rather than on itself. Without this the SBR line
+# printed frozenCount=- through the whole RB-1 crash while the real counter sat
+# in state.flight.frozen_count.
+_MACHINE_NESTED_FIELDS: Tuple[str, ...] = ("frozen_count",)
+
+
+def _machine_field_value(state, attr: str):
+    """``getattr(state, attr)`` for the machine line / dict, falling back to
+    the delegated sub-machine (``frozen_detector_holder``) for the fields in
+    _MACHINE_NESTED_FIELDS. _MACHINE_FIELD_ABSENT when neither carries it."""
+    value = getattr(state, attr, _MACHINE_FIELD_ABSENT)
+    if value is _MACHINE_FIELD_ABSENT and attr in _MACHINE_NESTED_FIELDS:
+        holder = frozen_detector_holder(state)
+        if holder is not None:
+            value = getattr(holder, attr, _MACHINE_FIELD_ABSENT)
+    return value
+
+
 def machine_state_dict(state, ut: float = float("nan")) -> Dict:
     """The machine's decision state as a JSON-safe {key: value} dict (the
     status-file ``machine`` block, design 2d). Fields the state object lacks
@@ -20491,7 +21279,7 @@ def machine_state_dict(state, ut: float = float("nan")) -> Dict:
     the current ``ut`` (None while not static or unknown)."""
     out: Dict = {}
     for attr, key in MACHINE_STATE_FIELDS:
-        value = getattr(state, attr, _MACHINE_FIELD_ABSENT)
+        value = _machine_field_value(state, attr)
         if value is _MACHINE_FIELD_ABSENT:
             continue
         out[key] = _json_safe(value)
@@ -20510,7 +21298,7 @@ def format_machine_state(state, ut: float = float("nan")) -> str:
     emits it unconditionally."""
     parts = ["machine"]
     for attr, key in MACHINE_STATE_FIELDS:
-        raw = getattr(state, attr, _MACHINE_FIELD_ABSENT)
+        raw = _machine_field_value(state, attr)
         render = _obs_fmt_token if attr in _MACHINE_TOKEN_FIELDS else _obs_fmt
         parts.append("%s=%s" % (key, render(raw)))
     since = getattr(state, "burn_static_since", _MACHINE_FIELD_ABSENT)
@@ -20974,6 +21762,10 @@ class Gs1Params:
     separation_thrust_epsilon: float = 100.0
     frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
                                            # vessel-lost terminal
+    # Per-field frozen-telemetry match tolerance (spec key frozenToleranceAbs).
+    # 0.0 = exact compare; the params builder defaults it to
+    # HOP_FROZEN_TOLERANCE_ABS (see that constant for the gated-phase argument).
+    frozen_tolerance_abs: float = 0.0
 
 
 def gs1_params_from_dict(params: Dict) -> Gs1Params:
@@ -21000,6 +21792,8 @@ def gs1_params_from_dict(params: Dict) -> Gs1Params:
         focus_impact_at_exit=bool(params.get("focusImpactAtExit", False)),
         separation_thrust_epsilon=float(params.get("separationThrustEpsilonNewtons", 100)),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
+        frozen_tolerance_abs=float(params.get("frozenToleranceAbs",
+                                              HOP_FROZEN_TOLERANCE_ABS)),
     )
 
 
@@ -21360,7 +22154,8 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
     if state.phase in (GS1_ASCENT, GS1_COAST, GS1_STAGE, GS1_DESCENT):
         limit = state.params.frozen_sample_limit
         new_sig, new_count, tripped = _advance_frozen_count(
-            state.frozen_sig, state.frozen_count, snapshot, limit)
+            state.frozen_sig, state.frozen_count, snapshot, limit,
+            frozen_tolerance_for_state(state))
         if tripped and _gs1_focus_impact_eligible(state):
             return _gs1_enter_impacted(
                 replace(state, frozen_sig=new_sig, frozen_count=new_count), peak), []
@@ -23733,6 +24528,21 @@ def pick_nearest_named(candidates: Sequence[Tuple[str, float, bool]],
         if float(d) < best_d:
             best, best_d = i, float(d)
     return best
+
+
+def pick_unique_named(names: Sequence[str], name: str) -> Tuple[Optional[int], str]:
+    """The pick ACTION_RECOVER_NAMED_VESSEL recovers: the index of the ONE entry
+    of ``names`` equal to ``name``, with ``RECOVER_REQUEST_UNREAD`` as the token.
+    Zero matches -> ``(None, RECOVER_REQUEST_NO_MATCH)``, more than one ->
+    ``(None, RECOVER_REQUEST_AMBIGUOUS)``. Active or not does not matter: the
+    verb exists to recover a vessel the player is not flying. Exact match only, so
+    an empty ``name`` never picks."""
+    hits = [i for i, n in enumerate(names or ()) if str(name) and str(n) == str(name)]
+    if not hits:
+        return None, RECOVER_REQUEST_NO_MATCH
+    if len(hits) > 1:
+        return None, RECOVER_REQUEST_AMBIGUOUS
+    return hits[0], RECOVER_REQUEST_UNREAD
 
 
 def kxrw_watch_probe_tag(probe: int) -> str:

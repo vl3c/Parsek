@@ -76,6 +76,101 @@ namespace Parsek
         internal const float SectionAccentHeight = 2f;
 
         /// <summary>
+        /// A section's accent bar colour: green Active Routes, soft violet Paused Routes,
+        /// cyan Candidates; grey for any other name.
+        /// </summary>
+        internal static ParsekUI.StatusColorKind SectionAccent(string sectionName)
+        {
+            switch (sectionName)
+            {
+                case ActiveSectionName: return ParsekUI.StatusColorKind.Green;
+                case PausedSectionName: return ParsekUI.StatusColorKind.Violet;
+                case CandidatesSectionName: return ParsekUI.StatusColorKind.Cyan;
+                default: return ParsekUI.StatusColorKind.Grey;
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Detail-block steppers (Every / Priority): one fixed grid
+        // ------------------------------------------------------------------
+
+        /// <summary>The label column ("Every:" / "Priority:") both steppers share.</summary>
+        internal const float StepperLabelWidth = 70f;
+
+        /// <summary>The width of every stepper "-" and "+" button.</summary>
+        internal const float StepperButtonWidth = 24f;
+
+        /// <summary>Space added to the widest measured value so the text never touches "+".</summary>
+        internal const float StepperValuePadding = 8f;
+
+        /// <summary>The narrowest the shared value cell gets, whatever the measure says.</summary>
+        internal const float StepperValueMinWidth = 110f;
+
+        /// <summary>The largest multiplier the width samples cover (two digits).</summary>
+        internal const int StepperSampleMaxMultiplier = 99;
+
+        /// <summary>The Every readout on a flat schedule: "2x (~4.0d)".</summary>
+        internal const string CadenceReadoutFormat = "{0}x (~{1})";
+
+        /// <summary>
+        /// The value texts the shared stepper cell must hold: every windowed Every readout up
+        /// to <see cref="StepperSampleMaxMultiplier"/> ("1x (every window)", "23x (every 23rd
+        /// window)"), the flat readout with a two-digit multiplier and a four-digit day count
+        /// ("99x (~9999.9d)"), and a three-digit Priority. The window measures each with its
+        /// label style once, so both steppers get one value width.
+        /// </summary>
+        internal static List<string> StepperValueSamples()
+        {
+            var samples = new List<string>(StepperSampleMaxMultiplier + 2);
+            for (int n = 1; n <= StepperSampleMaxMultiplier; n++)
+                samples.Add(RouteWindowBasisPresentation.FormatWindowedCadence(n));
+            samples.Add(string.Format(IC, CadenceReadoutFormat, StepperSampleMaxMultiplier, "9999.9d"));
+            samples.Add("999");
+            return samples;
+        }
+
+        /// <summary>
+        /// The one value-cell width both steppers use: the widest of
+        /// <see cref="StepperValueSamples"/> under <paramref name="measure"/> (the label
+        /// style's width of a text) plus <see cref="StepperValuePadding"/>, rounded up, never
+        /// under <see cref="StepperValueMinWidth"/>. So both "-" buttons share one column and
+        /// both "+" buttons another, whatever the values.
+        /// </summary>
+        internal static float StepperValueCellWidth(Func<string, float> measure)
+        {
+            float widest = 0f;
+            if (measure != null)
+            {
+                List<string> samples = StepperValueSamples();
+                for (int i = 0; i < samples.Count; i++)
+                {
+                    float w = measure(samples[i]);
+                    if (w > widest && !float.IsNaN(w) && !float.IsInfinity(w))
+                        widest = w;
+                }
+            }
+            return Math.Max(StepperValueMinWidth, (float)Math.Ceiling(widest + StepperValuePadding));
+        }
+
+        /// <summary>
+        /// The one height both stepper rows take: the taller of a detail line that carries a
+        /// slot button (<paramref name="slotRowHeight"/>, e.g. "Link round-trip...") and a
+        /// plain label line (<paramref name="labelRowHeight"/>), rounded up. Whether the
+        /// block's slot column reaches the Every line depends on how many lines precede it,
+        /// so a fixed height keeps the two stepper rows equal in every block.
+        /// </summary>
+        internal static float StepperRowHeight(float slotRowHeight, float labelRowHeight)
+        {
+            float h = Math.Max(Sanitize(slotRowHeight), Sanitize(labelRowHeight));
+            return (float)Math.Ceiling(h);
+        }
+
+        private static float Sanitize(float v)
+        {
+            return float.IsNaN(v) || float.IsInfinity(v) || v < 0f ? 0f : v;
+        }
+
+        /// <summary>
         /// A section title bar's text: the caret (the route rows' glyphs, down when
         /// expanded, right when collapsed), the name and its count, "\u25bc Active Routes (2)".
         /// </summary>
@@ -319,12 +414,12 @@ namespace Parsek
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// The Next cell: "T- " + <c>MissionsWindowUI.FormatCountdownCompact</c> (two units,
-        /// the Missions summary's countdown) plus
-        /// <see cref="MissionPresentation.SummaryCountdownWarningMarker"/> when warned, or
+        /// The Next cell: the house countdown <see cref="ParsekTimeFormat.FormatCountdown"/>
+        /// ("T- 2d 4h", the Missions summary's form; a moment already reached reads "T- 0s")
+        /// with its " (!)" when warned, or
         /// "-" when no run is scheduled. <paramref name="runScheduled"/> is false for a
         /// Paused route (a Send-armed route sits in Active and keeps its countdown, to the
-        /// window and then to the arrival). The window draws it in the Missions amber.
+        /// window and then to the arrival). The window draws it in <c>ParsekUI.CountdownTextColor</c>.
         /// </summary>
         internal static string FormatNextCell(
             LogisticsCountdownPresentation.CountdownBranch branch, double seconds,
@@ -332,8 +427,7 @@ namespace Parsek
         {
             if (!runScheduled || branch == LogisticsCountdownPresentation.CountdownBranch.None)
                 return "-";
-            return "T- " + MissionsWindowUI.FormatCountdownCompact(seconds)
-                + (warned ? MissionPresentation.SummaryCountdownWarningMarker : string.Empty);
+            return ParsekTimeFormat.FormatCountdown(seconds > 0 ? seconds : 0, warned);
         }
 
         /// <summary>
@@ -499,7 +593,7 @@ namespace Parsek
             if (IsUsableUT(lastUT))
                 sb.Append(" on ").Append(ReservationExplanation.FormatDate(lastUT, formatDate));
             sb.Append(": ").Append(EndSentence(lastText));
-            if (!string.IsNullOrEmpty(cumulativeText) && cumulativeText != "(none)")
+            if (!string.IsNullOrEmpty(cumulativeText))
             {
                 sb.Append(" Delivered so far: ").Append(cumulativeText);
                 if (completedRuns > 0)
@@ -516,7 +610,7 @@ namespace Parsek
         /// </summary>
         internal static string FormatFillerInfoLine(bool hasDeliveries, string cumulativeText)
         {
-            return hasDeliveries && !string.IsNullOrEmpty(cumulativeText) && cumulativeText != "(none)"
+            return hasDeliveries && !string.IsNullOrEmpty(cumulativeText)
                 ? "Delivered so far: " + cumulativeText + "."
                 : "Not run yet.";
         }
@@ -547,7 +641,6 @@ namespace Parsek
             if (count == 0)
                 return "Flights used: -";
             var resolved = new string[count];
-            var totals = new Dictionary<string, int>(StringComparer.Ordinal);
             for (int i = 0; i < count; i++)
             {
                 string n = names[i];
@@ -555,25 +648,9 @@ namespace Parsek
                     n = fallbacks != null && i < fallbacks.Count && !string.IsNullOrEmpty(fallbacks[i])
                         ? fallbacks[i] : "<unknown>";
                 resolved[i] = n;
-                totals.TryGetValue(n, out int t);
-                totals[n] = t + 1;
             }
-            var seen = new Dictionary<string, int>(StringComparer.Ordinal);
-            var sb = new StringBuilder("Flights used: ");
-            for (int i = 0; i < count; i++)
-            {
-                if (i > 0) sb.Append(", ");
-                string n = resolved[i];
-                sb.Append(n);
-                if (totals[n] > 1)
-                {
-                    seen.TryGetValue(n, out int k);
-                    k++;
-                    seen[n] = k;
-                    sb.Append(" [").Append(k.ToString(IC)).Append(']');
-                }
-            }
-            return sb.ToString();
+            return "Flights used: " + string.Join(", ",
+                LogisticsNearMissPresentation.NumberRepeatedNames(resolved));
         }
 
         /// <summary>
@@ -611,8 +688,8 @@ namespace Parsek
         /// <summary>Line-1 Send label (one run, then stay Paused).</summary>
         internal const string SendButtonLabel = "Send";
 
-        /// <summary>Line-2 label: the mission the route repeats, on the Missions tab. The
-        /// Missions partner rows' spelling ("Go to"), not the Timeline's "GoTo".</summary>
+        /// <summary>Line-2 label: the mission the route repeats, on the Missions tab. Spelled
+        /// "Go to", as every window spells the cross-link.</summary>
         internal const string GoToButtonLabel = "Go to";
 
         /// <summary>Line-2 label: the route's Route History window.</summary>
@@ -662,6 +739,43 @@ namespace Parsek
 
         /// <summary>The Cancel hover: the arm is cleared, nothing was dispatched.</summary>
         internal const string CancelButtonTooltip = "Cancels the run before launch; nothing is spent.";
+
+        /// <summary>Candidate Interact line 1: make the supply run a stored route.</summary>
+        internal const string CreateRouteButtonLabel = "Create route";
+
+        /// <summary>The Create route hover.</summary>
+        internal const string CreateRouteButtonTooltip =
+            "Make this supply run a route (created Paused; use Send to test it, then Activate).";
+
+        /// <summary>Candidate Interact line 2, and each mission row of the near-miss list.</summary>
+        internal const string DismissButtonLabel = "Dismiss";
+
+        /// <summary>The Dismiss hover.</summary>
+        internal const string DismissButtonTooltip =
+            "Hide this mission from the Candidates section. Restore it any time from the Hidden missions list below.";
+
+        /// <summary>
+        /// Cuts a runtime-composed hover to the single-line strip: unchanged when it fits
+        /// (or <paramref name="maxChars"/> is 0 or less), else cut at the last word that
+        /// fits and ended with "...". Never longer than <paramref name="maxChars"/>.
+        /// </summary>
+        internal static string CapToStrip(string text, int maxChars)
+        {
+            if (string.IsNullOrEmpty(text) || maxChars <= 0 || text.Length <= maxChars)
+                return text ?? string.Empty;
+            const string Ellipsis = "...";
+            if (maxChars <= Ellipsis.Length)
+                return Ellipsis.Substring(0, maxChars);
+            int keep = maxChars - Ellipsis.Length;
+            int space = text.LastIndexOf(' ', keep);
+            if (space > keep / 2)
+                keep = space;
+            return text.Substring(0, keep).TrimEnd(' ', ',', ';', '-') + Ellipsis;
+        }
+
+        /// <summary>The candidates' Transit header and cell hover.</summary>
+        internal const string CandidateTransitTooltip =
+            "How long one run takes, from launch to undock.";
 
         /// <summary>What an armed route's Interact line 1 draws. All three are ONE 100 px
         /// button in the same control slot, so a phase change never changes the control

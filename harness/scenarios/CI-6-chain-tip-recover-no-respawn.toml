@@ -20,7 +20,7 @@
 #                    an engine ignite / shutdown, in progress at the save UT on
 #                    spawn-control-target's spot ~130 m from the pad, Landed. The walker
 #                    claims its pid via BACKGROUND_EVENT (CI-5's production shape), so it is
-#                    a chain tip, and Real Spawn Control lists it with "Warp to Spawn" live.
+#                    a chain tip, and Real Spawn Control lists it as a Ready row, its Warp live.
 #
 # ACT 1 (flight): RealSpawn the chain tip, Switch-To it through the stock click, let the
 # continuation record a few seconds, Recover it through stock's own button (the scene goes
@@ -159,7 +159,7 @@ required  = [
   "realspawn complete rec=ctr-tip-rec pid=1344998135 vessel=CTR Lander ",
   # Act 1: stock's Recover button, the request Parsek arms, stock's recovery.
   "\\[Recovery\\] In-flight recovery requested: vessel='CTR Lander' pid=1344998135 ",
-  "recover observed onVesselRecovered pid=1344998135 vessel=CTR Lander fromTrackingStation=false",
+  "recover observed onVesselRecovered pid=1344998135 vessel=CTR Lander quick=false",
   "recover complete pid=1344998135 vessel=CTR Lander scene=SPACECENTER",
   # Act 2: a new flight scene, where the walker re-reads the committed tree.
   "launchfromeditor complete scene=FLIGHT vessel=Kerbal X ",

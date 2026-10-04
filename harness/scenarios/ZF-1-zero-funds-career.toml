@@ -1,0 +1,146 @@
+schema = 1
+id = "ZF-1-zero-funds-career"
+tier = "nightly"
+# THE GAME-SETTINGS AXIS, ZERO STARTING FUNDS (operator request 2026-10-03, risk 3;
+# KSP-SETTINGS-AUDIT S4). The stock new-game slider allows Starting Funds = 0. Before commit
+# d5e3ec399 `LedgerOrchestrator.EnsureInitialFundsSeed` seeded the career's FundsInitial row
+# from a NON-ZERO pool only (an unloaded Funding also reads 0), so a zero career stayed
+# unseeded: `KspStatePatcher.PatchFunds` skipped every recalc ("module has no FundsInitial
+# seed"), the deferred seed spun its full 600-frame value wait on every load, and the first
+# non-zero pool was then taken AS the starting value (`SeedFromLivePool`), so the earning that
+# produced it counted twice - seed X plus the earning X against a live X. The fix seeds a
+# CONFIRMED zero (`DecideInitialFundsSeed` -> `SeedConfirmedZero`: Funding present, its OnLoad
+# provably run, pool 0, no funds history; `Ledger.SeedConfirmedZeroFunds` seals it with
+# `initialFundsConfirmedZero` so the stale-zero repair cannot overwrite it) and keys the wait
+# on that OnLoad signal (`CurrencyScenarioReadiness.IsScenarioModuleLoaded`). Unit cells only
+# until this lane; no fixture had ever started at zero.
+#
+# THE HOST. `career-pad-craft-zero-funds`, derived by
+# harness/tools/build_career_pad_craft_zero_funds.py from L2's host `career-pad-craft`
+# (drift-gated by lib/test_career_pad_craft_zero_funds.py): Funding funds 500000 -> 0 and
+# CAREER StartingFunds 10000 -> 0, nothing else. No `Parsek/` directory, so the boot is a
+# first-ever Parsek load of a zero-funds career.
+#
+# THE WALK, and what each step discriminates.
+#  1. Boot the pad craft. The seed must be the confirmed zero, taken off a loaded Funding in
+#     well under the old 600-frame wait.
+#  2. Recover the (unrecorded) pad craft with the stock Recover button: stock credits its full
+#     value, the pool goes 0 -> X, and Parsek writes a `recordingId=(none)` recovery
+#     FundsEarning. With the confirmed zero the reconstruction is 0 + X = live X. Without it the
+#     next seed would read the live X as the START value and the walk would carry 2X: the
+#     keep-what-you-earned guard's clamp line, forbidden below, is that defect's signature.
+#  3. Ask to hire the applicant (cost ~62k) on X: refused `insufficient-funds` before stock is
+#     reached, and nothing is ledgered (the seam mirrors the Astronaut Complex's CanAfford gate;
+#     this is the stock refusal shape on a near-empty pool, not a Parsek decision).
+#  4. Launch the one-part `Settings Probe` (harness/fixtures/ships, a start-node Stayputnik)
+#     from the VAB: a real purchase (stock debits the rollout cost from X), autoRecordOnLaunch
+#     off so no tree exists in FLIGHT. The stock Jumping Flea cannot launch in this career:
+#     under ProbesBeforeCrew its Mk1 pod and Mk16 chute sit behind unresearched nodes and stock
+#     refuses `ExperimentalPartsAvailable` (first reading `2026-10-03_1446`, INVALID twice on the
+#     launch step for exactly that).
+#  5. Run LedgerGroundTruth there: the recalc (seed 0 + X - rollout) against KSP's own
+#     quicksave, NON-circular, hard on the funds pool. With a live-pool seed the recalc would
+#     carry an extra X and diverge.
+#
+# STATUS: LIVE-PROVEN AND ARMED 2026-10-03 (branch `settings-risks`, automation DLL sha256
+# `938a8d46...`, origin/main `cb899a8f9`, no C# change). Readings: `2026-10-03_1446` and its
+# retry `_1450_a2` INVALID at LaunchFromEditor (the stock Jumping Flea is not launchable under
+# ProbesBeforeCrew; every earlier step already matched); `_1521` PASS attempt 1 on the probe
+# craft, the pins' source. Its batch reloaded the flight before stock's rollout charge, so the
+# settle marks were added and the rollout tokens pinned prospectively: `_1531` matched every
+# token including the 300 rollout and the 3882 no-change line, but red on an over-pinned
+# recovery UT (`ut=9.8` against the pinned `ut=10.0`; now a regex, a lane fix); `_1540`
+# matched every token and red only on two stock quit-time NREs (see the unityExceptions block,
+# re-scoped to maxParsekFrames); ARMED `_1542` PASS attempt 1 on the final spec. Offline
+# negative control over `_1542` via `hlib.evaluate_expectations`: 10 of 10 seeds red (a
+# live-pool seed, a 600-frame wait, a guard clamp, a 2X reconstruction, an unledgered recovery,
+# an accepted hire, an uncharged rollout, a hard divergence, an unseeded patch skip, a
+# recording), the green log green.
+description = "A career that starts at 0 funds (KSP-SETTINGS-AUDIT S4): the FundsInitial seed is a confirmed zero taken without the 600-frame wait; a recovery credits on top of it with no guard clamp; an unaffordable hire is refused; a VAB probe launch spends; LedgerGroundTruth closes against KSP's own save."
+instanceProfile = "stock-minimal"
+tags = ["settings-axis", "zero-funds", "ledger", "ingame-batch", "ground-truth", "recovery", "editor", "ZF-1",
+        "flown", "armed"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-pad-craft-zero-funds"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "Recover",        args = { pid = "2905720181" },                       expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "hire-kerbal", kerbal = "Verhat Kerman" }, expect = "REJECTED", budget = 60 },
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Settings Probe" }, expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                    expect = "OK", budget = 180 },
+  # Settle: stock charges the rollout in FlightDriver.PostInit 15 frames after FLIGHT starts
+  # (OnVesselRollout -> Funding.AddFunds(-cost, VesselRollout)); a RunTests batch issued on
+  # the launch completion reloads the flight from its baseline first and the charge never
+  # happens (ZF-1 `2026-10-03_1521`: funds unchanged across the launch). Four marks ~1 s.
+  { cmd = "MissionMark",    args = { label = "zf1-rollout-settle" },             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "zf1-rollout-settle" },             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "zf1-rollout-settle" },             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "zf1-rollout-settle" },             expect = "OK" },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },           expect = "OK", budget = 540 },
+  { cmd = "SaveGame",                                                            expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                        expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["career", "scene-flight", "zero-starting-funds"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# PINNED off the reading `2026-10-03_1521` (PASS attempt 1), except the two rollout tokens:
+# that reading's batch reloaded the flight before stock's rollout charge (see the settle
+# marks), so `FundsChanged -300 (VesselRollout)`, the rollout row and the 3882 no-change line
+# are first measured by the run after the settle marks were added. The probe's cost is the
+# Stayputnik's 300 (no resource with a unit cost), so 4182 - 300 = 3882.
+required  = [
+  "\\[Ledger\\] Seeded initial funds: amount=0 confirmedZero=True \\(Funding loaded at 0, no funds history\\)",
+  "DeferredSeed: expected singletons=Funding\\+R&D\\+Reputation present=True after 0 frames, loaded after 0 frames, clock ready=True after 0 frames \\(currentUT=9\\.[0-9]+\\) . Funding=0, Science=100,",
+  "recover complete pid=2905720181 vessel=#autoLOC_501224 scene=SPACECENTER",
+  "VesselRecovery funds patched: vessel='Jumping Flea' amount=4182 ut=[0-9.]+ recordingId=\\(none\\) quick=False",
+  "PatchFunds: no change needed \\(current=4182\\.0, target=4182\\.0\\)",
+  "kscaction refused action=hire-kerbal reason=insufficient-funds target=Verhat Kerman",
+  "launchfromeditor complete scene=FLIGHT vessel=Settings Probe pid=1100000001 site=LaunchPad situation=PRELAUNCH",
+  "Game state: FundsChanged -300 \\(VesselRollout\\)",
+  "VesselRollout spending recorded: cost=300,",
+  "PatchFunds: no change needed \\(current=3882\\.0, target=3882\\.0\\)",
+  "BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 reportOnly=0 facetsCompared=8 strict=False",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped resource=Funds",
+  "Seeded initial funds: amount=[1-9]",
+  "SeedInitialFunds: updated stale",
+  "PatchFunds: module has no FundsInitial seed",
+]
+
+# ARMED ON maxParsekFrames ONLY (the W1 / V15T shape). maxTotal stays report-only: the
+# third driver-valid run `2026-10-03_1540` logged two stock NullReferenceExceptions AFTER
+# `flushandquit: Application.Quit` (`KnowledgeBase.OnMapFocusChange` ->
+# `KbApp_PlanetResources.ActivateApp` on `onPlanetariumTargetChange` during teardown, no
+# `Parsek.` frame; `_1521` and `_1531` read total 0). A `Parsek.` frame on any exception
+# stack is a finding at any count, so this key is 0 whatever the stock quit noise does.
+[expectations.unityExceptions]
+maxParsekFrames = 0
+
+[runtime]
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -223,22 +223,22 @@ namespace Parsek
         // counts against, and this file is the one on the ERS allowlist.
 
         /// <summary>Opens the "Set Parent Group" popup on a group, the way the folder row's
-        /// <c>G</c> button does. False when no such group exists.</summary>
+        /// <c>G</c> button does, but with no click point, so it centres over this window.
+        /// False when no such group exists.</summary>
         internal bool TryOpenGroupPickerForGroupForTesting(string groupName)
         {
             if (string.IsNullOrEmpty(groupName)) return false;
             List<string> names = EnumerateGroupNamesForTesting();
             if (!names.Contains(groupName)) return false;
-            groupPicker.OpenForGroup(groupName, new Vector2(
-                recordingsWindowRect.x, recordingsWindowRect.y));
+            groupPicker.OpenForGroup(groupName, PickerWindowLayout.NoClickPoint);
             return groupPicker.IsOpen;
         }
 
         /// <summary>
         /// Opens the "Manage Groups" popup on one recording, the way a recording row's
-        /// <c>G</c> button does. <paramref name="recordingId"/> may be a recording id or
-        /// the token the seam passes for "the first row", since a committed spec cannot
-        /// carry a save-specific id.
+        /// <c>G</c> button does, but with no click point, so it centres over this window.
+        /// <paramref name="recordingId"/> may be a recording id or the token the seam passes
+        /// for "the first row", since a committed spec cannot carry a save-specific id.
         /// </summary>
         internal bool TryOpenGroupPickerForRecordingForTesting(
             string recordingId, bool takeFirst, out string resolvedId)
@@ -258,8 +258,7 @@ namespace Parsek
             }
             if (index < 0) return false;
             resolvedId = committed[index].RecordingId;
-            groupPicker.OpenForRecording(index, new Vector2(
-                recordingsWindowRect.x, recordingsWindowRect.y));
+            groupPicker.OpenForRecording(index, PickerWindowLayout.NoClickPoint);
             return groupPicker.IsOpen;
         }
 
@@ -616,7 +615,7 @@ namespace Parsek
 
         private const float ColW_Period = 90f;
         private const float SpacingSmall = 3f;
-        private static readonly Color LoopPeriodClampColor = new Color(1.0f, 0.8f, 0.4f);
+        private static readonly Color LoopPeriodClampColor = ParsekUI.CountdownTextColor;
 
         // Rewind/Forward button state tracking for transition logging
         private Dictionary<int, bool> lastCanRewind = new Dictionary<int, bool>();
@@ -774,12 +773,11 @@ namespace Parsek
         /// <para>Needed because timeline invalidation otherwise fires only from
         /// <c>LedgerOrchestrator.OnTimelineDataChanged</c> and an archive is not a ledger
         /// event: without this, archiving a row while both windows are open leaves the
-        /// flight on the Timeline, unmarked, until some unrelated recalc. Called only
+        /// flight on the Timeline until some unrelated recalc. Called only
         /// from the three change branches that actually write the flag (the per-row
-        /// Archive checkbox and the two group aggregates), never per frame; the archive
-        /// FILTER's own flips are covered separately by
-        /// <c>TimelineWindowUI.ShouldRebuildTimeline</c>, which compares the value the
-        /// cache was built with. See `docs/dev/design-ui-basic-advanced.md` section
+        /// Archive checkbox and the two group aggregates), never per frame. The Archive
+        /// header FILTER needs no call: the Timeline never shows archived recordings, so the
+        /// filter does not reach it. See `docs/dev/design-ui-basic-advanced.md` section
         /// 4.4.</para>
         /// </summary>
         private void NotifyTimelineOfArchiveChange()
@@ -956,7 +954,7 @@ namespace Parsek
             parentUI.LogWindowPosition("Recordings", ref lastRecordingsWindowRect, recordingsWindowRect);
 
             // Group picker popup (rendered outside recordings window to avoid scroll clipping)
-            groupPicker.Draw();
+            groupPicker.Draw(recordingsWindowRect);
 
             // Lock camera controls (including scroll zoom) when mouse is over window.
             // ClickThroughBlocker uses ALLBUTCAMERAS which intentionally leaves camera
@@ -1909,7 +1907,7 @@ namespace Parsek
 
             if (committed.Count == 0)
             {
-                GUILayout.Label("No recordings.");
+                GUILayout.Label("No recordings yet.", parentUI.GetEmptyStateStyle());
             }
             else
             {
@@ -5236,14 +5234,14 @@ namespace Parsek
             {
                 statusOrder = 0;
                 return rec.Points.Count > 0
-                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                    ? ParsekTimeFormat.FormatCountdown(rec.StartUT - now)
                     : "future";
             }
             if (now <= rec.EndUT && !rec.TerminalStateValue.HasValue)
             {
                 statusOrder = 1;
                 return rec.Points.Count > 0
-                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                    ? ParsekTimeFormat.FormatCountdown(rec.StartUT - now)
                     : "active";
             }
             statusOrder = 2;
@@ -5861,7 +5859,7 @@ namespace Parsek
                 var rec = committed[activeIdx];
                 statusOrder = 1; // active
                 statusText = rec.Points.Count > 0
-                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                    ? ParsekTimeFormat.FormatCountdown(rec.StartUT - now)
                     : "active";
             }
             else if (futureIdx >= 0)
@@ -5869,7 +5867,7 @@ namespace Parsek
                 var rec = committed[futureIdx];
                 statusOrder = 0; // future
                 statusText = rec.Points.Count > 0
-                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                    ? ParsekTimeFormat.FormatCountdown(rec.StartUT - now)
                     : "future";
             }
             else if (anyPast)
@@ -6826,11 +6824,13 @@ namespace Parsek
             if (statusStyleFuture != null) return;
 
             // Built on the house table cell style like every other body label.
+            // A flight still ahead shows the house countdown, so it takes the house
+            // countdown amber; a flight in progress is the palette's active green.
             statusStyleFuture = NewTableCellLabelStyle();
-            statusStyleFuture.normal.textColor = Color.white;
+            statusStyleFuture.normal.textColor = ParsekUI.CountdownTextColor;
 
             statusStyleActive = NewTableCellLabelStyle();
-            statusStyleActive.normal.textColor = Color.green;
+            statusStyleActive.normal.textColor = parentUI.GetStatusColor(ParsekUI.StatusColorKind.Green);
 
             statusStylePast = NewTableCellLabelStyle();
             statusStylePast.normal.textColor = new Color(0.5f, 0.5f, 0.5f);
@@ -6838,11 +6838,9 @@ namespace Parsek
             statusStyleStatic = NewTableCellLabelStyle();
             statusStyleStatic.normal.textColor = new Color(1f, 0.72f, 0.25f);
 
-            // L4: only the Stationary cyan matches the shared house palette
-            // (0.65, 0.85, 1); pull it from the centralized ParsekUI source. The other
-            // four recording-lifecycle colors above (white / green / 0.5 grey / orange)
-            // are a separate semantic set and stay local literals so the Recordings
-            // window colors do not shift.
+            // Stationary is the palette's informational cyan. The ended grey (0.5) and
+            // the static orange above mean ended / never-moved here and have no palette
+            // slot, so they stay local.
             statusStyleStationary = NewTableCellLabelStyle();
             statusStyleStationary.normal.textColor = parentUI.GetStatusColor(ParsekUI.StatusColorKind.Cyan);
         }

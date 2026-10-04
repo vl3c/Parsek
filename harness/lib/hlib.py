@@ -199,7 +199,7 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # from the Launch Pad, in progress at the
                                         # save's UT with a future EndUT, so a pad
                                         # vessel sees it as a Real Spawn Control
-                                        # candidate with "Warp to Spawn" ENABLED.
+                                        # candidate whose row Warp is ENABLED.
                                         # `--filter InjectSpawnControlTarget`. No
                                         # RP. Consumer:
                                         # RSC-1-real-spawn-control-warp.
@@ -323,9 +323,27 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # claims it via BACKGROUND_EVENT and it
                                         # is a Real Spawn Control candidate.
                                         # `--filter InjectChainTipRecovery`. No
-                                        # RP. Consumer:
-                                        # CI-6-chain-tip-recover-no-respawn.
-                                        "chain-tip-recovery")
+                                        # RP. Consumers:
+                                        # CI-6-chain-tip-recover-no-respawn,
+                                        # CI-8-chain-tip-original-pid.
+                                        "chain-tip-recovery",
+                                        # chain-tip-dock: ONE committed
+                                        # two-recording tree on eva2-lko-crewed:
+                                        # a Destroyed root ended before the
+                                        # save, and a PARENTLESS background
+                                        # recording of a small docking target
+                                        # (its own derived pid and launch guid,
+                                        # absent from the save) with an engine
+                                        # ignite / shutdown and a 60 s orbit
+                                        # tail on the focused Kerbal X's own
+                                        # orbit ~140 m ahead, so the walker
+                                        # claims it via BACKGROUND_EVENT and it
+                                        # is an orbital Real Spawn Control
+                                        # candidate. `--filter
+                                        # InjectChainTipDock`; the injector
+                                        # refuses a target save at another UT.
+                                        # No RP. Consumer: CI-9-chain-tip-dock.
+                                        "chain-tip-dock")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
@@ -627,7 +645,7 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # The D18 player-action pair. ADDITIVE (44 -> 46 implemented, reserved unchanged at
     # 4): the reserved envelope never carried a spawn or a recovery verb. Both TWO-PHASE
     # on a 120 s budget (DISPATCH_DEFERRAL_BUDGET_SECONDS), so NOT DEFERRED_SEAM_VERBS.
-    #   RealSpawn rec=<id> presses the Real Spawn Control row's "Warp to Spawn" for one
+    #   RealSpawn rec=<id> presses the Real Spawn Control row's "Warp" (Ready) for one
     #     recording through the button's own click body (SpawnControlUI.ExecuteRowWarp ->
     #     ParsekFlight.WarpToRecordingEnd) and answers OK `rec= pid= vessel= endUT=
     #     loaded=` once the playback loop has spawned the real vessel; `pid` is the handle
@@ -638,6 +656,23 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     onVesselRecovered, and the verb answers OK `pid= vessel= scene= recovered=true`
     #     once it has observed that last event.
     "RealSpawn", "Recover",
+    # ADDITIVE (46 -> 47 implemented, reserved unchanged at 4). TWO-PHASE, 120 s.
+    #   TrackingStationRecover pid=<pid>, issued at the Space Center, recovers a vessel
+    #     (usually NOT the active one) through the stock Tracking Station path: the
+    #     building's own click, SpaceTracking.SetVessel, RecoverButton, the "Recover
+    #     Vessel" confirm's own button (stock's OnRecoverConfirm fires onVesselRecovered
+    #     with quick=false), the MissionRecoveryDialog's dismissal, then LeaveBtn; OK
+    #     `pid= vessel= scene=SPACECENTER recovered=true quick=` once back at a settled
+    #     Space Center.
+    "TrackingStationRecover",
+    # ADDITIVE (47 -> 48 implemented, reserved unchanged at 4). TWO-PHASE, 60 s.
+    #   KscMarkerRecover pid=<pid>, issued at the Space Center, recovers a vessel landed
+    #     or splashed on the home world through its stock KSCVesselMarker: the marker's
+    #     own click (expand), then its RecoverButton; stock's KSCVesselMarkers.RecoverVessel
+    #     fires onVesselRecovered with quick=false one frame later, with no confirm and
+    #     no scene change. OK `pid= vessel= scene=SPACECENTER recovered=true quick=` once
+    #     the recovery is observed and any MissionRecoveryDialog is closed.
+    "KscMarkerRecover",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -985,6 +1020,13 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # exit plus stock's 8-frame delay before it recovers the vessel).
     "RealSpawn": 120.0,
     "Recover": 120.0,
+    # DeferralBudget.TrackingStationRecoverSeconds: two scene loads that re-read no save
+    # (Space Center -> Tracking Station and back) plus a few frames of select / confirm /
+    # summary dismissal, the Recover size.
+    "TrackingStationRecover": 120.0,
+    # DeferralBudget.KscMarkerRecoverSeconds: no scene load; the marker wait (180 frames)
+    # plus stock's one-frame recovery. The default size, named so the table states it.
+    "KscMarkerRecover": 60.0,
 }
 
 # Per-verb TAIL ROLE: what a seam verb DOES, used to decide whether it may still be
@@ -1217,6 +1259,12 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # actions an unmet tail must not take.
     "RealSpawn": TAIL_ROLE_WORLD_MUTATING,
     "Recover": TAIL_ROLE_WORLD_MUTATING,
+    # TrackingStationRecover takes a vessel out of the world from the Tracking Station,
+    # pays the recovery and changes scene twice: Recover's role.
+    "TrackingStationRecover": TAIL_ROLE_WORLD_MUTATING,
+    # KscMarkerRecover takes a vessel out of the world from the Space Center and pays the
+    # recovery: Recover's role.
+    "KscMarkerRecover": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1412,6 +1460,12 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # carve-out.
     "RealSpawn": POST_MISSION_ROLE_RECORDING,
     "Recover": POST_MISSION_ROLE_RECORDING,
+    # TrackingStationRecover is `recording` for Recover's reason: its OK is "stock fired
+    # onVesselRecovered for the pid and the Space Center settled again".
+    "TrackingStationRecover": POST_MISSION_ROLE_RECORDING,
+    # KscMarkerRecover is `recording` for the same reason: its OK is "stock fired
+    # onVesselRecovered for the pid at the Space Center".
+    "KscMarkerRecover": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -2637,7 +2691,7 @@ UIACTION_NUDGE_VALUES: Tuple[str, ...] = ("true", "false")
 # from this map keeps no expansion state the seam can drive, and `op=expand` against it
 # is the `expand-unsupported-window` REJECTED - so the absence is meaningful here too.
 # The `missions` row covers BOTH tabs of that one window: group folders and chain blocks
-# on the Recordings tab, vessel / leg rows and each mission's Collapse / Expand
+# on the Recordings tab, vessel / leg rows and each mission's collapse caret
 # (`mission:<id>`) on the Missions tab. The `kerbals`
 # row takes one prefix per TAB instead: `roster` drives a Roster row's replacement-chain
 # view plus that tab's plain-kerbal fold row (key `(available)`), `flights` drives a
@@ -2665,16 +2719,14 @@ UIACTION_EXPAND_BULK_KEYS: Tuple[str, ...] = ("all", "none")
 # absent from this map keeps no scalar state the seam drives, and `op=state` against it
 # is the `state-unsupported-window` REJECTED - so the absence is meaningful here too.
 #
-# `archived` IS ONE FLAG NAMED ONCE, valid on BOTH windows and always in the Timeline's
-# POSITIVE sense (`state=true` means archived rows contribute). The Timeline's Archived
-# toggle and the Recordings tab's Archive header checkbox write the same persisted bool
-# (GroupHierarchyStore.HideActive) in opposite label senses; two keys with opposite
-# polarities for one flag would have made every lane read the source to learn which it
-# had. (The Missions tab's own "hide archived missions" filter, once `archivedMissions`,
-# is gone: Missions Model 1 turned its per-mission mark into Collapse / Expand, driven by
-# the `op=expand` key `mission:<id>`.)
+# `archived` is the Recordings tab's Archive header filter (GroupHierarchyStore.HideActive)
+# in the POSITIVE sense (`state=true` lists archived recordings), valid on `missions` only:
+# the Timeline has no archive control and never lists archived recordings. (The Missions
+# tab's own "hide archived missions" filter, once `archivedMissions`, is gone: Missions
+# Model 1 turned its per-mission mark into the collapse caret, driven by the `op=expand`
+# key `mission:<id>`.)
 UIACTION_STATE_KEYS: Dict[str, Tuple[str, ...]] = {
-    "timeline": ("srcRecordings", "srcActions", "srcEvents", "archived", "customRange",
+    "timeline": ("srcRecordings", "srcActions", "srcEvents", "customRange",
                  "preset", "scrollY"),
     "missions": ("archived", "scrollX"),
 }
@@ -2713,9 +2765,9 @@ UIACTION_SORT_COLUMNS: Dict[str, Tuple[str, ...]] = {
                  "status"),
     "logistics": ("name", "origin", "destination", "interval", "cycles", "next",
                   "status", "delivery"),
-    # ONE token for the two header cells "Spawns at" and "In T-": both map to the same
-    # SpawnControlSortColumn.SpawnTime, so there is nothing for a second token to select.
-    "spawncontrol": ("craft", "dist", "relspeed", "spawntime"),
+    # One token per sortable header, each on its own key. The Spawn date column shows
+    # the same moment as Spawns, so it is a plain header with no token.
+    "spawncontrol": ("craft", "dist", "speed", "spawns", "status"),
 }
 UIACTION_SORT_COLUMN_KEY = "column"
 UIACTION_SORT_DIR_KEY = "dir"
@@ -3209,6 +3261,35 @@ RECOVER_REASONS: Tuple[str, ...] = (
 )
 
 
+# TrackingStationRecover: mirrored from TestCommands/TestCommandTrackingStationRecover.cs
+# (TrackingStationRecoverSourceSyncTests keeps them byte-equal). One required pid= arg,
+# the Recover grammar; `tsrecover-button-locked` is decided inside the Tracking Station
+# and arrives as a late REJECTED.
+TSRECOVER_VERB = "TrackingStationRecover"
+TSRECOVER_PID_KEY = "pid"
+TSRECOVER_REASONS: Tuple[str, ...] = (
+    "tsrecover-pid-arg-missing", "tsrecover-pid-arg-invalid",
+    "tsrecover-wrong-scene", "tsrecover-vessel-not-found",
+    "tsrecover-target-is-ghost", "tsrecover-not-recoverable",
+    "tsrecover-building-not-found", "tsrecover-facility-closed",
+    "tsrecover-button-locked",
+)
+
+
+# KscMarkerRecover: mirrored from TestCommands/TestCommandKscMarkerRecover.cs
+# (KscMarkerRecoverSourceSyncTests keeps them byte-equal). One required pid= arg, the
+# Recover grammar; `kscrecover-marker-not-found` / `kscrecover-button-locked` are decided
+# by the marker poll and arrive as late REJECTEDs (nothing was pressed).
+KSCRECOVER_VERB = "KscMarkerRecover"
+KSCRECOVER_PID_KEY = "pid"
+KSCRECOVER_REASONS: Tuple[str, ...] = (
+    "kscrecover-pid-arg-missing", "kscrecover-pid-arg-invalid",
+    "kscrecover-wrong-scene", "kscrecover-vessel-not-found",
+    "kscrecover-target-is-ghost", "kscrecover-not-recoverable",
+    "kscrecover-marker-not-found", "kscrecover-button-locked",
+)
+
+
 # The largest persistentId a literal ``Recover pid=`` can name: KSP's persistentId is a
 # uint, and the seam parses the arg with ``uint.TryParse``.
 RECOVER_PID_MAX = 4294967295
@@ -3239,6 +3320,46 @@ def validate_real_spawn_recover_step(index: int, cmd: str, step_args: Dict) -> L
         errors.append(
             "driver.steps[%d].args.%s: %r is not a positive decimal persistentId; the "
             "seam answers REJECTED recover-pid-arg-invalid" % (index, key, raw))
+    return errors
+
+
+def validate_tracking_station_recover_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``TrackingStationRecover`` step: ``pid=`` is
+    REQUIRED, and a literal must be an ASCII decimal in 1..4294967295 (the seam's
+    ``uint.TryParse(NumberStyles.None)``, Recover's range); a ``${step.field}`` handle is
+    checked by the R10 static tier and resolved at run time."""
+    errors: List[str] = []
+    raw = step_args.get(TSRECOVER_PID_KEY)
+    if raw is None or str(raw) == "":
+        errors.append(
+            "driver.steps[%d].args.%s: %s REQUIRES it; the seam answers REJECTED "
+            "tsrecover-pid-arg-missing" % (index, TSRECOVER_PID_KEY, TSRECOVER_VERB))
+    elif "${" not in str(raw) and not (
+            re.fullmatch(r"[0-9]+", str(raw))
+            and 0 < int(str(raw)) <= RECOVER_PID_MAX):
+        errors.append(
+            "driver.steps[%d].args.%s: %r is not a positive decimal persistentId; the "
+            "seam answers REJECTED tsrecover-pid-arg-invalid" % (index, TSRECOVER_PID_KEY, raw))
+    return errors
+
+
+def validate_ksc_marker_recover_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``KscMarkerRecover`` step: ``pid=`` is REQUIRED,
+    and a literal must be an ASCII decimal in 1..4294967295 (the seam's
+    ``uint.TryParse(NumberStyles.None)``, Recover's range); a ``${step.field}`` handle is
+    checked by the R10 static tier and resolved at run time."""
+    errors: List[str] = []
+    raw = step_args.get(KSCRECOVER_PID_KEY)
+    if raw is None or str(raw) == "":
+        errors.append(
+            "driver.steps[%d].args.%s: %s REQUIRES it; the seam answers REJECTED "
+            "kscrecover-pid-arg-missing" % (index, KSCRECOVER_PID_KEY, KSCRECOVER_VERB))
+    elif "${" not in str(raw) and not (
+            re.fullmatch(r"[0-9]+", str(raw))
+            and 0 < int(str(raw)) <= RECOVER_PID_MAX):
+        errors.append(
+            "driver.steps[%d].args.%s: %r is not a positive decimal persistentId; the "
+            "seam answers REJECTED kscrecover-pid-arg-invalid" % (index, KSCRECOVER_PID_KEY, raw))
     return errors
 
 
@@ -6144,6 +6265,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_safe_write_crash_step(i, step_args))
         elif cmd in (REALSPAWN_VERB, RECOVER_VERB):
             errors.extend(validate_real_spawn_recover_step(i, cmd, step_args))
+        elif cmd == TSRECOVER_VERB:
+            errors.extend(validate_tracking_station_recover_step(i, step_args))
+        elif cmd == KSCRECOVER_VERB:
+            errors.extend(validate_ksc_marker_recover_step(i, step_args))
         # R10 STATIC tier, pass 2 of 2: every ${ref.field} in this step's args must
         # be well-formed AND name an EARLIER seam step that expects OK. A fault here
         # would otherwise put a literal ${...} on the wire, where the seam resolves an
@@ -9771,6 +9896,33 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "recover-button-locked": "driver-gate",
     "recover-not-clear-to-save": "driver-gate",
     "recover-cannot-leave-to-space-center": "driver-gate",
+    # TrackingStationRecover: the malformed arg and a pid that names no real vessel (or a
+    # ghost) are the SPEC's fault; the wrong scene (the goeditor-wrong-scene call), an
+    # unrecoverable vessel, a closed or
+    # missing building and a Recover button stock locked are live states the click would
+    # not act in. Mirrored from the C# `Reasons` array (TrackingStationRecoverSourceSyncTests).
+    "tsrecover-pid-arg-missing": "driver-arg",
+    "tsrecover-pid-arg-invalid": "driver-arg",
+    "tsrecover-wrong-scene": "driver-gate",
+    "tsrecover-vessel-not-found": "driver-arg",
+    "tsrecover-target-is-ghost": "driver-arg",
+    "tsrecover-not-recoverable": "driver-gate",
+    "tsrecover-building-not-found": "driver-gate",
+    "tsrecover-facility-closed": "driver-gate",
+    "tsrecover-button-locked": "driver-gate",
+    # KscMarkerRecover: the TrackingStationRecover split. The malformed arg and a pid that
+    # names no real vessel (or a ghost) are the SPEC's fault; the wrong scene, a vessel
+    # stock gives no marker, a marker that never appeared and a locked or non-interactable
+    # Recover are live states the press would not act in. Mirrored from the C# `Reasons`
+    # array (KscMarkerRecoverSourceSyncTests).
+    "kscrecover-pid-arg-missing": "driver-arg",
+    "kscrecover-pid-arg-invalid": "driver-arg",
+    "kscrecover-wrong-scene": "driver-gate",
+    "kscrecover-vessel-not-found": "driver-arg",
+    "kscrecover-target-is-ghost": "driver-arg",
+    "kscrecover-not-recoverable": "driver-gate",
+    "kscrecover-marker-not-found": "driver-gate",
+    "kscrecover-button-locked": "driver-gate",
     # SimulateStockSwitchClick, arg half: site / selector spellings and target resolution.
     # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
     # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.

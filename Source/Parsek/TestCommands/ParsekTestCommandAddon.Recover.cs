@@ -184,7 +184,7 @@ namespace Parsek.TestCommands
                 recoverRequestObserved = true;
         }
 
-        private void OnRecoverSeamRecoveredObserved(ProtoVessel pv, bool fromTrackingStation)
+        private void OnRecoverSeamRecoveredObserved(ProtoVessel pv, bool quick)
         {
             if (pv == null) return;
             // Stock's VesselRetrieval matches by Guid; the pid can be regenerated on a
@@ -193,7 +193,7 @@ namespace Parsek.TestCommands
             {
                 recoverRecoveredObserved = true;
                 ParsekLog.Info(Tag, $"recover observed onVesselRecovered pid={pv.persistentId.ToString(CultureInfo.InvariantCulture)} "
-                    + $"vessel={pv.vesselName} fromTrackingStation={Bool(fromTrackingStation)}");
+                    + $"vessel={pv.vesselName} quick={Bool(quick)}");
             }
         }
 

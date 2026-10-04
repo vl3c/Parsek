@@ -187,10 +187,11 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
-        public void FormatCumulativeTotal_EmptyOrNull_ShowsNone()
+        public void FormatCumulativeTotal_EmptyOrNull_IsEmpty()
         {
-            Assert.Equal("(none)", LogisticsDeliveryPresentation.FormatCumulativeTotal(null));
-            Assert.Equal("(none)", LogisticsDeliveryPresentation.FormatCumulativeTotal(new Dictionary<string, double>()));
+            // No "(none)" placeholder: an empty total is "" and the callers drop the clause.
+            Assert.Equal("", LogisticsDeliveryPresentation.FormatCumulativeTotal(null));
+            Assert.Equal("", LogisticsDeliveryPresentation.FormatCumulativeTotal(new Dictionary<string, double>()));
         }
 
         // Cumulative total is sorted by resource key (ordinal) for stable display order.
@@ -229,7 +230,7 @@ namespace Parsek.Tests.Logistics
         public void FormatWouldDeliver_ResourcesOnly_FormatsF1Invariant()
         {
             var resources = new Dictionary<string, double> { { "LiquidFuel", 150.0 } };
-            Assert.Equal("LiquidFuel 150.0",
+            Assert.Equal("150.0 LiquidFuel",
                 LogisticsDeliveryPresentation.FormatWouldDeliver(resources, null));
         }
 
@@ -252,7 +253,7 @@ namespace Parsek.Tests.Logistics
         {
             var resources = new Dictionary<string, double> { { "Ore", 40.0 } };
             var inventory = new List<InventoryPayloadItem> { new InventoryPayloadItem() };
-            Assert.Equal("Ore 40.0, 1 inventory item(s)",
+            Assert.Equal("40.0 Ore, 1 inventory item(s)",
                 LogisticsDeliveryPresentation.FormatWouldDeliver(resources, inventory));
         }
 

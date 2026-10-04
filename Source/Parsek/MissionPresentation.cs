@@ -72,12 +72,26 @@ namespace Parsek
             "(its own include set, loop period, and Archive flag). A looping mission's copy " +
             "starts with Loop off.";
 
-        internal const string CollapseButtonTooltip =
-            "Hide this mission's vessel rows; its title bar stays. Does not change looping or " +
-            "ghost playback.";
+        // The mission's collapse caret (line 2 of the Missions tab's # column, under the index):
+        // the house expand-caret glyphs, down while the mission's vessel rows show and right
+        // while they are hidden, and a hover naming what the click does.
+        internal const string MissionCaretExpandedGlyph = "▼";
+        internal const string MissionCaretCollapsedGlyph = "▶";
+        internal const string CollapseCaretTooltip = "Collapse this mission";
+        internal const string ExpandCaretTooltip = "Expand this mission";
 
-        internal const string ExpandButtonTooltip =
-            "Show this mission's vessel rows again.";
+        /// <summary>The caret glyph for a mission whose rows are hidden
+        /// (<paramref name="collapsed"/>) or shown.</summary>
+        internal static string MissionCollapseCaretGlyph(bool collapsed)
+        {
+            return collapsed ? MissionCaretCollapsedGlyph : MissionCaretExpandedGlyph;
+        }
+
+        /// <summary>The caret's hover: what one click does in the given state.</summary>
+        internal static string MissionCollapseCaretTooltip(bool collapsed)
+        {
+            return collapsed ? ExpandCaretTooltip : CollapseCaretTooltip;
+        }
 
         internal const string WarpToButtonTooltip =
             "Fast-forward the game clock to just before this mission's next launch.";
@@ -174,7 +188,7 @@ namespace Parsek
         /// </summary>
         internal static MissionSummaryFacts ComputeSummaryFacts(
             MissionStructure structure, MissionThroughLineView view,
-            List<MissionCompositionNode> roots)
+            List<MissionCompositionNode> roots, ICollection<string> partnerLegIds = null)
         {
             var facts = new MissionSummaryFacts
             {
@@ -210,11 +224,14 @@ namespace Parsek
             }
 
             // Vessels: distinct composition OwnerHeadIds, counting only real vessel intervals -
-            // a roster atom is a part, and an EVA-kerbal leg is a person, so neither is a vessel.
+            // a roster atom is a part, an EVA-kerbal leg is a person, and another mission's
+            // vessel that joined the flight (a partner join, <paramref name="partnerLegIds"/>
+            // from MissionVesselNaming) is that mission's, so none of them counts. A joined
+            // vessel the naming pass calls this mission's own still counts.
             var owners = new HashSet<string>(System.StringComparer.Ordinal);
             if (roots != null)
                 for (int i = 0; i < roots.Count; i++)
-                    CollectVesselOwners(roots[i], owners);
+                    CollectVesselOwners(roots[i], owners, partnerLegIds);
             facts.VesselCount = owners.Count;
 
             // Crew: the union of NAMED crew over the tree's legs (a leg's CrewNames roster comes
@@ -267,14 +284,16 @@ namespace Parsek
         // Distinct physical-vessel owners under a composition node. A roster atom carries no
         // OwnerHeadId; an EVA-kerbal interval labels itself with the kerbal's name (so its
         // VesselName equals its CompositionLabel) and is a person, not a vessel.
-        private static void CollectVesselOwners(MissionCompositionNode node, HashSet<string> owners)
+        private static void CollectVesselOwners(MissionCompositionNode node, HashSet<string> owners,
+            ICollection<string> partnerLegIds)
         {
             if (node == null)
                 return;
-            if (!node.IsAtom && !string.IsNullOrEmpty(node.OwnerHeadId) && !IsPersonNode(node))
+            if (!node.IsAtom && !string.IsNullOrEmpty(node.OwnerHeadId) && !IsPersonNode(node)
+                && !MissionVesselRowBuilder.IsPartnerJoin(node, partnerLegIds))
                 owners.Add(node.OwnerHeadId);
             for (int i = 0; i < node.Children.Count; i++)
-                CollectVesselOwners(node.Children[i], owners);
+                CollectVesselOwners(node.Children[i], owners, partnerLegIds);
         }
 
         // True for an EVA-kerbal interval (a person, not a vessel). Reads the builder-stamped
@@ -337,7 +356,7 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(nextLaunchCellText))
                 return null;
-            return nextLaunchCellText.StartsWith("T-", System.StringComparison.Ordinal)
+            return nextLaunchCellText.StartsWith(ParsekTimeFormat.CountdownPrefix, System.StringComparison.Ordinal)
                 ? nextLaunchCellText
                 : null;
         }
@@ -404,7 +423,7 @@ namespace Parsek
 
         /// <summary>
         /// The colour of the countdown segment on the summary line, as the rich-text hex of
-        /// the window's amber (<c>MissionsWindowUI.LoopPeriodClampColor</c>, 1 / 0.8 / 0.4;
+        /// the house countdown amber (<c>ParsekUI.CountdownTextColor</c>, 1 / 0.8 / 0.4;
         /// a unit test holds the two together).
         /// </summary>
         internal const string SummaryCountdownColorHex = "#ffcc66";
@@ -415,7 +434,7 @@ namespace Parsek
         /// arrival refusal, a launch outside its alignment tolerance) reads exactly like a plain
         /// one until hovered. The warning's words stay in the summary tooltip.
         /// </summary>
-        internal const string SummaryCountdownWarningMarker = " (!)";
+        internal const string SummaryCountdownWarningMarker = ParsekTimeFormat.CountdownWarningMarker;
 
         // What a '<' in player-authored text becomes on the rich-text summary line. Unity's
         // IMGUI rich text has no escape sequence, so a kerbal or body name spelling a real tag
@@ -762,6 +781,58 @@ namespace Parsek
             }
             return null;
         }
+
+        /// <summary>
+        /// The vessel a line docked INTO when it ends at a same-tree Dock / Board: walking the
+        /// line from <paramref name="ownerHeadId"/> through
+        /// <see cref="MissionThroughLineBuilder.ContinuationSuccessor"/>, the first successor
+        /// that is a two-parent Dock / Board merge of the current leg and starts at the line's
+        /// <paramref name="endUT"/> (within <see cref="TerminalMergeToleranceSeconds"/>); the
+        /// answer is that merge's other parent. Another line took the merged leg, so this line
+        /// ended there - another mission's vessel flown to a dock reads
+        /// <c>"Docked (Duna Supply 1)"</c>. Null when the line ends no such way. Pure.
+        /// </summary>
+        internal static string ResolveTerminalDockPartnerVesselName(
+            MissionStructure structure, string ownerHeadId, double endUT,
+            IReadOnlyDictionary<string, string> vesselNames = null)
+        {
+            if (structure == null || string.IsNullOrEmpty(ownerHeadId))
+                return null;
+            var seen = new HashSet<string>(System.StringComparer.Ordinal);
+            string cur = ownerHeadId;
+            while (cur != null && seen.Add(cur)
+                   && structure.LegsById.TryGetValue(cur, out MissionLeg leg) && leg != null)
+            {
+                string next = MissionThroughLineBuilder.ContinuationSuccessor(structure, leg);
+                if (next != null && structure.LegsById.TryGetValue(next, out MissionLeg merged)
+                    && merged != null && merged.OriginBranchPointType.HasValue
+                    && (merged.OriginBranchPointType.Value == BranchPointType.Dock
+                        || merged.OriginBranchPointType.Value == BranchPointType.Board)
+                    && merged.BranchParentIds.Count == 2
+                    && merged.BranchParentIds.Contains(cur)
+                    && System.Math.Abs(merged.StartUT - endUT) <= TerminalMergeToleranceSeconds)
+                {
+                    string other = string.Equals(merged.BranchParentIds[0], cur,
+                        System.StringComparison.Ordinal)
+                        ? merged.BranchParentIds[1] : merged.BranchParentIds[0];
+                    if (other == null
+                        || !structure.LegsById.TryGetValue(other, out MissionLeg partner)
+                        || partner == null)
+                        return null;
+                    if (vesselNames != null && vesselNames.TryGetValue(other, out string named)
+                        && !string.IsNullOrEmpty(named))
+                        return named;
+                    return string.IsNullOrEmpty(partner.VesselName) ? null : partner.VesselName;
+                }
+                cur = next;
+            }
+            return null;
+        }
+
+        // A leg that ends at a dock and the merged leg that starts there are written by two
+        // recorders a physics frame or so apart (0.02 s on interbody-route-recorded's Duna
+        // dock), so the line's end and the merge's start match only within this.
+        internal const double TerminalMergeToleranceSeconds = 1.0;
 
         // ===================== T1.5 - the state tooltips =====================
 

@@ -203,6 +203,11 @@ namespace Parsek
         /// <paramref name="vesselNames"/> is <see cref="MissionVesselNaming.Build"/>'s map
         /// (RecordingId -> "Kerbal X [2]" / the partner phrase), the names the Missions vessel
         /// rows use; a leg it does not name reads its own vessel or kerbal name.
+        /// <paramref name="partnerLegIds"/> is the set the same naming pass marked as another
+        /// mission's vessel (<see cref="MissionVesselNaming.Build"/>'s partner legs): a Dock /
+        /// Undock row then names THIS mission's ship in its Vessel column and the other side
+        /// in its label, whichever side KSP kept the combined vessel's identity on. Null keeps
+        /// the structural attribution (the branch point's first parent).
         /// </summary>
         internal static List<StructureStep> Build(
             RecordingTree tree,
@@ -210,7 +215,8 @@ namespace Parsek
             Func<string, string> partTitleResolver = null,
             Func<BranchPoint, string, string> mergePartnerResolver = null,
             ICollection<string> excludedIntervalKeys = null,
-            IReadOnlyDictionary<string, string> vesselNames = null)
+            IReadOnlyDictionary<string, string> vesselNames = null,
+            ICollection<string> partnerLegIds = null)
         {
             var steps = new List<StructureStep>();
             if (tree == null || structure == null || structure.LegsById.Count == 0)
@@ -222,7 +228,7 @@ namespace Parsek
             }
 
             var ctx = new BuildContext(tree, structure, partTitleResolver, mergePartnerResolver,
-                vesselNames);
+                vesselNames, partnerLegIds);
 
             // 1. Launch: one per root leg.
             AddLaunchSteps(steps, ctx);
@@ -267,6 +273,7 @@ namespace Parsek
                     $"absorbed={ctx.AbsorbedCount} loose={loose.Count} " +
                     $"mergedEndsSkipped={ctx.SkippedMergedEnds} " +
                     $"continuedEndsSkipped={ctx.SkippedContinuedEnds} " +
+                    $"ownSideRows={ctx.OwnSideRows} " +
                     $"excludedKeys={(excludedIntervalKeys != null ? excludedIntervalKeys.Count : 0)} " +
                     $"excludedRows={excludedRows}");
             return steps;
@@ -371,6 +378,7 @@ namespace Parsek
             private readonly Func<string, string> partTitleResolver;
             internal readonly Func<BranchPoint, string, string> MergePartnerResolver;
             private readonly IReadOnlyDictionary<string, string> vesselNames;
+            private readonly ICollection<string> partnerLegIds;
             private readonly Dictionary<string, string> titleCache =
                 new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -388,19 +396,42 @@ namespace Parsek
             internal int AbsorbedCount;
             internal int SkippedMergedEnds;
             internal int SkippedContinuedEnds;
+            internal int OwnSideRows;
 
             internal BuildContext(RecordingTree tree, MissionStructure structure,
                 Func<string, string> partTitleResolver,
                 Func<BranchPoint, string, string> mergePartnerResolver,
-                IReadOnlyDictionary<string, string> vesselNames)
+                IReadOnlyDictionary<string, string> vesselNames,
+                ICollection<string> partnerLegIds)
             {
                 Tree = tree;
                 Structure = structure;
                 this.partTitleResolver = partTitleResolver;
                 MergePartnerResolver = mergePartnerResolver;
                 this.vesselNames = vesselNames;
+                this.partnerLegIds = partnerLegIds;
                 IndexPredecessors();
             }
+
+            // The first id that is a controlled, non-debris leg of THIS mission (not another
+            // mission's vessel per the naming pass). Null when no partner set was given:
+            // without it the two sides cannot be told apart.
+            internal string FirstOwn(List<string> ids)
+            {
+                if (partnerLegIds == null || ids == null) return null;
+                for (int i = 0; i < ids.Count; i++)
+                {
+                    string id = ids[i];
+                    if (id == null || !Structure.LegsById.ContainsKey(id)) continue;
+                    Recording r = Rec(id);
+                    if (r != null && r.IsDebris) continue;
+                    if (!partnerLegIds.Contains(id)) return id;
+                }
+                return null;
+            }
+
+            internal bool IsPartner(string id)
+                => partnerLegIds != null && id != null && partnerLegIds.Contains(id);
 
             internal Recording Rec(string id)
                 => id != null && Tree.Recordings != null
@@ -870,9 +901,12 @@ namespace Parsek
         // Dock / Undock / Board / EVA / placed-part rows.
         private static void AddOtherBranchStep(List<StructureStep> steps, BuildContext ctx, BranchPoint bp)
         {
-            // Vessel name = the acting / continuing vessel (parent first); location = the
+            // The event's leg = the acting / continuing vessel (parent first): the row's
+            // identity for the include filter and the collapse. Location = the
             // event-coincident recording (the CHILD branch created at the event, whose
-            // captured start context IS the event's).
+            // captured start context IS the event's). The Vessel column of a Dock / Undock
+            // is this mission's own ship when the naming pass can tell the sides apart
+            // (ResolveOwnSide), else the event's leg.
             string vesselId = FirstControlled(bp.ParentRecordingIds, ctx.Structure)
                 ?? FirstControlled(bp.ChildRecordingIds, ctx.Structure);
             string locId = FirstControlled(bp.ChildRecordingIds, ctx.Structure)
@@ -880,11 +914,25 @@ namespace Parsek
             string cause = bp.SplitCause ?? bp.BreakupCause;
             string eventWord = MissionCompositionBuilder.BranchEventName(bp.Type, cause);
 
+            string viewerId = vesselId;
             string partner = null;
-            if (bp.Type == BranchPointType.Dock)
-                partner = DescribeMergePartner(ctx, bp, vesselId);
-            else if (bp.Type == BranchPointType.Undock)
-                partner = DescribeUndockPartner(ctx, bp);
+            if (bp.Type == BranchPointType.Dock || bp.Type == BranchPointType.Undock)
+            {
+                if (ResolveOwnSide(ctx, bp, vesselId, out string ownId, out string otherSide))
+                {
+                    viewerId = ownId;
+                    partner = otherSide;
+                    ctx.OwnSideRows++;
+                }
+                else if (bp.Type == BranchPointType.Dock)
+                {
+                    partner = DescribeMergePartner(ctx, bp, vesselId);
+                }
+                else
+                {
+                    partner = DescribeUndockPartner(ctx, bp);
+                }
+            }
 
             Recording locRec = ctx.Rec(locId);
             string location = locRec != null && StructureLocationFormatter.HasStartContext(locRec)
@@ -901,9 +949,71 @@ namespace Parsek
                 Label = label,
                 Tooltip = label == full ? null : full,
                 Location = location,
-                VesselName = vesselId != null ? ctx.VesselOf(vesselId) : "",
+                VesselName = viewerId != null ? ctx.VesselOf(viewerId) : "",
                 RecordingId = vesselId
             });
+        }
+
+        /// <summary>
+        /// The mission's own side of a Dock / Undock whose event leg is ANOTHER mission's
+        /// vessel. KSP keeps one identity for a docked pair, often the partner's, so the
+        /// combined vessel that undocks reads as the partner; the row is still this mission's
+        /// ship undocking. Dock: the first own parent, else the first own child (the partner
+        /// docked into this ship), the label naming the other side. Undock: the first own
+        /// child, the label naming the other children (the partner's half), or the combined
+        /// vessel when no other child was recorded. False - the caller keeps the structural
+        /// attribution - when the event leg is this mission's own (the passive side reads as
+        /// before: the vessel that stayed in the Vessel column, the piece that left in the
+        /// label), when there is no partner set, or when no own side exists.
+        /// </summary>
+        private static bool ResolveOwnSide(BuildContext ctx, BranchPoint bp, string eventLegId,
+            out string ownId, out string otherSide)
+        {
+            ownId = null;
+            otherSide = null;
+            if (eventLegId == null || !ctx.IsPartner(eventLegId))
+                return false;
+
+            if (bp.Type == BranchPointType.Dock)
+            {
+                string ownParent = ctx.FirstOwn(bp.ParentRecordingIds);
+                if (ownParent != null)
+                {
+                    ownId = ownParent;
+                    otherSide = DescribeMergePartner(ctx, bp, ownParent);
+                    return true;
+                }
+                string ownChild = ctx.FirstOwn(bp.ChildRecordingIds);
+                if (ownChild == null)
+                    return false;
+                ownId = ownChild;
+                otherSide = JoinVesselNames(ctx, bp.ParentRecordingIds, ownChild);
+                return true;
+            }
+
+            string own = ctx.FirstOwn(bp.ChildRecordingIds);
+            if (own == null)
+                return false;
+            ownId = own;
+            otherSide = JoinVesselNames(ctx, bp.ChildRecordingIds, own) ?? ctx.VesselOf(eventLegId);
+            return true;
+        }
+
+        // The distinct names of the controlled, non-debris ids other than skipId; null if none.
+        private static string JoinVesselNames(BuildContext ctx, List<string> ids, string skipId)
+        {
+            if (ids == null) return null;
+            var names = new List<string>();
+            foreach (string id in ids)
+            {
+                if (id == null || string.Equals(id, skipId, StringComparison.Ordinal)) continue;
+                if (!ctx.Structure.LegsById.ContainsKey(id)) continue;
+                Recording r = ctx.Rec(id);
+                if (r != null && r.IsDebris) continue;
+                string n = ctx.VesselOf(id);
+                if (!string.IsNullOrEmpty(n) && !names.Contains(n)) names.Add(n);
+            }
+            return names.Count == 0 ? null : string.Join(", ", names.ToArray());
         }
 
         // The other side of a dock: a two-parent same-tree dock names the other parent;

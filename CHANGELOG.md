@@ -21,6 +21,58 @@ _(unreleased — entries accumulate here per commit)_
   poster's settle and drop-retry, the patch sweep with real Harmony) and by the new
   `StartupNotices` in-game category and its lane `SN-1-startup-notices-clean-install`, which flew
   green on the automation install.
+- **Dev: a test command recovers a vessel from its Space Center marker, and a lane uses it.**
+  `KscMarkerRecover pid=<pid>` takes the third route a player has to recover a landed
+  vessel: at the Space Center it opens the vessel's marker and presses its Recover button,
+  with no confirmation and no scene change, closes the recovery summary if one opens, and
+  answers once stock has recovered the vessel. `CI-10-chain-tip-ksc-marker-recover-no-respawn`
+  (live-proven: reading `2026-10-04_1349`, armed `_1409`) repeats CI-7 on the same save with that route: spawn the chain's final
+  lander, recover it from its marker, launch again, and require that the lander does not
+  come back.
+- **Dev: the recovery event's flag is named `quick` in code and logs.** The second value of
+  stock's vessel-recovered event is stock's "quick" flag (true only for a silent cleanup), not
+  "from the Tracking Station"; the parameter and the `quick=` log keys now say so.
+- **Dev: a lane for recovering a spawned vessel through kRPC while another vessel is active.**
+  A new mission action, `recover_named_vessel`, picks the one vessel with a given name (none
+  or several refuses without asking), recovers it through kRPC's `Vessel.Recover()` even
+  though it is not the active vessel, and waits for the game to leave the flight scene.
+  The new mission `ci11_krpc_recover` uses it in `CI-11-chain-tip-krpc-recover-no-respawn`
+  (nightly; live-proven: reading `2026-10-04_1353`, armed `_1412`): Real Spawn Control spawns a ghost chain's final vessel beside
+  the pad, kRPC recovers it, and the next flight must not spawn it again.
+- **Dev: KSP.log now records when the crash screen and the recovery summary open and close.**
+  Stock KSP's flight results dialog ("Outcome: Catastrophic Failure!", also the F3 flight
+  status screen) and its "Mission Summary" recovery dialog left no reliable trace in the log,
+  so a scan of harness runs could not tell how long either stayed up. Parsek now writes one
+  `[PostFlightDialog]` line when each opens, with the scene, the vessel and, for the flight
+  results dialog, whether the game is paused and whether it is the crash screen
+  (`exitControls=true`), and one when each closes, with the time it stayed on screen in wall
+  seconds (`onScreenWallSeconds=`). Logging only: nothing on screen changes.
+- **Dev: a lane for spawning a ghost chain's final vessel through Real Spawn Control.**
+  `CI-8-chain-tip-original-pid` (flown green 2026-10-03, nightly) reads a ghost chain's
+  vessel id, presses the chain's Real Spawn Control button, and requires the vessel that
+  appears to carry that same id, with exactly one copy of it in the saved game. It reuses
+  the `chain-tip-recovery` test save of the recovery lane.
+- **Dev: a test command recovers a vessel from the Tracking Station.**
+  `TrackingStationRecover pid=<pid>` walks the stock route a player takes from the Space
+  Center: it enters the Tracking Station, selects the vessel, presses stock's Recover and
+  confirms it, closes the recovery summary if one opens, and leaves back to the Space Center,
+  answering once stock has recovered the vessel. The flag stock passes with that event is its
+  "quick" flag and is false for this route, so nothing waits on it.
+- **Dev: lanes for a Hard career that earns and spends, and for a career that starts with no
+  money.** `HC-2-hard-career-earn-spend` (flown green 2026-10-03, nightly) flies L3's science
+  hop on `career-science-pad-hard`, a copy of L3's save at KSP's Hard preset built by
+  `harness/tools/build_career_science_pad_hard.py` and pinned byte for byte. It then launches a
+  probe from the VAB, runs the ledger ground-truth check and rewinds the hop. Every milestone
+  reward came in at exactly 0.6 times the Normal amount and every science result carried the
+  0.6 multiplier, while the recovery stayed unscaled. The funds total matched the value
+  predicted before the flight, Parsek's ledger matched the game's own balances with no
+  correction, and the rewind put the balances back. `ZF-1-zero-funds-career` (flown green
+  2026-10-03, nightly) loads `career-pad-craft-zero-funds`, a career that starts at 0 funds.
+  It checks that the starting balance is recorded as zero without the old 10-second wait, that
+  a recovery and a launch then add up with no correction, and that a hire the career cannot
+  afford is refused. Both lanes launch `Settings Probe`, a new one-part shared craft. These
+  careers cannot build the stock Jumping Flea: with Probes Before Crew installed its pod and
+  parachute are not yet researched.
 - **Dev: a lane for recovering a ghost chain's final vessel, and the duplicate it found.**
   The new `chain-tip-recovery` injected recording set gives a test save a ghost chain whose
   last vessel lands next to the pad vessel while its ghost is still playing, so a lane can
@@ -147,7 +199,7 @@ _(unreleased — entries accumulate here per commit)_
   byte-identity drift test.
 - **Dev: the automated tests can press Stash, and a lane re-flies a stashed slot whose flight went EVA.** A new test command, `StashSlot`, presses the Recordings table's per-row Stash button (the same handler) and checks that the slot now shows as an Unfinished Flight. `RF-20-stashed-eva-slot-refly` (flown green 2026-09-27) uses it: a staged orbital flight where a kerbal steps out and back in is committed, the crewed stage (a stable orbit, so not an Unfinished Flight on its own) is stashed, re-flown from the separation and merged, and the merge must replace the old flight including the kerbal's EVA and close the slot
 - **Dev: a lane for the refused recovery XP row.** `L7-career-idless-same-name-xp-refusal` (flown green 2026-10-01, nightly tier) flies the pad craft unrecorded over a new career fixture, `career-idless-same-name-pad`, that carries two older same-name recordings with no launch identity, recovers it, and checks that the kerbal XP row is refused as ambiguous (`reason=ambiguous-recovery-recording`, `corroboration=unknown-launch-guid`) while the recovery funds and science still credit the later of the two recordings. Since recovery matches by launch identity first, this refusal is only reachable with recordings that predate the launch identity field.
-- **Dev: a lane for rewinding a relaunch of a craft.** `RR-1-relaunch-rewind-keeps-earlier-launch` (never flown) relaunches the stock Kerbal X on `kerbin-splashdown-recorded`, whose earlier Kerbal X capsule is still landed, commits, rewinds that flight and checks the rewind keeps the earlier capsule while removing the relaunched vessel.
+- **Dev: a lane for rewinding a relaunch of a craft.** `RR-1-relaunch-rewind-keeps-earlier-launch` (flown green 2026-10-03) relaunches the stock Kerbal X on `kerbin-splashdown-recorded`, whose earlier Kerbal X capsule is still landed, commits, rewinds that flight and checks the rewind keeps the earlier capsule while removing the relaunched vessel.
 
 - **Dev: two lanes for the crew inventory restore at spawn.** `H72-kerbal-inventory-spawn` (flown green 2026-09-27) runs the in-game `KerbalInventorySpawn` category over the pad craft's seated Jeb, whose roster carries a two-part inventory, and checks the capture, the roster applier and the rollback lines. `EVA-7-crew-inventory-spawn-after-rewind` (flown green 2026-09-27) replays EVA-6's chain: Jeb carries a parachute and a seismometer, places the seismometer on EVA, the recording commits, Rewind-to-Launch, and the Space Center spawns him. It checks that his spawn restores the recorded one-part inventory rather than the two-part one the rewind put back on the roster, and that the restore runs exactly once.
 - **Dev: two lanes for the Re-Fly exit on the Hard preset.** `RF-16-hard-preset-refly-exit-merge` and `RF-17-hard-preset-refly-exit-discard` (both flown green 2026-09-27) run a re-fly on `gloops-airshow-hard`, a copy of `gloops-airshow` with the Hard flags (no revert, no quickload) built by `harness/tools/build_gloops_airshow_hard.py` and pinned byte for byte. Each requires the "Retry not offered" log line, leaves the flight through the scene-exit merge dialog and commits (RF-16) or discards (RF-17) the attempt, and forbids any revert.
@@ -1390,6 +1442,47 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Real Spawn Control and the nearby-craft message name where a departing craft goes in words.**
+  A craft orbiting Kerbin that was going to land read `departs to Kerbin`, the body it
+  already orbits, and a craft changing orbit around the same body read the raw word
+  `departs to maneuver`, in the window and in the on-screen `Nearby craft` message (Basic
+  mode too). They now read `leaves orbit to land on Kerbin` (`to come down on Kerbin` for a
+  crash; the body is the one the flight ended on, so a Kerbin-orbit craft that lands on the
+  Mun reads `to land on Mun`), `leaves orbit for a new orbit`, and `leaves orbit for Mun` for
+  another body. A flight that ends landed or destroyed always reads as coming down, even when
+  its last recorded orbit was a sub-orbital arc around the same body.
+- **Real Spawn Control's spawn-time sort follows the Warp button.** On a craft that leaves its
+  orbit before it would spawn, the sort used the far-away spawn while the button (and `Warp to
+  Next Spawn`) acted on the departure, so the top row was not the next thing Warp would do.
+  The sort, both time cells and the button now use the same moment.
+
+- **Real Spawn Control's "Warp to Spawn" puts an orbiting vessel where its ghost stood.**
+  Park beside a ghost in orbit whose flight ends Orbiting and press "Warp to Spawn": the
+  clock jumps to the flight's end while your own vessel keeps its place, as designed, but
+  the vessel that appeared used to sit on its recorded orbit at the new time, tens or
+  hundreds of kilometres along the orbit (120 km after a 54 s jump in low Kerbin orbit).
+  A ghost standing within the physics bubble when the jump crosses its end now gets the
+  same time shift your vessel gets, so the real vessel appears where the ghost was, with
+  the same distance and relative speed to you. Ghosts outside the bubble, and landed or
+  splashed ones (the planet carries both vessels), spawn as before. The same applies to
+  "Warp to departure" and every other epoch-shift jump. The spawn's collision check looks
+  at that same spot, so a vessel that would appear inside something beside you is held
+  back as before, and a held ghost is drawn where its vessel would appear. No new
+  interface.
+
+- **A vessel Parsek brought into the world that you recover from the Tracking Station or
+  the KSC no longer comes back.** Recover a vessel Parsek spawned at the end of a recorded
+  flight without flying it first (the Tracking Station Recover button, the KSC vessel
+  marker), on a sandbox save or with no crew aboard, and the next flight scene used to read
+  the vessel's absence as a crash and spawn it again. Parsek only learned of such a
+  recovery through the recovery payout (which a sandbox save never pays) or the crew coming
+  home (which an uncrewed vessel has none of). Every recovery you make of a vessel that
+  continues a recorded flight now writes its own ledger entry, in every game mode, and that
+  recording's vessel is never spawned again, also after a rewind to before the recovery.
+  A vanished vessel whose recording reads recovered is no longer counted as a death either.
+  Parsek's own housekeeping recoveries write nothing. A Re-Fly that puts the vessel back in
+  the world retires the entry with the recovery payout. No new interface.
+
 - **A vessel you recover right after switching to it no longer comes back.** Bring a
   recorded flight's vessel into the world (Real Spawn Control, or its end-of-recording
   spawn), switch to it and press stock's Recover at once, and the next flight scene used to
@@ -1407,6 +1500,35 @@ _(unreleased — entries accumulate here per commit)_
   as one that died. A fresh, never-committed flight recovered from the pad is still dropped
   silently.
 
+- **Dev: a harness mission no longer waits out its wall budget behind KSP's crash screen.**
+  About 60 s after the active vessel is destroyed, stock KSP opens the flight results dialog
+  and pauses the game. Every mission phase budget counts game time, so a mission whose craft
+  crashed polled the stopped game until its wall budget ran out (one run lost about 1,100 s
+  this way). The mission shell now ends the mission once the game has read paused with the
+  clock stopped for 15 s, as a vessel loss naming the pause (`MISSION-ASSERT-FAIL`, reason
+  `vessel-lost (paused-clock: ...)`, the same class as every other vessel loss). It never
+  fires during a native warp, right after a seam step, or on a pause shorter than 15 s, and it
+  reads the pause state only when the clock did not move.
+- **Dev: a harness hop mission now notices a destroyed craft whose telemetry froze.**
+  After the craft is destroyed, kRPC can keep returning its last readings while the clock
+  runs. The mission ends as a vessel loss after 10 polls in a row whose altitude, vertical
+  speed and orbit did not change, but one run polled such readings about 118 times without
+  ending, because one value kept differing by less than a millimetre. The airborne hop
+  missions (pad hop and its science recovery, EVA-4, GS-1, and the reentry mission's
+  descent) now treat values within 0.001 as unchanged (`frozenToleranceAbs`); the orbit
+  missions still require identical values. A poll whose clock did not advance no longer
+  restarts the count, and the mission log names the value that broke a run (with its exact
+  previous and current readings), so the next crash shows which reading moved. The machine
+  status line also shows the real count for missions that delegate their flight
+  (`frozenCount=` used to print `-` there).
+- **Dev: two harness waits behind KSP's post-flight screens now end at once.** A test
+  command waiting on the EVA kerbal (`EvaGroundScience`, `PlantFlag`) now ends with
+  `ERROR active-vessel-lost` on the first check after the kerbal dies, instead of sitting out
+  its whole budget. Stock KSP keeps a dead active vessel in place rather than deleting it, so
+  the old check never saw the loss; six EVA-8 runs each lost 120 s this way. And `CommitTree`
+  sent after a stock recovery, when the game is already back at the Space Center with nothing
+  to commit, now answers `REJECTED not-in-flight` straight away instead of waiting 60 s with
+  the recovery summary up. L3, L5 and both L6 lanes expect that answer now.
 - **Dev: booster debris no longer logs a sparse-sampling warning on every launch.** Once
   a background vessel leaves proximity range the recorder stops sampling it by design, and
   the long gap until it came back (about 14 s for each booster pair) read as a stalled
@@ -1446,7 +1568,8 @@ _(unreleased — entries accumulate here per commit)_
   runner now removes every registered ghost vessel first (the same removal the scene uses
   when you leave it) and the Tracking Station rebuilds them a moment later; the in-game
   `VesselBudget` check waits for the rebuilt ghosts instead of skipping. Flight batches are
-  unchanged. A live Tracking Station batch (VB-1 can restore its in-game step) is owed.
+  unchanged. Proven live 2026-10-03: VB-1 runs the in-game step again, removes all eight
+  ghosts before the batch and passes the check.
 
 - **Recording Distance and Range no longer misread a sample sitting on a section boundary.**
   A recording is cut into sections, and samples recorded relative to a parent vessel store
@@ -1466,12 +1589,32 @@ _(unreleased — entries accumulate here per commit)_
   refused. `DiscardTree` now tells the retry to skip that vessel until something records
   again, the active vessel changes, or the scene ends, and logs
   `CommittedSpawnedRestoreSuppression: armed` / `cleared`. Player discards are unchanged.
-  The lanes keep `retry policy = "once"` until a flight shows the fix.
-- **A Missions tab vessel row no longer shows another mission's vessel as a mid-flight
-  "Launch".** After switching to another mission's vessel, the row's event chain read e.g.
-  "Launch -> Launch (Depot Station Duna I (mission 'Kerbal X #5')) -> Docked". A launch
-  cannot happen mid-flight, so that step is now left out; the following "Docked" step
-  already names the partner. Mission selections are unaffected.
+  The lanes keep `retry policy = "once"`: the 2026-10-03 EVA-6 flight passed with no
+  re-adoption, but its boot took the ordering where the discard finds nothing to discard.
+- **The Missions tab no longer lists another mission's vessel as a piece of your ship.**
+  When you switched to another mission's vessel and flew it to a dock with your ship, that
+  vessel showed under your ship as if it had separated from it ("Depot Station Duna I
+  (mission 'Kerbal X #5')   Launch -> Docked"), your ship's event chain read "Launch ->
+  Launch (Depot Station Duna I ...) -> Docked", the expanded interval rows (Advanced) read
+  "Decoupled -> Launch" and "Launch -> Docked", and the interval after the switch lost the
+  other vessel's pod from your ship's count ("Kerbal X (crew x1)"). The other vessel's row
+  now sits beside your ship instead of under it, reads "Docked (Duna Supply 1)" with no
+  launch, keeps its own include checkbox in Advanced (so its part of the loop can still be
+  kept or trimmed), and is not counted as one of your mission's vessels. Your ship's
+  interval rows split at the switch with blank event cells, and its count stays its own
+  ("pod x1, crew x1"). A vessel you switched to that belongs to no other mission (an old
+  station, a stock vessel) stays under your ship as before, without the false "Launch".
+  Any vessel or kerbal row whose flight ends by docking or boarding now names what it joined,
+  e.g. a kerbal's row ending "Boarded (Kerbal X)". Mission selections are unaffected: the
+  interval keys a mission stores do not change.
+- **The mission Log's Undocked row names your ship, not the vessel it undocked from.** KSP
+  keeps a docked pair under one vessel's identity, often the other mission's, so the Log of
+  a mission that docked with another mission's vessel read e.g. "Undocked (Deliverer Mun 1)"
+  with "Kerbal X (mission 'Kerbal X #3')" in the Vessel column. It now reads "Undocked (Depot
+  (mission 'Kerbal X #3'))" on "Deliverer Mun 1", the same way the Docked row puts your ship
+  in the Vessel column and the other vessel in the event. A dock that lists the other vessel
+  first, or where the other vessel docked into yours, reads the same way. When your ship kept
+  the identity and the other vessel left, the row reads as before.
 - **Dev: a harness mission that ends early writes its result file again.** A mission's
   assertion rows could carry a reading still at its "not yet measured" NaN default (the
   `kx_rewind_watch` core discard altitude and time, peak booster thrust and rewind times, on
@@ -2544,6 +2687,71 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Timeline: no Archived button, and no empty filter row.** The `Archived` button at the end
+  of the Timeline's first filter row is gone: archiving and un-archiving a flight happen only in
+  the recordings list, and the Timeline never lists an archived flight's rows (it hid them by
+  default before, and still does; the recordings list's own Archive filter no longer reaches the
+  Timeline). Under Rewind/FF and Re-Fly the Timeline used to keep an empty line between the
+  view buttons and the time-range buttons; that line is gone and the time-range row moves up
+  under the views. Overview, Details and Career keep their second row of buttons.
+- **Real Spawn Control is redesigned: a Status word per craft, one Warp button, the exact spawn date, and only craft close enough to spawn.**
+  The columns are now `Craft | Dist | Speed | Spawns | Spawn date | Status | Actions`.
+  `Spawns` is the amber countdown and `Spawn date` the exact date (`Y1, D06, 14:05`); both
+  show the moment the row's Warp acts on. `Status` is one word with its reason on hover:
+  `Ready` (green), `Leaves` (amber: the craft leaves its orbit before it would spawn),
+  `Leaving` (orange: it is leaving now), `Passed` (its spawn time is behind the clock) and
+  `Too fast` (closer than 250 m but passing faster than 2 m/s). Each row has one 100 px
+  `Warp` button; its hover says where it goes (`Warps to <date>, when <craft> spawns here.`),
+  and on a `Leaves` row it warps to just before the craft leaves, saying so: `Warps to just
+  before <craft> leaves orbit on <date>; it does not spawn here.` A greyed Warp shows the
+  Status reason. Craft farther than the 250 m spawn radius are no longer listed at all (they
+  were greyed rows out to 1 km), so the main window's `Real Spawn Control (N)` counts only
+  craft you can spawn or slow down for. The headers `Craft`, `Dist`, `Speed`, `Spawns` and
+  `Status` each sort on their own key (`Status` puts the rows you can warp to first), the
+  window first opens as tall as its rows need, distances read `129 m`, and the window's
+  text is plain ASCII (the departure arrow and the dash for an unmeasured speed are gone).
+  `Warp to Next Spawn` stays at the bottom; its hover now reads `Warps to when <craft> spawns
+  here, in 56s.` or `Warps to just before <craft> leaves orbit in 2m 0s; it does not spawn
+  here.`
+
+- **Parsek's windows now share one style for countdowns, "Go to", colours and empty lists.**
+  Every countdown reads the Missions way, `T- 2d 4h` (two units, a space after `T-`) in the
+  same amber, with ` (!)` when it carries a warning: Real Spawn Control's `In T-` column and
+  `Departs T- ...` state, the Timeline's first row after now, and a Recordings row still
+  ahead (a flight in progress reads `T+ 5m 3s`) used to print every unit (`T-1y 291d 5h 22m
+  0s`). The Log's `T+0:00:13` clock is unchanged. The Timeline's `GoTo` button is now `Go to`,
+  as in Missions and Logistics, and every Timeline row button (W, FF, R, Fly, Seal, Go to) is
+  the Missions pair-button width (48 px; the short ones were 40). In Basic, a mission a supply
+  route drives reads `Run by route` (hover: `Run on the schedule of route '<name>'.`) instead
+  of `Looped by route`; Advanced keeps the loop wording. Near-duplicate colours now come from
+  the shared palette: Kerbals' dead / recovered / aboard (0.95/0.45/0.45, 0.55/0.85/0.55,
+  0.6/0.8/0.95) and the Timeline's green / red / player-action blue (0.5/1/0.5, 1/0.6/0.6,
+  0.5/0.7/1) take the palette red (1/0.4/0.4), green (0.55/1/0.55) and cyan (0.65/0.85/1); the
+  Recordings Status of an active flight is the palette green instead of pure green and a
+  future flight's countdown is amber instead of white; the Logistics launcher's broken and
+  prompt tints, Real Spawn Control's green, and the Test Runner's status colours
+  use the palette too; muted text is one grey (0.78) where Kerbals used 0.75 and the
+  Logistics detail lines 0.8; the Timeline's dimmed future rows use the Missions dim (white at
+  45%, was 50%). Empty lists read one grey sentence in every window (`No recordings yet.`,
+  `No timeline entries.`, ...), and the Log on a mission with no recorded flight now keeps its
+  column headers with the sentence as its one row and `Close` at the bottom, like the Route
+  History. The Logistics `Restore` (hidden missions) and dormant-route `Delete` buttons sit in
+  the Interact column at its single-button width, like `Dismiss`. Durations written out in
+  full drop their commas (`MET 6m 1s`), and the Real Spawn Control nearby-craft message and
+  `Warp to Next Spawn` hover count days instead of hours past a day.
+
+- **The group pickers and the round-trip link picker now look like the main windows.**
+  Manage Groups, Set Parent Group and Link round-trip partner list their entries in the
+  same dark table box as the Recordings tab, spaced like the Missions tab's expanded
+  vessel rows, under a heading a small gap below the title bar that
+  says what the choice is for ("Groups for 'Kerbal X':", "Parent of 'Kerbal X #3':",
+  "Link 'Route: KSC -> Duna' with:"). OK, Cancel and Link are the Missions window's
+  100 px buttons. Each picker now opens next to the button that opened it (to its left
+  near the screen's right edge), fully on screen; they used to open shrunk into the
+  screen's top-left corner, because the on-screen fit ran before the picker was placed.
+  Selection, OK / Cancel, the new-group field and "+", and the Link enable rule are
+  unchanged.
+
 - **Logistics window redesign (Model 1).** The Active Routes, Paused Routes and Candidates
   sections now have bigger centred title bars with a count ("Active Routes (2)"), a thin
   accent line in the section's colour and a caret: click a bar to fold its section. A grey
@@ -2577,6 +2785,50 @@ _(unreleased — entries accumulate here per commit)_
   schedule.". Player text says "run" and "flight" instead of cycle, dispatch, tree and
   recording; the Candidates destination names the place instead of raw coordinates, and
   the create dialog says "Destination:".
+- **The Route History shows held runs, and reads cargo amount first.** When a route's run
+  is held, the history gets a dated row with the reason in the Logistics window's words,
+  without the live "delivers when ..." advice and with no run number: "Held: origin is short
+  108.8 LiquidFuel", "Held: destination has no room for LiquidFuel", "Held: Depot B is short
+  20.0 Ore"; a stored part is named by its title. One row is written when a hold starts and
+  one when its reason changes (origin short, then destination full), so a route held for a
+  year on one reason shows one row; a change in the missing amount alone adds nothing, and
+  the next Sent, Paused, Activated or Stopped row ends the hold. The rows live on the ledger
+  as a new `RouteHeld` action: a rewind removes the ones after it like any other route row,
+  and holding again after a rewind never writes the same reason twice. Every cargo row now
+  reads amount first ("Delivered 150.0 LiquidFuel, 40.0 Oxidizer", "Picked up 50.0 Ore"),
+  matching the Sent cost and a short delivery; the Logistics table's Delivers column is
+  unchanged. Holds from before this build are not in the history. Renaming a linked route
+  while its partner waits adds no row (the row names the partner by id and shows its current
+  name). An older build loading a save with these rows logs a warning per row and reads each
+  as an empty entry that changes nothing.
+- **Logistics: a violet Paused Routes bar and aligned steppers.** The Paused Routes section's
+  accent bar is soft violet instead of grey, so it no longer reads as a divider. In a route's
+  Advanced details the Every and Priority steppers line up: both labels, both value cells and
+  both pairs of - / + buttons share one column each, whatever the values read, and the two
+  rows are the same height.
+- **Logistics: candidates on the route grid, near misses grouped by reason, part titles,
+  pickups, and cargo amount first.** The Candidates table now reads like the route tables: #,
+  Route (the candidate's name over a grey "KSC -> Depot" line, the destination named by its
+  vessel when it is still there), Would deliver, Transit, and an Interact column with [Create
+  route] over [Dismiss] under the routes' Activate / Pause; the separate Origin and
+  Destination columns are gone. "Missions that cannot become routes yet" draws one line per
+  reason instead of one per mission: "No dock was recorded (18): Kerbal X [1], Kerbal X [2],
+  Duna Supply 1 ...", every name in the hover. Click a reason to list its missions, each with
+  its own Dismiss; the reason's full sentence shows once above them only when it says more
+  than the short reason (advice, a count). Collapsed by default. A repeated mission name is
+  numbered "Name [1]", "Name [2]" there and in Hidden missions. Every cargo amount in the
+  window and the create dialog now reads amount first, as the Route History does: "257.8
+  LiquidFuel, 315.1 Oxidizer". The create dialog names its ends as the candidate row does
+  ("Origin: KSC (Runway)", "Destination: Depot Station Mun", or the place "Mun (surface)"
+  when no vessel answers) instead of a bare body and raw coordinates, and names stored parts
+  by their title ("EVA Parachute x2"); a route's hold does too ("Held: no slot for 'EVA
+  Parachute'"), falling back to the part's internal name. A route that picks cargo up says
+  so: a pure pickup route's Delivers cell reads "picks up 154.4 LiquidFuel at B" instead of
+  "(nothing)" and its details "Picks up each run: 154.4 LiquidFuel at B."; a relay reads
+  "200.0 LiquidFuel; picks up 154.4 LiquidFuel at B" and "Picks up each run: 154.4
+  LiquidFuel at B, then delivers 200.0 LiquidFuel to A.". A pickup candidate's Would deliver
+  cell and its create dialog ("Picks up:") name the cargo too. Long per-mission and from/to
+  hovers are cut to the hover strip.
 
 - **Dev: the BDOCK rendezvous waits are rails-warped.** Operator ruling 2026-10-02 (rails
   warp only): MechJeb's rendezvous autopilot hands each node to its NodeExecutor, which
@@ -2671,11 +2923,14 @@ _(unreleased — entries accumulate here per commit)_
   holds every per-row button at one shared width (a two-button pair spans one button). Each
   mission's dark bar is two rows of the table: the first puts the mission's start time,
   start event, outcome and end time under the headings, with Log beside the title and Watch
-  (plus Rewind / Forward) in Interact; the second is a one-line story (where it went, how
-  long, who flew, how it ended) with a Collapse / Expand button in Interact. The story is
-  now the title's size, and in Advanced its next-launch countdown (`Next launch T- 5h 47m`)
-  is amber; it no longer repeats the loop period (`Loops ~P`), which the period cell beside
-  it shows. Collapse hides a mission's vessel rows; its title bar stays. It replaces the
+  in Interact; the second is a one-line story (where it went, how long, who flew, how it
+  ended), with Rewind / Forward in Interact right under Watch at the same width, and a
+  clickable caret under the mission's number (down while the mission is open, right while it
+  is folded; hover "Collapse this mission" / "Expand this mission"). The `#` header sits
+  over the mission numbers and carets, with its sort arrow after it. The story is now the
+  title's size, and in Advanced its next-launch countdown (`Next launch T- 5h 47m`) is
+  amber; it no longer repeats the loop period (`Loops ~P`), which the period cell beside it
+  shows. The caret hides a mission's vessel rows; its title bar stays. It replaces the
   per-mission Archive box and the list's "hide archived" filter; a mission archived in an
   older save loads collapsed. Stash / Fly + Seal and the Docked partner's Go to sit in
   Interact too. Everything that exists only because of mission looping is Advanced-only
@@ -5624,6 +5879,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: the player docks with a ghost-chain tip spawned through Real Spawn
+  Control (CI-9).** A new nightly lane, `CI-9-chain-tip-dock`, puts an orbital ghost-chain
+  tip (the new `chain-tip-dock` injected preset) 140 m ahead of the focused Kerbal X,
+  presses "Warp to Spawn" for it, starts a recording and flies a new mission,
+  `ci9_tip_dock`, that rendezvous with the spawned tip and docks to it. It gates the
+  single-parent Dock branch point, the dock superseding the tip's committed spawn so the
+  absorbed vessel never comes back, and the committed save shape. The flight found that
+  in orbit the spawned tip appeared on its recorded orbit 120 km away instead of where its
+  ghost stood (now fixed, see Fixed: "Warp to Spawn puts an orbiting vessel where its ghost
+  stood"); the lane now pins the tip spawning beside the Kerbal X and docks without a
+  rendezvous, with the preset's target turned so its port faces the trailing Kerbal X.
 - **Automated testing: PWR-3 (recording under physics warp at the High density) is armed;
   every registry coverage cell is now claimed (251 of 251).** Its two quarantining findings
   were fixed in the recorder (see Fixed: "a sample taken when a frame runs long"), the

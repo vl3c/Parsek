@@ -165,6 +165,8 @@ RP_SIDECAR_BY_PRESET = {
     "vessel-budget": None,
     # CI-6's chain-tip-recovery tree: one committed two-recording tree, no RP.
     "chain-tip-recovery": None,
+    # CI-9's chain-tip-dock tree: one committed two-recording tree, no RP.
+    "chain-tip-dock": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 

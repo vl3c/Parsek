@@ -143,9 +143,19 @@ namespace Parsek.Tests
                 new[] { typeof(StartupNoticeTestPatches.MissingTargetPatch) }, failed);
 
             Assert.Equal(0, applied);
-            Assert.Equal(new[] { nameof(StartupNoticeTestPatches.MissingTargetPatch) }, failed);
+            Assert.Equal(new[] { "StartupNoticeTestPatches.MissingTargetPatch" }, failed);
             Assert.Contains(logLines, l => l.Contains("[Harmony]")
                 && l.Contains("Failed to apply patch MissingTargetPatch"));
+        }
+
+        [Fact]
+        public void PatchClassKey_QualifiesNestedClassesWithTheirOuterClass()
+        {
+            Assert.Equal("StartupNoticeTestPatches.MissingTargetPatch",
+                StartupNotices.PatchClassKey(typeof(StartupNoticeTestPatches.MissingTargetPatch)));
+            Assert.Equal("StartupNoticePipelineTests",
+                StartupNotices.PatchClassKey(typeof(StartupNoticePipelineTests)));
+            Assert.Null(StartupNotices.PatchClassKey(null));
         }
 
         [Fact]

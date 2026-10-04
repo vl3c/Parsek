@@ -9640,6 +9640,292 @@ namespace Parsek.Tests
                 });
         }
 
+        // ---------------------------------------------------------------------------------
+        // chain-tip-dock preset (CI-9-chain-tip-dock): ONE committed two-recording tree on
+        // eva2-lko-crewed (CI-5's host) whose chain tip is a Real Spawn Control candidate IN
+        // ORBIT. Same production shape as background-claim and chain-tip-recovery (a
+        // PARENTLESS background recording carrying a ghosting-trigger part event, claimed by
+        // GhostChainWalker.ScanBackgroundEventClaims), but the claimed vessel is a small
+        // docking target absent from the save (its own derived pid and launch guid), on the
+        // focused Kerbal X's OWN orbit a little ahead of it, so its ghost sits ~140 m from the
+        // active vessel at zero relative speed and the lane can RealSpawn it and dock to it.
+        // The root ends Destroyed 20 s before the save (CI-5's carrier): it plays nothing and
+        // claims nothing.
+        // ---------------------------------------------------------------------------------
+
+        /// <summary>eva2-lko-crewed's focused Kerbal X, verbatim from the save (ORBIT node).</summary>
+        internal const uint ChainTipDockKerbalXPid = 3620499050u;
+        internal const double ChainTipDockKerbalXSma = 699813.76950675074;
+        internal const double ChainTipDockKerbalXEcc = 0.0095322478931539317;
+        internal const double ChainTipDockKerbalXInc = 0.083918306209994492;
+        internal const double ChainTipDockKerbalXLpe = 178.52218042162735;
+        internal const double ChainTipDockKerbalXLan = 142.03231100007571;
+        internal const double ChainTipDockKerbalXMna = 1.8595253322445195;
+        internal const double ChainTipDockKerbalXLat = -0.080624143260485642;
+        internal const double ChainTipDockKerbalXLon = -28.895294740910213;
+        internal const double ChainTipDockKerbalXAlt = 101771.71439776698;
+
+        internal const string ChainTipDockCarrierName = "CTD Carrier";
+        internal const string ChainTipDockTargetName = "CTD Target";
+        internal const string ChainTipDockRootRecordingId = "ctd-carrier-rec";
+        internal const string ChainTipDockTipRecordingId = "ctd-tip-rec";
+
+        /// <summary>
+        /// Mean-anomaly lead (radians) of the target's orbit over the Kerbal X's: about 140 m
+        /// along track at this radius. Inside Real Spawn Control's 250 m button radius with a
+        /// margin, and well clear of the 16 m Kerbal X Probe.
+        /// </summary>
+        internal const double ChainTipDockMnaLead = 2.0e-4;
+
+        /// <summary>
+        /// Seconds of orbit tail after the save UT; the chain's spawn UT is the tip's EndUT.
+        /// The lane presses RealSpawn about 6 s after the save UT, so the jump is ~54 s.
+        /// </summary>
+        internal const double ChainTipDockWindowSeconds = 60.0;
+
+        /// <summary>Part pids inside the target snapshot (VesselSnapshotBuilder order).</summary>
+        internal const uint ChainTipDockCorePartPid = 100000u;
+        internal const uint ChainTipDockEnginePartPid = 101111u;
+        internal const uint ChainTipDockPortPartPid = 102222u;
+
+        internal static uint ChainTipDockTargetPid =>
+            ScenarioWriter.DeriveVesselPersistentId(ChainTipDockTipRecordingId);
+        internal static string ChainTipDockTargetGuid =>
+            ScenarioWriter.DeriveVesselLaunchGuid(ChainTipDockTipRecordingId);
+
+        internal static RecordingBuilder ChainTipDockCarrier(double baseUT)
+        {
+            var b = new RecordingBuilder(ChainTipDockCarrierName)
+                .WithRecordingId(ChainTipDockRootRecordingId);
+            b.AddPoint(baseUT - 40.0, ChainTipDockKerbalXLat, ChainTipDockKerbalXLon, ChainTipDockKerbalXAlt);
+            b.AddPoint(baseUT - 20.0, ChainTipDockKerbalXLat, ChainTipDockKerbalXLon, ChainTipDockKerbalXAlt);
+            b.WithTerminalState((int)TerminalState.Destroyed);
+            b.WithVesselSnapshot(VesselSnapshotBuilder.ProbeShip(ChainTipDockCarrierName, pid: 71000401));
+            return b;
+        }
+
+        /// <summary>
+        /// The claimed chain tip: a docking target (OKTO core, Spark, Clamp-O-Tron with a
+        /// Ready ModuleDockingNode) recorded in the background, parentless, with an engine
+        /// ignite / shutdown pair (the trigger), then an orbit tail on the Kerbal X's orbit
+        /// led by <see cref="ChainTipDockMnaLead"/> to an Orbiting end.
+        /// </summary>
+        internal static RecordingBuilder ChainTipDockTarget(double baseUT)
+        {
+            double mna = ChainTipDockKerbalXMna + ChainTipDockMnaLead;
+            var b = new RecordingBuilder(ChainTipDockTargetName)
+                .WithRecordingId(ChainTipDockTipRecordingId)
+                .WithVesselPersistentId(ChainTipDockTargetPid)
+                .WithRecordedVesselGuid(ChainTipDockTargetGuid);
+            b.AddPoint(baseUT, ChainTipDockKerbalXLat, ChainTipDockKerbalXLon, ChainTipDockKerbalXAlt);
+            b.AddPartEvent(baseUT + 2.0, ChainTipDockEnginePartPid, (int)PartEventType.EngineIgnited,
+                "liquidEngineMini.v2", value: 1f);
+            b.AddPartEvent(baseUT + 4.0, ChainTipDockEnginePartPid, (int)PartEventType.EngineShutdown,
+                "liquidEngineMini.v2");
+            b.AddOrbitSegment(baseUT, baseUT + ChainTipDockWindowSeconds,
+                inc: ChainTipDockKerbalXInc, ecc: ChainTipDockKerbalXEcc,
+                sma: ChainTipDockKerbalXSma, lan: ChainTipDockKerbalXLan,
+                argPe: ChainTipDockKerbalXLpe, mna: mna,
+                epoch: SinglePointHoldSaveUT);
+            b.WithTerminalState((int)TerminalState.Orbiting);
+            b.WithTerminalOrbit("Kerbin", ChainTipDockKerbalXSma, ChainTipDockKerbalXEcc,
+                ChainTipDockKerbalXInc, ChainTipDockKerbalXLan, ChainTipDockKerbalXLpe,
+                mna, SinglePointHoldSaveUT);
+            b.WithGhostVisualSnapshot(ChainTipDockTargetSnapshot(mna));
+            b.WithVesselSnapshot(ChainTipDockTargetSnapshot(mna));
+            return b;
+        }
+
+        /// <summary>
+        /// The target's surface-relative attitude: vessel +Y along local EAST at the Kerbal
+        /// X's longitude, so the Clamp-O-Tron (on the vessel's -Y end, facing -Y) faces
+        /// WEST, back along the near-equatorial prograde orbit at the Kerbal X trailing it.
+        /// A spawn beside the ghost then leaves the Kerbal X on the port axis, and MechJeb's
+        /// docking autopilot flies a straight final approach. With the identity attitude the
+        /// port faced south, the Kerbal X sat in the port's plane, and the autopilot's
+        /// lateral move toward its starting point ran into the target (CI-9 `2026-10-03_1812`,
+        /// RCS spent pressed against the hull 2.2 m from the port). Body-local axes: +Y the
+        /// spin axis, surface normal (cos lat cos lon, sin lat, cos lat sin lon).
+        /// </summary>
+        internal static Quaternion ChainTipDockTargetSurfaceRotation()
+        {
+            double lonRad = ChainTipDockKerbalXLon * Math.PI / 180.0;
+            double eastX = -Math.Sin(lonRad);
+            double eastZ = Math.Cos(lonRad);
+            // +90 deg about (up x east) = (eastZ, 0, -eastX) takes +Y onto east.
+            double s = Math.Sqrt(0.5);
+            return new Quaternion((float)(eastZ * s), 0f, (float)(-eastX * s), (float)s);
+        }
+
+        private static VesselSnapshotBuilder ChainTipDockTargetSnapshot(double mna)
+        {
+            return VesselSnapshotBuilder.FlatProbeLander(ChainTipDockTargetName, ChainTipDockTargetPid)
+                .WithType("Probe")
+                .WithLaunchGuid(ChainTipDockTargetGuid)
+                .WithSurfaceRelativeRotation(ChainTipDockTargetSurfaceRotation())
+                .AddPart("dockingPort2", position: "0,-0.3,0", rotation: "1,0,0,0")
+                .AddModuleToPart(2, "ModuleDockingNode",
+                    ("acquireForceTweak", "100"),
+                    ("crossfeed", "True"),
+                    ("nodeIsLocked", "True"),
+                    ("targetAngle", "0"),
+                    ("inverted", "False"),
+                    ("stagingEnabled", "False"),
+                    ("state", "Ready"),
+                    ("dockUId", "0"),
+                    ("dockNodeIdx", "0"))
+                .AsOrbiting(ChainTipDockKerbalXSma, ChainTipDockKerbalXEcc,
+                    ChainTipDockKerbalXInc, lan: ChainTipDockKerbalXLan,
+                    argPe: ChainTipDockKerbalXLpe, mna: mna,
+                    epoch: SinglePointHoldSaveUT);
+        }
+
+        internal static RecordingBuilder[] ChainTipDockTree(double baseUT)
+        {
+            return new[] { ChainTipDockCarrier(baseUT), ChainTipDockTarget(baseUT) };
+        }
+
+        [Fact]
+        public void ChainTipDock_TargetPortFacesWestAlongTheOrbitAtTheTrailingKerbalX()
+        {
+            Quaternion q = ChainTipDockTargetSurfaceRotation();
+            double lonRad = ChainTipDockKerbalXLon * Math.PI / 180.0;
+            Vector3 up = q * Vector3.up;
+            // Vessel +Y is local east (unit, horizontal); the port faces vessel -Y, i.e. west.
+            Assert.Equal(-Math.Sin(lonRad), up.x, 5);
+            Assert.Equal(0.0, up.y, 5);
+            Assert.Equal(Math.Cos(lonRad), up.z, 5);
+            Vector3 normal = new Vector3((float)Math.Cos(lonRad), 0f, (float)Math.Sin(lonRad));
+            Assert.Equal(0.0, Vector3.Dot(up, normal), 5);
+
+            ConfigNode snapshot = ChainTipDockTarget(SinglePointHoldSaveUT).GetVesselSnapshot();
+            Assert.NotNull(snapshot);
+            Assert.NotEqual("0,0,0,1", snapshot.GetValue("rot"));
+        }
+
+        [Fact]
+        public void ChainTipDock_WalkerBuildsOneLiveOrbitalChainTippedByTheTarget()
+        {
+            ParsekLog.ResetRateLimitsForTesting();
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            try
+            {
+                RecordingTree tree = MaterializeBackgroundClaimTree(ChainTipDockTree(SinglePointHoldSaveUT));
+
+                Assert.Equal(ChainTipDockRootRecordingId, tree.RootRecordingId);
+                Assert.Empty(tree.BranchPoints);
+                Recording tip = tree.Recordings[ChainTipDockTipRecordingId];
+                Assert.Null(tip.ParentBranchPointId);
+                Assert.True(GhostingTriggerClassifier.HasGhostingTriggerEvents(tip));
+                Assert.DoesNotContain(ChainTipDockTargetPid, GhostChainWalker.GetRootLineageVesselPids(tree));
+                Assert.NotEqual(ChainTipDockKerbalXPid, ChainTipDockTargetPid);
+
+                var chains = GhostChainWalker.ComputeAllGhostChains(
+                    new List<RecordingTree> { tree }, SinglePointHoldSaveUT);
+
+                Assert.Single(chains);
+                GhostChain chain = chains[ChainTipDockTargetPid];
+                Assert.Equal("BACKGROUND_EVENT", chain.Links[0].interactionType);
+                Assert.Equal(ChainTipDockTipRecordingId, chain.TipRecordingId);
+                Assert.Equal(SinglePointHoldSaveUT + ChainTipDockWindowSeconds, chain.SpawnUT, 6);
+                Assert.False(chain.IsTerminated);
+                Assert.True(GhostChainWalker.ShouldGhostChainAtUT(chain, SinglePointHoldSaveUT));
+                // An end-of-recording spawn candidate on the recorded terminal orbit, with no
+                // departure before the end: the row Real Spawn Control draws as "Ready".
+                Assert.True(GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(tip, false).needsSpawn);
+                Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(tip, false));
+                Assert.False(SelectiveSpawnUI.ComputeDepartureInfo(tip, SinglePointHoldSaveUT + 6.0).willDepart);
+                Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                    && l.Contains("Chain built: vessel="
+                        + ChainTipDockTargetPid.ToString(CultureInfo.InvariantCulture)
+                        + " links=1 tip=" + ChainTipDockTipRecordingId)
+                    && l.Contains("terminated=False"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void ChainTipDock_TargetSnapshotCarriesAReadyDockingPortAndTheTargetIdentity()
+        {
+            RecordingTree tree = MaterializeBackgroundClaimTree(ChainTipDockTree(SinglePointHoldSaveUT));
+            Recording tip = tree.Recordings[ChainTipDockTipRecordingId];
+            var recNode = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(recNode, tip);
+            var reloaded = new Recording();
+            RecordingTreeRecordCodec.LoadRecordingFrom(recNode, reloaded);
+            Assert.Equal(ChainTipDockTargetPid, reloaded.VesselPersistentId);
+            Assert.Equal(ChainTipDockTargetGuid, reloaded.RecordedVesselGuid);
+            Assert.Equal(TerminalState.Orbiting, reloaded.TerminalStateValue);
+
+            ConfigNode snap = tip.VesselSnapshot;
+            Assert.Equal(ChainTipDockTargetPid.ToString(CultureInfo.InvariantCulture),
+                snap.GetValue("persistentId"));
+            Assert.Equal(ChainTipDockTargetGuid, snap.GetValue("pid"));
+            Assert.Equal("ORBITING", snap.GetValue("sit"));
+            ConfigNode[] parts = snap.GetNodes("PART");
+            Assert.Equal(3, parts.Length);
+            Assert.Equal("dockingPort2", parts[2].GetValue("name"));
+            Assert.Equal(ChainTipDockPortPartPid.ToString(CultureInfo.InvariantCulture),
+                parts[2].GetValue("persistentId"));
+            ConfigNode dock = parts[2].GetNode("MODULE");
+            Assert.Equal("ModuleDockingNode", dock.GetValue("name"));
+            Assert.Equal("Ready", dock.GetValue("state"));
+            // The tip leads the focused Kerbal X on the Kerbal X's own orbit.
+            ConfigNode orbit = snap.GetNode("ORBIT");
+            Assert.Equal(ChainTipDockKerbalXMna + ChainTipDockMnaLead,
+                double.Parse(orbit.GetValue("MNA"), CultureInfo.InvariantCulture), 9);
+            Assert.Equal(ChainTipDockKerbalXSma,
+                double.Parse(orbit.GetValue("SMA"), CultureInfo.InvariantCulture), 3);
+        }
+
+        [Fact]
+        public void ChainTipDock_TargetGhostSitsInsideTheSpawnButtonRadius()
+        {
+            // Along-track distance of the lead at the save's radius: r = a(1 - e cos E) and
+            // dtheta = dM (a/r)^2 sqrt(1 - e^2). Must sit inside Real Spawn Control's button
+            // radius with a margin and clear of the 16 m neighbour.
+            double a = ChainTipDockKerbalXSma, e = ChainTipDockKerbalXEcc, m = ChainTipDockKerbalXMna;
+            double ecc = m;
+            for (int i = 0; i < 20; i++) ecc = m + e * Math.Sin(ecc);
+            double r = a * (1.0 - e * Math.Cos(ecc));
+            double along = r * ChainTipDockMnaLead * (a / r) * (a / r) * Math.Sqrt(1.0 - e * e);
+            Assert.InRange(along, 50.0, ParsekFlight.NearbySpawnRadius - 50.0);
+        }
+
+        /// <summary>
+        /// Injects ONLY <see cref="ChainTipDockTree"/> (the <c>chain-tip-dock</c> preset behind
+        /// <c>CI-9-chain-tip-dock</c>): one committed two-recording tree, no RewindPoint
+        /// sidecar. The target's orbit is authored against <c>eva2-lko-crewed</c>'s focused
+        /// Kerbal X, so a target save at any other UT is refused.
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("chain-tip-dock-fixture")]
+        public void InjectChainTipDock()
+        {
+            InjectSingleSubjectPreset("chain-tip-dock-fixture",
+                (writer, baseUT) =>
+                {
+                    Assert.True(Math.Abs(baseUT - SinglePointHoldSaveUT) < 1e-3,
+                        "chain-tip-dock is authored against eva2-lko-crewed (UT="
+                        + SinglePointHoldSaveUT.ToString("R", CultureInfo.InvariantCulture)
+                        + "); target save UT is "
+                        + baseUT.ToString("R", CultureInfo.InvariantCulture));
+                    writer.AddRecordingsAsTree(ChainTipDockTree(baseUT));
+                },
+                content =>
+                {
+                    Assert.Contains("persistentId = "
+                        + ChainTipDockKerbalXPid.ToString(CultureInfo.InvariantCulture), content);
+                    Assert.Contains("vesselName = " + ChainTipDockCarrierName, content);
+                    Assert.Contains(ChainTipDockTipRecordingId, content);
+                });
+        }
+
         [Trait("Category", "Manual")]
         [InjectTargetFact("test career")]
         public void InjectAllRecordings()

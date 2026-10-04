@@ -99,11 +99,11 @@ When you choose "Merge to Timeline", the recorded crew (e.g. Jeb) are reserved f
 
 Click the "Timeline" button in the main Parsek window to open a read-only chronological view of every committed recording, player action, and game event, anchored by a `— UT (now) —` divider between past and future.
 
-Top of the window, three rows of buttons:
+Top of the window, two or three rows of buttons:
 
-- **Views** (first row, one at a time) - **Overview** shows the headline entries; **Details** adds lower-significance events (resource changes, individual career-event rows, etc.); **Rewind/FF** and **Re-Fly** show only the flights you can rewind to, fast-forward to, fly again or seal; **Career** shows one career subject at a time (see below). The last button of the first row is **Archived**, which applies in every view: when lit, flights you archived in the recordings list (each row's Archive box) are listed too - their launch, separation, spawn and crew-loss rows, each marked `[archived]`. It is the same switch as the recordings list's Archive filter, so flipping it here flips it there. Archiving hides only a flight's own rows, never its career rows (contracts, milestones and so on stay in the Career views either way), and a mission archived in the Missions window is a separate setting that does not affect the Timeline.
-- **Second row** - depends on the view. Under Overview and Details: **Recordings**, **Actions**, **Events** (each toggles that kind of row in and out). Under Rewind/FF and Re-Fly: empty. Under Career: **Contracts**, **Strategies**, **Facilities**, **Milestones** and **Tech**.
-- **Third row** - the time range: **Last Day**, **Last 7d**, **Last 30d**, **This Year**, **All** and **Custom**, always shown, with the one in force lit (see Time-Range Filter below).
+- **Views** (first row, one at a time) - **Overview** shows the headline entries; **Details** adds lower-significance events (resource changes, individual career-event rows, etc.); **Rewind/FF** and **Re-Fly** show only the flights you can rewind to, fast-forward to, fly again or seal; **Career** shows one career subject at a time (see below). Flights you archived in the recordings list (each row's Archive box) never appear on the Timeline; un-archive them in the recordings list to bring their rows back. Archiving hides only a flight's own rows (launch, separation, spawn and crew loss), never its career rows: contracts, milestones and so on stay in the Career views either way.
+- **Second row** - depends on the view. Under Overview and Details: **Recordings**, **Actions**, **Events** (each toggles that kind of row in and out). Under Career: **Contracts**, **Strategies**, **Facilities**, **Milestones** and **Tech**. Rewind/FF and Re-Fly have no second row; the time range sits directly under the views.
+- **Last row** - the time range: **Last Day**, **Last 7d**, **Last 30d**, **This Year**, **All** and **Custom**, always shown, with the one in force lit (see Time-Range Filter below).
 
 The **Career** view lists every row of one subject from both Overview and Details, past and future: contracts accepted, completed, failed, expired or cancelled (a contract whose deadline ran out reads `Expired: <name>`, one that failed any other way `Fail: <name>`); strategies activated or deactivated; facility upgrades, destructions and repairs; milestones; and tech unlocks. Career reopens the last subject you picked. The time range still applies, so a Last Day / 7d / 30d range hides the future rows. Science games show only Facilities, Milestones and Tech, and Sandbox games have no Career button.
 
@@ -219,19 +219,26 @@ Both buttons show a confirmation dialog naming the recording before acting. Disa
 
 ### Real Spawn Control
 
-Click the "Real Spawn Control (N)" button in the main Parsek window to open the spawn control window. This button shows the number of nearby spawn candidates and is grayed out when none are detected.
+Click the "Real Spawn Control (N)" button in the main Parsek window (Advanced mode) to open the spawn control window. The button shows how many recorded craft are close enough to spawn and is grayed out when there are none.
 
-The window shows ghost craft within 500m whose recording ends in the future — these are vessels that will become real when their ghost playback finishes. Each row shows:
+The window lists ghost craft within 250 m of your vessel whose recording ends in the future - vessels that will become real when their ghost playback finishes. A ghost farther away cannot be spawned from where you are, so it is not listed. Each row shows:
 
-- **Craft** — vessel name
-- **Dist** — distance in meters from your active vessel
-- **Spawns at** — the KSP calendar time when the ghost becomes real
-- **In T-** — countdown to spawn time
-- **Warp** — button to time-warp directly to that vessel's spawn time
+- **Craft** - vessel name
+- **Dist** - distance from your active vessel
+- **Speed** - how fast it is moving relative to you
+- **Spawns** - countdown to the moment the row's Warp goes to
+- **Spawn date** - the exact date of that moment
+- **Status** - one word; hover it for the reason:
+  - **Ready** - close and slow enough; Warp jumps to when it spawns here.
+  - **Leaves** - it leaves its orbit (for another body, a new orbit, or to land) before it would spawn; Warp jumps to just before it leaves, and it does not spawn here.
+  - **Leaving** - it is leaving its orbit now.
+  - **Too fast** - it is passing faster than 2 m/s relative to you; match its speed first.
+  - **Passed** - its spawn time is already behind the clock.
+- **Actions** - the **Warp** button; its hover says where it goes, or why it is grayed out.
 
-Click column headers (Dist, In T-) to sort. Default sort is by distance. Click again to reverse order.
+Click a column header (Craft, Dist, Speed, Spawns, Status) to sort; click again to reverse. Default sort is by distance. Sorting by Status puts the rows you can warp to first.
 
-The **Warp to Next Spawn** button at the bottom warps to whichever candidate spawns soonest. A screen notification appears when a new ghost craft enters the 500m range.
+The **Warp to Next Spawn** button at the bottom warps to whichever ready or leaving craft comes first. A screen notification appears when a new ghost craft comes within 250 m at under 2 m/s; for a craft that leaves its orbit first, it says where it goes (for example, "leaves orbit for Mun in 2m 0s").
 
 ### Kerbals Window
 

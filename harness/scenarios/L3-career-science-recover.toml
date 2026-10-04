@@ -152,22 +152,24 @@ mission = "science_bench_recover"
 #     fixture), and CL-2's own header records that without the setting
 #     `DecideExitGate` refuses the merge variant outright.
 #
-# (2) `CommitTree` is KEPT VERBATIM even though it is EXPECTED TO FAIL, because
-#     section 4d names "whether `CommitTree` is still the right verb after the
-#     scene has already changed" as a wave-2 READING-RUN QUESTION, and keeping the
-#     step is what MEASURES the answer instead of asserting it.
-#     `ParsekTestCommandAddon` returns `ERROR / no-active-tree` when
-#     `ParsekFlight.Instance` is null or `HasActiveTree` is false, and the recovery
-#     above guarantees both. CL-1 flight 1 measured exactly this shape on a
-#     DESTROYED craft (`committree no-active-tree`, then `saving 0 committed
-#     tree(s)`), which is the same teardown path a recovery takes.
+# (2) `CommitTree` is KEPT, and it EXPECTS `REJECTED`. Section 4d named "whether
+#     `CommitTree` is still the right verb after the scene has already changed" as
+#     a wave-2 READING-RUN QUESTION, and the step is what measured the answer: the
+#     recovery leaves the run in a settled SPACECENTER with no tree to commit.
+#     Every flight measured the step DEFERRED `not-in-flight` until its 60 s budget
+#     ended `TIMEOUT` (four here, plus L5 and both L6 lanes), with the KSC "Mission
+#     Summary" dialog up the whole minute (todo HARNESS-POST-FLIGHT-DIALOG-STALLS).
+#     Since 2026-10-03 the seam answers a CommitTree in a settled non-FLIGHT scene at
+#     once with `REJECTED not-in-flight` (`TestCommandDispatcher
+#     .RejectOutsideFlightVerbs`), so the expectation is that answer.
 #     KEEPING IT IS SAFE, and that is a fact of the classifier rather than a hope:
 #     `run.py`'s autopilot carve-out gates driver validity on the steps UP TO AND
 #     INCLUDING the mission handoff only, and `hlib.SEAM_VERB_POST_MISSION_ROLE`
 #     files `CommitTree` as `recording`, so a post-mission miss is RECORDED and
 #     NON-GATING on a MISSION-OK run. The commit therefore has to come from the
 #     auto-merge path in (1), and `recordings.count` below is what proves it did.
-#     If a future flight measures `committree committed=true` here, the recovery
+#     If a future flight measures anything but `REJECTED not-in-flight` here (an
+#     OK commit, or `ERROR no-active-tree` from a run still in FLIGHT), the recovery
 #     teardown changed and this comment is the diff that shows it.
 #
 # `RecordingState` is added after it as a read-only probe (`TAIL_ROLE_INERT`), for
@@ -178,7 +180,7 @@ steps = [
   { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
   { cmd = "SetSetting",     args = { name = "autoMerge",          value = "true" }, expect = "OK" },
   { phase = "mission",                                                              expect = "MISSION-OK", budget = 1320 },
-  { cmd = "CommitTree",                                                             expect = "OK" },
+  { cmd = "CommitTree",                                                             expect = "REJECTED" },
   { cmd = "RecordingState",                                                         expect = "OK" },
   { cmd = "FlushAndQuit",                                                           expect = "OK" },
 ]
@@ -368,11 +370,12 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # is what produces the subject it makes the claim about.
 #
 # `CommitTree` MEASURED AGAIN AND UNCHANGED: `TIMEOUT`, not the `ERROR /
-# no-active-tree` the comment above predicted, and identical to the reading run's.
+# no-active-tree` an earlier comment predicted, and identical to the reading run's.
 # It is non-gating on a MISSION-OK run exactly as `SEAM_VERB_POST_MISSION_ROLE`
-# files it. Two runs agreeing is what promotes that from an observation to the
-# answer, and the step stays verbatim so a future change to the recovery teardown
-# reds here rather than passing silently.
+# files it. Two runs agreeing promoted that from an observation to the answer: a
+# settled SPACECENTER, a 60 s `not-in-flight` defer. The seam now rejects that
+# shape at once (2026-10-03), so the step expects `REJECTED` (see (2) above) and
+# still reds a future change to the recovery teardown rather than passing silently.
 
 [runtime]
 # 1980 = the mission ceiling (1320) plus room for the LoadGame, the kRPC connect,

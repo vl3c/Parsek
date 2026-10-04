@@ -117,7 +117,7 @@ tier = "operator"
 # The fixture rationale (why `career-same-name-pad` exists, what its two identity edits
 # are, why the earned ledger is deliberately not copied), the correlator subject
 # (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2), the `autoMerge` /
-# `verboseLogging` driver reasoning, the kept-and-expected-to-fail `CommitTree` step,
+# `verboseLogging` driver reasoning, the kept-and-expected-REJECTED `CommitTree` step,
 # the per-run STAND-IN kerbal the XP token regexes, and the reason no
 # `[expectations.ledger]` block is declared are all argued at length in
 # `L6-career-same-name-recover.toml` and are NOT restated here. A second copy of a
@@ -145,7 +145,7 @@ steps = [
   { cmd = "SetSetting",     args = { name = "autoMerge",          value = "true" }, expect = "OK" },
   { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
   { phase = "mission",                                                              expect = "MISSION-OK", budget = 1320 },
-  { cmd = "CommitTree",                                                             expect = "OK" },
+  { cmd = "CommitTree",                                                             expect = "REJECTED" },
   { cmd = "RecordingState",                                                         expect = "OK" },
   { cmd = "FlushAndQuit",                                                           expect = "OK" },
 ]

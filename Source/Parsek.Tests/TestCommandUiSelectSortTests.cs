@@ -131,11 +131,12 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        // SpawnControlSortColumn {Name, Distance, RelativeSpeed, SpawnTime}
+        // SpawnControlSortColumn {Name, Distance, RelativeSpeed, SpawnTime, Status}
         [InlineData("craft", 0)]
         [InlineData("dist", 1)]
-        [InlineData("relspeed", 2)]
-        [InlineData("spawntime", 3)]
+        [InlineData("speed", 2)]
+        [InlineData("spawns", 3)]
+        [InlineData("status", 4)]
         public void SpawnControlColumns_ResolveToTheirEnumIndex(string column, int expected)
         {
             Assert.True(TestCommandUiSelectSort.TryResolveColumn(
@@ -145,18 +146,21 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// The Spawn Control table draws FIVE sortable header cells over FOUR sort columns:
-        /// "Spawns at" and "In T-" both write <c>SpawnControlSortColumn.SpawnTime</c>. So the
-        /// wire carries ONE token for the two cells - a second token would resolve to the
-        /// same index and let two spec steps claim different columns while the window sorted
-        /// by one.
+        /// One token per sortable header, every one on its own <c>SpawnControlSortColumn</c>
+        /// member, and the five tokens cover the whole enum: the Spawn date column shows the
+        /// same moment as Spawns, so it is a plain header with no token, and the retired
+        /// pre-redesign tokens no longer resolve.
         /// </summary>
         [Fact]
-        public void SpawnControl_HasOneTokenForTheTwoSpawnTimeCells()
+        public void SpawnControl_HasOneTokenPerSortKey()
         {
             string names = TestCommandUiSelectSort.SortColumnNamesFor("spawncontrol", null);
-            Assert.Equal("craft,dist,relspeed,spawntime", names);
-            Assert.Single(names.Split(',').Where(n => n == "spawntime"));
+            Assert.Equal("craft,dist,speed,spawns,status", names);
+            Assert.Equal(System.Enum.GetValues(typeof(SpawnControlSortColumn)).Length,
+                names.Split(',').Length);
+            foreach (string retired in new[] { "relspeed", "spawntime" })
+                Assert.False(TestCommandUiSelectSort.TryResolveColumn(
+                    "spawncontrol", null, retired, out _, out _));
         }
 
         [Fact]

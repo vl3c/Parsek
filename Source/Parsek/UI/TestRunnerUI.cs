@@ -358,12 +358,12 @@ namespace Parsek
 
                     // Test name (dimmed if wrong scene). Manual-only [single]
                     // scenarios are tinted blue so they are easy to find.
-                    // Readable light blue: Color.blue is too dark on KSP's dark window.
+                    // The house informational cyan (Color.blue is too dark on KSP's dark window).
                     if (!eligible) GUI.enabled = false;
                     string testLabel = TestRunnerPresentation.BuildTestLabel(test);
                     var prevLabelColor = GUI.contentColor;
                     if (TestRunnerPresentation.IsManualOnly(test))
-                        GUI.contentColor = new Color(0.45f, 0.65f, 1f);
+                        GUI.contentColor = ParsekUI.StatusColor(ParsekUI.StatusColorKind.Cyan);
                     GUILayout.Label(
                         new GUIContent(testLabel,
                             TestRunnerPresentation.BuildTestTooltip(test, eligible)),
@@ -389,7 +389,7 @@ namespace Parsek
                     GUILayout.BeginHorizontal();
                     GUILayout.Space(ErrorIndent);
                     var prevCol = GUI.contentColor;
-                    GUI.contentColor = Color.red;
+                    GUI.contentColor = ParsekUI.StatusColor(ParsekUI.StatusColorKind.Red);
                     GUILayout.Label(
                         showError ? test.ErrorMessage : string.Empty,
                         showError ? wrappedErrorLabelStyle : zeroHeightLabelStyle,
@@ -577,10 +577,10 @@ namespace Parsek
         {
             switch (status)
             {
-                case TestStatus.Passed:  return Color.green;
-                case TestStatus.Failed:  return Color.red;
-                case TestStatus.Running: return Color.yellow;
-                case TestStatus.Skipped: return Color.gray;
+                case TestStatus.Passed:  return ParsekUI.StatusColor(ParsekUI.StatusColorKind.Green);
+                case TestStatus.Failed:  return ParsekUI.StatusColor(ParsekUI.StatusColorKind.Red);
+                case TestStatus.Running: return ParsekUI.StatusColor(ParsekUI.StatusColorKind.Yellow);
+                case TestStatus.Skipped: return ParsekUI.StatusColor(ParsekUI.StatusColorKind.Grey);
                 default:                 return Color.white;
             }
         }

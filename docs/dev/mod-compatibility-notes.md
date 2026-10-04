@@ -7,7 +7,8 @@ startup EVENTS, once per process, through `StartupNotices.cs` (pure) and `Parsek
 (collect + post):
 
 - **Failed Harmony patches.** Every `[HarmonyPatch]` class maps to a player-facing feature by
-  name prefix (`StartupNotices.PatchFeatureFor`); the notice gives the failed count and up to
+  name prefix (`StartupNotices.PatchFeatureFor`; a nested class is keyed `Outer.Inner` by
+  `PatchClassKey`, since inner names like `DisplayPatch` say nothing); the notice gives the failed count and up to
   three features. `StartupNoticesTests.EveryHarmonyPatchClass_MapsToAPlayerFacingFeature`
   reds when a new patch class has no rule, so add a prefix there with the patch.
 - **Install location.** The loaded assembly named Parsek must sit in a folder directly under

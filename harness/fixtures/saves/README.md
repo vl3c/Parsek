@@ -22,6 +22,32 @@ default career difficulty multipliers (all 1.0). Third-party mod SCENARIO nodes
 (`Trajectories`, `Tracking_Persistence`) stripped; `start` tech node parts reduced to a
 pure base-stock set (ReStock / Making-History parts dropped).
 
+### Known artifact: ReStock shroud names on stock parts (visual only)
+
+The donor craft were saved on the ReStock dev install, and stock `ModuleJettison` persists
+the mesh name it resolved there (`activejettisonName`). On the stock-minimal automation
+instance that name does not exist, so the shroud or fairing stays visible on the live
+vessel even though `isJettisoned = True`. The cause is in stock code (decompiled KSP
+1.12.5): in flight, `LoadJettisonMeshState` looks the transform up by the persisted
+`activejettisonName` only. On a miss `FetchActiveMeshTransform` falls back to a null
+`jettisonTransform`, so `SetupJettisonState` has no object to hide. The drag cube is still
+set to the jettisoned state. The editor re-resolves the name from the cfg `jettisonName`,
+which is why a craft launched from the VAB looks right.
+
+What you will see: the RT-5 Flea (`solidBooster.sm.v2`, persisted `ShroudSRB`, stock mesh
+`shroud`) on the "Jumping Flea" shows its bottom skirt in every lane whose save carries
+that name. That covers `b1-pad-craft`, the `career-*-pad*` saves derived from it,
+`k2-held-kerbal-pad`, `preparsek-untouched-career` and `refly-a-recorded`. The same
+artifact appears on `HeatShield2` (persisted `HeatShield25Fairing`, stock mesh `fairing`)
+in `b2-lko-craft`, `duna-one-recorded`, `duna-park-recorded` and
+`interbody-route-recorded`. Parsek ghosts do not show it. `GhostVisualBuilder` resolves
+the cfg `jettisonName` and honours the snapshot's `isJettisoned`, so a ghost of the craft
+has no skirt while the live vessel does. A vessel that Parsek spawns from a snapshot
+carries the persisted name verbatim and looks the same as the live vessel, which is
+faithful to stock. Not a Parsek defect. The fixtures are deliberately left as they are:
+re-resolving the name would change the live part's shape, which every measured flight pin
+on these saves was taken with. Observed on HC-2 `2026-10-03_1533`.
+
 ## fresh-career (GAME Mode = CAREER)
 
 Shared by B10 + the four career L1 scripts (hire / dismiss / research / upgrade) +
@@ -644,6 +670,29 @@ The first career fixture that is not x1: the game-settings axis's Hard host. Bui
 drift-gated by `harness/tools/build_career_pad_craft_hard.py` (`--check`) and
 `harness/lib/test_career_pad_craft_hard.py`; no `AddOns` copy (seam-only lanes). Host of
 `HC-1-hard-career-ledger`.
+
+## career-science-pad-hard (GAME Mode = CAREER, 1 VESSEL, derived from career-science-pad)
+
+`career-science-pad`'s `persistent.sfs` (CRLF, as committed) and `persistent.loadmeta` byte
+for byte, except the same eleven `PARAMETERS` values `career-pad-craft-hard` sets (KSP 1.12.5's
+Hard preset: x0.6 funds / science / reputation gain, x2 losses, quickload / restart /
+leave-to-editor off, entry purchase required, other launch sites allowed). The EDITS table is
+imported from `build_career_pad_craft_hard.py`, so the two Hard hosts cannot disagree; the
+source's PARAMETERS node equals `career-pad-craft`'s, which the drift test asserts. The Hard
+host for a career that EARNS: L3's science-bench pad craft (antenna + batteries) under Hard
+multipliers. Built and drift-gated by `harness/tools/build_career_science_pad_hard.py`
+(`--check`) and `harness/lib/test_career_science_pad_hard.py`; no `AddOns` copy. Host of
+`HC-2-hard-career-earn-spend`.
+
+## career-pad-craft-zero-funds (GAME Mode = CAREER, 1 VESSEL, derived from career-pad-craft)
+
+`career-pad-craft`'s `persistent.sfs` and `persistent.loadmeta` byte for byte, except three
+lines: `SCENARIO Funding funds = 500000 -> 0`, `PARAMETERS CAREER StartingFunds = 10000 -> 0`
+and the loadmeta's cached `funds = 500000 -> 0`. No `Parsek/` directory, so its first boot is
+a first-ever Parsek load of a career that starts at zero funds (KSP-SETTINGS-AUDIT S4). Built
+and drift-gated by `harness/tools/build_career_pad_craft_zero_funds.py` (`--check`) and
+`harness/lib/test_career_pad_craft_zero_funds.py`; no `AddOns` copy (seam-only lane). Host of
+`ZF-1-zero-funds-career`.
 
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 

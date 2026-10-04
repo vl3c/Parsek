@@ -120,7 +120,8 @@ namespace Parsek.Tests
             // worst case is pinned by CareerSlotHovers_FitTheTimelineStrip below.
             // Floor 19 (2026-09-28): the "now" divider label carries NowDividerTooltip. The
             // row hovers are runtime-built; TimelineRowHovers_FitTheTimelineStrip pins them.
-            yield return new object[] { "UI/TimelineWindowUI.cs", 820f, 19, TooltipEchoBox.SingleLine };
+            // Floor 18 (2026-10-04): the Archived filter button and its tooltip are gone.
+            yield return new object[] { "UI/TimelineWindowUI.cs", 820f, 18, TooltipEchoBox.SingleLine };
             // Recordings: DefaultWindowWidth = 1355, held by this budget: wider columns come out
             // of the expanding Name column, never out of a wider window (2026-09-26).
             // Single-line strip: the window's whole help corpus was trimmed to fit one

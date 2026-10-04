@@ -52,8 +52,9 @@ namespace Parsek.Logistics
     internal static class RouteLedgerRetire
     {
         /// <summary>
-        /// True for the eight free-standing route <see cref="GameActionType"/>
-        /// members (values 23-30). Implemented as an explicit switch over the named
+        /// True for the nine free-standing route <see cref="GameActionType"/>
+        /// members (values 23-30 and 36, <see cref="GameActionType.RouteHeld"/>).
+        /// Implemented as an explicit switch over the named
         /// members (NOT a numeric range) so that adding an unrelated action Type
         /// after the route block can never silently widen the retire set.
         /// </summary>
@@ -69,6 +70,7 @@ namespace Parsek.Logistics
                 case GameActionType.RouteRecoveryCredited:  // 28
                 case GameActionType.RouteCargoPickedUp:     // 29
                 case GameActionType.RouteResumed:           // 30
+                case GameActionType.RouteHeld:              // 36
                     return true;
                 default:
                     return false;
@@ -167,7 +169,7 @@ namespace Parsek.Logistics
         /// <c>LiveOriginDebitWriters</c>, <c>LiveInventoryPickupWriter</c>) produce.
         ///
         /// <para>Funds-only and marker rows return false: <c>RouteDispatched</c>,
-        /// <c>RoutePaused</c>, <c>RouteResumed</c>, <c>RouteEndpointLost</c>, <c>RouteRecoveryCredited</c>,
+        /// <c>RoutePaused</c>, <c>RouteResumed</c>, <c>RouteHeld</c>, <c>RouteEndpointLost</c>, <c>RouteRecoveryCredited</c>,
         /// and the KSC-funds-only <c>RouteCargoDebited</c> variant (which sets
         /// <see cref="GameAction.RouteKscFundsCost"/> instead of a manifest) mutate no
         /// physical world state, so they have nothing to leak on a non-rewind discard.</para>

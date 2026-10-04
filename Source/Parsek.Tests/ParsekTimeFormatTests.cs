@@ -61,11 +61,11 @@ namespace Parsek.Tests
         [InlineData(0, "")]
         [InlineData(-5, "")]
         [InlineData(30, "30s")]
-        [InlineData(90, "1m, 30s")]
+        [InlineData(90, "1m 30s")]
         [InlineData(3600, "1h")]
         [InlineData(21600, "1d")]           // 1 Kerbin day
         [InlineData(9201600, "1y")]         // 1 Kerbin year
-        [InlineData(9201600 + 21600 + 3661, "1y, 1d, 1h, 1m, 1s")]
+        [InlineData(9201600 + 21600 + 3661, "1y 1d 1h 1m 1s")]
         public void FormatDurationFull_KerbinTime(double seconds, string expected)
         {
             Assert.Equal(expected, ParsekTimeFormat.FormatDurationFull(seconds));
@@ -79,25 +79,77 @@ namespace Parsek.Tests
             Assert.Equal("1d", ParsekTimeFormat.FormatDurationFull(86400));
         }
 
-        // ── FormatCountdown ──
+        // ── FormatCountdown: the one house countdown ──
 
         [Theory]
-        [InlineData(45, "T-45s")]
-        [InlineData(330, "T-5m 30s")]
-        [InlineData(8100, "T-2h 15m 0s")]
-        [InlineData(21600, "T-1d 0h 0m 0s")]
-        [InlineData(0, "T-0s")]
-        [InlineData(-10, "T+10s")]
+        [InlineData(45, "T- 45s")]
+        [InlineData(330, "T- 5m 30s")]
+        [InlineData(8100, "T- 2h 15m")]
+        [InlineData(21600, "T- 1d")]          // 1 Kerbin day
+        [InlineData(50000, "T- 2d 1h")]
+        [InlineData(10000000, "T- 1y 36d")]
+        [InlineData(0, "T- 0s")]
+        [InlineData(-10, "T+ 10s")]           // a moment already behind reads elapsed
+        [InlineData(-8100, "T+ 2h 15m")]
         public void FormatCountdown_KerbinTime(double delta, string expected)
         {
+            // Fails if any window's countdown drifts from the Missions form: the "T- "
+            // prefix with its space, then the two largest units only.
             Assert.Equal(expected, ParsekTimeFormat.FormatCountdown(delta));
+        }
+
+        [Fact]
+        public void FormatCountdown_IsThePrefixPlusTheTwoUnitDuration()
+        {
+            // Fails if the countdown body stops being FormatDuration (the Missions summary,
+            // Logistics Next, Real Spawn Control, the Timeline and the Recordings Status all
+            // read one helper, so they cannot disagree on the units).
+            foreach (double s in new[] { 1.0, 59.0, 61.0, 3601.0, 86399.0, 9201600.0 * 3 + 777.0 })
+                Assert.Equal(ParsekTimeFormat.CountdownPrefix + ParsekTimeFormat.FormatDuration(s),
+                    ParsekTimeFormat.FormatCountdown(s));
+        }
+
+        [Fact]
+        public void FormatCountdown_Warned_AppendsTheMarker()
+        {
+            Assert.Equal("T- 2d 1h (!)", ParsekTimeFormat.FormatCountdown(50000, warned: true));
+            Assert.Equal(MissionPresentation.SummaryCountdownWarningMarker,
+                ParsekTimeFormat.CountdownWarningMarker);
+        }
+
+        [Fact]
+        public void FormatCountdown_NaNAndInfinity_ReadZero()
+        {
+            Assert.Equal("T- 0s", ParsekTimeFormat.FormatCountdown(double.NaN));
+            Assert.Equal("T- 0s", ParsekTimeFormat.FormatCountdown(double.PositiveInfinity));
+            Assert.Equal("T- 0s", ParsekTimeFormat.FormatCountdown(double.NegativeInfinity));
         }
 
         [Fact]
         public void FormatCountdown_EarthTime_DaysUse24Hours()
         {
             ParsekTimeFormat.KerbinTimeOverrideForTesting = false;
-            Assert.Equal("T-1d 0h 0m 0s", ParsekTimeFormat.FormatCountdown(86400));
+            Assert.Equal("T- 1d", ParsekTimeFormat.FormatCountdown(86400));
+        }
+
+        [Fact]
+        public void FormatCountdown_LargeValue_NoIntOverflow()
+        {
+            // Larger than int.MaxValue seconds.
+            string result = ParsekTimeFormat.FormatCountdown(3_000_000_000.0);
+            Assert.StartsWith("T- ", result);
+            Assert.Contains("y", result);
+        }
+
+        [Fact]
+        public void CountdownTextColor_IsTheSummaryHex()
+        {
+            // Fails if the window amber and the summary line's rich-text amber drift apart.
+            UnityEngine.Color c = ParsekUI.CountdownTextColor;
+            string hex = "#" + ((int)System.Math.Round(c.r * 255)).ToString("x2")
+                + ((int)System.Math.Round(c.g * 255)).ToString("x2")
+                + ((int)System.Math.Round(c.b * 255)).ToString("x2");
+            Assert.Equal(MissionPresentation.SummaryCountdownColorHex, hex);
         }
 
         // ── Calendar constants ──

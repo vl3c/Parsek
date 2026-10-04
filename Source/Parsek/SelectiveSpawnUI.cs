@@ -18,7 +18,27 @@ namespace Parsek
         public string recordingId;
         public bool willDepart;        // ghost will leave current orbit before EndUT
         public double departureUT;     // UT when ghost departs (0 if !willDepart)
-        public string destination;     // "Mun", "maneuver", etc.
+        public DepartureKind departureKind; // where it goes when it leaves (None if !willDepart)
+        public string destination;     // the body named by departureKind (null if !willDepart)
+    }
+
+    /// <summary>
+    /// Where a departing ghost goes when it leaves its current orbit. Player wording comes
+    /// from <see cref="SelectiveSpawnUI.FormatDepartureDestination"/>, never from the enum
+    /// name.
+    /// </summary>
+    internal enum DepartureKind
+    {
+        /// <summary>Not departing.</summary>
+        None,
+        /// <summary>Into another body's sphere of influence; destination names that body.</summary>
+        OtherBody,
+        /// <summary>A different orbit around the same body; destination names that body.</summary>
+        NewOrbit,
+        /// <summary>Down to land or splash down on the body it orbits now.</summary>
+        Landing,
+        /// <summary>Down to be destroyed on the body it orbits now.</summary>
+        Crash
     }
 
     /// <summary>
@@ -29,7 +49,8 @@ namespace Parsek
     {
         public bool willDepart;
         public double departureUT;     // endUT of the current orbit segment (0 if !willDepart)
-        public string destination;     // body name or "maneuver"
+        public DepartureKind kind;     // None when !willDepart
+        public string destination;     // the body the kind refers to; null when unknown
     }
 
     /// <summary>
@@ -81,7 +102,7 @@ namespace Parsek
         /// Pure: derive the relative speed (m/s) between active vessel and ghost from two
         /// position samples taken `dt` seconds apart. Frame-agnostic: any uniform shift
         /// (floating-origin, krakensbane) cancels in the per-sample relative vector.
-        /// Returns +infinity when dt is outside [minDt, maxDt] — the sample is either
+        /// Returns +infinity when dt is outside [minDt, maxDt] - the sample is either
         /// jitter-dominated (too short) or stale (time warp / scene change).
         /// </summary>
         internal static double ComputeRelativeSpeed(
@@ -97,12 +118,23 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: the moment a candidate's Warp acts on. A craft that leaves its orbit before
+        /// it would spawn is warped to its departure (<c>departureUT</c>; it does not spawn
+        /// here); any other craft to its spawn (<c>endUT</c>). The window's time cells and
+        /// its Spawns sort read this same value, so a row sorts where its button goes.
+        /// </summary>
+        internal static double EffectiveWarpUT(NearbySpawnCandidate c)
+        {
+            return c.willDepart ? c.departureUT : c.endUT;
+        }
+
+        /// <summary>
         /// Pure: find the candidate with the earliest effective UT in the future.
         /// For departing candidates, the effective UT is departureUT (when the ghost leaves).
         /// For non-departing candidates, the effective UT is endUT (when it spawns).
         /// Skips candidates whose distance exceeds proximityRadius or whose relative speed
-        /// exceeds maxRelativeSpeed — the proximity scan admits ghosts out to a wider "show in
-        /// list" envelope, but only inner-gate candidates are warp-eligible.
+        /// exceeds maxRelativeSpeed - the list keeps too-fast ghosts (greyed "Too fast"
+        /// rows), but only candidates inside both spawn gates are warp-eligible.
         /// Returns null if no candidates qualify.
         /// </summary>
         internal static NearbySpawnCandidate? FindNextSpawnCandidate(
@@ -121,10 +153,9 @@ namespace Parsek
                     continue;
                 if (c.relativeSpeed > maxRelativeSpeed)
                     continue;
-                // Departing candidates use departureUT (when the ghost leaves its current orbit),
-                // non-departing use endUT (when the ghost spawns). The > currentUT filter also
-                // naturally skips departing candidates whose departure is already in the past.
-                double effectiveUT = c.willDepart ? c.departureUT : c.endUT;
+                // The > currentUT filter also skips departing candidates whose departure is
+                // already in the past.
+                double effectiveUT = EffectiveWarpUT(c);
                 if (effectiveUT > currentUT && effectiveUT < bestUT)
                 {
                     best = c;
@@ -135,39 +166,42 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: format a time delta as human-readable string.
-        /// Under 60s: "{s}s". Under 3600s: "{m}m {s}s". Otherwise: "{h}h {m}m".
-        /// Uses Kerbin or Earth time based on GameSettings.KERBIN_TIME for day/year boundaries.
-        /// (Currently only shows up to hours, so day length doesn't affect output.)
+        /// Pure: whether a ghost the proximity scan sampled belongs in the Real Spawn
+        /// Control list. Distance is the spawn gate itself: a ghost farther than
+        /// <paramref name="spawnRadius"/> cannot be spawned from here, so it is not listed
+        /// at all. A ghost inside the radius but passing faster than the spawn gate is
+        /// listed (its row reads "Too fast", which closing the speed fixes), up to
+        /// <paramref name="maxListRelativeSpeed"/>.
         /// </summary>
-        internal static string FormatTimeDelta(double seconds)
+        internal static bool IsListedCandidate(
+            double distance, double relativeSpeed,
+            double spawnRadius, double maxListRelativeSpeed)
         {
-            if (seconds < 0) seconds = 0;
-
-            if (seconds < 60)
-                return string.Format(IC, "{0}s", ((long)seconds).ToString(IC));
-
-            if (seconds < 3600)
-            {
-                long m = (long)(seconds / 60);
-                long s = (long)(seconds % 60);
-                return string.Format(IC, "{0}m {1}s", m.ToString(IC), s.ToString(IC));
-            }
-
-            long h = (long)(seconds / 3600);
-            long min = (long)((seconds % 3600) / 60);
-            return string.Format(IC, "{0}h {1}m", h.ToString(IC), min.ToString(IC));
+            return distance <= spawnRadius && relativeSpeed <= maxListRelativeSpeed;
         }
 
         /// <summary>
-        /// Pure: format a countdown string "T-Xd Xh Xm Xs" from a time delta.
-        /// Hides zero leading components (no years if 0, no days if 0, etc.).
-        /// Uses Kerbin time (6h days, 426-day years) or Earth time (24h days, 365-day years)
-        /// based on GameSettings.KERBIN_TIME.
-        /// Returns "T+..." for negative deltas (event in the past).
+        /// Pure: where a departing ghost goes, as the words that follow "leaves orbit"
+        /// ("for Mun", "for a new orbit", "to land on Kerbin", "to come down on Kerbin").
+        /// Empty for <see cref="DepartureKind.None"/>.
         /// </summary>
-        internal static string FormatCountdown(double deltaSeconds)
-            => ParsekTimeFormat.FormatCountdown(deltaSeconds);
+        internal static string FormatDepartureDestination(DepartureKind kind, string body)
+        {
+            bool hasBody = !string.IsNullOrEmpty(body);
+            switch (kind)
+            {
+                case DepartureKind.OtherBody:
+                    return hasBody ? "for " + body : "for another body";
+                case DepartureKind.NewOrbit:
+                    return "for a new orbit";
+                case DepartureKind.Landing:
+                    return hasBody ? "to land on " + body : "to land";
+                case DepartureKind.Crash:
+                    return hasBody ? "to come down on " + body : "to come down";
+                default:
+                    return string.Empty;
+            }
+        }
 
         /// <summary>
         /// Pure: format the one-shot proximity screen message for a newly discovered nearby
@@ -186,9 +220,10 @@ namespace Parsek
             if (candidate.willDepart)
             {
                 string departure = string.Format(IC,
-                    "Nearby craft: {0} (departs to {1} in {2}).",
-                    candidate.vesselName, candidate.destination,
-                    FormatTimeDelta(candidate.departureUT - currentUT));
+                    "Nearby craft: {0} (leaves orbit {1} in {2}).",
+                    candidate.vesselName,
+                    FormatDepartureDestination(candidate.departureKind, candidate.destination),
+                    ParsekTimeFormat.FormatDuration(candidate.departureUT - currentUT));
                 return spawnControlReachable
                     ? departure + " Open Real Spawn Control."
                     : departure;
@@ -202,8 +237,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: format the tooltip for the "Warp to Next Spawn" button.
-        /// Adjusts text when the next candidate will depart before spawn.
+        /// Pure: format the tooltip for the "Warp to Next Spawn" button. A craft that
+        /// leaves its orbit before it would spawn is warped to just before it leaves, and
+        /// the hover says it does not spawn here.
         /// </summary>
         internal static string FormatNextSpawnTooltip(
             NearbySpawnCandidate? candidate, double currentUT)
@@ -216,21 +252,21 @@ namespace Parsek
             {
                 double depDelta = c.departureUT - currentUT;
                 return string.Format(IC,
-                    "Warp to Depart: {0} (departs in {1})",
-                    c.vesselName, FormatTimeDelta(depDelta));
+                    "Warps to just before {0} leaves orbit in {1}; it does not spawn here.",
+                    c.vesselName, ParsekTimeFormat.FormatDuration(depDelta));
             }
 
             double delta = c.endUT - currentUT;
             return string.Format(IC,
-                "Warp to {0} (spawns in {1})",
-                c.vesselName, FormatTimeDelta(delta));
+                "Warps to when {0} spawns here, in {1}.",
+                c.vesselName, ParsekTimeFormat.FormatDuration(delta));
         }
 
-        // ════════════════════════════════════════════════════════════════
+        // ================================================================
         //  Departure Detection
-        // ════════════════════════════════════════════════════════════════
+        // ================================================================
 
-        // Tolerances for OrbitsMatch — tight enough that any intentional maneuver
+        // Tolerances for OrbitsMatch - tight enough that any intentional maneuver
         // is detected, loose enough to handle float noise from re-captured orbits.
         internal const double SmaRelativeTolerance = 0.001;      // 0.1%
         internal const double EccAbsoluteTolerance = 0.0001;
@@ -242,7 +278,7 @@ namespace Parsek
         /// Pure: compare two orbit segments for functional equivalence.
         /// Checks body, SMA, eccentricity, inclination, and argument of periapsis
         /// (argPe only for eccentric orbits where it is physically meaningful).
-        /// LAN and mean anomaly are NOT compared — they are time-dependent.
+        /// LAN and mean anomaly are NOT compared - they are time-dependent.
         /// </summary>
         internal static bool OrbitsMatch(OrbitSegment a, OrbitSegment b)
         {
@@ -281,7 +317,13 @@ namespace Parsek
         /// Pure: determine whether a ghost will depart its current orbit before the recording ends.
         /// Takes minimal data (not a full Recording) for testability and interface independence.
         ///
-        /// Resolution cascade for the "final orbit" to compare against:
+        /// A surface terminal (Landed / Splashed / Destroyed) is decided first: a ghost in
+        /// orbit now whose flight ends on a surface always leaves its orbit, whatever orbit
+        /// the recording last captured on the way down. It comes down on
+        /// <paramref name="terminalSurfaceBody"/> (the body it ended on), falling back to the
+        /// body it orbits now when that is unknown.
+        ///
+        /// Otherwise the "final orbit" to compare against resolves by this cascade:
         /// 1. Orbit segment covering endUT
         /// 2. Terminal orbit fields (if body is non-empty and SMA != 0)
         /// 3. Last orbit segment in the list (covers recordings ending in off-rails phase)
@@ -292,9 +334,10 @@ namespace Parsek
             double terminalOrbitEcc, double terminalOrbitInc,
             double terminalOrbitArgPe,
             TerminalState? terminalState,
-            double currentUT)
+            double currentUT,
+            string terminalSurfaceBody = null)
         {
-            var noDeparture = new DepartureInfo { willDepart = false };
+            var noDeparture = new DepartureInfo { willDepart = false, kind = DepartureKind.None };
 
             if (orbitSegments == null || orbitSegments.Count == 0)
                 return noDeparture;
@@ -302,16 +345,28 @@ namespace Parsek
             // Find current orbit segment
             OrbitSegment? currentSeg = TrajectoryMath.FindOrbitSegment(orbitSegments, currentUT);
             if (!currentSeg.HasValue)
-                return noDeparture;  // off-rails / atmospheric — can't detect departure
+                return noDeparture;  // off-rails / atmospheric - can't detect departure
 
             OrbitSegment current = currentSeg.Value;
 
-            // Special case: terminal state is surface (Landed/Splashed/Destroyed) with no
-            // orbit segment covering EndUT → ghost is orbiting now but will land/crash
             bool isSurfaceTerminal = terminalState.HasValue &&
                 (terminalState.Value == TerminalState.Landed ||
                  terminalState.Value == TerminalState.Splashed ||
                  terminalState.Value == TerminalState.Destroyed);
+            if (isSurfaceTerminal)
+            {
+                return new DepartureInfo
+                {
+                    willDepart = true,
+                    departureUT = current.endUT,
+                    kind = terminalState.Value == TerminalState.Destroyed
+                        ? DepartureKind.Crash
+                        : DepartureKind.Landing,
+                    destination = !string.IsNullOrEmpty(terminalSurfaceBody)
+                        ? terminalSurfaceBody
+                        : current.bodyName
+                };
+            }
 
             // Resolution cascade for the final orbit
             OrbitSegment? finalSeg = TrajectoryMath.FindOrbitSegment(orbitSegments, endUT);
@@ -333,16 +388,6 @@ namespace Parsek
                     argumentOfPeriapsis = terminalOrbitArgPe
                 };
             }
-            else if (isSurfaceTerminal)
-            {
-                // Ghost will land/crash — definite departure from current orbit
-                return new DepartureInfo
-                {
-                    willDepart = true,
-                    departureUT = current.endUT,
-                    destination = current.bodyName ?? "surface"
-                };
-            }
             else
             {
                 // Fallback: use last segment in list (recording ends in off-rails phase)
@@ -352,18 +397,15 @@ namespace Parsek
             if (OrbitsMatch(current, finalOrbit))
                 return noDeparture;
 
-            // Orbits differ — ghost will depart
-            string destination;
-            if (current.bodyName != finalOrbit.bodyName)
-                destination = finalOrbit.bodyName ?? "unknown";
-            else
-                destination = "maneuver";
-
+            // Orbits differ - ghost will depart, either into another body's SOI or onto
+            // a different orbit around the body it orbits now.
+            bool otherBody = current.bodyName != finalOrbit.bodyName;
             return new DepartureInfo
             {
                 willDepart = true,
                 departureUT = current.endUT,
-                destination = destination
+                kind = otherBody ? DepartureKind.OtherBody : DepartureKind.NewOrbit,
+                destination = otherBody ? finalOrbit.bodyName : current.bodyName
             };
         }
 
@@ -382,7 +424,26 @@ namespace Parsek
                 rec.TerminalOrbitEccentricity, rec.TerminalOrbitInclination,
                 rec.TerminalOrbitArgumentOfPeriapsis,
                 rec.TerminalStateValue,
-                currentUT);
+                currentUT,
+                TerminalSurfaceBody(rec));
+        }
+
+        /// <summary>
+        /// The body a recording's flight ended on: its terminal surface position, else its
+        /// endpoint body, else its last trajectory point's body; null when none is known.
+        /// </summary>
+        internal static string TerminalSurfaceBody(Recording rec)
+        {
+            if (rec == null)
+                return null;
+            if (rec.TerminalPosition.HasValue && !string.IsNullOrEmpty(rec.TerminalPosition.Value.body))
+                return rec.TerminalPosition.Value.body;
+            if (!string.IsNullOrEmpty(rec.EndpointBodyName))
+                return rec.EndpointBodyName;
+            if (rec.Points != null && rec.Points.Count > 0
+                && !string.IsNullOrEmpty(rec.Points[rec.Points.Count - 1].bodyName))
+                return rec.Points[rec.Points.Count - 1].bodyName;
+            return null;
         }
     }
 }

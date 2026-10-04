@@ -164,7 +164,7 @@ required = [
   "PickRecoveryRecordingId: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ path=name-fallback nameMatches=2 survivors=2 guidDropped=0 skippedZombieNotCommitted=0 sessionProvisionalAdmitted=False tier=most-recent-ended bracketTie=n/a pick=5436a7e8840b4c5885afcbaedc9dc037",
   "Recovery kerbal XP refused: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ kerbals=1 reason=ambiguous-recovery-recording survivors=2 nameMatches=2 guidDropped=0 tier=most-recent-ended corroboration=unknown-launch-guid wouldHavePicked=5436a7e8840b4c5885afcbaedc9dc037 survivorIds=[0-9a-f]{32},[0-9a-f]{32}",
   "Game state: ExperienceGained crew=1 emitted=1 noEntries=0 ledgerRows=0 untaggedNoLedgerRow=1",
-  "VesselRecovery funds patched: vessel='Jumping Flea' amount=[0-9]+ ut=[0-9.]+ recordingId=5436a7e8840b4c5885afcbaedc9dc037 fromTrackingStation=False",
+  "VesselRecovery funds patched: vessel='Jumping Flea' amount=[0-9]+ ut=[0-9.]+ recordingId=5436a7e8840b4c5885afcbaedc9dc037 quick=False",
   "KSC science recorded: subject='recovery@KerbinFlew' science=[0-9.]+ method=Recovered ut=[0-9.]+ recordingId=5436a7e8840b4c5885afcbaedc9dc037 vessel='#autoLOC_501224'",
 ]
 forbidden = [

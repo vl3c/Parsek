@@ -231,12 +231,13 @@ namespace Parsek
         /// <summary>
         /// Formats a cumulative per-resource total for the "Total delivered" detail
         /// line, e.g. "1240.0 LiquidFuel, 30.0 Oxidizer". Empty / null map yields
-        /// "(none)". Full stock resource keys (no abbreviation), F1 + InvariantCulture.
+        /// "" (the callers drop the clause). Full stock resource keys (no abbreviation),
+        /// F1 + InvariantCulture.
         /// </summary>
         internal static string FormatCumulativeTotal(IReadOnlyDictionary<string, double> cumulative)
         {
             if (cumulative == null || cumulative.Count == 0)
-                return "(none)";
+                return string.Empty;
             // Sorted (ordinal) so the per-resource order is stable across cache
             // refreshes; a plain Dictionary enumeration order can reorder between frames.
             var keys = new List<string>(cumulative.Keys);
@@ -261,12 +262,11 @@ namespace Parsek
         /// section "Would deliver" column (and reused by the candidate detail line). The
         /// inputs are the candidate analysis's already-built resource + inventory
         /// delivery manifests; a null resource map and a null / empty inventory list
-        /// yield "(nothing)". Resources render as "&lt;key&gt; &lt;F1 amount&gt;"
-        /// comma-joined (full stock key, no abbreviation) in dictionary order, followed
-        /// by "&lt;N&gt; inventory item(s)" when any inventory payload is present. F1 +
-        /// InvariantCulture so comma-locale systems render identically. Mirrors the
-        /// window's prior private FormatManifest exactly so the rendered cell text does
-        /// not change. Pure and Unity-free for unit testing.
+        /// yield "(nothing)". Resources render amount first, "&lt;F1 amount&gt; &lt;key&gt;"
+        /// ("200.0 LiquidFuel", as the Route History and the pickup text read), comma-joined
+        /// (full stock key, no abbreviation) in dictionary order, followed by
+        /// "&lt;N&gt; inventory item(s)" when any inventory payload is present. F1 +
+        /// InvariantCulture so comma-locale systems render identically. Pure and Unity-free.
         /// </summary>
         internal static string FormatWouldDeliver(
             IReadOnlyDictionary<string, double> resources,
@@ -278,8 +278,8 @@ namespace Parsek
                 foreach (KeyValuePair<string, double> kv in resources)
                 {
                     if (sb.Length > 0) sb.Append(", ");
-                    sb.Append(kv.Key).Append(' ')
-                      .Append(kv.Value.ToString("F1", CultureInfo.InvariantCulture));
+                    sb.Append(kv.Value.ToString("F1", CultureInfo.InvariantCulture))
+                      .Append(' ').Append(kv.Key);
                 }
             }
             int invCount = inventory?.Count ?? 0;
@@ -495,6 +495,164 @@ namespace Parsek
             if (deliveringStops > 1)
                 text += " across " + deliveringStops.ToString(CultureInfo.InvariantCulture) + " stops";
             return text;
+        }
+
+        // ------------------------------------------------------------------
+        // Pickups: what a route loads onto the transport, beside what it delivers.
+        // A pure pickup run (the endpoint IS the source, nothing delivered) used to
+        // read "(nothing)" here; these name what it picks up and where.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// A picked-up manifest, amount first like the Route History's cargo rows:
+        /// "154.4 LiquidFuel, 20.0 Oxidizer, 2 inventory item(s)" (stored parts counted in
+        /// the delivery manifest's words, so one cell never names them two ways). Resources sorted
+        /// (ordinal) so the text is stable across refreshes; F1 InvariantCulture. Empty
+        /// string when there is nothing.
+        /// </summary>
+        internal static string FormatPickedUpAmounts(
+            IReadOnlyDictionary<string, double> resources,
+            IReadOnlyList<InventoryPayloadItem> inventory)
+        {
+            var sb = new StringBuilder();
+            if (resources != null && resources.Count > 0)
+            {
+                var keys = new List<string>(resources.Keys);
+                keys.Sort(System.StringComparer.Ordinal);
+                for (int i = 0; i < keys.Count; i++)
+                {
+                    if (keys[i] == null) continue;
+                    if (sb.Length > 0) sb.Append(", ");
+                    sb.Append(resources[keys[i]].ToString("F1", CultureInfo.InvariantCulture))
+                      .Append(' ').Append(keys[i]);
+                }
+            }
+            int parts = inventory?.Count ?? 0;
+            if (parts > 0)
+            {
+                if (sb.Length > 0) sb.Append(", ");
+                sb.Append(parts.ToString(CultureInfo.InvariantCulture))
+                  .Append(" inventory item(s)");
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>True when any stop of the route picks cargo up.</summary>
+        internal static bool AnyStopPicksUp(IReadOnlyList<RouteStop> stops)
+        {
+            if (stops == null) return false;
+            for (int i = 0; i < stops.Count; i++)
+                if (StopPicksUp(stops[i])) return true;
+            return false;
+        }
+
+        /// <summary>True when any stop of the route delivers cargo.</summary>
+        internal static bool AnyStopDelivers(IReadOnlyList<RouteStop> stops)
+        {
+            if (stops == null) return false;
+            for (int i = 0; i < stops.Count; i++)
+                if (StopDelivers(stops[i])) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// The route row's Delivers cell. A route that picks nothing up reads exactly
+        /// <see cref="FormatRouteDeliveryPerCycle"/>. Otherwise the pickups follow the
+        /// delivery: "LiquidFuel 200.0; picks up 154.4 LiquidFuel at B", or alone on a pure
+        /// pickup route: "picks up 154.4 LiquidFuel at B". Several pickup stops read
+        /// "picks up 10.0 Ore at B, 5.0 LiquidFuel at C". <paramref name="stopNames"/> is
+        /// indexed like <paramref name="stops"/>; a missing name reads "-".
+        /// </summary>
+        internal static string FormatRouteCargoCell(
+            IReadOnlyList<RouteStop> stops, IReadOnlyList<string> stopNames)
+        {
+            if (!AnyStopPicksUp(stops))
+                return FormatRouteDeliveryPerCycle(stops);
+            var pickups = new StringBuilder();
+            for (int i = 0; i < stops.Count; i++)
+            {
+                RouteStop stop = stops[i];
+                if (!StopPicksUp(stop)) continue;
+                if (pickups.Length > 0) pickups.Append(", ");
+                pickups.Append(FormatPickedUpAmounts(stop.PickupManifest, stop.InventoryPickupManifest))
+                       .Append(" at ").Append(StopName(stopNames, i));
+            }
+            string picks = "picks up " + pickups;
+            return AnyStopDelivers(stops)
+                ? FormatRouteDeliveryPerCycle(stops) + "; " + picks
+                : picks;
+        }
+
+        /// <summary>
+        /// The detail block's cargo sentence. A route that picks nothing up keeps
+        /// "Delivers each run: ... to &lt;destination&gt;."
+        /// (<see cref="LogisticsRoutePresentation.FormatDeliversEachRun"/>). A route that
+        /// picks cargo up names every stop's cargo in visit order, a stop's pickup before
+        /// its delivery (the order a run fires them in): "Picks up each run: 154.4
+        /// LiquidFuel at B." on a pure pickup route, "Picks up each run: 154.4 LiquidFuel at
+        /// B, then delivers LiquidFuel 200.0 to A." on a relay.
+        /// </summary>
+        internal static string FormatRouteCargoLine(
+            IReadOnlyList<RouteStop> stops, IReadOnlyList<string> stopNames, string deliveryDestination)
+        {
+            if (!AnyStopPicksUp(stops))
+                return LogisticsRoutePresentation.FormatDeliversEachRun(
+                    FormatRouteDeliveryPerCycle(stops), deliveryDestination);
+            var sb = new StringBuilder();
+            for (int i = 0; i < stops.Count; i++)
+            {
+                RouteStop stop = stops[i];
+                if (StopPicksUp(stop))
+                    AppendCargoClause(sb, "picks up",
+                        FormatPickedUpAmounts(stop.PickupManifest, stop.InventoryPickupManifest)
+                        + " at " + StopName(stopNames, i));
+                if (StopDelivers(stop))
+                    AppendCargoClause(sb, "delivers",
+                        FormatWouldDeliver(stop.DeliveryManifest, stop.InventoryDeliveryManifest)
+                        + " to " + StopName(stopNames, i));
+            }
+            return sb.Append('.').ToString();
+        }
+
+        // The first clause opens the sentence ("Picks up each run: ..."); each later one
+        // follows in visit order (", then delivers ...").
+        private static void AppendCargoClause(StringBuilder sb, string verb, string rest)
+        {
+            if (sb.Length == 0)
+                sb.Append(char.ToUpperInvariant(verb[0])).Append(verb, 1, verb.Length - 1)
+                  .Append(" each run: ").Append(rest);
+            else
+                sb.Append(", then ").Append(verb).Append(' ').Append(rest);
+        }
+
+        private static string StopName(IReadOnlyList<string> stopNames, int index)
+        {
+            string name = stopNames != null && index >= 0 && index < stopNames.Count
+                ? stopNames[index] : null;
+            return string.IsNullOrEmpty(name) ? "-" : name;
+        }
+
+        /// <summary>
+        /// A candidate's Would deliver cell: <see cref="FormatWouldDeliver"/>, with what the
+        /// run loads at its dock after it ("LiquidFuel 97.6; picks up 30.0 Ore at Depot"),
+        /// or alone on a pure pickup run ("picks up 154.4 LiquidFuel at B"). A run that
+        /// loads nothing reads exactly <see cref="FormatWouldDeliver"/>.
+        /// </summary>
+        internal static string FormatCandidateCargo(
+            IReadOnlyDictionary<string, double> deliveryResources,
+            IReadOnlyList<InventoryPayloadItem> deliveryInventory,
+            IReadOnlyDictionary<string, double> loadResources,
+            IReadOnlyList<InventoryPayloadItem> loadInventory,
+            string place)
+        {
+            string delivery = FormatWouldDeliver(deliveryResources, deliveryInventory);
+            string loads = FormatPickedUpAmounts(loadResources, loadInventory);
+            if (loads.Length == 0)
+                return delivery;
+            string picks = "picks up " + loads + " at " + (string.IsNullOrEmpty(place) ? "-" : place);
+            bool delivers = (deliveryResources != null && deliveryResources.Count > 0)
+                || (deliveryInventory != null && deliveryInventory.Count > 0);
+            return delivers ? delivery + "; " + picks : picks;
         }
 
         /// <summary>True when the stop carries any resource or inventory delivery.</summary>

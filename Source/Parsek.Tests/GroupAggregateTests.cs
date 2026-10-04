@@ -220,8 +220,8 @@ namespace Parsek.Tests
             // The countdown is formatted from the CHOSEN recording's StartUT, so pinning it is what
             // pins the choice. 490 is 10 s before now; 300 is 200 s before it. ParsekTimeFormat
             // writes both numbers with InvariantCulture.
-            Assert.Equal("T+10s", text);
-            Assert.NotEqual("T+3m 20s", text);
+            Assert.Equal("T+ 10s", text);
+            Assert.NotEqual("T+ 3m 20s", text);
         }
 
         [Fact]

@@ -31,7 +31,7 @@ namespace Parsek.Tests
             // class must get a feature rule so its failure notice names what broke.
             var unmapped = typeof(ParsekHarmony).Assembly.GetTypes()
                 .Where(t => t.GetCustomAttributes(typeof(HarmonyPatch), false).Length > 0)
-                .Where(t => StartupNotices.PatchFeatureFor(t.Name) == null)
+                .Where(t => StartupNotices.PatchFeatureFor(StartupNotices.PatchClassKey(t)) == null)
                 .Select(t => t.FullName)
                 .ToList();
 
@@ -50,6 +50,8 @@ namespace Parsek.Tests
         [InlineData("CrewDialogFillPatch", "crew reservations")]
         [InlineData("PhysicsFramePatch", "flight recording")]
         [InlineData("RevertToLaunchInterceptor", "revert, rewind and scene changes")]
+        [InlineData("FlightResultsDialogLogPatches.DisplayPatch", "diagnostic logging")]
+        [InlineData("DisplayPatch", null)]
         [InlineData("SomethingNew", null)]
         [InlineData("", null)]
         public void PatchFeatureFor_FollowsTheOrderedRules(string className, string expected)

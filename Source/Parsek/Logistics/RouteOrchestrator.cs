@@ -1007,8 +1007,9 @@ namespace Parsek.Logistics
                 // cycle did not dispatch, the pending marker is null and this no-ops.
                 EmitPendingRecoveryCredit(route, currentUT, env);
 
-                // Blocked cycle: emit NOTHING (no debit, no delivery; the ghost
-                // still renders — "world looks busy, transfers nothing"). Bump
+                // Blocked cycle: no run (no dispatch, debit or delivery; the ghost
+                // still renders - "world looks busy, transfers nothing"); the only
+                // row it may write is the Route History's hold row below. Bump
                 // SkippedCycles and STILL snap the cycle index forward (to the
                 // dock-phase cycle, DEL-2) so the blocked cycle does not re-fire
                 // every tick.
@@ -1018,11 +1019,16 @@ namespace Parsek.Logistics
                 // window can name it. Zero new computation - the evaluator
                 // already produced kind/reason/shortfall for the log line below.
                 route.RecordHold(elig.Kind, elig.Reason, elig.Shortfall, currentUT);
+                // Route History: one Held row per episode and reason, BEFORE any
+                // same-UT blocked-then-paused marker the armed-pause tail emits.
+                bool heldRowWritten = TryEmitRouteHeldRow(
+                    route, elig.Kind, elig.Reason, elig.Shortfall, currentUT, cycleId);
                 skipped++;
                 ParsekLog.Info(Tag,
                     $"LoopRoute: route {ShortIdForLog(route)} cycle={cycleId} " +
                     $"BLOCKED kind={elig.Kind} reason={elig.Reason ?? "<none>"} " +
-                    $"shortfall={elig.Shortfall.ToString("R", IC)} — emitted nothing, " +
+                    $"shortfall={elig.Shortfall.ToString("R", IC)} - no run, " +
+                    $"holdRow={(heldRowWritten ? "1" : "0")}, " +
                     $"snapped lastObserved={dockCycleIndex.ToString(IC)} skippedCycles={route.SkippedCycles.ToString(IC)}");
                 // An armed one-shot / pause-after-cycle is CONSUMED by this blocked
                 // cycle: pause instead of looping on forever with the flag still
@@ -1410,8 +1416,9 @@ namespace Parsek.Logistics
 
                 if (!elig.Eligible)
                 {
-                    // Blocked cycle cMin (NOT yet committed): emit NOTHING for any
-                    // window. Flush any prior dispatched cycle's owed recovery credit
+                    // Blocked cycle cMin (NOT yet committed): no run for any window
+                    // (the only row it may write is the Route History's hold row
+                    // below). Flush any prior dispatched cycle's owed recovery credit
                     // (the blocked crossing IS the next crossing for it). Bump
                     // SkippedCycles ONCE (C+S advances to cMin+1 for the next pass),
                     // and ATOMICALLY skip the WHOLE blocked cycle by snapping EVERY
@@ -1439,12 +1446,15 @@ namespace Parsek.Logistics
                     if (route.LastObservedLoopCycleIndex < cMin)
                         route.LastObservedLoopCycleIndex = cMin;
                     route.RecordHold(elig.Kind, elig.Reason, elig.Shortfall, currentUT);
+                    bool heldRowWritten = TryEmitRouteHeldRow(
+                        route, elig.Kind, elig.Reason, elig.Shortfall, currentUT, cycleId);
                     skipped++;
                     stillDue = laterOwed > 0;
                     ParsekLog.Info(Tag,
                         $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} cMin={cMin.ToString(IC)} " +
                         $"BLOCKED kind={elig.Kind} reason={elig.Reason ?? "<none>"} " +
-                        $"shortfall={elig.Shortfall.ToString("R", IC)} — emitted nothing for {dueCount.ToString(IC)} " +
+                        $"shortfall={elig.Shortfall.ToString("R", IC)} - no run, " +
+                        $"holdRow={(heldRowWritten ? "1" : "0")}, for {dueCount.ToString(IC)} " +
                         $"cMin window(s), snapped due stops+lastObserved={cMin.ToString(IC)} " +
                         $"skippedCycles={route.SkippedCycles.ToString(IC)} stillDue={(stillDue ? "1" : "0")}");
                     // An armed one-shot / pause-after-cycle is CONSUMED by this
@@ -3686,10 +3696,14 @@ namespace Parsek.Logistics
 
             // M6 hold reasons: store the legacy-path verdict verbatim (the
             // prefixed decision token, e.g. "origin-lacks-X"; the formatter is
-            // total over both token shapes). Shortfall stays 0 here - the
-            // decision carries the number only inside the funds token, and the
-            // legacy path is dead for v0 loop routes (accepted degradation).
-            route.RecordHold(HoldKindForOutcome(decision.Outcome), decision.Reason, 0.0, currentUT);
+            // total over both token shapes). The funds amount comes from the
+            // decision's Shortfall, never from its "funds-shortfall-N" token.
+            route.RecordHold(HoldKindForOutcome(decision.Outcome), decision.Reason, decision.Shortfall, currentUT);
+            // The Held row's detail is the STABLE token (HeldRowDetail): the funds
+            // token's amount moves on every retry and must not read as a new reason.
+            TryEmitRouteHeldRow(route, HoldKindForOutcome(decision.Outcome),
+                HeldRowDetail(route, HoldKindForOutcome(decision.Outcome), decision.Reason),
+                decision.Shortfall, currentUT, cycleId: null);
 
             // §10.4: do NOT advance NextDispatchUT for any wait state. The route
             // re-evaluates at NextEligibilityCheckUT and either dispatches at the
@@ -3776,6 +3790,177 @@ namespace Parsek.Logistics
                 $"LifecycleMarker: route {ShortIdForLog(route)} type={type} " +
                 $"reason={reason ?? "<none>"} ut={currentUT.ToString("R", IC)} " +
                 $"seq={sequence.ToString(IC)}");
+        }
+
+        /// <summary>
+        /// Writes a <see cref="GameActionType.RouteHeld"/> ledger row for a held run when
+        /// its reason is new to the route's open hold episode (design doc section 6.7).
+        /// Called right after <see cref="Route.RecordHold"/> at the three hold sites (the
+        /// single-stop and multi-stop loop blocked branches and the legacy wait applier).
+        ///
+        /// <para>The "already recorded?" check reads the EFFECTIVE LEDGER
+        /// (<see cref="IsHoldReasonRecordedInOpenEpisode"/> over
+        /// <see cref="EffectiveState.ComputeELS"/>), never <c>Route.LastHold*</c>: the
+        /// rewind reconcile clears those fields while the episode's pre-cutoff Held row
+        /// survives, and a stock revert never touches them, so a field compare would write
+        /// a duplicate row after a rewind and miss a row after a revert. A row is written
+        /// once per (kind, detail) per episode: the episode start, and each reason not yet
+        /// recorded in it. A shortfall-only change writes nothing.</para>
+        ///
+        /// <para>Skips with a rate-limited Warn when the live UT is unresolved (the same
+        /// bogus-timeline-position guard as <see cref="EmitRouteLifecycleMarker"/>).
+        /// <paramref name="els"/> and <paramref name="emitter"/> are test seams: null reads
+        /// the memoized ELS and appends through <see cref="Ledger.AddAction"/>. Returns true
+        /// when a row was written.</para>
+        /// </summary>
+        internal static bool TryEmitRouteHeldRow(
+            Route route,
+            RouteDispatchEvaluator.EligibilityFailureKind kind,
+            string detail,
+            double shortfall,
+            double currentUT,
+            string cycleId,
+            IReadOnlyList<GameAction> els = null,
+            Action<GameAction> emitter = null)
+        {
+            if (route == null || string.IsNullOrEmpty(route.Id)
+                || kind == RouteDispatchEvaluator.EligibilityFailureKind.None)
+                return false;
+
+            if (currentUT <= 0.0)
+            {
+                ParsekLog.WarnRateLimited(Tag, "route-held-ut-" + route.Id,
+                    $"RouteHeld: route {ShortIdForLog(route)} kind={kind} detail={detail ?? "<none>"} " +
+                    "SKIPPED - live UT unresolved (the row would carry a bogus timeline position)");
+                return false;
+            }
+
+            detail = HeldRowDetail(route, kind, detail);
+
+            if (els == null)
+                els = SafeComputeEls();
+
+            if (IsHoldReasonRecordedInOpenEpisode(els, route.Id, kind, detail))
+            {
+                ParsekLog.VerboseRateLimited(Tag, "route-held-skip-" + route.Id,
+                    $"RouteHeld: route {ShortIdForLog(route)} hold unchanged, skipped - kind={kind} " +
+                    $"detail={detail ?? "<none>"} already recorded in the open episode " +
+                    $"(shortfall={shortfall.ToString("R", IC)} ut={currentUT.ToString("R", IC)})");
+                return false;
+            }
+
+            var action = new GameAction
+            {
+                Type = GameActionType.RouteHeld,
+                UT = currentUT,
+                RouteId = route.Id,
+                RouteCycleId = cycleId,
+                RouteStopIndex = -1,
+                Sequence = 0,
+                RouteHoldKind = kind,
+                RouteEndpointReason = detail,
+                RouteHoldShortfall = shortfall,
+            };
+            if (emitter != null)
+                emitter(action);
+            else
+                Ledger.AddAction(action);
+
+            ParsekLog.Info(Tag,
+                $"RouteHeld: route {ShortIdForLog(route)} kind={kind} detail={detail ?? "<none>"} " +
+                $"shortfall={shortfall.ToString("R", IC)} cycle={cycleId ?? "<none>"} " +
+                $"ut={currentUT.ToString("R", IC)} - hold row written");
+            return true;
+        }
+
+        /// <summary>
+        /// The detail a <see cref="GameActionType.RouteHeld"/> row carries: the evaluator
+        /// token, made STABLE where the token itself is not. A funds hold is always
+        /// <c>funds-short</c> (the legacy decision token <c>funds-shortfall-N</c> moves with
+        /// the amount, which belongs in the shortfall field); a linked-route wait is
+        /// <c>partner:&lt;partner route id&gt;</c> (the evaluator token names the partner,
+        /// and a rename mid-hold must not read as a new reason). Every other token passes
+        /// through. Pure.
+        /// </summary>
+        internal static string HeldRowDetail(
+            Route route, RouteDispatchEvaluator.EligibilityFailureKind kind, string detail)
+        {
+            switch (kind)
+            {
+                case RouteDispatchEvaluator.EligibilityFailureKind.FundsShort:
+                    return HeldFundsShortDetail;
+                case RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner:
+                    return route != null && !string.IsNullOrEmpty(route.LinkedRouteId)
+                        ? HeldPartnerDetailPrefix + route.LinkedRouteId
+                        : detail;
+                default:
+                    return detail;
+            }
+        }
+
+        /// <summary>The stable detail of every funds <see cref="GameActionType.RouteHeld"/> row.</summary>
+        internal const string HeldFundsShortDetail = "funds-short";
+
+        /// <summary>A linked-route wait's held detail: this prefix plus the partner route's id.</summary>
+        internal const string HeldPartnerDetailPrefix = "partner:";
+
+        /// <summary>
+        /// True when <paramref name="els"/> already holds a
+        /// <see cref="GameActionType.RouteHeld"/> row for <paramref name="routeId"/> with
+        /// this (<paramref name="kind"/>, <paramref name="detail"/>) inside the route's
+        /// OPEN hold episode: the route's rows after its latest
+        /// <see cref="GameActionType.RouteDispatched"/> / <see cref="GameActionType.RoutePaused"/> /
+        /// <see cref="GameActionType.RouteResumed"/> / <see cref="GameActionType.RouteEndpointLost"/>
+        /// row, walked in time order with ledger order breaking ties (a same-UT dispatch
+        /// emitted after a hold closes that hold's episode). Shortfall is not part of the
+        /// identity. Pure; the list is passed in.
+        /// </summary>
+        internal static bool IsHoldReasonRecordedInOpenEpisode(
+            IReadOnlyList<GameAction> els, string routeId,
+            RouteDispatchEvaluator.EligibilityFailureKind kind, string detail)
+        {
+            if (els == null || string.IsNullOrEmpty(routeId))
+                return false;
+
+            var rows = new List<KeyValuePair<int, GameAction>>();
+            for (int i = 0; i < els.Count; i++)
+            {
+                GameAction a = els[i];
+                if (a == null || !string.Equals(a.RouteId, routeId, StringComparison.Ordinal))
+                    continue;
+                if (a.Type == GameActionType.RouteHeld || IsHoldEpisodeBoundary(a.Type))
+                    rows.Add(new KeyValuePair<int, GameAction>(i, a));
+            }
+            rows.Sort((x, y) =>
+            {
+                int byUt = x.Value.UT.CompareTo(y.Value.UT);
+                return byUt != 0 ? byUt : x.Key.CompareTo(y.Key);
+            });
+
+            bool recorded = false;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                GameAction a = rows[i].Value;
+                if (IsHoldEpisodeBoundary(a.Type))
+                {
+                    recorded = false;
+                    continue;
+                }
+                if (a.RouteHoldKind == kind
+                    && string.Equals(a.RouteEndpointReason, detail, StringComparison.Ordinal))
+                    recorded = true;
+            }
+            return recorded;
+        }
+
+        // The route rows that close a hold episode: a run went out, the route paused or
+        // was activated, or it stopped on a lost endpoint.
+        private static bool IsHoldEpisodeBoundary(GameActionType type)
+        {
+            return type == GameActionType.RouteDispatched
+                || type == GameActionType.RoutePaused
+                || type == GameActionType.RouteResumed
+                || type == GameActionType.RouteEndpointLost;
         }
 
         /// <summary>

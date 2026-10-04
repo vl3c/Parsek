@@ -138,6 +138,18 @@ type = "int"
 min = 2
 max = 1000
 
+# Optional: per-field tolerance of the frozen-telemetry compare (altitude, vertical
+# speed, apoapsis, periapsis; metres or m/s). Absent = mlib.HOP_FROZEN_TOLERANCE_ABS
+# (1e-3) for mlib.Eva4Params; 0.0 = the exact
+# bit-identical compare. A destroyed craft's frozen readings were seen to differ by
+# less than a millimetre per poll (RB-1 2026-09-27_1353), while a live hop craft
+# always moves far more than this between two 0.5 s polls.
+[params.frozenToleranceAbs]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
+
 # Optional: the situations that keep the EVA window legitimate. Defaults to
 # ["FLYING", "SUB_ORBITAL"]. A craft that has already LANDED is the EVA-1 ground case,
 # not this scenario's mid-flight surface.

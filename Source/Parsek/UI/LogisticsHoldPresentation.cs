@@ -27,11 +27,14 @@ namespace Parsek
         /// line (<see cref="FormatHoldDetailLine"/>). Returns null ONLY for
         /// <see cref="RouteDispatchEvaluator.EligibilityFailureKind.None"/>
         /// (no hold recorded); every real hold maps to non-empty text.
+        /// <paramref name="partTitle"/> maps a stored part's name to its player-facing
+        /// title (null, or a null answer, keeps the name).
         /// </summary>
         internal static string DescribeHold(
             RouteDispatchEvaluator.EligibilityFailureKind kind,
             string detail,
-            double shortfall)
+            double shortfall,
+            System.Func<string, string> partTitle = null)
         {
             switch (kind)
             {
@@ -39,7 +42,7 @@ namespace Parsek
                     return null;
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo:
-                    return DescribeOriginLacksCargo(detail, shortfall);
+                    return DescribeOriginLacksCargo(detail, shortfall, partTitle);
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.FundsShort:
                     // Both token shapes ("funds-short" / "funds-shortfall-N") land
@@ -62,7 +65,8 @@ namespace Parsek
                     {
                         return storedPart.Length == 0
                             ? LogisticsHoldClauses.DestinationNoInventorySlot
-                            : Fmt(LogisticsHoldClauses.DestinationNoInventorySlotForNamedPart, storedPart);
+                            : Fmt(LogisticsHoldClauses.DestinationNoInventorySlotForNamedPart,
+                                PartLabel(storedPart, partTitle));
                     }
                     return string.IsNullOrEmpty(resource)
                         ? LogisticsHoldClauses.DestinationNoRoomForDelivery
@@ -163,7 +167,8 @@ namespace Parsek
         // legibility string and must never be parsed for a magnitude. 0 is
         // "unknown / not a resource shortfall" (inventory shorts, unresolved
         // endpoints, legacy persisted holds) and renders the pre-existing text.
-        private static string DescribeOriginLacksCargo(string detail, double shortfall)
+        private static string DescribeOriginLacksCargo(
+            string detail, double shortfall, System.Func<string, string> partTitle)
         {
             // Strip the legacy "origin-lacks-" wrapper FIRST: the legacy
             // WaitResources factory wraps whatever OriginHasCargo returned,
@@ -199,7 +204,7 @@ namespace Parsek
             if (token != null
                 && token.StartsWith("source:", System.StringComparison.Ordinal))
             {
-                return DescribePickupSourceShort(token, shortfall);
+                return DescribePickupSourceShort(token, shortfall, partTitle);
             }
             // Inventory shortfalls: the emit sites now name the PART
             // ("inventory:<partName>"), with the raw identity hash only as a
@@ -213,14 +218,16 @@ namespace Parsek
             {
                 return stateName.Length == 0
                     ? LogisticsHoldClauses.OriginStoredPartStateChanged
-                    : Fmt(LogisticsHoldClauses.OriginNamedStoredPartStateChanged, stateName);
+                    : Fmt(LogisticsHoldClauses.OriginNamedStoredPartStateChanged,
+                        PartLabel(stateName, partTitle));
             }
             string inventoryName = TryStripPrefix(token, "inventory:");
             if (inventoryName != null)
             {
                 return inventoryName.Length == 0 || IsOpaqueInventoryTail(inventoryName)
                     ? LogisticsHoldClauses.OriginMissingStoredPart
-                    : Fmt(LogisticsHoldClauses.OriginMissingNamedStoredPart, inventoryName);
+                    : Fmt(LogisticsHoldClauses.OriginMissingNamedStoredPart,
+                        PartLabel(inventoryName, partTitle));
             }
             if (token != null
                 && token.StartsWith("origin-unresolved:", System.StringComparison.Ordinal))
@@ -242,7 +249,8 @@ namespace Parsek
         // emit site (RoutePickupSourceGate.BuildHoldToken), so the first three ':'
         // delimit pid / name / short cleanly. Degrades to the generic origin text
         // if the shape is unexpected (never throws, never blank).
-        private static string DescribePickupSourceShort(string token, double shortfall)
+        private static string DescribePickupSourceShort(
+            string token, double shortfall, System.Func<string, string> partTitle)
         {
             // token = "source:<pid>:<name>:<short...>"; split into at most 4 parts so
             // a short token that itself contains ':' (e.g. "inventory:<hash>") keeps
@@ -258,7 +266,8 @@ namespace Parsek
             {
                 return inventoryName.Length == 0 || IsOpaqueInventoryTail(inventoryName)
                     ? Fmt(LogisticsHoldClauses.NamedSourceMissingStoredPart, name)
-                    : Fmt(LogisticsHoldClauses.NamedSourceMissingNamedStoredPart, name, inventoryName);
+                    : Fmt(LogisticsHoldClauses.NamedSourceMissingNamedStoredPart,
+                        name, PartLabel(inventoryName, partTitle));
             }
             if (string.IsNullOrEmpty(shortToken))
                 return Fmt(LogisticsHoldClauses.NamedSourceMissingCargo, name);
@@ -318,13 +327,16 @@ namespace Parsek
         /// Returns null ONLY for kind None (no hold recorded) - the draw path
         /// then falls back to the generic StatusReason text. Callers gate on
         /// <see cref="ShouldDisplayHold"/> first, same as the tooltip/detail.
+        /// <paramref name="partTitle"/> names a stored part by its title, as in
+        /// <see cref="DescribeHold"/> (null, or a null answer, keeps the name).
         /// </summary>
         internal static string StatusCellText(
             RouteDispatchEvaluator.EligibilityFailureKind kind,
             string detail,
-            double shortfall)
+            double shortfall,
+            System.Func<string, string> partTitle = null)
         {
-            string compact = CompactHold(kind, detail, shortfall);
+            string compact = CompactHold(kind, detail, shortfall, partTitle);
             if (string.IsNullOrEmpty(compact))
                 return null;
             return TruncateForCell(
@@ -343,7 +355,8 @@ namespace Parsek
         internal static string CompactHold(
             RouteDispatchEvaluator.EligibilityFailureKind kind,
             string detail,
-            double shortfall)
+            double shortfall,
+            System.Func<string, string> partTitle = null)
         {
             switch (kind)
             {
@@ -351,7 +364,7 @@ namespace Parsek
                     return null;
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo:
-                    return CompactOriginLacksCargo(detail, shortfall);
+                    return CompactOriginLacksCargo(detail, shortfall, partTitle);
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.FundsShort:
                     // Same shortfall contract as DescribeHold: the number comes
@@ -369,7 +382,7 @@ namespace Parsek
                     {
                         return storedPart.Length == 0
                             ? LogisticsHoldClauses.CompactNoFreeInventorySlot
-                            : Fmt(LogisticsHoldClauses.CompactNoSlotForNamedPart, storedPart);
+                            : Fmt(LogisticsHoldClauses.CompactNoSlotForNamedPart, PartLabel(storedPart, partTitle));
                     }
                     return string.IsNullOrEmpty(resource)
                         ? LogisticsHoldClauses.CompactDestinationFull
@@ -401,7 +414,8 @@ namespace Parsek
         // Compact variant of DescribeOriginLacksCargo: same token family, same
         // strip-the-legacy-wrapper-first order, same shortfall > 0.0 conditional,
         // short phrasing.
-        private static string CompactOriginLacksCargo(string detail, double shortfall)
+        private static string CompactOriginLacksCargo(
+            string detail, double shortfall, System.Func<string, string> partTitle)
         {
             string token = StripPrefix(detail, "origin-lacks-");
             if (token != null
@@ -441,7 +455,7 @@ namespace Parsek
                     return sourceInventoryName.Length == 0 || IsOpaqueInventoryTail(sourceInventoryName)
                         ? Fmt(LogisticsHoldClauses.CompactNamedSourceMissingStoredPart, name)
                         : Fmt(LogisticsHoldClauses.CompactNamedSourceMissingNamedPart,
-                            name, sourceInventoryName);
+                            name, PartLabel(sourceInventoryName, partTitle));
                 }
                 if (string.IsNullOrEmpty(shortToken))
                     return Fmt(LogisticsHoldClauses.CompactNamedSourceShortOfCargo, name);
@@ -455,14 +469,16 @@ namespace Parsek
             {
                 return stateName.Length == 0
                     ? LogisticsHoldClauses.CompactOriginStoredPartStateDiffers
-                    : Fmt(LogisticsHoldClauses.CompactOriginNamedStoredPartStateDiffers, stateName);
+                    : Fmt(LogisticsHoldClauses.CompactOriginNamedStoredPartStateDiffers,
+                        PartLabel(stateName, partTitle));
             }
             string inventoryName = TryStripPrefix(token, "inventory:");
             if (inventoryName != null)
             {
                 return inventoryName.Length == 0 || IsOpaqueInventoryTail(inventoryName)
                     ? LogisticsHoldClauses.CompactOriginMissingStoredPart
-                    : Fmt(LogisticsHoldClauses.CompactOriginMissingNamedStoredPart, inventoryName);
+                    : Fmt(LogisticsHoldClauses.CompactOriginMissingNamedStoredPart,
+                        PartLabel(inventoryName, partTitle));
             }
             if (token != null
                 && token.StartsWith("origin-unresolved:", System.StringComparison.Ordinal))
@@ -475,6 +491,66 @@ namespace Parsek
                 ? Fmt(LogisticsHoldClauses.CompactOriginShortOfResource,
                     FormatShortfallAmount(shortfall), token)
                 : Fmt(LogisticsHoldClauses.CompactOriginOutOfResource, token);
+        }
+
+        /// <summary>
+        /// The advice tails a long-form clause carries for the LIVE route ("- delivers
+        /// when ...", "- use Re-scan ...", "- it may have moved ..."). A Route History
+        /// row is past fact, so <see cref="DescribeHoldForHistory"/> cuts the clause at
+        /// the first of these.
+        /// </summary>
+        private static readonly string[] HistoryAdviceMarkers =
+        {
+            " - delivers when ",
+            " - use Re-scan ",
+            " - it may have moved,",
+        };
+
+        /// <summary>
+        /// The hold sentence a Route History row shows: <see cref="DescribeHold"/>
+        /// (stored parts named by <paramref name="partTitle"/>) with the live-route
+        /// advice tail removed, e.g. "origin is short 108.8 LiquidFuel" or "destination
+        /// has no room for LiquidFuel". Null only for kind None.
+        /// </summary>
+        internal static string DescribeHoldForHistory(
+            RouteDispatchEvaluator.EligibilityFailureKind kind,
+            string detail,
+            double shortfall,
+            System.Func<string, string> partTitle)
+        {
+            string text = DescribeHold(kind, detail, shortfall, partTitle);
+            if (string.IsNullOrEmpty(text))
+                return null;
+            int cut = -1;
+            for (int i = 0; i < HistoryAdviceMarkers.Length; i++)
+            {
+                int at = text.IndexOf(HistoryAdviceMarkers[i], System.StringComparison.Ordinal);
+                if (at > 0 && (cut < 0 || at < cut))
+                    cut = at;
+            }
+            return cut > 0 ? text.Substring(0, cut) : text;
+        }
+
+        /// <summary>
+        /// A Route History held row: "Held: {sentence}" from
+        /// <see cref="DescribeHoldForHistory"/>, or plain "Held" when the row's kind did
+        /// not read back (an unknown kind from a newer build).
+        /// </summary>
+        internal static string FormatHistoryHeldRow(string sentence)
+        {
+            return string.IsNullOrEmpty(sentence)
+                ? LogisticsHoldClauses.HistoryHeldRowBare
+                : Fmt(LogisticsHoldClauses.HistoryHeldRow, sentence);
+        }
+
+        // A stored part's player-facing label: its title when the resolver knows one,
+        // else the name the token carried.
+        private static string PartLabel(string partName, System.Func<string, string> partTitle)
+        {
+            if (partTitle == null || string.IsNullOrEmpty(partName))
+                return partName;
+            string title = partTitle(partName);
+            return string.IsNullOrEmpty(title) ? partName : title;
         }
 
         /// <summary>

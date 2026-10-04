@@ -43,7 +43,21 @@ namespace Parsek
             (new[] { "ScienceSubject", "ProgressReward" }, "science and milestone rewards"),
             (new[] { "PhysicsFrame", "PartMassivePartCheck", "CheatTeleport", "HackGravity" }, "flight recording"),
             (new[] { "Revert", "HighLogic_LoadScene", "FloatingOrigin" }, "revert, rewind and scene changes"),
+            (new[] { "FlightResultsDialogLog" }, "diagnostic logging"),
         };
+
+        /// <summary>
+        /// The name a patch class is mapped and reported by: <c>Outer.Inner</c> for a nested
+        /// class, whose own name (<c>DisplayPatch</c>) says nothing about what it serves.
+        /// </summary>
+        internal static string PatchClassKey(Type patchType)
+        {
+            if (patchType == null)
+                return null;
+            return patchType.DeclaringType != null
+                ? patchType.DeclaringType.Name + "." + patchType.Name
+                : patchType.Name;
+        }
 
         /// <summary>
         /// The player-facing feature a Harmony patch class serves, or null when no rule

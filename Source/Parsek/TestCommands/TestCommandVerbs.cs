@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + the Gloops pair + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel + StashSlot + the D18 RealSpawn / Recover pair): 46 verbs (DeleteRecording removed 2026-09-26). The NUMBER is prose and
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + the Gloops pair + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel + StashSlot + the D18 RealSpawn / Recover pair + TrackingStationRecover + KscMarkerRecover): 48 verbs (DeleteRecording removed 2026-09-26). The NUMBER is prose and
         // the SET below is the authority - test_hlib's
         // test_the_implemented_verb_tuple_mirrors_the_c_sharp_initializer reads that
         // initializer out of this file and pins it against hlib.IMPLEMENTED_SEAM_VERBS as
@@ -311,7 +311,7 @@ namespace Parsek.TestCommands
             // on a ghost chain had no driven subject (todo
             // D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR). Contracts on TestCommandRealSpawn /
             // TestCommandRecover; both TWO-PHASE, RequiresFlight, 120 s.
-            //   RealSpawn rec=<id> presses the Real Spawn Control row's "Warp to Spawn" for
+            //   RealSpawn rec=<id> presses the Real Spawn Control row's "Warp" (Ready) for
             //     one recording through the button's own click body (ExecuteRowWarp ->
             //     WarpToRecordingEnd) and answers the spawned vessel's pid once the
             //     playback loop has spawned it. It is NOT a second spelling of
@@ -323,6 +323,21 @@ namespace Parsek.TestCommands
             //     fires onVesselRecovered, exactly as for a player.
             "RealSpawn",
             "Recover",
+            // ADDITIVE (46 -> 47 implemented, reserved unchanged at 4): the Tracking
+            // Station half of the recovery a player can make. Recover presses the flight
+            // scene's button, which only ever recovers the ACTIVE vessel; this verb, issued
+            // at the Space Center, clicks the Tracking Station building, selects the vessel
+            // (SpaceTracking.SetVessel), presses RecoverButton, answers stock's "Recover
+            // Vessel" confirm through its own button, closes the recovery summary and
+            // presses Leave. Contract on TestCommandTrackingStationRecover; TWO-PHASE,
+            // RequiresGameLoaded, 120 s.
+            "TrackingStationRecover",
+            // ADDITIVE (47 -> 48 implemented, reserved unchanged at 4): the third
+            // recovery a player can make, without leaving the Space Center: the vessel's
+            // KSCVesselMarker, opened and its Recover pressed (stock recovers one frame
+            // later, no confirm, no scene change). Contract on TestCommandKscMarkerRecover;
+            // TWO-PHASE, RequiresGameLoaded, 60 s.
+            "KscMarkerRecover",
         };
 
         // Reserved (recognized, not implemented in v1): 4 verbs.

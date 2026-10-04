@@ -68,10 +68,27 @@ tier = "nightly"
 # are the measured values). ARMED RE-FLIGHT `2026-09-30_1902` PASS attempt 1 (saveParse
 # gating=True), same lines; offline negative control over it 9 of 9 seeds red on exactly their
 # token or window. Claims D14 `vessel-budget`.
+#
+# 2026-10-03 (`closing-flights`): the RunTests `VesselBudget` step is RESTORED, after the
+# SaveGame under test and before FlushAndQuit, as the live proof of the
+# INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS fix (PR #1967): the runner's between-run cleanup now
+# removes the eight registered ghost map vessels in the Tracking Station before it clears the
+# bookkeeping (`Between-run ghost vessel removal: ... scene=TRACKSTATION tracked=8`,
+# `ghostVesselsRemoved=8`), so the batch's baseline and marker saves drop no debris, and the
+# `VesselBudget` cell waits for the rebuilt ghosts instead of skipping. READING `2026-10-03_1440`
+# PASS attempt 1 (automation DLL sha256 `9078cb1c...`, built from origin/main `cb899a8f9`):
+# `Between-run ghost vessel removal: reason=run-category:VesselBudget scene=TRACKSTATION
+# tracked=8 ... liveVesselsBefore=17 liveVesselsAfter=9`, `ghostVesselsRemoved=8`, the cell's
+# `FlightStateGhostBudget: 8 ghost map vessel(s) present after 0.07 s` and `(live real=9
+# ghosts=8; built real=9 ghosts=8)`, `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0`,
+# no `Too many vessels` line, armed `recordings.structure` PASS. The batch line is pinned WHOLE
+# off that reading (an earlier `2026-10-03_1435` on an unpinned automation DLL read the same).
+# Every removal is followed by a rebuild (four sets of eight `Created ghost vessel` lines in
+# all), and no two sets are ever live together.
 description = "The stock vessel budget vs ghost map vessels, in the Tracking Station: mun-park-kerbalx (eight real vessels, six of them Debris) plus eight in-window probe ghosts, flown at MAX_VESSELS_BUDGET = 10 via a per-run settings delta. Every save build must drop nothing (the ghosts are excluded by FlightStateGhostBudgetPatch) and the produced save keeps all six debris."
 instanceProfile = "stock-minimal"
 tags = ["settings-axis", "vessel-budget", "ghost-map", "injected-recordings", "tracking-station",
-        "VB-1", "flown", "D14", "armed"]
+        "ingame-batch", "VB-1", "flown", "D14", "armed"]
 
 [fixture]
 saveTemplate = "fixtures/saves/mun-park-kerbalx"
@@ -96,6 +113,11 @@ steps = [
   # The save under test: Game.Updated -> new FlightState() with the ghosts live.
   { cmd = "SaveGame",   args = { name = "persistent" }, expect = "OK" },
   { cmd = "RecordingState", expect = "OK" },
+  # The in-game cell: the batch's between-run cleanup must remove the registered ghosts (not
+  # orphan them), its baseline and marker saves must drop nothing, and the cell builds a real
+  # FlightState at a budget equal to the real-vessel count once the ghosts are rebuilt.
+  { cmd = "RunTests",   args = { category = "VesselBudget" }, expect = "OK", budget = 540 },
+  { cmd = "RecordingState", expect = "OK" },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 
@@ -118,11 +140,16 @@ required  = [
   "\\[GhostMap\\] Created ghost vessel 'Ghost: VB Probe 1' ",
   "\\[GhostMap\\] Created ghost vessel 'Ghost: VB Probe 8' ",
   "\\[GhostMap\\] FlightState vessel budget: excluded 8 ghost map vessel\\(s\\) from the stock save budget, MAX_VESSELS_BUDGET 10 -> 18 for this build \\(restored after\\)",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=VesselBudget scene=TRACKSTATION",
+  "\\[GhostMap\\] Between-run ghost vessel removal: reason=\\S+ scene=TRACKSTATION tracked=8 ",
+  "\\[TestRunner\\] PerformBetweenRunCleanup: end reason=\\S+ ghostsBefore=[0-9]+ mapPidsBefore=8 mapPidsAfter=0 ghostVesselsRemoved=8",
+  "\\[TestRunner\\] FlightStateGhostBudget: 8 ghost map vessel\\(s\\) present after ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "Too many vessels in scene - skipping save for",
   "FlightState vessel budget: ghost exclusion failed",
+  "Between-run ghost vessel removal: Die\\(\\) threw",
 ]
 
 [runtime]

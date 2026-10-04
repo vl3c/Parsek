@@ -764,6 +764,7 @@ namespace Parsek.TestCommands
                 completionSeq = seq;
                 completionVerb = head.Verb;
                 completionStartedAt = WallClockSeconds();
+                ArmActiveVesselWatch(id, head.Verb);
                 TestCommandDiagnostics.ExecPending(id);
                 return;
             }
@@ -854,6 +855,12 @@ namespace Parsek.TestCommands
         private void TryCompleteTwoPhaseCore()
         {
             double now = WallClockSeconds();
+
+            // The shared active-vessel-loss guard runs BEFORE every per-verb completion: a
+            // watched verb (TestCommandActiveVesselLoss) whose kerbal died mid-step ends
+            // ERROR active-vessel-lost on this poll instead of waiting out its budget.
+            if (TryFailPendingOnActiveVesselLoss(now))
+                return;
 
             // LoadGame has its own bounded, observable completion (F2): a settled FLIGHT
             // scene -> OK, a settle-back to MAINMENU -> ERROR load-failed-returned-to-menu,
@@ -1028,6 +1035,20 @@ namespace Parsek.TestCommands
                 TryCompleteRecover(now);
                 return;
             }
+            // TrackingStationRecover, in the .TrackingStationRecover.cs partial: a phased
+            // walk through the Tracking Station and back, each step a stock control.
+            if (completionVerb == TestCommandTrackingStationRecover.Verb)
+            {
+                TryCompleteTrackingStationRecover(now);
+                return;
+            }
+            // KscMarkerRecover, in the .KscMarkerRecover.cs partial: the vessel's Space
+            // Center marker, opened and its Recover pressed, with no scene change.
+            if (completionVerb == TestCommandKscMarkerRecover.Verb)
+            {
+                TryCompleteKscMarkerRecover(now);
+                return;
+            }
 
             bool done = false;
             string verdict = null;
@@ -1157,6 +1178,7 @@ namespace Parsek.TestCommands
         private void ClearTwoPhase()
         {
             awaitingCompletion = false;
+            ClearActiveVesselWatch();
             completionId = null;
             completionVerb = null;
             rewindRpArg = null;
@@ -1168,6 +1190,8 @@ namespace Parsek.TestCommands
             EvaJumpKeyPressInjection.Remove();
             // Recover's two stock-event listeners must never outlive its command either.
             RemoveRecoverListeners();
+            RemoveTsRecoverListeners();
+            RemoveKscRecoverListeners();
             // A multi-category RunTests that ends by TIMEOUT or by a completion
             // exception must not leave its token queue armed for the next RunTests to
             // inherit; the sequence is over the moment the two-phase state is.
@@ -1521,6 +1545,12 @@ namespace Parsek.TestCommands
         // sibling ParsekTestCommandAddon.RealSpawn.cs / .Recover.cs partials.
         void ITestCommandExecutor.RealSpawn(ParsedCommand cmd) => RealSpawnImpl(cmd);
         void ITestCommandExecutor.Recover(ParsedCommand cmd) => RecoverImpl(cmd);
+        // TrackingStationRecover: body + two-phase completion in the sibling
+        // ParsekTestCommandAddon.TrackingStationRecover.cs partial.
+        void ITestCommandExecutor.TrackingStationRecover(ParsedCommand cmd) => TrackingStationRecoverImpl(cmd);
+        // KscMarkerRecover: body + two-phase completion in the sibling
+        // ParsekTestCommandAddon.KscMarkerRecover.cs partial.
+        void ITestCommandExecutor.KscMarkerRecover(ParsedCommand cmd) => KscMarkerRecoverImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -1587,6 +1617,8 @@ namespace Parsek.TestCommands
                 case "StashSlot": exec.StashSlot(cmd); break;
                 case "RealSpawn": exec.RealSpawn(cmd); break;
                 case "Recover": exec.Recover(cmd); break;
+                case "TrackingStationRecover": exec.TrackingStationRecover(cmd); break;
+                case "KscMarkerRecover": exec.KscMarkerRecover(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

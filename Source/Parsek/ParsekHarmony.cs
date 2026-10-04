@@ -99,7 +99,7 @@ namespace Parsek
                 }
                 catch (Exception ex)
                 {
-                    failedPatchNames.Add(patchType.Name);
+                    failedPatchNames.Add(StartupNotices.PatchClassKey(patchType));
                     ParsekLog.Error("Harmony", $"Failed to apply patch {patchType.Name}: {ex.Message}");
                 }
             }

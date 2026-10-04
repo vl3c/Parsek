@@ -104,6 +104,8 @@ namespace Parsek
         // lazily in OnGUI from the shared style, rebuilt when that style is rebuilt.
         private GUIStyle bodyCellLabel;
         private GUIStyle bodyCellLabelSource;
+        // The empty table's one body row: the row-cell label in the house muted grey.
+        private GUIStyle emptyBodyCellLabel;
 
         // Column widths (match the recordings / spawn window conventions).
         /// <summary>
@@ -337,16 +339,18 @@ namespace Parsek
                     MissionStructure structure = MissionStructureBuilder.Build(tree);
                     string treeId = tree.Id;
                     // The names the Missions vessel rows use (numbered same-named vessels,
-                    // another mission's vessel as its partner phrase), one helper for both.
+                    // another mission's vessel as its partner phrase), one helper for both;
+                    // its partner legs let a Dock / Undock row name this mission's own ship.
+                    var partnerLegIds = new HashSet<string>(StringComparer.Ordinal);
                     Dictionary<string, string> vesselNames = MissionVesselNaming.Build(
                         tree, structure,
                         MissionVesselNaming.LaunchIndex.Build(RecordingStore.CommittedTrees),
                         otherTreeId => MissionsWindowUI.ResolvePartnerMissionName(otherTreeId, null),
-                        out MissionVesselNaming.Tally naming);
+                        out MissionVesselNaming.Tally naming, null, partnerLegIds);
                     built = MissionStructureListBuilder.Build(
                         tree, structure, ResolvePartTitle,
                         (bp, viewerId) => ResolveMergePartner(treeId, bp, viewerId),
-                        mission?.ExcludedIntervalKeys, vesselNames);
+                        mission?.ExcludedIntervalKeys, vesselNames, partnerLegIds);
                     ParsekLog.Verbose("UI",
                         $"Structure window vessel names: tree={treeId} legs={naming.Legs} " +
                         $"partners={naming.Partners} numbered={naming.Numbered} " +
@@ -432,16 +436,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Whether an empty window still draws its table: the Route History keeps its
-        /// column headers and reads "No runs yet." as the one body row; the Mission Log's
-        /// empty state is a single label. Pure.
-        /// </summary>
-        internal static bool DrawsTableWhenEmpty(TargetMode targetMode)
-        {
-            return targetMode == TargetMode.Route;
-        }
-
-        /// <summary>
         /// The mission-Log change signature: the committed-recordings version, whether the
         /// mission still resolves, its name, and its excluded interval keys as an
         /// order-independent set hash. Pure; an in-memory compare value, never persisted.
@@ -479,8 +473,9 @@ namespace Parsek
 
         // Internal part name -> the player-facing part title. Part names in recordings are
         // already the runtime dot-form; the replace keeps a cfg-form name resolving too.
-        // Called once per distinct name per build (the builder caches), never per frame.
-        private static string ResolvePartTitle(string partName)
+        // Called once per distinct name per build (the builder caches), never per frame;
+        // the Route History names a held row's stored part through it too.
+        internal static string ResolvePartTitle(string partName)
         {
             if (string.IsNullOrEmpty(partName)) return null;
             AvailablePart info = PartLoader.getPartInfoByName(partName.Replace('_', '.'));
@@ -577,19 +572,17 @@ namespace Parsek
                         sharedCell.padding.left, sharedCell.padding.right, 0, 0)
                 };
                 bodyCellLabelSource = sharedCell;
+                emptyBodyCellLabel = new GUIStyle(bodyCellLabel)
+                {
+                    normal = { textColor = ParsekUI.MutedTextColor }
+                };
             }
 
             GUILayout.Space(5);
 
-            if (steps.Count == 0 && !DrawsTableWhenEmpty(mode))
-            {
-                GUILayout.Label(EmptyText(mode));
-                if (GUILayout.Button("Close"))
-                    Close();
-                GUI.DragWindow();
-                return;
-            }
-
+            // Both instances draw the same shape whether or not there are steps: the
+            // column headers stay up, an empty list reads its one grey sentence as the
+            // body row, and Close sits at the bottom.
             DrawStepTable();
 
             // Hover-help strip, drawn after the rows so the live GUI.tooltip read sees a
@@ -643,11 +636,11 @@ namespace Parsek
             GUILayout.EndHorizontal();
         }
 
-        // The empty table's one body row (DrawsTableWhenEmpty), under the column headers.
+        // The empty table's one body row, under the column headers: one grey sentence.
         private void DrawEmptyBodyRow()
         {
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
-            GUILayout.Label(EmptyText(mode), bodyCellLabel);
+            GUILayout.Label(EmptyText(mode), emptyBodyCellLabel);
             GUILayout.EndHorizontal();
         }
 

@@ -116,6 +116,9 @@ namespace Parsek
             List<RouteCandidate> candidates = cachedCandidates;
             for (int i = 0; candidates != null && i < candidates.Count; i++)
                 keys.Add(CandidateRowKey(candidates[i]));
+            List<NearMissGroup> groups = cachedNearMissGroups;
+            for (int i = 0; groups != null && i < groups.Count; i++)
+                keys.Add(NearMissGroupRowKey(groups[i]));
             return keys;
         }
 
@@ -128,12 +131,12 @@ namespace Parsek
             => "cand:" + (candidate?.Tree?.Id ?? "<no-tree>");
 
         /// <summary>Opens the round-trip link picker on a route through the production
-        /// opener. The mouse position only seeds the popup's first rect, so the seam passes
-        /// the window's own origin rather than a cursor it does not have.</summary>
+        /// opener. The click point only places the popup's first rect, and the seam has no
+        /// cursor, so it passes none and the picker centres over this window.</summary>
         internal bool OpenLinkPickerForTesting(Logistics.Route source)
         {
             if (source == null) return false;
-            OpenLinkPicker(source, new Vector2(windowRect.x, windowRect.y));
+            OpenLinkPicker(source, PickerWindowLayout.NoClickPoint);
             return linkPickerOpen;
         }
 
@@ -271,6 +274,24 @@ namespace Parsek
         // The draw path only READS this cached list.
         private List<RouteNearMiss> cachedNearMisses = new List<RouteNearMiss>();
         private float lastNearMissComputeRealtime = -1f;
+        // The near-miss list folded into one group per reason, rebuilt with the list above
+        // (names numbered, header previews and hovers composed there, never on the draw path).
+        private List<NearMissGroup> cachedNearMissGroups = new List<NearMissGroup>();
+
+        // Per-candidate display text for the Route cell and the Would deliver cell,
+        // keyed by tree id and rebuilt on the candidate refresh: the from/to line resolves
+        // the destination vessel live, which must not run on the draw path.
+        private sealed class CandidateDisplay
+        {
+            public string FromTo;
+            public string FromToTooltip;
+            public string Cargo;
+            // The destination's live vessel name, null when none answers; the create
+            // dialog names the destination by it.
+            public string DestinationName;
+        }
+        private readonly Dictionary<string, CandidateDisplay> candidateDisplayCache =
+            new Dictionary<string, CandidateDisplay>();
 
         // M6 candidate intent helper: cached display rows for the collapsed
         // "Dismissed (N)" subsection, rebuilt on the SAME ~1 Hz timer as the
@@ -404,7 +425,7 @@ namespace Parsek
             public bool HasDeliveries;
             public string LastCycleText;     // "delivered 40.0 of 150.0 LiquidFuel (110.0 did not fit)"
             public bool LastCycleShortfall;  // drives the yellow tint
-            public string CumulativeText;    // "1240.0 LiquidFuel, 30.0 Oxidizer" or "(none)"
+            public string CumulativeText;    // "1240.0 LiquidFuel, 30.0 Oxidizer" or ""
             public string LastDeliveredLine;
 
             // The Route cell's second line ("KSC [U+2192] Depot Station Duna I") and its hover
@@ -541,8 +562,10 @@ namespace Parsek
         private Rect linkPickerRect;
         private bool linkPickerResizing;
         private Vector2 linkPickerScroll;
-        private const float LinkPickerMinW = 240f;
-        private const float LinkPickerMinH = 180f;
+        internal const float LinkPickerMinW = 260f;
+        internal const float LinkPickerMinH = 200f;
+        internal const float LinkPickerDefaultW = 360f;
+        internal const float LinkPickerDefaultH = 320f;
 
         // Status text styles (lazy; mirrors RecordingsTableUI.EnsureStatusStyles). The
         // five colours come from the shared ParsekUI palette; Scheduled is the label's
@@ -554,6 +577,10 @@ namespace Parsek
         private GUIStyle statusStyleCyan;    // New / Sending one run / Pausing after this run
         private GUIStyle statusStyleWhite;   // Scheduled
         private GUIStyle detailStyle;
+        // The Every / Priority steppers' shared value-cell width (measured with detailStyle).
+        private float stepperValueWidth = LogisticsRoutePresentation.StepperValueMinWidth;
+        // The Every / Priority steppers' shared row height (a slot-button line's height).
+        private float stepperRowHeight;
         // The two-line Route cell: line 1 the caret + name, line 2 the grey from/to at the
         // same font size. Both clip rather than wrap, so every row is exactly two lines
         // tall and the grid of single-line cells beside it never shifts. The muted colour
@@ -566,7 +593,7 @@ namespace Parsek
         private GUIStyle wrapCellStyle;
         private GUIStyle wrapStatusGreen, wrapStatusYellow, wrapStatusRed, wrapStatusGrey,
             wrapStatusCyan, wrapStatusWhite;
-        // The Next countdown in the Missions amber (MissionsWindowUI.LoopPeriodClampColor).
+        // The Next countdown in the house countdown amber (ParsekUI.CountdownTextColor).
         private GUIStyle nextAmberStyle;
         // The Interact column: zero horizontal margin so a single and a pair line up on
         // every row (MissionsWindowUI's interactButtonStyle / interactPairButtonStyle), and
@@ -607,20 +634,13 @@ namespace Parsek
         private const float ColW_Runs = 80f;       // Advanced only: "3" / "3, 1 held"
         private const float ColW_NextDelivery = 135f; // the amber "T- 1y 291d" countdown (+ " (!)")
         private const float ColW_Status = 260f;    // merged Status: one word + a short reason, wraps
-        // The candidates table keeps its own columns (L3): # / Name / Origin / Destination /
-        // Would deliver / Transit / Actions. Its Actions cell is its OWN constant so the
-        // route tables' Interact column can follow the Missions width without squeezing
-        // Create Route + Dismiss.
-        private const float ColW_Origin = 95f;      // candidates: "KSC (funds)" / "depot pid=N"
-        private const float ColW_Destination = 180f; // candidates: "Kerbin (surface)"
-        private const float ColW_CandidateActions = 190f;
-        // L3: the Candidates section has its own purpose-built header. The Would-deliver
-        // cell holds the per-run delivery manifest text, which can be long, so it gets a
-        // wide cell. The candidates bubble is a separate box and does not have to match
-        // the route bubble width, so this column does not push MinWindowWidth.
+        // The candidates table follows the route tables' grid: # | Route (expands; the
+        // candidate name over a grey "Origin -> Destination" line) | Would deliver |
+        // Transit | Interact. Transit takes the Every column's width and the Interact
+        // column is the route tables' measured one, so a candidate's buttons sit under
+        // the routes' Activate / Pause. Would deliver keeps its own wider cell (it carries
+        // the net-cost suffix) and wraps.
         private const float ColW_WouldDeliver = 260f;
-        // L3: the Candidates Transit cell shows the candidate's natural run duration.
-        private const float ColW_CandidateTransit = 80f;
 
         // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
         // permanently visible box of constant height. Single-line: the widest window in
@@ -635,7 +655,7 @@ namespace Parsek
         // Every 150 + Next 135 + Status 260 + Interact 116) and 971 px in Advanced (+ Runs
         // 80), so at this floor the expanding Route column keeps over 400 px in either
         // mode. One floor for both modes: a mode switch never resizes the window. The
-        // candidates table (805 px fixed) fits too.
+        // candidates table (556 px fixed) fits too.
         internal const float MinWindowWidth = 1410f;
 
         /// <summary>
@@ -960,8 +980,7 @@ namespace Parsek
             string key = section == RouteSection.Active
                 ? LogisticsRoutePresentation.ActiveSectionName
                 : LogisticsRoutePresentation.PausedSectionName;
-            if (!DrawSectionHeader(key, title, rows.Count,
-                    section == RouteSection.Active ? ParsekUI.StatusColorKind.Green : ParsekUI.StatusColorKind.Grey))
+            if (!DrawSectionHeader(key, title, rows.Count, LogisticsRoutePresentation.SectionAccent(key)))
             {
                 GUILayout.Space(SpacingSmall);
                 return;
@@ -971,7 +990,7 @@ namespace Parsek
             // share the sort column / direction; clicking a header re-sorts both.
             DrawRouteSortableHeader();
             if (rows.Count == 0)
-                GUILayout.Label("  " + emptyText, statusStyleGrey);
+                GUILayout.Label("  " + emptyText, parentUI.GetEmptyStateStyle());
             else
             {
                 // Draw the cached-sorted rows (re-sorted only on count / sort-state /
@@ -1051,10 +1070,16 @@ namespace Parsek
                     GUILayout.BeginHorizontal();
                     GUILayout.Space(24f);
                     GUILayout.Label($"{display} - {appears}", detailStyle, GUILayout.ExpandWidth(true));
+                    // Delete sits in an Interact cell, one Interact single wide, like
+                    // every other row action in this window.
+                    GUILayout.BeginHorizontal(GUILayout.Width(interactColumnWidth));
+                    GUILayout.Space(MissionsWindowUI.InteractCellInset);
                     if (GUILayout.Button(new GUIContent("Delete",
                             "Delete this dormant route. It will never re-materialize."),
-                            GUILayout.Width(60)))
+                            detailSlotButtonStyle, GUILayout.Width(InteractSingleWidth)))
                         pendingConfirmDeleteDormantRoute = route;
+                    GUILayout.FlexibleSpace();
+                    GUILayout.EndHorizontal();
                     GUILayout.EndHorizontal();
                 }
             }
@@ -1079,7 +1104,7 @@ namespace Parsek
         private void DrawCandidateSectionBubble(string title, List<RouteCandidate> rows, List<RouteNearMiss> nearMisses)
         {
             if (!DrawSectionHeader(LogisticsRoutePresentation.CandidatesSectionName, title, rows.Count,
-                    ParsekUI.StatusColorKind.Cyan))
+                    LogisticsRoutePresentation.SectionAccent(LogisticsRoutePresentation.CandidatesSectionName)))
             {
                 GUILayout.Space(SpacingSmall);
                 return;
@@ -1087,7 +1112,7 @@ namespace Parsek
             GUILayout.BeginVertical(GUI.skin.box);
             DrawCandidateColumnHeader();
             if (rows.Count == 0)
-                GUILayout.Label("  No supply runs to offer yet. Fly a cargo run that docks, transfers cargo and undocks, then finish the mission.", statusStyleGrey);
+                GUILayout.Label("  No supply runs to offer yet. Fly a cargo run that docks, transfers cargo and undocks, then finish the mission.", parentUI.GetEmptyStateStyle());
             for (int i = 0; i < rows.Count; i++)
                 DrawCandidateRow(rows[i], i + 1);
 
@@ -1134,7 +1159,7 @@ namespace Parsek
             if (GUILayout.Button(
                     new GUIContent(
                         $"{arrow} Missions that cannot become routes yet ({nearMisses.Count.ToString(CultureInfo.InvariantCulture)})",
-                        "Finished missions that are not supply runs yet, with the reason: still open to re-flying, or the flight does not dock, transfer cargo and undock."),
+                        "Finished missions that are not supply runs yet, grouped by reason. Open a reason to see its missions."),
                     GUI.skin.label, GUILayout.ExpandWidth(true)))
                 ToggleExpanded(NearMissSectionKey, "near-miss subsection");
             GUILayout.EndHorizontal();
@@ -1142,32 +1167,77 @@ namespace Parsek
             if (!expanded)
                 return;
 
-            for (int i = 0; i < nearMisses.Count; i++)
+            List<NearMissGroup> groups = cachedNearMissGroups;
+            for (int g = 0; groups != null && g < groups.Count; g++)
+                DrawNearMissGroup(groups[g]);
+        }
+
+        /// <summary>The <c>expandedRows</c> key of one near-miss reason group.</summary>
+        internal static string NearMissGroupRowKey(NearMissGroup group)
+            => NearMissGroupKeyPrefix + (group?.Key ?? "<none>");
+
+        internal const string NearMissGroupKeyPrefix = "nearmiss:group:";
+
+        /// <summary>
+        /// One reason: a caret line "No dock was recorded (18): A, B, C ..." whose hover
+        /// names every mission (cut with "+N more" to the strip). Opened, the full reason
+        /// sentence once (only when every mission shares it and it says more than the short
+        /// reason), then one row per mission with its own Dismiss in the candidates' Interact
+        /// column, so Dismiss acts on exactly the mission named on its row. Collapsed by default. Every count read here comes from
+        /// the cached groups, rebuilt on a Layout pass only.
+        /// </summary>
+        private void DrawNearMissGroup(NearMissGroup group)
+        {
+            if (group == null) return;
+            string key = NearMissGroupRowKey(group);
+            bool expanded = expandedRows.Contains(key);
+            string arrow = expanded ? "\u25bc" : "\u25b6";
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(24f);
+            if (GUILayout.Button(new GUIContent(arrow + " " + group.HeaderText, group.Tooltip ?? string.Empty),
+                    routeNameStyle, GUILayout.ExpandWidth(true)))
+                ToggleExpanded(key, "near-miss group " + group.Key);
+            GUILayout.EndHorizontal();
+
+            if (!expanded)
+                return;
+
+            if (group.SharedReason != null)
             {
-                RouteNearMiss nm = nearMisses[i];
-                if (nm == null) continue;
-                string treeName = NearMissTreeLabel(nm.Tree);
-                string reason = LogisticsRejectPresentation.DescribeNearMiss(
-                    nm.Status, nm.NotSealed, nm.ReflyableCount, nm.RejectDetail);
-                // M6 candidate intent helper: near-miss rows get the same
-                // Dismiss control as candidate rows (a dismissed tree leaves
-                // the WHOLE Candidates section). Row layout mirrors DetailLine
-                // (24px indent + detailStyle label) with the button appended;
-                // the button only draws for a resolvable tree id, a per-row
-                // condition that is stable within a frame (cached list), so the
-                // IMGUI control count stays consistent across Layout/Repaint.
                 GUILayout.BeginHorizontal();
-                GUILayout.Space(24f);
-                GUILayout.Label($"{treeName} - {reason}", detailStyle, GUILayout.ExpandWidth(true));
-                string nmTreeId = nm.Tree?.Id;
-                if (!string.IsNullOrEmpty(nmTreeId)
-                    && GUILayout.Button(new GUIContent("Dismiss",
-                        "Hide this mission from the Candidates section (it is not meant to become a route). Restore it any time from the Hidden missions list below."),
-                        GUILayout.Width(70)))
+                GUILayout.Space(40f);
+                GUILayout.Label(group.SharedReason, detailStyle, GUILayout.ExpandWidth(true));
+                GUILayout.Space(interactColumnWidth);
+                GUILayout.EndHorizontal();
+            }
+            for (int i = 0; i < group.Members.Count; i++)
+            {
+                NearMissMember m = group.Members[i];
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(40f);
+                string text = group.MembersShowReason ? m.Label + " - " + m.Reason : m.Label;
+                GUILayout.Label(new GUIContent(text, group.MembersShowReason ? m.Tooltip : string.Empty),
+                    detailStyle, GUILayout.ExpandWidth(true));
+                // The Dismiss cell is drawn on every row (a space where the tree id did not
+                // resolve), so the column stays aligned and the count is the cached list's.
+                GUILayout.BeginHorizontal(GUILayout.Width(interactColumnWidth));
+                GUILayout.Space(MissionsWindowUI.InteractCellInset);
+                if (!string.IsNullOrEmpty(m.TreeId))
                 {
-                    pendingDismissTreeId = nmTreeId;
-                    pendingDismissLabel = treeName;
+                    if (GUILayout.Button(new GUIContent(LogisticsRoutePresentation.DismissButtonLabel,
+                            LogisticsRoutePresentation.DismissButtonTooltip),
+                            detailSlotButtonStyle, GUILayout.Width(InteractSingleWidth)))
+                    {
+                        pendingDismissTreeId = m.TreeId;
+                        pendingDismissLabel = m.Label;
+                    }
                 }
+                else
+                {
+                    GUILayout.Space(InteractSingleWidth);
+                }
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
                 GUILayout.EndHorizontal();
             }
         }
@@ -1215,13 +1285,19 @@ namespace Parsek
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(24f);
                 GUILayout.Label(label, detailStyle, GUILayout.ExpandWidth(true));
+                // Restore sits in an Interact cell, one Interact single wide, like
+                // every other row action in this window.
+                GUILayout.BeginHorizontal(GUILayout.Width(interactColumnWidth));
+                GUILayout.Space(MissionsWindowUI.InteractCellInset);
                 if (GUILayout.Button(new GUIContent("Restore",
                         "Offer this mission as a supply run candidate again."),
-                        GUILayout.Width(70)))
+                        detailSlotButtonStyle, GUILayout.Width(InteractSingleWidth)))
                 {
                     pendingRestoreTreeId = treeId;
                     pendingRestoreLabel = label;
                 }
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
                 GUILayout.EndHorizontal();
             }
         }
@@ -1254,15 +1330,29 @@ namespace Parsek
             GUIStyle h = parentUI.GetColumnHeaderStyle();
             GUILayout.BeginHorizontal();
             GUILayout.Label("#", h, GUILayout.Width(ColW_Num));
-            GUILayout.Label("Name", h, GUILayout.ExpandWidth(true));
-            GUILayout.Label("Origin", h, GUILayout.Width(ColW_Origin));
-            GUILayout.Label("Destination", h, GUILayout.Width(ColW_Destination));
+            GUILayout.Label(new GUIContent("Route",
+                    "A finished supply run that can become a route: its name over where it runs from and to."),
+                h, GUILayout.ExpandWidth(true));
             GUILayout.Label(
                 new GUIContent("Would deliver",
-                    "Each candidate is a finished supply run: the resources and stored parts it would deliver each run. Create Route makes it a Paused route you can Send or Activate."),
+                    "What each run would deliver or pick up. Create route makes it a Paused route you can Send or Activate."),
                 h, GUILayout.Width(ColW_WouldDeliver));
-            GUILayout.Label("Transit", h, GUILayout.Width(ColW_CandidateTransit));
-            GUILayout.Label("Actions", h, GUILayout.Width(ColW_CandidateActions));
+            GUILayout.Label(new GUIContent("Transit", LogisticsRoutePresentation.CandidateTransitTooltip),
+                h, GUILayout.Width(ColW_Interval));
+            DrawInteractHeaderCell();
+            GUILayout.EndHorizontal();
+        }
+
+        // The centred "Interact" header cell: a zero-margin dark box exactly the measured
+        // Interact column wide (the Missions header shape), shared by the route tables and
+        // the candidates table so both columns line up.
+        private void DrawInteractHeaderCell()
+        {
+            GUILayout.BeginHorizontal(interactHeaderContainerStyle,
+                GUILayout.Width(interactColumnWidth));
+            GUILayout.FlexibleSpace();
+            GUILayout.Label("Interact", interactHeaderLabelStyle);
+            GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
         }
 
@@ -1292,14 +1382,9 @@ namespace Parsek
                 LogisticsRoutePresentation.NextHeaderTooltip);
             DrawRouteSortColumn("Status", LogisticsRouteSortColumn.Status, ColW_Status, false,
                 LogisticsRoutePresentation.StatusHeaderTooltip);
-            // Interact: a centred label in a zero-margin dark box exactly ColW_Interact wide,
-            // like each row's zero-margin Interact cell below it (the Missions header shape).
-            GUILayout.BeginHorizontal(interactHeaderContainerStyle,
-                GUILayout.Width(interactColumnWidth));
-            GUILayout.FlexibleSpace();
-            GUILayout.Label("Interact", interactHeaderLabelStyle);
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
+            // Interact: a centred label exactly the measured column wide, like each row's
+            // zero-margin Interact cell below it.
+            DrawInteractHeaderCell();
             GUILayout.EndHorizontal();
         }
 
@@ -1842,69 +1927,83 @@ namespace Parsek
             bool expanded = expandedRows.Contains(rowKey);
 
             string name = RouteCreationFormatters.GenerateDefaultRouteName(candidate.Analysis, candidate.Tree);
+            candidateDisplayCache.TryGetValue(treeId, out CandidateDisplay display);
 
             GUILayout.BeginHorizontal();
 
             GUILayout.Label(rowNum.ToString(CultureInfo.InvariantCulture), GUILayout.Width(ColW_Num));
 
+            // Route: line 1 the caret + name, line 2 the grey "KSC [U+2192] Depot" in the
+            // route rows' styles; the hover names the full origin and destination.
+            GUILayout.BeginVertical(GUILayout.ExpandWidth(true));
             string arrow = expanded ? "\u25bc" : "\u25b6";
-            if (GUILayout.Button($"{arrow} {name}", GUI.skin.label, GUILayout.ExpandWidth(true)))
+            if (GUILayout.Button($"{arrow} {name}", routeNameStyle, GUILayout.ExpandWidth(true)))
                 ToggleExpanded(rowKey, name);
+            GUILayout.Label(new GUIContent("   " + (display?.FromTo ?? "-"), display?.FromToTooltip ?? string.Empty),
+                routeFromToStyle, GUILayout.ExpandWidth(true));
+            GUILayout.EndVertical();
 
-            GUILayout.Label(FormatCandidateOrigin(candidate.Analysis, candidate.Tree), GUILayout.Width(ColW_Origin));
-            RouteEndpoint? candidateEndpoint = candidate.Analysis.ConnectionWindow?.EndpointAtDock;
-            GUILayout.Label(
-                new GUIContent(FormatEndpointPlace(candidateEndpoint),
-                    candidateEndpoint.HasValue ? FormatEndpointShort(candidateEndpoint.Value) : string.Empty),
-                GUILayout.Width(ColW_Destination));
-            // L3: Would-deliver cell. The per-cycle manifest text comes from the shared
-            // pure LogisticsDeliveryPresentation.FormatWouldDeliver, the same formatter
-            // the candidate detail line uses, so the cell and the detail never diverge.
-            // The "eligible" / sealed copy that used to ride the dropped Status cell now
-            // lives in this cell's tooltip plus the section-header tooltip.
-            //
-            // Run-cost (Phase 3.4): a compact net-cost suffix + tooltip detail is added
-            // ONLY for Career + KSC origin with a known launch cost. The cost is read
-            // from candidateRunCostCache (computed on the ~1 Hz candidate refresh,
-            // never here on the draw path); a cache miss or a not-applicable / unknown
-            // cost leaves the cell exactly as before (no suffix, base tooltip).
-            string wouldDeliverText = LogisticsDeliveryPresentation.FormatWouldDeliver(
-                candidate.Analysis.ResourceDeliveryManifest,
-                candidate.Analysis.InventoryDeliveryManifest);
+            // Would deliver: the per-run manifest (pickups named) from the cached display,
+            // plus the net-cost suffix for a Career KSC run with a known launch cost. The cost
+            // is read from candidateRunCostCache (the ~1 Hz refresh), never computed here.
+            string wouldDeliverText = display?.Cargo
+                ?? LogisticsDeliveryPresentation.FormatWouldDeliver(
+                    candidate.Analysis.ResourceDeliveryManifest,
+                    candidate.Analysis.InventoryDeliveryManifest);
             string wouldDeliverTip =
-                "A finished supply run: what it would deliver each run. Create Route makes it a Paused route you can Send or Activate.";
+                "A finished supply run: what it would deliver each run. Create route makes it a Paused route you can Send or Activate.";
             if (candidateRunCostCache.TryGetValue(treeId, out RouteRunCostCalculator.RouteRunCost candCost)
                 && candCost.Applicable && candCost.CostKnown)
             {
                 wouldDeliverText += LogisticsCostPresentation.FormatCandidateSuffix(candCost);
-                // Single-line strip: the tooltip carries only the fixed-length
-                // explanation, which fits the one-line budget with the numbers no
-                // longer embedded. The exact figures stay visible on the cell itself
-                // (the net-cost candidate suffix) and in the expanded candidate
-                // detail's "Cost/run:" line (DrawCandidateDetail), which carries the
-                // launch/recovered breakdown a net figure alone cannot convey.
+                // The single-line strip carries the fixed-length explanation; the figures
+                // stay on the cell and on the expanded detail's Cost/run line.
                 wouldDeliverTip = LogisticsCostPresentation.FormatDetailTooltip(candCost);
             }
             GUILayout.Label(
                 new GUIContent(wouldDeliverText, wouldDeliverTip),
-                GUILayout.Width(ColW_WouldDeliver));
-            // L3: Transit cell (the candidate's natural run duration) now has its own
-            // column in the candidate header, so it draws a real value instead of riding
-            // a placeholder tooltip.
-            GUILayout.Label(FormatDuration(CandidateTransit(candidate)), GUILayout.Width(ColW_CandidateTransit));
+                wrapCellStyle, GUILayout.Width(ColW_WouldDeliver));
 
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_CandidateActions));
-            if (GUILayout.Button(new GUIContent("Create Route",
-                    "Make this supply run a stored route (created Paused; use Send to test it, then Activate)."),
-                    GUILayout.Width(100)))
+            // Transit: read-only, under the route tables' Every column.
+            GUILayout.Label(new GUIContent(FormatDuration(CandidateTransit(candidate)),
+                    LogisticsRoutePresentation.CandidateTransitTooltip),
+                GUILayout.Width(ColW_Interval));
+
+            DrawCandidateInteractCell(candidate, name);
+
+            GUILayout.EndHorizontal();
+
+            if (expanded)
+                DrawCandidateDetail(candidate);
+        }
+
+        /// <summary>
+        /// The candidates' Interact column, on the route tables' grid: the same measured
+        /// width and inset, line 1 [Create route] and line 2 [Dismiss], each a single as wide
+        /// as two grid cells and the gap (the detail block's Rename / Delete width). Exactly
+        /// two buttons on every row, so the control count never depends on state.
+        /// </summary>
+        private void DrawCandidateInteractCell(RouteCandidate candidate, string name)
+        {
+            float single = InteractSingleWidth;
+            GUILayout.BeginVertical(GUILayout.Width(interactColumnWidth));
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(MissionsWindowUI.InteractCellInset);
+            if (GUILayout.Button(new GUIContent(LogisticsRoutePresentation.CreateRouteButtonLabel,
+                    LogisticsRoutePresentation.CreateRouteButtonTooltip),
+                    detailSlotButtonStyle, GUILayout.Width(single)))
                 pendingCreate = candidate;
-            // M6 candidate intent helper: hide a tree the player never intends
-            // as a route. Deferred through pendingDismissTreeId (applied in
-            // ApplyPendingActions); always reversible from the Dismissed
-            // subsection at the bottom of this section.
-            if (GUILayout.Button(new GUIContent("Dismiss",
-                    "Hide this mission from the Candidates section (it is not meant to become a route). Restore it any time from the Hidden missions list below."),
-                    GUILayout.Width(70)))
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+
+            // Dismiss hides a tree the player never intends as a route, deferred through
+            // pendingDismissTreeId; Restore in Hidden missions takes it back.
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(MissionsWindowUI.InteractCellInset);
+            if (GUILayout.Button(new GUIContent(LogisticsRoutePresentation.DismissButtonLabel,
+                    LogisticsRoutePresentation.DismissButtonTooltip),
+                    detailSlotButtonStyle, GUILayout.Width(single)))
             {
                 pendingDismissTreeId = candidate.Tree?.Id;
                 pendingDismissLabel = name;
@@ -1912,10 +2011,7 @@ namespace Parsek
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
-            GUILayout.EndHorizontal();
-
-            if (expanded)
-                DrawCandidateDetail(candidate);
+            GUILayout.EndVertical();
         }
 
         /// <summary>
@@ -2065,8 +2161,11 @@ namespace Parsek
         /// popup state read by <see cref="DrawLinkPicker"/>; the popup is drawn from
         /// <see cref="DrawIfOpen"/> after the main window. Does NOT itself mutate the
         /// store — the partner is chosen + committed in the popup.
+        /// <paramref name="clickScreenPoint"/> is the click in SCREEN space (the picker
+        /// opens next to it), or <see cref="PickerWindowLayout.NoClickPoint"/> (the picker
+        /// centres over this window).
         /// </summary>
-        private void OpenLinkPicker(Route source, Vector2 mousePos)
+        private void OpenLinkPicker(Route source, Vector2 clickScreenPoint)
         {
             if (source == null || string.IsNullOrEmpty(source.Id))
                 return;
@@ -2074,7 +2173,7 @@ namespace Parsek
             linkPickerSourceRouteId = source.Id;
             linkPickerSourceName = source.Name ?? "<unnamed>";
             linkPickerSelectedId = null;
-            linkPickerPosition = mousePos;
+            linkPickerPosition = clickScreenPoint;
             linkPickerRect = new Rect(0, 0, 0, 0);
             linkPickerResizing = false;
             linkPickerScroll = Vector2.zero;
@@ -2092,16 +2191,21 @@ namespace Parsek
         {
             if (!linkPickerOpen) return;
 
-            ParsekUI.HandleResizeDrag(ref linkPickerRect, ref linkPickerResizing,
-                LinkPickerMinW, LinkPickerMinH, null);
-
+            // Place the first-open rect BEFORE the resize/screen fit: the fit would widen an
+            // unplaced zero rect to the minimum width at the screen origin, and the placement
+            // would then never run (PickerWindowLayout).
             if (linkPickerRect.width < 1f)
             {
-                linkPickerRect = new Rect(
-                    Mathf.Clamp(linkPickerPosition.x, 0, Screen.width - 340f),
-                    Mathf.Clamp(linkPickerPosition.y, 0, Screen.height - 380f),
-                    340f, 380f);
+                linkPickerRect = PickerWindowLayout.PlaceOnOpen(
+                    linkPickerPosition, windowRect,
+                    LinkPickerDefaultW, LinkPickerDefaultH, Screen.width, Screen.height);
+                ParsekLog.Verbose("UI", PickerWindowLayout.FormatPlacementLog(
+                    "Logistics link picker", linkPickerPosition, linkPickerRect,
+                    Screen.width, Screen.height));
             }
+
+            ParsekUI.HandleResizeDrag(ref linkPickerRect, ref linkPickerResizing,
+                LinkPickerMinW, LinkPickerMinH, null);
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
             if (opaqueWindowStyle == null)
@@ -2134,13 +2238,16 @@ namespace Parsek
         private void DrawLinkPickerContents(int windowID)
         {
             EnsureStyles();
-            GUILayout.Label($"Link '{linkPickerSourceName}' with:", detailStyle);
-            GUILayout.Space(3);
+            // The house picker look (PickerWindowLayout): a heading in the shared table
+            // section style below the main windows' title gap, then the entries inside the
+            // shared dark table body box.
+            PickerWindowLayout.DrawTitleGap();
+            GUILayout.Label($"Link '{linkPickerSourceName}' with:", parentUI.GetTableSectionHeaderStyle());
 
             List<LogisticsLinkPresentation.LinkCandidate> candidates =
                 LogisticsLinkPresentation.BuildLinkCandidates(RouteStore.CommittedRoutes, linkPickerSourceRouteId);
 
-            linkPickerScroll = GUILayout.BeginScrollView(linkPickerScroll, GUILayout.ExpandHeight(true));
+            linkPickerScroll = PickerWindowLayout.BeginEntryList(parentUI, linkPickerScroll);
             if (candidates.Count == 0)
             {
                 GUILayout.Label(
@@ -2153,14 +2260,16 @@ namespace Parsek
                 {
                     LogisticsLinkPresentation.LinkCandidate c = candidates[i];
                     bool selected = string.Equals(linkPickerSelectedId, c.Id, System.StringComparison.Ordinal);
+                    PickerWindowLayout.BeginEntryRow();
                     bool now = GUILayout.Toggle(selected, "  " + c.Name);
+                    GUILayout.EndHorizontal();
                     if (now && !selected)
                         linkPickerSelectedId = c.Id;
                     else if (!now && selected)
                         linkPickerSelectedId = null;
                 }
             }
-            GUILayout.EndScrollView();
+            PickerWindowLayout.EndEntryList();
 
             GUILayout.Space(3);
             GUILayout.BeginHorizontal();
@@ -2171,7 +2280,7 @@ namespace Parsek
             GUI.enabled = linkEnabled;
             bool linkClicked = GUILayout.Button(new GUIContent("Link",
                     "Pair these two routes as a round-trip: they alternate, each running only after its partner completes a run."),
-                    GUILayout.Width(70));
+                    GUILayout.Width(PickerWindowLayout.ButtonWidth));
             DisabledHoverEcho.CarryLastControl(linkEnabled, LinkButtonDisabledReason(linkPickerSelectedId));
             if (linkClicked)
             {
@@ -2187,7 +2296,8 @@ namespace Parsek
             }
             GUI.enabled = prevEnabled;
 
-            if (GUILayout.Button("Cancel", GUILayout.Width(70)))
+            GUILayout.Space(PickerWindowLayout.ButtonGap);
+            if (GUILayout.Button("Cancel", GUILayout.Width(PickerWindowLayout.ButtonWidth)))
             {
                 ParsekLog.Verbose("UI", $"Logistics: link picker cancelled source={ShortId(linkPickerSourceRouteId)}");
                 linkPickerOpen = false;
@@ -2503,7 +2613,7 @@ namespace Parsek
                         if (GUILayout.Button(new GUIContent("Link round-trip...",
                                 "Pair this route with another so they alternate: each runs only after its partner completes a run (a single reused transport flying out and back)."),
                                 detailSlotButtonStyle, GUILayout.Width(w)))
-                            OpenLinkPicker(route, Event.current.mousePosition);
+                            OpenLinkPicker(route, GUIUtility.GUIToScreenPoint(Event.current.mousePosition));
                     }
                     else if (GUILayout.Button(new GUIContent("Unlink",
                                  "Break this route's round-trip pairing; both routes return to running on their own schedule."),
@@ -2674,12 +2784,12 @@ namespace Parsek
             // actively misleading on synodic spacing. Flat routes unchanged.
             bool windowed = RouteWindowBasisPresentation.IsWindowedBasis(leg.Basis);
 
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(GUILayout.Height(stepperRowHeight));
             GUILayout.Space(24f);
             GUILayout.Label(
                 new GUIContent("Every:",
                     "How often the route runs, as a multiple of the run duration. 1x is the floor (the fastest the run allows); raise it to run less often."),
-                detailStyle, GUILayout.Width(70f));
+                detailStyle, GUILayout.Width(LogisticsRoutePresentation.StepperLabelWidth));
 
             // "-" decrements (no-op + greyed at the 1x floor).
             bool atFloor = n <= 1;
@@ -2688,7 +2798,7 @@ namespace Parsek
             GUI.enabled = !atFloor;
             bool cadenceDownClicked = GUILayout.Button(new GUIContent("-",
                     atFloor ? cadenceAtFloorReason : "Run more often"),
-                    GUILayout.Width(24f));
+                    GUI.skin.button, GUILayout.Width(LogisticsRoutePresentation.StepperButtonWidth));
             DisabledHoverEcho.CarryLastControl(!atFloor, cadenceAtFloorReason);
             if (cadenceDownClicked)
             {
@@ -2698,12 +2808,13 @@ namespace Parsek
             GUI.enabled = true;
 
             // Current N x + the resulting human cadence (windowed wording for a
-            // windowed basis; wider cell to fit "2x (every 2nd window)").
+            // windowed basis), in the value cell both steppers share.
             GUILayout.Label(
                 windowed ? RouteWindowBasisPresentation.FormatWindowedCadence(n) : FormatCadence(route),
-                detailStyle, GUILayout.Width(windowed ? 170f : 110f));
+                detailStyle, GUILayout.Width(stepperValueWidth));
 
-            if (GUILayout.Button(new GUIContent("+", "Run less often"), GUILayout.Width(24f)))
+            if (GUILayout.Button(new GUIContent("+", "Run less often"), GUI.skin.button,
+                    GUILayout.Width(LogisticsRoutePresentation.StepperButtonWidth)))
             {
                 pendingCadenceRoute = route;
                 pendingCadenceMultiplier = RouteCadence.StepMultiplier(n, +1);
@@ -2723,12 +2834,12 @@ namespace Parsek
         {
             int p = Route.ClampPriority(route.DispatchPriority);
 
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(GUILayout.Height(stepperRowHeight));
             GUILayout.Space(24f);
             GUILayout.Label(
                 new GUIContent("Priority:",
                     "When several routes are due at once, the lower number runs first. 0 is the highest priority (and the default)."),
-                detailStyle, GUILayout.Width(70f));
+                detailStyle, GUILayout.Width(LogisticsRoutePresentation.StepperLabelWidth));
 
             // "-" decrements (no-op + greyed at the 0 floor).
             bool atFloor = p <= 0;
@@ -2736,7 +2847,7 @@ namespace Parsek
             GUI.enabled = !atFloor;
             bool priorityDownClicked = GUILayout.Button(new GUIContent("-",
                     atFloor ? priorityAtFloorReason : "Run earlier when routes are due at once"),
-                    GUILayout.Width(24f));
+                    GUI.skin.button, GUILayout.Width(LogisticsRoutePresentation.StepperButtonWidth));
             DisabledHoverEcho.CarryLastControl(!atFloor, priorityAtFloorReason);
             if (priorityDownClicked)
             {
@@ -2745,9 +2856,10 @@ namespace Parsek
             }
             GUI.enabled = true;
 
-            GUILayout.Label(p.ToString(CultureInfo.InvariantCulture), detailStyle, GUILayout.Width(110f));
+            GUILayout.Label(p.ToString(CultureInfo.InvariantCulture), detailStyle, GUILayout.Width(stepperValueWidth));
 
-            if (GUILayout.Button(new GUIContent("+", "Run later when routes are due at once"), GUILayout.Width(24f)))
+            if (GUILayout.Button(new GUIContent("+", "Run later when routes are due at once"), GUI.skin.button,
+                    GUILayout.Width(LogisticsRoutePresentation.StepperButtonWidth)))
             {
                 pendingPriorityRoute = route;
                 pendingPriorityValue = RoutePriority.Step(p, +1);
@@ -3265,7 +3377,9 @@ namespace Parsek
             // candidate's source recording + tree (no Route exists yet) and passed in.
             RouteRunCostCalculator.RouteRunCost runCost =
                 ComputeCandidateRunCost(cand.Analysis, cand.Tree);
-            string body = RouteCreationFormatters.BuildSummaryBlock(cand.Analysis, mode, cand.Tree, runCost);
+            candidateDisplayCache.TryGetValue(cand.Tree.Id ?? "<no-tree>", out CandidateDisplay display);
+            string body = RouteCreationFormatters.BuildSummaryBlock(cand.Analysis, mode, cand.Tree, runCost,
+                StructureListWindowUI.ResolvePartTitle, display?.DestinationName);
 
             ParsekLog.Info("UI",
                 $"Logistics: Create Route confirm dialog spawned tree={ShortId(cand.Tree.Id)} mode={mode}");
@@ -3434,11 +3548,16 @@ namespace Parsek
         private List<RouteCandidate> GetCandidates()
         {
             float now = Time.realtimeSinceStartup;
-            if (lastCandidateComputeRealtime < 0f
-                || now - lastCandidateComputeRealtime >= CandidateRecomputeIntervalSeconds)
+            // Refresh only on a Layout pass (as the legibility cache does): the candidate
+            // rows, their detail and the dismissed rows draw from this list, so a refresh
+            // between a frame's Layout and its Repaint would change the control count.
+            bool layoutPass = Event.current == null || Event.current.type == EventType.Layout;
+            if (layoutPass && (lastCandidateComputeRealtime < 0f
+                || now - lastCandidateComputeRealtime >= CandidateRecomputeIntervalSeconds))
             {
                 cachedCandidates = RouteCandidateFinder.DeriveCandidates();
                 lastCandidateComputeRealtime = now;
+                RebuildCandidateDisplayCache(cachedCandidates);
 
                 // Run-cost (Phase 3.4): recompute each candidate's net cost on this
                 // ~1 Hz refresh and stash it by tree id so DrawCandidateRow reads it
@@ -3471,6 +3590,13 @@ namespace Parsek
                     int byLabel = string.CompareOrdinal(a.label, b.label);
                     return byLabel != 0 ? byLabel : string.CompareOrdinal(a.treeId, b.treeId);
                 });
+                // A repeated mission name reads "Name [1]", "Name [2]", in the sorted order.
+                var dismissedNames = new List<string>(cachedDismissedRows.Count);
+                for (int i = 0; i < cachedDismissedRows.Count; i++)
+                    dismissedNames.Add(cachedDismissedRows[i].label);
+                string[] numbered = LogisticsNearMissPresentation.NumberRepeatedNames(dismissedNames);
+                for (int i = 0; i < cachedDismissedRows.Count; i++)
+                    cachedDismissedRows[i] = (cachedDismissedRows[i].treeId, numbered[i]);
             }
             return cachedCandidates ?? new List<RouteCandidate>();
         }
@@ -3484,13 +3610,84 @@ namespace Parsek
         private List<RouteNearMiss> GetNearMisses()
         {
             float now = Time.realtimeSinceStartup;
-            if (lastNearMissComputeRealtime < 0f
-                || now - lastNearMissComputeRealtime >= CandidateRecomputeIntervalSeconds)
+            // Layout passes only, like GetCandidates: the grouped rows draw from this.
+            bool layoutPass = Event.current == null || Event.current.type == EventType.Layout;
+            if (layoutPass && (lastNearMissComputeRealtime < 0f
+                || now - lastNearMissComputeRealtime >= CandidateRecomputeIntervalSeconds))
             {
                 cachedNearMisses = RouteCandidateFinder.DeriveNearMisses();
                 lastNearMissComputeRealtime = now;
+                cachedNearMissGroups = BuildNearMissGroups(cachedNearMisses);
             }
             return cachedNearMisses ?? new List<RouteNearMiss>();
+        }
+
+        // The near-miss list as one group per reason (pure LogisticsNearMissPresentation),
+        // with one batch summary line per rebuild.
+        private static List<NearMissGroup> BuildNearMissGroups(List<RouteNearMiss> nearMisses)
+        {
+            var inputs = new List<NearMissInput>(nearMisses?.Count ?? 0);
+            for (int i = 0; nearMisses != null && i < nearMisses.Count; i++)
+            {
+                RouteNearMiss nm = nearMisses[i];
+                if (nm == null) continue;
+                inputs.Add(new NearMissInput
+                {
+                    TreeId = nm.Tree?.Id,
+                    Name = NearMissTreeLabel(nm.Tree),
+                    Status = nm.Status,
+                    NotSealed = nm.NotSealed,
+                    ReflyableCount = nm.ReflyableCount,
+                    RejectDetail = nm.RejectDetail,
+                });
+            }
+            List<NearMissGroup> groups = LogisticsNearMissPresentation.Group(inputs,
+                TooltipEchoBox.BudgetChars(DefaultWindowWidth, TooltipEchoBox.SingleLine));
+            ParsekLog.Verbose("UI",
+                $"Logistics near-miss groups rebuilt missions={inputs.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"groups={groups.Count.ToString(CultureInfo.InvariantCulture)}");
+            return groups;
+        }
+
+        // The candidate rows' cached display text: the from/to line (origin, then the
+        // dock endpoint's live vessel name or its place) with the full origin and
+        // destination in its hover, and the Would deliver cell (pickups named).
+        private void RebuildCandidateDisplayCache(List<RouteCandidate> candidates)
+        {
+            candidateDisplayCache.Clear();
+            int resolved = 0;
+            for (int i = 0; candidates != null && i < candidates.Count; i++)
+            {
+                RouteCandidate cand = candidates[i];
+                if (cand?.Analysis == null) continue;
+                string treeId = cand.Tree?.Id ?? "<no-tree>";
+                RouteEndpoint? ep = cand.Analysis.ConnectionWindow?.EndpointAtDock;
+                string destName = null;
+                if (ep.HasValue && RouteEndpointResolver.TryResolveEndpoint(ep.Value, out Vessel v, out _) && v != null)
+                {
+                    destName = v.vesselName;
+                    resolved++;
+                }
+                string destShort = destName ?? FormatEndpointPlace(ep);
+                string destLong = (destName != null ? destName + " " : string.Empty)
+                    + (ep.HasValue ? FormatEndpointShort(ep.Value) : "-");
+                candidateDisplayCache[treeId] = new CandidateDisplay
+                {
+                    FromTo = LogisticsRoutePresentation.FormatFromTo(
+                        FormatCandidateOriginShort(cand.Analysis, cand.Tree), destShort),
+                    FromToTooltip = LogisticsRoutePresentation.CapToStrip(
+                        "From " + FormatCandidateOrigin(cand.Analysis, cand.Tree) + " to " + destLong + ".",
+                        TooltipEchoBox.BudgetChars(DefaultWindowWidth, TooltipEchoBox.SingleLine)),
+                    DestinationName = destName,
+                    Cargo = LogisticsDeliveryPresentation.FormatCandidateCargo(
+                        cand.Analysis.ResourceDeliveryManifest, cand.Analysis.InventoryDeliveryManifest,
+                        cand.Analysis.ResourceLoadManifest, cand.Analysis.InventoryLoadManifest,
+                        destShort),
+                };
+            }
+            ParsekLog.Verbose("UI",
+                $"Logistics candidate display cache rebuilt candidates={candidateDisplayCache.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"destinationsResolved={resolved.ToString(CultureInfo.InvariantCulture)}");
         }
 
         // ------------------------------------------------------------------
@@ -3657,8 +3854,11 @@ namespace Parsek
             leg.FromToText = LogisticsRoutePresentation.FormatFromTo(leg.OriginShort, destShort);
             leg.FromToTooltip = "From " + FormatOrigin(route) + " to " + destText
                 + (string.IsNullOrEmpty(destTooltip) ? string.Empty : " (" + destTooltip + ")") + ".";
-            leg.DeliversCellText = FormatRouteDelivery(route);
-            leg.DeliversLine = LogisticsRoutePresentation.FormatDeliversEachRun(leg.DeliversCellText, destShort);
+            // What each run carries: the delivery, and on a route that loads cargo (a
+            // relay's pickup stop, or a pure pickup run) what it picks up and where.
+            string[] stopNames = ResolveStopNames(route, destShort, stopVessels, stopTexts);
+            leg.DeliversCellText = LogisticsDeliveryPresentation.FormatRouteCargoCell(route.Stops, stopNames);
+            leg.DeliversLine = LogisticsDeliveryPresentation.FormatRouteCargoLine(route.Stops, stopNames, destShort);
 
             if (route.Status == RouteStatus.DestinationFull)
                 leg.CapacityContext = ResolveCapacityContext(route, destVessel, destText, stopVessels, stopTexts);
@@ -3679,12 +3879,16 @@ namespace Parsek
             // Status hover carry the dated long clause; the cell carries the compact one.
             if (LogisticsHoldPresentation.ShouldDisplayHold(route.Status, route.LastHoldKind))
             {
+                // Stored parts read by their title, through the resolver the Route
+                // History's held rows use.
                 leg.HoldShort = LogisticsHoldPresentation.DescribeHold(
-                    route.LastHoldKind, route.LastHoldDetail, route.LastHoldShortfall);
+                    route.LastHoldKind, route.LastHoldDetail, route.LastHoldShortfall,
+                    StructureListWindowUI.ResolvePartTitle);
                 leg.HoldText = LogisticsHoldPresentation.FormatHoldDetailLine(
                     leg.HoldShort, route.LastHoldUT, formatDate);
                 leg.HoldCellText = LogisticsHoldPresentation.StatusCellText(
-                    route.LastHoldKind, route.LastHoldDetail, route.LastHoldShortfall);
+                    route.LastHoldKind, route.LastHoldDetail, route.LastHoldShortfall,
+                    StructureListWindowUI.ResolvePartTitle);
             }
 
             // The merged Status cell + its sentence, and the Next cell (warned when the
@@ -4037,7 +4241,8 @@ namespace Parsek
                 els, route.Id, originPlace, originVesselName,
                 index => stopAt(index) != null ? FormatEndpointPlace(stopAt(index).Endpoint) : null,
                 index => stopAt(index) != null ? TryResolveLiveVesselName(stopAt(index).Endpoint.VesselPersistentId) : null,
-                TryResolveLiveVesselName);
+                TryResolveLiveVesselName, StructureListWindowUI.ResolvePartTitle,
+                id => RouteStore.TryGetRoute(id, out Route partner) && partner != null ? partner.Name : null);
             ParsekLog.Verbose("UI",
                 $"Route History rows built: route={ShortId(route.Id)} rows={steps.Count.ToString(CultureInfo.InvariantCulture)}");
             return steps;
@@ -4417,6 +4622,29 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// The candidate from/to line's origin, in the route rows' short form
+        /// (<see cref="LogisticsRoutePresentation.FormatOriginShort"/>): "KSC", the depot's
+        /// name, "Harvested", or "-" when the origin is unknown.
+        /// </summary>
+        internal static string FormatCandidateOriginShort(RouteAnalysisResult analysis, RecordingTree tree)
+        {
+            RouteCreationFormatters.RouteOriginIdentity id =
+                RouteCreationFormatters.ResolveOriginIdentity(analysis, tree);
+            switch (id.Kind)
+            {
+                case RouteCreationFormatters.RouteOriginKind.Ksc:
+                    return LogisticsRoutePresentation.FormatOriginShort(true, false, null);
+                case RouteCreationFormatters.RouteOriginKind.Harvest:
+                    return LogisticsRoutePresentation.FormatOriginShort(false, true, null);
+                case RouteCreationFormatters.RouteOriginKind.Depot:
+                    return LogisticsRoutePresentation.FormatOriginShort(false, false,
+                        RouteCreationFormatters.FormatDepotIdentity(id));
+                default:
+                    return "-";
+            }
+        }
+
         private static string FormatEndpointShort(RouteEndpoint? ep)
         {
             if (!ep.HasValue) return "-";
@@ -4430,8 +4658,7 @@ namespace Parsek
         /// </summary>
         internal static string FormatEndpointPlace(RouteEndpoint? ep)
         {
-            if (!ep.HasValue || string.IsNullOrEmpty(ep.Value.BodyName)) return "-";
-            return ep.Value.BodyName + (ep.Value.IsSurface ? " (surface)" : " (orbit)");
+            return RouteCreationFormatters.FormatEndpointPlace(ep);
         }
 
         private static string FormatEndpointShort(RouteEndpoint ep)
@@ -4450,7 +4677,7 @@ namespace Parsek
         {
             int n = Route.ClampCadenceMultiplier(route.CadenceMultiplier);
             string human = FormatDuration(route.DispatchInterval);
-            return string.Format(CultureInfo.InvariantCulture, "{0}x (~{1})", n, human);
+            return string.Format(CultureInfo.InvariantCulture, LogisticsRoutePresentation.CadenceReadoutFormat, n, human);
         }
 
         internal static string FormatDuration(double seconds)
@@ -4470,12 +4697,30 @@ namespace Parsek
             return string.Format(CultureInfo.InvariantCulture, "{0:F1}d", seconds / secsPerDay);
         }
 
-        // "Delivers each run": every stop's delivery lands each run, so a
-        // multi-stop route shows the summed manifest (GUI-P20); a single-stop route
-        // renders exactly that stop's manifest, as before.
-        private static string FormatRouteDelivery(Route route)
+        // The place each stop names in the cargo cell and line: a single stop reads the
+        // destination the from/to line uses; a multi-stop route each stop's resolved
+        // vessel name, or its place ("Kerbin (surface)") when the stop did not resolve,
+        // never raw coordinates.
+        private static string[] ResolveStopNames(Route route, string singleStopName,
+            Vessel[] stopVessels, string[] stopTexts)
         {
-            return LogisticsDeliveryPresentation.FormatRouteDeliveryPerCycle(route?.Stops);
+            int count = route?.Stops?.Count ?? 0;
+            var names = new string[count];
+            if (count == 1)
+            {
+                names[0] = singleStopName;
+                return names;
+            }
+            for (int i = 0; i < count; i++)
+            {
+                RouteStop stop = route.Stops[i];
+                if (stop == null) continue;
+                bool resolved = stopVessels != null && i < stopVessels.Length && stopVessels[i] != null;
+                names[i] = resolved && stopTexts != null && i < stopTexts.Length
+                    ? stopTexts[i]
+                    : FormatEndpointPlace(stop.Endpoint);
+            }
+            return names;
         }
 
         // L3: the manifest formatting moved to the pure
@@ -4536,7 +4781,11 @@ namespace Parsek
             statusStyleWhite = new GUIStyle(GUI.skin.label);
 
             detailStyle = new GUIStyle(GUI.skin.label) { wordWrap = true };
-            detailStyle.normal.textColor = new Color(0.8f, 0.8f, 0.8f);
+            detailStyle.normal.textColor = ParsekUI.MutedTextColor;
+            // The Every / Priority steppers' shared value cell, measured once with the
+            // style that draws it.
+            stepperValueWidth = LogisticsRoutePresentation.StepperValueCellWidth(
+                text => detailStyle.CalcSize(new GUIContent(text)).x);
 
             routeNameStyle = new GUIStyle(GUI.skin.label) { wordWrap = false, clipping = TextClipping.Clip };
             routeFromToStyle = new GUIStyle(routeNameStyle);
@@ -4551,7 +4800,7 @@ namespace Parsek
             wrapStatusWhite = WrapOf(statusStyleWhite);
 
             nextAmberStyle = new GUIStyle(GUI.skin.label);
-            nextAmberStyle.normal.textColor = MissionsWindowUI.LoopPeriodClampColor;
+            nextAmberStyle.normal.textColor = ParsekUI.CountdownTextColor;
 
             // Interact buttons: zero horizontal margin so a single starts exactly at the
             // column inset and a pair spans exactly one single (the Missions styles); the
@@ -4581,6 +4830,11 @@ namespace Parsek
                 padding = new RectOffset(
                     2, 2, GUI.skin.button.padding.top, GUI.skin.button.padding.bottom)
             };
+            stepperRowHeight = LogisticsRoutePresentation.StepperRowHeight(
+                detailSlotButtonStyle.CalcHeight(new GUIContent("Link round-trip..."), InteractSingleWidth)
+                    + detailSlotButtonStyle.margin.vertical,
+                detailStyle.CalcHeight(new GUIContent("Every:"), LogisticsRoutePresentation.StepperLabelWidth)
+                    + detailStyle.margin.vertical);
             GUIStyle columnHeader = parentUI.GetColumnHeaderStyle();
             interactHeaderContainerStyle = new GUIStyle(columnHeader)
             {

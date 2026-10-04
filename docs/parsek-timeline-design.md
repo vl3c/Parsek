@@ -157,7 +157,7 @@ TimelineEntry
 **Recording lifecycle** (5 types):
 `RecordingStart`, `VesselSpawn`, `CrewDeath`, `UnfinishedFlightSeparation`, `Separation`
 
-**Game actions** (23 entry types; every non-route `GameActionType` member renders as a row, the eight route action types have no timeline entry and the builder skips them). Four later action types reuse an existing bucket instead of adding an entry type: `StrategyScienceDebit` / `StrategyScienceCredit` render as `ScienceSpending` / `ScienceEarning`, and `KerbalRecovered` (`Recovered: <name>`) and `KerbalExperience` (`XP: <name> (<career-log entries>)`, e.g. `XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin, Recovered)`) render in the `KerbalAssignment` bucket. The entry types:
+**Game actions** (23 entry types; every non-route `GameActionType` member renders as a row, the nine route action types (`RouteLedgerRetire.IsRouteActionType`, `RouteHeld` included) have no timeline entry and the builder skips them). Four later action types reuse an existing bucket instead of adding an entry type: `StrategyScienceDebit` / `StrategyScienceCredit` render as `ScienceSpending` / `ScienceEarning`, and `KerbalRecovered` (`Recovered: <name>`) and `KerbalExperience` (`XP: <name> (<career-log entries>)`, e.g. `XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin, Recovered)`) render in the `KerbalAssignment` bucket. The entry types:
 `ScienceEarning`, `ScienceSpending`, `FundsEarning`, `FundsSpending`, `ReputationEarning`, `ReputationPenalty`, `MilestoneAchievement`, `ContractAccept`, `ContractComplete`, `ContractFail`, `ContractCancel`, `KerbalAssignment`, `KerbalHire`, `KerbalRescue`, `KerbalStandIn`, `FacilityUpgrade`, `FacilityDestruction`, `FacilityRepair`, `StrategyActivate`, `StrategyDeactivate`, `FundsInitial`, `ScienceInitial`, `ReputationInitial`
 
 **Legacy** (1 type):
@@ -181,7 +181,7 @@ TimelineBuilder.Build(
 
 `currentMode` drives mode-based visibility: the initial funds and reputation seeds are hidden in sandbox and mission modes, and in science mode only the science seed shows. Three collectors run, then the merged list is stable-sorted by UT and post-processed: `CompactAdjacentMilestoneEntries` merges same-milestone rows within a 0.1s tolerance, and de-dup passes drop EVA-branch crew-reshuffle actions (bug #228) and legacy events that already appear as ledger actions.
 
-**Recording Collector** - emits `RecordingStart` (with MET duration, EVA detection, parent vessel resolution) and `VesselSpawn` at EndUT (with terminal state and VesselSituation), plus a `CrewDeath` row per dead kerbal (bug #229) and a `UnfinishedFlightSeparation` / `Separation` row at each staging split point. Skips hidden and debris recordings. Chain recordings show full chain duration. EVA detection via `EvaCrewName` or single-crew vessel name match.
+**Recording Collector** - emits `RecordingStart` (with MET duration, EVA detection, parent vessel resolution) and `VesselSpawn` at EndUT (with terminal state and VesselSituation), plus a `CrewDeath` row per dead kerbal (bug #229) and a `UnfinishedFlightSeparation` / `Separation` row at each staging split point. Skips archived (`Recording.Hidden`) and debris recordings, always: archive is managed only in the Recordings tab. Chain recordings show full chain duration. EVA detection via `EvaCrewName` or single-crew vessel name match.
 
 **Game Action Collector** - skips the route action types, maps the rest into their buckets, humanizes display text (science subjects, tech nodes, milestones, strategies, crew assignments with vessel name), classifies as Action or Event via `IsPlayerAction`, demotes ineffective T1 entries to T2, resolves vessel name from RecordingId.
 
@@ -243,15 +243,17 @@ The measured layout of the window - every button width, hover and empty state - 
 complexity modes; nothing inside the window is mode-gated except that `GoTo` is gated by its
 target's key, which is visible in both modes). Zones, top to bottom:
 
-**Zone 1: Filter area** - three rows on one six-cell grid; every button has the cell's width and
-every row is left-aligned, so a row of fewer than six buttons leaves empty cells on the right.
+**Zone 1: Filter area** - two or three rows on one six-cell grid; every button has the cell's
+width and every row is left-aligned, so a row of fewer than six buttons leaves empty cells on the
+right. There is no archive control: recordings archived in the Recordings tab never appear on the
+Timeline (section 3).
 
 - Row 1: the one-at-a-time view group - `Overview` / `Details`, the two action views
-  (`Rewind/FF`, `Re-Fly`) that restrict the list to rows carrying those buttons, and `Career` -
-  then the `Archived` filter as the last cell (it applies in every view).
-- Row 2, always drawn and always one button tall, so switching views never moves the list: the
-  source toggles (`Recordings` / `Actions` / `Events`) under Overview / Details; an empty row
-  under Rewind/FF and Re-Fly; the career categories (`Contracts` / `Strategies` /
+  (`Rewind/FF`, `Re-Fly`) that restrict the list to rows carrying those buttons, and `Career`.
+- Row 2, the selected view's context row, drawn only when the view has one: the source toggles
+  (`Recordings` / `Actions` / `Events`) under Overview / Details; nothing under Rewind/FF and
+  Re-Fly, where the time-range row moves up under row 1 instead of leaving an empty line; the
+  career categories (`Contracts` / `Strategies` /
   `Facilities` / `Milestones` / `Tech`, single-select, the last one remembered) under Career.
   A category view shows every row of that category from both tiers, past and future, and
   ignores the source toggles. Categories come from the ledger action type (section 3), so Tech
@@ -259,7 +261,7 @@ every row is left-aligned, so a row of fewer than six buttons leaves empty cells
   set follow the game mode: all five in Career, Facilities / Milestones / Tech in Science, no
   Career button in Sandbox. In Career mode the `Contracts` and `Strategies` hovers end with the
   slot counts (`Contract slots: 4 of 7 free now (2 active, 1 reserved for later).`).
-- Row 3, the time range, always drawn: `Last Day` / `Last 7d` / `Last 30d` / `This Year` /
+- Last row, the time range, always drawn: `Last Day` / `Last 7d` / `Last 30d` / `This Year` /
   `All` / `Custom`, exactly one lit (`All` by default), so the range in force is always on
   screen. `Custom` shows the From / To sliders for an arbitrary UT range; a slider drag lights
   `Custom`, a preset turns `Custom` off and hides the sliders, and turning `Custom` off returns

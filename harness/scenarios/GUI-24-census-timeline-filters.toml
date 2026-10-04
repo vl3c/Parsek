@@ -5,10 +5,10 @@ tier = "operator"
 #
 # WHAT IT BUYS, and every item here reads the SAME value in every dump the census has
 # taken so far. The Timeline's filter row carries three independent source toggles
-# (`Recordings` / `Actions` / `Events`), an `Archived` toggle, a `Custom` range reveal
-# with the window's only two sliders, a five-button preset row and a scrolling entry
-# list. Every capture on disk shows all three sources ON, the archive filter OFF, the
-# custom range hidden, no preset active and the list at the top. `UiAction op=state`
+# (`Recordings` / `Actions` / `Events`), a `Custom` range reveal with the window's only
+# two sliders, a five-button preset row and a scrolling entry list. Every capture on disk
+# shows all three sources ON, the custom range hidden, no preset active and the list at
+# the top. `UiAction op=state`
 # (PR #1734) is the first thing that can drive any of them, so this lane is the first
 # picture of the other side of each.
 #
@@ -25,23 +25,10 @@ tier = "operator"
 # Without that the run is refused PRE-BOOT as INVALID(staging) with the command in the
 # error (hlib.local_fixture_hint); every committed suite stays green either way.
 #
-# THE ARCHIVE CAPTURE IS THE FILTER TOGGLE, NOT ARCHIVED ROWS, and that is measured
-# rather than a compromise. `key=archived` drives `GroupHierarchyStore.HideActive`
-# through `TimelineWindowUI.ShowArchivedRecordings`, in the Timeline's POSITIVE sense
-# (`state=true` means archived rows contribute). No committed fixture and not the
-# operator's own career carries a single `Recording.Hidden` row: the codec writes
-# `hidden` only when true and the token appears ZERO times across all 59 committed
-# fixtures and in `c1/persistent.sfs`. So the row-level `[archived]` marker has no host
-# at all, and what this capture honestly shows is the filter toggle drawn CHECKED with
-# the same row set under it - which the dump proves, because `GuiTreeJson` records a
-# toggle's own `value`. Filed as
-# GUI-CENSUS-NO-HOST-CARRIES-AN-ARCHIVED-RECORDING-OR-MISSION rather than faked.
-#
-# THE ARCHIVE KEY IS A PERSISTED WRITE and so is nothing else in this lane. Every other
-# key here is per-session view state that dies with the process; `archived` survives the
-# save. It is written on a STAGED THROWAWAY copy of the host (the harness stages every
-# fixture into `${runSave}`), it is restored to `false` two steps later, and NO FIXTURE
-# IS EVER HARVESTED FROM THIS RUN.
+# THE TIMELINE HAS NO ARCHIVE CONTROL (owner ruling 2026-10-04): archive lives in the
+# Recordings tab only, the Timeline never lists archived recordings, and `key=archived`
+# is a `missions`-window key (GUI-25 drives it). Every key in this lane is per-session
+# view state that dies with the process, and no fixture is ever harvested from this run.
 #
 # ONE COMBINATION IS REFUSED BY DESIGN and this lane is deliberately not near it:
 # `key=srcRecordings state=false` answers `REJECTED state-clamped-by-tab` while the tier
@@ -50,12 +37,11 @@ tier = "operator"
 # the only tab switches are the Career category views at the END, after the last source
 # write, so the gate never fires here.
 #
-# THE THREE-ROW FILTER AREA (2026-09-24, the preset-row revert; Archived moved to row 1
-# 2026-09-25). Row 1 is the view group (`Overview`, `Details`, `Rewind/FF`, `Re-Fly`,
-# `Career`) followed by the `Archived` toggle as its last cell; row 2 is the selected view's
-# context row (the three source toggles under Overview / Details, an empty button-high row
-# under Rewind/FF / Re-Fly, the five career categories under Career); row 3 is the always-drawn
-# preset row `Last Day` / `Last 7d` / `Last 30d` / `This Year` / `All` / `Custom` with
+# THE FILTER AREA. Row 1 is the view group (`Overview`, `Details`, `Rewind/FF`, `Re-Fly`,
+# `Career`); row 2 is the selected view's context row (the three source toggles under
+# Overview / Details, the five career categories under Career, and NO row at all under
+# Rewind/FF / Re-Fly, where the preset row moves up under row 1); the last row is the
+# always-drawn preset row `Last Day` / `Last 7d` / `Last 30d` / `This Year` / `All` / `Custom` with
 # exactly one lit. `key=customRange` means Custom selected, i.e. the From / To sliders
 # shown (between PR #1792 and this revert it opened a Time fold). So
 # `ksc-timeline-customrange-advanced` photographs Custom lit with the sliders at the full
@@ -101,7 +87,7 @@ tier = "operator"
 # seam window, and the one fact that window alone showed - the slots the committed
 # future reserves - is the last sentence of this window's own Contracts and Strategies
 # button hovers, which STATE 9-11 below photographs (the dumps carry the tooltip).
-description = "GUI census wave 6: the Timeline window's scalar view state - each source toggle off, the archive filter on, Custom selected with its sliders (at full range and over Last Day), two lit time-range presets, a scrolled entry list, the Career view's contracts / milestones / tech categories (one under a This Year range) and the window at its minimum width - on the dense operator-local census host."
+description = "GUI census wave 6: the Timeline window's scalar view state - each source toggle off, Custom selected with its sliders (at full range and over Last Day), two lit time-range presets, a scrolled entry list, the Career view's contracts / milestones / tech categories (one under a This Year range) and the window at its minimum width - on the dense operator-local census host."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "timeline", "career", "GUI-24", "pending-operator"]
 
@@ -149,14 +135,6 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-norecordings-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-timeline-norecordings-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "state", window = "timeline", key = "srcRecordings", state = "true" }, expect = "OK" },
-
-  # --- STATE 4: the archive filter ON. See the header: the TOGGLE flips (the dump
-  # records a toggle's own `value`), the row set does not, because no host carries an
-  # archived recording. Restored immediately - it is the one persisted write here.
-  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "archived", state = "true" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-archivedfilter-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-archivedfilter-advanced" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "archived", state = "false" }, expect = "OK" },
 
   # --- STATE 5: Custom selected (the `customRange` key) - Custom lit on the preset row
   # and the window's ONLY two sliders with their From: / To: labels, at the full range.
@@ -252,7 +230,6 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=srcActions want=false after=false changed=true frames=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=srcEvents want=false after=false changed=true frames=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=srcRecordings want=false after=false changed=true frames=[0-9]+",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=archived want=true after=true changed=true frames=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=customRange want=true after=true changed=true frames=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=preset want=This Year after=This Year changed=true frames=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=preset want=Last Day after=Last Day changed=true frames=[0-9]+",
@@ -263,7 +240,6 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-noactions-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-noevents-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-norecordings-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-archivedfilter-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-customrange-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-presetthisyear-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-presetlastday-advanced .*patched=17/17",
@@ -293,7 +269,7 @@ forbidden = []
 gating = false
 
 [runtime]
-# Fourteen captures and fourteen dumps, a 300 s cold load of a 42 MB career and ~35 single-phase
+# Thirteen captures and thirteen dumps, a 300 s cold load of a 42 MB career and ~35 single-phase
 # UI ops. GUI-1 measures 22 captures plus 22 dumps on the same host at 96 s wall against a
 # 1500 s budget; the first flight of this lane (with two more captures than it now has)
 # measured 88 s. 900 s is the budget every other census lane uses.

@@ -538,11 +538,23 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > `RF-20-stashed-eva-slot-refly`. `FlySlot` stays reserved for the reason above. Full
 > contract below (`#### StashSlot`).
 
+> Update (KscMarkerRecover, 2026-10-04): one ADDITIVE verb, `KscMarkerRecover pid=`, taking
+> the table to **48 implemented / 4 reserved**. The third recovery a player makes, from the
+> Space Center without entering the Tracking Station: the vessel's stock KSC marker, opened
+> and its Recover pressed. Full contract below (`#### KscMarkerRecover`).
+
+> Update (TrackingStationRecover, 2026-10-03): one ADDITIVE verb, `TrackingStationRecover
+> pid=`, taking the table to **47 implemented / 4 reserved**. `Recover` presses the flight
+> scene's button, which only ever recovers the ACTIVE vessel; a lane that spawns a chain
+> tip, leaves flight and then recovers the spawned vessel the way a player does from the
+> Space Center needs the stock Tracking Station path. Full contract below
+> (`#### TrackingStationRecover`).
+
 > Update (the D18 player-action pair, 2026-10-01): two ADDITIVE verbs, `RealSpawn rec=`
 > and `Recover pid=` (the reserved envelope never carried a spawn or a recovery verb),
 > taking the table to **46 implemented / 4 reserved**. They give the D18 cells where the
 > PLAYER acts on a ghost chain a driven subject (todo D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR):
-> `RealSpawn` presses the Real Spawn Control row's "Warp to Spawn" for one recording and
+> `RealSpawn` presses the Real Spawn Control row's "Warp" (a `Ready` row) for one recording and
 > answers the spawned vessel's pid, `Recover` presses the flight scene's stock Recover
 > button for the active vessel. Full contract below (`#### RealSpawn / Recover`).
 
@@ -2772,16 +2784,15 @@ other half would report OK over a state nobody asked for. Neither half has a def
 direction - every key here is driven BOTH ways by a census (a filter ON is one picture, OFF
 is another), which is `op=playback`'s argument verbatim.
 
-`archived` IS ONE FLAG WITH ONE POLARITY, NAMED ONCE, and this is the design decision in
-the op. The Timeline's Archived toggle and the Recordings tab's Archive header checkbox
-write the SAME persisted bool (`GroupHierarchyStore.HideActive`, reached through
-`TimelineWindowUI.ShowArchivedRecordings`, which owns the polarity flip) in OPPOSITE label
-senses. So the wire carries the key exactly once, valid on both windows, always in the
-Timeline's positive sense - `state=true` means archived rows contribute. Two keys with
-opposite polarities for one flag would have made every lane that touched it read the source
-to find out which it had. (The Missions tab's own "hide archived missions" filter, once the
+`archived` IS THE RECORDINGS TAB'S ARCHIVE FILTER, IN THE POSITIVE SENSE. It drives the
+persisted bool behind that tab's Archive header checkbox (`GroupHierarchyStore.HideActive`)
+inverted: `state=true` means archived recordings are listed, like every other bool key here,
+where true means "show this", while the checkbox's own label means "hide archived". It is a
+`missions`-window key only: the Timeline has no archive control and never lists archived
+recordings (`design-ui-basic-advanced.md` section 4.4), so `window=timeline key=archived`
+is the typed `state-key-invalid` REJECTED. (The Missions tab's own "hide archived missions" filter, once the
 key `archivedMissions`, was removed by Missions Model 1 on 2026-09-30: the per-mission mark
-became Collapse / Expand, which `op=expand key=mission:<id>` drives.) `archived` is
+became the collapse caret, which `op=expand key=mission:<id>` drives.) `archived` is
 PERSISTED, so a lane that sets it runs on a throwaway staged save - the op cannot enforce
 that and does not pretend to.
 
@@ -3696,7 +3707,9 @@ post-mission role `outcome`.
 `placement-mode-refused`, `key-injection-unavailable`, `placement-not-accepted`,
 `placement-timeout`, `preview-timeout`, `placed-vessel-timeout`, `pickup-threw`,
 `pickup-timeout`, `take-threw`, `take-timeout`, `step-threw`, `step-timeout`, `kerbal-lost`, each with an
-`evagroundscience failed reason=` Error line.
+`evagroundscience failed reason=` Error line. A kerbal that dies mid-step ends the step
+earlier still, through the shared `active-vessel-lost` guard (see "Active-vessel loss
+fails a pending step" below).
 
 **Known product consequence.** The recorder keys the Placed event to the placed part's pid,
 which is its OWN vessel, so the kerbal's recording carries a pid its snapshot lacks
@@ -3788,8 +3801,9 @@ click does not fire.
 `${chains.chain0tip}` (`ListHandles kind=chains`) or a `kind=committed` row.
 
 **RealSpawn production path.** The Real Spawn Control window has two spawn controls, the
-per-row "Warp to Spawn" / "Warp to Depart" button and the bottom "Warp to Next Spawn"
-(which picks the earliest live row and calls the same two methods). The row button's click
+per-row "Warp" button (to the spawn on a `Ready` row, to just before the departure on a
+`Leaves` row) and the bottom "Warp to Next Spawn" (which picks the earliest live row and
+calls the same two methods). The row button's click
 body is one method, `SpawnControlUI.ExecuteRowWarp`, already shared with `UiAction
 op=warp`. The verb finds the recording's row through
 `SpawnControlUI.TryFindRowForRecordingForTesting` (the draw pass's own
@@ -3800,9 +3814,9 @@ row model) and presses it through `SpawnControlUI.PressRowWarpForTesting` ->
 playback loop's, as for a player: the end-of-recording spawn, or for a chain tip
 `VesselGhoster.SpawnAtChainTip`; both write `Recording.VesselSpawned` and
 `SpawnedVesselPersistentId`, which is what the verb waits on. The row exists only while the
-active vessel is within `NearbySpawnListRadius` (1000 m) of the recording's live ghost and
-under `MaxListRelativeSpeed`, and its button is live only inside `NearbySpawnRadius`
-(250 m) and `MaxRelativeSpeed`: a lane must put the active vessel next to the ghost first.
+active vessel is within `NearbySpawnRadius` (250 m) of the recording's live ghost and
+under `MaxListRelativeSpeed`, and its button is live only under `MaxRelativeSpeed` too: a
+lane must put the active vessel next to the ghost first.
 Lines: `realspawn pressed rec= index= vessel= endUT= utBefore=`, then `realspawn complete
 rec= pid= vessel= loaded= elapsed=`.
 
@@ -3810,11 +3824,11 @@ rec= pid= vessel= loaded= elapsed=`.
 `realspawn-rec-arg-missing` (arg), `realspawn-host-unavailable` (no `ParsekFlight`),
 `realspawn-unknown-recording` (arg: no committed recording has the id),
 `realspawn-already-spawned` (with `pid=`), `realspawn-not-a-candidate` (the table draws no
-row for it: no active ghost, outside the list radius or speed cap, not spawn-eligible,
+row for it: no active ghost, outside the spawn radius or speed cap, not spawn-eligible,
 chain-suppressed, or already ended; `candidates=` in the log), `realspawn-button-disabled`
-(the row is listed but its button is greyed: too far, closing too fast, or past its UT;
-the button's own disabled-hover text in the log), and `realspawn-row-warps-to-departure`
-(the button is "Warp to Depart", which jumps to the ghost's departure and spawns nothing).
+(the row is listed but its button is greyed: too fast, leaving now, or past its UT; the
+button's own disabled-hover text in the log), and `realspawn-row-warps-to-departure` (a
+`Leaves` row, whose "Warp" jumps to just before the ghost's departure and spawns nothing).
 Post-press ERROR: `realspawn-warp-not-applied` (the clock did not reach `EndUT` after the
 press: `WarpToRecordingEnd` only logs an invalid jump), `realspawn-spawn-abandoned`
 (`SpawnAbandoned` or `TerminalSpawnCannotSpawnSafely`), `realspawn-spawn-timeout`.
@@ -3851,8 +3865,9 @@ finalize commits the recording `Recovered`, operator ruling 2026-10-01), and
 `ParsekScenario.OnVesselRecovered` stamps a pending-tree recording, routes the payout and
 closes crew reservations. kRPC's `Vessel.Recover` fires the same request event. The
 Tracking Station's Recover (`SpaceTracking.OnRecoverConfirm`, behind a confirm popup) fires
-`onVesselRecovered` directly and is NOT driven in v1 (a later `site=ts` arg, if a lane
-needs a non-active vessel recovered).
+`onVesselRecovered` directly; it is a separate verb, `TrackingStationRecover pid=`
+(`#### TrackingStationRecover` below), because it starts at the Space Center and recovers
+a vessel that is not the active one.
 
 **The wedge guard.** Stock's `LoadScene(SPACECENTER)` passes Parsek's scene-exit prefix,
 which raises a merge modal when a merge decision is outstanding. Before clicking, the verb
@@ -3877,7 +3892,7 @@ needs a settled SPACECENTER with a game loaded AND `onVesselRecovered` observed 
 vessel (Guid or pid): the recovery runs 8 frames after the scene settles, so a scene read
 alone would answer early. Payload `pid= vessel= scene= recovered=true`; lines `recover
 pressed pid= vessel= situation= ut=`, `recover observed onVesselRecovered pid= vessel=
-fromTrackingStation=`, `recover complete pid= vessel= scene= elapsed=`.
+quick=`, `recover complete pid= vessel= scene= elapsed=`.
 
 **Phases and roles.** Both TWO-PHASE, `RequiresFlight`, 120 s (`RealSpawn` the TimeJump
 size, `Recover` the ExitToSpaceCenter size), NOT `DEFERRED_SEAM_VERBS`. Dispatch rejects
@@ -3892,6 +3907,177 @@ the reasons (`REALSPAWN_REASONS` / `RECOVER_REASONS`, pinned by
 required arg pre-launch. Pure halves `TestCommandRealSpawn` / `TestCommandRecover`. Lane:
 `CI-6-chain-tip-recover-no-respawn` (both verbs, on the `chain-tip-recovery` injected host;
 first flown 2026-10-03, quarantined on CHAIN-TIP-RECOVER-AFTER-SWITCH-RESPAWNS-DUPLICATE).
+
+#### TrackingStationRecover (additive; the Tracking Station recovery)
+
+**Why.** `Recover` presses the flight scene's altimeter button, which only ever recovers
+the ACTIVE vessel and leaves flight as it does so. The other recovery a player makes is
+from the Space Center: open the Tracking Station, pick the vessel, press Recover. A lane
+that RealSpawns a chain tip, `ExitToSpaceCenter`s, recovers the spawned vessel that way and
+then launches again (`GoToEditor` + `LaunchFromEditor`) to check the tip does not respawn
+needs that path driven, with no active vessel involved.
+
+**Grammar.** `cmd=TrackingStationRecover pid=<persistentId>`, issued at the Space Center.
+The pid is usually `${spawn.pid}` from an earlier `RealSpawn`.
+
+**Production path** (decompiled, KSP 1.12.5 `Assembly-CSharp.dll`), every step a stock
+control in a player's order:
+- `SpaceCenterBuilding.OnLeftClick()` on the live `TrackingStationBuilding`: under 70%
+  structural damage it calls `EnterBuilding()` -> `TrackingStationBuilding.OnClicked()`,
+  which (unless the game is `SCENARIO_NON_RESUMABLE`) saves `persistent` and
+  `HighLogic.LoadScene(TRACKSTATION)` when `Parameters.SpaceCenter.CanGoInTrackingStation`,
+  else spawns the "FacilityLocked" popup.
+- `SpaceTracking.SetVessel(Vessel v, bool keepFocus)` with `keepFocus = true` (what a
+  list-row click reaches). Stock drops a second call in the same frame
+  (`lastSetVesselFrame`), so the seam reads `SpaceTracking.SelectedVessel` back on the next
+  poll and retries. For a recoverable owned vessel it unlocks `RecoverButton` when
+  `Parameters.TrackingStation.CanAbortVessel` and the mission allows recovery.
+- `RecoverButton.onClick.Invoke()`: the listener is `BtnOnclick_RecoverSelectedVessel`,
+  which `lockUI()`s and spawns `MultiOptionDialog("Recover Vessel", ...)` with two
+  buttons, confirm -> `OnRecoverConfirm`, cancel -> `OnDialogDismiss`.
+- The confirm button's own `DialogGUIButton.OptionSelected()`: its `onOptionSelected` is
+  `OnRecoverConfirm` combined with the popup's `Dismiss` (`DismissOnSelect`), exactly what
+  the `UnityEngine.UI.Button` listener runs on a click. The seam picks the button whose
+  invocation list names `OnRecoverConfirm`, never by position or localized label, and
+  never calls `OnRecoverConfirm` itself, so Parsek's `GhostTrackingRecoverPatch` prefix
+  runs. `OnRecoverConfirm` fires `GameEvents.onVesselRecovered.Fire(vessel.protoVessel,
+  false)`, destroys the vessel and saves.
+- **The bool is stock's `quick` flag.** `VesselRecovery.
+  OnVesselRecovered(ProtoVessel pv, bool quick)` skips the summary only when it is true;
+  the Tracking Station path passes FALSE, so in any game with `Funding`, `Reputation` or
+  `ResearchAndDevelopment` (or a crewed vessel) stock opens a `MissionRecoveryDialog`
+  (`CreateFullDialog`). While it is up, `SpaceTracking` keeps its buttons locked
+  (`onSummaryDialogSpawn` sets `summaryScreen`, so `OnDialogDismiss` skips `unlockUI`).
+  The seam closes it with `Object.Destroy(dialog.gameObject)`, the whole body of the
+  dialog's private `dismissDialog` (its Escape-key path); `OnDestroy` fires
+  `onGUIRecoveryDialogDespawn`, which unlocks the Tracking Station. (`Recover`'s
+  `recover observed onVesselRecovered ... quick=` log key prints the same
+  bool.)
+- `LeaveBtn.onClick.Invoke()` once it is interactable: `BtnOnClick_LeaveTrackingStation`
+  saves and loads SPACECENTER (`Parameters.TrackingStation.CanLeaveToSpaceCenter`).
+
+No wedge guard: Parsek's scene-exit `HighLogic.LoadScene` prefix acts only when the loaded
+scene is FLIGHT, and neither load starts there.
+
+**Refusals** (REJECTED, in this order, all but the last decided at the Space Center before
+the click): `tsrecover-pid-arg-missing`, `tsrecover-pid-arg-invalid` (Recover's parse: a
+positive ASCII decimal uint), `tsrecover-wrong-scene` (not SPACECENTER),
+`tsrecover-target-is-ghost` (`GhostMapPresence.IsGhostMapVessel`),
+`tsrecover-vessel-not-found` (no real vessel in `FlightGlobals.Vessels` has the pid),
+`tsrecover-not-recoverable` (`Vessel.IsRecoverable`: landed or splashed on the home world;
+situation in the log), `tsrecover-building-not-found`, `tsrecover-facility-closed` (the
+GoToEditor trio: `IsOpen()`, `CanGoInTrackingStation`, damage under 70%), and
+`tsrecover-button-locked`, a LATE REJECTED decided in the Tracking Station once the vessel
+is selected (the PlantFlag `flag-lock-stable` precedent): stock left `RecoverButton`
+non-interactable (`CanAbortVessel` off, or the mission forbids recovery), and
+`Button.onClick.Invoke` ignores `interactable`, so the seam must not click.
+Post-click ERROR: `tsrecover-select-failed` (30 frames of `SetVessel` without the
+selection landing), `tsrecover-confirm-not-found` (no "Recover Vessel" popup within 30
+frames, or no button carrying `OnRecoverConfirm`), `tsrecover-not-recovered` (the confirm
+fired no `onVesselRecovered` for the vessel; events fire synchronously, so this is read
+inside the call), `tsrecover-returned-to-menu`, `tsrecover-timeout`.
+
+**Completion.** Phases `EnteringTrackingStation` (TRACKSTATION with
+`SpaceTracking.Instance` up for 15 frames) -> `Selecting` -> `Confirming` -> `Recovered`
+(summary closed, then Leave) -> `Leaving`. OK needs the recovery observed (by Guid or pid)
+AND a settled SPACECENTER with a game loaded. Payload `pid= vessel= scene=SPACECENTER
+recovered=true quick=<bool> leaveForced=<bool>` (plus `leaveLocks=` when forced); lines `tsrecover enter pid= vessel= situation= ut=`,
+`tsrecover pressed pid= vessel= framesInTs=`, `tsrecover confirm`, `tsrecover observed
+onVesselRecovered pid= vessel= quick=`, `tsrecover dismiss MissionRecoveryDialog`,
+`tsrecover leave`, `tsrecover leave forced pid= ... TRACKINGSTATION_UI locks= lockMask=` (Warn), `tsrecover complete pid= vessel= scene= quick= leaveForced= elapsed=`.
+Stock re-enables Leave from `unlockUI`, which runs inside `OnRecoverConfirm` and only while no
+control lock covers `TRACKINGSTATION_UI` (it re-runs when such a lock is removed). If Leave stays
+locked `LeaveWaitFrames` (60) frames after the recovery with no summary dialog up, the seam names
+the covering locks, invokes the Leave button's own click handler, and answers `leaveForced=true`;
+a lane forbids that line so a lock that would strand a player still reads red.
+Stock's new-game intro (`ScenarioNewGameIntro`, `tsComplete = False` on 51 committed fixtures)
+sets control lock `intro_TS` over `TRACKINGSTATION_ALL` on a save's first Tracking Station
+visit and holds it until the player presses the intro page's button; while it holds, Leave never
+re-enables (CI-7 `2026-10-03_1548` measured it held from arrival). After the settle, while that
+lock is held, the seam presses the intro's own button (`tsrecover dismiss intro`, the callback
+that sets `tsComplete`, closes the window and saves) before selecting, and answers ERROR
+`tsrecover-intro-not-dismissed` if the lock survives `IntroWaitFrames` (60). Each stage logs a
+`tsrecover locks at=<stage>` snapshot (every control lock id:mask, the TS-UI ones, the confirm
+popup, the summary dialog, Leave's state).
+
+**Phases and roles.** TWO-PHASE, `RequiresGameLoaded` (the GoToEditor row: one valid
+scene, refused typed elsewhere), 120 s (the `Recover` size: two scene loads that re-read no
+save), NOT `DEFERRED_SEAM_VERBS`. Dispatch rejects `load-in-flight` and
+`merge-journal-in-flight` (the Recover pair). Tail role world-mutating, post-mission role
+`recording` (Recover's reasons). hlib mirrors the reasons (`TSRECOVER_REASONS`, pinned by
+`TrackingStationRecoverSourceSyncTests`) and `validate_tracking_station_recover_step`
+checks the pid pre-launch. Pure half `TestCommandTrackingStationRecover`; applier
+`ParsekTestCommandAddon.TrackingStationRecover.cs`. Lane: `CI-7-chain-tip-ts-recover-no-respawn` (armed).
+
+#### KscMarkerRecover (additive; the Space Center marker recovery)
+
+**Why.** A player standing at the Space Center can recover a vessel landed or splashed on
+Kerbin without opening the Tracking Station: every such vessel carries a marker over the
+KSC view, and its expanded panel has a Recover button. That route reaches
+`onVesselRecovered` through different stock code (no confirm popup, no scene load), so a
+recovery fix proven on `TrackingStationRecover` is not proven on it.
+
+**Grammar.** `cmd=KscMarkerRecover pid=<persistentId>`, issued at the Space Center. The
+pid is usually `${spawn.pid}` from an earlier `RealSpawn`.
+
+**Production path** (decompiled, KSP 1.12.5 `Assembly-CSharp.dll`):
+- `KSP.UI.Screens.KSCVesselMarkers` (static `fetch`, private `List<KSCVesselMarker>
+  markers`): `Awake` schedules `SpawnVesselMarkers` 15 frames later, which creates one
+  `KSCVesselMarker` per vessel in `FlightGlobals.Vessels` that is `LandedOrSplashed` on
+  `Planetarium.fetch.Home` and is neither `DeployedSciencePart` nor `DroppedPart`. Opening
+  a facility screen clears the markers; closing it spawns them again.
+- `KSCVesselMarker` (an `AnchoredDialog`; private `v`, `Marker`, `RecoverButton`,
+  `expanded`, `locked`, `panelCtrls`): `AnchoredDialog.Start` -> `CreatePanel` ->
+  `CreateWindowContent` adds the button listeners, then `OnPanelSetupComplete` sets
+  `panelCtrls`, which the seam reads as "wired". `Marker.onClick` ->
+  `OnMarkerButtonInput` -> `Expand()` (ignored while `locked`, the KSC_UI input-lock
+  state). In MISSION mode with `preventVesselRecovery` stock sets
+  `RecoverButton.interactable = false`.
+- `RecoverButton.onClick` -> `OnRecoverButtonInput` -> `Dismiss(Recover)` -> `Collapse()`
+  + `KSCVesselMarkers.OnMarkerDismiss`, which one frame later runs the private
+  `RecoverVessel(v)`: `ShipConstruction.RecoverVesselFromFlight(v.protoVessel,
+  HighLogic.CurrentGame.flightState)` (fires `GameEvents.onVesselRecovered.Fire(pv,
+  false)` first, then removes the vessel), `GamePersistence.SaveGame("persistent", ...,
+  SPACECENTER)`, and a `RefreshMarkers` one frame after that. `OnVesselRecoveryRequested`
+  is NOT fired. The bool is stock's `quick` flag, FALSE here, so
+  `VesselRecovery.OnVesselRecovered` opens a `MissionRecoveryDialog` (synchronously,
+  `CreateFullDialog`) in a game with Funding / Reputation / R&D or for a crewed vessel; the
+  seam closes it with `Object.Destroy(dialog.gameObject)`, as `TrackingStationRecover` does.
+
+The seam presses both buttons a player presses, in one poll: `Marker.onClick.Invoke()`,
+reads `expanded` back, then `RecoverButton.onClick.Invoke()`. No wedge guard: no scene
+load happens.
+
+**Refusals** (REJECTED, in this order): `kscrecover-pid-arg-missing`,
+`kscrecover-pid-arg-invalid` (Recover's parse), `kscrecover-wrong-scene` (not
+SPACECENTER), `kscrecover-target-is-ghost`, `kscrecover-vessel-not-found`,
+`kscrecover-not-recoverable` (stock gives the vessel no marker: not landed or splashed on
+the home world, or a deployed science part / dropped part), and two decided by the poll
+before anything is pressed: `kscrecover-marker-not-found` (no marker for the pid with its
+buttons wired within 180 frames, or a private field no longer resolves) and
+`kscrecover-button-locked` (the marker is `locked`, `RecoverButton` is not interactable, or
+the marker refused to expand; `Button.onClick.Invoke` ignores both, so the seam must not
+click). Post-press ERROR: `kscrecover-not-recovered` (no `onVesselRecovered` for the vessel
+within 60 frames of the press, or by the budget), `kscrecover-returned-to-menu`,
+`kscrecover-timeout`.
+
+**Completion.** Phases `FindingMarker` -> `Recovering`. OK needs the recovery observed (by
+Guid or pid), 2 frames since (stock's same-call save and its next-frame marker refresh), no
+`MissionRecoveryDialog` open, and SPACECENTER with a game loaded. Payload `pid= vessel=
+scene=SPACECENTER recovered=true quick=<bool>`; lines `kscrecover start pid= vessel=
+situation=`, `kscrecover pressed pid= vessel= situation= markers= framesWaited= ut=`,
+`kscrecover observed onVesselRecovered pid= vessel= quick=`, `kscrecover dismiss
+MissionRecoveryDialog`, `kscrecover complete pid= vessel= scene= quick= elapsed=`,
+`kscrecover rejected reason=` (Warn) / `kscrecover error reason=` (Error).
+
+**Phases and roles.** TWO-PHASE, `RequiresGameLoaded` (the TrackingStationRecover row), 60 s
+(the default size, named), NOT `DEFERRED_SEAM_VERBS`. Dispatch rejects `load-in-flight` and
+`merge-journal-in-flight` (the Recover pair). Tail role world-mutating, post-mission role
+`recording`. hlib mirrors the reasons (`KSCRECOVER_REASONS`, pinned by
+`KscMarkerRecoverSourceSyncTests`) and `validate_ksc_marker_recover_step` checks the pid
+pre-launch. Pure half `TestCommandKscMarkerRecover`; applier
+`ParsekTestCommandAddon.KscMarkerRecover.cs`. Lane:
+`CI-10-chain-tip-ksc-marker-recover-no-respawn` (CI-7's host and steps; never flown).
 
 ### Addon lifecycle
 
@@ -3948,7 +4134,7 @@ parsed, N deferred), with bounded per-command Info lines (command counts are sma
 | `SetSetting` | game loaded (`ParsekSettings.Current != null`), any scene; else Defer | typed whitelist setter mutates `ParsekSettings.Current` | `name`, `value` echoed |
 | `StartRecording` | FLIGHT with a loaded, unpacked active vessel, not restoring/re-fly/merge-journal; else Defer | `ParsekFlight.StartRecording(...)`, then RE-SAMPLE `HasLiveRecorderForTagging()`; a refusal (vessel not ready / packed / guard blocked) is `ERROR msg=start-refused`, never a false OK (F4) | `recordingId`, `already=true` if a recorder was live |
 | `StopRecording` | FLIGHT; else Defer | `ParsekFlight.StopRecording()` (idempotent: OK with `idle=true` if no recorder) | `stopped` bool |
-| `CommitTree` | FLIGHT with `activeTree != null`; if no tree -> `ERROR msg=no-active-tree` (mirrors `CommitTreeFlight`'s guard) | `ParsekFlight.CommitTreeFlight()` | `committed=true` |
+| `CommitTree` | FLIGHT with `activeTree != null`; if no tree -> `ERROR msg=no-active-tree` (mirrors `CommitTreeFlight`'s guard). In a SETTLED non-FLIGHT scene it is `REJECTED msg=not-in-flight` at once rather than the usual FLIGHT-verb defer (`TestCommandDispatcher.RejectOutsideFlightVerbs`, below) | `ParsekFlight.CommitTreeFlight()` | `committed=true` |
 | `DiscardTree` | FLIGHT; if no active tree -> OK `nothing=true` | stop recorder if live, then `ParsekFlight.AutoDiscardActiveTreeWithMessage(reason, screenMessage, ledgerRecalcReason)` (the wrong-context-caller entry point) with test-command-specific strings | `discarded` bool |
 | `RecordingState` | any scene (read-only) | snapshot recorder/tree state (reuses `RecorderStateLog.FormatRecState` inputs) | `recording`, `tree` (the `RecordingTree.Id` of the active tree, empty when none - adjudication B), `points`, `scene` |
 | `RunTests` | any scene the runner supports; else Defer | `InGameTestRunner.RunAll()` (no `category`) or `RunCategory(category)`; with `isolated=true` (R5) the `*IncludingFlightRestore` variant instead, which also admits `RestoreBatchFlightBaselineAfterExecution` tests and restores a flight baseline after each. An `isolated` value other than the exact lowercase `true`/`false` is REJECTED `isolated-arg-invalid` (fail-closed: a silent fallback would run the ordinary filter and print an all-skipped tally that reads like a Parsek defect). Response deferred until `IsRunning` goes true->false and `ExportResultsFile` ran | `passed`, `failed`, `skipped`, `results=parsek-test-results.txt` |
@@ -4016,9 +4202,40 @@ wall-clock. Some verbs need a different bound and override the default:
 | `LaunchFromEditor` | 180 s | TWO-PHASE: stock's pre-flight checks, the craft save and the FLIGHT bootstrap of a NEW vessel; `StartRecording`'s scene-wait size, NOT a `DEFERRED_SEAM_VERB` |
 | `RealSpawn` | 120 s | TWO-PHASE, the `TimeJump` size: the row press runs the epoch-shift jump synchronously and the wait is the playback loop's spawn at the new UT; NOT a `DEFERRED_SEAM_VERB` |
 | `Recover` | 120 s | TWO-PHASE, the `ExitToSpaceCenter` size: stock's save, the Space Center load and the 8-frame delay before `VesselRetrieval.recoverVessels`; NOT a `DEFERRED_SEAM_VERB` |
+| `TrackingStationRecover` | 120 s | TWO-PHASE, the `Recover` size: the Tracking Station load, a few frames of select / confirm / summary dismissal, and the Space Center load back; NOT a `DEFERRED_SEAM_VERB` |
+| `KscMarkerRecover` | 60 s | TWO-PHASE, the default size named: no scene load, the 180-frame marker wait, stock's one-frame recovery and a summary dismissal; NOT a `DEFERRED_SEAM_VERB` |
 
 Budgets are measured from when the command first reaches the head and begins deferring. On
 expiry the pump writes `TIMEOUT` with `msg` carrying the last defer reason and advances.
+
+**CommitTree rejects outside FLIGHT instead of deferring (2026-10-03).** Every
+`RequiresFlight` verb defers `not-in-flight` in a non-FLIGHT scene, except the verbs in
+`TestCommandDispatcher.RejectOutsideFlightVerbs`, which answer `REJECTED msg=not-in-flight`
+at once. The set is `CommitTree` alone. Its post-mission use after a stock recovery (L3 / L5
+/ L6) reached the head in a settled SPACECENTER with no tree to commit and could only end
+`TIMEOUT` after 60 s, with the KSC "Mission Summary" dialog up the whole time. Nothing can
+bridge that wait into FLIGHT: the head blocks every other seam verb, and a scene load
+requested by anything else (a kRPC launch, a revert) sets the transition flag synchronously,
+so a pending transition still defers `not-safe-point` before the scene check runs. The
+collected record agreed before the change: of 217 runs that sent `CommitTree`, 213
+dispatched straight to OK and all 10 that deferred `not-in-flight` ended `TIMEOUT`. The
+other FLIGHT verbs keep the defer, because their wrong-scene case is the bounded
+scene-arrival wait their budgets are sized for.
+
+**Active-vessel loss fails a pending step (2026-10-03).** A two-phase verb in
+`TestCommandActiveVesselLoss`'s watched set (`EvaGroundScience`, `PlantFlag`) captures the
+active vessel when its executor returns PENDING. Every completion poll checks that vessel
+BEFORE the verb's own completion runs, and a vessel that is gone ends the step on that poll
+with `ERROR msg=active-vessel-lost` and one Warn line, `active-vessel lost id= cmd= vessel=
+pid= state=dead|destroyed elapsed= reason=active-vessel-lost`. Gone means a Unity-null
+reference OR `Vessel.State.DEAD`: stock `Vessel.Die` destroys a non-active vessel's
+GameObject but leaves the dead ACTIVE vessel in place as `FlightGlobals.ActiveVessel`, so a
+dead kerbal never reads null. That is why the EVA-8 step-move runs of 2026-09-29 each sat
+their full 120 s `step-timeout` after Jeb died. Not watched: `EvaChuteDeploy` (its own
+debounced `eva-chute-kerbal-lost`), `EvaBoard` (boarding removes the EVA vessel by design),
+`EvaExit` (switches focus), the scene-leaving verbs, and `WarpToUT` (a crash under warp is
+a spec's own subject, asserted from log lines). The guard is part of the seam, so it exists
+only when `PARSEK_TEST_COMMANDS=1` arms the addon.
 
 ### Reserved / phase-3 forward map (design only, not implemented)
 

@@ -48,6 +48,8 @@ namespace Parsek
         private GUIStyle sharedTableSectionHeaderStyle;
         private GUIStyle sharedTableCellStyle;
         private GUIStyle sharedTableScrollViewStyle;
+        private GUIStyle sharedEmptyStateStyle;
+        private GUIStyle sharedEmptyStateStyleSource;
 
         // Map view markers: icon atlas, fallback texture, label style, hover/sticky
         // state all live in MapMarkerRenderer (shared with ParsekTrackingStation).
@@ -926,11 +928,11 @@ namespace Parsek
             }
             Color prevLogisticsColor = GUI.color;
             if (anyLogisticsBroken)
-                GUI.color = new Color(0.95f, 0.45f, 0.45f);
+                GUI.color = StatusColor(StatusColorKind.Red);
             else if (RouteRunPrompt.HasPendingPrompt)
                 // M6 Record-Supply-Run helper: cyan highlight while the banner
                 // above is pending (broken-red wins - an error outranks a hint).
-                GUI.color = new Color(0.45f, 0.85f, 0.95f);
+                GUI.color = StatusColor(StatusColorKind.Cyan);
             try
             {
                 if (UiSurfaceVisibility.IsVisible(UiSurface.MainButtonLogistics, complexity)
@@ -1308,6 +1310,8 @@ namespace Parsek
             mainWindowTitleStyleSource = null;
             sharedSectionHeaderStyle = null;
             sharedColumnHeaderStyle = null;
+            sharedEmptyStateStyle = null;
+            sharedEmptyStateStyleSource = null;
             versionStyle = null;
         }
 
@@ -1494,6 +1498,13 @@ namespace Parsek
         // content origin and every column starts from the same x. Vertical margin
         // and padding are left at the skin's 4px so row pitch is unchanged.
         internal const int TableRowHorizontalInsetPx = 0;
+
+        // The gap a Parsek window leaves between its title bar and its first box or row:
+        // the Missions, Logistics, Kerbals, Settings and Log windows each open their
+        // content with a GUILayout.Space of this height, and the pickers
+        // (PickerWindowLayout.DrawTitleGap) reuse it. Pinned equal across them by
+        // PickerWindowLayoutTests.
+        internal const float WindowContentTopGapPx = 5f;
 
         // Fallback footprint when GUI.skin.verticalScrollbar is unavailable: KSP's
         // 15px bar plus its 1px left margin, as measured by the 2026-09-11 census
@@ -1837,6 +1848,9 @@ namespace Parsek
 
             /// <summary>New / informational / eligible (0.65, 0.85, 1).</summary>
             Cyan = 4,
+
+            /// <summary>Soft violet #b39ddb: the Logistics Paused Routes section accent.</summary>
+            Violet = 5,
         }
 
         /// <summary>
@@ -1857,6 +1871,8 @@ namespace Parsek
                     return new Color(1f, 0.4f, 0.4f);
                 case StatusColorKind.Cyan:
                     return new Color(0.65f, 0.85f, 1f);
+                case StatusColorKind.Violet:
+                    return new Color(179f / 255f, 157f / 255f, 219f / 255f);
                 case StatusColorKind.Grey:
                 default:
                     return new Color(0.7f, 0.7f, 0.7f);
@@ -1870,6 +1886,47 @@ namespace Parsek
         public Color GetStatusColor(StatusColorKind kind)
         {
             return StatusColor(kind);
+        }
+
+        /// <summary>
+        /// The house countdown amber (#ffcc66,
+        /// <see cref="MissionPresentation.SummaryCountdownColorHex"/>): every
+        /// <see cref="ParsekTimeFormat.FormatCountdown"/> cell is drawn in it (Missions
+        /// summary, Logistics Next, Real Spawn Control, the Timeline's next-row time,
+        /// the Recordings Status of a flight still ahead).
+        /// </summary>
+        internal static readonly Color CountdownTextColor = new Color(1f, 0.8f, 0.4f);
+
+        /// <summary>
+        /// The house muted text grey: second lines of a two-line row, detail lines and
+        /// empty-list sentences. Set on a style's text colour, never through GUI.color
+        /// (which would also dim rich-text colour runs).
+        /// </summary>
+        internal static readonly Color MutedTextColor = new Color(0.78f, 0.78f, 0.78f);
+
+        /// <summary>
+        /// The house dimming for a row that is not live yet or no longer live (a Missions
+        /// row that cannot act, a Timeline row still ahead): white at 45% alpha.
+        /// </summary>
+        internal static readonly Color DimTextColor = new Color(1f, 1f, 1f, 0.45f);
+
+        /// <summary>
+        /// The empty-list sentence ("No missions recorded yet."): one plain label in
+        /// <see cref="MutedTextColor"/>, the same in every window. Must be called during
+        /// draw (requires a valid GUI.skin).
+        /// </summary>
+        public GUIStyle GetEmptyStateStyle()
+        {
+            GUIStyle source = GUI.skin.label;
+            if (sharedEmptyStateStyle == null || !ReferenceEquals(sharedEmptyStateStyleSource, source))
+            {
+                sharedEmptyStateStyle = new GUIStyle(source)
+                {
+                    normal = { textColor = MutedTextColor }
+                };
+                sharedEmptyStateStyleSource = source;
+            }
+            return sharedEmptyStateStyle;
         }
 
         // ════════════════════════════════════════════════════════════════

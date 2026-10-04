@@ -118,6 +118,9 @@ namespace Parsek
                 case GameActionType.KerbalRecovered:
                     return "Recovered: " + (action.KerbalName ?? "unknown");
 
+                case GameActionType.VesselRecovered:
+                    return "Vessel recovered: " + (action.RecoveredVesselName ?? "unknown");
+
                 case GameActionType.KerbalExperience:
                     return GetKerbalExperienceDescription(action);
 
