@@ -24,7 +24,7 @@ namespace Parsek.TestCommands
 
     /// <summary>
     /// Pure decision / payload half of <c>UiAction op=state</c>: the automation-only op that
-    /// drives a window's SCALAR view state - the filter toggles, the archive filters, the
+    /// drives a window's SCALAR view state - the filter toggles, the archive filter, the
     /// time-range preset and the scroll offsets. (The Recordings tab's `expandedStats` key
     /// went with its Info toggle, removed 2026-09-26.)
     ///
@@ -50,15 +50,14 @@ namespace Parsek.TestCommands
     /// REJECTED carrying that window's own list rather than a silent no-op that photographs
     /// an unchanged window under a label claiming the state.</para>
     ///
-    /// <para><b><c>archived</c> IS ONE FLAG WITH ONE POLARITY, NAMED ONCE.</b> The Timeline's
-    /// Archived toggle and the Recordings tab's Archive header checkbox write the SAME
-    /// persisted bool (<c>GroupHierarchyStore.HideActive</c>, via
-    /// <c>TimelineWindowUI.ShowArchivedRecordings</c>) in OPPOSITE label senses. So the wire
-    /// carries the key exactly once, valid on BOTH windows, always in the Timeline's
-    /// positive sense - <c>state=true</c> means archived rows contribute. Two keys with
-    /// opposite polarities for one flag would have made every lane that touched it read the
-    /// source to find out which it had. (The Missions tab's own "hide archived missions"
-    /// filter, once the key <c>archivedMissions</c>, is gone: Missions Model 1 turned its
+    /// <para><b><c>archived</c> IS THE RECORDINGS TAB'S ARCHIVE FILTER, IN THE POSITIVE
+    /// SENSE.</b> It drives the persisted bool behind that tab's Archive header checkbox
+    /// (<c>GroupHierarchyStore.HideActive</c>), inverted: <c>state=true</c> means archived
+    /// recordings are listed, matching every other bool key here, where true means "show
+    /// this". The checkbox's own label means "hide archived", so the flip is named once,
+    /// here. Valid on <c>missions</c> only: the Timeline has no archive control and never
+    /// lists archived recordings. (The Missions tab's own "hide archived missions" filter,
+    /// once the key <c>archivedMissions</c>, is gone: Missions Model 1 turned its
     /// per-mission mark into Collapse / Expand, which the <c>op=expand</c> key
     /// <c>mission:&lt;id&gt;</c> drives.)</para>
     ///
@@ -136,10 +135,6 @@ namespace Parsek.TestCommands
             NewKey(SrcActionsKey, UiStateKeyKind.Bool),
             NewKey(SrcEventsKey, UiStateKeyKind.Bool),
 
-            // The shared archive filter, in the Timeline's positive sense. Also valid on
-            // `missions` - see the class header.
-            NewKey(ArchivedKey, UiStateKeyKind.Bool),
-
             // Reveals the From: / To: sliders, the window's only sliders.
             NewKey(CustomRangeKey, UiStateKeyKind.Bool),
 
@@ -155,8 +150,8 @@ namespace Parsek.TestCommands
 
         private static readonly UiStateKeySpec[] MissionsKeys = new[]
         {
-            // Same flag, same polarity, same key as the Timeline's. The Recordings tab's
-            // Archive header checkbox is the other control over it.
+            // The Recordings tab's Archive header filter, in the positive sense (see the
+            // class header).
             NewKey(ArchivedKey, UiStateKeyKind.Bool),
 
             // The window's HORIZONTAL scroll offset in pixels (both tabs share it). It only

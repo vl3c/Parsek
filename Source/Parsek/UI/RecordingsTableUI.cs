@@ -773,12 +773,11 @@ namespace Parsek
         /// <para>Needed because timeline invalidation otherwise fires only from
         /// <c>LedgerOrchestrator.OnTimelineDataChanged</c> and an archive is not a ledger
         /// event: without this, archiving a row while both windows are open leaves the
-        /// flight on the Timeline, unmarked, until some unrelated recalc. Called only
+        /// flight on the Timeline until some unrelated recalc. Called only
         /// from the three change branches that actually write the flag (the per-row
-        /// Archive checkbox and the two group aggregates), never per frame; the archive
-        /// FILTER's own flips are covered separately by
-        /// <c>TimelineWindowUI.ShouldRebuildTimeline</c>, which compares the value the
-        /// cache was built with. See `docs/dev/design-ui-basic-advanced.md` section
+        /// Archive checkbox and the two group aggregates), never per frame. The Archive
+        /// header FILTER needs no call: the Timeline never shows archived recordings, so the
+        /// filter does not reach it. See `docs/dev/design-ui-basic-advanced.md` section
         /// 4.4.</para>
         /// </summary>
         private void NotifyTimelineOfArchiveChange()

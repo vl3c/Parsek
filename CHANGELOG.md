@@ -2657,6 +2657,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Timeline: no Archived button, and no empty filter row.** The `Archived` button at the end
+  of the Timeline's first filter row is gone: archiving and un-archiving a flight happen only in
+  the recordings list, and the Timeline never lists an archived flight's rows (it hid them by
+  default before, and still does; the recordings list's own Archive filter no longer reaches the
+  Timeline). Under Rewind/FF and Re-Fly the Timeline used to keep an empty line between the
+  view buttons and the time-range buttons; that line is gone and the time-range row moves up
+  under the views. Overview, Details and Career keep their second row of buttons.
 - **Real Spawn Control is redesigned: a Status word per craft, one Warp button, the exact spawn date, and only craft close enough to spawn.**
   The columns are now `Craft | Dist | Speed | Spawns | Spawn date | Status | Actions`.
   `Spawns` is the amber countdown and `Spawn date` the exact date (`Y1, D06, 14:05`); both

@@ -2719,16 +2719,14 @@ UIACTION_EXPAND_BULK_KEYS: Tuple[str, ...] = ("all", "none")
 # absent from this map keeps no scalar state the seam drives, and `op=state` against it
 # is the `state-unsupported-window` REJECTED - so the absence is meaningful here too.
 #
-# `archived` IS ONE FLAG NAMED ONCE, valid on BOTH windows and always in the Timeline's
-# POSITIVE sense (`state=true` means archived rows contribute). The Timeline's Archived
-# toggle and the Recordings tab's Archive header checkbox write the same persisted bool
-# (GroupHierarchyStore.HideActive) in opposite label senses; two keys with opposite
-# polarities for one flag would have made every lane read the source to learn which it
-# had. (The Missions tab's own "hide archived missions" filter, once `archivedMissions`,
-# is gone: Missions Model 1 turned its per-mission mark into the collapse caret, driven by
-# the `op=expand` key `mission:<id>`.)
+# `archived` is the Recordings tab's Archive header filter (GroupHierarchyStore.HideActive)
+# in the POSITIVE sense (`state=true` lists archived recordings), valid on `missions` only:
+# the Timeline has no archive control and never lists archived recordings. (The Missions
+# tab's own "hide archived missions" filter, once `archivedMissions`, is gone: Missions
+# Model 1 turned its per-mission mark into the collapse caret, driven by the `op=expand`
+# key `mission:<id>`.)
 UIACTION_STATE_KEYS: Dict[str, Tuple[str, ...]] = {
-    "timeline": ("srcRecordings", "srcActions", "srcEvents", "archived", "customRange",
+    "timeline": ("srcRecordings", "srcActions", "srcEvents", "customRange",
                  "preset", "scrollY"),
     "missions": ("archived", "scrollX"),
 }

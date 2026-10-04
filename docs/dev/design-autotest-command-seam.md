@@ -2784,14 +2784,13 @@ other half would report OK over a state nobody asked for. Neither half has a def
 direction - every key here is driven BOTH ways by a census (a filter ON is one picture, OFF
 is another), which is `op=playback`'s argument verbatim.
 
-`archived` IS ONE FLAG WITH ONE POLARITY, NAMED ONCE, and this is the design decision in
-the op. The Timeline's Archived toggle and the Recordings tab's Archive header checkbox
-write the SAME persisted bool (`GroupHierarchyStore.HideActive`, reached through
-`TimelineWindowUI.ShowArchivedRecordings`, which owns the polarity flip) in OPPOSITE label
-senses. So the wire carries the key exactly once, valid on both windows, always in the
-Timeline's positive sense - `state=true` means archived rows contribute. Two keys with
-opposite polarities for one flag would have made every lane that touched it read the source
-to find out which it had. (The Missions tab's own "hide archived missions" filter, once the
+`archived` IS THE RECORDINGS TAB'S ARCHIVE FILTER, IN THE POSITIVE SENSE. It drives the
+persisted bool behind that tab's Archive header checkbox (`GroupHierarchyStore.HideActive`)
+inverted: `state=true` means archived recordings are listed, like every other bool key here,
+where true means "show this", while the checkbox's own label means "hide archived". It is a
+`missions`-window key only: the Timeline has no archive control and never lists archived
+recordings (`design-ui-basic-advanced.md` section 4.4), so `window=timeline key=archived`
+is the typed `state-key-invalid` REJECTED. (The Missions tab's own "hide archived missions" filter, once the
 key `archivedMissions`, was removed by Missions Model 1 on 2026-09-30: the per-mission mark
 became the collapse caret, which `op=expand key=mission:<id>` drives.) `archived` is
 PERSISTED, so a lane that sets it runs on a throwaway staged save - the op cannot enforce
