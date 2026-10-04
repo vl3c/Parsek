@@ -115,10 +115,11 @@ LAYOUT_EPOCHS = {
     # PR #1999: every row action (W, FF, R, Fly, Seal, Go to) is the 48 px Missions
     # pair width and GoTo reads "Go to". First run on it: GUI-1-census-ksc 2026-10-04_1519.
     "timeline": {"utc": "2026-10-04T15:23:21Z", "pr": 1999},
-    # PR #1828: header and rows in one body box, a Warp column header, cell text
-    # under the header text.
-    # First run on it: GUI-6-census-flight-playback 2026-09-25_1838.
-    "spawncontrol": {"utc": "2026-09-25T18:38:07Z", "pr": 1828},
+    # PR #2000: the Model 1 table (Craft | Dist | Speed | Spawns | Spawn date | Status |
+    # Actions), one Warp button, a first-open height that fits the rows. GUI-6's host no
+    # longer lists a row (its rover is beyond the 250 m spawn radius), so the first capture
+    # on it is RSC-1-real-spawn-control-warp 2026-10-04_1742 (rsc-spawncontrol-before-warp).
+    "spawncontrol": {"utc": "2026-10-04T17:43:01Z", "pr": 2000},
     # PR #1999: an empty Log keeps its column headers over one grey sentence row,
     # with Close at the bottom. First run on it: GUI-1-census-ksc 2026-10-04_1519.
     "structure": {"utc": "2026-10-04T15:23:31Z", "pr": 1999},
