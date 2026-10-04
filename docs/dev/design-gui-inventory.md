@@ -233,7 +233,7 @@ columns are kept beside it so the movement is visible rather than asserted.
 | windows | **10 of 14** | **13 of 14** | **13 of 14** | **14 of 14** | none - THE CLASS IS CLOSED. Wave 2 pays all three hosts the seam's window table excluded by name: `Link round-trip partner` (GUI-3), `Manage Groups` + `Set Parent Group` (GUI-3 and GUI-4, both titles each), and `Parsek - Real Spawn Control` (GUI-6, one candidate row). Wave 3 adds no window: its subject is uGUI. Wave 4 pays the last one, the global Ctrl+Shift+T Test Runner, whose open flag was a private field on a separate MonoBehaviour until GUI-12 gave it an accessor and the `testrunnerglobal` seam row (3.11); the same lane re-shoots the SETTINGS-launched runner in three further states, which is a state gain rather than a window gain |
 | tabs | **12 of 12** | **12 of 12** | **12 of 12** | **12 of 12** | none. Wave 2 re-shoots them on hosts whose rows can be read off committed bytes, adds the FLIGHT form of eight (GUI-6 / GUI-7) and the EMPTY form of six (GUI-8). Neither runner window has tabs |
 | modal dialogs | **0 of 21** | **0 of 21** | **6 of 21** | **6 of 21** | SINCE 2026-09-26 THE POPULATION IS 19: the two wipe confirmations below no longer exist, so four of the six photographed rows remain and `GUI-10-census-dialogs` raises four. The historical reading follows. 15 of the 21. SIX HAVE A PICTURE as of wave 3, each raised through its own production spawn site, reported standing by `op=dialog`, photographed, dumped and dismissed: `actionblocked` (`ParsekResourceBlock` / "Action Blocked" / `OK`), `savefailed` (`ParsekSceneExitSaveFailed` / "Save failed" / `OK`), `wiperecordings` (`ParsekWipeRecordingsConfirm` / "Confirm: Wipe Recordings" / `Wipe All`, `Cancel`), `wipemilestones` (`ParsekWipeMilestonesConfirm` / "Confirm: Wipe Milestones" / `Wipe All`, `Cancel`), `fastforward` (`ParsekFastForwardConfirm` / "Confirm: Fast-Forward" / `Fast-Forward`, `Cancel`) and `seal` (`ParsekUFSealDialog` / "Confirm: Seal Unfinished Flight" / `Seal Permanently`, `Cancel`). Each of the six `op=dialog` steps beside them read `open=true count=1` with that name, title and button list. THE SEVENTH RAISABLE ROW, `Confirm: Rewind`, answered the typed refusal `REJECTED dialog-target-unavailable popup=rewind detail=no-rewind-owner-among=21` on this host - its spawn site silently returns when `RecordingStore.GetRewindRecording` is null, and no recording in `bdock-recorded` carries a `rewindSaveFileName` - so a host with a rewind point is what would photograph it. THE REMAINING 14 STAY FILED WITH THEIR REASON, each needing state a pure in-process call cannot supply: the tree merge dialog (`ParsekMerge`; its spawn takes a `RecordingTree` and BOTH its buttons act on it, so a synthetic one's commit would write invented history), the pre-switch decision dialog (`ParsekPreSwitch`; needs a live `Vessel`, so FLIGHT only, and RE-SPAWNS ITSELF on any non-button teardown), the ghost icon context menu (`ParsekGhostIconMenu`; spawned inside a Harmony Prefix over a live ghost ProtoVessel in map view, so there is no method to call), the Tracking Station ghost popup (its host exists only in TRACKSTATION, which runs no ParsekUI, so every `UiAction` there answers `REJECTED ui-host-unavailable`), Re-Fly invoke (`ParsekRewindInvoke`; a RewindPoint with a child slot), Re-Fly revert (`ParsekReFlyRevert`; a live `ReFlySessionMarker`), `Confirm: Disband Group`, the three Logistics confirms (delete route, delete dormant route, create route - a live `Route` or `RouteCandidate`), and the remainder. See 6.2 |
-| overlays / markers / badges | **0 of 7** | **2 of 7** | **2 of 7** | **2 of 7** | the Watch Mode overlay (GUI-6 `play-main-watchmode-advanced`, also standing in `play-spawncontrol-advanced`) and the flight-map ghost markers (GUI-6 `play-mapview-ghostmarkers-advanced`, 243 `[GhostMap] Marker DRAWN` lines behind it) ARE photographed. The five still dark: the currency reservation tooltip, the stock-UI badges, the Tracking Station markers, the in-world ghost labels and the Logistics launcher TINT (zero `broken-state tint applied` lines in any lane, so only the untinted button has a picture) |
+| overlays / markers / badges | **0 of 7** | **2 of 7** | **2 of 7** | **2 of 7** | the Watch Mode overlay (GUI-6 `play-main-watchmode-advanced`) and the flight-map ghost markers (GUI-6 `play-mapview-ghostmarkers-advanced`, 243 `[GhostMap] Marker DRAWN` lines behind it) ARE photographed. The five still dark: the currency reservation tooltip, the stock-UI badges, the Tracking Station markers, the in-world ghost labels and the Logistics launcher TINT (zero `broken-state tint applied` lines in any lane, so only the untinted button has a picture) |
 | tooltip surfaces in a USEFUL state | **0 of 2** | **0 of 2** | **0 of 2** | **0 of 2** | both, and THE CAUSE IS NO LONGER OPEN - it was MEASURED on 2026-09-15 (GUI-7 run `2026-09-15_1539`, PASS on attempt 1, 63 s, 17 harvested files), and the reading RETIRES both candidates the finding had pre-registered. A one-shot Verbose probe inside a Parsek `OnGUI` Repaint (`TooltipEchoStripLatch.SampleMousePositionProbe`, armed by every `op=pointer`) reports `Event.current.mousePosition` beside `Input.mousePosition` in the SAME pass: the EVENT position reads `eventLocal=-8.0,-8.0` -> `eventScreen=0.0,0.0` on every probe of the flight, while the POLLED position tracks the commanded point exactly (`input=133.0,558.0` -> `inputGuiY=162.0` against a commanded `133,161`; `input=133.0,523.0` -> `inputGuiY=197.0` against `133,196`). So Unity's polled position follows a warped cursor and the position IMGUI computes its hit test from never moves at all - it stays pinned at the screen origin, which is outside every control. Neither foreground nor a synthetic mouse event is the cause: both reach-further flags were CONFIRMED APPLIED on the same run and changed nothing (`fgOutcome=attached` on the first hover move, `fgOutcome=already` on the second, `fg=true` after both, the relative `SendInput` pair accepted on both), and both answers still read `tooltip=-`. See GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT and the `pointer` row of 6.2 |
 | screen messages | **0 of 95** | **0 of 95** | **0 of 95** | **0 of 95** | all 95; zero `ScreenMessage` lines in any of the six wave-2 logs, and neither wave 3 nor wave 4 re-measures the class - one drives modals and the other windows, and neither is a screen message |
 | empty-vs-populated PAIRS | **0** | **9** | **9** | **9** | Missions tab, Recordings tab, Timeline Overview, Timeline Re-Fly, Kerbals Roster, Kerbals Outcomes, Logistics, Career Milestones and the Structure window each now hold BOTH forms. Wave 1 could hold none: it flew one host. Wave 3 adds no surface pair: its `dlg-baseline-no-modal` / `dlg-teardown-no-modal` pair is a no-modal bracket around the six dialog captures, not the empty and populated forms of one surface. Wave 4 adds none either: its four Settings-launched states are one surface in four states, and the closest thing to a pair - the same rows before and after a real run - is a RESULTS pair rather than an empty-vs-populated one |
@@ -333,7 +333,7 @@ not these lines.
 - One countdown, `ParsekTimeFormat.FormatCountdown`: `T- ` then the two largest units
   (`T- 2d 4h`, `T- 5m 30s`), `T+ ` once the moment is behind, ` (!)` appended when warned, in
   `ParsekUI.CountdownTextColor` (#ffcc66). The Missions summary, the Logistics `Next` cell, the
-  Real Spawn Control `In T-` column and `Departs T- ...` state, the Timeline's first row after
+  Real Spawn Control `Spawns` column, the Timeline's first row after
   now and the Recordings Status of a flight still ahead all read it. The Log's `T+h:mm:ss`
   elapsed clock is a different thing (time since the mission's first event) and keeps its form.
 - One cross-link spelling, `Go to` (the Missions partner rows, the Logistics route, the
@@ -343,7 +343,7 @@ not these lines.
   Logistics Paused accent); muted text (second lines, detail lines, empty-list sentences) is
   `ParsekUI.MutedTextColor` (0.78 grey); dimmed rows are `ParsekUI.DimTextColor` (white at
   45%). Colours with a meaning of their own stay local: the Recordings phase legend, its ended
-  grey (0.5) and static orange, the Real Spawn Control departing orange, the Timeline's grey
+  grey (0.5) and static orange, the Real Spawn Control `Leaving` orange, the Timeline's grey
   `!IsEffective` rows and `now` label, and the 0.9 column-header grey.
 - One empty-list voice: a single sentence in `ParsekUI.GetEmptyStateStyle` (muted grey, plain
   label), never `(none)`. A table that has headers keeps them and shows the sentence as its
@@ -373,7 +373,7 @@ instance of row 8's class.
 | 8 | `Parsek - Log: <mission>` (bare `Parsek - Log` untargeted) | `UI/StructureListWindowUI.cs` (`BuildWindowTitle`) | FLIGHT, SPACECENTER | `structure` (`op=target mission=`) | `ib-structure-route-log-advanced`, `ib-structure-mission-advanced` (GUI-3), `ksc-structure-advanced` (GUI-1) |
 | 8b | `Parsek - Route History: <route>` | `UI/StructureListWindowUI.cs` (second instance, `RouteHistoryWindowIdKey`) | FLIGHT, SPACECENTER | `routehistory` (`op=target route=`) | `ib-routehistory-advanced` (GUI-3) |
 | 9 | `Parsek - Settings` | `UI/SettingsWindowUI.cs:128` | FLIGHT, SPACECENTER | `settings` | `ksc-settings-advanced/basic` |
-| 10 | `Parsek - Real Spawn Control` | `UI/SpawnControlUI.cs` | FLIGHT only | `spawncontrol` | `play-spawncontrol-advanced` (GUI-6, one candidate row) |
+| 10 | `Parsek - Real Spawn Control` | `UI/SpawnControlUI.cs` | FLIGHT only | `spawncontrol` | `rsc-spawncontrol-before-warp` (RSC-1, one candidate row) |
 | 11 | `Gloops Flight Recorder` | `UI/GloopsRecorderUI.cs` | FLIGHT only | `gloops` | `flight-gloops-advanced` |
 | 12 | `Parsek - Test Runner` (Settings-launched) | `UI/TestRunnerUI.cs` | FLIGHT, SPACECENTER | `testrunner` | `ksc-testrunner-advanced`, and four GUI-12 states on `career-earned-ksc`: `cek-testrunner-idle-advanced`, `-collapsed-advanced`, `-category-advanced`, `-results-advanced` (3.11) |
 | 13 | `Parsek - Test Runner` (global Ctrl+Shift+T) | `InGameTests/TestRunnerShortcut.cs` | ANY scene but LOADING | `testrunnerglobal` | three GUI-12 states: `cek-testrunnerglobal-idle-advanced`, `-collapsed-advanced`, `-category-advanced` (3.11) |
@@ -1189,38 +1189,66 @@ null-settings fallback, a greyed `Basic`, a mid-edit auto-launch field.
 ### 3.9 Real Spawn Control
 
 Purpose: turn a recorded craft passing nearby into a real vessel. FLIGHT only, Basic-hidden
-(`MainButtonSpawnControl`). Title `Parsek - Real Spawn Control`; first opened at 750 x 200,
-minimum 350 x 150.
+(`MainButtonSpawnControl`). Title `Parsek - Real Spawn Control`; first opened 750 wide and as
+tall as its rows need (`SpawnControlPresentation.FirstOpenHeight`: 158 px of chrome plus 33 px
+a row, so 191 for one row, floored at the 150 minimum and capped at 400), minimum 350 x 150.
 
-Columns (`UI/SpawnControlUI.cs`, header `DrawSpawnColumnHeader`): `Craft` expand, `Dist` 55,
-`Rel Speed` 70, `Spawns at` 100, `In T-` 95 (the house countdown in the countdown amber),
-`State` 110 (not sortable) and `Warp` 118 (not sortable; the row's `Warp to Spawn` / `Warp to
-Depart` button, wider than an Interact single because its label is). `State` holds the departure
-text (`Departs T- 2m 0s` in the countdown amber / `Departing -> <destination>` in orange, drawn with an arrow) and `-`
-for a craft that spawns and stays (`SpawnControlPresentation.NoDepartureStateText`). ONE dark
-body box holds the pinned header row and the scroll view of rows (`DrawSpawnCandidateTable`),
-and the row labels use the shared table cell style (`ParsekUI.GetTableCellStyle`). Five headers
-sort; the default is `Dist` ascending. The row model is one `NearbySpawnCandidate` wrapped by
-the pure `SpawnCandidateRowPresentation` (`UI/SpawnControlPresentation.cs`).
+Columns (`UI/SpawnControlUI.cs`, header `DrawSpawnColumnHeader`): `Craft` expand, `Dist` 60
+(`129 m`), `Speed` 70 (`0.1 m/s`, `-` before a second sample), `Spawns` 90 (the house
+countdown in the countdown amber), `Spawn date` 110 (the exact date, `KSPUtil.PrintDateCompact`
+with the time, e.g. `Y1, D06, 14:05`), `Status` 70 (one word, its reason on hover) and
+`Actions` 100 (one `Warp` button). Five headers sort, each on its own key: `Craft`, `Dist`,
+`Speed`, `Spawns` and `Status`; `Spawn date` shows the same moment as `Spawns` and is a plain
+header, and so is `Actions`. The default sort is `Dist` ascending; `Status` sorts the warpable
+rows first (Ready, Leaves, Too fast, Leaving, Passed) and soonest first within one word. ONE
+dark body box holds the pinned header row and the scroll view of rows
+(`DrawSpawnCandidateTable`), and the row labels use the shared table cell style
+(`ParsekUI.GetTableCellStyle`). The row model is one `NearbySpawnCandidate` wrapped by the pure
+`SpawnCandidateRowPresentation` (`UI/SpawnControlPresentation.cs`, `BuildRowPresentation`).
 
-Two envelopes, and the window exists to show the difference: the INNER gate that enables the
-warp button is `ParsekFlight.NearbySpawnRadius` 250 m and `MaxRelativeSpeed`; the OUTER "show
-in the list" bound is `NearbySpawnListRadius` 1000 m. A candidate between them is listed with a
-disabled warp button and no green tint. The three disabled reasons in priority order are
-`Too far away to spawn`, `Passing too fast to spawn`, `This pass has already happened`, and they
-reach the player only through `DisabledHoverEcho`, because the row buttons carry no
-`GUIContent`.
+Both time cells show the moment the row's `Warp` acts on (`SelectiveSpawnUI.EffectiveWarpUT`):
+the spawn for a craft that stays, the departure for a craft that leaves its orbit first. The
+`Spawns` sort and `Warp to Next Spawn` read the same value, so a row sorts where its button goes.
+
+Status words (`SpawnCandidateStatus`), in priority order, with the hover each carries:
+
+| word | colour | Warp | hover |
+|---|---|---|---|
+| `Too fast` | plain | greyed | `Spawns only below 2 m/s relative speed; it is passing at 8.1 m/s` |
+| `Leaves` | countdown amber | live | `Leaves this orbit on <date> for Mun; it does not spawn here`; the Warp hover is `Warps to just before <craft> leaves orbit on <date>; it does not spawn here.` |
+| `Leaving` | orange | greyed | `Leaving this orbit now for Mun; it does not spawn here` |
+| `Ready` | green | live | `Close and slow enough to spawn; it spawns here on <date>`; the Warp hover is `Warps to <date>, when <craft> spawns here.` |
+| `Passed` | plain | greyed | `Its spawn time, <date>, has passed` |
+
+A greyed `Warp` carries its row's Status reason through `DisabledHoverEcho`. The departure
+destination is words, never a raw value (`SelectiveSpawnUI.FormatDepartureDestination` over
+`DepartureKind`): `for Mun` (another body), `for a new orbit` (same body), `to land on Kerbin`
+(Landed or Splashed terminal), `to come down on Kerbin` (Destroyed terminal). A surface
+terminal is decided before any orbit comparison, and its body is the one the flight ended on
+(`SelectiveSpawnUI.TerminalSurfaceBody`: terminal position, endpoint body, last point).
+
+Which craft are listed: a ghost inside the spawn radius `ParsekFlight.NearbySpawnRadius`
+(250 m) and under `MaxListRelativeSpeed` (50 m/s) (`SelectiveSpawnUI.IsListedCandidate`). A
+ghost farther than 250 m cannot be spawned from here, so it is not listed at all; a listed
+ghost faster than `MaxRelativeSpeed` (2 m/s) stays as a greyed `Too fast` row, because closing
+the speed is what fixes it. The proximity scan samples speed out to `NearbySpawnTrackRadius`
+(1000 m), so a ghost that closes inside 250 m is listed with its speed already known; the scan's
+verbose summary counts the ghosts it hid by distance (`hidden beyond spawn radius 250m`). The
+main window's `Real Spawn Control (N)` counts the same list.
 
 Footer: the single-line tooltip echo strip, then `Warp to Next Spawn` (expands; greyed when no
-candidate is inside the inner gate; its hover names the next spawn and is handed to the strip
-explicitly, because the button draws below it) and `Close` (132 px), the resize handle and drag.
+row is inside both warp gates; its hover, `Warps to when <craft> spawns here, in 56s.` or
+`Warps to just before <craft> leaves orbit in 2m 0s; it does not spawn here.`, is handed to
+the strip explicitly, because the button draws below it) and `Close` (132 px), the resize
+handle and drag.
 
 Self-close: `ResolveAutoCloseReason(inFlight, hasFlight, candidateCount)` shuts the window on
-its FIRST draw when any of `not-in-flight` / `flight-null` / `zero-candidates` fires. That
-makes the `No nearby craft to spawn.` branch further down unreachable (todo
-`GUI-STATE-COVERAGE-RESIDUE-2026-09-21`).
+its FIRST draw when any of `not-in-flight` / `flight-null` / `zero-candidates` fires. The empty
+table shape (headers over one grey `No nearby craft to spawn.` row) is therefore unreachable
+(todo `GUI-STATE-COVERAGE-RESIDUE-2026-09-21`).
 
-Pictures: `play-spawncontrol-advanced` (GUI-6, one candidate row, `Watching` overlay standing).
+Pictures: `rsc-spawncontrol-before-warp` (RSC-1, one `Ready` row at the first-open size). GUI-6's
+host lists no row (its rover is outside 250 m), and that lane asserts the window's self-close.
 
 ### 3.10 Gloops Flight Recorder
 
@@ -1594,7 +1622,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | D11 | `UIMode.TrackingStation` is never constructed, so `CanOfferGhostOnlyDelete`'s TS branch is dead | `UI/RecordingsTableUI.cs:4613`, `ParsekUI.cs:11` |
 | P1 | The per-recording playback checkbox: the map icon, orbit line, TS row and the KSC terminal-vessel spawn all ignore `PlaybackEnabled` (bug #433). RULED + FIXED 2026-09-14 on the RENDER surfaces (see 5.2); the KSC terminal-vessel spawn stays, by the same ruling | tooltip `UI/RecordingsTableUI.cs:1849`; `GhostMapPresence*.cs` / `ParsekTrackingStation.cs` never read it; `ParsekKSC.cs:373-396` |
 | P2 | The Period cell shows the typed value, not the cadence being flown. FIXED 2026-10-01 (see H10): the read-out is the flown cadence, the hover says `Period raised from 5s to 6s to fit the overlap cap - at most 20 copies of this flight can play at once.` | header tooltip `UI/RecordingsTableUI.cs:1341`, engine `GhostPlaybackLogic.WarpLoopPolicy.cs:469` |
-| P4 | `Warp to Spawn` performs a time jump only; whether a vessel appears is then decided by 15 silent refusals, and an invalid jump is itself silent | `UI/SpawnControlPresentation.cs:104`, `ParsekFlight.WarpToRecordingEnd:27367`, `:27384-27389` |
+| P4 | Real Spawn Control's row `Warp` (on a `Ready` row) performs a time jump only; whether a vessel appears is then decided by 15 silent refusals, and an invalid jump is itself silent | `UI/SpawnControlPresentation.cs:104`, `ParsekFlight.WarpToRecordingEnd:27367`, `:27384-27389` |
 | P13 | The Gloops idle label says `Ghost-only - loops by default` while the code sets `LoopPlayback = false`; the class doc says the opposite of the label | `UI/GloopsRecorderUI.cs:333`, `ParsekFlight.cs:17090`, doc `:8-10` |
 
 **7. Settings, diagnostics, test runner, automation seams** (18 HIDDEN, 3 DEAD, 3 promised)
@@ -1762,7 +1790,7 @@ One line each for the rest:
 |---|---|
 | P2 | The 20-clone cap silently raises the loop period while the Period cell shows the typed value: show the effective period with a tooltip, or leave the cap invisible? DECIDED + FIXED 2026-10-01: show it, typed value and reason on the hover |
 | P3 | The route Interval field snaps to `N x transit` and overwrites the typed value: show the snapped value and why in the existing tooltip, or accept the silent rewrite? |
-| P4 | `Warp to Spawn` has 15 silent refusals behind it: put the refusal reason in the existing disabled-hover echo, or rename the button to the action it performs? |
+| P4 | Real Spawn Control's row `Warp` has 15 silent refusals behind it: put the refusal reason in the existing disabled-hover echo, or rename the button to the action it performs? |
 | P9 | Rename refusals (mission, group, re-parent) discard the typed name with a Warn: keep the field content and show the reason in the row tooltip, or leave it? |
 | P10 | The mission `Log` is built from the tree and ignores the mission's include set, so clones render identical logs under different titles: is that the intended contract? DECIDED + FIXED 2026-10-01: no; the Log follows the mission's include set (MISSION-LOG-REWORK) |
 | P11 | `Merged, but could not seal - seal it from the Timeline window` names a control that cannot exist in exactly that state: reword, or make the control exist? |
@@ -1797,7 +1825,7 @@ wave-6 lane plan, the grammar and refusals in
 | `op=state key=scrollY` | the window's first scrolled PNG. Note the dump already carried below-fold content with full rects, so this buys the PICTURE, not the data | Timeline |
 | `op=state key=expandedStats` | (REMOVED 2026-09-26 with the Recordings tab's Info toggle; the key no longer exists) | - |
 | ~~`op=state key=archivedMissions`~~ (removed 2026-09-30; the archive filter became per-mission Collapse, `op=expand key=mission:<id>`) | whole missions dropping out; the only way to exercise `DisplayBlockRendersAnything` and the corner-connector precedence table | Missions (Missions tab) |
-| `op=sort` | 20 Missions sort states, 16 Logistics, 8 Spawn Control - all zero captured, and each is materially different (the arrow moves AND the row order does, including group-vs-recording interleaving) | Missions, Logistics, Spawn Control |
+| `op=sort` | 20 Missions sort states, 16 Logistics, 10 Spawn Control - all zero captured, and each is materially different (the arrow moves AND the row order does, including group-vs-recording interleaving) | Missions, Logistics, Spawn Control |
 | `op=select key=vessel:` | the greyed include-OFF row and the `" (partial)"` suffix, which test the non-cascading `ExcludedIntervalKeys` contract | Missions |
 | `op=select key=link:` | the foreign partner-journey subtree - an entire recursive renderer with zero coverage | Missions |
 | `op=edit field=recordingname\|groupname\|missiontitle` | three label-becomes-a-text-field layout changes | Missions |
@@ -1848,7 +1876,7 @@ or from the applier, not from the op's name:
     Both keys therefore buy the FILTER CONTROL moving (readable in the dump, which records
     a toggle's own `value`) and nothing else, so `DisplayBlockRendersAnything` and the
     corner-connector precedence table stay uncovered.
-  * the **`op=sort`** row's "8 Spawn Control" states are UNREACHABLE THROUGH THE SEAM.
+  * the **`op=sort`** row's "10 Spawn Control" states are UNREACHABLE THROUGH THE SEAM.
     `op=sort` refuses a closed window, and `SpawnControlUI.DrawIfOpen` force-closes itself
     on its first draw with no nearby spawn candidate - which GUI-2 already measured and
     pins. The Missions and Logistics halves are unaffected and are what GUI-25 claims.
@@ -1971,7 +1999,7 @@ These need only a different `saveTemplate` and the existing `open` / `rect` / `t
 | Timeline `R` greyed | any recorded fixture | capture with a pending tree, or delete one `RewindPoints/<id>.sfs` from the staged save | UNCLAIMED. Wants a STAGED save edit (delete one `RewindPoints/<id>.sfs`), which no lane does today - the harness stages a fixture verbatim |
 | Timeline `FF` and the countdown time label | an `injectedRecordings` preset whose recording `StartUT` is ahead of the save UT | one capture buys both | UNCLAIMED. Wants a preset whose recording `StartUT` is ahead of the save clock; `part-showcase` starts at UT 50 and GUI-6 jumps PAST it to 55, so its Timeline is behind rather than ahead |
 | Timeline `Archived` ON and the `[archived]` row suffix | a staged save with one archived recording and `HideActive=false` | none | UNCLAIMED. Wants a staged save with an archived recording and `HideActive=false`, which no committed fixture carries |
-| Real Spawn Control (a GUI-3 flight lane) | `bdock-recorded` / `bdock-station-craft` / `bdock-station-pad` - anything with a recorded craft inside 250 m at under 2 m/s | `op=open window=spawncontrol` now returns OK; then `op=rect` + capture + dump. Closes `GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST` | PAID. GUI-6 `play-spawncontrol-advanced`, on LT-5's proven active-ghost host rather than a `bdock-*` one. The step was declared `expect = "OK"` and MET: `open=true already=false`, describe `w8open=true w8rect=268,8,750,200`, `op=rect` answering `270,8,750,300 clamped=false minW=350 minH=150`, and a 69-node dump whose `Parsek - Real Spawn Control` window holds ONE candidate row (`Surface Rover Drive / 435m / 7.9 m/s / Y1, D01, 00:01 / T-11s / Warp to Spawn`) under the launcher's `Real Spawn Control (1)`. No `reason=zero-candidates` line was written, and GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST is closed |
+| Real Spawn Control (a GUI-3 flight lane) | `bdock-recorded` / `bdock-station-craft` / `bdock-station-pad` - anything with a recorded craft inside 250 m at under 2 m/s | `op=open window=spawncontrol` now returns OK; then `op=rect` + capture + dump. Closes `GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST` | PAID by RSC-1 `rsc-spawncontrol-before-warp` (the `spawn-control-target` preset: one probe 129 m from the pad, a `Ready` row at the first-open size). GUI-6 `play-spawncontrol-advanced` paid it first on LT-5's showcase host, whose only nearby ghost is a rover about 450 m out; since the Model 1 redesign hides craft beyond the 250 m spawn radius, GUI-6 asserts the window's self-close there instead |
 | In-world ghost labels, flight status non-`Idle`, `Active Ghosts > 0` | `mun-landing-recorded` / `b2-lko-craft` / `b1-pad-craft` | PNG only for the labels; the status block needs `StartRecording` before the dump | TWO OF THREE PAID, the third refuted. GUI-6 `play-main-ghosts-advanced` shows `Active Ghosts: 156` (and 243 in the later captures of the same run), and GUI-7 `b1-main-recording-advanced` / `b1-main-ready-advanced` show `State: RECORDING` + `Recorded Points: 1` + `Duration: 0.0s` and `State: Ready (has recording)` (`PREVIEWING` needs the still-RESERVED `StopPlayback`). The status block itself was removed on 2026-09-22 (section 3.1), so these are historical captures. THE IN-WORLD LABELS DID NOT DRAW: no `SpawnWarningUI` producer fired on either flight lane (zero `spawn abandoned` / `spawn blocked` / `chain terminated` lines), and no root-level label other than the watch overlay's two appears in any of the 20 flight dumps. That surface still has no picture and needs a host where a ghost's spawn is actually abandoned or blocked |
 | Tracking Station scene (markers, the ghost popup) | any `*-recorded` fixture | `LoadGame` with `scene=TRACKSTATION` then capture; no `UiAction` is possible there, so the driver needs a branch that skips the `op=rect` it currently sequences before every label | UNCLAIMED AND BLOCKED. `ParsekTrackingStation.OnGUI` draws MARKERS ONLY and hosts no Parsek window, so every `UiAction` there answers `REJECTED ui-host-unavailable` - a TS lane could take a full-screen PNG and could not even open `main` to make the surface visible. The driver branch this row asks for is necessary and not sufficient |
 
@@ -2088,7 +2116,7 @@ instance and a 1920x1080 player screen. "First-open" rects are seeded only when
 | Logistics | **1410** x 500 (`UI/LogisticsWindowUI.cs:390-391`) | 1556 x 500 | yes | capped to 1280, its section stack keeps its 1410 layout and scrolls sideways in its own scroll view | yes, unchanged |
 | Structure | 420 x 160 (`UI/StructureListWindowUI.cs:69-70`) | 820 x 320 | yes | yes | yes |
 | Settings | none | 280 x 600 (the 600 is replaced by a height fit on first open and on every mode change) | NO handle; height is fixed between fits | yes | yes |
-| Real Spawn Control | 350 x 150 (`SpawnControlUI.MinWindowWidth` / `MinWindowHeight`) | 750 x 200 | yes | yes | yes |
+| Real Spawn Control | 350 x 150 (`SpawnControlUI.MinWindowWidth` / `MinWindowHeight`) | 750 x rows (`SpawnControlPresentation.FirstOpenHeight`, 191 for one row) | yes | yes | yes |
 | Gloops | none | 280 x 230 (`GloopsRecorderUI.DefaultWindowWidth` / `DefaultWindowHeight`) | NO handle | yes | yes |
 | Test Runner (Settings) | 320 x 600 (`TestRunnerUI.MinWindowWidth` / `MinWindowHeight`) | 440 x 600 | yes | yes, 600 of 720 | yes |
 | Test Runner (global) | 320 x 600 (`TestRunnerShortcut.MinWindowWidth` / `MinWindowHeight`) | 440 x 600 at a FIXED screen position (20, 60), not anchored to the main window | yes | yes | yes. GUI-12 commands it to 620x700 through `op=rect window=testrunnerglobal`, the same rect as its twin, so the two are comparable at a glance |
@@ -2125,7 +2153,7 @@ class of defect the Milestones `Rewards` overflow belongs to:
 | Logistics | routes 30 / expand / 95 / 180 / 150 / 80 / 135 / 240 / 120 / 190 = 1220 fixed; candidates 30 / expand / 95 / 180 / 260 / 80 / 190 = 835 fixed (`UI/LogisticsWindowUI.cs:343-372`). The `MinWindowWidth` comment at `:383-389` is stale: it still totals a 90 px Next column and claims about 1175 |
 | Structure | 28 / 110 / expand / 95 / 185 / 140 (`UI/StructureListWindowUI.cs:62-67`) |
 | Settings | 45 auto-loop field, 40 unit button, 85 audio label, 35 percent label |
-| Real Spawn Control | expand / 55 / 70 / 100 / 95 / 110 / 118 (`SpawnControlUI.SpawnColW_*`); `Close` 132 |
+| Real Spawn Control | expand / 60 / 70 / 90 / 110 / 70 / 100 (`SpawnControlUI.SpawnColW_*`); `Close` 132 |
 | Test Runner | status icon 20, `Run` 40, `Run+` 44, play 24, search label 48, clear 24; `ErrorIndent` 40, `ErrorMaxWidth` 380 |
 | overlays | watch box 300x50 pinned; currency tooltip 147 wide; stock-control annotations draw no Parsek box; map icon 20 with 6 px click and 24 px toggle pads; ghost label 250x40 |
 

@@ -132,7 +132,7 @@ namespace Parsek.TestCommands
         Clone = 22,
 
         /// <summary><c>op=warp window=spawncontrol</c>: press the Real Spawn Control
-        /// table's FIRST row warp button ("Warp to Spawn" / "Warp to Depart") through the
+        /// table's FIRST row "Warp" button (spawn or departure warp) through the
         /// button's own click body (<c>SpawnControlUI.ExecuteRowWarp</c>), refusing when the
         /// table has no row or the button is drawn disabled. The one op in the family that
         /// presses a button whose action moves the clock.</summary>
@@ -545,7 +545,7 @@ namespace Parsek.TestCommands
         /// <c>op=warp window= vessel= recording= departure=</c>. <c>recording</c> is the
         /// committed-list index the button handed the flight controller, the same number the
         /// button's own log line prints; <c>departure</c> says which of the two warps the
-        /// row's button performs (<c>true</c> = "Warp to Depart").
+        /// row's button performs (<c>true</c> = the departure warp of a "Leaves" row).
         /// </summary>
         internal static List<KeyValuePair<string, string>> BuildWarpPayload(
             string window, string vesselName, int recordingIndex, bool departure)

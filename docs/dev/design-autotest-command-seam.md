@@ -554,7 +554,7 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > and `Recover pid=` (the reserved envelope never carried a spawn or a recovery verb),
 > taking the table to **46 implemented / 4 reserved**. They give the D18 cells where the
 > PLAYER acts on a ghost chain a driven subject (todo D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR):
-> `RealSpawn` presses the Real Spawn Control row's "Warp to Spawn" for one recording and
+> `RealSpawn` presses the Real Spawn Control row's "Warp" (a `Ready` row) for one recording and
 > answers the spawned vessel's pid, `Recover` presses the flight scene's stock Recover
 > button for the active vessel. Full contract below (`#### RealSpawn / Recover`).
 
@@ -3802,8 +3802,9 @@ click does not fire.
 `${chains.chain0tip}` (`ListHandles kind=chains`) or a `kind=committed` row.
 
 **RealSpawn production path.** The Real Spawn Control window has two spawn controls, the
-per-row "Warp to Spawn" / "Warp to Depart" button and the bottom "Warp to Next Spawn"
-(which picks the earliest live row and calls the same two methods). The row button's click
+per-row "Warp" button (to the spawn on a `Ready` row, to just before the departure on a
+`Leaves` row) and the bottom "Warp to Next Spawn" (which picks the earliest live row and
+calls the same two methods). The row button's click
 body is one method, `SpawnControlUI.ExecuteRowWarp`, already shared with `UiAction
 op=warp`. The verb finds the recording's row through
 `SpawnControlUI.TryFindRowForRecordingForTesting` (the draw pass's own
@@ -3814,9 +3815,9 @@ row model) and presses it through `SpawnControlUI.PressRowWarpForTesting` ->
 playback loop's, as for a player: the end-of-recording spawn, or for a chain tip
 `VesselGhoster.SpawnAtChainTip`; both write `Recording.VesselSpawned` and
 `SpawnedVesselPersistentId`, which is what the verb waits on. The row exists only while the
-active vessel is within `NearbySpawnListRadius` (1000 m) of the recording's live ghost and
-under `MaxListRelativeSpeed`, and its button is live only inside `NearbySpawnRadius`
-(250 m) and `MaxRelativeSpeed`: a lane must put the active vessel next to the ghost first.
+active vessel is within `NearbySpawnRadius` (250 m) of the recording's live ghost and
+under `MaxListRelativeSpeed`, and its button is live only under `MaxRelativeSpeed` too: a
+lane must put the active vessel next to the ghost first.
 Lines: `realspawn pressed rec= index= vessel= endUT= utBefore=`, then `realspawn complete
 rec= pid= vessel= loaded= elapsed=`.
 
@@ -3824,11 +3825,11 @@ rec= pid= vessel= loaded= elapsed=`.
 `realspawn-rec-arg-missing` (arg), `realspawn-host-unavailable` (no `ParsekFlight`),
 `realspawn-unknown-recording` (arg: no committed recording has the id),
 `realspawn-already-spawned` (with `pid=`), `realspawn-not-a-candidate` (the table draws no
-row for it: no active ghost, outside the list radius or speed cap, not spawn-eligible,
+row for it: no active ghost, outside the spawn radius or speed cap, not spawn-eligible,
 chain-suppressed, or already ended; `candidates=` in the log), `realspawn-button-disabled`
-(the row is listed but its button is greyed: too far, closing too fast, or past its UT;
-the button's own disabled-hover text in the log), and `realspawn-row-warps-to-departure`
-(the button is "Warp to Depart", which jumps to the ghost's departure and spawns nothing).
+(the row is listed but its button is greyed: too fast, leaving now, or past its UT; the
+button's own disabled-hover text in the log), and `realspawn-row-warps-to-departure` (a
+`Leaves` row, whose "Warp" jumps to just before the ghost's departure and spawns nothing).
 Post-press ERROR: `realspawn-warp-not-applied` (the clock did not reach `EndUT` after the
 press: `WarpToRecordingEnd` only logs an invalid jump), `realspawn-spawn-abandoned`
 (`SpawnAbandoned` or `TerminalSpawnCannotSpawnSafely`), `realspawn-spawn-timeout`.
