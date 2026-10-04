@@ -26,68 +26,68 @@ namespace Parsek.Tests
             ParsekTimeFormat.ResetForTesting();
         }
 
-        // ===================== FormatCountdownCompact =====================
+        // ============ the countdown body: ParsekTimeFormat.FormatDuration ============
 
         [Fact]
-        public void FormatCountdownCompact_SubMinute_ShowsSeconds()
+        public void CountdownBody_SubMinute_ShowsSeconds()
         {
             // Fails if a sub-minute duration is not shown as bare seconds (e.g. "5s").
-            Assert.Equal("5s", FormatCountdownCompact(5.0));
-            Assert.Equal("59s", FormatCountdownCompact(59.0));
+            Assert.Equal("5s", ParsekTimeFormat.FormatDuration(5.0));
+            Assert.Equal("59s", ParsekTimeFormat.FormatDuration(59.0));
         }
 
         [Fact]
-        public void FormatCountdownCompact_Minutes_ShowsMinutesAndSeconds()
+        public void CountdownBody_Minutes_ShowsMinutesAndSeconds()
         {
             // Fails if the minutes range does not read "Nm Ss" (the design's "12m 30s" example).
-            Assert.Equal("12m 30s", FormatCountdownCompact(12 * 60 + 30));
-            Assert.Equal("1m 0s", FormatCountdownCompact(60.0));
+            Assert.Equal("12m 30s", ParsekTimeFormat.FormatDuration(12 * 60 + 30));
+            Assert.Equal("1m 0s", ParsekTimeFormat.FormatDuration(60.0));
         }
 
         [Fact]
-        public void FormatCountdownCompact_Hours_ShowsHoursAndMinutes()
+        public void CountdownBody_Hours_ShowsHoursAndMinutes()
         {
             // Fails if the hours range does not read "Nh Mm" (the design's "2h 14m" example).
-            Assert.Equal("2h 14m", FormatCountdownCompact(2 * 3600 + 14 * 60 + 9));
-            Assert.Equal("1h 0m", FormatCountdownCompact(3600.0));
+            Assert.Equal("2h 14m", ParsekTimeFormat.FormatDuration(2 * 3600 + 14 * 60 + 9));
+            Assert.Equal("1h 0m", ParsekTimeFormat.FormatDuration(3600.0));
         }
 
         [Fact]
-        public void FormatCountdownCompact_Days_ShowsDaysAndHours()
+        public void CountdownBody_Days_ShowsDaysAndHours()
         {
             // Fails if the days range does not read "Nd Mh" (the design's "3d 5h" example), at
             // Earth day length (86400 s).
-            Assert.Equal("3d 5h", FormatCountdownCompact(3 * 86400 + 5 * 3600 + 30 * 60));
+            Assert.Equal("3d 5h", ParsekTimeFormat.FormatDuration(3 * 86400 + 5 * 3600 + 30 * 60));
             // Exactly N days with no remainder hours drops the hours term.
-            Assert.Equal("2d", FormatCountdownCompact(2 * 86400));
+            Assert.Equal("2d", ParsekTimeFormat.FormatDuration(2 * 86400));
         }
 
         [Fact]
-        public void FormatCountdownCompact_Years_ShowsYearsAndDays()
+        public void CountdownBody_Years_ShowsYearsAndDays()
         {
             // Fails if a multi-year duration does not read "Ny Md" at Earth year length (365 d).
-            Assert.Equal("1y 42d", FormatCountdownCompact(365L * 86400 + 42L * 86400));
-            Assert.Equal("2y", FormatCountdownCompact(2L * 365 * 86400));
+            Assert.Equal("1y 42d", ParsekTimeFormat.FormatDuration(365L * 86400 + 42L * 86400));
+            Assert.Equal("2y", ParsekTimeFormat.FormatDuration(2L * 365 * 86400));
         }
 
         [Fact]
-        public void FormatCountdownCompact_ZeroAndNegativeAndNaN_ClampToZeroSeconds()
+        public void CountdownBody_ZeroAndNegativeAndNaN_ClampToZeroSeconds()
         {
             // Fails if zero / negative / NaN / infinity are not clamped to "0s" (the countdown
             // should never show a negative time or throw - a window at/behind now reads "0s").
-            Assert.Equal("0s", FormatCountdownCompact(0.0));
-            Assert.Equal("0s", FormatCountdownCompact(-1234.0));
-            Assert.Equal("0s", FormatCountdownCompact(double.NaN));
-            Assert.Equal("0s", FormatCountdownCompact(double.PositiveInfinity));
+            Assert.Equal("0s", ParsekTimeFormat.FormatDuration(0.0));
+            Assert.Equal("0s", ParsekTimeFormat.FormatDuration(-1234.0));
+            Assert.Equal("0s", ParsekTimeFormat.FormatDuration(double.NaN));
+            Assert.Equal("0s", ParsekTimeFormat.FormatDuration(double.PositiveInfinity));
         }
 
         [Fact]
-        public void FormatCountdownCompact_KerbinTime_UsesSixHourDays()
+        public void CountdownBody_KerbinTime_UsesSixHourDays()
         {
             // Fails if the day boundary ignores the Kerbin calendar: 21600 s is exactly one Kerbin
             // day, so it must read "1d", not "6h".
             ParsekTimeFormat.KerbinTimeOverrideForTesting = true; // 21600 s/day
-            Assert.Equal("1d", FormatCountdownCompact(21600.0));
+            Assert.Equal("1d", ParsekTimeFormat.FormatDuration(21600.0));
         }
 
         // ===================== FormatPeriodCompact =====================

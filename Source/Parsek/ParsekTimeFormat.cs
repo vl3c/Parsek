@@ -70,7 +70,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Full duration: all non-zero components, comma-separated. "1y, 2d, 3h, 4m, 5s".
+        /// Full duration: all non-zero components, space-separated like
+        /// <see cref="FormatDuration"/>. "1y 2d 3h 4m 5s".
         /// Returns empty string for zero or negative.
         /// </summary>
         internal static string FormatDurationFull(double seconds)
@@ -97,61 +98,33 @@ namespace Parsek
             if (m > 0) parts.Add(m.ToString(IC) + "m");
             if (s > 0) parts.Add(s.ToString(IC) + "s");
 
-            return parts.Count > 0 ? string.Join(", ", parts.ToArray()) : "";
+            return parts.Count > 0 ? string.Join(" ", parts.ToArray()) : "";
         }
 
+        /// <summary>The prefix of a countdown to a moment still ahead.</summary>
+        internal const string CountdownPrefix = "T- ";
+
+        /// <summary>The prefix of the same clock once the moment has passed.</summary>
+        internal const string ElapsedPrefix = "T+ ";
+
+        /// <summary>Appended to a countdown whose launch or delivery carries a warning.</summary>
+        internal const string CountdownWarningMarker = " (!)";
+
         /// <summary>
-        /// Countdown: "T-2d 3h 15m 5s" with T+/T- prefix.
-        /// Shows all components from first non-zero downward.
+        /// The house countdown, the one form every window draws: "T- 2d 4h" (the prefix,
+        /// then <see cref="FormatDuration"/>'s two largest units), "T+ 5m 3s" once the
+        /// moment is behind, and <see cref="CountdownWarningMarker"/> appended when
+        /// <paramref name="warned"/>. Windows draw it in
+        /// <c>ParsekUI.CountdownTextColor</c>. NaN and infinity read as zero.
         /// </summary>
-        internal static string FormatCountdown(double deltaSeconds)
+        internal static string FormatCountdown(double deltaSeconds, bool warned = false)
         {
-            string prefix = "T-";
-            if (deltaSeconds < 0)
-            {
-                prefix = "T+";
-                deltaSeconds = -deltaSeconds;
-            }
-
-            GetDayAndYearConstants(out int daySec, out int yearDays);
-            long yearSec = (long)yearDays * daySec;
-
-            long totalSec = (long)deltaSeconds;
-            long years = totalSec / yearSec;
-            totalSec %= yearSec;
-            long days = totalSec / daySec;
-            totalSec %= daySec;
-            long hours = totalSec / 3600;
-            totalSec %= 3600;
-            long minutes = totalSec / 60;
-            long seconds = totalSec % 60;
-
-            var sb = new System.Text.StringBuilder(32);
-            sb.Append(prefix);
-            bool started = false;
-
-            if (years > 0)
-            {
-                sb.Append(years.ToString(IC)).Append("y ");
-                started = true;
-            }
-            if (started || days > 0)
-            {
-                sb.Append(days.ToString(IC)).Append("d ");
-                started = true;
-            }
-            if (started || hours > 0)
-            {
-                sb.Append(hours.ToString(IC)).Append("h ");
-                started = true;
-            }
-            if (started || minutes > 0)
-            {
-                sb.Append(minutes.ToString(IC)).Append("m ");
-            }
-            sb.Append(seconds.ToString(IC)).Append('s');
-
-            return sb.ToString();
+            if (double.IsNaN(deltaSeconds) || double.IsInfinity(deltaSeconds))
+                deltaSeconds = 0;
+            string text = deltaSeconds < 0
+                ? ElapsedPrefix + FormatDuration(-deltaSeconds)
+                : CountdownPrefix + FormatDuration(deltaSeconds);
+            return warned ? text + CountdownWarningMarker : text;
         }
 
         /// <summary>Reset test overrides. Call in test Dispose.</summary>

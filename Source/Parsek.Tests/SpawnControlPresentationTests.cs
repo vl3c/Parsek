@@ -117,7 +117,7 @@ namespace Parsek.Tests
                 proximityRadius: Radius,
                 maxRelativeSpeed: MaxRelSpeed);
 
-            Assert.Equal("Departs T-2m 0s", row.StateText);
+            Assert.Equal("Departs T- 2m 0s", row.StateText);
             Assert.Equal(SpawnCandidateStateTone.UpcomingDeparture, row.StateTone);
             Assert.Equal("Warp to Depart", row.WarpButtonLabel);
             Assert.True(row.WarpButtonEnabled);

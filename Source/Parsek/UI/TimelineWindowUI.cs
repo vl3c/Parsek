@@ -153,9 +153,9 @@ namespace Parsek
         internal const float MinWindowHeight = 150f;
         private const float ApproxRowHeight = 20f;
         private const float TimeColumnWidth = 160f;
-        // Keep the short row actions aligned; GoTo stays wider for its text label.
-        private const float RowActionButtonWidth = 40f;
-        private const float GoToButtonWidth = 48f;
+        // Every row action (W, FF, R, Fly, Seal, Go to) is one Missions Interact pair
+        // button wide, so the Timeline's actions line up with the Missions tab's.
+        private const float RowActionButtonWidth = MissionsWindowUI.InteractPairButtonWidth;
 
         // Floor of the cell width for the top zone: the view row (with Archived last),
         // the context row (sources or the career categories) and the time-range preset row.
@@ -405,6 +405,8 @@ namespace Parsek
         private GUIStyle timelineDimStyle;
         private GUIStyle timelineStrikethroughStyle;
         private GUIStyle timelineBlueStyle;
+        // The next row's countdown time label, in the house countdown amber.
+        private GUIStyle timelineCountdownStyle;
         private GUIStyle toggleButtonStyle;
         // Thin gray rule for the "now" divider's second column (expands with window width).
         private GUIStyle nowDividerLineStyle;
@@ -680,19 +682,22 @@ namespace Parsek
             timelineWhiteStyle.normal.textColor = Color.white;
 
             timelineGreenStyle = new GUIStyle(GUI.skin.label);
-            timelineGreenStyle.normal.textColor = new Color(0.5f, 1f, 0.5f);
+            timelineGreenStyle.normal.textColor = ParsekUI.StatusColor(ParsekUI.StatusColorKind.Green);
 
             timelineRedStyle = new GUIStyle(GUI.skin.label);
-            timelineRedStyle.normal.textColor = new Color(1f, 0.6f, 0.6f);
+            timelineRedStyle.normal.textColor = ParsekUI.StatusColor(ParsekUI.StatusColorKind.Red);
 
             timelineDimStyle = new GUIStyle(GUI.skin.label);
-            timelineDimStyle.normal.textColor = new Color(1f, 1f, 1f, 0.5f);
+            timelineDimStyle.normal.textColor = ParsekUI.DimTextColor;
 
             timelineStrikethroughStyle = new GUIStyle(GUI.skin.label);
             timelineStrikethroughStyle.normal.textColor = Color.gray;
 
             timelineBlueStyle = new GUIStyle(GUI.skin.label);
-            timelineBlueStyle.normal.textColor = new Color(0.5f, 0.7f, 1f);
+            timelineBlueStyle.normal.textColor = ParsekUI.StatusColor(ParsekUI.StatusColorKind.Cyan);
+
+            timelineCountdownStyle = new GUIStyle(GUI.skin.label);
+            timelineCountdownStyle.normal.textColor = ParsekUI.CountdownTextColor;
 
             // Toggle button: "on" state reuses the button's own rounded-corner texture
             // but tints it darker via the on-state background color trick. Explicit
@@ -700,7 +705,7 @@ namespace Parsek
             // gap = 4px after IMGUI's max-collapse); the ComputeFilterCellWidth math
             // below accounts for this exact margin budget. Vertical margin inherits
             // from GUI.skin.button so the L toggle vertically aligns with the R /
-            // FF / GoTo buttons (which use plain GUI.skin.button) in entry rows.
+            // FF / Go to buttons (which use plain GUI.skin.button) in entry rows.
             toggleButtonStyle = new GUIStyle(GUI.skin.button);
             toggleButtonStyle.margin = new RectOffset(4, 4,
                 GUI.skin.button.margin.top, GUI.skin.button.margin.bottom);
@@ -1744,7 +1749,7 @@ namespace Parsek
             if (cachedTimeline == null || cachedTimeline.Count == 0)
             {
                 GUILayout.Space(5);
-                GUILayout.Label("No timeline entries.");
+                GUILayout.Label("No timeline entries.", parentUI.GetEmptyStateStyle());
                 return;
             }
 
@@ -1967,7 +1972,7 @@ namespace Parsek
             double entryUT, double currentUT, bool showCountdownTime)
         {
             if (showCountdownTime)
-                return SelectiveSpawnUI.FormatCountdown(entryUT - currentUT);
+                return ParsekTimeFormat.FormatCountdown(entryUT - currentUT);
 
             try { return KSPUtil.PrintDateCompact(entryUT, true); }
             catch { return entryUT.ToString("F0", System.Globalization.CultureInfo.InvariantCulture); }
@@ -1978,14 +1983,14 @@ namespace Parsek
         {
             GUILayout.BeginHorizontal();
 
-            // Basic / Advanced gating (design 4.1a). The GoTo cross-link navigates to the
+            // Basic / Advanced gating (design 4.1a). The Go to cross-link navigates to the
             // MISSIONS tab, so it is gated by that TARGET surface's key, not by its host
             // window's (Timeline itself is visible in both modes). Missions is a surface Basic
             // KEEPS, so this reads true in both modes - the gate stays for the invariant it
-            // states, not to hide anything: it is what makes "GoTo can never point at a hidden
+            // states, not to hide anything: it is what makes "Go to can never point at a hidden
             // destination" mechanical rather than a comment. Retargeting the button at a hidden
             // surface would flip it back to hiding, which is the correct failure.
-            // Read the FRAME-LATCHED mode, never the settings field: GoTo is a control, and
+            // Read the FRAME-LATCHED mode, never the settings field: Go to is a control, and
             // the Layout and Repaint passes of one frame must agree on the control count.
             bool showMissionCrossLink = UiSurfaceVisibility.IsVisible(
                 UiSurface.TabMissions, ParsekUI.AppliedUiComplexityMode);
@@ -2003,10 +2008,11 @@ namespace Parsek
 
             // UT column
             string time = FormatTimelineEntryTimeLabel(entry.UT, currentUT, showCountdownTime);
-            GUILayout.Label(time, style, GUILayout.Width(TimeColumnWidth));
+            GUILayout.Label(time, showCountdownTime ? timelineCountdownStyle : style,
+                GUILayout.Width(TimeColumnWidth));
 
             // Visual spacer between UT and description — matches the breathing room
-            // that appears before the R / FF / L / GoTo buttons on the far right.
+            // that appears before the R / FF / L / Go to buttons on the far right.
             GUILayout.Space(14f);
 
             // Description text. A revealed archived row is marked, or the player would
@@ -2030,7 +2036,7 @@ namespace Parsek
             if (Event.current.type == EventType.Repaint)
                 rowHover.ObserveRow(rowIndex, GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition));
 
-            // R/FF + GoTo for RecordingStart entries (R/FF first, GoTo last for alignment)
+            // R/FF + Go to for RecordingStart entries (R/FF first, Go to last for alignment)
             if (entry.Type == TimelineEntryType.RecordingStart && !string.IsNullOrEmpty(entry.RecordingId))
             {
                 var rec = FindRecordingById(entry.RecordingId);
@@ -2132,14 +2138,14 @@ namespace Parsek
                         GUI.enabled = true;
                     }
 
-                    // GoTo button — always last, right-aligned. Shown in both modes (design 4.1a).
+                    // Go to button - always last, right-aligned. Shown in both modes (design 4.1a).
                     if (showMissionCrossLink)
                     {
                         // Shown DISABLED rather than dropped when the row has no mission to go
                         // to (mirrors the Watch button above, and keeps the row layout stable).
                         GUI.enabled = CanGoToMission(rec);
                         bool goToClicked = GUILayout.Button(
-                                new GUIContent("GoTo", GetGoToMissionTooltip(rec)),
+                                new GUIContent(GoToButtonLabel, GetGoToMissionTooltip(rec)),
                                 GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo)));
                         // GUI.enabled is still the button's own value here - it is restored
                         // to true only after the click block below. Kept in this shape so the
@@ -2162,7 +2168,7 @@ namespace Parsek
             {
                 // Separation row: tree-child split point. UF flavour gets
                 // Fly/Seal actions; the plain post-merge / non-UF flavour
-                // just gets GoTo. No Watch / R / FF — those are
+                // just gets Go to. No Watch / R / FF - those are
                 // launch-playback affordances, not split affordances.
                 var rec = FindRecordingById(entry.RecordingId);
                 if (rec != null)
@@ -2181,7 +2187,7 @@ namespace Parsek
                         // to (mirrors the Watch button above, and keeps the row layout stable).
                         GUI.enabled = CanGoToMission(rec);
                         bool goToClicked = GUILayout.Button(
-                                new GUIContent("GoTo", GetGoToMissionTooltip(rec)),
+                                new GUIContent(GoToButtonLabel, GetGoToMissionTooltip(rec)),
                                 GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo)));
                         // GUI.enabled is still the button's own value here - it is restored
                         // to true only after the click block below. Kept in this shape so the
@@ -2476,7 +2482,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// True when <paramref name="rec"/> belongs to a mission the GoTo cross-link can reach.
+        /// True when <paramref name="rec"/> belongs to a mission the Go to cross-link can reach.
         /// <para>Missions are keyed on recording TREES, so a recording with no
         /// <see cref="Recording.TreeId"/> belongs to no mission and there is nothing to navigate
         /// to. That population is not hypothetical: manual Gloops (ghost-only) recordings are
@@ -2491,7 +2497,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// GoTo tooltip: the destination when there is one, otherwise the reason there is not.
+        /// Go to tooltip: the destination when there is one, otherwise the reason there is not.
         /// </summary>
         internal static string GetGoToMissionTooltip(Recording rec)
         {
@@ -2500,11 +2506,16 @@ namespace Parsek
                 : "This recording is not part of a mission";
         }
 
+        /// <summary>The cross-link button's label, spelled as the Missions tab spells it.</summary>
+        internal const string GoToButtonLabel = "Go to";
+
+        /// <summary>
+        /// Every row action is one Missions Interact pair button wide
+        /// (<see cref="MissionsWindowUI.InteractPairButtonWidth"/>).
+        /// </summary>
         internal static float GetRowActionButtonWidth(TimelineRowActionButtonKind actionKind)
         {
-            return actionKind == TimelineRowActionButtonKind.GoTo
-                ? GoToButtonWidth
-                : RowActionButtonWidth;
+            return RowActionButtonWidth;
         }
 
         internal static bool ShouldShowWatchButton(bool inFlightMode, Recording rec)

@@ -729,6 +729,8 @@ RECORDINGS-STATS-DEBRIS-MAXSPD-IMPLAUSIBLE.
 Presentation only (no recording data, schema or store change, no new UI surface, no new loop
 UX). Owner decisions 2026-09-29: Model 1 approved; keep the `Looped by route` label in Basic;
 no loop word in Basic; ship a clean first version, photograph it, iterate.
+The Basic label's words since the 2026-10-04 shared-style pass: `Run by route` (hover `Run on
+the schedule of route '<name>'.`), Advanced keeps `Looped by route`.
 
 - [x] Summary line at the title's font size, muted by colour instead of size and alpha; the
   `Next launch T- ...` segment in amber (`#ffcc66`, the window's clamp amber) through rich

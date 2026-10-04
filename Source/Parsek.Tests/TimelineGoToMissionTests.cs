@@ -300,7 +300,10 @@ namespace Parsek.Tests
 
             Assert.Equal(2, Regex.Matches(dense, Regex.Escape("GUI.enabled=CanGoToMission(rec);")).Count);
             Assert.Equal(2, Regex.Matches(
-                dense, Regex.Escape("newGUIContent(\"GoTo\",GetGoToMissionTooltip(rec))")).Count);
+                dense, Regex.Escape("newGUIContent(GoToButtonLabel,GetGoToMissionTooltip(rec))")).Count);
+            // The label is spelled as the Missions tab spells it.
+            Assert.Equal("Go to", TimelineWindowUI.GoToButtonLabel);
+            Assert.DoesNotContain("\"GoTo\"", dense);
         }
 
         // --- The mode -> wording bridge (design 9.1) ---

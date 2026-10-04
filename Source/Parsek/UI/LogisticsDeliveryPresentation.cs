@@ -231,12 +231,13 @@ namespace Parsek
         /// <summary>
         /// Formats a cumulative per-resource total for the "Total delivered" detail
         /// line, e.g. "1240.0 LiquidFuel, 30.0 Oxidizer". Empty / null map yields
-        /// "(none)". Full stock resource keys (no abbreviation), F1 + InvariantCulture.
+        /// "" (the callers drop the clause). Full stock resource keys (no abbreviation),
+        /// F1 + InvariantCulture.
         /// </summary>
         internal static string FormatCumulativeTotal(IReadOnlyDictionary<string, double> cumulative)
         {
             if (cumulative == null || cumulative.Count == 0)
-                return "(none)";
+                return string.Empty;
             // Sorted (ordinal) so the per-resource order is stable across cache
             // refreshes; a plain Dictionary enumeration order can reorder between frames.
             var keys = new List<string>(cumulative.Keys);

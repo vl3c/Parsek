@@ -187,10 +187,11 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
-        public void FormatCumulativeTotal_EmptyOrNull_ShowsNone()
+        public void FormatCumulativeTotal_EmptyOrNull_IsEmpty()
         {
-            Assert.Equal("(none)", LogisticsDeliveryPresentation.FormatCumulativeTotal(null));
-            Assert.Equal("(none)", LogisticsDeliveryPresentation.FormatCumulativeTotal(new Dictionary<string, double>()));
+            // No "(none)" placeholder: an empty total is "" and the callers drop the clause.
+            Assert.Equal("", LogisticsDeliveryPresentation.FormatCumulativeTotal(null));
+            Assert.Equal("", LogisticsDeliveryPresentation.FormatCumulativeTotal(new Dictionary<string, double>()));
         }
 
         // Cumulative total is sorted by resource key (ordinal) for stable display order.

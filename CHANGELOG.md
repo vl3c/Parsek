@@ -2643,6 +2643,32 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Parsek's windows now share one style for countdowns, "Go to", colours and empty lists.**
+  Every countdown reads the Missions way, `T- 2d 4h` (two units, a space after `T-`) in the
+  same amber, with ` (!)` when it carries a warning: Real Spawn Control's `In T-` column and
+  `Departs T- ...` state, the Timeline's first row after now, and a Recordings row still
+  ahead (a flight in progress reads `T+ 5m 3s`) used to print every unit (`T-1y 291d 5h 22m
+  0s`). The Log's `T+0:00:13` clock is unchanged. The Timeline's `GoTo` button is now `Go to`,
+  as in Missions and Logistics, and every Timeline row button (W, FF, R, Fly, Seal, Go to) is
+  the Missions pair-button width (48 px; the short ones were 40). In Basic, a mission a supply
+  route drives reads `Run by route` (hover: `Run on the schedule of route '<name>'.`) instead
+  of `Looped by route`; Advanced keeps the loop wording. Near-duplicate colours now come from
+  the shared palette: Kerbals' dead / recovered / aboard (0.95/0.45/0.45, 0.55/0.85/0.55,
+  0.6/0.8/0.95) and the Timeline's green / red / player-action blue (0.5/1/0.5, 1/0.6/0.6,
+  0.5/0.7/1) take the palette red (1/0.4/0.4), green (0.55/1/0.55) and cyan (0.65/0.85/1); the
+  Recordings Status of an active flight is the palette green instead of pure green and a
+  future flight's countdown is amber instead of white; the Logistics launcher's broken and
+  prompt tints, Real Spawn Control's green, and the Test Runner's status colours
+  use the palette too; muted text is one grey (0.78) where Kerbals used 0.75 and the
+  Logistics detail lines 0.8; the Timeline's dimmed future rows use the Missions dim (white at
+  45%, was 50%). Empty lists read one grey sentence in every window (`No recordings yet.`,
+  `No timeline entries.`, ...), and the Log on a mission with no recorded flight now keeps its
+  column headers with the sentence as its one row and `Close` at the bottom, like the Route
+  History. The Logistics `Restore` (hidden missions) and dormant-route `Delete` buttons sit in
+  the Interact column at its single-button width, like `Dismiss`. Durations written out in
+  full drop their commas (`MET 6m 1s`), and the Real Spawn Control nearby-craft message and
+  `Warp to Next Spawn` hover count days instead of hours past a day.
+
 - **The group pickers and the round-trip link picker now look like the main windows.**
   Manage Groups, Set Parent Group and Link round-trip partner list their entries in the
   same dark table box as the Recordings tab, spaced like the Missions tab's expanded

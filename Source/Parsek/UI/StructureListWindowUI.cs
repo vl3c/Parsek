@@ -104,6 +104,8 @@ namespace Parsek
         // lazily in OnGUI from the shared style, rebuilt when that style is rebuilt.
         private GUIStyle bodyCellLabel;
         private GUIStyle bodyCellLabelSource;
+        // The empty table's one body row: the row-cell label in the house muted grey.
+        private GUIStyle emptyBodyCellLabel;
 
         // Column widths (match the recordings / spawn window conventions).
         /// <summary>
@@ -432,16 +434,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Whether an empty window still draws its table: the Route History keeps its
-        /// column headers and reads "No runs yet." as the one body row; the Mission Log's
-        /// empty state is a single label. Pure.
-        /// </summary>
-        internal static bool DrawsTableWhenEmpty(TargetMode targetMode)
-        {
-            return targetMode == TargetMode.Route;
-        }
-
-        /// <summary>
         /// The mission-Log change signature: the committed-recordings version, whether the
         /// mission still resolves, its name, and its excluded interval keys as an
         /// order-independent set hash. Pure; an in-memory compare value, never persisted.
@@ -578,19 +570,17 @@ namespace Parsek
                         sharedCell.padding.left, sharedCell.padding.right, 0, 0)
                 };
                 bodyCellLabelSource = sharedCell;
+                emptyBodyCellLabel = new GUIStyle(bodyCellLabel)
+                {
+                    normal = { textColor = ParsekUI.MutedTextColor }
+                };
             }
 
             GUILayout.Space(5);
 
-            if (steps.Count == 0 && !DrawsTableWhenEmpty(mode))
-            {
-                GUILayout.Label(EmptyText(mode));
-                if (GUILayout.Button("Close"))
-                    Close();
-                GUI.DragWindow();
-                return;
-            }
-
+            // Both instances draw the same shape whether or not there are steps: the
+            // column headers stay up, an empty list reads its one grey sentence as the
+            // body row, and Close sits at the bottom.
             DrawStepTable();
 
             // Hover-help strip, drawn after the rows so the live GUI.tooltip read sees a
@@ -644,11 +634,11 @@ namespace Parsek
             GUILayout.EndHorizontal();
         }
 
-        // The empty table's one body row (DrawsTableWhenEmpty), under the column headers.
+        // The empty table's one body row, under the column headers: one grey sentence.
         private void DrawEmptyBodyRow()
         {
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
-            GUILayout.Label(EmptyText(mode), bodyCellLabel);
+            GUILayout.Label(EmptyText(mode), emptyBodyCellLabel);
             GUILayout.EndHorizontal();
         }
 

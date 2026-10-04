@@ -282,7 +282,7 @@ namespace Parsek.Tests.Logistics
         public void NextCell_UsesTheMissionsCountdownExactly()
         {
             double secs = 3.0 * 86400.0 + 7200.0; // any value; compare against the shared formatter
-            Assert.Equal("T- " + MissionsWindowUI.FormatCountdownCompact(secs),
+            Assert.Equal(ParsekTimeFormat.FormatCountdown(secs),
                 LogisticsRoutePresentation.FormatNextCell(
                     LogisticsCountdownPresentation.CountdownBranch.NextWindow, secs, true, false));
         }
@@ -516,7 +516,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("Delivered so far: 400.0 LiquidFuel.",
                 LogisticsRoutePresentation.FormatFillerInfoLine(true, "400.0 LiquidFuel"));
             Assert.Equal("Not run yet.", LogisticsRoutePresentation.FormatFillerInfoLine(false, null));
-            Assert.Equal("Not run yet.", LogisticsRoutePresentation.FormatFillerInfoLine(true, "(none)"));
+            Assert.Equal("Not run yet.", LogisticsRoutePresentation.FormatFillerInfoLine(true, ""));
         }
 
         // The armed labels fit the 100 px single (the long words live in the Status cell).

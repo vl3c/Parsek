@@ -271,7 +271,7 @@ namespace Parsek
 
             if (candidates.Count == 0)
             {
-                GUILayout.Label("No nearby craft to spawn.");
+                GUILayout.Label("No nearby craft to spawn.", parentUI.GetEmptyStateStyle());
                 if (GUILayout.Button("Close"))
                     showSpawnControlWindow = false;
                 GUI.DragWindow();
@@ -369,7 +369,7 @@ namespace Parsek
                 // preconditions) so the user can read the window at a glance: green = warpable.
                 Color savedColor = GUI.contentColor;
                 if (row.ConditionsMet)
-                    GUI.contentColor = new Color(0.55f, 1f, 0.55f);
+                    GUI.contentColor = ParsekUI.StatusColor(ParsekUI.StatusColorKind.Green);
                 GUILayout.Label(
                     string.Format(ic, "{0:F0}m", cand.distance),
                     cellStyle, GUILayout.Width(SpawnColW_Dist));
@@ -381,17 +381,23 @@ namespace Parsek
                 GUILayout.Label(
                     KSPUtil.PrintDateCompact(cand.endUT, true),
                     cellStyle, GUILayout.Width(SpawnColW_SpawnTime));
+                // The house countdown, in the house countdown amber.
+                Color savedCountdownColor = GUI.contentColor;
+                GUI.contentColor = ParsekUI.CountdownTextColor;
                 GUILayout.Label(
-                    SelectiveSpawnUI.FormatCountdown(delta),
+                    ParsekTimeFormat.FormatCountdown(delta),
                     cellStyle, GUILayout.Width(SpawnColW_Countdown));
+                GUI.contentColor = savedCountdownColor;
 
-                // State column: departure info, tinted while a departure is pending.
+                // State column: departure info, tinted while a departure is pending. An
+                // upcoming departure carries the house countdown ("Departs T- ..."), so it
+                // takes the house countdown amber; departing now is orange.
                 var prevColor = GUI.contentColor;
                 if (row.StateTone != SpawnCandidateStateTone.None)
                 {
                     GUI.contentColor = row.StateTone == SpawnCandidateStateTone.DepartingNow
                         ? new Color(1f, 0.65f, 0.2f) // orange
-                        : new Color(1f, 1f, 0.4f);    // yellow
+                        : ParsekUI.CountdownTextColor;
                 }
                 GUILayout.Label(row.StateText, cellStyle, GUILayout.Width(SpawnColW_State));
                 GUI.contentColor = prevColor;

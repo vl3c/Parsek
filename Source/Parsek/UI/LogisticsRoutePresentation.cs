@@ -414,12 +414,12 @@ namespace Parsek
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// The Next cell: "T- " + <c>MissionsWindowUI.FormatCountdownCompact</c> (two units,
-        /// the Missions summary's countdown) plus
-        /// <see cref="MissionPresentation.SummaryCountdownWarningMarker"/> when warned, or
+        /// The Next cell: the house countdown <see cref="ParsekTimeFormat.FormatCountdown"/>
+        /// ("T- 2d 4h", the Missions summary's form; a moment already reached reads "T- 0s")
+        /// with its " (!)" when warned, or
         /// "-" when no run is scheduled. <paramref name="runScheduled"/> is false for a
         /// Paused route (a Send-armed route sits in Active and keeps its countdown, to the
-        /// window and then to the arrival). The window draws it in the Missions amber.
+        /// window and then to the arrival). The window draws it in <c>ParsekUI.CountdownTextColor</c>.
         /// </summary>
         internal static string FormatNextCell(
             LogisticsCountdownPresentation.CountdownBranch branch, double seconds,
@@ -427,8 +427,7 @@ namespace Parsek
         {
             if (!runScheduled || branch == LogisticsCountdownPresentation.CountdownBranch.None)
                 return "-";
-            return "T- " + MissionsWindowUI.FormatCountdownCompact(seconds)
-                + (warned ? MissionPresentation.SummaryCountdownWarningMarker : string.Empty);
+            return ParsekTimeFormat.FormatCountdown(seconds > 0 ? seconds : 0, warned);
         }
 
         /// <summary>
@@ -594,7 +593,7 @@ namespace Parsek
             if (IsUsableUT(lastUT))
                 sb.Append(" on ").Append(ReservationExplanation.FormatDate(lastUT, formatDate));
             sb.Append(": ").Append(EndSentence(lastText));
-            if (!string.IsNullOrEmpty(cumulativeText) && cumulativeText != "(none)")
+            if (!string.IsNullOrEmpty(cumulativeText))
             {
                 sb.Append(" Delivered so far: ").Append(cumulativeText);
                 if (completedRuns > 0)
@@ -611,7 +610,7 @@ namespace Parsek
         /// </summary>
         internal static string FormatFillerInfoLine(bool hasDeliveries, string cumulativeText)
         {
-            return hasDeliveries && !string.IsNullOrEmpty(cumulativeText) && cumulativeText != "(none)"
+            return hasDeliveries && !string.IsNullOrEmpty(cumulativeText)
                 ? "Delivered so far: " + cumulativeText + "."
                 : "Not run yet.";
         }
@@ -689,8 +688,8 @@ namespace Parsek
         /// <summary>Line-1 Send label (one run, then stay Paused).</summary>
         internal const string SendButtonLabel = "Send";
 
-        /// <summary>Line-2 label: the mission the route repeats, on the Missions tab. The
-        /// Missions partner rows' spelling ("Go to"), not the Timeline's "GoTo".</summary>
+        /// <summary>Line-2 label: the mission the route repeats, on the Missions tab. Spelled
+        /// "Go to", as every window spells the cross-link.</summary>
         internal const string GoToButtonLabel = "Go to";
 
         /// <summary>Line-2 label: the route's Route History window.</summary>
