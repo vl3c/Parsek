@@ -2666,6 +2666,16 @@
         "2026-09-25T23:40:03Z": 67.0
       }
     },
+    "SN-1-startup-notices-clean-install": {
+      "last": 149.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 149.0,
+      "p95": 149.0,
+      "samples": {
+        "2026-10-04T18:32:50Z": 149.0
+      }
+    },
     "SS-1-spawn-safety-corrections": {
       "last": 138.0,
       "lastVsP50": 1.0,

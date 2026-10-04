@@ -2,8 +2,10 @@ schema = 1
 id = "SN-1-startup-notices-clean-install"
 tier = "nightly"
 # THE LIVE CHECK FOR THE STARTUP NOTICES (`Source/Parsek/StartupNotices.cs`,
-# `ParsekHarmony.cs`). AUTHORED 2026-10-03, NEVER FLOWN: `total=3` is attribute-exact and
-# the split is regexed until the reading run measures it (predicted passed=3 skipped=0).
+# `ParsekHarmony.cs`). Authored 2026-10-03. Reading run 2026-10-04_1828 (attempt 2 of a
+# run whose verdict read INVALID/analyzer-error only because the session worktree was too
+# deep for the analyzer build) measured the prediction, `passed=3 failed=0 skipped=0`, and
+# the line is pinned WHOLE off it.
 #
 # WHAT ONLY A LIVE INSTALL PROVES. Parsek posts a one-time screen message when a Harmony
 # patch class fails to apply or when the loaded Parsek.dll is not in a folder directly under
@@ -48,9 +50,8 @@ count = { min = 0, max = 0 }
 
 [expectations.logContracts]
 required = [
-  # total=3 is attribute-exact (three AnyScene declarations); the split is regexed until
-  # the reading run (predicted passed=3 skipped=0).
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=StartupNotices scene=SPACECENTER",
+  # Pinned whole off the reading run 2026-10-04_1828 (three AnyScene declarations).
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=StartupNotices scene=SPACECENTER",
   # The real sweep over every patch class, logged once at Startup.Instantly.
   "\\[Parsek\\]\\[INFO\\]\\[Harmony\\] Harmony patches applied: [1-9][0-9]* succeeded, 0 failed",
 ]

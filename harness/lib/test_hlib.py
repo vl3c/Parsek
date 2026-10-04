@@ -4382,7 +4382,9 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # category, 3 AnyScene cells run at SPACECENTER, `total=3` literal with the split
     # regexed, predicted passed=3 skipped=0). Like CN-1 it is not an H-series id, so this
     # class's own cells never read it; CommittedBatchTallySourceSyncTests gates its `total=`.
-    INTERIM_PIN_IDS: set = {"SN-1-startup-notices-clean-install"}
+    # It LEFT on 2026-10-04: its reading run 2026-10-04_1828 measured the prediction,
+    # `passed=3 failed=0 skipped=0`, and the spec pinned the line whole.
+    INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against

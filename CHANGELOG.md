@@ -19,7 +19,8 @@ _(unreleased — entries accumulate here per commit)_
   how to fix it. Each shows once per game start and never on a correct install; a notice that
   lands during a scene load stays queued until the game accepts it. Covered by xUnit (the
   poster's settle and drop-retry, the patch sweep with real Harmony) and by the new
-  `StartupNotices` in-game category and its never-flown lane `SN-1-startup-notices-clean-install`.
+  `StartupNotices` in-game category and its lane `SN-1-startup-notices-clean-install`, which flew
+  green on the automation install.
 - **Dev: a lane for recovering a ghost chain's final vessel, and the duplicate it found.**
   The new `chain-tip-recovery` injected recording set gives a test save a ghost chain whose
   last vessel lands next to the pad vessel while its ghost is still playing, so a lane can
