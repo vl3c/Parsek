@@ -2509,6 +2509,23 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// The slot owner whose replacement chain lists this kerbal, active occupant or not
+        /// (a displaced or retired chain member included). Null for an owner and for a
+        /// kerbal in no chain.
+        /// </summary>
+        internal string FindChainOwner(string kerbalName)
+        {
+            if (string.IsNullOrEmpty(kerbalName)) return null;
+            foreach (var slot in slots.Values)
+            {
+                if (slot == null || slot.Chain == null || string.IsNullOrEmpty(slot.OwnerName)) continue;
+                if (string.Equals(slot.OwnerName, kerbalName, StringComparison.Ordinal)) continue;
+                if (slot.Chain.Contains(kerbalName)) return slot.OwnerName;
+            }
+            return null;
+        }
+
         // ────────────────────────────────────────────────────────
         // ApplyToRoster — KSP state mutations
         // ────────────────────────────────────────────────────────

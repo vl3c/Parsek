@@ -507,7 +507,7 @@ namespace Parsek.Tests
             // No per-row mark: the row keeps stock's own label.
             Assert.Equal(MissionControlStockAnnotation.StockDefaultLabel("Free"),
                 MissionControlStockAnnotation.ComposeRowLabel("", "Free", d));
-            Assert.Equal("stock\n\n<b><color=#8fd3ff>Accept is unavailable</color></b>\n" + d.Why,
+            Assert.Equal("stock\n\n<b><color=#f97306>Accept is unavailable</color></b>\n<color=#f97306>" + d.Why + "</color>",
                 MissionControlStockAnnotation.ComposeDetailText("stock", d));
         }
 
@@ -796,7 +796,7 @@ namespace Parsek.Tests
             Assert.Equal(1, dialogCount);
             Assert.Equal("Cannot accept \"Free Contract\"", dialogAction);
             Assert.Equal(d.Why, dialogReason);
-            Assert.EndsWith("\n" + dialogReason, MissionControlStockAnnotation.ComposeDetailText("stock", d));
+            Assert.EndsWith("\n" + StockUiText.ReasonColored(dialogReason), MissionControlStockAnnotation.ComposeDetailText("stock", d));
             Assert.Contains(logLines, l => l.Contains("[ContractAcceptPatch]")
                 && l.Contains("blocking accept for guid=free - the committed timeline needs every free contract slot")
                 && l.Contains("blocksNewAccept=true starvedAccept=c-500@500"));

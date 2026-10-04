@@ -7743,6 +7743,17 @@ namespace Parsek
         /// </remarks>
         internal static bool CanAffordScienceSpending(float cost)
         {
+            double effectiveAvailable;
+            return CanAffordScienceSpending(cost, out effectiveAvailable);
+        }
+
+        /// <summary><see cref="CanAffordScienceSpending(float)"/>, also giving the effective
+        /// (guard-consistent) available science the decision compared against
+        /// (+inf when there is no science module, which always affords). The R&amp;D
+        /// Research refusal names it.</summary>
+        internal static bool CanAffordScienceSpending(float cost, out double effectiveAvailable)
+        {
+            effectiveAvailable = double.PositiveInfinity;
             Initialize();
             if (scienceModule == null) return true;
 
@@ -7775,7 +7786,7 @@ namespace Parsek
             // cannot cause an overspend. Do NOT "consistency-fix" this to the pending-adjusted
             // form: that would make the gate more permissive (add a spurious gap) on a prior
             // in-flight debit.
-            double effectiveAvailable = available;
+            effectiveAvailable = available;
             var rnd = ResearchAndDevelopment.Instance;
             if (rnd != null)
             {

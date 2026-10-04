@@ -21715,7 +21715,7 @@ namespace Parsek.InGameTests
             string label = row.title != null ? row.title.text : "";
             InGameAssert.IsTrue(label.StartsWith(MissionControlStockAnnotation.StockDefaultLabel(contractTitle), System.StringComparison.Ordinal),
                 $"the row label should keep stock's full coloured title; label=\"{label}\"");
-            InGameAssert.IsTrue(label.Contains(MissionControlStockAnnotation.RowStatusMarker + "accepted "),
+            InGameAssert.IsTrue(label.Contains(MissionControlStockAnnotation.RowStatusMarker + "Accepted on "),
                 $"the row label should say when the committed timeline accepts it; label=\"{label}\"");
             AssertMissionControlRowStatusIsShort(label);
         }
@@ -21870,7 +21870,7 @@ namespace Parsek.InGameTests
             string label = row.title != null ? row.title.text : "";
             InGameAssert.IsTrue(label.StartsWith(MissionControlStockAnnotation.StockDefaultLabel(contractTitle), System.StringComparison.Ordinal),
                 $"the row label should keep stock's full coloured title; label=\"{label}\"");
-            InGameAssert.IsTrue(label.Contains(MissionControlStockAnnotation.RowStatusMarker + "completed "),
+            InGameAssert.IsTrue(label.Contains(MissionControlStockAnnotation.RowStatusMarker + "Completed on "),
                 $"the row label should say when the committed timeline completes it; label=\"{label}\"");
             AssertMissionControlRowStatusIsShort(label);
         }

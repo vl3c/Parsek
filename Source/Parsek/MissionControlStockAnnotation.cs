@@ -27,8 +27,15 @@ namespace Parsek
         /// <summary>The colour stock <c>MissionControl.AddItem</c> gives a row title.</summary>
         internal const string StockTitleColor = "fefa87";
 
-        /// <summary>The colour of the Parsek status text on a row and in the detail panel.</summary>
+        /// <summary>The colour of the Parsek status on a row: an informational dated fact,
+        /// so it is the one Parsek colour on the stock screens that is not the reason orange
+        /// (owner decision K2-a).</summary>
         internal const string StatusColor = "8fd3ff";
+
+        /// <summary>The colour of the detail-panel block: a block reason, so stock's own
+        /// reason orange (<see cref="StockUiRnDDecoration.ReasonColorHex"/>), like every other
+        /// stock-screen block reason.</summary>
+        internal const string DetailColor = "f97306";
 
         /// <summary>Everything from this marker to the end of a row label is Parsek's
         /// status; <see cref="StripRowStatus"/> cuts there so a relabel never doubles it.</summary>
@@ -36,7 +43,7 @@ namespace Parsek
 
         /// <summary>Everything from this marker to the end of the detail text is Parsek's
         /// block; <see cref="StripDetail"/> cuts there.</summary>
-        internal const string DetailMarker = "\n\n<b><color=#" + StatusColor + ">";
+        internal const string DetailMarker = "\n\n<b><color=#" + DetailColor + ">";
 
         /// <summary>The heading of the detail-panel block for a committed accept: says what is greyed out.</summary>
         internal const string DetailHeading = "Accept and Decline are unavailable";
@@ -49,10 +56,10 @@ namespace Parsek
         internal const string SlotDetailHeading = "Accept is unavailable";
 
         /// <summary>
-        /// The longest row status (<c>cancelled Y12 D426</c> is 18) the stock row fits
-        /// next to a long title: <c>MCListItem</c> draws at most three lines, so a status
-        /// with a time of day and a "committed timeline" tail was clipped (first in-game
-        /// census, 2026-09-25). The detail panel keeps the full explanation.
+        /// The longest row status (<c>Cancelled on Y12, D426</c> is 22) the stock row fits
+        /// next to a long title: <c>MCListItem</c> draws at most three lines, so the row
+        /// carries the date without the time of day; the detail panel keeps the full
+        /// explanation with the time.
         /// </summary>
         internal const int RowStatusMaxLength = 24;
 
@@ -181,12 +188,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The row status: the Timeline verb and a date-only compact date, e.g.
-        /// <c>accepted Y1 D3</c> or <c>completed Y2 D114</c>. The verb is the reservation
-        /// title's first word (<see cref="ReservationExplanation"/>: Accepted / Completed /
-        /// Failed / Expired / Cancelled), lower-cased. The date is <paramref name="formatRowDate"/> of
-        /// the decoration's UT (production: <see cref="MissionControlStockUi.RowDateFormatter"/>,
-        /// stock's date without the time of day), else the title's own date.
+        /// The row status (owner decision K1-a): the reservation title's participle and the
+        /// date without the time of day, in the detail panel's own form, e.g.
+        /// <c>Accepted on Y1, D03</c> or <c>Completed on Y2, D114</c>. The participle is the
+        /// title's words before " on " (<see cref="ReservationExplanation"/>: Accepted /
+        /// Completed / Failed / Expired / Cancelled). The date is
+        /// <paramref name="formatRowDate"/> of the decoration's UT (production:
+        /// <see cref="MissionControlStockUi.RowDateFormatter"/>, stock's compact date without
+        /// the time), else the title's own date with its time of day cut.
         /// </summary>
         internal static string RowStatus(StockUiDecoration decoration, Func<double, string> formatRowDate)
         {
@@ -195,12 +204,12 @@ namespace Parsek
             if (formatRowDate != null && !double.IsNaN(decoration.UT) && !double.IsInfinity(decoration.UT))
                 date = formatRowDate(decoration.UT);
             if (string.IsNullOrEmpty(date))
-                date = TitleDate(decoration.Title);
-            return string.IsNullOrEmpty(date) ? verb : verb + " " + date.Trim();
+                date = WithoutTimeOfDay(TitleDate(decoration.Title));
+            return string.IsNullOrEmpty(date) ? verb : verb + " on " + date.Trim();
         }
 
-        /// <summary>The lower-case verb of a row status: the title's words before " on ",
-        /// else the kind's own verb.</summary>
+        /// <summary>The participle of a row status: the title's words before " on ", else
+        /// the kind's own participle.</summary>
         internal static string RowVerb(StockUiDecoration decoration)
         {
             string title = decoration.Title;
@@ -209,9 +218,9 @@ namespace Parsek
                 int at = title.IndexOf(" on ", StringComparison.Ordinal);
                 string head = at > 0 ? title.Substring(0, at) : title;
                 if (head.Length > 0)
-                    return char.ToLowerInvariant(head[0]) + head.Substring(1);
+                    return char.ToUpperInvariant(head[0]) + head.Substring(1);
             }
-            return decoration.Kind == StockUiDecorationKind.ContractResolution ? "completed" : "accepted";
+            return decoration.Kind == StockUiDecorationKind.ContractResolution ? "Completed" : "Accepted";
         }
 
         /// <summary>The date part of a reservation title (<c>Accepted on X</c> is <c>X</c>), or null.</summary>
@@ -222,25 +231,17 @@ namespace Parsek
             return at > 0 && at + 4 < title.Length ? title.Substring(at + 4) : null;
         }
 
-        private static readonly Regex StockCompactDate =
-            new Regex(@"^\s*(\D*?)(\d+),\s*(\D*?)0*(\d+)\s*$", RegexOptions.CultureInvariant);
+        private static readonly Regex TrailingTimeOfDay =
+            new Regex(@",\s*\d{1,2}:\d{2}(:\d{2})?\s*$", RegexOptions.CultureInvariant);
 
         /// <summary>
-        /// Stock's date-only compact date (<c>KSPUtil.PrintDateCompact(ut, false)</c>,
-        /// <c>Y1, D03</c>) in the row's shorter form, <c>Y1 D3</c>: no comma, no leading
-        /// zero on the day. The localized prefixes are kept; any other shape (a calendar
-        /// mod's formatter) is returned trimmed and unchanged.
+        /// A compact date without its trailing time of day (<c>Y1, D03, 01:53</c> is
+        /// <c>Y1, D03</c>); any other shape comes back trimmed and unchanged.
         /// </summary>
-        internal static string CompactRowDate(string stockDateOnly)
+        internal static string WithoutTimeOfDay(string date)
         {
-            if (string.IsNullOrEmpty(stockDateOnly)) return stockDateOnly;
-            Match m = StockCompactDate.Match(stockDateOnly);
-            if (!m.Success) return stockDateOnly.Trim();
-            string day = m.Groups[4].Value;
-            int parsed;
-            if (int.TryParse(day, NumberStyles.None, CultureInfo.InvariantCulture, out parsed))
-                day = parsed.ToString(CultureInfo.InvariantCulture);
-            return m.Groups[1].Value + m.Groups[2].Value + " " + m.Groups[3].Value + day;
+            if (string.IsNullOrEmpty(date)) return date;
+            return TrailingTimeOfDay.Replace(date, "").Trim();
         }
 
         /// <summary>Removes a Parsek row status (and anything after it) from a label.</summary>
@@ -288,7 +289,7 @@ namespace Parsek
         /// <summary>
         /// The detail-panel text: the stock text, then (for a blocked decoration) a bold
         /// heading naming the greyed-out buttons and the reservation explanation, the
-        /// same body the refused-click dialog shows. Idempotent: any earlier block is
+        /// same body the refused-click dialog shows, both in the reason orange. Idempotent: any earlier block is
         /// stripped first. KSPCF's ShowContractFinishDates splices into Archive text only,
         /// which is never blocked, so the two never touch the same text.
         /// </summary>
@@ -298,7 +299,8 @@ namespace Parsek
             if (!decoration.Blocked || string.IsNullOrEmpty(decoration.Why))
                 return baseText;
             baseText = StockUiText.ResolveStockKey(baseText, "Mission Control detail text");
-            return baseText + DetailMarker + DetailHeadingFor(decoration.Kind) + "</color></b>\n" + decoration.Why;
+            return baseText + DetailMarker + DetailHeadingFor(decoration.Kind) + "</color></b>\n"
+                + "<color=#" + DetailColor + ">" + decoration.Why + "</color>";
         }
     }
 }

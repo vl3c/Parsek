@@ -450,10 +450,14 @@ namespace Parsek.Tests
 
             var kerbals = KerbalsTestHelper.RecalculateModule(module);
 
-            Assert.Equal("Standing in for Jeb, reserved by timeline.",
+            // The owner's hold end is named in the date form every refusal uses.
+            string until = " until " + ReservationExplanation.DefaultDateFormatter(
+                kerbals.Reservations["Jeb"].ReservedUntilUT) + ".";
+            Assert.Equal("Standing in for Jeb, reserved by timeline" + until,
                 Parsek.Patches.KerbalDismissalPatch.DescribeDismissalRefusal(kerbals, "Hanley"));
             Assert.True(kerbals.ShouldBlockDismissal("Kirrim"));
-            Assert.Equal("Kept as a stand-in for a reserved kerbal, blocked by timeline.",
+            // A displaced chain member names the owner whose chain lists him.
+            Assert.Equal("Kept as a stand-in for Jeb, reserved by timeline" + until,
                 Parsek.Patches.KerbalDismissalPatch.DescribeDismissalRefusal(kerbals, "Kirrim"));
             Assert.Null(Parsek.Patches.KerbalDismissalPatch.DescribeDismissalRefusal(kerbals, "Bob"));
         }

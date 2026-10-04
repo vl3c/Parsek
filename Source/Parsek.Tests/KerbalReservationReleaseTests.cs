@@ -374,7 +374,7 @@ namespace Parsek.Tests
             Assert.True(kerbals.IsNamedByCommittedFlight(Jeb));
             Assert.True(kerbals.ShouldBlockDismissal(Jeb));
             Assert.False(kerbals.ShouldBlockDismissal("Valentina Kerman"));
-            Assert.Equal("Flew a flight on timeline, blocked by timeline.",
+            Assert.Equal("Flown in an earlier flight, blocked by timeline.",
                 KerbalDismissalPatch.DescribeDismissalBlock(
                     kerbals.GetReservationKind(Jeb), kerbals.IsNamedByCommittedFlight(Jeb)));
         }

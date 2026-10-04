@@ -25,8 +25,10 @@ namespace Parsek
     /// (docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md, section 5, owner
     /// ruling R3). A kerbal the committed timeline reserves is LISTED in the available-crew
     /// list with stock's own <c>crew.inactive</c> look (disabled sprite, greyed name and
-    /// trait, faded portrait, dragging off, hover off) and stock's locked-with-reason
-    /// tooltip (<c>CrewListItem.SetButtonEnabled(false, title, why)</c>), instead of being
+    /// trait, faded portrait, dragging off, hover off), the row's status in place of its
+    /// trait line (<see cref="TraitLineStatus"/>, e.g. <c>Reserved until Y1, D07</c>; the
+    /// trait stays in stock's hover title) and stock's locked-with-reason tooltip
+    /// (<c>CrewListItem.SetButtonEnabled(false, title, why)</c>), instead of being
     /// hidden. The refusal predicate is <see cref="KerbalsModule.ShouldFilterFromCrewDialog"/>,
     /// the one the old hiding filter used, so every kerbal that was hidden is exactly the
     /// kerbal that is greyed and refused now (the pairing rule). Every seat-placing path
@@ -56,6 +58,8 @@ namespace Parsek
             internal Color StockTraitColor;
             internal bool HasSpriteColor;
             internal Color StockSpriteColor;
+            internal bool HasTraitText;
+            internal string StockTraitText;
         }
 
         private static ConditionalWeakTable<CrewListItem, RowState> rowStates =
@@ -134,6 +138,20 @@ namespace Parsek
             return greyedByParsek ? CrewDialogRowLook.RestoreStock : CrewDialogRowLook.LeaveStock;
         }
 
+        /// <summary>
+        /// The status a greyed row shows in place of its trait line (owner decision K3-a):
+        /// the decision's title built with a date-only formatter
+        /// (<see cref="ReservationExplanation.DateOnlyFormatter"/>), e.g.
+        /// <c>Reserved until Y1, D07</c>, <c>Reserved</c> for an open-ended hold,
+        /// <c>Lost</c> or <c>Retired</c>. The trait stays in stock's hover title
+        /// (<c>Name (Trait)</c>). Null for a row that is not refused.
+        /// </summary>
+        internal static string TraitLineStatus(StockUiDecoration rowDateDecision)
+        {
+            if (!rowDateDecision.Blocked) return null;
+            return string.IsNullOrEmpty(rowDateDecision.Title) ? FallbackTitle : rowDateDecision.Title;
+        }
+
         // ---------------- the live predicate (decoration and every backstop) ----------------
 
         /// <summary>
@@ -142,6 +160,13 @@ namespace Parsek
         /// refused placement cannot disagree, and they say the same thing.
         /// </summary>
         internal static StockUiDecoration DescribeCurrent(string kerbalName)
+        {
+            return DescribeCurrent(kerbalName, ReservationExplanation.DefaultDateFormatter);
+        }
+
+        /// <summary><see cref="DescribeCurrent(string)"/> with the dates formatted by
+        /// <paramref name="formatDate"/> (the row status passes the date-only formatter).</summary>
+        internal static StockUiDecoration DescribeCurrent(string kerbalName, Func<double, string> formatDate)
         {
             var kerbals = LedgerOrchestrator.Kerbals;
             bool refused = IsAssignmentRefused(kerbalName);
@@ -152,7 +177,7 @@ namespace Parsek
                 kind,
                 refused ? CommittedFutureIndexCache.Current : null,
                 refused ? StockUiOverlayController.BuildLiveAstronautContext(null) : null,
-                ReservationExplanation.DefaultDateFormatter);
+                formatDate);
         }
 
         /// <summary>The refusal predicate alone: the one the old hiding filter used.</summary>
@@ -276,7 +301,9 @@ namespace Parsek
                 {
                     if (!state.Greyed) Capture(row, state);
                     ApplyInactiveLook(dialog, row);
-                    row.SetButtonEnabled(false, d.Title, d.Why);
+                    row.SetButtonEnabled(false, StockUiAstronautDecoration.HoverTitle(d.Title),
+                        StockUiText.ReasonColored(d.Why));
+                    ApplyTraitLineStatus(row, state, d.Id);
                     state.Greyed = true;
                 }
                 else if (look == CrewDialogRowLook.RestoreStock)
@@ -292,6 +319,23 @@ namespace Parsek
                     "crew dialog row annotation failed for " + d.Id + " (" + ex.GetType().Name + ": " + ex.Message + ")");
             }
             return look;
+        }
+
+        /// <summary>
+        /// Writes the greyed row's status over its trait line (<see cref="TraitLineStatus"/>,
+        /// dated by <see cref="ReservationExplanation.DateOnlyFormatter"/>). The stock trait
+        /// text was saved by <see cref="Capture"/> and goes back in <see cref="Restore"/>.
+        /// </summary>
+        private static void ApplyTraitLineStatus(CrewListItem row, RowState state, string kerbalName)
+        {
+            object trait = xpTraitField != null ? xpTraitField.GetValue(row) : null;
+            if (trait == null) return;
+            string status = TraitLineStatus(DescribeCurrent(kerbalName, ReservationExplanation.DateOnlyFormatter));
+            if (string.IsNullOrEmpty(status)) return;
+            if (!string.Equals(StockUiText.Get(trait), status, StringComparison.Ordinal)
+                && StockUiText.Set(trait, status))
+                ParsekLog.VerboseRateLimited(Tag, "crew-dialog-trait-" + kerbalName,
+                    "crew dialog row for " + kerbalName + " shows '" + status + "' in place of its trait");
         }
 
         /// <summary>Stock's <c>crew.inactive</c> look, member for member
@@ -332,6 +376,9 @@ namespace Parsek
             state.HasTraitColor = TryGetGraphicColor(xpTraitField, row, out state.StockTraitColor);
             state.HasSpriteColor = row.kerbalSprite != null;
             if (state.HasSpriteColor) state.StockSpriteColor = row.kerbalSprite.color;
+            object trait = xpTraitField != null ? xpTraitField.GetValue(row) : null;
+            state.StockTraitText = trait != null ? StockUiText.Get(trait) : null;
+            state.HasTraitText = state.StockTraitText != null;
         }
 
         private static void Restore(CrewListItem row, RowState state)
@@ -347,6 +394,11 @@ namespace Parsek
             }
             if (state.HasNameColor) SetGraphicColor(kerbalNameField, row, state.StockNameColor);
             if (state.HasTraitColor) SetGraphicColor(xpTraitField, row, state.StockTraitColor);
+            if (state.HasTraitText && xpTraitField != null)
+            {
+                object trait = xpTraitField.GetValue(row);
+                if (trait != null) StockUiText.Set(trait, state.StockTraitText);
+            }
             if (state.HasSpriteColor && row.kerbalSprite != null) row.kerbalSprite.color = state.StockSpriteColor;
             row.MouseoverEnabled = state.StockMouseover;
             ProtoCrewMember crew = row.GetCrewRef();

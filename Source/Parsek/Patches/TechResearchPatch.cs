@@ -1,3 +1,5 @@
+using System;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 
 namespace Parsek.Patches
@@ -42,34 +44,86 @@ namespace Parsek.Patches
                 return false;
             }
 
-            if (TryBlockCommittedTech(techId, tech.title))
+            string title = DisplayTitle(tech.title, techId, StockTreeTitle);
+            if (TryBlockCommittedTech(techId, title))
                 return true;
 
             if (includeAffordability)
             {
                 // Ledger reservation: can the player afford this tech? Reconciled against
                 // the drawdown-guard-preserved live pool (BUG-G), so a missing-earning leak
-                // no longer falsely blocks an affordable purchase.
+                // no longer falsely blocks an affordable purchase. The R&D side panel greys
+                // Research over this same predicate (IsScienceShort), so the refusal has a mark.
                 float sciCostCheck = tech.scienceCost;
-                if (sciCostCheck > 0 && !LedgerOrchestrator.CanAffordScienceSpending(sciCostCheck))
+                double free;
+                if (IsScienceShort(sciCostCheck, out free))
                 {
                     ParsekLog.Info("TechResearchPatch",
-                        $"Blocking tech research: '{techId}' ({tech.title ?? techId}) - " +
+                        $"Blocking tech research: '{techId}' ({title}) - " +
                         $"insufficient science (cost={sciCostCheck:F1})");
 
                     CommittedActionDialog.ShowBlocked(
-                        "Cannot research \"" + (tech.title ?? techId) + "\"",
-                        "Not enough science: tech unlocks later on timeline need it, blocked by timeline.",
-                        $"{sciCostCheck:F1} science required");
+                        "Cannot research \"" + title + "\"",
+                        ReservationExplanation.ScienceShortage().Body,
+                        ReservationExplanation.ScienceShortageDetail(sciCostCheck, free));
 
                     return true;
                 }
             }
 
             ParsekLog.Verbose("TechResearchPatch",
-                $"Allowing tech research: '{techId}' ({tech.title ?? techId}) - no committed future row " +
+                $"Allowing tech research: '{techId}' ({title}) - no committed future row " +
                 $"(nowUT={CommittedFutureIndexCache.CurrentUT().ToString("F0", System.Globalization.CultureInfo.InvariantCulture)})");
             return false;
+        }
+
+        /// <summary>
+        /// The science-shortage predicate: a positive cost the effective free science
+        /// (<see cref="LedgerOrchestrator.CanAffordScienceSpending(float, out double)"/>) does
+        /// not cover. The pre-deduction click gate and the R&amp;D side panel's greyed
+        /// Research button both read it (the pairing rule). <paramref name="free"/> is the
+        /// effective free science it compared against.
+        /// </summary>
+        internal static bool IsScienceShort(float cost, out double free)
+        {
+            free = double.PositiveInfinity;
+            if (cost <= 0f) return false;
+            return !LedgerOrchestrator.CanAffordScienceSpending(cost, out free);
+        }
+
+        /// <summary>
+        /// A tech's player-facing title: stock's own <c>RDTech.title</c> (localized when it is
+        /// a key), else the tech tree's title for the id (<paramref name="treeTitle"/>,
+        /// production <see cref="StockTreeTitle"/>), else the id itself, so an empty title
+        /// never prints the internal id while a title exists to resolve.
+        /// </summary>
+        internal static string DisplayTitle(string title, string techId, Func<string, string> treeTitle)
+        {
+            string resolved = StockUiText.ResolveStockKey(title, "tech title");
+            if (!string.IsNullOrEmpty(resolved)) return resolved;
+            if (treeTitle != null && !string.IsNullOrEmpty(techId))
+            {
+                string fromTree = null;
+                try { fromTree = treeTitle(techId); }
+                catch (Exception ex)
+                {
+                    ParsekLog.VerboseRateLimited("TechResearchPatch", "tech-tree-title-failed",
+                        "tech tree title lookup failed for '" + techId + "' (" + ex.GetType().Name + ")");
+                }
+                fromTree = StockUiText.ResolveStockKey(fromTree, "tech tree title");
+                if (!string.IsNullOrEmpty(fromTree)) return fromTree;
+            }
+            return techId;
+        }
+
+        /// <summary>The production tech-tree title lookup
+        /// (<c>ResearchAndDevelopment.GetTechnologyTitle</c>).</summary>
+        internal static readonly Func<string, string> StockTreeTitle = LiveTreeTitleCore;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static string LiveTreeTitleCore(string techId)
+        {
+            return ResearchAndDevelopment.GetTechnologyTitle(techId);
         }
 
         /// <summary>
@@ -94,8 +148,9 @@ namespace Parsek.Patches
             if (entry != null && entry.Amount > 0f)
                 sciCost = entry.Amount.ToString("F1", ic) + " science reserved for this action";
 
+            title = DisplayTitle(title, techId, StockTreeTitle);
             ParsekLog.Info("TechResearchPatch",
-                $"Blocking tech research: '{techId}' ({title ?? techId}) - committed future row " +
+                $"Blocking tech research: '{techId}' ({title}) - committed future row " +
                 $"ut={(entry != null ? entry.UT.ToString("F0", ic) : "?")} nowUT={nowUT.ToString("F0", ic)} " +
                 $"recording={entry?.RecordingId ?? "(ksc)"}" +
                 (!string.IsNullOrEmpty(sciCost) ? $", {sciCost}" : ""));
@@ -103,7 +158,7 @@ namespace Parsek.Patches
             var text = StockUiReservationPredicates.ExplainTech(
                 index, techId, nowUT, ReservationExplanation.DefaultDateFormatter);
             CommittedActionDialog.ShowBlocked(
-                "Cannot research \"" + (title ?? techId) + "\"",
+                "Cannot research \"" + title + "\"",
                 text.Body,
                 sciCost);
             return true;

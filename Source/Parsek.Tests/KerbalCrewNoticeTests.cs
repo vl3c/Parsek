@@ -77,7 +77,7 @@ namespace Parsek.Tests
         [InlineData((int)KerbalReservationKind.ReservedActive,
             "Reserved by timeline.")]
         [InlineData((int)KerbalReservationKind.ReservedRetired,
-            "Retired after standing in on a flight on timeline, blocked by timeline.")]
+            "Retired after standing in for a reserved kerbal, blocked by timeline.")]
         [InlineData((int)KerbalReservationKind.NotManaged,
             "Kept as a stand-in for a reserved kerbal, blocked by timeline.")]
         public void DismissalBlock_ReasonUsesTheKerbalsWindowVocabulary(int kind, string expected)
@@ -91,7 +91,7 @@ namespace Parsek.Tests
         [Fact]
         public void DismissalBlock_AReturnedOwnerIsToldHeFlewACommittedFlight()
         {
-            Assert.Equal("Flew a flight on timeline, blocked by timeline.",
+            Assert.Equal("Flown in an earlier flight, blocked by timeline.",
                 KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.NotManaged, true));
             Assert.Equal("Kept as a stand-in for a reserved kerbal, blocked by timeline.",
                 KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.NotManaged, false));
@@ -110,11 +110,11 @@ namespace Parsek.Tests
             Assert.Equal(expected,
                 KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.NotManaged, "Bill Kerman"));
             // A returned owner and the reserved / retired kinds ignore the owner argument.
-            Assert.Equal("Flew a flight on timeline, blocked by timeline.",
+            Assert.Equal("Flown in an earlier flight, blocked by timeline.",
                 KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.NotManaged, true, "Bill Kerman"));
             Assert.Equal("Reserved by timeline.",
                 KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.ReservedActive, "Bill Kerman"));
-            Assert.Equal("Retired after standing in on a flight on timeline, blocked by timeline.",
+            Assert.Equal("Retired after standing in for a reserved kerbal, blocked by timeline.",
                 KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.ReservedRetired, "Bill Kerman"));
             // Unknown owner: the owner-less line, no dangling name.
             Assert.Equal("Kept as a stand-in for a reserved kerbal, blocked by timeline.",

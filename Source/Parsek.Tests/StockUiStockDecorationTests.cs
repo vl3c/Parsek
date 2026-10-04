@@ -278,7 +278,8 @@ namespace Parsek.Tests
             Assert.Equal("Hired on D5", r.Label);
             Assert.True(r.DisableButton);
             Assert.Equal("hire", r.BlockKind);
-            Assert.Equal("Hired on D5", r.DisabledTitle);
+            // The hover title drops the date the caption under it already names.
+            Assert.Equal("Hired later", r.DisabledTitle);
             Assert.Equal(d.Why, r.DisabledCaption);
         }
 
@@ -301,7 +302,7 @@ namespace Parsek.Tests
             Assert.Equal("Reserved until D9", r.Label);
             Assert.True(r.DisableButton);
             Assert.Equal("dismiss", r.BlockKind);
-            Assert.Equal("Reserved until D9", r.DisabledTitle);
+            Assert.Equal("Reserved", r.DisabledTitle);
             Assert.Equal("Flies 'Mun'. rule. Free after D9.", r.DisabledCaption);
         }
 
@@ -330,7 +331,7 @@ namespace Parsek.Tests
             Assert.Equal("Stand-in for Bill Kerman", r.Label);
             Assert.True(r.DisableButton);
             Assert.Equal("dismiss", r.BlockKind);
-            Assert.Equal(d.Title, r.DisabledTitle);
+            Assert.Equal("Stand-in for Bill Kerman", r.DisabledTitle);
             Assert.Equal(d.Why, r.DisabledCaption);
             // Informational label: the crew tooltip is left to the stock reason block.
             Assert.False(StockUiAstronautDecoration.AppendsTooltip(StockUiDecorationKind.KerbalStandIn));
@@ -428,7 +429,7 @@ namespace Parsek.Tests
             Assert.False(StockUiAstronautDecoration.ShouldAnnotateCrewTooltip(
                 Deco(StockUiDecorationKind.None, null, null)));
             Assert.False(StockUiAstronautDecoration.ShouldAnnotateCrewTooltip(
-                Deco(StockUiDecorationKind.KerbalRetiredStandIn, "Retired", "Retired stand-in (Parsek)")));
+                Deco(StockUiDecorationKind.KerbalRetiredStandIn, "Retired", StockUiDecorationQuery.RetiredStandInText)));
             Assert.False(StockUiAstronautDecoration.ShouldAnnotateCrewTooltip(
                 Deco(StockUiDecorationKind.KerbalLost, "Lost", "Lost on the committed flight 'X'.")));
             Assert.True(StockUiAstronautDecoration.ShouldAnnotateCrewTooltip(
@@ -440,10 +441,10 @@ namespace Parsek.Tests
         [Fact]
         public void AppendTooltip_UsesStocksReasonBlock_AndIsIdempotent()
         {
-            string once = StockUiAstronautDecoration.AppendTooltip("Pilot skills", "Hired on D5", "Hired on D5 because.");
-            Assert.Equal("Pilot skills\n\n<b>Hired on D5</b>\nHired on D5 because.", once);
-            Assert.Equal(once, StockUiAstronautDecoration.AppendTooltip(once, "Hired on D5", "Hired on D5 because."));
-            Assert.Equal("<b>T</b>\nwhy", StockUiAstronautDecoration.AppendTooltip("", "T", "why"));
+            string once = StockUiAstronautDecoration.AppendTooltip("Pilot skills", "Hired later", "Hired on D5 because.");
+            Assert.Equal("Pilot skills\n\n<b>Hired later</b>\n<color=#f97306>Hired on D5 because.</color>", once);
+            Assert.Equal(once, StockUiAstronautDecoration.AppendTooltip(once, "Hired later", "Hired on D5 because."));
+            Assert.Equal("<b>T</b>\n<color=#f97306>why</color>", StockUiAstronautDecoration.AppendTooltip("", "T", "why"));
             Assert.Equal("stock", StockUiAstronautDecoration.AppendTooltip("stock", "T", null));
         }
 

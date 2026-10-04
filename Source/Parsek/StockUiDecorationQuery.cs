@@ -410,7 +410,7 @@ namespace Parsek
 
         /// <summary>The retired stand-in's text: the Kerbals window's <c>Retired</c>
         /// status, qualified because the stock list does not say he is a stand-in.</summary>
-        internal const string RetiredStandInText = "Retired stand-in (Parsek)";
+        internal const string RetiredStandInText = "Retired stand-in";
 
         /// <summary>The active stand-in's row status, the Kerbals window's Stand-in wording.</summary>
         internal static string StandInTitle(string ownerName)

@@ -1431,6 +1431,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **R&D's Research button now greys out when science held for later research makes a node
+  unaffordable.** Stock never greys Research for science; it refuses at the click. Parsek
+  refused such a click with its own dialog while the button looked live. The button is now
+  greyed with the reason on its tooltip, `Reserved for later research, blocked by timeline.
+  Needs 45.0 science, 12.0 free.`, and the refused-click dialog says the same (it read `Not
+  enough science: tech unlocks later on timeline need it, blocked by timeline.`).
+- **A refused tech names the tech, not its internal id.** When a tech's title was empty the
+  refusal printed the id (`Cannot research "basicRocketry"`); it now reads the tech tree's
+  title for the id, and the id only when no title exists.
 - **Real Spawn Control's "Warp to Spawn" puts an orbiting vessel where its ghost stood.**
   Park beside a ghost in orbit whose flight ends Orbiting and press "Warp to Spawn": the
   clock jumps to the flight's end while your own vessel keeps its place, as designed, but
@@ -2643,6 +2652,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **The notes Parsek adds to KSP's own screens read the same way everywhere.** A contract in
+  Mission Control that the timeline accepts or finishes later reads `- Accepted on Y1, D03`
+  (was `- accepted Y1 D3`), the same date form as its detail panel. Every block reason is
+  now in KSP's own orange, the Mission Control detail panel included (it was light blue);
+  the light blue stays only on the contract row's dated note. In the VAB / SPH crew dialog a
+  greyed kerbal's row shows why in place of his trait (`Reserved until Y1, D07`); the trait
+  is still in the hover title. A crew hover no longer states its date twice: the bold line
+  says `Reserved` or `Hired later`, the sentence under it gives the date. A refused
+  dismissal now names the flight and the date (`Flown in 'Kerbal X' until Y1, D06, 14:05,
+  blocked by timeline.`, `Retired after standing in for Jebediah Kerman in 'Kerbal X' until
+  ...`, `Kept as a stand-in for Jebediah Kerman, reserved by timeline for 'Mun Lander' until
+  ...`) instead of `... on timeline, blocked by timeline.`, and an active stand-in's
+  refusal adds the date his owner is back. No KSP screen text names the mod any more: the
+  dismiss lock of a kerbal with no status line reads `Kept on the roster` (was `Managed by Parsek`).
 - **Parsek's windows now share one style for countdowns, "Go to", colours and empty lists.**
   Every countdown reads the Missions way, `T- 2d 4h` (two units, a space after `T-`) in the
   same amber, with ` (!)` when it carries a warning: Real Spawn Control's `In T-` column and

@@ -99,12 +99,12 @@ window, both tabs, no Basic-specific variant.
     one-shot screen message when `CrewReservationManager.SwapReservedCrewInFlight` actually
     swaps a reserved kerbal out of a seat, and a refused dismissal raises the existing
     `Action Blocked` dialog (`CommittedActionDialog.ShowBlocked`) like its four siblings.
-19. **One crew vocabulary** (rec 9): the Astronaut Complex overlay's badge tooltips use the
-    window's words - `Reserved - held by a committed flight (Parsek)`, `Reserved for <owner>
-    - ...` only for a stand-in in someone else's slot, `Lost on a committed flight (Parsek)`
-    for a death reservation (permanent, or with the stock respawn pending: the Status cell then
-    reads `Lost until <date>`, owner ruling S8), `Retired stand-in (Parsek)` - and an owner is
-    never labelled as reserved for his own slot.
+19. **One crew vocabulary** (rec 9): the stock Astronaut Complex and VAB / SPH crew dialog
+    rows use the window's words - `Reserved` / `Reserved until <date>`, `Reserved for <owner>`
+    only for a stand-in in someone else's slot, `Lost` for a death reservation (`Lost until
+    <date>` with the stock respawn pending, owner ruling S8), `Retired`, `Stand-in for <owner>`
+    - with no mod name in the stock text, and an owner is never labelled as reserved for his
+    own slot.
 
 ### Two readings the rulings did not spell out, decided here
 

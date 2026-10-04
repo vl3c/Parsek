@@ -127,6 +127,17 @@ namespace Parsek
         private static readonly Dictionary<string, FieldInfo> labelFields = new Dictionary<string, FieldInfo>(StringComparer.Ordinal);
 
         /// <summary>
+        /// A block reason in stock's own reason colour (<see cref="StockUiRnDDecoration.ReasonColorHex"/>,
+        /// the orange stock prints its own refusals in), the one colour every stock-screen
+        /// block reason uses. Null or empty comes back unchanged.
+        /// </summary>
+        internal static string ReasonColored(string why)
+        {
+            if (string.IsNullOrEmpty(why)) return why;
+            return "<color=" + StockUiRnDDecoration.ReasonColorHex + ">" + why + "</color>";
+        }
+
+        /// <summary>
         /// The TextMeshPro label held in <paramref name="fieldName"/> of
         /// <paramref name="declaringType"/> (public or private), or null.
         /// </summary>

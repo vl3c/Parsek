@@ -60,8 +60,9 @@ namespace Parsek
         private const string Tag = "StockUiOverlay";
 
         /// <summary>The disabled-button title for a dismissal refused on an unmarked kerbal
-        /// (a stand-in, or a kerbal a committed flight names).</summary>
-        internal const string DismissBlockedTitle = "Managed by Parsek";
+        /// (a displaced stand-in, or a kerbal a committed flight names): the state; the
+        /// caption under it says why.</summary>
+        internal const string DismissBlockedTitle = "Kept on the roster";
 
         private sealed class RowState
         {
@@ -99,14 +100,14 @@ namespace Parsek
                 && d.Kind == StockUiDecorationKind.KerbalHire)
             {
                 r.DisableButton = true;
-                r.DisabledTitle = d.Title;
+                r.DisabledTitle = HoverTitle(d.Title);
                 r.DisabledCaption = d.Why;
                 r.BlockKind = "hire";
             }
             else if (tab == StockUiDecorationQuery.AstronautAvailableTab && dismissalRefusal != null)
             {
                 r.DisableButton = true;
-                r.DisabledTitle = d.Marked && !string.IsNullOrEmpty(d.Title) ? d.Title : DismissBlockedTitle;
+                r.DisabledTitle = d.Marked && !string.IsNullOrEmpty(d.Title) ? HoverTitle(d.Title) : DismissBlockedTitle;
                 // An active stand-in's why is the refusal plus, when it shares its owner's
                 // seat in the active-crew count, the one seat sentence (ForAstronautComplex).
                 r.DisabledCaption = d.Kind == StockUiDecorationKind.KerbalStandIn && !string.IsNullOrEmpty(d.Why)
@@ -115,6 +116,17 @@ namespace Parsek
                 r.BlockKind = "dismiss";
             }
             return r;
+        }
+
+        /// <summary>
+        /// The bold title of a crew hover block (stock draws <c>title</c> in bold above the
+        /// caption): the row status without its date
+        /// (<see cref="ReservationExplanation.UndatedTitle"/>), because the caption sentence
+        /// under it already names the date.
+        /// </summary>
+        internal static string HoverTitle(string title)
+        {
+            return ReservationExplanation.UndatedTitle(title);
         }
 
         /// <summary>
@@ -203,14 +215,15 @@ namespace Parsek
         /// <summary>
         /// Appends the explanation to a stock crew tooltip in stock's own reason format
         /// (<c>"\n\n&lt;b&gt;title&lt;/b&gt;\ncaption"</c>, the same block stock appends for
-        /// the crew-limit lock). Idempotent. A description that is a localization key is
-        /// localized first (<see cref="StockUiText.ResolveStockKey"/>).
+        /// the crew-limit lock), the caption in the stock reason colour. Idempotent. A
+        /// description that is a localization key is localized first
+        /// (<see cref="StockUiText.ResolveStockKey"/>).
         /// </summary>
         internal static string AppendTooltip(string description, string title, string why)
         {
             if (string.IsNullOrEmpty(why)) return description;
             if (!string.IsNullOrEmpty(description) && description.Contains(why)) return description;
-            string block = "<b>" + (title ?? "") + "</b>\n" + why;
+            string block = "<b>" + (title ?? "") + "</b>\n" + StockUiText.ReasonColored(why);
             if (string.IsNullOrEmpty(description)) return block;
             return StockUiText.ResolveStockKey(description, "Astronaut Complex crew tooltip") + "\n\n" + block;
         }
@@ -389,7 +402,8 @@ namespace Parsek
                     }
                     else
                     {
-                        row.SetButtonEnabled(false, decision.DisabledTitle, decision.DisabledCaption);
+                        row.SetButtonEnabled(false, decision.DisabledTitle,
+                            StockUiText.ReasonColored(decision.DisabledCaption));
                         if (!state.ButtonDisabledByParsek)
                             ParsekLog.Info(Tag, "Astronaut Complex " + decision.BlockKind + " button disabled for "
                                 + name + " tab=" + tab + " why=\"" + decision.DisabledCaption + "\"");
@@ -431,7 +445,7 @@ namespace Parsek
             if (tooltip == null || pcm == null || string.IsNullOrEmpty(pcm.name)) return;
             var d = StockUiLiveSnapshot.Current.Kerbal(pcm.name, null);
             if (!ShouldAnnotateCrewTooltip(d)) return;
-            string next = AppendTooltip(tooltip.descriptionString, d.Title, d.Why);
+            string next = AppendTooltip(tooltip.descriptionString, HoverTitle(d.Title), d.Why);
             if (!string.Equals(next, tooltip.descriptionString, StringComparison.Ordinal))
             {
                 tooltip.descriptionString = next;
