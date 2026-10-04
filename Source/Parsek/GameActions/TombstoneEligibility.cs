@@ -99,6 +99,11 @@ namespace Parsek
                 // vessel continued, so the closure must go with it; the default would
                 // PRESERVE it and keep ending holds of a flight that no longer exists.
                 case GameActionType.KerbalRecovered:
+                // VesselRecovered: the recovery ended the owner recording's vessel. A re-fly
+                // that supersedes the owner deletes that flight, so its recovery evidence
+                // must go with it; the default would PRESERVE it and keep refusing the
+                // spawn of a flight that no longer exists.
+                case GameActionType.VesselRecovered:
                 case GameActionType.FacilityUpgrade:
                 case GameActionType.FacilityDestruction:
                 case GameActionType.FacilityRepair:

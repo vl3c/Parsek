@@ -26,7 +26,8 @@ import threading
 import time
 import tomllib
 import unittest
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from typing import Optional
 from unittest import mock
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -4846,3 +4847,235 @@ class CancelWarpWithoutWarpServiceTests(unittest.TestCase):
         self.assertEqual([sc], cancelled)
         self.assertEqual([0], sc.rails_sets)
         self.assertEqual([0], sc.physics_sets)
+
+
+# ---------------------------------------------------------------------------
+# Paused-clock watchdog wiring (todo HARNESS-POST-FLIGHT-DIALOG-STALLS).
+# ---------------------------------------------------------------------------
+
+
+class _PausingControl(FakeMissionControl):
+    """A fake that reports the game PAUSED once UT reaches ``pause_from_ut`` (the
+    FlightResultsDialog pause) and counts how often the pause was probed."""
+    def __init__(self, snapshots, pause_from_ut, paused_value=True, exempt=False,
+                 **kw):
+        super().__init__(snapshots, **kw)
+        self._pause_from_ut = pause_from_ut
+        self._paused_value = paused_value
+        self._exempt = exempt
+        self.pause_probes = 0
+        self._last_ut = None
+
+    def read_snapshot(self):
+        s = super().read_snapshot()
+        self._last_ut = s.ut
+        return s
+
+    def read_game_paused(self):
+        self.pause_probes += 1
+        if self._last_ut is not None and self._last_ut >= self._pause_from_ut:
+            return self._paused_value
+        return False
+
+    def paused_clock_exempt(self):
+        return self._exempt
+
+
+def _b1_crash_then_pause_frames():
+    """B1 pad hop that loses the craft on descent: UT runs to 157.86 and stops
+    (the dialog pause); telemetry is frozen from 98.72 on, as in RB-1."""
+    frames = [
+        snap(ut=10.0, stage_solid_fuel=1.0, situation="PRE_LAUNCH"),
+        snap(ut=12.0, stage_solid_fuel=1.0, situation="FLYING", vertical_speed=50.0),
+        snap(ut=20.0, stage_solid_fuel=0.0, situation="FLYING", vertical_speed=480.0),
+        snap(ut=50.0, situation="FLYING", vertical_speed=-3.0, altitude=7600.0),
+    ]
+    # Varying altitude keeps the frozen-telemetry detector out of this test.
+    for i, ut in enumerate((150.0, 155.0, 157.86)):
+        frames.append(snap(ut=ut, situation="FLYING", vertical_speed=-230.0,
+                           altitude=100.0 + i))
+    return frames
+
+
+class PausedClockWatchdogShellTests(unittest.TestCase):
+    """The fly loop feeds the pure watch every poll and ends a paused, frozen game
+    as a vessel loss naming the pause, instead of waiting out the wall budget."""
+
+    def _run(self, control, budget=600.0, step=0.5):
+        lines = []
+        clock = FakeClock(step=step)
+        log = mission_runner.MissionLogger(sink=lines.append, clock=clock)
+        writer = ResultSink()
+        mission_runner.run_mission(
+            b1_pad_hop.SPEC, B1_PARAMS, "127.0.0.1", 50000, 50001,
+            "unused/result.json", budget, control=control, log=log, clock=clock,
+            sleep=lambda _s: None, writer=writer)
+        return mlib.parse_mission_result(writer.text), lines, clock
+
+    def test_paused_frozen_game_ends_as_vessel_lost_naming_the_pause(self):
+        control = _PausingControl(_b1_crash_then_pause_frames(), pause_from_ut=157.86)
+        result, lines, clock = self._run(control)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, result["verdict"])
+        self.assertTrue(result["reason"].startswith("vessel-lost (paused-clock: "),
+                        result["reason"])
+        self.assertIn("UT frozen at 157.860", result["reason"])
+        self.assertIn(mlib.B1_DESCENT, result["phasesReached"])
+        # Ended on the watchdog, far inside the 600 s wall budget.
+        self.assertLess(result["wallSeconds"], 120.0)
+        trip = [l for l in lines if "gate paused-clock TRIP" in l]
+        self.assertEqual(1, len(trip), lines)
+        self.assertIn("[Mission][Warn]", trip[0])
+        self.assertIn("frozenUt=157.860", trip[0])
+        self.assertRegex(trip[0], r"pausedFor=1[5-9]\.\d+s limit=15s")
+        self.assertTrue(any("gate paused-clock armed" in l for l in lines))
+        self.assertTrue(control.closed)
+
+    def test_the_verdict_is_driver_invalid_never_parsek_fail(self):
+        harness_lib = os.path.join(_HARNESS, "lib")
+        if harness_lib not in sys.path:
+            sys.path.insert(0, harness_lib)
+        import hlib
+        control = _PausingControl(_b1_crash_then_pause_frames(), pause_from_ut=157.86)
+        result, _lines, _clock = self._run(control)
+        met, subkind = hlib.classify_mission_step(result["verdict"])
+        self.assertFalse(met)
+        self.assertEqual("mission", subkind)
+        self.assertIn(subkind, hlib.RETRYABLE_INVALID_SUBKINDS)
+
+    def test_a_running_game_with_frozen_ut_is_left_to_the_wall_budget(self):
+        # paused=False: not this watchdog's class, the pre-existing reaper owns it.
+        control = _PausingControl(_b1_crash_then_pause_frames(), pause_from_ut=157.86,
+                                  paused_value=False)
+        result, lines, _clock = self._run(control, budget=60.0)
+        self.assertEqual(mlib.MISSION_FLAKE, result["verdict"])
+        self.assertNotIn("paused-clock", result["reason"])
+        self.assertFalse(any("paused-clock" in l for l in lines))
+
+    def test_an_exempt_control_never_trips(self):
+        control = _PausingControl(_b1_crash_then_pause_frames(), pause_from_ut=157.86,
+                                  exempt=True)
+        result, lines, _clock = self._run(control, budget=60.0)
+        self.assertEqual(mlib.MISSION_FLAKE, result["verdict"])
+        self.assertFalse(any("paused-clock" in l for l in lines))
+        self.assertEqual(0, control.pause_probes)
+
+    def test_a_moving_clock_costs_no_pause_probe(self):
+        # A healthy flight's UT moves every poll: the pause RPC is never spent.
+        frames = [snap(ut=10.0 + i, stage_solid_fuel=1.0, situation="FLYING",
+                       vertical_speed=50.0) for i in range(30)]
+        frames[0] = replace(frames[0], situation="PRE_LAUNCH")
+        frames.append(snap(ut=200.0, stage_solid_fuel=1.0, situation="FLYING"))
+        control = _PausingControl(frames, pause_from_ut=0.0)
+        self._run(control)
+        self.assertEqual(0, control.pause_probes)
+
+    def test_a_seam_step_rearms_the_watch(self):
+        # A machine that issues a seam step every 8 polls while the game sits
+        # paused: each blocking step re-arms the window, so it never fills.
+        @dataclass(frozen=True)
+        class _S:
+            phase: str = "HOLD"
+            phase_entry_ut: float = 0.0
+            phases_reached: tuple = ("HOLD",)
+            frames: int = 0
+            verdict: Optional[str] = None
+            flake_phase: Optional[str] = None
+            flake_reason: Optional[str] = None
+            loss_reason: Optional[str] = None
+            done: bool = False
+
+        def decide(state, _snapshot):
+            n = state.frames + 1
+            acts = []
+            if n % 8 == 0:
+                acts.append(mlib.Action(mlib.ACTION_PARSEK_SEAM_COMMAND))
+            return replace(state, frames=n, done=n >= 120), acts
+
+        def run(with_seam):
+            control = _PausingControl([snap(ut=42.0, situation="FLYING")],
+                                      pause_from_ut=0.0)
+            clock = FakeClock(step=0.5)
+            log = mission_runner.MissionLogger(sink=lambda _l: None, clock=clock)
+            dec = decide if with_seam else (
+                lambda s, _n: (replace(s, frames=s.frames + 1,
+                                       done=s.frames + 1 >= 120), []))
+            state, _frames = mission_runner.fly_loop(
+                control, _S(), dec, log, deadline=10000.0, clock=clock,
+                sleep=lambda _s: None, settle_frames=0)
+            return state
+
+        rearmed = run(with_seam=True)
+        self.assertIsNone(rearmed.verdict)
+        self.assertGreaterEqual(rearmed.frames, 120)
+        tripped = run(with_seam=False)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, tripped.verdict)
+        self.assertIn("paused-clock", tripped.loss_reason)
+
+    def test_a_machine_owning_the_pause_never_trips(self):
+        @dataclass(frozen=True)
+        class _Owned:
+            phase: str = "HOLD"
+            phase_entry_ut: float = 0.0
+            phases_reached: tuple = ("HOLD",)
+            frames: int = 0
+            game_pause_owned: bool = True
+            verdict: Optional[str] = None
+            loss_reason: Optional[str] = None
+            done: bool = False
+
+        control = _PausingControl([snap(ut=42.0, situation="FLYING")],
+                                  pause_from_ut=0.0)
+        clock = FakeClock(step=0.5)
+        log = mission_runner.MissionLogger(sink=lambda _l: None, clock=clock)
+        state, _frames = mission_runner.fly_loop(
+            control, _Owned(),
+            lambda s, _n: (replace(s, frames=s.frames + 1, done=s.frames + 1 >= 120), []),
+            log, deadline=10000.0, clock=clock, sleep=lambda _s: None,
+            settle_frames=0)
+        self.assertIsNone(state.verdict)
+        self.assertEqual(0, control.pause_probes)
+
+
+class KrpcPausedClockSeamTests(unittest.TestCase):
+    """The kRPC control's two watchdog inputs: KRPC.Paused best-effort, and the
+    native-warp exemption."""
+
+    class _Krpc:
+        def __init__(self, value):
+            self._value = value
+
+        @property
+        def paused(self):
+            if isinstance(self._value, Exception):
+                raise self._value
+            return self._value
+
+    class _Conn:
+        def __init__(self, value):
+            self.krpc = KrpcPausedClockSeamTests._Krpc(value)
+
+    def test_read_game_paused(self):
+        ctrl = mission_runner.KrpcMissionControl()
+        self.assertIsNone(ctrl.read_game_paused())  # not connected
+        ctrl._conn = self._Conn(True)
+        self.assertIs(True, ctrl.read_game_paused())
+        ctrl._conn = self._Conn(False)
+        self.assertIs(False, ctrl.read_game_paused())
+        ctrl._conn = self._Conn(RuntimeError("rpc"))
+        self.assertIsNone(ctrl.read_game_paused())
+
+    def test_exempt_only_while_a_native_warp_runs(self):
+        ctrl = mission_runner.KrpcMissionControl()
+        self.assertFalse(ctrl.paused_clock_exempt())
+
+        class _W:
+            active = True
+        ctrl._warp = _W()
+        self.assertTrue(ctrl.paused_clock_exempt())
+        _W.active = False
+        self.assertFalse(ctrl.paused_clock_exempt())
+
+    def test_the_base_control_reports_no_evidence(self):
+        base = mission_runner.MissionControl()
+        self.assertIsNone(base.read_game_paused())
+        self.assertFalse(base.paused_clock_exempt())

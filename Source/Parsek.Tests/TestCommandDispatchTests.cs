@@ -131,7 +131,6 @@ namespace Parsek.Tests
         [Theory]
         [InlineData("StartRecording")]
         [InlineData("StopRecording")]
-        [InlineData("CommitTree")]
         [InlineData("DiscardTree")]
         public void FlightVerb_OutsideFlight_Defers_NotInFlight(string verb)
         {
@@ -148,6 +147,85 @@ namespace Parsek.Tests
         {
             var r = TestCommandDispatcher.DecideDispatch(Cmd(verb), Flight());
             Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Theory]
+        [InlineData("MainMenu")]
+        [InlineData("SpaceCenter")]
+        [InlineData("TrackingStation")]
+        [InlineData("Editor")]
+        [InlineData("Other")]
+        public void CommitTree_SettledOutsideFlight_Rejects_NotInFlight(string sceneName)
+        {
+            // The post-recovery shape (L3 / L5 / L6): the head reaches a settled
+            // SPACECENTER with no tree to commit. It used to DEFER until a 60 s TIMEOUT.
+            var scene = (TestCommandScene)System.Enum.Parse(typeof(TestCommandScene), sceneName);
+            var st = new DispatchState { Scene = scene, GameLoaded = true, SettingsPresent = true };
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("CommitTree"), st);
+            Assert.Equal(DispatchDecision.Reject, r.Decision);
+            Assert.Equal("not-in-flight", r.Reason);
+            Assert.Equal(TestCommandDispatcher.NotInFlightReason, r.Reason);
+        }
+
+        [Fact]
+        public void CommitTree_PendingTransition_StillDefers_NotSafePoint()
+        {
+            // A scene load in progress (into FLIGHT or anywhere) is the safe-point gate's
+            // job and still defers: the fast reject applies only to a SETTLED wrong scene.
+            var transitioning = new DispatchState
+            {
+                Scene = TestCommandScene.SpaceCenter, GameLoaded = true, SettingsPresent = true,
+                Transitioning = true,
+            };
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("CommitTree"), transitioning);
+            Assert.Equal(DispatchDecision.Defer, r.Decision);
+            Assert.Equal("not-safe-point", r.Reason);
+
+            var settling = new DispatchState
+            {
+                Scene = TestCommandScene.Flight, GameLoaded = true, SettingsPresent = true,
+                SettleCounter = 1,
+            };
+            r = TestCommandDispatcher.DecideDispatch(Cmd("CommitTree"), settling);
+            Assert.Equal(DispatchDecision.Defer, r.Decision);
+            Assert.Equal("not-safe-point", r.Reason);
+
+            var loading = new DispatchState { Scene = TestCommandScene.Loading };
+            r = TestCommandDispatcher.DecideDispatch(Cmd("CommitTree"), loading);
+            Assert.Equal(DispatchDecision.Defer, r.Decision);
+            Assert.Equal("not-safe-point", r.Reason);
+        }
+
+        [Fact]
+        public void CommitTree_OutsideFlight_BatchRunning_StillDefers_BatchRunning()
+        {
+            // The batch gate sits above the scene check, so a batch still holds the head.
+            var st = new DispatchState
+            {
+                Scene = TestCommandScene.SpaceCenter, GameLoaded = true, SettingsPresent = true,
+                BatchRunning = true,
+            };
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("CommitTree"), st);
+            Assert.Equal(DispatchDecision.Defer, r.Decision);
+            Assert.Equal("batch-running", r.Reason);
+        }
+
+        [Fact]
+        public void RejectOutsideFlight_IsExactlyCommitTree()
+        {
+            // Every other FLIGHT verb keeps its bounded defer; widening the set is a
+            // deliberate decision that must red this cell.
+            int rejecting = 0;
+            foreach (var kv in TestCommandDispatcher.PreconditionTable)
+            {
+                if (!TestCommandDispatcher.RejectsOutsideFlight(kv.Key)) continue;
+                rejecting++;
+                Assert.Equal("CommitTree", kv.Key);
+                Assert.Equal(VerbSceneRequirement.RequiresFlight, kv.Value);
+            }
+            Assert.Equal(1, rejecting);
+            Assert.False(TestCommandDispatcher.RejectsOutsideFlight(null));
+            Assert.False(TestCommandDispatcher.RejectsOutsideFlight("committree"));
         }
 
         [Fact]

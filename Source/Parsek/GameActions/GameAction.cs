@@ -239,7 +239,56 @@ namespace Parsek
         /// becomes UT 0 -> recovery UT and a rewind to before it holds him again. Not
         /// resource-impacting; retired with the owner recording by a re-fly supersede.</para>
         /// </summary>
-        KerbalRecovered = 34
+        KerbalRecovered = 34,
+
+        /// <summary>
+        /// The player recovered a REAL vessel that is the live continuation of a committed
+        /// recording (the same launch by positive guid match, or the vessel Parsek spawned
+        /// from it): from the Tracking Station, the KSC vessel marker, the flight Recover
+        /// button or kRPC. Carries <see cref="GameAction.RecordingId"/> (the owning committed
+        /// recording, one row per owning tree), <see cref="GameAction.RecoveredVesselName"/>
+        /// and <see cref="GameAction.RecoveredVesselPid"/>; the row's
+        /// <see cref="GameAction.UT"/> is the recovery instant.
+        ///
+        /// <para>Non-economic and written in every game mode. It exists because the other two
+        /// recovery rows are conditional: <see cref="FundsEarning"/> with
+        /// <see cref="FundsEarningSource.Recovery"/> needs stock's
+        /// <c>FundsChanged(VesselRecovery)</c>, which a sandbox save never raises, and
+        /// <see cref="KerbalRecovered"/> needs crew aboard. A committed recording is never
+        /// re-stamped by a terminal event, so without this row an uncrewed sandbox recovery
+        /// of a Parsek-spawned vessel left no trace and the next flight scene spawned it
+        /// again. Read by <see cref="RecoveredRecordingEvidence"/> beside the other two.</para>
+        ///
+        /// <para>Player recoveries only: Parsek's own programmatic recoveries run under
+        /// <c>SuppressionGuard.Crew()</c> and write none. Not resource-impacting, not a
+        /// strict-block for a supersede, retired with its owner by a Re-Fly supersede and
+        /// with the recovery funds row by a Re-Fly resurrection. Explicitly numbered and
+        /// append-only; an older build reads the value as an unknown type (Warn) and the
+        /// row's evidence is lost there, the accepted one-way downgrade of an additive
+        /// enum member.</para>
+        /// </summary>
+        VesselRecovered = 35,
+
+        /// <summary>
+        /// A supply route's run was held, recorded once per hold EPISODE and reason
+        /// (design doc section 6.7). Written by the loop crossing (single-stop and
+        /// multi-stop blocked branches) and the legacy wait applier when the route's
+        /// open episode - its effective-ledger rows since the last
+        /// <see cref="RouteDispatched"/> / <see cref="RoutePaused"/> /
+        /// <see cref="RouteResumed"/> / <see cref="RouteEndpointLost"/> row - holds no
+        /// RouteHeld row with the same (<see cref="GameAction.RouteHoldKind"/>,
+        /// <see cref="GameAction.RouteEndpointReason"/>) pair. A shortfall-only change
+        /// writes nothing, and nothing marks a release: the next Sent / Paused /
+        /// Activated / Stopped row closes the episode. Carries the route identity
+        /// (<see cref="GameAction.RouteId"/>, the held cycle's
+        /// <see cref="GameAction.RouteCycleId"/>), the evaluator detail token in
+        /// <see cref="GameAction.RouteEndpointReason"/>, the failure kind in
+        /// <see cref="GameAction.RouteHoldKind"/> and the measured shortfall in
+        /// <see cref="GameAction.RouteHoldShortfall"/>. Free-standing and inert: no
+        /// module consumes it, it moves no pool, and supersede never blocks on it.
+        /// Retired at rewind with the other route rows by <c>RouteLedgerRetire</c>.
+        /// </summary>
+        RouteHeld = 36
     }
 
     /// <summary>
@@ -740,6 +789,22 @@ namespace Parsek
         /// </summary>
         public string KerbalCareerEntries;
 
+        // ---- Vessel recovery fields (VesselRecovered) ----
+
+        /// <summary>
+        /// Display name of the recovered vessel on a <see cref="GameActionType.VesselRecovered"/>
+        /// row. Null on every other action type.
+        /// </summary>
+        public string RecoveredVesselName;
+
+        /// <summary>
+        /// Persistent id of the recovered live vessel on a
+        /// <see cref="GameActionType.VesselRecovered"/> row (a Parsek spawn pid or the
+        /// recorded launch's pid). Diagnostic only: identity was decided at write time.
+        /// 0 on every other action type.
+        /// </summary>
+        public uint RecoveredVesselPid;
+
         /// <summary>Mission start UT.</summary>
         public float StartUT;
 
@@ -940,6 +1005,22 @@ namespace Parsek
         /// so adding new reasons is a non-breaking change.
         /// </summary>
         public string RouteEndpointReason;
+
+        /// <summary>
+        /// The eligibility failure kind of a <see cref="GameActionType.RouteHeld"/> row
+        /// (the evaluator's first failing gate). Serialized sparsely BY NAME
+        /// (<c>routeHoldKind</c>), as <c>RouteCodec</c> writes <c>lastHoldKind</c>; an
+        /// unknown name reads back as None with a warn. None on every other row.
+        /// </summary>
+        internal Logistics.RouteDispatchEvaluator.EligibilityFailureKind RouteHoldKind;
+
+        /// <summary>
+        /// The measured shortfall a <see cref="GameActionType.RouteHeld"/> row was written
+        /// with (resource units, or whole funds for a funds hold); 0 when the gate measured
+        /// none. Informational only: a later shortfall change on the same reason writes no
+        /// row. Serialized sparsely (<c>routeHoldShortfall</c>, "R" invariant).
+        /// </summary>
+        public double RouteHoldShortfall;
 
         // ---- Initial seed fields ----
 
@@ -1147,6 +1228,9 @@ namespace Parsek
                 case GameActionType.KerbalRecovered:
                     SerializeKerbalRecovered(node);
                     break;
+                case GameActionType.VesselRecovered:
+                    SerializeVesselRecovered(node);
+                    break;
                 case GameActionType.FacilityUpgrade:
                     SerializeFacilityUpgrade(node);
                     break;
@@ -1194,6 +1278,9 @@ namespace Parsek
                     break;
                 case GameActionType.RouteResumed:
                     SerializeRouteResumed(node);
+                    break;
+                case GameActionType.RouteHeld:
+                    SerializeRouteHeld(node);
                     break;
             }
         }
@@ -1307,6 +1394,9 @@ namespace Parsek
                 case GameActionType.KerbalRecovered:
                     DeserializeKerbalRecovered(node, a);
                     break;
+                case GameActionType.VesselRecovered:
+                    DeserializeVesselRecovered(node, a);
+                    break;
                 case GameActionType.FacilityUpgrade:
                     DeserializeFacilityUpgrade(node, a);
                     break;
@@ -1354,6 +1444,9 @@ namespace Parsek
                     break;
                 case GameActionType.RouteResumed:
                     DeserializeRouteResumed(node, a);
+                    break;
+                case GameActionType.RouteHeld:
+                    DeserializeRouteHeld(node, a);
                     break;
             }
 
@@ -1793,6 +1886,22 @@ namespace Parsek
             a.KerbalRole = n.GetValue("kerbalRole");
         }
 
+        private void SerializeVesselRecovered(ConfigNode n)
+        {
+            if (RecoveredVesselName != null) n.AddValue("vesselName", RecoveredVesselName);
+            if (RecoveredVesselPid != 0u)
+                n.AddValue("vesselPid", RecoveredVesselPid.ToString(IC));
+        }
+
+        private static void DeserializeVesselRecovered(ConfigNode n, GameAction a)
+        {
+            a.RecoveredVesselName = n.GetValue("vesselName");
+            string pidStr = n.GetValue("vesselPid");
+            uint pid;
+            if (pidStr != null && uint.TryParse(pidStr, NumberStyles.Integer, IC, out pid))
+                a.RecoveredVesselPid = pid;
+        }
+
         private void SerializeFacilityUpgrade(ConfigNode n)
         {
             if (FacilityId != null) n.AddValue("facilityId", FacilityId);
@@ -2000,6 +2109,44 @@ namespace Parsek
         {
             ReadRouteCommon(n, a);
             a.RouteEndpointReason = n.GetValue("routeEndpointReason");
+        }
+
+        // RouteHeld: route identity, the detail token (routeEndpointReason), and two keys
+        // only this type writes - the failure kind by NAME and the measured shortfall.
+        // Both sparse: a None kind and a zero shortfall write nothing.
+        private void SerializeRouteHeld(ConfigNode n)
+        {
+            WriteRouteCommon(n);
+            if (RouteHoldKind != Logistics.RouteDispatchEvaluator.EligibilityFailureKind.None)
+                n.AddValue("routeHoldKind", RouteHoldKind.ToString());
+            if (!string.IsNullOrEmpty(RouteEndpointReason))
+                n.AddValue("routeEndpointReason", RouteEndpointReason);
+            if (RouteHoldShortfall != 0.0)
+                n.AddValue("routeHoldShortfall", RouteHoldShortfall.ToString("R", IC));
+        }
+
+        private static void DeserializeRouteHeld(ConfigNode n, GameAction a)
+        {
+            ReadRouteCommon(n, a);
+            a.RouteEndpointReason = n.GetValue("routeEndpointReason");
+            string kindStr = n.GetValue("routeHoldKind");
+            if (!string.IsNullOrEmpty(kindStr))
+            {
+                if (Enum.TryParse(kindStr, out Logistics.RouteDispatchEvaluator.EligibilityFailureKind kind)
+                    && Enum.IsDefined(typeof(Logistics.RouteDispatchEvaluator.EligibilityFailureKind), kind))
+                {
+                    a.RouteHoldKind = kind;
+                }
+                else
+                {
+                    ParsekLog.Warn("GameAction",
+                        $"RouteHeld: unknown routeHoldKind '{kindStr}' on route '{a.RouteId ?? "<none>"}' " +
+                        "- reading None (the row renders the generic held text)");
+                }
+            }
+            string shortfallStr = n.GetValue("routeHoldShortfall");
+            if (shortfallStr != null)
+                double.TryParse(shortfallStr, NS, IC, out a.RouteHoldShortfall);
         }
 
         private void SerializeRouteEndpointLost(ConfigNode n)

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 
 namespace Parsek
@@ -197,10 +198,21 @@ namespace Parsek
             CelestialBody body = VesselSpawner.ResolveSpawnRotationBody(rec, lastPoint);
             bool spawnUsesOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(
                 rec, !string.IsNullOrEmpty(rec.EvaCrewName));
+            // A tip an epoch-shift jump froze in the bubble spawns from its jump-shifted orbit,
+            // so the held ghost is drawn on that orbit too.
+            double jumpLagSeconds =
+                TimeJumpTerminalOrbitShift.TryGetShift(rec.RecordingId, currentUT, out TerminalOrbitJumpShift jumpShift)
+                    ? jumpShift.LagSeconds
+                    : 0.0;
             Orbit orbit = null;
             bool orbitBuilt = spawnUsesOrbit && body != null
-                && VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn(rec, body, currentUT, out orbit)
+                && VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn(rec, body, currentUT, jumpLagSeconds, out orbit)
                 && orbit != null;
+            if (jumpLagSeconds > 0.0)
+                ParsekLog.Info(ChainTipBlockedGhost.Tag,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Blocked chain tip ghost drawn on its jump-shifted orbit: #{0} rec={1} lag={2:F1}s orbitBuilt={3}",
+                        index, rec.RecordingId ?? "(none)", jumpLagSeconds, orbitBuilt));
 
             var s = new BlockedChainTipGhostState
             {
@@ -239,6 +251,42 @@ namespace Parsek
                 ChainTipBlockedGhost.BuildHeldMessage(
                     index, s.recordingId, s.vesselName, s.chainPid, s.source,
                     body != null ? body.name : null, currentUT, chain.BlockedSinceUT));
+        }
+
+        /// <summary>
+        /// After an epoch-shift jump, rebuild each held ghost's orbit with the shift the jump
+        /// left armed (a second jump accumulates it), so the ghost stays drawn where the
+        /// blocked vessel would appear rather than on the orbit captured before the jump.
+        /// </summary>
+        internal void RefreshBlockedChainTipGhostOrbitsAfterJump()
+        {
+            if (blockedChainTipGhosts.Count == 0)
+                return;
+            double currentUT = Planetarium.GetUniversalTime();
+            var committed = RecordingStore.CommittedRecordings;
+            int rebuilt = 0;
+            foreach (var kvp in blockedChainTipGhosts)
+            {
+                BlockedChainTipGhostState s = kvp.Value;
+                if (s == null || s.orbit == null || s.body == null)
+                    continue;
+                if (s.index < 0 || s.index >= committed.Count || committed[s.index] == null
+                    || committed[s.index].RecordingId != s.recordingId)
+                    continue;
+                double lag = TimeJumpTerminalOrbitShift.TryGetShift(s.recordingId, currentUT, out TerminalOrbitJumpShift shift)
+                    ? shift.LagSeconds
+                    : 0.0;
+                if (VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn(
+                        committed[s.index], s.body, currentUT, lag, out Orbit orbit) && orbit != null)
+                {
+                    s.orbit = orbit;
+                    rebuilt++;
+                }
+            }
+            ParsekLog.Verbose(ChainTipBlockedGhost.Tag,
+                string.Format(CultureInfo.InvariantCulture,
+                    "Held chain tip ghost orbits rebuilt after time jump: held={0} rebuilt={1}",
+                    blockedChainTipGhosts.Count, rebuilt));
         }
 
         private void PositionBlockedChainTipGhost(BlockedChainTipGhostState s, double currentUT)

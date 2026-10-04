@@ -1495,6 +1495,13 @@ namespace Parsek
         // and padding are left at the skin's 4px so row pitch is unchanged.
         internal const int TableRowHorizontalInsetPx = 0;
 
+        // The gap a Parsek window leaves between its title bar and its first box or row:
+        // the Missions, Logistics, Kerbals, Settings and Log windows each open their
+        // content with a GUILayout.Space of this height, and the pickers
+        // (PickerWindowLayout.DrawTitleGap) reuse it. Pinned equal across them by
+        // PickerWindowLayoutTests.
+        internal const float WindowContentTopGapPx = 5f;
+
         // Fallback footprint when GUI.skin.verticalScrollbar is unavailable: KSP's
         // 15px bar plus its 1px left margin, as measured by the 2026-09-11 census
         // (run 2026-09-11_1706_GUI-6-census-flight-playback).
@@ -1837,6 +1844,9 @@ namespace Parsek
 
             /// <summary>New / informational / eligible (0.65, 0.85, 1).</summary>
             Cyan = 4,
+
+            /// <summary>Soft violet #b39ddb: the Logistics Paused Routes section accent.</summary>
+            Violet = 5,
         }
 
         /// <summary>
@@ -1857,6 +1867,8 @@ namespace Parsek
                     return new Color(1f, 0.4f, 0.4f);
                 case StatusColorKind.Cyan:
                     return new Color(0.65f, 0.85f, 1f);
+                case StatusColorKind.Violet:
+                    return new Color(179f / 255f, 157f / 255f, 219f / 255f);
                 case StatusColorKind.Grey:
                 default:
                     return new Color(0.7f, 0.7f, 0.7f);

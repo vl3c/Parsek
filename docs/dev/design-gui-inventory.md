@@ -343,7 +343,7 @@ instance of row 8's class.
 | 4 | `Parsek - Kerbals` | `UI/KerbalsWindowUI.cs:205` | FLIGHT, SPACECENTER | `kerbals` (tabs `roster`, `outcomes`) | 2 labels |
 | 5 | (unused number) | - | - | - | - |
 | 6 | `Parsek - Logistics` | `UI/LogisticsWindowUI.cs:444` | FLIGHT, SPACECENTER | `logistics` | `ksc-logistics-advanced/basic` |
-| 7 | Logistics round-trip link picker (`Link round-trip partner`) | `UI/LogisticsWindowUI.cs:1762` | as its host | excluded `TestCommandUiAction.cs:374-377`; reached by `op=picker picker=link` | `ib-logistics-linkpicker-advanced` (GUI-3, 198 nodes, `windows=4`) |
+| 7 | Logistics round-trip link picker (`Link round-trip partner`) | `UI/LogisticsWindowUI.cs` (`DrawLinkPicker`) | as its host | excluded `TestCommandUiAction.cs:374-377`; reached by `op=picker picker=link` | `ib-logistics-linkpicker-advanced` (GUI-3, 198 nodes, `windows=4`) |
 | 8 | `Parsek - Log: <mission>` (bare `Parsek - Log` untargeted) | `UI/StructureListWindowUI.cs` (`BuildWindowTitle`) | FLIGHT, SPACECENTER | `structure` (`op=target mission=`) | `ib-structure-route-log-advanced`, `ib-structure-mission-advanced` (GUI-3), `ksc-structure-advanced` (GUI-1) |
 | 8b | `Parsek - Route History: <route>` | `UI/StructureListWindowUI.cs` (second instance, `RouteHistoryWindowIdKey`) | FLIGHT, SPACECENTER | `routehistory` (`op=target route=`) | `ib-routehistory-advanced` (GUI-3) |
 | 9 | `Parsek - Settings` | `UI/SettingsWindowUI.cs:128` | FLIGHT, SPACECENTER | `settings` | `ksc-settings-advanced/basic` |
@@ -458,22 +458,30 @@ describes the first row under it:
 | # | header | width const | mission bar line 1 | mission bar line 2 | vessel / interval / partner / chapter rows |
 |---|---|---|---|---|---|
 | 1 | (blank enable slot) | `ColW_Enable` 20 | blank | blank | blank |
-| 2 | `#` (sortable) | `ColW_Index` 30 | per-TREE index | blank | include checkbox (Advanced) or blank |
+| 2 | `#` (sortable) | `ColW_Index` 30 | per-TREE index | the collapse caret (down / right) | include checkbox (Advanced) or blank |
 | 3 | `Missions and vessels` (sortable) | expand | bold title (double-click renames), then right-aligned (Advanced) `Clone` and `Warp to...`, then `Log` (`DrawMissionNameCell`) | the summary, then (Advanced) `Delete` and the loop row, right-aligned (`DrawMissionSummaryNameCell`) | connector + caret + name + `EventPhrase` |
 | 4 | `Start time` (sortable) | `ColW_StartTime` 120 | the mission span's start date | blank | `PrintDateCompact` |
 | 5 | `Start event` | `ColW_StartEvent` 110 | the first vessel row's start event (`MissionPresentation.MissionStartEventText`) | blank | event word |
 | 6 | `End event` | `ColW_EndEvent` 85 | the primary vessel's outcome | blank | terminal word |
 | 7 | `End time` | `ColW_EndTime` 120 | the mission span's end date | blank | date |
-| 8 | `Interact` (centred plain label) | `ColW_Interact` 116 | `Watch` / `W*`, paired with `Rewind` or `Forward` when one applies | `Collapse` / `Expand` | `Stash` + `Seal` or `Fly` + `Seal` (vessel and interval rows), `Go to` (Docked partner rows), blank (chapter rows) |
+| 8 | `Interact` (centred plain label) | `ColW_Interact` 116 | `Watch` / `W*` | `Rewind` or `Forward` when one applies, else a reserved button-sized slot | `Stash` + `Seal` or `Fly` + `Seal` (vessel and interval rows), `Go to` (Docked partner rows), blank (chapter rows) |
 
 `MissionsTabColumnSequenceTests` pins the column sequence of the header against both bar
 lines, the vessel row, the interval row, the chapter header row and both Docked partner row
 kinds, in both modes: no column is mode-gated.
 
+The `#` header sits over the index column's contents: its merged [enable + index] cell
+(`indexHeaderCellStyle`) has no left inset, so its index slot starts at the rows' index-cell x,
+and `#` is left-aligned in a label-skin style (`indexHeaderLabelStyle`) like the index number
+and the collapse caret below it, with the sort arrow trailing it. The inset moves to the cell's
+right padding (`IndexHeaderRightPadding`), so the cell keeps its width and no other header moves
+(`TheIndexHeaderSitsOverTheIndexColumnContents`).
+
 The Interact column carries every per-row action, on one width system:
-`InteractButtonWidth` 100 for a single button (Watch alone, `Collapse` / `Expand`, `Go to`, and
-`Log` in the name cell), `InteractPairButtonWidth` 48 for each half of a pair (`Fly` /
-`Stash` + `Seal`, `Watch` + `Rewind`), `InteractButtonGap` 4, so `2 * pair + gap == single`;
+`InteractButtonWidth` 100 for a single button (`Watch` on line 1 and `Rewind` / `Forward` on
+line 2 at the same x, `Go to`, and `Log` in the name cell), `InteractPairButtonWidth` 48 for
+each half of a pair (`Fly` / `Stash` + `Seal`), `InteractButtonGap` 4, so
+`2 * pair + gap == single`;
 the column is the single plus an 8 px inset each side (`InteractCellInset`). The Re-Fly pair
 is the Recordings tab's own cell drawn at that geometry
 (`RecordingsTableUI.DrawReFlyColumnCell`).
@@ -514,11 +522,17 @@ mission - else the word itself when it measures wider than the cell, else nothin
 words are single short words (`Launch`, `Decoupled`, `Undocked`, `Docked`, `Boarded`, `EVA`,
 `Broke off`, `Broke up`, `Placed`, `Switch`, and the terminal words up to `Disassembled`).
 
-**Collapse / Expand.** `Mission.Collapsed` (saved as `collapsed`; a save's older per-mission
+**Collapse caret.** `Mission.Collapsed` (saved as `collapsed`; a save's older per-mission
 `archived` key loads into it) hides a mission's vessel, interval, chapter and partner rows;
-the two-line bar stays. The button reads `Collapse` while the rows show and `Expand` (pressed)
-while they are hidden. The draw loop reads the flag once before the bar draws, so a click
-lands next frame. The Timeline GoTo cross-link QUEUES expanding a collapsed target and applies
+the two-line bar stays. The toggle is a clickable caret glyph in the `#` column on line 2,
+under the index number (`DrawMissionCollapseCaret`): a down caret (U+25BC) while the rows
+show and a right caret (U+25B6) while they are hidden
+(`MissionPresentation.MissionCollapseCaretGlyph`), hover `Collapse this mission` /
+`Expand this mission`. It is a frameless Button in a label style (the click style of the
+Recordings group carets and the Logistics section carets), and its hit area is the whole
+`ColW_Index` cell (30 px) at least one row (22 px) tall. The draw loop reads the flag once
+before the bar draws, so a click lands next frame. The Timeline GoTo cross-link QUEUES
+expanding a collapsed target and applies
 it on a Layout pass. Seam: `op=expand window=missions key=mission:<id>` drives it (expanded =
 not collapsed); it is a NAMED-KEYS-ONLY set, so `key=all` / `key=none` skip it and its counts.
 The Recordings tab's per-recording Archive (`rec.Hidden`) and the Timeline's `Archived` filter
@@ -530,9 +544,9 @@ Mission bar controls, with their gates:
 |---|---|---|---|
 | title double-click | line 1 name cell | `CommitMissionRename` -> `MissionGroupLink.RenameMissionGroup` for an original, `MissionStore.RenameMission` for a clone | a group-name collision refuses the whole rename, Warn-only |
 | `Log` | line 1 name cell, right-aligned (right of the Advanced loop grid) | `ParsekUI.OpenStructureWindowForMission` | never |
-| `Watch` / `W*` | line 1 Interact | `flight.EnterWatchMode` / `ExitWatchMode` | greyed with one of two reasons (`MissionWatchDisabledReason`: `Watching only works while you are flying`, `Nothing from this mission is flying right now`). Both modes |
-| `Rewind` / `Forward` | line 1 Interact, paired with Watch | `RecordingsTableUI.DrawMissionRewindForwardButton` over the mission root recording | greyed on `CanRewind` / `CanFastForward` with the store's reason; not drawn when neither applies (Watch then takes the full width), and not drawn at all when the mission's root recording owns no launch save (`RecordingStore.GetRewindRecording` null), the same rule as the Recordings tab's blank Rewind cell. Both modes |
-| `Collapse` / `Expand` | line 2 Interact | writes `Mission.Collapsed` | never. Both modes |
+| `Watch` / `W*` | line 1 Interact, single width | `flight.EnterWatchMode` / `ExitWatchMode` | greyed with one of two reasons (`MissionWatchDisabledReason`: `Watching only works while you are flying`, `Nothing from this mission is flying right now`). Both modes |
+| `Rewind` / `Forward` | line 2 Interact, single width, under Watch | `RecordingsTableUI.DrawMissionRewindForwardButton` over the mission root recording | greyed on `CanRewind` / `CanFastForward` with the store's reason; not drawn when neither applies (a button-sized rect is reserved instead, so line 2 keeps its height), and not drawn at all when the mission's root recording owns no launch save (`RecordingStore.GetRewindRecording` null), the same rule as the Recordings tab's blank Rewind cell. Both modes |
+| collapse caret (down / right) | line 2 `#` cell, under the index | writes `Mission.Collapsed` | never. Both modes |
 | `Clone` | loop grid column A, line 1 | `MissionStore.Clone` | HIDDEN in Basic |
 | `Delete` | loop grid column A, line 2 | `MissionStore.Delete` | greyed by `CanDelete` (`A flight always keeps its first mission`); HIDDEN in Basic |
 | `Warp to...` | loop grid column B, line 1 | confirm dialog, then an in-place forward jump to 15 s before the next relaunch | HIDDEN in Basic; in Advanced always drawn, greyed with the first failing reason in order (`MissionWarpToDisabledReason`): `Warping works in flight or at the Space Center`; `Turn Loop on to warp to the next launch` (on a route-bound tree `A supply route repeats this mission, not Loop`); `This mission does not repeat on a schedule yet`; `The next launch is not ahead of you` |
@@ -558,7 +572,7 @@ What `MissionsLoopControls` hides in Basic: the include checkboxes, the loop gri
 per-vessel interval rows, the vessel caret, the foreign partner-journey rows and the
 loop-selection styling (dimmed excluded vessels, the `(partial)` suffix, the chapter header's
 toggle, dimming and `[~]` marker). Basic keeps the title and rename, the summary, `Log`,
-`Watch`, `Rewind` / `Forward`, `Collapse` / `Expand`, `Fly` / `Stash` / `Seal`, `Go to`, the
+`Watch`, `Rewind` / `Forward`, the collapse caret, `Fly` / `Stash` / `Seal`, `Go to`, the
 chapter headers, the Docked partner rows and the `Looped by route` label.
 
 Pictures: `ksc-missions-missions-advanced`, `ksc-missions-basic`,
@@ -639,8 +653,32 @@ mode, else `Manage Groups`; a `(None / Root level)` toggle, a recursive checkbox
 SKIPS any group in `treeModel.CycleInvalid`, a new-group text field plus `+`, then `OK` /
 `Cancel`. `ApplyGroupPopupChanges` has four exclusive branches (group-parent, chain
 all-or-nothing, multi-recording per-recording, single recording). Removes are never gated. It
-has no tooltip strip. Minimum 220 x 200, first opened at 280 x 300 clamped to the screen at the
-click point. Pictures: see row 14 of 3.0.
+has no tooltip strip. It draws in the shared picker look (`UI/PickerWindowLayout.cs`, below).
+Its heading (`GroupPickerPresentation.FormatHeading`) names what the choice is for:
+`Parent of 'G':` in group-parent mode, `Groups for 'V':` for one recording, `Groups for N
+recordings:` for a chain, a block or a multi-selection. The `(None / Root level)` toggle is the
+first entry row; `+` is 48 px, `OK` / `Cancel` 100 px. Minimum 260 x 220, first opened at
+320 x 360: next to the clicked `G` / `S` button, or centred over the Missions window when the
+seam opens it. Pictures: see row 14 of 3.0.
+
+**The shared picker look** (`UI/PickerWindowLayout.cs`, both pickers): the main windows'
+5 px gap under the title bar (`ParsekUI.WindowContentTopGapPx`, the `GUILayout.Space` the
+Missions, Logistics, Kerbals, Settings and Log windows open with), a heading in the
+shared table section-header style (`ParsekUI.GetTableSectionHeaderStyle`), then the entries
+inside the shared dark table body box (`GetTableBodyBoxStyle`, the Recordings tab's list-area
+box) around a scroll view on `GetTableScrollViewStyle`, one row per entry at the Missions
+tab's expanded sub-row spacing (a style-less `BeginHorizontal` at
+`MissionsWindowUI.CompositionRowMinHeight`, 22 px, with no table-row vertical margin), group
+names in `GetTableCellStyle`, and buttons at
+the Missions Interact widths (100 px single, 48 px for the one-glyph `+`, 4 px gap). Placement
+(`PickerWindowLayout.PlaceOnOpen`, pure): a click-opened picker opens to the right of the
+click with its top level with it, or to its left when the right side has no room; a picker
+opened with no click point (the census seam) is centred over its parent window; either way
+the rect is clamped fully on screen. The first-open rect is placed BEFORE
+`ParsekUI.HandleResizeDrag`, because the screen fit inside it widens an unplaced zero rect to
+the window's minimum width at the screen origin and the placement would then never run. One
+`Group picker placed ...` / `Logistics link picker placed ...` Verbose line per open. Pinned
+by `PickerWindowLayoutTests`.
 
 ### 3.3 Parsek - Timeline
 
@@ -801,7 +839,7 @@ control a Basic player can reach**. It governs whether recordings with `Recordin
 (launch, separation, spawn, crew death), each marked `[archived]`
 (`TimelineBuilder.CollectRecordingEntries`). It is in force in every view; the Career views
 list ledger rows only, which archiving never hides, so there it changes nothing. The Missions
-tab's `Collapse` is a different flag and does not reach the Timeline. Hover: "Lists archived
+tab's collapse caret is a different flag and does not reach the Timeline. Hover: "Lists archived
 flights, marked [archived], in all views. Same switch as the recordings list's Archive
 filter."
 
@@ -871,9 +909,10 @@ Routes disclosure (only when a route is dormant), Candidates. Each of the three 
 has a title bar: ONE button across the width with the caret (U+25BC expanded / U+25B6 collapsed, the
 route rows' glyphs), the centred title and its count (`Active Routes (2)`, `Paused Routes (1)`,
 `Candidates (3)`), in a font 2 pt over the shared section header, and a 2 px accent bar along the
-bottom of the header box in the section's `ParsekUI.StatusColor` (green Active, grey Paused,
-cyan Candidates; a bar rather than a coloured title, so a section's start stays marked when its
-title has scrolled away). A click folds or unfolds the section on the next frame (the queued
+bottom of the header box in the section's `ParsekUI.StatusColor` slot
+(`LogisticsRoutePresentation.SectionAccent`: green Active, soft violet `#b39ddb` Paused
+(`StatusColorKind.Violet`), cyan Candidates; a bar rather than a coloured title, so a section's
+start stays marked when its title has scrolled away). A click folds or unfolds the section on the next frame (the queued
 toggle is applied after the draw); a folded section draws only its bar; the state is per
 section, session-only, all expanded by default. Folding a section drops an open interval or
 rename edit on a route inside it (discarded like Escape). Between Active and Paused, and before
@@ -919,7 +958,14 @@ yellow; the date is `Route.LastHoldUT`, the LAST check, so it names the last hel
 when the hold began) and partial-delivery lines, the capacity line and `Re-scan for endpoint`
 of a broken route, `Last delivered on <date>: ... Delivered so far: ...` (from the route's
 RouteCargoDelivered ledger rows), cost/run, `Built from mission 'X'.` and the round-trip note
-when linked. Advanced adds the `Every:` and `Priority:` steppers, `Flights used:` (names, a
+when linked. Advanced adds the `Every:` and `Priority:` steppers, one fixed grid: the same 70 px
+label column, 24 px `-` / `+` buttons in the same button style, and one value cell measured once
+with the block's label style from the widest Every readout (`1x (every window)` up to
+`99x (every 99th window)`, `99x (~9999.9d)`; `LogisticsRoutePresentation.StepperValueCellWidth`),
+so both `-` buttons share a column and both `+` buttons another whatever the values; both rows
+take one height, a slot-button line's (`StepperRowHeight`), whether or not the block's slot
+column reaches them; a `-` at its
+floor (1x / 0) is greyed with its reason on hover. Then `Flights used:` (names, a
 repeated name numbered `Name [1]`, `Name [2]`) and the manual-looping clause after
 `Built from mission 'X'.`. The route's runs are the Route History's, not the block's.
 
@@ -945,7 +991,11 @@ flight, so there is nothing to repeat.` The expanded candidate is the cost line 
 The link picker (window 7) is its own `GUILayoutWindow`, armed only from an expanded route's
 `Link round-trip...` (Advanced only), reached by the seam's `op=picker picker=link`, which
 refuses `picker-hidden-in-basic` in Basic. A switch to Basic closes it (the `LogisticsLinkPicker`
-entry of the Basic close set).
+entry of the Basic close set). It draws in the shared picker look (3.2, `UI/PickerWindowLayout.cs`):
+the `Link 'X' with:` heading in the table section-header style, one candidate toggle per table
+row inside the dark body box, `Link` / `Cancel` at 100 px. It opens next to the clicked
+`Link round-trip...` button (to its left, since that column sits at the window's right edge),
+or centred over the Logistics window when the seam opens it.
 
 Pictures: GUI-3 (`ib-logistics-collapsed-advanced`, `ib-logistics-expanded-advanced`,
 `ib-logistics-linkpicker-advanced`, `ib-logistics-basic`), GUI-1 (`ksc-logistics-advanced`,
@@ -990,9 +1040,17 @@ Route History rows (N is the run's position in dispatch order):
 | RouteDispatched | `Run N: Sent`, or `Run N: Sent once` for a run armed by Send, plus what the launch cost when it cost anything: `, cost 7,410 funds` (a Career KSC launch), `, cost 257.8 LiquidFuel, 315.1 Oxidizer` (cargo taken from an origin vessel), or both joined (`RouteHistoryBuilder.SentCostSuffix`) | the origin (`KSC` / `-` for a funds-paid launch) |
 | RouteCargoPickedUp | `Run N: Picked up <amounts>` (`(the source was short)` when it was) | the pickup stop's place and vessel |
 | RouteCargoDelivered | `Run N: Delivered <amounts>` (`40.0 of 150.0 LiquidFuel (110.0 did not fit)` when short); the row that finishes a run | the stop's place and vessel |
+| RouteHeld | `Held: <reason>`, the Logistics window's hold sentence without its live-route advice (`- delivers when ...`, `- use Re-scan ...`, `- it may have moved ...`): `Held: origin is short 108.8 LiquidFuel`, `Held: destination has no room for LiquidFuel`, `Held: Depot B is short 20.0 Ore`, `Held: destination has no free inventory slot for stored part 'EVA Science Kit'` (stored parts by title, `StructureListWindowUI.ResolvePartTitle`; a linked-route wait names the partner's current name from the stored partner id, `RouteHistoryBuilder.HeldDetailForDisplay`); no run number; plain `Held` when the row's kind did not read back (`LogisticsHoldPresentation.DescribeHoldForHistory` / `FormatHistoryHeldRow`) | the origin for an origin-cargo or funds hold; a pickup source hold names that source's vessel (live name first); `-` otherwise |
 | RoutePaused | `Paused` (a player Pause), `Paused after the run` (delivered, partly delivered, or delivered on a replayed crossing), `Paused after a held run`, `Stopped: flight missing` / `flight changed` | `-` |
 | RouteResumed | `Activated` (player), `Resumed` (automatic) | `-` |
 | RouteEndpointLost | `Stopped: destination lost` / `origin lost` | `-` |
+
+Amounts read amount first in every row (`150.0 LiquidFuel, 40.0 Oxidizer`, resources in ordinal
+order, then `N stored part(s)`), as the Sent cost and a short delivery do; the Logistics table's
+Delivers column keeps its own `LiquidFuel 150.0` shape. A Held row is written once per hold
+episode and reason (logistics design section 6.7): a route held for a year on one reason shows
+one row, a reason change (origin short, then destination full) a second, and the next `Sent`,
+`Paused`, `Activated` or `Stopped` row ends the episode; nothing marks the release.
 
 Debit rows (funds or origin cargo) are not shown as rows; each is folded into the Sent row of
 its own run (same `RouteCycleId`, so interleaved runs never borrow each other's cost), and a debit
@@ -1330,7 +1388,7 @@ frame can never disagree about the control count. Every draw site reads
 | `MainButtonSettings` | `UiComplexityMode.cs` | KEEP | `ParsekUI.DrawWindow` | nothing |
 | `TabRecordings` | `UiComplexityMode.cs` | HIDE | `RecordingsTableUI.VisibleTabCount` | the tab bar, the Recordings tab and its whole body |
 | `TabMissions` | `UiComplexityMode.cs` | KEEP | `TimelineWindowUI` (the `GoTo` button) | nothing; `GoTo` is gated by its TARGET's key, so re-pointing it at a hidden surface would hide it |
-| `MissionsLoopControls` | `UiComplexityMode.cs` | HIDE | `MissionsWindowUI.ShowsLoopAuthoringControls` (read at each draw site) | the loop grid (`Clone`, `Delete`, `Warp to...`, `Loop`, the period cell), the summary's `Next launch` piece, the include checkboxes, the per-vessel interval rows, the foreign partner-journey rows and the loop-selection styling. NOT `Looped by route`, `Watch`, `Rewind` / `Forward`, `Log`, `Collapse`, `Fly` / `Stash` / `Seal` or `Go to` |
+| `MissionsLoopControls` | `UiComplexityMode.cs` | HIDE | `MissionsWindowUI.ShowsLoopAuthoringControls` (read at each draw site) | the loop grid (`Clone`, `Delete`, `Warp to...`, `Loop`, the period cell), the summary's `Next launch` piece, the include checkboxes, the per-vessel interval rows, the foreign partner-journey rows and the loop-selection styling. NOT `Looped by route`, `Watch`, `Rewind` / `Forward`, `Log`, the collapse caret, `Fly` / `Stash` / `Seal` or `Go to` |
 | `SettingsSectionLooping` | `:110` | HIDE (`:185`) | `UI/SettingsWindowUI.cs:345`, `:378` | the Looping section |
 | `LogisticsRouteTuning` | `UI/UiComplexityMode.cs` | HIDE | `UI/LogisticsRoutePresentation.cs` (`ShowsRouteTuning`, latched once per pass in `LogisticsWindowUI.DrawWindow`) | the Every stepper (Basic reads the interval), the Runs column, Priority, Link round-trip and its picker, Flights used, the manual-looping clause |
 | `SettingsSectionDiagnostics` | `:113` | HIDE (`:186`) | `UI/SettingsWindowUI.cs:393` | the Diagnostics section, and with it the only reopen path to `TestRunnerUI` |
@@ -1960,8 +2018,8 @@ instance and a 1920x1080 player screen. "First-open" rects are seeded only when
 | Gloops | none | 280 x 230 (`GloopsRecorderUI.DefaultWindowWidth` / `DefaultWindowHeight`) | NO handle | yes | yes |
 | Test Runner (Settings) | 320 x 600 (`TestRunnerUI.MinWindowWidth` / `MinWindowHeight`) | 440 x 600 | yes | yes, 600 of 720 | yes |
 | Test Runner (global) | 320 x 600 (`TestRunnerShortcut.MinWindowWidth` / `MinWindowHeight`) | 440 x 600 at a FIXED screen position (20, 60), not anchored to the main window | yes | yes | yes. GUI-12 commands it to 620x700 through `op=rect window=testrunnerglobal`, the same rect as its twin, so the two are comparable at a glance |
-| Group picker | 220 x 200 (`GroupPickerUI.GroupPopupMinW` / `GroupPopupMinH`) | 280 x 300, clamped to the screen at the click point | yes | yes | yes |
-| Logistics link picker | 240 x 180 (`UI/LogisticsWindowUI.cs:329-330`) | 340 x 380, clamped at the arming mouse position | yes | yes | yes |
+| Group picker | 260 x 220 (`GroupPickerUI.GroupPopupMinW` / `GroupPopupMinH`) | 320 x 360 (`GroupPopupDefaultW` / `GroupPopupDefaultH`), next to the click or centred over the Missions window, clamped on screen (`PickerWindowLayout.PlaceOnOpen`) | yes | yes | yes |
+| Logistics link picker | 260 x 200 (`LogisticsWindowUI.LinkPickerMinW` / `LinkPickerMinH`) | 360 x 320 (`LinkPickerDefaultW` / `LinkPickerDefaultH`), next to the click or centred over the Logistics window, clamped on screen (`PickerWindowLayout.PlaceOnOpen`) | yes | yes | yes |
 
 Two windows are laid out wider than a 1280 px screen: Logistics (1410) and Missions (1355).
 Every other window's minimum and first-open default fit 1024 px. A window with a resize handle
@@ -2026,7 +2084,8 @@ style by the pure `ComposeTableCellPadding` (vertical padding stays the label's)
 text delta is `ParsekUI.HeaderToCellTextDeltaPx` = 0. Built once per skin with a
 `Table cell style built: colHdr.padding=... cell.padding=...` Verbose line, which is the
 number a dump measurement adds to each rect's x. The Recordings tab, Kerbals, Real Spawn
-Control and the Log window use it (pinned by `TableRowInsetAlignmentTests`).
+Control and the Log window use it (pinned by `TableRowInsetAlignmentTests`), and so do the
+group picker's entries (`PickerWindowLayoutTests`).
 
 **The gutter itself is TWO skin terms, not the scrollbar width.** Both are read off the live
 skin by `ParsekUI.VerticalScrollbarFootprintWidth()` + `TableCellHorizontalMarginPx()`,

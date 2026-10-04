@@ -567,8 +567,8 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, env);
 
-            // NOTHING emitted.
-            Assert.Empty(Ledger.Actions);
+            // No run rows: the only row is the hold's own Route History row.
+            Assert.Equal(GameActionType.RouteHeld, Assert.Single(Ledger.Actions).Type);
             // SkippedCycles bumped, CompletedCycles untouched.
             Assert.Equal(1, route.SkippedCycles);
             Assert.Equal(0, route.CompletedCycles);
@@ -591,7 +591,8 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(1150.0, env); // cycle 0 dock crossing, blocked -> snap
             RouteOrchestrator.Tick(1200.0, env); // still cycle 0, dock already crossed -> no re-fire
 
-            Assert.Empty(Ledger.Actions);
+            // No run rows; the one hold row was written once.
+            Assert.Equal(GameActionType.RouteHeld, Assert.Single(Ledger.Actions).Type);
             Assert.Equal(1, route.SkippedCycles); // bumped exactly once
             Assert.Equal(0, route.LastObservedLoopCycleIndex);
         }
@@ -612,7 +613,7 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(1150.0, blockedEnv); // cycle 0 dock crossing, blocked -> SkippedCycles=1, snap to 0
             Assert.Equal(1, route.SkippedCycles);
             Assert.Equal(0, route.LastObservedLoopCycleIndex);
-            Assert.Empty(Ledger.Actions);
+            Assert.Equal(GameActionType.RouteHeld, Assert.Single(Ledger.Actions).Type);
 
             // Cycle 1: eligible (fire). cycleId = cycle-{0 completed + 1 skipped} = cycle-1.
             var eligibleEnv = new EligibleEnv();
@@ -679,7 +680,9 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(1150.0, env);
 
             Assert.Equal(1, route.SkippedCycles); // proves the funds gate blocked, not a pass
-            Assert.Empty(Ledger.Actions);
+            GameAction held = Assert.Single(Ledger.Actions);
+            Assert.Equal(GameActionType.RouteHeld, held.Type);
+            Assert.Equal(750.0, held.RouteHoldShortfall);
             Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.FundsShort,
                 route.LastHoldKind);
             Assert.Equal("funds-short", route.LastHoldDetail);

@@ -902,6 +902,23 @@ Each: scenario -> expected behavior -> v1 or deferred.
     hanging, and the too-tight budget is a spec-authoring fix. v1 (surfaced via
     KILLED; a spec-validation cross-check of `runtime.budgetSeconds >= sum(step
     budgets) + margin` is deferred).
+20. **Game paused with the clock stopped** (stock `FlightLogger` opens
+    `FlightResultsDialog` about 60 s after the active vessel is destroyed and calls
+    `FlightDriver.SetPause(true)`). Every phase budget is game time and the
+    frozen-telemetry detector requires UT to advance, so neither can fire; before
+    the watchdog the mission rode the pause to its wall budget (RB-1
+    `2026-09-27_1353`, about 1,100 s). The fly loop runs the pure
+    `mlib.paused_clock_step` every poll: an unbroken run of polls with UT unchanged
+    AND `KRPC.Paused` true lasting `PAUSED_CLOCK_WALL_SECONDS` (15 wall s) ends the
+    mission through `mlib.paused_clock_terminal` -> `MISSION-ASSERT-FAIL` with a
+    `vessel-lost (paused-clock: ...)` reason, the same class as every machine's own
+    vessel-lost terminal (INVALID(mission), retry-once; never PARSEK-FAIL). A machine
+    state with no `loss_reason` field (M3) gets a named `MISSION-FLAKE` instead, so
+    the frozen telemetry is never graded. Exempt (the watch re-arms): a running
+    native warp (`_warp_watchdog` owns pauses then), the poll after any seam action
+    (its perform() blocks for the whole step), a machine state declaring
+    `game_pause_owned` (no mission pauses the game today), an unread pause state, a
+    non-finite UT. The pause RPC is issued only on a poll whose UT did not move. v1.
 
 ## Amendment A (2026-08-19): the career-earning verbs and `science_bench_recover`
 

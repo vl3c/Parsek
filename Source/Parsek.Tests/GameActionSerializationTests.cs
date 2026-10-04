@@ -588,6 +588,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void VesselRecovered_RoundTrip()
+        {
+            var original = new GameAction
+            {
+                UT = 2345.6,
+                Type = GameActionType.VesselRecovered,
+                RecordingId = "rec_tip",
+                Sequence = 4,
+                RecoveredVesselName = "CTR Lander",
+                RecoveredVesselPid = 3344556677u
+            };
+
+            var result = RoundTrip(original);
+
+            Assert.Equal(GameActionType.VesselRecovered, result.Type);
+            Assert.Equal(2345.6, result.UT);
+            Assert.Equal("rec_tip", result.RecordingId);
+            Assert.Equal(4, result.Sequence);
+            Assert.Equal("CTR Lander", result.RecoveredVesselName);
+            Assert.Equal(3344556677u, result.RecoveredVesselPid);
+        }
+
+        [Fact]
+        public void VesselRecovered_SerializesItsOwnKeysOnly()
+        {
+            var parent = new ConfigNode("LEDGER");
+            new GameAction
+            {
+                UT = 10.0,
+                Type = GameActionType.VesselRecovered,
+                RecordingId = "rec_tip",
+                RecoveredVesselName = "CTR Lander",
+                RecoveredVesselPid = 42u
+            }.SerializeInto(parent);
+
+            var node = parent.GetNode("GAME_ACTION");
+            Assert.Equal("35", node.GetValue("type"));
+            Assert.Equal("CTR Lander", node.GetValue("vesselName"));
+            Assert.Equal("42", node.GetValue("vesselPid"));
+            Assert.Null(node.GetValue("kerbalName"));
+            Assert.Null(node.GetValue("fundsAwarded"));
+        }
+
+        [Fact]
         public void KerbalStandIn_RoundTrip()
         {
             var original = new GameAction
@@ -1368,6 +1412,84 @@ namespace Parsek.Tests
             Assert.Equal(GameActionType.RouteResumed, result.Type);
             Assert.Equal("route-resume", result.RouteId);
             Assert.Equal("player-activate", result.RouteEndpointReason);
+        }
+
+        // RouteHeld: route identity, the detail token, the failure kind BY NAME and the
+        // measured shortfall all round-trip; the kind is written as its name.
+        [Fact]
+        public void Serialize_RouteHeld_RoundTripsKindDetailAndShortfall()
+        {
+            var original = new GameAction
+            {
+                UT = 1150.0,
+                Type = GameActionType.RouteHeld,
+                RouteId = "route-held",
+                RouteCycleId = "cycle-3",
+                RouteStopIndex = -1,
+                RouteHoldKind = Parsek.Logistics.RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                RouteEndpointReason = "source:42:Depot B:LiquidFuel",
+                RouteHoldShortfall = 108.79999999999706,
+            };
+
+            var parent = new ConfigNode("TEST");
+            original.SerializeInto(parent);
+            ConfigNode node = parent.GetNode("GAME_ACTION");
+            Assert.Equal("36", node.GetValue("type"));
+            Assert.Equal("OriginLacksCargo", node.GetValue("routeHoldKind"));
+            Assert.Equal("108.79999999999706", node.GetValue("routeHoldShortfall"));
+
+            var result = GameAction.DeserializeFrom(node);
+            Assert.Equal(GameActionType.RouteHeld, result.Type);
+            Assert.Equal("route-held", result.RouteId);
+            Assert.Equal("cycle-3", result.RouteCycleId);
+            Assert.Equal(-1, result.RouteStopIndex);
+            Assert.Equal(original.RouteHoldKind, result.RouteHoldKind);
+            Assert.Equal("source:42:Depot B:LiquidFuel", result.RouteEndpointReason);
+            Assert.Equal(108.79999999999706, result.RouteHoldShortfall);
+        }
+
+        // Sparse: a zero shortfall writes no key; an unknown kind name (a newer build)
+        // reads back None with a warn instead of throwing; the shortfall stays
+        // InvariantCulture under a comma locale.
+        [Fact]
+        public void Serialize_RouteHeld_SparseKeys_UnknownKind_AndDeDe()
+        {
+            var plain = new GameAction
+            {
+                UT = 1.0,
+                Type = GameActionType.RouteHeld,
+                RouteId = "r",
+                RouteHoldKind = Parsek.Logistics.RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull,
+            };
+            var parent = new ConfigNode("TEST");
+            plain.SerializeInto(parent);
+            ConfigNode node = parent.GetNode("GAME_ACTION");
+            Assert.Null(node.GetValue("routeHoldShortfall"));
+            Assert.Null(node.GetValue("routeEndpointReason"));
+
+            node.SetValue("routeHoldKind", "SomeFutureKind");
+            var unknown = GameAction.DeserializeFrom(node);
+            Assert.Equal(Parsek.Logistics.RouteDispatchEvaluator.EligibilityFailureKind.None, unknown.RouteHoldKind);
+
+            var prior = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+                var funds = new GameAction
+                {
+                    UT = 2.5, Type = GameActionType.RouteHeld, RouteId = "r",
+                    RouteHoldKind = Parsek.Logistics.RouteDispatchEvaluator.EligibilityFailureKind.FundsShort,
+                    RouteEndpointReason = "funds-short", RouteHoldShortfall = 1234.5,
+                };
+                var p2 = new ConfigNode("TEST");
+                funds.SerializeInto(p2);
+                Assert.Equal("1234.5", p2.GetNode("GAME_ACTION").GetValue("routeHoldShortfall"));
+                Assert.Equal(1234.5, GameAction.DeserializeFrom(p2.GetNode("GAME_ACTION")).RouteHoldShortfall);
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = prior;
+            }
         }
 
         // Route-timeline events: the sparse Send Once stamp on a dispatched row

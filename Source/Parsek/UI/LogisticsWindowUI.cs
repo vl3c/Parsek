@@ -128,12 +128,12 @@ namespace Parsek
             => "cand:" + (candidate?.Tree?.Id ?? "<no-tree>");
 
         /// <summary>Opens the round-trip link picker on a route through the production
-        /// opener. The mouse position only seeds the popup's first rect, so the seam passes
-        /// the window's own origin rather than a cursor it does not have.</summary>
+        /// opener. The click point only places the popup's first rect, and the seam has no
+        /// cursor, so it passes none and the picker centres over this window.</summary>
         internal bool OpenLinkPickerForTesting(Logistics.Route source)
         {
             if (source == null) return false;
-            OpenLinkPicker(source, new Vector2(windowRect.x, windowRect.y));
+            OpenLinkPicker(source, PickerWindowLayout.NoClickPoint);
             return linkPickerOpen;
         }
 
@@ -541,8 +541,10 @@ namespace Parsek
         private Rect linkPickerRect;
         private bool linkPickerResizing;
         private Vector2 linkPickerScroll;
-        private const float LinkPickerMinW = 240f;
-        private const float LinkPickerMinH = 180f;
+        internal const float LinkPickerMinW = 260f;
+        internal const float LinkPickerMinH = 200f;
+        internal const float LinkPickerDefaultW = 360f;
+        internal const float LinkPickerDefaultH = 320f;
 
         // Status text styles (lazy; mirrors RecordingsTableUI.EnsureStatusStyles). The
         // five colours come from the shared ParsekUI palette; Scheduled is the label's
@@ -554,6 +556,10 @@ namespace Parsek
         private GUIStyle statusStyleCyan;    // New / Sending one run / Pausing after this run
         private GUIStyle statusStyleWhite;   // Scheduled
         private GUIStyle detailStyle;
+        // The Every / Priority steppers' shared value-cell width (measured with detailStyle).
+        private float stepperValueWidth = LogisticsRoutePresentation.StepperValueMinWidth;
+        // The Every / Priority steppers' shared row height (a slot-button line's height).
+        private float stepperRowHeight;
         // The two-line Route cell: line 1 the caret + name, line 2 the grey from/to at the
         // same font size. Both clip rather than wrap, so every row is exactly two lines
         // tall and the grid of single-line cells beside it never shifts. The muted colour
@@ -960,8 +966,7 @@ namespace Parsek
             string key = section == RouteSection.Active
                 ? LogisticsRoutePresentation.ActiveSectionName
                 : LogisticsRoutePresentation.PausedSectionName;
-            if (!DrawSectionHeader(key, title, rows.Count,
-                    section == RouteSection.Active ? ParsekUI.StatusColorKind.Green : ParsekUI.StatusColorKind.Grey))
+            if (!DrawSectionHeader(key, title, rows.Count, LogisticsRoutePresentation.SectionAccent(key)))
             {
                 GUILayout.Space(SpacingSmall);
                 return;
@@ -1079,7 +1084,7 @@ namespace Parsek
         private void DrawCandidateSectionBubble(string title, List<RouteCandidate> rows, List<RouteNearMiss> nearMisses)
         {
             if (!DrawSectionHeader(LogisticsRoutePresentation.CandidatesSectionName, title, rows.Count,
-                    ParsekUI.StatusColorKind.Cyan))
+                    LogisticsRoutePresentation.SectionAccent(LogisticsRoutePresentation.CandidatesSectionName)))
             {
                 GUILayout.Space(SpacingSmall);
                 return;
@@ -2065,8 +2070,11 @@ namespace Parsek
         /// popup state read by <see cref="DrawLinkPicker"/>; the popup is drawn from
         /// <see cref="DrawIfOpen"/> after the main window. Does NOT itself mutate the
         /// store — the partner is chosen + committed in the popup.
+        /// <paramref name="clickScreenPoint"/> is the click in SCREEN space (the picker
+        /// opens next to it), or <see cref="PickerWindowLayout.NoClickPoint"/> (the picker
+        /// centres over this window).
         /// </summary>
-        private void OpenLinkPicker(Route source, Vector2 mousePos)
+        private void OpenLinkPicker(Route source, Vector2 clickScreenPoint)
         {
             if (source == null || string.IsNullOrEmpty(source.Id))
                 return;
@@ -2074,7 +2082,7 @@ namespace Parsek
             linkPickerSourceRouteId = source.Id;
             linkPickerSourceName = source.Name ?? "<unnamed>";
             linkPickerSelectedId = null;
-            linkPickerPosition = mousePos;
+            linkPickerPosition = clickScreenPoint;
             linkPickerRect = new Rect(0, 0, 0, 0);
             linkPickerResizing = false;
             linkPickerScroll = Vector2.zero;
@@ -2092,16 +2100,21 @@ namespace Parsek
         {
             if (!linkPickerOpen) return;
 
-            ParsekUI.HandleResizeDrag(ref linkPickerRect, ref linkPickerResizing,
-                LinkPickerMinW, LinkPickerMinH, null);
-
+            // Place the first-open rect BEFORE the resize/screen fit: the fit would widen an
+            // unplaced zero rect to the minimum width at the screen origin, and the placement
+            // would then never run (PickerWindowLayout).
             if (linkPickerRect.width < 1f)
             {
-                linkPickerRect = new Rect(
-                    Mathf.Clamp(linkPickerPosition.x, 0, Screen.width - 340f),
-                    Mathf.Clamp(linkPickerPosition.y, 0, Screen.height - 380f),
-                    340f, 380f);
+                linkPickerRect = PickerWindowLayout.PlaceOnOpen(
+                    linkPickerPosition, windowRect,
+                    LinkPickerDefaultW, LinkPickerDefaultH, Screen.width, Screen.height);
+                ParsekLog.Verbose("UI", PickerWindowLayout.FormatPlacementLog(
+                    "Logistics link picker", linkPickerPosition, linkPickerRect,
+                    Screen.width, Screen.height));
             }
+
+            ParsekUI.HandleResizeDrag(ref linkPickerRect, ref linkPickerResizing,
+                LinkPickerMinW, LinkPickerMinH, null);
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
             if (opaqueWindowStyle == null)
@@ -2134,13 +2147,16 @@ namespace Parsek
         private void DrawLinkPickerContents(int windowID)
         {
             EnsureStyles();
-            GUILayout.Label($"Link '{linkPickerSourceName}' with:", detailStyle);
-            GUILayout.Space(3);
+            // The house picker look (PickerWindowLayout): a heading in the shared table
+            // section style below the main windows' title gap, then the entries inside the
+            // shared dark table body box.
+            PickerWindowLayout.DrawTitleGap();
+            GUILayout.Label($"Link '{linkPickerSourceName}' with:", parentUI.GetTableSectionHeaderStyle());
 
             List<LogisticsLinkPresentation.LinkCandidate> candidates =
                 LogisticsLinkPresentation.BuildLinkCandidates(RouteStore.CommittedRoutes, linkPickerSourceRouteId);
 
-            linkPickerScroll = GUILayout.BeginScrollView(linkPickerScroll, GUILayout.ExpandHeight(true));
+            linkPickerScroll = PickerWindowLayout.BeginEntryList(parentUI, linkPickerScroll);
             if (candidates.Count == 0)
             {
                 GUILayout.Label(
@@ -2153,14 +2169,16 @@ namespace Parsek
                 {
                     LogisticsLinkPresentation.LinkCandidate c = candidates[i];
                     bool selected = string.Equals(linkPickerSelectedId, c.Id, System.StringComparison.Ordinal);
+                    PickerWindowLayout.BeginEntryRow();
                     bool now = GUILayout.Toggle(selected, "  " + c.Name);
+                    GUILayout.EndHorizontal();
                     if (now && !selected)
                         linkPickerSelectedId = c.Id;
                     else if (!now && selected)
                         linkPickerSelectedId = null;
                 }
             }
-            GUILayout.EndScrollView();
+            PickerWindowLayout.EndEntryList();
 
             GUILayout.Space(3);
             GUILayout.BeginHorizontal();
@@ -2171,7 +2189,7 @@ namespace Parsek
             GUI.enabled = linkEnabled;
             bool linkClicked = GUILayout.Button(new GUIContent("Link",
                     "Pair these two routes as a round-trip: they alternate, each running only after its partner completes a run."),
-                    GUILayout.Width(70));
+                    GUILayout.Width(PickerWindowLayout.ButtonWidth));
             DisabledHoverEcho.CarryLastControl(linkEnabled, LinkButtonDisabledReason(linkPickerSelectedId));
             if (linkClicked)
             {
@@ -2187,7 +2205,8 @@ namespace Parsek
             }
             GUI.enabled = prevEnabled;
 
-            if (GUILayout.Button("Cancel", GUILayout.Width(70)))
+            GUILayout.Space(PickerWindowLayout.ButtonGap);
+            if (GUILayout.Button("Cancel", GUILayout.Width(PickerWindowLayout.ButtonWidth)))
             {
                 ParsekLog.Verbose("UI", $"Logistics: link picker cancelled source={ShortId(linkPickerSourceRouteId)}");
                 linkPickerOpen = false;
@@ -2503,7 +2522,7 @@ namespace Parsek
                         if (GUILayout.Button(new GUIContent("Link round-trip...",
                                 "Pair this route with another so they alternate: each runs only after its partner completes a run (a single reused transport flying out and back)."),
                                 detailSlotButtonStyle, GUILayout.Width(w)))
-                            OpenLinkPicker(route, Event.current.mousePosition);
+                            OpenLinkPicker(route, GUIUtility.GUIToScreenPoint(Event.current.mousePosition));
                     }
                     else if (GUILayout.Button(new GUIContent("Unlink",
                                  "Break this route's round-trip pairing; both routes return to running on their own schedule."),
@@ -2674,12 +2693,12 @@ namespace Parsek
             // actively misleading on synodic spacing. Flat routes unchanged.
             bool windowed = RouteWindowBasisPresentation.IsWindowedBasis(leg.Basis);
 
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(GUILayout.Height(stepperRowHeight));
             GUILayout.Space(24f);
             GUILayout.Label(
                 new GUIContent("Every:",
                     "How often the route runs, as a multiple of the run duration. 1x is the floor (the fastest the run allows); raise it to run less often."),
-                detailStyle, GUILayout.Width(70f));
+                detailStyle, GUILayout.Width(LogisticsRoutePresentation.StepperLabelWidth));
 
             // "-" decrements (no-op + greyed at the 1x floor).
             bool atFloor = n <= 1;
@@ -2688,7 +2707,7 @@ namespace Parsek
             GUI.enabled = !atFloor;
             bool cadenceDownClicked = GUILayout.Button(new GUIContent("-",
                     atFloor ? cadenceAtFloorReason : "Run more often"),
-                    GUILayout.Width(24f));
+                    GUI.skin.button, GUILayout.Width(LogisticsRoutePresentation.StepperButtonWidth));
             DisabledHoverEcho.CarryLastControl(!atFloor, cadenceAtFloorReason);
             if (cadenceDownClicked)
             {
@@ -2698,12 +2717,13 @@ namespace Parsek
             GUI.enabled = true;
 
             // Current N x + the resulting human cadence (windowed wording for a
-            // windowed basis; wider cell to fit "2x (every 2nd window)").
+            // windowed basis), in the value cell both steppers share.
             GUILayout.Label(
                 windowed ? RouteWindowBasisPresentation.FormatWindowedCadence(n) : FormatCadence(route),
-                detailStyle, GUILayout.Width(windowed ? 170f : 110f));
+                detailStyle, GUILayout.Width(stepperValueWidth));
 
-            if (GUILayout.Button(new GUIContent("+", "Run less often"), GUILayout.Width(24f)))
+            if (GUILayout.Button(new GUIContent("+", "Run less often"), GUI.skin.button,
+                    GUILayout.Width(LogisticsRoutePresentation.StepperButtonWidth)))
             {
                 pendingCadenceRoute = route;
                 pendingCadenceMultiplier = RouteCadence.StepMultiplier(n, +1);
@@ -2723,12 +2743,12 @@ namespace Parsek
         {
             int p = Route.ClampPriority(route.DispatchPriority);
 
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(GUILayout.Height(stepperRowHeight));
             GUILayout.Space(24f);
             GUILayout.Label(
                 new GUIContent("Priority:",
                     "When several routes are due at once, the lower number runs first. 0 is the highest priority (and the default)."),
-                detailStyle, GUILayout.Width(70f));
+                detailStyle, GUILayout.Width(LogisticsRoutePresentation.StepperLabelWidth));
 
             // "-" decrements (no-op + greyed at the 0 floor).
             bool atFloor = p <= 0;
@@ -2736,7 +2756,7 @@ namespace Parsek
             GUI.enabled = !atFloor;
             bool priorityDownClicked = GUILayout.Button(new GUIContent("-",
                     atFloor ? priorityAtFloorReason : "Run earlier when routes are due at once"),
-                    GUILayout.Width(24f));
+                    GUI.skin.button, GUILayout.Width(LogisticsRoutePresentation.StepperButtonWidth));
             DisabledHoverEcho.CarryLastControl(!atFloor, priorityAtFloorReason);
             if (priorityDownClicked)
             {
@@ -2745,9 +2765,10 @@ namespace Parsek
             }
             GUI.enabled = true;
 
-            GUILayout.Label(p.ToString(CultureInfo.InvariantCulture), detailStyle, GUILayout.Width(110f));
+            GUILayout.Label(p.ToString(CultureInfo.InvariantCulture), detailStyle, GUILayout.Width(stepperValueWidth));
 
-            if (GUILayout.Button(new GUIContent("+", "Run later when routes are due at once"), GUILayout.Width(24f)))
+            if (GUILayout.Button(new GUIContent("+", "Run later when routes are due at once"), GUI.skin.button,
+                    GUILayout.Width(LogisticsRoutePresentation.StepperButtonWidth)))
             {
                 pendingPriorityRoute = route;
                 pendingPriorityValue = RoutePriority.Step(p, +1);
@@ -4037,7 +4058,8 @@ namespace Parsek
                 els, route.Id, originPlace, originVesselName,
                 index => stopAt(index) != null ? FormatEndpointPlace(stopAt(index).Endpoint) : null,
                 index => stopAt(index) != null ? TryResolveLiveVesselName(stopAt(index).Endpoint.VesselPersistentId) : null,
-                TryResolveLiveVesselName);
+                TryResolveLiveVesselName, StructureListWindowUI.ResolvePartTitle,
+                id => RouteStore.TryGetRoute(id, out Route partner) && partner != null ? partner.Name : null);
             ParsekLog.Verbose("UI",
                 $"Route History rows built: route={ShortId(route.Id)} rows={steps.Count.ToString(CultureInfo.InvariantCulture)}");
             return steps;
@@ -4450,7 +4472,7 @@ namespace Parsek
         {
             int n = Route.ClampCadenceMultiplier(route.CadenceMultiplier);
             string human = FormatDuration(route.DispatchInterval);
-            return string.Format(CultureInfo.InvariantCulture, "{0}x (~{1})", n, human);
+            return string.Format(CultureInfo.InvariantCulture, LogisticsRoutePresentation.CadenceReadoutFormat, n, human);
         }
 
         internal static string FormatDuration(double seconds)
@@ -4537,6 +4559,10 @@ namespace Parsek
 
             detailStyle = new GUIStyle(GUI.skin.label) { wordWrap = true };
             detailStyle.normal.textColor = new Color(0.8f, 0.8f, 0.8f);
+            // The Every / Priority steppers' shared value cell, measured once with the
+            // style that draws it.
+            stepperValueWidth = LogisticsRoutePresentation.StepperValueCellWidth(
+                text => detailStyle.CalcSize(new GUIContent(text)).x);
 
             routeNameStyle = new GUIStyle(GUI.skin.label) { wordWrap = false, clipping = TextClipping.Clip };
             routeFromToStyle = new GUIStyle(routeNameStyle);
@@ -4581,6 +4607,11 @@ namespace Parsek
                 padding = new RectOffset(
                     2, 2, GUI.skin.button.padding.top, GUI.skin.button.padding.bottom)
             };
+            stepperRowHeight = LogisticsRoutePresentation.StepperRowHeight(
+                detailSlotButtonStyle.CalcHeight(new GUIContent("Link round-trip..."), InteractSingleWidth)
+                    + detailSlotButtonStyle.margin.vertical,
+                detailStyle.CalcHeight(new GUIContent("Every:"), LogisticsRoutePresentation.StepperLabelWidth)
+                    + detailStyle.margin.vertical);
             GUIStyle columnHeader = parentUI.GetColumnHeaderStyle();
             interactHeaderContainerStyle = new GUIStyle(columnHeader)
             {

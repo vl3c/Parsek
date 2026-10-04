@@ -175,6 +175,10 @@ namespace Parsek.Tests
             // RouteResumed (route-timeline events): the durable player-resume marker,
             // scheduler-emitted like RoutePaused; no world mutation, same exclusion.
             yield return new object[] { GameActionType.RouteResumed, false, false };
+            // RouteHeld: a scheduler-emitted record that a run was held; no world
+            // mutation, so neither gate blocks. Without its explicit exclusion arm the
+            // strict predicate's `return true` default would block every supersede.
+            yield return new object[] { GameActionType.RouteHeld, false, false };
             // KerbalExperience (P9a): a recorded archive of career-log entries. It
             // mutates no world state a retry would have to undo - the roster re-assert
             // is monotone and re-derives from the surviving ELS on every recalc - so it
@@ -197,6 +201,10 @@ namespace Parsek.Tests
             // surviving ELS and the merge retires the row via IsSupersedeTombstoneEligible.
             // Neither gate blocks.
             yield return new object[] { GameActionType.KerbalRecovered, false, false };
+            // VesselRecovered (SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX):
+            // a record that the player recovered the owner's vessel; no pool moves and the
+            // merge retires it via IsSupersedeTombstoneEligible. Neither gate blocks.
+            yield return new object[] { GameActionType.VesselRecovered, false, false };
         }
 
         [Fact]

@@ -2136,6 +2136,9 @@ namespace Parsek
                 // marker, scheduler-emitted like RoutePaused; carries no world
                 // mutation, so supersede must not strict-block or retry-block on it.
                 case GameActionType.RouteResumed:
+                // RouteHeld: a scheduler-emitted record that a route's run was held;
+                // no world mutation, so it must not strict-block or retry-block.
+                case GameActionType.RouteHeld:
                 // KerbalExperience (P9a): a RECORD of career-log entries stock already
                 // archived, not a world mutation this predicate should block on. The
                 // recovery that produced it already strict-blocks through its own
@@ -2149,6 +2152,11 @@ namespace Parsek
                 // every recalc, and the merge retires the row through
                 // IsSupersedeTombstoneEligible. Nothing for a strict block to protect.
                 case GameActionType.KerbalRecovered:
+                // VesselRecovered: a RECORD that the player recovered the owner's vessel
+                // (spawn evidence only, no pool moves); the merge retires it through
+                // IsSupersedeTombstoneEligible. A NEW type falls through to `return true`,
+                // which would strict-block every supersede over a recovered recording.
+                case GameActionType.VesselRecovered:
                 // StrategyScienceDebit (STRATEGY-SCIENCE-CONVERSION-LEAK): the science
                 // INPUT leg of a stock currency-exchange strategy. Listed EXPLICITLY,
                 // against this method's twice-stated warning that a NEW type falls

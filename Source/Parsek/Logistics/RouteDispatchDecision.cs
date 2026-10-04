@@ -62,16 +62,26 @@ namespace Parsek.Logistics
         /// <summary>Short stable reason token used in log lines.</summary>
         public readonly string Reason;
 
+        /// <summary>
+        /// The measured shortfall behind a wait outcome (the funds short on
+        /// <see cref="RouteDispatchOutcome.WaitFunds"/>); 0 when none was measured. The
+        /// funds reason token also carries the whole-fund number for the log, but a
+        /// consumer that needs the amount reads it here, never from the token.
+        /// </summary>
+        public readonly double Shortfall;
+
         public RouteDispatchDecision(
             RouteDispatchOutcome outcome,
             RouteStatus? nextStatus,
             double? nextEligibilityCheckUT,
-            string reason)
+            string reason,
+            double shortfall = 0.0)
         {
             Outcome = outcome;
             NextStatus = nextStatus;
             NewNextEligibilityCheckUT = nextEligibilityCheckUT;
             Reason = reason ?? string.Empty;
+            Shortfall = shortfall;
         }
 
         internal static RouteDispatchDecision Skip(string reason) =>
@@ -91,7 +101,8 @@ namespace Parsek.Logistics
                 RouteDispatchOutcome.WaitFunds,
                 RouteStatus.WaitingForFunds,
                 retryUT,
-                $"funds-shortfall-{shortfall.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)}");
+                $"funds-shortfall-{shortfall.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)}",
+                shortfall);
 
         internal static RouteDispatchDecision WaitDestinationFull(double retryUT, string fullResource) =>
             new RouteDispatchDecision(RouteDispatchOutcome.WaitDestinationFull, RouteStatus.DestinationFull, retryUT, $"destination-full-{fullResource}");

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Parsek.TestCommands
@@ -273,6 +274,9 @@ namespace Parsek.TestCommands
         // warp for one recording, and the flight scene's stock Recover button) -----
         void RealSpawn(ParsedCommand cmd);
         void Recover(ParsedCommand cmd);
+        // ----- TrackingStationRecover (the Tracking Station half of a player's recovery:
+        // building click, select, Recover, confirm, Leave) -----
+        void TrackingStationRecover(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -311,6 +315,37 @@ namespace Parsek.TestCommands
         /// hidden copy of that screen, and the next dispatch finds the singleton live.
         /// </summary>
         internal const string AdministrationNotReadyDeferReason = "administration-not-ready";
+
+        /// <summary>
+        /// The wrong-scene token for a FLIGHT verb: the DEFER reason for most of them and
+        /// the REJECTED msg for the <see cref="RejectOutsideFlightVerbs"/> set.
+        /// </summary>
+        internal const string NotInFlightReason = "not-in-flight";
+
+        /// <summary>
+        /// FLIGHT verbs that answer <c>REJECTED not-in-flight</c> at once in a settled
+        /// non-FLIGHT scene instead of deferring to their budget.
+        ///
+        /// <para>CommitTree only. Its post-mission use after a stock recovery (L3 / L5 /
+        /// L6) reaches the head in a settled SPACECENTER with no tree left to commit, and
+        /// the defer could only end TIMEOUT after 60 s with the KSC "Mission Summary"
+        /// dialog up. Nothing can bridge that wait into FLIGHT: the head blocks every other
+        /// seam verb (strict FIFO), and a scene load requested by anything else (a kRPC
+        /// launch, a revert) raises the safe-point gate's transition flag synchronously, so
+        /// a pending transition still defers <c>not-safe-point</c> above this check. The
+        /// collected record agrees: in 217 runs that sent CommitTree, 213 dispatched
+        /// straight to OK with no defer and all 10 that deferred <c>not-in-flight</c> ended
+        /// TIMEOUT; none ever executed after one.</para>
+        ///
+        /// <para>The other FLIGHT verbs keep the defer, because their wrong-scene case is
+        /// the bounded scene-arrival wait their budgets are sized for (StartRecording 180 s).</para>
+        /// </summary>
+        private static readonly HashSet<string> RejectOutsideFlightVerbs =
+            new HashSet<string>(StringComparer.Ordinal) { "CommitTree" };
+
+        /// <summary>True when <paramref name="verb"/> refuses at once outside FLIGHT.</summary>
+        internal static bool RejectsOutsideFlight(string verb)
+            => verb != null && RejectOutsideFlightVerbs.Contains(verb);
 
         // Per-verb scene/state precondition. LoadGame's recording-active /
         // load-in-flight guards and the global batch-running / safe-point gates are
@@ -512,6 +547,12 @@ namespace Parsek.TestCommands
                 // Recover. RequiresFlight: the stock Recover button is the flight scene's
                 // altimeter button and acts on the active vessel.
                 ["Recover"] = VerbSceneRequirement.RequiresFlight,
+                // TrackingStationRecover. RequiresGameLoaded, the GoToEditor row: it is
+                // issued at the Space Center only and there is no SpaceCenter requirement
+                // kind, so the wrong scene is its own typed REJECTED
+                // (tsrecover-wrong-scene). The dispatch row only waits out a scene still
+                // loading its game.
+                ["TrackingStationRecover"] = VerbSceneRequirement.RequiresGameLoaded,
             };
 
         /// <summary>
@@ -551,7 +592,13 @@ namespace Parsek.TestCommands
 
             VerbSceneRequirement req = RequirementFor(parsed.Verb);
             if (req == VerbSceneRequirement.RequiresFlight && state.Scene != TestCommandScene.Flight)
-                return DispatchResult.Defer("not-in-flight");
+            {
+                // A verb in RejectOutsideFlightVerbs refuses at once; every other FLIGHT
+                // verb keeps the bounded DEFER.
+                return RejectsOutsideFlight(parsed.Verb)
+                    ? DispatchResult.Reject(NotInFlightReason)
+                    : DispatchResult.Defer(NotInFlightReason);
+            }
             if (req == VerbSceneRequirement.RequiresGameLoaded && !state.SettingsPresent)
                 return DispatchResult.Defer("game-not-loaded");
 
@@ -702,8 +749,10 @@ namespace Parsek.TestCommands
 
                 case "RealSpawn":
                 case "Recover":
+                case "TrackingStationRecover":
                     // The ExitToSpaceCenter pair, for its two reasons: Recover drives a
-                    // scene exit and RealSpawn a time jump plus a vessel spawn, neither of
+                    // scene exit (TrackingStationRecover two: into the Tracking Station and
+                    // back) and RealSpawn a time jump plus a vessel spawn, neither of
                     // which may race a LoadGame's scene change or a re-fly merge journal
                     // mid-finalize. No recording-active guard: a live recorder is the
                     // ordinary case (the product's own jump and recovery paths handle it).
@@ -930,6 +979,11 @@ namespace Parsek.TestCommands
         /// same scene exit plus a few frames.</summary>
         internal const double RecoverSeconds = 120.0;
 
+        /// <summary>TrackingStationRecover: two scene loads that re-read no save (Space
+        /// Center -> Tracking Station and back) plus a few frames of selection, confirm and
+        /// summary dismissal. Sized like Recover (120 s).</summary>
+        internal const double TrackingStationRecoverSeconds = 120.0;
+
         /// <summary>
         /// The deferral budget (seconds) for <paramref name="verb"/>. For RunTests the
         /// scenario's declared runtime budget is authoritative when supplied via
@@ -977,6 +1031,8 @@ namespace Parsek.TestCommands
                     return RealSpawnSeconds;
                 case "Recover":
                     return RecoverSeconds;
+                case "TrackingStationRecover":
+                    return TrackingStationRecoverSeconds;
                 // KscAction rides the default 60 s (career-ready / SPACECENTER wait; the
                 // action itself is immediate). SimulateStockSwitchClick rides it too: it is
                 // SINGLE-phase (the switch and its consume are synchronous inside

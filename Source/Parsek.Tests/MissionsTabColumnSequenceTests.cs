@@ -43,8 +43,10 @@ namespace Parsek.Tests
                 { "DrawInteractBlank(", "ColW_Interact" },
                 { "DrawInteractReFly(", "ColW_Interact" },
                 { "DrawInteractGoTo(", "ColW_Interact" },
-                { "DrawInteractWatchRewind(", "ColW_Interact" },
-                { "DrawInteractCollapse(", "ColW_Interact" },
+                { "DrawInteractWatch(", "ColW_Interact" },
+                { "DrawInteractRewindForward(", "ColW_Interact" },
+                // The mission's collapse caret: one ColW_Index cell (line 2 of the # column).
+                { "DrawMissionCollapseCaret(", "ColW_Index" },
             };
 
         private static readonly string[] GuardOpeners =
@@ -113,10 +115,10 @@ namespace Parsek.Tests
             Assert.DoesNotContain(AdvancedTag + "ColW_", string.Join(",", HeaderSequence(prepared)));
         }
 
-        // The owner's Interact sizing rule (2026-09-30): Watch, Collapse, Go to and Log share
-        // ONE single-button width; each two-button pair (Fly / Stash + Seal, Watch + Rewind)
-        // spans exactly one single with the usual gap, so the column's button edges line up on
-        // every row; and the column is that single plus its inset on both sides.
+        // The owner's Interact sizing rule: Watch, Rewind / Forward, Go to and Log share ONE
+        // single-button width; the one two-button pair left (Fly / Stash + Seal) spans exactly
+        // one single with the usual gap, so the column's button edges line up on every row; and
+        // the column is that single plus its inset on both sides.
         [Fact]
         public void InteractButtonWidthsFormOneSystem()
         {
@@ -126,19 +128,140 @@ namespace Parsek.Tests
                 MissionsWindowUI.InteractButtonWidth + 2f * MissionsWindowUI.InteractCellInset);
 
             // Every single-width button in the file names the one constant: Log, Go to,
-            // Watch alone and Collapse, and nothing spells a literal Interact width.
+            // Watch and Rewind / Forward, and nothing spells a literal Interact width.
             string prepared = ReadPreparedSource();
             string nameCell = MethodBody(prepared, "DrawMissionNameCell");
             Assert.Contains("GUILayout.Width(InteractButtonWidth)", nameCell);
-            foreach (string method in new[] { "DrawInteractGoTo", "DrawInteractCollapse",
-                                              "DrawInteractWatchRewind" })
-                Assert.Contains("InteractButtonWidth", MethodBody(prepared, method));
-            string pair = MethodBody(prepared, "DrawInteractWatchRewind");
-            Assert.Contains("InteractPairButtonWidth", pair);
-            Assert.Contains("GUILayout.Space(InteractButtonGap)", pair);
+            foreach (string method in new[] { "DrawInteractGoTo", "DrawInteractWatch",
+                                              "DrawInteractRewindForward" })
+            {
+                string body = MethodBody(prepared, method);
+                Assert.Contains("InteractButtonWidth", body);
+                Assert.DoesNotContain("InteractPairButtonWidth", body);
+            }
             // The Re-Fly pair is drawn by the Recordings tab's cell at the single width with
             // no inset of its own, which splits it into two pair halves.
             Assert.Contains("InteractButtonWidth, 0f", MethodBody(prepared, "DrawInteractReFly"));
+        }
+
+        // The mission bar's two lines (owner ruling 2026-10-03): the collapse caret is a clickable
+        // glyph in the # column under the index number, not a framed button in the Interact
+        // column, and Watch (line 1) and Rewind / Forward (line 2) stack as two singles at the
+        // same x instead of sharing line 1 as a pair.
+        [Fact]
+        public void TheCollapseCaretSitsUnderTheIndexAndWatchStacksOverRewind()
+        {
+            string prepared = ReadPreparedSource();
+
+            // Line 2: the caret is the # cell, after the blank enable slot and before the
+            // summary's name cell; the blank index label it replaced is gone.
+            string line2 = MethodBody(prepared, "DrawMissionActionLine");
+            int enable = line2.IndexOf("GUILayout.Width(ColW_Enable)", StringComparison.Ordinal);
+            int caret = line2.IndexOf("DrawMissionCollapseCaret(mission, collapsed)", StringComparison.Ordinal);
+            int summary = line2.IndexOf("DrawMissionSummaryNameCell(", StringComparison.Ordinal);
+            Assert.True(enable >= 0 && caret > enable && summary > caret,
+                "the collapse caret must be line 2's # cell, between the enable slot and the summary");
+            Assert.DoesNotContain("GUILayout.Width(ColW_Index)", line2);
+            Assert.Contains("DrawInteractRewindForward(view)", line2);
+            Assert.DoesNotContain("DrawInteractWatch(", line2);
+
+            // Line 1: Watch alone in the Interact column, the index number in the # column.
+            string line1 = MethodBody(prepared, "DrawMissionValueRow");
+            Assert.Contains("DrawInteractWatch(mission, view)", line1);
+            Assert.DoesNotContain("DrawInteractRewindForward(", line1);
+            Assert.Contains("GUILayout.Width(ColW_Index)", line1);
+
+            // The caret: a Button in the frameless label style, exactly the # column wide and at
+            // least a row tall, whose glyph and hover follow the latched state through
+            // MissionPresentation; the click flips Mission.Collapsed (the persisted flag).
+            string caretBody = MethodBody(prepared, "DrawMissionCollapseCaret");
+            Assert.Contains("GUILayout.Button(content, missionCaretStyle", caretBody);
+            Assert.Contains("GUILayout.Width(ColW_Index)", caretBody);
+            Assert.Contains("GUILayout.MinHeight(CompositionRowMinHeight)", caretBody);
+            Assert.Contains("collapsed ? MissionCaretCollapsedContent : MissionCaretExpandedContent", caretBody);
+            Assert.Contains("mission.Collapsed = nowCollapsed", caretBody);
+            Assert.DoesNotContain("GUILayout.Toggle", caretBody);
+            Assert.Matches(@"missionCaretStyle\s*=\s*new GUIStyle\(GUI\.skin\.label\)", prepared);
+            Assert.Matches(@"MissionCaretCollapsedContent\s*=\s*new GUIContent\(\s*"
+                + @"MissionPresentation\.MissionCollapseCaretGlyph\(true\),\s*"
+                + @"MissionPresentation\.MissionCollapseCaretTooltip\(true\)\)", prepared);
+            Assert.Matches(@"MissionCaretExpandedContent\s*=\s*new GUIContent\(\s*"
+                + @"MissionPresentation\.MissionCollapseCaretGlyph\(false\),\s*"
+                + @"MissionPresentation\.MissionCollapseCaretTooltip\(false\)\)", prepared);
+
+            // The hit area: the # column is at least 20 px wide.
+            Match indexWidth = Regex.Match(prepared, @"\bColW_Index\s*=\s*([0-9.]+)f\s*;");
+            Assert.True(indexWidth.Success, "ColW_Index is never declared, this gate is vacuous.");
+            Assert.True(float.Parse(indexWidth.Groups[1].Value,
+                    System.Globalization.CultureInfo.InvariantCulture) >= 20f,
+                "the collapse caret's hit area (ColW_Index) must be at least 20 px wide");
+
+            // The old framed Collapse / Expand button is gone from the Interact column, and line
+            // 2's Interact cell reserves a button-sized rect when neither Rewind nor Forward
+            // applies, so the line keeps its height in every state.
+            Assert.DoesNotContain("DrawInteractCollapse", prepared);
+            Assert.DoesNotContain("DrawInteractWatchRewind", prepared);
+            Assert.DoesNotContain("interactToggleButtonStyle", prepared);
+            string rewind = MethodBody(prepared, "DrawInteractRewindForward");
+            Assert.Contains("MissionRewindForwardVisible(", rewind);
+            Assert.Contains("GUILayoutUtility.GetRect(InteractReservedSlotContent, interactButtonStyle", rewind);
+        }
+
+        // The "#" header sits over the index column's contents (owner feedback 2026-10-03: it
+        // drew 4 px right of the row numbers and centred, GUI-25 dump "#" x=38 vs the index cell
+        // x=34). The header's [enable + index] cell is laid out like a row's two leading cells:
+        // no left inset, the blank enable slot without a left margin, and "#" left-aligned in a
+        // label-skin style like the index number and the collapse caret below it.
+        [Fact]
+        public void TheIndexHeaderSitsOverTheIndexColumnContents()
+        {
+            string prepared = ReadPreparedSource();
+            string header = MethodBody(prepared, "DrawColumnHeader");
+            Assert.Contains("GUILayout.BeginHorizontal(indexHeaderCellStyle,", header);
+            Assert.Contains("GUILayout.Label(\"\", indexHeaderEnableStyle, GUILayout.Width(ColW_Enable))", header);
+            // The "#" literal is masked by the source scan, so its contents are not matched.
+            Assert.Matches(@"GUILayout\.Button\(""[^""]*""\s*\+\s*hashArrow,\s*indexHeaderLabelStyle,\s*GUILayout\.Width\(ColW_Index\)\)",
+                header);
+
+            // The header's "#" and the rows' index cells share one alignment and one skin.
+            Assert.Matches(@"indexHeaderLabelStyle\s*=\s*new GUIStyle\(boldHeaderInnerLabel\)\s*\{\s*alignment\s*=\s*TextAnchor\.MiddleLeft",
+                prepared);
+            Assert.Matches(@"boldHeaderInnerLabel\s*=\s*new GUIStyle\(GUI\.skin\.label\)", prepared);
+            Assert.Matches(@"missionHeaderTextStyle\s*=\s*new GUIStyle\(GUI\.skin\.label\)\s*\{[^}]*alignment\s*=\s*TextAnchor\.MiddleLeft",
+                prepared);
+            Assert.Matches(@"missionCaretStyle\s*=\s*new GUIStyle\(GUI\.skin\.label\)\s*\{[^}]*alignment\s*=\s*TextAnchor\.MiddleLeft",
+                prepared);
+            Assert.Contains("GUILayout.Width(ColW_Index)", MethodBody(prepared, "DrawMissionValueRow"));
+
+            // No left inset: the cell's left padding and the enable slot's left margin are zero,
+            // and the removed inset moves to the right padding.
+            Assert.Matches(@"indexHeaderCellStyle\.padding\s*=\s*new RectOffset\(\s*0\s*,\s*IndexHeaderRightPadding\(", prepared);
+            Assert.Matches(@"indexHeaderEnableStyle\.margin\s*=\s*new RectOffset\(\s*0\s*,", prepared);
+        }
+
+        // catches: the "#" cell growing or shrinking when its left inset moves, which would
+        // shift every header to its right. Modelled on IMGUI's boxed horizontal group: the first
+        // child sits max(padding.left, margin.left) in, and the group ends
+        // max(padding.right, margin.right) after its last child.
+        [Theory]
+        // (padL, padR, marginL, marginR)
+        [InlineData(4, 4, 4, 4)]
+        [InlineData(6, 6, 4, 4)]
+        [InlineData(2, 2, 4, 4)]
+        [InlineData(0, 0, 0, 0)]
+        [InlineData(8, 3, 4, 4)]
+        public void TheIndexHeaderCellKeepsItsWidthWhenItsLeftInsetMoves(
+            int padL, int padR, int marginL, int marginR)
+        {
+            const int content = 54; // enable slot 20 + gap 4 + "#" slot 30
+            int before = System.Math.Max(padL, marginL) + content + System.Math.Max(padR, marginR);
+            int newPadR = MissionsWindowUI.IndexHeaderRightPadding(padL, padR, marginL, marginR);
+            // After: zero left padding and a zero-margin first cell, so the slot starts at the
+            // cell's left edge, exactly like a row's (unstyled) leading cells.
+            int lead = System.Math.Max(0, 0);
+            int after = lead + content + System.Math.Max(newPadR, marginR);
+            Assert.Equal(0, lead);
+            Assert.Equal(before, after);
         }
 
         // The Advanced loop grid (owner mock-up 2026-09-30, aligned 2026-10-01): Clone / Delete

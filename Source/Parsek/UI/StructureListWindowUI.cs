@@ -479,8 +479,9 @@ namespace Parsek
 
         // Internal part name -> the player-facing part title. Part names in recordings are
         // already the runtime dot-form; the replace keeps a cfg-form name resolving too.
-        // Called once per distinct name per build (the builder caches), never per frame.
-        private static string ResolvePartTitle(string partName)
+        // Called once per distinct name per build (the builder caches), never per frame;
+        // the Route History names a held row's stored part through it too.
+        internal static string ResolvePartTitle(string partName)
         {
             if (string.IsNullOrEmpty(partName)) return null;
             AvailablePart info = PartLoader.getPartInfoByName(partName.Replace('_', '.'));

@@ -7932,15 +7932,27 @@ namespace Parsek
             // vessel continues may hold its crew open-ended (a Tracking Station recovery of an
             // older flight, or a pre-2026-10-01 in-flight Recover committed Landed). Parsek's own
             // housekeeping recoveries run crew-suppressed and are not a kerbal coming home.
+            //
+            // SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX: the same filter
+            // covers the VesselRecovered row, written independent of crew and game mode so a
+            // committed recording whose vessel the player recovered (an uncrewed sandbox
+            // Tracking Station recovery leaves neither a funds nor a crew-close row) never
+            // spawns it again.
             if (GameStateRecorder.SuppressCrewEvents)
             {
                 ParsekLog.Verbose("Scenario",
-                    $"Recovery crew reservation close skipped for '{identity.DisplayName}' " +
-                    $"pid={pv.persistentId}: crew events suppressed (programmatic recovery)");
+                    $"Recovery crew reservation close and vessel recovery row skipped for " +
+                    $"'{identity.DisplayName}' pid={pv.persistentId}: crew events suppressed " +
+                    "(programmatic recovery)");
             }
             else
             {
                 CloseCrewReservationsForRecoveredVessel(pv, identity, now);
+                LedgerOrchestrator.OnRealVesselRecovered(
+                    now,
+                    pv.persistentId,
+                    VesselLaunchIdentity.ReadLaunchGuid(pv),
+                    identity.DisplayName);
             }
         }
 

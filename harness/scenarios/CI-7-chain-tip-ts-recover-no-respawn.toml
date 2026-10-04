@@ -1,0 +1,170 @@
+# CI-7: the player spawns a ghost chain's tip through Real Spawn Control, goes back to the
+# Space Center and recovers the spawned vessel from the TRACKING STATION through stock's own
+# Recover button; the recovered vessel must not come back (the mirror of CI-6, which recovers
+# in flight after a Switch-To). Todo SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX.
+#
+# WHY IT CAN FAIL: a recovery outside flight never reaches a live tree, and committed recordings
+# are never re-stamped by live events, so the tip keeps Landed and its spawn claim. On this
+# SANDBOX host with an UNCREWED lander there is no FundsEarning(Recovery) row (no funds) and no
+# KerbalRecovered row (no crew); before the fix nothing recorded the recovery and the next
+# flight's spawn-death pass spawned the lander again. The fix (owner rulings 2026-10-03): every
+# player recovery that maps to a committed recording writes a non-economic VesselRecovered
+# ledger row, and RunSpawnDeathChecks clears a recovered recording's spawn claim instead of
+# counting a death.
+#
+# HOST: `gloops-airshow` + the `chain-tip-recovery` preset, exactly CI-6's (see its header):
+# `ctr-tip-rec`, `CTR Lander`, pid 1344998135, a live chain tip ~130 m from the pad vessel.
+#
+# ACT 1 (flight): RealSpawn the chain tip (chain-tip spawn keeps the original pid and launch
+# guid), then ExitToSpaceCenter (no active tree: autoRecordOnLaunch is off).
+# ACT 2 (Space Center): TrackingStationRecover pid=${spawn.pid} - enter the Tracking Station,
+# select the lander, stock Recover + confirm, leave back to the Space Center.
+# ACT 3: GoToEditor SPH + LaunchFromEditor; the new flight's spawn-death pass meets the tip
+# whose spawned vessel is gone.
+
+schema = 1
+id = "CI-7-chain-tip-ts-recover-no-respawn"
+tier = "nightly"
+description = "The Tracking Station half of a recovered chain tip: over gloops-airshow plus the chain-tip-recovery preset, RealSpawn the tip, exit to the Space Center, recover the spawned uncrewed lander from the Tracking Station through stock (sandbox: no funds row, no crew row), then launch a new flight from the SPH and require that the recovered lander does not spawn again."
+instanceProfile = "stock-minimal"
+tags = ["CI-7", "D18", "chain-interaction", "ghost-chain", "real-spawn", "recover",
+        "tracking-station", "injected-recordings", "R10", "runtime-handles", "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "chain-tip-recovery"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # The supported shape for a scene-exit verb: no merge modal can stand at the exit.
+  { cmd = "SetSetting", args = { name = "autoMerge", value = "true" }, expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "chains" }, label = "chains", expect = "OK" },
+  # THE SETTLE: the proximity scan admits a row only on its second sighting, 1.5 s apart.
+  # Eight inert steps (~2 s) were too few on the first reading run (`realspawn-not-a-candidate
+  # candidates=0` 130 ms before the `Proximity notification`); twenty buy ~5 s.
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # ACT 1: RealSpawn, then back to the Space Center.
+  { cmd = "RealSpawn", args = { rec = "${chains.chain0tip}" }, label = "spawn", expect = "OK", budget = 120 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "ExitToSpaceCenter", expect = "OK", budget = 120 },
+  # ACT 2: the stock Tracking Station recovery.
+  { cmd = "TrackingStationRecover", args = { pid = "${spawn.pid}" }, expect = "OK", budget = 120 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "ctr-ts-recovered-count-${c1.count}" }, expect = "OK" },
+  # ACT 3.
+  { cmd = "GoToEditor", args = { facility = "SPH", craft = "Kerbal X" }, expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor", expect = "OK", budget = 180 },
+  { cmd = "ListHandles", args = { kind = "chains" }, label = "chains2", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No D18 claim: the chain is NOT terminated
+# here (the committed tip keeps Landed; the recovery lives in the ledger row), so this lane is
+# not a `chain-terminated-destruction-recovery` witness - CI-6 holds that half.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ts", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+# The two injected recordings; the committed tip keeps Landed (a live event never re-stamps a
+# committed recording), the recovery lives in the ledger row.
+[expectations.recordings]
+count = { min = 2, max = 2 }
+
+# ARMED 2026-10-03 off the reading `2026-10-03_1611` (trees / committedTrees 1, recordings 2,
+# Landed 1 / SubOrbital 1 - the committed tip keeps Landed, the recovery is the ledger row -
+# spawnedVessels 0, no `CTR Lander` in the save).
+[expectations.recordings.structure]
+gating         = true
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2, max = 2 }
+terminalStates = { Landed = { min = 1, max = 1 }, SubOrbital = { min = 1, max = 1 } }
+spawnedVessels = { min = 0, max = 0 }
+vesselNames    = { "CTR Lander" = { min = 0, max = 0 }, "mk1-capsule" = { min = 1, max = 1 } }
+
+[expectations.logContracts]
+required  = [
+  # Boot: the walker claims the lander via BACKGROUND_EVENT and builds a live chain.
+  "\\[ChainWalker\\] Chain built: vessel=1344998135 links=1 tip=ctr-tip-rec spawnUT=622\\.2 terminated=False",
+  # Act 1: Real Spawn Control spawns the chain tip with its original pid.
+  "\\[Ghoster\\] Chain tip spawn: pid=1344998135 vessel=CTR Lander preserveIdentity=true",
+  "realspawn complete rec=ctr-tip-rec pid=1344998135 vessel=CTR Lander ",
+  # Act 2: the stock Tracking Station recovery (stock fires onVesselRecovered with quick=false).
+  "tsrecover pressed pid=1344998135 vessel=CTR Lander ",
+  "tsrecover observed onVesselRecovered pid=1344998135 vessel=CTR Lander quick=false",
+  "tsrecover complete pid=1344998135 vessel=CTR Lander scene=SPACECENTER quick=false leaveForced=false ",
+  # THE FIX, half 1: the recovery is recorded against the committed tip.
+  "\\[LedgerOrchestrator\\] Vessel recovered recorded: vessel='CTR Lander' pid=1344998135 recoveryUT=[0-9.]+ recordingId=ctr-tip-rec terminal=Landed ",
+  # Act 3: a new flight scene.
+  "launchfromeditor complete scene=FLIGHT vessel=Kerbal X ",
+  # THE FIX, half 2: the spawn-death pass reads the recovery, not a death.
+  "\\[Policy\\] Spawned vessel recovered: #[0-9]+ \"CTR Lander\" pid=1344998135 evidence=recovery-row - spawn claim cleared, no respawn",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "realspawn rejected",
+  "tsrecover rejected",
+  # The player must be able to leave the Tracking Station after the recovery on their own.
+  "tsrecover leave forced",
+  # The vessel's recovery must reach the ledger, not be skipped as programmatic.
+  "Vessel recovery row skipped: vessel='CTR Lander'",
+  # THE DEFECT: the recovered lander read as dead and spawned again.
+  "\\[Policy\\] Spawn-death detected: #[0-9]+ \"CTR Lander\"",
+  "\\[Spawner\\] Vessel spawn for #[0-9]+ \\(CTR Lander\\)",
+]
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "once"

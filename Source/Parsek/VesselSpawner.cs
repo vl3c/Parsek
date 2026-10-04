@@ -6289,6 +6289,42 @@ namespace Parsek
         internal static bool TryBuildRecordedTerminalOrbitForSpawn(
             Recording rec, CelestialBody body, double ut, out Orbit orbit)
         {
+            return TryBuildRecordedTerminalOrbitForSpawn(rec, body, ut, 0.0, out orbit);
+        }
+
+        /// <summary>
+        /// Pure: the mean anomaly a terminal-orbit spawn at <paramref name="spawnUT"/>
+        /// writes with <paramref name="spawnUT"/> as its epoch. The phase is evaluated at
+        /// <see cref="TimeJumpTerminalOrbitShift.ResolvePhaseUT"/>: the spawn UT itself, or,
+        /// after an epoch-shift jump froze this recording's ghost, the spawn UT minus the
+        /// jump delta - the same time translation the jump applied to every loaded vessel.
+        /// </summary>
+        internal static double ComputeSpawnMeanAnomaly(
+            double meanAnomalyAtEpoch, double epoch,
+            double semiMajorAxis, double gravParameter,
+            double spawnUT, double phaseLagSeconds)
+        {
+            double phaseUT = TimeJumpTerminalOrbitShift.ResolvePhaseUT(spawnUT, phaseLagSeconds);
+            if (semiMajorAxis <= 0.0
+                || gravParameter <= 0.0
+                || double.IsNaN(phaseUT)
+                || double.IsInfinity(phaseUT)
+                || Math.Abs(phaseUT - epoch) < 1e-9)
+            {
+                return meanAnomalyAtEpoch;
+            }
+
+            return TimeJumpManager.ComputeEpochShiftedMeanAnomaly(
+                meanAnomalyAtEpoch,
+                epoch,
+                semiMajorAxis,
+                gravParameter,
+                phaseUT);
+        }
+
+        internal static bool TryBuildRecordedTerminalOrbitForSpawn(
+            Recording rec, CelestialBody body, double ut, double phaseLagSeconds, out Orbit orbit)
+        {
             orbit = null;
 
             if (body == null)
@@ -6362,24 +6398,13 @@ namespace Parsek
 
             try
             {
-                double meanAnomalyAtSpawnUT;
-                if (semiMajorAxis <= 0.0
-                    || body.gravParameter <= 0.0
-                    || double.IsNaN(ut)
-                    || double.IsInfinity(ut)
-                    || Math.Abs(ut - epoch) < 1e-9)
-                {
-                    meanAnomalyAtSpawnUT = meanAnomalyAtEpoch;
-                }
-                else
-                {
-                    meanAnomalyAtSpawnUT = TimeJumpManager.ComputeEpochShiftedMeanAnomaly(
-                        meanAnomalyAtEpoch,
-                        epoch,
-                        semiMajorAxis,
-                        body.gravParameter,
-                        ut);
-                }
+                double meanAnomalyAtSpawnUT = ComputeSpawnMeanAnomaly(
+                    meanAnomalyAtEpoch,
+                    epoch,
+                    semiMajorAxis,
+                    body.gravParameter,
+                    ut,
+                    phaseLagSeconds);
 
                 orbit = new Orbit(
                     inclination,
@@ -6573,7 +6598,13 @@ namespace Parsek
             velocity = Vector3d.zero;
             orbit = null;
 
-            if (!TryBuildRecordedTerminalOrbitForSpawn(rec, body, ut, out orbit))
+            // A ghost frozen in the bubble by an epoch-shift jump spawns where it stood:
+            // the recorded orbit's phase lags the clock by the jump delta (design 14.5).
+            bool jumpShifted = TimeJumpTerminalOrbitShift.TryGetShift(
+                rec?.RecordingId, ut, out TerminalOrbitJumpShift jumpShift);
+            double phaseLagSeconds = jumpShifted ? jumpShift.LagSeconds : 0.0;
+
+            if (!TryBuildRecordedTerminalOrbitForSpawn(rec, body, ut, phaseLagSeconds, out orbit))
                 return false;
 
             try
@@ -6598,6 +6629,25 @@ namespace Parsek
                     return false;
                 }
 
+                if (jumpShifted)
+                {
+                    double spawnSeparation = MeasureActiveVesselSeparation(orbit, body, ut);
+                    string message = string.Format(CultureInfo.InvariantCulture,
+                        "Jump-shifted terminal orbit spawn: rec={0} vessel={1} spawnUT={2:F2} phaseUT={3:F2} lag={4:F1}s ghostSeparationAtJump={5:F1}m spawnSeparation={6:F1}m",
+                        rec.RecordingId,
+                        rec.VesselName ?? "(unknown)",
+                        ut,
+                        TimeJumpTerminalOrbitShift.ResolvePhaseUT(ut, phaseLagSeconds),
+                        phaseLagSeconds,
+                        jumpShift.GhostSeparationMeters,
+                        spawnSeparation);
+                    // Once per armed shift at Info; a blocked tip re-resolves every retry.
+                    if (TimeJumpTerminalOrbitShift.TryMarkSpawnResolutionLogged(rec.RecordingId))
+                        ParsekLog.Info("Spawner", message);
+                    else
+                        ParsekLog.VerboseRateLimited("Spawner", "jump-shifted-spawn-" + rec.RecordingId, message);
+                }
+
                 return true;
             }
             catch (Exception ex)
@@ -6605,6 +6655,32 @@ namespace Parsek
                 ParsekLog.Warn("Spawner",
                     $"TryResolveRecordedTerminalOrbitSpawnState failed: {ex.Message}");
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// Distance (m) between a resolved spawn orbit and the active vessel at
+        /// <paramref name="ut"/>, compared body-relative so neither the floating origin nor
+        /// the body's own motion enters. NaN when there is no active vessel on that body.
+        /// FlightGlobals is read only inside this NoInlining core (mono JIT trap).
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double MeasureActiveVesselSeparation(Orbit spawnOrbit, CelestialBody body, double ut)
+        {
+            try
+            {
+                Vessel active = FlightGlobals.ActiveVessel;
+                if (spawnOrbit == null || body == null || active == null || active.orbit == null
+                    || active.orbit.referenceBody != body)
+                    return double.NaN;
+                Vector3d delta = spawnOrbit.getRelativePositionAtUT(ut)
+                    - active.orbit.getRelativePositionAtUT(ut);
+                return delta.magnitude;
+            }
+            catch (Exception)
+            {
+                return double.NaN;
             }
         }
 

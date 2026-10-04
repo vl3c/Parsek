@@ -44,7 +44,7 @@ namespace Parsek
             /// <summary>UT of the recovery this retirement is anchored on.</summary>
             public double AnchorUT;
 
-            /// <summary>True when no recovery funds row existed and EndUT was used as the anchor.</summary>
+            /// <summary>True when no recovery funds, vessel-recovered or crew-close row existed and EndUT was used as the anchor.</summary>
             public bool UsedFallbackAnchor;
 
             /// <summary>
@@ -122,16 +122,18 @@ namespace Parsek
         ///
         /// <para>
         /// (2) A <see cref="GameActionType.FundsEarning"/> row with
-        /// <see cref="FundsEarningSource.Recovery"/>, or a
-        /// <see cref="GameActionType.KerbalRecovered"/> row, on the recording with a UT after
+        /// <see cref="FundsEarningSource.Recovery"/>, a
+        /// <see cref="GameActionType.KerbalRecovered"/> row, or a
+        /// <see cref="GameActionType.VesselRecovered"/> row, on the recording with a UT after
         /// the cutoff, on a recording whose terminal left the vessel in the world
         /// (<see cref="VesselOutlivedTerminal"/>, row test shared through
         /// <see cref="RecoveredRecordingEvidence"/>). A Tracking Station or KSC-marker recovery
         /// reaches a recording committed long before, and saves written before 2026-10-01
         /// hold in-flight Recovers committed with the vessel's situation (e.g. Landed). Committed recordings are never re-stamped by a terminal event, so the
         /// recovery lives only in the ledger, as the #444 funds row
-        /// (<c>LedgerOrchestrator.OnVesselRecoveryFunds</c>) and the crew-close row
-        /// (<c>LedgerOrchestrator.OnRealVesselCrewRecovered</c>). Both are written only from a
+        /// (<c>LedgerOrchestrator.OnVesselRecoveryFunds</c>), the crew-close row
+        /// (<c>LedgerOrchestrator.OnRealVesselCrewRecovered</c>) and the vessel-recovered row
+        /// (<c>LedgerOrchestrator.OnRealVesselRecovered</c>). All are written only from a
         /// real <c>onVesselRecovered</c>, and the commit-time pairing in
         /// <c>CreateVesselCostActions</c> emits a recovery row only for a Recovered terminal,
         /// so a recovery row always means the vessel was recovered. The funds row's recording
@@ -152,7 +154,10 @@ namespace Parsek
         ///
         /// <para>
         /// The retired set per recording: the recovery <see cref="GameActionType.FundsEarning"/>
-        /// anchor(s) with <see cref="FundsEarningSource.Recovery"/>, plus same-recording
+        /// anchor(s) with <see cref="FundsEarningSource.Recovery"/> and the
+        /// <see cref="GameActionType.VesselRecovered"/> anchor(s) (the resurrected vessel is in
+        /// the world again, so its recovery evidence must stop refusing the recording's
+        /// spawn and stop reading it as recovered), plus same-recording
         /// <see cref="GameActionType.ScienceEarning"/> rows carrying
         /// <see cref="ScienceMethod.Recovered"/>, plus same-recording
         /// <see cref="GameActionType.KerbalAssignment"/> rows whose end state is
@@ -263,7 +268,9 @@ namespace Parsek
                 }
                 if (matchedPid == 0) continue;
 
-                // Anchors: this recording's recovery funds rows after the cutoff.
+                // Anchors: this recording's recovery funds rows and vessel-recovered rows
+                // after the cutoff. Both are retired: each says the vessel left the world,
+                // and the resurrection put it back.
                 var anchorUTs = new List<double>();
                 var retired = new List<string>();
                 for (int a = 0; a < ledgerActions.Count; a++)
@@ -271,6 +278,8 @@ namespace Parsek
                     var action = ledgerActions[a];
                     if (action == null || string.IsNullOrEmpty(action.ActionId)) continue;
                     if (!RecoveredRecordingEvidence.IsRecoveryFundsRow(
+                            action, rec.RecordingId, retireCutoffUT)
+                        && !RecoveredRecordingEvidence.IsVesselRecoveredRow(
                             action, rec.RecordingId, retireCutoffUT))
                         continue;
 
