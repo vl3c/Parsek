@@ -163,9 +163,15 @@ namespace Parsek.TestCommands
                 case KscRecoverPollAction.PressRecover:
                 {
                     // A player's first click: the marker icon expands the panel that holds
-                    // Recover. Stock ignores it while the marker is locked, read back here.
-                    Button markerButton = (Button)KscMarkerButtonField.GetValue(marker);
-                    markerButton.onClick.Invoke();
+                    // Recover. The icon toggles, so it is clicked only while collapsed (a second
+                    // click would close an already open panel). Stock ignores it while the
+                    // marker is locked, read back here.
+                    bool alreadyExpanded = KscMarkerExpandedField.GetValue(marker) is bool open && open;
+                    if (!alreadyExpanded)
+                    {
+                        Button markerButton = (Button)KscMarkerButtonField.GetValue(marker);
+                        markerButton.onClick.Invoke();
+                    }
                     if (!(KscMarkerExpandedField.GetValue(marker) is bool expanded) || !expanded)
                     {
                         FinishKscRecover("REJECTED", null, TestCommandKscMarkerRecover.ButtonLockedReason,

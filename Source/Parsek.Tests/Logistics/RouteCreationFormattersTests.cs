@@ -41,7 +41,7 @@ namespace Parsek.Tests.Logistics
             // and breaks any downstream parser that scans the dialog text.
             Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
             string line = RouteCreationFormatters.FormatResourceLine("LiquidFuel", 150.0);
-            Assert.Equal("LiquidFuel: 150.0", line);
+            Assert.Equal("150.0 LiquidFuel", line);
         }
 
         [Fact]
@@ -76,21 +76,23 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
-        public void FormatEndpoint_RoundsCoordinatesToThreeDecimals()
+        public void FormatEndpointPlace_NamesThePlaceWithoutCoordinates()
         {
-            // catches: rounding precision drifting (e.g. F2/F4 instead of F3)
-            // or the unit suffixes changing. The dialog summary uses the
-            // exact-shape string; an F4 lat would push the body name off the
-            // single-line summary on narrow screens.
+            // catches: the create dialog or the candidate line falling back to raw
+            // coordinates (or a bare body) for an endpoint no vessel answers for.
             RouteEndpoint ep = new RouteEndpoint
             {
                 BodyName = "Mun",
                 Latitude = 12.3456789,
                 Longitude = -45.6789012,
-                Altitude = 612.5
+                Altitude = 612.5,
+                IsSurface = true
             };
-            string s = RouteCreationFormatters.FormatEndpoint(ep);
-            Assert.Equal("Mun (12.346°, -45.679°, 613m)", s);
+            Assert.Equal("Mun (surface)", RouteCreationFormatters.FormatEndpointPlace(ep));
+            ep.IsSurface = false;
+            Assert.Equal("Mun (orbit)", RouteCreationFormatters.FormatEndpointPlace(ep));
+            Assert.Equal("-", RouteCreationFormatters.FormatEndpointPlace(null));
+            Assert.Equal("-", RouteCreationFormatters.FormatEndpointPlace(new RouteEndpoint()));
         }
 
         // -----------------------------------------------------------------
@@ -568,7 +570,7 @@ namespace Parsek.Tests.Logistics
             RouteAnalysisResult analysis = KscOriginDockChildAnalysis(out RecordingTree tree);
             string block = RouteCreationFormatters.BuildSummaryBlock(
                 analysis, Game.Modes.SANDBOX, tree);
-            Assert.Contains("Origin: Kerbin (Launch Pad)", block);
+            Assert.Contains("Origin: KSC (Launch Pad)", block);
             Assert.DoesNotContain("Origin: unknown", block);
         }
 
@@ -727,7 +729,7 @@ namespace Parsek.Tests.Logistics
             RouteAnalysisResult analysis = DepotOriginViaTreeRootAnalysis(out RecordingTree tree);
             string block = RouteCreationFormatters.BuildSummaryBlock(
                 analysis, Game.Modes.SANDBOX, tree);
-            Assert.Contains("Origin: Mun (root #4243)", block);
+            Assert.Contains("Origin: root #4243", block);
             Assert.DoesNotContain("Origin: unknown", block);
         }
 

@@ -64,7 +64,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(
                 LogisticsDeliveryPresentation.FormatWouldDeliver(stop.DeliveryManifest, stop.InventoryDeliveryManifest),
                 text);
-            Assert.Equal("LiquidFuel 282.0, Oxidizer 345.0, 1 inventory item(s)", text);
+            Assert.Equal("282.0 LiquidFuel, 345.0 Oxidizer, 1 inventory item(s)", text);
         }
 
         [Fact]
@@ -89,7 +89,7 @@ namespace Parsek.Tests.Logistics
             stops[1].InventoryDeliveryManifest.Add(new InventoryPayloadItem());
 
             Assert.Equal(
-                "LiquidFuel 150.0, Oxidizer 120.0, MonoPropellant 10.0, 1 inventory item(s) across 2 stops",
+                "150.0 LiquidFuel, 120.0 Oxidizer, 10.0 MonoPropellant, 1 inventory item(s) across 2 stops",
                 LogisticsDeliveryPresentation.FormatRouteDeliveryPerCycle(stops));
         }
 
@@ -104,7 +104,7 @@ namespace Parsek.Tests.Logistics
                 Delivery(Surface("Kerbin", 0.1, 0.1), ("LiquidFuel", 154.4)),
             };
 
-            Assert.Equal("LiquidFuel 154.4",
+            Assert.Equal("154.4 LiquidFuel",
                 LogisticsDeliveryPresentation.FormatRouteDeliveryPerCycle(stops));
         }
 

@@ -327,13 +327,16 @@ namespace Parsek
         /// Returns null ONLY for kind None (no hold recorded) - the draw path
         /// then falls back to the generic StatusReason text. Callers gate on
         /// <see cref="ShouldDisplayHold"/> first, same as the tooltip/detail.
+        /// <paramref name="partTitle"/> names a stored part by its title, as in
+        /// <see cref="DescribeHold"/> (null, or a null answer, keeps the name).
         /// </summary>
         internal static string StatusCellText(
             RouteDispatchEvaluator.EligibilityFailureKind kind,
             string detail,
-            double shortfall)
+            double shortfall,
+            System.Func<string, string> partTitle = null)
         {
-            string compact = CompactHold(kind, detail, shortfall);
+            string compact = CompactHold(kind, detail, shortfall, partTitle);
             if (string.IsNullOrEmpty(compact))
                 return null;
             return TruncateForCell(
@@ -352,7 +355,8 @@ namespace Parsek
         internal static string CompactHold(
             RouteDispatchEvaluator.EligibilityFailureKind kind,
             string detail,
-            double shortfall)
+            double shortfall,
+            System.Func<string, string> partTitle = null)
         {
             switch (kind)
             {
@@ -360,7 +364,7 @@ namespace Parsek
                     return null;
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo:
-                    return CompactOriginLacksCargo(detail, shortfall);
+                    return CompactOriginLacksCargo(detail, shortfall, partTitle);
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.FundsShort:
                     // Same shortfall contract as DescribeHold: the number comes
@@ -378,7 +382,7 @@ namespace Parsek
                     {
                         return storedPart.Length == 0
                             ? LogisticsHoldClauses.CompactNoFreeInventorySlot
-                            : Fmt(LogisticsHoldClauses.CompactNoSlotForNamedPart, storedPart);
+                            : Fmt(LogisticsHoldClauses.CompactNoSlotForNamedPart, PartLabel(storedPart, partTitle));
                     }
                     return string.IsNullOrEmpty(resource)
                         ? LogisticsHoldClauses.CompactDestinationFull
@@ -410,7 +414,8 @@ namespace Parsek
         // Compact variant of DescribeOriginLacksCargo: same token family, same
         // strip-the-legacy-wrapper-first order, same shortfall > 0.0 conditional,
         // short phrasing.
-        private static string CompactOriginLacksCargo(string detail, double shortfall)
+        private static string CompactOriginLacksCargo(
+            string detail, double shortfall, System.Func<string, string> partTitle)
         {
             string token = StripPrefix(detail, "origin-lacks-");
             if (token != null
@@ -450,7 +455,7 @@ namespace Parsek
                     return sourceInventoryName.Length == 0 || IsOpaqueInventoryTail(sourceInventoryName)
                         ? Fmt(LogisticsHoldClauses.CompactNamedSourceMissingStoredPart, name)
                         : Fmt(LogisticsHoldClauses.CompactNamedSourceMissingNamedPart,
-                            name, sourceInventoryName);
+                            name, PartLabel(sourceInventoryName, partTitle));
                 }
                 if (string.IsNullOrEmpty(shortToken))
                     return Fmt(LogisticsHoldClauses.CompactNamedSourceShortOfCargo, name);
@@ -464,14 +469,16 @@ namespace Parsek
             {
                 return stateName.Length == 0
                     ? LogisticsHoldClauses.CompactOriginStoredPartStateDiffers
-                    : Fmt(LogisticsHoldClauses.CompactOriginNamedStoredPartStateDiffers, stateName);
+                    : Fmt(LogisticsHoldClauses.CompactOriginNamedStoredPartStateDiffers,
+                        PartLabel(stateName, partTitle));
             }
             string inventoryName = TryStripPrefix(token, "inventory:");
             if (inventoryName != null)
             {
                 return inventoryName.Length == 0 || IsOpaqueInventoryTail(inventoryName)
                     ? LogisticsHoldClauses.CompactOriginMissingStoredPart
-                    : Fmt(LogisticsHoldClauses.CompactOriginMissingNamedStoredPart, inventoryName);
+                    : Fmt(LogisticsHoldClauses.CompactOriginMissingNamedStoredPart,
+                        PartLabel(inventoryName, partTitle));
             }
             if (token != null
                 && token.StartsWith("origin-unresolved:", System.StringComparison.Ordinal))
