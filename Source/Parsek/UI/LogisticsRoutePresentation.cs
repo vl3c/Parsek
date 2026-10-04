@@ -755,6 +755,25 @@ namespace Parsek
         internal const string DismissButtonTooltip =
             "Hide this mission from the Candidates section. Restore it any time from the Hidden missions list below.";
 
+        /// <summary>
+        /// Cuts a runtime-composed hover to the single-line strip: unchanged when it fits
+        /// (or <paramref name="maxChars"/> is 0 or less), else cut at the last word that
+        /// fits and ended with "...". Never longer than <paramref name="maxChars"/>.
+        /// </summary>
+        internal static string CapToStrip(string text, int maxChars)
+        {
+            if (string.IsNullOrEmpty(text) || maxChars <= 0 || text.Length <= maxChars)
+                return text ?? string.Empty;
+            const string Ellipsis = "...";
+            if (maxChars <= Ellipsis.Length)
+                return Ellipsis.Substring(0, maxChars);
+            int keep = maxChars - Ellipsis.Length;
+            int space = text.LastIndexOf(' ', keep);
+            if (space > keep / 2)
+                keep = space;
+            return text.Substring(0, keep).TrimEnd(' ', ',', ';', '-') + Ellipsis;
+        }
+
         /// <summary>The candidates' Transit header and cell hover.</summary>
         internal const string CandidateTransitTooltip =
             "How long one run takes, from launch to undock.";

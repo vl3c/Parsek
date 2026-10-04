@@ -170,16 +170,16 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Format a resource line for the dialog body. Returns
-        /// <c>"name: amount"</c> with one fractional digit, e.g.
-        /// <c>"LiquidFuel: 150.0"</c>. The empty-name fallback is bracket-free
+        /// Format a resource line for the dialog body, amount first like every
+        /// Logistics cargo text: <c>"150.0 LiquidFuel"</c> (one fractional digit,
+        /// InvariantCulture). The empty-name fallback is bracket-free
         /// (<c>"unknown"</c>) so it renders as readable text in the TMP-backed
         /// PopupDialog body instead of being parsed as a bogus rich-text tag.
         /// </summary>
         internal static string FormatResourceLine(string name, double amount)
         {
             string displayName = string.IsNullOrEmpty(name) ? "unknown" : name;
-            return displayName + ": " + amount.ToString("F1", IC);
+            return amount.ToString("F1", IC) + " " + displayName;
         }
 
         /// <summary>
@@ -213,18 +213,40 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Format a <see cref="RouteEndpoint"/> as
-        /// <c>"body (lat, lon, alt)"</c>. Empty body falls back to the
-        /// bracket-free <c>"unknown"</c> (this string renders into the TMP-backed
-        /// PopupDialog body, where <c>"&lt;...&gt;"</c> is parsed as markup).
+        /// A place name without coordinates: <c>"Kerbin (surface)"</c> /
+        /// <c>"Mun (orbit)"</c>, or <c>"-"</c> when the endpoint or its body is unknown.
+        /// What the Logistics window and the create dialog name an endpoint by when no
+        /// live vessel answers for it.
         /// </summary>
-        internal static string FormatEndpoint(RouteEndpoint ep)
+        internal static string FormatEndpointPlace(RouteEndpoint? ep)
         {
-            string body = string.IsNullOrEmpty(ep.BodyName) ? "unknown" : ep.BodyName;
-            string lat = ep.Latitude.ToString("F3", IC);
-            string lon = ep.Longitude.ToString("F3", IC);
-            string alt = ep.Altitude.ToString("F0", IC);
-            return body + " (" + lat + "°, " + lon + "°, " + alt + "m)";
+            if (!ep.HasValue || string.IsNullOrEmpty(ep.Value.BodyName)) return "-";
+            return ep.Value.BodyName + (ep.Value.IsSurface ? " (surface)" : " (orbit)");
+        }
+
+        /// <summary>
+        /// The create dialog's and the candidate from/to line's origin: <c>"KSC"</c>
+        /// (with the launch site when the dialog asks for it, <c>"KSC (Runway)"</c>), the
+        /// depot's name, <c>"harvested en route"</c> for a harvest run, or
+        /// <paramref name="unknown"/>. Never a bare body or coordinates.
+        /// </summary>
+        internal static string FormatOriginName(RouteOriginIdentity origin, bool withLaunchSite, string unknown)
+        {
+            switch (origin.Kind)
+            {
+                case RouteOriginKind.Ksc:
+                    return withLaunchSite && !string.IsNullOrEmpty(origin.LaunchSiteName)
+                        ? "KSC (" + origin.LaunchSiteName + ")"
+                        : "KSC";
+                case RouteOriginKind.Depot:
+                    return FormatDepotIdentity(origin);
+                case RouteOriginKind.Harvest:
+                    // M2 (plan D7): no origin vessel - the cargo was mined /
+                    // converted during the run itself.
+                    return "harvested en route";
+                default:
+                    return unknown;
+            }
         }
 
         /// <summary>
@@ -357,7 +379,8 @@ namespace Parsek.Logistics
             Game.Modes mode,
             RecordingTree tree = null,
             RouteRunCostCalculator.RouteRunCost? runCost = null,
-            System.Func<string, string> partTitle = null)
+            System.Func<string, string> partTitle = null,
+            string destinationName = null)
         {
             var sb = new StringBuilder();
             if (analysis == null || !analysis.IsEligible)
@@ -376,36 +399,16 @@ namespace Parsek.Logistics
             // miss renders as text in the TMP-backed PopupDialog body rather than
             // being parsed as a bogus "<...>" rich-text tag.
             RouteOriginIdentity origin = ResolveOriginIdentity(analysis, tree);
-            string originLabel;
-            switch (origin.Kind)
-            {
-                case RouteOriginKind.Ksc:
-                    originLabel =
-                        (string.IsNullOrEmpty(origin.BodyName) ? "Kerbin" : origin.BodyName)
-                        + " (" + origin.LaunchSiteName + ")";
-                    break;
-                case RouteOriginKind.Depot:
-                    originLabel =
-                        (string.IsNullOrEmpty(origin.BodyName) ? "unknown" : origin.BodyName)
-                        + " ("
-                        + FormatDepotIdentity(origin)
-                        + ")";
-                    break;
-                case RouteOriginKind.Harvest:
-                    // M2 (plan D7): no origin vessel - the cargo was mined /
-                    // converted during the run itself.
-                    originLabel = "harvested en route";
-                    break;
-                default:
-                    originLabel = "unknown";
-                    break;
-            }
-            sb.Append("Origin: ").Append(originLabel).Append('\n');
+            sb.Append("Origin: ").Append(FormatOriginName(origin, true, "unknown")).Append('\n');
 
+            // The destination by the name the candidate row uses: the live vessel the
+            // caller resolved, else the place ("Mun (surface)"), never coordinates.
             sb.Append("Destination: ");
             if (analysis.ConnectionWindow != null && analysis.ConnectionWindow.EndpointAtDock.HasValue)
             {
-                sb.Append(FormatEndpoint(analysis.ConnectionWindow.EndpointAtDock.Value));
+                sb.Append(!string.IsNullOrEmpty(destinationName)
+                    ? destinationName
+                    : FormatEndpointPlace(analysis.ConnectionWindow.EndpointAtDock));
                 sb.Append(ConnectionKindSuffix(analysis.ConnectionWindow.TransferKind));
             }
             else

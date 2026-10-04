@@ -932,7 +932,7 @@ state). Every row is two lines tall:
 |---|---|---|---|---|---|
 | 1 | `#` | 30 | yes | yes | display position; not sortable |
 | 2 | Route | expand | yes | yes | line 1 caret + `route.Name`; line 2 grey (`MissionsWindowUI.MissionSummaryTextColor`, same font) `KSC [U+2192] Depot Station Duna I` (the U+2192 arrow, the arrow the default route names use; a multi-stop route `Depot (+2 stops)`; an unresolved endpoint names the place, never coordinates). Hover: origin and destination with coordinates. Sorts by name |
-| 3 | Delivers | 200 | yes | yes | per-run manifest (wraps), then what the route loads: `LiquidFuel 200.0; picks up 154.4 LiquidFuel at B`, or alone on a pure pickup route `picks up 154.4 LiquidFuel at B` (pickups amount first, as the Route History reads; `LogisticsDeliveryPresentation.FormatRouteCargoCell`); hover the detail block's cargo line |
+| 3 | Delivers | 200 | yes | yes | per-run manifest, amount first like every Logistics cargo text (`257.8 LiquidFuel, 315.1 Oxidizer`; wraps), then what the route loads: `200.0 LiquidFuel; picks up 154.4 LiquidFuel at B`, or alone on a pure pickup route `picks up 154.4 LiquidFuel at B` (`LogisticsDeliveryPresentation.FormatRouteCargoCell`); hover the detail block's cargo line |
 | 4 | Every | 150 | read-only `every 4.0d` / `every 2nd window` | inline `[-] field [+] Nx` stepper | a Send-armed route shows the read-only form in both modes |
 | 5 | Runs | 80 | no | yes | `3` or `3, 1 held` |
 | 6 | Next | 135 | yes | yes | the Missions countdown: amber `T- ` + `FormatCountdownCompact`, ` (!)` when the last run was held; grey `-` when no run is scheduled (a Paused route). A Send-armed route counts down to its window, then to the arrival. Hover: the exact date |
@@ -954,8 +954,8 @@ width. Each cell is exactly one button in every state.
 **Detail block** (`DrawRouteDetail`, the route's basic information). Basic:
 `Delivers each run: <manifest> to <destination>.` (a route that picks cargo up names every
 stop's cargo in visit order instead, a stop's pickup before its delivery: `Picks up each run:
-154.4 LiquidFuel at B.`, `Picks up each run: 154.4 LiquidFuel at B, then delivers LiquidFuel
-200.0 to A.`; `FormatRouteCargoLine`), the next run (`Next launch window on
+154.4 LiquidFuel at B.`, `Picks up each run: 154.4 LiquidFuel at B, then delivers 200.0
+LiquidFuel to A.`; `FormatRouteCargoLine`), the next run (`Next launch window on
 <date>; arrives <duration> later.`), the dated hold (`Last run held on <date>: <clause>.`,
 yellow; the date is `Route.LastHoldUT`, the LAST check, so it names the last held run, never
 when the hold began) and partial-delivery lines, the capacity line and `Re-scan for endpoint`
@@ -984,7 +984,7 @@ name field leads the block without taking a slot and Rename greys with its reaso
 rows' styles (the caret + default route name, over the grey `KSC [U+2192] Depot` line through
 the same `FormatFromTo` arrow: the origin in the route rows' short form, the dock endpoint's
 live vessel name or its place, never coordinates; hover `From KSC (funds) to Depot Mun
-(surface) 1.00,2.00.`); `Would deliver` 260 (wraps; the manifest, then `; picks up ... at
+(surface) 1.00,2.00.`, cut with `...` to the strip); `Would deliver` 260 (wraps; the manifest, then `; picks up ... at
 <place>` for a run that loads cargo, or that alone for a pure pickup run, plus the Career net
 cost suffix); `Transit` 150 (read-only, under the route tables' Every column; hover `How long
 one run takes, from launch to undock.`); Interact, the route tables' measured column under the
@@ -995,20 +995,24 @@ cached per candidate on the ~1 Hz refresh, and the candidate list, the near-miss
 groups refresh on a Layout pass only, so a frame's Layout and Repaint draw the same controls.
 Empty state: `No supply runs to offer yet. Fly a cargo run that docks, transfers cargo and
 undocks, then finish the mission.` The expanded candidate is the cost line and `Built from
-mission 'X'.`. The create dialog lists stored parts by their title (`EVA Parachute x2`, the
-internal name when PartLoader knows no title) and adds a `Picks up:` block for a run that
-loads cargo.
+mission 'X'.`. The create dialog names its ends as the candidate row does (`Origin: KSC
+(Runway)`, a depot by its name, `harvested en route`; `Destination:` the live vessel's name, else
+the place `Mun (surface)`, never coordinates), lists resources amount first (`97.6 LiquidFuel`)
+and stored parts by their title (`EVA Parachute x2`, the internal name when PartLoader knows no
+title), and adds a `Picks up:` block for a run that loads cargo.
 
 Below the table, `Missions that cannot become routes yet (N)` (collapsed by default) draws ONE
 line per reason (`LogisticsNearMissPresentation.Group`): a caret, the short reason, the count
 and a preview of names up to 60 characters, `No dock was recorded (18): Kerbal X [1], Kerbal X
 [2], Duna Supply 1 ...`, largest group first; the hover is `Missions: ` and every name, cut
 with `, +N more` to the strip. A repeated name is numbered `Name [1]`, `Name [2]` across the
-whole list. A group opens (key `nearmiss:group:<status>`, collapsed by default) to the full
-reason sentence once when every mission shares it (`No dock was recorded on this flight, so
-there is nothing to repeat.`), then one row per mission with its own `Dismiss` in the Interact
-column; a group whose missions carry different details (amounts) shows each row as `Name -
-<sentence>`. Dismiss acts on the one mission on its row; there is no dismiss-all. `Hidden
+whole list. A group opens (key `nearmiss:group:<status>`, collapsed by default) to one row per
+mission with its own `Dismiss` in the Interact column. Above the rows the full reason sentence
+shows once only when every mission shares it AND it says more than the short reason
+(`LogisticsNearMissPresentation.ReasonAddsToShort`: advice or a count; `No dock was recorded on
+this flight, so there is nothing to repeat.` and the unidentified-vessel clause only restate
+theirs and are left out). A group whose missions carry different details (amounts) shows each
+row as `Name - <sentence>`, its hover the sentence cut with `...` to the strip. Dismiss acts on the one mission on its row; there is no dismiss-all. `Hidden
 missions (N)` lists each dismissed mission (numbered the same way) with `Restore`.
 
 Hold clauses in the Status cell, its hover and the detail block name a stored part by its
@@ -1075,8 +1079,8 @@ Route History rows (N is the run's position in dispatch order):
 | RouteEndpointLost | `Stopped: destination lost` / `origin lost` | `-` |
 
 Amounts read amount first in every row (`150.0 LiquidFuel, 40.0 Oxidizer`, resources in ordinal
-order, then `N stored part(s)`), as the Sent cost and a short delivery do; the Logistics table's
-Delivers column keeps its own `LiquidFuel 150.0` shape. A Held row is written once per hold
+order, then `N stored part(s)`), as the Sent cost, a short delivery and the Logistics window's
+cargo text do. A Held row is written once per hold
 episode and reason (logistics design section 6.7): a route held for a year on one reason shows
 one row, a reason change (origin short, then destination full) a second, and the next `Sent`,
 `Paused`, `Activated` or `Stopped` row ends the episode; nothing marks the release.

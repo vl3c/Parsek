@@ -2679,24 +2679,29 @@ _(unreleased — entries accumulate here per commit)_
   Advanced details the Every and Priority steppers line up: both labels, both value cells and
   both pairs of - / + buttons share one column each, whatever the values read, and the two
   rows are the same height.
-- **Logistics: candidates on the route grid, near misses grouped by reason, part titles and
-  pickups.** The Candidates table now reads like the route tables: #, Route (the candidate's
-  name over a grey "KSC -> Depot" line, the destination named by its vessel when it is still
-  there), Would deliver, Transit, and an Interact column with [Create route] over [Dismiss]
-  under the routes' Activate / Pause; the separate Origin and Destination columns are gone.
-  "Missions that cannot become routes yet" draws one line per reason instead of one per
-  mission: "No dock was recorded (18): Kerbal X [1], Kerbal X [2], Duna Supply 1 ...", every
-  name in the hover. Click a reason to list its missions, each with its own Dismiss (the
-  reason sentence shows once above them when they share it); collapsed by default. A
-  repeated mission name is numbered "Name [1]", "Name [2]" there and in Hidden missions.
-  Stored parts are named by their title in the create dialog ("EVA Parachute x2") and in a
-  route's hold ("Held: no slot for 'EVA Parachute'"), falling back to the part's internal
-  name. A route that picks cargo up says so: a pure pickup route's Delivers cell reads
-  "picks up 154.4 LiquidFuel at B" instead of "(nothing)" and its details "Picks up each run:
-  154.4 LiquidFuel at B."; a relay reads "LiquidFuel 200.0; picks up 154.4 LiquidFuel at B"
-  and "Picks up each run: 154.4 LiquidFuel at B, then delivers LiquidFuel 200.0 to A.". A
-  pickup candidate's Would deliver cell and its create dialog ("Picks up:") name the cargo
-  too. Delivery-only routes read exactly as before.
+- **Logistics: candidates on the route grid, near misses grouped by reason, part titles,
+  pickups, and cargo amount first.** The Candidates table now reads like the route tables: #,
+  Route (the candidate's name over a grey "KSC -> Depot" line, the destination named by its
+  vessel when it is still there), Would deliver, Transit, and an Interact column with [Create
+  route] over [Dismiss] under the routes' Activate / Pause; the separate Origin and
+  Destination columns are gone. "Missions that cannot become routes yet" draws one line per
+  reason instead of one per mission: "No dock was recorded (18): Kerbal X [1], Kerbal X [2],
+  Duna Supply 1 ...", every name in the hover. Click a reason to list its missions, each with
+  its own Dismiss; the reason's full sentence shows once above them only when it says more
+  than the short reason (advice, a count). Collapsed by default. A repeated mission name is
+  numbered "Name [1]", "Name [2]" there and in Hidden missions. Every cargo amount in the
+  window and the create dialog now reads amount first, as the Route History does: "257.8
+  LiquidFuel, 315.1 Oxidizer". The create dialog names its ends as the candidate row does
+  ("Origin: KSC (Runway)", "Destination: Depot Station Mun", or the place "Mun (surface)"
+  when no vessel answers) instead of a bare body and raw coordinates, and names stored parts
+  by their title ("EVA Parachute x2"); a route's hold does too ("Held: no slot for 'EVA
+  Parachute'"), falling back to the part's internal name. A route that picks cargo up says
+  so: a pure pickup route's Delivers cell reads "picks up 154.4 LiquidFuel at B" instead of
+  "(nothing)" and its details "Picks up each run: 154.4 LiquidFuel at B."; a relay reads
+  "200.0 LiquidFuel; picks up 154.4 LiquidFuel at B" and "Picks up each run: 154.4
+  LiquidFuel at B, then delivers 200.0 LiquidFuel to A.". A pickup candidate's Would deliver
+  cell and its create dialog ("Picks up:") name the cargo too. Long per-mission and from/to
+  hovers are cut to the hover strip.
 
 - **Dev: the BDOCK rendezvous waits are rails-warped.** Operator ruling 2026-10-02 (rails
   warp only): MechJeb's rendezvous autopilot hands each node to its NodeExecutor, which

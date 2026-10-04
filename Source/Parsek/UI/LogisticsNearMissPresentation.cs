@@ -30,6 +30,8 @@ namespace Parsek
         public string Label;
         /// <summary>The full reason sentence for this mission (may carry its own detail).</summary>
         public string Reason;
+        /// <summary>The row's hover: <see cref="Reason"/> cut to the strip.</summary>
+        public string Tooltip;
     }
 
     /// <summary>
@@ -43,9 +45,13 @@ namespace Parsek
         public string Key;
         /// <summary>The short reason the group line opens with.</summary>
         public string ShortReason;
-        /// <summary>The full sentence when every member has the same one; else null and
-        /// each member row carries its own.</summary>
+        /// <summary>The full sentence drawn once under an opened group: set only when
+        /// every member has the same one AND it says more than <see cref="ShortReason"/>
+        /// (advice, a count); else null.</summary>
         public string SharedReason;
+        /// <summary>True when the members' sentences differ (each carries its own
+        /// detail), so every member row reads "Name - sentence".</summary>
+        public bool MembersShowReason;
         public readonly List<NearMissMember> Members = new List<NearMissMember>();
         /// <summary>"No dock was recorded (18): A, B, C ..."</summary>
         public string HeaderText;
@@ -93,6 +99,21 @@ namespace Parsek
                 case RouteAnalysisStatus.UnsupportedConnectionKind: return "Unsupported connection type";
                 default: return "Not eligible";
             }
+        }
+
+        /// <summary>
+        /// Whether a reason's full sentence says more than its short reason. Two do not:
+        /// "No dock was recorded on this flight, so there is nothing to repeat." and
+        /// "Endpoint vessel could not be identified at dock time." only restate "No dock
+        /// was recorded" / "Docked vessel not identified", so an opened group of them
+        /// shows its missions alone. Every other clause carries advice or a count.
+        /// </summary>
+        internal static bool ReasonAddsToShort(RouteAnalysisStatus status, bool notSealed)
+        {
+            if (notSealed)
+                return true;
+            return status != RouteAnalysisStatus.MissingRouteProof
+                && status != RouteAnalysisStatus.MissingEndpointProof;
         }
 
         /// <summary>
@@ -153,6 +174,7 @@ namespace Parsek
 
             var byKey = new Dictionary<string, NearMissGroup>(StringComparer.Ordinal);
             var firstIndex = new Dictionary<NearMissGroup, int>();
+            var addsByGroup = new Dictionary<NearMissGroup, bool>();
             for (int i = 0; i < count; i++)
             {
                 NearMissInput nm = inputs[i];
@@ -164,13 +186,17 @@ namespace Parsek
                     firstIndex[g] = i;
                     groups.Add(g);
                 }
+                string reason = LogisticsRejectPresentation.DescribeNearMiss(
+                    nm.Status, nm.NotSealed, nm.ReflyableCount, nm.RejectDetail);
                 g.Members.Add(new NearMissMember
                 {
                     TreeId = nm.TreeId,
                     Label = labels[i],
-                    Reason = LogisticsRejectPresentation.DescribeNearMiss(
-                        nm.Status, nm.NotSealed, nm.ReflyableCount, nm.RejectDetail),
+                    Reason = reason,
+                    Tooltip = LogisticsRoutePresentation.CapToStrip(reason, tooltipMaxChars),
                 });
+                if (g.Members.Count == 1)
+                    addsByGroup[g] = ReasonAddsToShort(nm.Status, nm.NotSealed);
             }
 
             groups.Sort((a, b) =>
@@ -186,7 +212,8 @@ namespace Parsek
                 for (int m = 1; m < g.Members.Count && shared != null; m++)
                     if (!string.Equals(g.Members[m].Reason, shared, StringComparison.Ordinal))
                         shared = null;
-                g.SharedReason = shared;
+                g.MembersShowReason = shared == null;
+                g.SharedReason = shared != null && addsByGroup[g] ? shared : null;
                 var names = new List<string>(g.Members.Count);
                 for (int m = 0; m < g.Members.Count; m++)
                     names.Add(g.Members[m].Label);

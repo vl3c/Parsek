@@ -92,15 +92,30 @@ namespace Parsek.Tests.Logistics
                 g.Members.ConvertAll(m => m.Label).ToArray());
         }
 
-        // catches: the full sentence being repeated per row when every mission shares it,
-        // or a shared line hiding a per-mission detail (different amounts) when they do not.
+        // catches: an opened group repeating a sentence that only restates its short
+        // reason, dropping one that adds advice, or a shared line hiding a per-mission
+        // detail (different amounts).
         [Fact]
-        public void Group_SharedReasonOnlyWhenEveryMemberSaysTheSameThing()
+        public void Group_SharedReasonOnlyWhenItSaysMoreThanTheShortReason()
         {
-            NearMissGroup same = Assert.Single(LogisticsNearMissPresentation.Group(
+            // "No dock was recorded on this flight, so there is nothing to repeat." only
+            // restates "No dock was recorded": the opened group lists the missions alone.
+            NearMissGroup restates = Assert.Single(LogisticsNearMissPresentation.Group(
                 new List<NearMissInput> { Miss("a", "A"), Miss("b", "B") }, StripBudget));
-            Assert.Equal(LogisticsRejectClauses.MissingRouteProof, same.SharedReason);
+            Assert.Null(restates.SharedReason);
+            Assert.False(restates.MembersShowReason);
 
+            // A clause with advice is shown once.
+            NearMissGroup adds = Assert.Single(LogisticsNearMissPresentation.Group(
+                new List<NearMissInput>
+                {
+                    Miss("a", "A", RouteAnalysisStatus.MultipleConnectionWindows),
+                    Miss("b", "B", RouteAnalysisStatus.MultipleConnectionWindows),
+                }, StripBudget));
+            Assert.Equal(LogisticsRejectClauses.MultipleConnectionWindows, adds.SharedReason);
+            Assert.False(adds.MembersShowReason);
+
+            // Different details: no shared line, every row carries its own sentence.
             NearMissGroup differ = Assert.Single(LogisticsNearMissPresentation.Group(
                 new List<NearMissInput>
                 {
@@ -108,9 +123,57 @@ namespace Parsek.Tests.Logistics
                     Miss("b", "B", RouteAnalysisStatus.FlowDoesNotClose, detail: "Ore: 5.0 over-delivered"),
                 }, StripBudget));
             Assert.Null(differ.SharedReason);
+            Assert.True(differ.MembersShowReason);
             Assert.Contains("(Ore: 30.0 over-delivered)", differ.Members[0].Reason);
             Assert.Contains("(Ore: 5.0 over-delivered)", differ.Members[1].Reason);
             Assert.Equal("Cargo does not add up (2): A, B", differ.HeaderText);
+        }
+
+        // catches: the restating set growing past the two clauses that only say what the
+        // short reason says (a clause with advice must keep its shared line).
+        [Fact]
+        public void ReasonAddsToShort_FalseOnlyForTheTwoRestatingClauses()
+        {
+            foreach (RouteAnalysisStatus st in (RouteAnalysisStatus[])Enum.GetValues(typeof(RouteAnalysisStatus)))
+            {
+                bool expected = st != RouteAnalysisStatus.MissingRouteProof
+                    && st != RouteAnalysisStatus.MissingEndpointProof;
+                Assert.Equal(expected, LogisticsNearMissPresentation.ReasonAddsToShort(st, false));
+            }
+            Assert.True(LogisticsNearMissPresentation.ReasonAddsToShort(RouteAnalysisStatus.MissingRouteProof, true));
+        }
+
+        // catches: a member row's per-mission hover (the longest reject clause plus its
+        // detail) running past the single-line strip.
+        [Fact]
+        public void MemberHover_IsCutToTheStrip()
+        {
+            string detail = new string('9', 120) + " Ore unaccounted";
+            NearMissGroup g = Assert.Single(LogisticsNearMissPresentation.Group(
+                new List<NearMissInput>
+                {
+                    Miss("a", "A", RouteAnalysisStatus.FlowDoesNotClose, detail: detail),
+                    Miss("b", "B", RouteAnalysisStatus.FlowDoesNotClose, detail: "x"),
+                }, StripBudget));
+            foreach (NearMissMember m in g.Members)
+            {
+                Assert.True(m.Tooltip.Length <= StripBudget, m.Tooltip.Length + ": " + m.Tooltip);
+                Assert.EndsWith("...", m.Tooltip);
+                Assert.True(m.Reason.Length > StripBudget);
+            }
+        }
+
+        // catches: the hover cutter running past its budget, cutting mid-word when a space
+        // is near, or touching a text that already fits.
+        [Fact]
+        public void CapToStrip_CutsAtAWordAndEndsWithAnEllipsis()
+        {
+            Assert.Equal("short", LogisticsRoutePresentation.CapToStrip("short", 20));
+            Assert.Equal("From KSC to...", LogisticsRoutePresentation.CapToStrip("From KSC to Depot Station Duna I.", 15));
+            Assert.Equal("abcdefg...", LogisticsRoutePresentation.CapToStrip("abcdefghijklmnop", 10));
+            Assert.Equal(string.Empty, LogisticsRoutePresentation.CapToStrip(null, 10));
+            for (int max = 1; max < 40; max++)
+                Assert.True(LogisticsRoutePresentation.CapToStrip("From KSC (funds) to Depot Mun (surface) 1.00,2.00.", max).Length <= max);
         }
 
         // catches: the group line growing with the list (18 names on one line) instead of
@@ -278,9 +341,9 @@ namespace Parsek.Tests.Logistics
             var names = new[] { "Depot" };
             Assert.Equal(LogisticsDeliveryPresentation.FormatRouteDeliveryPerCycle(stops),
                 LogisticsDeliveryPresentation.FormatRouteCargoCell(stops, names));
-            Assert.Equal("LiquidFuel 257.8, 3 inventory item(s)",
+            Assert.Equal("257.8 LiquidFuel, 3 inventory item(s)",
                 LogisticsDeliveryPresentation.FormatRouteCargoCell(stops, names));
-            Assert.Equal("Delivers each run: LiquidFuel 257.8, 3 inventory item(s) to Depot.",
+            Assert.Equal("Delivers each run: 257.8 LiquidFuel, 3 inventory item(s) to Depot.",
                 LogisticsDeliveryPresentation.FormatRouteCargoLine(stops, names, "Depot"));
             Assert.Equal("Delivers each run: (nothing).",
                 LogisticsDeliveryPresentation.FormatRouteCargoLine(
@@ -298,14 +361,14 @@ namespace Parsek.Tests.Logistics
                 Stop(Res("LiquidFuel", 200.0), null),
             };
             var names = new[] { "B", "A" };
-            Assert.Equal("LiquidFuel 200.0; picks up 154.4 LiquidFuel, 1 inventory item(s) at B",
+            Assert.Equal("200.0 LiquidFuel; picks up 154.4 LiquidFuel, 1 inventory item(s) at B",
                 LogisticsDeliveryPresentation.FormatRouteCargoCell(stops, names));
-            Assert.Equal("Picks up each run: 154.4 LiquidFuel, 1 inventory item(s) at B, then delivers LiquidFuel 200.0 to A.",
+            Assert.Equal("Picks up each run: 154.4 LiquidFuel, 1 inventory item(s) at B, then delivers 200.0 LiquidFuel to A.",
                 LogisticsDeliveryPresentation.FormatRouteCargoLine(stops, names, "A (+1 stop)"));
 
             // Delivery visited first: the line opens with it.
             var reversed = new List<RouteStop> { stops[1], stops[0] };
-            Assert.Equal("Delivers each run: LiquidFuel 200.0 to A, then picks up 154.4 LiquidFuel, 1 inventory item(s) at B.",
+            Assert.Equal("Delivers each run: 200.0 LiquidFuel to A, then picks up 154.4 LiquidFuel, 1 inventory item(s) at B.",
                 LogisticsDeliveryPresentation.FormatRouteCargoLine(reversed, new[] { "A", "B" }, "A"));
             // A stop with no name reads "-", never blank.
             Assert.Equal("picks up 154.4 LiquidFuel at -",
@@ -323,8 +386,8 @@ namespace Parsek.Tests.Logistics
                 Stop(Res("Oxidizer", 1240.5), new Dictionary<string, double> { { "Ore", 30.26 }, { "LiquidFuel", 154.44 } }),
             };
             string cell = LogisticsDeliveryPresentation.FormatRouteCargoCell(stops, new[] { "B" });
-            Assert.Equal("Oxidizer 1240.5; picks up 154.4 LiquidFuel, 30.3 Ore at B", cell);
-            Assert.Equal("Picks up each run: 154.4 LiquidFuel, 30.3 Ore at B, then delivers Oxidizer 1240.5 to B.",
+            Assert.Equal("1240.5 Oxidizer; picks up 154.4 LiquidFuel, 30.3 Ore at B", cell);
+            Assert.Equal("Picks up each run: 154.4 LiquidFuel, 30.3 Ore at B, then delivers 1240.5 Oxidizer to B.",
                 LogisticsDeliveryPresentation.FormatRouteCargoLine(stops, new[] { "B" }, "B"));
             Assert.Equal("picks up 2.5 Ore at Mun (surface)",
                 LogisticsDeliveryPresentation.FormatCandidateCargo(null, null, Res("Ore", 2.5), null, "Mun (surface)"));
@@ -335,9 +398,9 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void CandidateCargo_NamesPickupsAfterTheDelivery()
         {
-            Assert.Equal("LiquidFuel 97.6",
+            Assert.Equal("97.6 LiquidFuel",
                 LogisticsDeliveryPresentation.FormatCandidateCargo(Res("LiquidFuel", 97.6), null, null, null, "Depot"));
-            Assert.Equal("LiquidFuel 97.6; picks up 30.0 Ore at Depot",
+            Assert.Equal("97.6 LiquidFuel; picks up 30.0 Ore at Depot",
                 LogisticsDeliveryPresentation.FormatCandidateCargo(Res("LiquidFuel", 97.6), null, Res("Ore", 30.0), null, "Depot"));
             Assert.Equal("picks up 1 inventory item(s) at Depot",
                 LogisticsDeliveryPresentation.FormatCandidateCargo(null, null, null,
@@ -362,7 +425,34 @@ namespace Parsek.Tests.Logistics
             string block = RouteCreationFormatters.BuildSummaryBlock(
                 analysis, Game.Modes.SANDBOX, null, null, Titles);
             Assert.Contains("Inventory:\n  - EVA Parachute x3\n", block);
-            Assert.Contains("Picks up:\n  - LiquidFuel: 154.4\n  - EVA Parachute\n", block);
+            Assert.Contains("Picks up:\n  - 154.4 LiquidFuel\n  - EVA Parachute\n", block);
+        }
+
+        // catches: the create dialog naming the destination by raw coordinates or the
+        // origin by a bare body; the candidate row's names are what it shows.
+        [Fact]
+        public void CreateDialog_NamesPlacesNotCoordinates()
+        {
+            string unnamed = RouteCreationFormatters.BuildSummaryBlock(EligibleAnalysis(), Game.Modes.SANDBOX);
+            Assert.Contains("Destination: Mun (orbit)\n", unnamed);
+            Assert.DoesNotContain("°", unnamed);
+            Assert.Contains("Resources:\n  - 50.0 LiquidFuel\n", unnamed);
+
+            string named = RouteCreationFormatters.BuildSummaryBlock(
+                EligibleAnalysis(), Game.Modes.SANDBOX, null, null, null, "Depot Station Mun");
+            Assert.Contains("Destination: Depot Station Mun\n", named);
+
+            var ksc = new RouteCreationFormatters.RouteOriginIdentity
+            {
+                Kind = RouteCreationFormatters.RouteOriginKind.Ksc, BodyName = "Kerbin", LaunchSiteName = "Runway",
+            };
+            Assert.Equal("KSC (Runway)", RouteCreationFormatters.FormatOriginName(ksc, true, "unknown"));
+            Assert.Equal("KSC", RouteCreationFormatters.FormatOriginName(ksc, false, "unknown"));
+            var depot = new RouteCreationFormatters.RouteOriginIdentity
+            {
+                Kind = RouteCreationFormatters.RouteOriginKind.Depot, BodyName = "Mun", DepotVesselName = "Depot A",
+            };
+            Assert.Equal("Depot A", RouteCreationFormatters.FormatOriginName(depot, true, "unknown"));
         }
 
         private static RouteAnalysisResult EligibleAnalysis()

@@ -261,12 +261,11 @@ namespace Parsek
         /// section "Would deliver" column (and reused by the candidate detail line). The
         /// inputs are the candidate analysis's already-built resource + inventory
         /// delivery manifests; a null resource map and a null / empty inventory list
-        /// yield "(nothing)". Resources render as "&lt;key&gt; &lt;F1 amount&gt;"
-        /// comma-joined (full stock key, no abbreviation) in dictionary order, followed
-        /// by "&lt;N&gt; inventory item(s)" when any inventory payload is present. F1 +
-        /// InvariantCulture so comma-locale systems render identically. Mirrors the
-        /// window's prior private FormatManifest exactly so the rendered cell text does
-        /// not change. Pure and Unity-free for unit testing.
+        /// yield "(nothing)". Resources render amount first, "&lt;F1 amount&gt; &lt;key&gt;"
+        /// ("200.0 LiquidFuel", as the Route History and the pickup text read), comma-joined
+        /// (full stock key, no abbreviation) in dictionary order, followed by
+        /// "&lt;N&gt; inventory item(s)" when any inventory payload is present. F1 +
+        /// InvariantCulture so comma-locale systems render identically. Pure and Unity-free.
         /// </summary>
         internal static string FormatWouldDeliver(
             IReadOnlyDictionary<string, double> resources,
@@ -278,8 +277,8 @@ namespace Parsek
                 foreach (KeyValuePair<string, double> kv in resources)
                 {
                     if (sb.Length > 0) sb.Append(", ");
-                    sb.Append(kv.Key).Append(' ')
-                      .Append(kv.Value.ToString("F1", CultureInfo.InvariantCulture));
+                    sb.Append(kv.Value.ToString("F1", CultureInfo.InvariantCulture))
+                      .Append(' ').Append(kv.Key);
                 }
             }
             int invCount = inventory?.Count ?? 0;

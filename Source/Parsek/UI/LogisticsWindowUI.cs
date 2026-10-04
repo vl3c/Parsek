@@ -286,6 +286,9 @@ namespace Parsek
             public string FromTo;
             public string FromToTooltip;
             public string Cargo;
+            // The destination's live vessel name, null when none answers; the create
+            // dialog names the destination by it.
+            public string DestinationName;
         }
         private readonly Dictionary<string, CandidateDisplay> candidateDisplayCache =
             new Dictionary<string, CandidateDisplay>();
@@ -1172,9 +1175,9 @@ namespace Parsek
         /// <summary>
         /// One reason: a caret line "No dock was recorded (18): A, B, C ..." whose hover
         /// names every mission (cut with "+N more" to the strip). Opened, the full reason
-        /// sentence once (when every mission shares it), then one row per mission with its
-        /// own Dismiss in the candidates' Interact column, so Dismiss acts on exactly the
-        /// mission named on its row. Collapsed by default. Every count read here comes from
+        /// sentence once (only when every mission shares it and it says more than the short
+        /// reason), then one row per mission with its own Dismiss in the candidates' Interact
+        /// column, so Dismiss acts on exactly the mission named on its row. Collapsed by default. Every count read here comes from
         /// the cached groups, rebuilt on a Layout pass only.
         /// </summary>
         private void DrawNearMissGroup(NearMissGroup group)
@@ -1206,8 +1209,8 @@ namespace Parsek
                 NearMissMember m = group.Members[i];
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(40f);
-                string text = group.SharedReason != null ? m.Label : m.Label + " - " + m.Reason;
-                GUILayout.Label(new GUIContent(text, group.SharedReason != null ? string.Empty : m.Reason),
+                string text = group.MembersShowReason ? m.Label + " - " + m.Reason : m.Label;
+                GUILayout.Label(new GUIContent(text, group.MembersShowReason ? m.Tooltip : string.Empty),
                     detailStyle, GUILayout.ExpandWidth(true));
                 // The Dismiss cell is drawn on every row (a space where the tree id did not
                 // resolve), so the column stays aligned and the count is the cached list's.
@@ -3362,8 +3365,9 @@ namespace Parsek
             // candidate's source recording + tree (no Route exists yet) and passed in.
             RouteRunCostCalculator.RouteRunCost runCost =
                 ComputeCandidateRunCost(cand.Analysis, cand.Tree);
+            candidateDisplayCache.TryGetValue(cand.Tree.Id ?? "<no-tree>", out CandidateDisplay display);
             string body = RouteCreationFormatters.BuildSummaryBlock(cand.Analysis, mode, cand.Tree, runCost,
-                StructureListWindowUI.ResolvePartTitle);
+                StructureListWindowUI.ResolvePartTitle, display?.DestinationName);
 
             ParsekLog.Info("UI",
                 $"Logistics: Create Route confirm dialog spawned tree={ShortId(cand.Tree.Id)} mode={mode}");
@@ -3659,8 +3663,10 @@ namespace Parsek
                 {
                     FromTo = LogisticsRoutePresentation.FormatFromTo(
                         FormatCandidateOriginShort(cand.Analysis, cand.Tree), destShort),
-                    FromToTooltip = "From " + FormatCandidateOrigin(cand.Analysis, cand.Tree)
-                        + " to " + destLong + ".",
+                    FromToTooltip = LogisticsRoutePresentation.CapToStrip(
+                        "From " + FormatCandidateOrigin(cand.Analysis, cand.Tree) + " to " + destLong + ".",
+                        TooltipEchoBox.BudgetChars(DefaultWindowWidth, TooltipEchoBox.SingleLine)),
+                    DestinationName = destName,
                     Cargo = LogisticsDeliveryPresentation.FormatCandidateCargo(
                         cand.Analysis.ResourceDeliveryManifest, cand.Analysis.InventoryDeliveryManifest,
                         cand.Analysis.ResourceLoadManifest, cand.Analysis.InventoryLoadManifest,
@@ -4640,8 +4646,7 @@ namespace Parsek
         /// </summary>
         internal static string FormatEndpointPlace(RouteEndpoint? ep)
         {
-            if (!ep.HasValue || string.IsNullOrEmpty(ep.Value.BodyName)) return "-";
-            return ep.Value.BodyName + (ep.Value.IsSurface ? " (surface)" : " (orbit)");
+            return RouteCreationFormatters.FormatEndpointPlace(ep);
         }
 
         private static string FormatEndpointShort(RouteEndpoint ep)

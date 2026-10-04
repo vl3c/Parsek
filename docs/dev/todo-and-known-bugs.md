@@ -112,8 +112,8 @@ window, the Basic gate `UiSurface.LogisticsRouteTuning`, the dated detail block)
 these, each deferred as its own change:
 
 - ~~**Pickup-aware Delivers (D4).**~~ DONE (branch `logistics-followups`): the Delivers cell
-  reads "LiquidFuel 200.0; picks up 154.4 LiquidFuel at B" (alone on a pure pickup route) and
-  the detail line "Picks up each run: 154.4 LiquidFuel at B, then delivers LiquidFuel 200.0 to
+  reads "200.0 LiquidFuel; picks up 154.4 LiquidFuel at B" (alone on a pure pickup route) and
+  the detail line "Picks up each run: 154.4 LiquidFuel at B, then delivers 200.0 LiquidFuel to
   A." in visit order (`LogisticsDeliveryPresentation.FormatRouteCargoCell` /
   `FormatRouteCargoLine`); a pickup candidate's Would deliver cell and create dialog name the
   cargo too.
