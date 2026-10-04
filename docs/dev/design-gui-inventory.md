@@ -568,8 +568,7 @@ before the bar draws, so a click lands next frame. The Timeline GoTo cross-link 
 expanding a collapsed target and applies
 it on a Layout pass. Seam: `op=expand window=missions key=mission:<id>` drives it (expanded =
 not collapsed); it is a NAMED-KEYS-ONLY set, so `key=all` / `key=none` skip it and its counts.
-The Recordings tab's per-recording Archive (`rec.Hidden`) and the Timeline's `Archived` filter
-are a different mechanism.
+The Recordings tab's per-recording Archive (`rec.Hidden`) is a different mechanism.
 
 Mission bar controls, with their gates:
 
@@ -724,10 +723,10 @@ Hosts: `ParsekFlight` and `ParsekKSC`; not the Tracking Station. Input lock
 `Parsek_TimelineWindow` on CAMERACONTROLS while the mouse is inside. First opened to the left of
 the main window at 820 x max(600, main window height).
 
-Structure, top-down (`DrawTimelineWindow`): the three-row filter area (below), the From / To
+Structure, top-down (`DrawTimelineWindow`): the filter area (two or three rows, below), the From / To
 sliders while `Custom` is lit, the entry scroll view with a "now" divider, the warp row, the
 single-line echo strip, `Close`, the resize handle and drag. Minimum size 610 x 150
-(`MinWindowWidth`): all three filter rows sit on one six-cell grid (`FilterRowCellWidth` over
+(`MinWindowWidth`): every filter row sits on one six-cell grid (`FilterRowCellWidth` over
 `ComputeFilterCellWidth`, the same width for every row), the widest labels (`Recordings`,
 `Strategies`, `Milestones`) fit the 93 px cell floor, and six floor cells plus margins and
 chrome are 608 px.
@@ -737,13 +736,12 @@ cell's width and every row is left-aligned, so a row of fewer than six buttons l
 unused cells empty on the right.
 
 - Row 1: the one-at-a-time view group `Overview` / `Details` / `Rewind/FF` / `Re-Fly` /
-  `Career` (four in Sandbox), then the `Archived` filter as the last cell (it applies in every
-  view, so it is not a context control).
-- Row 2: the selected view's context row, always drawn and always one button tall so the list
-  never moves (`ResolveContextRow`). The source toggles `Recordings` / `Actions` / `Events`
-  under Overview and Details; an EMPTY button-high row under Rewind/FF and Re-Fly (the sources
-  are forced or inert there, so they are hidden rather than greyed; `GUILayoutUtility.GetRect`
-  reserves the height); the category buttons `Contracts` / `Strategies` / `Facilities` /
+  `Career` (four in Sandbox).
+- Row 2: the selected view's context row (`ResolveContextRow`), drawn only when the view has
+  one (`ShouldDrawContextRow`). The source toggles `Recordings` / `Actions` / `Events` under
+  Overview and Details; NO row under Rewind/FF and Re-Fly (the sources are forced or inert
+  there, so they are hidden rather than greyed), where the time-range row moves up directly
+  under row 1 and never leaves an empty line; the category buttons `Contracts` / `Strategies` / `Facilities` /
   `Milestones` / `Tech` under Career (single-select; `Career` reopens the last one used). The
   Career cell and the category set read the GAME mode, never the UI complexity mode: Career
   mode draws all five, Science draws Facilities / Milestones / Tech, Sandbox draws no Career
@@ -754,8 +752,10 @@ unused cells empty on the right.
   active)` at an unlimited building, the reserved clause dropped when nothing is reserved);
   contracts read the shared `ContractSlotReservation` forecast, strategies the peak walk; the
   counts rebuild on a ledger change, a rewind or a new game minute, and only while that row
-  draws.
-- Row 3, always drawn: `Last Day` / `Last 7d` / `Last 30d` / `This Year` / `All` / `Custom`,
+  draws. Which row draws is latched on the Layout pass (`LatchContextRow`), so a view click
+  changes the row from the next frame and the Layout and Repaint passes of one frame always
+  emit the same controls.
+- Last row, always drawn: `Last Day` / `Last 7d` / `Last 30d` / `This Year` / `All` / `Custom`,
   exactly one lit (`ResolveLitTimeRangeButton`; `All` by default), so the range in force is
   always visible. `Custom` shows the sliders (`SetCustomRangeSelected`; switched on over a
   preset it keeps that range without the preset's name, switched off it clears to `All`); a
@@ -869,17 +869,10 @@ and the confirmation is a stock dialog (`WarpToTimeController`). In flight the w
 executes in place - it is deferred to the next Space Center arrival so the scene-exit merge
 dialog handles the live recording first.
 
-The `Archived` toggle (`DrawArchivedToggle`, row 1) writes the INVERSE of
-`GroupHierarchyStore.HideActive`, the same single flag the Recordings tab's Archive header
-checkbox writes - and because that tab is Basic-hidden, this toggle is **the only archive
-control a Basic player can reach**. It governs whether recordings with `Recording.Hidden` set
-(the Recordings tab's per-row and per-group Archive boxes) contribute their flight rows
-(launch, separation, spawn, crew death), each marked `[archived]`
-(`TimelineBuilder.CollectRecordingEntries`). It is in force in every view; the Career views
-list ledger rows only, which archiving never hides, so there it changes nothing. The Missions
-tab's collapse caret is a different flag and does not reach the Timeline. Hover: "Lists archived
-flights, marked [archived], in all views. Same switch as the recordings list's Archive
-filter."
+No archive control: recordings the Recordings tab archived (`Recording.Hidden`) never
+contribute rows (`TimelineBuilder.CollectRecordingEntries` skips them), whatever that tab's
+Archive header filter says. Archive and un-archive live in the Recordings tab only
+(`design-ui-basic-advanced.md` section 4.4).
 
 Pictures: `ksc-timeline-overview-advanced`, `ksc-timeline-details-advanced`,
 `ksc-timeline-rewindff-advanced`, `ksc-timeline-refly-advanced` and `ksc-timeline-basic`
@@ -889,7 +882,7 @@ Pictures: `ksc-timeline-overview-advanced`, `ksc-timeline-details-advanced`,
 `-tech-advanced`, `-milestones-thisyear-advanced`, `-customlastday-advanced` and
 `-minwidth-advanced` (GUI-24). The Contracts view shows the grey `!IsEffective` row (the host's
 duplicate contract completions). No picture: any flight-scene state (so the Watch button), `FF`,
-`Archived` ON, every disabled hover.
+every disabled hover.
 
 ### 3.4 Parsek - Kerbals
 
@@ -1433,7 +1426,7 @@ appendix 3 lists it with per-site citations at its 2026-09-11 reading; the load-
 | filter-vs-write distinctions | the Recordings tab's `Archive` header toggle is a FILTER and archives nothing | it sits where a select-all would |
 | numeric constants | the 300 km watch range, the launch-to-launch period definition and its overlap consequence (Recordings `Period` header), the interval grammar `30m / 2h / 1d` (`Logistics/LogisticsIntervalPresentation.cs`) | no label carries any of them |
 | status-word definitions | `static` and `stationary` (Recordings tab), the STASH group's entire meaning (`UI/UnfinishedFlightsGroup.cs`), a locked loop period's qualifier (`Mun window, varies`) | the word alone is not self-describing |
-| cross-window side effects | the Recordings tab's `Clear` of the time filter also resets the Timeline sliders; the Timeline's `Archived` is the same switch as the Recordings tab's Archive header | the click changes something off-screen |
+| cross-window side effects | the Recordings tab's `Clear` of the time filter also resets the Timeline sliders | the click changes something off-screen |
 | full values a cell shortens | an event cell's dock partner (`Docked with <partner>`), the full crew roster and span dates of a mission, endpoint coordinates in Logistics, the untruncated hold clause | the cell shows a capped form |
 | the Gloops hovers | `Record a ghost-only flight that your career ignores.` | reach nobody: the launcher is retired |
 
@@ -1792,7 +1785,7 @@ wave-6 lane plan, the grammar and refusals in
 | seam addition | states it unlocks | window |
 | --- | --- | --- |
 | `op=state key=srcRecordings\|srcActions\|srcEvents` | the three source-OFF row-population branches, all reading `true` in every existing dump | Timeline |
-| `op=state key=archived` | the Archived toggle ON plus the `[archived]` row marker (zero hits program-wide today); the same flag from the Recordings tab's Archive checkbox | Timeline + Missions |
+| `op=state key=archived` | the Recordings tab's Archive header filter ON (archived rows listed there; zero hosts carry one today) | Missions |
 | `op=state key=customRange` + `key=preset` | the Custom range (the window's only two sliders; between 2026-09-24 PR #1792 and the preset-row revert the key opened a Time fold), the `From:` / `To:` labels (zero hits), the four ranged presets and the active-range readout (that readout was removed 2026-09-25) | Timeline |
 | `op=state key=scrollY` | the window's first scrolled PNG. Note the dump already carried below-fold content with full rects, so this buys the PICTURE, not the data | Timeline |
 | `op=state key=expandedStats` | (REMOVED 2026-09-26 with the Recordings tab's Info toggle; the key no longer exists) | - |
@@ -1840,7 +1833,7 @@ FOUR ROWS OF THE 6.0 TABLE PREDICTED MORE THAN THE SOURCES DELIVER, corrected in
 rather than left to mislead the next author. Each was re-derived from the committed bytes
 or from the applier, not from the op's name:
 
-  * the **`key=archived`** row's `[archived]` ROW MARKER, and the **`key=archivedMissions`**
+  * the **`key=archived`** row's archived ROWS, and the **`key=archivedMissions`**
     row's "whole missions dropping out", need a host with an archived recording or an
     archived mission. NO FIXTURE AND NOT THE OPERATOR'S OWN CAREER HAS EITHER: the `hidden`
     key is written only when true and appears ZERO times across all 59 fixture directories
@@ -1970,7 +1963,6 @@ These need only a different `saveTemplate` and the existing `open` / `rect` / `t
 | Career Science-mode and Sandbox-mode banners and empty states | `fresh-science`, `fresh-sandbox` | none; the science lane alone buys four otherwise-dark code paths | Since 2026-09-24 the Career launcher is Career-only, so the Science form is unreachable and GUI-8 dropped its `fs-career-milestones-science-advanced` capture; its `fs-main-advanced` is the Science main window WITHOUT the launcher. GUI-6 `play-career-contracts-sandbox-flight-advanced` still photographs the seam-opened Sandbox banner in flight. A sandbox banner at the KSC is unclaimed |
 | Timeline `R` greyed | any recorded fixture | capture with a pending tree, or delete one `RewindPoints/<id>.sfs` from the staged save | UNCLAIMED. Wants a STAGED save edit (delete one `RewindPoints/<id>.sfs`), which no lane does today - the harness stages a fixture verbatim |
 | Timeline `FF` and the countdown time label | an `injectedRecordings` preset whose recording `StartUT` is ahead of the save UT | one capture buys both | UNCLAIMED. Wants a preset whose recording `StartUT` is ahead of the save clock; `part-showcase` starts at UT 50 and GUI-6 jumps PAST it to 55, so its Timeline is behind rather than ahead |
-| Timeline `Archived` ON and the `[archived]` row suffix | a staged save with one archived recording and `HideActive=false` | none | UNCLAIMED. Wants a staged save with an archived recording and `HideActive=false`, which no committed fixture carries |
 | Real Spawn Control (a GUI-3 flight lane) | `bdock-recorded` / `bdock-station-craft` / `bdock-station-pad` - anything with a recorded craft inside 250 m at under 2 m/s | `op=open window=spawncontrol` now returns OK; then `op=rect` + capture + dump. Closes `GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST` | PAID. GUI-6 `play-spawncontrol-advanced`, on LT-5's proven active-ghost host rather than a `bdock-*` one. The step was declared `expect = "OK"` and MET: `open=true already=false`, describe `w8open=true w8rect=268,8,750,200`, `op=rect` answering `270,8,750,300 clamped=false minW=350 minH=150`, and a 69-node dump whose `Parsek - Real Spawn Control` window holds ONE candidate row (`Surface Rover Drive / 435m / 7.9 m/s / Y1, D01, 00:01 / T-11s / Warp to Spawn`) under the launcher's `Real Spawn Control (1)`. No `reason=zero-candidates` line was written, and GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST is closed |
 | In-world ghost labels, flight status non-`Idle`, `Active Ghosts > 0` | `mun-landing-recorded` / `b2-lko-craft` / `b1-pad-craft` | PNG only for the labels; the status block needs `StartRecording` before the dump | TWO OF THREE PAID, the third refuted. GUI-6 `play-main-ghosts-advanced` shows `Active Ghosts: 156` (and 243 in the later captures of the same run), and GUI-7 `b1-main-recording-advanced` / `b1-main-ready-advanced` show `State: RECORDING` + `Recorded Points: 1` + `Duration: 0.0s` and `State: Ready (has recording)` (`PREVIEWING` needs the still-RESERVED `StopPlayback`). The status block itself was removed on 2026-09-22 (section 3.1), so these are historical captures. THE IN-WORLD LABELS DID NOT DRAW: no `SpawnWarningUI` producer fired on either flight lane (zero `spawn abandoned` / `spawn blocked` / `chain terminated` lines), and no root-level label other than the watch overlay's two appears in any of the 20 flight dumps. That surface still has no picture and needs a host where a ghost's spawn is actually abandoned or blocked |
 | Tracking Station scene (markers, the ghost popup) | any `*-recorded` fixture | `LoadGame` with `scene=TRACKSTATION` then capture; no `UiAction` is possible there, so the driver needs a branch that skips the `op=rect` it currently sequences before every label | UNCLAIMED AND BLOCKED. `ParsekTrackingStation.OnGUI` draws MARKERS ONLY and hosts no Parsek window, so every `UiAction` there answers `REJECTED ui-host-unavailable` - a TS lane could take a full-screen PNG and could not even open `main` to make the surface visible. The driver branch this row asks for is necessary and not sufficient |
@@ -1984,10 +1976,10 @@ rather than newly discovered: a career with an ACTIVE strategy (a live `STRATEGY
 career with an UPGRADED facility (any `ScenarioUpgradeableFacilities` entry above `lvl = 0`).
 
 A THIRD CLASS is neither a missing fixture nor a missing verb but a missing STAGED EDIT: the
-`Timeline R greyed`, `Timeline FF countdown` and `Timeline Archived` rows each want a save that
-differs from a committed one by a single deletion or flag. The harness stages a `saveTemplate`
+`Timeline R greyed` and `Timeline FF countdown` rows each want a save that differs from a
+committed one by a single deletion or clock change. The harness stages a `saveTemplate`
 VERBATIM, so today those need a committed fixture of their own; a per-lane staged-edit hook
-would buy all three at once and is the cheaper answer if a fourth ever appears.
+would buy both at once and is the cheaper answer if a third ever appears.
 
 ### 6.2 The state needs a click (the `gui-census-ops` ops)
 

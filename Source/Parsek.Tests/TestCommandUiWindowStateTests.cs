@@ -15,9 +15,9 @@ namespace Parsek.Tests
     /// <para>Three properties carry the weight. First, the ARG SHAPE must be refused rather
     /// than resolved by precedence: a <c>value=</c> on a bool key or a <c>state=</c> on a
     /// value key means the step has misunderstood the key, and silently applying the other
-    /// half would report OK over a state nobody asked for. Second, <c>archived</c> must be
-    /// ONE key on BOTH windows - two spellings of one persisted flag would make every lane
-    /// that touched it read the source to learn the polarity. Third, the tab clamp must be a
+    /// half would report OK over a state nobody asked for. Second, <c>archived</c> is the
+    /// Recordings tab's archive filter and exists on the Missions window only - the
+    /// Timeline has no archive control, so the key is refused there. Third, the tab clamp must be a
     /// PRE-WRITE refusal, because the Timeline's own Rewind/FF and Re-Fly draw passes force
     /// that toggle back on, so a written-then-settled read-back would report an ERROR over a
     /// state the window does not have rather than naming the tab.</para>
@@ -68,20 +68,30 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TheArchivedKeyIsOneKeyOnBothWindows()
+        public void TheArchivedKeyIsAMissionsWindowBoolKey()
         {
-            // One persisted flag (GroupHierarchyStore.HideActive) that two windows draw a
-            // control for, so it is spelled ONCE and is valid on both.
-            Assert.True(TestCommandUiWindowState.TryResolveKey(
-                TestCommandUiAction.TimelineWindow, TestCommandUiWindowState.ArchivedKey,
-                out UiStateKeySpec onTimeline, out string timelineReject));
-            Assert.Null(timelineReject);
+            // The Recordings tab's Archive header filter (GroupHierarchyStore.HideActive),
+            // driven in the positive sense.
             Assert.True(TestCommandUiWindowState.TryResolveKey(
                 TestCommandUiAction.MissionsWindow, TestCommandUiWindowState.ArchivedKey,
                 out UiStateKeySpec onMissions, out string missionsReject));
             Assert.Null(missionsReject);
-            Assert.Equal(onTimeline.Kind, onMissions.Kind);
-            Assert.Equal(UiStateKeyKind.Bool, onTimeline.Kind);
+            Assert.Equal(UiStateKeyKind.Bool, onMissions.Kind);
+        }
+
+        // catches: the removed Timeline "Archived" toggle's seam key coming back. The
+        // Timeline has no archive control, so a lane naming the key there must be refused
+        // rather than photograph an unchanged window under an "archived" label.
+        [Fact]
+        public void TheArchivedKeyIsRejectedOnTheTimeline()
+        {
+            Assert.False(TestCommandUiWindowState.TryResolveKey(
+                TestCommandUiAction.TimelineWindow, TestCommandUiWindowState.ArchivedKey,
+                out UiStateKeySpec _, out string reject));
+            Assert.Equal(TestCommandUiWindowState.StateKeyInvalidReason, reject);
+            Assert.DoesNotContain(TestCommandUiWindowState.ArchivedKey,
+                TestCommandUiWindowState.StateKeyNamesFor(TestCommandUiAction.TimelineWindow)
+                    .Split(','));
         }
 
         // catches: the retired "hide archived missions" filter key coming back. Missions
