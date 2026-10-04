@@ -189,7 +189,7 @@ namespace Parsek.Tests.Logistics
 
         // Amount first throughout, like the Sent cost and a short delivery: several
         // resources in ordinal order, stored parts counted after them; the Logistics
-        // table's Delivers column keeps its own "LiquidFuel 150.0" shape.
+        // table's Delivers column reads amount first too ("150.0 LiquidFuel").
         [Fact]
         public void CargoRowsReadAmountFirst()
         {
@@ -209,7 +209,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("Run 1: Picked up 150.0 LiquidFuel, 40.0 Oxidizer", rows[1].Label);
             Assert.Equal("Run 1: Delivered 150.0 LiquidFuel, 40.0 Oxidizer, 1 stored part", rows[2].Label);
             Assert.Equal("Run 1: Delivered nothing", rows[3].Label);
-            Assert.Equal("LiquidFuel 150.0", LogisticsDeliveryPresentation.FormatWouldDeliver(Fuel(150), null));
+            Assert.Equal("150.0 LiquidFuel", LogisticsDeliveryPresentation.FormatWouldDeliver(Fuel(150), null));
         }
 
         // Amount-first rows and held rows stay InvariantCulture under a comma locale.
