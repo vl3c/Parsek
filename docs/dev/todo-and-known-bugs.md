@@ -7244,8 +7244,8 @@ and the token appears ZERO times across all 59 directories under
 `Mission.Archived` serializes unconditionally and reads `False` in all 9 of its
 occurrences. So `op=state key=archived` and `key=archivedMissions` move the FILTER CONTROL
 (which the dump proves - `GuiTreeJson` records a toggle's own `value`) and can never move
-a ROW. Unreachable: the Timeline's per-row `[archived]` marker, the Recordings tab's
-archived rows re-appearing, and the Missions tab's list shrinking. NEEDS a fixture whose
+a ROW. Unreachable: the Recordings tab's archived rows re-appearing, and the Missions
+tab's list shrinking (the Timeline never lists archived recordings, so it has no such state). NEEDS a fixture whose
 builder archives one recording and one mission, or a seam verb that sets
 `Recording.Hidden` / `Mission.Archived` - neither exists today, and the two filter ops
 deliberately drive the FILTER rather than the flag.

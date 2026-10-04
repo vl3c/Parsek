@@ -36,17 +36,10 @@ namespace Parsek
         internal static IReadOnlyCollection<string> HiddenGroups => hiddenGroups;
 
         /// <summary>
-        /// Whether archived items are actively filtered from the UI: hidden groups and
-        /// archived (<see cref="Recording.Hidden"/>) recordings in the Recordings tab, and
-        /// archived recordings' rows in the Timeline.
-        /// <para>TWO windows read this, by design. It is the single switch for one archive
-        /// flag, not a per-window preference: the Recordings tab writes it through its
-        /// Archive header checkbox and the Timeline through its "Archived" filter toggle
-        /// (<c>TimelineWindowUI.ShowArchivedRecordings</c>, which is this value inverted).
-        /// Basic UI mode hides the Recordings tab, so the Timeline's copy is what keeps an
-        /// archive reversible there - see `docs/dev/design-ui-basic-advanced.md` section
-        /// 4.4. A second, Timeline-private flag was rejected: it would give one flag two
-        /// switches that could disagree.</para>
+        /// Whether archived items are actively filtered from the Recordings tab: hidden
+        /// groups and archived (<see cref="Recording.Hidden"/>) recordings. Written only by
+        /// that tab's Archive header checkbox. The Timeline does not read it: it never lists
+        /// archived recordings (see `docs/dev/design-ui-basic-advanced.md` section 4.4).
         /// </summary>
         internal static bool HideActive
         {

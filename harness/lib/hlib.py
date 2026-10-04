@@ -199,7 +199,7 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # from the Launch Pad, in progress at the
                                         # save's UT with a future EndUT, so a pad
                                         # vessel sees it as a Real Spawn Control
-                                        # candidate with "Warp to Spawn" ENABLED.
+                                        # candidate whose row Warp is ENABLED.
                                         # `--filter InjectSpawnControlTarget`. No
                                         # RP. Consumer:
                                         # RSC-1-real-spawn-control-warp.
@@ -645,7 +645,7 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # The D18 player-action pair. ADDITIVE (44 -> 46 implemented, reserved unchanged at
     # 4): the reserved envelope never carried a spawn or a recovery verb. Both TWO-PHASE
     # on a 120 s budget (DISPATCH_DEFERRAL_BUDGET_SECONDS), so NOT DEFERRED_SEAM_VERBS.
-    #   RealSpawn rec=<id> presses the Real Spawn Control row's "Warp to Spawn" for one
+    #   RealSpawn rec=<id> presses the Real Spawn Control row's "Warp" (Ready) for one
     #     recording through the button's own click body (SpawnControlUI.ExecuteRowWarp ->
     #     ParsekFlight.WarpToRecordingEnd) and answers OK `rec= pid= vessel= endUT=
     #     loaded=` once the playback loop has spawned the real vessel; `pid` is the handle
@@ -2719,16 +2719,14 @@ UIACTION_EXPAND_BULK_KEYS: Tuple[str, ...] = ("all", "none")
 # absent from this map keeps no scalar state the seam drives, and `op=state` against it
 # is the `state-unsupported-window` REJECTED - so the absence is meaningful here too.
 #
-# `archived` IS ONE FLAG NAMED ONCE, valid on BOTH windows and always in the Timeline's
-# POSITIVE sense (`state=true` means archived rows contribute). The Timeline's Archived
-# toggle and the Recordings tab's Archive header checkbox write the same persisted bool
-# (GroupHierarchyStore.HideActive) in opposite label senses; two keys with opposite
-# polarities for one flag would have made every lane read the source to learn which it
-# had. (The Missions tab's own "hide archived missions" filter, once `archivedMissions`,
-# is gone: Missions Model 1 turned its per-mission mark into the collapse caret, driven by
-# the `op=expand` key `mission:<id>`.)
+# `archived` is the Recordings tab's Archive header filter (GroupHierarchyStore.HideActive)
+# in the POSITIVE sense (`state=true` lists archived recordings), valid on `missions` only:
+# the Timeline has no archive control and never lists archived recordings. (The Missions
+# tab's own "hide archived missions" filter, once `archivedMissions`, is gone: Missions
+# Model 1 turned its per-mission mark into the collapse caret, driven by the `op=expand`
+# key `mission:<id>`.)
 UIACTION_STATE_KEYS: Dict[str, Tuple[str, ...]] = {
-    "timeline": ("srcRecordings", "srcActions", "srcEvents", "archived", "customRange",
+    "timeline": ("srcRecordings", "srcActions", "srcEvents", "customRange",
                  "preset", "scrollY"),
     "missions": ("archived", "scrollX"),
 }
@@ -2767,9 +2765,9 @@ UIACTION_SORT_COLUMNS: Dict[str, Tuple[str, ...]] = {
                  "status"),
     "logistics": ("name", "origin", "destination", "interval", "cycles", "next",
                   "status", "delivery"),
-    # ONE token for the two header cells "Spawns at" and "In T-": both map to the same
-    # SpawnControlSortColumn.SpawnTime, so there is nothing for a second token to select.
-    "spawncontrol": ("craft", "dist", "relspeed", "spawntime"),
+    # One token per sortable header, each on its own key. The Spawn date column shows
+    # the same moment as Spawns, so it is a plain header with no token.
+    "spawncontrol": ("craft", "dist", "speed", "spawns", "status"),
 }
 UIACTION_SORT_COLUMN_KEY = "column"
 UIACTION_SORT_DIR_KEY = "dir"

@@ -15,9 +15,8 @@ namespace Parsek.TestCommands
     /// directly. No synthesised input, no new player-facing surface.</para>
     ///
     /// <para>ONE STATE IS NOT A FIELD ON A WINDOW. <c>archived</c> is
-    /// <c>GroupHierarchyStore.HideActive</c>, a PERSISTED store bool two windows draw a
-    /// control for, reached through <c>TimelineWindowUI.ShowArchivedRecordings</c> so the
-    /// polarity flip lives where production already put it. It therefore survives the save,
+    /// <c>GroupHierarchyStore.HideActive</c> inverted, the PERSISTED store bool the
+    /// Recordings tab's Archive header checkbox draws. It therefore survives the save,
     /// unlike every other key here - which is why a census lane that sets it runs on a
     /// staged, throwaway save exactly as the mission-selection op does.</para>
     /// </summary>
@@ -270,10 +269,10 @@ namespace Parsek.TestCommands
                     return ui.GetTimelineUI().ShowEventEntriesForTesting;
                 case TestCommandUiWindowState.CustomRangeKey:
                     return ui.GetTimelineUI().ShowCustomRangeForTesting;
-                // ONE flag, reached through the production property that owns the polarity
-                // flip. Valid on both windows and identical on both.
+                // The Recordings tab's Archive header filter, in the positive sense
+                // (TestCommandUiWindowState's class header): true lists archived recordings.
                 case TestCommandUiWindowState.ArchivedKey:
-                    return TimelineWindowUI.ShowArchivedRecordings;
+                    return !GroupHierarchyStore.HideActive;
                 default:
                     // Unreachable through the parse (the key came from that window's own
                     // table), so a miss here means the table and this switch have drifted.
@@ -300,7 +299,7 @@ namespace Parsek.TestCommands
                     ui.GetTimelineUI().ShowCustomRangeForTesting = value;
                     return;
                 case TestCommandUiWindowState.ArchivedKey:
-                    TimelineWindowUI.ShowArchivedRecordings = value;
+                    GroupHierarchyStore.HideActive = !value;
                     return;
                 default:
                     throw new InvalidOperationException(

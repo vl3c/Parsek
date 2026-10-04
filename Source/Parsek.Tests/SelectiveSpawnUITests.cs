@@ -304,8 +304,7 @@ namespace Parsek.Tests
 
             string result = SelectiveSpawnUI.FormatNextSpawnTooltip(cand, 100);
 
-            Assert.Contains("Station", result);
-            Assert.Contains("1m 40s", result);
+            Assert.Equal("Warps to when Station spawns here, in 1m 40s.", result);
         }
 
         [Fact]
@@ -321,9 +320,10 @@ namespace Parsek.Tests
 
             string result = SelectiveSpawnUI.FormatNextSpawnTooltip(cand, 100);
 
-            Assert.Contains("Warp to Depart", result);
-            Assert.Contains("Station", result);
-            Assert.Contains("2m 0s", result);
+            // S1: the warp lands just before it leaves, and it does not spawn here.
+            Assert.Equal(
+                "Warps to just before Station leaves orbit in 2m 0s; it does not spawn here.",
+                result);
         }
 
         [Fact]
@@ -370,16 +370,108 @@ namespace Parsek.Tests
                 vesselName = "Kerbal X",
                 willDepart = true,
                 departureUT = 220,
+                departureKind = DepartureKind.OtherBody,
                 destination = "Mun"
             };
 
             string reachable = SelectiveSpawnUI.FormatProximityNotification(cand, 100, true);
             string basicMode = SelectiveSpawnUI.FormatProximityNotification(cand, 100, false);
 
-            Assert.Equal("Nearby craft: Kerbal X (departs to Mun in 2m 0s). Open Real Spawn Control.",
+            Assert.Equal("Nearby craft: Kerbal X (leaves orbit for Mun in 2m 0s). Open Real Spawn Control.",
                 reachable);
-            Assert.Equal("Nearby craft: Kerbal X (departs to Mun in 2m 0s).", basicMode);
+            Assert.Equal("Nearby craft: Kerbal X (leaves orbit for Mun in 2m 0s).", basicMode);
             Assert.DoesNotContain("Spawn Control", basicMode);
+        }
+
+        [Fact]
+        public void FormatProximityNotification_SameBodyOrbitChange_NeverPrintsTheRawWord()
+        {
+            // Bug: a same-body orbit change read "departs to maneuver", in both modes.
+            var cand = new NearbySpawnCandidate
+            {
+                vesselName = "Tug", willDepart = true, departureUT = 220,
+                departureKind = DepartureKind.NewOrbit, destination = "Kerbin"
+            };
+
+            string basicMode = SelectiveSpawnUI.FormatProximityNotification(cand, 100, false);
+
+            Assert.Equal("Nearby craft: Tug (leaves orbit for a new orbit in 2m 0s).", basicMode);
+            Assert.DoesNotContain("maneuver", basicMode);
+        }
+
+        [Fact]
+        public void FormatProximityNotification_Landing_DoesNotSayItDepartsToTheBodyItOrbits()
+        {
+            // Bug: a craft orbiting Kerbin that will land read "departs to Kerbin".
+            var cand = new NearbySpawnCandidate
+            {
+                vesselName = "Pod", willDepart = true, departureUT = 220,
+                departureKind = DepartureKind.Landing, destination = "Kerbin"
+            };
+
+            string msg = SelectiveSpawnUI.FormatProximityNotification(cand, 100, false);
+
+            Assert.Equal("Nearby craft: Pod (leaves orbit to land on Kerbin in 2m 0s).", msg);
+            Assert.DoesNotContain("to Kerbin", msg.Replace("land on Kerbin", ""));
+        }
+
+        // --- Departure destination wording ---
+
+        [Theory]
+        [InlineData((int)DepartureKind.OtherBody, "Mun", "for Mun")]
+        [InlineData((int)DepartureKind.OtherBody, null, "for another body")]
+        [InlineData((int)DepartureKind.NewOrbit, "Kerbin", "for a new orbit")]
+        [InlineData((int)DepartureKind.Landing, "Kerbin", "to land on Kerbin")]
+        [InlineData((int)DepartureKind.Landing, null, "to land")]
+        [InlineData((int)DepartureKind.Crash, "Duna", "to come down on Duna")]
+        [InlineData((int)DepartureKind.Crash, "", "to come down")]
+        [InlineData((int)DepartureKind.None, "Mun", "")]
+        public void FormatDepartureDestination_IsPlayerWords(
+            int kind, string body, string expected)
+        {
+            Assert.Equal(expected, SelectiveSpawnUI.FormatDepartureDestination((DepartureKind)kind, body));
+        }
+
+        // --- List filter (S2: distance hides, speed greys) ---
+
+        [Theory]
+        [InlineData(100.0, 0.5, true)]     // inside both warp gates
+        [InlineData(250.0, 0.5, true)]     // exactly on the spawn radius
+        [InlineData(250.5, 0.5, false)]    // just past it: cannot spawn, not listed
+        [InlineData(470.0, 0.5, false)]    // the old "Too far" band is hidden
+        [InlineData(100.0, 8.1, true)]     // too fast: kept, greyed "Too fast"
+        [InlineData(100.0, 50.0, true)]    // up to the list speed bound
+        [InlineData(100.0, 50.1, false)]   // past it
+        [InlineData(100.0, double.PositiveInfinity, false)]
+        public void IsListedCandidate_HidesByDistance_KeepsTooFast(
+            double distance, double speed, bool listed)
+        {
+            Assert.Equal(listed, SelectiveSpawnUI.IsListedCandidate(
+                distance, speed, ParsekFlight.NearbySpawnRadius, ParsekFlight.MaxListRelativeSpeed));
+        }
+
+        [Fact]
+        public void IsListedCandidate_UsesTheSpawnRadiusAsTheListBound()
+        {
+            // The documented spawn radius (250 m) is the list bound: a ghost the warp gate
+            // refuses by distance is never listed, whatever its speed.
+            Assert.Equal(250.0, ParsekFlight.NearbySpawnRadius);
+            Assert.False(SelectiveSpawnUI.IsListedCandidate(
+                ParsekFlight.NearbySpawnRadius + 0.01, 0.0,
+                ParsekFlight.NearbySpawnRadius, ParsekFlight.MaxListRelativeSpeed));
+        }
+
+        [Fact]
+        public void EffectiveWarpUT_IsTheDepartureForALeavingCraft_TheSpawnOtherwise()
+        {
+            Assert.Equal(300, SelectiveSpawnUI.EffectiveWarpUT(new NearbySpawnCandidate
+            {
+                endUT = 5000, willDepart = true, departureUT = 300
+            }));
+            Assert.Equal(5000, SelectiveSpawnUI.EffectiveWarpUT(new NearbySpawnCandidate
+            {
+                endUT = 5000
+            }));
         }
     }
 }

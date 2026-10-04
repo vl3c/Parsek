@@ -103,12 +103,19 @@ namespace Parsek.Tests
             yield return Row(ParsekUI.SpawnControlLauncherDisabledReason(0),
                 MainWindowBudget, "ParsekUI spawn-control launcher");
 
-            yield return Row(SpawnControlPresentation.WarpButtonDisabledReason(true, false, true),
+            // The greyed Real Spawn Control rows, at their longest realistic inputs: a
+            // two-digit-year date and the longest destination clause.
+            yield return Row(SpawnRowReason(distance: 999, speed: 0.5),
                 SpawnControlBudget, "Spawn row warp - too far");
-            yield return Row(SpawnControlPresentation.WarpButtonDisabledReason(false, true, true),
+            yield return Row(SpawnRowReason(distance: 100, speed: 49.9),
                 SpawnControlBudget, "Spawn row warp - too fast");
-            yield return Row(SpawnControlPresentation.WarpButtonDisabledReason(false, false, false),
-                SpawnControlBudget, "Spawn row warp - pass elapsed");
+            yield return Row(SpawnRowReason(distance: 100, speed: double.PositiveInfinity),
+                SpawnControlBudget, "Spawn row warp - speed not measured");
+            yield return Row(SpawnRowReason(distance: 100, speed: 0.5, endUT: 50),
+                SpawnControlBudget, "Spawn row warp - spawn passed");
+            yield return Row(SpawnRowReason(distance: 100, speed: 0.5, departureUT: 50,
+                    kind: DepartureKind.Crash, body: "Kerbin"),
+                SpawnControlBudget, "Spawn row warp - leaving now");
 
             yield return Row(TimelineWindowUI.WarpToTimeDisabledReason(false, null, false, false),
                 TimelineBudget, "Timeline warp - no plan reason");
@@ -173,6 +180,27 @@ namespace Parsek.Tests
             return new object[] { reason, budget, label };
         }
 
+        /// <summary>A greyed Real Spawn Control row's reason, at a long calendar date.</summary>
+        internal static string SpawnRowReason(double distance, double speed,
+            double endUT = 500, double departureUT = 0,
+            DepartureKind kind = DepartureKind.None, string body = null)
+        {
+            var cand = new NearbySpawnCandidate
+            {
+                vesselName = "Spawn Control Target",
+                endUT = endUT,
+                distance = distance,
+                relativeSpeed = speed,
+                willDepart = kind != DepartureKind.None,
+                departureUT = departureUT,
+                departureKind = kind,
+                destination = body
+            };
+            return SpawnControlPresentation.BuildRowPresentation(
+                cand, 100, ParsekFlight.NearbySpawnRadius, ParsekFlight.MaxRelativeSpeed,
+                ut => "Y12, D426, 05:59").WarpButtonDisabledReason;
+        }
+
         // catches: a new why-disabled wording that clips in the strip that renders it,
         // spends a strip line on a hard newline, or drifts out of the house voice
         // (sentence case, no trailing period, never the word "disabled").
@@ -212,8 +240,7 @@ namespace Parsek.Tests
         public void EveryReasonFunctionGoesSilentWhenTheControlIsLive()
         {
             Assert.Equal(string.Empty, ParsekUI.SpawnControlLauncherDisabledReason(1));
-            Assert.Equal(string.Empty,
-                SpawnControlPresentation.WarpButtonDisabledReason(false, false, true));
+            Assert.Equal(string.Empty, DisabledReasonWordingTests.SpawnRowReason(100, 0.5));
             Assert.Equal(string.Empty,
                 TimelineWindowUI.WarpToTimeDisabledReason(true, null, false, false));
             Assert.Equal(string.Empty, RecordingsTableUI.LoopPeriodDisabledReason(true, false));
@@ -268,12 +295,12 @@ namespace Parsek.Tests
         [Fact]
         public void WarpButtonReportsDistanceThenSpeedThenTheClock()
         {
-            Assert.Contains("far",
-                SpawnControlPresentation.WarpButtonDisabledReason(true, true, true));
-            Assert.Contains("fast",
-                SpawnControlPresentation.WarpButtonDisabledReason(false, true, true));
-            Assert.Contains("already happened",
-                SpawnControlPresentation.WarpButtonDisabledReason(false, false, false));
+            Assert.Contains("within 250 m",
+                DisabledReasonWordingTests.SpawnRowReason(distance: 400, speed: 9, endUT: 50));
+            Assert.Contains("relative speed",
+                DisabledReasonWordingTests.SpawnRowReason(distance: 100, speed: 9, endUT: 50));
+            Assert.Contains("has passed",
+                DisabledReasonWordingTests.SpawnRowReason(distance: 100, speed: 0.5, endUT: 50));
         }
 
         // catches: the Timeline warp button echoing its ENABLED tooltip while greyed by
@@ -429,7 +456,7 @@ namespace Parsek.Tests
         {
             var row = SpawnControlPresentation.BuildRowPresentation(
                 Candidate(distance: 9000.0, relativeSpeed: 1.0, endUT: 500.0),
-                currentUT: 100.0, proximityRadius: 2000.0, maxRelativeSpeed: 50.0);
+                currentUT: 100.0, proximityRadius: 2000.0, maxRelativeSpeed: 50.0, formatDate: null);
 
             Assert.False(row.WarpButtonEnabled);
             Assert.False(string.IsNullOrEmpty(row.WarpButtonDisabledReason));
@@ -443,7 +470,7 @@ namespace Parsek.Tests
         {
             var row = SpawnControlPresentation.BuildRowPresentation(
                 Candidate(distance: 500.0, relativeSpeed: 1.0, endUT: 500.0),
-                currentUT: 100.0, proximityRadius: 2000.0, maxRelativeSpeed: 50.0);
+                currentUT: 100.0, proximityRadius: 2000.0, maxRelativeSpeed: 50.0, formatDate: null);
 
             Assert.True(row.WarpButtonEnabled);
             Assert.Equal(string.Empty, row.WarpButtonDisabledReason);
@@ -458,10 +485,10 @@ namespace Parsek.Tests
         {
             var row = SpawnControlPresentation.BuildRowPresentation(
                 Candidate(distance: 500.0, relativeSpeed: 1.0, endUT: 50.0),
-                currentUT: 100.0, proximityRadius: 2000.0, maxRelativeSpeed: 50.0);
+                currentUT: 100.0, proximityRadius: 2000.0, maxRelativeSpeed: 50.0, formatDate: null);
 
             Assert.False(row.WarpButtonEnabled);
-            Assert.Contains("already happened", row.WarpButtonDisabledReason);
+            Assert.Contains("has passed", row.WarpButtonDisabledReason);
         }
     }
 }

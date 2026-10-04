@@ -1448,6 +1448,19 @@ _(unreleased — entries accumulate here per commit)_
 - **A refused tech names the tech, not its internal id.** When a tech's title was empty the
   refusal printed the id (`Cannot research "basicRocketry"`); it now reads the tech tree's
   title for the id, and the id only when no title exists.
+- **Real Spawn Control and the nearby-craft message name where a departing craft goes in words.**
+  A craft orbiting Kerbin that was going to land read `departs to Kerbin`, the body it
+  already orbits, and a craft changing orbit around the same body read the raw word
+  `departs to maneuver`, in the window and in the on-screen `Nearby craft` message (Basic
+  mode too). They now read `leaves orbit to land on Kerbin` (`to come down on Kerbin` for a
+  crash; the body is the one the flight ended on, so a Kerbin-orbit craft that lands on the
+  Mun reads `to land on Mun`), `leaves orbit for a new orbit`, and `leaves orbit for Mun` for
+  another body. A flight that ends landed or destroyed always reads as coming down, even when
+  its last recorded orbit was a sub-orbital arc around the same body.
+- **Real Spawn Control's spawn-time sort follows the Warp button.** On a craft that leaves its
+  orbit before it would spawn, the sort used the far-away spawn while the button (and `Warp to
+  Next Spawn`) acted on the departure, so the top row was not the next thing Warp would do.
+  The sort, both time cells and the button now use the same moment.
 - **Real Spawn Control's "Warp to Spawn" puts an orbiting vessel where its ghost stood.**
   Park beside a ghost in orbit whose flight ends Orbiting and press "Warp to Spawn": the
   clock jumps to the flight's end while your own vessel keeps its place, as designed, but
@@ -2674,6 +2687,32 @@ _(unreleased — entries accumulate here per commit)_
   ...`) instead of `... on timeline, blocked by timeline.`, and an active stand-in's
   refusal adds the date his owner is back. No KSP screen text names the mod any more: the
   dismiss lock of a kerbal with no status line reads `Kept on the roster` (was `Managed by Parsek`).
+- **Timeline: no Archived button, and no empty filter row.** The `Archived` button at the end
+  of the Timeline's first filter row is gone: archiving and un-archiving a flight happen only in
+  the recordings list, and the Timeline never lists an archived flight's rows (it hid them by
+  default before, and still does; the recordings list's own Archive filter no longer reaches the
+  Timeline). Under Rewind/FF and Re-Fly the Timeline used to keep an empty line between the
+  view buttons and the time-range buttons; that line is gone and the time-range row moves up
+  under the views. Overview, Details and Career keep their second row of buttons.
+- **Real Spawn Control is redesigned: a Status word per craft, one Warp button, the exact spawn date, and only craft close enough to spawn.**
+  The columns are now `Craft | Dist | Speed | Spawns | Spawn date | Status | Actions`.
+  `Spawns` is the amber countdown and `Spawn date` the exact date (`Y1, D06, 14:05`); both
+  show the moment the row's Warp acts on. `Status` is one word with its reason on hover:
+  `Ready` (green), `Leaves` (amber: the craft leaves its orbit before it would spawn),
+  `Leaving` (orange: it is leaving now), `Passed` (its spawn time is behind the clock) and
+  `Too fast` (closer than 250 m but passing faster than 2 m/s). Each row has one 100 px
+  `Warp` button; its hover says where it goes (`Warps to <date>, when <craft> spawns here.`),
+  and on a `Leaves` row it warps to just before the craft leaves, saying so: `Warps to just
+  before <craft> leaves orbit on <date>; it does not spawn here.` A greyed Warp shows the
+  Status reason. Craft farther than the 250 m spawn radius are no longer listed at all (they
+  were greyed rows out to 1 km), so the main window's `Real Spawn Control (N)` counts only
+  craft you can spawn or slow down for. The headers `Craft`, `Dist`, `Speed`, `Spawns` and
+  `Status` each sort on their own key (`Status` puts the rows you can warp to first), the
+  window first opens as tall as its rows need, distances read `129 m`, and the window's
+  text is plain ASCII (the departure arrow and the dash for an unmeasured speed are gone).
+  `Warp to Next Spawn` stays at the bottom; its hover now reads `Warps to when <craft> spawns
+  here, in 56s.` or `Warps to just before <craft> leaves orbit in 2m 0s; it does not spawn
+  here.`
 - **Parsek's windows now share one style for countdowns, "Go to", colours and empty lists.**
   Every countdown reads the Missions way, `T- 2d 4h` (two units, a space after `T-`) in the
   same amber, with ` (!)` when it carries a warning: Real Spawn Control's `In T-` column and

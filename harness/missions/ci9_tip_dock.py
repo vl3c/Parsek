@@ -1,6 +1,6 @@
 """Mission ci9_tip_dock: CI-9, the player docks with a Real-Spawned ghost-chain tip.
 
-Runs AFTER the spec's seam steps have pressed Real Spawn Control's "Warp to Spawn"
+Runs AFTER the spec's seam steps have pressed a Real Spawn Control row's "Warp"
 for an orbital chain tip (``RealSpawn``) and started a recording on the focused
 vessel. The mission targets the spawned vessel by name and docks the active
 vessel to it: a MechJeb rendezvous first when the target lies beyond the approach

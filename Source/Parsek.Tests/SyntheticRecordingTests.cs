@@ -9833,7 +9833,7 @@ namespace Parsek.Tests
                 Assert.False(chain.IsTerminated);
                 Assert.True(GhostChainWalker.ShouldGhostChainAtUT(chain, SinglePointHoldSaveUT));
                 // An end-of-recording spawn candidate on the recorded terminal orbit, with no
-                // departure before the end: the row Real Spawn Control draws as "Warp to Spawn".
+                // departure before the end: the row Real Spawn Control draws as "Ready".
                 Assert.True(GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(tip, false).needsSpawn);
                 Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(tip, false));
                 Assert.False(SelectiveSpawnUI.ComputeDepartureInfo(tip, SinglePointHoldSaveUT + 6.0).willDepart);
