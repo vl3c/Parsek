@@ -539,7 +539,8 @@ namespace Parsek
         // stride (RecordingsTableUI scrolls at 22 px/row). The composition cells are mostly plain
         // labels, which alone measure shorter than a recordings row; without this floor the rows
         // pack too tightly and leave no room for the per-row Fly / Seal button.
-        private const float CompositionRowMinHeight = 22f;
+        // The pickers' entry rows reuse it (PickerWindowLayout.RowMinHeight).
+        internal const float CompositionRowMinHeight = 22f;
 
         // How a Mission row list is ordered. Index = the per-tree index number (clones of a
         // tree share it); Name = alphabetic mission name; StartTime = the mission span start.

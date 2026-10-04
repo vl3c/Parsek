@@ -223,22 +223,22 @@ namespace Parsek
         // counts against, and this file is the one on the ERS allowlist.
 
         /// <summary>Opens the "Set Parent Group" popup on a group, the way the folder row's
-        /// <c>G</c> button does. False when no such group exists.</summary>
+        /// <c>G</c> button does, but with no click point, so it centres over this window.
+        /// False when no such group exists.</summary>
         internal bool TryOpenGroupPickerForGroupForTesting(string groupName)
         {
             if (string.IsNullOrEmpty(groupName)) return false;
             List<string> names = EnumerateGroupNamesForTesting();
             if (!names.Contains(groupName)) return false;
-            groupPicker.OpenForGroup(groupName, new Vector2(
-                recordingsWindowRect.x, recordingsWindowRect.y));
+            groupPicker.OpenForGroup(groupName, PickerWindowLayout.NoClickPoint);
             return groupPicker.IsOpen;
         }
 
         /// <summary>
         /// Opens the "Manage Groups" popup on one recording, the way a recording row's
-        /// <c>G</c> button does. <paramref name="recordingId"/> may be a recording id or
-        /// the token the seam passes for "the first row", since a committed spec cannot
-        /// carry a save-specific id.
+        /// <c>G</c> button does, but with no click point, so it centres over this window.
+        /// <paramref name="recordingId"/> may be a recording id or the token the seam passes
+        /// for "the first row", since a committed spec cannot carry a save-specific id.
         /// </summary>
         internal bool TryOpenGroupPickerForRecordingForTesting(
             string recordingId, bool takeFirst, out string resolvedId)
@@ -258,8 +258,7 @@ namespace Parsek
             }
             if (index < 0) return false;
             resolvedId = committed[index].RecordingId;
-            groupPicker.OpenForRecording(index, new Vector2(
-                recordingsWindowRect.x, recordingsWindowRect.y));
+            groupPicker.OpenForRecording(index, PickerWindowLayout.NoClickPoint);
             return groupPicker.IsOpen;
         }
 
@@ -956,7 +955,7 @@ namespace Parsek
             parentUI.LogWindowPosition("Recordings", ref lastRecordingsWindowRect, recordingsWindowRect);
 
             // Group picker popup (rendered outside recordings window to avoid scroll clipping)
-            groupPicker.Draw();
+            groupPicker.Draw(recordingsWindowRect);
 
             // Lock camera controls (including scroll zoom) when mouse is over window.
             // ClickThroughBlocker uses ALLBUTCAMERAS which intentionally leaves camera

@@ -128,12 +128,12 @@ namespace Parsek
             => "cand:" + (candidate?.Tree?.Id ?? "<no-tree>");
 
         /// <summary>Opens the round-trip link picker on a route through the production
-        /// opener. The mouse position only seeds the popup's first rect, so the seam passes
-        /// the window's own origin rather than a cursor it does not have.</summary>
+        /// opener. The click point only places the popup's first rect, and the seam has no
+        /// cursor, so it passes none and the picker centres over this window.</summary>
         internal bool OpenLinkPickerForTesting(Logistics.Route source)
         {
             if (source == null) return false;
-            OpenLinkPicker(source, new Vector2(windowRect.x, windowRect.y));
+            OpenLinkPicker(source, PickerWindowLayout.NoClickPoint);
             return linkPickerOpen;
         }
 
@@ -541,8 +541,10 @@ namespace Parsek
         private Rect linkPickerRect;
         private bool linkPickerResizing;
         private Vector2 linkPickerScroll;
-        private const float LinkPickerMinW = 240f;
-        private const float LinkPickerMinH = 180f;
+        internal const float LinkPickerMinW = 260f;
+        internal const float LinkPickerMinH = 200f;
+        internal const float LinkPickerDefaultW = 360f;
+        internal const float LinkPickerDefaultH = 320f;
 
         // Status text styles (lazy; mirrors RecordingsTableUI.EnsureStatusStyles). The
         // five colours come from the shared ParsekUI palette; Scheduled is the label's
@@ -2068,8 +2070,11 @@ namespace Parsek
         /// popup state read by <see cref="DrawLinkPicker"/>; the popup is drawn from
         /// <see cref="DrawIfOpen"/> after the main window. Does NOT itself mutate the
         /// store — the partner is chosen + committed in the popup.
+        /// <paramref name="clickScreenPoint"/> is the click in SCREEN space (the picker
+        /// opens next to it), or <see cref="PickerWindowLayout.NoClickPoint"/> (the picker
+        /// centres over this window).
         /// </summary>
-        private void OpenLinkPicker(Route source, Vector2 mousePos)
+        private void OpenLinkPicker(Route source, Vector2 clickScreenPoint)
         {
             if (source == null || string.IsNullOrEmpty(source.Id))
                 return;
@@ -2077,7 +2082,7 @@ namespace Parsek
             linkPickerSourceRouteId = source.Id;
             linkPickerSourceName = source.Name ?? "<unnamed>";
             linkPickerSelectedId = null;
-            linkPickerPosition = mousePos;
+            linkPickerPosition = clickScreenPoint;
             linkPickerRect = new Rect(0, 0, 0, 0);
             linkPickerResizing = false;
             linkPickerScroll = Vector2.zero;
@@ -2095,16 +2100,21 @@ namespace Parsek
         {
             if (!linkPickerOpen) return;
 
-            ParsekUI.HandleResizeDrag(ref linkPickerRect, ref linkPickerResizing,
-                LinkPickerMinW, LinkPickerMinH, null);
-
+            // Place the first-open rect BEFORE the resize/screen fit: the fit would widen an
+            // unplaced zero rect to the minimum width at the screen origin, and the placement
+            // would then never run (PickerWindowLayout).
             if (linkPickerRect.width < 1f)
             {
-                linkPickerRect = new Rect(
-                    Mathf.Clamp(linkPickerPosition.x, 0, Screen.width - 340f),
-                    Mathf.Clamp(linkPickerPosition.y, 0, Screen.height - 380f),
-                    340f, 380f);
+                linkPickerRect = PickerWindowLayout.PlaceOnOpen(
+                    linkPickerPosition, windowRect,
+                    LinkPickerDefaultW, LinkPickerDefaultH, Screen.width, Screen.height);
+                ParsekLog.Verbose("UI", PickerWindowLayout.FormatPlacementLog(
+                    "Logistics link picker", linkPickerPosition, linkPickerRect,
+                    Screen.width, Screen.height));
             }
+
+            ParsekUI.HandleResizeDrag(ref linkPickerRect, ref linkPickerResizing,
+                LinkPickerMinW, LinkPickerMinH, null);
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
             if (opaqueWindowStyle == null)
@@ -2137,13 +2147,16 @@ namespace Parsek
         private void DrawLinkPickerContents(int windowID)
         {
             EnsureStyles();
-            GUILayout.Label($"Link '{linkPickerSourceName}' with:", detailStyle);
-            GUILayout.Space(3);
+            // The house picker look (PickerWindowLayout): a heading in the shared table
+            // section style below the main windows' title gap, then the entries inside the
+            // shared dark table body box.
+            PickerWindowLayout.DrawTitleGap();
+            GUILayout.Label($"Link '{linkPickerSourceName}' with:", parentUI.GetTableSectionHeaderStyle());
 
             List<LogisticsLinkPresentation.LinkCandidate> candidates =
                 LogisticsLinkPresentation.BuildLinkCandidates(RouteStore.CommittedRoutes, linkPickerSourceRouteId);
 
-            linkPickerScroll = GUILayout.BeginScrollView(linkPickerScroll, GUILayout.ExpandHeight(true));
+            linkPickerScroll = PickerWindowLayout.BeginEntryList(parentUI, linkPickerScroll);
             if (candidates.Count == 0)
             {
                 GUILayout.Label(
@@ -2156,14 +2169,16 @@ namespace Parsek
                 {
                     LogisticsLinkPresentation.LinkCandidate c = candidates[i];
                     bool selected = string.Equals(linkPickerSelectedId, c.Id, System.StringComparison.Ordinal);
+                    PickerWindowLayout.BeginEntryRow();
                     bool now = GUILayout.Toggle(selected, "  " + c.Name);
+                    GUILayout.EndHorizontal();
                     if (now && !selected)
                         linkPickerSelectedId = c.Id;
                     else if (!now && selected)
                         linkPickerSelectedId = null;
                 }
             }
-            GUILayout.EndScrollView();
+            PickerWindowLayout.EndEntryList();
 
             GUILayout.Space(3);
             GUILayout.BeginHorizontal();
@@ -2174,7 +2189,7 @@ namespace Parsek
             GUI.enabled = linkEnabled;
             bool linkClicked = GUILayout.Button(new GUIContent("Link",
                     "Pair these two routes as a round-trip: they alternate, each running only after its partner completes a run."),
-                    GUILayout.Width(70));
+                    GUILayout.Width(PickerWindowLayout.ButtonWidth));
             DisabledHoverEcho.CarryLastControl(linkEnabled, LinkButtonDisabledReason(linkPickerSelectedId));
             if (linkClicked)
             {
@@ -2190,7 +2205,8 @@ namespace Parsek
             }
             GUI.enabled = prevEnabled;
 
-            if (GUILayout.Button("Cancel", GUILayout.Width(70)))
+            GUILayout.Space(PickerWindowLayout.ButtonGap);
+            if (GUILayout.Button("Cancel", GUILayout.Width(PickerWindowLayout.ButtonWidth)))
             {
                 ParsekLog.Verbose("UI", $"Logistics: link picker cancelled source={ShortId(linkPickerSourceRouteId)}");
                 linkPickerOpen = false;
@@ -2506,7 +2522,7 @@ namespace Parsek
                         if (GUILayout.Button(new GUIContent("Link round-trip...",
                                 "Pair this route with another so they alternate: each runs only after its partner completes a run (a single reused transport flying out and back)."),
                                 detailSlotButtonStyle, GUILayout.Width(w)))
-                            OpenLinkPicker(route, Event.current.mousePosition);
+                            OpenLinkPicker(route, GUIUtility.GUIToScreenPoint(Event.current.mousePosition));
                     }
                     else if (GUILayout.Button(new GUIContent("Unlink",
                                  "Break this route's round-trip pairing; both routes return to running on their own schedule."),
