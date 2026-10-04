@@ -2275,6 +2275,8 @@ class KrpcMissionControl(MissionControl):
             self._perform_transmit_science(v)
         elif kind == mlib.ACTION_RECOVER_VESSEL:
             self._perform_recover_vessel(v)
+        elif kind == mlib.ACTION_RECOVER_NAMED_VESSEL:
+            self._perform_recover_named_vessel(sc, str(action.text or ""))
         elif kind == mlib.ACTION_START_RESOURCE_TRANSFER:
             self._start_resource_transfer(sc, v, action)
         elif kind == mlib.ACTION_UNDOCK:
@@ -2576,6 +2578,40 @@ class KrpcMissionControl(MissionControl):
             _stdout_sink(mlib.format_mission_log_line(
                 "Warn", "Recover", "Vessel.Recover() failed: %s: %s (reported as %s)"
                 % (type(exc).__name__, str(exc)[:160], mlib.RECOVER_REQUEST_FAILED)))
+
+    def _perform_recover_named_vessel(self, sc, name: str) -> None:
+        """ACTION_RECOVER_NAMED_VESSEL: recover the ONE vessel named ``name`` among
+        ``sc.vessels``, active or not (kRPC 0.5.4 has no persistent id).
+
+        The pick is the pure ``mlib.pick_unique_named``: no match or more than one
+        stamps ``RECOVER_REQUEST_NO_MATCH`` / ``RECOVER_REQUEST_AMBIGUOUS`` and asks
+        nothing. The picked vessel then goes through ``_perform_recover_vessel``'s
+        read-before-ask lock verbatim, so every exit stamps
+        ``_recover_request_result`` and nothing here can raise out of perform().
+        After an ISSUED call stock loads SPACECENTER, so the ACTIVE vessel's reads
+        fail too and the read-fail streak escalates to vessel_lost snapshots, the
+        frames the machine's scene watch counts."""
+        try:
+            vessels = list(sc.vessels)
+        except Exception as exc:  # noqa: BLE001
+            vessels = []
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Recover", "vessel list read failed: %s: %s"
+                % (type(exc).__name__, str(exc)[:160])))
+        names = [self._safe_vessel_name(other) for other in vessels]
+        idx, token = mlib.pick_unique_named(names, name)
+        if idx is None:
+            self._recover_request_result = token
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Recover",
+                "recover_named_vessel: %s for %r (%d vessel(s) scanned, %d named so); "
+                "NOT asking for a recovery"
+                % (token, name, len(names), names.count(name))))
+            return
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Recover", "recover_named_vessel: picked the one vessel named %r "
+            "(%d vessel(s) scanned)" % (name, len(names))))
+        self._perform_recover_vessel(vessels[idx])
 
     # ---- B-DOCK helpers (handle capture, seam bridge, docking telemetry) ----
 
