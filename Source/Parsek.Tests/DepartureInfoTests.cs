@@ -374,6 +374,82 @@ namespace Parsek.Tests
         // ════════════════════════════════════════════════════════════════
 
         [Fact]
+        public void ComputeDepartureInfo_DestroyedWithASameBodyTerminalOrbit_ComesDown_NotANewOrbit()
+        {
+            // Review fix: a crash whose last captured orbit (sub-orbital, same body) differs
+            // from the current one used to read "for a new orbit". The surface terminal is
+            // decided first.
+            var segs = new List<OrbitSegment> { MakeSegment(0, 1000, body: "Kerbin", sma: 700000) };
+            var info = SelectiveSpawnUI.ComputeDepartureInfo(
+                segs, 5000,
+                "Kerbin", 400000, 0.6, 0, 0,
+                TerminalState.Destroyed, 500);
+            Assert.True(info.willDepart);
+            Assert.Equal(DepartureKind.Crash, info.kind);
+            Assert.Equal("Kerbin", info.destination);
+            Assert.Equal(1000, info.departureUT);
+        }
+
+        [Fact]
+        public void ComputeDepartureInfo_LandingOnAnotherBody_NamesTheBodyItLandsOn()
+        {
+            // Review fix: a Kerbin-orbit ghost whose flight ends Landed on the Mun, with no
+            // terminal orbit and no segment at EndUT, read "to land on Kerbin".
+            var segs = new List<OrbitSegment>
+            {
+                MakeSegment(0, 1000, body: "Kerbin", sma: 700000),
+                MakeSegment(2000, 3000, body: "Mun", sma: 250000)
+            };
+            var info = SelectiveSpawnUI.ComputeDepartureInfo(
+                segs, 5000, null, 0, 0, 0, 0,
+                TerminalState.Landed, 500, terminalSurfaceBody: "Mun");
+            Assert.True(info.willDepart);
+            Assert.Equal(DepartureKind.Landing, info.kind);
+            Assert.Equal("Mun", info.destination);
+            Assert.Equal("to land on Mun",
+                SelectiveSpawnUI.FormatDepartureDestination(info.kind, info.destination));
+        }
+
+        [Fact]
+        public void ComputeDepartureInfo_LandingBody_ComesFromTheRecordingsTerminalPosition()
+        {
+            var rec = new Recording();
+            rec.OrbitSegments.Add(MakeSegment(0, 1000, body: "Kerbin", sma: 700000));
+            rec.Points.Add(new TrajectoryPoint { ut = 0, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 5000, bodyName = "Mun" });
+            rec.TerminalStateValue = TerminalState.Landed;
+            rec.TerminalPosition = new SurfacePosition { body = "Mun" };
+
+            var info = SelectiveSpawnUI.ComputeDepartureInfo(rec, 500);
+            Assert.Equal(DepartureKind.Landing, info.kind);
+            Assert.Equal("Mun", info.destination);
+
+            // Without a terminal position the last trajectory point's body speaks.
+            rec.TerminalPosition = null;
+            Assert.Equal("Mun", SelectiveSpawnUI.TerminalSurfaceBody(rec));
+            Assert.Null(SelectiveSpawnUI.TerminalSurfaceBody(new Recording()));
+        }
+
+        [Fact]
+        public void ComputeDepartureInfo_SameBodyOrbitChange_NotSurfaceTerminal_StillReadsNewOrbit()
+        {
+            // The mirror of the two cells above: an Orbiting / SubOrbital end with a
+            // same-body terminal orbit that differs is still a new orbit.
+            var segs = new List<OrbitSegment> { MakeSegment(0, 1000, body: "Kerbin", sma: 700000) };
+            foreach (var ts in new[] { TerminalState.Orbiting, TerminalState.SubOrbital })
+            {
+                var info = SelectiveSpawnUI.ComputeDepartureInfo(
+                    segs, 5000,
+                    "Kerbin", 2000000, 0.1, 0, 0,
+                    ts, 500, terminalSurfaceBody: "Mun");
+                Assert.True(info.willDepart);
+                Assert.Equal(DepartureKind.NewOrbit, info.kind);
+                Assert.Equal("for a new orbit",
+                    SelectiveSpawnUI.FormatDepartureDestination(info.kind, info.destination));
+            }
+        }
+
+        [Fact]
         public void ComputeDepartureInfo_NullRecording_NoDeparture()
         {
             var info = SelectiveSpawnUI.ComputeDepartureInfo((Recording)null, 500);

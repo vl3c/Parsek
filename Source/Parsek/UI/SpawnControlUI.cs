@@ -600,11 +600,11 @@ namespace Parsek
             // single-line height, always present, drawn directly above the button row so
             // Close stays the window's last content row.
             //
-            // "Warp to Next Spawn" is the ONLY tooltipped control in this window and it
-            // sits BELOW the strip, so GUI.tooltip cannot reach the strip in time (the
-            // hovered control fills it in as it draws). Hand the text in explicitly
-            // instead, using the button's rect from the previous pass against the live
-            // pointer - the same hover test IMGUI itself does. The rect is captured on
+            // The row Status cells and Warp buttons draw above the strip and reach it
+            // through GUI.tooltip. "Warp to Next Spawn" sits BELOW it, so its hover cannot
+            // (the hovered control fills GUI.tooltip in as it draws). Hand that text in
+            // explicitly instead, using the button's rect from the previous pass against
+            // the live pointer - the same hover test IMGUI itself does. The rect is captured on
             // Repaint below and only moves when the window is resized.
             string bottomBarEcho =
                 warpButtonRect.width > 0f && warpButtonRect.Contains(Event.current.mousePosition)

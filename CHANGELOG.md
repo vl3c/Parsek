@@ -1436,7 +1436,10 @@ _(unreleased — entries accumulate here per commit)_
   already orbits, and a craft changing orbit around the same body read the raw word
   `departs to maneuver`, in the window and in the on-screen `Nearby craft` message (Basic
   mode too). They now read `leaves orbit to land on Kerbin` (`to come down on Kerbin` for a
-  crash), `leaves orbit for a new orbit`, and `leaves orbit for Mun` for another body.
+  crash; the body is the one the flight ended on, so a Kerbin-orbit craft that lands on the
+  Mun reads `to land on Mun`), `leaves orbit for a new orbit`, and `leaves orbit for Mun` for
+  another body. A flight that ends landed or destroyed always reads as coming down, even when
+  its last recorded orbit was a sub-orbital arc around the same body.
 - **Real Spawn Control's spawn-time sort follows the Warp button.** On a craft that leaves its
   orbit before it would spawn, the sort used the far-away spawn while the button (and `Warp to
   Next Spawn`) acted on the departure, so the top row was not the next thing Warp would do.

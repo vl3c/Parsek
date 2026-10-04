@@ -28094,10 +28094,10 @@ namespace Parsek
             if (ParsekLog.IsVerboseEnabled && nearbySpawnCandidates.Count > 0)
                 ParsekLog.Verbose("Flight",
                     string.Format(CultureInfo.InvariantCulture,
-                        "Proximity check: {0} candidate(s) within list bounds {1:F0}m / {2:F1} m/s (FF gated by {3:F0}m / {4:F1} m/s)",
+                        "Proximity check: {0} candidate(s) within list bounds {1:F0}m / {2:F1} m/s (FF gated by {3:F1} m/s; speed tracked to {4:F0}m)",
                         nearbySpawnCandidates.Count,
                         NearbySpawnRadius, MaxListRelativeSpeed,
-                        NearbySpawnRadius, MaxRelativeSpeed));
+                        MaxRelativeSpeed, NearbySpawnTrackRadius));
         }
 
         /// <summary>

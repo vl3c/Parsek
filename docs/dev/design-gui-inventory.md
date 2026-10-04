@@ -1223,7 +1223,9 @@ Status words (`SpawnCandidateStatus`), in priority order, with the hover each ca
 A greyed `Warp` carries its row's Status reason through `DisabledHoverEcho`. The departure
 destination is words, never a raw value (`SelectiveSpawnUI.FormatDepartureDestination` over
 `DepartureKind`): `for Mun` (another body), `for a new orbit` (same body), `to land on Kerbin`
-(Landed or Splashed terminal), `to come down on Kerbin` (Destroyed terminal).
+(Landed or Splashed terminal), `to come down on Kerbin` (Destroyed terminal). A surface
+terminal is decided before any orbit comparison, and its body is the one the flight ended on
+(`SelectiveSpawnUI.TerminalSurfaceBody`: terminal position, endpoint body, last point).
 
 Which craft are listed: a ghost inside the spawn radius `ParsekFlight.NearbySpawnRadius`
 (250 m) and under `MaxListRelativeSpeed` (50 m/s) (`SelectiveSpawnUI.IsListedCandidate`). A

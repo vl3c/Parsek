@@ -317,7 +317,13 @@ namespace Parsek
         /// Pure: determine whether a ghost will depart its current orbit before the recording ends.
         /// Takes minimal data (not a full Recording) for testability and interface independence.
         ///
-        /// Resolution cascade for the "final orbit" to compare against:
+        /// A surface terminal (Landed / Splashed / Destroyed) is decided first: a ghost in
+        /// orbit now whose flight ends on a surface always leaves its orbit, whatever orbit
+        /// the recording last captured on the way down. It comes down on
+        /// <paramref name="terminalSurfaceBody"/> (the body it ended on), falling back to the
+        /// body it orbits now when that is unknown.
+        ///
+        /// Otherwise the "final orbit" to compare against resolves by this cascade:
         /// 1. Orbit segment covering endUT
         /// 2. Terminal orbit fields (if body is non-empty and SMA != 0)
         /// 3. Last orbit segment in the list (covers recordings ending in off-rails phase)
@@ -328,7 +334,8 @@ namespace Parsek
             double terminalOrbitEcc, double terminalOrbitInc,
             double terminalOrbitArgPe,
             TerminalState? terminalState,
-            double currentUT)
+            double currentUT,
+            string terminalSurfaceBody = null)
         {
             var noDeparture = new DepartureInfo { willDepart = false, kind = DepartureKind.None };
 
@@ -342,12 +349,24 @@ namespace Parsek
 
             OrbitSegment current = currentSeg.Value;
 
-            // Special case: terminal state is surface (Landed/Splashed/Destroyed) with no
-            // orbit segment covering EndUT -> ghost is orbiting now but will land/crash
             bool isSurfaceTerminal = terminalState.HasValue &&
                 (terminalState.Value == TerminalState.Landed ||
                  terminalState.Value == TerminalState.Splashed ||
                  terminalState.Value == TerminalState.Destroyed);
+            if (isSurfaceTerminal)
+            {
+                return new DepartureInfo
+                {
+                    willDepart = true,
+                    departureUT = current.endUT,
+                    kind = terminalState.Value == TerminalState.Destroyed
+                        ? DepartureKind.Crash
+                        : DepartureKind.Landing,
+                    destination = !string.IsNullOrEmpty(terminalSurfaceBody)
+                        ? terminalSurfaceBody
+                        : current.bodyName
+                };
+            }
 
             // Resolution cascade for the final orbit
             OrbitSegment? finalSeg = TrajectoryMath.FindOrbitSegment(orbitSegments, endUT);
@@ -367,21 +386,6 @@ namespace Parsek
                     eccentricity = terminalOrbitEcc,
                     inclination = terminalOrbitInc,
                     argumentOfPeriapsis = terminalOrbitArgPe
-                };
-            }
-            else if (isSurfaceTerminal)
-            {
-                // Ghost will land/crash - definite departure from current orbit
-                // It comes down on the body it orbits now, so that body is where it
-                // lands, not a body it departs to.
-                return new DepartureInfo
-                {
-                    willDepart = true,
-                    departureUT = current.endUT,
-                    kind = terminalState.Value == TerminalState.Destroyed
-                        ? DepartureKind.Crash
-                        : DepartureKind.Landing,
-                    destination = current.bodyName
                 };
             }
             else
@@ -420,7 +424,26 @@ namespace Parsek
                 rec.TerminalOrbitEccentricity, rec.TerminalOrbitInclination,
                 rec.TerminalOrbitArgumentOfPeriapsis,
                 rec.TerminalStateValue,
-                currentUT);
+                currentUT,
+                TerminalSurfaceBody(rec));
+        }
+
+        /// <summary>
+        /// The body a recording's flight ended on: its terminal surface position, else its
+        /// endpoint body, else its last trajectory point's body; null when none is known.
+        /// </summary>
+        internal static string TerminalSurfaceBody(Recording rec)
+        {
+            if (rec == null)
+                return null;
+            if (rec.TerminalPosition.HasValue && !string.IsNullOrEmpty(rec.TerminalPosition.Value.body))
+                return rec.TerminalPosition.Value.body;
+            if (!string.IsNullOrEmpty(rec.EndpointBodyName))
+                return rec.EndpointBodyName;
+            if (rec.Points != null && rec.Points.Count > 0
+                && !string.IsNullOrEmpty(rec.Points[rec.Points.Count - 1].bodyName))
+                return rec.Points[rec.Points.Count - 1].bodyName;
+            return null;
         }
     }
 }

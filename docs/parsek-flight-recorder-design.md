@@ -1480,7 +1480,7 @@ Rover                 210 m   8.1 m/s   T- 1h 5m   Y1, D01, 01:05    Too fast  [
 | UT | State | Action |
 |---|---|---|
 | T0=500 | A: real. Ghost-S: 80m away. | Player sets up docking approach. |
-| — | — | Player presses Warp on Station Alpha's `Ready` row (T1=1600) |
+| - | - | Player presses Warp on Station Alpha's `Ready` row (T1=1600) |
 | T1=1600 | A: real, same position. S: real, still 80m away. | UT jumped. Planet rotated. Nothing in the bubble moved. |
 | T1+ | A docks to real S. | Recording R2 starts. |
 
@@ -1497,17 +1497,17 @@ Physics bubble at T0=500: A (real), Ghost-S1 (tip T1=1600), Ghost-S2 (tip T2=200
 
 Player docks to S2. Later, if needed, presses Warp on S3's row for another jump.
 
-**Linked chain — player must wait for full chain:**
+**Linked chain - player must wait for full chain:**
 
 R1 docks X to S at T1. R2 docks Y to S+X at T2. Chain: bare-S -> S+X -> S+X+Y. Real Spawn Control lists only the chain tip, the combined vessel spawning at UT=2000.
 
-T1 is NOT offered as a spawn option — intermediate spawn suppression prevents it.
+T1 is NOT offered as a spawn option - intermediate spawn suppression prevents it.
 
 **Surface base approach:**
 
-Rover A is 50m from ghost-base S on the Mun. Chain tip at T1. Player presses Warp on Base S's row. Jump to T1. Both surface-fixed — Mun rotates, sun angle changes, but relative positions identical. Base spawns as real. Rover drives up and docks.
+Rover A is 50m from ghost-base S on the Mun. Chain tip at T1. Player presses Warp on Base S's row. Jump to T1. Both surface-fixed - Mun rotates, sun angle changes, but relative positions identical. Base spawns as real. Rover drives up and docks.
 
-**Jump, then rewind:** Player jumps to T1, S1 spawns real. Player docks A to S1, commits R2. Player then rewinds to T0. Everything resets: S1 is ghost again (R1 claims it), R2 is committed and plays as ghost. The time jump left no persistent state — standard rewind rules apply.
+**Jump, then rewind:** Player jumps to T1, S1 spawns real. Player docks A to S1, commits R2. Player then rewinds to T0. Everything resets: S1 is ghost again (R1 claims it), R2 is committed and plays as ghost. The time jump left no persistent state - standard rewind rules apply.
 
 ### 14.8 Quicksave Pruning
 
