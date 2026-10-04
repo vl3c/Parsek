@@ -6004,20 +6004,21 @@ namespace Parsek
         /// </summary>
         /// <param name="ut">UT at which <c>onVesselRecovered</c> fired.</param>
         /// <param name="vesselName">Recovered vessel name (used to tag the action with the matching recording).</param>
-        /// <param name="fromTrackingStation">Pass-through diagnostic flag for the log line.</param>
+        /// <param name="quick">Stock's <c>onVesselRecovered</c> quick flag (true only from
+        /// <c>ProtoVessel.Clean</c>); a pass-through diagnostic for the log line.</param>
         /// <param name="vesselType">Recovered vessel type; debris without an immediate
         /// pair is not deferred because debris-only recoveries can lack a ledger-worthy
         /// paired FundsChanged(VesselRecovery) event.</param>
         internal static void OnVesselRecoveryFunds(
             double ut,
             string vesselName,
-            bool fromTrackingStation,
+            bool quick,
             VesselType vesselType = VesselType.Unknown)
         {
             OnVesselRecoveryFunds(
                 ut,
                 RecoveredVesselIdentity.FromRawName(vesselName),
-                fromTrackingStation,
+                quick,
                 vesselType,
                 payoutContext: null);
         }
@@ -6025,7 +6026,7 @@ namespace Parsek
         internal static void OnVesselRecoveryFunds(
             double ut,
             RecoveredVesselIdentity identity,
-            bool fromTrackingStation,
+            bool quick,
             VesselType vesselType = VesselType.Unknown,
             RecoveryPayoutContext payoutContext = null)
         {
@@ -6034,7 +6035,7 @@ namespace Parsek
             LedgerRecoveryFundsPairing.OnVesselRecoveryFunds(
                 ut,
                 identity,
-                fromTrackingStation,
+                quick,
                 vesselType,
                 payoutContext,
                 TryAddVesselRecoveryFundsAction);
@@ -6043,12 +6044,12 @@ namespace Parsek
         private static bool TryAddVesselRecoveryFundsAction(
             double ut,
             RecoveredVesselIdentity identity,
-            bool fromTrackingStation)
+            bool quick)
         {
             return LedgerRecoveryFundsPairing.TryAddVesselRecoveryFundsAction(
                 ut,
                 identity,
-                fromTrackingStation,
+                quick,
                 PickRecoveryRecordingId,
                 AllocateKscSequence,
                 Ledger.Actions,

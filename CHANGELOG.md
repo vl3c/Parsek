@@ -10,6 +10,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: a test command recovers a vessel from its Space Center marker, and a lane uses it.**
+  `KscMarkerRecover pid=<pid>` takes the third route a player has to recover a landed
+  vessel: at the Space Center it opens the vessel's marker and presses its Recover button,
+  with no confirmation and no scene change, closes the recovery summary if one opens, and
+  answers once stock has recovered the vessel. `CI-10-chain-tip-ksc-marker-recover-no-respawn`
+  (not yet flown) repeats CI-7 on the same save with that route: spawn the chain's final
+  lander, recover it from its marker, launch again, and require that the lander does not
+  come back.
+- **Dev: the recovery event's flag is named `quick` in code and logs.** The second value of
+  stock's vessel-recovered event is stock's "quick" flag (true only for a silent cleanup), not
+  "from the Tracking Station"; the parameter and the `quick=` log keys now say so.
 - **Dev: KSP.log now records when the crash screen and the recovery summary open and close.**
   Stock KSP's flight results dialog ("Outcome: Catastrophic Failure!", also the F3 flight
   status screen) and its "Mission Summary" recovery dialog left no reliable trace in the log,

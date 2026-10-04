@@ -858,7 +858,7 @@ namespace Parsek.Tests
             GameStateStore.AddEvent(ref evt);
 
             int before = Ledger.Actions.Count;
-            LedgerOrchestrator.OnVesselRecoveryFunds(3980.4, "Test Probe", fromTrackingStation: true);
+            LedgerOrchestrator.OnVesselRecoveryFunds(3980.4, "Test Probe", quick: true);
 
             var recovery = Ledger.Actions.FirstOrDefault(a =>
                 a.Type == GameActionType.FundsEarning &&
@@ -872,7 +872,7 @@ namespace Parsek.Tests
                 l.Contains("[LedgerOrchestrator]") &&
                 l.Contains("VesselRecovery funds patched") &&
                 l.Contains("Test Probe") &&
-                l.Contains("fromTrackingStation=True"));
+                l.Contains("quick=True"));
         }
 
         [Fact]
@@ -892,7 +892,7 @@ namespace Parsek.Tests
             };
             GameStateStore.AddEvent(ref evt);
 
-            LedgerOrchestrator.OnVesselRecoveryFunds(5000.0, "Stock Vessel", fromTrackingStation: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(5000.0, "Stock Vessel", quick: false);
 
             var match = Ledger.Actions.FirstOrDefault(a =>
                 a.Type == GameActionType.FundsEarning &&
@@ -910,7 +910,7 @@ namespace Parsek.Tests
             // post-flight KSC recovery path. The routing path must wait for the paired
             // resource event rather than fabricating a zero earning or logging a false WARN.
             int before = Ledger.Actions.Count;
-            LedgerOrchestrator.OnVesselRecoveryFunds(7000.0, "Mystery Probe", fromTrackingStation: true);
+            LedgerOrchestrator.OnVesselRecoveryFunds(7000.0, "Mystery Probe", quick: true);
 
             Assert.Equal(before, Ledger.Actions.Count);
             Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
@@ -937,7 +937,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.OnVesselRecoveryFunds(
                 8000.0,
                 "Worthless Probe",
-                fromTrackingStation: true,
+                quick: true,
                 vesselType: VesselType.Ship);
             Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
 
@@ -986,7 +986,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.OnVesselRecoveryFunds(
                 7000.0,
                 "Delayed Probe",
-                fromTrackingStation: true,
+                quick: true,
                 vesselType: VesselType.Ship);
 
             var evt = new GameStateEvent
@@ -1028,7 +1028,7 @@ namespace Parsek.Tests
                 LedgerOrchestrator.OnVesselRecoveryFunds(
                     1432.4 + i * 0.01,
                     "Kerbal X Debris",
-                    fromTrackingStation: true,
+                    quick: true,
                     vesselType: VesselType.Debris);
             }
 
@@ -1067,7 +1067,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.OnVesselRecoveryFunds(
                 2100.0,
                 "Kerbal X Debris",
-                fromTrackingStation: true,
+                quick: true,
                 vesselType: VesselType.Debris);
 
             Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
@@ -1095,7 +1095,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.OnVesselRecoveryFunds(
                 2200.0,
                 identity,
-                fromTrackingStation: true,
+                quick: true,
                 vesselType: VesselType.Debris,
                 payoutContext: payoutContext);
 
@@ -1125,7 +1125,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.OnVesselRecoveryFunds(
                 288.7,
                 identity,
-                fromTrackingStation: true,
+                quick: true,
                 vesselType: VesselType.Ship,
                 payoutContext: payoutContext);
             LedgerOrchestrator.FlushStalePendingRecoveryFunds("rewind end");
@@ -1160,7 +1160,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.OnVesselRecoveryFunds(
                 288.7,
                 tinyIdentity,
-                fromTrackingStation: true,
+                quick: true,
                 vesselType: VesselType.Ship,
                 payoutContext: MakeRecoveryPayoutContext(
                     288.7,
@@ -1170,7 +1170,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.OnVesselRecoveryFunds(
                 288.7,
                 goodIdentity,
-                fromTrackingStation: true,
+                quick: true,
                 vesselType: VesselType.Ship,
                 payoutContext: goodContext);
 
@@ -1201,7 +1201,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.OnVesselRecoveryFunds(
                 286.3,
                 identity,
-                fromTrackingStation: false,
+                quick: false,
                 vesselType: VesselType.EVA,
                 payoutContext: payoutContext);
 
@@ -1228,7 +1228,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.OnVesselRecoveryFunds(
                 6110.0,
                 identity,
-                fromTrackingStation: true,
+                quick: true,
                 vesselType: VesselType.Ship,
                 payoutContext: payoutContext);
             Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
@@ -1324,7 +1324,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.OnVesselRecoveryFunds(
                 605.0,
                 identity,
-                fromTrackingStation: true,
+                quick: true,
                 vesselType: VesselType.Ship,
                 payoutContext: context);
 
@@ -1453,7 +1453,7 @@ namespace Parsek.Tests
         [Fact]
         public void OnVesselRecoveryFunds_CallbackBeforeFundsEvent_PairsWhenEventIsRecorded()
         {
-            LedgerOrchestrator.OnVesselRecoveryFunds(149.53, "r0", fromTrackingStation: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(149.53, "r0", quick: false);
             Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
 
             var evt = new GameStateEvent
@@ -1485,8 +1485,8 @@ namespace Parsek.Tests
         [Fact]
         public void OnVesselRecoveryFunds_DeferredSameNameWithinEpsilon_PairToDistinctEvents()
         {
-            LedgerOrchestrator.OnVesselRecoveryFunds(3000.00, "Debris", fromTrackingStation: true);
-            LedgerOrchestrator.OnVesselRecoveryFunds(3000.04, "Debris", fromTrackingStation: true);
+            LedgerOrchestrator.OnVesselRecoveryFunds(3000.00, "Debris", quick: true);
+            LedgerOrchestrator.OnVesselRecoveryFunds(3000.04, "Debris", quick: true);
             Assert.Equal(2, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
 
             var evtA = new GameStateEvent
@@ -1533,8 +1533,8 @@ namespace Parsek.Tests
             // the nameless nearest-UT fallback - so the pending queue and the guard's own
             // verbose line are what pin the skip.
             int before = Ledger.Actions.Count;
-            LedgerOrchestrator.OnVesselRecoveryFunds(8000.0, "", fromTrackingStation: false);
-            LedgerOrchestrator.OnVesselRecoveryFunds(8000.0, null, fromTrackingStation: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(8000.0, "", quick: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(8000.0, null, quick: false);
 
             Assert.Equal(before, Ledger.Actions.Count);
             Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
@@ -1580,7 +1580,7 @@ namespace Parsek.Tests
             };
             GameStateStore.AddEvent(ref evt);
 
-            LedgerOrchestrator.OnVesselRecoveryFunds(4000.0, "ReusableProbe", fromTrackingStation: true);
+            LedgerOrchestrator.OnVesselRecoveryFunds(4000.0, "ReusableProbe", quick: true);
 
             var match = Ledger.Actions.FirstOrDefault(a =>
                 a.Type == GameActionType.FundsEarning &&
@@ -1617,7 +1617,7 @@ namespace Parsek.Tests
             };
             GameStateStore.AddEvent(ref evt);
 
-            LedgerOrchestrator.OnVesselRecoveryFunds(3000.0, "GloopsClone", fromTrackingStation: true);
+            LedgerOrchestrator.OnVesselRecoveryFunds(3000.0, "GloopsClone", quick: true);
 
             var match = Ledger.Actions.FirstOrDefault(a =>
                 a.Type == GameActionType.FundsEarning &&
@@ -1657,8 +1657,8 @@ namespace Parsek.Tests
             };
             GameStateStore.AddEvent(ref evtB);
 
-            LedgerOrchestrator.OnVesselRecoveryFunds(3000.04, "DebrisB", fromTrackingStation: true);
-            LedgerOrchestrator.OnVesselRecoveryFunds(3000.00, "DebrisA", fromTrackingStation: true);
+            LedgerOrchestrator.OnVesselRecoveryFunds(3000.04, "DebrisB", quick: true);
+            LedgerOrchestrator.OnVesselRecoveryFunds(3000.00, "DebrisA", quick: true);
 
             var recoveries = Ledger.Actions
                 .Where(a => a.Type == GameActionType.FundsEarning && a.FundsSource == FundsEarningSource.Recovery)
@@ -1716,7 +1716,7 @@ namespace Parsek.Tests
             };
             GameStateStore.AddEvent(ref evt);
 
-            LedgerOrchestrator.OnVesselRecoveryFunds(3500.0, "Twinned", fromTrackingStation: true);
+            LedgerOrchestrator.OnVesselRecoveryFunds(3500.0, "Twinned", quick: true);
 
             var match = Ledger.Actions.FirstOrDefault(a =>
                 a.Type == GameActionType.FundsEarning &&
@@ -2154,7 +2154,7 @@ namespace Parsek.Tests
             // Both events sit within VesselRecoveryEventEpsilonSeconds of ut=7000.05.
             // Reverse-search hits the Strategies event first; the key gate must reject it
             // and continue back to the VesselRecovery event.
-            LedgerOrchestrator.OnVesselRecoveryFunds(7000.05, "RecoveredProbe", fromTrackingStation: true);
+            LedgerOrchestrator.OnVesselRecoveryFunds(7000.05, "RecoveredProbe", quick: true);
 
             var match = Ledger.Actions.FirstOrDefault(a =>
                 a.Type == GameActionType.FundsEarning &&
@@ -2198,7 +2198,7 @@ namespace Parsek.Tests
                 a.Type == GameActionType.FundsEarning &&
                 a.FundsSource == FundsEarningSource.Recovery);
 
-            LedgerOrchestrator.OnVesselRecoveryFunds(9000.0, "InFlightRecovery", fromTrackingStation: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(9000.0, "InFlightRecovery", quick: false);
 
             int after = Ledger.Actions.Count(a =>
                 a.Type == GameActionType.FundsEarning &&
@@ -2245,7 +2245,7 @@ namespace Parsek.Tests
                 a.Type == GameActionType.FundsEarning &&
                 a.FundsSource == FundsEarningSource.Recovery);
 
-            LedgerOrchestrator.OnVesselRecoveryFunds(9100.0, "LegacyRecovery", fromTrackingStation: true);
+            LedgerOrchestrator.OnVesselRecoveryFunds(9100.0, "LegacyRecovery", quick: true);
 
             int after = Ledger.Actions.Count(a =>
                 a.Type == GameActionType.FundsEarning &&
@@ -2300,7 +2300,7 @@ namespace Parsek.Tests
                 a.Type == GameActionType.FundsEarning &&
                 a.FundsSource == FundsEarningSource.Recovery);
 
-            LedgerOrchestrator.OnVesselRecoveryFunds(9200.0, "LegacyBigRecovery", fromTrackingStation: true);
+            LedgerOrchestrator.OnVesselRecoveryFunds(9200.0, "LegacyBigRecovery", quick: true);
 
             int after = Ledger.Actions.Count(a =>
                 a.Type == GameActionType.FundsEarning &&
@@ -2316,8 +2316,8 @@ namespace Parsek.Tests
         [Fact]
         public void FlushStalePendingRecoveryFunds_EvictsUnclaimedEntriesWithWarn()
         {
-            LedgerOrchestrator.OnVesselRecoveryFunds(1000.0, "LeakyProbe", fromTrackingStation: false);
-            LedgerOrchestrator.OnVesselRecoveryFunds(1050.0, "LeakyRover", fromTrackingStation: true);
+            LedgerOrchestrator.OnVesselRecoveryFunds(1000.0, "LeakyProbe", quick: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(1050.0, "LeakyRover", quick: true);
             Assert.Equal(2, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
 
             LedgerOrchestrator.FlushStalePendingRecoveryFunds("scene switch");
@@ -2350,7 +2350,7 @@ namespace Parsek.Tests
             for (int i = 0; i < LedgerOrchestrator.PendingRecoveryFundsStaleThreshold; i++)
             {
                 LedgerOrchestrator.OnVesselRecoveryFunds(
-                    2000.0 + i * 0.001, "DebrisBatch" + i, fromTrackingStation: true);
+                    2000.0 + i * 0.001, "DebrisBatch" + i, quick: true);
             }
 
             // At threshold, no warn yet.
@@ -2358,7 +2358,7 @@ namespace Parsek.Tests
                 l.Contains("pending queue exceeded threshold"));
 
             LedgerOrchestrator.OnVesselRecoveryFunds(
-                2000.5, "LatestDebris", fromTrackingStation: true);
+                2000.5, "LatestDebris", quick: true);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") &&
@@ -2373,8 +2373,8 @@ namespace Parsek.Tests
         [Fact]
         public void OnRecoveryFundsEventRecorded_VesselNameMatch_PreferredOverNearestUT()
         {
-            LedgerOrchestrator.OnVesselRecoveryFunds(3000.0, "Rocket A", fromTrackingStation: false);
-            LedgerOrchestrator.OnVesselRecoveryFunds(3000.0, "Rocket B", fromTrackingStation: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(3000.0, "Rocket A", quick: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(3000.0, "Rocket B", quick: false);
             Assert.Equal(2, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
 
             // Event tagged with "Rocket A" in detail should pair the A pending
@@ -2411,13 +2411,13 @@ namespace Parsek.Tests
             LedgerOrchestrator.OnVesselRecoveryFunds(
                 3100.0,
                 identity,
-                fromTrackingStation: true,
+                quick: true,
                 vesselType: VesselType.Ship,
                 payoutContext: MakeRecoveryPayoutContext(3100.0, identity, VesselType.Ship, 500.0));
             LedgerOrchestrator.OnVesselRecoveryFunds(
                 3100.0,
                 RecoveredVesselIdentity.FromRawName("Other Probe"),
-                fromTrackingStation: true,
+                quick: true,
                 vesselType: VesselType.Ship,
                 payoutContext: MakeRecoveryPayoutContext(
                     3100.0,
@@ -2455,8 +2455,8 @@ namespace Parsek.Tests
             // Two same-named same-UT pending requests: after name-match filtering they
             // still tie on distance=0. Pairing still succeeds (first in list order) but
             // the tie must be logged so the ambiguity is visible.
-            LedgerOrchestrator.OnVesselRecoveryFunds(4000.0, "Twin Probe", fromTrackingStation: false);
-            LedgerOrchestrator.OnVesselRecoveryFunds(4000.0, "Twin Probe", fromTrackingStation: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(4000.0, "Twin Probe", quick: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(4000.0, "Twin Probe", quick: false);
 
             var evt = new GameStateEvent
             {
@@ -2483,8 +2483,8 @@ namespace Parsek.Tests
         {
             // Event with no usable name hint: the legacy nearest-UT fallback still
             // pairs the closest one, preserving the #444 contract for older events.
-            LedgerOrchestrator.OnVesselRecoveryFunds(5000.0, "Alpha", fromTrackingStation: false);
-            LedgerOrchestrator.OnVesselRecoveryFunds(5000.1, "Beta", fromTrackingStation: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(5000.0, "Alpha", quick: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(5000.1, "Beta", quick: false);
 
             var evt = new GameStateEvent
             {
@@ -2508,8 +2508,8 @@ namespace Parsek.Tests
         [Fact]
         public void OnRecoveryFundsEventRecorded_MismatchedIdentity_DoesNotFallbackToNearestUT()
         {
-            LedgerOrchestrator.OnVesselRecoveryFunds(5100.0, "Alpha", fromTrackingStation: false);
-            LedgerOrchestrator.OnVesselRecoveryFunds(5100.0, "Beta", fromTrackingStation: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(5100.0, "Alpha", quick: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(5100.0, "Beta", quick: false);
 
             var evt = new GameStateEvent
             {
@@ -2588,7 +2588,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.OnVesselRecoveryFunds(
                 347.5,
                 identity,
-                fromTrackingStation: false,
+                quick: false,
                 vesselType: VesselType.Ship,
                 payoutContext: context);
 
@@ -2617,7 +2617,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.OnVesselRecoveryFunds(
                 347.5,
                 identity,
-                fromTrackingStation: false,
+                quick: false,
                 vesselType: VesselType.Ship,
                 payoutContext: context);
 
@@ -2667,7 +2667,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.OnVesselRecoveryFunds(
                 400.0,
                 identity,
-                fromTrackingStation: false,
+                quick: false,
                 vesselType: VesselType.Ship,
                 payoutContext: context);
 

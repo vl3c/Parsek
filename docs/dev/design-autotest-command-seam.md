@@ -538,6 +538,11 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > `RF-20-stashed-eva-slot-refly`. `FlySlot` stays reserved for the reason above. Full
 > contract below (`#### StashSlot`).
 
+> Update (KscMarkerRecover, 2026-10-04): one ADDITIVE verb, `KscMarkerRecover pid=`, taking
+> the table to **48 implemented / 4 reserved**. The third recovery a player makes, from the
+> Space Center without entering the Tracking Station: the vessel's stock KSC marker, opened
+> and its Recover pressed. Full contract below (`#### KscMarkerRecover`).
+
 > Update (TrackingStationRecover, 2026-10-03): one ADDITIVE verb, `TrackingStationRecover
 > pid=`, taking the table to **47 implemented / 4 reserved**. `Recover` presses the flight
 > scene's button, which only ever recovers the ACTIVE vessel; a lane that spawns a chain
@@ -3887,7 +3892,7 @@ needs a settled SPACECENTER with a game loaded AND `onVesselRecovered` observed 
 vessel (Guid or pid): the recovery runs 8 frames after the scene settles, so a scene read
 alone would answer early. Payload `pid= vessel= scene= recovered=true`; lines `recover
 pressed pid= vessel= situation= ut=`, `recover observed onVesselRecovered pid= vessel=
-fromTrackingStation=`, `recover complete pid= vessel= scene= elapsed=`.
+quick=`, `recover complete pid= vessel= scene= elapsed=`.
 
 **Phases and roles.** Both TWO-PHASE, `RequiresFlight`, 120 s (`RealSpawn` the TimeJump
 size, `Recover` the ExitToSpaceCenter size), NOT `DEFERRED_SEAM_VERBS`. Dispatch rejects
@@ -3937,7 +3942,7 @@ control in a player's order:
   never calls `OnRecoverConfirm` itself, so Parsek's `GhostTrackingRecoverPatch` prefix
   runs. `OnRecoverConfirm` fires `GameEvents.onVesselRecovered.Fire(vessel.protoVessel,
   false)`, destroys the vessel and saves.
-- **The bool is stock's `quick` flag, not "from tracking station".** `VesselRecovery.
+- **The bool is stock's `quick` flag.** `VesselRecovery.
   OnVesselRecovered(ProtoVessel pv, bool quick)` skips the summary only when it is true;
   the Tracking Station path passes FALSE, so in any game with `Funding`, `Reputation` or
   `ResearchAndDevelopment` (or a crewed vessel) stock opens a `MissionRecoveryDialog`
@@ -3946,8 +3951,8 @@ control in a player's order:
   The seam closes it with `Object.Destroy(dialog.gameObject)`, the whole body of the
   dialog's private `dismissDialog` (its Escape-key path); `OnDestroy` fires
   `onGUIRecoveryDialogDespawn`, which unlocks the Tracking Station. (`Recover`'s
-  `recover observed onVesselRecovered ... fromTrackingStation=` log key names the same
-  bool; it is the quick flag there too.)
+  `recover observed onVesselRecovered ... quick=` log key prints the same
+  bool.)
 - `LeaveBtn.onClick.Invoke()` once it is interactable: `BtnOnClick_LeaveTrackingStation`
   saves and loads SPACECENTER (`Parameters.TrackingStation.CanLeaveToSpaceCenter`).
 
@@ -4002,7 +4007,77 @@ save), NOT `DEFERRED_SEAM_VERBS`. Dispatch rejects `load-in-flight` and
 `recording` (Recover's reasons). hlib mirrors the reasons (`TSRECOVER_REASONS`, pinned by
 `TrackingStationRecoverSourceSyncTests`) and `validate_tracking_station_recover_step`
 checks the pid pre-launch. Pure half `TestCommandTrackingStationRecover`; applier
-`ParsekTestCommandAddon.TrackingStationRecover.cs`. No lane yet.
+`ParsekTestCommandAddon.TrackingStationRecover.cs`. Lane: `CI-7-chain-tip-ts-recover-no-respawn` (armed).
+
+#### KscMarkerRecover (additive; the Space Center marker recovery)
+
+**Why.** A player standing at the Space Center can recover a vessel landed or splashed on
+Kerbin without opening the Tracking Station: every such vessel carries a marker over the
+KSC view, and its expanded panel has a Recover button. That route reaches
+`onVesselRecovered` through different stock code (no confirm popup, no scene load), so a
+recovery fix proven on `TrackingStationRecover` is not proven on it.
+
+**Grammar.** `cmd=KscMarkerRecover pid=<persistentId>`, issued at the Space Center. The
+pid is usually `${spawn.pid}` from an earlier `RealSpawn`.
+
+**Production path** (decompiled, KSP 1.12.5 `Assembly-CSharp.dll`):
+- `KSP.UI.Screens.KSCVesselMarkers` (static `fetch`, private `List<KSCVesselMarker>
+  markers`): `Awake` schedules `SpawnVesselMarkers` 15 frames later, which creates one
+  `KSCVesselMarker` per vessel in `FlightGlobals.Vessels` that is `LandedOrSplashed` on
+  `Planetarium.fetch.Home` and is neither `DeployedSciencePart` nor `DroppedPart`. Opening
+  a facility screen clears the markers; closing it spawns them again.
+- `KSCVesselMarker` (an `AnchoredDialog`; private `v`, `Marker`, `RecoverButton`,
+  `expanded`, `locked`, `panelCtrls`): `AnchoredDialog.Start` -> `CreatePanel` ->
+  `CreateWindowContent` adds the button listeners, then `OnPanelSetupComplete` sets
+  `panelCtrls`, which the seam reads as "wired". `Marker.onClick` ->
+  `OnMarkerButtonInput` -> `Expand()` (ignored while `locked`, the KSC_UI input-lock
+  state). In MISSION mode with `preventVesselRecovery` stock sets
+  `RecoverButton.interactable = false`.
+- `RecoverButton.onClick` -> `OnRecoverButtonInput` -> `Dismiss(Recover)` -> `Collapse()`
+  + `KSCVesselMarkers.OnMarkerDismiss`, which one frame later runs the private
+  `RecoverVessel(v)`: `ShipConstruction.RecoverVesselFromFlight(v.protoVessel,
+  HighLogic.CurrentGame.flightState)` (fires `GameEvents.onVesselRecovered.Fire(pv,
+  false)` first, then removes the vessel), `GamePersistence.SaveGame("persistent", ...,
+  SPACECENTER)`, and a `RefreshMarkers` one frame after that. `OnVesselRecoveryRequested`
+  is NOT fired. The bool is stock's `quick` flag, FALSE here, so
+  `VesselRecovery.OnVesselRecovered` opens a `MissionRecoveryDialog` (synchronously,
+  `CreateFullDialog`) in a game with Funding / Reputation / R&D or for a crewed vessel; the
+  seam closes it with `Object.Destroy(dialog.gameObject)`, as `TrackingStationRecover` does.
+
+The seam presses both buttons a player presses, in one poll: `Marker.onClick.Invoke()`,
+reads `expanded` back, then `RecoverButton.onClick.Invoke()`. No wedge guard: no scene
+load happens.
+
+**Refusals** (REJECTED, in this order): `kscrecover-pid-arg-missing`,
+`kscrecover-pid-arg-invalid` (Recover's parse), `kscrecover-wrong-scene` (not
+SPACECENTER), `kscrecover-target-is-ghost`, `kscrecover-vessel-not-found`,
+`kscrecover-not-recoverable` (stock gives the vessel no marker: not landed or splashed on
+the home world, or a deployed science part / dropped part), and two decided by the poll
+before anything is pressed: `kscrecover-marker-not-found` (no marker for the pid with its
+buttons wired within 180 frames, or a private field no longer resolves) and
+`kscrecover-button-locked` (the marker is `locked`, `RecoverButton` is not interactable, or
+the marker refused to expand; `Button.onClick.Invoke` ignores both, so the seam must not
+click). Post-press ERROR: `kscrecover-not-recovered` (no `onVesselRecovered` for the vessel
+within 60 frames of the press, or by the budget), `kscrecover-returned-to-menu`,
+`kscrecover-timeout`.
+
+**Completion.** Phases `FindingMarker` -> `Recovering`. OK needs the recovery observed (by
+Guid or pid), 2 frames since (stock's same-call save and its next-frame marker refresh), no
+`MissionRecoveryDialog` open, and SPACECENTER with a game loaded. Payload `pid= vessel=
+scene=SPACECENTER recovered=true quick=<bool>`; lines `kscrecover start pid= vessel=
+situation=`, `kscrecover pressed pid= vessel= situation= markers= framesWaited= ut=`,
+`kscrecover observed onVesselRecovered pid= vessel= quick=`, `kscrecover dismiss
+MissionRecoveryDialog`, `kscrecover complete pid= vessel= scene= quick= elapsed=`,
+`kscrecover rejected reason=` (Warn) / `kscrecover error reason=` (Error).
+
+**Phases and roles.** TWO-PHASE, `RequiresGameLoaded` (the TrackingStationRecover row), 60 s
+(the default size, named), NOT `DEFERRED_SEAM_VERBS`. Dispatch rejects `load-in-flight` and
+`merge-journal-in-flight` (the Recover pair). Tail role world-mutating, post-mission role
+`recording`. hlib mirrors the reasons (`KSCRECOVER_REASONS`, pinned by
+`KscMarkerRecoverSourceSyncTests`) and `validate_ksc_marker_recover_step` checks the pid
+pre-launch. Pure half `TestCommandKscMarkerRecover`; applier
+`ParsekTestCommandAddon.KscMarkerRecover.cs`. Lane:
+`CI-10-chain-tip-ksc-marker-recover-no-respawn` (CI-7's host and steps; never flown).
 
 ### Addon lifecycle
 
@@ -4128,6 +4203,7 @@ wall-clock. Some verbs need a different bound and override the default:
 | `RealSpawn` | 120 s | TWO-PHASE, the `TimeJump` size: the row press runs the epoch-shift jump synchronously and the wait is the playback loop's spawn at the new UT; NOT a `DEFERRED_SEAM_VERB` |
 | `Recover` | 120 s | TWO-PHASE, the `ExitToSpaceCenter` size: stock's save, the Space Center load and the 8-frame delay before `VesselRetrieval.recoverVessels`; NOT a `DEFERRED_SEAM_VERB` |
 | `TrackingStationRecover` | 120 s | TWO-PHASE, the `Recover` size: the Tracking Station load, a few frames of select / confirm / summary dismissal, and the Space Center load back; NOT a `DEFERRED_SEAM_VERB` |
+| `KscMarkerRecover` | 60 s | TWO-PHASE, the default size named: no scene load, the 180-frame marker wait, stock's one-frame recovery and a summary dismissal; NOT a `DEFERRED_SEAM_VERB` |
 
 Budgets are measured from when the command first reaches the head and begins deferring. On
 expiry the pump writes `TIMEOUT` with `msg` carrying the last defer reason and advances.

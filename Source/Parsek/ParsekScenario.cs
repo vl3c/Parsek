@@ -7868,7 +7868,10 @@ namespace Parsek
             }
         }
 
-        private void OnVesselRecovered(ProtoVessel pv, bool fromTrackingStation)
+        /// <param name="quick">Stock's quick flag (<c>VesselRecovery.OnVesselRecovered</c>): false on
+        /// every player route (Tracking Station, VesselRetrieval, KSC marker), true only from
+        /// <c>ProtoVessel.Clean</c>. It does not name the recovery route.</param>
+        private void OnVesselRecovered(ProtoVessel pv, bool quick)
         {
             if (pv == null) return;
             if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
@@ -7924,7 +7927,7 @@ namespace Parsek
                 LedgerOrchestrator.OnVesselRecoveryFunds(
                     now,
                     identity,
-                    fromTrackingStation,
+                    quick,
                     pv.vesselType,
                     payoutContext);
 
