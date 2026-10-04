@@ -71,13 +71,17 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Whether Research is disabled for a science shortage: a researchable node that no
-        /// committed row holds, whose cost the effective free science does not cover
-        /// (<see cref="Patches.TechResearchPatch.IsScienceShort"/>, the predicate the click
-        /// gate refuses with). Stock never greys Research for science
+        /// Whether Research is disabled for a TIMELINE science shortage: a researchable node
+        /// that no committed row holds, whose cost the live pool covers but the effective
+        /// free science does not (<see cref="Patches.TechResearchPatch.IsScienceShort"/>, the
+        /// predicate the click gate refuses with). Stock never greys Research for science
         /// (<c>RDController.UpdatePanel</c> enables it for every researchable node and
-        /// <c>RDTech.ResearchTech</c> refuses at the click), so without this the refusal had
-        /// no mark.
+        /// <c>RDTech.ResearchTech</c> refuses at the click), so without this Parsek's refusal
+        /// had no mark. A plain shortage stays stock's: no grey, no tooltip. The mark is
+        /// re-derived on every <c>UpdatePanel</c>: node select, and the tree refresh
+        /// (<c>RDTechTree.RefreshUI</c>) that research and the overlay's timeline-change
+        /// refresh run. A live-pool change with no ledger change leaves it as drawn until
+        /// the next of those.
         /// </summary>
         internal static bool ShouldDisableResearchForScience(
             bool committedBlocked, bool isResearched, bool isFaded, bool scienceShort)

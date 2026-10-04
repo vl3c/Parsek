@@ -7733,10 +7733,14 @@ namespace Parsek
         /// unlocks.
         /// </summary>
         /// <remarks>
-        /// The recalculation walk is scoped to <c>Planetarium.GetUniversalTime()</c> as
-        /// its UT cutoff so post-rewind future actions on the persisted ledger don't leak
-        /// into affordability ("what's the state right now?" → right now = Planetarium's
-        /// current UT, not the ledger's last action). When the live R&D singleton exists
+        /// The walk is scoped to <c>Planetarium.GetUniversalTime()</c> as its UT cutoff so
+        /// post-rewind future actions on the persisted ledger don't leak into affordability
+        /// ("what's the state right now?" → right now = Planetarium's current UT, not the
+        /// ledger's last action). It is a read-only probe
+        /// (<see cref="RecalculationEngine.ProbeModuleAtCutoff{T}"/>): it walks clones of
+        /// the modules, so a UI that asks (the R&amp;D Research mark) or a refused click
+        /// never moves the live modules (a cutoff walk of the live kerbals module drops
+        /// every hold a future committed flight owns). When the live R&D singleton exists
         /// (real KSP) the reservation-aware available is reconciled against live via
         /// <see cref="ComputeEffectiveAffordable"/>; with no singleton (xUnit) the gate
         /// keeps the pure-ledger contract.
@@ -7757,17 +7761,21 @@ namespace Parsek
             Initialize();
             if (scienceModule == null) return true;
 
-            // Run a recalculation to get current state (may already be current).
-            // cutoff = Planetarium.GetUniversalTime() so post-rewind future actions don't
-            // leak into affordability.
+            // A read-only cutoff walk over module clones at now: post-rewind future actions
+            // don't leak into affordability, and no live module changes.
             // Phase 9 of Rewind-to-Staging (design §3.2): route through ELS so
             // any explicitly tombstoned action is excluded from the affordability
             // probe's walk.
             var actions = new System.Collections.Generic.List<GameAction>(EffectiveState.ComputeELS());
             double nowUT = GetNowUT();
-            RecalculationEngine.Recalculate(actions, nowUT);
+            var probe = RecalculationEngine.ProbeModuleAtCutoff<ScienceModule>(actions, nowUT);
+            if (probe == null)
+            {
+                ParsekLog.Warn(Tag, "CanAffordScienceSpending: science module probe unavailable - allowing");
+                return true;
+            }
 
-            double available = scienceModule.GetAvailableScience();
+            double available = probe.GetAvailableScience();
 
             // BUG-G: reconcile the ledger spendable with the drawdown-guard-preserved live
             // value. Only when the live singleton exists (real KSP); xUnit keeps the
@@ -7792,7 +7800,7 @@ namespace Parsek
             {
                 effectiveAvailable = ComputeEffectiveAffordable(
                     available,
-                    scienceModule.GetRunningScience(),
+                    probe.GetRunningScience(),
                     rnd.Science,
                     IsAuthoritativeReductionForAffordability());
             }
@@ -7818,30 +7826,43 @@ namespace Parsek
         /// </remarks>
         internal static bool CanAffordFundsSpending(float cost)
         {
+            double effectiveAvailable;
+            return CanAffordFundsSpending(cost, out effectiveAvailable);
+        }
+
+        /// <summary><see cref="CanAffordFundsSpending(float)"/>, also giving the effective
+        /// available funds it compared against (+inf when there is no funds module).</summary>
+        internal static bool CanAffordFundsSpending(float cost, out double effectiveAvailable)
+        {
+            effectiveAvailable = double.PositiveInfinity;
             Initialize();
             if (fundsModule == null) return true;
 
-            // cutoff = Planetarium.GetUniversalTime() so post-rewind future actions don't
-            // leak into affordability.
+            // A read-only cutoff walk over module clones at now (see CanAffordScienceSpending).
             // Phase 9 of Rewind-to-Staging (design §3.2): route through ELS so
             // any explicitly tombstoned action is excluded from the affordability
             // probe's walk.
             var actions = new System.Collections.Generic.List<GameAction>(EffectiveState.ComputeELS());
             double nowUT = GetNowUT();
-            RecalculationEngine.Recalculate(actions, nowUT);
+            var probe = RecalculationEngine.ProbeModuleAtCutoff<FundsModule>(actions, nowUT);
+            if (probe == null)
+            {
+                ParsekLog.Warn(Tag, "CanAffordFundsSpending: funds module probe unavailable - allowing");
+                return true;
+            }
 
-            double available = fundsModule.GetAvailableFunds();
+            double available = probe.GetAvailableFunds();
 
             // BUG-G: reconcile the ledger spendable with the drawdown-guard-preserved live
             // funds (same rule as CanAffordScienceSpending). Live-only; xUnit keeps the
             // pure-ledger contract.
-            double effectiveAvailable = available;
+            effectiveAvailable = available;
             var funding = Funding.Instance;
             if (funding != null)
             {
                 effectiveAvailable = ComputeEffectiveAffordable(
                     available,
-                    fundsModule.GetRunningBalance(),
+                    probe.GetRunningBalance(),
                     funding.Funds,
                     IsAuthoritativeReductionForAffordability());
             }

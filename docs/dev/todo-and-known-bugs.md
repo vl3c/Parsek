@@ -4356,7 +4356,16 @@ Mission Control Accept / Decline / Cancel DO draw a disabled state (SpriteSwap t
 Decline differ visibly in `stk-mc-slotblock`), so finding 1's Mission Control part is stock's
 own look; stock's R&D Research button never greys for science (decompiled
 `RDController.UpdatePanel`), so the science-shortage refusal had no mark - it is now greyed
-over the gate's own predicate with the reason on its tooltip.
+over the gate's own predicate with the reason on its tooltip, and only for a TIMELINE
+shortage (the live pool covers the cost, the effective free science does not); a plain
+shortage is left to stock. Review fix in the same PR: the affordability check
+(`LedgerOrchestrator.CanAffordScienceSpending` / `CanAffordFundsSpending`) walked the LIVE
+modules to the current UT, dropping future committed crew holds until the next recalc; it now
+walks module clones (`RecalculationEngine.ProbeModuleAtCutoff`) and restores the rows'
+derived fields. Known residue, not fixed: the Research mark is re-derived on every
+`RDController.UpdatePanel` (node select, and the `RDTechTree.RefreshUI` that research and the
+overlay's timeline-change refresh run), so a live-pool change with no ledger change leaves it
+as drawn until the next of those.
 
 ---
 

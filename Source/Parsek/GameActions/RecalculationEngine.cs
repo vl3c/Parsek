@@ -233,6 +233,123 @@ namespace Parsek
         }
 
         /// <summary>
+        /// A read-only availability probe: the same cutoff walk <see cref="Recalculate"/>
+        /// runs (the full-timeline projection, then the walk of the rows up to
+        /// <paramref name="utCutoff"/>, then the projected availability), but over CLONES of
+        /// the registered modules, so no registered module changes (the kerbals module's
+        /// reservations above all: a cutoff walk of the live module drops every hold a
+        /// future committed flight owns until the next full recalculation). The action-derived
+        /// fields the walk rewrites are restored afterwards, and the probe logs nothing.
+        /// Returns the probe's clone of type <typeparamref name="T"/>, or null when none is
+        /// registered or it cannot be cloned. The affordability gates and the R&amp;D
+        /// Research mark read this.
+        /// </summary>
+        internal static T ProbeModuleAtCutoff<T>(List<GameAction> actions, double utCutoff)
+            where T : class, IResourceModule
+        {
+            if (actions == null) return null;
+            var all = CopyNonNullActions(actions);
+            var effective = new List<GameAction>(all.Count);
+            for (int i = 0; i < all.Count; i++)
+                if (IsSeedType(all[i].Type) || all[i].UT <= utCutoff)
+                    effective.Add(all[i]);
+
+            var saved = SnapshotDerivedFields(all);
+            try
+            {
+                using (ParsekLog.SuppressScope())
+                {
+                    List<GameAction> projected = RunProjectionWalk(
+                        CopyNonNullActions(all), ComputeProjectionHorizon(all)).Sorted;
+
+                    var first = CreateProjectionModules(firstTierModules);
+                    var strategy = CreateProjectionModule(strategyTransform);
+                    var second = CreateProjectionModules(secondTierModules);
+                    var facilities = CreateProjectionModule(facilitiesModule);
+                    RunWalk(effective, utCutoff, first, strategy, second, facilities);
+
+                    ApplyProjectedAvailability(first, projected, utCutoff);
+                    if (strategy != null) ApplyProjectedAvailability(strategy, projected, utCutoff);
+                    ApplyProjectedAvailability(second, projected, utCutoff);
+                    if (facilities != null) ApplyProjectedAvailability(facilities, projected, utCutoff);
+
+                    return FindModule<T>(first) ?? (strategy as T) ?? FindModule<T>(second) ?? (facilities as T);
+                }
+            }
+            finally
+            {
+                RestoreDerivedFields(saved);
+            }
+        }
+
+        private static T FindModule<T>(List<IResourceModule> modules) where T : class, IResourceModule
+        {
+            for (int i = 0; i < modules.Count; i++)
+            {
+                var m = modules[i] as T;
+                if (m != null) return m;
+            }
+            return null;
+        }
+
+        private struct DerivedFields
+        {
+            internal GameAction Action;
+            internal bool Effective;
+            internal GameActionNotCountedReason NotCountedReason;
+            internal float EffectiveScience;
+            internal bool Affordable;
+            internal double? UnaffordableRunningScience;
+            internal float EffectiveRep;
+            internal float TransformedFundsReward;
+            internal float TransformedScienceReward;
+            internal float TransformedRepReward;
+        }
+
+        /// <summary>The fields <see cref="ResetDerivedFields"/> resets and the module walk
+        /// writes on the shared action objects.</summary>
+        private static List<DerivedFields> SnapshotDerivedFields(List<GameAction> actions)
+        {
+            var saved = new List<DerivedFields>(actions.Count);
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                saved.Add(new DerivedFields
+                {
+                    Action = a,
+                    Effective = a.Effective,
+                    NotCountedReason = a.NotCountedReason,
+                    EffectiveScience = a.EffectiveScience,
+                    Affordable = a.Affordable,
+                    UnaffordableRunningScience = a.UnaffordableRunningScience,
+                    EffectiveRep = a.EffectiveRep,
+                    TransformedFundsReward = a.TransformedFundsReward,
+                    TransformedScienceReward = a.TransformedScienceReward,
+                    TransformedRepReward = a.TransformedRepReward
+                });
+            }
+            return saved;
+        }
+
+        private static void RestoreDerivedFields(List<DerivedFields> saved)
+        {
+            for (int i = 0; i < saved.Count; i++)
+            {
+                var s = saved[i];
+                var a = s.Action;
+                a.Effective = s.Effective;
+                a.NotCountedReason = s.NotCountedReason;
+                a.EffectiveScience = s.EffectiveScience;
+                a.Affordable = s.Affordable;
+                a.UnaffordableRunningScience = s.UnaffordableRunningScience;
+                a.EffectiveRep = s.EffectiveRep;
+                a.TransformedFundsReward = s.TransformedFundsReward;
+                a.TransformedScienceReward = s.TransformedScienceReward;
+                a.TransformedRepReward = s.TransformedRepReward;
+            }
+        }
+
+        /// <summary>
         /// Returns true if the action type is a session-baseline seed (FundsInitial,
         /// ScienceInitial, ReputationInitial). Seeds are always included in recalculation
         /// regardless of any UT cutoff — they define the starting balance for the walk.

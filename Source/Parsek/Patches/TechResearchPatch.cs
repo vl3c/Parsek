@@ -52,8 +52,10 @@ namespace Parsek.Patches
             {
                 // Ledger reservation: can the player afford this tech? Reconciled against
                 // the drawdown-guard-preserved live pool (BUG-G), so a missing-earning leak
-                // no longer falsely blocks an affordable purchase. The R&D side panel greys
-                // Research over this same predicate (IsScienceShort), so the refusal has a mark.
+                // no longer falsely blocks an affordable purchase. Only a TIMELINE shortage is
+                // refused here (the live pool covers the cost, the free science does not); a
+                // plain shortage is stock's own refusal. The R&D side panel greys Research
+                // over this same predicate (IsScienceShort), so the refusal has a mark.
                 float sciCostCheck = tech.scienceCost;
                 double free;
                 if (IsScienceShort(sciCostCheck, out free))
@@ -78,17 +80,54 @@ namespace Parsek.Patches
         }
 
         /// <summary>
-        /// The science-shortage predicate: a positive cost the effective free science
-        /// (<see cref="LedgerOrchestrator.CanAffordScienceSpending(float, out double)"/>) does
-        /// not cover. The pre-deduction click gate and the R&amp;D side panel's greyed
-        /// Research button both read it (the pairing rule). <paramref name="free"/> is the
-        /// effective free science it compared against.
+        /// The timeline science-shortage predicate: the live pool covers the cost but the
+        /// effective free science
+        /// (<see cref="LedgerOrchestrator.CanAffordScienceSpending(float, out double)"/>, a
+        /// read-only probe) does not, because research later on the timeline holds the rest
+        /// (<see cref="IsTimelineScienceShortage"/>). A plain shortage (the live pool itself
+        /// is below the cost) is stock's own refusal and is left to stock: no grey, no
+        /// tooltip, no click block. The pre-deduction click gate and the R&amp;D side panel's
+        /// greyed Research button both read this (the pairing rule). <paramref name="free"/>
+        /// is the effective free science it compared against (+inf when not probed).
         /// </summary>
         internal static bool IsScienceShort(float cost, out double free)
         {
             free = double.PositiveInfinity;
             if (cost <= 0f) return false;
-            return !LedgerOrchestrator.CanAffordScienceSpending(cost, out free);
+            double live = ReadLiveScience();
+            // A plain shortage, or no live pool: stock's own check decides, so no probe.
+            if (double.IsNaN(live) || live < cost) return false;
+            LedgerOrchestrator.CanAffordScienceSpending(cost, out free);
+            return IsTimelineScienceShortage(cost, free, live);
+        }
+
+        /// <summary>
+        /// Pure core of <see cref="IsScienceShort"/>: a positive cost the live pool covers
+        /// and the effective free science does not. NaN live (no R&amp;D singleton) is never
+        /// a timeline shortage.
+        /// </summary>
+        internal static bool IsTimelineScienceShortage(double cost, double effectiveFree, double liveScience)
+        {
+            if (!(cost > 0.0) || double.IsNaN(liveScience)) return false;
+            return liveScience >= cost && effectiveFree < cost;
+        }
+
+        /// <summary>Test seam for the live science pool; null in every player build.</summary>
+        internal static Func<double> LiveScienceForTesting;
+
+        private static double ReadLiveScience()
+        {
+            var seam = LiveScienceForTesting;
+            if (seam != null) return seam();
+            try { return ReadLiveScienceCore(); }
+            catch (Exception) { return double.NaN; }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static double ReadLiveScienceCore()
+        {
+            var rnd = ResearchAndDevelopment.Instance;
+            return rnd != null ? rnd.Science : double.NaN;
         }
 
         /// <summary>

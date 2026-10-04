@@ -32,6 +32,9 @@ namespace Parsek.Tests
         public void Dispose()
         {
             StockUiText.LocalizerForTesting = null;
+            TechResearchPatch.LiveScienceForTesting = null;
+            LedgerOrchestrator.ResetForTesting();
+            RecordingStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
         }
 
@@ -324,6 +327,65 @@ namespace Parsek.Tests
             Assert.DoesNotContain("Not enough science", patch);
             Assert.False(TechResearchPatch.IsScienceShort(0f, out double free0));
             Assert.True(double.IsPositiveInfinity(free0));
+        }
+
+        // catches: a plain shortage (the live pool itself below the cost, nothing reserved)
+        // greyed and refused as a timeline block, or a timeline shortage left unmarked.
+        [Theory]
+        [InlineData(45.0, 12.0, 12.0, false)]   // plain: 12 science, a 45-science node
+        [InlineData(45.0, 50.0, 12.0, true)]    // timeline: the pool covers it, the free science does not
+        [InlineData(45.0, 45.0, 44.9, true)]    // boundary: live exactly the cost
+        [InlineData(45.0, 44.9, 0.0, false)]    // boundary: live just under the cost
+        [InlineData(45.0, 50.0, 45.0, false)]   // boundary: free exactly the cost
+        [InlineData(45.0, double.NaN, 0.0, false)] // no R&D singleton
+        [InlineData(0.0, 50.0, 0.0, false)]     // a free node
+        public void TimelineScienceShortage_IsOnlyALivePoolTheReservationEats(
+            double cost, double live, double free, bool expected)
+        {
+            Assert.Equal(expected, TechResearchPatch.IsTimelineScienceShortage(cost, free, live));
+        }
+
+        // catches: the gate probing (and refusing) when the live pool is already short:
+        // stock's own refusal decides, with no Parsek grey, tooltip or dialog.
+        [Fact]
+        public void IsScienceShort_APlainShortageIsLeftToStock_WithoutAProbe()
+        {
+            TechResearchPatch.LiveScienceForTesting = () => 12.0;
+            double free;
+            Assert.False(TechResearchPatch.IsScienceShort(45f, out free));
+            Assert.True(double.IsPositiveInfinity(free), "a plain shortage should not run the probe");
+
+            TechResearchPatch.LiveScienceForTesting = () => double.NaN;
+            Assert.False(TechResearchPatch.IsScienceShort(45f, out free));
+        }
+
+        // catches: the probe rewriting the action-derived fields of the shared ledger rows
+        // (the Timeline reads them), or leaving the live science module walked to the cutoff.
+        [Fact]
+        public void AffordabilityProbe_RestoresDerivedFields_AndLeavesTheLiveModule()
+        {
+            LedgerOrchestrator.ResetForTesting();
+            RecordingStore.ResetForTesting();
+            LedgerOrchestrator.Initialize();
+            var seed = new GameAction { UT = 0, Type = GameActionType.ScienceInitial, InitialScience = 100f };
+            var spend = new GameAction { UT = 500, Type = GameActionType.ScienceSpending, NodeId = "basicRocketry", Cost = 30f };
+            Ledger.AddAction(seed);
+            Ledger.AddAction(spend);
+            LedgerOrchestrator.RecalculateAndPatch();
+            double runningBefore = LedgerOrchestrator.Science.GetRunningScience();
+            spend.Effective = false;
+            spend.NotCountedReason = GameActionNotCountedReason.None;
+            spend.Affordable = true;
+
+            LedgerOrchestrator.NowUtProviderForTesting = () => 100.0;
+            double free;
+            Assert.True(LedgerOrchestrator.CanAffordScienceSpending(60f, out free));
+            Assert.Equal(70.0, free, 3);
+            Assert.False(LedgerOrchestrator.CanAffordScienceSpending(80f));
+
+            Assert.False(spend.Effective);
+            Assert.True(spend.Affordable);
+            Assert.Equal(runningBefore, LedgerOrchestrator.Science.GetRunningScience(), 6);
         }
 
         // ------------------------------------------------------------ tech title

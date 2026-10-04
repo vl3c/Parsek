@@ -1432,11 +1432,19 @@ _(unreleased — entries accumulate here per commit)_
 ### Fixed
 
 - **R&D's Research button now greys out when science held for later research makes a node
-  unaffordable.** Stock never greys Research for science; it refuses at the click. Parsek
-  refused such a click with its own dialog while the button looked live. The button is now
+  unaffordable.** Stock never greys Research for science; it refuses at the click. When the
+  science bar showed enough but later research on the timeline needed part of it, Parsek
+  refused the click with its own dialog while the button looked live. The button is now
   greyed with the reason on its tooltip, `Reserved for later research, blocked by timeline.
   Needs 45.0 science, 12.0 free.`, and the refused-click dialog says the same (it read `Not
-  enough science: tech unlocks later on timeline need it, blocked by timeline.`).
+  enough science: tech unlocks later on timeline need it, blocked by timeline.`). A plain
+  shortage, where the science bar itself is below the cost, is left to stock's own refusal:
+  no grey, no reason, no Parsek dialog.
+- **Checking whether research or a purchase is affordable no longer frees reserved kerbals.**
+  The check re-ran the ledger walk up to the current time over the live game state, which
+  dropped every crew hold a later committed flight owns: until the next full recalculation
+  those kerbals could be dismissed or put in a crew. The check now walks a private copy and
+  leaves the live state, and every row's counted / not-counted marks, as they were.
 - **A refused tech names the tech, not its internal id.** When a tech's title was empty the
   refusal printed the id (`Cannot research "basicRocketry"`); it now reads the tech tree's
   title for the id, and the id only when no title exists.
