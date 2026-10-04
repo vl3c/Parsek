@@ -180,6 +180,43 @@ namespace Parsek.Tests
             else AssertReleased(Inv(currentUT));
         }
 
+        // catches: the science affordability probe (the R&D Research mark on every panel
+        // show, and the Research click gate) running a cutoff walk over the LIVE modules,
+        // which drops a future committed flight's hold, so the held kerbal reads free (crew
+        // dialog, dismissal) until the next full recalculation (PR #2001 review).
+        [Fact]
+        public void ScienceAffordabilityProbe_LeavesAFutureFlightsHoldInPlace()
+        {
+            Ledger.AddAction(AddFlight("rec-future-jeb", Jeb, new[] { Jeb },
+                2000.0, 2500.0, KerbalEndState.Recovered, 1));
+            KerbalsModule.LiveClockUTProviderForTesting = () => 1000.0;
+            LedgerOrchestrator.NowUtProviderForTesting = () => 1000.0;
+            // A live pool that covers the cost, so the probe really runs.
+            TechResearchPatch.LiveScienceForTesting = () => 100.0;
+            try
+            {
+                LedgerOrchestrator.RecalculateAndPatch();
+                KerbalsModule kerbals = LedgerOrchestrator.Kerbals;
+                Assert.True(kerbals.ShouldBlockDismissal(Jeb));
+                Assert.True(kerbals.ShouldFilterFromCrewDialog(Jeb));
+                Assert.True(kerbals.IsReservedNow(Jeb));
+
+                double free;
+                TechResearchPatch.IsScienceShort(10f, out free);
+                Assert.False(double.IsPositiveInfinity(free), "the probe did not run");
+                LedgerOrchestrator.CanAffordFundsSpending(10f);
+
+                Assert.Same(kerbals, LedgerOrchestrator.Kerbals);
+                Assert.True(kerbals.ShouldBlockDismissal(Jeb));
+                Assert.True(kerbals.ShouldFilterFromCrewDialog(Jeb));
+                Assert.True(kerbals.IsReservedNow(Jeb));
+            }
+            finally
+            {
+                TechResearchPatch.LiveScienceForTesting = null;
+            }
+        }
+
         // catches: the ordinary-play full replay (cutoffUT=null) ignoring the live clock.
         [Fact]
         public void RecoveredFlight_FullReplay_JudgesAgainstTheLiveClock()
@@ -374,7 +411,7 @@ namespace Parsek.Tests
             Assert.True(kerbals.IsNamedByCommittedFlight(Jeb));
             Assert.True(kerbals.ShouldBlockDismissal(Jeb));
             Assert.False(kerbals.ShouldBlockDismissal("Valentina Kerman"));
-            Assert.Equal("Flew a flight on timeline, blocked by timeline.",
+            Assert.Equal("Flown in an earlier flight, blocked by timeline.",
                 KerbalDismissalPatch.DescribeDismissalBlock(
                     kerbals.GetReservationKind(Jeb), kerbals.IsNamedByCommittedFlight(Jeb)));
         }

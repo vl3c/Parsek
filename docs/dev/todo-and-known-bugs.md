@@ -4403,6 +4403,28 @@ capture, including the VAB part list. Fixed 2026-09-26 (branch `census-refresh-0
 provisioned kRPC settings stamp `mainWindowVisible = False` (the servers start from
 `autoStartServers` alone); run `2026-09-26_0025` shows the part tooltip and crew dialog clear.
 
+Consistency pass (branch `stock-annotations`, 2026-10-04; owner decisions K1-a / K2-a / K3-a):
+the Mission Control row reads `- Accepted on Y1, D03`; every block reason is in stock's orange
+(the Mission Control detail panel was blue); the VAB / SPH crew dialog's greyed row shows
+`Reserved until Y1, D07` in place of its trait; crew hovers state the date once; the three
+dismissal refusals name the flight and date; `Managed by Parsek` is `Kept on the roster` and
+the retired stand-in record reads `Retired stand-in`. Two pairing checks answered: stock's
+Mission Control Accept / Decline / Cancel DO draw a disabled state (SpriteSwap to
+`missc_btn_*_disabled`, logged `stock draws its own disabled state`; the live and the disabled
+Decline differ visibly in `stk-mc-slotblock`), so finding 1's Mission Control part is stock's
+own look; stock's R&D Research button never greys for science (decompiled
+`RDController.UpdatePanel`), so the science-shortage refusal had no mark - it is now greyed
+over the gate's own predicate with the reason on its tooltip, and only for a TIMELINE
+shortage (the live pool covers the cost, the effective free science does not); a plain
+shortage is left to stock. Review fix in the same PR: the affordability check
+(`LedgerOrchestrator.CanAffordScienceSpending` / `CanAffordFundsSpending`) walked the LIVE
+modules to the current UT, dropping future committed crew holds until the next recalc; it now
+walks module clones (`RecalculationEngine.ProbeModuleAtCutoff`) and restores the rows'
+derived fields. Known residue, not fixed: the Research mark is re-derived on every
+`RDController.UpdatePanel` (node select, and the `RDTechTree.RefreshUI` that research and the
+overlay's timeline-change refresh run), so a live-pool change with no ledger change leaves it
+as drawn until the next of those.
+
 ---
 
 ## ~~COVERAGE-WAVE-1-RULINGS-AND-RESIDUE: operator confirmation of six registry rulings, and three cells left for a later wave~~ [FILED 2026-09-25, branch `cov-wave1`. CLOSED 2026-09-26: rulings operator-confirmed, and the `atmosphere` residue closed by AT-1]

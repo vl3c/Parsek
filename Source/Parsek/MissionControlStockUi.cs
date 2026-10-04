@@ -44,16 +44,11 @@ namespace Parsek
         private static bool acceptDisabledByParsek;
 
         /// <summary>
-        /// The row status date: stock's date without the time of day, compacted
-        /// (<see cref="MissionControlStockAnnotation.CompactRowDate"/>), e.g. <c>Y1 D3</c>.
+        /// The row status date: stock's compact date without the time of day
+        /// (<see cref="ReservationExplanation.DateOnlyFormatter"/>), e.g. <c>Y1, D03</c>, the
+        /// detail panel's date form.
         /// </summary>
-        internal static readonly Func<double, string> RowDateFormatter = ut =>
-        {
-            string stock;
-            try { stock = KSPUtil.PrintDateCompact(ut, false); }
-            catch { stock = null; }
-            return MissionControlStockAnnotation.CompactRowDate(stock);
-        };
+        internal static readonly Func<double, string> RowDateFormatter = ReservationExplanation.DateOnlyFormatter;
 
         /// <summary>The Mission Control tab stock is showing.</summary>
         internal static string TabForDisplayMode(MissionControl.DisplayMode mode)

@@ -88,6 +88,34 @@ namespace Parsek
         /// <summary>The production date formatter.</summary>
         internal static readonly Func<double, string> DefaultDateFormatter = ut => KerbalsWindowUI.FormatRowDate(ut);
 
+        /// <summary>
+        /// The production date-only formatter for a stock row too narrow for the time of day
+        /// (a Mission Control row, the crew dialog's status line): stock's own compact date
+        /// without the time, <c>KSPUtil.PrintDateCompact(ut, false)</c>, e.g. <c>Y1, D03</c>.
+        /// </summary>
+        internal static readonly Func<double, string> DateOnlyFormatter = ut =>
+        {
+            try { return KSPUtil.PrintDateCompact(ut, false)?.Trim(); }
+            catch { return null; }
+        };
+
+        /// <summary>
+        /// A reservation title without its date, for a hover whose sentence already carries
+        /// the date (a stock tooltip draws the title in bold above the sentence, so a dated
+        /// title said the date twice): <c>Reserved until X</c> and <c>Lost until X</c> lose
+        /// the <c>until</c> part, <c>Hired on X</c> becomes <c>Hired later</c>. An undated
+        /// title comes back unchanged.
+        /// </summary>
+        internal static string UndatedTitle(string title)
+        {
+            if (string.IsNullOrEmpty(title)) return title;
+            int until = title.IndexOf(" until ", StringComparison.Ordinal);
+            if (until > 0) return title.Substring(0, until);
+            int on = title.IndexOf(" on ", StringComparison.Ordinal);
+            if (on > 0) return title.Substring(0, on) + " later";
+            return title;
+        }
+
         /// <summary>A calendar date; invariant whole seconds only when no formatter is given.</summary>
         internal static string FormatDate(double ut, Func<double, string> formatDate)
         {
@@ -433,14 +461,101 @@ namespace Parsek
         /// <summary>
         /// An active stand-in covering the seat of a kerbal timeline holds (the Kerbals
         /// window's <c>Stand-in for &lt;owner&gt;</c>): <c>Standing in for OWNER, reserved by
-        /// timeline for 'X'.</c> <paramref name="ownerFlightName"/> is the flight that holds
-        /// the owner, or null.
+        /// timeline for 'X' until DATE.</c> <paramref name="ownerFlightName"/> is the flight
+        /// that holds the owner and <paramref name="ownerReleaseUT"/> the owner's hold end
+        /// (NaN or +inf: open-ended, no date).
         /// </summary>
-        internal static string StandingIn(string owner, string ownerFlightName)
+        internal static string StandingIn(
+            string owner, string ownerFlightName,
+            double ownerReleaseUT = double.NaN, Func<double, string> formatDate = null)
         {
-            return "Standing in for " + owner + ", reserved by timeline"
-                + (string.IsNullOrEmpty(ownerFlightName) ? "" : " for '" + ownerFlightName + "'")
-                + ".";
+            return "Standing in for " + owner + OwnerHoldClause(ownerFlightName, ownerReleaseUT, formatDate);
+        }
+
+        /// <summary>
+        /// A chain member who covers no seat now (a deeper stand-in an earlier one displaced):
+        /// <c>Kept as a stand-in for OWNER, reserved by timeline for 'X' until DATE.</c>, the
+        /// owner's hold read like <see cref="StandingIn"/>. Without an owner:
+        /// <c>Kept as a stand-in for a reserved kerbal, blocked by timeline.</c>
+        /// </summary>
+        internal static string KeptAsStandIn(
+            string owner, string ownerFlightName, double ownerReleaseUT, Func<double, string> formatDate)
+        {
+            if (string.IsNullOrEmpty(owner))
+                return "Kept as a stand-in for a reserved kerbal" + BlockedEnd;
+            return "Kept as a stand-in for " + owner + OwnerHoldClause(ownerFlightName, ownerReleaseUT, formatDate);
+        }
+
+        /// <summary>
+        /// <c>, reserved by timeline for 'X' until DATE.</c>: the hold of the owner a stand-in
+        /// covers. The flight and the date are each dropped when unknown (open-ended: no date).
+        /// </summary>
+        private static string OwnerHoldClause(string ownerFlightName, double ownerReleaseUT, Func<double, string> formatDate)
+        {
+            var sb = new StringBuilder(", reserved by timeline");
+            if (!string.IsNullOrEmpty(ownerFlightName)) sb.Append(" for '").Append(ownerFlightName).Append('\'');
+            if (IsFinite(ownerReleaseUT)) sb.Append(" until ").Append(FormatDate(ownerReleaseUT, formatDate));
+            sb.Append('.');
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// A kerbal no flight holds now but a flight on timeline names (an owner back from
+        /// his flight): dismissing him would leave that flight naming a kerbal the roster no
+        /// longer has. <c>Flown in 'X' until DATE, blocked by timeline.</c>: the flight that
+        /// ends last and its end, each dropped when unknown.
+        /// </summary>
+        internal static string FlownDismissal(string flightName, double flightEndUT, Func<double, string> formatDate)
+        {
+            var sb = new StringBuilder("Flown in ");
+            sb.Append(string.IsNullOrEmpty(flightName) ? "an earlier flight" : "'" + flightName + "'");
+            if (IsFinite(flightEndUT)) sb.Append(" until ").Append(FormatDate(flightEndUT, formatDate));
+            sb.Append(BlockedEnd);
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// The dismissal refusal of a retired stand-in: <c>Retired after standing in for
+        /// OWNER in 'X' until DATE, blocked by timeline.</c>, with his own flight that ends
+        /// last; each part is dropped when unknown.
+        /// </summary>
+        internal static string RetiredStandInDismissal(
+            string owner, string flightName, double flightEndUT, Func<double, string> formatDate)
+        {
+            var sb = new StringBuilder("Retired after standing in for ");
+            sb.Append(string.IsNullOrEmpty(owner) ? "a reserved kerbal" : owner);
+            if (!string.IsNullOrEmpty(flightName)) sb.Append(" in '").Append(flightName).Append('\'');
+            if (IsFinite(flightEndUT)) sb.Append(" until ").Append(FormatDate(flightEndUT, formatDate));
+            sb.Append(BlockedEnd);
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// The science-shortage refusal of Research: the free science (the ledger's
+        /// reservation-aware pool) is below the node's cost because research later on the
+        /// timeline needs the rest. No date: the whole projection holds the pool, not one
+        /// row. <see cref="ScienceShortageDetail"/> gives the numbers.
+        /// </summary>
+        internal static ReservationText ScienceShortage()
+        {
+            return new ReservationText
+            {
+                Title = "Reserved for later research",
+                Fact = "Reserved for later research" + BlockedEnd
+            };
+        }
+
+        /// <summary>The science-shortage detail line: <c>Needs 45.0 science, 12.0 free.</c></summary>
+        internal static string ScienceShortageDetail(double cost, double free)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            if (double.IsNaN(free) || free < 0.0) free = 0.0;
+            return "Needs " + cost.ToString("F1", ic) + " science, " + free.ToString("F1", ic) + " free.";
+        }
+
+        private static bool IsFinite(double ut)
+        {
+            return !double.IsNaN(ut) && !double.IsInfinity(ut);
         }
 
         /// <summary>

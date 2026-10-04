@@ -85,12 +85,54 @@ namespace Parsek.Patches
         {
             if (kerbals == null || string.IsNullOrEmpty(kerbalName)) return null;
             if (!kerbals.ShouldBlockDismissal(kerbalName)) return null;
-            string standInOwner = kerbals.FindActiveStandInOwner(kerbalName);
             return DescribeHeldKerbal(kerbals, kerbalName)
                 ?? DescribeDismissalBlock(kerbals.GetReservationKind(kerbalName),
                     kerbals.IsNamedByCommittedFlight(kerbalName),
-                    standInOwner,
-                    HoldingFlightName(kerbals, standInOwner));
+                    GatherDismissalFacts(kerbals, CommittedFutureIndexCache.Current, kerbalName),
+                    ReservationExplanation.DefaultDateFormatter);
+        }
+
+        /// <summary>
+        /// The flights and the owner a dismissal refusal names, read from the ledger:
+        /// the owner whose seat he covers (active stand-in) or whose chain lists him, that
+        /// owner's holding flight and hold end, and the kerbal's own committed flight that
+        /// ends last (<c>CommittedFutureIndex.ResolveHoldAssignment</c>).
+        /// </summary>
+        internal static DismissalFacts GatherDismissalFacts(
+            KerbalsModule kerbals, CommittedFutureIndex index, string kerbalName)
+        {
+            var facts = new DismissalFacts
+            {
+                OwnerReleaseUT = double.NaN,
+                FlightEndUT = double.NaN
+            };
+            if (kerbals == null || string.IsNullOrEmpty(kerbalName)) return facts;
+            facts.StandInOwner = kerbals.FindActiveStandInOwner(kerbalName);
+            facts.ChainOwner = kerbals.FindChainOwner(kerbalName);
+            string covered = !string.IsNullOrEmpty(facts.StandInOwner) ? facts.StandInOwner : facts.ChainOwner;
+            if (!string.IsNullOrEmpty(covered)
+                && kerbals.GetReservationKind(covered) == KerbalReservationKind.ReservedActive)
+            {
+                facts.OwnerReleaseUT = ReleaseUT(kerbals, covered);
+                bool openEnded = double.IsPositiveInfinity(facts.OwnerReleaseUT) || double.IsNaN(facts.OwnerReleaseUT);
+                facts.OwnerFlightName = index?.ResolveHoldAssignment(covered, openEnded)?.RecordingName;
+            }
+            var own = index?.ResolveHoldAssignment(kerbalName, false);
+            if (own != null)
+            {
+                facts.FlightName = own.RecordingName;
+                facts.FlightEndUT = own.EndUT;
+            }
+            return facts;
+        }
+
+        private static double ReleaseUT(KerbalsModule kerbals, string kerbalName)
+        {
+            KerbalsModule.KerbalReservation reservation;
+            return kerbals.Reservations != null && kerbals.Reservations.TryGetValue(kerbalName, out reservation)
+                && reservation != null
+                ? reservation.ReservedUntilUT
+                : double.PositiveInfinity;
         }
 
         /// <summary>The display name of the flight on timeline that holds
@@ -99,11 +141,7 @@ namespace Parsek.Patches
         {
             if (kerbals == null || string.IsNullOrEmpty(kerbalName)) return null;
             if (kerbals.GetReservationKind(kerbalName) != KerbalReservationKind.ReservedActive) return null;
-            KerbalsModule.KerbalReservation reservation;
-            double release = kerbals.Reservations != null && kerbals.Reservations.TryGetValue(kerbalName, out reservation)
-                && reservation != null
-                ? reservation.ReservedUntilUT
-                : double.PositiveInfinity;
+            double release = ReleaseUT(kerbals, kerbalName);
             bool openEnded = double.IsPositiveInfinity(release) || double.IsNaN(release);
             return CommittedFutureIndexCache.Current?.ResolveHoldAssignment(kerbalName, openEnded)?.RecordingName;
         }
@@ -129,50 +167,80 @@ namespace Parsek.Patches
         }
 
         /// <summary>
-        /// Why a managed kerbal cannot be dismissed, in the Kerbals window's vocabulary.
-        /// <c>IsManaged</c> is true for three kinds: a RESERVED kerbal (a committed flight
-        /// holds him), a RETIRED stand-in (he flew a committed flight and his seat went
-        /// back to its owner), and an active STAND-IN (neither of the above, but a slot
-        /// chain lists him, so he is covering someone's seat). <paramref name="standInOwner"/>
-        /// is the owner whose seat an active stand-in covers
-        /// (<c>KerbalsModule.FindActiveStandInOwner</c>), or null.
+        /// Why a managed kerbal cannot be dismissed, in the Kerbals window's vocabulary and
+        /// the participle-first wording, naming the flight and its date when known.
+        /// <c>ShouldBlockDismissal</c> refuses four kinds: a RESERVED kerbal (a committed
+        /// flight holds him; normally <see cref="DescribeHeldKerbal"/> answers first), a
+        /// RETIRED stand-in (he flew a committed flight and his seat went back to its owner),
+        /// a chain STAND-IN (active, or displaced by an earlier one), and a returned owner a
+        /// committed flight still names.
         /// </summary>
         internal static string DescribeDismissalBlock(
-            KerbalReservationKind kind, bool namedByCommittedFlight, string standInOwner = null,
-            string ownerFlightName = null)
+            KerbalReservationKind kind, bool namedByCommittedFlight, DismissalFacts facts,
+            System.Func<double, string> formatDate)
         {
             // A returned owner (his hold ended with his recovery) is no longer reserved,
             // retired or a stand-in, but a flight on timeline still names him.
             if (kind == KerbalReservationKind.NotManaged && namedByCommittedFlight)
-                return "Flew a flight on timeline, blocked by timeline.";
-            return DescribeDismissalBlock(kind, standInOwner, ownerFlightName);
-        }
-
-        internal static string DescribeDismissalBlock(
-            KerbalReservationKind kind, string standInOwner = null, string ownerFlightName = null)
-        {
+                return ReservationExplanation.FlownDismissal(facts.FlightName, facts.FlightEndUT, formatDate);
             switch (kind)
             {
                 case KerbalReservationKind.ReservedActive:
                     return ReservationExplanation.ReservedByTimeline + ".";
                 case KerbalReservationKind.ReservedRetired:
-                    return "Retired after standing in on a flight on timeline, blocked by timeline.";
+                    return ReservationExplanation.RetiredStandInDismissal(
+                        facts.ChainOwner, facts.FlightName, facts.FlightEndUT, formatDate);
                 default:
-                    return DescribeStandInDismissalBlock(standInOwner, ownerFlightName);
+                    if (!string.IsNullOrEmpty(facts.StandInOwner))
+                        return ReservationExplanation.StandingIn(
+                            facts.StandInOwner, facts.OwnerFlightName, facts.OwnerReleaseUT, formatDate);
+                    return ReservationExplanation.KeptAsStandIn(
+                        facts.ChainOwner, facts.OwnerFlightName, facts.OwnerReleaseUT, formatDate);
             }
         }
 
-        /// <summary>The not-reserved, not-retired managed kind: a kerbal a slot chain lists.
-        /// Names the owner (and the flight that holds him) when he is the active stand-in (the
-        /// Kerbals window's <c>Stand-in for &lt;owner&gt;</c>); a chain member covering no seat
-        /// now reads the owner-less line.</summary>
-        internal static string DescribeStandInDismissalBlock(string standInOwner, string ownerFlightName = null)
+        /// <summary>The refusal with only the active stand-in's owner and his holding flight
+        /// known (no dates, no chain owner).</summary>
+        internal static string DescribeDismissalBlock(
+            KerbalReservationKind kind, bool namedByCommittedFlight, string standInOwner = null,
+            string ownerFlightName = null)
         {
-            if (!string.IsNullOrEmpty(standInOwner))
-                return ReservationExplanation.StandingIn(standInOwner, ownerFlightName);
-            return "Kept as a stand-in for a reserved kerbal, blocked by timeline.";
+            return DescribeDismissalBlock(kind, namedByCommittedFlight, new DismissalFacts
+            {
+                StandInOwner = standInOwner,
+                OwnerFlightName = ownerFlightName,
+                OwnerReleaseUT = double.NaN,
+                FlightEndUT = double.NaN
+            }, null);
+        }
+
+        internal static string DescribeDismissalBlock(
+            KerbalReservationKind kind, string standInOwner = null, string ownerFlightName = null)
+        {
+            return DescribeDismissalBlock(kind, false, standInOwner, ownerFlightName);
         }
     }
+
+    /// <summary>
+    /// What a dismissal refusal names (<see cref="KerbalDismissalPatch.GatherDismissalFacts"/>).
+    /// Unknown names are null and unknown times NaN; each is then left out of the sentence.
+    /// </summary>
+    internal struct DismissalFacts
+    {
+        /// <summary>The owner whose seat this kerbal covers now (the active stand-in), or null.</summary>
+        internal string StandInOwner;
+        /// <summary>The owner whose replacement chain lists this kerbal, or null.</summary>
+        internal string ChainOwner;
+        /// <summary>The committed flight that holds the covered owner, or null.</summary>
+        internal string OwnerFlightName;
+        /// <summary>The covered owner's hold end; NaN or +inf when open-ended or unknown.</summary>
+        internal double OwnerReleaseUT;
+        /// <summary>The kerbal's own committed flight that ends last, or null.</summary>
+        internal string FlightName;
+        /// <summary>That flight's end, or NaN.</summary>
+        internal double FlightEndUT;
+    }
+
     /// <summary>
     /// The stock Astronaut Complex dismiss button (<c>Xbutton_AvailableCrew</c>) calls
     /// <c>KerbalRoster.SackAvailable</c>, which turns the kerbal back into an applicant and

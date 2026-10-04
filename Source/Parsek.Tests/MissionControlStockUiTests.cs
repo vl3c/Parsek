@@ -150,7 +150,7 @@ namespace Parsek.Tests
 
             string label = MissionControlStockAnnotation.ComposeRowLabel("", "Explore the Mun", d);
 
-            Assert.Equal("<color=#fefa87>Explore the Mun</color> <color=#8fd3ff>- accepted D5</color>",
+            Assert.Equal("<color=#fefa87>Explore the Mun</color> <color=#8fd3ff>- Accepted on D5</color>",
                 label);
         }
 
@@ -189,45 +189,48 @@ namespace Parsek.Tests
             Assert.False(MissionControlStockAnnotation.HasRowStatus(MissionControlStockAnnotation.StripRowStatus(once)));
         }
 
+        // catches: the row status drifting from the detail panel's form (owner decision
+        // K1-a: participle in title case, "on", stock's padded date, no time of day).
         [Theory]
-        [InlineData("Accepted on Y2, D114, 03:12", false, "accepted Y2 D114")]
-        [InlineData("Completed on Y1, D07, 00:07", true, "completed Y2 D114")]
-        [InlineData("Failed on Y1, D07", true, "failed Y2 D114")]
-        [InlineData("Cancelled on Y1, D07", true, "cancelled Y2 D114")]
-        [InlineData("", false, "accepted Y2 D114")]
-        [InlineData(null, true, "completed Y2 D114")]
-        public void RowStatus_IsTheTimelineVerbAndADateOnly(string title, bool resolution, string expected)
+        [InlineData("Accepted on Y2, D114, 03:12", false, "Accepted on Y2, D114")]
+        [InlineData("Completed on Y1, D07, 00:07", true, "Completed on Y2, D114")]
+        [InlineData("Failed on Y1, D07", true, "Failed on Y2, D114")]
+        [InlineData("Expired on Y1, D07", true, "Expired on Y2, D114")]
+        [InlineData("Cancelled on Y1, D07", true, "Cancelled on Y2, D114")]
+        [InlineData("", false, "Accepted on Y2, D114")]
+        [InlineData(null, true, "Completed on Y2, D114")]
+        public void RowStatus_IsTheParticipleOnTheDateOnly(string title, bool resolution, string expected)
         {
             // The date comes from the UT through the row formatter, never the title's
             // time-of-day date.
             var kind = resolution ? StockUiDecorationKind.ContractResolution : StockUiDecorationKind.ContractAccept;
             var d = new StockUiDecoration { Title = title, Kind = kind, UT = 1234, Marked = true };
-            Assert.Equal(expected, MissionControlStockAnnotation.RowStatus(d, ut => "Y2 D114"));
+            Assert.Equal(expected, MissionControlStockAnnotation.RowStatus(d, ut => "Y2, D114"));
         }
 
         [Theory]
-        [InlineData("Accepted on D5", double.NaN, "accepted D5")]
-        [InlineData("Accepted on D5", 500.0, "accepted D5")]
-        [InlineData(null, double.NaN, "accepted")]
-        public void RowStatus_WithoutAFormatter_FallsBackToTheTitleDate(string title, double ut, string expected)
+        [InlineData("Accepted on D5", double.NaN, "Accepted on D5")]
+        [InlineData("Accepted on D5", 500.0, "Accepted on D5")]
+        [InlineData("Accepted on Y1, D03, 01:53", 500.0, "Accepted on Y1, D03")]
+        [InlineData("Completed on Y1, D07, 00:07:12", double.NaN, "Completed on Y1, D07")]
+        [InlineData(null, double.NaN, "Accepted")]
+        public void RowStatus_WithoutAFormatter_FallsBackToTheTitleDate_WithoutTheTime(string title, double ut, string expected)
         {
             var d = new StockUiDecoration { Title = title, Kind = StockUiDecorationKind.ContractAccept, UT = ut };
             Assert.Equal(expected, MissionControlStockAnnotation.RowStatus(d, null));
         }
 
         [Theory]
-        [InlineData("Y1, D03", "Y1 D3")]
-        [InlineData("Y12, D426", "Y12 D426")]
-        [InlineData("Y2, D100", "Y2 D100")]
-        [InlineData("Y1, D00", "Y1 D0")]
-        [InlineData("  Y3, D09 ", "Y3 D9")]
-        [InlineData("A1, T05", "A1 T5")]
+        [InlineData("Y1, D03, 01:53", "Y1, D03")]
+        [InlineData("Y12, D426, 5:07", "Y12, D426")]
+        [InlineData("Y1, D03", "Y1, D03")]
+        [InlineData("  Y3, D09 ", "Y3, D09")]
         [InlineData("Year 3 Day 9", "Year 3 Day 9")]
         [InlineData("", "")]
         [InlineData(null, null)]
-        public void CompactRowDate_DropsTheCommaAndTheDayPadding(string stock, string expected)
+        public void WithoutTimeOfDay_CutsOnlyATrailingTime(string date, string expected)
         {
-            Assert.Equal(expected, MissionControlStockAnnotation.CompactRowDate(stock));
+            Assert.Equal(expected, MissionControlStockAnnotation.WithoutTimeOfDay(date));
         }
 
         [Fact]
@@ -244,8 +247,7 @@ namespace Parsek.Tests
                     UT = 1,
                     Marked = true
                 };
-                string status = MissionControlStockAnnotation.RowStatus(d,
-                    ut => MissionControlStockAnnotation.CompactRowDate("Y12, D426"));
+                string status = MissionControlStockAnnotation.RowStatus(d, ut => "Y12, D426");
                 Assert.True(status.Length <= MissionControlStockAnnotation.RowStatusMaxLength,
                     "status '" + status + "' is " + status.Length + " chars");
                 Assert.DoesNotContain("committed timeline", status);
@@ -254,10 +256,9 @@ namespace Parsek.Tests
 
             var accept = MissionControlStockAnnotation.Decide(Index(Accept(500, "c1")), 100, "c1", Contract.State.Offered, Fmt);
             string label = MissionControlStockAnnotation.ComposeRowLabel("",
-                "Conduct a focused observational survey of Kerbin.", accept,
-                ut => MissionControlStockAnnotation.CompactRowDate("Y1, D03"));
+                "Conduct a focused observational survey of Kerbin.", accept, ut => "Y1, D03");
             Assert.Equal("<color=#fefa87>Conduct a focused observational survey of Kerbin.</color>"
-                + " <color=#8fd3ff>- accepted Y1 D3</color>", label);
+                + " <color=#8fd3ff>- Accepted on Y1, D03</color>", label);
         }
 
         [Fact]
@@ -267,7 +268,7 @@ namespace Parsek.Tests
             // falls back to the title's date.
             var d = new StockUiDecoration { Title = "Accepted on D5", Kind = StockUiDecorationKind.ContractAccept, UT = 500 };
             string status = MissionControlStockAnnotation.RowStatus(d, MissionControlStockUi.RowDateFormatter);
-            Assert.StartsWith("accepted ", status);
+            Assert.StartsWith("Accepted on ", status);
             Assert.DoesNotContain("committed timeline", status);
         }
 
@@ -291,7 +292,8 @@ namespace Parsek.Tests
             string text = MissionControlStockAnnotation.ComposeDetailText("<b>Stock</b> body", d);
             string again = MissionControlStockAnnotation.ComposeDetailText(text, d);
 
-            Assert.Equal("<b>Stock</b> body\n\n<b><color=#8fd3ff>Accept and Decline are unavailable</color></b>\n" + d.Why, text);
+            Assert.Equal("<b>Stock</b> body\n\n<b><color=#f97306>Accept and Decline are unavailable</color></b>\n"
+                + "<color=#f97306>" + d.Why + "</color>", text);
             Assert.Equal(text, again);
         }
 
@@ -560,7 +562,7 @@ namespace Parsek.Tests
             ContractDeclinePatch.ShouldAllowDecline("c1", "T");
 
             Assert.Equal(d.Why, dialogReason);
-            Assert.EndsWith("\n" + dialogReason, MissionControlStockAnnotation.ComposeDetailText("stock", d));
+            Assert.EndsWith("\n" + StockUiText.ReasonColored(dialogReason), MissionControlStockAnnotation.ComposeDetailText("stock", d));
         }
 
         private static List<string> Set(IEnumerable<string> ids) =>

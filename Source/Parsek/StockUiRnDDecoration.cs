@@ -71,6 +71,38 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Whether Research is disabled for a TIMELINE science shortage: a researchable node
+        /// that no committed row holds, whose cost the live pool covers but the effective
+        /// free science does not (<see cref="Patches.TechResearchPatch.IsScienceShort"/>, the
+        /// predicate the click gate refuses with). Stock never greys Research for science
+        /// (<c>RDController.UpdatePanel</c> enables it for every researchable node and
+        /// <c>RDTech.ResearchTech</c> refuses at the click), so without this Parsek's refusal
+        /// had no mark. A plain shortage stays stock's: no grey, no tooltip. The mark is
+        /// re-derived on every <c>UpdatePanel</c>: node select, and the tree refresh
+        /// (<c>RDTechTree.RefreshUI</c>) that research and the overlay's timeline-change
+        /// refresh run. A live-pool change with no ledger change leaves it as drawn until
+        /// the next of those.
+        /// </summary>
+        internal static bool ShouldDisableResearchForScience(
+            bool committedBlocked, bool isResearched, bool isFaded, bool scienceShort)
+        {
+            return !committedBlocked && !isResearched && !isFaded && scienceShort;
+        }
+
+        /// <summary>The science-shortage reason on the disabled Research button: the
+        /// refusal sentence and its numbers, the same text the refused-click dialog shows.</summary>
+        internal static string ScienceShortageReason(double cost, double free)
+        {
+            return ReservationExplanation.ScienceShortage().Body + " "
+                + ReservationExplanation.ScienceShortageDetail(cost, free);
+        }
+
+        // The science-shortage reason of the node the side panel shows, set by the
+        // UpdatePanel block and read by the button tooltip sync right after it.
+        private static string shortageTechId;
+        private static string shortageWhy;
+
+        /// <summary>
         /// Appends the explanation to a stock caption on its own line, in the stock reason
         /// colour. Idempotent: a caption that already carries it is returned unchanged. A
         /// stock text that is a localization key is localized first
@@ -135,8 +167,10 @@ namespace Parsek
             if (string.IsNullOrEmpty(techId)) return false;
             var d = StockUiLiveSnapshot.Current.Tech(techId);
             bool faded = node.state == RDNode.State.FADED;
+            shortageTechId = null;
+            shortageWhy = null;
             if (!ShouldDisableResearch(d.Blocked, node.IsResearched, faded))
-                return false;
+                return ApplyScienceShortageBlock(controller, node, techId, d.Blocked, faded);
             if (GameStateRecorder.IsReplayingActions)
             {
                 ParsekLog.Verbose(Tag, "R&D Research button block bypassed for " + techId + " - action replay in progress");
@@ -146,6 +180,32 @@ namespace Parsek
             ParsekLog.InfoRateLimited(Tag, "rnd-research-disabled-" + techId,
                 "R&D Research button disabled for " + techId + " - committed future research ut="
                 + d.UT.ToString("F0", CultureInfo.InvariantCulture) + " why=\"" + d.Why + "\"");
+            return true;
+        }
+
+        /// <summary>
+        /// The science-shortage half of the panel block
+        /// (<see cref="ShouldDisableResearchForScience"/>): disables Research when the click
+        /// gate would refuse it for science, and keeps the reason for the button's tooltip.
+        /// Bypassed during an action replay, as the gate is.
+        /// </summary>
+        private static bool ApplyScienceShortageBlock(
+            RDController controller, RDNode node, string techId, bool committedBlocked, bool faded)
+        {
+            if (node.IsResearched || faded || committedBlocked || node.tech == null) return false;
+            if (GameStateRecorder.IsReplayingActions) return false;
+            float cost = node.tech.scienceCost;
+            double free;
+            bool shortNow = Patches.TechResearchPatch.IsScienceShort(cost, out free);
+            if (!ShouldDisableResearchForScience(committedBlocked, node.IsResearched, faded, shortNow))
+                return false;
+            controller.actionButton.Enable(false);
+            shortageTechId = techId;
+            shortageWhy = ScienceShortageReason(cost, free);
+            ParsekLog.InfoRateLimited(Tag, "rnd-research-science-short-" + techId,
+                "R&D Research button disabled for " + techId + " - science short cost="
+                + cost.ToString("F1", CultureInfo.InvariantCulture) + " free="
+                + free.ToString("F1", CultureInfo.InvariantCulture) + " why=\"" + shortageWhy + "\"");
             return true;
         }
 
@@ -192,7 +252,12 @@ namespace Parsek
                 else
                 {
                     string techId = TechIdOf(node);
-                    if (!string.IsNullOrEmpty(techId)) why = StockUiLiveSnapshot.Current.Tech(techId).Why;
+                    if (!string.IsNullOrEmpty(techId))
+                    {
+                        why = StockUiLiveSnapshot.Current.Tech(techId).Why;
+                        if (string.IsNullOrEmpty(why) && string.Equals(techId, shortageTechId, StringComparison.Ordinal))
+                            why = shortageWhy;
+                    }
                 }
             }
             StockUiReasonTooltip.Sync(controller.actionButton, disabledByParsek, why, controller, "R&D actionButton");

@@ -132,7 +132,7 @@ namespace Parsek.Tests
         [Fact]
         public void AstronautComposers_LocalizeAStockKey()
         {
-            Assert.Equal(English + "\n\n<b>Reserved</b>\n" + Why,
+            Assert.Equal(English + "\n\n<b>Reserved</b>\n" + StockUiText.ReasonColored(Why),
                 StockUiAstronautDecoration.AppendTooltip(Key, "Reserved", Why));
             Assert.Equal(English + " (Reserved)", StockUiAstronautDecoration.ComposeAssignedLabel(Key, "Reserved"));
             Assert.Equal("Reserved", StockUiAstronautDecoration.ComposeAssignedLabel(null, "Reserved"));
@@ -152,7 +152,7 @@ namespace Parsek.Tests
             string detail = MissionControlStockAnnotation.ComposeDetailText(Key, blocked);
             Assert.StartsWith(English, detail);
             Assert.DoesNotContain("#autoLOC", detail);
-            Assert.EndsWith("\n" + Why, detail);
+            Assert.EndsWith("\n" + StockUiText.ReasonColored(Why), detail);
 
             string row = MissionControlStockAnnotation.ComposeRowLabel(Key, "Contract", blocked);
             Assert.StartsWith(English, row);

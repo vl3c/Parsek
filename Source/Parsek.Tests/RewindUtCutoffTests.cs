@@ -1536,10 +1536,10 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.NowUtProviderForTesting = () => 200.0;
 
-            bool affordable = LedgerOrchestrator.CanAffordScienceSpending(50f);
+            bool affordable = LedgerOrchestrator.CanAffordScienceSpending(50f, out double probed);
 
             Assert.False(affordable);
-            Assert.Equal(20.0, LedgerOrchestrator.Science.GetAvailableScience(), 1);
+            Assert.Equal(20.0, probed, 1);
         }
 
         [Fact]
@@ -1561,10 +1561,10 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.NowUtProviderForTesting = () => 200.0;
 
-            bool affordable = LedgerOrchestrator.CanAffordScienceSpending(100f);
+            bool affordable = LedgerOrchestrator.CanAffordScienceSpending(100f, out double probed);
 
             Assert.True(affordable);
-            Assert.Equal(100.0, LedgerOrchestrator.Science.GetAvailableScience(), 1);
+            Assert.Equal(100.0, probed, 1);
         }
 
         [Fact]
@@ -1576,10 +1576,10 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.NowUtProviderForTesting = () => 200.0;
 
-            bool affordable = LedgerOrchestrator.CanAffordFundsSpending(500f);
+            bool affordable = LedgerOrchestrator.CanAffordFundsSpending(500f, out double probed);
 
             Assert.False(affordable);
-            Assert.Equal(200.0, LedgerOrchestrator.Funds.GetAvailableFunds(), 1);
+            Assert.Equal(200.0, probed, 1);
         }
 
         [Fact]
@@ -1592,10 +1592,10 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.NowUtProviderForTesting = () => 200.0;
 
-            bool affordable = LedgerOrchestrator.CanAffordFundsSpending(1000f);
+            bool affordable = LedgerOrchestrator.CanAffordFundsSpending(1000f, out double probed);
 
             Assert.True(affordable);
-            Assert.Equal(1000.0, LedgerOrchestrator.Funds.GetAvailableFunds(), 1);
+            Assert.Equal(1000.0, probed, 1);
         }
 
         [Fact]
@@ -1612,10 +1612,10 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.NowUtProviderForTesting = () => 200.0;
 
-            bool affordable = LedgerOrchestrator.CanAffordFundsSpending(400f);
+            bool affordable = LedgerOrchestrator.CanAffordFundsSpending(400f, out double probed);
 
             Assert.False(affordable);
-            Assert.Equal(300.0, LedgerOrchestrator.Funds.GetAvailableFunds(), 1);
+            Assert.Equal(300.0, probed, 1);
         }
 
         [Fact]

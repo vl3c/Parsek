@@ -1442,6 +1442,23 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **R&D's Research button now greys out when science held for later research makes a node
+  unaffordable.** Stock never greys Research for science; it refuses at the click. When the
+  science bar showed enough but later research on the timeline needed part of it, Parsek
+  refused the click with its own dialog while the button looked live. The button is now
+  greyed with the reason on its tooltip, `Reserved for later research, blocked by timeline.
+  Needs 45.0 science, 12.0 free.`, and the refused-click dialog says the same (it read `Not
+  enough science: tech unlocks later on timeline need it, blocked by timeline.`). A plain
+  shortage, where the science bar itself is below the cost, is left to stock's own refusal:
+  no grey, no reason, no Parsek dialog.
+- **Checking whether research or a purchase is affordable no longer frees reserved kerbals.**
+  The check re-ran the ledger walk up to the current time over the live game state, which
+  dropped every crew hold a later committed flight owns: until the next full recalculation
+  those kerbals could be dismissed or put in a crew. The check now walks a private copy and
+  leaves the live state, and every row's counted / not-counted marks, as they were.
+- **A refused tech names the tech, not its internal id.** When a tech's title was empty the
+  refusal printed the id (`Cannot research "basicRocketry"`); it now reads the tech tree's
+  title for the id, and the id only when no title exists.
 - **Real Spawn Control and the nearby-craft message name where a departing craft goes in words.**
   A craft orbiting Kerbin that was going to land read `departs to Kerbin`, the body it
   already orbits, and a craft changing orbit around the same body read the raw word
@@ -1455,7 +1472,6 @@ _(unreleased — entries accumulate here per commit)_
   orbit before it would spawn, the sort used the far-away spawn while the button (and `Warp to
   Next Spawn`) acted on the departure, so the top row was not the next thing Warp would do.
   The sort, both time cells and the button now use the same moment.
-
 - **Real Spawn Control's "Warp to Spawn" puts an orbiting vessel where its ghost stood.**
   Park beside a ghost in orbit whose flight ends Orbiting and press "Warp to Spawn": the
   clock jumps to the flight's end while your own vessel keeps its place, as designed, but
@@ -2687,6 +2703,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **The notes Parsek adds to KSP's own screens read the same way everywhere.** A contract in
+  Mission Control that the timeline accepts or finishes later reads `- Accepted on Y1, D03`
+  (was `- accepted Y1 D3`), the same date form as its detail panel. Every block reason is
+  now in KSP's own orange, the Mission Control detail panel included (it was light blue);
+  the light blue stays only on the contract row's dated note. In the VAB / SPH crew dialog a
+  greyed kerbal's row shows why in place of his trait (`Reserved until Y1, D07`); the trait
+  is still in the hover title. A crew hover no longer states its date twice: the bold line
+  says `Reserved` or `Hired later`, the sentence under it gives the date. A refused
+  dismissal now names the flight and the date (`Flown in 'Kerbal X' until Y1, D06, 14:05,
+  blocked by timeline.`, `Retired after standing in for Jebediah Kerman in 'Kerbal X' until
+  ...`, `Kept as a stand-in for Jebediah Kerman, reserved by timeline for 'Mun Lander' until
+  ...`) instead of `... on timeline, blocked by timeline.`, and an active stand-in's
+  refusal adds the date his owner is back. No KSP screen text names the mod any more: the
+  dismiss lock of a kerbal with no status line reads `Kept on the roster` (was `Managed by Parsek`).
 - **Timeline: no Archived button, and no empty filter row.** The `Archived` button at the end
   of the Timeline's first filter row is gone: archiving and un-archiving a flight happen only in
   the recordings list, and the Timeline never lists an archived flight's rows (it hid them by
@@ -2713,7 +2743,6 @@ _(unreleased — entries accumulate here per commit)_
   `Warp to Next Spawn` stays at the bottom; its hover now reads `Warps to when <craft> spawns
   here, in 56s.` or `Warps to just before <craft> leaves orbit in 2m 0s; it does not spawn
   here.`
-
 - **Parsek's windows now share one style for countdowns, "Go to", colours and empty lists.**
   Every countdown reads the Missions way, `T- 2d 4h` (two units, a space after `T-`) in the
   same amber, with ` (!)` when it carries a warning: Real Spawn Control's `In T-` column and

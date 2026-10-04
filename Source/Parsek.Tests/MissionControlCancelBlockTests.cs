@@ -297,8 +297,8 @@ namespace Parsek.Tests
             Assert.True(d.Blocked);
             Assert.Equal("Expired on D5", d.Title);
             Assert.Equal("Expired on D5, blocked by timeline until then.", d.Why);
-            Assert.Equal("expired D5", MissionControlStockAnnotation.RowStatus(d, Fmt));
-            Assert.Equal("<color=#fefa87>Survey</color> <color=#8fd3ff>- expired D5</color>",
+            Assert.Equal("Expired on D5", MissionControlStockAnnotation.RowStatus(d, Fmt));
+            Assert.Equal("<color=#fefa87>Survey</color> <color=#8fd3ff>- Expired on D5</color>",
                 MissionControlStockAnnotation.ComposeRowLabel("", "Survey", d));
         }
 
@@ -314,7 +314,7 @@ namespace Parsek.Tests
 
             var noAccept = Index(Fail(500, "c1", "rec"));
             Assert.False(noAccept.FirstFuture(CommittedFutureKind.ContractFail, "c1", 100).DeadlineExpiry);
-            Assert.Equal("failed D5", MissionControlStockAnnotation.RowStatus(ActiveRow(noAccept, "c1"), Fmt));
+            Assert.Equal("Failed on D5", MissionControlStockAnnotation.RowStatus(ActiveRow(noAccept, "c1"), Fmt));
         }
 
         [Fact]
@@ -353,7 +353,7 @@ namespace Parsek.Tests
 
             string label = MissionControlStockAnnotation.ComposeRowLabel("", "Explore the Mun", d);
 
-            Assert.Equal("<color=#fefa87>Explore the Mun</color> <color=#8fd3ff>- completed D5</color>",
+            Assert.Equal("<color=#fefa87>Explore the Mun</color> <color=#8fd3ff>- Completed on D5</color>",
                 label);
             Assert.Equal(label, MissionControlStockAnnotation.ComposeRowLabel(label, "Explore the Mun", d));
         }
@@ -365,7 +365,7 @@ namespace Parsek.Tests
 
             string text = MissionControlStockAnnotation.ComposeDetailText("Stock", d);
 
-            Assert.Equal("Stock\n\n<b><color=#8fd3ff>Cancel is unavailable</color></b>\n" + d.Why, text);
+            Assert.Equal("Stock\n\n<b><color=#f97306>Cancel is unavailable</color></b>\n<color=#f97306>" + d.Why + "</color>", text);
             Assert.Equal(text, MissionControlStockAnnotation.ComposeDetailText(text, d));
             Assert.Equal(MissionControlStockAnnotation.CancelDetailHeading,
                 MissionControlStockAnnotation.DetailHeadingFor(StockUiDecorationKind.ContractResolution));
@@ -388,7 +388,7 @@ namespace Parsek.Tests
             string openLabel = MissionControlStockUi.LabelForAddItem(open, "");
             MissionControlStockUi.EndRebuildPass();
 
-            Assert.StartsWith("<color=#fefa87>Resolved</color>" + MissionControlStockAnnotation.RowStatusMarker + "completed ",
+            Assert.StartsWith("<color=#fefa87>Resolved</color>" + MissionControlStockAnnotation.RowStatusMarker + "Completed on ",
                 resolvedLabel);
             Assert.EndsWith("</color>", resolvedLabel);
             Assert.DoesNotContain("committed timeline", resolvedLabel);
@@ -548,7 +548,7 @@ namespace Parsek.Tests
             foreach (string id in refused)
             {
                 Assert.Equal(decisions[id].Why, refusalText[id]);
-                Assert.EndsWith("\n" + refusalText[id], MissionControlStockAnnotation.ComposeDetailText("stock", decisions[id]));
+                Assert.EndsWith("\n" + StockUiText.ReasonColored(refusalText[id]), MissionControlStockAnnotation.ComposeDetailText("stock", decisions[id]));
             }
             if (now >= 50 && now < 200)
                 Assert.Equal(new[] { "x1", "x2", "x3" }, expected.ToArray());
