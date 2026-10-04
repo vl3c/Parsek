@@ -1,0 +1,73 @@
+schema = 1
+id = "SN-1-startup-notices-clean-install"
+tier = "nightly"
+# THE LIVE CHECK FOR THE STARTUP NOTICES (`Source/Parsek/StartupNotices.cs`,
+# `ParsekHarmony.cs`). Authored 2026-10-03. Reading run 2026-10-04_1828 (attempt 2 of a
+# run whose verdict read INVALID/analyzer-error only because the session worktree was too
+# deep for the analyzer build) measured the prediction, `passed=3 failed=0 skipped=0`, and
+# the line is pinned WHOLE off it.
+#
+# WHAT ONLY A LIVE INSTALL PROVES. Parsek posts a one-time screen message when a Harmony
+# patch class fails to apply or when the loaded Parsek.dll is not in a folder directly under
+# GameData. The xUnit cells prove the message text, the feature map, the poster's settle and
+# retry, and the patch sweep with real Harmony; none of them sees KSP's own assembly paths,
+# the real sweep over every patch class against KSP 1.12.5, or stock ScreenMessages. This
+# lane boots the provisioned automation instance, a CORRECT install, and runs the
+# `StartupNotices` category (three AnyScene cells, run here at SPACECENTER):
+# - the install-location check over the live AssemblyLoader paths answers null (no false
+#   alarm) and the loaded Parsek.dll resolves under GameData;
+# - this session's sweep applied every patch class and recorded no failure;
+# - stock ScreenMessages accepts a post in a settled scene (the null-return contract the
+#   poster's retry depends on: a drop outside a scene load would retry forever).
+# The forbidden list is the negative half: on a correct install no startup notice may be
+# queued, posted or warned about, and no patch may fail.
+instanceProfile = "stock-minimal"
+description = "Correct install: the startup-notice checks stay silent (install location over KSP's real assembly paths, a clean Harmony sweep) and stock ScreenMessages accepts a post in a settled scene; no startup notice is warned, queued or posted."
+tags = ["ingame-batch", "startup-notices", "scene-ksc", "SN-1"]
+
+[fixture]
+saveTemplate = "fixtures/saves/fresh-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "StartupNotices" }, expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = [
+  # Pinned whole off the reading run 2026-10-04_1828 (three AnyScene declarations).
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=StartupNotices scene=SPACECENTER",
+  # The real sweep over every patch class, logged once at Startup.Instantly.
+  "\\[Parsek\\]\\[INFO\\]\\[Harmony\\] Harmony patches applied: [1-9][0-9]* succeeded, 0 failed",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Failed to apply patch",
+  "Install location problem",
+  "Install location check skipped",
+  "Startup notice posted",
+]
+
+[runtime]
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

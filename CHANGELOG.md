@@ -10,6 +10,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Parsek now tells you on screen when it starts up broken.** Two problems used to reach
+  only `KSP.log`. If any of Parsek's game patches fails to load (usually another mod or a
+  different KSP version), a message once the main menu settles says how many failed and which
+  features may not work, such as crew or tech tree reservations. If Parsek loads from the
+  wrong place (inside a second `GameData` folder, inside the zip's own folder, loose in
+  `GameData`, or a leftover copy in another folder), a message says where it was found and
+  how to fix it. Each shows once per game start and never on a correct install; a notice that
+  lands during a scene load stays queued until the game accepts it. Covered by xUnit (the
+  poster's settle and drop-retry, the patch sweep with real Harmony) and by the new
+  `StartupNotices` in-game category and its lane `SN-1-startup-notices-clean-install`, which flew
+  green on the automation install.
 - **Dev: a test command recovers a vessel from its Space Center marker, and a lane uses it.**
   `KscMarkerRecover pid=<pid>` takes the third route a player has to recover a landed
   vessel: at the Space Center it opens the vessel's marker and presses its Recover button,

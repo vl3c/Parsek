@@ -4382,6 +4382,13 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # reading run 2026-09-27_1341 (PASS attempt 1) measured the prediction, `passed=1
     # failed=0 skipped=0`, and the spec pinned the line whole.
     #
+    # SN-1-startup-notices-clean-install ENTERED on 2026-10-03 (the new StartupNotices
+    # category, 3 AnyScene cells run at SPACECENTER, `total=3` literal with the split
+    # regexed, predicted passed=3 skipped=0). Like CN-1 it is not an H-series id, so this
+    # class's own cells never read it; CommittedBatchTallySourceSyncTests gates its `total=`.
+    # It LEFT on 2026-10-04: its reading run 2026-10-04_1828 measured the prediction,
+    # `passed=3 failed=0 skipped=0`, and the spec pinned the line whole.
+    #
     # VB-1-ghost-vessel-budget ENTERED on 2026-10-03 (`closing-flights`): its RunTests
     # `VesselBudget` step (1 TRACKSTATION cell) was restored after the
     # INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS fix, `total=1` literal with the split

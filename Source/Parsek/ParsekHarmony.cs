@@ -1,6 +1,9 @@
 using HarmonyLib;
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using UnityEngine;
 
@@ -48,12 +51,41 @@ namespace Parsek
             var assembly = typeof(ParsekHarmony).Assembly;
             var harmony = new Harmony("com.parsek.mod");
 
-            // Apply patches individually so one failure doesn't block the rest
-            int applied = 0;
-            int failed = 0;
             var patchTypes = assembly.GetTypes()
                 .Where(t => t.GetCustomAttributes(typeof(HarmonyPatch), false).Length > 0);
+            var failedPatchNames = new List<string>();
+            int applied = ApplyPatches(harmony, patchTypes, failedPatchNames);
+            int failed = failedPatchNames.Count;
+            LastAppliedPatchCount = applied;
+            LastFailedPatchNames = failedPatchNames.AsReadOnly();
 
+            initialized = true;
+            DontDestroyOnLoad(gameObject);
+            ParsekLog.Info("Init",
+                FormatSessionStartMessage(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+            ParsekLog.Info("Harmony", $"Harmony patches applied: {applied} succeeded, {failed} failed");
+
+            StartupNotices.Enqueue(StartupNotices.BuildPatchFailureNotice(applied + failed, failedPatchNames));
+            CheckInstallLocation();
+            if (StartupNotices.PendingCount > 0)
+                StartCoroutine(PostStartupNoticesWhenSceneSettles());
+        }
+
+        /// <summary>Patch classes applied by this process's sweep (read by the in-game check).</summary>
+        internal static int LastAppliedPatchCount { get; private set; }
+
+        /// <summary>Patch classes that failed in this process's sweep.</summary>
+        internal static IReadOnlyList<string> LastFailedPatchNames { get; private set; } = new string[0];
+
+        /// <summary>
+        /// Applies each patch class on its own so one failure does not block the rest.
+        /// Returns the applied count and appends every failed class name to
+        /// <paramref name="failedPatchNames"/>. A class whose <c>Prepare()</c> answers false
+        /// (an optional mod that is absent) counts as applied with zero targets.
+        /// </summary>
+        internal static int ApplyPatches(Harmony harmony, IEnumerable<Type> patchTypes, List<string> failedPatchNames)
+        {
+            int applied = 0;
             foreach (var patchType in patchTypes)
             {
                 try
@@ -67,16 +99,71 @@ namespace Parsek
                 }
                 catch (Exception ex)
                 {
-                    failed++;
+                    failedPatchNames.Add(StartupNotices.PatchClassKey(patchType));
                     ParsekLog.Error("Harmony", $"Failed to apply patch {patchType.Name}: {ex.Message}");
                 }
             }
+            return applied;
+        }
 
-            initialized = true;
-            DontDestroyOnLoad(gameObject);
-            ParsekLog.Info("Init",
-                FormatSessionStartMessage(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
-            ParsekLog.Info("Harmony", $"Harmony patches applied: {applied} succeeded, {failed} failed");
+        /// <summary>Full file paths of the loaded assemblies that are Parsek.</summary>
+        internal static List<string> CollectLoadedParsekDllPaths()
+        {
+            var parsekAssembly = typeof(ParsekHarmony).Assembly;
+            var paths = new List<string>();
+            foreach (var loaded in AssemblyLoader.loadedAssemblies)
+            {
+                if (loaded == null)
+                    continue;
+                bool isParsek = loaded.assembly == parsekAssembly
+                    || string.Equals(loaded.name, "Parsek", StringComparison.Ordinal);
+                if (isParsek && !string.IsNullOrEmpty(loaded.path))
+                    paths.Add(Path.GetFullPath(loaded.path));
+            }
+            return paths;
+        }
+
+        /// <summary>The GameData directory as a full path (ApplicationRootPath carries a "..").</summary>
+        internal static string ResolveGameDataDir()
+        {
+            return Path.GetFullPath(Path.Combine(KSPUtil.ApplicationRootPath ?? "", "GameData"));
+        }
+
+        private static void CheckInstallLocation()
+        {
+            try
+            {
+                var paths = CollectLoadedParsekDllPaths();
+                string gameDataDir = ResolveGameDataDir();
+                string notice = StartupNotices.EvaluateInstallLocation(paths, gameDataDir);
+                if (notice == null)
+                {
+                    ParsekLog.Verbose("Init", $"Install location OK: {string.Join(", ", paths)}");
+                    return;
+                }
+                ParsekLog.Warn("Init", $"Install location problem: {notice} " +
+                    $"(paths={string.Join(", ", paths)}, gameData={gameDataDir})");
+                StartupNotices.Enqueue(notice);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Init", $"Install location check skipped: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        // KSP clears screen messages on every level load and drops posts from the load
+        // REQUEST (which already sets LoadedScene) until the level finishes loading, so
+        // wait until one playable scene has stayed current for a few seconds, then keep a
+        // notice queued until stock actually accepts it.
+        private IEnumerator PostStartupNoticesWhenSceneSettles()
+        {
+            var poster = new StartupNoticePoster();
+            while (!poster.Tick(HighLogic.LoadedScene, ScreenMessages.Instance != null,
+                Time.realtimeSinceStartup,
+                notice => ParsekLog.TryScreenMessage(notice, StartupNotices.NoticeDurationSeconds)))
+            {
+                yield return null;
+            }
         }
 
         // This addon is DontDestroyOnLoad and lives for the whole process, so it is the one
