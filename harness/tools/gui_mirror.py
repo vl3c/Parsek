@@ -112,9 +112,10 @@ LAYOUT_EPOCHS = {
     # PR #1834: body cell text under the header text (the shared table cell style).
     # First run on it: GUI-11-census-kerbals-crewed 2026-09-25_2019.
     "kerbals": {"utc": "2026-09-25T20:19:20Z", "pr": 1834},
-    # PR #1999: every row action (W, FF, R, Fly, Seal, Go to) is the 48 px Missions
-    # pair width and GoTo reads "Go to". First run on it: GUI-1-census-ksc 2026-10-04_1519.
-    "timeline": {"utc": "2026-10-04T15:23:21Z", "pr": 1999},
+    # PR #2002: no Archived button in the view row, and no empty line under Rewind/FF
+    # and Re-Fly (the time-range row moves up). First run on it:
+    # GUI-24-census-timeline-filters 2026-10-04_1754.
+    "timeline": {"utc": "2026-10-04T17:56:09Z", "pr": 2002},
     # PR #1828: header and rows in one body box, a Warp column header, cell text
     # under the header text.
     # First run on it: GUI-6-census-flight-playback 2026-09-25_1838.
