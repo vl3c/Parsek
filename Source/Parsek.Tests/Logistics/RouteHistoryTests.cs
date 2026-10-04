@@ -458,9 +458,6 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(log.width, history.width);
             Assert.Equal(log.height, history.height);
 
-            Assert.True(StructureListWindowUI.DrawsTableWhenEmpty(StructureListWindowUI.TargetMode.Route));
-            Assert.False(StructureListWindowUI.DrawsTableWhenEmpty(StructureListWindowUI.TargetMode.Mission));
-
             var route = StructureListWindowUI.TargetMode.Route;
             Assert.True(StructureListWindowUI.ShouldCloseForDeletedRoute(route, "r1", false));
             Assert.False(StructureListWindowUI.ShouldCloseForDeletedRoute(route, "r1", true));

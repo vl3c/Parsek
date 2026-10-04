@@ -101,7 +101,7 @@ namespace Parsek
 
         /// <summary>
         /// Formats a duration in seconds as a human-readable string showing only non-zero components.
-        /// E.g., 90061 seconds → "1d, 1h, 1m, 1s". Returns empty string for zero or negative.
+        /// E.g., 90061 seconds -> "1d 1h 1m 1s". Returns empty string for zero or negative.
         /// </summary>
         internal static string FormatDuration(double seconds)
             => ParsekTimeFormat.FormatDurationFull(seconds);

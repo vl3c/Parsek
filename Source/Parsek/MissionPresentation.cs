@@ -351,7 +351,7 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(nextLaunchCellText))
                 return null;
-            return nextLaunchCellText.StartsWith("T-", System.StringComparison.Ordinal)
+            return nextLaunchCellText.StartsWith(ParsekTimeFormat.CountdownPrefix, System.StringComparison.Ordinal)
                 ? nextLaunchCellText
                 : null;
         }
@@ -418,7 +418,7 @@ namespace Parsek
 
         /// <summary>
         /// The colour of the countdown segment on the summary line, as the rich-text hex of
-        /// the window's amber (<c>MissionsWindowUI.LoopPeriodClampColor</c>, 1 / 0.8 / 0.4;
+        /// the house countdown amber (<c>ParsekUI.CountdownTextColor</c>, 1 / 0.8 / 0.4;
         /// a unit test holds the two together).
         /// </summary>
         internal const string SummaryCountdownColorHex = "#ffcc66";
@@ -429,7 +429,7 @@ namespace Parsek
         /// arrival refusal, a launch outside its alignment tolerance) reads exactly like a plain
         /// one until hovered. The warning's words stay in the summary tooltip.
         /// </summary>
-        internal const string SummaryCountdownWarningMarker = " (!)";
+        internal const string SummaryCountdownWarningMarker = ParsekTimeFormat.CountdownWarningMarker;
 
         // What a '<' in player-authored text becomes on the rich-text summary line. Unity's
         // IMGUI rich text has no escape sequence, so a kerbal or body name spelling a real tag

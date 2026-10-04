@@ -859,11 +859,11 @@ namespace Parsek.Tests
         [InlineData(0, "")]
         [InlineData(30, "30s")]
         [InlineData(60, "1m")]
-        [InlineData(90, "1m, 30s")]
+        [InlineData(90, "1m 30s")]
         [InlineData(3600, "1h")]
         [InlineData(21600, "1d")]           // 6h = 1 KSP day
         [InlineData(9201600, "1y")]         // 426 * 6h * 3600 = 9201600s
-        [InlineData(9201600 + 21600 + 3661, "1y, 1d, 1h, 1m, 1s")]
+        [InlineData(9201600 + 21600 + 3661, "1y 1d 1h 1m 1s")]
         public void FormatDuration_ProducesCorrectText(double seconds, string expected)
         {
             Assert.Equal(expected, TimelineEntryDisplay.FormatDuration(seconds));
@@ -914,9 +914,9 @@ namespace Parsek.Tests
                 new List<Milestone>(),
                 _ => true);
 
-            // rec0 (branch 0) should show duration of branch 0 only (100s = 1m, 40s)
+            // rec0 (branch 0) should show duration of branch 0 only (100s = 1m 40s)
             var start0 = result.First(e => e.Type == TimelineEntryType.RecordingStart && e.VesselName == "Main Ship");
-            Assert.Contains("MET 1m, 40s", start0.DisplayText);
+            Assert.Contains("MET 1m 40s", start0.DisplayText);
         }
 
         // ================================================================

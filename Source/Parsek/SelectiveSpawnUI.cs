@@ -135,41 +135,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: format a time delta as human-readable string.
-        /// Under 60s: "{s}s". Under 3600s: "{m}m {s}s". Otherwise: "{h}h {m}m".
-        /// Uses Kerbin or Earth time based on GameSettings.KERBIN_TIME for day/year boundaries.
-        /// (Currently only shows up to hours, so day length doesn't affect output.)
-        /// </summary>
-        internal static string FormatTimeDelta(double seconds)
-        {
-            if (seconds < 0) seconds = 0;
-
-            if (seconds < 60)
-                return string.Format(IC, "{0}s", ((long)seconds).ToString(IC));
-
-            if (seconds < 3600)
-            {
-                long m = (long)(seconds / 60);
-                long s = (long)(seconds % 60);
-                return string.Format(IC, "{0}m {1}s", m.ToString(IC), s.ToString(IC));
-            }
-
-            long h = (long)(seconds / 3600);
-            long min = (long)((seconds % 3600) / 60);
-            return string.Format(IC, "{0}h {1}m", h.ToString(IC), min.ToString(IC));
-        }
-
-        /// <summary>
-        /// Pure: format a countdown string "T-Xd Xh Xm Xs" from a time delta.
-        /// Hides zero leading components (no years if 0, no days if 0, etc.).
-        /// Uses Kerbin time (6h days, 426-day years) or Earth time (24h days, 365-day years)
-        /// based on GameSettings.KERBIN_TIME.
-        /// Returns "T+..." for negative deltas (event in the past).
-        /// </summary>
-        internal static string FormatCountdown(double deltaSeconds)
-            => ParsekTimeFormat.FormatCountdown(deltaSeconds);
-
-        /// <summary>
         /// Pure: format the one-shot proximity screen message for a newly discovered nearby
         /// ghost craft.
         /// <para><paramref name="spawnControlReachable"/> decides only whether the message
@@ -188,7 +153,7 @@ namespace Parsek
                 string departure = string.Format(IC,
                     "Nearby craft: {0} (departs to {1} in {2}).",
                     candidate.vesselName, candidate.destination,
-                    FormatTimeDelta(candidate.departureUT - currentUT));
+                    ParsekTimeFormat.FormatDuration(candidate.departureUT - currentUT));
                 return spawnControlReachable
                     ? departure + " Open Real Spawn Control."
                     : departure;
@@ -217,13 +182,13 @@ namespace Parsek
                 double depDelta = c.departureUT - currentUT;
                 return string.Format(IC,
                     "Warp to Depart: {0} (departs in {1})",
-                    c.vesselName, FormatTimeDelta(depDelta));
+                    c.vesselName, ParsekTimeFormat.FormatDuration(depDelta));
             }
 
             double delta = c.endUT - currentUT;
             return string.Format(IC,
                 "Warp to {0} (spawns in {1})",
-                c.vesselName, FormatTimeDelta(delta));
+                c.vesselName, ParsekTimeFormat.FormatDuration(delta));
         }
 
         // ════════════════════════════════════════════════════════════════

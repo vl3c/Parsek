@@ -554,9 +554,10 @@ namespace Parsek
             // draw so any ParsekUI-level updates flow through.
             columnHeaderStyle = parentUI.GetColumnHeaderStyle();
             if (grayStyle != null) return;
+            // The house muted grey: the empty-list sentences and the quiet cells.
             grayStyle = new GUIStyle(GUI.skin.label)
             {
-                normal = { textColor = new Color(0.75f, 0.75f, 0.75f) }
+                normal = { textColor = ParsekUI.MutedTextColor }
             };
             // The group header is a fold row INSIDE a table body (the plain-kerbals fold
             // and each Flights group), so it takes the table cell padding too and its text
@@ -569,19 +570,19 @@ namespace Parsek
             };
             deadStyle = new GUIStyle(GUI.skin.label)
             {
-                normal = { textColor = new Color(0.95f, 0.45f, 0.45f) }
+                normal = { textColor = ParsekUI.StatusColor(ParsekUI.StatusColorKind.Red) }
             };
             recoveredStyle = new GUIStyle(GUI.skin.label)
             {
-                normal = { textColor = new Color(0.55f, 0.85f, 0.55f) }
+                normal = { textColor = ParsekUI.StatusColor(ParsekUI.StatusColorKind.Green) }
             };
             aboardStyle = new GUIStyle(GUI.skin.label)
             {
-                normal = { textColor = new Color(0.6f, 0.8f, 0.95f) }
+                normal = { textColor = ParsekUI.StatusColor(ParsekUI.StatusColorKind.Cyan) }
             };
             activeChainStyle = new GUIStyle(GUI.skin.label)
             {
-                normal = { textColor = new Color(0.6f, 0.8f, 0.95f) }
+                normal = { textColor = ParsekUI.StatusColor(ParsekUI.StatusColorKind.Cyan) }
             };
             cellPlainStyle = tableCell;
             cellGrayStyle = new GUIStyle(tableCell) { normal = { textColor = grayStyle.normal.textColor } };

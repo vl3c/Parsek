@@ -685,20 +685,20 @@ namespace Parsek
         private float lastMissionClickTime;
         private const float DoubleClickThreshold = 0.3f;
 
-        private static readonly Color DimColor = new Color(1f, 1f, 1f, 0.45f);
+        private static readonly Color DimColor = ParsekUI.DimTextColor;
 
         // Mission-header summary line (T1.1): a muted grey, quieter than the bold title above
         // it, so the line reads as annotation rather than a second heading. A text colour on
         // the style, never an alpha on GUI.color (see EnsureStyles).
         // Internal: the Logistics window's grey Route second line reuses it (one muted text
         // colour for a two-line title row across windows).
-        internal static readonly Color MissionSummaryTextColor = new Color(0.78f, 0.78f, 0.78f);
+        internal static readonly Color MissionSummaryTextColor = ParsekUI.MutedTextColor;
 
         // Tint for a loop-period value that the overlap cap raised above what was requested
         // (so the cell shows the real effective cadence in a distinct colour), and the colour
         // of the summary line's countdown (MissionPresentation.SummaryCountdownColorHex, held
         // equal to this by a unit test). Soft amber.
-        internal static readonly Color LoopPeriodClampColor = new Color(1f, 0.8f, 0.4f);
+        internal static readonly Color LoopPeriodClampColor = ParsekUI.CountdownTextColor;
 
         // -- Recreated styles --
         // RecordingsTableUI builds these privately inside EnsurePhaseStyles();
@@ -1265,7 +1265,7 @@ namespace Parsek
                 // offset behind that applies, silently, whenever the list refills.
                 DropPendingReveal("the list is empty");
                 pendingRevealScrollY = float.NaN;
-                GUILayout.Label("No missions recorded yet.");
+                GUILayout.Label("No missions recorded yet.", parentUI.GetEmptyStateStyle());
                 return;
             }
 
@@ -3078,7 +3078,7 @@ namespace Parsek
         }
 
         // The name cell of line 2: the summary on the left (it expands and wraps), then:
-        //   Basic:    [Looped by route], right-aligned, when route-bound.
+        //   Basic:    [Run by route], right-aligned, when route-bound.
         //   Advanced: the loop grid's second row - Delete in column A, and the loop row
         //             spanning column B plus the Log slot above it: "Loop [x] every" under
         //             Warp and the period under Log, or "Looped by route" across the whole
@@ -3112,8 +3112,9 @@ namespace Parsek
             else if (missionRouteBound)
             {
                 // Basic keeps the route label (owner decision 2026-09-29) - it says why this
-                // mission's flights repeat - right-aligned after the summary.
-                DrawLoopedByRouteLabel(bindingRoute);
+                // mission's flights repeat - right-aligned after the summary, in Basic's
+                // words ("Run by route"; Basic reads no loop word).
+                DrawLoopedByRouteLabel(bindingRoute, ParsekUI.AppliedUiComplexityMode);
             }
 
             GUILayout.EndHorizontal();
@@ -3141,7 +3142,7 @@ namespace Parsek
                 GUILayout.Width(LoopCellWidth), GUILayout.Height(LoopCellHeight));
             if (missionRouteBound)
             {
-                DrawLoopedByRouteLabel(bindingRoute, LoopCellWidth);
+                DrawLoopedByRouteLabel(bindingRoute, ParsekUI.AppliedUiComplexityMode, LoopCellWidth);
             }
             else
             {
@@ -3254,16 +3255,43 @@ namespace Parsek
             CommitMissionLoopToggle(mission, loopNow, missionRouteBound, bindingRoute);
         }
 
-        // Inline "Looped by route: <name>" affordance (ASCII only; this distinctive UTF-16
-        // string also doubles as the deployed-DLL verification token). NOT part of the loop
-        // authoring gate (owner decision 2026-09-29), so a Basic player still reads why this
-        // mission's flights repeat. Advanced draws it across the whole loop row (a fixed
-        // width); Basic draws it content-sized after the summary.
-        private void DrawLoopedByRouteLabel(Route bindingRoute, float width = 0f)
+        /// <summary>The route label's Advanced text (the loop row's vocabulary).</summary>
+        internal const string RouteBoundLabelAdvanced = "Looped by route";
+
+        /// <summary>The route label's Basic text: Basic reads no loop word.</summary>
+        internal const string RouteBoundLabelBasic = "Run by route";
+
+        /// <summary>
+        /// The route-bound mission label for the frame-latched mode: "Run by route" in
+        /// Basic, "Looped by route" in Advanced. Pure.
+        /// </summary>
+        internal static string RouteBoundLabel(UiComplexityMode mode)
         {
-            string routeName = bindingRoute != null && !string.IsNullOrEmpty(bindingRoute.Name)
-                ? bindingRoute.Name : "route";
-            var content = new GUIContent("Looped by route", $"Looped by route: {routeName}");
+            return mode == UiComplexityMode.Basic ? RouteBoundLabelBasic : RouteBoundLabelAdvanced;
+        }
+
+        /// <summary>
+        /// The route label's hover, naming the route: "Run on the schedule of route 'X'."
+        /// in Basic, "Looped by route: X" in Advanced. A route with no name reads "route".
+        /// Pure.
+        /// </summary>
+        internal static string RouteBoundTooltip(UiComplexityMode mode, string routeName)
+        {
+            string name = string.IsNullOrEmpty(routeName) ? "route" : routeName;
+            return mode == UiComplexityMode.Basic
+                ? "Run on the schedule of route '" + name + "'."
+                : "Looped by route: " + name;
+        }
+
+        // Inline route label (ASCII only). NOT part of the loop authoring gate (owner
+        // decision 2026-09-29), so a Basic player still reads why this mission's flights
+        // repeat; its words follow the frame-latched mode (RouteBoundLabel), so both passes
+        // of one frame draw the same text. Advanced draws it across the whole loop row (a
+        // fixed width); Basic draws it content-sized after the summary.
+        private void DrawLoopedByRouteLabel(Route bindingRoute, UiComplexityMode mode, float width = 0f)
+        {
+            var content = new GUIContent(RouteBoundLabel(mode),
+                RouteBoundTooltip(mode, bindingRoute != null ? bindingRoute.Name : null));
             if (width > 0f)
                 GUILayout.Label(content, loopCellLabelStyle, GUILayout.Width(width),
                     GUILayout.Height(LoopCellHeight));
@@ -4288,7 +4316,7 @@ namespace Parsek
                 double dr = nextRelaunchUT - nowUT;
                 if (dr < 0.0)
                     dr = 0.0;
-                return "T- " + FormatCountdownCompact(dr);
+                return ParsekTimeFormat.FormatCountdown(dr);
             }
             if (!shouldPhaseLock || !unitBuilt)
                 // Unsupported (cross-parent / rendezvous, the no-lock sentinel) or no live loop
@@ -4301,44 +4329,7 @@ namespace Parsek
             double delta = nextRelaunchUT - nowUT;
             if (delta < 0.0)
                 delta = 0.0;            // relaunch is at/behind now -> launching now
-            return "T- " + FormatCountdownCompact(delta);
-        }
-
-        /// <summary>
-        /// Compact top-two-units duration: "12m 30s", "2h 14m", "3d 5h", "1y 42d", or "0s" / "5s"
-        /// for sub-minute. Respects the player's Kerbin/Earth day length (via ParsekTimeFormat).
-        /// Pure; negative / NaN / infinity clamp to 0. This is the NEW formatter the T- column uses
-        /// (kept separate from ParsekTimeFormat.FormatCountdown, which prints ALL components with a
-        /// T-/T+ prefix - here we want a bare, compact two-unit value).
-        /// </summary>
-        internal static string FormatCountdownCompact(double seconds)
-        {
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
-            if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds < 0.0)
-                seconds = 0.0;
-            long total = (long)seconds;
-            if (total < 60)
-                return total.ToString(ic) + "s";
-            if (total < 3600)
-                return (total / 60).ToString(ic) + "m " + (total % 60).ToString(ic) + "s";
-
-            long secsPerDay = ParsekTimeFormat.SecsPerDay;
-            long secsPerYear = ParsekTimeFormat.SecsPerYear;
-            if (total < secsPerDay)
-                return (total / 3600).ToString(ic) + "h " + ((total % 3600) / 60).ToString(ic) + "m";
-            if (total < secsPerYear)
-            {
-                long days = total / secsPerDay;
-                long hours = (total % secsPerDay) / 3600;
-                return hours > 0
-                    ? days.ToString(ic) + "d " + hours.ToString(ic) + "h"
-                    : days.ToString(ic) + "d";
-            }
-            long years = total / secsPerYear;
-            long remDays = (total % secsPerYear) / secsPerDay;
-            return remDays > 0
-                ? years.ToString(ic) + "y " + remDays.ToString(ic) + "d"
-                : years.ToString(ic) + "y";
+            return ParsekTimeFormat.FormatCountdown(delta);
         }
 
         /// <summary>

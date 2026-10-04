@@ -615,7 +615,7 @@ namespace Parsek
 
         private const float ColW_Period = 90f;
         private const float SpacingSmall = 3f;
-        private static readonly Color LoopPeriodClampColor = new Color(1.0f, 0.8f, 0.4f);
+        private static readonly Color LoopPeriodClampColor = ParsekUI.CountdownTextColor;
 
         // Rewind/Forward button state tracking for transition logging
         private Dictionary<int, bool> lastCanRewind = new Dictionary<int, bool>();
@@ -1908,7 +1908,7 @@ namespace Parsek
 
             if (committed.Count == 0)
             {
-                GUILayout.Label("No recordings.");
+                GUILayout.Label("No recordings yet.", parentUI.GetEmptyStateStyle());
             }
             else
             {
@@ -5235,14 +5235,14 @@ namespace Parsek
             {
                 statusOrder = 0;
                 return rec.Points.Count > 0
-                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                    ? ParsekTimeFormat.FormatCountdown(rec.StartUT - now)
                     : "future";
             }
             if (now <= rec.EndUT && !rec.TerminalStateValue.HasValue)
             {
                 statusOrder = 1;
                 return rec.Points.Count > 0
-                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                    ? ParsekTimeFormat.FormatCountdown(rec.StartUT - now)
                     : "active";
             }
             statusOrder = 2;
@@ -5860,7 +5860,7 @@ namespace Parsek
                 var rec = committed[activeIdx];
                 statusOrder = 1; // active
                 statusText = rec.Points.Count > 0
-                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                    ? ParsekTimeFormat.FormatCountdown(rec.StartUT - now)
                     : "active";
             }
             else if (futureIdx >= 0)
@@ -5868,7 +5868,7 @@ namespace Parsek
                 var rec = committed[futureIdx];
                 statusOrder = 0; // future
                 statusText = rec.Points.Count > 0
-                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                    ? ParsekTimeFormat.FormatCountdown(rec.StartUT - now)
                     : "future";
             }
             else if (anyPast)
@@ -6825,11 +6825,13 @@ namespace Parsek
             if (statusStyleFuture != null) return;
 
             // Built on the house table cell style like every other body label.
+            // A flight still ahead shows the house countdown, so it takes the house
+            // countdown amber; a flight in progress is the palette's active green.
             statusStyleFuture = NewTableCellLabelStyle();
-            statusStyleFuture.normal.textColor = Color.white;
+            statusStyleFuture.normal.textColor = ParsekUI.CountdownTextColor;
 
             statusStyleActive = NewTableCellLabelStyle();
-            statusStyleActive.normal.textColor = Color.green;
+            statusStyleActive.normal.textColor = parentUI.GetStatusColor(ParsekUI.StatusColorKind.Green);
 
             statusStylePast = NewTableCellLabelStyle();
             statusStylePast.normal.textColor = new Color(0.5f, 0.5f, 0.5f);
@@ -6837,11 +6839,9 @@ namespace Parsek
             statusStyleStatic = NewTableCellLabelStyle();
             statusStyleStatic.normal.textColor = new Color(1f, 0.72f, 0.25f);
 
-            // L4: only the Stationary cyan matches the shared house palette
-            // (0.65, 0.85, 1); pull it from the centralized ParsekUI source. The other
-            // four recording-lifecycle colors above (white / green / 0.5 grey / orange)
-            // are a separate semantic set and stay local literals so the Recordings
-            // window colors do not shift.
+            // Stationary is the palette's informational cyan. The ended grey (0.5) and
+            // the static orange above mean ended / never-moved here and have no palette
+            // slot, so they stay local.
             statusStyleStationary = NewTableCellLabelStyle();
             statusStyleStationary.normal.textColor = parentUI.GetStatusColor(ParsekUI.StatusColorKind.Cyan);
         }

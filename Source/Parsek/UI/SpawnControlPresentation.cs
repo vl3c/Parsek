@@ -126,7 +126,7 @@ namespace Parsek
             {
                 StateText = departureDelta <= 0
                     ? $"Departing → {destination}"
-                    : $"Departs {SelectiveSpawnUI.FormatCountdown(departureDelta)}",
+                    : $"Departs {ParsekTimeFormat.FormatCountdown(departureDelta)}",
                 StateTone = departureDelta <= 0
                     ? SpawnCandidateStateTone.DepartingNow
                     : SpawnCandidateStateTone.UpcomingDeparture,

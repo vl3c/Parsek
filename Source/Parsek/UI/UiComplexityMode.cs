@@ -32,11 +32,11 @@ namespace Parsek
     /// tab to "Missions" in BOTH modes (design 4.1); the gate key keeps the
     /// Recordings-era name because it identifies the window whose code still lives in
     /// `UI/RecordingsTableUI.cs`.</description></item>
-    /// <item><description>The Timeline `GoTo` cross-link button reuses
+    /// <item><description>The Timeline `Go to` cross-link button reuses
     /// <see cref="TabMissions"/> as its gate key (design 4.1a): a control whose sole
     /// purpose is navigating to another surface is gated by the TARGET surface's key, not
     /// by its host window's. Missions is visible in both modes, so the gate hides nothing
-    /// today - it exists so that pointing GoTo at a hidden surface would automatically hide
+    /// today - it exists so that pointing Go to at a hidden surface would automatically hide
     /// the button instead of stranding the player. No dedicated surface value exists for
     /// it.</description></item>
     /// </list>
@@ -71,7 +71,7 @@ namespace Parsek
         /// <summary>The raw per-recording table tab.</summary>
         TabRecordings,
 
-        /// <summary>The mission abstraction tab. Also the gate key for the Timeline GoTo button.</summary>
+        /// <summary>The mission abstraction tab. Also the gate key for the Timeline Go to button.</summary>
         TabMissions,
 
         /// <summary>
@@ -83,7 +83,8 @@ namespace Parsek
         /// which nothing but the loop-unit pipeline reads, so a mode that hides the Loop
         /// toggle and keeps them would leave the player controls with no observable
         /// effect.</para>
-        /// <para>Deliberately NOT covered: the "Looped by route" status label, the TTL
+        /// <para>Deliberately NOT covered: the route status label ("Run by route" in Basic,
+        /// "Looped by route" in Advanced), the TTL
         /// countdown column, "Warp to...", and Watch. Those REPORT or NAVIGATE a loop that
         /// is already running, and a mission looped in Advanced keeps looping after the
         /// switch to Basic (philosophy 1: visibility only, never behavior), so hiding them
@@ -187,7 +188,7 @@ namespace Parsek
                 case UiSurface.MainButtonLogistics:      // only supply-route surface; kept for discoverability
                 case UiSurface.MainButtonSettings:       // hosts the mode toggle itself
                 case UiSurface.MainButtonKerbals:        // only surface explaining a reserved kerbal (owner re-ruling 2026-09-22)
-                case UiSurface.TabMissions:              // mission abstraction; also gates Timeline GoTo
+                case UiSurface.TabMissions:              // mission abstraction; also gates Timeline Go to
                     visibleInBasic = true;
                     break;
 

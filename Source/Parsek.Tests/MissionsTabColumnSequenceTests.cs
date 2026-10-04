@@ -317,7 +317,7 @@ namespace Parsek.Tests
 
             string row = MethodBody(prepared, "DrawMissionLoopRow");
             Assert.Contains("GUILayout.Width(LoopCellWidth)", row);
-            Assert.Contains("DrawLoopedByRouteLabel(bindingRoute, LoopCellWidth)", row);
+            Assert.Contains("DrawLoopedByRouteLabel(bindingRoute, ParsekUI.AppliedUiComplexityMode, LoopCellWidth)", row);
             string toggle = MethodBody(prepared, "DrawMissionLoopToggle");
             Assert.Contains("GUILayout.Width(LoopRowLabelWidth)", toggle);
             Assert.Contains("BeginLoopCellSlot(LoopRowToggleSlotWidth)", toggle);

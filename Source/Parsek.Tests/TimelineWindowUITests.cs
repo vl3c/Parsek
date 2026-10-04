@@ -22,18 +22,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GetRowActionButtonWidth_ShortTimelineActionsShareWidth_AndGoToStaysWider()
+        public void GetRowActionButtonWidth_EveryRowActionIsOneMissionsPairButton()
         {
             float watch = TimelineWindowUI.GetRowActionButtonWidth(TimelineWindowUI.TimelineRowActionButtonKind.Watch);
             float fastForward = TimelineWindowUI.GetRowActionButtonWidth(TimelineWindowUI.TimelineRowActionButtonKind.FastForward);
             float rewind = TimelineWindowUI.GetRowActionButtonWidth(TimelineWindowUI.TimelineRowActionButtonKind.Rewind);
             float goTo = TimelineWindowUI.GetRowActionButtonWidth(TimelineWindowUI.TimelineRowActionButtonKind.GoTo);
 
-            Assert.Equal(40f, watch);
+            // Fails if a Timeline row action drifts off the Missions Interact pair width
+            // (W / FF / R / Fly / Seal / Go to all read it, so the two windows line up).
+            Assert.Equal(MissionsWindowUI.InteractPairButtonWidth, watch);
+            Assert.Equal(48f, watch);
             Assert.Equal(watch, fastForward);
             Assert.Equal(watch, rewind);
-            Assert.Equal(48f, goTo);
-            Assert.True(goTo > watch);
+            Assert.Equal(watch, goTo);
         }
 
         [Fact]
@@ -78,7 +80,7 @@ namespace Parsek.Tests
             string label = TimelineWindowUI.FormatTimelineEntryTimeLabel(
                 entryUT: 430, currentUT: 100, showCountdownTime: true);
 
-            Assert.Equal("T-5m 30s", label);
+            Assert.Equal("T- 5m 30s", label);
         }
 
         [Fact]

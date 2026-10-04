@@ -425,7 +425,7 @@ namespace Parsek
             public bool HasDeliveries;
             public string LastCycleText;     // "delivered 40.0 of 150.0 LiquidFuel (110.0 did not fit)"
             public bool LastCycleShortfall;  // drives the yellow tint
-            public string CumulativeText;    // "1240.0 LiquidFuel, 30.0 Oxidizer" or "(none)"
+            public string CumulativeText;    // "1240.0 LiquidFuel, 30.0 Oxidizer" or ""
             public string LastDeliveredLine;
 
             // The Route cell's second line ("KSC [U+2192] Depot Station Duna I") and its hover
@@ -593,7 +593,7 @@ namespace Parsek
         private GUIStyle wrapCellStyle;
         private GUIStyle wrapStatusGreen, wrapStatusYellow, wrapStatusRed, wrapStatusGrey,
             wrapStatusCyan, wrapStatusWhite;
-        // The Next countdown in the Missions amber (MissionsWindowUI.LoopPeriodClampColor).
+        // The Next countdown in the house countdown amber (ParsekUI.CountdownTextColor).
         private GUIStyle nextAmberStyle;
         // The Interact column: zero horizontal margin so a single and a pair line up on
         // every row (MissionsWindowUI's interactButtonStyle / interactPairButtonStyle), and
@@ -990,7 +990,7 @@ namespace Parsek
             // share the sort column / direction; clicking a header re-sorts both.
             DrawRouteSortableHeader();
             if (rows.Count == 0)
-                GUILayout.Label("  " + emptyText, statusStyleGrey);
+                GUILayout.Label("  " + emptyText, parentUI.GetEmptyStateStyle());
             else
             {
                 // Draw the cached-sorted rows (re-sorted only on count / sort-state /
@@ -1070,10 +1070,16 @@ namespace Parsek
                     GUILayout.BeginHorizontal();
                     GUILayout.Space(24f);
                     GUILayout.Label($"{display} - {appears}", detailStyle, GUILayout.ExpandWidth(true));
+                    // Delete sits in an Interact cell, one Interact single wide, like
+                    // every other row action in this window.
+                    GUILayout.BeginHorizontal(GUILayout.Width(interactColumnWidth));
+                    GUILayout.Space(MissionsWindowUI.InteractCellInset);
                     if (GUILayout.Button(new GUIContent("Delete",
                             "Delete this dormant route. It will never re-materialize."),
-                            GUILayout.Width(60)))
+                            detailSlotButtonStyle, GUILayout.Width(InteractSingleWidth)))
                         pendingConfirmDeleteDormantRoute = route;
+                    GUILayout.FlexibleSpace();
+                    GUILayout.EndHorizontal();
                     GUILayout.EndHorizontal();
                 }
             }
@@ -1106,7 +1112,7 @@ namespace Parsek
             GUILayout.BeginVertical(GUI.skin.box);
             DrawCandidateColumnHeader();
             if (rows.Count == 0)
-                GUILayout.Label("  No supply runs to offer yet. Fly a cargo run that docks, transfers cargo and undocks, then finish the mission.", statusStyleGrey);
+                GUILayout.Label("  No supply runs to offer yet. Fly a cargo run that docks, transfers cargo and undocks, then finish the mission.", parentUI.GetEmptyStateStyle());
             for (int i = 0; i < rows.Count; i++)
                 DrawCandidateRow(rows[i], i + 1);
 
@@ -1279,13 +1285,19 @@ namespace Parsek
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(24f);
                 GUILayout.Label(label, detailStyle, GUILayout.ExpandWidth(true));
+                // Restore sits in an Interact cell, one Interact single wide, like
+                // every other row action in this window.
+                GUILayout.BeginHorizontal(GUILayout.Width(interactColumnWidth));
+                GUILayout.Space(MissionsWindowUI.InteractCellInset);
                 if (GUILayout.Button(new GUIContent("Restore",
                         "Offer this mission as a supply run candidate again."),
-                        GUILayout.Width(70)))
+                        detailSlotButtonStyle, GUILayout.Width(InteractSingleWidth)))
                 {
                     pendingRestoreTreeId = treeId;
                     pendingRestoreLabel = label;
                 }
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
                 GUILayout.EndHorizontal();
             }
         }
@@ -4769,7 +4781,7 @@ namespace Parsek
             statusStyleWhite = new GUIStyle(GUI.skin.label);
 
             detailStyle = new GUIStyle(GUI.skin.label) { wordWrap = true };
-            detailStyle.normal.textColor = new Color(0.8f, 0.8f, 0.8f);
+            detailStyle.normal.textColor = ParsekUI.MutedTextColor;
             // The Every / Priority steppers' shared value cell, measured once with the
             // style that draws it.
             stepperValueWidth = LogisticsRoutePresentation.StepperValueCellWidth(
@@ -4788,7 +4800,7 @@ namespace Parsek
             wrapStatusWhite = WrapOf(statusStyleWhite);
 
             nextAmberStyle = new GUIStyle(GUI.skin.label);
-            nextAmberStyle.normal.textColor = MissionsWindowUI.LoopPeriodClampColor;
+            nextAmberStyle.normal.textColor = ParsekUI.CountdownTextColor;
 
             // Interact buttons: zero horizontal margin so a single starts exactly at the
             // column inset and a pair spans exactly one single (the Missions styles); the
