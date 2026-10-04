@@ -311,7 +311,7 @@ namespace Parsek.TestCommands
             // on a ghost chain had no driven subject (todo
             // D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR). Contracts on TestCommandRealSpawn /
             // TestCommandRecover; both TWO-PHASE, RequiresFlight, 120 s.
-            //   RealSpawn rec=<id> presses the Real Spawn Control row's "Warp to Spawn" for
+            //   RealSpawn rec=<id> presses the Real Spawn Control row's "Warp" (Ready) for
             //     one recording through the button's own click body (ExecuteRowWarp ->
             //     WarpToRecordingEnd) and answers the spawned vessel's pid once the
             //     playback loop has spawned it. It is NOT a second spelling of

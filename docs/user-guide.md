@@ -219,19 +219,26 @@ Both buttons show a confirmation dialog naming the recording before acting. Disa
 
 ### Real Spawn Control
 
-Click the "Real Spawn Control (N)" button in the main Parsek window to open the spawn control window. This button shows the number of nearby spawn candidates and is grayed out when none are detected.
+Click the "Real Spawn Control (N)" button in the main Parsek window (Advanced mode) to open the spawn control window. The button shows how many recorded craft are close enough to spawn and is grayed out when there are none.
 
-The window shows ghost craft within 500m whose recording ends in the future — these are vessels that will become real when their ghost playback finishes. Each row shows:
+The window lists ghost craft within 250 m of your vessel whose recording ends in the future - vessels that will become real when their ghost playback finishes. A ghost farther away cannot be spawned from where you are, so it is not listed. Each row shows:
 
-- **Craft** — vessel name
-- **Dist** — distance in meters from your active vessel
-- **Spawns at** — the KSP calendar time when the ghost becomes real
-- **In T-** — countdown to spawn time
-- **Warp** — button to time-warp directly to that vessel's spawn time
+- **Craft** - vessel name
+- **Dist** - distance from your active vessel
+- **Speed** - how fast it is moving relative to you
+- **Spawns** - countdown to the moment the row's Warp goes to
+- **Spawn date** - the exact date of that moment
+- **Status** - one word; hover it for the reason:
+  - **Ready** - close and slow enough; Warp jumps to when it spawns here.
+  - **Leaves** - it leaves its orbit (for another body, a new orbit, or to land) before it would spawn; Warp jumps to just before it leaves, and it does not spawn here.
+  - **Leaving** - it is leaving its orbit now.
+  - **Too fast** - it is passing faster than 2 m/s relative to you; match its speed first.
+  - **Passed** - its spawn time is already behind the clock.
+- **Actions** - the **Warp** button; its hover says where it goes, or why it is grayed out.
 
-Click column headers (Dist, In T-) to sort. Default sort is by distance. Click again to reverse order.
+Click a column header (Craft, Dist, Speed, Spawns, Status) to sort; click again to reverse. Default sort is by distance. Sorting by Status puts the rows you can warp to first.
 
-The **Warp to Next Spawn** button at the bottom warps to whichever candidate spawns soonest. A screen notification appears when a new ghost craft enters the 500m range.
+The **Warp to Next Spawn** button at the bottom warps to whichever ready or leaving craft comes first. A screen notification appears when a new ghost craft comes within 250 m at under 2 m/s; for a craft that leaves its orbit first, it says where it goes (for example, "leaves orbit for Mun in 2m 0s").
 
 ### Kerbals Window
 

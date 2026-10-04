@@ -46,7 +46,7 @@
 #                    an Orbiting end at UT 481.2. The walker claims its pid via
 #                    BACKGROUND_EVENT (CI-5's production shape), so it is a live chain tip
 #                    beside the active vessel at zero relative speed, and Real Spawn
-#                    Control lists it with "Warp to Spawn" live.
+#                    Control lists it as a Ready row, its Warp live.
 #
 # ACT 1 (seam): RealSpawn the chain tip (the button's own click body, an epoch-shift jump
 # to the tip's EndUT, the playback loop's chain-tip spawn with the original pid), then
@@ -139,7 +139,7 @@ dockNoProgressSeconds       = 120
 [dimensionsCovered]
 # Second witnesses of two claimed values (no new cell): the dock is a FOREIGN dock onto a
 # vessel another committed tree recorded (D5, BDOCK-1 / M1 hold it), and the spawn is
-# Real Spawn Control's "Warp to Spawn" for an ORBITAL tip (D13, RSC-1 holds the landed one).
+# Real Spawn Control's row Warp for an ORBITAL tip (D13, RSC-1 holds the landed one).
 # D18 has no registry value for "dock with a spawned tip"; the RealSpawn pid equals the
 # chain's original pid here too, but `chain-tip-original-pid` is CI-8's claim.
 D5  = ["cross-tree-foreign-dock"]
