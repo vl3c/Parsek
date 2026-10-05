@@ -146,7 +146,8 @@ delivers the plan's daily cadence.
    |             retention + stale-tmp sweep). Verdict-neutral.   |
    +--------------------------------------------------------------+
             |
-            |  retry once if hlib.should_retry says so: the decision
+            |  retry once if hlib.decide_retry says so (should_retry,
+            |  then the deterministic-seam-error veto): the decision
             |  is taken by run_with_retry AFTER the whole attempt
             |  returns, so attempt 1 keeps its own snapshot and its
             |  own results/<runId>_save/ dir
@@ -935,6 +936,8 @@ which is why the individual call sites are deliberately not instrumented), and
 `attemptsWallSeconds` (the sum across retry attempts) with a per-scenario
 `scenario cost attempts=N wallTotal=Xs terminal=Y` Info line.
 
+Two optional fields, each written only when it has a value so every other record is byte-identical: a `driver.steps` seam row carries `msg` (the reply's `msg=` reason, percent-encoded as on the wire), and a terminal attempt-1 record whose retry was vetoed carries `retrySkipped: {rule, reason, stepId, verb, seamVerdict}` (see "Deterministic seam errors are not retried").
+
 ### Results layout decision (harness/results vs ../logs)
 
 Two DISTINCT stores, deliberately not merged:
@@ -1448,7 +1451,10 @@ retry re-runs only that verifier subprocess, not a fresh KSP boot).
    (refly-gate->driver-gate, unknown-rp/slot->driver-arg,
    no-live-dialog/choice-unavailable->driver-dialog, career-not-ready + career-state
    declines->driver-career, backward/refused-jump->driver-rewind); an unrecognized
-   reason falls back to driver-verdict-mismatch. All are retry-once-then-INVALID.
+   reason falls back to driver-verdict-mismatch. All are retry-once-then-INVALID,
+   except a deterministic seam error (see "Deterministic seam errors are not
+   retried" under Verdict classification): the subkind is the same, only the retry
+   is skipped.
 2. **BATCH_COMPLETE presence** (grep KSP.log for the M-A3 `BATCH_COMPLETE v1 `
    contract line). Absent when the spec expected a batch -> the batch hung or
    crashed mid-run: KILLED if the process was killed, else PARSEK-FAIL
@@ -1753,7 +1759,9 @@ retry_policy)` maps to the taxonomy:
   (BASELINE-FORBIDDEN-only). Retryable-once for driver / tooling
   stages (`retry.policy = once`): a first INVALID triggers one retry; a second
   INVALID is terminal and adds a flake-ledger entry (plan section 10 "two invalids
-  => quarantine entry"). `INTERRUPTED` is NOT a source here (unreachable in v1).
+  => quarantine entry"). The one exception is a deterministic seam error, which is
+  not retried (next subsection). `INTERRUPTED` is NOT a source here (unreachable
+  in v1).
 - **KILLED**: the watchdog killed the process (budget). Not retried by default (a
   hang usually recurs); recorded so the flake ledger sees repeated KILLEDs.
 - **PARSEK-FAIL**: a verifier found a real Parsek defect (analyzer non-`BASELINE-*`
@@ -1790,6 +1798,53 @@ retry_policy)` maps to the taxonomy:
   edit lands the scenario stays expected-fail and the XPASS just keeps ambering;
   the harness never flips it automatically.
 
+
+#### Deterministic seam errors are not retried (operator ruling 2026-10-06)
+
+Ruling: "Don't retry when the failure is a definite error from the seam, and keep
+retrying everything that looks like random flakiness. We can recheck failures
+manually." `hlib.decide_retry(verdict, attempt, policy, result)` is the retry
+authority `run.py` calls: it asks `should_retry` first (unchanged), and only when
+that says retry does it consult ONE veto, `deterministic_seam_error_retry_skip`.
+The veto fires when ALL of these hold:
+
+- the attempt is INVALID with a driver-stage subkind
+  (`DETERMINISTIC_SEAM_ERROR_STAGE_SUBKINDS`: driver-verdict-mismatch, load-failed,
+  driver-gate / -rewind / -dialog / -arg / -career). A tooling, analyzer, boot,
+  mission or autopilot INVALID never reaches the veto;
+- the step the driver stage blamed (`blamed_driver_step`, the same composition as
+  `missionverify.compose_driver_validity`: the first unmet row before the mission
+  row, or a met mission's gating outcome row with a `driverSubkind`) is a SEAM step;
+- its seam verdict is `ERROR` or `REJECTED` (never `TIMEOUT`);
+- the leading token of its reply `msg` is in the closed set
+  `DETERMINISTIC_SEAM_ERROR_REASONS`: the protocol rejects (`malformed`,
+  `missing-id`, `malformed-id`, `missing-cmd`, `malformed-verb`, `unknown-command`,
+  `not-implemented-v1`: the same spec line to the same build), three world states
+  that are one-way or stably closed (`active-vessel-lost`, `not-eva` as an executor
+  REJECTED, `not-in-flight` as CommitTree's settled-scene REJECTED), and the
+  spec-text argument refusals (`*-arg-missing`, `*-arg-invalid` and kin, validated
+  before any world read). The per-member justification is the comment above the
+  set in `hlib.py`; `DeterministicSeamErrorSourceSyncTests` fails when a member is
+  no longer a literal in `Source/Parsek/TestCommands`.
+
+Left out on purpose, so still retried: every TIMEOUT and every `*-timeout` /
+`*-not-settled` ERROR, `not-safe-point` and all deferrals, `recording-active`,
+`warp-locked`, `start-refused`, the UI pointer errors, `no-refly-dialog` (a defer
+reason only), the fixture lookups that read scene objects or mutable career state,
+and the gate families. The set errs toward retrying: a missing reason costs one
+boot, never a lost signal.
+
+The veto changes the retry decision only: the verdict and subkind are unchanged.
+When it fires, `run.py` logs one `[Retry] retry skipped scenario=... rule=...
+stepId=... verb=... seamVerdict=... reason=...` line and the result JSON carries
+`retrySkipped: {rule, reason, stepId, verb, seamVerdict}`. Every driver step row
+now records its reply's `msg` (only when non-empty), which is what the veto reads.
+Replay over the 48 retries on disk (2026-09-10..10-03, 8 of which passed): the set
+would have skipped 0 and lost 0 passes, because every historical retry failed on a
+timing reason or a reason outside the set. The EVA-8 deaths of 2026-09-29 that the
+ruling cites reached the harness as `step-timeout`; today's build answers them
+`active-vessel-lost` (up to 2 of those retries, 601 s, would now be skipped; both
+reproduced INVALID).
 ### Coverage + flake generation
 
 `harness/coverage.py` (pure core in `hlib.compute_coverage` /
