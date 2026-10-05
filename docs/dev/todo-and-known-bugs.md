@@ -982,6 +982,37 @@ pinned row by row in `StructureListBdockFixtureTests` against the committed fixt
   mid-flight `End: Suborbital | Kerbin, Grasslands` row. A leg with a sequence successor or a
   later ChainIndex in its chain draws none (`continuedEndsSkipped=` in the build summary).
 
+## CI-2-TIMEJUMP-BEFORE-FLIGHT-READY: CI-2 jumps time before the re-fly scene has built its ghost chains, and its Destroyed pin is stale [FILED 2026-10-05 from SPLIT-BRANCHPOINT-PARENT. OPEN, lane + pin]
+
+`CI-2-refly-claim-tip-pid` reads PARSEK-FAIL on origin/main and on branch
+`split-branchpoint-parent` alike, for two reasons that do not depend on that branch.
+
+1. ORDERING RACE (lane). The seam sends `TimeJump ut=8960` straight after `InvokeRewind`
+   + `ListHandles`, with nothing waiting for the re-fly scene's `OnFlightReady`, which is
+   where `ParsekFlight` builds the ghost chains (`[ChainWalker] Found claims ... Chain built:
+   vessel=3620499050 ... spawnUT=8951.5`). `InvokeRewind` answers OK at `Rewind] Invocation
+   complete`, about 0.6-0.8 s before `OnFlightReady`. Whether the jump lands after the chains
+   is a coin toss on harness poll timing:
+   - origin/main `2026-10-05_1908_CI-2-refly-claim-tip-pid` (DLL `a807bb12...`): `TimeJump`
+     received 22:09:04.265, after `OnFlightReady` (04.215) and `Chain built` (04.237); the
+     chain ghost is created and `Chain tip spawn complete: #19 "Kerbal X" pid=3620499050`
+     follows. Every log contract matched.
+   - branch `2026-10-05_1857_CI-2-refly-claim-tip-pid` (DLL `5b7a58db...`): `TimeJump`
+     received 21:57:39.992, BEFORE `OnFlightReady` (40.436); `FindCrossedChainTips: empty/null
+     chains` and `Time jump complete: 0 vessels spawned`, then `Chain built` at 40.462, past
+     the tip. The four chain-ghost / tip-spawn contracts read missing.
+   Same event sequence on both builds up to the `TimeJump` arrival (InvokeRewind OK -> +0.63 s
+   on main, +0.31 s on the branch). Fix in the lane: wait for the flight scene to be ready
+   (or for the chain build) before `TimeJump`, then re-arm.
+2. STALE PIN (spec). `terminalStates.Destroyed` is armed at exactly 7 (2026-09-08), but the
+   fixture `bdock-recorded` itself carries 12 Destroyed debris recordings (`Kerbal X Debris`,
+   unchanged since 2026-08-12), so every run reads at least 12: the branch run 12 (the debris
+   only), the main run 13 (the debris plus the first tree's chain head `a32f62f5`, which that
+   run extended to UT 8960.24 and ended Destroyed while its chain tail `aecb1e57` still ended
+   at 386.9: a chain head written past its own tail, itself worth a look). The 2026-09-08
+   reading saw 7, so a change since then made five more debris recordings count; re-measure
+   and re-pin after item 1.
+
 ## MISSION-SPLIT-RUN-CONTINUATION: a switch continuation after a split reads as its own interval [FILED 2026-10-05 from MISSION-LOG-REWORK. OPEN, needs an owner ruling]
 
 The Missions composition follows a vessel through the branch point its recording ends at.
