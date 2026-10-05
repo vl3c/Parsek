@@ -30,11 +30,10 @@ plan section 7.
 
 **Owner rulings 2026-10-05** (full text: `docs/dev/gloops-recorder-design.md` section 1):
 the in-Parsek Gloops feature is deleted from Parsek; Gloops becomes a standalone mod in
-its own repository, mounted in Parsek as a submodule; Parsek compiles its own private copy
-of the shared Core source (no separate DLL, no API, no control of a standalone install);
-Parsek and Gloops record separately on shared building blocks and never read each other's
-data; no export bridge for now; `TrajectoryPoint` career fields stay; Core stays in this
-repository until engine churn settles. The Gloops take model (members, "nothing pops into
+its own repository with no API to Parsek and no control of a standalone install; Parsek
+and Gloops record separately and never read each other's data; no export bridge for now.
+The shared-Core design (a Core compiled into Parsek from a submodule) is kept in the design
+doc as a reference only: no extraction is scheduled (below). The Gloops take model (members, "nothing pops into
 existence", the take ends on any interaction with an external vessel) is design section 5.
 
 **Extraction: not scheduled** (design section 12, decided 2026-10-05): no standalone use

@@ -1,6 +1,6 @@
 # Gloops - Ghost Loop Recording and Playback
 
-*Design document for Gloops, a standalone KSP1 mod that records a vessel and replays it as looping ghosts, and for the shared ghost core that Parsek compiles in. Rewritten 2026-10-05 from an owner interview and a measured read of the codebase; it supersedes the 2026-04 draft, whose "ready to move" extraction table no longer matched the code (section 10 records the measurements).*
+*Design document for Gloops, a standalone KSP1 mod that records a vessel and replays it as looping ghosts, and for the reference design of a ghost core shared with Parsek (not scheduled, ruling 10). Rewritten 2026-10-05 from an owner interview and a measured read of the codebase; it supersedes the 2026-04 draft, whose "ready to move" extraction table no longer matched the code (section 10 records the measurements).*
 
 **Status (2026-10-05):** model and boundary agreed. **No extraction is scheduled**: there is no current standalone use, Parsek is the priority, and the near-term work is Parsek-only simplification (section 12). No code has moved. The in-Parsek Gloops recorder still exists, unreachable by players (its launcher was retired in 0.10.4); its removal and the removal of player-authored looping are planned in `docs/dev/plans/remove-player-looping.md`.
 
@@ -8,12 +8,14 @@
 
 ## 1. Owner rulings (2026-10-05)
 
-1. **Gloops leaves Parsek.** The in-Parsek Gloops feature (the ghost-only manual recorder, its window, its group, its seam verbs) is deleted from Parsek. Gloops becomes a standalone mod in its own repository, consumed by Parsek as a git submodule. Parsek does not control Gloops: no API between them, no UI-suppression handshake, no detection of a standalone install.
+Rulings 2-5 and sections 4 and 11 describe the SHARED-CORE path (a Core consumed by Parsek as a git submodule). That path was agreed first in the interview and then set aside by ruling 10: no extraction is scheduled, and the expected route to a standalone Gloops is a fork. They are kept as the reference design if a shared Core is ever chosen; they do not authorize starting any phase of section 11.
+
+1. **Gloops leaves Parsek.** The in-Parsek Gloops feature (the ghost-only manual recorder, its window, its group, its seam verbs) is deleted from Parsek. Gloops becomes a standalone mod in its own repository. Parsek does not control Gloops: no API between them, no UI-suppression handshake, no detection of a standalone install.
 2. **Isolation.** A player may install standalone Gloops next to Parsek. The two must not interfere: Parsek bundles its own copy of the shared code, and the standalone mod works on its own. Ideally the two copies are fully separate (section 4).
 3. **Career fields stay.** `TrajectoryPoint.funds` / `science` / `reputation` are not stripped during the split; stripping them changes the `.prec` layout (a schema-generation bump and a fixture re-harvest). Revisit later.
-4. **Keep it in this repository for now, but begin separation work.** The core lives in-repo until engine churn settles; the submodule split is the last, mechanical step.
+4. **(Shared-Core path only.) Keep it in this repository first.** The Core would live in-repo until engine churn settles, with the submodule split as the last, mechanical step. The separation work that IS started now is Parsek-only (ruling 10).
 5. **Namespace `Gloops`** for the new code. Parsek-side names that say "Gloops" go away with the feature removal.
-6. **Recording is separate.** Parsek and standalone Gloops may run different versions, so they record separately and know nothing about each other. Both build on the same core building blocks; neither reads the other's data.
+6. **Recording is separate.** Parsek and standalone Gloops may run different versions, so they record separately and know nothing about each other. Gloops' recorder starts from Parsek's building blocks (forked, or shared on the shared-Core path); neither reads the other's data.
 7. **No export bridge for now.** Parsek does not export `.gloop` files; Gloops does not import Parsek recordings.
 8. **The take model** in section 5, including the hard rule that nothing pops into existence.
 9. **Looping at will is a Gloops feature, not a Parsek one.** Parsek removes per-recording player loops and the Missions tab loop controls; in Parsek a mission loops only behind a logistics route, as a gameplay object with real effects. The loop infrastructure routes run on stays in Parsek. Plan: `docs/dev/plans/remove-player-looping.md`.
@@ -49,7 +51,9 @@ Core has NO `KSPAddon`, NO Harmony patch, NO `ScenarioModule`, NO GameEvents sub
 
 ---
 
-## 4. How Parsek uses Gloops Core
+## 4. How Parsek would use a shared Gloops Core (shared-Core path only)
+
+*Reference design, not scheduled (ruling 10). Under the fork route Parsek keeps its ghost code as it is and Gloops starts from a copy.*
 
 - **Source inclusion, not a DLL reference.** `Parsek.csproj` compiles the Core source files directly into `Parsek.dll`. Parsek ships ONE DLL as today; the release zip, the harness provisioner and its DLL hash checks are unchanged.
 - **Isolation follows from that.** Parsek's copy and a standalone `Gloops.dll` have different assembly identities, so there is no type clash, no version drift between them, and statics are per copy. Two engines may run at once, each drawing its own ghosts, sharing nothing. `internal` keeps working across the Core / Parsek boundary because inside Parsek they are one assembly, so no `InternalsVisibleTo` and no `KSPAssemblyDependency`.
@@ -169,7 +173,7 @@ Parsek has two loop paths (measured 2026-10-05; details in `docs/dev/plans/remov
 
 A Gloops take (section 5) is a family of trajectories on one shared clock. That is structurally a loop unit, not a per-recording loop. So the loop machinery a future Gloops most needs (span clock, loop units, overlap positioning, cycle ghost reuse, seams, `LoopSyncParentIdx`) is exactly what Parsek KEEPS for routes, and stays maintained and tested there. Parsek removes only the per-recording path and the player-facing controls.
 
-**Archive.** Before the per-recording path is deleted, its last state is tagged `archive/player-loops-2026-10` (plan section 7, PR 3); the in-Parsek Gloops recorder gets the same treatment when it is removed. Worth retrieving from the archive if a Gloops loop needs it:
+**Archive.** Before the per-recording path is deleted, its last state is tagged `archive/player-loops-2026-10` (plan section 7, PR 3); before the in-Parsek Gloops recorder is deleted, its last state is tagged `archive/gloops-recorder-2026-10` (plan section 7, PR 1). Worth retrieving from the archive if a Gloops loop needs it:
 
 - `GhostPlaybackEngine.UpdateLoopingPlayback`, `HandleLoopPauseWindow`, `RebuildAutoLoopLaunchScheduleCache`, `TryResolveLoopSchedule`, `TryComputeLoopPlaybackUT`, the `LoopBounds` partial (`EffectiveLoopStartUT` / `EffectiveLoopEndUT`);
 - `GhostPlaybackLogic.WarpLoopPolicy` `ResolveLoopInterval` and the auto-launch queue;
