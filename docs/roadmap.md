@@ -450,13 +450,13 @@ Carried forward from the original sketch: the shared cloud-synced folder, player
 
 ### Gloops Extraction (decoupled from Phase 14)
 
-Extract the ghost playback engine into a separate assembly (`Gloops.dll`) within the same repository, defining the `.gloop` file format for standalone recording sharing. See `docs/dev/gloops-recorder-design.md` for the full design. No longer a Phase 14 prerequisite (see above); the natural trigger is now the standalone Gloops mod itself.
+Revised 2026-10-05 (owner rulings; full design in `docs/dev/gloops-recorder-design.md`). Gloops becomes a standalone mod in its own repository; the in-Parsek Gloops recorder is deleted; there is no runtime API and no control of a standalone install, and the two record separately. No longer a Phase 14 prerequisite (see above). No extraction is scheduled (design section 12, 2026-10-05): Parsek is the priority, and a future standalone Gloops is expected to fork Parsek's ghost code at that moment rather than share a maintained Core (the shared-Core design, a Core compiled into `Parsek.dll` from a submodule, is kept in the design doc as a reference only). The near-term Parsek-side work is `docs/dev/plans/remove-player-looping.md` (delete the in-Parsek Gloops recorder; remove player-authored looping, so a mission loops only behind a logistics route).
 
-**Extraction scope:**
-- Separate .csproj in the same repo (not a submodule yet)
-- 17 files move to Gloops, 2 files need pre-extraction splitting
-- Pre-extraction refactors: split `GhostPlaybackLogic.cs` (engine vs. policy), extract recorder from `FlightRecorder.cs`, `ParsekLog` abstraction
-- Parsek becomes a consumer of the Gloops API
+**Extraction scope (shared-Core path, reference only):**
+- Core stays in this repository (top-level `Gloops/Core/`, compiled by `Parsek.csproj`) until engine churn settles; the submodule split is the last step
+- Leaf moves first (data structs, FX, zones, audio, config, logging); then invert the engine's direct reads of `RecordingStore` / `ParsekFlight` / re-fly state into host interfaces and split `GhostPlaybackLogic` (engine vs. policy)
+- One per-vessel part-event poller and sampler replaces the duplicated foreground / background wrappers
+- Standalone take recorder: the original vessel and its children only, ending on any interaction with an external vessel
 
 **Standalone Gloops mod (if demand exists):**
 - Split into separate repository / submodule

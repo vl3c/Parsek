@@ -1,753 +1,235 @@
-# Gloops — Ghost Loop Playback System
+# Gloops - Ghost Loop Recording and Playback
 
-*Design document for Gloops, a standalone KSP1 mod for ghost vessel recording, playback, and content pack loading. Gloops is extracted from Parsek's existing ghost subsystem. This document describes the extraction boundary grounded in the actual codebase.*
+*Design document for Gloops, a standalone KSP1 mod that records a vessel and replays it as looping ghosts, and for the reference design of a ghost core shared with Parsek (not scheduled, ruling 10). Rewritten 2026-10-05 from an owner interview and a measured read of the codebase; it supersedes the 2026-04 draft, whose "ready to move" extraction table no longer matched the code (section 10 records the measurements).*
 
----
-
-## 1. Introduction
-
-### 1.1 What Gloops Is
-
-Gloops is a standalone KSP1 mod that records vessel flights and plays them back as ghost vessels — visual replicas that follow recorded trajectories with full part event fidelity. Ghosts have no physics, no colliders, no game state — they are animated scenery.
-
-Gloops also loads content packs: pre-authored ghost loop packages that add background activity to the game world — KSC air traffic, rover patrols, EVA kerbals, or any other visual presence.
-
-### 1.2 What Gloops Is Not
-
-Gloops has no concept of timelines, rewind, resource budgets, vessel identity beyond visual tracking, or game state management. It does not spawn real KSP vessels. It does not know about DAG structures, merge events, ghost chains, or spawn policy. These are concerns of mods that build on top of Gloops (such as Parsek).
-
-### 1.3 Relationship to Parsek
-
-Gloops is extracted from Parsek's existing ghost recording and playback code. The extraction boundary follows the interfaces and class boundaries that already exist in the codebase. Parsek depends on Gloops as a hard dependency. Gloops depends on nothing mod-wise.
-
-| Layer | Owner | Existing code |
-|---|---|---|
-| Ghost playback engine | Gloops | `GhostPlaybackEngine.cs` — already has zero Recording references |
-| Ghost mesh construction | Gloops | `GhostVisualBuilder.cs` — builds GameObjects from snapshots |
-| Part event replay & FX | Gloops | Engine-layer methods in `GhostPlaybackLogic.cs` |
-| Trajectory interpolation | Gloops | `TrajectoryMath.cs` (sampling, interpolation, orbit search) |
-| Zone rendering | Gloops | `RenderingZoneManager.cs` |
-| Soft cap management | Gloops | `GhostSoftCapManager.cs` |
-| Trajectory recorder | Gloops | Trajectory sampling + part event capture (extracted from `FlightRecorder.cs`) |
-| Content pack system | Gloops | New code (loader, manifest parser, pack management) |
-| Standalone UI | Gloops | New code (loop manager, settings — disabled when consumer provides UI) |
-| Recording tree / DAG | Consumer (Parsek) | `RecordingTree.cs`, `BranchPoint.cs` |
-| Chain ghost logic | Consumer (Parsek) | `GhostChainWalker.cs`, `GhostChain.cs` |
-| Spawn policy | Consumer (Parsek) | `ParsekPlaybackPolicy.cs` — subscribes to Gloops lifecycle events |
-| Background recording | Consumer (Parsek) | `BackgroundRecorder.cs` — multi-vessel sessions |
-| Post-commit optimization | Consumer (Parsek) | `RecordingOptimizer.cs` — environment-boundary splitting |
-| World presence | Consumer (Parsek) | CommNet relay, tracking station, map view markers |
-| Game state | Consumer (Parsek) | Resource tracking, milestones, rewind, timeline |
+**Status (2026-10-05):** model and boundary agreed. **No extraction is scheduled**: there is no current standalone use, Parsek is the priority, and the near-term work is Parsek-only simplification (section 12). No code has moved. The in-Parsek Gloops recorder still exists, unreachable by players (its launcher was retired in 0.10.4); its removal and the removal of player-authored looping are planned in `docs/dev/plans/remove-player-looping.md`.
 
 ---
 
-## 2. Design Philosophy
+## 1. Owner rulings (2026-10-05)
 
-1. **Gloops plays trajectories, not trees.** It receives a flat indexed list of trajectories. Tree topology (staging decomposition, chain linking, merge events) is invisible to the engine. This is already how `GhostPlaybackEngine` works — it takes `IReadOnlyList<IPlaybackTrajectory>` and processes each independently.
+Rulings 2-5 and sections 4 and 11 describe the SHARED-CORE path (a Core consumed by Parsek as a git submodule). That path was agreed first in the interview and then set aside by ruling 10: no extraction is scheduled, and the expected route to a standalone Gloops is a fork. They are kept as the reference design if a shared Core is ever chosen; they do not authorize starting any phase of section 11.
 
-2. **A trajectory is the atom.** One vessel, one continuous path, with part events and optional loop configuration. This maps to `IPlaybackTrajectory` — the interface that `Recording` already implements and that future content pack trajectories will too.
-
-3. **Policy flows in as flags, lifecycle flows out as events.** The engine reads `TrajectoryPlaybackFlags` (skip this ghost, hold at end, needs spawn) and `FrameContext` (current UT, warp rate). It fires lifecycle events (`PlaybackCompletedEvent`, `LoopRestartedEvent`, `OverlapExpiredEvent`, `CameraActionEvent`). It never makes policy decisions.
-
-4. **Positioning is delegated.** The engine doesn't know about celestial bodies, floating-origin corrections, or orbit propagation. It delegates all world-space positioning through `IGhostPositioner` — 8 methods covering interpolation, surface hold, orbital positioning, and zone rendering.
-
-5. **Content packs are trajectories with metadata.** A `.gloop` file is a serialized trajectory that implements the same interface as a Parsek recording. The content pack system is a loader and spawn-condition manager around this data.
-
-6. **Non-vessel meshes are a future extension.** The ghost mesh builder currently constructs from KSP vessel snapshots. The architecture supports adding a custom mesh path (for birds, scenery, etc.) without restructuring — the builder already has a clean entry point that produces a GameObject from a snapshot.
-
----
-
-## 3. Core Data Model
-
-The data model maps 1:1 to existing Parsek types. Gloops defines the canonical versions; Parsek's `Recording` wraps them with its metadata envelope.
-
-### 3.1 Trajectory Interface
-
-The engine accesses all trajectory data through `IPlaybackTrajectory` (31 properties). This interface is already the extraction boundary — `GhostPlaybackEngine` references nothing else.
-
-```
-IPlaybackTrajectory
-  // Trajectory data
-  Points:              list of TrajectoryFrame
-  OrbitSegments:       list of OrbitalCheckpoint
-  HasOrbitSegments:    bool
-  TrackSections:       list of TrackSection
-  StartUT:             double
-  EndUT:               double
-  RecordingFormatVersion: int
-
-  // Visual events
-  PartEvents:          list of PartEvent
-  FlagEvents:          list of FlagEvent
-
-  // Visual snapshots
-  GhostVisualSnapshot: ConfigNode — part layout for ghost mesh construction
-  VesselSnapshot:      ConfigNode — full vessel state (for spawn — used by consumer)
-  VesselName:          string
-
-  // Loop configuration
-  LoopPlayback:        bool
-  LoopIntervalSeconds: double
-  LoopTimeUnit:        enum (Sec, Min, Hour, Auto)
-  LoopAnchorVesselId:  uint — anchor vessel for relative loop playback
-  LoopStartUT:         double — loop range start (NaN = use StartUT)
-  LoopEndUT:           double — loop range end (NaN = use EndUT)
-
-  // Terminal state
-  TerminalStateValue:  TerminalState? — for explosion FX at trajectory end
-  SurfacePos:          SurfacePosition? — for surface hold after trajectory end
-
-  // Terminal orbit (for post-trajectory orbit propagation)
-  TerminalOrbitBody:            string
-  TerminalOrbitSemiMajorAxis:   double
-  TerminalOrbitEccentricity:    double
-  TerminalOrbitInclination:     double
-  TerminalOrbitLAN:             double
-  TerminalOrbitArgumentOfPeriapsis: double
-  TerminalOrbitMeanAnomalyAtEpoch: double
-  TerminalOrbitEpoch:           double
-
-  // Rendering hints
-  PlaybackEnabled:     bool
-  IsDebris:            bool
-  LoopSyncParentIdx:   int — debris follows parent trajectory's loop clock (-1 = independent)
-```
-
-**Note on VesselSnapshot:** The interface exposes it because the consumer needs it for spawn decisions at playback end. Gloops itself only reads `GhostVisualSnapshot` for mesh construction. VesselSnapshot passes through the interface unchanged.
-
-**Note on TerminalOrbit fields:** The engine uses these for orbit propagation when a ghost reaches trajectory end but the consumer requests continued positioning (mid-chain hold, ghost extension). These are engine concerns, not consumer metadata.
-
-### 3.2 Trajectory Frame
-
-Position sample. Equivalent to Parsek's `TrajectoryPoint` minus game-state fields.
-
-```
-TrajectoryFrame
-  ut:           double
-  latitude:     double
-  longitude:    double
-  altitude:     double
-  rotation:     Quaternion — surface-relative
-  velocity:     Vector3 — surface-relative
-  bodyName:     string — reference celestial body
-```
-
-Parsek's `TrajectoryPoint` additionally carries `funds`, `science`, `reputation` — game-state fields the engine never reads. On extraction, TrajectoryFrame drops these fields. Parsek stores game-state deltas in a parallel structure indexed by UT (already the case for the resource ledger).
-
-### 3.3 Track Section
-
-A typed trajectory chunk with environment and reference frame metadata.
-
-```
-TrackSection
-  environment:        ATMOSPHERIC | EXO_PROPULSIVE | EXO_BALLISTIC |
-                        SURFACE_MOBILE | SURFACE_STATIONARY | APPROACH
-  referenceFrame:     ABSOLUTE | RELATIVE | ORBITAL_CHECKPOINT
-  startUT:            double
-  endUT:              double
-  anchorVesselId:     uint — for RELATIVE frame only
-  frames:             list of TrajectoryFrame — for ABSOLUTE/RELATIVE
-  checkpoints:        list of OrbitalCheckpoint — for ORBITAL_CHECKPOINT
-  sampleRateHz:       float
-  source:             ACTIVE | BACKGROUND | CHECKPOINT
-  boundaryDiscontinuityMeters: float
-  minAltitude:        float
-  maxAltitude:        float
-```
-
-This struct is identical to the existing `TrackSection` in `TrackSection.cs`.
-
-### 3.4 Orbital Checkpoint
-
-Keplerian elements for on-rails coasting. Equivalent to existing `OrbitSegment`.
-
-```
-OrbitalCheckpoint
-  startUT:            double
-  endUT:              double
-  inclination:        double
-  eccentricity:       double
-  semiMajorAxis:      double
-  longitudeOfAscendingNode: double
-  argumentOfPeriapsis: double
-  meanAnomalyAtEpoch: double
-  epoch:              double
-  bodyName:           string
-  orbitalFrameRotation: Quaternion
-```
-
-### 3.5 Part Event
-
-Discrete visual state change on a specific part. 35 event types covering all visually-relevant vessel state changes.
-
-```
-PartEvent
-  ut:                 double
-  partPersistentId:   uint
-  eventType:          PartEventType (35 values: EngineIgnited, EngineShutdown,
-                        EngineThrottle, DeployableExtended, DeployableRetracted,
-                        LightOn, LightOff, GearDeployed, GearRetracted,
-                        ParachuteDeployed, ParachuteSemiDeployed, ParachuteCut,
-                        CargoBayOpened, CargoBayClosed, FairingJettisoned,
-                        RCSActivated, RCSStopped, RCSThrottle, Decoupled, Destroyed,
-                        Docked, Undocked, LightBlinkEnabled, LightBlinkDisabled,
-                        LightBlinkRate, InventoryPartPlaced, InventoryPartRemoved,
-                        RoboticMotionStarted, RoboticPositionSample, RoboticMotionStopped,
-                        ThermalAnimationHot, ThermalAnimationCold, ThermalAnimationMedium,
-                        ShroudJettisoned, ParachuteDestroyed)
-  partName:           string
-  value:              float — throttle 0-1, blink rate, robotic position, etc.
-  moduleIndex:        int — disambiguates multi-engine/multi-module parts
-```
+1. **Gloops leaves Parsek.** The in-Parsek Gloops feature (the ghost-only manual recorder, its window, its group, its seam verbs) is deleted from Parsek. Gloops becomes a standalone mod in its own repository. Parsek does not control Gloops: no API between them, no UI-suppression handshake, no detection of a standalone install.
+2. **Isolation.** A player may install standalone Gloops next to Parsek. The two must not interfere: Parsek bundles its own copy of the shared code, and the standalone mod works on its own. Ideally the two copies are fully separate (section 4).
+3. **Career fields stay.** `TrajectoryPoint.funds` / `science` / `reputation` are not stripped during the split; stripping them changes the `.prec` layout (a schema-generation bump and a fixture re-harvest). Revisit later.
+4. **(Shared-Core path only.) Keep it in this repository first.** The Core would live in-repo until engine churn settles, with the submodule split as the last, mechanical step. The separation work that IS started now is Parsek-only (ruling 10).
+5. **Namespace `Gloops`** for the new code. Parsek-side names that say "Gloops" go away with the feature removal.
+6. **Recording is separate.** Parsek and standalone Gloops may run different versions, so they record separately and know nothing about each other. Gloops' recorder starts from Parsek's building blocks (forked, or shared on the shared-Core path); neither reads the other's data.
+7. **No export bridge for now.** Parsek does not export `.gloop` files; Gloops does not import Parsek recordings.
+8. **The take model** in section 5, including the hard rule that nothing pops into existence.
+9. **Looping at will is a Gloops feature, not a Parsek one.** Parsek removes per-recording player loops and the Missions tab loop controls; in Parsek a mission loops only behind a logistics route, as a gameplay object with real effects. The loop infrastructure routes run on stays in Parsek. Plan: `docs/dev/plans/remove-player-looping.md`.
+10. **No extraction now.** No standalone use is planned; Parsek is the priority. When a standalone Gloops is wanted, the expected route is a fork of Parsek's ghost code at that moment (section 12), not a shared Core maintained in parallel.
 
 ---
 
-## 4. Ghost Playback Engine
+## 2. What Gloops is
 
-The engine is `GhostPlaybackEngine.cs` — already has zero Recording references. It manages ghost GameObjects, per-frame positioning, part event application, loop/overlap playback, zone transitions, and soft caps.
+A KSP1 mod that records a vessel's flight and replays it as ghosts: visual copies with no physics, no colliders and no effect on game state, optionally looping. It knows nothing about careers, timelines, rewind, recording trees, crew reservation, funds or vessel spawning.
 
-### 4.1 Engine Interface
+Gloops is two layers in one repository:
 
-```
-UpdatePlayback(
-  trajectories: IReadOnlyList<IPlaybackTrajectory>,   // one per trajectory
-  flags:        TrajectoryPlaybackFlags[],            // per-trajectory policy
-  ctx:          FrameContext                           // per-frame context
-)
-```
+**Gloops Core (a library).**
 
-Called once per physics frame by the host. The engine iterates trajectories, creates/destroys/positions ghost GameObjects, applies part events, manages loops, evaluates soft caps.
+- Trajectory data model: points, track sections, orbit segments, part events, flag events, surface position, terminal state.
+- Recording building blocks: the adaptive sampling decision, environment classification, part-event detection (the pure `Check*Transition` decisions and their per-frame pollers), part-state seeding.
+- Ghost construction: meshes from a vessel snapshot, variants, fairings, engine / RCS / reentry FX, audio presets.
+- Playback engine: per-frame placement, part-event replay, loops and overlaps, distance zones.
 
-### 4.2 Per-Trajectory Policy Flags
+Core has NO `KSPAddon`, NO Harmony patch, NO `ScenarioModule`, NO GameEvents subscription of its own, NO UI, NO persistence, NO settings file, and reads NO fixed GameData path. Anything with a global side effect, or that KSP discovers by scanning assemblies or by type name, belongs to the host. Core talks to its host only through interfaces: trajectories plus per-ghost flags in, world placement through a positioner, lifecycle events out (playback completed, loop restarted, overlap expired, camera action), logging through a host-supplied sink.
 
-```
-TrajectoryPlaybackFlags
-  skipGhost:              bool — don't render (chain-suppressed, disabled)
-  isStandalone:           bool — not part of a tree (gates resource events). Always false post-T56 (all recordings are tree recordings)
-  isMidChain:             bool — hold ghost at end position instead of destroying
-  chainEndUT:             double — when the full chain ends
-  needsSpawn:             bool — pre-computed spawn decision
-  isActiveChainMember:    bool — belongs to currently recording chain
-  isChainLooping:         bool — chain has a branch-0 looping segment
-  segmentLabel:           string — for logging
-  recordingId:            string — identity key for events
-  vesselPersistentId:     uint — identity for events
-```
+**Gloops Standalone (the mod players install).** The only host of Core inside the Gloops repository: its own `KSPAddon` host and a simple positioner (no anchors, chains or re-fly), its own take recorder (section 5) and UI (start / stop / preview / discard / loop settings), its own storage (`.gloop` files; content packs later, section 9). Ships as `GameData/Gloops/`.
 
-All policy is pre-computed by the consumer (Parsek's `ParsekFlight`) before calling `UpdatePlayback`. The engine reads flags, never computes policy.
+---
 
-### 4.3 Per-Frame Context
+## 3. What Gloops is not
 
-```
-FrameContext
-  currentUT:              double
-  warpRate:               float
-  warpRateIndex:          int
-  activeVesselPos:        Vector3d — for distance checks
-  protectedIndex:         int — watch mode exempt ghost (-1 if none)
-  externalGhostCount:     int — chain ghosts etc. for soft cap accounting
-  autoLoopIntervalSeconds: double — from settings
-```
+- Not a dependency Parsek controls or talks to at runtime.
+- Not a career system: no ledger, crew, resources, contracts, rewind, merge, supersede, missions, logistics.
+- Not a spawner: a ghost never becomes a real vessel.
+- Not a world-presence system: no tracking-station entries, orbit lines, map markers or CommNet relay (those are Parsek's `GhostMapPresence` / `GhostCommNet` and stay there).
 
-### 4.4 Ghost State
+---
 
-Each active ghost has a `GhostPlaybackState` containing:
-- GameObject reference and material lists
-- Part event cursor (current position in the event list)
-- Per-part ghost info objects (engine FX, RCS FX, deployables, lights, fairings, heat, robotics, parachutes, compound parts — all defined in `GhostTypes.cs`)
-- Part subtree map (for decouple hiding)
-- Loop cycle tracking (current cycle index, overlap list)
-- Zone rendering state
-- Reentry FX state
+## 4. How Parsek would use a shared Gloops Core (shared-Core path only)
 
-### 4.5 Positioning
+*Reference design, not scheduled (ruling 10). Under the fork route Parsek keeps its ghost code as it is and Gloops starts from a copy.*
 
-The engine delegates all world-space placement through `IGhostPositioner` (8 methods):
+- **Source inclusion, not a DLL reference.** `Parsek.csproj` compiles the Core source files directly into `Parsek.dll`. Parsek ships ONE DLL as today; the release zip, the harness provisioner and its DLL hash checks are unchanged.
+- **Isolation follows from that.** Parsek's copy and a standalone `Gloops.dll` have different assembly identities, so there is no type clash, no version drift between them, and statics are per copy. Two engines may run at once, each drawing its own ghosts, sharing nothing. `internal` keeps working across the Core / Parsek boundary because inside Parsek they are one assembly, so no `InternalsVisibleTo` and no `KSPAssemblyDependency`.
+- **This is why Core must stay side-effect free.** A `KSPAddon`, Harmony patch or `ScenarioModule` inside Core would run twice with both mods installed.
+- **Logging.** Parsek's copy logs through `ParsekLog`, so every `[Parsek][LEVEL][Subsystem]` line, and the harness log contracts that grep them, stay byte-identical.
+- **Parsek is the host for its copy.** It implements positioning (relative / anchor frames, the body-fixed primary surface for parent-anchored recordings), computes every policy flag (chains, spawn, supersede, re-fly suppression, mission loop units) and reacts to lifecycle events (spawn at end, watch camera, resources). It keeps everything career-related: recording trees and branch points, `.prec` / sidecar persistence, ledger, crew, map and tracking-station presence, CommNet, missions, logistics.
+- **Change flow after the split.** A Core change Parsek needs lands in the Gloops repository first; Parsek bumps its submodule pointer. Standalone must keep building against the same Core, which is the real proof that the boundary holds.
 
-| Method | Purpose |
+---
+
+## 5. The Gloops take model
+
+A **take** is one recording session of one vessel family. It replays as one loop.
+
+### 5.1 Hard rule
+
+**Nothing pops into existence.** Every ghost in a take is visible from the take's start, or comes off a ghost that is already visible (a stage separating, a kerbal leaving a hatch, a flag or ground part leaving a kerbal's hands). This rule filters every other rule.
+
+**Disappearing is allowed.** A member that goes out of range, is destroyed, or (an EVA kerbal) boards another vessel simply disappears. No ballistic completion of out-of-range debris (owner ruling 2026-10-05).
+
+The start and end of a loop, where the whole family appears and disappears, are a content concern (start and finish takes at rest or out of view), not a recorder rule.
+
+### 5.2 Members
+
+At take start the recorder captures the identity of every part and every crew member aboard the vessel. **Members** are:
+
+- the starting vessel;
+- anything that separates from a member: stages, debris, EVA kerbals, deployed ground parts, planted flags;
+- a vessel formed when two members dock.
+
+Each member has its own trajectory (samples, part events, and a ghost appearance captured when it separated), recorded whether or not it has focus. All trajectories share the take's clock; on playback a stage appears when it separates, tumbles away, and disappears where it left range, and the whole family loops together (the engine's `LoopSyncParentIdx` already locks a trajectory to another's loop clock).
+
+### 5.3 A member's trajectory ends (its ghost disappears) when
+
+- it goes out of range (KSP unloads it);
+- it is destroyed;
+- it docks with another member: both trajectories end at the dock and the merged vessel starts a new trajectory with a fresh appearance (one appearance per trajectory, so playback never needs a mid-flight mesh change);
+- it is a kerbal that boards a vessel. Boarding a member is a member merge (the kerbal disappears into the hatch, the vessel continues). Boarding an external vessel is the one external interaction that ends only the kerbal's own trajectory.
+
+An ended member is no longer a member.
+
+### 5.4 The take continues through
+
+Focus moving between members, staging, decoupling, breakup, undock, EVA, and docking between members (for example a transposition-and-docking manoeuvre). A vessel can only be extended by its own members.
+
+### 5.5 The take ends when
+
+- focus moves to a non-member;
+- a member docks with, claws onto, or otherwise couples to an external vessel (an external tank is still external: including it would need its path from the take's start, which brings back the pop-in problem);
+- no members remain;
+- the player stops it.
+
+When a kerbal boards an external vessel KSP moves focus to that vessel, so the focus rule ends the take at that moment: on screen the kerbal vanishes at the hatch and the loop ends there. (Open alternative, not chosen: keep recording the remaining members until the player switches back to one.)
+
+### 5.6 Why external vessels are never recorded
+
+1. Which external vessel matters is only known at contact; avoiding pop-in would need every nearby vessel recorded from the take's start, or its earlier path reconstructed, and "nearby" is unbounded (a station 50 km away is visible).
+2. External vessels are real, persistent objects. A ghost of a base sits on the real base; a ghost of a station duplicates one that still exists. The recorded vessel itself has moved on by the time the loop replays; an external one often has not.
+3. The closed family is pop-in free by construction.
+
+What is given up: a loop that includes the station. The approach is still recorded and the take ends at contact; if the real station still exists at replay, the ghost flies up to it and ends there.
+
+### 5.7 Still to decide
+
+- The focused member is destroyed while others survive: proposed "continue if KSP moves focus to a member, else end".
+- Leaving the scene, reverting, or a far switch that reloads the scene: commit the take up to that point, or discard it (today's in-Parsek recorder discards).
+- Time warp: members that are loaded but packed keep orbit-only data until they unload (proposed).
+- Range: KSP's unload distance (proposed; it is when samples stop anyway) or a fixed Gloops distance.
+
+### 5.8 What the standalone recorder must get right (lessons from the in-Parsek recorder)
+
+The in-Parsek recorder (section 7) shows what a single-pid recorder misses. The standalone take recorder must:
+
+1. Hook rails transitions (orbit segments, the on-rails lifecycle INCLUDING a take started while packed, SOI rotation).
+2. Record a destroy ending: final sample, destroyed flag, terminal state.
+3. Rebuild module caches and prune departed engine / RCS keys when a vessel is modified, so a dropped stage's engines do not emit terminal shutdown events.
+4. Cover every separation: consume the deferred joint-break check and the new-vessel-root `Decoupled` fallback (#263), so symmetric radial decouplers do not leave pieces visible.
+5. Take a trajectory's name and end snapshot from the recorded vessel, never from `FlightGlobals.ActiveVessel`.
+6. Clear the atmosphere / altitude / SOI boundary flags it raises, and decide an anchor / relative-frame policy (or none).
+7. Record N vessels at once: the part-event poller and sampler run per member vessel.
+
+---
+
+## 6. Parsek's own multi-vessel recording (reference, measured 2026-10-05)
+
+For contrast with section 5. Parsek records a tree that follows every vessel that matters, for career purposes:
+
+| Situation | What Parsek records |
 |---|---|
-| `InterpolateAndPosition` | Standard trajectory interpolation (ABSOLUTE frame) |
-| `InterpolateAndPositionRelative` | RELATIVE frame with anchor vessel offset |
-| `PositionAtPoint` | Snap to a specific trajectory point |
-| `PositionAtSurface` | Surface hold (landed/splashed post-trajectory) |
-| `PositionFromOrbit` | Keplerian orbit propagation (post-trajectory or on-rails) |
-| `PositionLoop` | Loop positioning (delegates to appropriate method based on track section) |
-| `ApplyZoneRendering` | Distance-based rendering zone evaluation |
-| `ClearOrbitCache` | Invalidate cached Orbit objects |
+| Staging, controlled piece (probe core) | `JointBreak` / DECOUPLE branch point; the active recording continues (breakup-continuous); the child gets its own parent-anchored recording, recorded indefinitely; a Rewind Point when two or more controllable pieces come out |
+| Staging, debris (no command part) | own `IsDebris` recording for `BackgroundRecorder.DebrisTTLSeconds = 60` s, or until unloaded / parent packed / destroyed; debris with under 3 parts AND under 0.5 t is skipped (`ParsekFlight.ShouldRecordDebris`); second-generation background splits are not tracked (`MaxRecordingGeneration = 1`) |
+| Breakup / crash | splits inside a 0.5 s window coalesce into one `Breakup` branch point (`CrashCoalescer`) |
+| Undock | `Undock` branch point, parent closes, two children; the unfocused half is background-recorded; undocks between two background vessels are ignored |
+| Dock / claw | `Dock` merge, parents stamped `Docked`, merged child with a full merged snapshot; a claw differs only by `TransferKind=Grapple` |
+| EVA / Board | `EVA` split (never a Rewind Point); `Board` merge, both parents stamped `Boarded` |
+| Vessel switch | `[`/`]`: old vessel to background, new one continues its own recording or starts a `Launch` branch; Map / TS / KSC Fly: a `VesselSwitchContinuation` segment |
+| Not recorded | vessels outside the tree; unloaded physics; background dock / undock; crew transfers as events (`SegmentEventType.CrewTransfer`, `PartEventType.Docked` / `Undocked` are declared but never emitted in production) |
 
-The host (ParsekFlight) implements this interface. It handles body lookups, floating-origin corrections, and Unity coordinate transforms. The engine knows nothing about KSP's world frame.
+Only trackable vessels branch (`ParsekFlight.IsTrackableVessel`: a `ModuleCommand`, an EVA kerbal, or a SpaceObject).
 
-### 4.6 Lifecycle Events
+---
 
-The engine fires events through a callback list. The consumer subscribes to make policy decisions.
+## 7. The in-Parsek Gloops recorder today (to be deleted)
 
-```
-PlaybackCompletedEvent     — ghost reached trajectory end (or chain end)
-  .GhostWasActive          — was a ghost GameObject visible?
-  .PastEffectiveEnd        — exceeded the effective end UT?
-  .LastPoint               — final trajectory point (for spawn positioning)
-  .CurrentUT               — when playback completed
+- **What it is.** A second `FlightRecorder` with `IsGloopsMode = true` (`ParsekFlight.StartGloopsRecording`), ticked by `PhysicsFramePatch.GloopsRecorderInstance` alongside the main recorder. It follows ONE vessel pid; any pid change auto-stops and commits (`FlightRecorder.HandleVesselSwitchDuringRecording`). Commit (`RecordingStore.CommitGloopsRecording`) adds one treeless `IsGhostOnly` recording to the "Gloops - Ghosts Only" group, looping off.
+- **Gates.** `IsGloopsMode` skips pre-launch resources, the rewind save, route origin proof, the run-cargo manifest and all harvest capture. About 15 career sites exclude `IsGhostOnly` recordings: ledger vessel cost / crew assignment / crew penalty and `PurgeGhostOnlyActionsFromLedger`, crew recovery, pending-ledger vessel match, end-of-recording spawn, CommNet continuation, map-presence retention.
+- **Reach.** Players cannot open it (`UiSurface.MainButtonGloops` retired in every mode since 0.10.4). Only the harness seam reaches it: `GloopsStart` / `GloopsStop`, `UiAction op=open window=gloops`, lanes `GL-1`, `GL-2`, `GUI-16`.
+- **Known defects** (filed under GLOOPS-EXTRACTION-2026-10-05 in `todo-and-known-bugs.md`; resolved by removal, not fixed in place): a committed take is treeless while `ParsekScenario.OnSave` writes only `RECORDING_TREE` nodes, so takes are very likely lost on save and reload (inferred, not run); a take started while packed freezes after its first sample; auto-stop names and snapshots the take from the NEW active vessel; dropped-stage engine keys are never pruned; the #263 `Decoupled` fallback never runs for it.
 
-LoopRestartedEvent         — looping ghost completed a cycle
-  .PreviousCycleIndex
-  .NewCycleIndex
-  .ExplosionFired          — explosion FX played at cycle end?
-  .ExplosionPosition
+**Removal inventory:** `UI/GloopsRecorderUI.cs`; the `ParsekFlight` gloops region and its call sites; `FlightRecorder.IsGloopsMode` and its gates; `PhysicsFramePatch.GloopsRecorderInstance`; `RecordingStore.CommitGloopsRecording` / `GloopsGroupName` and the permanent-root-group special case; the `IsGhostOnly` flag, its codec key and its career exclusions (once no save can carry one); the Basic-mode guard; `TestCommandGloopsVerbs` / `ParsekTestCommandAddon.Gloops.cs` and their dispatcher entries; the gloops `UiAction` window; harness lanes `GL-1`, `GL-2`, `GUI-16` and their registry cells; the tests named after Gloops. Before deleting the codec key, one reload test settles whether any `IsGhostOnly` recording can survive in a save.
 
-OverlapExpiredEvent        — overlap ghost (negative-interval loop) expired
-  .CycleIndex
-  .ExplosionFired
-  .ExplosionPosition
+---
 
-CameraActionEvent          — camera manipulation request
-  .Action                  — ExplosionHoldStart, ExplosionHoldEnd, RetargetToNewGhost, ExitWatch
-  .AnchorPosition, .GhostPivot, .HoldUntilUT, .NewCycleIndex
-```
+## 8. Looping: what Gloops inherits from Parsek
 
-### 4.7 Loop System
+Parsek has two loop paths (measured 2026-10-05; details in `docs/dev/plans/remove-player-looping.md` section 2): a per-recording loop (`Recording.LoopPlayback` -> `UpdateLoopingPlayback`) and a mission loop unit (a set of member recordings on one span clock, `MissionLoopUnitBuilder` -> `UpdateUnitMemberPlayback`), which logistics routes ride.
 
-The engine supports three loop modes, configured per-trajectory:
-- **Positive interval:** Ghost plays, waits `LoopIntervalSeconds`, replays. Standard loop.
-- **Negative interval (overlap):** New cycle starts before previous ends. Multiple concurrent ghost meshes. Capped at `MaxOverlapGhostsPerRecording = 5`.
-- **Loop sync:** Debris trajectories (`LoopSyncParentIdx >= 0`) follow their parent trajectory's loop clock. Boosters replay in sync with the core stage.
+A Gloops take (section 5) is a family of trajectories on one shared clock. That is structurally a loop unit, not a per-recording loop. So the loop machinery a future Gloops most needs (span clock, loop units, overlap positioning, cycle ghost reuse, seams, `LoopSyncParentIdx`) is exactly what Parsek KEEPS for routes, and stays maintained and tested there. Parsek removes only the per-recording path and the player-facing controls.
 
-Loop range can be narrowed via `LoopStartUT`/`LoopEndUT` (optimizer trims boring bookends).
+**Archive.** Before the per-recording path is deleted, its last state is tagged `archive/player-loops-2026-10` (plan section 7, PR 3); before the in-Parsek Gloops recorder is deleted, its last state is tagged `archive/gloops-recorder-2026-10` (plan section 7, PR 1). Worth retrieving from the archive if a Gloops loop needs it:
 
-### 4.8 Rendering Zones
+- `GhostPlaybackEngine.UpdateLoopingPlayback`, `HandleLoopPauseWindow`, `RebuildAutoLoopLaunchScheduleCache`, `TryResolveLoopSchedule`, `TryComputeLoopPlaybackUT`, the `LoopBounds` partial (`EffectiveLoopStartUT` / `EffectiveLoopEndUT`);
+- `GhostPlaybackLogic.WarpLoopPolicy` `ResolveLoopInterval` and the auto-launch queue;
+- the per-recording KSC loop playback in `ParsekKSC` / `ParsekKSC.Playback`;
+- the loop-anchor (relative loop) resolution in `RelativeAnchorResolver` and `ShouldUseLoopAnchoredDebrisChain`;
+- the behavioural spec in the deleted tests (AutoLoopTests, LoopAnchorTests, LoopPhaseTests, LoopIntervalLoadNormalizationTests, ResolveLoopIntervalWarnDedupeTests, IsLoopableRecordingTests, ChainLoopFirstRunSpawnTests, RelativeLoopAnchorFixtureTests, and the `RuntimeTests` loop-cycle reuse group #406 / #461 / #613);
+- the CHANGELOG entries about the Recordings tab loop toggle, loop period column, auto-loop and loop anchor (about 38 bullets).
 
-Distance-based rendering tiers managed by `RenderingZoneManager`:
+## 9. Standalone features (future, carried from the 2026-04 draft)
 
-| Zone | Default Range | Behavior |
+- **`.gloop` file.** A serialized take: header (format version, creator, vessel name, body, duration), one trajectory block per member (track sections, part events, flag events, appearance snapshot), and the loop clock links between members. Gloops owns its own header; Parsek's `.prec` keeps its `PSK0` header. If the binary element writers in `TrajectorySidecarBinary` move to Core (section 11, phase 4), both formats can share the element encoding.
+- **Content packs.** `GameData/Gloops/Packs/<pack>/` with a `GLOOPS_PACK` manifest listing loops, anchor body / position, spawn condition (`KSC_LOADED`, `BODY_LOADED`, `DISTANCE`, `ALWAYS`), loop interval and priority; validation on load (missing parts degrade the mesh, broken loops are skipped); per-save enable state.
+- **Custom meshes** (non-vessel content: birds, scenery) as a second ghost-builder entry point.
+
+---
+
+## 10. Measured coupling (2026-10-05)
+
+The 2026-04 draft claimed a clean engine core. Measured against `main` at `7b424ca`:
+
+| Area | Lines | State |
 |---|---|---|
-| Full fidelity | 0 – 2.3 km | Full mesh, all part events, engine FX |
-| Visual range | 2.3 – 120 km | Mesh only, no part events or FX |
-| Beyond visual | 120 km+ | No rendering. Position tracked logically. |
+| `GhostPlaybackEngine*.cs` | ~10.1k | references `RecordingStore.PendingTree` / `CommittedTrees` directly (`TryFindPlaybackRecordingTree`), `ParsekFlight.BodyFixedPrimaryCoversPlaybackUT` (3 sites), `ReFlySessionMarker` (via `FrameContext`), `ChainHandoffLogic`, `DebrisRelativePlaybackPolicy`, `RecordingEndpointResolver`, `IndexShift`, `ParsekConfig` |
+| `GhostPlaybackLogic*.cs` | ~14.3k | 14+ static signatures take `Recording`; reaches `RecordingTree`, `BranchPoint`, `GhostChainWalker`, `ParsekScenario`, `GhostMapPresence`; `SpanClock` pulls in the Reaim / mission stack; `WatchMode` is Parsek policy |
+| `GhostVisualBuilder*.cs` | ~9.4k | needs `FlightRecorder` (engine-key codec, module classifiers), `VesselSpawner`, `GhostMapPresence.HardenGhostVesselPartPhysics`, `PartStateSeeder` |
+| `IPlaybackTrajectory` | 36 members | Parsek-semantic members (`RecordingId`, `ParentAnchorRecordingId`, `LoopAnchorVesselId`, terminal orbit "for ghost map presence"); a mutable `LoopSyncParentIdx {get;set;}`; `LoopTimeUnit` lives in `Recording.cs` |
+| `TrajectoryPlaybackFlags` | 16 fields | chain / re-fly / session fields; `GhostPlaybackSkipReason` has 20 Parsek reasons |
+| `IGhostPositioner` | 11 methods | `RelativeSectionPlaybackTarget` carries recording ids; only `ParsekFlight` implements it |
+| `Rendering/` | ~6.5k | Parsek-side (tied to `Recording`, re-fly), not engine core; the engine never calls it |
+| `FlightRecorder*.cs` / `BackgroundRecorder*.cs` | ~14.7k / ~9.8k | part-event DECISIONS (`Check*Transition`) are shared and pure; the per-frame wrappers are duplicated between the two recorders (`BackgroundRecorder.PartEventPolling.cs` says so); both entangled with tree, rewind, logistics, re-fly |
+| `TrajectorySidecarBinary` | 1.3k | takes `Recording`, calls ~8 `RecordingStore` healing helpers, writes a Parsek `PSK0` header with a sidecar epoch; element writers are reusable |
+| `GhostSoftCapManager` | - | does not exist |
 
-### 4.9 Soft Cap
+**Clean today (~6k lines, movable with `ParsekLog` + `ParsekConfig`):** the data structs (`TrajectoryPoint`, `TrajectoryPointFlags`, `TrackSection`, `OrbitSegment`, `PartEvent`, `FlagEvent`, `SurfacePosition`, `TerminalState`, `GhostPlaybackState`); the FX stack (`EngineFxBuilder`, `WaterfallCompat`, `PristinePartFxResolver`, `ReStockPatchFxIndex`, `GhostFxEmissionProbe`, `GhostFxFingerprint`, `GhostPartEventApplyLog`, `PlaybackTrace`, `MaterialCleanup`); `RenderingZoneManager` and `GhostAudioPresets`; `ParsekLog` (a deliberate dependency leaf; `ParsekSettings` injects its verbose provider) and `ParsekConfig` (pure constants).
 
-Priority-based ghost count management via `GhostSoftCapManager`. Each ghost has a `GhostPriority` (SCENERY, LOOP, PLAYBACK, CRITICAL). When thresholds are exceeded, lower-priority ghosts are degraded (reduce FX) then despawned. CRITICAL ghosts are never despawned.
-
----
-
-## 5. Ghost Visual Builder
-
-`GhostVisualBuilder.cs` constructs ghost GameObjects from vessel snapshot ConfigNodes.
-
-### 5.1 Construction
-
-- Reads PART nodes from the snapshot
-- Clones part meshes from KSP prefab parts via `PartLoader.getPartInfoByName`
-- Applies variant textures, materials, and mesh rules from TEXTURE/MATERIAL/GAMEOBJECT configs
-- Builds procedural fairing meshes from XSECTION data
-- Constructs engine shrouds with variant awareness
-- Names each part child by `persistentId` for O(1) lookup during part event replay
-
-### 5.2 FX Construction
-
-- Engine FX: clones `MODEL_MULTI_PARTICLE` particle systems from EFFECTS configs, filtered by `runningEffectName`
-- RCS FX: parallel construction via `RcsGhostInfo`, filtered by `ModuleRCSFX.runningEffectName`
-- Reentry FX: mesh-surface fire particles
-- Separation FX: smoke puff + sparks on decouple/destroy
-
-### 5.3 Part State Types
-
-Each ghost part has typed info objects (defined in `GhostTypes.cs`):
-- `EngineGhostInfo` — particle systems, emission rate, throttle state
-- `RcsGhostInfo` — per-thruster particle systems
-- `DeployableGhostInfo` — stowed/deployed transform states (sampled from animation)
-- `FairingGhostInfo` — procedural cone mesh
-- `LightGhostInfo` — Unity Light component reference
-- `ParachuteGhostInfo` — semi-deployed/deployed mesh variants
-- `RoboticGhostInfo` — servo transform and limits
-- `HeatGhostInfo` — thermal animation material states
-- `ColorChangerGhostInfo` — ModuleColorChanger material states
-- `ReentryFxInfo` — fire particle system references
-
-### 5.4 Future: Custom Mesh Path
-
-For non-vessel content (birds, custom scenery), the builder needs a second entry point that takes a mesh definition (path, texture, scale, animation) instead of a vessel snapshot. The current architecture supports this — `BuildGhost` is a clean entry point that produces a GameObject. A `BuildCustomMeshGhost` method can be added alongside without restructuring.
+**Test and tooling coupling.** About 342 test files touch engine types, mostly through `internal`. About 12 tests read specific engine / recorder files by path (`LoopUnitSetCoherenceTests`, `GrepAuditNonLoopLivePidTests`, `ReFlyAnchorBypassWiringTests`, `Bug278SnapshotPersistenceTests`, and others); whole-tree grep audits (`scripts/grep-audit-*.ps1`, `GrepAuditTests`) scan `Source/Parsek` only and would silently stop covering moved files; `harness/lib/test_ghostlife.py` and `test_samplingq.py` read engine / recorder files by path and would fail, not skip. 49 in-game test files reference engine types. There is no `.gitmodules`; CI checks out without submodules.
 
 ---
 
-## 6. Trajectory Recorder
+## 11. Extraction phases (if and when it is scheduled)
 
-Gloops ships a minimal recorder for standalone use. It records a single vessel's trajectory and part events — the visual data needed for ghost replay.
+Each phase is behavior-identical for Parsek: `.prec` bytes identical, no schema generation bump, `[Parsek]` log lines identical, xUnit and harness tiers green.
 
-### 6.1 What the Recorder Captures
-
-Extracted from the trajectory sampling and part event capture code in `FlightRecorder.cs`:
-
-- **Trajectory frames** — adaptive sampling via `TrajectoryMath.ShouldRecordPoint` (velocity, acceleration, angular change thresholds)
-- **Track sections** — environment classification (`SegmentEnvironment` taxonomy) with hysteresis, reference frame tagging
-- **Part events** — 35 types across 16 tracking sets, polled every physics frame
-- **Orbital checkpoints** — Keplerian elements at on-rails/off-rails boundaries
-- **Vessel snapshot** — at recording start (ghost visual) and periodic refresh (`RefreshBackupSnapshot`)
-- **Atmosphere/altitude/SOI boundaries** — detected during recording, emitted as metadata for the consumer to split on
-
-### 6.2 What the Recorder Does NOT Capture
-
-These are consumer (Parsek) concerns, not part of the Gloops recorder:
-
-- Game state (funds, science, reputation) — Parsek stores these in a parallel ledger
-- Crew assignments or transfers — Parsek's `SegmentEvent` tracks these
-- Controller identity or changes — Parsek's identity tracking
-- Resource levels — Parsek's Phase 11 feature
-- Background vessel trajectories — Parsek's `BackgroundRecorder`
-- Tree/DAG structure — Parsek's `RecordingTree` / `BranchPoint`
-- Post-commit splitting — Parsek's `RecordingOptimizer`
-
-### 6.3 Recording Flow
-
-```
-Recording triggered (manual or by consumer)
-  -> Begin sampling active vessel
-  -> Trajectory frames added via adaptive sampling
-  -> Track sections managed by environment hysteresis
-  -> Part events polled every physics frame
-  -> On-rails transitions: orbit segment captured, boundary point sampled
-  -> Atmosphere/altitude/SOI boundary: metadata emitted (consumer decides whether to split)
-  -> On recording stop:
-       Vessel snapshot captured (end-state)
-       Final orbit segment closed, final track section closed
-       Part events sorted chronologically
-       Data returned to consumer
-```
-
-### 6.4 Staging and Splits
-
-When the recorded vessel stages or decouples, the Gloops recorder does not create child segments or a segment group. It continues recording the vessel it was tracking (whichever piece retains the focus).
-
-The consumer detects staging events (via KSP callbacks like `onPartJointBreak`) and handles the tree implications — creating child Recording objects, starting new recorders for each piece, linking them via BranchPoints. From Gloops's perspective, one recording stopped and another started.
+0. **Decisions and doc** (this document).
+1. **In-repo Core folder, leaf moves.** A top-level `Gloops/Core/` folder shaped like the future repository, compiled by `Parsek.csproj`. Move the clean leaves (section 10), the engine-key codec and the pure part-event classifiers. Teach every path-reading test, grep audit and harness cell a list of source roots. Mostly mechanical.
+2. **Invert the engine's back-edges.** Replace the `RecordingStore`, `ParsekFlight`, `ReFlySessionMarker` and `GhostMapPresence` calls with host interfaces; reduce the skip reason to a skip flag plus a log string; split `GhostPlaybackLogic` (event replay, FX, zones and loop clock to Core; spawn, chain, watch mode and SpanClock / Reaim stay in Parsek). The real work: 9k-line files under active churn, in several small PRs.
+3. **Recorder building blocks.** One per-vessel part-event poller and sampler that writes to a sink, replacing the duplicated foreground / background wrappers; `EnvironmentDetector`, `ShouldRecordPoint`, `PartStateSeeder` with it. Worth doing for Parsek on its own (it removes the duplication).
+4. **Codec elements.** Binary element writers work on a trajectory DTO; Parsek keeps the `PSK0` header and healing helpers. Golden-byte tests on existing fixtures.
+5. **Standalone shell** in `Gloops/Standalone/`: host, positioner, take recorder (section 5), UI, `.gloop` storage. Delete the in-Parsek Gloops feature (section 7); it does not depend on phases 1-4 and can go first.
+6. **Repository split.** `git filter-repo --path Gloops/` into the new repository, then mount it back at the same path as a submodule. Wire CI `submodules: recursive` (plus a credential if private), the cloud session-start hook, and worktree setup (`git submodule update --init` per worktree).
 
 ---
 
-## 7. Content Pack System
-
-### 7.1 Pack Structure
-
-```
-GameData/Gloops/Packs/KSCTraffic/
-  manifest.cfg                    — pack metadata and loop definitions
-  loops/
-    cargo_plane_circuit.gloop     — recorded trajectory
-    rover_patrol.gloop
-  meshes/                         — optional: custom (non-KSP-part) meshes
-    seagull.mu
-    seagull.png
-```
-
-### 7.2 Manifest Format
-
-KSP ConfigNode for ecosystem consistency:
-
-```
-GLOOPS_PACK
-{
-  name = KSC Traffic
-  author = ExampleAuthor
-  version = 1.0
-  description = Background traffic around KSC
-
-  LOOP
-  {
-    file = loops/cargo_plane_circuit.gloop
-    anchorBody = Kerbin
-    anchorLatitude = -0.0972
-    anchorLongitude = -74.5577
-    spawnCondition = KSC_LOADED
-    loopInterval = 300
-    priority = SCENERY
-    enabled = true
-  }
-}
-```
-
-### 7.3 Spawn Conditions
-
-| Condition | Trigger |
-|---|---|
-| KSC_LOADED | KSC scene or flight near KSC |
-| BODY_LOADED | Player is at the specified body |
-| DISTANCE | Player is within configurable radius of anchor point |
-| ALWAYS | Active whenever the game is running |
-
-### 7.4 Validation
-
-On game load, Gloops validates packs: manifest parses, `.gloop` files exist with valid headers, referenced KSP parts exist in part database. Failures are logged clearly. Broken loops are skipped. Missing parts degrade gracefully (incomplete mesh).
-
-### 7.5 Pack State
-
-Per-save state file tracks which packs and loops are enabled/disabled. Toggled via standalone UI or consumer API.
-
----
-
-## 8. Consumer API
-
-The API is defined by the existing interfaces. A consumer like Parsek interacts with Gloops through these contracts:
-
-### 8.1 Data Contract: IPlaybackTrajectory
-
-The consumer provides trajectory data by implementing `IPlaybackTrajectory` (Section 3.1). Parsek's `Recording` already implements this. Content pack trajectories also implement it.
-
-### 8.2 Per-Trajectory Policy: TrajectoryPlaybackFlags
-
-The consumer fills a `TrajectoryPlaybackFlags` struct per trajectory before each `UpdatePlayback` call. This is how the consumer tells the engine what to do without the engine knowing why (Section 4.2).
-
-### 8.3 Per-Frame Context: FrameContext
-
-The consumer provides physical context each frame via `FrameContext` (Section 4.3).
-
-### 8.4 Positioning: IGhostPositioner
-
-The consumer implements `IGhostPositioner` to handle all world-space placement (Section 4.5). Gloops calls these methods; the consumer does the KSP-specific coordinate transforms.
-
-### 8.5 Lifecycle Events
-
-The consumer subscribes to lifecycle events (Section 4.6) to react to playback completion, loop restarts, overlap expiry, and camera actions.
-
-### 8.6 Recording Control
-
-```
-GloopsRecorder.Start(vessel)  -> recordingSessionId
-GloopsRecorder.Stop()         -> trajectory data (frames, part events, track sections, snapshots)
-GloopsRecorder.GetState()     -> in-progress trajectory data
-```
-
-The consumer calls these to drive recording. The returned trajectory data becomes the visual core of whatever the consumer stores (Parsek wraps it in a `Recording` with metadata).
-
-### 8.7 Content Pack Control
-
-```
-GloopsAPI.GetInstalledPacks()          -> list of pack metadata
-GloopsAPI.SetPackEnabled(packId, bool)
-GloopsAPI.SetLoopEnabled(loopId, bool)
-```
-
-### 8.8 UI Suppression
-
-```
-GloopsAPI.RegisterConsumerUI()    — disables Gloops standalone UI
-GloopsAPI.UnregisterConsumerUI()  — re-enables it
-```
-
-When Parsek is installed, it registers as consumer and provides all UI itself.
-
----
-
-## 9. Parsek Integration
-
-### 9.1 Data Flow
-
-```
-Parsek Recording (stored in timeline, serialized in .prec/.sfs)
-  = Gloops trajectory data (implements IPlaybackTrajectory)
-      Points, OrbitSegments, TrackSections, PartEvents, FlagEvents,
-      GhostVisualSnapshot, loop config
-  + Parsek metadata envelope:
-      RecordingId, TreeId, VesselPersistentId
-      DAG linkage (ParentBranchPointId, ChildBranchPointId)
-      VesselSnapshot (full ProtoVessel — crew, resources, modules)
-      ControllerInfo list, SegmentEvents (identity tracking)
-      TerminalState, spawn tracking, SceneExitSituation
-      Resource deltas, pre-launch resources, rewind save
-      CrewEndStates, crew reservation
-      RecordingGroups (UI grouping)
-```
-
-The Gloops trajectory data is the visual core. The Parsek metadata envelope is everything needed for timeline semantics, game state, and world presence.
-
-### 9.2 Tree Topology
-
-Parsek's `RecordingTree` is a DAG of Recording objects connected by `BranchPoint`s. Staging creates new Recordings (not segment groups or split points). The tree walker, optimizer, and chain walker all operate on this structure. Gloops knows nothing about it — it receives N trajectories in a flat list.
-
-Debris recordings get `LoopSyncParentIdx` set to their parent's index, so the engine replays them in sync. This is the only tree-awareness Gloops needs, and it's expressed as a simple integer index, not a tree structure.
-
-### 9.3 Policy Hookup
-
-```
-ParsekFlight (host)
-  -> Builds TrajectoryPlaybackFlags[] from chain walker, spawn decisions, tree state
-  -> Builds FrameContext from current flight state
-  -> Calls GhostPlaybackEngine.UpdatePlayback()
-  -> Engine fires lifecycle events
-  -> ParsekPlaybackPolicy subscribes:
-       PlaybackCompleted → spawn decision, resource application, camera management
-       LoopRestarted → camera retarget
-       OverlapExpired → cleanup
-       CameraAction → FlightCamera manipulation
-```
-
-### 9.4 What Parsek Owns (Not Gloops)
-
-- **RecordingTree / BranchPoint** — DAG structure, staging decomposition, merge tracking
-- **GhostChainWalker / GhostChain** — chain ghost linking across trees
-- **BackgroundRecorder** — multi-vessel recording sessions
-- **RecordingOptimizer** — post-commit environment-boundary splitting
-- **ParsekPlaybackPolicy** — spawn decisions, resource application, chain suppression
-- **VesselSpawner** — real vessel spawning from snapshots
-- **CommNet relay, GhostMapPresence** — world presence (tracking station, orbit lines)
-- **Timeline, GameActions, CrewReservation** — career mode systems
-- **RecordingStore, ParsekScenario** — persistence and save/load
-
----
-
-## 10. File Format
-
-### 10.1 The .gloop File
-
-A `.gloop` file is a serialized trajectory — everything needed to play back a ghost. KSP ConfigNode syntax for ecosystem consistency.
-
-```
-GLOOP_HEADER
-{
-  formatVersion = 1
-  createdBy = Gloops 1.0
-  vesselName = Untitled Craft
-  bodyName = Kerbin
-  duration = 542.3
-  meshSource = VESSEL_SNAPSHOT
-}
-
-TRAJECTORY
-{
-  TRACK_SECTION
-  {
-    environment = 0
-    referenceFrame = 0
-    startUT = 1000.0
-    endUT = 1045.2
-    FRAME { ut = 1000.0 lat = -0.0972 lon = -74.5577 alt = 75.2 ... }
-    FRAME { ut = 1000.5 lat = -0.0971 lon = -74.5576 alt = 80.1 ... }
-    ...
-  }
-  TRACK_SECTION
-  {
-    environment = 2
-    referenceFrame = 2
-    startUT = 1045.2
-    endUT = 1542.3
-    CHECKPOINT { startUT = 1045.2 endUT = 1542.3 inc = 28.5 ecc = 0.001 ... }
-  }
-}
-
-PART_EVENTS
-{
-  EVENT { ut = 1003.2 pid = 100000 type = 5 pn = liquidEngine.v2 val = 1.0 midx = 0 }
-  EVENT { ut = 1045.1 pid = 100000 type = 6 pn = liquidEngine.v2 val = 0.0 midx = 0 }
-  ...
-}
-
-VESSEL_SNAPSHOT
-{
-  // ConfigNode from vessel.BackupVessel() — part tree, modules, mesh data
-  ...
-}
-```
-
-### 10.2 Relationship to Parsek's .prec
-
-Parsek's `.prec` sidecar files contain Gloops trajectory data inline plus Parsek-specific metadata (resource deltas, segment events, etc.). The `.prec` format is a superset of `.gloop`.
-
-**Embedding approach (recommended):** The `.prec` file embeds Gloops data using the same field names and structure as `.gloop`. Gloops never reads `.prec` files directly — Parsek extracts Gloops data and feeds it through the API. When Parsek exports a `.gloop` (for content pack creation or sharing), it strips its metadata and writes pure Gloops format.
-
-### 10.3 Version Evolution
-
-Additive format: new fields are added, old fields are never renamed or removed. Old `.gloop` files play at reduced fidelity in newer Gloops versions. The version field gates feature availability.
-
----
-
-## 11. Extraction Plan
-
-### 11.1 Files That Move to Gloops
-
-These files have zero or minimal Parsek-specific references and form the engine core:
-
-| File | Current state | Notes |
-|---|---|---|
-| `GhostPlaybackEngine.cs` | Zero Recording references | Ready to move |
-| `GhostPlaybackEvents.cs` | Pure event types | Ready to move |
-| `IPlaybackTrajectory.cs` | Interface definition | Ready to move |
-| `IGhostPositioner.cs` | Interface definition | Ready to move |
-| `GhostVisualBuilder.cs` | Builds GameObjects from snapshots | Minor: remove 4 lines of showcase heuristic checks |
-| `GhostTypes.cs` | All ghost info types (EngineGhostInfo, RcsGhostInfo, etc.) | Ready to move |
-| `GhostPlaybackState.cs` | Per-ghost render state, InterpolationResult | Ready to move |
-| `GhostSoftCapManager.cs` | GhostPriority enum, cap logic | Ready to move |
-| `RenderingZoneManager.cs` | RenderingZone enum, zone logic | Ready to move |
-| `TrajectoryPoint.cs` | Position + game-state fields | Strip funds/science/reputation |
-| `TrackSection.cs` | Environment, reference frame, frames | Ready to move |
-| `OrbitSegment.cs` | Keplerian checkpoint | Ready to move |
-| `PartEvent.cs` | 35 event types | Ready to move |
-| `FlagEvent.cs` | Flag placement events | Ready to move |
-| `SurfacePosition.cs` | Body/lat/lon/alt/rotation | Ready to move |
-| `TerminalState.cs` | Terminal state enum | Ready to move |
-| `TrajectoryMath.cs` | Interpolation, sampling, orbit search | Extract `RecordingStats`/`ComputeStats` to Parsek side |
-
-### 11.2 Files That Need Pre-Extraction Splitting
-
-| File | What moves to Gloops | What stays in Parsek |
-|---|---|---|
-| `GhostPlaybackLogic.cs` | Part event replay, FX application, zone rendering, warp policy, ghost info population, deployable/light/heat state | Spawn-at-recording-end decisions, chain suppression, tree navigation, watch mode target finding |
-| `FlightRecorder.cs` | Trajectory sampling, part event capture, environment classification, track section management, snapshot refresh | Tree building, background vessel coordination, resource capture, rewind save, chain boundary handling |
-| `TrajectoryMath.cs` | Interpolation, sampling decision, orbit math | `RecordingStats`, `ComputeStats` |
-| `Recording.cs` | Extract `LoopTimeUnit` enum to shared location | Everything else (Parsek metadata envelope) |
-
-### 11.3 Cross-Cutting Dependencies
-
-| Dependency | Resolution |
-|---|---|
-| `ParsekLog` (used pervasively in engine code) | Extract as shared logging abstraction, or Gloops ships its own `GloopsLog` with same API shape |
-| `FlightRecorder.EncodeEngineKey` (used in FX code, 7 call sites) | Extract to shared utility (pure function: `(pid, moduleIndex) -> ulong`) |
-| `ConfigNode` (KSP type used everywhere) | KSP assembly reference — both mods need it regardless |
-
-### 11.4 Files That Stay in Parsek
-
-- `Recording.cs` — Parsek metadata envelope, implements Gloops interface
-- `RecordingTree.cs`, `BranchPoint.cs` — tree/DAG topology
-- `GhostChainWalker.cs`, `GhostChain.cs` — chain ghost logic
-- `BackgroundRecorder.cs` — multi-vessel recording
-- `RecordingOptimizer.cs` — post-commit splitting/merging
-- `ParsekPlaybackPolicy.cs` — spawn/resource/camera policy
-- `VesselSpawner.cs` — real vessel spawning
-- `RecordingStore.cs`, `ParsekScenario.cs` — persistence
-- All UI, timeline, game actions, crew, CommNet code
-
-### 11.5 Extraction Sequence
-
-1. **Pre-extraction refactors** — Split `GhostPlaybackLogic.cs` into engine-layer and policy-layer. Extract recorder code from `FlightRecorder.cs`. Move `LoopTimeUnit` to own file. Extract `EncodeEngineKey` to utility. Create `GloopsLog` abstraction.
-2. **Create Gloops assembly** — New .csproj, move files from Section 11.1.
-3. **Define `.gloop` format** — Serialization/deserialization for trajectory data.
-4. **Implement content pack loader** — Manifest parser, spawn condition manager, validation.
-5. **Build standalone UI** — Loop manager, pack toggles, settings. Suppressed when consumer registered.
-6. **Refactor Parsek to depend on Gloops** — `Recording` implements Gloops interface, `ParsekFlight` creates Gloops engine, policy subscribes to events.
-7. **Verify** — Parsek + Gloops produces identical behavior to pre-extraction Parsek.
-8. **Verify** — Gloops standalone works without Parsek.
-
----
-
-## 12. Open Questions
-
-1. **ConfigNode vs compact format for trajectory frames.** ConfigNode is ecosystem-consistent but verbose. Trajectory data is the bulk of file size. Compact numeric encoding (one line per frame, tab-separated) is already used in `.prec` files. *(Decision needed: format design stage)*
-
-2. **Custom mesh loading.** Unity AssetBundles, raw `.mu` files, or OBJ import? Balancing capability vs. authoring friction for content creators. *(Decision needed: content pack implementation)*
-
-3. **EVA recording in Gloops standalone.** EVA kerbals are single-mesh, no staging. Useful for content packs (kerbal walking around KSC). The recorder should handle them as a regular vessel. *(Likely: yes, no special casing needed)*
-
-4. **Logging integration.** Shared abstraction or independent logging? If shared, versioning implications. If independent, duplicate log infrastructure. *(Decision needed: extraction stage)*
-
-5. **Multiple consumers.** Can multiple mods use Gloops simultaneously? Affects UI suppression and API design. *(Decision needed: API design)*
-
----
-
-## 13. Deferred Items
-
-| Item | Reason |
-|---|---|
-| Full ghost visual treatment (transparency, outlines) | Labels provide minimum viable distinction |
-| LOD system for ghost meshes | Performance optimization — profile first |
-| Particle system pooling for FX | Performance optimization |
-| In-game content pack authoring tool | Recorder covers basic authoring |
-| Gzip compression for .gloop files | File size — measure first |
-
----
-
-*This document describes Gloops as an extraction of existing Parsek code. The interfaces, data structures, and engine boundaries documented here already exist in the codebase. The extraction itself will not begin until current Parsek feature work is complete, but the code is already structured for a clean move.*
+## 12. Open questions
+
+1. **Whether and when to extract at all.** Decided for now (2026-10-05): not scheduled. Parsek's recorder carries much more than a ghost recorder needs; a Core cut too low gives Gloops little, a cut too high drags Parsek concepts into it, and with Parsek and Gloops isolated (rulings 2, 6, 7) a shared Core buys only fix-sharing while its cost lands on Parsek's most-changed code. So: Parsek-only simplification now (delete the in-Parsek Gloops recorder, remove player-authored looping, optionally deduplicate the part-event pollers, phase 3, on its own merits), and when a standalone Gloops is wanted, fork Parsek's ghost code at that moment. The phased Core plan in section 11 stays as the reference if a shared Core is ever chosen instead.
+2. The four items in section 5.7.
+3. `.gloop` encoding: ConfigNode (ecosystem-consistent, verbose) or the compact binary element encoding.
+4. Custom mesh source for content packs: AssetBundles, `.mu`, or OBJ.
