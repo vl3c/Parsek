@@ -3010,10 +3010,6 @@ namespace Parsek
             // behavior (Ledger.Actions raw) matches the Phase 9 output on a
             // save with no tombstones (trivially), so this is a drop-in for
             // existing behavior plus the new tombstone filter.
-            //
-            // NOTE: Ghost-only actions are purged from Ledger.Actions above,
-            // so ComputeELS (which derives from Ledger.Actions) correctly
-            // reflects the post-purge state.
             return new List<GameAction>(EffectiveState.ComputeELS());
         }
 

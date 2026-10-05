@@ -179,7 +179,7 @@ structure:
 | `void OnGUI()` in production | **5** hosts: `ParsekFlight.cs:2087`, `ParsekKSC.cs:227`, `ParsekTrackingStation.cs:350`, `CurrencyReservationOverlay.cs:87`, `InGameTests/TestRunnerShortcut.cs:177` (`OverlayBadge.cs` was the sixth until 2026-09-25, when the stock-UI badges moved to stock mechanisms and the file was deleted) |
 | IMGUI draw calls outside `UI/` | 6 files: `CurrencyReservationOverlay.cs`, `MapMarkerRenderer.cs`, `ParsekFlight.cs`, `ParsekKSC.cs`, `ParsekUI.cs`, `WatchModeController.cs` (`OverlayBadge.cs` deleted 2026-09-25) |
 | `UiSurfaceVisibility.IsVisible(` | **12** call sites in 5 files at `4eb427e9e`, where 4 of the 14 enum keys had none; the enum has **13** keys since the Gloops removal (3.16) |
-| `ParsekLog.ScreenMessage` / `ScreenMessages.PostScreenMessage` | 107 raw, **95** real producers at `4eb427e9e`; **92** since the two `All ... wiped` toasts left with the Settings wipes and `ParsekFlight.DeleteRecording`'s toast with it (2026-09-26); **87** since the five Gloops toasts left with the Gloops recorder (2026-10-05) |
+| `ParsekLog.ScreenMessage` / `ScreenMessages.PostScreenMessage` | 107 raw, **95** real producers at `4eb427e9e`; **92** since the two `All ... wiped` toasts left with the Settings wipes and `ParsekFlight.DeleteRecording`'s toast with it (2026-09-26); **87** measured 2026-10-05 after the six Gloops toasts left with the Gloops recorder (the 92 reading was one low: `DeleteGhostOnlyRecording`'s toast was still in the tree, 93) |
 
 ## 2. How the picture was taken
 
@@ -1445,10 +1445,11 @@ The whole non-window notification budget, grouped by trigger class: 91 producing
 `ParsekLog.ScreenMessage` / `ScreenMessages.PostScreenMessage` outside `InGameTests/` and
 `TestCommands/` (the sink itself and one forwarding wrapper excluded). Full per-site table with
 exact text: research note appendix 2 (its 2026-09-11 reading, 95 producers). Eight have left
-since: the two `All ... wiped` toasts and the ghost-only delete toast (2026-09-26), and the
-five Gloops toasts (`Gloops Recording STARTED`, `... auto-saved (vessel switched)`, `... too
-short - discarded`, `... discarded`, `Gloops Preview STARTED`) with the Gloops recorder
-(2026-10-05), which also retires the table's Gloops class.
+since (87 measured 2026-10-05): the two `All ... wiped` toasts (2026-09-26), and the six
+Gloops toasts (`Gloops Recording STARTED`, `... auto-saved (vessel switched)`, `... too
+short - discarded`, `... discarded`, `Gloops Preview STARTED`, and `DeleteGhostOnlyRecording`'s
+`Ghost recording ... deleted`) with the Gloops recorder (2026-10-05), which also retires the
+table's Gloops class.
 
 | trigger class | producers | notes |
 |---|---|---|
