@@ -871,6 +871,31 @@ A single Recording can be split at a TrackSection boundary where the environment
 | Approach | `"approach"` |
 | All others | `"exo"` |
 
+**Parent links across a split** (`SplitParentLinks`): the original id stays on the first
+half and the second half gets a new id, so every link that names the recording as the
+PARENT of something at or after the cut moves to the second half: each `BranchPoint` whose
+`ParentRecordingIds` lists it with `UT >= cut - 0.0001 s` (any type: the branch point the
+recording ends at, which also carries `ChildBranchPointId` over, a decouple the vessel flew
+on past, a dock, an EVA, a ground part, a post-switch launch), and each child recording whose
+`ParentRecordingId` names it with a link UT at or after the cut (the UT of the branch point
+that created the child's first chain segment, else that segment's start, so a split child
+moves whole). An event exactly at the cut belongs to the second half, whose first sample is
+the cut. The Re-Fly HEAD/TIP split (`RecordingTreeSplitter` step 2.6) applies the same rule
+through its rollback ledger. The merge that reverses a split points every link naming the
+absorbed recording at the survivor. Trees written before the rule are corrected on load by
+`SplitParentLinks.RepairStaleParents` (after sidecar hydration in `LoadRecordingTrees` and the
+pending / active tree restores): a link walks forward through the unique next chain segment
+while the event is at or after that segment's start, never onto a segment the branch point
+itself created, and stops on an ambiguous or data-less successor; idempotent, one Info line
+per repaired tree. The repair rewrites ids within the current shape, so it is not a format
+change and touches no schema generation. The playback anchors (`ParentAnchorRecordingId`,
+`TrackSection.anchorRecordingId`) are frame links, not parent links, and stay on the
+segment they were recorded against. Readers that decide a later segment's continuation or
+leafness from its branch points skip one the vessel flew on past
+(`SplitParentLinks.IsFlownPastOnLaterSegment`: a later chain segment, at or after its start,
+not its `ChildBranchPointId` and not at its end UT), which is how those readers saw the
+branch point when it stayed on the first segment.
+
 #### Discovery Passes
 
 **`FindMergeCandidates`**: Groups committed recordings by `ChainId`, sorts each group by `ChainIndex`, tests all consecutive pairs with `CanAutoMerge`.

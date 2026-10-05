@@ -1442,6 +1442,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A branch point after a recording split now names the segment it happened on.** When a
+  recording is split (the optimizer's cut at an atmosphere exit or a body change, or a
+  Re-Fly's HEAD/TIP cut), every branch point that names the recording as a parent at or
+  after the cut, and every EVA kerbal or switch continuation linked to it from then on, now
+  names the later segment that holds the event; a split only moved the branch point the
+  recording ended at, so a probe decoupled in orbit still named the launch segment. The merge
+  that reverses a split points those links back at the surviving recording. Saves written
+  before the fix are corrected on load (once per tree, logged as
+  `[SplitParentLinks] RepairStaleParents`), with no change to the recording format. One
+  visible change: a Log row for a stage dropped after a split now reads the body it dropped
+  at (`Duna`, not `Kerbin`). The Missions composition, its stored interval keys (checked on
+  every recorded fixture), which recording spawns at the end of a flight, and a Re-Fly's
+  debris read exactly as before.
 - **R&D's Research button now greys out when science held for later research makes a node
   unaffordable.** Stock never greys Research for science; it refuses at the click. When the
   science bar showed enough but later research on the timeline needed part of it, Parsek

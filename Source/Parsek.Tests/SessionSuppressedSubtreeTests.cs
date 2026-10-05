@@ -229,6 +229,42 @@ namespace Parsek.Tests
             Assert.Contains("rec_debris", closure);
         }
 
+        // catches: the split repointing a decouple to the segment that holds its UT while
+        // its debris keeps the anchor on the first segment (the anchor is a playback frame
+        // link): the debris still joins the closure (it did when the decouple named the head).
+        // The breakup the tail ends at is reached through its ChildBranchPointId, as before.
+        [Fact]
+        public void SplitChainDebris_AnchorOnHead_BranchPointOnTail_ClosureUnchanged()
+        {
+            var head = Rec("rec_head", "tree_1");
+            head.ChainId = "chain"; head.ChainIndex = 0;
+            var tail = Rec("rec_tail", "tree_1", childBranchPointId: "bp_end");
+            tail.ChainId = "chain"; tail.ChainIndex = 1;
+            Recording Debris(string id, string bpId) => new Recording
+            {
+                RecordingId = id, VesselName = id, TreeId = "tree_1",
+                MergeState = MergeState.Immutable, IsDebris = true,
+                ParentBranchPointId = bpId, ParentAnchorRecordingId = "rec_head",
+            };
+            var flownPast = Debris("rec_debris_mid", "bp_mid");
+            var atEnd = Debris("rec_debris_end", "bp_end");
+            var bpMid = Bp("bp_mid", BranchPointType.JointBreak,
+                parents: new List<string> { "rec_tail" }, children: new List<string> { "rec_debris_mid" });
+            var bpEnd = Bp("bp_end", BranchPointType.Breakup,
+                parents: new List<string> { "rec_tail" }, children: new List<string> { "rec_debris_end" });
+
+            InstallTree("tree_1",
+                new List<Recording> { head, tail, flownPast, atEnd },
+                new List<BranchPoint> { bpMid, bpEnd });
+            InstallScenario(Marker("rec_head"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_head"));
+
+            Assert.Contains("rec_tail", closure);
+            Assert.Contains("rec_debris_mid", closure);
+            Assert.Contains("rec_debris_end", closure);
+        }
+
         [Fact]
         public void BackgroundSplitDebris_AnchoredToContinuation_ExcludedFromClosure()
         {

@@ -137,7 +137,8 @@ namespace Parsek
             {
                 if (s.LegsById.TryGetValue(leg.BranchChildIds[i], out MissionLeg child)
                     && !child.IsAnchoredOffshoot
-                    && string.IsNullOrEmpty(child.EvaCrewName))
+                    && string.IsNullOrEmpty(child.EvaCrewName)
+                    && !leg.NonContinuingChildIds.Contains(child.RecordingId))
                 {
                     if (child.IsBranchContinuation)
                         return child.RecordingId;

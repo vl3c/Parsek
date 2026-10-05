@@ -543,6 +543,62 @@ namespace Parsek.Tests
             Assert.Equal(2, result.BpReparented);
         }
 
+        // catches: the Re-Fly split repointing a branch point to TIP but leaving the EVA
+        // kerbal that branch point created naming HEAD (SplitParentLinks child links), and
+        // the rollback ledger not undoing the child rewrite.
+        [Fact]
+        public void SplitOriginAtRewindUT_ChildParentLinksFollowTheirBranchPoint_AndRollBack()
+        {
+            var origin = BuildRecording("rec_origin", 8.0, 53.0, midUT: 34.0,
+                treeId: "tree_5c", terminal: TerminalState.Destroyed);
+            var tree = InstallOriginInTree(origin, "tree_5c");
+
+            var evaEarly = new BranchPoint
+            {
+                Id = "bp_eva_early", Type = BranchPointType.EVA, UT = 20.0,
+                ParentRecordingIds = new List<string> { origin.RecordingId },
+                ChildRecordingIds = new List<string> { "kerbal_early" },
+            };
+            var evaLate = new BranchPoint
+            {
+                Id = "bp_eva_late", Type = BranchPointType.EVA, UT = 40.0,
+                ParentRecordingIds = new List<string> { origin.RecordingId },
+                ChildRecordingIds = new List<string> { "kerbal_late" },
+            };
+            tree.BranchPoints.Add(evaEarly);
+            tree.BranchPoints.Add(evaLate);
+            var kerbalEarly = BuildRecording("kerbal_early", 20.0, 30.0, midUT: 25.0, treeId: "tree_5c");
+            kerbalEarly.EvaCrewName = "Jeb";
+            kerbalEarly.ParentRecordingId = origin.RecordingId;
+            kerbalEarly.ParentBranchPointId = evaEarly.Id;
+            var kerbalLate = BuildRecording("kerbal_late", 40.0, 50.0, midUT: 45.0, treeId: "tree_5c");
+            kerbalLate.EvaCrewName = "Bill";
+            kerbalLate.ParentRecordingId = origin.RecordingId;
+            kerbalLate.ParentBranchPointId = evaLate.Id;
+            tree.AddOrReplaceRecording(kerbalEarly);
+            tree.AddOrReplaceRecording(kerbalLate);
+
+            var marker = BuildMarker(origin, rewindUT: 34.0);
+            var result = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+
+            Assert.False(result.Skipped);
+            string tipId = result.TipRecordingId;
+            Assert.Equal(new[] { origin.RecordingId }, evaEarly.ParentRecordingIds);
+            Assert.Equal(origin.RecordingId, kerbalEarly.ParentRecordingId);
+            Assert.Equal(new[] { tipId }, evaLate.ParentRecordingIds);
+            Assert.Equal(tipId, kerbalLate.ParentRecordingId);
+            Assert.Equal(1, result.BpReparented);
+            Assert.Equal(1, result.ChildParentReparented);
+            Assert.Contains(logLines, l => l.Contains("[SplitParentLinks]")
+                && l.Contains("Re-Fly split") && l.Contains("childParents=1"));
+
+            // The ledger entry for the child rewrite undoes it.
+            RecordingTreeSplitter.SplitMutationLedger.Undo(
+                RecordingTreeSplitter.SplitMutationLedger.ChildParent(
+                    kerbalLate, origin.RecordingId, tipId));
+            Assert.Equal(origin.RecordingId, kerbalLate.ParentRecordingId);
+        }
+
         // =====================================================================
         // 6. Debris reparented
         // =====================================================================

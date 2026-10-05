@@ -130,10 +130,11 @@ namespace Parsek.Tests
 
         // catches: the in-game shape of this fixture. On load the optimizer splits the
         // docking mission's root at its atmosphere exit (UT 568.23, GUI-4 2026-10-01_1603)
-        // into chain segments, forwarding every permanent part event as seeds at the cut,
-        // and leaves the probe separation's branch point (UT 692.77) naming the HEAD while
-        // the Poodle shroud that drops with it sits on the TAIL. The flight drew a stray
-        // "Shroud jettisoned" row there; the Log must read exactly as before the split.
+        // into chain segments, forwarding every permanent part event as seeds at the cut;
+        // the probe separation's branch point (UT 692.77) and the dock follow the cut onto
+        // the TAIL (SplitParentLinks), where the Poodle shroud that drops with the probe
+        // sits. The flight once drew a stray "Shroud jettisoned" row there; the Log must
+        // read exactly as before the split.
         [Fact]
         public void DockingMission_AfterTheOptimizerSplit_ReadsTheSameRows()
         {
@@ -153,9 +154,14 @@ namespace Parsek.Tests
             head.ChildBranchPointId = null;
             tail.TerminalStateValue = head.TerminalStateValue;
             head.TerminalStateValue = null;
+            SplitParentLinks.RepointToTail(tree, head.RecordingId, tail, tail.StartUT, null, "test");
             tree.Recordings[tail.RecordingId] = tail;
             BranchPoint dock = tree.BranchPoints.Single(b => b.Type == BranchPointType.Dock);
-            dock.ParentRecordingIds[0] = tail.RecordingId;
+            BranchPoint probe = tree.BranchPoints.Single(b => b.Id == "fc4591e43cdf443993a0d6399a9cf516");
+            Assert.Equal(new[] { tail.RecordingId }, dock.ParentRecordingIds);
+            Assert.Equal(new[] { tail.RecordingId }, probe.ParentRecordingIds);
+            Assert.All(tree.BranchPoints.Where(b => b.UT < 568.23),
+                b => Assert.Equal(new[] { head.RecordingId }, b.ParentRecordingIds));
             // The cut really did forward the launch's part state onto the tail.
             Assert.Contains(tail.PartEvents, e => Math.Abs(e.ut - 568.23160278301521) < 1e-6
                 && e.eventType == PartEventType.ShroudJettisoned);
