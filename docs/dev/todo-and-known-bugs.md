@@ -15,6 +15,69 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## GLOOPS-EXTRACTION-2026-10-05: Gloops leaves Parsek; model agreed, extraction not scheduled [FILED 2026-10-05 from an owner interview and a measured read of the code, branch `ccr-8a19466a-qh7ey4`. OPEN; decision on whether / when to extract pending]
+
+**Owner rulings 2026-10-05** (full text: `docs/dev/gloops-recorder-design.md` section 1):
+the in-Parsek Gloops feature is deleted from Parsek; Gloops becomes a standalone mod in
+its own repository, mounted in Parsek as a submodule; Parsek compiles its own private copy
+of the shared Core source (no separate DLL, no API, no control of a standalone install);
+Parsek and Gloops record separately on shared building blocks and never read each other's
+data; no export bridge for now; `TrajectoryPoint` career fields stay; Core stays in this
+repository until engine churn settles. The Gloops take model (members, "nothing pops into
+existence", the take ends on any interaction with an external vessel) is design section 5.
+
+**Open:** whether and when to extract at all (design section 11). The 2026-04 extraction
+table was stale: the engine reads `RecordingStore` trees directly, `GhostPlaybackLogic`
+reaches the tree / chain / mission layer, and the recorders are entangled with tree,
+rewind and logistics code (design section 9).
+
+**Defects in the in-Parsek Gloops recorder, found 2026-10-05.** All are resolved by the
+removal; none is to be fixed in place. Each is a requirement the standalone take recorder
+must meet (design section 5.8).
+
+1. **Takes are very likely lost on save and reload** (inferred from source, not run).
+   `RecordingStore.CommitGloopsRecording` appends a treeless recording to the committed
+   list; `ParsekScenario.OnSave` writes only `RECORDING_TREE` nodes and OnLoad ignores
+   standalone `RECORDING` nodes (T56). Contradicts the 0.10.4 CHANGELOG claim that existing
+   ghost-only recordings "still load". One reload test settles it before the `isGhostOnly`
+   codec key is deleted.
+2. **A take started while packed freezes.** `InitializeOnRailsOrbitSegment` sets
+   `isOnRails = true`; go-off-rails is never forwarded to the gloops recorder, so
+   `FlightRecorder.OnPhysicsFrame` returns early for the rest of the take.
+3. **Auto-stop names and snapshots the take from the new vessel.** On an EVA / board /
+   switch pid change, `StopRecording` snapshots `FlightGlobals.ActiveVessel` and
+   `CommitGloopsRecorderData` takes its name, so a craft's flight is saved under the
+   kerbal's name with the kerbal's end snapshot.
+4. **Dropped-stage engine keys are never pruned** (`OnVesselWasModified` is not forwarded),
+   so stop emits terminal `EngineShutdown` / `RCSStopped` events for parts that left.
+5. **The #263 `Decoupled` fallback never runs** for the gloops recorder (the deferred
+   joint-break check is consumed only for the main `recorder`), so a symmetric radial
+   decoupler can leave a separated piece visible on the ghost.
+
+Also mooted by the removal: GUI-P13-D1-D15 (ruled: remove), the GUI-16 raw localization
+key (item 15 of the GUI census findings), the missing `GloopsPreview` verb (item 7), and
+#435 (superseded).
+
+## PARSEK-RECORDING-DOC-DRIFT-2026-10-05: four places where recording docs and code disagree [FILED 2026-10-05 from the Gloops investigation, branch `ccr-8a19466a-qh7ey4`. OPEN, docs plus one possible label gap]
+
+1. `docs/parsek-flight-recorder-design.md` line 120 says "Parsek does not record debris
+   trajectories". It does: `IsDebris` recordings, parent-anchored, for up to 60 s.
+2. The same doc (line 672) and the `BackgroundRecorder` split-check comment say the debris
+   TTL is 30 s; `BackgroundRecorder.DebrisTTLSeconds` is 60.
+3. Undock branch points never carry a split cause. `SplitCause` is assigned only
+   `"DECOUPLE"` in production (`CrashCoalescer.cs:162`, `BackgroundRecorder.cs:1698`), and
+   `ParsekFlight.BuildSplitBranchData` sets none for `Undock`. Yet `MissionStructure` /
+   `MissionStructureList` read `SplitCause ?? BreakupCause` and `MissionComposition` maps
+   `"UNDOCK"` to "Undocked", and the in-game fixtures (`MissionDockCompositionRuntimeTest`,
+   `LogisticsRouteOnMissionsRuntimeTests`, `LogisticsShuttleRuntimeTests`) set
+   `SplitCause = "UNDOCK"`, which production never writes. Check whether a player-visible
+   Missions label depends on it before deciding which side to fix.
+4. `BranchPoint.MergeCause` documents `"CLAW"`; `ParsekFlight.GetMergeCauseForBranchType`
+   only returns `"DOCK"` / `"BOARD"`, so a claw couple is a `Dock` with `MergeCause = "DOCK"`
+   (distinguished only by `TransferKind = Grapple`).
+
+---
+
 ## ~~REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST: Real Spawn Control's "Warp to Spawn" puts an orbital tip on its recorded orbit at the new UT, not where its ghost stood~~ [FILED 2026-10-03 from CI-9 `2026-10-03_1642` / `_1647`, branch `lane-ci9-dock-tip`. FIXED 2026-10-03, branch `fix-orbital-tip-spawn`]
 
 **What the player sees.** In orbit, the player parks 140 m from a ghost whose recording ends
@@ -9465,7 +9528,7 @@ names a control that will not be drawn.
 already effectively concluded), or make the Timeline row draw a disabled Seal with the
 reason in its hover echo, so the advice lands somewhere real.
 
-## GUI-P13-D1-D15-GLOOPS-IS-RETIRED-WHILE-ITS-WINDOW-AND-SEAM-LIVE-ON: decide un-retire or remove [FILED 2026-09-11 by the GUI fix batch]
+## GUI-P13-D1-D15-GLOOPS-IS-RETIRED-WHILE-ITS-WINDOW-AND-SEAM-LIVE-ON: decide un-retire or remove [FILED 2026-09-11 by the GUI fix batch. RULED 2026-10-05: remove; the removal is tracked by GLOOPS-EXTRACTION-2026-10-05]
 
 **Evidence, three findings that are one question.**
 
@@ -17014,6 +17077,11 @@ button, kept only for the Gloops take it discards; it leaves Parsek with the ext
 Every other player deletion path (the Settings wipes, the Recordings-table ghost-only `X`,
 `ParsekFlight.DeleteRecording`) was removed by the ruling that recordings are never
 player-deletable.
+
+**2026-10-05:** owner rulings fix the end state: the whole in-Parsek Gloops feature is
+deleted (removal inventory: `docs/dev/gloops-recorder-design.md` section 7), Gloops becomes
+a standalone mod in its own repository, and Parsek compiles a private copy of the shared
+Core. Tracked by GLOOPS-EXTRACTION-2026-10-05.
 
 ## SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE: the colour-changer cabin-light apply line never fires on the showcase ghosts, so whether the emissive actually toggles is unmeasurable [MEASURED 2026-08-28 on S1.9 reading run 2 (`2026-08-28_2010`): all 25 colour-changer rows spawned meshes, zero `applied color changer cabin light` lines. OBSERVATION, report-only - possibly a real ghost-render gap, possibly Pattern-A discovery correctly finding nothing on these parts]
 
@@ -25369,7 +25437,12 @@ helper, with any UI-only suppression kept outside the click-block predicate.
 
 ---
 
-## 435. Multi-recording Gloops trees (main + debris + crew children, no vessel spawn)
+## ~~435. Multi-recording Gloops trees (main + debris + crew children, no vessel spawn)~~ [SUPERSEDED 2026-10-05 by owner ruling, see GLOOPS-EXTRACTION-2026-10-05]
+
+**2026-10-05:** superseded. Gloops is deleted from Parsek and becomes a standalone mod that
+records separately (it does NOT reuse Parsek's tree or `BackgroundRecorder`); its
+multi-vessel capture is the take model in `docs/dev/gloops-recorder-design.md` section 5.
+The "guiding architectural principle" below no longer holds. Kept for history.
 
 **Source:** world-model conversation on #432 (2026-04-17). The aspirational design for Gloops: when the player records a Gloops flight that stages or EVAs, the capture produces a **tree of ghost-only recordings** — main + debris children + crew children — all flagged `IsGhostOnly`, all grouped under a per-flight Gloops parent in the Recordings Manager, and none of them spawning a real vessel at ghost-end. Structurally the same as the normal Parsek recording tree (decouple → debris background recording, EVA → linked crew child), with the ghost-only flag applied uniformly and the vessel-spawn-at-end path skipped.
 
