@@ -15,7 +15,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## GLOOPS-EXTRACTION-2026-10-05: Gloops leaves Parsek; model agreed, extraction not scheduled [FILED 2026-10-05 from an owner interview and a measured read of the code, branch `ccr-8a19466a-qh7ey4`. OPEN; decision on whether / when to extract pending]
+## PLAYER-LOOPING-REMOVAL: Parsek stops letting the player loop ghosts at will [OWNER-APPROVED 2026-10-05, plan `docs/dev/plans/remove-player-looping.md`, branch `ccr-8a19466a-qh7ey4`. PLANNED, not started]
+
+Owner rulings 2026-10-05: per-recording player loops (Recordings tab loop column, period,
+time unit, auto loop range) are removed entirely and existing saves drop them; in Parsek a
+mission loops only behind a logistics route (the Missions tab loses its loop controls);
+the loop infrastructure routes run on stays. Looping at will is a Gloops concern
+(`docs/dev/gloops-recorder-design.md` section 8). The per-recording loop keys are deleted
+without a schema generation bump (plan section 5, for ratification at review); the harness
+keeps store-mission looping reachable from automation only (plan section 6). PR sequence:
+plan section 7.
+
+## GLOOPS-EXTRACTION-2026-10-05: Gloops leaves Parsek; model agreed, extraction not scheduled [FILED 2026-10-05 from an owner interview and a measured read of the code, branch `ccr-8a19466a-qh7ey4`. OPEN; extraction not scheduled, removal planned]
 
 **Owner rulings 2026-10-05** (full text: `docs/dev/gloops-recorder-design.md` section 1):
 the in-Parsek Gloops feature is deleted from Parsek; Gloops becomes a standalone mod in
@@ -26,10 +37,16 @@ data; no export bridge for now; `TrajectoryPoint` career fields stay; Core stays
 repository until engine churn settles. The Gloops take model (members, "nothing pops into
 existence", the take ends on any interaction with an external vessel) is design section 5.
 
-**Open:** whether and when to extract at all (design section 11). The 2026-04 extraction
-table was stale: the engine reads `RecordingStore` trees directly, `GhostPlaybackLogic`
-reaches the tree / chain / mission layer, and the recorders are entangled with tree,
-rewind and logistics code (design section 9).
+**Extraction: not scheduled** (design section 12, decided 2026-10-05): no standalone use
+now, Parsek is the priority; near-term work is Parsek-only simplification, and a future
+standalone Gloops forks Parsek's ghost code at that moment. The 2026-04 extraction table
+was stale: the engine reads `RecordingStore` trees directly, `GhostPlaybackLogic` reaches
+the tree / chain / mission layer, and the recorders are entangled with tree, rewind and
+logistics code (design section 10).
+
+**Next work** is `docs/dev/plans/remove-player-looping.md`: PR 1 deletes the in-Parsek
+Gloops recorder; PRs 2-4 remove player-authored looping (per-recording loops and the
+Missions tab loop controls; in Parsek a mission loops only behind a logistics route).
 
 **Defects in the in-Parsek Gloops recorder, found 2026-10-05.** All are resolved by the
 removal; none is to be fixed in place. Each is a requirement the standalone take recorder

@@ -1,8 +1,8 @@
 # Gloops - Ghost Loop Recording and Playback
 
-*Design document for Gloops, a standalone KSP1 mod that records a vessel and replays it as looping ghosts, and for the shared ghost core that Parsek compiles in. Rewritten 2026-10-05 from an owner interview and a measured read of the codebase; it supersedes the 2026-04 draft, whose "ready to move" extraction table no longer matched the code (section 9 records the measurements).*
+*Design document for Gloops, a standalone KSP1 mod that records a vessel and replays it as looping ghosts, and for the shared ghost core that Parsek compiles in. Rewritten 2026-10-05 from an owner interview and a measured read of the codebase; it supersedes the 2026-04 draft, whose "ready to move" extraction table no longer matched the code (section 10 records the measurements).*
 
-**Status (2026-10-05):** model and boundary agreed; WHETHER and WHEN to extract is still open (section 11). No code has moved. The in-Parsek Gloops recorder still exists, unreachable by players (its launcher was retired in 0.10.4).
+**Status (2026-10-05):** model and boundary agreed. **No extraction is scheduled**: there is no current standalone use, Parsek is the priority, and the near-term work is Parsek-only simplification (section 12). No code has moved. The in-Parsek Gloops recorder still exists, unreachable by players (its launcher was retired in 0.10.4); its removal and the removal of player-authored looping are planned in `docs/dev/plans/remove-player-looping.md`.
 
 ---
 
@@ -16,6 +16,8 @@
 6. **Recording is separate.** Parsek and standalone Gloops may run different versions, so they record separately and know nothing about each other. Both build on the same core building blocks; neither reads the other's data.
 7. **No export bridge for now.** Parsek does not export `.gloop` files; Gloops does not import Parsek recordings.
 8. **The take model** in section 5, including the hard rule that nothing pops into existence.
+9. **Looping at will is a Gloops feature, not a Parsek one.** Parsek removes per-recording player loops and the Missions tab loop controls; in Parsek a mission loops only behind a logistics route, as a gameplay object with real effects. The loop infrastructure routes run on stays in Parsek. Plan: `docs/dev/plans/remove-player-looping.md`.
+10. **No extraction now.** No standalone use is planned; Parsek is the priority. When a standalone Gloops is wanted, the expected route is a fork of Parsek's ghost code at that moment (section 12), not a shared Core maintained in parallel.
 
 ---
 
@@ -34,7 +36,7 @@ Gloops is two layers in one repository:
 
 Core has NO `KSPAddon`, NO Harmony patch, NO `ScenarioModule`, NO GameEvents subscription of its own, NO UI, NO persistence, NO settings file, and reads NO fixed GameData path. Anything with a global side effect, or that KSP discovers by scanning assemblies or by type name, belongs to the host. Core talks to its host only through interfaces: trajectories plus per-ghost flags in, world placement through a positioner, lifecycle events out (playback completed, loop restarted, overlap expired, camera action), logging through a host-supplied sink.
 
-**Gloops Standalone (the mod players install).** The only host of Core inside the Gloops repository: its own `KSPAddon` host and a simple positioner (no anchors, chains or re-fly), its own take recorder (section 5) and UI (start / stop / preview / discard / loop settings), its own storage (`.gloop` files; content packs later, section 8). Ships as `GameData/Gloops/`.
+**Gloops Standalone (the mod players install).** The only host of Core inside the Gloops repository: its own `KSPAddon` host and a simple positioner (no anchors, chains or re-fly), its own take recorder (section 5) and UI (start / stop / preview / discard / loop settings), its own storage (`.gloop` files; content packs later, section 9). Ships as `GameData/Gloops/`.
 
 ---
 
@@ -161,15 +163,30 @@ Only trackable vessels branch (`ParsekFlight.IsTrackableVessel`: a `ModuleComman
 
 ---
 
-## 8. Standalone features (future, carried from the 2026-04 draft)
+## 8. Looping: what Gloops inherits from Parsek
 
-- **`.gloop` file.** A serialized take: header (format version, creator, vessel name, body, duration), one trajectory block per member (track sections, part events, flag events, appearance snapshot), and the loop clock links between members. Gloops owns its own header; Parsek's `.prec` keeps its `PSK0` header. If the binary element writers in `TrajectorySidecarBinary` move to Core (section 10, phase 4), both formats can share the element encoding.
+Parsek has two loop paths (measured 2026-10-05; details in `docs/dev/plans/remove-player-looping.md` section 2): a per-recording loop (`Recording.LoopPlayback` -> `UpdateLoopingPlayback`) and a mission loop unit (a set of member recordings on one span clock, `MissionLoopUnitBuilder` -> `UpdateUnitMemberPlayback`), which logistics routes ride.
+
+A Gloops take (section 5) is a family of trajectories on one shared clock. That is structurally a loop unit, not a per-recording loop. So the loop machinery a future Gloops most needs (span clock, loop units, overlap positioning, cycle ghost reuse, seams, `LoopSyncParentIdx`) is exactly what Parsek KEEPS for routes, and stays maintained and tested there. Parsek removes only the per-recording path and the player-facing controls.
+
+**Archive.** Before the per-recording path is deleted, its last state is tagged `archive/player-loops-2026-10` (plan section 7, PR 3); the in-Parsek Gloops recorder gets the same treatment when it is removed. Worth retrieving from the archive if a Gloops loop needs it:
+
+- `GhostPlaybackEngine.UpdateLoopingPlayback`, `HandleLoopPauseWindow`, `RebuildAutoLoopLaunchScheduleCache`, `TryResolveLoopSchedule`, `TryComputeLoopPlaybackUT`, the `LoopBounds` partial (`EffectiveLoopStartUT` / `EffectiveLoopEndUT`);
+- `GhostPlaybackLogic.WarpLoopPolicy` `ResolveLoopInterval` and the auto-launch queue;
+- the per-recording KSC loop playback in `ParsekKSC` / `ParsekKSC.Playback`;
+- the loop-anchor (relative loop) resolution in `RelativeAnchorResolver` and `ShouldUseLoopAnchoredDebrisChain`;
+- the behavioural spec in the deleted tests (AutoLoopTests, LoopAnchorTests, LoopPhaseTests, LoopIntervalLoadNormalizationTests, ResolveLoopIntervalWarnDedupeTests, IsLoopableRecordingTests, ChainLoopFirstRunSpawnTests, RelativeLoopAnchorFixtureTests, and the `RuntimeTests` loop-cycle reuse group #406 / #461 / #613);
+- the CHANGELOG entries about the Recordings tab loop toggle, loop period column, auto-loop and loop anchor (about 38 bullets).
+
+## 9. Standalone features (future, carried from the 2026-04 draft)
+
+- **`.gloop` file.** A serialized take: header (format version, creator, vessel name, body, duration), one trajectory block per member (track sections, part events, flag events, appearance snapshot), and the loop clock links between members. Gloops owns its own header; Parsek's `.prec` keeps its `PSK0` header. If the binary element writers in `TrajectorySidecarBinary` move to Core (section 11, phase 4), both formats can share the element encoding.
 - **Content packs.** `GameData/Gloops/Packs/<pack>/` with a `GLOOPS_PACK` manifest listing loops, anchor body / position, spawn condition (`KSC_LOADED`, `BODY_LOADED`, `DISTANCE`, `ALWAYS`), loop interval and priority; validation on load (missing parts degrade the mesh, broken loops are skipped); per-save enable state.
 - **Custom meshes** (non-vessel content: birds, scenery) as a second ghost-builder entry point.
 
 ---
 
-## 9. Measured coupling (2026-10-05)
+## 10. Measured coupling (2026-10-05)
 
 The 2026-04 draft claimed a clean engine core. Measured against `main` at `7b424ca`:
 
@@ -192,12 +209,12 @@ The 2026-04 draft claimed a clean engine core. Measured against `main` at `7b424
 
 ---
 
-## 10. Extraction phases (if and when it is scheduled)
+## 11. Extraction phases (if and when it is scheduled)
 
 Each phase is behavior-identical for Parsek: `.prec` bytes identical, no schema generation bump, `[Parsek]` log lines identical, xUnit and harness tiers green.
 
 0. **Decisions and doc** (this document).
-1. **In-repo Core folder, leaf moves.** A top-level `Gloops/Core/` folder shaped like the future repository, compiled by `Parsek.csproj`. Move the clean leaves (section 9), the engine-key codec and the pure part-event classifiers. Teach every path-reading test, grep audit and harness cell a list of source roots. Mostly mechanical.
+1. **In-repo Core folder, leaf moves.** A top-level `Gloops/Core/` folder shaped like the future repository, compiled by `Parsek.csproj`. Move the clean leaves (section 10), the engine-key codec and the pure part-event classifiers. Teach every path-reading test, grep audit and harness cell a list of source roots. Mostly mechanical.
 2. **Invert the engine's back-edges.** Replace the `RecordingStore`, `ParsekFlight`, `ReFlySessionMarker` and `GhostMapPresence` calls with host interfaces; reduce the skip reason to a skip flag plus a log string; split `GhostPlaybackLogic` (event replay, FX, zones and loop clock to Core; spawn, chain, watch mode and SpanClock / Reaim stay in Parsek). The real work: 9k-line files under active churn, in several small PRs.
 3. **Recorder building blocks.** One per-vessel part-event poller and sampler that writes to a sink, replacing the duplicated foreground / background wrappers; `EnvironmentDetector`, `ShouldRecordPoint`, `PartStateSeeder` with it. Worth doing for Parsek on its own (it removes the duplication).
 4. **Codec elements.** Binary element writers work on a trajectory DTO; Parsek keeps the `PSK0` header and healing helpers. Golden-byte tests on existing fixtures.
@@ -206,9 +223,9 @@ Each phase is behavior-identical for Parsek: `.prec` bytes identical, no schema 
 
 ---
 
-## 11. Open questions
+## 12. Open questions
 
-1. **Whether and when to extract at all.** Raised 2026-10-05: the value of a standalone Gloops, and of the boundary to Parsek, is not yet established; Parsek's recorder carries much more than a ghost recorder needs, and a Core cut too low gives Gloops little, while a cut too high drags Parsek concepts into it. Phase 3 (deduplicating the pollers) and the removal in phase 5 are worth doing for Parsek regardless.
+1. **Whether and when to extract at all.** Decided for now (2026-10-05): not scheduled. Parsek's recorder carries much more than a ghost recorder needs; a Core cut too low gives Gloops little, a cut too high drags Parsek concepts into it, and with Parsek and Gloops isolated (rulings 2, 6, 7) a shared Core buys only fix-sharing while its cost lands on Parsek's most-changed code. So: Parsek-only simplification now (delete the in-Parsek Gloops recorder, remove player-authored looping, optionally deduplicate the part-event pollers, phase 3, on its own merits), and when a standalone Gloops is wanted, fork Parsek's ghost code at that moment. The phased Core plan in section 11 stays as the reference if a shared Core is ever chosen instead.
 2. The four items in section 5.7.
 3. `.gloop` encoding: ConfigNode (ecosystem-consistent, verbose) or the compact binary element encoding.
 4. Custom mesh source for content packs: AssetBundles, `.mu`, or OBJ.

@@ -450,7 +450,7 @@ Carried forward from the original sketch: the shared cloud-synced folder, player
 
 ### Gloops Extraction (decoupled from Phase 14)
 
-Revised 2026-10-05 (owner rulings; full design in `docs/dev/gloops-recorder-design.md`). Gloops becomes a standalone mod in its own repository, mounted in Parsek as a git submodule. The in-Parsek Gloops recorder is deleted. Parsek compiles its own private copy of the shared Gloops Core source into `Parsek.dll` (no separate DLL, no runtime API, no control of a standalone install), and the two record separately. No longer a Phase 14 prerequisite (see above). Whether and when to extract is still open (design section 11).
+Revised 2026-10-05 (owner rulings; full design in `docs/dev/gloops-recorder-design.md`). Gloops becomes a standalone mod in its own repository, mounted in Parsek as a git submodule. The in-Parsek Gloops recorder is deleted. Parsek compiles its own private copy of the shared Gloops Core source into `Parsek.dll` (no separate DLL, no runtime API, no control of a standalone install), and the two record separately. No longer a Phase 14 prerequisite (see above). No extraction is scheduled (design section 12, 2026-10-05): Parsek is the priority, and a future standalone Gloops is expected to fork Parsek's ghost code at that moment rather than share a maintained Core. The near-term Parsek-side work is `docs/dev/plans/remove-player-looping.md` (delete the in-Parsek Gloops recorder; remove player-authored looping, so a mission loops only behind a logistics route).
 
 **Extraction scope (if scheduled):**
 - Core stays in this repository (top-level `Gloops/Core/`, compiled by `Parsek.csproj`) until engine churn settles; the submodule split is the last step
