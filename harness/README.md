@@ -1352,6 +1352,16 @@ What a red means:
   (`cd harness && python provision/provision.py --profile stock-minimal`).
 - **KILLED** - a budget kill. Always called out explicitly in the tally so it
   cannot hide behind twenty passes beside it.
+- **INVALID with `retrySkipped` in its result JSON** - the attempt failed on a
+  deterministic seam error (an `ERROR` / `REJECTED` reply whose reason is in
+  `hlib.DETERMINISTIC_SEAM_ERROR_REASONS`: a protocol reject, a spec-text argument
+  refusal, `active-vessel-lost`, an executor `not-eva`, CommitTree's
+  `not-in-flight`), so `run.py` did not fly the retry (operator ruling
+  2026-10-06). The harness log carries a `[Retry] retry skipped ... stepId=...
+  verb=... reason=...` line. Recheck it by hand; every other retryable INVALID
+  (timeouts, deferrals, mission / autopilot / tooling faults) still retries once.
+  Contract: `docs/dev/design-autotest-harness-core.md`, "Deterministic seam
+  errors are not retried".
 - **XPASS** - amber. An expected-fail guard now passes: confirm the bug is
   closed, then remove the `expectedFail` key so it stops being expected.
 

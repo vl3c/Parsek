@@ -2743,6 +2743,17 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **Dev: the harness no longer retries a run that failed on a definite seam error.** A
+  failed attempt whose blamed test-command step answered `ERROR` or `REJECTED` with a
+  reason from a closed set (a malformed or unknown command, a missing or invalid argument,
+  `active-vessel-lost`, an executor `not-eva`, CommitTree's `not-in-flight`) is not flown a
+  second time, because the retry would reproduce it; timeouts, deferrals and mission,
+  autopilot and tooling faults still retry once. The verdict and subkind are unchanged; the
+  harness log names the step, verb and reason, and the result JSON carries `retrySkipped`.
+  Each test-command step row in the result JSON now also records its reply's reason
+  (`msg`). Replayed over the 48 retries on disk, the set skips none and loses none of the 8
+  retry passes; it acts on new runs, where the seam now reports a dead EVA kerbal as
+  `active-vessel-lost` instead of a step timeout.
 - **Dev: two test-command step budgets are shorter, so a failing harness step gives up
   sooner.** `EvaGroundScience` now times out after 60 s (was 120 s) and `AnswerMergeDialog`
   after 60 s (was 120 s). Measured over 859 collected harness runs: the slowest successful

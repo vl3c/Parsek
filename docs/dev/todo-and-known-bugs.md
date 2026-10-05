@@ -15,6 +15,37 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## HARNESS-NO-RETRY-DETERMINISTIC-SEAM-ERROR: a definite seam error is not retried [OPERATOR RULING 2026-10-06, branch `no-retry-deterministic-seam-error`. DONE; the reason set stays open to additions by name]
+
+Ruling (2026-10-06): "Don't retry when the failure is a definite error from the seam, and
+keep retrying everything that looks like random flakiness. We can recheck failures
+manually." Measured cost before the change: 48 retries over 861 runs spent 11,146 s and only
+8 passed; 17 were `driver-verdict-mismatch`.
+
+Fix: `hlib.decide_retry` = `should_retry` plus one veto. A retryable driver-stage INVALID is
+not retried when its blamed seam step answered `ERROR` / `REJECTED` with a leading reason in
+the closed `hlib.DETERMINISTIC_SEAM_ERROR_REASONS` (protocol rejects, spec-text argument
+refusals, `active-vessel-lost`, executor `not-eva`, CommitTree `not-in-flight`). Verdict and
+subkind unchanged; `run.py` logs `[Retry] retry skipped ...` and writes `retrySkipped` into
+the result JSON; step rows now carry the reply `msg`. Source-sync:
+`DeterministicSeamErrorSourceSyncTests`. Contract: design-autotest-harness-core.md,
+"Deterministic seam errors are not retried".
+
+Replay over the 48 recorded retries (A1 reasons recovered from the collected KSP.log, since
+old step rows carry no msg): 0 skipped, 0 of the 8 retry passes lost. Every historical retry
+failed on a timing reason (`step-timeout`, `placement-timeout`, `*-not-settled`,
+`warp-locked` 3/3 passed on retry, `recording-active` 1/4, `start-refused` 2/3, pointer
+errors 2/3) or a reason deliberately outside the set. Under today's build the two EVA-8
+retries of 2026-09-29 whose kerbal died (601 s) would answer `active-vessel-lost` and be
+skipped.
+
+Open for a ruling, each reproduced on every recorded retry with no pass lost: `unknown-tree`
+/ `unknown-building` (2 retries, 136 s), `eva-refused` (2, 130 s), `stockscreen-no-tooltip`
+(2, 112 s), `refly-gate` / `rewind-gate` (3, 663 s), the UiAction `window-self-closed` /
+`rect-not-applied` / `edit-not-drawn` / `mock-refused-session-live` errors (5, 305 s). Left
+out because each reads live scene or career state a load race could change; adding one is a
+one-line edit to the set plus its justification.
+
 ## PLAYER-LOOPING-REMOVAL: Parsek stops letting the player loop ghosts at will [OWNER-APPROVED 2026-10-05, plan `docs/dev/plans/remove-player-looping.md`, branch `ccr-8a19466a-qh7ey4`. PLANNED, not started]
 
 Owner rulings 2026-10-05: per-recording player loops (Recordings tab loop column, period,
