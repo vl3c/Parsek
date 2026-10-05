@@ -6572,3 +6572,179 @@ class ScreenResolutionStagingSmokeTests(unittest.TestCase):
         self.assertFalse(os.path.exists(self.settings), "the harness must not invent one")
         self.assertFalse(os.path.exists(self.marker))
         self.assertIn("screen-resolution apply FAILED", self._log())
+
+
+class _EventLogger(run.HarnessLogger):
+    """A HarnessLogger that also records (monotonic time, message) into a shared
+    event list, so a cell can read the ORDER of log lines against runtime sleeps."""
+
+    def __init__(self, log_path, events):
+        super().__init__(log_path)
+        self._events = events
+
+    def log(self, level, step, message):
+        self._events.append(("log", time.monotonic(), message))
+        super().log(level, step, message)
+
+
+class HarnessOverheadSmokeTests(unittest.TestCase):
+    """HARNESS-OVERHEAD, driven end to end through run.run_attempt over the fake KSP.
+
+    (1) The seam poll schedule: a step answered within a frame or two is read on the
+        fast cadence, not after a flat 0.25 s sleep.
+    (2) The verifier overlap: with the test assembly prebuilt (-NoBuild), the log
+        validation runs BESIDE the analyzer, and the record, the verdict and the log
+        order are the sequential chain's - including when the analyzer short-circuits
+        the chain and the speculative run is discarded."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-overhead-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.events = []
+        self.logger = _EventLogger(os.path.join(run.RESULTS_DIR, "overhead_harness.log"),
+                                   self.events)
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _log_text(self):
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_a_step_completes_without_a_quarter_second_floor(self):
+        events = self.events
+
+        class ExactSleepRuntime(FakeRuntime):
+            # FakeRuntime clamps every sleep to 0.05 s, which would hide the schedule;
+            # this one sleeps exactly what run.py asks for and records the request.
+            def sleep(self, seconds):
+                events.append(("sleep", time.monotonic(), seconds))
+                time.sleep(seconds)
+
+        spec = _make_spec(self.template, 30, 600)
+        rt = ExactSleepRuntime("pass")
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+
+        # Split the event stream into per-step windows: "drive step=" (the command
+        # line was written) up to that step's "drive resp".
+        windows = []
+        current = None
+        for kind, t, payload in events:
+            if kind == "log" and payload.startswith("drive step="):
+                current = {"start": t, "sleeps": []}
+            elif kind == "log" and payload.startswith("drive resp ") and current is not None:
+                current["end"] = t
+                windows.append(current)
+                current = None
+            elif kind == "sleep" and current is not None:
+                current["sleeps"].append(payload)
+        self.assertEqual(4, len(windows), "one window per seam step")
+        for i, w in enumerate(windows):
+            with self.subTest(step=i):
+                if w["end"] - w["start"] < hlib.SEAM_FAST_POLL_WINDOW_SECONDS:
+                    # Answered inside the fast window: every wait was the fast one.
+                    self.assertTrue(all(s == hlib.SEAM_FAST_POLL_SECONDS
+                                        for s in w["sleeps"]), w["sleeps"])
+        # The fake KSP answers a synchronous verb within its own 0.05 s pump, so at
+        # least one step must land well under the old flat 0.25 s floor.
+        fastest = min(w["end"] - w["start"] for w in windows)
+        self.assertLess(fastest, run.POLL_INTERVAL_SECONDS,
+                        "every step paid the old 0.25 s floor: %.3f s" % fastest)
+
+    def _overlap_runtime(self, analyzer_red=False, prebuilt=True):
+        class OverlapRuntime(FakeRuntime):
+            def run_analyzer(self, save_dir, fresh_gate, timeout):
+                self.analyzer_span = [time.monotonic(), None]
+                time.sleep(0.4)
+                res = super().run_analyzer(save_dir, fresh_gate, timeout)
+                self.analyzer_span[1] = time.monotonic()
+                return res
+
+            def run_log_validate(self, log_path, killed, no_recording, timeout):
+                self.lv_started = time.monotonic()
+                self.lv_calls = getattr(self, "lv_calls", 0) + 1
+                return super().run_log_validate(log_path, killed, no_recording, timeout)
+
+        rt = OverlapRuntime("pass", analyzer_red=analyzer_red)
+        rt.tests_prebuilt = prebuilt
+        return rt
+
+    def _run(self, rt, spec=None):
+        spec = spec or _make_spec(self.template, 30, 600)
+        return run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                               prior_boot_crashed=False, logger=self.logger)
+
+    def test_prebuilt_log_validation_overlaps_the_analyzer_with_the_same_record(self):
+        rt = self._overlap_runtime(prebuilt=True)
+        result = self._run(rt)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        v = result["verifiers"]
+        self.assertEqual("PASS", v["analyzer"]["status"])
+        self.assertEqual("PASS", v["logValidate"]["status"])
+        self.assertFalse(v["logValidate"]["killedRunMode"])
+        self.assertEqual(1, rt.lv_calls)
+        self.assertLess(rt.lv_started, rt.analyzer_span[1],
+                        "the log validation must start before the analyzer finishes")
+        # Log ORDER is the sequential chain's: the analyzer row, then the timing line,
+        # then the logValidate row.
+        log = self._log_text()
+        a = log.index("verify analyzer status=PASS")
+        t = log.index("verify timing analyzer=")
+        lv = log.index("verify logValidate status=PASS")
+        self.assertLess(a, t)
+        self.assertLess(t, lv)
+        self.assertIn("mode=concurrent", log)
+
+    def test_without_a_prebuild_the_chain_stays_sequential(self):
+        rt = self._overlap_runtime(prebuilt=False)
+        result = self._run(rt)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertGreaterEqual(rt.lv_started, rt.analyzer_span[1],
+                                "without -NoBuild both dotnet runs would build at once")
+        self.assertIn("mode=sequential", self._log_text())
+
+    def test_a_short_circuit_discards_the_speculative_log_validation(self):
+        rt = self._overlap_runtime(analyzer_red=True, prebuilt=True)
+        result = self._run(rt)
+        # Exactly the sequential verdict and rows (AnalyzerReportOnly's gating control).
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        self.assertEqual("analyzer", result["subkind"])
+        v = result["verifiers"]
+        self.assertEqual({"status": "SKIPPED", "reason": "short-circuit"}, v["logValidate"])
+        self.assertEqual(1, rt.lv_calls, "the speculative run did happen")
+        log = self._log_text()
+        self.assertNotIn("verify logValidate status=", log)
+        self.assertIn("result discarded (chain short-circuited before row 4)", log)
+
+    def test_the_subprocess_retry_record_keeps_its_sequential_order(self):
+        # A wedged first analyzer AND a timed-out first log validation: both retry
+        # inside their own row, subprocessRetry lists analyzer before logValidate, and
+        # the buffered log-validate retry lines are replayed after the analyzer's.
+        class WedgedLvRuntime(FakeRuntime):
+            def run_log_validate(self, log_path, killed, no_recording, timeout):
+                self.lv_calls = getattr(self, "lv_calls", 0) + 1
+                if self.lv_calls == 1:
+                    return run.ToolResult(-1, True)
+                return super().run_log_validate(log_path, killed, no_recording, timeout)
+
+        rt = WedgedLvRuntime("pass", analyzer_fail_calls=1)
+        rt.tests_prebuilt = True
+        result = self._run(rt)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        stages = [r["stage"] for r in result["verifiers"]["subprocessRetry"]]
+        self.assertEqual(["analyzer", "logValidate"], stages)
+        log = self._log_text()
+        self.assertLess(log.index("verify analyzer subprocess-retry RECOVERED"),
+                        log.index("verify logValidate subprocess-retry: attempt 1"))

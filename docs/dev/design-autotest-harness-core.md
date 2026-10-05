@@ -860,7 +860,8 @@ exceeds 20% over the week (plan section 10).
 **AMENDED 2026-08-04: scenario-agnostic environment INVALIDs leave the ledger
 entirely.** An attempt whose INVALID subkind is in
 `hlib.FLAKE_EXEMPT_INVALID_SUBKINDS` (`tooling-venv`, `instance-locked`,
-`instance-busy`) is dropped from BOTH numerator and denominator. Each is an
+`instance-busy`, and since 2026-10-06 the selection-start build refusal
+`tooling-build`) is dropped from BOTH numerator and denominator. Each is an
 environment or concurrency fault — a property of the MACHINE at that moment,
 identical for whatever scenario happened to be selected, so it is never evidence
 about the scenario. (Scenario-agnostic is the property that earns the exemption;
@@ -1428,6 +1429,22 @@ result is `INVALID` (subkind tooling) -- a stuck analyzer or a wedged pwsh is a
 tooling failure, never a silent PASS and never a Parsek-defect PARSEK-FAIL. The
 tooling INVALID follows the same retry-once policy as the analyzer-error path (the
 retry re-runs only that verifier subprocess, not a fresh KSP boot).
+
+Build once, overlap rows 3 and 4 (HARNESS-OVERHEAD, 2026-10-06). `run.py` builds
+`Source/Parsek.Tests` once per selection, before the first lane, and every verifier
+subprocess then runs `-NoBuild` (`hlib.classify_tests_prebuild`; a failed,
+timed-out or assembly-less build refuses the whole selection pre-boot as terminal,
+flake-exempt `INVALID(tooling-build)`, so a verifier never judges a flight with
+stale rules). Behind that build the row-4 log validation is started SPECULATIVELY
+beside the row-3 analyzer (`hlib.verifiers_may_overlap`: with `-NoBuild` the two
+`dotnet test` processes share no build outputs; the analyzer writes only the
+produced save's `analysis/`, the log validation only reads `KSP.log`). Its log
+lines are buffered and replayed at row 4's position and its result is consumed
+only when the chain reaches row 4; an analyzer short-circuit joins and discards it.
+The ORDER and short-circuit semantics below are therefore unchanged: every verdict,
+row, `subprocessRetry` entry and log line is what the sequential chain produces,
+plus one `verify timing ... mode=` line. Without a selection prebuild the chain
+runs sequentially and each script builds for itself.
 
 1. **Driver validity** (`hlib`, from the response stream). If any required step
    verdict was not met, or the driver never got past boot, the run is

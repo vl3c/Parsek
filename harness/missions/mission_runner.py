@@ -1002,6 +1002,7 @@ class KrpcMissionControl(MissionControl):
                 transfer_amount=transfer_amount,
                 monopropellant=monopropellant,
                 craft_chute_state=craft_chute_state,
+                chute_read_on=self._read_chute,
                 crew_roster_status=crew_roster_status,
                 seam_commit_result=self._seam_commit_result,
                 # Generalized seam-command outcome. All three stay at their UNREAD
@@ -1285,12 +1286,25 @@ class KrpcMissionControl(MissionControl):
         elif kind == mlib.ACTION_ACTIVATE_STAGE:
             control.activate_next_stage()
         elif kind == mlib.ACTION_DEPLOY_CHUTE:
-            # Fire every deployable parachute (stock action group not assumed).
+            # Fire every deployable parachute (stock action group not assumed). The
+            # count is LOGGED, like the deploy-altitude setter's: RB-1 2026-09-27_1353
+            # armed "0 parachute(s)" (kRPC read a clone's parts) and the deploy itself
+            # said nothing, so the 230 m/s impact read as a chute that failed to open.
+            deployed = 0
+            failures = []
             for p in v.parts.parachutes:
                 try:
                     p.deploy()
-                except Exception:
-                    pass
+                    deployed += 1
+                except Exception as exc:
+                    failures.append("%s: %s" % (type(exc).__name__, exc))
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info" if deployed and not failures else "Warn", "Chute",
+                "deployed %d parachute(s)%s" % (
+                    deployed, (" (%d raised)" % len(failures)) if failures else "")))
+            for failure in failures[:5]:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Chute", "deploy raised: %s" % failure))
         elif kind == mlib.ACTION_SET_LIGHTS:
             control.lights = bool(action.value)
         elif kind == mlib.ACTION_SET_GEAR:

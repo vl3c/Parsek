@@ -5512,6 +5512,128 @@ def _parse_response_line(line: str) -> Optional[Dict[str, str]]:
 
 
 # ---------------------------------------------------------------------------
+# Seam poll schedule + incremental response tail (HARNESS-OVERHEAD).
+#
+# The addon pumps the command file EVERY FRAME, so a synchronous verb answers within
+# a frame or two of the write. A flat 0.25 s poll therefore charged nearly every step
+# a ~0.2 s floor: 47,280 of 48,203 measured seam gaps were 0.6 s or less (median
+# 0.25 s), about 13.7 s per run. The schedule polls fast for a short window after each
+# command write and then falls back to the old cadence, so a deferred verb that parks
+# for minutes (RunTests, LoadGame) costs no more reads than it did before.
+# ---------------------------------------------------------------------------
+
+SEAM_FAST_POLL_SECONDS = 0.025
+SEAM_FAST_POLL_WINDOW_SECONDS = 2.0
+SEAM_SLOW_POLL_SECONDS = 0.25
+
+
+def seam_poll_interval(seconds_since_write: Optional[float]) -> float:
+    """Sleep before the next response read, given the time since this step's command
+    line was written. Fast inside ``SEAM_FAST_POLL_WINDOW_SECONDS``, the old 0.25 s
+    cadence after it. A missing or non-finite elapsed reads as the slow cadence (the
+    pre-schedule behaviour), never as a spin; a NEGATIVE elapsed (a clock that stepped
+    backwards) is treated as just-written, because the write certainly happened."""
+    if seconds_since_write is None:
+        return SEAM_SLOW_POLL_SECONDS
+    try:
+        elapsed = float(seconds_since_write)
+    except (TypeError, ValueError):
+        return SEAM_SLOW_POLL_SECONDS
+    if not math.isfinite(elapsed):
+        return SEAM_SLOW_POLL_SECONDS
+    if elapsed < SEAM_FAST_POLL_WINDOW_SECONDS:
+        return SEAM_FAST_POLL_SECONDS
+    return SEAM_SLOW_POLL_SECONDS
+
+
+def _response_text_lines(raw: bytes) -> List[str]:
+    """Decode a response-file byte run the way run.py's whole-file reader always did
+    (utf-8, errors=replace, universal newlines, blank lines dropped)."""
+    text = raw.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+    return [line for line in text.split("\n") if line.strip()]
+
+
+def split_complete_response_lines(carry: bytes, chunk: bytes) -> Tuple[List[str], bytes]:
+    """Fold newly read bytes into the response tail.
+
+    Returns ``(complete_lines, new_carry)``: every newline-terminated line in
+    ``carry + chunk``, decoded, plus the torn trailing fragment (bytes after the last
+    ``\\n``) to prepend to the next read. The same whole-line rule the addon applies to
+    the command file (TestCommandChannelIo.WholeLineByteCount), and the seam design's
+    response contract: the file is append-only within a run and a torn trailing line
+    was never durably written, so it is not a response yet. Cutting at a ``\\n`` byte
+    never splits a UTF-8 sequence (0x0A cannot occur inside one), so a chunked decode
+    equals the whole-file decode."""
+    data = (carry or b"") + (chunk or b"")
+    cut = data.rfind(b"\n")
+    if cut < 0:
+        return [], data
+    return _response_text_lines(data[:cut + 1]), data[cut + 1:]
+
+
+def torn_response_tail_lines(carry: bytes) -> List[str]:
+    """The torn trailing fragment as the whole-file reader would have returned it, so a
+    reader of ``result.response_lines`` keeps seeing exactly what it saw before. Never
+    consulted for a terminal verdict: a half-written line is not a response."""
+    if not carry:
+        return []
+    return _response_text_lines(carry)
+
+
+def response_tail_restarted(offset: int, size: int) -> bool:
+    """True when the response file is now SHORTER than the bytes already consumed:
+    it was truncated or replaced (the harness truncates the channel files when it
+    stages a fresh run). The tail must then restart from byte 0 rather than read past
+    the end of a different file."""
+    return size < offset
+
+
+# ---------------------------------------------------------------------------
+# Verifier build-once (HARNESS-OVERHEAD). analyze-recordings.ps1 and
+# validate-ksp-log.ps1 each run `dotnet test`, whose build check of Parsek.Tests cost
+# about 9.4 s and 7.3 s per run. run.py builds the test assembly ONCE at selection
+# start and then passes -NoBuild to both scripts and to the seed analyzer (the
+# injector has always run --no-build). A failed or timed-out build refuses the WHOLE
+# selection pre-boot: running the verifiers against whatever assembly happens to be
+# on disk would judge a flight with stale rules and say nothing.
+# ---------------------------------------------------------------------------
+
+TESTS_BUILD_INVALID_SUBKIND = "tooling-build"
+
+
+@dataclass(frozen=True)
+class TestsPrebuildDecision:
+    ok: bool
+    reason: str
+
+
+def classify_tests_prebuild(exit_code: Optional[int], timed_out: bool,
+                            assembly_present: bool) -> TestsPrebuildDecision:
+    """Decide whether the selection-start ``dotnet build`` of Parsek.Tests may stand
+    behind every later ``-NoBuild`` verifier run. Fail-closed on every leg: a timeout,
+    a nonzero exit, or a zero exit that left no test assembly (the one shape in which
+    ``-NoBuild`` would run NOTHING, the injector's measured fail-open) all refuse."""
+    if timed_out:
+        return TestsPrebuildDecision(False, "Parsek.Tests build timed out")
+    if exit_code != 0:
+        return TestsPrebuildDecision(False, "Parsek.Tests build failed (exit=%s)" % exit_code)
+    if not assembly_present:
+        return TestsPrebuildDecision(
+            False, "Parsek.Tests build exited 0 but left no Parsek.Tests.dll")
+    return TestsPrebuildDecision(True, "")
+
+
+def verifiers_may_overlap(tests_prebuilt: bool) -> bool:
+    """The analyzer and the log validation may run CONCURRENTLY only when both pass
+    -NoBuild. Each is a `dotnet test` over the same Parsek.Tests project; without
+    -NoBuild both would build it at once and race on its obj/ and bin/ outputs. With it
+    they share nothing: separate processes and environments, the analyzer writes only
+    under the produced save's analysis/ dir, and the log validation only reads
+    KSP.log."""
+    return bool(tests_prebuilt)
+
+
+# ---------------------------------------------------------------------------
 # Response-stream evaluation (design "Driving the seam" / evaluate_response_stream).
 # ---------------------------------------------------------------------------
 
@@ -11484,6 +11606,8 @@ FLAKE_NUMERATOR_VERDICTS: Tuple[str, ...] = (VERDICT_INVALID, VERDICT_KILLED)
 #                   exemption; costing nothing is not, and is not true here.
 #   instance-locked a live sibling holds the machine lock (pre-boot preflight).
 #   instance-busy   a live KSP is already bound to the instance (pre-boot preflight).
+#   tooling-build   the selection-start Parsek.Tests build failed (pre-boot, whole
+#                   selection); the verifiers would otherwise run stale rules.
 #
 # WHY DROP RATHER THAN JUST NOT COUNT: the attempt never got a verdict ON THE
 # SCENARIO, so it is not an observation about it. Leaving it in the denominator
@@ -11509,6 +11633,9 @@ FLAKE_NUMERATOR_VERDICTS: Tuple[str, ...] = (VERDICT_INVALID, VERDICT_KILLED)
 # exactly what quarantine exists to catch.
 FLAKE_EXEMPT_INVALID_SUBKINDS: Tuple[str, ...] = (
     VENV_INVALID_SUBKIND, "instance-locked", "instance-busy",
+    # The selection-start Parsek.Tests build failed: a property of the worktree, and
+    # every selected scenario receives the same row before any KSP boot.
+    TESTS_BUILD_INVALID_SUBKIND,
 )
 
 

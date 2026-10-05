@@ -107,9 +107,18 @@ try {
         $testArgs += "--no-build"
     }
 
-    Write-Host "Validating latest Parsek session in '$resolvedLogPath'"
-    dotnet @testArgs
-    $exitCode = $LASTEXITCODE
+    # `dotnet test --no-build` exits 0 WITHOUT running anything when the test
+    # assembly is missing, which would read as a validation PASS. Refuse instead.
+    $testAssembly = Join-Path $repoRoot "Source/Parsek.Tests/bin/Debug/net472/Parsek.Tests.dll"
+    if ($NoBuild -and -not (Test-Path -LiteralPath $testAssembly)) {
+        Write-Error "-NoBuild requested but the test assembly is missing: $testAssembly (build Parsek.Tests first)."
+        $exitCode = 3
+    }
+    else {
+        Write-Host "Validating latest Parsek session in '$resolvedLogPath'"
+        dotnet @testArgs
+        $exitCode = $LASTEXITCODE
+    }
 }
 finally {
     # Never leak the suppression into the caller's session or a later invocation.

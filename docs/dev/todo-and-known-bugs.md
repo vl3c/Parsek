@@ -716,7 +716,7 @@ all 8 rows), `test_mlib.NonFiniteDetailScrubTests`, `test_shells.ResultSerialize
   of its bound it compares. Reaching it needs the mission to archive its frames (or the
   per-assertion evidence the compare reads).
 
-## HARNESS-POST-FLIGHT-DIALOG-STALLS: harness runs sit behind KSP's post-flight screens until a timeout or the wall budget ends [FILED 2026-10-03, branch `todo-stuck-dialogs`. CONFIRMED in the collected logs; observability done on branch `post-flight-dialog-logging`; the paused-clock watchdog, the seam active-vessel-loss fail-fast and the CommitTree fast reject FIXED 2026-10-03, branch `harness-dialog-stalls`; the frozen-telemetry item FIXED 2026-10-04, branch `frozen-detector-fix`; the RB-1 chute-read item open]
+## HARNESS-POST-FLIGHT-DIALOG-STALLS: harness runs sit behind KSP's post-flight screens until a timeout or the wall budget ends [FILED 2026-10-03, branch `todo-stuck-dialogs`. CONFIRMED in the collected logs; observability done on branch `post-flight-dialog-logging`; the paused-clock watchdog, the seam active-vessel-loss fail-fast and the CommitTree fast reject FIXED 2026-10-03, branch `harness-dialog-stalls`; the frozen-telemetry item FIXED 2026-10-04, branch `frozen-detector-fix`; the RB-1 chute-read item FIXED 2026-10-06, branch `harness-overhead`]
 
 Operator observation: auto tests sometimes sit on the post-flight "Mission Summary" screen.
 A scan of all 894 collected `_shots/KSP.log` files found two stock dialogs, neither of which
@@ -792,10 +792,15 @@ Lost: about 26 min with a dialog up, about 25 min of it avoidable (RB-1 is about
   `FROZEN_NOTE_LIMIT = 20` per flight; silent on a healthy flight). The jittering field is
   still UNPROVEN: the logs print 3 decimals. The next crash names it in those lines.
   Tests: `test_frozen_detector.py`.
-- [ ] RB-1's chute channel read nothing useful: of the 1,261 telemetry lines, 1,254 print
-  `chute=-` and 7 `chute=Stowed`, and the Flea hit at about 230 m/s. Investigate why the
-  craft chute state was unread for almost the whole flight, and whether the chute ever
-  armed. Not fixed.
+- [x] ~~RB-1's chute channel read nothing useful: of the 1,261 telemetry lines, 1,254 print
+  `chute=-` and 7 `chute=Stowed`, and the Flea hit at about 230 m/s.~~ Cause: the fixture made
+  kRPC read a clone's parts (fixed by 5ab868f0a); the arm logged `on 0 parachute(s)` and the
+  chute never armed. Fixed 2026-10-06, branch `harness-overhead`: B1 / SBR / EVA-4 end the
+  mission before the arm when the chute read returns nothing on the DESCENT-entry poll and
+  the one before it (`mlib.chute_unobservable_at_descent`, `MISSION-ASSERT-FAIL` reason
+  `chute unobservable (part identity?)`, INVALID(mission)), and `deploy_chute` logs
+  `deployed N parachute(s)`. Over the 26 collected flights of these lanes it trips on RB-1
+  and both RB-2 attempts (same defect) and on no other.
 - [x] Seam: a two-phase pending step fails fast when the active vessel is destroyed or
   `FlightResultsDialog.isDisplaying`, instead of waiting its full timeout
   (`ParsekTestCommandAddon.EvaGroundScience.cs` step-move path first). Also log the
@@ -943,6 +948,27 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   B25, B28, B23 and B12. Their capture and PARK waste is already fixed in code; re-flying
   only refreshes the analyzer totals (~150-250 s recoverable each on the stale runs) and
   confirms the fix holds. Batch them (for example a nightly tier) rather than one by one.
+
+## ~~HARNESS-OVERHEAD: harness runs spend ~30 s per run outside the mission on seam polling and verifier builds~~ [FILED 2026-10-06 from the `flight_efficiency.py` overhead rows, branch `harness-overhead`. FIXED 2026-10-06, branch `harness-overhead`]
+
+Measured by `harness/tools/flight_efficiency.py` over the collected runs: `seamGaps` about
+13.7 s per run (47,280 of 48,203 seam gaps were 0.6 s or less, median 0.25 s: the flat
+0.25 s poll, while the addon answers a synchronous verb within a frame or two) and
+`postQuitTail` about 16.8 s per run (`analyze-recordings.ps1` and `validate-ksp-log.ps1`
+each ran `dotnet test`, whose Parsek.Tests build check cost about 9.4 s and 7.3 s).
+
+- [x] Seam poll schedule: `hlib.seam_poll_interval` polls every 25 ms for the first 2 s
+  after each command write, then the old 0.25 s. The response file is read incrementally
+  (`run.ResponseTail`, pure split in `hlib.split_complete_response_lines`; only complete
+  lines answer a step, first terminal per id wins, a shrunken file restarts the tail).
+- [x] Build once: `run.py` builds `Source/Parsek.Tests` once per selection and passes
+  `-NoBuild` to both scripts and to the ledger seed analyzer. A failed build refuses the
+  whole selection pre-boot as terminal, flake-exempt `INVALID(tooling-build)`.
+- [x] The analyzer and the log validation run concurrently behind the prebuild (the log
+  validation is speculative and discarded on an analyzer short-circuit; verdicts, rows and
+  log order unchanged).
+- [ ] Re-measure on the next tier run: expected about 10 s off `seamGaps` and about 13 s off
+  `postQuitTail` per run, less one build check (about 10 s) per selection.
 
 ## ~~RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON: the recording stats frame lookup matches a section end exactly, with no tolerance~~ [FILED 2026-10-01 from the PR #1943 review, branch `l7-nightly-residue`. FIXED 2026-10-03, branch `fix-stats-frame-epsilon`]
 

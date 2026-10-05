@@ -1444,6 +1444,15 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Dev: a harness pad hop whose parachutes cannot be read now stops before arming them.**
+  B1, the science-and-recover lane and EVA-4 read the craft's parachute state every poll. When
+  that read returns nothing on the descent-entry poll and the one before it, the mission now
+  ends there (`MISSION-ASSERT-FAIL`, reason `chute unobservable (part identity?)`, retried
+  once like a vessel loss) instead of arming nothing and flying on. RB-1 `2026-09-27_1353`
+  (a fixture whose parts kRPC read off a clone) armed "0 parachute(s)" and hit the ground at
+  230 m/s; over the 26 collected flights of these lanes the check trips on that run and the
+  two RB-2 runs with the same defect, and on no other. The deploy action now also logs how
+  many parachutes it fired.
 - **An undock done from EVA now reads "Undocked" in the Missions tab.** When a kerbal on EVA
   undocked a docked vessel it was not flying, the separation was listed as "Decoupled".
   A docking port's "Decouple Node" and an ordinary decoupler still read "Decoupled".
@@ -2743,6 +2752,15 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **Dev: harness runs spend less time outside the mission.** The seam is polled every 25 ms
+  for the first 2 s after each command (it was a flat 0.25 s, while the game answers within a
+  frame or two; measured 13.7 s per run in such waits), and the response file is read from
+  where the last read stopped. The test assembly the verifiers run is built once per
+  selection instead of twice per run (the build checks cost about 9.4 s and 7.3 s per run);
+  if that build fails, every selected scenario is refused before boot as
+  `INVALID(tooling-build)` rather than checked with old rules. With the assembly prebuilt,
+  the KSP.log validation runs beside the recording analyzer. Verdicts and result rows are
+  unchanged; one timing line is new.
 - **Dev: the harness no longer retries a run that failed on a definite seam error.** A
   failed attempt whose blamed test-command step answered `ERROR` or `REJECTED` with a
   reason from a closed set (a malformed or unknown command, a missing or invalid argument,
