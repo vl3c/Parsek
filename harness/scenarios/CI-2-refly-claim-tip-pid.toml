@@ -78,6 +78,26 @@ tier = "operator"
 # every verifier PASS/SKIPPED. NEGATIVE CONTROL `2026-09-08_1106_CI-2-refly-claim-tip-pid`
 # (terminalStates.Docked temporarily pinned to 0): PARSEK-FAIL(save-structure) on exactly
 # `recordings.structure.terminalStates.Docked 1 > max 0`, nothing else moved. LIVE-PROVEN.
+# THE FLIGHT-READY WAIT (2026-10-05, CI-2-TIMEJUMP-BEFORE-FLIGHT-READY). InvokeRewind
+# answers OK at `Invocation complete`, 0.3-0.8 s before the re-fly scene's OnFlightReady
+# builds the ghost chains, and the jump used to follow it straight away: a jump that
+# landed first left the chain to be built past its own tip, and the tip never spawned
+# (the four chain-ghost / tip-spawn tokens read missing). A `ListHandles kind=chains`
+# read now sits between the rewind and the jump; the seam defers it
+# (`ghost-chains-pending`) until OnFlightReady ran, and the claimed chain's own row
+# (`listhandles chain ... pid=3620499050 ... tip=37d0dc07...`) is a required token.
+# `FindCrossedChainTips: empty/null chains` and `Time jump complete: 0 vessels spawned`
+# are NOT race signatures: the seam's jump passes null chains to ExecuteJump by design
+# and the tip spawns come from the playback loop right after it, on green runs too.
+# THE DESTROYED PIN AND ITS QUARANTINE. The fixture's own 12 `Kerbal X Debris`
+# recordings are Destroyed, so the correct reading is 12 (`terminalStates.Destroyed`
+# below). Every run that spawns the tip reads 13 instead: the re-fly conclusion's
+# scene-exit finalization treats the first tree's optimizer chain HEAD `a32f62f5` as a
+# leaf, matches it by bare pid 3620499050 to the vessel the chain tip just spawned (the
+# other launch of the same craft), and stamps it Destroyed at UT 8960 with its crew
+# Dead, while its chain tail `d211fb20` still ends at 386.9. That is product defect
+# REFLY-CONCLUSION-FINALIZES-COMMITTED-CHAIN-HEAD, quarantined by `[expectedFail]` on
+# exactly that one armed mismatch; a fix reads XPASS.
 # =====================================================================================
 description = "Chain-interaction lane 2 (D18 ghost chains), riding R10: bdock-recorded rewound to rp=${handles.rp0} so the committed docking's Dock branch point is in the future and the walker CLAIMS the partner (via MERGE), then TimeJump past the chain tip so the tip spawn re-creates the vessel with its ORIGINAL pid, read back through ListHandles kind=committed."
 instanceProfile = "stock-minimal"
@@ -108,6 +128,12 @@ steps = [
   { cmd = "StopRecording",                                                     expect = "OK" },
   { cmd = "ListHandles", args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
   { cmd = "InvokeRewind", args = { rp = "${handles.rp0}", slot = "1" },        expect = "OK", budget = 300 },
+  # THE FLIGHT-READY WAIT. InvokeRewind answers OK at `Invocation complete`, 0.3-0.8 s
+  # BEFORE the re-fly scene's OnFlightReady builds the ghost chains; a TimeJump in that
+  # window crosses the tip with no chain to spawn. The seam defers kind=chains
+  # (`ghost-chains-pending`) until OnFlightReady ran, and the chains are built inside
+  # that same call, so this read returns only once the chain the jump needs exists.
+  { cmd = "ListHandles", args = { kind = "chains" }, label = "chains",          expect = "OK" },
   # Observation before the jump: the tip row's spawnedPid, for the review's before /
   # after comparison (0 or the pre-rewind adoption stamp; the reading run says which).
   { cmd = "ListHandles", args = { kind = "committed" }, label = "pre",         expect = "OK" },
@@ -153,14 +179,16 @@ count = { min = 22, max = 22 }
 [expectations.recordings.structure]
 # ARMED 2026-09-08 on reading run 1's measured facets. The Dock branch point IS the
 # committed interaction the walker claims through; the terminal counts are the
-# fixture's plus the merged provisional. trees admits 3 for the duplicate-tree writer
+# fixture's plus the merged provisional. Destroyed is the fixture's 12 debris
+# recordings (re-measured 2026-10-05: 12 debris + the defective chain-head stamp = 13,
+# quarantined below; see the header). trees admits 3 for the duplicate-tree writer
 # hazard (observed 2).
 gating         = true
 trees          = { min = 2, max = 3 }
 committedTrees = { min = 2, max = 2 }
 recordings     = { min = 22, max = 22 }
 branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 }, JointBreak = { min = 10, max = 10 } }
-terminalStates = { Docked = { min = 1, max = 1 }, Orbiting = { min = 6, max = 6 }, Destroyed = { min = 7, max = 7 } }
+terminalStates = { Docked = { min = 1, max = 1 }, Orbiting = { min = 6, max = 6 }, Destroyed = { min = 12, max = 12 } }
 
 [expectations.logContracts]
 # Ordered as the mechanism runs: the rewind fires on the listed point -> the walker
@@ -174,6 +202,8 @@ required  = [
   "\\[ChainWalker\\] Vessel PID=3620499050 claimed by tree=8c677bba0ec04e558c6ebec4ad8c3c9f via MERGE at UT=8949\\.3",
   "\\[ChainWalker\\] Chain built: vessel=3620499050 links=1 tip=37d0dc074351408ba0374230793abb1c spawnUT=8951\\.5 terminated=False",
   "\\[GhostMap\\] Created ghost vessel 'Ghost: Kerbal X' ghostPid=[0-9]+ type=Ship body=Kerbin .* for chain pid=3620499050",
+  "listhandles kind=chains count=[1-9][0-9]* truncated=false evaluated=true",
+  "listhandles chain index=[0-9]+ pid=3620499050 links=1 .* tip=37d0dc074351408ba0374230793abb1c",
   "listhandles kind=committed count=[1-9][0-9]* truncated=false",
   "timejump start target=8960 ",
   "timejump complete reachedUT=896[0-9]",
@@ -187,6 +217,7 @@ forbidden = [
   "Chain tip spawn blocked by collision",
   "Chain tip spawn failed",
   "listhandles rejected",
+  "listhandles kind=chains .* evaluated=false",
   "timejump rejected",
 ]
 
@@ -194,13 +225,18 @@ forbidden = [
 # Budget arithmetic (M-A5 S8): max(step_budget, 600) + 60 per DEFERRED verb (LoadGame,
 # InvokeRewind, TimeJump) and max(step_budget, dispatch + 60) for the rest:
 #   LoadGame          660   InvokeRewind 660   TimeJump 660
-#   SetSetting x2     240   StopRecording 120  ListHandles x3 360
-#   AnswerMergeDialog 180   RecordingState 120 FlushAndQuit 120   -> sum 3120
-# The ceiling must EXCEED that sum so no step-wait is capped. 3600 clears it by 480.
+#   SetSetting x2     240   StopRecording 120  ListHandles x4 480
+#   AnswerMergeDialog 180   RecordingState 120 FlushAndQuit 120   -> sum 3240
+# The ceiling must EXCEED that sum so no step-wait is capped. 3600 clears it by 360.
 budgetSeconds = 3600
 
 [retry]
 policy = "once"
 
 [expectedFail]
-bugId = ""
+# One defect, one armed token: the chain head stamped Destroyed at the re-fly
+# conclusion (header, "THE DESTROYED PIN AND ITS QUARANTINE"). Any other red stays
+# PARSEK-FAIL.
+bugId = "REFLY-CONCLUSION-FINALIZES-COMMITTED-CHAIN-HEAD"
+subkind = "save-structure"
+mismatches = ["recordings.structure.terminalStates.Destroyed 13 > max 12"]
