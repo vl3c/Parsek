@@ -604,7 +604,18 @@ it joined at, not under it (`MissionVesselRow.IsPartner`): `Depot Station Duna I
 over its own intervals (Advanced), and it is not counted as one of the mission's vessels. Any
 other joined vessel is an ordinary child row with a blank Start event cell. Either way the
 vessel it joined splits its interval rows at the switch with blank Start / End event cells
-there (the interval keys are unchanged). Vessel and interval rows' single-line data cells use
+there (the interval keys are unchanged). At an undock the rows follow the physical vessel
+(`MissionVesselRowBuilder.ResolveUndockSides`, the Log's own-side rule
+`MissionStructureListBuilder.ResolveUndockOwnChild`): when the docked pair carried the other
+mission's identity, the ship's row continues into its own post-undock leg
+(`Duna Supply 1   ... Undocked (Depot Station Duna I (mission 'Kerbal X #5')) -> Orbiting`,
+expanded `after undock: Depot Station Duna I (mission 'Kerbal X #5') left - (pod x1, crew x1)`)
+and the partner's half is a partner row beside it
+(`Depot Station Duna I (mission 'Kerbal X #5')   Undocked (Duna Supply 1) -> Orbiting`); when
+the ship kept the identity, the partner's half is likewise a partner row beside it. The mission
+summary counts the ship once and reads its outcome off the ship's row. Rows only regroup the
+composition's intervals, so every interval key names the same stretch as before; only the row
+it is drawn in differs. Vessel and interval rows' single-line data cells use
 `compositionCellLabel.clipping = Overflow`, so descenders are not clipped in a 22 px row.
 
 What `MissionsLoopControls` hides in Basic: the include checkboxes, the loop grid (`Clone`,

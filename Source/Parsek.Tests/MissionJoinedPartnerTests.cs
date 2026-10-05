@@ -90,7 +90,8 @@ namespace Parsek.Tests
                     structure, view, head, ut, names),
                 names, partnerSet,
                 (head, ut) => MissionPresentation.ResolveTerminalDockPartnerVesselName(
-                    structure, head, ut, names));
+                    structure, head, ut, names),
+                MissionVesselRowBuilder.ResolveUndockSides(structure, partnerSet));
         }
 
         private static IEnumerable<MissionVesselRow> AllRows(List<MissionVesselRow> rows)
@@ -176,7 +177,7 @@ namespace Parsek.Tests
         [Fact]
         public void JoinedPartner_ExcludedKey_CanBeReincludedThroughItsRow()
         {
-            MissionVesselRow partner = BuildRows(DunaTreeId).Single(r => r.IsPartner);
+            MissionVesselRow partner = BuildRows(DunaTreeId).Single(r => r.OwnerHeadId == DunaJoinedDepot);
             var excluded = new List<string> { DunaJoinedDepot, DunaHead + "/seg1" };
             Assert.Equal(MissionVesselInclusion.None,
                 MissionVesselRowBuilder.ClassifyInclusion(partner, excluded));
@@ -217,19 +218,21 @@ namespace Parsek.Tests
                 MunHead + "/seg3",
             }, SelectableKeys(MunTreeId).ToArray());
 
-            // Each ship's own row still owns exactly its five keys, and a key stored before the
-            // fix still selects the same interval (the one from the join to the dock).
+            // Each ship's own row owns its four keys up to the undock plus its own post-undock
+            // leg (the partner's half, "/seg3", is the partner's row:
+            // MissionUndockOwnSideRowTests), and a key stored before the fix still selects the
+            // same interval (the one from the join to the dock).
             MissionVesselRow munShip = BuildRows(MunTreeId).Single(r => r.OwnerHeadId == MunHead);
             Assert.Equal(new[]
             {
                 MunHead, MunHead + "/seg1", MunHead + "/seg2", MunHead + "/seg2@dock1",
-                MunHead + "/seg3",
+                "b9f08d0f269346ee84162dd763e462aa",
             }, MissionVesselRowBuilder.IntervalKeys(munShip).ToArray());
             MissionVesselRow ship = BuildRows(DunaTreeId).Single(r => r.OwnerHeadId == DunaHead);
             Assert.Equal(new[]
             {
                 DunaHead, DunaHead + "/seg1", DunaHead + "/seg2", DunaHead + "/seg2@dock1",
-                DunaHead + "/seg3",
+                "1331a21bddfb49418be6ebec99dabf98",
             }, MissionVesselRowBuilder.IntervalKeys(ship).ToArray());
             var excluded = new List<string> { DunaHead + "/seg2" };
             Assert.Equal(MissionVesselInclusion.Partial,
@@ -280,9 +283,9 @@ namespace Parsek.Tests
             MissionPresentation.MissionSummaryFacts facts = MissionPresentation.ComputeSummaryFacts(
                 structure, MissionThroughLineBuilder.Build(structure),
                 MissionCompositionBuilder.Build(structure), partners);
-            // Duna Supply 1, its probe, and its post-undock half (a separate row today).
-            Assert.Equal(3, facts.VesselCount);
-            Assert.Equal(3, AllRows(rows).Count(r => !r.IsPartner));
+            // Duna Supply 1 (its own post-undock leg is the same ship's row) and its probe.
+            Assert.Equal(2, facts.VesselCount);
+            Assert.Equal(2, AllRows(rows).Count(r => !r.IsPartner));
         }
 
         // catches (review): a joined leg the naming pass calls this mission's own - in no

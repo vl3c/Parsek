@@ -417,18 +417,9 @@ namespace Parsek
             // mission's vessel per the naming pass). Null when no partner set was given:
             // without it the two sides cannot be told apart.
             internal string FirstOwn(List<string> ids)
-            {
-                if (partnerLegIds == null || ids == null) return null;
-                for (int i = 0; i < ids.Count; i++)
-                {
-                    string id = ids[i];
-                    if (id == null || !Structure.LegsById.ContainsKey(id)) continue;
-                    Recording r = Rec(id);
-                    if (r != null && r.IsDebris) continue;
-                    if (!partnerLegIds.Contains(id)) return id;
-                }
-                return null;
-            }
+                => FirstOwnLeg(Structure, ids, partnerLegIds);
+
+            internal ICollection<string> PartnerLegIds => partnerLegIds;
 
             internal bool IsPartner(string id)
                 => partnerLegIds != null && id != null && partnerLegIds.Contains(id);
@@ -991,12 +982,50 @@ namespace Parsek
                 return true;
             }
 
-            string own = ctx.FirstOwn(bp.ChildRecordingIds);
+            string own = ResolveUndockOwnChild(ctx.Structure, eventLegId, bp.ChildRecordingIds,
+                ctx.PartnerLegIds);
             if (own == null)
                 return false;
             ownId = own;
             otherSide = JoinVesselNames(ctx, bp.ChildRecordingIds, own) ?? ctx.VesselOf(eventLegId);
             return true;
+        }
+
+        /// <summary>
+        /// The first id that is a leg of <paramref name="structure"/> (a controlled, non-debris
+        /// recording: debris never becomes a leg) and not another mission's vessel per the
+        /// naming pass's <paramref name="partnerLegIds"/>. Null when no partner set is given:
+        /// without it the two sides cannot be told apart. Shared by the Log's
+        /// <see cref="ResolveOwnSide"/> and the Missions tab's vessel rows
+        /// (<see cref="MissionVesselRowBuilder.ResolveUndockSides"/>). Pure.
+        /// </summary>
+        internal static string FirstOwnLeg(MissionStructure structure, IList<string> ids,
+            ICollection<string> partnerLegIds)
+        {
+            if (structure == null || partnerLegIds == null || ids == null) return null;
+            for (int i = 0; i < ids.Count; i++)
+            {
+                string id = ids[i];
+                if (id == null || !structure.LegsById.ContainsKey(id)) continue;
+                if (!partnerLegIds.Contains(id)) return id;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The mission's own side of an undock whose undocking leg <paramref name="eventLegId"/>
+        /// (the docked pair) is another mission's vessel: the first own child. Null when the
+        /// undocking leg is this mission's own (the passive side: the ship that stayed is the
+        /// pair's identity), when there is no partner set, or when no own child was recorded.
+        /// The one own-side rule both the Log's Undock row and the Missions vessel rows read.
+        /// Pure.
+        /// </summary>
+        internal static string ResolveUndockOwnChild(MissionStructure structure, string eventLegId,
+            IList<string> childIds, ICollection<string> partnerLegIds)
+        {
+            if (eventLegId == null || partnerLegIds == null || !partnerLegIds.Contains(eventLegId))
+                return null;
+            return FirstOwnLeg(structure, childIds, partnerLegIds);
         }
 
         // The distinct names of the controlled, non-debris ids other than skipId; null if none.

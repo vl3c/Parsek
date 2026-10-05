@@ -1631,6 +1631,21 @@ _(unreleased — entries accumulate here per commit)_
   in the Vessel column and the other vessel in the event. A dock that lists the other vessel
   first, or where the other vessel docked into yours, reads the same way. When your ship kept
   the identity and the other vessel left, the row reads as before.
+- **A ship's Missions row follows the ship after it undocks.** When your ship undocked from
+  another mission's vessel that kept the docked pair's identity, your ship's row went on
+  along the other vessel's half ("Duna Supply 1   ... Undocked (Duna Supply 1) -> Orbiting",
+  its last interval the depot's, and Kerbal X #4's expanded detail reading "after undock:
+  Deliverer Mun 1 left" about itself), while your ship's real flight after the undock was a
+  separate row under it. Your ship's row now continues into its own flight after the undock
+  ("Undocked (Depot Station Duna I (mission 'Kerbal X #5')) -> Orbiting", detail "after
+  undock: Depot Station Duna I (mission 'Kerbal X #5') left"), and the other vessel's half is
+  a row beside it naming your ship ("Undocked (Duna Supply 1) -> Orbiting"), like that
+  vessel's row before the dock. When your ship kept the identity and the other vessel left,
+  your row was already right; the other vessel's half now also sits beside your ship rather
+  than under it. The mission summary counts your ship once and reads its outcome from your
+  ship's own flight. Mission selections are unaffected: every interval a mission stores keeps
+  naming the same stretch of the same recording, only the row it is drawn in moves, so an
+  exclusion made on the other vessel's half now shows on that vessel's row.
 - **Dev: a harness mission that ends early writes its result file again.** A mission's
   assertion rows could carry a reading still at its "not yet measured" NaN default (the
   `kx_rewind_watch` core discard altitude and time, peak booster thrust and rewind times, on

@@ -191,7 +191,7 @@ A selection of legs defining what is in the mission. Along each path it is a con
 - Trim rule (both edges): the START edge is the first included leg (everything before is greyed, pre-start). The END edge is set by exclusion: excluding a leg drops that leg AND everything downstream of it (its sequence-successors and, if it is a fork leg, that whole branch). At a merge, dropping this path's parent drops the merged child from THIS path only; the co-parent's own Mission is unaffected.
 - Forks may select MULTIPLE branches: one branch = a single-path mission; both = the whole-mission subtree.
 - tree : selection is 1 : many, and selections may OVERLAP (share the trunk or any legs). The engine already renders many concurrent ghost instances of one recording, so this is free.
-- PERSISTED as the set of EXCLUDED through-line head ids (coarse) plus excluded interval keys (finer start / end trim); the included set is DERIVED live. Because the optimizer preserves the earliest segment's id on split and merge, an excluded head id keeps matching after a re-split / re-merge, so the selection survives topology churn (new sub-legs inside an included through-line auto-join and stay included).
+- PERSISTED as the set of EXCLUDED through-line head ids (coarse) plus excluded interval keys (finer start / end trim); the included set is DERIVED live. An interval key is a composition interval (`MissionCompositionNode.HeadLegId`: a leg id, `<head>/segN` for a later structural interval, `<key>@dockM` for a docked sub-interval), derived from the recordings alone, so it names the same stretch of the same recording for every consumer (render windows, loop units, routes, the Log). The Missions vessel rows only group these intervals for display (a ship's row may cross from one composition run into its own post-undock run), and the per-vessel checkbox writes exactly the keys of the intervals its row draws; how the rows are grouped never changes which interval a stored key names. Because the optimizer preserves the earliest segment's id on split and merge, an excluded head id keeps matching after a re-split / re-merge, so the selection survives topology churn (new sub-legs inside an included through-line auto-join and stay included).
 
 ### 5.5 Mission (the persisted entity)
 
@@ -359,8 +359,12 @@ button and hover - is `docs/dev/design-gui-inventory.md` section 3.2; the Basic 
 is `docs/dev/design-ui-basic-advanced.md` section 4.5. In short:
 
 - Rows: one per physical vessel or EVA kerbal (`MissionVesselRowBuilder.Build`), indented by
-  separation lineage, never by time; debris is not a row (it rides its parent). In Advanced a
-  vessel with more than one interval expands into its interval rows. Chapter header rows group
+  separation lineage, never by time; debris is not a row (it rides its parent). Another
+  mission's vessel recorded into the flight (a partner flown to a dock, or its half after an
+  undock) is a row beside the ship, not under it. At an undock where the docked pair kept the
+  other mission's identity, the ship's row continues into the ship's own post-undock leg
+  (`MissionVesselRowBuilder.ResolveUndockSides`, the same own-side rule as the Log's Undocked
+  row). In Advanced a vessel with more than one interval expands into its interval rows. Chapter header rows group
   rows, and `Docked partner:` rows name a dock with another mission's vessel, each with a
   `Go to` that opens that mission.
 - Columns: `#`, `Missions and vessels`, `Start time`, `Start event`, `End event`, `End time`,

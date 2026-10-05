@@ -964,7 +964,7 @@ identity and the partner left) reads as before, and without the partner set (no 
 the structural attribution stays. Counted on the build summary line (`ownSideRows=`).
 `MissionJoinedPartnerTests.*Log*` and the synthetic mirror cells.
 
-## MISSION-VESSEL-ROW-UNDOCK-FOLLOWS-PARTNER: after an undock, the ship's vessel row continues on the partner's half [FILED 2026-10-04 from the mirror check of MISSION-LOG-UNDOCK-NAMES-THE-PARTNER. OPEN]
+## ~~MISSION-VESSEL-ROW-UNDOCK-FOLLOWS-PARTNER: after an undock, the ship's vessel row continues on the partner's half~~ [FILED 2026-10-04 from the mirror check of MISSION-LOG-UNDOCK-NAMES-THE-PARTNER. FIXED 2026-10-05, branch `undock-row-migration`]
 
 The Missions-tab mirror of the Log defect above (MISSION-LOG-UNDOCK-NAMES-THE-PARTNER): the Log
 now tells the sides apart with the naming pass's partner legs (`ResolveOwnSide`), and the same
@@ -979,9 +979,30 @@ PARTNER's half. On
 post-undock leg (ending when the depot's recording ends), and the real post-undock Duna Supply 1
 (`1331a21b`, which `MissionVesselNaming` already joins to the ship as a re-pidded continuation)
 is a separate child row `Duna Supply 1   Undocked -> Orbiting`. Kerbal X #4 and GUI-4's docking
-mission have the same shape (`Undocked (Deliverer Mun 1)` / `Undocked (Kerbal X)`). Not fixed
-with the Log: moving the undock continuation changes which run owns which legs, so the interval
-keys and the per-vessel include sets move; it needs a key-migration decision first.
+mission have the same shape (`Undocked (Deliverer Mun 1)` / `Undocked (Kerbal X)`).
+
+Fix: the vessel rows, not the composition. `MissionVesselRowBuilder.ResolveUndockSides` reads
+the naming pass's partner legs with the Log's own-side rule
+(`MissionStructureListBuilder.ResolveUndockOwnChild`, shared with `ResolveOwnSide`): an undock whose undocking leg is a
+partner leg, whose run continues into a partner child while an own child exists, is an
+own-side undock. `Build` then continues the ship's row into the own child's run and builds the
+partner's half as a partner row beside it (`Undocked (Duna Supply 1) -> Orbiting`); the ship's
+boundary piece and expanded detail name the half that left (`Undocked (Depot Station Duna I
+(mission 'Kerbal X #5'))`, `after undock: Depot (mission 'Kerbal X #3') left`). A partner's
+half that heads its own run (the passive side) is a partner row beside the ship too. The
+resolvers are asked with each interval's composition owner, the summary counts the ship once
+and reads its outcome off the ship's row. Logged once per build (`VesselRow:
+ownSideUndocks=N skipped=M`). No key moved, so no selection migration: the composition
+(`MissionCompositionBuilder`, `ContinuationSuccessor`) is untouched, every stored key still
+names the same recording stretch for every consumer (render windows, loop units, routes,
+`RouteMemberRunExpansion`, the Log), and only the row a key is drawn in changes - measured over
+all six fixture trees (`interbody-route-recorded`, `bdock-recorded`): the rows carry exactly the
+composition's keys once each, before and after, with 2 keys changing rows per own-side undock
+(Duna Supply 1, Kerbal X #4, Kerbal X #2). `Mission.CurrentSelectionSchemaGeneration` stays 1.
+`MissionUndockOwnSideRowTests` (the three fixture ships, the summary count and outcome, the
+key proof, codec + `ReconcileSelections` round trip of every affected key, the mirror shapes:
+passive side, both sides own, no partner set, all-partner undock, own child already
+continuing) and the updated `MissionJoinedPartnerTests` cells.
 
 ## ~~BDOCK-1-STATION-SEPARATE-NOT-OBSERVED: the BDOCK-1 mission never sees the station separation it just performed~~ [FILED 2026-09-30 from the #1931 / #1932 verification flights. FIXED 2026-09-30, PR #1934, flight-proven]
 

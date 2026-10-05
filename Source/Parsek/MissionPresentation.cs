@@ -226,12 +226,17 @@ namespace Parsek
             // Vessels: distinct composition OwnerHeadIds, counting only real vessel intervals -
             // a roster atom is a part, an EVA-kerbal leg is a person, and another mission's
             // vessel that joined the flight (a partner join, <paramref name="partnerLegIds"/>
-            // from MissionVesselNaming) is that mission's, so none of them counts. A joined
-            // vessel the naming pass calls this mission's own still counts.
+            // from MissionVesselNaming) or its half after an undock is that mission's, so none
+            // of them counts. A joined vessel the naming pass calls this mission's own still
+            // counts. This mission's ship after an own-side undock (the docked pair carried the
+            // partner's identity) is the ship it continues, the same vessel the rows draw as
+            // one (MissionVesselRowBuilder.ResolveUndockSides), so it is not counted twice.
+            MissionUndockSides undockSides =
+                MissionVesselRowBuilder.ResolveUndockSides(structure, partnerLegIds);
             var owners = new HashSet<string>(System.StringComparer.Ordinal);
             if (roots != null)
                 for (int i = 0; i < roots.Count; i++)
-                    CollectVesselOwners(roots[i], owners, partnerLegIds);
+                    CollectVesselOwners(roots[i], owners, partnerLegIds, undockSides);
             facts.VesselCount = owners.Count;
 
             // Crew: the union of NAMED crew over the tree's legs (a leg's CrewNames roster comes
@@ -274,9 +279,24 @@ namespace Parsek
 
             // Outcome: the primary (first) root vessel's LAST interval end event. Walking by max
             // EndUT over that vessel's own intervals avoids assuming where the survivor sits in
-            // the children list.
+            // the children list. Across an own-side undock the composition run goes on along
+            // the partner's half, so the outcome is the end of the primary vessel's ROW, which
+            // follows the ship's own leg.
             if (roots != null && roots.Count > 0 && roots[0] != null)
-                facts.TerminalWord = ResolvePrimaryTerminalWord(roots[0]) ?? "";
+            {
+                string word = null;
+                if (undockSides.OwnSideByOwnChild.Count > 0)
+                {
+                    List<MissionVesselRow> primaryRows = MissionVesselRowBuilder.Build(
+                        new List<MissionCompositionNode> { roots[0] }, null, null,
+                        partnerLegIds, null, undockSides);
+                    if (primaryRows.Count > 0 && primaryRows[0] != null
+                        && string.Equals(primaryRows[0].OwnerHeadId, roots[0].OwnerHeadId,
+                            System.StringComparison.Ordinal))
+                        word = primaryRows[0].EndEvent;
+                }
+                facts.TerminalWord = word ?? ResolvePrimaryTerminalWord(roots[0]) ?? "";
+            }
 
             return facts;
         }
@@ -285,15 +305,17 @@ namespace Parsek
         // OwnerHeadId; an EVA-kerbal interval labels itself with the kerbal's name (so its
         // VesselName equals its CompositionLabel) and is a person, not a vessel.
         private static void CollectVesselOwners(MissionCompositionNode node, HashSet<string> owners,
-            ICollection<string> partnerLegIds)
+            ICollection<string> partnerLegIds, MissionUndockSides undockSides)
         {
             if (node == null)
                 return;
             if (!node.IsAtom && !string.IsNullOrEmpty(node.OwnerHeadId) && !IsPersonNode(node)
-                && !MissionVesselRowBuilder.IsPartnerJoin(node, partnerLegIds))
+                && !MissionVesselRowBuilder.IsPartnerJoin(node, partnerLegIds)
+                && !undockSides.PartnerHalves.Contains(node.OwnerHeadId)
+                && !undockSides.OwnSideByOwnChild.ContainsKey(node.OwnerHeadId))
                 owners.Add(node.OwnerHeadId);
             for (int i = 0; i < node.Children.Count; i++)
-                CollectVesselOwners(node.Children[i], owners, partnerLegIds);
+                CollectVesselOwners(node.Children[i], owners, partnerLegIds, undockSides);
         }
 
         // True for an EVA-kerbal interval (a person, not a vessel). Reads the builder-stamped
