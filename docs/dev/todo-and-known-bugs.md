@@ -1041,7 +1041,11 @@ pinned row by row in `StructureListBdockFixtureTests` against the committed fixt
    reading saw 7, so a change since then made five more debris recordings count; re-measure
    and re-pin after item 1.
 
-## MISSION-SPLIT-RUN-CONTINUATION: a switch continuation after a split reads as its own interval [FILED 2026-10-05 from MISSION-LOG-REWORK. OPEN, needs an owner ruling]
+## ~~MISSION-SPLIT-RUN-CONTINUATION: a switch continuation after a split reads as its own interval~~ [FILED 2026-10-05 from MISSION-LOG-REWORK. CLOSED 2026-10-06, BY DESIGN - owner ruling]
+
+Owner ruling 2026-10-06: keep the switch continuation as its own row and interval key. The
+player wants per-segment loop control (e.g. loop only the ascent and nothing after the
+switch back), which folding would take away. No code change; do not fold it.
 
 The Missions composition follows a vessel through the branch point its recording ends at.
 On a recording the optimizer split, a branch point after the cut that the vessel flew on
