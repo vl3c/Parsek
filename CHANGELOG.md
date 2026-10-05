@@ -6,7 +6,7 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.5
 
-_(unreleased — entries accumulate here per commit)_
+_(unreleased - entries accumulate here per commit)_
 
 ### Added
 
@@ -209,9 +209,8 @@ _(unreleased — entries accumulate here per commit)_
 - **Dev: the automated tests now gate on 38 more save-structure checks.** Report-only checks
   on the saved game (rewind points, supersede rows, tombstones, tree and recording shape) now
   fail a test run when they drift, wherever a recent run read them correctly: 21 lanes were
-  flown on current code to read them. 30 checks on 24 lanes still wait for a reading. The
-  stock-screen annotation batch (H45) was re-flown and now pins its exact result, after a
-  timing fix in one of its tests. One logistics lane (RVR-8) found that a route's second
+  flown on current code to read them. The stock-screen annotation batch (H45) was re-flown
+  and now pins its exact result, after a timing fix in one of its tests. One logistics lane (RVR-8) found that a route's second
   cycle no longer held when its origin was out of cargo. That was lost supply-route cargo
   (see Fixed), and RVR-8's own check is armed off its green re-fly.
 - **Dev: every declared save-structure check now gates the automated tests.** The last 19
@@ -227,12 +226,12 @@ _(unreleased — entries accumulate here per commit)_
   where the ascent leaves the atmosphere. B7, B11, B12 and B15 failed on that alone, and each
   now expects 9 recordings instead of 8. B2, B5 and B6 already allowed it. GS-8, B4, B13 and
   B14 get more than one extra recording (a second stage leaving the atmosphere, a reentry, a
-  landing approach and touchdown), so their counts wait for a ruling.
+  landing approach and touchdown); they were re-pinned once that was ruled (GS-8 10, B4, B13
+  and B14 11; see the mission warp entry under Changed).
 - **Dev: 15 more save-structure checks now gate the automated tests.** GS-1, GS-2, GS-3, GS-7,
   GS-9, V3F, V3R, RF-1, RF-4, RF-9 and CL-3 each had a report-only check on the saved game read
-  correctly by a fresh run, and each check was shown to fail when its window was moved. 180 of
-  the 199 declared checks now gate; 19 on 17 lanes still wait for a reading. Two lane fixes came
-  first: RF-1, RF-4 and RF-9 reloaded a save written before the flight was committed, and CL-3
+  correctly by a fresh run, and each check was shown to fail when its window was moved (the
+  last ones followed; see "every declared save-structure check" above). Two lane fixes came first: RF-1, RF-4 and RF-9 reloaded a save written before the flight was committed, and CL-3
   and CL-4 tried to Re-Fly a separation that was still in the future. RF-9's count of
   split seeds was re-pinned after static solar panels stopped recording a deploy event.
 - **Dev: lanes for every remaining stock-screen block, and the EVA block for a held kerbal.** `KB-4-ksc-click-blocks-remaining` (flown green 2026-09-28) presses, on the stock-screen census career, Mission Control's Decline, Cancel and a slot-starved Accept, both Administration buttons (after an allowed Administration upgrade frees a strategy slot), the Astronaut Complex dismiss, the R&D part purchase and purchase-all, and the VAB crew-dialog seat. Each is refused with the blocked dialog showing exactly the text its greyed control showed, and nothing changes. `KB-5-flight-eva-block-held-kerbal` (flown green 2026-09-28) switches to a pad craft carrying Jebediah Kerman, whom a committed flight holds, and checks that his EVA is refused. It runs on a new fixture, `k2-held-kerbal-pad`. The `KscAction` test verb gains seven sub-actions, one per stock call those controls make. `UiAction op=dismiss` now works in the editor. `StockScreen` opens the screens a Science or Sandbox save has, and new captures cover the SPH part tooltip (GUI-28), the Science-mode R&D, Astronaut Complex and facility menu (GUI-8), and the Sandbox Space Center (new GUI-30); all of them must show no Parsek mark. H45 moves to `career-earned-pad`, whose Active contract its Cancel cell needs. Its R&D Research-button cell now waits for stock to set the tree's node states and compares colours against the selected node's own panel, so all twelve cells run and pass.
@@ -450,8 +449,8 @@ _(unreleased — entries accumulate here per commit)_
   the one command and closes it afterwards. Refusals name the problem: an unknown strategy,
   a bad factor, already active or not active, no free slot, or stock's own reason.
   `GUI-5-census-career-ksc` now ends by activating Outsourced R&D and photographing the
-  Career window's Strategies tab and the Timeline's Career > Strategies view; every
-  earlier capture had shown "No active strategies."
+  Timeline's Career > Strategies view; every earlier capture had shown "No active
+  strategies."
 - **Automated testing: a report-only mutation checker asks whether each lane's checks
   would catch a real break.** `harness/tools/mutation_check.py` replays the harness's own
   pass/fail checks over runs already archived on the machine: first unchanged (the run
@@ -495,27 +494,28 @@ _(unreleased — entries accumulate here per commit)_
   (the rewind point it names is the one the rewind kept, and the in-progress re-fly is not
   thrown away) and that nothing is left behind after the merge. No problems found.
 - **Timeline: a Career view with contract, strategy, facility, milestone and tech
-  filters, and a two-row filter area.** The first row holds the views (Overview, Details,
-  Rewind/FF, Re-Fly, Career) and a Time button whose label names the active time range
-  (`Time: All`, `Time: Last 7d`, `Time: Custom`); it lights up while a range is active, so a
-  shortened list always shows why. Clicking Time opens the range presets and the From / To
-  sliders (the separate Custom button is gone). The second row depends on the view: the
-  Recordings / Actions / Events / Archived toggles under Overview and Details, only
-  Archived under Rewind/FF and Re-Fly (the source toggles are hidden there instead of
-  greyed out), and under Career one button per category: Contracts (accepted, completed,
-  failed, cancelled), Strategies (activated, deactivated), Facilities (upgrades,
-  destructions, repairs), Milestones and Tech (tech unlocks only, never the science legs
-  of a strategy). A category shows every row of its kind from both Overview and Details,
-  past and future, and the time range still applies. Career remembers the last category
-  used. Science games show only Facilities, Milestones and Tech, and Sandbox has no Career
-  button. The window's minimum width is now 720 px so no filter row is cut off. Each row
-  now records its category and subject (contract, strategy, facility, milestone or tech
-  node), and the Timeline can scroll to a subject for a later link from the Career window.
+  filters, and a three-row filter area.** The first row holds the views (Overview, Details,
+  Rewind/FF, Re-Fly, Career). The second row depends on the view: the Recordings / Actions /
+  Events toggles under Overview and Details, and under Career one button per category:
+  Contracts (accepted, completed, failed, cancelled), Strategies (activated, deactivated),
+  Facilities (upgrades, destructions, repairs), Milestones and Tech (tech unlocks only,
+  never the science legs of a strategy). Rewind/FF and Re-Fly have no second row (the
+  source toggles are hidden there instead of greyed out), so the time range moves up under
+  the views. The last row is the time range: Last Day / Last 7d / Last 30d / This Year /
+  All / Custom, exactly one of them lit, so the range in force is always on screen (All by
+  default). Custom shows the From / To sliders; dragging a slider lights Custom, picking a
+  preset turns Custom off and hides the sliders, and turning Custom off returns to All. A
+  category shows every row of its kind from both Overview and Details, past and future, and
+  the time range still applies. Career remembers the last category used. Science games show
+  only Facilities, Milestones and Tech, and Sandbox has no Career button. Every filter
+  button has the same width (the cell of a six-button row) and the rows are left-aligned;
+  the window's minimum width is 610 px, the width the six-button rows need. Each row now
+  records its category and subject (contract, strategy, facility, milestone or tech node).
   The GUI census `op=tab` vocabulary gains `contracts`, `strategies`, `facilities`,
   `milestones` and `tech` after `refly`; a category the loaded game mode hides answers
-  `REJECTED tab-hidden-in-game-mode` naming the mode, and `key=customRange` now opens the
-  Time fold. `GUI-24-census-timeline-filters` photographs the Contracts, Milestones and
-  Tech views on its host and Milestones under a This Year range.
+  `REJECTED tab-hidden-in-game-mode` naming the mode, and `op=state key=customRange` means
+  Custom selected (the sliders shown). `GUI-24-census-timeline-filters` photographs the
+  Contracts, Milestones and Tech views on its host and Milestones under a This Year range.
 - **Automated testing: recordings now replay around Tylo, Bop and Pol.** Three new
   flights (`B33-tylo-orbit`, `B34-bop-orbit`, `B35-pol-orbit`) start parked high above
   Jool, transfer down to one moon, capture into orbit there and commit the recording; each
@@ -831,7 +831,8 @@ _(unreleased — entries accumulate here per commit)_
   divergence banner - the window's entire point, unphotographed - plus the Flow column,
   facility levels above 1 and both destroyed forms), and Structure List (the six
   unphotographed terminal STATUS words, the EVA / breakup event words, and the route pickup
-  and depot-origin forms).
+  and depot-origin forms). The Career State window, the route step list and their mock
+  states were removed later in this version (see Changed).
 
   **The apply's read-back is DRAW-PRODUCED, and it is three-phase.** Phase 1 applies the
   window's chrome and captures it WITHOUT the mock; phase 2 installs the data and captures
@@ -1132,8 +1133,9 @@ _(unreleased — entries accumulate here per commit)_
   runs on a THROWAWAY staged copy of its fixture - the ops cannot enforce that and do not
   pretend to. `op=select` writes `Mission.ExcludedIntervalKeys` and
   `IncludedForeignDockLinkIds`; `op=state key=archived` writes
-  `GroupHierarchyStore.HideActive` and `key=archivedMissions` writes
-  `MissionStore.HideArchived` (persisted as `missionHideArchived`); `op=edit commit=true`
+  `GroupHierarchyStore.HideActive` and `key=archivedMissions` wrote
+  `MissionStore.HideArchived` (persisted as `missionHideArchived`; that key and the Timeline's
+  archive toggle were removed later in this version); `op=edit commit=true`
   renames a recording, a group or a mission; and all three `RouteCommand` actions change a
   route's link or cadence. Everything else in the wave is per-session view state and leaves
   the save alone.
@@ -1490,16 +1492,16 @@ _(unreleased — entries accumulate here per commit)_
   orbit before it would spawn, the sort used the far-away spawn while the button (and `Warp to
   Next Spawn`) acted on the departure, so the top row was not the next thing Warp would do.
   The sort, both time cells and the button now use the same moment.
-- **Real Spawn Control's "Warp to Spawn" puts an orbiting vessel where its ghost stood.**
-  Park beside a ghost in orbit whose flight ends Orbiting and press "Warp to Spawn": the
+- **Real Spawn Control's Warp puts an orbiting vessel where its ghost stood.**
+  Park beside a ghost in orbit whose flight ends Orbiting and press its Warp: the
   clock jumps to the flight's end while your own vessel keeps its place, as designed, but
   the vessel that appeared used to sit on its recorded orbit at the new time, tens or
   hundreds of kilometres along the orbit (120 km after a 54 s jump in low Kerbin orbit).
   A ghost standing within the physics bubble when the jump crosses its end now gets the
   same time shift your vessel gets, so the real vessel appears where the ghost was, with
   the same distance and relative speed to you. Ghosts outside the bubble, and landed or
-  splashed ones (the planet carries both vessels), spawn as before. The same applies to
-  "Warp to departure" and every other epoch-shift jump. The spawn's collision check looks
+  splashed ones (the planet carries both vessels), spawn as before. The same applies to a
+  Warp to a craft's departure and every other epoch-shift jump. The spawn's collision check looks
   at that same spot, so a vessel that would appear inside something beside you is held
   back as before, and a held ghost is drawn where its vessel would appear. No new
   interface.
@@ -1728,10 +1730,11 @@ _(unreleased — entries accumulate here per commit)_
   built from a Supply Run that docked at more than one vessel delivers at every stop each
   cycle, but four cells read only its first stop. A relay that picked up cargo at one rover
   and delivered it to another showed the pickup rover as its Destination and "(nothing)" as
-  what it delivers per cycle. Now Delivers per cycle adds up every stop's delivery (with
-  "across N stops" when more than one stop receives cargo), Destination names the first stop
-  that receives cargo plus the others (`Mun Base (+2 stops)`) and lists every stop in order
-  with its pickup or delivery role on hover, the "tanks full" line names the stop that is
+  what it delivers per cycle. Now what each run delivers adds up every stop's delivery (with
+  "across N stops" when more than one stop receives cargo), the destination (now in the
+  grey from / to line under the route's name) names the first stop that receives cargo plus
+  the others (`Mun Base (+2 stops)`) and lists every stop in order with its pickup or
+  delivery role on hover, the "tanks full" line names the stop that is
   actually full, and Re-scan for endpoint searches for every stop and retries delivery only
   once all of them are found. Routes with one stop look exactly as before.
 - **A second science award for the same experiment at the same moment is no longer lost.**
@@ -1845,7 +1848,7 @@ _(unreleased — entries accumulate here per commit)_
 - **Mission Control says "expired" for a committed contract deadline expiry.** An Active
   contract whose committed outcome is its deadline running out read "fails" / "Fails on" in
   the row label, the detail panel and the Cancel refusal, while the Timeline says "Expired";
-  it now reads "expired" / "Expired on".
+  it now reads "Expired on <date>".
 - **Ghosts on the ground no longer jump up and down while crew portraits are showing.** A replayed
   EVA kerbal or a Breaking Ground part he placed, recorded standing slightly below the terrain height
   KSP reports, is lifted just clear of the ground as it replays. On the frames where stock redrew a
@@ -2271,9 +2274,8 @@ _(unreleased — entries accumulate here per commit)_
   applicant's name (the trait stays in the tooltip) and the stock line returns once the hire is
   no longer ahead.
 - **Astronaut Complex: a stand-in's row reads "Stand-in for Bill Kerman".** An active stand-in
-  kept stock's "Available for next mission" although his dismiss button was locked as managed
-  by Parsek; the row now says whose seat he is covering, in the Kerbals window's wording, and
-  the lock's reason is unchanged.
+  kept stock's "Available for next mission" although his dismiss button was locked; the row
+  now says whose seat he is covering, in the Kerbals window's wording.
 - **Stock screens: a button Parsek blocks now looks disabled.** The R&D Research and
   purchase-all button and Mission Control's Accept, Decline and Cancel draw no disabled state
   of their own, so a blocked one looked clickable and only the reason text said otherwise.
@@ -2283,8 +2285,9 @@ _(unreleased — entries accumulate here per commit)_
 - **KSC facility menu: the Upgrade explanation wraps.** The tooltip on a blocked Upgrade
   button drew as one very long line to the left of the menu; it now wraps to short lines.
 - **Mission Control: row labels fit.** A contract the committed timeline accepts or resolves
-  reads e.g. "- accepted Y1 D3" or "- completes Y2 D114" after its title, instead of a long
-  status the three-line row cut off; the detail panel still gives the full explanation.
+  reads e.g. "- Accepted on Y1, D03" or "- Completed on Y2, D114" after its title, instead of
+  a long status the three-line row cut off; the detail panel still gives the full
+  explanation.
 - **Mission Control: the slot refusal names the contract's agent.** When several offers share
   a title, "Accept is unavailable" now says which one the committed timeline accepts, e.g.
   "'Conduct a focused observational survey of Kerbin.' from Zaltonic Electronics". The agent
@@ -2293,9 +2296,9 @@ _(unreleased — entries accumulate here per commit)_
   because Parsek looked for the offer while the game was still loading its contracts.
 - **Astronaut Complex: a stand-in's dismiss refusal says whose seat he covers.** It read "This
   kerbal is a stand-in in a reserved kerbal's replacement chain"; it now reads e.g. "Standing
-  in for Bill Kerman, who is held by a committed flight. Dismissing them would leave that seat
-  without a kerbal." A stand-in who covers no seat right now reads "Parsek keeps this kerbal as
-  a stand-in for a kerbal a committed flight holds."
+  in for Bill Kerman, reserved by timeline for 'Mun Lander' until Y1, D09, 18:40." A stand-in
+  who covers no seat right now reads "Kept as a stand-in for Bill Kerman, ..." (or "Kept as a
+  stand-in for a reserved kerbal, blocked by timeline.").
 - **Timeline: a kerbal's experience row reads "XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin,
   Recovered)" instead of the raw word "KerbalExperience".** The row a crewed recovery writes for the
   kerbal's career log had no Timeline display arm, so it showed as an unstyled event with the type name
@@ -2321,22 +2324,19 @@ _(unreleased — entries accumulate here per commit)_
   still counts: after a rewind the variant is marked purchased again when its date passes,
   and it cannot be bought before then, like the part you paid for. Purchases recorded
   before this fix keep the amount they were recorded with.
-- **Kerbals and Career State windows: column text now starts exactly under its header.**
-  Their body cells were plain labels under boxed headers, so the text sat 4px left of the
-  header text (Kerbals Roster: header text at x=289, body at x=285). Every body cell now uses
-  the shared table cell style, including the label-styled link cells (Career row names,
-  Kerbals Last flight and Flights rows) and the fold rows and grey "No active ..." line
-  inside the tables.
-- **Real Spawn Control and the Log (Structure) window: column text now starts exactly under
+- **Kerbals window: column text now starts exactly under its header.**
+  Its body cells were plain labels under boxed headers, so the text sat 4px left of the
+  header text (Roster: header text at x=289, body at x=285). Every body cell now uses the
+  shared table cell style, including the label-styled link cells (the Last flight and
+  Flights rows).
+- **Real Spawn Control and the Log window: column text now starts exactly under
   its header.** The header cells are boxes that inset their text 4px, while the body cells
   were plain labels with no inset, so every column's text sat 4px left of its header in
   Real Spawn Control (1px right in the Log window, whose hand-set indent was 5px). Body
   cells now use one shared table cell style that takes the header's own padding, so the
   measured header-to-cell text delta is 0px on every column. Both tables also draw their
   pinned header row inside the same dark box as the rows, so the box no longer starts 4px
-  left of the header cells above it. In Real Spawn Control the row's warp button now has
-  its own `Warp` column header, and the `State` column shows `-` for a craft with no
-  departure instead of an empty cell.
+  left of the header cells above it.
 - **Dev: the GUI mirror's Timeline `Career` view button no longer jumps to the Career window.**
   The page's launcher rule sent any control whose text spelled a window's name to that
   window. Only the main window's controls launch windows now; elsewhere such a control is
@@ -2353,11 +2353,10 @@ _(unreleased — entries accumulate here per commit)_
 - **Space Center: a refused research, contract accept, facility upgrade, hire or dismissal now
   says why, and when the item frees up.** The "Action Blocked" dialog and the badge hovers on
   the R&D, Astronaut Complex and Mission Control screens used to print a raw `UT 183420`. They
-  now say what your committed timeline does, on which calendar date and, where there is one,
-  by which committed flight (for example `Researched on Y2 D114 by the committed flight
-  'Mun Lander 3'.`), that committed history cannot happen earlier or twice, and when the item
-  frees up. A kerbal held by a committed flight says when he is free again, or that he is
-  free once the flight is recovered. The hover and the refused
+  now say what the timeline does and on which calendar date (for example `Researched on Y2,
+  D114, 14:05, blocked by timeline until then.`). A kerbal held by a committed flight says
+  which flight holds him and when he is free again, or that he is free once the flight is
+  recovered. The hover and the refused
   click now show the same text, and the facility dialog names the building instead of its
   internal id.
 - **Space Center: facility upgrades no longer stay blocked after the committed upgrade has
@@ -2370,9 +2369,9 @@ _(unreleased — entries accumulate here per commit)_
 - **Mission Control: a contract your committed timeline accepts later is marked on its own
   row and explained in its details, with Accept and Decline greyed out.** The small blue
   badge (hover-only, and gone after any tab switch) is replaced by the stock screen's own
-  parts: the row's title now reads, for example, `Explore the Mun - accepted on Y2 D114 on
-  your committed timeline`, the contract details end with `Accept and Decline are
-  unavailable` and the same explanation the refusal dialog gives, and both buttons are
+  parts: the row's title now reads, for example, `Explore the Mun - Accepted on Y2, D114`,
+  the contract details end with `Accept and Decline are unavailable` and the same
+  explanation the refusal dialog gives, and both buttons are
   disabled. All of it is re-applied whenever Mission Control rebuilds its list, so it
   survives switching tabs and contracts being offered or completed. It also works with
   Contract Configurator installed, whose own contract list and Accept button used to switch
@@ -2389,8 +2388,8 @@ _(unreleased — entries accumulate here per commit)_
   conflict rule would not allow beside a strategy your committed timeline activates while it
   is still running. An active strategy your committed timeline deactivates or re-activates
   later can no longer be cancelled before then. Stock greys the row or the Cancel button and
-  prints why in its own orange reason line, for example `Activated on Y2 D114 on your
-  committed timeline.`, with the date it frees up. Where stock itself already refuses the
+  prints why in its own orange reason line, for example `Activated on Y2, D114, 14:05,
+  blocked by timeline until then.` Where stock itself already refuses the
   action, stock's own reason is the one shown.
   Stock's own strategy expiry is never blocked.
 - **Space Center: committed strategy activations and deactivations now take effect in the
@@ -2415,10 +2414,9 @@ _(unreleased — entries accumulate here per commit)_
   used to charge the cancel penalty now and then either wipe out the later completion's
   reward (with anything the committed timeline bought with it) or charge the committed
   failure or cancellation penalty a second time. The row now reads, for example,
-  `Explore the Mun - completes on Y2 D114 on your committed timeline`, the contract
-  details end with `Cancel is unavailable` and the explanation (`Completes on Y2 D114 by
-  the committed flight 'Mun Lander 3'.`, the rule, and `It completes and frees its slot on
-  that date.`), and Cancel is greyed out; a cancel from anywhere else gets the same
+  `Explore the Mun - Completed on Y2, D114`, the contract details end with `Cancel is
+  unavailable` and the explanation (`Completed on Y2, D114, 14:05, blocked by timeline until
+  then.`), and Cancel is greyed out; a cancel from anywhere else gets the same
   explanation. A contract whose only future is its deadline stays cancellable, since
   cancelling early for the smaller penalty is ordinary play, and the debug toolbar's
   "regenerate contracts" still works.
@@ -2428,9 +2426,8 @@ _(unreleased — entries accumulate here per commit)_
   purchase left the part unpurchased for good: the committed purchase was still charged on
   its date, but the part never became usable, and buying it again charged the entry cost a
   second time. Now the part's tooltip (in the VAB/SPH part list and in R&D) greys out its
-  purchase button and says why, for example `Purchased on Y2 D114 by the committed flight
-  'Mun Lander 3'.`, that committed history cannot happen earlier or twice, and `It becomes
-  available on that date.`; a purchase from anywhere else gets the same explanation. R&D's
+  purchase button and says why, for example `Purchased on Y2, D114, 14:05, blocked by
+  timeline until then.`; a purchase from anywhere else gets the same explanation. R&D's
   "purchase all parts" buys the others and names the parts it skipped, and is greyed out
   when every remaining part is one of them. When the committed date passes, the part is
   marked purchased in the game, with no second charge. Parsek's ledger keeps every purchase
@@ -2440,8 +2437,7 @@ _(unreleased — entries accumulate here per commit)_
   timeline upgrades that facility later.** Clicking Upgrade on such a building used to be the
   first you heard of it: an "Action Blocked" popup. Now the Upgrade button in the building's
   menu is greyed out, and hovering it shows the same explanation the popup gives (for example
-  `Upgraded to level 2 on Y2 D114 on your committed timeline.`, that committed history cannot
-  happen earlier or twice, and `The upgrade happens on that date.`). Once the clock passes the
+  `Upgraded to level 2 on Y2, D114, 14:05, blocked by timeline until then.`). Once the clock passes the
   last committed upgrade, Upgrade is back the next time the menu opens; a change to the
   committed timeline while the menu is open updates it at once. The refusal stays in place
   for any other way of starting the upgrade, and both name the building, never its internal
@@ -2450,9 +2446,8 @@ _(unreleased — entries accumulate here per commit)_
   your committed timeline accepts later needs that slot.** Accepting it used to fill the
   slot the committed accept relies on, so the committed timeline ended up over the Mission
   Control limit. Accept is now greyed out on every contract the committed timeline does not
-  accept itself, and the details end with `Accept is unavailable` and the explanation (`The
-  committed flight 'Mun Lander 3' accepts the contract 'Rescue Bill' on Y2 D114 and needs
-  this slot.`, the rule, and `A slot frees when one of your active contracts ends.`); an
+  accept itself, and the details end with `Accept is unavailable` and the explanation
+  (`Slot needed from Y2, D114, 14:05 for 'Rescue Bill', blocked by timeline.`); an
   accept from anywhere else, including Contract Configurator's Accept, gets the same answer.
   The count follows the committed timeline to its end: contracts active now hold their slot
   until a committed completion, failure or cancellation, or until their deadline, committed
@@ -2475,10 +2470,9 @@ _(unreleased — entries accumulate here per commit)_
 - **Timeline strategy rows show the strategy's real name.** The Timeline named strategies
   from a hand-written table whose ids never matched stock's (`AppreciationCamp` against
   stock's `AppreciationCampaignCfg`), so every stock strategy read as its split config
-  name, e.g. "Activate: Outsourced Research Cfg". The Timeline and the Career window's
-  Strategies tab now share one lookup: stock's own title ("Outsourced R&D") when the
-  game can answer, else the config name without its `Cfg` suffix ("Outsourced Research").
-  The Career window had shown the raw config name in that fallback case.
+  name, e.g. "Activate: Outsourced Research Cfg". The Timeline now uses one lookup:
+  stock's own title ("Outsourced R&D") when the game can answer, else the config name
+  without its `Cfg` suffix ("Outsourced Research").
 
 - **A ghost passing through your vessel can no longer damage it.** Each ghost in orbit has a
   small invisible placeholder vessel that puts it on the map. When a ghost's path ran through
@@ -2547,10 +2541,10 @@ _(unreleased — entries accumulate here per commit)_
   flight and becomes a ledger action when the flight is committed; if the flight is discarded
   without a reload, the collapse is kept, because stock keeps the building down. Upgrading a
   destroyed facility, which stock repairs for free as part of the upgrade, now also records the
-  repair. After a rewind, a repair made later in the timeline shows in the Career window's
-  Facilities tab as `repaired <date>` and does not count as done before its date. The
-  Timeline shows one row per facility event, not one per building (a Runway repair touches up to
-  ten), with the repair's total cost. The Career and Timeline rows are not doubled by the older event list either.
+  repair. After a rewind, a repair made later in the timeline does not count as done before
+  its date. The Timeline shows one row per facility event, not one per building (a Runway
+  repair touches up to ten), with the repair's total cost, and its rows are not doubled by
+  the older event list either.
   Parsek changes a building only when the career history, up to the current moment, says
   something the building contradicts: a collapse or repair dated later in the timeline (after
   a revert or a rewind) is not applied early, a building the history says nothing about is
@@ -2569,8 +2563,8 @@ _(unreleased — entries accumulate here per commit)_
   `Contract 7a726c83`, the first block of its id, never `unknown`. Facility rows used the raw
   stock key (`Upgrade SpaceCenter/LaunchPad`, or a single building's id such as
   `SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_cylTank destroyed`); they now use
-  the name the Career window shows (`Upgrade Launchpad`, `Launchpad destroyed`), from one
-  shared helper.
+  the facility's stock name (`Upgrade Launchpad`, `Launchpad destroyed`), from one shared
+  helper.
 - **The Timeline's Actions and Events tooltips describe the rows they actually toggle.** The
   Events tooltip promised crew deaths, but those rows come from recorded flights and follow
   the Recordings toggle; the Actions tooltip said contracts, but contract completions and
@@ -2787,9 +2781,8 @@ _(unreleased — entries accumulate here per commit)_
   here.`
 - **Parsek's windows now share one style for countdowns, "Go to", colours and empty lists.**
   Every countdown reads the Missions way, `T- 2d 4h` (two units, a space after `T-`) in the
-  same amber, with ` (!)` when it carries a warning: Real Spawn Control's `In T-` column and
-  `Departs T- ...` state, the Timeline's first row after now, and a Recordings row still
-  ahead (a flight in progress reads `T+ 5m 3s`) used to print every unit (`T-1y 291d 5h 22m
+  same amber, with ` (!)` when it carries a warning: Real Spawn Control's countdowns, the
+  Timeline's first row after now, and a Recordings row still ahead (a flight in progress reads `T+ 5m 3s`) used to print every unit (`T-1y 291d 5h 22m
   0s`). The Log's `T+0:00:13` clock is unchanged. The Timeline's `GoTo` button is now `Go to`,
   as in Missions and Logistics, and every Timeline row button (W, FF, R, Fly, Seal, Go to) is
   the Missions pair-button width (48 px; the short ones were 40). In Basic, a mission a supply
@@ -2816,7 +2809,7 @@ _(unreleased — entries accumulate here per commit)_
   same dark table box as the Recordings tab, spaced like the Missions tab's expanded
   vessel rows, under a heading a small gap below the title bar that
   says what the choice is for ("Groups for 'Kerbal X':", "Parent of 'Kerbal X #3':",
-  "Link 'Route: KSC -> Duna' with:"). OK, Cancel and Link are the Missions window's
+  "Link 'Duna Supply 1' with:"). OK, Cancel and Link are the Missions window's
   100 px buttons. Each picker now opens next to the button that opened it (to its left
   near the screen's right edge), fully on screen; they used to open shrunk into the
   screen's top-left corner, because the on-screen fit ran before the picker was placed.
@@ -2840,7 +2833,8 @@ _(unreleased — entries accumulate here per commit)_
   once in flight (launch and arrival dates on hover); when the run completes it drops back
   to Paused. Greyed buttons say why on hover, including "Stopped: destination lost. Fix or
   delete the route first" on a broken route. Log opens a new Route History window
-  ("Parsek - Route History: <route>", the Mission Log's table): every run the route sent,
+  ("Parsek - Route History: <route>", the Mission Log's table), which replaces both the old
+  route step list behind `Log (Route)` and the `Log (Mission)` button: every run the route sent,
   picked up and delivered, with its pauses, each row dated, each launch with what it cost
   ("Run 1: Sent, cost 7,410 funds", or the cargo taken from the origin vessel); it can stay open beside a
   Mission Log (it opens offset from it, keeps its column headers when empty, and closes when
@@ -2867,8 +2861,8 @@ _(unreleased — entries accumulate here per commit)_
   as a new `RouteHeld` action: a rewind removes the ones after it like any other route row,
   and holding again after a rewind never writes the same reason twice. Every cargo row now
   reads amount first ("Delivered 150.0 LiquidFuel, 40.0 Oxidizer", "Picked up 50.0 Ore"),
-  matching the Sent cost and a short delivery; the Logistics table's Delivers column is
-  unchanged. Holds from before this build are not in the history. Renaming a linked route
+  matching the Sent cost and a short delivery (the Logistics window and the create dialog
+  read the same way; see below). Holds from before this build are not in the history. Renaming a linked route
   while its partner waits adds no row (the row names the partner by id and shows its current
   name). An older build loading a save with these rows logs a warning per row and reads each
   as an empty entry that changes nothing.
@@ -2962,8 +2956,7 @@ _(unreleased — entries accumulate here per commit)_
   separation or dock on the boundary of a kept stretch stays. An open Log also follows the
   mission while it is open: ticking or unticking a vessel, renaming the mission, or a new
   commit rebuilds it (checked once per frame from a cheap signature, rebuilt only when it
-  moves). The Logistics window's mission Log button opens the source tree's original mission.
-  Presentation only (`MissionStructureList.cs`, `MissionIntervalSelection.IsIntervalIncluded`,
+  moves). Presentation only (`MissionStructureList.cs`, `MissionIntervalSelection.IsIntervalIncluded`,
   `StructureListWindowUI.cs`).
 - **Same-named vessels are numbered in the Log and the Missions rows.** Two genuinely
   different vessels of one mission that share a name read `Kerbal X` and `Kerbal X [2]` (the
@@ -2983,12 +2976,6 @@ _(unreleased — entries accumulate here per commit)_
   the optimizer split at the atmosphere exit carried the state it had at the cut on the first
   segment, so the Log showed a mid-flight `End: Suborbital` row. Only a vessel's last segment
   draws an End row now.
-- **A supply route has one Log button, and it opens the mission's Log.** The route Log (an
-  origin / dock / delivery / undock step list behind `Log (Route)`) is gone: the route's detail
-  panel already shows its origin, destination, per-cycle delivery and transit. The remaining
-  button, renamed from `Log (Mission)` to `Log`, opens the Log of the mission the route was
-  built from (greyed with its reason when the route was not built from a recorded mission).
-
 - **Missions window redesign, first slice.** The columns are `#`, Missions and vessels,
   Start time, Start event, End event, End time and **Interact**, one right-hand column that
   holds every per-row button at one shared width (a two-button pair spans one button). Each
@@ -3014,7 +3001,8 @@ _(unreleased — entries accumulate here per commit)_
   the row reading `Loop [x] every [10] [sec]` (or `Loop [x] every ~13d-19d`) with "Loop"
   lined up under "Warp to..." and the period ending under Log's right edge, every piece
   centred on one line at a fixed width so nothing moves between states. A route-bound
-  mission shows "Looped by route" across that row instead. A physics-locked period shows its value only (`~13d-19d`, `~6h`); what sets it
+  mission shows "Looped by route" across that row instead (Basic shows "Run by route"
+  after the story). A physics-locked period shows its value only (`~13d-19d`, `~6h`); what sets it
   (`Mun window, varies`, `Kerbin rot`) is in its hover. The Next
   launch column is gone: the countdown lives in the story, and the warning its amber tint
   used to carry (a drifted station, a refused arrival, a launch outside its alignment
@@ -3027,8 +3015,7 @@ _(unreleased — entries accumulate here per commit)_
   the Docked partner rows (`Docked partner: CD (mission 'CD Freighter')`), including a row
   for a dock this mission recorded with another mission's vessel. Vessel and interval rows
   no longer cut off the bottom of letters like `g` and `p`. The window the Missions `Log`
-  and the Logistics `Log (Route)` / `Log (Mission)` buttons open is titled
-  `Parsek - Log: <name>`.
+  button opens is titled `Parsek - Log: <name>`.
 - **Parsek's own windows say "timeline", not "your timeline", "the timeline" or
   "committed".** The Kerbals launcher hover, the Kerbals window's Reserved and Lost hovers
   (`Held on timeline by the flight ...`, `Lost on a flight on timeline.`), the reserved-crew
@@ -3041,8 +3028,8 @@ _(unreleased — entries accumulate here per commit)_
   hover, button tooltip, refused-click dialog and row label now reads like "Researched on
   Y1, D06, 14:05, blocked by timeline until then." or, for a kerbal, "Reserved by timeline
   for 'Mun Lander' until Y1, D09, 18:40."; the "fixed once committed" rule and the way-out
-  sentence are gone, and no text says "your timeline" or "committed". A contract row now
-  reads "- completed / failed / expired / cancelled <date>".
+  sentence are gone, and no text says "your timeline" or "committed". A contract row reads
+  e.g. "- Completed on Y2, D114" (Accepted, Failed, Expired or Cancelled the same way).
 - **Every button Parsek greys on a stock screen now says why on hover.** Research and
   Purchase-all in R&D, Accept / Decline / Cancel in Mission Control, Accept / Cancel in
   Administration carry the reason in a stock tooltip, and the KSC facility menu shows the
@@ -3116,9 +3103,9 @@ _(unreleased — entries accumulate here per commit)_
     vessel's segments the way that row did (trimming each loop to the interesting part) and
     the rest of the mission the way the folder always did, and its Group cell gains an `S`
     button that picks folders for every segment of the launched vessel at once.
-  - The table now uses the same row, header, list-area and cell styles as the Career, Kerbals,
-    Real Spawn Control and Structure tables, so every cell's text starts exactly under its
-    heading (it sat one pixel to the right).
+  - The table now uses the same row, header, list-area and cell styles as the Kerbals, Real
+    Spawn Control and Log tables, so every cell's text starts exactly under its heading (it
+    sat one pixel to the right).
 - **Removed a dead debris-persistence override.** At recording start Parsek looked for a
   `GameSettings` debris-count field to raise to 10. KSP 1.12 has no such field, so the code
   only ever logged `No debris persistence field found`; it and its tests are gone.
@@ -3160,7 +3147,7 @@ _(unreleased — entries accumulate here per commit)_
   - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics. Basic
     shows Interface and Ghosts.
   - Basic / Advanced and Low / Medium / High draw the selected option as a pressed button, the
-    way the Timeline, Kerbals and Career windows do, instead of a grey box, and every option
+    way the Timeline and Kerbals windows do, instead of a grey box, and every option
     keeps one fixed width, so the row no longer jumps when you switch.
   - Ghost audio, recorder sample density and verbose logging now stick across saves, F9 and
     rewinds like the other settings (they used to live in the save, so a quickload or rewind
@@ -3184,40 +3171,17 @@ _(unreleased — entries accumulate here per commit)_
     Interface section and the route-paths toggle, corrects the auto-launch default to 30s and
     says which settings persist across saves.
 
-- **Timeline: the Archived toggle moved to the first row, as its last button.** It applies in
-  every view, so it no longer sits among one view's own buttons; the second row under
-  Rewind/FF and Re-Fly is now empty (kept at its height so the list does not move). Its hover
-  says what it does: `Lists archived flights, marked [archived], in all views. Same switch as
-  the recordings list's Archive filter.` - it adds the launch, separation, spawn and crew-loss
-  rows of recordings archived in the recordings list, and flipping it flips that list's
-  Archive filter too. Career rows are never archived, and a mission archived in the Missions
-  window is a separate setting that does not reach the Timeline.
-- **Career State: the Contracts heading counts slots with Mission Control's own forecast.**
-  `N of M slots free (a active, r reserved for later)` now reads the same slot forecast that
-  refuses a slot-starving accept at Mission Control, over stock's live contracts and limit
-  (when stock's contract state cannot be read, the same forecast runs over the window's own
-  ledger rows). Like stock, contracts the game accepts automatically hold no slot, so the
-  active count can be lower than the number of rows listed; a deadline frees its slot on the
-  deadline date and a committed Mission Control upgrade adds its slots when it happens. Free
-  slots never read below 0. The Strategies heading keeps the window's own count.
-- **Logistics: the `Cyc` column header now reads `Cycle`.** The 80px column fits the
-  full word and its sort arrow.
 - **Timeline: the Custom range no longer repeats itself above the sliders.** The dim
   `from - to` line drawn over the From / To sliders is gone; each slider still shows its
   value on its right.
-- **Timeline: every filter button is the same width, and the rows are left-aligned.** The
-  five view buttons (Overview, Details, Rewind/FF, Re-Fly, Career) no longer stretch across
-  the window; they take the same width as the buttons of the two rows below them (the cell
-  of a six-button row), so the columns line up and each row leaves empty room on the right
-  for later filters. The minimum window width is unchanged.
 
 - **R&D and the Astronaut Complex show Parsek's reservations with KSP's own controls instead
   of Parsek's badge icons.** In R&D, a tech node your committed timeline researches later has a
-  gold-tinted icon, its hover tooltip and the side panel's description say when and by which
-  committed flight it is researched, and its Research button is greyed out (the "purchase all
+  gold-tinted icon, its hover tooltip and the side panel's description say when it is
+  researched, and its Research button is greyed out (the "purchase all
   parts" button on researched nodes is untouched). In the Astronaut Complex, a kerbal's row
-  says what the committed timeline does with him in the row's own status text (`Hired on Y2
-  D114`, `Reserved until Y2 D130`, `Lost`, `Retired`, `Dismissed on ...`), and the hire button
+  says what the committed timeline does with him in the row's own status text (`Hired on Y2,
+  D114`, `Reserved until Y2, D130`, `Lost`, `Retired`, `Dismissed on ...`), and the hire button
   of a kerbal a committed flight hires later, and the dismiss button of a kerbal Parsek
   manages, are locked the way KSP locks hiring at the crew limit, with the reason in the
   kerbal's hover tooltip. This now also works in the Astronaut Complex opened from the
@@ -3235,20 +3199,6 @@ _(unreleased — entries accumulate here per commit)_
   placement shows the same explanation. A saved craft that names a reserved kerbal still gets that seat
   swapped to their stand-in or emptied; that now also happens when no stand-in exists yet at
   all, where the kerbal used to stay seated.
-- **Timeline: the time-range presets are back on their own always-visible row.** This
-  partly reverts the `Time: <range>` button from the two-row filter area above. The filter
-  area is now three rows: the five views (Overview, Details, Rewind/FF, Re-Fly, Career),
-  the view's own toggles (unchanged), and Last Day /
-  Last 7d / Last 30d / This Year / All / Custom. Exactly one of those six is lit, so the
-  range in force is always on screen (All by default). Custom shows the From / To sliders;
-  dragging a slider lights Custom, picking a preset turns Custom off and hides the sliders,
-  and turning Custom off returns to All. Turning Custom on over a preset keeps that range
-  as a custom one, and a preset and Custom are never lit together any more. The range
-  still applies in every view, the Career categories included. The window's minimum width
-  drops from 720 to 610 px, the width the six-button rows need. For the GUI census,
-  `op=state key=customRange` again means Custom selected (the sliders shown) rather than
-  the Time fold open; `GUI-24-census-timeline-filters` photographs the new rows.
-
 - **Automated testing: 26 lane checks the mutation checker found weak are tightened.**
   Fourteen lanes required only `Recording stopped`, which the recorder also prints when the
   game quits, so the check could pass without the flight ever stopping its recording; each
@@ -3286,82 +3236,16 @@ _(unreleased — entries accumulate here per commit)_
   still physically exists in your save (for example because you never left it) is kept as it
   is. Rewinding to before the end brings the rule back into play the next time the clock
   passes it.
-- **The Career window counts the slots your recorded flights will need, and tells an
-  expired contract from a failed one.** Each tab's heading now reads free slots first:
-  `4 of 7 slots free (2 active, 1 reserved for later)`, `5 of 7 slots free (2 active)` when
-  nothing is reserved, `No slot limit (2 active)` at Mission Control level 3. "Reserved" is
-  the most contracts (or strategies) the recorded future holds at once beyond today's: a
-  contract that completes on day 50 frees the slot a flight's day-60 accept then takes, so
-  only overlapping ones count. The hover says why
-  (`Contracts your recorded flights accept later need 1 more slot at peak, so only 4 are free
-  for a new one.`). This is Parsek's count only: stock Mission Control and Administration
-  still count just what is active now and do not stop an accept or activation beyond it.
-  The fold row now reads `Accepted later by your recorded flights (1)` (Strategies:
-  `Activated later ...`), with the slots free at the timeline end in its hover. A contract
-  whose deadline runs out now reads `expires <deadline>` in the Timeline-end column (amber,
-  like a failure: stock charges the same penalties) instead of `FAILS <date>`, and the
-  Timeline's Contracts view shows `Expired: <name>` for it. Stock reports an expiry with
-  the same failure event, so Parsek tells them apart by the accepted deadline, exactly as
-  its ledger already does; older recordings read correctly with no new data. A contract
-  whose deadline passes before the recorded timeline ends also reads as expired, as the
-  ledger treats it.
-- **The Career window is now the state view of your contracts and strategies, and links
-  into the Timeline for their history.** It keeps two tabs, Contracts and Strategies: the
-  two slot-limited things whose recorded future has consequences. The Facilities and
-  Milestones tabs are gone. A building's level is shown at the Space Center, and dated
-  facility and milestone history (including repeat world records, which the old tab left
-  out) is in the Timeline's Career view. Each tab now opens with ONE heading line (its
-  slot wording is the entry above), then one column header and the rows. The contracts or
-  strategies the recorded timeline adds later sit under a fold row inside the same table,
-  so both groups share one set of columns. The old title bar and group label (`Mission Control L1 - slots 2/2 now, ...` over
-  `Active (2)`) are gone. A tab with nothing in it is one grey line (`No active contracts.`).
-  Clicking a contract or strategy name opens the Timeline on that category, scrolled to it.
-  The `Career` launcher now shows only in Career mode: Science mode has no contracts or
-  strategies, and its milestone, facility and tech history is in the Timeline's Career
-  view. The window is still Advanced-only. The GUI census `op=tab window=career` vocabulary
-  is now `contracts` / `strategies` (`op=expand key=pending:` takes the same two values);
-  `GUI-1`, `GUI-5`, `GUI-8`, `GUI-14` and `GUI-15` drop their Facilities and Milestones
-  captures (GUI-14 photographs its facility upgrade in the Timeline's Facilities view
-  instead, GUI-5 adds the Timeline's Milestones view), and GUI-15 photographs the pending
-  fold over the gallery's divergent view model. The parts of the next entry about the
-  Facilities and Milestones tabs and the Science-mode tabs are superseded by this one.
-- **The Career window shows dates, says what the recorded timeline does to each row, and
-  only draws the tabs a game mode has.** Every Universal Time cell (banner, Accepted,
-  Deadline, Activated, Credited) is now the compact KSP date the Kerbals and Timeline windows
-  use, never raw seconds; a deadline also shows how far away it is, `(in 12d)`, or
-  `(overdue 3d)` in amber. The empty `Status` columns are replaced by a `Timeline end` column
-  that appears only when the recorded future changes a row: `completes Y1, D40`,
-  `FAILS Y1, D40` (amber, since a failure costs funds and reputation), `cancelled`,
-  `deactivates`, `upgrades to L2`, `destroyed`. A contract or strategy that is active now,
-  ends later and starts again after that says when the current one ends. Contracts, Strategies and now
-  Milestones all split into "now" and a foldable `Pending in timeline` group, which also
-  lists contracts and strategies the recorded future both starts and ends (those were on no
-  row before). Pending rows are no longer triple-marked (amber + `(pending)` + group
-  header); the group header is the marker and amber is kept for warnings. The name column
-  of every table stretches, so contract titles stop wrapping and the header bar spans the
-  table. Milestone names read `Kerbin - Science` (was `Kerbin/ Science`) and facility names
-  come from stock (`Research and Development`, `Launchpad`). In Science mode the window
-  drops the Contracts and Strategies tabs and the building levels (stock treats every
-  building as fully upgraded there; the window showed `L1`), keeping Milestones plus a
-  Facilities tab only while a building is destroyed or a committed flight destroys one. In
-  Sandbox the `Career` launcher is hidden. Whether a building is destroyed now is read from
-  the game's own building state, not the ledger: the ledger never hears of a repair at the
-  KSC, so reading it would have shown a repaired building as destroyed forever. The ledger
-  only adds a destruction a committed flight makes later, dated when the facility as a
-  whole goes down. The Facilities section bar that repeated the tab name is
-  gone, two tooltips that described the wrong thing are corrected, and the minimum window
-  height is 320 px (at 200 px no row was visible).
-
-- **The Kerbals window tells the truth about reservations, groups stand-ins under the kerbal
-  they cover, and is now available in Basic mode.** A kerbal held by a committed flight used
-  to read `Reserved until <date>`, but that reservation never ends when the date passes:
-  `KerbalReservationReleaseTests` drives the real ledger walk with the clock before, during,
-  at and long after a recovered flight, and the kerbal stays reserved and filtered from the
-  crew dialog every time. Only removing the flight frees him. The status now names what
+- **The Timeline tells an expired contract from a failed one.** A contract whose deadline
+  runs out reads `Expired: <name>` in the Timeline's Contracts view instead of `Fail:
+  <name>` (stock charges the same penalties). Stock reports an expiry with the same failure
+  event, so Parsek tells them apart by the accepted deadline, exactly as its ledger already
+  does; older recordings read correctly with no new data.
+- **The Kerbals window names what holds a reserved kerbal, groups stand-ins under the kerbal
+  they cover, and is now available in Basic mode.** A reserved kerbal's status names what
   holds him (`Reserved: aboard <vessel>`, `Reserved: <mission>`, `Reserved for <owner>` for a
-  stand-in), and its hover says that passing time does not release it. Whether a recovered
-  kerbal should be released when his flight ends is filed as a todo for the owner to decide;
-  reservations work exactly as before. Also on the Roster tab: each stand-in is a row directly
+  stand-in), or `Reserved until <date>` when the hold ends at a recovery (see Fixed). Also on
+  the Roster tab: each stand-in is a row directly
   under the kerbal whose seat he covers, which replaces the chain fold that repeated those
   rows; a stand-in Parsek already deleted from the stock roster is no longer listed as
   `Available` (the c1 career showed Jebediah's deleted stand-in that way); the `Since` column
@@ -3374,12 +3258,9 @@ _(unreleased — entries accumulate here per commit)_
   says why a reserved kerbal is missing from stock crew assignment, and it is read-only, so it
   no longer closes when you switch to Basic. Outside the window, two crew events stop being
   silent: a one-shot screen message when Parsek swaps a reserved kerbal out of a launched
-  craft (`<kerbal> is reserved by a committed flight; <stand-in> takes the seat.`), and a
-  refused dismissal of a Parsek-managed kerbal raises the same "Action Blocked" dialog the
-  hire, contract, facility and tech blocks raise. The Astronaut Complex badge tooltips use
-  the window's words (`Reserved - held by a committed flight (Parsek)`, `Reserved for <owner>
-  - ...`, `Lost on a committed flight (Parsek)`, `Retired stand-in (Parsek)`) and no longer
-  read "Reserved by Parsek for slot 'Jebediah Kerman'" on Jebediah himself.
+  craft (`<kerbal> is reserved by timeline; <stand-in> takes the seat.`), and a refused
+  dismissal of a Parsek-managed kerbal raises the same "Action Blocked" dialog the hire,
+  contract, facility and tech blocks raise.
 
 - **The main window drops its flight status block and gets a bold title.** The four
   flight-only lines at the top of the main window (`State:`, `Recorded Points:`,
@@ -4471,12 +4352,6 @@ _(unreleased — entries accumulate here per commit)_
   name. Together with the same treatment for the logger, that takes 110 types out of a
   single tangle in which nothing could be read, tested or changed on its own. Nothing a
   player sees or reaches changes.
-- **Internal tidy: the supply-route step list now lives next to the routes it reads.**
-  The code that turns a supply route into the step-by-step log shown in the Log window
-  sat among the mission code, which meant the mission half of Parsek had to know about
-  supply routes in order to build at all. It moved in with the rest of the route code, so
-  the two halves are independent again. Nothing about the windows, the wording of a step,
-  or what gets recorded changes.
 - **Housekeeping: the snapshot readers moved out of the spawner.** The code that reads a
   saved craft and answers "what fuel is aboard", "what is in the cargo holds" and "is this
   the same piece of cargo as that one" had grown up inside the file that also spawns and
@@ -5111,22 +4986,20 @@ _(unreleased — entries accumulate here per commit)_
   all. Every setting is still in Parsek's own Settings window, still remembered exactly as
   before, and every stored value in existing saves is kept and read as before.
 
-- **Table cells now sit under their own column headings in Real Spawn Control, Career
-  State and the Structure window.** Photographing every window and measuring the rects
-  showed the headings and the rows they label were laid out from different starting
-  points, so a whole table was nudged sideways underneath its own headings: eight pixels
-  in Real Spawn Control - where the craft-name heading was also sixteen pixels wider than
-  the names below it - and four pixels in Career State's Contracts, Strategies, Facilities
-  and Milestones tabs and in the Structure window's step list. Supply Routes was the one
-  table that already lined up, because its headings and its rows are drawn inside the same
-  panel; the three that did not now use one shared row container for both halves, so a
-  heading and its column cannot start from different places again. In the Structure window
-  and Real Spawn Control, where the headings stay put while the list scrolls under them,
+- **Table cells now sit under their own column headings in Real Spawn Control and the
+  Log window.** Photographing every window and measuring the rects showed the headings and
+  the rows they label were laid out from different starting points, so a whole table was
+  nudged sideways underneath its own headings: eight pixels in Real Spawn Control - where
+  the craft-name heading was also sixteen pixels wider than the names below it - and four
+  pixels in the Log window's step list. Supply Routes was the one table that already lined
+  up, because its headings and its rows are drawn inside the same panel; the tables that
+  did not now use one shared row container for both halves, so a
+  heading and its column cannot start from different places again. In the Log window and
+  Real Spawn Control, where the headings stay put while the list scrolls under them,
   the strip the scrollbar occupies is now reserved by the heading row itself, which also
   makes the stretchy middle column exactly as wide as the cells below it; Real Spawn
-  Control's list shows its scrollbar at all times for the same reason the Structure
-  window's does. Career State's section bars widened by four pixels each side to match the
-  table under them. Nothing moved in the Missions window at first: its two tabs are off by
+  Control's list shows its scrollbar at all times for the same reason the Log
+  window's does. Nothing moved in the Missions window at first: its two tabs are off by
   five pixels (Recordings) and one pixel (Missions and vessels) partly for a different
   reason - their first heading is one merged cell covering both the tick box and the "#" -
   so they were recorded as a separate item rather than guessed at here. The follow-up below
@@ -5134,8 +5007,8 @@ _(unreleased — entries accumulate here per commit)_
 
 - **The strip reserved for the scrollbar was five pixels too narrow, so the fix above left
   every pinned heading row that much wider than its list.** Re-photographing the windows
-  showed Career State's four tables at a perfect zero, and Real Spawn Control and the
-  Structure window still walking their cells five pixels left of the headings above them,
+  showed Real Spawn Control and the Log window still walking their cells five pixels left
+  of the headings above them,
   with the stretchy column five pixels wider in the heading row than in the rows. Two
   reasons, both read out of KSP's own skin rather than guessed: a scrolling list gives up
   the scrollbar's width AND the one-pixel gap beside it, sixteen pixels rather than fifteen;
@@ -5174,16 +5047,16 @@ _(unreleased — entries accumulate here per commit)_
   launch" button, and clicking any of them rewound the PARENT launch. Only the confirm
   dialog's "(from branch ...)" line hinted at it. The Recordings table has suppressed
   this for a long time; the Timeline now shares the same rule, so the button appears once
-  per launch, on the launch. One corner follows from that: a flight whose launch row is
-  itself archived now offers the button on no row at all while the Archive filter is on -
-  switch the Timeline's "Archived" filter on, or un-archive the launch, and it is back.
+  per launch, on the launch. One corner follows from that: a flight whose launch is
+  archived offers the button on no row at all, since the Timeline never lists an archived
+  flight's rows; un-archive the launch in the recordings list and it is back.
 
 - **The "Mission Outcomes" rows in the Kerbals window now open the Timeline they promise
   to scroll.** The row's hover text says it scrolls the Timeline to the flight the row
   came from. With the Timeline closed - the common case, since the two windows sit in
   different places - the click stored the request and nothing happened; the scroll then
   landed unannounced whenever the player next opened the Timeline for something else. The
-  click now opens the window and scrolls it, the way the Timeline's own GoTo button
+  click now opens the window and scrolls it, the way the Timeline's own Go to button
   already opens the Missions window.
 
 - **Basic mode no longer leaves one loop-authoring click on screen.** A chapter header
@@ -5204,13 +5077,7 @@ _(unreleased — entries accumulate here per commit)_
   outside the code. A dead field in the Missions window carrying a comment about a
   behaviour the code does not have went with it.
 
-- **Three readouts that could not tell you apart from each other now can.** The Rewards
-  column in the Career State window's Milestones tab was too narrow for a reward that pays
-  funds, science AND reputation: the text wrapped onto a second line inside a row that has
-  room for one, so it overlapped its neighbours. It is wide enough now, sized against a
-  written-down worst case - seven digits of funds beside reputation and science, about two
-  hundred times what a stock career pays for a milestone - with the cell's own padding
-  allowed for, rather than against a guess. The greyed-out
+- **Two readouts that could not tell you apart from each other now can.** The greyed-out
   Delete button in the Missions window said "A flight always keeps its first mission" for
   every mission it refused - and for every mission it did NOT refuse, since it said the
   same thing regardless; it now says which of the three reasons applies, and says nothing
@@ -5219,12 +5086,9 @@ _(unreleased — entries accumulate here per commit)_
   points reports; a failed read now says so, and a folder where some files could not be
   sized says how many.
 
-- **Four Settings and main-window labels now say what the buttons behind them do.**
-  "Wipe All Game Actions" only ever cleared the MILESTONE list - every career action on
-  the ledger survived it, and the next recalculation still walked them - so the most
-  destructive-sounding button on the screen a confused player reaches for named an
-  effect it does not have. It is now "Wipe All Milestones", and its confirmation says
-  the ledger's career actions are kept. "Defaults" skipped the ghost-audio slider drawn
+- **Three Settings and main-window labels now say what the buttons behind them do.**
+  (A fourth, the misnamed "Wipe All Game Actions", went with the whole Data Management
+  section; see Changed.) "Defaults" skipped the ghost-audio slider drawn
   four rows above it; it now resets that too, and its new hover text names the one
   setting it deliberately leaves alone (the Basic / Advanced interface mode - resetting
   that would hide most of the window mid-click). The Test Runner opened from Settings
@@ -5903,9 +5767,9 @@ _(unreleased — entries accumulate here per commit)_
   signed `Balance` (and `Short by` when the committed future digs deeper still)
   instead of a reservation that does not exist.
 
-- Send Once on a route that visits SEVERAL destinations now stops after that one
+- Send on a route that visits SEVERAL destinations now stops after that one
   round, instead of quietly carrying on. A multi-stop route drops off at each
-  destination in turn, and all of those drop-offs belong to one round. Send Once was
+  destination in turn, and all of those drop-offs belong to one round. Send was
   being answered by the first drop-off: the route announced "now Paused", and then
   the next drop-off of the very same round started it running again - so the ghost
   kept flying its loop forever and the message had been wrong. The one-shot is now
@@ -5915,12 +5779,12 @@ _(unreleased — entries accumulate here per commit)_
   progress, it ends the moment the route stops, so nothing is dispatched - or
   charged for - after you paused it.
 
-- A Send Once whose run turns out to have already been delivered (a crash or a
+- A Send whose run turns out to have already been delivered (a crash or a
   reload landed the delivery but not the pause) now says so on screen instead of
   stopping the route in silence - the one resolution where clicking again was most
   tempting, because nothing visibly happened.
 
-- Send Once on a COLLECTION route - one that only picks cargo up and brings nothing
+- Send on a COLLECTION route - one that only picks cargo up and brings nothing
   out - now stops after that one round, like every other route. Because such a route
   never makes a delivery, the answer to the click was never given: the round finished,
   the flight was counted, and the route just carried on looping with the one-shot
