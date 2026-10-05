@@ -54,7 +54,10 @@ namespace Parsek
         public double CoalesceWindow;          // Time threshold used for grouping (default 0.5s)
 
         // MERGE metadata (for Dock, Board)
-        public string MergeCause;              // "DOCK", "BOARD", "CONSTRUCT", "CLAW"
+        // "DOCK" or "BOARD" (ParsekFlight.GetMergeCauseForBranchType). A claw couple is a Dock
+        // with MergeCause "DOCK"; only the merged child recording's TransferKind = Grapple
+        // tells it apart from a docking-port couple.
+        public string MergeCause;
         public uint TargetVesselPersistentId;  // Pre-existing vessel if applicable (0 if not)
 
         // TERMINAL metadata (for Terminal type)

@@ -1582,7 +1582,7 @@ namespace Parsek
         // (a relabel there must not silently switch this naming off). Gating on the label keeps
         // the graph lookup off the hot path for the ~99% of rows that start at a launch /
         // decouple / EVA edge. Null cause: a Dock/Board branch point's MergeCause ("DOCK",
-        // "BOARD", "CLAW", "CONSTRUCT") never matches BranchEventName's cause switch, so the
+        // "BOARD") never matches BranchEventName's cause switch, so the
         // type arm is what both a real row and this probe resolve through.
         private static readonly string DockedEventLabel =
             MissionCompositionBuilder.BranchEventName(BranchPointType.Dock, null);
