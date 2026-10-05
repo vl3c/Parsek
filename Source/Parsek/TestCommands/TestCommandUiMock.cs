@@ -85,12 +85,6 @@ namespace Parsek.TestCommands
         /// <summary>PRE-CALL: the state declares a scene the game is not in.</summary>
         internal const string RefusedSceneReason = "mock-refused-scene";
 
-        /// <summary>PRE-CALL: a Gloops or flight recording is running. Mirrors
-        /// <c>complexity-refused-gloops-recording</c>: a recording is the one live
-        /// condition under which nothing automation-only should be swapping a window's
-        /// data out from under the recorder.</summary>
-        internal const string RefusedRecordingReason = "mock-refused-recording";
-
         /// <summary>PRE-CALL: a scope is already live. One at a time, by design - two
         /// windows' cache suppressions interacting is a state nobody can reason
         /// about.</summary>
@@ -167,7 +161,7 @@ namespace Parsek.TestCommands
         internal static string ValidRefusalNames => string.Join(",", new[]
         {
             ArgMissingReason, StateUnknownReason, WindowUnsupportedReason,
-            StateWindowMismatchReason, RefusedSceneReason, RefusedRecordingReason,
+            StateWindowMismatchReason, RefusedSceneReason,
             RefusedSessionLiveReason, RefusedModeReason, NotAppliedReason,
             RestoreFailedReason, ScopeBrokenReason,
         });

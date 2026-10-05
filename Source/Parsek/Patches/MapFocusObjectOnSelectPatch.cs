@@ -868,7 +868,7 @@ namespace Parsek.Patches
         /// <see cref="ParsekFlight.AutoDiscardActiveTreeWithMessage"/>
         /// (the reason-aware overload of
         /// <see cref="ParsekFlight.AutoDiscardIdleActiveTree"/> — same
-        /// teardown body: stops continuations and gloops, ForceStops
+        /// teardown body: stops continuations, ForceStops
         /// the recorder, discards the background recorder, nulls
         /// <c>activeTree</c>, and rolls back any future-time ledger
         /// entries via

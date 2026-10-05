@@ -2177,7 +2177,7 @@ def window_vocabulary(window_tokens, window_titles, window_tabs=None):
                 continue
             # A multi-word title contributes only its concatenation. Its
             # individual words are generic ("Real Spawn Control" -> real, spawn,
-            # control; "Gloops Flight Recorder" -> flight, recorder) and each one
+            # control) and each one
             # pulled in records about something else entirely.
             generic = {norm(prefix), "state", "window"} - {""}
             parts = [w for w in re.findall(r"[a-z]{4,}", cleaned)
@@ -2581,8 +2581,8 @@ def classify_foreign(all_caps):
     own `uiaction rect` line. Whatever is left over and repeats identically under
     four or more different windows is another mod's chrome (the kRPC server
     window, the MechJeb menu button) rather than part of any Parsek surface. A
-    root that repeats under one window only - a group picker, the Gloops
-    recorder, the watch-mode overlay - is Parsek's and stays.
+    root that repeats under one window only - a group picker, the watch-mode
+    overlay - is Parsek's and stays.
     """
     seen = defaultdict(set)
     for cap in all_caps:

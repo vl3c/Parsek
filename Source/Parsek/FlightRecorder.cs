@@ -250,25 +250,6 @@ namespace Parsek
         internal bool partEventsSubscribed;
         public bool IsRecording { get; internal set; }
 
-        /// <summary>
-        /// When true, this recorder operates in Gloops ghost-only mode:
-        /// registers with GloopsRecorderInstance instead of ActiveRecorder,
-        /// skips rewind save/pre-launch resources, auto-stops on vessel switch.
-        /// </summary>
-        internal bool IsGloopsMode { get; set; }
-
-        /// <summary>
-        /// Stash for the ghost visual snapshot captured at Gloops recording start.
-        /// Applied to the committed Recording by ParsekFlight.StopGloopsRecording().
-        /// </summary>
-        internal ConfigNode GloopsGhostVisualSnapshot { get; set; }
-
-        /// <summary>
-        /// Set true when the Gloops recorder is auto-stopped by a vessel switch.
-        /// ParsekFlight checks this flag to auto-commit the orphaned recording.
-        /// </summary>
-        internal bool GloopsAutoStoppedByVesselSwitch { get; set; }
-
         public uint RecordingVesselId { get; private set; }
         public bool RecordingStartedAsEva { get; private set; }
         public bool VesselDestroyedDuringRecording { get; set; }
@@ -6651,13 +6632,11 @@ namespace Parsek
 
             LogVisualRecordingCoverage(v);
 
-            if (!isPromotion && !IsGloopsMode)
+            if (!isPromotion)
                 CapturePreLaunchResources();
 
             // Capture rewind save (quicksave stored in Parsek/Saves/)
-            // Gloops mode skips rewind saves — ghost-only recordings have no revert target
-            if (!IsGloopsMode)
-                CaptureRewindSave(v, isPromotion);
+            CaptureRewindSave(v, isPromotion);
 
             InitializeRecordingFlags(v);
             CaptureStartLocation(v, isPromotion);
@@ -6702,10 +6681,7 @@ namespace Parsek
             }
 
             // Register the Harmony patch to call us each physics frame
-            if (IsGloopsMode)
-                Patches.PhysicsFramePatch.GloopsRecorderInstance = this;
-            else
-                Patches.PhysicsFramePatch.ActiveRecorder = this;
+            Patches.PhysicsFramePatch.ActiveRecorder = this;
 
             SubscribePartEvents();
 
@@ -7033,10 +7009,7 @@ namespace Parsek
         /// settle target is the queried recording id.
         ///
         /// Reads <see cref="Patches.PhysicsFramePatch.ActiveRecorder"/>, the
-        /// static handle to the focus recorder. Does NOT consult
-        /// <see cref="Patches.PhysicsFramePatch.GloopsRecorderInstance"/> —
-        /// Gloops sessions don't go through Re-Fly post-load settle, so they
-        /// would always return false. For background-vessel debris (parent is
+        /// static handle to the focus recorder. For background-vessel debris (parent is
         /// itself a background recording, never the settle target), the
         /// accessor returns false and the per-frame check is a no-op.
         /// </summary>
@@ -7319,7 +7292,7 @@ namespace Parsek
 
         /// <summary>
         /// Logistics start-docked origin proof producer. Builds the origin-partner candidate
-        /// list off the live vessel and delegates the gloops/null-snapshot guards, the resolver
+        /// list off the live vessel and delegates the null-snapshot guard, the resolver
         /// dispatch, the per-branch logging, and the proof construction to
         /// <see cref="RouteProofCapture.BuildStartRouteOriginProof"/>. This method's
         /// own responsibility is just the live-Vessel work: null-vessel guard plus
@@ -7344,14 +7317,6 @@ namespace Parsek
             pendingRouteOriginProof = null;
             pendingRouteOriginProofStartPartPids = null;
 
-            // Gloops-mode early-skip: matches the helper's gloops branch but lets the
-            // production path avoid candidate construction when there's nothing to do.
-            if (IsGloopsMode)
-            {
-                ParsekLog.Verbose("Recorder",
-                    $"RouteOriginProof skipped: gloops mode recId={RecordingVesselId} vessel='{v?.vesselName}'");
-                return;
-            }
             // Live-vessel-only guard: candidates can only be built from a live
             // Vessel.parts list, so this guard stays in production rather than
             // moving into the pure helper.
@@ -7491,7 +7456,6 @@ namespace Parsek
                 candidates: candidates,
                 settledDockSeamsScanned: settledDockSeamCandidates,
                 snapshot: lastGoodVesselSnapshot,
-                isGloopsMode: false, // already handled above; helper still defensively re-checks
                 vesselContext: v.vesselName,
                 recordingVesselId: RecordingVesselId,
                 out pendingRouteOriginProof,
@@ -7620,13 +7584,6 @@ namespace Parsek
         {
             pendingRouteRunManifest = null;
 
-            if (IsGloopsMode)
-            {
-                ParsekLog.Verbose("Recorder",
-                    $"RouteRunManifest skipped: gloops mode recId={RecordingVesselId} vessel='{v?.vesselName}'");
-                return;
-            }
-
             Recording treeRec = null;
             if (ActiveTree != null
                 && !string.IsNullOrEmpty(ActiveTree.ActiveRecordingId)
@@ -7664,7 +7621,6 @@ namespace Parsek
 
             RouteRunCargoManifest manifest = RouteProofCapture.BuildRunCargoManifestAtStart(
                 lastGoodVesselSnapshot,
-                isGloopsMode: false,
                 vesselContext: v?.vesselName,
                 recordingVesselId: RecordingVesselId);
             if (manifest == null)
@@ -7687,14 +7643,13 @@ namespace Parsek
         /// <summary>
         /// Rebuilds the BaseConverter cache for the recorded vessel. Called at
         /// recording start (module-cache block) and from the per-frame poll on
-        /// part-count change (EVA-constructed drills). Gloops mode skips
-        /// harvest capture entirely.
+        /// part-count change (EVA-constructed drills).
         /// </summary>
         private void RebuildHarvestConverterCache(Vessel v, string reason)
         {
             cachedConverters = null;
             cachedConverterPartCount = -1;
-            if (IsGloopsMode || v == null || v.parts == null)
+            if (v == null || v.parts == null)
                 return;
 
             var converters = new List<BaseConverter>();
@@ -7769,7 +7724,7 @@ namespace Parsek
         {
             if (v == null)
                 return;
-            if (!RouteHarvestCapture.ShouldRunHarvestPoll(IsGloopsMode, v.packed))
+            if (!RouteHarvestCapture.ShouldRunHarvestPoll(v.packed))
             {
                 // Zero-allocation on the packed path, for real: the IsVerboseEnabled test
                 // comes FIRST, so with verbose off (the shipping default) this frame builds
@@ -7777,7 +7732,7 @@ namespace Parsek
                 // Func<string> either, which the lambda alone would still have allocated
                 // every frame. With verbose ON the factory defers the interpolation to the
                 // frames the rate limiter actually emits.
-                if (!IsGloopsMode && ParsekLog.IsVerboseEnabled)
+                if (ParsekLog.IsVerboseEnabled)
                     ParsekLog.VerboseRateLimited("Recorder", "harvest-poll-packed-skip",
                         () => $"Harvest poll skipped on packed frame: vessel='{v.vesselName}' " +
                             $"pid={v.persistentId.ToString(CultureInfo.InvariantCulture)} " +
@@ -7838,7 +7793,7 @@ namespace Parsek
         /// </summary>
         private void InitializeHarvestWindowAtStart(Vessel v)
         {
-            if (IsGloopsMode || v == null)
+            if (v == null)
                 return;
             if (!IsAnyCachedConverterActive())
                 return;
@@ -7870,7 +7825,7 @@ namespace Parsek
         /// </summary>
         private void HandleHarvestRailsEntry(Vessel v)
         {
-            if (IsGloopsMode || v == null)
+            if (v == null)
                 return;
 
             bool anyActive = IsAnyCachedConverterActive();
@@ -7941,7 +7896,7 @@ namespace Parsek
         private void CloseHarvestWindowsAtStopAndForward(Recording capture)
         {
             lastStopClosedHarvestWindow = null;
-            if (IsGloopsMode || capture == null)
+            if (capture == null)
                 return;
 
             if (openHarvestWindow != null)
@@ -8472,10 +8427,7 @@ namespace Parsek
             }
 
             // Disconnect from Harmony patch
-            if (IsGloopsMode)
-                Patches.PhysicsFramePatch.GloopsRecorderInstance = null;
-            else
-                Patches.PhysicsFramePatch.ActiveRecorder = null;
+            Patches.PhysicsFramePatch.ActiveRecorder = null;
             UnsubscribePartEvents();
             IsRecording = false;
 
@@ -9146,19 +9098,6 @@ namespace Parsek
         /// </summary>
         private bool HandleVesselSwitchDuringRecording(Vessel v)
         {
-            // Gloops mode: auto-stop on vessel switch (no tree/chain logic).
-            // Call StopRecording (not bare FinalizeRecordingState) so CaptureAtStop
-            // is built — ParsekFlight detects the auto-stopped state and commits.
-            if (IsGloopsMode)
-            {
-                ParsekLog.Info("Recorder",
-                    $"Gloops recorder auto-stopping on vessel switch " +
-                    $"(was pid={RecordingVesselId}, now pid={v.persistentId})");
-                StopRecording();
-                GloopsAutoStoppedByVesselSwitch = true;
-                return true;
-            }
-
             // 1. Classify the pid change.
             VesselSwitchDecision decision = DecideOnVesselSwitch(
                 RecordingVesselId, v.persistentId, v.isEVA, RecordingStartedAsEva,

@@ -173,14 +173,13 @@ namespace Parsek.Tests
         /// <summary>The windows deliberately wired with NO minimum, each with the reason
         /// stated at its own row: <c>main</c>'s size is host-owned (both hosts pass a fixed
         /// <c>GUILayout.Width(250)</c> and zero the height every frame), and
-        /// <c>settings</c> / <c>gloops</c> have no resize handle at all, so there is no drag
+        /// <c>settings</c> has no resize handle at all, so there is no drag
         /// floor to reproduce. Listed here so "this row has no minimum" is a CLAIM the gate
         /// checks, not an absence it tolerates.</summary>
         private static readonly string[] WindowsWithoutMinimums =
         {
             TestCommandUiAction.MainWindow,
             TestCommandUiAction.SettingsWindow,
-            TestCommandUiAction.GloopsWindow,
         };
 
         [Fact]
@@ -314,7 +313,6 @@ namespace Parsek.Tests
                 case "RouteHistoryWindow": return TestCommandUiAction.RouteHistoryWindow;
                 case "SettingsWindow": return TestCommandUiAction.SettingsWindow;
                 case "SpawnControlWindow": return TestCommandUiAction.SpawnControlWindow;
-                case "GloopsWindow": return TestCommandUiAction.GloopsWindow;
                 case "TestRunnerWindow": return TestCommandUiAction.TestRunnerWindow;
                 case "TestRunnerGlobalWindow":
                     return TestCommandUiAction.TestRunnerGlobalWindow;

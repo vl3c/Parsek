@@ -8,9 +8,9 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Phase 7 tests for the Advanced -> Basic mode-change close handler and the Gloops
-    /// in-progress guard (design `docs/dev/design-ui-basic-advanced.md` sections 7.2, 12.2,
-    /// 13.1, 13.2, edge cases 1, 2, 4, 11, 13).
+    /// Phase 7 tests for the Advanced -> Basic mode-change close handler (design
+    /// `docs/dev/design-ui-basic-advanced.md` sections 7.2, 12.2, 13.1, 13.2, edge cases
+    /// 1, 2, 4, 13).
     ///
     /// <para>The close handler is the highest-risk item in this feature: a gated window
     /// force-closed WITHOUT releasing its KSP input lock soft-locks the player's mouse for
@@ -56,7 +56,7 @@ namespace Parsek.Tests
         // re-ruling: it draws in Basic.
         private static readonly string[] ExpectedCloseSet =
         {
-            "GloopsRecorder", "SpawnControl", "TestRunner", "GroupPicker", "LogisticsLinkPicker"
+            "SpawnControl", "TestRunner", "GroupPicker", "LogisticsLinkPicker"
         };
 
         // ------------------------------------------------------------------
@@ -67,7 +67,7 @@ namespace Parsek.Tests
         /// Design 13.1: pins the section 7.2 close set. Every lock-owning window whose
         /// launcher Basic hides must be in the handler's list, plus the group picker close.
         /// This guards the exact drift failure `ParsekUI.Cleanup()` already exhibits (it
-        /// omits gloops, logistics and the test runner), and it fails in BOTH directions -
+        /// omits logistics and the test runner), and it fails in BOTH directions -
         /// adding a window to the set without updating the design, or silently dropping one.
         /// </summary>
         [Fact]
@@ -89,11 +89,11 @@ namespace Parsek.Tests
                     Assert.NotNull(target.CloseAndReleaseLock);
                 }
 
-                // The three windows own a distinct KSP input lock; the group picker owns none
+                // The two windows own a distinct KSP input lock; the group picker owns none
                 // (edge case 4: a reachability rule, not a lock rule).
                 string[] lockOwners = set.Where(t => t.OwnsInputLock).Select(t => t.Name).ToArray();
                 Assert.Equal(
-                    new[] { "GloopsRecorder", "SpawnControl", "TestRunner" },
+                    new[] { "SpawnControl", "TestRunner" },
                     lockOwners);
                 // The Kerbals window is visible in Basic, so nothing may close it on the switch.
                 Assert.DoesNotContain(KerbalsWindowUI.KerbalsInputLockId,
@@ -439,88 +439,12 @@ namespace Parsek.Tests
         }
 
         // ------------------------------------------------------------------
-        // Gloops in-progress guard (design 7.2, edge case 11)
-        // ------------------------------------------------------------------
-
-        // nextIsBasic / gloopsRecording / expected refusal. Advanced only ever reveals
-        // surfaces, so it is never refused - not even mid-recording.
-        [Theory]
-        [InlineData(true, true, true)]
-        [InlineData(true, false, false)]
-        [InlineData(false, true, false)]
-        [InlineData(false, false, false)]
-        public void ShouldRefuseModeChangeOnlyBlocksBasicWhileGloopsRecords(
-            bool nextIsBasic, bool gloopsRecording, bool expected)
-        {
-            UiComplexityMode next = nextIsBasic ? UiComplexityMode.Basic : UiComplexityMode.Advanced;
-            Assert.Equal(expected, ParsekUI.ShouldRefuseModeChange(next, gloopsRecording));
-        }
-
-        /// <summary>
-        /// The seam-level refusal, driven end to end. `ParsekFlight.IsGloopsRecording` is a
-        /// computed property over a live recorder on a MonoBehaviour xUnit cannot construct,
-        /// so the probe seam stands in for it; everything downstream of the probe is the real
-        /// code path. Nothing may be written OR persisted on refusal - a persisted Basic with
-        /// no applied Basic would resurrect on the next scene load.
-        /// </summary>
-        [Fact]
-        public void SeamRefusesBasicWhileGloopsRecordingAndWritesNothing()
-        {
-            var settings = new ParsekSettings { uiComplexityMode = (int)UiComplexityMode.Advanced };
-            ParsekSettings.CurrentOverrideForTesting = settings;
-            ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
-            ParsekUI.GloopsRecordingProbeForTesting = () => true;
-
-            ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
-
-            Assert.Equal(UiComplexityMode.Advanced, settings.UiComplexityModeLevel);
-            Assert.Null(ParsekSettingsPersistence.GetStoredUiComplexityMode());
-            Assert.Null(ParsekUI.PendingUiComplexityModeForTesting);
-
-            ParsekUI.ApplyPendingUiComplexityModeIfAny();
-            Assert.Equal(UiComplexityMode.Advanced, ParsekUI.AppliedUiComplexityMode);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[UI]") && l.Contains("Mode switch refused: Gloops recording in progress"));
-        }
-
-        /// <summary>The guard must not block the reveal direction (edge case 11).</summary>
-        [Fact]
-        public void SeamAllowsAdvancedWhileGloopsRecording()
-        {
-            var settings = new ParsekSettings { uiComplexityMode = (int)UiComplexityMode.Basic };
-            ParsekSettings.CurrentOverrideForTesting = settings;
-            ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
-            ParsekUI.GloopsRecordingProbeForTesting = () => true;
-
-            ParsekUI.SetUiComplexityMode(UiComplexityMode.Advanced);
-            ParsekUI.ApplyPendingUiComplexityModeIfAny();
-
-            Assert.Equal(UiComplexityMode.Advanced, ParsekUI.AppliedUiComplexityMode);
-            Assert.DoesNotContain(logLines, l => l.Contains("Mode switch refused"));
-        }
-
-        // The UI half of the guard: the Basic option is disabled, Advanced never is.
-        [Theory]
-        [InlineData(true, true, true)]
-        [InlineData(true, false, false)]
-        [InlineData(false, true, false)]
-        [InlineData(false, false, false)]
-        public void ModeOptionIsDisabledOnlyForBasicWhileGloopsRecords(
-            bool optionIsBasic, bool gloopsRecording, bool expected)
-        {
-            UiComplexityMode mode = optionIsBasic ? UiComplexityMode.Basic : UiComplexityMode.Advanced;
-            Assert.Equal(expected, SettingsWindowUI.IsModeOptionDisabled(mode, gloopsRecording));
-        }
-
-        // ------------------------------------------------------------------
         // The persisted-mode re-queue (the UiAction op=complexity third step)
         // ------------------------------------------------------------------
 
         // applied / persisted / requeue expected. The ONLY true case is a DRIFT, and the
         // queued value is always the persisted one - which is the helper's whole safety
-        // property: it cannot apply a mode the save does not carry, so it cannot route
-        // around ShouldRefuseModeChange.
+        // property: it cannot apply a mode the save does not carry.
         [Theory]
         [InlineData(false, false, false)]  // Advanced latch, Advanced setting: nothing to do
         [InlineData(true, true, false)]    // Basic latch, Basic setting: likewise
@@ -594,16 +518,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void InterfaceHintCarriesTheGloopsReasonOnlyWhileRecording()
+        public void InterfaceHintIsTheConstantBaseHint()
         {
-            string idle = SettingsWindowUI.InterfaceSectionHint(false);
-            string recording = SettingsWindowUI.InterfaceSectionHint(true);
+            string hint = SettingsWindowUI.InterfaceSectionHint();
 
-            Assert.DoesNotContain("Gloops", idle);
-            Assert.Contains("Stop the Gloops recording first", recording);
-            // One label either way: the reason is appended to the SAME control, never added
-            // as a second one, so the IMGUI control count cannot change mid-frame.
-            Assert.StartsWith(idle, recording, StringComparison.Ordinal);
+            Assert.False(string.IsNullOrEmpty(hint));
+            Assert.StartsWith("Basic hides power-user windows.", hint, StringComparison.Ordinal);
+            // No mode option is ever refused any more, so the hint carries no reason suffix.
+            Assert.DoesNotContain("Gloops", hint);
+            Assert.Equal(hint, SettingsWindowUI.InterfaceSectionHint());
         }
 
         // ------------------------------------------------------------------
@@ -612,7 +535,6 @@ namespace Parsek.Tests
 
         private static void OpenEveryGatedSurface(ParsekUI ui)
         {
-            ui.GetGloopsUI().IsOpen = true;
             ui.GetSpawnControlUI().IsOpen = true;
             ui.GetTestRunnerUI().IsOpen = true;
             // Opened the way a Recordings-tab row's `G` button opens it (edge case 4).

@@ -48,8 +48,6 @@ namespace Parsek.Tests
         [InlineData("CaptureScreenshot")]
         [InlineData("UiAction")]
         [InlineData("DumpGuiTree")]
-        [InlineData("GloopsStart")]
-        [InlineData("GloopsStop")]
         [InlineData("StockScreen")]
         [InlineData("GoToEditor")]
         [InlineData("LaunchFromEditor")]
@@ -186,7 +184,10 @@ namespace Parsek.Tests
             // Tracking Station half of a player's recovery, for a non-active vessel.
             // KscMarkerRecover is ADDITIVE (47 -> 48; reserved unchanged at 4): the Space
             // Center marker's Recover, the recovery a player makes without leaving the KSC.
-            Assert.Equal(48, TestCommandVerbs.ImplementedVerbNames.Count);
+            // The Gloops pair's REMOVAL (48 -> 46; reserved unchanged at 4) went with the
+            // in-Parsek Gloops recorder itself: the ghost-only recorder they drove is gone,
+            // so the first number moves alone and by TWO, the mirror of their addition.
+            Assert.Equal(46, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

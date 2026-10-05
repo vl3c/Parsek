@@ -766,7 +766,7 @@ without a schema generation bump (plan section 5, for ratification at review); t
 keeps store-mission looping reachable from automation only (plan section 6). PR sequence:
 plan section 7.
 
-## GLOOPS-EXTRACTION-2026-10-05: Gloops leaves Parsek; model agreed, extraction not scheduled [FILED 2026-10-05 from an owner interview and a measured read of the code, branch `ccr-8a19466a-qh7ey4`. OPEN; extraction not scheduled, removal planned]
+## GLOOPS-EXTRACTION-2026-10-05: Gloops leaves Parsek; model agreed, extraction not scheduled [FILED 2026-10-05 from an owner interview and a measured read of the code, branch `ccr-8a19466a-qh7ey4`. OPEN; extraction not scheduled. In-Parsek recorder DELETED as dead code on branch `gloops-dead-code-removal`]
 
 **Owner rulings 2026-10-05** (full text: `docs/dev/gloops-recorder-design.md` section 1):
 the in-Parsek Gloops feature is deleted from Parsek; Gloops becomes a standalone mod in
@@ -784,19 +784,25 @@ the tree / chain / mission layer, and the recorders are entangled with tree, rew
 logistics code (design section 10).
 
 **Next work** is `docs/dev/plans/remove-player-looping.md`: PR 1 deletes the in-Parsek
-Gloops recorder; PRs 2-4 remove player-authored looping (per-recording loops and the
-Missions tab loop controls; in Parsek a mission loops only behind a logistics route).
+Gloops recorder (DONE on branch `gloops-dead-code-removal`, looping untouched); PRs 2-4 remove
+player-authored looping (per-recording loops and the Missions tab loop controls; in Parsek a
+mission loops only behind a logistics route).
 
 **Defects in the in-Parsek Gloops recorder, found 2026-10-05.** All are resolved by the
 removal; none is to be fixed in place. Each is a requirement the standalone take recorder
 must meet (design section 5.8).
 
-1. **Takes are very likely lost on save and reload** (inferred from source, not run).
-   `RecordingStore.CommitGloopsRecording` appends a treeless recording to the committed
-   list; `ParsekScenario.OnSave` writes only `RECORDING_TREE` nodes and OnLoad ignores
-   standalone `RECORDING` nodes (T56). Contradicts the 0.10.4 CHANGELOG claim that existing
-   ghost-only recordings "still load". One reload test settles it before the `isGhostOnly`
-   codec key is deleted.
+1. **Takes are lost on a cold load** (settled 2026-10-05 by a test).
+   `RecordingStore.CommitGloopsRecording` appended a treeless recording to the committed
+   list; `ParsekScenario.SaveTreeRecordings` writes only `RECORDING_TREE` nodes and the cold
+   OnLoad path reads only those (standalone `RECORDING` nodes are warned and dropped, T56),
+   then `CleanOrphanFiles` quarantines the take's sidecars. A warm in-session load kept the
+   static list until the next cold load. The codec read of `isGhostOnly` could only fire for
+   a tree member and no path put a take in a tree; no fixture carried `isGhostOnly = True`.
+   So no save can carry a ghost-only recording, and the key was deleted with no generation
+   bump. Pinned by `PendingTreeSaveTests.SaveThenColdLoad_TreelessCommittedRecording_IsNotPersisted`
+   (passed with `IsGhostOnly = true` on main `99f7a1ad5` before the deletion). The 0.10.4
+   CHANGELOG claim that ghost-only recordings "still load" was wrong.
 2. **A take started while packed freezes.** `InitializeOnRailsOrbitSegment` sets
    `isOnRails = true`; go-off-rails is never forwarded to the gloops recorder, so
    `FlightRecorder.OnPhysicsFrame` returns early for the rest of the take.

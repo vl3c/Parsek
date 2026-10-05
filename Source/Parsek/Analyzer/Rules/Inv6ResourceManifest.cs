@@ -15,8 +15,8 @@ namespace Parsek.Analyzer.Rules
     // unchanged. A resource that changes or vanishes across the round-trip -> FAIL
     // naming the resource.
     //
-    // Manifests are OPTIONAL: a recording with no manifest (a Gloops / showcase
-    // ghost, or any recording that carried none) produces NO finding. The design
+    // Manifests are OPTIONAL: a recording with no manifest (a showcase ghost, or
+    // any recording that carried none) produces NO finding. The design
     // describes the absent case as "INFO, not a finding"; this rule takes the
     // no-finding reading so a healthy save with manifest-less recordings stays
     // finding-free (the clean-data-is-green convention the Phase-2 rules and

@@ -314,7 +314,7 @@ per review):
 4. Part-event PIDs resolve against the paired snapshot (100000 + idx*1111).
 5. Schema gate: every sidecar passes IsRecordingSchemaCompatible; the
    analyzer inventories and reports reasons.
-6. Resource manifests: consistent WHERE PRESENT (optional for Gloops /
+6. Resource manifests: consistent WHERE PRESENT (optional for
    showcase ghosts - presence rules encoded per recording kind).
 7. Tree topology: all parent/branch/chain/anchor/supersede/tombstone links
    resolve, no cycles. Chain-index contiguity is scoped PER

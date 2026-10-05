@@ -177,9 +177,9 @@ count = { min = 5, max = 5 }
 # none is emitted: the `await=false` payload deliberately carries no counts, because a row
 # that is currently Running lands in none of the passed / failed / skipped buckets.
 required = [
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,logistics",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,testrunner",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,testrunner",
 
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction raise ok popup=createroute name=ParsekLogisticsCreateRouteConfirm title=Create Supply Route\\? nbuttons=3 ",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=true count=1 name=ParsekLogisticsCreateRouteConfirm ",
