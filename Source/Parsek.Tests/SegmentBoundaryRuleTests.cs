@@ -182,6 +182,44 @@ namespace Parsek.Tests
                 l.Contains("=> DECOUPLE"));
         }
 
+        [Fact]
+        public void ClassifyForegroundSplitChildCause_DecoupleCaughtButBrokeUnderForce_ReturnsBrokeOff()
+        {
+            // PartJoint.OnJointBreak -> Part.OnPartJointBreak -> Part.decouple raises the
+            // same decouple callback, so the force flag must win over decoupleCreated.
+            string cause = SegmentBoundaryLogic.ClassifyForegroundSplitChildCause(
+                childWasDecoupleCreated: true, triggerWasDecoupleOnly: false,
+                childBrokeUnderForce: true, childWasPreAttachedUndock: true,
+                childRootPartPid: 3239663123u);
+            Assert.Equal(SegmentBoundaryLogic.BrokeOffSplitCause, cause);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Boundary]") &&
+                l.Contains("rootPartPid=3239663123") &&
+                l.Contains("brokeUnderForce=True") &&
+                l.Contains("=> BROKE_OFF"));
+        }
+
+        [Fact]
+        public void ClassifyForegroundSplitChildCause_PreAttachedPortUndock_ReturnsUndock()
+        {
+            string cause = SegmentBoundaryLogic.ClassifyForegroundSplitChildCause(
+                childWasDecoupleCreated: true, triggerWasDecoupleOnly: false,
+                childBrokeUnderForce: false, childWasPreAttachedUndock: true,
+                childRootPartPid: 4242u);
+            Assert.Equal("UNDOCK", cause);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Boundary]") && l.Contains("rootPartPid=4242") && l.Contains("=> UNDOCK"));
+        }
+
+        [Fact]
+        public void ClassifyForegroundSplitChildCause_NoDecoupleSignal_StaysCrashWhateverTheFlags()
+        {
+            string cause = SegmentBoundaryLogic.ClassifyForegroundSplitChildCause(
+                childWasDecoupleCreated: false, triggerWasDecoupleOnly: false,
+                childBrokeUnderForce: true, childWasPreAttachedUndock: true);
+            Assert.Equal("CRASH", cause);
+        }
+
         #endregion
 
         #region ClassifyJointBreakResult logging

@@ -34,9 +34,11 @@ namespace Parsek
         private List<uint> debrisPids = new List<uint>();
         // Cause to emit when the window is NOT all-decouple: "CRASH", "OVERHEAT", "STRUCTURAL_FAILURE".
         private string breakupCause;
-        // True while every split accumulated so far is a decoupler-initiated separation
-        // ("DECOUPLE"). Cleared by the first non-decouple split in the window.
+        // True while every split accumulated so far is a separation ("DECOUPLE", "UNDOCK"
+        // or BrokeOffSplitCause). Cleared by the first breakup split in the window.
         private bool windowAllDecouple;
+        // The combined separation cause of an all-separation window (CombineSeparationCause).
+        private string windowSeparationCause;
         // First decoupler/root part id captured for an all-decouple window (0 if unknown);
         // surfaced as BranchPoint.DecouplerPartId on the emitted JointBreak.
         private uint windowDecouplerPartId;
@@ -56,6 +58,29 @@ namespace Parsek
         public bool HasPendingBreakup => !double.IsNaN(windowStartUT);
         public double WindowStartUT => windowStartUT;
 
+        /// <summary>Separation causes keep a window a JointBreak; anything else is a breakup.</summary>
+        internal static bool IsSeparationCause(string splitCause)
+        {
+            return string.Equals(splitCause, "DECOUPLE", StringComparison.Ordinal)
+                || string.Equals(splitCause, "UNDOCK", StringComparison.Ordinal)
+                || string.Equals(splitCause, SegmentBoundaryLogic.BrokeOffSplitCause, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Pure: the window cause after another separation joins it. A broken-off child wins
+        /// (a real break is never relabelled a clean separation); an undock mixed with a
+        /// decouple reads as the decouple.
+        /// </summary>
+        internal static string CombineSeparationCause(string windowCause, string childCause)
+        {
+            if (string.Equals(windowCause, childCause, StringComparison.Ordinal)) return windowCause;
+            string brokeOff = SegmentBoundaryLogic.BrokeOffSplitCause;
+            if (string.Equals(windowCause, brokeOff, StringComparison.Ordinal)
+                || string.Equals(childCause, brokeOff, StringComparison.Ordinal))
+                return brokeOff;
+            return "DECOUPLE";
+        }
+
         public CrashCoalescer(double window = DefaultCoalesceWindow)
         {
             coalesceWindow = window;
@@ -74,7 +99,7 @@ namespace Parsek
         public void OnSplitEvent(double ut, uint childPid, bool childHasController, string splitCause = "CRASH",
             ConfigNode preSnapshot = null, TrajectoryPoint? preTrajectoryPoint = null, uint decouplerPartId = 0u)
         {
-            bool isDecouple = string.Equals(splitCause, "DECOUPLE", StringComparison.Ordinal);
+            bool isDecouple = IsSeparationCause(splitCause);
             var ic = CultureInfo.InvariantCulture;
 
             if (!HasPendingBreakup)
@@ -82,6 +107,7 @@ namespace Parsek
                 // Start new coalescing window
                 windowStartUT = ut;
                 windowAllDecouple = isDecouple;
+                windowSeparationCause = isDecouple ? splitCause : null;
                 breakupCause = isDecouple ? "CRASH" : splitCause;
                 windowDecouplerPartId = 0u;
                 controlledChildPids.Clear();
@@ -100,6 +126,10 @@ namespace Parsek
                         ") joined an all-decouple window at UT=" + ut.ToString("F2", ic));
                 windowAllDecouple = false;
                 breakupCause = splitCause;
+            }
+            else
+            {
+                windowSeparationCause = CombineSeparationCause(windowSeparationCause, splitCause);
             }
 
             if (isDecouple && decouplerPartId != 0u && windowDecouplerPartId == 0u)
@@ -149,7 +179,35 @@ namespace Parsek
             // since the coalescer doesn't know recording IDs.
             var ic = CultureInfo.InvariantCulture;
             BranchPoint bp;
-            if (windowAllDecouple)
+            if (windowAllDecouple
+                && !string.Equals(windowSeparationCause, "DECOUPLE", StringComparison.Ordinal))
+            {
+                // An all-separation window that is not a plain decouple: a pre-attached
+                // docking port's Undock ("UNDOCK") or a joint that broke under force (null
+                // SplitCause, read by the JointBreak type as "Broke off"). Same type as a
+                // decouple window, so every type-keyed reader behaves as before.
+                string storedCause = string.Equals(windowSeparationCause,
+                    SegmentBoundaryLogic.BrokeOffSplitCause, StringComparison.Ordinal)
+                    ? null : windowSeparationCause;
+                bp = new BranchPoint
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    UT = windowStartUT,
+                    Type = BranchPointType.JointBreak,
+                    SplitCause = storedCause,
+                    DecouplerPartId = windowDecouplerPartId,
+                    BreakupDuration = lastSplitUT - windowStartUT,
+                    DebrisCount = debrisPids.Count,
+                    CoalesceWindow = coalesceWindow
+                };
+                ParsekLog.Info("Coalescer",
+                    "SEPARATION emitted: ut=" + windowStartUT.ToString("F2", ic) +
+                    " type=JointBreak splitCause=" + (storedCause ?? "none") +
+                    " windowCause=" + windowSeparationCause +
+                    " controlledChildren=" + controlledChildPids.Count + " debris=" + debrisPids.Count +
+                    " duration=" + bp.BreakupDuration.ToString("F3", ic) + "s window=" + coalesceWindow.ToString("F1", ic) + "s");
+            }
+            else if (windowAllDecouple)
             {
                 // Every split in the window was decoupler-initiated: an intentional
                 // staging / decoupler separation, recorded as a JointBreak/DECOUPLE

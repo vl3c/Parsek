@@ -99,16 +99,18 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Classifies a single foreground vessel-split child as either a decoupler-initiated
-        /// separation (intentional staging / decoupler fire =&gt; <c>"DECOUPLE"</c>) or a
-        /// force-driven structural break (collision / overstress =&gt; <c>"CRASH"</c>).
+        /// Classifies a single foreground vessel-split child: a decoupler-initiated
+        /// separation (<c>"DECOUPLE"</c>), a pre-attached docking port's Undock
+        /// (<c>"UNDOCK"</c>), a part whose joint broke under force (<see cref="BrokeOffSplitCause"/>),
+        /// or a child with no decouple signal at all (<c>"CRASH"</c>).
         ///
         /// <para>The decouple signal is whether the child vessel was caught by
         /// <c>GameEvents.onPartDeCoupleNewVesselComplete</c> during the split window
-        /// (<paramref name="childWasDecoupleCreated"/>). KSP raises that event only from
-        /// <c>Part.decouple()</c> — a <c>ModuleDecouple</c> / <c>ModuleAnchoredDecoupler</c>
-        /// firing through staging or an action group — and never from a force-driven joint
-        /// break (collision, overstress, overheat). A <paramref name="triggerWasDecoupleOnly"/>
+        /// (<paramref name="childWasDecoupleCreated"/>). KSP raises that event from
+        /// <c>Part.decouple()</c>: a decoupler firing, but also a force-driven joint break
+        /// (which calls <c>Part.decouple</c> after the break) and a dying part shedding its
+        /// children, so the force refinement below is what separates a broken-off part from a
+        /// decouple. A <paramref name="triggerWasDecoupleOnly"/>
         /// split was detected purely through that decouple callback with no joint-break
         /// callback reaching the recorder at all, so it is decoupler-initiated by
         /// construction.</para>
@@ -122,16 +124,41 @@ namespace Parsek
         /// <param name="triggerWasDecoupleOnly">True if the deferred split check was armed by a
         /// decouple callback rather than a force joint-break callback.</param>
         /// <returns><c>"DECOUPLE"</c> for a decoupler-initiated split child, otherwise <c>"CRASH"</c>.</returns>
+        /// <remarks>
+        /// A decouple-caught child is refined by how its root part came off. KSP's force
+        /// path (PartJoint.OnJointBreak -&gt; Part.OnPartJointBreak -&gt; Part.decouple) also
+        /// raises <c>onPartDeCoupleNewVesselComplete</c>, so a joint that broke under force
+        /// (<paramref name="childBrokeUnderForce"/>) is <see cref="BrokeOffSplitCause"/>, and
+        /// a pre-attached docking port's Undock (<paramref name="childWasPreAttachedUndock"/>,
+        /// also routed through Part.decouple) is <c>"UNDOCK"</c>. Both keep the coalescer's
+        /// JointBreak type.
+        /// </remarks>
         internal static string ClassifyForegroundSplitChildCause(
             bool childWasDecoupleCreated,
-            bool triggerWasDecoupleOnly)
+            bool triggerWasDecoupleOnly,
+            bool childBrokeUnderForce = false,
+            bool childWasPreAttachedUndock = false,
+            uint childRootPartPid = 0)
         {
-            string cause = (childWasDecoupleCreated || triggerWasDecoupleOnly) ? "DECOUPLE" : "CRASH";
+            string cause;
+            if (!(childWasDecoupleCreated || triggerWasDecoupleOnly)) cause = "CRASH";
+            else if (childBrokeUnderForce) cause = BrokeOffSplitCause;
+            else if (childWasPreAttachedUndock) cause = "UNDOCK";
+            else cause = "DECOUPLE";
             ParsekLog.Verbose("Boundary",
-                $"ClassifyForegroundSplitChildCause: decoupleCreated={childWasDecoupleCreated} " +
-                $"triggerDecoupleOnly={triggerWasDecoupleOnly} => {cause}");
+                $"ClassifyForegroundSplitChildCause: rootPartPid={childRootPartPid} " +
+                $"decoupleCreated={childWasDecoupleCreated} " +
+                $"triggerDecoupleOnly={triggerWasDecoupleOnly} brokeUnderForce={childBrokeUnderForce} " +
+                $"preAttachedUndock={childWasPreAttachedUndock} => {cause}");
             return cause;
         }
+
+        /// <summary>
+        /// Coalescer-only split cause for a child whose joint broke under force. Never
+        /// persisted: the coalescer emits it as a JointBreak with a null SplitCause, which the
+        /// Missions tab reads by its type as "Broke off".
+        /// </summary>
+        internal const string BrokeOffSplitCause = "BROKE_OFF";
 
         /// <summary>
         /// Classifies a docking-port undock (<c>GameEvents.onVesselsUndocking</c>) against the

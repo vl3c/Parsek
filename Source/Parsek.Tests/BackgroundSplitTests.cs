@@ -74,7 +74,7 @@ namespace Parsek.Tests
         public void ClassifyBackgroundJointBreakCause_UndockedPartSameUT_IsUndock()
         {
             string cause = BackgroundRecorder.ClassifyBackgroundJointBreakCause(
-                jointChildPartPid: 4242u, jointBreakUT: 1500.25,
+                jointChildPartPid: 4242u, jointBreakUT: 1500.25, breakForce: 0f,
                 pendingUndockPartPid: 4242u, pendingUndockUT: 1500.25);
 
             Assert.Equal("UNDOCK", cause);
@@ -87,11 +87,11 @@ namespace Parsek.Tests
         [Fact]
         public void ClassifyBackgroundJointBreakCause_NoPendingUndock_IsDecouple()
         {
-            // An ordinary decoupler, a docking port's "Decouple Node" and a pre-attached
-            // port's Undock all reach the joint break through Part.decouple, which never
-            // fires onPartUndock: nothing is pending.
+            // An ordinary decoupler or a dying part shedding its children reaches the joint
+            // break through Part.decouple with breakForce 0 and nothing noted: nothing is
+            // pending.
             string cause = BackgroundRecorder.ClassifyBackgroundJointBreakCause(
-                jointChildPartPid: 4242u, jointBreakUT: 1500.25,
+                jointChildPartPid: 4242u, jointBreakUT: 1500.25, breakForce: 0f,
                 pendingUndockPartPid: 0u, pendingUndockUT: double.NaN);
 
             Assert.Equal("DECOUPLE", cause);
@@ -104,7 +104,7 @@ namespace Parsek.Tests
         public void ClassifyBackgroundJointBreakCause_OtherPart_IsDecouple()
         {
             string cause = BackgroundRecorder.ClassifyBackgroundJointBreakCause(
-                jointChildPartPid: 5151u, jointBreakUT: 1500.25,
+                jointChildPartPid: 5151u, jointBreakUT: 1500.25, breakForce: 0f,
                 pendingUndockPartPid: 4242u, pendingUndockUT: 1500.25);
 
             Assert.Equal("DECOUPLE", cause);
@@ -114,7 +114,7 @@ namespace Parsek.Tests
         public void ClassifyBackgroundJointBreakCause_StaleUndockFromEarlierUT_IsDecouple()
         {
             string cause = BackgroundRecorder.ClassifyBackgroundJointBreakCause(
-                jointChildPartPid: 4242u, jointBreakUT: 1612.0,
+                jointChildPartPid: 4242u, jointBreakUT: 1612.0, breakForce: 0f,
                 pendingUndockPartPid: 4242u, pendingUndockUT: 1500.25);
 
             Assert.Equal("DECOUPLE", cause);
@@ -138,6 +138,65 @@ namespace Parsek.Tests
             Assert.Single(children);
             Assert.Equal("Undocked",
                 MissionCompositionBuilder.BranchEventName(bp.Type, bp.SplitCause));
+        }
+
+        [Fact]
+        public void ClassifyBackgroundJointBreakCause_BrokeUnderForce_IsNullAndLogsBrokeOff()
+        {
+            // PartJoint.OnJointBreak passes the real break force; DestroyJoint (decouple,
+            // undock) passes 0. A force break reads "Broke off" by its JointBreak type.
+            string cause = BackgroundRecorder.ClassifyBackgroundJointBreakCause(
+                jointChildPartPid: 7373u, jointBreakUT: 1500.25, breakForce: 8526.6f,
+                pendingUndockPartPid: 0u, pendingUndockUT: double.NaN);
+
+            Assert.Null(cause);
+            Assert.Contains(logLines, l => l.Contains("[BgRecorder]")
+                && l.Contains("ClassifyBackgroundJointBreakCause: partPid=7373")
+                && l.Contains("breakForce=8526.6")
+                && l.Contains("cause=BROKE_OFF"));
+        }
+
+        [Fact]
+        public void ClassifyBackgroundJointBreakCause_ForceBreakOfNotedPart_StillBrokeOff()
+        {
+            // KSP's force path fires onPartJointBreak(force) BEFORE Part.decouple raises
+            // onPartDeCouple, so a note for the same part can only be stale; force wins.
+            string cause = BackgroundRecorder.ClassifyBackgroundJointBreakCause(
+                jointChildPartPid: 4242u, jointBreakUT: 1500.25, breakForce: 120.0f,
+                pendingUndockPartPid: 4242u, pendingUndockUT: 1500.25);
+
+            Assert.Null(cause);
+        }
+
+        [Fact]
+        public void BuildBackgroundSplitBranchData_BrokeOff_KeepsJointBreakTypeAndReadsBrokeOff()
+        {
+            var newVessels = new List<(uint pid, string name, bool hasController)>
+            {
+                (400, "Wing", false)
+            };
+
+            var (bp, _) = BackgroundRecorder.BuildBackgroundSplitBranchData(
+                "parent_rec", "tree_1", 1000.0, BranchPointType.JointBreak,
+                100, newVessels, 0, null);
+
+            Assert.Equal(BranchPointType.JointBreak, bp.Type);
+            Assert.Null(bp.SplitCause);
+            Assert.Equal("Broke off",
+                MissionCompositionBuilder.BranchEventName(bp.Type, bp.SplitCause));
+        }
+
+        [Theory]
+        [InlineData(true, false, false, true)]
+        [InlineData(false, true, false, true)]
+        [InlineData(false, false, false, false)]
+        [InlineData(true, false, true, false)]
+        [InlineData(false, true, true, false)]
+        public void IsPreAttachedPortSeparation_Table(
+            bool partFacesParent, bool parentFacesPart, bool decoupler, bool expected)
+        {
+            Assert.Equal(expected, DockingPortSeparation.IsPreAttachedPortSeparation(
+                partFacesParent, parentFacesPart, decoupler));
         }
 
         [Fact]

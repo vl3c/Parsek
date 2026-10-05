@@ -116,6 +116,11 @@ namespace Parsek
 
         // Part event tracking
         private HashSet<uint> decoupledPartIds = new HashSet<uint>();
+        // Structural joint-break children whose joint broke under force (breakForce > 0),
+        // and parts that came off through a pre-attached docking port's Undock. Read by
+        // ParsekFlight's deferred split check to pick the split child's cause.
+        private readonly HashSet<uint> forceBrokenJointChildPartIds = new HashSet<uint>();
+        private readonly HashSet<uint> preAttachedUndockPartIds = new HashSet<uint>();
         // 0=stowed/active, 1=semi, 2=deployed, 3=cut — see ClassifyParachuteState. Stowed is the
         // implicit default and removes the entry, so this only holds non-build-time-pose chutes.
         private Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>();
@@ -1363,6 +1368,7 @@ namespace Parsek
             if (partEventsSubscribed) return;
             GameEvents.onPartDie.Add(OnPartDie);
             GameEvents.onPartJointBreak.Add(OnPartJointBreak);
+            GameEvents.onPartDeCouple.Add(OnPartDeCouple);
             partEventsSubscribed = true;
             ParsekLog.Verbose("Recorder", "Subscribed part event hooks");
         }
@@ -1372,6 +1378,7 @@ namespace Parsek
             if (!partEventsSubscribed) return;
             GameEvents.onPartDie.Remove(OnPartDie);
             GameEvents.onPartJointBreak.Remove(OnPartJointBreak);
+            GameEvents.onPartDeCouple.Remove(OnPartDeCouple);
             partEventsSubscribed = false;
             ParsekLog.Verbose("Recorder", "Unsubscribed part event hooks");
         }
@@ -1644,6 +1651,13 @@ namespace Parsek
                 return;
             }
             decoupledPartIds.Add(joint.Child.persistentId);
+            if (breakForce > 0f)
+            {
+                forceBrokenJointChildPartIds.Add(joint.Child.persistentId);
+                ParsekLog.Verbose("Recorder",
+                    $"OnPartJointBreak: joint broke under force pid={joint.Child.persistentId} " +
+                    $"breakForce={breakForce.ToString("F1", CultureInfo.InvariantCulture)} => split cause BROKE_OFF");
+            }
 
             if (TryCreateAbsoluteTrajectoryPointFromPartOrigin(
                     joint.Child,
@@ -1765,6 +1779,28 @@ namespace Parsek
         /// </summary>
         /// <param name="brokenJointIsAttachJoint">True if the broken joint is the child's attachJoint.</param>
         /// <param name="hasAttachJoint">True if the child part has a non-null attachJoint (false for root parts).</param>
+        /// <summary>
+        /// Notes a part that comes off the recorded vessel through a pre-attached docking
+        /// port's Undock (stock routes it through Part.decouple, which fires onPartDeCouple
+        /// first and never onPartUndock); see <see cref="DockingPortSeparation"/>.
+        /// </summary>
+        private void OnPartDeCouple(Part part)
+        {
+            if (!IsRecording || part?.vessel == null) return;
+            if (part.vessel.persistentId != RecordingVesselId) return;
+            if (!DockingPortSeparation.IsPreAttachedPortDecouple(part)) return;
+            preAttachedUndockPartIds.Add(part.persistentId);
+            ParsekLog.Verbose("Recorder",
+                $"OnPartDeCouple: pre-attached docking-port undock part='{part.partInfo?.name}' " +
+                $"pid={part.persistentId} vesselPid={RecordingVesselId} => split cause UNDOCK");
+        }
+
+        internal bool JointChildBrokeUnderForce(uint partPid)
+            => partPid != 0 && forceBrokenJointChildPartIds.Contains(partPid);
+
+        internal bool PartLeftThroughPreAttachedUndock(uint partPid)
+            => partPid != 0 && preAttachedUndockPartIds.Contains(partPid);
+
         internal static bool IsStructuralJointBreak(bool brokenJointIsAttachJoint, bool hasAttachJoint)
         {
             // If the child has no attach joint (root part), any break is structural
@@ -7976,6 +8012,8 @@ namespace Parsek
         private void ResetPartEventTrackingState(Vessel v, bool emitSeedEvents = true)
         {
             decoupledPartIds.Clear();
+            forceBrokenJointChildPartIds.Clear();
+            preAttachedUndockPartIds.Clear();
             parachuteStates.Clear();
             jettisonedShrouds.Clear();
             jettisonNameRawCache.Clear();

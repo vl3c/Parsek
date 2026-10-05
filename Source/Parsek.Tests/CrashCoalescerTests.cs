@@ -508,6 +508,76 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BrokeOffWindow_EmitsJointBreakWithNullCause_ReadsBrokeOff()
+        {
+            // A joint that broke under force also reaches Part.decouple (the child is
+            // decouple-caught), so the window stays a JointBreak, but with no SplitCause.
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 1000, childHasController: false,
+                splitCause: SegmentBoundaryLogic.BrokeOffSplitCause);
+
+            var bp = coalescer.Tick(100.5);
+            Assert.NotNull(bp);
+            Assert.Equal(BranchPointType.JointBreak, bp.Type);
+            Assert.Null(bp.SplitCause);
+            Assert.Null(bp.BreakupCause);
+            Assert.Equal("Broke off", MissionCompositionBuilder.BranchEventName(bp.Type, bp.SplitCause));
+            Assert.Contains(logLines, l => l.Contains("[Coalescer]") && l.Contains("SEPARATION emitted")
+                && l.Contains("splitCause=none") && l.Contains("windowCause=BROKE_OFF"));
+        }
+
+        [Fact]
+        public void UndockWindow_EmitsJointBreakWithUndockCause()
+        {
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 1000, childHasController: true, splitCause: "UNDOCK");
+
+            var bp = coalescer.Tick(100.5);
+            Assert.Equal(BranchPointType.JointBreak, bp.Type);
+            Assert.Equal("UNDOCK", bp.SplitCause);
+            Assert.Equal("Undocked", MissionCompositionBuilder.BranchEventName(bp.Type, bp.SplitCause));
+        }
+
+        [Fact]
+        public void DecoupleThenBrokeOff_SameWindow_StaysJointBreakWithNullCause()
+        {
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 1000, childHasController: false, splitCause: "DECOUPLE");
+            coalescer.OnSplitEvent(100.1, 1001, childHasController: false,
+                splitCause: SegmentBoundaryLogic.BrokeOffSplitCause);
+
+            var bp = coalescer.Tick(100.6);
+            Assert.Equal(BranchPointType.JointBreak, bp.Type);
+            Assert.Null(bp.SplitCause);
+        }
+
+        [Fact]
+        public void BrokeOffThenCrash_SameWindow_EscalatesToBreakup()
+        {
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 1000, childHasController: false,
+                splitCause: SegmentBoundaryLogic.BrokeOffSplitCause);
+            coalescer.OnSplitEvent(100.1, 1001, childHasController: false, splitCause: "CRASH");
+
+            var bp = coalescer.Tick(100.6);
+            Assert.Equal(BranchPointType.Breakup, bp.Type);
+            Assert.Equal("CRASH", bp.BreakupCause);
+            Assert.Null(bp.SplitCause);
+        }
+
+        [Theory]
+        [InlineData("DECOUPLE", "DECOUPLE", "DECOUPLE")]
+        [InlineData("UNDOCK", "UNDOCK", "UNDOCK")]
+        [InlineData("DECOUPLE", "UNDOCK", "DECOUPLE")]
+        [InlineData("UNDOCK", "DECOUPLE", "DECOUPLE")]
+        [InlineData("UNDOCK", "BROKE_OFF", "BROKE_OFF")]
+        [InlineData("BROKE_OFF", "DECOUPLE", "BROKE_OFF")]
+        public void CombineSeparationCause_Table(string window, string child, string expected)
+        {
+            Assert.Equal(expected, CrashCoalescer.CombineSeparationCause(window, child));
+        }
+
+        [Fact]
         public void AllDecoupleWindow_MultipleChildren_EmitsSingleJointBreak()
         {
             // A symmetry group of decouplers fires in one frame (staging boosters).
