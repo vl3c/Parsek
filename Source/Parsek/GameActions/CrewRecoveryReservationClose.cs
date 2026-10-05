@@ -46,7 +46,7 @@ namespace Parsek
         /// The committed recordings the recovered vessel continues, one per tree: among the
         /// matches (<see cref="IsRecoveredVesselRecording"/>) that ended at or before the
         /// recovery, the one with the latest end in each tree (a recording with no tree is
-        /// its own group). Ghost-only recordings have no career footprint and are skipped.
+        /// its own group).
         /// Deterministic order: by end UT, then recording id.
         /// </summary>
         internal static List<Recording> SelectOwnerRecordings(
