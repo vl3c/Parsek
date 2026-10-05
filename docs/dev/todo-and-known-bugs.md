@@ -1087,7 +1087,8 @@ spawned vessel (`#289 ... vessel.situation=SUB_ORBITAL`). With the head left at 
 `CommitTree: terminal spawn for recording 37d0dc07 superseded by continuation a32f62f5` line
 (`spawned-pid-match`) no longer fires either: its `prior.EndUT > continued.EndUT` gate rejects it.
 Covered by `ReFlyConclusionChainHeadFinalizeTests` (repro, crew cell, both gates and their
-mirrors; each gate mutation-tested red). CI-2's `[expectedFail]` comes off once its flight reads XPASS.
+mirrors; each gate mutation-tested red). CI-2 read XPASS `2026-10-05_2136` (12 Destroyed), its `[expectedFail]` is removed, and the armed
+re-flight `2026-10-05_2138` PASSed attempt 1 (automation DLL `cc79ba6e...`).
 
 ## REFLY-LANES-JUMP-BEFORE-FLIGHT-READY: six re-fly lanes jump or warp straight after InvokeRewind, the CI-2 race [FILED 2026-10-05 from CI-2-TIMEJUMP-BEFORE-FLIGHT-READY, branch `ci2-lane-fix`. OPEN, lanes; unflown]
 
