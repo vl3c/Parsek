@@ -1815,6 +1815,9 @@ The veto fires when ALL of these hold:
 - the step the driver stage blamed (`blamed_driver_step`, the same composition as
   `missionverify.compose_driver_validity`: the first unmet row before the mission
   row, or a met mission's gating outcome row with a `driverSubkind`) is a SEAM step;
+- that step's args carried no runtime `${step.field}` substitution (its row has no
+  `substitutions`): a captured value can differ on the next attempt, so the retry
+  would not resend the same line;
 - its seam verdict is `ERROR` or `REJECTED` (never `TIMEOUT`);
 - the leading token of its reply `msg` is in the closed set
   `DETERMINISTIC_SEAM_ERROR_REASONS`: the protocol rejects (`malformed`,

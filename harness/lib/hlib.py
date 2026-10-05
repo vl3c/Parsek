@@ -10630,9 +10630,11 @@ def deterministic_seam_error_retry_skip(result: Dict) -> Optional[Dict]:
     """The ``retrySkipped`` record when this attempt's failure is a deterministic seam
     error (see the section comment), else None.
 
-    All four must hold: the attempt is INVALID with a driver-stage subkind
+    All five must hold: the attempt is INVALID with a driver-stage subkind
     (DETERMINISTIC_SEAM_ERROR_STAGE_SUBKINDS); the blamed step is a SEAM step (has a
-    ``cmd``); its seam verdict is ERROR or REJECTED; and its reply's leading reason
+    ``cmd``); its args carried no runtime ``${step.field}`` substitution (a captured
+    value can differ on the next attempt, so the retry would NOT resend the same
+    args); its seam verdict is ERROR or REJECTED; and its reply's leading reason
     token is in DETERMINISTIC_SEAM_ERROR_REASONS. Pure."""
     if not isinstance(result, dict):
         return None
@@ -10642,6 +10644,8 @@ def deterministic_seam_error_retry_skip(result: Dict) -> Optional[Dict]:
         return None
     step = blamed_driver_step(result)
     if step is None or not step.get("cmd"):
+        return None
+    if step.get("substitutions"):
         return None
     if step.get("verdict") not in DETERMINISTIC_SEAM_ERROR_VERDICTS:
         return None

@@ -24636,6 +24636,14 @@ class DeterministicSeamErrorRetryTests(unittest.TestCase):
                 r = _seam_failure_result(msg="unknown-command", subkind=subkind)
                 self.assertEqual((True, None), self._decide(r))
 
+    def test_a_step_with_captured_arg_substitutions_keeps_its_retry(self):
+        # Args filled from an earlier step's captured value (e.g. pid=${spawn.pid})
+        # can differ on the next attempt, so the retry would not resend the same line.
+        r = _seam_failure_result(msg="pid-arg-invalid")
+        self.assertFalse(self._decide(r)[0])  # baseline: the plain row is vetoed
+        r["driver"]["steps"][-1]["substitutions"] = ["${spawn.pid}=12345"]
+        self.assertEqual((True, None), self._decide(r))
+
     def test_only_the_first_failing_step_counts(self):
         # First failure is a timing error, a later one a set member -> retried.
         earlier = [{"cmd": "StartRecording", "id": "0004", "expect": "OK",
