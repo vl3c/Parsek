@@ -32,6 +32,12 @@ namespace Parsek
     internal sealed class MissionVesselRow
     {
         public string OwnerHeadId;        // the through-line head recording id (row identity)
+
+        // The run head whose recording carries the row's Interact cell (Fly / Stash + Seal):
+        // the run the row ENDS on. The row's own head, except on a row that continues through
+        // an own-side undock, where it is the ship's own post-undock run (an Undock is a Re-Fly
+        // split, so that run is a real slot - e.g. a lander that undocked and then crashed).
+        public string InteractHeadId;
         public string VesselName;         // vessel name, or the kerbal's name for an EVA row
         public bool IsPerson;             // an EVA kerbal (a person, not a vessel)
         public double StartUT;            // first interval start
@@ -200,7 +206,7 @@ namespace Parsek
         /// <summary>
         /// True when <paramref name="node"/> heads a run that is this mission's own ship after an
         /// own-side undock: the rows continue the ship's row into it, so it is not a vessel of
-        /// its own (the vessel count leaves it out). Pure.
+        /// its own when the row walk follows it. Pure.
         /// </summary>
         internal static bool IsOwnSideUndockHead(MissionCompositionNode node,
             MissionUndockSides undockSides)
@@ -350,7 +356,11 @@ namespace Parsek
                     || IsPartnerRowHead(head, ctx.PartnerLegIds, ctx.UndockSides),
                 UndockedFromName = split?.UndockedFromName,
             };
-            bool mayStitch = !row.IsPartner && !row.IsPerson && ctx.UndockSides != null;
+            // Only this mission's own ship follows its own leg: a row headed by another
+            // mission's leg (a partner row, or a partner leg heading a run of its own) keeps
+            // the structural reading, its own child staying under it.
+            bool mayStitch = !row.IsPartner && !row.IsPerson && ctx.UndockSides != null
+                && (ctx.PartnerLegIds == null || !ctx.PartnerLegIds.Contains(head.OwnerHeadId));
 
             string chainOwner = head.OwnerHeadId;
             MissionCompositionNode cur = head;
@@ -421,6 +431,9 @@ namespace Parsek
                 }
                 cur = next;
             }
+
+            // A split half's chain is the ship's run, but its slot is its own leg.
+            row.InteractHeadId = split != null ? rowId : chainOwner;
 
             MissionCompositionNode first = row.Intervals[0];
             MissionCompositionNode last = row.Intervals[row.Intervals.Count - 1];

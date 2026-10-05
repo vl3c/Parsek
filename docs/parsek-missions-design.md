@@ -364,7 +364,8 @@ is `docs/dev/design-ui-basic-advanced.md` section 4.5. In short:
   undock) is a row beside the ship, not under it. At an undock where the docked pair kept the
   other mission's identity, the ship's row continues into the ship's own post-undock leg
   (`MissionVesselRowBuilder.ResolveUndockSides`, the same own-side rule as the Log's Undocked
-  row). In Advanced a vessel with more than one interval expands into its interval rows. Chapter header rows group
+  row), and the row's `Fly` / `Seal` is that post-undock flight's. In Advanced a vessel with
+  more than one interval expands into its interval rows. Chapter header rows group
   rows, and `Docked partner:` rows name a dock with another mission's vessel, each with a
   `Go to` that opens that mission.
 - Columns: `#`, `Missions and vessels`, `Start time`, `Start event`, `End event`, `End time`,

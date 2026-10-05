@@ -990,8 +990,10 @@ partner's half as a partner row beside it (`Undocked (Duna Supply 1) -> Orbiting
 boundary piece and expanded detail name the half that left (`Undocked (Depot Station Duna I
 (mission 'Kerbal X #5'))`, `after undock: Depot (mission 'Kerbal X #3') left`). A partner's
 half that heads its own run (the passive side) is a partner row beside the ship too. The
-resolvers are asked with each interval's composition owner, the summary counts the ship once
-and reads its outcome off the ship's row. Logged once per build (`VesselRow:
+resolvers are asked with each interval's composition owner; the row's Interact cell (Fly /
+Seal) resolves off the run the row ends on (`MissionVesselRow.InteractHeadId`: the ship's own
+post-undock slot, review finding), and the summary counts the own vessel rows and reads its
+outcome off the ship's row. Only a row headed by this mission's own leg follows an undock. Logged once per build (`VesselRow:
 ownSideUndocks=N skipped=M`). No key moved, so no selection migration: the composition
 (`MissionCompositionBuilder`, `ContinuationSuccessor`) is untouched, every stored key still
 names the same recording stretch for every consumer (render windows, loop units, routes,

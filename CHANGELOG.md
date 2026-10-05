@@ -1642,8 +1642,10 @@ _(unreleased — entries accumulate here per commit)_
   a row beside it naming your ship ("Undocked (Duna Supply 1) -> Orbiting"), like that
   vessel's row before the dock. When your ship kept the identity and the other vessel left,
   your row was already right; the other vessel's half now also sits beside your ship rather
-  than under it. The mission summary counts your ship once and reads its outcome from your
-  ship's own flight. Mission selections are unaffected: every interval a mission stores keeps
+  than under it. Your ship's row's Fly / Seal (or Stash / Seal) is now its flight after the
+  undock, so a ship that undocked and then crashed can be re-flown straight from its row,
+  while the other vessel's half keeps its own on its own row. The mission summary counts your
+  ship once and reads its outcome from your ship's own flight. Mission selections are unaffected: every interval a mission stores keeps
   naming the same stretch of the same recording, only the row it is drawn in moves, so an
   exclusion made on the other vessel's half now shows on that vessel's row.
 - **Dev: a harness mission that ends early writes its result file again.** A mission's

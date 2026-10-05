@@ -1998,7 +1998,10 @@ namespace Parsek
             // Interact: the vessel's head recording's Fly / Stash + Seal (the only interval key
             // that IS a real recording id - same resolution the first interval row had in the
             // staircase), or a blank cell.
-            if (TryResolveCommittedRecording(row.OwnerHeadId, out int reFlyIdx, out Recording reFlyRec))
+            // The run the row ends on carries it (MissionVesselRow.InteractHeadId): across an
+            // own-side undock that is the ship's own post-undock run, not the launch head.
+            if (TryResolveCommittedRecording(row.InteractHeadId ?? row.OwnerHeadId,
+                    out int reFlyIdx, out Recording reFlyRec))
                 DrawInteractReFly(reFlyRec, reFlyIdx);
             else
                 DrawInteractBlank();

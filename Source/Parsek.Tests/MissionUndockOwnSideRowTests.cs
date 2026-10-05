@@ -48,6 +48,9 @@ namespace Parsek.Tests
             MissionCompositionBuilder.SuppressLogging = true;
             MissionStore.ResetForTesting();
             MissionStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
         }
 
         public void Dispose()
@@ -57,6 +60,9 @@ namespace Parsek.Tests
             MissionCompositionBuilder.SuppressLogging = false;
             MissionStore.ResetForTesting();
             MissionStore.SuppressLogging = false;
+            RecordingStore.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
         }
 
         private static string MissionOf(string treeId)
@@ -235,6 +241,86 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[Mission]")
                 && l.Contains("VesselRow: ownSideUndocks=1 skipped=0")
                 && l.Contains("first row head=" + DunaHead));
+        }
+
+        // ------------------------------------------- the Interact cell (Fly / Seal)
+
+        // catches (review): the ship's row resolving Fly / Seal off its launch head, which
+        // ended at the dock, so the ship's own post-undock flight - a Re-Fly slot of the
+        // Undock - lost its button on the collapsed row (Basic has no interval detail). Repro:
+        // the Duna ship's own leg crashed and the undock carries a RewindPoint.
+        [Fact]
+        public void Duna_CrashedOwnLegAfterUndock_ShipRowCarriesItsFlySeal()
+        {
+            List<RecordingTree> trees = InterbodyTrees();
+            RecordingTree tree = trees.Single(t => t.Id == DunaTreeId);
+            Recording own = tree.Recordings[DunaOwnAfterUndock];
+            own.TerminalStateValue = TerminalState.Destroyed;
+            own.MergeState = MergeState.CommittedProvisional;
+            BranchPoint undock = tree.BranchPoints.Single(bp => bp.Type == BranchPointType.Undock);
+            Assert.Equal(undock.Id, own.ParentBranchPointId);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            foreach (Recording r in tree.Recordings.Values)
+            {
+                r.TreeId = tree.Id;
+                RecordingStore.AddRecordingWithTreeForTesting(r);
+            }
+            var slots = new List<ChildSlot>();
+            for (int i = 0; i < undock.ChildRecordingIds.Count; i++)
+                slots.Add(new ChildSlot
+                {
+                    SlotIndex = i,
+                    OriginChildRecordingId = undock.ChildRecordingIds[i],
+                    Controllable = true,
+                });
+            var scenario = new ParsekScenario
+            {
+                RewindPoints = new List<RewindPoint>
+                {
+                    new RewindPoint
+                    {
+                        RewindPointId = "rp_undock",
+                        BranchPointId = undock.Id,
+                        FocusSlotIndex = 0,
+                        SessionProvisional = false,
+                        ChildSlots = slots,
+                    },
+                },
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            scenario.BumpSupersedeStateVersion();
+            scenario.BumpTombstoneStateVersion();
+            EffectiveState.ResetCachesForTesting();
+            Assert.True(EffectiveState.IsUnfinishedFlight(own));
+
+            Built b = BuildLikeTheWindow(trees, DunaTreeId);
+            MissionVesselRow ship = b.Rows.Single(r => r.OwnerHeadId == DunaHead);
+            Assert.Equal(DunaOwnAfterUndock, ship.InteractHeadId);
+            Assert.Equal(RecordingsTableUI.ReFlyColumnAction.FlySeal,
+                RecordingsTableUI.ResolveReFlyColumnAction(tree.Recordings[ship.InteractHeadId]));
+            // The launch head the row read before: no button, which was the defect.
+            Assert.Equal(RecordingsTableUI.ReFlyColumnAction.None,
+                RecordingsTableUI.ResolveReFlyColumnAction(tree.Recordings[DunaHead]));
+
+            // The partner's half keeps its own slot on its own row.
+            MissionVesselRow half = b.Rows.Single(r => r.OwnerHeadId.StartsWith(DunaDepotAfterUndock));
+            Assert.Equal(half.OwnerHeadId, half.InteractHeadId);
+        }
+
+        // catches (mirror): the Interact head moving on a row that crosses no own-side undock
+        // (the passive side, an ordinary child row).
+        [Fact]
+        public void UnstitchedRows_KeepTheirHeadsInteractCell()
+        {
+            List<MissionVesselRow> passive = Rows(DockUndockTree("Ship", stationKeepsIdentity: false),
+                new[] { "station", "stationAfter" }, out _, out _);
+            Assert.All(AllRows(passive), r => Assert.Equal(r.OwnerHeadId, r.InteractHeadId));
+
+            Built b = BuildLikeTheWindow(InterbodyTrees(), DunaTreeId);
+            Assert.All(AllRows(b.Rows).Where(r => r.OwnerHeadId != DunaHead),
+                r => Assert.Equal(r.OwnerHeadId, r.InteractHeadId));
         }
 
         // ------------------------------------------------- stored keys: none moves
@@ -495,6 +581,75 @@ namespace Parsek.Tests
             Rows(ownFirst, new[] { "station", "combined", "stationAfter" },
                 out MissionUndockSides ownContinues, out _);
             Assert.Empty(ownContinues.OwnSideByOwnChild);
+        }
+
+        // catches (review): the vessel count leaving out an own post-undock leg whose undock
+        // the rows do NOT follow (the docked pair sits on a run headed by another mission's
+        // leg), so the summary disagreed with the rows drawn.
+        [Fact]
+        public void UndockOnAPartnerHeadedRun_IsNotFollowed_AndTheCountAgreesWithTheRows()
+        {
+            RecordingTree tree = DockUndockTree("Station", stationKeepsIdentity: true);
+            // The partner's run claims the docked pair: its root is walked before the ship's
+            // (the structure lists roots in recording order).
+            List<Recording> all = tree.Recordings.Values.OrderBy(r => r.RecordingId == "station" ? 0 : 1).ToList();
+            tree.Recordings.Clear();
+            foreach (Recording r in all) tree.Recordings[r.RecordingId] = r;
+            tree.Recordings["station"].ExplicitStartUT = -10;
+            tree.BranchPoints[0].ParentRecordingIds.Reverse();
+            tree.RootRecordingId = "station";
+            string[] partners = { "station", "combined", "stationAfter" };
+            MissionStructure s = MissionStructureBuilder.Build(tree);
+            List<MissionVesselRow> rows = Rows(tree, partners, out MissionUndockSides sides,
+                out List<MissionCompositionNode> roots);
+            output.WriteLine(Shape(rows));
+            Assert.Contains("shipAfter", sides.OwnSideByOwnChild.Keys);
+            MissionVesselRow owner = AllRows(rows).Single(
+                r => r.Intervals.Any(iv => iv.EndEvent == "Undocked"));
+            Assert.Empty(owner.OwnSideUndockPartners);
+            Assert.Contains(AllRows(rows), r => r.OwnerHeadId == "shipAfter");
+
+            MissionPresentation.MissionSummaryFacts facts = MissionPresentation.ComputeSummaryFacts(
+                s, MissionThroughLineBuilder.Build(s), roots, new HashSet<string>(partners));
+            Assert.Equal(AllRows(rows).Count(r => !r.IsPartner && !r.IsPerson), facts.VesselCount);
+        }
+
+        // catches: the documented ambiguity - two of this mission's ships docked to one
+        // partner - losing or duplicating a stored key. The row walk follows the first own
+        // child at each undock (the Log's rule), and every key is still drawn exactly once.
+        [Fact]
+        public void TwoOwnShipsDockedToOnePartner_EveryKeyDrawnOnce()
+        {
+            var recs = new[]
+            {
+                Rec("a", "Ship A", 0, 100, 1),
+                Rec("p", "Station", 0, 100, 2),
+                Rec("b", "Ship B", 0, 150, 3),
+                Rec("c1", "Station", 100, 150, 2),
+                Rec("c2", "Station", 150, 200, 2),
+                Rec("c3", "Station", 200, 250, 2),
+                Rec("bAfter", "Ship B", 200, 400, 4, TerminalState.Orbiting),
+                Rec("c4", "Station", 250, 300, 2, TerminalState.Orbiting),
+                Rec("aAfter", "Ship A", 250, 500, 5, TerminalState.Landed),
+            };
+            var tree = new RecordingTree { Id = "t2", RootRecordingId = "a" };
+            foreach (Recording r in recs) tree.Recordings[r.RecordingId] = r;
+            tree.BranchPoints.Add(BP("dockA", BranchPointType.Dock, 100, new[] { "a", "p" }, new[] { "c1" }));
+            tree.BranchPoints.Add(BP("dockB", BranchPointType.Dock, 150, new[] { "c1", "b" }, new[] { "c2" }));
+            tree.BranchPoints.Add(BP("undockB", BranchPointType.Undock, 200, new[] { "c2" }, new[] { "c3", "bAfter" }));
+            tree.BranchPoints.Add(BP("undockA", BranchPointType.Undock, 250, new[] { "c3" }, new[] { "c4", "aAfter" }));
+            string[] partners = { "p", "c1", "c2", "c3", "c4" };
+            List<MissionVesselRow> rows = Rows(tree, partners, out MissionUndockSides sides,
+                out List<MissionCompositionNode> roots);
+            output.WriteLine(Shape(rows));
+            Assert.Equal(2, sides.OwnSideByOwnChild.Count);
+
+            var compKeys = new List<string>();
+            foreach (MissionCompositionNode root in roots) CollectKeys(root, compKeys);
+            compKeys.Sort(StringComparer.Ordinal);
+            Assert.Equal(compKeys, RowKeys(rows));
+            Assert.Equal(compKeys.Count, KeyToRow(rows).Count);   // KeyToRow throws on a duplicate
+            Assert.Equal(compKeys, RowKeys(MissionVesselRowBuilder.Build(roots)));
         }
 
         // ------------------------------------------------------------------ helpers

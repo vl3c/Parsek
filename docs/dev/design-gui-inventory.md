@@ -612,8 +612,12 @@ mission's identity, the ship's row continues into its own post-undock leg
 expanded `after undock: Depot Station Duna I (mission 'Kerbal X #5') left - (pod x1, crew x1)`)
 and the partner's half is a partner row beside it
 (`Depot Station Duna I (mission 'Kerbal X #5')   Undocked (Duna Supply 1) -> Orbiting`); when
-the ship kept the identity, the partner's half is likewise a partner row beside it. The mission
-summary counts the ship once and reads its outcome off the ship's row. Rows only regroup the
+the ship kept the identity, the partner's half is likewise a partner row beside it. A vessel
+row's Interact `Fly` / `Stash` + `Seal` resolves off the run the row ENDS on
+(`MissionVesselRow.InteractHeadId`): across an own-side undock that is the ship's own
+post-undock recording (an Undock is a Re-Fly split, so it is a real slot), and a split partner
+half carries its own leg's. The mission summary counts the ship's vessel rows (so the ship
+once) and reads its outcome off the ship's row. Rows only regroup the
 composition's intervals, so every interval key names the same stretch as before; only the row
 it is drawn in differs. Vessel and interval rows' single-line data cells use
 `compositionCellLabel.clipping = Overflow`, so descenders are not clipped in a 22 px row.

@@ -283,7 +283,8 @@ namespace Parsek.Tests
             MissionPresentation.MissionSummaryFacts facts = MissionPresentation.ComputeSummaryFacts(
                 structure, MissionThroughLineBuilder.Build(structure),
                 MissionCompositionBuilder.Build(structure), partners);
-            // Duna Supply 1 (its own post-undock leg is the same ship's row) and its probe.
+            // Duna Supply 1 (its own post-undock leg is the same ship's row, which carries
+            // that leg's Fly / Seal) and its probe; the depot's half is a partner row.
             Assert.Equal(2, facts.VesselCount);
             Assert.Equal(2, AllRows(rows).Count(r => !r.IsPartner));
         }
