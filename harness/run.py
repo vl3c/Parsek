@@ -2106,7 +2106,7 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                                 % (verb, step_wait, seam_deferral))
         else:
             # A non-two-phase verb still defers at the seam head up to its OWN dispatch
-            # deferral budget (AnswerMergeDialog 120s, KscAction 60s, ... default 60s)
+            # deferral budget (AnswerMergeDialog 60s, KscAction 60s, ... default 60s)
             # before the seam self-emits a TIMEOUT. Out-wait that budget + the 60s margin
             # so the seam's own verdict (retryable driver-INVALID) is OBSERVED instead of
             # the harness KILLing a genuinely-deferring verb; a spec-pinned larger step
@@ -4319,6 +4319,10 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
         for o in ev.steps:
             row = {"cmd": o.cmd, "id": o.step_id, "expect": o.expect,
                    "verdict": o.verdict, "met": o.met}
+            # The reply's msg= reason (emitted only when non-empty, so a reply without
+            # one keeps a byte-identical row); hlib.decide_retry reads it.
+            if o.msg:
+                row["msg"] = o.msg
             extra = extras_by_id.get(str(o.step_id), {})
             for key in ("captured", "substitutions", "unresolvedHandle"):
                 if extra.get(key):
@@ -5068,7 +5072,11 @@ def _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger)
                          result.get("note", ""))
         attempts.append(v)
         prior_boot_crashed = (result.get("subkind") == "boot-crash")
-        if not hlib.should_retry(v, attempt, retry_policy):
+        retry, retry_skip = hlib.decide_retry(v, attempt, retry_policy, result)
+        if retry_skip is not None:
+            result[hlib.RETRY_SKIPPED_KEY] = retry_skip
+            logger.info("Retry", hlib.format_retry_skip_line(spec.get("id"), retry_skip))
+        if not retry:
             break
         logger.info("Retry", "retry scenario=%s attempt=2 reason=%s"
                     % (spec.get("id"), result["verdict"]))

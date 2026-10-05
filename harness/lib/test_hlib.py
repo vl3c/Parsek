@@ -8227,11 +8227,12 @@ class BudgetArithmeticTests(unittest.TestCase):
 
     def test_dispatch_deferral_budget_mirrors_c_sharp(self):
         # Item 3: the per-verb dispatch deferral budgets mirror the C# DeferralBudget.
-        self.assertEqual(hlib.dispatch_deferral_budget("AnswerMergeDialog"), 120.0)
+        self.assertEqual(hlib.dispatch_deferral_budget("AnswerMergeDialog"), 60.0)
+        self.assertEqual(hlib.dispatch_deferral_budget("EvaGroundScience"), 60.0)
         self.assertEqual(hlib.dispatch_deferral_budget("KscAction"), 60.0)
         self.assertEqual(hlib.dispatch_deferral_budget("StartRecording"), 180.0)
-        # R12: ExitToSpaceCenterSeconds = 120 (sized like AnswerMergeDialog, the other
-        # scene-exit driver), and SimulateStockSwitchClick is single-phase on the default.
+        # R12: ExitToSpaceCenterSeconds = 120 (sized for a driven scene exit and its
+        # settle), and SimulateStockSwitchClick is single-phase on the default.
         self.assertEqual(hlib.dispatch_deferral_budget("ExitToSpaceCenter"), 120.0)
         self.assertEqual(hlib.dispatch_deferral_budget("SimulateStockSwitchClick"), 60.0)
         # An unlisted verb rides the 60s default (the C# DefaultSeconds).
@@ -8240,9 +8241,9 @@ class BudgetArithmeticTests(unittest.TestCase):
         self.assertEqual(hlib.dispatch_deferral_budget("RunTests", 900.0), 900.0)
 
     def test_required_dispatch_step_wait_adds_margin(self):
-        # Item 3: AnswerMergeDialog (120s) + margin => a non-two-phase verb still
+        # Item 3: AnswerMergeDialog (60s) + margin => a non-two-phase verb still
         # out-waits its seam-side deferral so the seam TIMEOUT is observed, not KILLed.
-        self.assertEqual(hlib.required_dispatch_step_wait("AnswerMergeDialog"), 180.0)
+        self.assertEqual(hlib.required_dispatch_step_wait("AnswerMergeDialog"), 120.0)
         self.assertEqual(hlib.required_dispatch_step_wait("KscAction"), 120.0)
         # A default-60s verb also clears the 60s window + margin (no 60==60 race).
         self.assertEqual(hlib.required_dispatch_step_wait("SetSetting"), 120.0)
@@ -24536,3 +24537,235 @@ class ScreenResolutionSpecTests(unittest.TestCase):
                 census.add(sid)
         self.assertTrue(census)
         self.assertEqual(census, declared)
+
+
+def _seam_failure_result(cmd="EvaGroundScience", verdict="ERROR", msg="active-vessel-lost",
+                         subkind="driver-verdict-mismatch", step_id="0009",
+                         earlier=None, mission=None, outcome_first_unmet=None):
+    """A durable result record shaped like run.py's, failing at ONE seam step."""
+    steps = [{"cmd": "LoadGame", "id": "0001", "expect": "OK", "verdict": "OK",
+              "met": True}]
+    steps.extend(earlier or [])
+    if mission is not None:
+        steps.append(mission)
+    row = {"cmd": cmd, "id": step_id, "expect": "OK", "verdict": verdict,
+           "met": False}
+    if msg:
+        row["msg"] = msg
+    steps.append(row)
+    steps.sort(key=lambda s: s["id"])
+    verifiers = {}
+    if outcome_first_unmet is not None:
+        verifiers["missionOutcome"] = {"status": "FAIL",
+                                       "firstUnmet": outcome_first_unmet}
+    return {"verdict": "INVALID", "subkind": subkind,
+            "driver": {"steps": steps, "allExpectedMet": False},
+            "verifiers": verifiers}
+
+
+def _retryable(result):
+    return hlib.Verdict(result["verdict"], result["subkind"], False, "")
+
+
+class DeterministicSeamErrorRetryTests(unittest.TestCase):
+    """Operator ruling 2026-10-06: a definite seam error is not retried, random
+    flakiness still is. decide_retry is should_retry plus ONE veto."""
+
+    def _decide(self, result, attempt=1, policy="once"):
+        return hlib.decide_retry(_retryable(result), attempt, policy, result)
+
+    def test_every_set_member_is_not_retried(self):
+        for reason in hlib.DETERMINISTIC_SEAM_ERROR_REASONS:
+            for seam_verdict in hlib.DETERMINISTIC_SEAM_ERROR_VERDICTS:
+                with self.subTest(reason=reason, seamVerdict=seam_verdict):
+                    r = _seam_failure_result(verdict=seam_verdict, msg=reason)
+                    # Baseline: today's policy WOULD retry this attempt.
+                    self.assertTrue(hlib.should_retry(_retryable(r), 1, "once"))
+                    retry, skip = self._decide(r)
+                    self.assertFalse(retry)
+                    self.assertEqual({"rule": "deterministic-seam-error",
+                                      "reason": reason, "stepId": "0009",
+                                      "verb": "EvaGroundScience",
+                                      "seamVerdict": seam_verdict}, skip)
+
+    def test_the_set_has_no_duplicates_and_no_timing_reason(self):
+        reasons = hlib.DETERMINISTIC_SEAM_ERROR_REASONS
+        self.assertEqual(len(reasons), len(set(reasons)))
+        for timing in ("step-timeout", "not-safe-point", "placement-timeout",
+                       "place-gate-timeout", "answer-timeout", "tsrecover-timeout",
+                       "goeditor-not-settled", "launchfromeditor-not-settled",
+                       "recording-active", "warp-locked", "no-refly-dialog",
+                       "batch-running", "game-not-loaded"):
+            with self.subTest(reason=timing):
+                self.assertNotIn(timing, reasons)
+
+    def test_a_timeout_is_still_retried_even_with_a_set_reason(self):
+        # A deferral that ran out of budget answers TIMEOUT with its defer reason as
+        # msg (not-eva / not-in-flight defer before they ever reject).
+        for msg in ("not-eva", "not-in-flight", "not-safe-point", "step-timeout"):
+            with self.subTest(msg=msg):
+                r = _seam_failure_result(verdict="TIMEOUT", msg=msg,
+                                         subkind="seam-timeout")
+                self.assertEqual((True, None), self._decide(r))
+
+    def test_step_timeout_and_not_safe_point_errors_are_still_retried(self):
+        # EvaGroundScience reports its own wait running out as ERROR msg=step-timeout.
+        for msg in ("step-timeout", "not-safe-point", "recording-active",
+                    "warp-locked", "", "refly-gate%20No%20rewind%20point"):
+            with self.subTest(msg=msg):
+                r = _seam_failure_result(verdict="ERROR", msg=msg)
+                self.assertEqual((True, None), self._decide(r))
+
+    def test_mission_flake_and_the_mission_subkinds_are_still_retried(self):
+        mission = {"phase": "mission", "id": "0003", "expect": "MISSION-OK",
+                   "verdict": "INVALID", "missionVerdict": "MISSION-FLAKE",
+                   "met": False, "subkind": "autopilot-flake"}
+        for subkind in ("autopilot-flake", "mission", "tooling-krpc",
+                        "tooling-mission"):
+            with self.subTest(subkind=subkind):
+                # Even a later seam row carrying a set reason does not own the failure.
+                r = _seam_failure_result(msg="not-eva", subkind=subkind,
+                                         mission=dict(mission, subkind=subkind))
+                self.assertEqual((True, None), self._decide(r))
+
+    def test_a_non_driver_invalid_keeps_its_retry(self):
+        # A tooling / analyzer / boot fault on a run that ALSO carries an unmet
+        # deterministic seam row: the row is not what failed the attempt.
+        for subkind in ("tooling", "analyzer-error", "boot-crash", "seam-timeout",
+                        "driver-stage"):
+            with self.subTest(subkind=subkind):
+                r = _seam_failure_result(msg="unknown-command", subkind=subkind)
+                self.assertEqual((True, None), self._decide(r))
+
+    def test_a_step_with_captured_arg_substitutions_keeps_its_retry(self):
+        # Args filled from an earlier step's captured value (e.g. pid=${spawn.pid})
+        # can differ on the next attempt, so the retry would not resend the same line.
+        r = _seam_failure_result(msg="pid-arg-invalid")
+        self.assertFalse(self._decide(r)[0])  # baseline: the plain row is vetoed
+        r["driver"]["steps"][-1]["substitutions"] = ["${spawn.pid}=12345"]
+        self.assertEqual((True, None), self._decide(r))
+
+    def test_only_the_first_failing_step_counts(self):
+        # First failure is a timing error, a later one a set member -> retried.
+        earlier = [{"cmd": "StartRecording", "id": "0004", "expect": "OK",
+                    "verdict": "ERROR", "met": False, "msg": "start-refused"}]
+        r = _seam_failure_result(msg="not-eva", earlier=earlier)
+        self.assertEqual((True, None), self._decide(r))
+        # Mirror: first failure is a set member, a later one timing -> skipped, and
+        # the record names the FIRST step.
+        earlier = [{"cmd": "PlantFlag", "id": "0004", "expect": "OK",
+                    "verdict": "REJECTED", "met": False, "msg": "not-eva"}]
+        r = _seam_failure_result(msg="step-timeout", earlier=earlier)
+        retry, skip = self._decide(r)
+        self.assertFalse(retry)
+        self.assertEqual(("0004", "PlantFlag", "not-eva"),
+                         (skip["stepId"], skip["verb"], skip["reason"]))
+
+    def test_a_met_step_and_an_expected_refusal_are_never_blamed(self):
+        earlier = [{"cmd": "PlantFlag", "id": "0004", "expect": "REJECTED",
+                    "verdict": "REJECTED", "met": True, "msg": "not-eva"}]
+        r = _seam_failure_result(msg="step-timeout", earlier=earlier)
+        self.assertEqual((True, None), self._decide(r))
+
+    def test_autopilot_pre_mission_step_is_blamed_before_the_mission(self):
+        mission = {"phase": "mission", "id": "0005", "met": False,
+                   "verdict": "INVALID", "subkind": "mission"}
+        r = _seam_failure_result(cmd="SetSetting", step_id="0002",
+                                 msg="unknown-command", mission=mission)
+        retry, skip = self._decide(r)
+        self.assertFalse(retry)
+        self.assertEqual("0002", skip["stepId"])
+
+    def test_autopilot_post_mission_outcome_driver_fault_is_read_from_its_row(self):
+        mission = {"phase": "mission", "id": "0003", "met": True,
+                   "verdict": "MISSION-OK", "subkind": None}
+        first = {"id": "0006", "cmd": "CommitTree", "expect": "OK",
+                 "verdict": "REJECTED", "msg": "not-in-flight",
+                 "flightOutcome": False, "driverSubkind": "driver-verdict-mismatch"}
+        # The non-gating recording row (0004) failed first but does not fail the
+        # driver stage; the gating outcome row does.
+        earlier = [{"cmd": "StopRecording", "id": "0004", "expect": "OK",
+                    "verdict": "ERROR", "met": False, "msg": "step-timeout"}]
+        r = _seam_failure_result(cmd="CommitTree", step_id="0006", verdict="REJECTED",
+                                 msg="not-in-flight", earlier=earlier, mission=mission,
+                                 outcome_first_unmet=first)
+        retry, skip = self._decide(r)
+        self.assertFalse(retry)
+        self.assertEqual(("0006", "CommitTree"), (skip["stepId"], skip["verb"]))
+        # Without a driverSubkind (a FLIGHT outcome, PARSEK-FAIL territory) nothing
+        # is blamed and the retry decision is should_retry's alone.
+        first_flight = dict(first, driverSubkind="")
+        r = _seam_failure_result(cmd="CommitTree", step_id="0006", verdict="REJECTED",
+                                 msg="not-in-flight", earlier=earlier, mission=mission,
+                                 outcome_first_unmet=first_flight)
+        self.assertEqual((True, None), self._decide(r))
+
+    def test_the_percent_encoded_head_token_is_what_is_read(self):
+        self.assertEqual("unknown-command", hlib.seam_reason_token("unknown-command"))
+        self.assertEqual("refly-gate", hlib.seam_reason_token("refly-gate%20x%20y"))
+        self.assertEqual("", hlib.seam_reason_token(None))
+        r = _seam_failure_result(msg="state-arg-invalid%20got=maybe")
+        self.assertFalse(self._decide(r)[0])
+
+    def test_should_retry_still_owns_the_other_axes(self):
+        r = _seam_failure_result(msg="step-timeout")
+        self.assertEqual((False, None), self._decide(r, attempt=2))
+        self.assertEqual((False, None), self._decide(r, policy="none"))
+        r = dict(_seam_failure_result(msg="not-eva"), verdict="PARSEK-FAIL")
+        self.assertEqual((False, None), self._decide(r))
+
+    def test_the_veto_leaves_the_result_alone(self):
+        r = _seam_failure_result(msg="not-eva")
+        before = copy.deepcopy(r)
+        self._decide(r)
+        self.assertEqual(before, r)
+
+    def test_the_log_line_names_step_verb_and_reason(self):
+        _, skip = self._decide(_seam_failure_result(verdict="REJECTED", msg="not-eva"))
+        line = hlib.format_retry_skip_line("EVA-8", skip)
+        for token in ("retry skipped", "scenario=EVA-8", "stepId=0009",
+                      "verb=EvaGroundScience", "seamVerdict=REJECTED",
+                      "reason=not-eva", "rule=deterministic-seam-error"):
+            with self.subTest(token=token):
+                self.assertIn(token, line)
+        self.assertTrue(all(ord(c) < 128 for c in line))
+
+
+class DeterministicSeamErrorSourceSyncTests(unittest.TestCase):
+    """Reads OUTSIDE harness/: every `.cs` file under `Source/Parsek/TestCommands`.
+    Each DETERMINISTIC_SEAM_ERROR_REASONS member must still exist there as a string
+    literal in CODE (each line stripped of its `//` comment, quote-aware, and block
+    comments removed), so a reason the seam renamed or deleted cannot keep a dead
+    row that silently stops matching anything."""
+
+    DIR = os.path.join(PARSEK_SOURCE_DIR, "TestCommands")
+
+    @classmethod
+    def setUpClass(cls):
+        paths = sorted(glob.glob(os.path.join(cls.DIR, "*.cs")))
+        if not paths:
+            raise AssertionError("the C# TestCommands sources moved; this mirror is "
+                                 "vacuous: %s" % cls.DIR)
+        literals = set()
+        for path in paths:
+            with open(path, encoding="utf-8-sig") as fh:
+                raw = fh.read().replace("\r\n", "\n")
+            code = "\n".join(strip_cs_line_comment(l) for l in raw.split("\n"))
+            code = re.sub(r"/\*.*?\*/", "", code, flags=re.S)
+            literals |= set(re.findall(r'"([^"\\\n]*)"', code))
+        cls.literals = literals
+
+    def test_every_listed_reason_is_a_literal_in_the_seam_source(self):
+        missing = sorted(r for r in hlib.DETERMINISTIC_SEAM_ERROR_REASONS
+                         if r not in self.literals)
+        self.assertEqual([], missing,
+                         "DETERMINISTIC_SEAM_ERROR_REASONS members with no literal in "
+                         "Source/Parsek/TestCommands")
+
+    def test_the_parse_is_not_vacuous(self):
+        # Literals that are NOT members must be found (the scan reads real code),
+        # and the harness-only rule name must not (it is not a seam literal).
+        for lit in ("step-timeout", "not-safe-point", "recording-active"):
+            with self.subTest(literal=lit):
+                self.assertIn(lit, self.literals)
+        self.assertNotIn("deterministic-seam-error", self.literals)

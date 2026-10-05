@@ -15,6 +15,37 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## HARNESS-NO-RETRY-DETERMINISTIC-SEAM-ERROR: a definite seam error is not retried [OPERATOR RULING 2026-10-06, branch `no-retry-deterministic-seam-error`. DONE; the reason set stays open to additions by name]
+
+Ruling (2026-10-06): "Don't retry when the failure is a definite error from the seam, and
+keep retrying everything that looks like random flakiness. We can recheck failures
+manually." Measured cost before the change: 48 retries over 861 runs spent 11,146 s and only
+8 passed; 17 were `driver-verdict-mismatch`.
+
+Fix: `hlib.decide_retry` = `should_retry` plus one veto. A retryable driver-stage INVALID is
+not retried when its blamed seam step answered `ERROR` / `REJECTED` with a leading reason in
+the closed `hlib.DETERMINISTIC_SEAM_ERROR_REASONS` (protocol rejects, spec-text argument
+refusals, `active-vessel-lost`, executor `not-eva`, CommitTree `not-in-flight`). Verdict and
+subkind unchanged; `run.py` logs `[Retry] retry skipped ...` and writes `retrySkipped` into
+the result JSON; step rows now carry the reply `msg`. Source-sync:
+`DeterministicSeamErrorSourceSyncTests`. Contract: design-autotest-harness-core.md,
+"Deterministic seam errors are not retried".
+
+Replay over the 48 recorded retries (A1 reasons recovered from the collected KSP.log, since
+old step rows carry no msg): 0 skipped, 0 of the 8 retry passes lost. Every historical retry
+failed on a timing reason (`step-timeout`, `placement-timeout`, `*-not-settled`,
+`warp-locked` 3/3 passed on retry, `recording-active` 1/4, `start-refused` 2/3, pointer
+errors 2/3) or a reason deliberately outside the set. Under today's build the two EVA-8
+retries of 2026-09-29 whose kerbal died (601 s) would answer `active-vessel-lost` and be
+skipped.
+
+Open for a ruling, each reproduced on every recorded retry with no pass lost: `unknown-tree`
+/ `unknown-building` (2 retries, 136 s), `eva-refused` (2, 130 s), `stockscreen-no-tooltip`
+(2, 112 s), `refly-gate` / `rewind-gate` (3, 663 s), the UiAction `window-self-closed` /
+`rect-not-applied` / `edit-not-drawn` / `mock-refused-session-live` errors (5, 305 s). Left
+out because each reads live scene or career state a load race could change; adding one is a
+one-line edit to the set plus its justification.
+
 ## PLAYER-LOOPING-REMOVAL: Parsek stops letting the player loop ghosts at will [OWNER-APPROVED 2026-10-05, plan `docs/dev/plans/remove-player-looping.md`, branch `ccr-8a19466a-qh7ey4`. PLANNED, not started]
 
 Owner rulings 2026-10-05: per-recording player loops (Recordings tab loop column, period,
@@ -74,7 +105,7 @@ Also mooted by the removal: GUI-P13-D1-D15 (ruled: remove), the GUI-16 raw local
 key (item 15 of the GUI census findings), the missing `GloopsPreview` verb (item 7), and
 #435 (superseded).
 
-## PARSEK-RECORDING-DOC-DRIFT-2026-10-05: four places where recording docs and code disagree [FILED 2026-10-05 from the Gloops investigation, branch `ccr-8a19466a-qh7ey4`. Items 1, 2 and 4 FIXED 2026-10-05, branch `recording-doc-drift`. OPEN for item 3 only]
+## ~~PARSEK-RECORDING-DOC-DRIFT-2026-10-05: four places where recording docs and code disagree~~ [FILED 2026-10-05 from the Gloops investigation, branch `ccr-8a19466a-qh7ey4`. Items 1, 2 and 4 FIXED 2026-10-05, branch `recording-doc-drift`. Item 3 FIXED 2026-10-06, branch `bg-undock-cause`]
 
 1. ~~`docs/parsek-flight-recorder-design.md` line 120 says "Parsek does not record debris
    trajectories". It does: `IsDebris` recordings, parent-anchored, for up to 60 s.~~
@@ -114,11 +145,111 @@ key (item 15 of the GUI census findings), the missing `GloopsPreview` verb (item
    production. Correct the `BranchPoint.SplitCause` comment (`BranchPoint.cs:47`, which also
    lists `"EVA"`, never written) to `"DECOUPLE"` only, drop `SplitCause = "UNDOCK"` from the
    fixtures, and either delete the dead `"UNDOCK"` cause arm or keep it as a harmless alias.
+   **Update (2026-10-06, branch `bg-undock-cause`): the background path IS reachable, so the
+   fix side flipped to production.** Decompiled `ModuleDockingNode` (KSP 1.12.5): `Undock`
+   and `UndockSameVessel` carry `[KSPEvent(guiActiveUnfocused = true, externalToEVAOnly =
+   true, guiActive = true, unfocusedRange = 2f)]`, so an EVA kerbal within 2 m can undock a
+   vessel it is not flying. With the kerbal active (an EVA split puts its vessel in the
+   tree's `BackgroundMap`), `ParsekFlight.OnVesselsUndocking` returns on `NotRecordedVessel`
+   and the background recorder's joint-break path authors the split as `JointBreak` +
+   `"DECOUPLE"`, labelled "Decoupled". Fixed as BG-UNDOCK-READS-DECOUPLED below: the
+   background recorder now writes `SplitCause = "UNDOCK"` for that split, so the `"UNDOCK"`
+   cause arm is live and the fixtures that set it stay. The `BranchPoint.SplitCause`
+   comment now lists only what production writes (`"EVA"` dropped).
 4. ~~`BranchPoint.MergeCause` documents `"CLAW"`; `ParsekFlight.GetMergeCauseForBranchType`
    only returns `"DOCK"` / `"BOARD"`, so a claw couple is a `Dock` with `MergeCause = "DOCK"`
    (distinguished only by `TransferKind = Grapple`).~~ DONE 2026-10-05: the field comment now
    says so (and the matching cause list in `MissionsWindowUI` drops `"CLAW"` /
    `"CONSTRUCT"`).
+
+---
+
+## ~~BG-UNDOCK-READS-DECOUPLED: a docking-port undock recorded by the background recorder reads "Decoupled" in the Missions tab~~ [FILED 2026-10-06 from PARSEK-RECORDING-DOC-DRIFT-2026-10-05 item 3. FIXED 2026-10-06, branch `bg-undock-cause`]
+
+Reach: an EVA kerbal of a recording tree clicks Undock on a docked vessel that is
+background-recorded (stock `Undock` is `guiActiveUnfocused`, `externalToEVAOnly`,
+`unfocusedRange = 2f`). The foreground `OnVesselsUndocking` ignores it (`NotRecordedVessel`),
+and `BackgroundRecorder.OnBackgroundPartJointBreak` had no docking-port check, so
+`BuildBackgroundSplitBranchData` stamped `SplitCause = "DECOUPLE"` and the Missions tab read
+"Decoupled".
+
+Fix: the background recorder subscribes `onPartUndock` and notes the undocking part and UT;
+`Part.Undock` destroys that part's `attachJoint` in the same call, so the joint break whose
+child is that part at that UT classifies as `"UNDOCK"`
+(`BackgroundRecorder.ClassifyBackgroundJointBreakCause`, logged with part pid and cause), and
+the deferred split check carries the cause into the branch point. The branch-point type
+stays `JointBreak` and the part event stays `Decoupled`, so route / origin-proof readers
+(which key on `BranchPointType.Undock`) are unchanged. A docking port's "Decouple Node"
+and an ordinary decoupler still read "Decoupled". (A pre-attached port's Undock, which goes
+through `Part.decouple` and fires no `onPartUndock`, read "Decoupled" here too; fixed in
+PREATTACHED-PORT-UNDOCK-READS-DECOUPLED below.)
+
+## ~~BG-STRUCTURAL-BREAK-READS-DECOUPLED: a background vessel that breaks apart reads "Decoupled", not "Broke off"~~ [FILED 2026-10-06, branch `bg-undock-cause`. FIXED 2026-10-06, branch `split-cause-followups`, in BOTH recorders]
+
+**Finding: the foreground had the same mislabel, so the filed premise was wrong.** Decompiled
+KSP 1.12.5: a force break runs `PartJoint.OnJointBreak` (fires `onPartJointBreak(joint,
+breakForce)` with the real force) -> `Part.OnPartJointBreak(breakForce)` -> `Part.decouple(breakForce)`,
+which raises `onPartDeCouple` and `onPartDeCoupleNewVesselComplete` exactly like a decoupler.
+`Part.Die` also `decouple()`s its children. So the foreground's decouple signal
+(`decoupleControllerStatus`, the input of `ClassifyForegroundSplitChildCause`) is true for a
+force break too, and noting background `onPartDeCouple` would have changed nothing. Live
+proof: `logs/2026-09-29_2323_EVA-10-mun-ground-science-cluster/KSP.log` line 27907, a
+parachute torn off at `breakForce=8526.6`, then line 27949 `cause=DECOUPLE,
+decoupleCreated=True` for the child. Of 2199 foreground split children in the collected
+logs, 2176 classified `DECOUPLE`. The discriminator KSP does give is the force:
+`PartJoint.DestroyJoint` (called by `Part.decouple` and `Part.Undock`) fires
+`onPartJointBreak(joint, 0f)`, the physics break fires it with the real force, and it fires
+first.
+
+Fix (type-preserving): a structural joint that broke with `breakForce > 0` is a broken-off
+part, persisted as `SplitCause = "BROKE_OFF"` (an additive value, no schema bump). Background:
+`BackgroundRecorder.ClassifyBackgroundJointBreakCause` returns `BROKE_OFF` for it (force
+checked before the undock note). Foreground: `FlightRecorder.OnPartJointBreak` notes the child
+pid, `ClassifyForegroundSplitChildCause` returns `BROKE_OFF` for a decouple-caught child whose
+root part was noted, and `CrashCoalescer` treats `BROKE_OFF` (and `UNDOCK`) as separations
+like `DECOUPLE`: the window still emits a `JointBreak` (`BROKE_OFF` when any child broke off,
+`CombineSeparationCause`), and any `CRASH` child still escalates it to `Breakup`.
+`MissionCompositionBuilder.BranchEventName` maps it to "Broke off", and the structure list's
+debris-only arm (`isStaging = cause == null || cause == "DECOUPLE"`) reads it as a separation,
+"Broke off: 1 piece", not "Staged". A null cause is not reused, so it keeps its old meaning and
+existing saves do not relabel. An older build reading `BROKE_OFF` matches no cause arm and
+falls back to the `JointBreak` type ("Broke off") and a non-staging step. Branch types
+and `Decoupled` part events are unchanged, so every type-keyed reader (route proof and
+Logistics on `Undock`, `EffectiveState` / `UnfinishedFlightClassifier` / `SupersedeCommit` /
+anchors / `GhostingTriggerClassifier` on `JointBreak` / `Breakup`, ghost part hiding on
+`Decoupled` events) behaves as before; `SplitCause` is read only by the Missions labels.
+
+Left open: a part shed because its parent part DIED (`Part.Die` decouples children with
+force 0) still reads "Decoupled" when no crash child joins the window. Telling it apart
+needs `onPartWillDie`, which fires before those decouples; not done here.
+
+## ~~PREATTACHED-PORT-UNDOCK-READS-DECOUPLED: Undock on a VAB-built docking-port pair reads "Decoupled"~~ [FILED and FIXED 2026-10-06, branch `split-cause-followups`]
+
+What the player clicked (decompiled `ModuleDockingNode`, KSP 1.12.5): a port with a part on
+its docking node in the editor starts in the `PreAttached` FSM state, whose `OnEnter` sets
+`Events["Undock"].active = true` (label `#autoLOC_6001445` = "Undock"). The "Decouple Node"
+event (`#autoLOC_6001446`) is declared `active = false` and nothing in the module activates
+it. `Undock()` with `undockPreAttached` calls `Decouple()`, which calls `Part.decouple()` on
+the port or on the part on its reference node: `onPartDeCouple` / `onPartDeCoupleNewVesselComplete`
+fire, `onPartUndock` / `onVesselsUndocking` never do. So a button labelled Undock produced a
+`JointBreak` + `DECOUPLE` ("Decoupled") in both recorders.
+
+Staging is the trap: `ModuleDockingNode.OnActive()` (a staged port with `stagingEnabled`)
+calls the same `Decouple()` with the port still `PreAttached`, so the FSM state cannot tell a
+click from staging, and a staged port must keep reading "Staged" / "Decoupled".
+
+Fix: the intent is caught at the click. `Patches/DockingNodeUndockIntentPatch` (a Prefix on
+the public, parameterless `ModuleDockingNode.Undock()`, which also serves the Undock action
+group) arms `DockingPortSeparation` with the port pid, the pid of the part on its docking node
+and the UT, only when the port is `PreAttached`. `UndockSameVessel()` is not patched: it only
+runs the FSM undock event, no vessel split. The recorders' `onPartDeCouple` handlers consume
+the note (`TryConsumePreAttachedUndock`, pure `MatchesPreAttachedUndock`: same UT and the
+decoupling part is the port or its partner; a stale note is cleared); staging never passes
+through `Undock()`, so it never arms. Background: the part is noted in the #2012 undock slot,
+so the joint break classifies `UNDOCK`. Foreground: `FlightRecorder.OnPartDeCouple` notes it
+and `ClassifyForegroundSplitChildCause` returns `UNDOCK` for that child, which the coalescer
+emits as `JointBreak` + `UNDOCK`. Type and part events unchanged as above. Not live-proven (no
+lane flies a pre-attached undock or a staged port).
 
 ---
 
@@ -703,6 +834,19 @@ Lost: about 26 min with a dialog up, about 25 min of it avoidable (RB-1 is about
   defer. L3 / L5 / both L6 lanes now expect `REJECTED`. SE-1 needs no change: its two
   deferrals came after an upstream `LaunchFromEditor` failure left the run outside FLIGHT,
   which now rejects fast too. Tests: `TestCommandDispatchTests.CommitTree_*`.
+- [x] Seam budgets that only ever paid out on failure: `EvaGroundScience` 120 s -> 60 s and
+  `AnswerMergeDialog` 120 s -> 60 s (2026-10-06, branch `seam-timeout-budgets`). Measured
+  over 859 collected runs (2026-09-10 to 2026-10-05): EvaGroundScience OK n=412, p99 5.5 s,
+  max 5.5 s, its 37 timeouts all at the full 120 s (4,440 s); AnswerMergeDialog OK n=65,
+  p99 6.6 s, max 7.2 s, its 6 non-OK outcomes all at 120 s. Rule: max(4 x OK max, 30 s),
+  except EvaGroundScience at 60 s because its place ladder counts frames (about 1,000
+  worst case, inside 60 s down to ~17 fps); AnswerMergeDialog's floor is twice its 30 s re-fly resume-settle fallback. The hlib
+  `DISPATCH_DEFERRAL_BUDGET_SECONDS` mirror moved with them. Other verbs whose failures
+  all sat at the budget while OK max was under a quarter of it: `StopRecording` (2 at the
+  60 s default, OK max 0.1 s) and `TrackingStationRecover` (2 at 120 s, OK max 3.6 s, only 5
+  OK samples); left unchanged (the default bounds a scene-settle defer for every verb, and
+  5 samples are too few). `CommitTree` (10 at 60 s) is already fixed above. Tests:
+  `TestCommandDeferralBudgetTests.MeasuredBudgets_ArePinned`.
 - [x] ~~Observability: subscribe to `onGUIRecoveryDialogSpawn` / `Despawn` and log the crash
   dialog. Neither dialog logs its own close today, so a stall longer than about 62 s on the
   recovery screen cannot be confirmed from logs.~~ Fix: `PostFlightDialogLog` (pure state and
@@ -1036,36 +1180,78 @@ pinned row by row in `StructureListBdockFixtureTests` against the committed fixt
   mid-flight `End: Suborbital | Kerbin, Grasslands` row. A leg with a sequence successor or a
   later ChainIndex in its chain draws none (`continuedEndsSkipped=` in the build summary).
 
-## CI-2-TIMEJUMP-BEFORE-FLIGHT-READY: CI-2 jumps time before the re-fly scene has built its ghost chains, and its Destroyed pin is stale [FILED 2026-10-05 from SPLIT-BRANCHPOINT-PARENT. OPEN, lane + pin]
+## ~~CI-2-TIMEJUMP-BEFORE-FLIGHT-READY: CI-2 jumps time before the re-fly scene has built its ghost chains, and its Destroyed pin is stale~~ [FILED 2026-10-05 from SPLIT-BRANCHPOINT-PARENT. FIXED 2026-10-05, branch `ci2-lane-fix` (lane + pin; the product defect it exposed is REFLY-CONCLUSION-FINALIZES-COMMITTED-CHAIN-HEAD)]
 
-`CI-2-refly-claim-tip-pid` reads PARSEK-FAIL on origin/main and on branch
-`split-branchpoint-parent` alike, for two reasons that do not depend on that branch.
+`CI-2-refly-claim-tip-pid` sent `TimeJump ut=8960` straight after `InvokeRewind` +
+`ListHandles`. `InvokeRewind` answers OK at `Rewind] Invocation complete`, 0.3-0.8 s before
+the re-fly scene's `OnFlightReady`, which is where `ParsekFlight` builds the ghost chains,
+so whether the jump landed after `Chain built: vessel=3620499050 ... spawnUT=8951.5` was a
+coin toss on harness poll timing (origin/main `2026-10-05_1908` won it; branch
+`split-branchpoint-parent` `2026-10-05_1857` lost it: `Chain built` at 21:57:40.462, after
+the jump, and the four chain-ghost / tip-spawn tokens read missing).
 
-1. ORDERING RACE (lane). The seam sends `TimeJump ut=8960` straight after `InvokeRewind`
-   + `ListHandles`, with nothing waiting for the re-fly scene's `OnFlightReady`, which is
-   where `ParsekFlight` builds the ghost chains (`[ChainWalker] Found claims ... Chain built:
-   vessel=3620499050 ... spawnUT=8951.5`). `InvokeRewind` answers OK at `Rewind] Invocation
-   complete`, about 0.6-0.8 s before `OnFlightReady`. Whether the jump lands after the chains
-   is a coin toss on harness poll timing:
-   - origin/main `2026-10-05_1908_CI-2-refly-claim-tip-pid` (DLL `a807bb12...`): `TimeJump`
-     received 22:09:04.265, after `OnFlightReady` (04.215) and `Chain built` (04.237); the
-     chain ghost is created and `Chain tip spawn complete: #19 "Kerbal X" pid=3620499050`
-     follows. Every log contract matched.
-   - branch `2026-10-05_1857_CI-2-refly-claim-tip-pid` (DLL `5b7a58db...`): `TimeJump`
-     received 21:57:39.992, BEFORE `OnFlightReady` (40.436); `FindCrossedChainTips: empty/null
-     chains` and `Time jump complete: 0 vessels spawned`, then `Chain built` at 40.462, past
-     the tip. The four chain-ghost / tip-spawn contracts read missing.
-   Same event sequence on both builds up to the `TimeJump` arrival (InvokeRewind OK -> +0.63 s
-   on main, +0.31 s on the branch). Fix in the lane: wait for the flight scene to be ready
-   (or for the chain build) before `TimeJump`, then re-arm.
-2. STALE PIN (spec). `terminalStates.Destroyed` is armed at exactly 7 (2026-09-08), but the
-   fixture `bdock-recorded` itself carries 12 Destroyed debris recordings (`Kerbal X Debris`,
-   unchanged since 2026-08-12), so every run reads at least 12: the branch run 12 (the debris
-   only), the main run 13 (the debris plus the first tree's chain head `a32f62f5`, which that
-   run extended to UT 8960.24 and ended Destroyed while its chain tail `aecb1e57` still ended
-   at 386.9: a chain head written past its own tail, itself worth a look). The 2026-09-08
-   reading saw 7, so a change since then made five more debris recordings count; re-measure
-   and re-pin after item 1.
+Fix (lane only, no C#): a `ListHandles kind=chains` step between `InvokeRewind` and the
+jump, CI-3's existing readiness read. The seam defers it (`ghost-chains-pending`) until
+`ParsekFlight.FlightReadyObserved`, set at the top of the same synchronous `OnFlightReady`
+call that runs `EvaluateAndApplyGhostChains`, so the read returns only once the chains
+exist. The claimed chain's row (`listhandles chain index=N pid=3620499050 links=1 ...
+tip=37d0dc07...`) is a required token, and `listhandles kind=chains ... evaluated=false` is
+forbidden. Correction to the filed evidence: `FindCrossedChainTips: empty/null chains` and
+`Time jump complete: 0 vessels spawned` are not race signatures. The seam's jump passes null
+chains to `TimeJumpManager.ExecuteJump` by design, the tip spawns come from the playback
+loop right after it, and both lines print on green runs too.
+
+Pin: `terminalStates.Destroyed` is now `{12, 12}`, the fixture's own 12 `Kerbal X Debris`
+recordings. Measured on `2026-10-05_2008_CI-2-refly-claim-tip-pid` (DLL `763a0199...`,
+origin/main source; the jump landed 0.5 s after `Chain built`, both chain tips spawned) at
+13. The 13th is the defect below, so it is quarantined (`[expectedFail]`, subkind
+`save-structure`, exactly `recordings.structure.terminalStates.Destroyed 13 > max 12`)
+rather than pinned. Confirming run `2026-10-05_2013_CI-2-refly-claim-tip-pid` (same DLL): EXPECTED-FAIL
+attempt 1 on exactly that token, every log contract matched, `listhandles kind=chains
+count=2 ... evaluated=true` 0.03 s after `Chain built` and 0.3 s before the jump.
+
+## REFLY-CONCLUSION-FINALIZES-COMMITTED-CHAIN-HEAD: a re-fly conclusion stamps a committed chain head Destroyed, with its crew Dead, through a pid shared with another launch [FILED 2026-10-05 from CI-2 `2026-10-05_2008`, branch `ci2-lane-fix`. OPEN, product]
+
+On `bdock-recorded` the first tree `788554a9`'s Kerbal X recording `a32f62f5` (UT 25.96 to
+386.9, Orbiting, in the fixture) is split by the load-time optimizer at UT 196.26 into the
+head `a32f62f5` (ChainIndex 0, end 196.26, no terminal, crew end states moved off) and the
+tail `d211fb20` (ChainIndex 1, end 386.9, Orbiting). CI-2 then re-flies slot 1 of that
+tree's RewindPoint (UT 382.7) and jumps to UT 8960, which spawns the OTHER tree's chain tip,
+a Kerbal X with pid 3620499050, the same craft-baked pid. At the conclusion's scene exit
+`FinalizeTreeRecordings` walks the live re-fly tree and logs `rec='a32f62f5...' ...
+terminal=Destroyed ... leaf=True`: `TryFinalizeRecording` found a vessel
+(`vesselFound=True`), fell back to the live orbit (`no-solver live-orbit fallback ...
+classifies Destroyed (snapshotFailure=NullSolver, body=Kerbin, startUT=8960.240,
+startAlt=114089.0)`), and the merge then commits `a32f62f5` with end UT 8960.24, terminal
+Destroyed and `CREW_END_STATES` Dead x3 (`PopulateCrewEndStates ... dead=3`, `Crew death
+respawn policy stamped ... deadCrew=3`), while its own chain tail still ends at 386.9. The
+roster stays Assigned; the committed history is what is wrong. Same reading on origin/main
+`2026-10-05_1908` (13 Destroyed); the race-lost branch run read 12 because no tip spawned.
+
+Three things combine, each wrong on its own: (1) the leaf test counts an optimizer chain
+head as a leaf (the split repointed the JointBreak branch point to the tail, and the chain
+successor is not a branch point); (2) the vessel lookup matches by bare `persistentId` with
+no `VesselLaunchIdentity` guid check, so the other launch's spawned tip is taken for this
+recording's vessel; (3) a recording that `SavePendingTreeIfAny` itself calls
+`committed-overlap` ("to avoid mutating committed history before merge consent") is mutated
+at scene exit and the mutation rides the merge. Guard: CI-2's `[expectedFail]` reads XPASS
+once the head is left alone.
+
+## REFLY-LANES-JUMP-BEFORE-FLIGHT-READY: six re-fly lanes jump or warp straight after InvokeRewind, the CI-2 race [FILED 2026-10-05 from CI-2-TIMEJUMP-BEFORE-FLIGHT-READY, branch `ci2-lane-fix`. OPEN, lanes; unflown]
+
+A grep of `harness/scenarios` for a time step directly after `InvokeRewind` finds the same
+shape CI-2 had, with no wait for the re-fly scene's `OnFlightReady`:
+`RF-2-two-reflies-in-sequence` (two sites, `TimeJump`), `RF-3-refly-discard-then-commit`
+(three sites), `RF-6-rewind-category-live-session`, `RF-8-ghost-during-refly`,
+`RF-12-concluded-refly-batch` (all `TimeJump`) and `RF-12W-rewind-batch-after-warp-crash`
+(`WarpToUT`). `S4.1-rewind-merge`'s jump follows a REJECTED rewind (no scene change), so it
+is not one. None of these jumps crosses a chain tip, but `OnFlightReady` is also where the
+re-fly recorder is bound (RF-14 measured the bind about 2 s after the marker write), so a jump
+that lands first can fly the attempt with no recorder. Not changed blind: four of them gate
+an armed `saveParse` block whose readings may have been taken on either side of the race.
+Fix per lane: CI-2's `ListHandles kind=chains` read before the jump (or RF-14's
+`RecordingState` dwell where the recorder bind is the subject), then a re-flight to confirm
+the armed facets.
 
 ## MISSION-SPLIT-RUN-CONTINUATION: a switch continuation after a split reads as its own interval [FILED 2026-10-05 from MISSION-LOG-REWORK. OPEN, needs an owner ruling]
 

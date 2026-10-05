@@ -7653,8 +7653,14 @@ namespace Parsek
                             && decoupleControllerStatus.ContainsKey(newPid);
                         bool triggerWasDecoupleOnly =
                             pendingDeferredSplitCheckTrigger == DeferredSplitCheckTrigger.DecoupleCreatedVessel;
+                        uint childRootPartPid = childVessel?.rootPart?.persistentId ?? 0u;
                         string childSplitCause = SegmentBoundaryLogic.ClassifyForegroundSplitChildCause(
-                            childWasDecoupleCreated, triggerWasDecoupleOnly);
+                            childWasDecoupleCreated, triggerWasDecoupleOnly,
+                            childBrokeUnderForce: pendingSplitRecorder != null
+                                && pendingSplitRecorder.JointChildBrokeUnderForce(childRootPartPid),
+                            childWasPreAttachedUndock: pendingSplitRecorder != null
+                                && pendingSplitRecorder.PartLeftThroughPreAttachedUndock(childRootPartPid),
+                            childRootPartPid: childRootPartPid);
                         // Best-available proxy for BranchPoint.DecouplerPartId: the separated
                         // child's root part (the part that came off through the decoupler). KSP's
                         // decouple callback does not hand us the parent-side decoupler module, and

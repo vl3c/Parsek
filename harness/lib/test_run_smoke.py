@@ -1766,6 +1766,17 @@ class PostMissionOutcomeSmokeTests(unittest.TestCase):
         self.assertFalse(row["firstUnmet"]["flightOutcome"])
         self.assertTrue(row["firstUnmet"]["driverSubkind"])
 
+    def test_the_refused_step_row_carries_the_reply_msg(self):
+        """The durable step row records the seam reply's msg= reason (the retry
+        veto reads it); a reply with no msg keeps its row byte-identical."""
+        result = self._run("autopilot-evarefused")
+        rows = {r.get("cmd"): r for r in result["driver"]["steps"] if r.get("cmd")}
+        self.assertEqual("kerbal-not-aboard", rows["EvaExit"].get("msg"))
+        self.assertNotIn("msg", rows["LoadGame"])
+        # kerbal-not-aboard is not in the closed set, so the retry still fires.
+        v = hlib.Verdict(result["verdict"], result["subkind"], False, "")
+        self.assertEqual((True, None), hlib.decide_retry(v, 1, "once", result))
+
 
 class UnmetMissionTailSmokeTests(unittest.TestCase):
     """The unmet-mission tail, driven end to end over the fake KSP + fake mission
@@ -2396,6 +2407,77 @@ class ScenarioCostAccountingTests(unittest.TestCase):
         self.assertEqual(0, len(self._summary_lines()),
                          "the stubbed run_attempt writes no summary; the cost "
                          "re-write must not add one either")
+
+    def _drive_rows(self, rows):
+        """Run _run_scenario_with_retry over a stubbed run_attempt returning one
+        pre-shaped result per attempt (verdict / subkind / driver / wall)."""
+        calls = {"n": 0}
+        orig = run.run_attempt
+
+        def fake_attempt(spec, instance_dir, umbrella_root, runtime, attempt,
+                         prior_boot_crashed, logger, run_ordinal=1):
+            i = calls["n"]
+            calls["n"] += 1
+            res = {"schema": hlib.SCHEMA_VERSION,
+                   "runId": hlib.format_run_id("2026-10-06_0100", "S1", attempt,
+                                               run_ordinal),
+                   "scenarioId": "S1", "endedUtc": "2026-10-06T01:00:00Z",
+                   "note": "", "attempt": attempt, "wallSeconds": 100,
+                   "expectedFail": {"bugId": "", "matched": False}}
+            res.update(copy.deepcopy(rows[i]))
+            return res
+
+        run.run_attempt = fake_attempt
+        try:
+            return run._run_scenario_with_retry(
+                {"id": "S1", "retry": {"policy": "once"}}, self.tmp, self.tmp,
+                None, self.logger), calls["n"]
+        finally:
+            run.run_attempt = orig
+
+    @staticmethod
+    def _seam_fail(verdict, msg):
+        return {"verdict": "INVALID", "subkind": "driver-verdict-mismatch",
+                "driver": {"steps": [
+                    {"cmd": "LoadGame", "id": "0001", "expect": "OK",
+                     "verdict": "OK", "met": True},
+                    {"cmd": "EvaGroundScience", "id": "0009", "expect": "OK",
+                     "verdict": verdict, "met": False, "msg": msg}],
+                    "allExpectedMet": False},
+                "verifiers": {}}
+
+    def _log_text(self):
+        self.logger.close()
+        with open(os.path.join(run.RESULTS_DIR, "cost_harness.log"),
+                  encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_a_deterministic_seam_error_is_not_retried_and_is_recorded(self):
+        result, attempts = self._drive_rows(
+            [self._seam_fail("ERROR", "active-vessel-lost"), {"verdict": "PASS"}])
+        self.assertEqual(1, attempts)
+        # Verdict and subkind are untouched; only the retry decision changed.
+        self.assertEqual(("INVALID", "driver-verdict-mismatch"),
+                         (result["verdict"], result["subkind"]))
+        expected = {"rule": "deterministic-seam-error", "reason": "active-vessel-lost",
+                    "stepId": "0009", "verb": "EvaGroundScience",
+                    "seamVerdict": "ERROR"}
+        self.assertEqual(expected, result["retrySkipped"])
+        with open(os.path.join(run.RESULTS_DIR, result["runId"] + ".json"),
+                  encoding="utf-8") as fh:
+            self.assertEqual(expected, json.load(fh)["retrySkipped"])
+        log = self._log_text()
+        self.assertIn("retry skipped scenario=S1", log)
+        self.assertIn("stepId=0009 verb=EvaGroundScience", log)
+        self.assertIn("reason=active-vessel-lost", log)
+
+    def test_a_timing_seam_error_still_retries_and_records_nothing(self):
+        result, attempts = self._drive_rows(
+            [self._seam_fail("ERROR", "step-timeout"), {"verdict": "PASS"}])
+        self.assertEqual(2, attempts)
+        self.assertEqual("flakedThenPassed", result["note"])
+        self.assertNotIn("retrySkipped", result)
+        self.assertNotIn("retry skipped", self._log_text())
 
     def test_flaked_then_passed_still_records_its_note_line(self):
         result, attempts = self._drive(["INVALID", "PASS"], [300, 620])
