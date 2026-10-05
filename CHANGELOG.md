@@ -1444,6 +1444,9 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **An undock done from EVA now reads "Undocked" in the Missions tab.** When a kerbal on EVA
+  undocked a docked vessel it was not flying, the separation was listed as "Decoupled".
+  A docking port's "Decouple Node" and an ordinary decoupler still read "Decoupled".
 - **A branch point after a recording split now names the segment it happened on.** When a
   recording is split (the optimizer's cut at an atmosphere exit or a body change, or a
   Re-Fly's HEAD/TIP cut), every branch point that names the recording as a parent at or

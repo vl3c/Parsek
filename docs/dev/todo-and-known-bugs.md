@@ -74,7 +74,7 @@ Also mooted by the removal: GUI-P13-D1-D15 (ruled: remove), the GUI-16 raw local
 key (item 15 of the GUI census findings), the missing `GloopsPreview` verb (item 7), and
 #435 (superseded).
 
-## PARSEK-RECORDING-DOC-DRIFT-2026-10-05: four places where recording docs and code disagree [FILED 2026-10-05 from the Gloops investigation, branch `ccr-8a19466a-qh7ey4`. Items 1, 2 and 4 FIXED 2026-10-05, branch `recording-doc-drift`. OPEN for item 3 only]
+## ~~PARSEK-RECORDING-DOC-DRIFT-2026-10-05: four places where recording docs and code disagree~~ [FILED 2026-10-05 from the Gloops investigation, branch `ccr-8a19466a-qh7ey4`. Items 1, 2 and 4 FIXED 2026-10-05, branch `recording-doc-drift`. Item 3 FIXED 2026-10-06, branch `bg-undock-cause`]
 
 1. ~~`docs/parsek-flight-recorder-design.md` line 120 says "Parsek does not record debris
    trajectories". It does: `IsDebris` recordings, parent-anchored, for up to 60 s.~~
@@ -114,11 +114,55 @@ key (item 15 of the GUI census findings), the missing `GloopsPreview` verb (item
    production. Correct the `BranchPoint.SplitCause` comment (`BranchPoint.cs:47`, which also
    lists `"EVA"`, never written) to `"DECOUPLE"` only, drop `SplitCause = "UNDOCK"` from the
    fixtures, and either delete the dead `"UNDOCK"` cause arm or keep it as a harmless alias.
+   **Update (2026-10-06, branch `bg-undock-cause`): the background path IS reachable, so the
+   fix side flipped to production.** Decompiled `ModuleDockingNode` (KSP 1.12.5): `Undock`
+   and `UndockSameVessel` carry `[KSPEvent(guiActiveUnfocused = true, externalToEVAOnly =
+   true, guiActive = true, unfocusedRange = 2f)]`, so an EVA kerbal within 2 m can undock a
+   vessel it is not flying. With the kerbal active (an EVA split puts its vessel in the
+   tree's `BackgroundMap`), `ParsekFlight.OnVesselsUndocking` returns on `NotRecordedVessel`
+   and the background recorder's joint-break path authors the split as `JointBreak` +
+   `"DECOUPLE"`, labelled "Decoupled". Fixed as BG-UNDOCK-READS-DECOUPLED below: the
+   background recorder now writes `SplitCause = "UNDOCK"` for that split, so the `"UNDOCK"`
+   cause arm is live and the fixtures that set it stay. The `BranchPoint.SplitCause`
+   comment now lists only what production writes (`"EVA"` dropped).
 4. ~~`BranchPoint.MergeCause` documents `"CLAW"`; `ParsekFlight.GetMergeCauseForBranchType`
    only returns `"DOCK"` / `"BOARD"`, so a claw couple is a `Dock` with `MergeCause = "DOCK"`
    (distinguished only by `TransferKind = Grapple`).~~ DONE 2026-10-05: the field comment now
    says so (and the matching cause list in `MissionsWindowUI` drops `"CLAW"` /
    `"CONSTRUCT"`).
+
+---
+
+## ~~BG-UNDOCK-READS-DECOUPLED: a docking-port undock recorded by the background recorder reads "Decoupled" in the Missions tab~~ [FILED 2026-10-06 from PARSEK-RECORDING-DOC-DRIFT-2026-10-05 item 3. FIXED 2026-10-06, branch `bg-undock-cause`]
+
+Reach: an EVA kerbal of a recording tree clicks Undock on a docked vessel that is
+background-recorded (stock `Undock` is `guiActiveUnfocused`, `externalToEVAOnly`,
+`unfocusedRange = 2f`). The foreground `OnVesselsUndocking` ignores it (`NotRecordedVessel`),
+and `BackgroundRecorder.OnBackgroundPartJointBreak` had no docking-port check, so
+`BuildBackgroundSplitBranchData` stamped `SplitCause = "DECOUPLE"` and the Missions tab read
+"Decoupled".
+
+Fix: the background recorder subscribes `onPartUndock` and notes the undocking part and UT;
+`Part.Undock` destroys that part's `attachJoint` in the same call, so the joint break whose
+child is that part at that UT classifies as `"UNDOCK"`
+(`BackgroundRecorder.ClassifyBackgroundJointBreakCause`, logged with part pid and cause), and
+the deferred split check carries the cause into the branch point. The branch-point type
+stays `JointBreak` and the part event stays `Decoupled`, so route / origin-proof readers
+(which key on `BranchPointType.Undock`) are unchanged. A docking port's "Decouple Node", a
+pre-attached port's Undock (both go through `Part.decouple`, which fires no `onPartUndock`)
+and an ordinary decoupler still read "Decoupled".
+
+## BG-STRUCTURAL-BREAK-READS-DECOUPLED: a background vessel that breaks apart reads "Decoupled", not "Broke off" [FILED 2026-10-06, branch `bg-undock-cause`. OPEN]
+
+`BackgroundRecorder` stamps every non-undock structural joint break `SplitCause =
+"DECOUPLE"`, so a background vessel losing a part to a structural failure or impact reads
+"Decoupled" in the Missions tab where the type arm would read "Broke off". The foreground
+tells them apart with `SegmentBoundaryLogic.ClassifyForegroundSplitChildCause`, which needs
+to know whether the split came from a decoupler (`onPartDeCoupleNewVesselComplete` /
+decouple-only trigger). The background recorder tracks no decouple event, so this is not a
+one-line change. Fix: note background `onPartDeCouple` parts the way `onPartUndock` is now
+noted, and classify a break with neither as `"CRASH"` (or leave the cause null) to match the
+foreground.
 
 ---
 
