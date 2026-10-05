@@ -970,7 +970,7 @@ state). Every row is two lines tall:
 | # | column | width | Basic | Advanced | value |
 |---|---|---|---|---|---|
 | 1 | `#` | 30 | yes | yes | display position; not sortable |
-| 2 | Route | expand | yes | yes | line 1 caret + `route.Name`; line 2 grey (`MissionsWindowUI.MissionSummaryTextColor`, same font) `KSC [U+2192] Depot Station Duna I` (the U+2192 arrow, the arrow the default route names use; a multi-stop route `Depot (+2 stops)`; an unresolved endpoint names the place, never coordinates). Hover: origin and destination with coordinates. Sorts by name |
+| 2 | Route | expand | yes | yes | line 1 caret + `route.Name`; line 2 grey (`MissionsWindowUI.MissionSummaryTextColor`, same font) `KSC [U+2192] Depot Station Duna I` (the U+2192 arrow, `LogisticsRoutePresentation.FromToArrow`; a multi-stop route `Depot (+2 stops)`; an unresolved endpoint names the place, never coordinates). Hover: origin and destination with coordinates. Sorts by name |
 | 3 | Delivers | 200 | yes | yes | per-run manifest, amount first like every Logistics cargo text (`257.8 LiquidFuel, 315.1 Oxidizer`; wraps), then what the route loads: `200.0 LiquidFuel; picks up 154.4 LiquidFuel at B`, or alone on a pure pickup route `picks up 154.4 LiquidFuel at B` (`LogisticsDeliveryPresentation.FormatRouteCargoCell`); hover the detail block's cargo line |
 | 4 | Every | 150 | read-only `every 4.0d` / `every 2nd window` | inline `[-] field [+] Nx` stepper | a Send-armed route shows the read-only form in both modes |
 | 5 | Runs | 80 | no | yes | `3` or `3, 1 held` |
@@ -1020,7 +1020,10 @@ line keeps a same-width space. A block short of lines for its buttons gets one i
 name field leads the block without taking a slot and Rename greys with its reason.
 
 **Candidates table** (on the route grid): `#` 30; Route, expanding, two lines in the route
-rows' styles (the caret + default route name, over the grey `KSC [U+2192] Depot` line through
+rows' styles (the caret + the name Create would give: the source mission's name, numbered
+`Name [2]`, `[3]` against every stored route's name, first free number, or `Route: KSC
+[U+2192] Duna` when the mission has no name; `RouteCreationService.ResolveDefaultName`,
+cached with the row's other text on the ~1 Hz candidate refresh; over the grey `KSC [U+2192] Depot` line through
 the same `FormatFromTo` arrow: the origin in the route rows' short form, the dock endpoint's
 live vessel name or its place, never coordinates; hover `From KSC (funds) to Depot Mun
 (surface) 1.00,2.00.`, cut with `...` to the strip); `Would deliver` 260 (wraps; the manifest, then `; picks up ... at

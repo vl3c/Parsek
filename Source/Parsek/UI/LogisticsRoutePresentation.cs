@@ -523,8 +523,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The arrow between a route's two ends: U+2192, the glyph the default route names
-        /// already draw ("Route: KSC [U+2192] Duna", <c>RouteCreationFormatters</c>), so the
+        /// The arrow between a route's two ends: U+2192, the glyph the fallback route names
+        /// draw ("Route: KSC [U+2192] Duna", <c>RouteCreationFormatters</c>), so such a
         /// name and the line under it read alike in the same font.
         /// </summary>
         internal const string FromToArrow = " \u2192 ";

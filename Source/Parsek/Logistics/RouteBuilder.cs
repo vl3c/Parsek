@@ -412,6 +412,8 @@ namespace Parsek.Logistics
             }
 
             string routeId = (idFactory ?? DefaultIdFactory)();
+            // The production funnel (RouteCreationService) resolves the mission-name default
+            // before this call; the from/to form only names a direct caller's unnamed route.
             string routeName = !string.IsNullOrEmpty(inputs.Name)
                 ? inputs.Name
                 : RouteCreationFormatters.GenerateDefaultRouteName(analysis, committedTree);
