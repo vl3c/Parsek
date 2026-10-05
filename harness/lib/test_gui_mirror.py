@@ -222,7 +222,7 @@ class LabelGrammarTests(unittest.TestCase):
     vocabularies the seam log produced rather than against a typed table."""
 
     WINDOWS = {"main", "missions", "timeline", "kerbals", "career", "logistics",
-               "structure", "settings", "spawncontrol", "gloops", "testrunner"}
+               "structure", "settings", "spawncontrol", "testrunner"}
     TABS = {"missions": {"missions", "recordings"},
             "kerbals": {"roster", "outcomes"},
             "career": {"contracts", "strategies"},
@@ -2591,7 +2591,7 @@ class ForeignRootTests(unittest.TestCase):
                          "the main window was demoted to another mod's chrome")
 
     def test_a_root_seen_under_one_window_only_stays(self):
-        # A group picker or the Gloops recorder: Parsek's own child surface.
+        # A group picker or the watch-mode overlay: Parsek's own child surface.
         roots = [node("window", [0, 8, 280, 300], "Manage Groups", style="window")]
         caps = [self.cap("missions", roots, {})]
         self.assertEqual(gmi.classify_foreign(caps), set())
@@ -3598,9 +3598,9 @@ class LabelVersusLogTests(unittest.TestCase):
 
     def test_a_label_naming_another_window_disagrees(self):
         out = gmi.label_log_disagreements(
-            {"window": "gloops", "tab": None, "state": ""},
+            {"window": "spawncontrol", "tab": None, "state": ""},
             {"window": "widgets", "tab": None}, {})
-        self.assertEqual(out, [{"field": "window", "label": "gloops",
+        self.assertEqual(out, [{"field": "window", "label": "spawncontrol",
                                 "log": "widgets"}])
 
     def test_a_label_naming_another_tab_disagrees(self):

@@ -1441,14 +1441,6 @@ namespace Parsek
                 return result;
             }
 
-            // #432: ghost-only recordings (Gloops) have zero career footprint on the ledger.
-            if (rec.IsGhostOnly)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"CreateVesselCostActions: recording '{recordingId}' is ghost-only — skipping");
-                return result;
-            }
-
             if (rec.Points.Count == 0)
             {
                 ParsekLog.Verbose(Tag,
@@ -1625,20 +1617,6 @@ namespace Parsek
             var rec = FindRecordingById(recordingId);
             if (rec == null) return result;
 
-            // #432: ghost-only recordings (Gloops) have zero career footprint on the ledger.
-            // Closes the MigrateKerbalAssignments leak where a crewed Gloops recording would
-            // reserve its kerbals for the loop duration. Note that end-state population still
-            // occurs via PopulateUnpopulatedCrewEndStates (the safety-net pass inside
-            // RecalculateAndPatch at :1108) for Gloops recordings that need CrewEndStates for
-            // the Kerbals-window per-recording-fates view; only the ledger-action emission is
-            // suppressed here.
-            if (rec.IsGhostOnly)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"CreateKerbalAssignmentActions: recording '{recordingId}' is ghost-only — skipping");
-                return result;
-            }
-
             if (NeedsCrewEndStatePopulation(rec))
                 KerbalsModule.PopulateCrewEndStates(rec);
 
@@ -1714,10 +1692,6 @@ namespace Parsek
 
             var rec = FindRecordingById(recordingId);
             if (rec == null) return result;
-
-            // Mirror CreateKerbalAssignmentActions' ghost-only carve-out (#432): a
-            // Gloops recording has zero career footprint, so it cannot owe a penalty.
-            if (rec.IsGhostOnly) return result;
 
             if (NeedsCrewEndStatePopulation(rec))
                 KerbalsModule.PopulateCrewEndStates(rec);
@@ -1897,45 +1871,6 @@ namespace Parsek
             }
 
             return false;
-        }
-
-        /// <summary>
-        /// #432: removes every action in <see cref="Ledger.Actions"/> whose <c>RecordingId</c>
-        /// belongs to a ghost-only (Gloops) recording. Mutates the ledger in place so raw-ledger
-        /// consumers (Timeline, career-state views) see a clean list — filtering only the walk
-        /// copy would leave stale rows visible elsewhere. Action-creation guards
-        /// (<see cref="CreateKerbalAssignmentActions"/>, <see cref="CreateVesselCostActions"/>)
-        /// already prevent new ghost-only rows from being produced; this catches pre-fix saves
-        /// and any future regression that deposits a ghost-only-tagged action via some other
-        /// path. Empty-<c>RecordingId</c> actions (InitialFunds / InitialScience / InitialReputation
-        /// seeds, KSC-spending-forwarded rows, and <see cref="MigrateOldSaveEvents"/> output) are
-        /// preserved — <see cref="Ledger.RemoveActionsForRecording"/> keys strictly on non-empty ids.
-        /// Returns the number of actions removed.
-        /// </summary>
-        internal static int PurgeGhostOnlyActionsFromLedger()
-        {
-            var recs = RecordingStore.CommittedRecordings;
-            if (recs == null || recs.Count == 0) return 0;
-
-            var ghostOnlyIds = new HashSet<string>(StringComparer.Ordinal);
-            for (int i = 0; i < recs.Count; i++)
-            {
-                var r = recs[i];
-                if (r != null && r.IsGhostOnly && !string.IsNullOrEmpty(r.RecordingId))
-                    ghostOnlyIds.Add(r.RecordingId);
-            }
-
-            if (ghostOnlyIds.Count == 0) return 0;
-
-            int removedTotal = 0;
-            foreach (var id in ghostOnlyIds)
-                removedTotal += Ledger.RemoveActionsForRecording(id);
-
-            if (removedTotal > 0)
-                ParsekLog.Info(Tag,
-                    $"PurgeGhostOnlyActionsFromLedger: removed {removedTotal} action(s) tagged with ghost-only recordings");
-
-            return removedTotal;
         }
 
         /// <summary>
@@ -2966,16 +2901,6 @@ namespace Parsek
 
             // End-state population safety net: catch recordings with unpopulated end states
             PopulateUnpopulatedCrewEndStates();
-
-            // #432: purge any ghost-only-tagged actions from the ledger before the walk.
-            // Mutates Ledger.Actions directly so raw-ledger consumers (Timeline window,
-            // career-state views) never see stale rows — filtering the walk copy alone
-            // would leave Ledger.Actions dirty. Idempotent — no-op when no ghost-only
-            // recordings exist or no actions are tagged with them. CreateKerbalAssignment-
-            // Actions / CreateVesselCostActions already skip ghost-only recordings; this
-            // catches pre-fix saves and any future regression that deposits a ghost-only-
-            // tagged action via some other path.
-            PurgeGhostOnlyActionsFromLedger();
 
             var actions = BuildRecalculationActions();
             LogRecalculationInputSummary(actions, utCutoff);
@@ -6122,8 +6047,7 @@ namespace Parsek
         ///   <item>Global latest by EndUT (preserved fallback for recoveries whose metadata
         ///   has drifted, e.g., manual EndUT trim).</item>
         /// </list>
-        /// Skips ghost-only recordings (zero career footprint per #432) and ZOMBIE
-        /// <see cref="MergeState.NotCommitted"/> recordings.
+        /// Skips ZOMBIE <see cref="MergeState.NotCommitted"/> recordings.
         /// <para>
         /// The NotCommitted rule is SESSION-AWARE, deliberately not a blanket skip.
         /// <c>RewindInvoker.BuildProvisionalRecording</c> is the only production creator of a
@@ -6512,7 +6436,6 @@ namespace Parsek
             {
                 var rec = recordings[i];
                 if (rec == null) continue;
-                if (rec.IsGhostOnly) continue;
                 bool nameMatch = identity.MatchesName(rec.VesselName);
                 bool guidMatch = IsPositiveLaunchGuidMatch(rec, liveGuid);
                 bool spawnMatch = IsGenuineSpawnPidMatch(rec, livePid);

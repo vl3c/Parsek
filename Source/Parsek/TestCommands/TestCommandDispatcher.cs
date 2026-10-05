@@ -240,16 +240,6 @@ namespace Parsek.TestCommands
         void UiAction(ParsedCommand cmd);
         void DumpGuiTree(ParsedCommand cmd);
 
-        // ----- The Gloops pair (the manual ghost-only recorder; additive) -----
-        // Distinct from StartRecording / StopRecording above: those drive the AUTO-RECORD
-        // tree that commits into the career, these drive the PARALLEL ghost-only recorder
-        // behind the Gloops window's primary button. They are the only seam VERB whose
-        // SUBJECT is a sub-2-point commit drop, and outside the abnormal split-edge aborts
-        // the Gloops stop is the only producer of one: every other recording commits
-        // through a tree, which never reaches that factory.
-        void GloopsStart(ParsedCommand cmd);
-        void GloopsStop(ParsedCommand cmd);
-
         // ----- StockScreen (the GUI census of Parsek's annotations on STOCK screens) -----
         // Opens, selects on and hovers the stock KSP screens (R&D, Astronaut Complex,
         // Mission Control, Administration, a facility menu, the launch-site picker, the
@@ -508,19 +498,6 @@ namespace Parsek.TestCommands
                 // PARSEK's windows and needs a save behind them, while this one records
                 // whatever drew.
                 ["DumpGuiTree"] = VerbSceneRequirement.AnyScene,
-                // The Gloops pair. RequiresFlight, and here it is a HARD precondition
-                // rather than a convenience: the ghost-only recorder samples the ACTIVE
-                // VESSEL from the flight-scene physics-frame patch, and
-                // ParsekFlight.Instance - which owns both entry points - exists in no
-                // other scene. RequiresFlight (a DEFER) for every other FLIGHT-only
-                // verb's reason: the wrong-scene case is overwhelmingly a scene still
-                // settling in from the previous step, and the budget still bounds a
-                // genuinely wrong-scene spec. The pair's REAL refusals (already
-                // recording, no active vessel, a start the recorder refused, a stop with
-                // no recorder) are executor-side and typed REJECTED - each one a
-                // read-back of an EXISTING Gloops guard's decision, never a new rule.
-                ["GloopsStart"] = VerbSceneRequirement.RequiresFlight,
-                ["GloopsStop"] = VerbSceneRequirement.RequiresFlight,
                 // StockScreen. RequiresGameLoaded, the UiAction row: the stock screens it
                 // drives live at the Space Center AND in the VAB, so RequiresFlight would
                 // defer every call to its budget. Which scene each (screen, act) needs is

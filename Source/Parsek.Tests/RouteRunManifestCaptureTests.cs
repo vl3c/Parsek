@@ -159,7 +159,7 @@ namespace Parsek.Tests
                 MakePart(200, "drill", MakeResource("ElectricCharge", 50.0, 50.0)));
 
             RouteRunCargoManifest manifest = RouteProofCapture.BuildRunCargoManifestAtStart(
-                snapshot, isGloopsMode: false, vesselContext: "<test>", recordingVesselId: 42u);
+                snapshot, vesselContext: "<test>", recordingVesselId: 42u);
 
             Assert.NotNull(manifest);
             Assert.Equal(new List<uint> { 100u, 200u }, manifest.TransportPartPersistentIds);
@@ -186,7 +186,7 @@ namespace Parsek.Tests
                     MakeResource(Generators.CrpFixtures.UninstalledModResource, 12.5, 50.0)));
 
             RouteRunCargoManifest manifest = RouteProofCapture.BuildRunCargoManifestAtStart(
-                snapshot, isGloopsMode: false, vesselContext: "<test>", recordingVesselId: 1u);
+                snapshot, vesselContext: "<test>", recordingVesselId: 1u);
 
             Assert.NotNull(manifest);
             Assert.Equal(12.5,
@@ -194,23 +194,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildRunCargoManifestAtStart_GloopsMode_SkipsWithLog()
-        {
-            ConfigNode snapshot = MakeVessel(MakePart(100, "tank", MakeResource("Ore", 1.0, 2.0)));
-
-            RouteRunCargoManifest manifest = RouteProofCapture.BuildRunCargoManifestAtStart(
-                snapshot, isGloopsMode: true, vesselContext: "<test>", recordingVesselId: 7u);
-
-            Assert.Null(manifest);
-            Assert.Contains(logLines, l => l.Contains("[Recorder]")
-                && l.Contains("RouteRunManifest skipped: gloops mode") && l.Contains("recId=7"));
-        }
-
-        [Fact]
         public void BuildRunCargoManifestAtStart_NullSnapshot_SkipsWithWarn()
         {
             RouteRunCargoManifest manifest = RouteProofCapture.BuildRunCargoManifestAtStart(
-                null, isGloopsMode: false, vesselContext: "<test>", recordingVesselId: 9u);
+                null, vesselContext: "<test>", recordingVesselId: 9u);
 
             Assert.Null(manifest);
             Assert.Contains(logLines, l => l.Contains("[WARN]")
@@ -395,7 +382,7 @@ namespace Parsek.Tests
                 MakePart(200, "antenna"));
 
             RouteRunCargoManifest manifest = RouteProofCapture.BuildRunCargoManifestAtStart(
-                resourcelessSnapshot, isGloopsMode: false, vesselContext: "<test>", recordingVesselId: 5u);
+                resourcelessSnapshot, vesselContext: "<test>", recordingVesselId: 5u);
             Assert.NotNull(manifest);
             Assert.Null(manifest.StartTransportResources);
 

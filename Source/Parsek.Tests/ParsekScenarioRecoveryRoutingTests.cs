@@ -64,24 +64,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldPatchRecoveryFundsOutsideFlight_GhostOnlyPendingMatch_DoesNotBlock()
-        {
-            var rec = new Recording
-            {
-                RecordingId = "pending-ghost-only",
-                VesselName = "Recovered Probe",
-                IsGhostOnly = true
-            };
-            rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 0.0 });
-            rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 0.0 });
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
-
-            Assert.True(ParsekScenario.ShouldPatchRecoveryFundsOutsideFlight(
-                GameScenes.SPACECENTER,
-                "Recovered Probe"));
-        }
-
-        [Fact]
         public void ShouldPatchRecoveryFundsOutsideFlight_FlightScene_ReturnsFalse()
         {
             Assert.False(ParsekScenario.ShouldPatchRecoveryFundsOutsideFlight(

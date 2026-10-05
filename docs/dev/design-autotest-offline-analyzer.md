@@ -443,7 +443,7 @@ the LOADER-FAULT rule that turns loader parse failures into findings. Each is on
   Where a resource manifest is present, it round-trips through
   `RecordingManifestCodec.SerializeResourceManifest` /
   `DeserializeResourceManifest` and its per-resource deltas are internally
-  consistent. Manifests are OPTIONAL: a Gloops / showcase ghost with no manifest
+  consistent. Manifests are OPTIONAL: a showcase ghost with no manifest
   is INFO, not a finding. A missing manifest on a NORMAL committed flight
   recording is also INFO in v1 (the presence-rule table lists recording kinds and
   none currently require a manifest); tightening the flight-recording cell to
@@ -737,7 +737,7 @@ Each: scenario -> expected behavior -> v1 or deferred.
    `OrbitSegment` covers the gap, no finding. Never FAIL. v1.
 8. **Two overlapping sections**. Scenario: sections `[100,200]` and
    `[150,250]`. Expected: INV2 FAIL (double cover). v1.
-9. **Gloops / showcase ghost with no resource manifest**. Scenario: a ghost-only
+9. **Showcase ghost with no resource manifest**. Scenario: a synthetic showcase
    recording. Expected: INV6 INFO (manifest optional per recording kind), no
    FAIL/WARN. v1.
 10. **Chain with a `ChainIndex` gap at a supersede boundary (HEAD/TIP split)**.
@@ -931,8 +931,8 @@ and known-good builder output exposes wrong rules). Body resolution uses
   make triage greps mismatch KSP.log.
 - **INV6 positive (manifest present)**: a recording with a resource manifest
   that round-trips -> zero INV6 FAIL. Fails if a valid manifest is flagged.
-- **INV6 positive (manifest absent)**: a Gloops ghost with no manifest -> INV6
-  INFO, not FAIL. Fails if the rule wrongly requires manifests on ghost-only
+- **INV6 positive (manifest absent)**: a showcase ghost with no manifest -> INV6
+  INFO, not FAIL. Fails if the rule wrongly requires manifests on showcase
   recordings.
 - **INV6 violating**: a manifest whose deserialized deltas contradict its
   serialized totals -> INV6 FAIL. Fails if manifest corruption passes.

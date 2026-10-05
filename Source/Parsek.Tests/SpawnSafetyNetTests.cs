@@ -322,6 +322,24 @@ namespace Parsek.Tests
             Assert.True(needsSpawn);
         }
 
+        [Fact]
+        public void ShouldSpawnAtRecordingEnd_LandedTerminalWithSnapshot_CanSpawn()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "ghost_spawn_2",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Landed
+            };
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec,
+                isActiveChainMember: false,
+                treeContext: null);
+
+            Assert.True(needsSpawn);
+        }
+
         // -------------------------------------------------------------------
         // The UN-FINALIZED situation gate (2026-08-29). The IsSpawnableTerminal
         // rejection lives inside `TerminalStateValue.HasValue`, so a recording with

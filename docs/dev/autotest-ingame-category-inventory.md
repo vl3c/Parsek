@@ -777,7 +777,7 @@ feature, tier `daily`, over the same fixture. The admission test each had to pas
    1.12.5. It is admitted on the narrower ground that the skip is a KSP-VERSION
    guard rather than a fixture-context guard, and `H18` documents it at length.
    (b) ALL THREE `UiComplexityMode` cells carry in-body `InGameAssert.Skip` guards
-   (no live `ParsekUI`, Gloops recording in progress). Those ARE fixture-context
+   (no live `ParsekUI`). Those ARE fixture-context
    guards, so `H22` is admitted on the same ground as `H20` rather than on this
    criterion: its `skipped=0` is a claim about `gloops-airshow` that a live run
    settles, and the 2026-07-28 flight settled it.

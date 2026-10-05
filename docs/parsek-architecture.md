@@ -66,8 +66,7 @@ Historical note: the original 0.4.3-era architecture spec (class-level pseudo-co
       ParsekUI (main window + launcher column)
          -> Timeline, Missions (Missions + Recordings tabs),
             Logistics, Kerbals, Real Spawn Control (flight),
-            Settings; the Gloops Flight Recorder launcher is
-            retired in every mode. Inventory:
+            Settings. Inventory:
             dev/design-gui-inventory.md
 ```
 

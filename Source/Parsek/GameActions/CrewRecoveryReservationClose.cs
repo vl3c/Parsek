@@ -64,7 +64,6 @@ namespace Parsek
             {
                 var rec = effectiveRecordings[i];
                 if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
-                if (rec.IsGhostOnly) continue;
                 if (!IsRecoveredVesselRecording(rec, livePid, liveGuid)) continue;
                 if (rec.EndUT > recoveryUT + KerbalsModule.RecoveryClosureEndToleranceSeconds)
                     continue;

@@ -2720,6 +2720,21 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **The Gloops recorder is gone from Parsek.** Its button was already removed in 0.10.4;
+  now the recorder itself, its window and its "Gloops - Ghosts Only" group handling are
+  deleted too. Gloops will be a separate mod (`docs/dev/gloops-recorder-design.md`). No take
+  was ever kept past a game restart, because Parsek saves only flights that belong to a
+  recording tree and a Gloops take never did. So nothing is lost, and the 0.10.4 note that
+  existing ghost-only recordings "still load" was wrong. A group you named
+  `Gloops - Ghosts Only` is now an ordinary group. Recordings no longer carry the
+  `isGhostOnly` value, and an old save's line for it is ignored, with no schema change.
+  Dev: the `GloopsStart` / `GloopsStop` test commands, the `gloops` UiAction window, the
+  Basic-mode guard that refused Basic while a take was recording (with its
+  `complexity-refused-gloops-recording` and `mock-refused-recording` refusals) and the lanes
+  `GL-1`, `GL-2` and `GUI-16` are retired. Every GUI census describe echo now reads
+  `windows=11`. A new xUnit test pins that a committed recording outside any tree is never
+  saved. The census lanes that opened the Gloops window (GUI-2, GUI-6) are owed a flight to
+  prove their new pins.
 - **A new supply route is named after the mission it repeats.** Creating a route from a
   Candidates row names it after its mission (`Duna Supply 1`) instead of `Route: KSC -> Duna`,
   which only repeated the from/to line under it. A second route from the same mission (or any

@@ -412,14 +412,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FinalSegment_DebrisAndGhostOnly_AreNotFinal()
+        public void FinalSegment_Debris_IsNotFinal()
         {
             var debris = MakeOnPad("rec-debris");
             debris.IsDebris = true;
-            var gloops = MakeOnPad("rec-gloops");
-            gloops.IsGhostOnly = true;
             Assert.False(GhostPlaybackLogic.IsFinalSpawnSegment(debris));
-            Assert.False(GhostPlaybackLogic.IsFinalSpawnSegment(gloops));
         }
 
         // ------------------------------------------------------------------

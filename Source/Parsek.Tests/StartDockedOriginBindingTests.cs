@@ -347,7 +347,6 @@ namespace Parsek.Tests
                 },
                 settledDockSeamsScanned: 1,
                 snapshot: Snapshot(110u, 111u, 112u, 113u, 114u),
-                isGloopsMode: false,
                 vesselContext: "<test>",
                 recordingVesselId: 7u,
                 out RouteOriginProof proof,
@@ -387,7 +386,7 @@ namespace Parsek.Tests
                 {
                     Candidate(11u, 200u, 555u, (int)Vessel.Situations.LANDED),
                 },
-                1, Snapshot(110u, 111u, 112u, 113u, 114u), false, "<test>", 7u,
+                1, Snapshot(110u, 111u, 112u, 113u, 114u), "<test>", 7u,
                 out RouteOriginProof proof, out _);
 
             var rec = new Recording { RecordingId = "r", RouteOriginProof = proof };
@@ -407,7 +406,6 @@ namespace Parsek.Tests
                 candidates: new List<DockSeamPairCandidate>(),
                 settledDockSeamsScanned: 2,
                 snapshot: Snapshot(),
-                isGloopsMode: false,
                 vesselContext: "<test>",
                 recordingVesselId: 7u,
                 out RouteOriginProof proof,
@@ -428,7 +426,7 @@ namespace Parsek.Tests
             // the house rule is that a one-shot announces an EVENT, not a condition.
             RouteProofCapture.BuildStartRouteOriginProof(
                 (int)Vessel.Situations.LANDED, false,
-                new List<DockSeamPairCandidate>(), 0, Snapshot(), false, "<test>", 7u,
+                new List<DockSeamPairCandidate>(), 0, Snapshot(), "<test>", 7u,
                 out RouteOriginProof proof, out _);
 
             Assert.Null(proof);
@@ -441,7 +439,7 @@ namespace Parsek.Tests
         {
             RouteProofCapture.BuildStartRouteOriginProof(
                 (int)Vessel.Situations.PRELAUNCH, false,
-                new List<DockSeamPairCandidate>(), 2, Snapshot(), false, "<test>", 7u,
+                new List<DockSeamPairCandidate>(), 2, Snapshot(), "<test>", 7u,
                 out RouteOriginProof proof, out _);
 
             Assert.Null(proof);
@@ -956,7 +954,7 @@ namespace Parsek.Tests
                 (int)Vessel.Situations.LANDED, false,
                 new List<DockSeamPairCandidate> { TwoHalfCandidate() }, 1,
                 MergedSnapshotWithStoredPartOn(200u, "DeployedCentralStation"),
-                false, "<test>", 7u,
+                "<test>", 7u,
                 out RouteOriginProof proof, out _);
 
             Assert.NotNull(proof);
@@ -981,7 +979,7 @@ namespace Parsek.Tests
                 (int)Vessel.Situations.LANDED, false,
                 new List<DockSeamPairCandidate> { TwoHalfCandidate() }, 1,
                 MergedSnapshotWithStoredPartOn(200u, "DeployedCentralStation"),
-                false, "<test>", 7u,
+                "<test>", 7u,
                 out RouteOriginProof proof, out _);
 
             // The transport half (100/101) leaves carrying that same item kind.

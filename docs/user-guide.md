@@ -33,15 +33,6 @@ If a kerbal goes EVA while recording a vessel, Parsek automatically:
 3. On revert, both ghosts play back - the vessel ghost and the EVA kerbal ghost
 4. When the parent vessel spawns, the EVA'd kerbal is excluded from its crew
 
-### Gloops Flight Recorder (retired)
-
-The Gloops Flight Recorder — a manual ghost-only recorder — is being spun off into a
-standalone mod, and its button and window have been removed from the Parsek UI.
-Ghost-only recordings you already made keep working: they still appear in the
-**Gloops - Ghosts Only** group in the Recordings Manager, still play back as ghosts,
-can be archived like any other recording, and remain purely visual
-(no funds, crew reservations, contracts, science, or milestones).
-
 ### Merge Dialog
 
 After reverting (or aborting a mission to the Space Center with a recording pending), a dialog appears with context-aware options:

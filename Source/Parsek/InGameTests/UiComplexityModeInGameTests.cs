@@ -22,8 +22,8 @@ namespace Parsek.InGameTests
     /// pass while testing nothing.</para>
     ///
     /// <para>NOTE: in-game tests (Ctrl+Shift+T / Settings &gt; Diagnostics); FLIGHT only
-    /// (the SPACECENTER UI has no <c>ParsekFlight</c>, and the gated Spawn Control / Gloops
-    /// launchers are InFlight-only anyway). Career-independent, non-destructive: they touch
+    /// (the SPACECENTER UI has no <c>ParsekFlight</c>, and the gated Spawn Control launcher
+    /// is InFlight-only anyway). Career-independent, non-destructive: they touch
     /// window open flags and the mode setting, both restored in a finally.</para>
     /// </summary>
     public class UiComplexityModeInGameTests
@@ -42,15 +42,6 @@ namespace Parsek.InGameTests
             if (ui == null)
             {
                 InGameAssert.Skip("No live ParsekUI in this scene");
-                yield break;
-            }
-
-            if (IsGloopsRecording())
-            {
-                // Edge case 11: the seam legitimately REFUSES Basic while a manual Gloops
-                // recording runs, so this test cannot drive its own precondition. Skipping is
-                // correct; SeamRefusesBasicWhileGloopsRecording covers the refusal headless.
-                InGameAssert.Skip("Gloops recording in progress - the switch to Basic is refused by design");
                 yield break;
             }
 
@@ -140,18 +131,15 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
-            if (IsGloopsRecording())
-            {
-                InGameAssert.Skip("Gloops recording in progress - the switch to Basic is refused by design");
-                yield break;
-            }
-
             UiComplexityMode originalMode = ParsekUI.AppliedUiComplexityMode;
-            // The Gloops window: gated (in the close set), and unlike Real Spawn Control it
-            // never closes itself in FLIGHT, so the close asserted below is the mode's.
-            GloopsRecorderUI gloops = ui.GetGloopsUI();
-            UnityEngine.Rect originalRect = gloops.WindowRectForTesting;
-            bool originalOpen = gloops.IsOpen;
+            // The Settings-launched Test Runner window: gated (in the close set, it owns the
+            // Parsek_TestRunnerWindow input lock), and unlike Real Spawn Control it never
+            // closes itself in FLIGHT, so the close asserted below is the mode's. It is NOT the
+            // global Ctrl+Shift+T runner window, which is never gated (edge case 13), so a
+            // batch launched from either runner keeps running while this window is hidden.
+            TestRunnerUI runnerWindow = ui.GetTestRunnerUI();
+            UnityEngine.Rect originalRect = runnerWindow.WindowRectForTesting;
+            bool originalOpen = runnerWindow.IsOpen;
 
             try
             {
@@ -161,54 +149,49 @@ namespace Parsek.InGameTests
                 // A distinguishable bit of state: a window position no default seed picks.
                 const float markerX = 123f;
                 const float markerY = 97f;
-                gloops.IsOpen = true;
-                gloops.WindowRectForTesting = new UnityEngine.Rect(markerX, markerY, 280f, 230f);
+                runnerWindow.IsOpen = true;
+                runnerWindow.WindowRectForTesting = new UnityEngine.Rect(
+                    markerX, markerY, TestRunnerUI.MinWindowWidth, TestRunnerUI.MinWindowHeight);
                 yield return null;
 
                 ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
                 yield return WaitForAppliedMode(UiComplexityMode.Basic);
-                InGameAssert.IsFalse(gloops.IsOpen,
-                    "the Gloops window must be force-closed on entering Basic");
+                InGameAssert.IsFalse(runnerWindow.IsOpen,
+                    "the Test Runner window must be force-closed on entering Basic");
 
                 ParsekUI.SetUiComplexityMode(UiComplexityMode.Advanced);
                 yield return WaitForAppliedMode(UiComplexityMode.Advanced);
 
                 // Reopening is the player's act; the mode never reopens a window for them.
-                gloops.IsOpen = true;
+                runnerWindow.IsOpen = true;
                 yield return null;
 
-                UnityEngine.Rect after = gloops.WindowRectForTesting;
+                UnityEngine.Rect after = runnerWindow.WindowRectForTesting;
                 InGameAssert.IsTrue(UnityEngine.Mathf.Approximately(after.x, markerX)
                                     && UnityEngine.Mathf.Approximately(after.y, markerY),
-                    "the Gloops window's position must survive the Basic round trip (the "
+                    "the Test Runner window's position must survive the Basic round trip (the "
                     + "close handler only clears IsOpen and releases the lock); read "
                     + after.x.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + ","
                     + after.y.ToString("F0", System.Globalization.CultureInfo.InvariantCulture));
                 ParsekLog.Info("TestRunner",
-                    "UiComplexityMode: round trip preserved Gloops window position");
+                    "UiComplexityMode: round trip preserved Test Runner window position");
             }
             finally
             {
-                gloops.WindowRectForTesting = originalRect;
-                gloops.IsOpen = originalOpen;
+                runnerWindow.WindowRectForTesting = originalRect;
+                runnerWindow.IsOpen = originalOpen;
                 RestoreMode(originalMode);
             }
         }
 
         [InGameTest(Category = "UiComplexityMode", Scene = GameScenes.FLIGHT,
             Description = "After a Basic round trip, Advanced is fully restored: every "
-                + "non-retired UiSurface is visible again (design philosophy 2, 6)")]
+                + "UiSurface is visible again (design philosophy 2, 6)")]
         public IEnumerator AdvancedRenderParityAfterRoundTrip()
         {
             if (ParsekUI.ActiveInstance == null)
             {
                 InGameAssert.Skip("No live ParsekUI in this scene");
-                yield break;
-            }
-
-            if (IsGloopsRecording())
-            {
-                InGameAssert.Skip("Gloops recording in progress - the switch to Basic is refused by design");
                 yield break;
             }
 
@@ -232,21 +215,11 @@ namespace Parsek.InGameTests
 
                 // A literal IMGUI control-count diff is not reachable from a test (the counts
                 // only exist inside a live OnGUI pass). The honest proxy is the gate itself:
-                // every non-retired surface the main window can draw must report visible
-                // again, walked by reflection so a surface added later is covered without
-                // editing this test. RETIRED surfaces (the Gloops launcher, hidden in every
-                // mode while Gloops winds down toward a standalone mod) are asserted the
-                // other way round: still hidden even in Advanced.
+                // every surface the main window can draw must report visible again, walked
+                // by reflection so a surface added later is covered without editing this test.
                 int surfaces = 0;
                 foreach (UiSurface surface in Enum.GetValues(typeof(UiSurface)))
                 {
-                    if (UiSurfaceVisibility.IsRetired(surface))
-                    {
-                        InGameAssert.IsFalse(
-                            UiSurfaceVisibility.IsVisible(surface, ParsekUI.AppliedUiComplexityMode),
-                            $"retired UiSurface {surface} must stay hidden in Advanced");
-                        continue;
-                    }
                     InGameAssert.IsTrue(
                         UiSurfaceVisibility.IsVisible(surface, ParsekUI.AppliedUiComplexityMode),
                         $"UiSurface {surface} is hidden in Advanced after a Basic round trip");
@@ -267,16 +240,9 @@ namespace Parsek.InGameTests
         // Helpers
         // ------------------------------------------------------------------
 
-        private static bool IsGloopsRecording()
-        {
-            ParsekFlight flight = ParsekFlight.Instance;
-            return flight != null && flight.IsGloopsRecording;
-        }
-
         private static void OpenEveryGatedWindow(ParsekUI ui)
         {
             ui.GetKerbalsUI().IsOpen = true;
-            ui.GetGloopsUI().IsOpen = true;
             ui.GetSpawnControlUI().IsOpen = true;
             ui.GetTestRunnerUI().IsOpen = true;
             ui.GetRecordingsTableUI().GroupPickerForTesting

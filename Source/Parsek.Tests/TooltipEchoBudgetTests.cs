@@ -72,24 +72,22 @@ namespace Parsek.Tests
         public static IEnumerable<object[]> StripWindows()
         {
             // Main window: both hosts (ParsekFlight, ParsekKSC) pin GUILayout.Width(250).
-            // Margin 1 as of 2026-08-29: the file carries 9 literal tooltips against this
-            // floor of 8, after RESOURCE-BUDGET-READOUTS-ARE-DEAD removed the "Reserved:"
-            // line and its tooltip. The next removal here reds this row on the floor rather
-            // than on a copy edit - lower the floor in the SAME commit that removes the
-            // control, the way the Settings row below was lowered 15 -> 10.
+            // Margin 0: the floor dropped 8 -> 7 with the removal of the in-Parsek Gloops
+            // recorder, whose retired launcher block carried a literal tooltip. The next
+            // removal here reds this row on the floor rather than on a copy edit - lower
+            // the floor in the SAME commit that removes the control, the way the Settings
+            // row below was lowered 15 -> 10.
             //
             // RESTORED 2026-09-11: commit 454b4df7e added the explanatory comment above and
             // DELETED the row itself, so from then until now the mod's entry-point window -
             // and the Timeline row below, deleted the same way - had no budget gate at all.
             // Neither deletion was intended; both rows are back with their stated floors.
-            yield return new object[] { "ParsekUI.cs", 250f, 8, TooltipEchoBox.DoubleLine };
+            yield return new object[] { "ParsekUI.cs", 250f, 7, TooltipEchoBox.DoubleLine };
             // Settings: DrawIfOpen seeds new Rect(..., 280, 600) on first open. The floor
             // dropped 15 -> 10 with the 2026-08-27 settings simplification (the Recording,
             // Stock UI, auto-backup, landing-body-alignment and force-faithful controls
             // and their tooltips were retired).
             yield return new object[] { "UI/SettingsWindowUI.cs", 280f, 10, TooltipEchoBox.DoubleLine };
-            // Gloops Flight Recorder: first-open DefaultWindowWidth = 280.
-            yield return new object[] { "UI/GloopsRecorderUI.cs", 280f, 3, TooltipEchoBox.DoubleLine };
             // Kerbals: DefaultWindowWidth = 760 as of the 2026-09-15 column-table rebuild
             // (it was 410, half of Career's 820, while both tabs were indented outlines).
             // The Roster tab's three fixed columns are 190 + 220 + 130 = 540 px plus 200

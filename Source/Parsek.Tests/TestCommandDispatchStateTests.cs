@@ -53,8 +53,6 @@ namespace Parsek.Tests
             public void CaptureScreenshot(ParsedCommand cmd) => Calls.Add("CaptureScreenshot");
             public void UiAction(ParsedCommand cmd) => Calls.Add("UiAction");
             public void DumpGuiTree(ParsedCommand cmd) => Calls.Add("DumpGuiTree");
-            public void GloopsStart(ParsedCommand cmd) => Calls.Add("GloopsStart");
-            public void GloopsStop(ParsedCommand cmd) => Calls.Add("GloopsStop");
             public void StockScreen(ParsedCommand cmd) => Calls.Add("StockScreen");
             public void GoToEditor(ParsedCommand cmd) => Calls.Add("GoToEditor");
             public void LaunchFromEditor(ParsedCommand cmd) => Calls.Add("LaunchFromEditor");
@@ -159,13 +157,6 @@ namespace Parsek.Tests
         // nothing does. NOT RequiresGameLoaded like its census partner UiAction, which
         // drives PARSEK's own windows and needs a save behind them.
         [InlineData("DumpGuiTree", "AnyScene")]
-        // The Gloops pair is RequiresFlight, and here it is a HARD precondition rather
-        // than a convenience: the ghost-only recorder samples the ACTIVE VESSEL from the
-        // flight-scene physics-frame patch, and ParsekFlight.Instance - which owns both
-        // entry points - exists in no other scene. Its real refusals are executor-side
-        // and typed REJECTED, each one a read-back of an existing Gloops guard.
-        [InlineData("GloopsStart", "RequiresFlight")]
-        [InlineData("GloopsStop", "RequiresFlight")]
         // StockScreen drives stock screens at the Space Center and in the VAB, so it waits
         // for a loaded game only; the per-(screen, act) scene is its own typed REJECTED.
         [InlineData("StockScreen", "RequiresGameLoaded")]
@@ -231,8 +222,6 @@ namespace Parsek.Tests
             fake.CaptureScreenshot(cmd);
             fake.UiAction(cmd);
             fake.DumpGuiTree(cmd);
-            fake.GloopsStart(cmd);
-            fake.GloopsStop(cmd);
             fake.StockScreen(cmd);
             fake.GoToEditor(cmd);
             fake.LaunchFromEditor(cmd);

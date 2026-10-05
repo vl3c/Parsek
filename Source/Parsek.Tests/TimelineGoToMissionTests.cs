@@ -270,18 +270,18 @@ namespace Parsek.Tests
 
         // --- Rows that have no mission to go to ---
 
-        // Missions are keyed on recording TREES, and manual Gloops (ghost-only) recordings are
-        // committed WITHOUT one - yet they do produce timeline rows. Before this predicate the
-        // button was live on those rows and did nothing when clicked, which is the same
-        // dead-affordance failure the whole change exists to remove.
+        // Missions are keyed on recording TREES, and a recording committed WITHOUT one can still
+        // produce a timeline row. Before this predicate the button was live on such a row and
+        // did nothing when clicked, which is the same dead-affordance failure the whole change
+        // exists to remove.
         [Fact]
         public void GoToIsDisabledForARecordingThatBelongsToNoMission()
         {
-            var gloops = MakeRec("gloops-1", null, "Gloops Recording");
+            var treeless = MakeRec("treeless-1", null, "Treeless Recording");
 
-            Assert.False(TimelineWindowUI.CanGoToMission(gloops));
+            Assert.False(TimelineWindowUI.CanGoToMission(treeless));
             Assert.Equal("This recording is not part of a mission",
-                TimelineWindowUI.GetGoToMissionTooltip(gloops));
+                TimelineWindowUI.GetGoToMissionTooltip(treeless));
 
             var tree = MakeRec("rec-1", "tree-1");
             Assert.True(TimelineWindowUI.CanGoToMission(tree));

@@ -19,48 +19,16 @@ namespace Parsek.Tests
         // --- IsVisible (design 6.1) ---
 
         // Advanced must stay byte-identical to today's UI (philosophy 6) for every
-        // surface that has not been deliberately RETIRED. Walked by reflection over the
-        // enum so a new surface that defaults to hidden in Advanced fails here rather
-        // than silently disappearing for every player; a surface can only leave this
-        // walk by joining the explicit retired set pinned below.
+        // surface. Walked by reflection over the enum so a new surface that defaults to
+        // hidden in Advanced fails here rather than silently disappearing for every player.
         [Fact]
-        public void AdvancedShowsEveryNonRetiredSurface()
+        public void AdvancedShowsEverySurface()
         {
             foreach (UiSurface surface in AllSurfaces())
             {
-                if (UiSurfaceVisibility.IsRetired(surface))
-                    continue;
                 Assert.True(
                     UiSurfaceVisibility.IsVisible(surface, UiComplexityMode.Advanced),
                     $"{surface} must be visible in Advanced mode");
-            }
-        }
-
-        // Pins the retired set EXACTLY (the Gloops wind-down toward a standalone mod):
-        // a retired surface is hidden in BOTH modes, and nothing joins or leaves the
-        // set silently. Retirement outranking the mode is the contract that lets the
-        // Gloops launcher disappear from Advanced without touching philosophy 6 for
-        // every other surface.
-        [Fact]
-        public void RetiredSurfacesAreHiddenInEveryMode()
-        {
-            var expectedRetired = new HashSet<UiSurface> { UiSurface.MainButtonGloops };
-
-            var actualRetired = new HashSet<UiSurface>(
-                AllSurfaces().Where(UiSurfaceVisibility.IsRetired));
-            Assert.True(expectedRetired.SetEquals(actualRetired),
-                "Retired set drifted. Expected: " +
-                string.Join(", ", expectedRetired.OrderBy(s => s.ToString())) + "; actual: " +
-                string.Join(", ", actualRetired.OrderBy(s => s.ToString())));
-
-            foreach (UiSurface surface in actualRetired)
-            {
-                Assert.False(
-                    UiSurfaceVisibility.IsVisible(surface, UiComplexityMode.Basic),
-                    $"{surface} is retired and must be hidden in Basic");
-                Assert.False(
-                    UiSurfaceVisibility.IsVisible(surface, UiComplexityMode.Advanced),
-                    $"{surface} is retired and must be hidden in Advanced");
             }
         }
 
@@ -73,7 +41,6 @@ namespace Parsek.Tests
             var expected = new HashSet<UiSurface>
             {
                 UiSurface.MainButtonSpawnControl,
-                UiSurface.MainButtonGloops,
                 UiSurface.TabRecordings,
                 UiSurface.MissionsLoopControls,
                 UiSurface.SettingsSectionLooping,
@@ -86,7 +53,7 @@ namespace Parsek.Tests
 
             var actual = new HashSet<UiSurface>(UiSurfaceVisibility.HiddenSurfaces(UiComplexityMode.Basic));
 
-            Assert.Equal(8, actual.Count);
+            Assert.Equal(7, actual.Count);
             Assert.True(UiSurfaceVisibility.IsVisible(
                 UiSurface.MainButtonLogistics, UiComplexityMode.Basic));
             // Owner re-ruling 2026-09-22: the Kerbals window is the only surface that says
@@ -99,20 +66,15 @@ namespace Parsek.Tests
                 string.Join(", ", actual.OrderBy(s => s.ToString())));
         }
 
-        // Advanced hides exactly the retired set and nothing else, so the close handler
-        // of design 7.2 still has nothing MODE-DRIVEN to do on a Basic -> Advanced
-        // switch (a retired window is unreachable in both modes, not newly hidden by
-        // the transition).
+        // Advanced hides nothing, so the close handler of design 7.2 has nothing
+        // MODE-DRIVEN to do on a Basic -> Advanced switch.
         [Fact]
-        public void AdvancedHidesOnlyRetiredSurfaces()
+        public void AdvancedHidesNothing()
         {
-            var hidden = new HashSet<UiSurface>(
+            var hidden = new List<UiSurface>(
                 UiSurfaceVisibility.HiddenSurfaces(UiComplexityMode.Advanced));
-            var retired = new HashSet<UiSurface>(
-                AllSurfaces().Where(UiSurfaceVisibility.IsRetired));
-            Assert.True(retired.SetEquals(hidden),
-                "Advanced must hide exactly the retired surfaces. Retired: " +
-                string.Join(", ", retired.OrderBy(s => s.ToString())) + "; hidden: " +
+            Assert.True(hidden.Count == 0,
+                "Advanced must hide nothing. Hidden: " +
                 string.Join(", ", hidden.OrderBy(s => s.ToString())));
         }
 
@@ -291,9 +253,8 @@ namespace Parsek.Tests
         /// <summary>
         /// The <see cref="UiSurface"/> keys with no enforcement site in
         /// <paramref name="src"/>. The gate is read as <c>IsVisible(UiSurface.Key, ...)</c> at
-        /// every call site; <c>IsRetired(UiSurface.Key)</c> is the second, retirement-only
-        /// shape. Comments are blanked first, so prose about a gate is not mistaken for the
-        /// gate. Whitespace-tolerant, not a substring match: TimelineWindowUI wraps its
+        /// every call site. Comments are blanked first, so prose about a gate is not mistaken
+        /// for the gate. Whitespace-tolerant, not a substring match: TimelineWindowUI wraps its
         /// <c>IsVisible(</c> onto the line before its <c>UiSurface.TabMissions</c> argument,
         /// and a contiguous scan read that real enforcement site as a missing one.
         /// </summary>
@@ -304,7 +265,7 @@ namespace Parsek.Tests
             foreach (UiSurface surface in AllSurfaces())
             {
                 var pattern = new System.Text.RegularExpressions.Regex(
-                    @"Is(Visible|Retired)\(\s*UiSurface\." + surface + @"\b");
+                    @"IsVisible\(\s*UiSurface\." + surface + @"\b");
                 if (!pattern.IsMatch(prepared))
                     unenforced.Add(surface);
             }

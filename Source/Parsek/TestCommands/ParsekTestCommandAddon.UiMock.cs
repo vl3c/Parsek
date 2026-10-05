@@ -286,20 +286,6 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            // Mirrors complexity-refused-gloops-recording, reached through the SAME
-            // production predicate op=complexity uses (ParsekUI.WouldRefuseModeChange
-            // consults ParsekUI.IsGloopsRecordingNow): a recording is the one live
-            // condition under which nothing automation-only should swap a window's data
-            // out from under the recorder.
-            if (ParsekUI.WouldRefuseModeChange(UiComplexityMode.Basic))
-            {
-                ParsekLog.Warn(GuiMockSession.LogTag,
-                    "mock rejected reason=" + TestCommandUiMock.RefusedRecordingReason
-                    + " state=" + state.Id);
-                SetExecResult("REJECTED", null, TestCommandUiMock.RefusedRecordingReason);
-                return;
-            }
-
             // The complexity mode decides whether this window can be ON SCREEN at all:
             // a launcher Basic hides has its window force-closed by the mode switch, so a
             // Basic apply would photograph a window no player can open. Checked against
