@@ -980,9 +980,10 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     "EvaChuteDeploy": 420.0,
     # Coverage wave 10, mirroring DeferralBudget.EvaGroundScienceSeconds: one action
     # (step / take / place / pickup) per command. MEASURED (859 runs, 2026-09-10 to
-    # 2026-10-05): OK max 5.5 s (n=412), so the 30 s floor applies; every timeout in
-    # the corpus waited the full old 120 s and none was a slow success.
-    "EvaGroundScience": 30.0,
+    # 2026-10-05): OK max 5.5 s (n=412); 60 s because the place ladder counts frames
+    # (about 1,000 worst case, inside 60 s down to ~17 fps); every timeout in the
+    # corpus waited the full old 120 s and none was a slow success.
+    "EvaGroundScience": 60.0,
     # R12. ExitToSpaceCenter mirrors the C# ExitToSpaceCenterSeconds = 120.0, sized for
     # a driven scene exit and its settle rather than like LoadGame, which additionally
     # parses a cold save off disk. Without the row the harness step-wait would ride the 60 s default + margin

@@ -935,15 +935,18 @@ namespace Parsek.TestCommands
         /// vessel kill, or one step move. Each action (step / take / place / pickup) is its
         /// OWN command, so this budget bounds one action, not a whole sequence.
         ///
-        /// <para>30 s, MEASURED: over 859 collected harness runs (2026-09-10 to
+        /// <para>60 s, MEASURED: over 859 collected harness runs (2026-09-10 to
         /// 2026-10-05) the OK steps were n=412, p50 0.9 s, p99 5.5 s, max 5.5 s (per
-        /// action max: step 3.3, take 0.5, place 3.6, pickup 5.5), so 4x the OK max is
-        /// 22 s and the 30 s floor applies. A place that used three face-away re-turns
-        /// still finished in 3.6 s, so all eight re-turns fit with room to spare. All 37
+        /// action max: step 3.3, take 0.5, place 3.6, pickup 5.5). 4x the OK max is only
+        /// 22 s, but the place ladder counts FRAMES, not seconds: eight re-turns of
+        /// ReTurnFrames plus confirm re-arms plus SettleFrames is about 1,000 frames
+        /// worst case, which fits 30 s only at 33 fps or better. 60 s keeps that worst
+        /// case inside the budget down to about 17 fps (a dense scene on a slow
+        /// machine). All 37
         /// timeouts in the corpus (27 step, 5 placement, 3 place-gate, 2 pickup) waited
         /// the full old 120 s budget, 4,440 s of wall time, and none was a slow
         /// success.</para></summary>
-        internal const double EvaGroundScienceSeconds = 30.0;
+        internal const double EvaGroundScienceSeconds = 60.0;
 
         /// <summary>ExitToSpaceCenter (R12): the pre-exit persist + the FLIGHT teardown
         /// (tree finalize, dirty-sidecar force-write, background-recorder shutdown) + the

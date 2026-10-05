@@ -93,9 +93,10 @@ namespace Parsek.Tests
             // old 120 s and none was a slow success. A change here must be deliberate:
             // re-measure, update the evidence comment on the constant, and update the
             // harness mirror (hlib DISPATCH_DEFERRAL_BUDGET_SECONDS) in the same commit.
-            // EvaGroundScience: OK max 5.5 s (n=412), so the 30 s floor applies.
-            Assert.Equal(30.0, DeferralBudget.EvaGroundScienceSeconds);
-            Assert.Equal(30.0, DeferralBudget.BudgetSeconds("EvaGroundScience"));
+            // EvaGroundScience: OK max 5.5 s (n=412); 60 s covers the frame-counted
+            // place ladder (~1,000 frames worst case) down to ~17 fps.
+            Assert.Equal(60.0, DeferralBudget.EvaGroundScienceSeconds);
+            Assert.Equal(60.0, DeferralBudget.BudgetSeconds("EvaGroundScience"));
             // AnswerMergeDialog: OK max 7.2 s (n=65); the floor is twice the re-fly
             // resume-settle fallback, which spends up to 30 s before the driven exit.
             Assert.Equal(60.0, DeferralBudget.AnswerMergeDialogSeconds);

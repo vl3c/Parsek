@@ -8228,7 +8228,7 @@ class BudgetArithmeticTests(unittest.TestCase):
     def test_dispatch_deferral_budget_mirrors_c_sharp(self):
         # Item 3: the per-verb dispatch deferral budgets mirror the C# DeferralBudget.
         self.assertEqual(hlib.dispatch_deferral_budget("AnswerMergeDialog"), 60.0)
-        self.assertEqual(hlib.dispatch_deferral_budget("EvaGroundScience"), 30.0)
+        self.assertEqual(hlib.dispatch_deferral_budget("EvaGroundScience"), 60.0)
         self.assertEqual(hlib.dispatch_deferral_budget("KscAction"), 60.0)
         self.assertEqual(hlib.dispatch_deferral_budget("StartRecording"), 180.0)
         # R12: ExitToSpaceCenterSeconds = 120 (sized for a driven scene exit and its

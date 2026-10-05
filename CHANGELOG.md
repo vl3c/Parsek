@@ -2733,7 +2733,7 @@ _(unreleased - entries accumulate here per commit)_
 ### Changed
 
 - **Dev: two test-command step budgets are shorter, so a failing harness step gives up
-  sooner.** `EvaGroundScience` now times out after 30 s (was 120 s) and `AnswerMergeDialog`
+  sooner.** `EvaGroundScience` now times out after 60 s (was 120 s) and `AnswerMergeDialog`
   after 60 s (was 120 s). Measured over 859 collected harness runs: the slowest successful
   `EvaGroundScience` action took 5.5 s (412 steps) and the slowest successful
   `AnswerMergeDialog` 7.2 s (65 steps), while every one of their 43 timeouts waited the full
