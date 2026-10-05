@@ -237,6 +237,46 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// The committed recording (other than <paramref name="rec"/>) whose terminal spawn is
+        /// the live vessel <paramref name="livePid"/> / <paramref name="liveGuid"/>, when that
+        /// recording ends after <paramref name="rec"/> does; null otherwise. Finalization uses it
+        /// to keep a recording from reading its end off a vessel that later committed history
+        /// owns: a chain-tip spawn keeps the craft-baked pid AND the launch guid, so the same
+        /// physical vessel matches every earlier recording of it by pid. Spawn identity goes
+        /// through <see cref="VesselLaunchIdentity.LiveVesselIsRecordedSpawn"/> (a unique spawn
+        /// pid matches alone, an adoption stamp also needs the guid not to conclusively differ).
+        /// </summary>
+        internal static Recording FindLaterCommittedSpawnOwner(
+            Recording rec,
+            uint livePid,
+            string liveGuid)
+        {
+            if (rec == null || livePid == 0)
+                return null;
+            if (committedRecordings == null || committedRecordings.Count == 0)
+                return null;
+
+            double recEndUT = rec.EndUT;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                Recording owner = committedRecordings[i];
+                if (owner == null || ReferenceEquals(owner, rec))
+                    continue;
+                if (!string.IsNullOrEmpty(rec.RecordingId)
+                    && string.Equals(owner.RecordingId, rec.RecordingId, StringComparison.Ordinal))
+                    continue;
+                if (!VesselLaunchIdentity.LiveVesselIsRecordedSpawn(owner, livePid, liveGuid))
+                    continue;
+                if (owner.EndUT <= recEndUT + LaterSpawnOwnerEndToleranceSeconds)
+                    continue;
+                return owner;
+            }
+            return null;
+        }
+
+        internal const double LaterSpawnOwnerEndToleranceSeconds = 1e-3;
+
         private static double GetTreeStartUT(RecordingTree tree)
         {
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
