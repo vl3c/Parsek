@@ -253,6 +253,28 @@ class SbrFlightDelegationTests(unittest.TestCase):
         self.assertIn("chute-arm-window-missed", state.loss_reason)
         self.assertTrue(state.loss_reason.startswith("flight-leg "), state.loss_reason)
 
+    def test_an_unreadable_chute_at_descent_entry_ends_the_flight_leg(self):
+        # B1's chute-unobservable terminal (RB-1 2026-09-27_1353) reaches SBR through
+        # the delegation: the read is on, no frame ever returned a parachute state,
+        # and the leg ends at the DESCENT entry before any arm is commanded.
+        frames = [dataclasses.replace(f, chute_read_on=True, craft_chute_state="")
+                  for f in FLIGHT_FRAMES[:5]]
+        state, emitted = drive_actions(fresh(), *frames)
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertTrue(state.loss_reason.startswith("flight-leg "), state.loss_reason)
+        self.assertIn(mlib.CHUTE_UNOBSERVABLE_REASON, state.loss_reason)
+        self.assertNotIn(mlib.ACTION_DEPLOY_CHUTE, [a.kind for a in emitted])
+
+    def test_the_recovery_frames_do_not_trip_the_chute_unobservable_terminal(self):
+        # After landing the flight leg is done; the benign "" chute read at alt=0 on
+        # the recovery frames (the craft is being recovered) must not condemn it.
+        state = drive(in_recover(),
+                      sci(ut=12.0, situation="LANDED", altitude=0.0,
+                          chute_read_on=True, craft_chute_state=""))
+        self.assertNotEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertNotIn(mlib.CHUTE_UNOBSERVABLE_REASON, state.loss_reason or "")
+
     def test_b1s_own_DOWN_success_is_this_missions_dead_end(self):
         # DOWN means the craft is GONE after a verified canopy: B1's success and
         # SBR's dead end, because there is nothing left to recover. It must be

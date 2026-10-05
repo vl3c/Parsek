@@ -1444,6 +1444,15 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Dev: a harness pad hop whose parachutes cannot be read now stops before arming them.**
+  B1, the science-and-recover lane and EVA-4 read the craft's parachute state every poll. When
+  that read returns nothing on the descent-entry poll and the one before it, the mission now
+  ends there (`MISSION-ASSERT-FAIL`, reason `chute unobservable (part identity?)`, retried
+  once like a vessel loss) instead of arming nothing and flying on. RB-1 `2026-09-27_1353`
+  (a fixture whose parts kRPC read off a clone) armed "0 parachute(s)" and hit the ground at
+  230 m/s; over the 26 collected flights of these lanes the check trips on that run and the
+  two RB-2 runs with the same defect, and on no other. The deploy action now also logs how
+  many parachutes it fired.
 - **A branch point after a recording split now names the segment it happened on.** When a
   recording is split (the optimizer's cut at an atmosphere exit or a body change, or a
   Re-Fly's HEAD/TIP cut), every branch point that names the recording as a parent at or
@@ -2732,6 +2741,15 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **Dev: harness runs spend less time outside the mission.** The seam is polled every 25 ms
+  for the first 2 s after each command (it was a flat 0.25 s, while the game answers within a
+  frame or two; measured 13.7 s per run in such waits), and the response file is read from
+  where the last read stopped. The test assembly the verifiers run is built once per
+  selection instead of twice per run (the build checks cost about 9.4 s and 7.3 s per run);
+  if that build fails, every selected scenario is refused before boot as
+  `INVALID(tooling-build)` rather than checked with old rules. With the assembly prebuilt,
+  the KSP.log validation runs beside the recording analyzer. Verdicts and result rows are
+  unchanged; one timing line is new.
 - **A new supply route is named after the mission it repeats.** Creating a route from a
   Candidates row names it after its mission (`Duna Supply 1`) instead of `Route: KSC -> Duna`,
   which only repeated the from/to line under it. A second route from the same mission (or any

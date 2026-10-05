@@ -1835,6 +1835,138 @@ class FrozenSampleLimitParamTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+class ChuteUnobservableTerminalTests(unittest.TestCase):
+    """The chute-unobservable terminal (RB-1 2026-09-27_1353): a pad hop whose runner
+    READS the craft's parachutes but has never seen a parachute state by the DESCENT
+    entry is watching the wrong parts (the fixture had kRPC read a clone). The machine
+    must end there as MISSION-ASSERT-FAIL (INVALID(mission) at the harness, the
+    vessel-lost terminal's class) BEFORE the arm, instead of commanding nothing and
+    flying the Flea into the ground at 230 m/s. A Stowed read, a read that was never
+    switched on, and a single faulted read after a readable pad must all leave the
+    arm exactly where it was."""
+
+    @staticmethod
+    def _pad_hop(chute, read_on=True, entry_chute=None):
+        """PRELAUNCH -> ASCENT -> COAST -> DESCENT entry; ``chute`` is the read on
+        every pre-entry frame, ``entry_chute`` (default ``chute``) the entry frame's."""
+        entry = chute if entry_chute is None else entry_chute
+        kw = dict(chute_read_on=read_on)
+        return [
+            snap(ut=0.0, craft_chute_state=chute, **kw),
+            snap(ut=2.0, stage_solid_fuel=10.0, apoapsis=5000.0, craft_chute_state=chute, **kw),
+            snap(ut=6.0, stage_solid_fuel=0.0, apoapsis=14000.0, craft_chute_state=chute, **kw),
+            snap(ut=10.0, vertical_speed=20.0, apoapsis=14200.0, craft_chute_state=chute, **kw),
+            snap(ut=20.0, altitude=11900.0, vertical_speed=-5.0, apoapsis=14210.0,
+                 craft_chute_state=entry, **kw),
+        ]
+
+    ARM = [Action(mlib.ACTION_SET_CHUTE_DEPLOY_ALTITUDE, 2500.0),
+           Action(mlib.ACTION_DEPLOY_CHUTE)]
+
+    def test_b1_unreadable_chute_at_descent_entry_ends_before_the_arm(self):
+        state, per_frame = drive_b1(mlib.b1_initial_state(B1_PARAMS), self._pad_hop(""))
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertEqual(mlib.B1_DESCENT, state.phase)
+        self.assertEqual([], per_frame[-1], "nothing may be commanded on unowned parts")
+        self.assertFalse(state.chute_deployed)
+        self.assertTrue(state.loss_reason.startswith(mlib.CHUTE_UNOBSERVABLE_REASON),
+                        state.loss_reason)
+        self.assertIn("craftChute=UNREAD", state.loss_reason)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertEqual((mlib.MISSION_ASSERT_FAIL, state.loss_reason), (verdict, reason))
+        # Idempotent once done: a later recovery-style frame changes nothing.
+        after, actions = mlib.b1_decide(state, snap(ut=30.0, altitude=0.0,
+                                                    situation="LANDED",
+                                                    chute_read_on=True))
+        self.assertIs(state, after)
+        self.assertEqual([], actions)
+
+    def test_b1_stowed_chute_arms_unchanged(self):
+        state, per_frame = drive_b1(mlib.b1_initial_state(B1_PARAMS),
+                                    self._pad_hop(mlib.CHUTE_STATE_STOWED))
+        self.assertFalse(state.done)
+        self.assertIsNone(state.verdict)
+        self.assertEqual(self.ARM, per_frame[-1])
+        self.assertTrue(state.chute_deployed)
+
+    def test_b1_one_faulted_read_after_a_readable_pad_does_not_trip(self):
+        state, per_frame = drive_b1(mlib.b1_initial_state(B1_PARAMS),
+                                    self._pad_hop(mlib.CHUTE_STATE_STOWED, entry_chute=""))
+        self.assertFalse(state.done)
+        self.assertEqual(self.ARM, per_frame[-1])
+
+    def test_b1_without_the_chute_read_nothing_changes(self):
+        state, per_frame = drive_b1(mlib.b1_initial_state(B1_PARAMS),
+                                    self._pad_hop("", read_on=False))
+        self.assertFalse(state.done)
+        self.assertEqual(self.ARM, per_frame[-1])
+
+    def test_b1_recovery_frame_after_a_landing_does_not_trip(self):
+        # The benign "-" at alt=0 on recovery: the craft is down and gone, the chute
+        # read is "" on the read-on runner. The machine is already LANDED and done.
+        frames = self._pad_hop(mlib.CHUTE_STATE_STOWED) + [
+            snap(ut=40.0, altitude=900.0, vertical_speed=-9.0, chute_read_on=True,
+                 craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+            snap(ut=55.0, altitude=0.0, situation="LANDED", chute_read_on=True,
+                 craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+            snap(ut=56.0, altitude=0.0, situation="LANDED", chute_read_on=True,
+                 craft_chute_state=""),
+        ]
+        state, _ = drive_b1(mlib.b1_initial_state(B1_PARAMS), frames)
+        self.assertEqual(mlib.B1_LANDED, state.phase)
+        self.assertIsNone(state.verdict)
+        self.assertIsNone(state.loss_reason)
+
+    def test_b1_rb1_shape_readable_ascent_then_dark_trips(self):
+        # RB-1 2026-09-27_1353 verbatim in shape: the chute read Stowed on the first
+        # ascent polls, then "" on every poll after, through the DESCENT entry.
+        frames = self._pad_hop("")
+        frames[0] = replace(frames[0], craft_chute_state=mlib.CHUTE_STATE_STOWED)
+        frames[1] = replace(frames[1], craft_chute_state=mlib.CHUTE_STATE_STOWED)
+        state, per_frame = drive_b1(mlib.b1_initial_state(B1_PARAMS), frames)
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertEqual([], per_frame[-1])
+        self.assertIn("on the last 3 frame(s)", state.loss_reason)
+        self.assertIn("craftChute=Stowed", state.loss_reason)
+
+    def test_the_streak_and_predicate(self):
+        k = mlib.CHUTE_UNOBSERVABLE_DEBOUNCE_K
+        on = snap(chute_read_on=True)
+        self.assertEqual(3, mlib.advance_chute_unread_streak(2, on))
+        self.assertEqual(0, mlib.advance_chute_unread_streak(
+            2, snap(chute_read_on=True, craft_chute_state=mlib.CHUTE_STATE_STOWED)))
+        self.assertEqual(0, mlib.advance_chute_unread_streak(2, snap()))
+        self.assertEqual(0, mlib.advance_chute_unread_streak(
+            2, snap(chute_read_on=True, vessel_lost=True)))
+        self.assertTrue(mlib.chute_unobservable_at_descent(on, k))
+        self.assertFalse(mlib.chute_unobservable_at_descent(on, k - 1))
+        self.assertFalse(mlib.chute_unobservable_at_descent(
+            snap(vessel_lost=True, chute_read_on=True), k))
+        self.assertFalse(mlib.chute_unobservable_at_descent(snap(), k))
+        self.assertFalse(mlib.chute_unobservable_at_descent(
+            snap(chute_read_on=True, craft_chute_state=mlib.CHUTE_STATE_STOWED), k))
+
+    def test_eva4_unreadable_chute_at_descent_entry_ends_before_the_arm(self):
+        state, per_frame = drive_eva4(mlib.eva4_initial_state(EVA4_PARAMS),
+                                      self._pad_hop(""))
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertEqual(mlib.EVA4_DESCENT, state.phase)
+        self.assertEqual([], per_frame[-1])
+        self.assertFalse(state.chute_armed)
+        self.assertTrue(state.loss_reason.startswith(mlib.CHUTE_UNOBSERVABLE_REASON),
+                        state.loss_reason)
+
+    def test_eva4_stowed_chute_arms_unchanged(self):
+        state, per_frame = drive_eva4(mlib.eva4_initial_state(EVA4_PARAMS),
+                                      self._pad_hop(mlib.CHUTE_STATE_STOWED))
+        self.assertFalse(state.done)
+        self.assertEqual(self.ARM, per_frame[-1])
+        self.assertEqual(0, state.chute_unread_streak)
+
+
 class B1DownTerminalTests(unittest.TestCase):
     """Guards the DOWN terminal: vessel-lost / frozen in DESCENT with the canopy
     OBSERVED open ends DOWN (done, NO loss_reason, verdict None so assertions decide,
