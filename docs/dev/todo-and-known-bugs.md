@@ -148,21 +148,77 @@ child is that part at that UT classifies as `"UNDOCK"`
 (`BackgroundRecorder.ClassifyBackgroundJointBreakCause`, logged with part pid and cause), and
 the deferred split check carries the cause into the branch point. The branch-point type
 stays `JointBreak` and the part event stays `Decoupled`, so route / origin-proof readers
-(which key on `BranchPointType.Undock`) are unchanged. A docking port's "Decouple Node", a
-pre-attached port's Undock (both go through `Part.decouple`, which fires no `onPartUndock`)
-and an ordinary decoupler still read "Decoupled".
+(which key on `BranchPointType.Undock`) are unchanged. A docking port's "Decouple Node"
+and an ordinary decoupler still read "Decoupled". (A pre-attached port's Undock, which goes
+through `Part.decouple` and fires no `onPartUndock`, read "Decoupled" here too; fixed in
+PREATTACHED-PORT-UNDOCK-READS-DECOUPLED below.)
 
-## BG-STRUCTURAL-BREAK-READS-DECOUPLED: a background vessel that breaks apart reads "Decoupled", not "Broke off" [FILED 2026-10-06, branch `bg-undock-cause`. OPEN]
+## ~~BG-STRUCTURAL-BREAK-READS-DECOUPLED: a background vessel that breaks apart reads "Decoupled", not "Broke off"~~ [FILED 2026-10-06, branch `bg-undock-cause`. FIXED 2026-10-06, branch `split-cause-followups`, in BOTH recorders]
 
-`BackgroundRecorder` stamps every non-undock structural joint break `SplitCause =
-"DECOUPLE"`, so a background vessel losing a part to a structural failure or impact reads
-"Decoupled" in the Missions tab where the type arm would read "Broke off". The foreground
-tells them apart with `SegmentBoundaryLogic.ClassifyForegroundSplitChildCause`, which needs
-to know whether the split came from a decoupler (`onPartDeCoupleNewVesselComplete` /
-decouple-only trigger). The background recorder tracks no decouple event, so this is not a
-one-line change. Fix: note background `onPartDeCouple` parts the way `onPartUndock` is now
-noted, and classify a break with neither as `"CRASH"` (or leave the cause null) to match the
-foreground.
+**Finding: the foreground had the same mislabel, so the filed premise was wrong.** Decompiled
+KSP 1.12.5: a force break runs `PartJoint.OnJointBreak` (fires `onPartJointBreak(joint,
+breakForce)` with the real force) -> `Part.OnPartJointBreak(breakForce)` -> `Part.decouple(breakForce)`,
+which raises `onPartDeCouple` and `onPartDeCoupleNewVesselComplete` exactly like a decoupler.
+`Part.Die` also `decouple()`s its children. So the foreground's decouple signal
+(`decoupleControllerStatus`, the input of `ClassifyForegroundSplitChildCause`) is true for a
+force break too, and noting background `onPartDeCouple` would have changed nothing. Live
+proof: `logs/2026-09-29_2323_EVA-10-mun-ground-science-cluster/KSP.log` line 27907, a
+parachute torn off at `breakForce=8526.6`, then line 27949 `cause=DECOUPLE,
+decoupleCreated=True` for the child. Of 2199 foreground split children in the collected
+logs, 2176 classified `DECOUPLE`. The discriminator KSP does give is the force:
+`PartJoint.DestroyJoint` (called by `Part.decouple` and `Part.Undock`) fires
+`onPartJointBreak(joint, 0f)`, the physics break fires it with the real force, and it fires
+first.
+
+Fix (type-preserving): a structural joint that broke with `breakForce > 0` is a broken-off
+part, persisted as `SplitCause = "BROKE_OFF"` (an additive value, no schema bump). Background:
+`BackgroundRecorder.ClassifyBackgroundJointBreakCause` returns `BROKE_OFF` for it (force
+checked before the undock note). Foreground: `FlightRecorder.OnPartJointBreak` notes the child
+pid, `ClassifyForegroundSplitChildCause` returns `BROKE_OFF` for a decouple-caught child whose
+root part was noted, and `CrashCoalescer` treats `BROKE_OFF` (and `UNDOCK`) as separations
+like `DECOUPLE`: the window still emits a `JointBreak` (`BROKE_OFF` when any child broke off,
+`CombineSeparationCause`), and any `CRASH` child still escalates it to `Breakup`.
+`MissionCompositionBuilder.BranchEventName` maps it to "Broke off", and the structure list's
+debris-only arm (`isStaging = cause == null || cause == "DECOUPLE"`) reads it as a separation,
+"Broke off: 1 piece", not "Staged". A null cause is not reused, so it keeps its old meaning and
+existing saves do not relabel. An older build reading `BROKE_OFF` matches no cause arm and
+falls back to the `JointBreak` type ("Broke off") and a non-staging step. Branch types
+and `Decoupled` part events are unchanged, so every type-keyed reader (route proof and
+Logistics on `Undock`, `EffectiveState` / `UnfinishedFlightClassifier` / `SupersedeCommit` /
+anchors / `GhostingTriggerClassifier` on `JointBreak` / `Breakup`, ghost part hiding on
+`Decoupled` events) behaves as before; `SplitCause` is read only by the Missions labels.
+
+Left open: a part shed because its parent part DIED (`Part.Die` decouples children with
+force 0) still reads "Decoupled" when no crash child joins the window. Telling it apart
+needs `onPartWillDie`, which fires before those decouples; not done here.
+
+## ~~PREATTACHED-PORT-UNDOCK-READS-DECOUPLED: Undock on a VAB-built docking-port pair reads "Decoupled"~~ [FILED and FIXED 2026-10-06, branch `split-cause-followups`]
+
+What the player clicked (decompiled `ModuleDockingNode`, KSP 1.12.5): a port with a part on
+its docking node in the editor starts in the `PreAttached` FSM state, whose `OnEnter` sets
+`Events["Undock"].active = true` (label `#autoLOC_6001445` = "Undock"). The "Decouple Node"
+event (`#autoLOC_6001446`) is declared `active = false` and nothing in the module activates
+it. `Undock()` with `undockPreAttached` calls `Decouple()`, which calls `Part.decouple()` on
+the port or on the part on its reference node: `onPartDeCouple` / `onPartDeCoupleNewVesselComplete`
+fire, `onPartUndock` / `onVesselsUndocking` never do. So a button labelled Undock produced a
+`JointBreak` + `DECOUPLE` ("Decoupled") in both recorders.
+
+Staging is the trap: `ModuleDockingNode.OnActive()` (a staged port with `stagingEnabled`)
+calls the same `Decouple()` with the port still `PreAttached`, so the FSM state cannot tell a
+click from staging, and a staged port must keep reading "Staged" / "Decoupled".
+
+Fix: the intent is caught at the click. `Patches/DockingNodeUndockIntentPatch` (a Prefix on
+the public, parameterless `ModuleDockingNode.Undock()`, which also serves the Undock action
+group) arms `DockingPortSeparation` with the port pid, the pid of the part on its docking node
+and the UT, only when the port is `PreAttached`. `UndockSameVessel()` is not patched: it only
+runs the FSM undock event, no vessel split. The recorders' `onPartDeCouple` handlers consume
+the note (`TryConsumePreAttachedUndock`, pure `MatchesPreAttachedUndock`: same UT and the
+decoupling part is the port or its partner; a stale note is cleared); staging never passes
+through `Undock()`, so it never arms. Background: the part is noted in the #2012 undock slot,
+so the joint break classifies `UNDOCK`. Foreground: `FlightRecorder.OnPartDeCouple` notes it
+and `ClassifyForegroundSplitChildCause` returns `UNDOCK` for that child, which the coalescer
+emits as `JointBreak` + `UNDOCK`. Type and part events unchanged as above. Not live-proven (no
+lane flies a pre-attached undock or a staged port).
 
 ---
 

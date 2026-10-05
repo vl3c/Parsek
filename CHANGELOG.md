@@ -1447,6 +1447,14 @@ _(unreleased - entries accumulate here per commit)_
 - **An undock done from EVA now reads "Undocked" in the Missions tab.** When a kerbal on EVA
   undocked a docked vessel it was not flying, the separation was listed as "Decoupled".
   A docking port's "Decouple Node" and an ordinary decoupler still read "Decoupled".
+- **A part torn off by force now reads "Broke off", and a VAB-built docking port's Undock reads
+  "Undocked", in the Missions tab.** A wing or parachute ripped off by aerodynamic stress or an
+  impact was listed as "Decoupled", on the vessel you fly and on a vessel recorded in the
+  background alike. Clicking Undock on a pair of docking ports that were joined in the
+  editor was also listed as "Decoupled". A decoupler firing still reads "Decoupled" (or
+  "Staged" in a mission's steps), staging such a docking port still reads the same way, and a
+  break that comes with a crash still reads "Crashed". Neither fix has been checked in a
+  test flight yet.
 - **A branch point after a recording split now names the segment it happened on.** When a
   recording is split (the optimizer's cut at an atmosphere exit or a body change, or a
   Re-Fly's HEAD/TIP cut), every branch point that names the recording as a parent at or
