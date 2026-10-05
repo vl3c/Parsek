@@ -894,7 +894,11 @@ segment they were recorded against. Readers that decide a later segment's contin
 leafness from its branch points skip one the vessel flew on past
 (`SplitParentLinks.IsFlownPastOnLaterSegment`: a later chain segment, at or after its start,
 not its `ChildBranchPointId` and not at its end UT), which is how those readers saw the
-branch point when it stayed on the first segment.
+branch point when it stayed on the first segment. Readers that walk UP from a child cross a
+split through the chain predecessor (a later segment has no branch point or parent link of
+its own): the logistics transport lineage does, and the mission Log lets any later segment
+own a stage whose branch point still names an earlier segment that ended before it (a repair
+that had to stop).
 
 #### Discovery Passes
 

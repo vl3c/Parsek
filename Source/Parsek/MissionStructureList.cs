@@ -723,7 +723,10 @@ namespace Parsek
         // parents, or the adjacent segment of a parent's chain: a split cut can fall inside the
         // stage's moment, leaving a same-moment part event on the segment just before or just
         // after the one the branch point names (SplitParentLinks gives the branch point the
-        // segment that holds its UT).
+        // segment that holds its UT). When the load repair had to stop (an ambiguous or
+        // data-less next segment, or a next segment the branch point itself created), the
+        // branch point can still name an earlier segment that ended before it; then any later
+        // segment of that chain owns its events, as it did before the repair existed.
         private static bool IsStageOwner(BuildContext ctx, BranchPoint bp, Recording rec)
         {
             if (rec == null || bp.ParentRecordingIds == null) return false;
@@ -732,11 +735,15 @@ namespace Parsek
             for (int i = 0; i < bp.ParentRecordingIds.Count; i++)
             {
                 Recording parent = ctx.Rec(bp.ParentRecordingIds[i]);
-                if (parent != null
-                    && string.Equals(parent.ChainId, rec.ChainId, StringComparison.Ordinal)
-                    && parent.ChainBranch == rec.ChainBranch
-                    && parent.ChainIndex >= 0
-                    && Math.Abs(parent.ChainIndex - rec.ChainIndex) == 1)
+                if (parent == null
+                    || !string.Equals(parent.ChainId, rec.ChainId, StringComparison.Ordinal)
+                    || parent.ChainBranch != rec.ChainBranch
+                    || parent.ChainIndex < 0)
+                    continue;
+                if (Math.Abs(parent.ChainIndex - rec.ChainIndex) == 1)
+                    return true;
+                if (rec.ChainIndex > parent.ChainIndex
+                    && bp.UT > parent.EndUT + SplitParentLinks.SegmentEndToleranceSeconds)
                     return true;
             }
             return false;

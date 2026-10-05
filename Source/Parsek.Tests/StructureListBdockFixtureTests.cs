@@ -227,6 +227,53 @@ namespace Parsek.Tests
             Assert.DoesNotContain(steps, s => s.UT == 180 && s.Kind == StructureStepKind.Staging);
         }
 
+        // catches: the Log losing a stage's own part when the load repair had to stop and the
+        // branch point still names the first segment (here the middle segment carries no
+        // trajectory, so its start is unknown): the decouple's part sits two segments later
+        // and must still be absorbed into the stage, not drawn as a row of its own.
+        [Fact]
+        public void StaleBranchPointTheRepairCouldNotMove_KeepsItsStageParts()
+        {
+            var head = new Recording
+            {
+                RecordingId = "head", VesselName = "Stack", ChainId = "c", ChainIndex = 0,
+                ExplicitStartUT = 0, ExplicitEndUT = 180, StartBodyName = "Kerbin",
+            };
+            var middle = new Recording
+            {
+                RecordingId = "middle", VesselName = "Stack", ChainId = "c", ChainIndex = 1,
+                StartBodyName = "Kerbin",
+            };
+            var tail = new Recording
+            {
+                RecordingId = "tail", VesselName = "Stack", ChainId = "c", ChainIndex = 2,
+                ExplicitStartUT = 250, ExplicitEndUT = 600, StartBodyName = "Kerbin",
+                TerminalStateValue = TerminalState.Orbiting,
+            };
+            tail.PartEvents.Add(new PartEvent { ut = 300.2, eventType = PartEventType.Decoupled, partPersistentId = 7, partName = "radialDecoupler1-2" });
+            var tree = new RecordingTree { Id = "t", RootRecordingId = "head" };
+            tree.Recordings["head"] = head;
+            tree.Recordings["middle"] = middle;
+            tree.Recordings["tail"] = tail;
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "stage", Type = BranchPointType.JointBreak, UT = 300, CoalesceWindow = 0.5,
+                SplitCause = "DECOUPLE", ParentRecordingIds = new List<string> { "head" },
+                ChildRecordingIds = new List<string>(),
+            });
+            Assert.Equal(0, SplitParentLinks.RepairStaleParents(tree, "test"));
+            Assert.Equal("head", tree.BranchPoints[0].ParentRecordingIds[0]);
+
+            List<StructureStep> steps = MissionStructureListBuilder.Build(
+                tree, MissionStructureBuilder.Build(tree), StockTitles);
+            foreach (StructureStep s in steps)
+                output.WriteLine(s.UT.ToString("F2", CultureInfo.InvariantCulture) + "  " + Row(s));
+
+            StructureStep stage = Assert.Single(steps, s => s.Kind == StructureStepKind.Staging);
+            Assert.Equal(300, stage.UT);
+            Assert.Contains("Hydraulic Detachment Manifold", stage.Label);
+        }
+
         // catches (a) mirror: a root's start-UT Decoupled is the launch clamps letting go -
         // a real event - while its start-UT jettisons are the recorder's seeds.
         [Fact]

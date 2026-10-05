@@ -537,11 +537,50 @@ namespace Parsek.Logistics
                     continue;
                 }
 
+                // A later segment of a recording split carries neither link (the split
+                // gives it no branch point and copies the first segment's own parent
+                // link); its predecessor is the previous chain segment. A branch point
+                // after the cut names the later segment, so without this step the walk
+                // would stop there instead of reaching the vessel's earlier legs.
+                Recording chainPredecessor = FindChainPredecessor(tree, current);
+                if (chainPredecessor != null)
+                {
+                    lineage[currentIdx] = new LineageLeg
+                    {
+                        Rec = current,
+                        HasParentSeam = true,
+                        ChainSeam = true
+                    };
+                    current = chainPredecessor;
+                    continue;
+                }
+
                 break; // root-most leg reached
             }
 
             lineage.Reverse(); // oldest-first
             return lineage;
+        }
+
+        // The single recording in the tree that precedes this one in its split chain
+        // (same ChainId and ChainBranch, ChainIndex - 1); null when none or ambiguous.
+        private static Recording FindChainPredecessor(RecordingTree tree, Recording rec)
+        {
+            if (tree?.Recordings == null || rec == null
+                || string.IsNullOrEmpty(rec.ChainId) || rec.ChainIndex <= 0)
+                return null;
+            Recording found = null;
+            foreach (Recording candidate in tree.Recordings.Values)
+            {
+                if (candidate == null || ReferenceEquals(candidate, rec)) continue;
+                if (!string.Equals(candidate.ChainId, rec.ChainId, StringComparison.Ordinal)
+                    || candidate.ChainBranch != rec.ChainBranch
+                    || candidate.ChainIndex != rec.ChainIndex - 1)
+                    continue;
+                if (found != null) return null;
+                found = candidate;
+            }
+            return found;
         }
 
         // Picks the transport-side parent at a branch point. Single parent

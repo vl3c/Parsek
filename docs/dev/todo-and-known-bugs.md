@@ -913,8 +913,12 @@ pinned row by row in `StructureListBdockFixtureTests` against the committed fixt
   each branch-point parent entry and child `ParentRecordingId` at or after the cut to the
   segment that holds it, the reversing merge points them back (`SplitParentLinks`), and
   `SplitParentLinks.RepairStaleParents` corrects older trees on load. The Log's stage owner
-  reads only the branch point's parents and the ADJACENT chain segment (a cut inside a
-  stage's moment), no longer any segment of the chain. Readers that decide a segment's
+  reads the branch point's parents and the ADJACENT chain segment (a cut inside a stage's
+  moment); any later segment of the chain owns the stage only when the branch point still
+  names a segment that ended before it (a repair that had to stop). The logistics transport
+  lineage (`RouteHarvestAnalysis.CollectTransportLineage`) steps from a later split segment
+  to its chain predecessor, so a payload dropped by a staging after the cut still traces
+  back to the launch. Readers that decide a segment's
   continuation or leafness from its branch points (`MissionStructureBuilder`,
   `MissionThroughLineBuilder.ContinuationSuccessor`, `GhostPlaybackLogic.IsNonLeafInTree`)
   skip a branch point a split moved onto a later segment that the vessel flew on past

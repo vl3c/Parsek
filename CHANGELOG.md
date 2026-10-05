@@ -1450,11 +1450,16 @@ _(unreleased — entries accumulate here per commit)_
   recording ended at, so a probe decoupled in orbit still named the launch segment. The merge
   that reverses a split points those links back at the surviving recording. Saves written
   before the fix are corrected on load (once per tree, logged as
-  `[SplitParentLinks] RepairStaleParents`), with no change to the recording format. One
-  visible change: a Log row for a stage dropped after a split now reads the body it dropped
-  at (`Duna`, not `Kerbin`). The Missions composition, its stored interval keys (checked on
-  every recorded fixture), which recording spawns at the end of a flight, and a Re-Fly's
-  debris read exactly as before.
+  `[SplitParentLinks] RepairStaleParents`), with no change to the recording format. Visible
+  changes: a Log row for a stage dropped after a split now reads the body it dropped at
+  (`Duna`, not `Kerbin`); and in an existing save the load repair can remove a Re-Fly slot
+  that existed only because of the stale link. A slot is refused when the vessel flew on
+  past a later controllable separation, and that separation used to be invisible because
+  it named the first segment; once it names the segment the vessel was flying, the slot
+  is gone, which is the correct answer. The Missions composition, its stored interval keys
+  (checked on every recorded fixture), which recording spawns at the end of a flight, a
+  Re-Fly's debris and a supply route's transport lineage (now followed back across the
+  split to the launch) read as before.
 - **R&D's Research button now greys out when science held for later research makes a node
   unaffordable.** Stock never greys Research for science; it refuses at the click. When the
   science bar showed enough but later research on the timeline needed part of it, Parsek
