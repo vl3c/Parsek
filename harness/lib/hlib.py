@@ -939,7 +939,7 @@ DEFERRED_SEAM_VERBS: Tuple[str, ...] = ("RunTests", "LoadGame", "InvokeRewind", 
 # its OWN dispatch deferral budget before the seam self-emits a TIMEOUT terminal
 # (classified retryable driver-INVALID). If the harness step-wait for such a verb is
 # only the bare per-step budget it can KILL a genuinely-deferring verb BEFORE the seam
-# surfaces that TIMEOUT (M-A5 integration item 3): AnswerMergeDialog (120s dialog wait)
+# surfaces that TIMEOUT (M-A5 integration item 3): AnswerMergeDialog (60s dialog wait)
 # and KscAction (60s career-ready wait) are the motivating cases -- deliberately NOT
 # two-phase-deferred (they complete quickly once ready), but their nonzero deferral
 # budget must be out-waited + margin so the seam's own verdict is OBSERVED, not
@@ -951,7 +951,10 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     "LoadGame": 300.0,
     "StartRecording": 180.0,
     "InvokeRewind": 300.0,
-    "AnswerMergeDialog": 120.0,
+    # Mirrors DeferralBudget.AnswerMergeDialogSeconds, MEASURED (859 runs, 2026-09-10 to
+    # 2026-10-05): OK max 7.2 s (n=65); 60 s is twice the C# re-fly resume-settle
+    # fallback (30 s) that spends the front of the budget before the driven exit.
+    "AnswerMergeDialog": 60.0,
     "TimeJump": 120.0,
     # WarpToUT, mirroring DeferralBudget.WarpToUTSeconds. NOT sized like TimeJump: an
     # epoch shift is instant, but a warp costs whatever stock's clamps allow, and a
@@ -975,14 +978,15 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # the full stock EVA canopy). 420 s covers a ~2 km opening altitude with margin and
     # stays under the 540 s cap.
     "EvaChuteDeploy": 420.0,
-    # Coverage wave 10, mirroring DeferralBudget.EvaGroundScienceSeconds (the EvaExit
-    # size): the place gate, preview, confirm presses and ground-vessel load, or the
-    # pick-up's retract animation, each seconds.
-    "EvaGroundScience": 120.0,
-    # R12. ExitToSpaceCenter mirrors the C# ExitToSpaceCenterSeconds = 120.0, sized like
-    # AnswerMergeDialog (the only other verb that DRIVES a scene exit and holds the head
-    # across its settle) rather than like LoadGame, which additionally parses a cold save
-    # off disk. Without the row the harness step-wait would ride the 60 s default + margin
+    # Coverage wave 10, mirroring DeferralBudget.EvaGroundScienceSeconds: one action
+    # (step / take / place / pickup) per command. MEASURED (859 runs, 2026-09-10 to
+    # 2026-10-05): OK max 5.5 s (n=412); 60 s because the place ladder counts frames
+    # (about 1,000 worst case, inside 60 s down to ~17 fps); every timeout in the
+    # corpus waited the full old 120 s and none was a slow success.
+    "EvaGroundScience": 60.0,
+    # R12. ExitToSpaceCenter mirrors the C# ExitToSpaceCenterSeconds = 120.0, sized for
+    # a driven scene exit and its settle rather than like LoadGame, which additionally
+    # parses a cold save off disk. Without the row the harness step-wait would ride the 60 s default + margin
     # and could KILL a healthy KSC bootstrap - which re-reads persistent.sfs and runs
     # SetProtoModules -> the pending-tree auto-commit - at ~120 s, converting a retryable
     # seam TIMEOUT into a terminal KILLED. SimulateStockSwitchClick is deliberately ABSENT:

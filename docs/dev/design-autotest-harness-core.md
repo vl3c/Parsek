@@ -1399,7 +1399,7 @@ M-A5.1; v1 lives within the fixed 600s seam ceiling via the 540s cap above.
 Dispatch-deferral margin for non-two-phase verbs (integration item 3): the same
 "out-wait the seam + 60s so its TIMEOUT is observed" rule applies to seam verbs that
 are NOT in `DEFERRED_SEAM_VERBS` but still carry a nonzero seam-side DISPATCH deferral
-budget -- `AnswerMergeDialog` (120s dialog wait) and `KscAction` (60s career-ready
+budget -- `AnswerMergeDialog` (60s dialog wait) and `KscAction` (60s career-ready
 wait) are bounded-wait-but-quick, so they are deliberately not two-phase-deferred, yet
 they DO park at the seam head up to their own budget before self-emitting a TIMEOUT. A
 bare per-step wait for those verbs could KILL a genuinely-deferring verb before the

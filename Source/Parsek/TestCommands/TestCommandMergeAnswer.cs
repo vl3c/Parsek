@@ -83,7 +83,7 @@ namespace Parsek.TestCommands
         /// under a second after InvokeRewind's marker completion
         /// (RestoreActiveTreeFromPending's own vessel wait deadline is 3 s), so this
         /// bound only governs the restore-give-up / placeholder-mode attempts where the
-        /// tree never becomes active. Must stay well below
+        /// tree never becomes active. Must stay at most half of
         /// <see cref="DeferralBudget.AnswerMergeDialogSeconds"/> so the fallback
         /// drive plus the post-answer scene settle still fit in the verb budget
         /// (guarded by a unit test).

@@ -51,7 +51,7 @@ namespace Parsek.Tests
         {
             // M-C1 batch-1 budgets (design M-A5 driver integration table).
             Assert.Equal(300.0, DeferralBudget.BudgetSeconds("InvokeRewind"));
-            Assert.Equal(120.0, DeferralBudget.BudgetSeconds("AnswerMergeDialog"));
+            Assert.Equal(60.0, DeferralBudget.BudgetSeconds("AnswerMergeDialog"));
             Assert.Equal(120.0, DeferralBudget.BudgetSeconds("TimeJump"));
             // KscAction covers only the career-ready / SPACECENTER wait: the default 60s.
             Assert.Equal(DeferralBudget.DefaultSeconds, DeferralBudget.BudgetSeconds("KscAction"));
@@ -81,10 +81,28 @@ namespace Parsek.Tests
                 DeferralBudget.BudgetSeconds("EvaChuteDeploy"));
             Assert.True(DeferralBudget.EvaChuteDeploySeconds <= 540.0,
                 "EvaChuteDeploy budget must stay under the harness deferred-step cap");
-            // Coverage wave 10: EvaGroundScience is EvaExit-sized.
-            Assert.Equal(120.0, DeferralBudget.BudgetSeconds("EvaGroundScience"));
             Assert.Equal(DeferralBudget.EvaGroundScienceSeconds,
                 DeferralBudget.BudgetSeconds("EvaGroundScience"));
+        }
+
+        [Fact]
+        public void MeasuredBudgets_ArePinned()
+        {
+            // Sized from the collected harness corpus (859 runs, 2026-09-10 to 2026-10-05)
+            // as max(4 x OK max, 30 s floor); every timeout in that corpus waited the full
+            // old 120 s and none was a slow success. A change here must be deliberate:
+            // re-measure, update the evidence comment on the constant, and update the
+            // harness mirror (hlib DISPATCH_DEFERRAL_BUDGET_SECONDS) in the same commit.
+            // EvaGroundScience: OK max 5.5 s (n=412); 60 s covers the frame-counted
+            // place ladder (~1,000 frames worst case) down to ~17 fps.
+            Assert.Equal(60.0, DeferralBudget.EvaGroundScienceSeconds);
+            Assert.Equal(60.0, DeferralBudget.BudgetSeconds("EvaGroundScience"));
+            // AnswerMergeDialog: OK max 7.2 s (n=65); the floor is twice the re-fly
+            // resume-settle fallback, which spends up to 30 s before the driven exit.
+            Assert.Equal(60.0, DeferralBudget.AnswerMergeDialogSeconds);
+            Assert.Equal(60.0, DeferralBudget.BudgetSeconds("AnswerMergeDialog"));
+            Assert.Equal(2.0 * TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds,
+                DeferralBudget.AnswerMergeDialogSeconds);
         }
 
         [Fact]

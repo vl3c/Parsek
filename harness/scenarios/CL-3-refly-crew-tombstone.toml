@@ -631,7 +631,7 @@ maxTotal = 0
 #   SetSetting         (default)       =  60
 #   TimeJump           max(120,600)+60 = 660
 #   mission            (step budget)   = 600
-#   AnswerMergeDialog  (budget; C# DeferralBudget is 120) = 240
+#   AnswerMergeDialog  (budget; C# DeferralBudget is 60)  = 240
 #   RecordingState     (default)       =  60
 #   FlushAndQuit       (default)       =  60   -> sum 2340; +60 margin = 2400.
 # THE MISSION BUDGET IS 600, NOT R1's 1200, because this lane flies no ascent. Its worst
