@@ -5571,6 +5571,9 @@ namespace Parsek
 
                     if (RepairMissingContiguousChainPredecessors(tree, "LoadRecordingTrees") > 0)
                         tree.RebuildBackgroundMap();
+                    // A tree written before a split moved its parent links names the head for
+                    // events on a later segment; point them at the segment that holds them.
+                    SplitParentLinks.RepairStaleParents(tree, "LoadRecordingTrees");
 
                     // Phase 8 review-pass-3: deferred co-bubble sweeps
                     // moved out of the per-tree loop. Cross-tree co-bubble
@@ -5915,6 +5918,9 @@ namespace Parsek
 
             if (RepairMissingContiguousChainPredecessors(tree, "TryRestorePendingTreeNode") > 0)
                 tree.RebuildBackgroundMap();
+            // A tree written before a split moved its parent links names the head for
+            // events on a later segment; point them at the segment that holds them.
+            SplitParentLinks.RepairStaleParents(tree, "TryRestorePendingTreeNode");
 
             if (preserveDuringActiveRestore)
                 RecordingStore.PreservePendingTreeFromSaveDuringActiveRestore(tree);
@@ -6055,6 +6061,9 @@ namespace Parsek
                     tree, tree.ActiveRecordingId);
                 if (RepairMissingContiguousChainPredecessors(tree, "TryRestoreActiveTreeNode") > 0)
                     tree.RebuildBackgroundMap();
+                // A tree written before a split moved its parent links names the head for
+                // events on a later segment; point them at the segment that holds them.
+                SplitParentLinks.RepairStaleParents(tree, "TryRestoreActiveTreeNode");
 
                 // If the same tree id is already in committedTrees (e.g. the player
                 // quicksaved in flight, then exited to TS which committed the tree, then

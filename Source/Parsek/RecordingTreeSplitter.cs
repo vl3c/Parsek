@@ -45,6 +45,7 @@ namespace Parsek
             internal string TipRecordingId;
             internal double SplitUT;
             internal int BpReparented;
+            internal int ChildParentReparented;
             internal int DebrisReparented;
             internal int DebrisAnchorRewrites;
             internal int TipAnchorRewrites;
@@ -203,6 +204,7 @@ namespace Parsek
                 TrackSectionAnchorRewrite = 2,
                 LedgerActionRetag = 3,
                 MilestoneRetag = 4,
+                ChildParentRecordingRewrite = 5,
             }
 
             /// <summary>
@@ -214,6 +216,7 @@ namespace Parsek
             /// <item><see cref="Kind.TrackSectionAnchorRewrite"/>: <see cref="Recording"/>=owning recording + <see cref="IntKey"/>=section index + <see cref="OldId"/> / <see cref="NewId"/>.</item>
             /// <item><see cref="Kind.LedgerActionRetag"/>: <see cref="Action"/>=GameAction reference + <see cref="OldId"/> / <see cref="NewId"/>.</item>
             /// <item><see cref="Kind.MilestoneRetag"/>: <see cref="Milestone"/>=milestone reference + <see cref="OldId"/> / <see cref="NewId"/>.</item>
+            /// <item><see cref="Kind.ChildParentRecordingRewrite"/>: <see cref="Recording"/>=child + <see cref="OldId"/> / <see cref="NewId"/> of its <c>ParentRecordingId</c>.</item>
             /// </list>
             /// </summary>
             internal struct Entry
@@ -246,6 +249,17 @@ namespace Parsek
                 {
                     EntryKind = Kind.DebrisParentRewrite,
                     Recording = debris,
+                    OldId = oldId,
+                    NewId = newId,
+                };
+            }
+
+            internal static Entry ChildParent(Recording child, string oldId, string newId)
+            {
+                return new Entry
+                {
+                    EntryKind = Kind.ChildParentRecordingRewrite,
+                    Recording = child,
                     OldId = oldId,
                     NewId = newId,
                 };
@@ -326,6 +340,10 @@ namespace Parsek
                     case Kind.MilestoneRetag:
                         if (e.Milestone != null)
                             e.Milestone.RecordingId = e.OldId;
+                        break;
+                    case Kind.ChildParentRecordingRewrite:
+                        if (e.Recording != null)
+                            e.Recording.ParentRecordingId = e.OldId;
                         break;
                 }
             }
@@ -791,7 +809,7 @@ namespace Parsek
                 }
 
                 // Rewrite the moved BP's ParentRecordingIds entry from origin
-                // to tip (mirrors RunOptimizationSplitPass at RecordingStore:3461-3493).
+                // to tip now; Step 2.6 repoints every other parent link.
                 RecordingTree owningTree = FindCommittedTreeById(origin.TreeId);
                 if (!string.IsNullOrEmpty(movedChildBranchPointId)
                     && owningTree != null
@@ -891,32 +909,32 @@ namespace Parsek
 
             RecordingTree tree = FindCommittedTreeById(origin.TreeId);
 
-            // Step 2.6: BranchPoint reparent walk. Edge case: BP.UT == rewindUT
-            // reparents to TIP (BP belongs to TIP's lifetime).
-            if (tree != null && tree.BranchPoints != null)
+            // Step 2.6: parent-link reparent walk, the rule every split shares
+            // (SplitParentLinks): a branch point naming origin as a parent at or after
+            // rewindUT, and a child recording linked to origin from then on, belong to
+            // TIP. A branch point exactly at rewindUT belongs to TIP.
+            var linkChanges = new List<SplitParentLinks.LinkChange>();
+            SplitParentLinks.RepointToTail(
+                tree, origin.RecordingId, tip, rewindUT, linkChanges, "Re-Fly split");
+            for (int c = 0; c < linkChanges.Count; c++)
             {
-                for (int b = 0; b < tree.BranchPoints.Count; b++)
+                SplitParentLinks.LinkChange change = linkChanges[c];
+                if (change.Kind == SplitParentLinks.LinkKind.BranchPointParent)
                 {
-                    var bp = tree.BranchPoints[b];
-                    if (bp == null || bp.ParentRecordingIds == null) continue;
-                    if (!(bp.UT >= rewindUT)) continue;
-                    for (int p = 0; p < bp.ParentRecordingIds.Count; p++)
-                    {
-                        if (string.Equals(
-                                bp.ParentRecordingIds[p],
-                                origin.RecordingId,
-                                StringComparison.Ordinal))
-                        {
-                            snapshot.Ledger.Add(SplitMutationLedger.BpParent(
-                                bp, p, origin.RecordingId, tip.RecordingId));
-                            bp.ParentRecordingIds[p] = tip.RecordingId;
-                            result.BpReparented++;
-                        }
-                    }
+                    snapshot.Ledger.Add(SplitMutationLedger.BpParent(
+                        change.BranchPoint, change.ParentIndex, change.OldId, change.NewId));
+                    result.BpReparented++;
+                }
+                else
+                {
+                    snapshot.Ledger.Add(SplitMutationLedger.ChildParent(
+                        change.Child, change.OldId, change.NewId));
+                    result.ChildParentReparented++;
                 }
             }
             ParsekLog.Verbose(Tag,
                 $"Step6: BP reparent walk complete — bpReparented={result.BpReparented.ToString(ic)} " +
+                $"childParentReparented={result.ChildParentReparented.ToString(ic)} " +
                 $"(rewindUT={rewindUT.ToString("F2", ic)} origin={origin.RecordingId} tip={tip.RecordingId})");
 
             // Step 2.7: debris reparent walk. Build the reparented-debris id

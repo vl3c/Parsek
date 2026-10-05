@@ -130,10 +130,11 @@ namespace Parsek.Tests
 
         // catches: the in-game shape of this fixture. On load the optimizer splits the
         // docking mission's root at its atmosphere exit (UT 568.23, GUI-4 2026-10-01_1603)
-        // into chain segments, forwarding every permanent part event as seeds at the cut,
-        // and leaves the probe separation's branch point (UT 692.77) naming the HEAD while
-        // the Poodle shroud that drops with it sits on the TAIL. The flight drew a stray
-        // "Shroud jettisoned" row there; the Log must read exactly as before the split.
+        // into chain segments, forwarding every permanent part event as seeds at the cut;
+        // the probe separation's branch point (UT 692.77) and the dock follow the cut onto
+        // the TAIL (SplitParentLinks), where the Poodle shroud that drops with the probe
+        // sits. The flight once drew a stray "Shroud jettisoned" row there; the Log must
+        // read exactly as before the split.
         [Fact]
         public void DockingMission_AfterTheOptimizerSplit_ReadsTheSameRows()
         {
@@ -153,9 +154,14 @@ namespace Parsek.Tests
             head.ChildBranchPointId = null;
             tail.TerminalStateValue = head.TerminalStateValue;
             head.TerminalStateValue = null;
+            SplitParentLinks.RepointToTail(tree, head.RecordingId, tail, tail.StartUT, null, "test");
             tree.Recordings[tail.RecordingId] = tail;
             BranchPoint dock = tree.BranchPoints.Single(b => b.Type == BranchPointType.Dock);
-            dock.ParentRecordingIds[0] = tail.RecordingId;
+            BranchPoint probe = tree.BranchPoints.Single(b => b.Id == "fc4591e43cdf443993a0d6399a9cf516");
+            Assert.Equal(new[] { tail.RecordingId }, dock.ParentRecordingIds);
+            Assert.Equal(new[] { tail.RecordingId }, probe.ParentRecordingIds);
+            Assert.All(tree.BranchPoints.Where(b => b.UT < 568.23),
+                b => Assert.Equal(new[] { head.RecordingId }, b.ParentRecordingIds));
             // The cut really did forward the launch's part state onto the tail.
             Assert.Contains(tail.PartEvents, e => Math.Abs(e.ut - 568.23160278301521) < 1e-6
                 && e.eventType == PartEventType.ShroudJettisoned);
@@ -219,6 +225,53 @@ namespace Parsek.Tests
             Assert.Single(steps, s => s.Label.StartsWith("Staged", StringComparison.Ordinal));
             Assert.Single(steps, s => s.Label.StartsWith("Fairing", StringComparison.Ordinal));
             Assert.DoesNotContain(steps, s => s.UT == 180 && s.Kind == StructureStepKind.Staging);
+        }
+
+        // catches: the Log losing a stage's own part when the load repair had to stop and the
+        // branch point still names the first segment (here the middle segment carries no
+        // trajectory, so its start is unknown): the decouple's part sits two segments later
+        // and must still be absorbed into the stage, not drawn as a row of its own.
+        [Fact]
+        public void StaleBranchPointTheRepairCouldNotMove_KeepsItsStageParts()
+        {
+            var head = new Recording
+            {
+                RecordingId = "head", VesselName = "Stack", ChainId = "c", ChainIndex = 0,
+                ExplicitStartUT = 0, ExplicitEndUT = 180, StartBodyName = "Kerbin",
+            };
+            var middle = new Recording
+            {
+                RecordingId = "middle", VesselName = "Stack", ChainId = "c", ChainIndex = 1,
+                StartBodyName = "Kerbin",
+            };
+            var tail = new Recording
+            {
+                RecordingId = "tail", VesselName = "Stack", ChainId = "c", ChainIndex = 2,
+                ExplicitStartUT = 250, ExplicitEndUT = 600, StartBodyName = "Kerbin",
+                TerminalStateValue = TerminalState.Orbiting,
+            };
+            tail.PartEvents.Add(new PartEvent { ut = 300.2, eventType = PartEventType.Decoupled, partPersistentId = 7, partName = "radialDecoupler1-2" });
+            var tree = new RecordingTree { Id = "t", RootRecordingId = "head" };
+            tree.Recordings["head"] = head;
+            tree.Recordings["middle"] = middle;
+            tree.Recordings["tail"] = tail;
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "stage", Type = BranchPointType.JointBreak, UT = 300, CoalesceWindow = 0.5,
+                SplitCause = "DECOUPLE", ParentRecordingIds = new List<string> { "head" },
+                ChildRecordingIds = new List<string>(),
+            });
+            Assert.Equal(0, SplitParentLinks.RepairStaleParents(tree, "test"));
+            Assert.Equal("head", tree.BranchPoints[0].ParentRecordingIds[0]);
+
+            List<StructureStep> steps = MissionStructureListBuilder.Build(
+                tree, MissionStructureBuilder.Build(tree), StockTitles);
+            foreach (StructureStep s in steps)
+                output.WriteLine(s.UT.ToString("F2", CultureInfo.InvariantCulture) + "  " + Row(s));
+
+            StructureStep stage = Assert.Single(steps, s => s.Kind == StructureStepKind.Staging);
+            Assert.Equal(300, stage.UT);
+            Assert.Contains("Hydraulic Detachment Manifold", stage.Label);
         }
 
         // catches (a) mirror: a root's start-UT Decoupled is the launch clamps letting go -

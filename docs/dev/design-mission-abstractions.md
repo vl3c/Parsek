@@ -588,6 +588,12 @@ into stack "AB" and later undock:
    derived not serialized) and `MissionThroughLineBuilder.ContinuationSuccessor`
    prefers it among the children that already pass its non-anchored / non-EVA
    filter. No schema change (the child order is already serialized in the tree).
+   On a later segment of a split run, the children of a branch point the vessel flew on
+   past (`SplitParentLinks.IsFlownPastOnLaterSegment`) are never its continuation
+   (`MissionLeg.NonContinuingChildIds`, read by `ContinuationSuccessor` and
+   `ContinuesAsVessel`): they peel off the run, the reading the stored interval keys
+   were cut with while a split left those branch points on the run's first segment
+   (todo MISSION-SPLIT-RUN-CONTINUATION).
 4. **Cross-tree dock (foreign vessel) — RESOLVED (M-MIS-8, 2026-07-07).** When A
    and B are independent trees, the shared docked journey is now loopable from
    the partner's side via an explicit dock-link inclusion

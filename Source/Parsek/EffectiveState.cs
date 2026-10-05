@@ -2900,6 +2900,34 @@ namespace Parsek
         // anchored to. The BP-type half of the gate is the secondary fence;
         // the parents-contains-dequeued-recording check is what actually
         // excludes the background anchor double-duty.
+        // The debris anchor names the recording the coalescer split from, and a later
+        // recording split (SplitParentLinks) moves the branch point to the segment that holds
+        // its UT while the anchor (a playback frame link) stays. The branch point still counts
+        // as the anchor's when it names a later segment of the anchor's own chain, unless it
+        // is the branch point that segment ends at (a split always moved that one, and it
+        // never counted). Different chains (the background-split anchor) never match.
+        private static bool NamesLaterSplitSegmentOf(
+            BranchPoint bp, Recording rec, Dictionary<string, Recording> recById)
+        {
+            if (bp?.ParentRecordingIds == null || rec == null || recById == null
+                || string.IsNullOrEmpty(rec.ChainId) || rec.ChainIndex < 0)
+                return false;
+            for (int i = 0; i < bp.ParentRecordingIds.Count; i++)
+            {
+                string id = bp.ParentRecordingIds[i];
+                if (string.IsNullOrEmpty(id) || !recById.TryGetValue(id, out Recording seg) || seg == null)
+                    continue;
+                if (!string.Equals(seg.ChainId, rec.ChainId, StringComparison.Ordinal)
+                    || seg.ChainBranch != rec.ChainBranch
+                    || seg.ChainIndex <= rec.ChainIndex)
+                    continue;
+                if (string.Equals(seg.ChildBranchPointId, bp.Id, StringComparison.Ordinal))
+                    continue;
+                return true;
+            }
+            return false;
+        }
+
         private static void EnqueueDebrisChildren(
             Recording rec,
             Dictionary<string, Recording> recById,
@@ -2957,7 +2985,8 @@ namespace Parsek
                     continue;
                 }
                 if (bp.ParentRecordingIds == null
-                    || !bp.ParentRecordingIds.Contains(rec.RecordingId))
+                    || (!bp.ParentRecordingIds.Contains(rec.RecordingId)
+                        && !NamesLaterSplitSegmentOf(bp, rec, recById)))
                 {
                     debrisAnchorOnlySkips++;
                     continue;

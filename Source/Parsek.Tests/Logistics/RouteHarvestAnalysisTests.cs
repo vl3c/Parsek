@@ -648,6 +648,114 @@ namespace Parsek.Tests.Logistics
         }
 
         // ------------------------------------------------------------------
+        // A payload dropped by a staging the vessel flew on past, after an
+        // atmosphere-exit split (SplitParentLinks moves that staging onto the
+        // later segment)
+        // ------------------------------------------------------------------
+
+        // Stack launches at 0, drops the payload at UT 200 (a decouple it flies on
+        // past) and keeps flying to 400; the payload docks at the colony (500).
+        // With split=true the stack is cut at its atmosphere exit (UT 100) and the
+        // staging names the later segment, as the optimizer now writes it.
+        private static RecordingTree BuildFlownPastPayloadTree(bool split, out Recording merge)
+        {
+            var stack = new Recording
+            {
+                RecordingId = "stack", TreeId = "tree-payload",
+                ExplicitStartUT = 0.0, ExplicitEndUT = 400.0,
+                StartBodyName = "Kerbin", LaunchSiteName = "LaunchPad",
+                RouteRunManifest = CompleteManifest(
+                    new[] { TransportPid, DepotPid }, Ore(0.0), Ore(0.0))
+            };
+            var payload = new Recording
+            {
+                RecordingId = "payload", TreeId = "tree-payload",
+                ExplicitStartUT = 200.0, ExplicitEndUT = DockUT,
+                ParentBranchPointId = "bp-stage",
+                RouteRunManifest = CompleteManifest(new[] { TransportPid }, Ore(0.0), Ore(120.0))
+            };
+            merge = new Recording
+            {
+                RecordingId = "merge", TreeId = "tree-payload",
+                ExplicitStartUT = DockUT, ExplicitEndUT = UndockUT,
+                ParentBranchPointId = "bp-dock",
+                RouteRunManifest = CompleteManifest(
+                    new[] { TransportPid, ColonyPid }, Ore(120.0), Ore(120.0))
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree-payload", RootRecordingId = "stack", ActiveRecordingId = "merge"
+            };
+            tree.AddOrReplaceRecording(stack);
+            tree.AddOrReplaceRecording(payload);
+            tree.AddOrReplaceRecording(merge);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-stage", UT = 200.0, Type = BranchPointType.JointBreak, SplitCause = "DECOUPLE",
+                ParentRecordingIds = new List<string> { "stack" },
+                ChildRecordingIds = new List<string> { "payload" }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-dock", UT = DockUT, Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { "payload" },
+                ChildRecordingIds = new List<string> { "merge" }
+            });
+            if (split)
+            {
+                stack.ExplicitEndUT = 100.0;
+                stack.ChainId = "stack-chain";
+                stack.ChainIndex = 0;
+                var tail = new Recording
+                {
+                    RecordingId = "stack-tail", TreeId = "tree-payload",
+                    ExplicitStartUT = 100.0, ExplicitEndUT = 400.0,
+                    ChainId = "stack-chain", ChainIndex = 1,
+                    RouteRunManifest = CompleteManifest(
+                        new[] { TransportPid, DepotPid }, Ore(0.0), Ore(0.0))
+                };
+                SplitParentLinks.RepointToTail(tree, "stack", tail, 100.0, null, "test");
+                tree.AddOrReplaceRecording(tail);
+                Assert.Equal(new[] { "stack-tail" }, tree.BranchPoints[0].ParentRecordingIds);
+            }
+            return tree;
+        }
+
+        // catches: the lineage walk stopping at the later segment of a split (it has
+        // no branch point and no parent link of its own) once the staging that dropped
+        // the payload names it, instead of reaching the launch as it does unsplit.
+        [Fact]
+        public void CollectTransportLineage_FlownPastStagingAfterASplit_ReachesTheLaunch()
+        {
+            RecordingTree flat = BuildFlownPastPayloadTree(false, out Recording flatMerge);
+            List<RouteHarvestAnalysis.LineageLeg> unsplit =
+                RouteHarvestAnalysis.CollectTransportLineage(flat, flatMerge, WindowScope(), out string f1);
+            Assert.Null(f1);
+            Assert.Equal(new[] { "stack", "payload", "merge" },
+                unsplit.ConvertAll(l => l.Rec.RecordingId).ToArray());
+
+            RecordingTree split = BuildFlownPastPayloadTree(true, out Recording splitMerge);
+            List<RouteHarvestAnalysis.LineageLeg> lineage =
+                RouteHarvestAnalysis.CollectTransportLineage(split, splitMerge, WindowScope(), out string f2);
+            Assert.Null(f2);
+            Assert.Equal(new[] { "stack", "stack-tail", "payload", "merge" },
+                lineage.ConvertAll(l => l.Rec.RecordingId).ToArray());
+            Assert.True(lineage[1].HasParentSeam);
+            Assert.True(lineage[1].ChainSeam);
+            Assert.True(lineage[2].HasParentSeam);
+            Assert.Equal(BranchPointType.JointBreak, lineage[2].SeamType);
+
+            // The verdict is the unsplit one.
+            HarvestGainCheckResult flatResult = RouteHarvestAnalysis.CheckTransportGains(
+                flat, flatMerge, ColonyWindow(120.0, 20.0), RouteAnalysisLogMode.Diagnostic);
+            HarvestGainCheckResult splitResult = RouteHarvestAnalysis.CheckTransportGains(
+                split, splitMerge, ColonyWindow(120.0, 20.0), RouteAnalysisLogMode.Diagnostic);
+            Assert.Equal(flatResult.Outcome, splitResult.Outcome);
+            Assert.Equal(flatResult.AnchorLeg?.RecordingId, splitResult.AnchorLeg?.RecordingId);
+            Assert.Equal(flatResult.RejectGained, splitResult.RejectGained, 6);
+        }
+
+        // ------------------------------------------------------------------
         // Chain-seam fixture (KSC root -> chain link -> leg2 -> Dock -> merge)
         // ------------------------------------------------------------------
 

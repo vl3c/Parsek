@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -73,6 +74,16 @@ namespace Parsek
         // vs offshoot assignment was an arbitrary GUID/StartUT tiebreak). Derived, not
         // serialized: recomputed from the (serialized) child order on every Build.
         public bool IsBranchContinuation;
+
+        // Branch children of this leg that are never its vessel continuation: the children of
+        // a branch point a split moved onto this later chain segment that the vessel flew on
+        // past (SplitParentLinks.IsFlownPastOnLaterSegment). The composition reads such a child
+        // as a peel of the run: a split used to leave every such branch point on the run's
+        // first segment, whose sequence link always wins the continuation, and the interval
+        // keys missions store were cut that way, so no key moves. An unsplit leg, a run's first
+        // segment, and the branch point a segment ends at read as before.
+        // Consulted by ContinuesAsVessel and MissionThroughLineBuilder.ContinuationSuccessor.
+        public readonly HashSet<string> NonContinuingChildIds = new HashSet<string>(StringComparer.Ordinal);
 
         // Composition at this leg's start, derived from the recording's Controllers list
         // (classified by ControllerInfo.type) and StartCrew manifest. Drives the Missions
@@ -200,7 +211,8 @@ namespace Parsek
                     {
                         if (structure.LegsById.TryGetValue(leg.BranchChildIds[i], out MissionLeg child)
                             && !child.IsAnchoredOffshoot
-                            && string.IsNullOrEmpty(child.EvaCrewName))
+                            && string.IsNullOrEmpty(child.EvaCrewName)
+                            && !leg.NonContinuingChildIds.Contains(child.RecordingId))
                         {
                             continues = true;
                             break;
@@ -380,6 +392,18 @@ namespace Parsek
 
                 if (bp.ChildRecordingIds == null)
                     continue;
+
+                // A later segment of a split run continues only through the branch point it
+                // ends at; any other branch point's children peel off the run.
+                foreach (var pleg in controlledParents)
+                {
+                    Recording parentRec = null;
+                    tree.Recordings?.TryGetValue(pleg.RecordingId, out parentRec);
+                    if (!SplitParentLinks.IsFlownPastOnLaterSegment(parentRec, bp))
+                        continue;
+                    foreach (var cid in bp.ChildRecordingIds)
+                        if (cid != null) pleg.NonContinuingChildIds.Add(cid);
+                }
 
                 // The recorder lists the CONTINUING vessel first in ChildRecordingIds (the
                 // active vessel a split follows, or the single merged child of a Dock/Board),

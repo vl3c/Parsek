@@ -8692,7 +8692,10 @@ namespace Parsek
                 var bp = tree.BranchPoints[b];
                 if (bp == null || bp.Type == BranchPointType.GroundPartPlaced)
                     continue;
-                if (bp.ParentRecordingIds != null && bp.ParentRecordingIds.Contains(rec.RecordingId))
+                // A branch point a split moved onto a later chain segment that the vessel flew
+                // on past does not end the segment either.
+                if (bp.ParentRecordingIds != null && bp.ParentRecordingIds.Contains(rec.RecordingId)
+                    && !SplitParentLinks.IsFlownPastOnLaterSegment(rec, bp))
                 {
                     string treeLabel = !string.IsNullOrEmpty(tree.Id) ? tree.Id : (tree.TreeName ?? "(pending)");
                     ParsekLog.VerboseRateLimited("Spawner",

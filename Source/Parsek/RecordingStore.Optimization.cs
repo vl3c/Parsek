@@ -165,26 +165,18 @@ namespace Parsek
                     second.SegmentBodyName = second.Points[0].bodyName;
 
                 // BranchPoint linkage: ChildBranchPointId moves to the half whose
-                // time range owns the branch point. Older code always moved it to
-                // the second half, assuming every optimizer split precedes branchUT.
-                // Re-Fly atmo/exo splits can happen after a staging branch; moving
-                // that branch would make a BP at UT 116 point at a segment starting
-                // around UT 170 and corrupt parent-chain topology.
+                // time range owns the branch point (a Re-Fly atmo/exo split can fall
+                // after a staging branch, which must stay on the first half).
                 //
-                // NOTE: The parent BranchPoint's ChildRecordingIds still references
-                // original.RecordingId (now the first chain segment). This is correct —
-                // the first segment IS the direct child of that BP. The chain linkage
-                // (shared ChainId) connects it to subsequent segments. Code that walks
-                // from a BranchPoint to the chain tip must follow ChainId, not just
-                // ChildRecordingIds.
-                string movedChildBranchPointId = null;
+                // The parent BranchPoint's ChildRecordingIds still references
+                // original.RecordingId (now the first chain segment), which IS the direct
+                // child of that BP; the shared ChainId connects the later segments.
                 bool childBranchPointMovesToSecond = ShouldMoveChildBranchPointToSplitSecondHalf(
                     original.TreeId,
                     original.ChildBranchPointId,
                     second.StartUT);
                 if (childBranchPointMovesToSecond)
                 {
-                    movedChildBranchPointId = original.ChildBranchPointId;
                     second.ChildBranchPointId = original.ChildBranchPointId;
                     original.ChildBranchPointId = null;
                 }
@@ -192,15 +184,16 @@ namespace Parsek
                 {
                     second.ChildBranchPointId = null;
                 }
-                // Do NOT set second.ParentRecordingId — that field is for EVA linkage only
+                // second.ParentRecordingId stays the original's own parent link (copied by
+                // SplitAtSection); it is not a link to the original.
 
-                // Update BranchPoint.ParentRecordingIds when ChildBranchPointId moves to new half
-                if (!string.IsNullOrEmpty(movedChildBranchPointId) && !string.IsNullOrEmpty(original.TreeId))
-                {
-                    RetargetMovedBranchPointParent(
-                        original.TreeId, movedChildBranchPointId,
-                        original.RecordingId, second.RecordingId);
-                }
+                // Every branch point that names the original as a parent at or after the cut,
+                // and every child recording linked to it from then on, now belongs to the
+                // second half (SplitParentLinks): the moved ChildBranchPointId, a decouple the
+                // vessel flew on past, a dock, an EVA.
+                SplitParentLinks.RepointToTail(
+                    FindCommittedTreeById(original.TreeId), original.RecordingId, second,
+                    second.StartUT, null, "Optimization split");
 
                 // Add to committed recordings (after original)
                 recordings.Insert(recIdx + 1, second);
@@ -328,49 +321,6 @@ namespace Parsek
             // RecordingTreeSplitter.cs's `tip.SupersedeTargetId = null;`).
             second.SupersedeTargetId = original.SupersedeTargetId;
             second.SwitchSegmentSessionId = original.SwitchSegmentSessionId;
-        }
-
-        /// <summary>
-        /// Retargets the moved child BranchPoint's ParentRecordingIds entry from the original
-        /// recording id to the second-half recording id after an optimizer split moved the
-        /// branch point to the second half. Mutates the matching committed tree's branch point.
-        /// Caller gates entry on a non-empty moved branch-point id and tree id.
-        /// </summary>
-        private static void RetargetMovedBranchPointParent(
-            string treeId,
-            string movedChildBranchPointId,
-            string oldRecordingId,
-            string newRecordingId)
-        {
-            for (int t = 0; t < committedTrees.Count; t++)
-            {
-                if (committedTrees[t].Id != treeId) continue;
-                var tree = committedTrees[t];
-                if (tree.BranchPoints != null)
-                {
-                    for (int b = 0; b < tree.BranchPoints.Count; b++)
-                    {
-                        if (tree.BranchPoints[b].Id == movedChildBranchPointId
-                            && tree.BranchPoints[b].ParentRecordingIds != null)
-                        {
-                            var parentIds = tree.BranchPoints[b].ParentRecordingIds;
-                            for (int p = 0; p < parentIds.Count; p++)
-                            {
-                                if (parentIds[p] == oldRecordingId)
-                                {
-                                    parentIds[p] = newRecordingId;
-                                    ParsekLog.Verbose("RecordingStore",
-                                        $"Split: updated BranchPoint '{movedChildBranchPointId}' " +
-                                        $"ParentRecordingIds: {oldRecordingId} → {newRecordingId}");
-                                    break;
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
-                break;
-            }
         }
 
         internal static bool ShouldMoveChildBranchPointToSplitSecondHalf(
@@ -592,30 +542,12 @@ namespace Parsek
                 if (tree.ActiveRecordingId == absorbed.RecordingId && target != null)
                     tree.ActiveRecordingId = target.RecordingId;
 
-                if (!string.IsNullOrEmpty(absorbed.ChildBranchPointId) && tree.BranchPoints != null)
-                {
-                    for (int b = 0; b < tree.BranchPoints.Count; b++)
-                    {
-                        if (tree.BranchPoints[b].Id != absorbed.ChildBranchPointId
-                            || tree.BranchPoints[b].ParentRecordingIds == null)
-                        {
-                            continue;
-                        }
-
-                        var parentIds = tree.BranchPoints[b].ParentRecordingIds;
-                        for (int p = 0; p < parentIds.Count; p++)
-                        {
-                            if (parentIds[p] == absorbed.RecordingId && target != null)
-                            {
-                                parentIds[p] = target.RecordingId;
-                                ParsekLog.Verbose("RecordingStore",
-                                    $"Merge: updated BranchPoint '{absorbed.ChildBranchPointId}' " +
-                                    $"ParentRecordingIds: {absorbed.RecordingId} → {target.RecordingId}");
-                            }
-                        }
-                        break;
-                    }
-                }
+                // The merge reverses a split: every branch point naming the absorbed
+                // recording as a parent (its ChildBranchPointId, a decouple flown past, a
+                // dock, an EVA) and every child linked to it now names the survivor.
+                if (target != null)
+                    SplitParentLinks.RepointToSurvivor(
+                        tree, absorbed.RecordingId, target.RecordingId, "Optimization merge");
 
                 return;
             }

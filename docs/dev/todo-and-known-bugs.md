@@ -879,7 +879,7 @@ the schedule of route '<name>'.`), Advanced keeps `Looped by route`.
   right of them and centred): no left inset in its cell, left-aligned like the numbers, width
   unchanged (`TheIndexHeaderSitsOverTheIndexColumnContents`).
 
-## MISSION-LOG-REWORK: the mission Log reads one row per real event [OWNER-APPROVED 2026-10-01, branches `log-rework` (parts 1-2) and `log-rework-2` (part 3 on). PARTS 1-6 DONE]
+## ~~MISSION-LOG-REWORK: the mission Log reads one row per real event~~ [OWNER-APPROVED 2026-10-01, branches `log-rework` (parts 1-2) and `log-rework-2` (part 3 on). PARTS 1-6 DONE; the split-parent look-into FIXED 2026-10-05, branch `split-branchpoint-parent`. CLOSED]
 
 Presentation only (no recording data or schema change, no new window). The docked-mission
 subject is `bdock-recorded`'s "Kerbal X #2" (GUI-4), whose Log read 31 rows; it now reads 11,
@@ -907,11 +907,26 @@ pinned row by row in `StructureListBdockFixtureTests` against the committed fixt
   `X (mission 'Y')` spelling, shared as `MissionChapters.FormatPartnerWithMission`); empty
   state `This mission has no recorded flight.`; a shortened Event cell carries the full list in
   its tooltip, read in a single-line hover strip the window now hosts.
-- [ ] Look into: the optimizer's atmosphere-exit chain split leaves split branch points that fall
-  AFTER the cut naming the HEAD segment as parent (bdock-recorded after load: the probe
-  separation at UT 692.77 names `5157d655`, which now ends at 568.23; its parts sit on the tail
-  `d60398f6`). The Log tolerates it (stage ownership follows the parent's chain); other
-  consumers of `BranchPoint.ParentRecordingIds` may not. Not investigated beyond the Log.
+- [x] ~~Look into: the optimizer's atmosphere-exit chain split leaves split branch points that
+  fall AFTER the cut naming the HEAD segment as parent~~. FIXED at the source (branch
+  `split-branchpoint-parent`): every split (the optimizer pass, the Re-Fly splitter) repoints
+  each branch-point parent entry and child `ParentRecordingId` at or after the cut to the
+  segment that holds it, the reversing merge points them back (`SplitParentLinks`), and
+  `SplitParentLinks.RepairStaleParents` corrects older trees on load. The Log's stage owner
+  reads the branch point's parents and the ADJACENT chain segment (a cut inside a stage's
+  moment); any later segment of the chain owns the stage only when the branch point still
+  names a segment that ended before it (a repair that had to stop). The logistics transport
+  lineage (`RouteHarvestAnalysis.CollectTransportLineage`) steps from a later split segment
+  to its chain predecessor, so a payload dropped by a staging after the cut still traces
+  back to the launch. Readers that decide a segment's
+  continuation or leafness from its branch points (`MissionStructureBuilder`,
+  `MissionThroughLineBuilder.ContinuationSuccessor`, `GhostPlaybackLogic.IsNonLeafInTree`)
+  skip a branch point a split moved onto a later segment that the vessel flew on past
+  (`SplitParentLinks.IsFlownPastOnLaterSegment`), and the Re-Fly debris closure accepts a
+  decouple that names a later segment of the debris anchor's chain, so they answer as before;
+  `SplitParentLinksTests.EveryRecordedFixture_KeysUnmoved_RepairEqualsTheLiveSplit` pins the
+  interval keys, the composition, the vessel and Log rows and the final-spawn segment on
+  every recorded fixture.
 - [x] Part 3, the Log follows the mission (inventory P10): the window opens on a Mission (the
   Logistics button resolves the source tree's ORIGINAL mission) and
   `MissionStructureListBuilder.DropExcludedSteps` drops a row only when every composition
@@ -966,6 +981,51 @@ pinned row by row in `StructureListBdockFixtureTests` against the committed fixt
   `SubOrbital` at its atmosphere exit while the chain continues on `04177024`), which drew a
   mid-flight `End: Suborbital | Kerbin, Grasslands` row. A leg with a sequence successor or a
   later ChainIndex in its chain draws none (`continuedEndsSkipped=` in the build summary).
+
+## CI-2-TIMEJUMP-BEFORE-FLIGHT-READY: CI-2 jumps time before the re-fly scene has built its ghost chains, and its Destroyed pin is stale [FILED 2026-10-05 from SPLIT-BRANCHPOINT-PARENT. OPEN, lane + pin]
+
+`CI-2-refly-claim-tip-pid` reads PARSEK-FAIL on origin/main and on branch
+`split-branchpoint-parent` alike, for two reasons that do not depend on that branch.
+
+1. ORDERING RACE (lane). The seam sends `TimeJump ut=8960` straight after `InvokeRewind`
+   + `ListHandles`, with nothing waiting for the re-fly scene's `OnFlightReady`, which is
+   where `ParsekFlight` builds the ghost chains (`[ChainWalker] Found claims ... Chain built:
+   vessel=3620499050 ... spawnUT=8951.5`). `InvokeRewind` answers OK at `Rewind] Invocation
+   complete`, about 0.6-0.8 s before `OnFlightReady`. Whether the jump lands after the chains
+   is a coin toss on harness poll timing:
+   - origin/main `2026-10-05_1908_CI-2-refly-claim-tip-pid` (DLL `a807bb12...`): `TimeJump`
+     received 22:09:04.265, after `OnFlightReady` (04.215) and `Chain built` (04.237); the
+     chain ghost is created and `Chain tip spawn complete: #19 "Kerbal X" pid=3620499050`
+     follows. Every log contract matched.
+   - branch `2026-10-05_1857_CI-2-refly-claim-tip-pid` (DLL `5b7a58db...`): `TimeJump`
+     received 21:57:39.992, BEFORE `OnFlightReady` (40.436); `FindCrossedChainTips: empty/null
+     chains` and `Time jump complete: 0 vessels spawned`, then `Chain built` at 40.462, past
+     the tip. The four chain-ghost / tip-spawn contracts read missing.
+   Same event sequence on both builds up to the `TimeJump` arrival (InvokeRewind OK -> +0.63 s
+   on main, +0.31 s on the branch). Fix in the lane: wait for the flight scene to be ready
+   (or for the chain build) before `TimeJump`, then re-arm.
+2. STALE PIN (spec). `terminalStates.Destroyed` is armed at exactly 7 (2026-09-08), but the
+   fixture `bdock-recorded` itself carries 12 Destroyed debris recordings (`Kerbal X Debris`,
+   unchanged since 2026-08-12), so every run reads at least 12: the branch run 12 (the debris
+   only), the main run 13 (the debris plus the first tree's chain head `a32f62f5`, which that
+   run extended to UT 8960.24 and ended Destroyed while its chain tail `aecb1e57` still ended
+   at 386.9: a chain head written past its own tail, itself worth a look). The 2026-09-08
+   reading saw 7, so a change since then made five more debris recordings count; re-measure
+   and re-pin after item 1.
+
+## MISSION-SPLIT-RUN-CONTINUATION: a switch continuation after a split reads as its own interval [FILED 2026-10-05 from MISSION-LOG-REWORK. OPEN, needs an owner ruling]
+
+The Missions composition follows a vessel through the branch point its recording ends at.
+On a recording the optimizer split, a branch point after the cut that the vessel flew on
+past (a post-switch `Launch` onto another vessel, a `VesselSwitchContinuation` back onto it,
+a ground part) peels off the run instead (`SplitParentLinks.IsFlownPastOnLaterSegment`,
+the reading the stored interval keys were cut with). For a switch continuation back onto
+the SAME vessel after a gap (`interbody-route-recorded` tree `54c5efe5`: `ffffab0a` ends at
+UT 49217516, the switch segment `470bdcf9` starts at 52566541) that makes the switch segment
+its own interval key instead of part of the vessel's line, which is what an unsplit
+recording reads. Folding it in would merge two stored keys into one (no lossless remap), so
+it needs a ruling on the migration. The opposite case, an unsplit recording whose
+post-switch `Launch` child (another vessel) is read as its continuation, has the same cost.
 
 ## ~~MISSION-EVENT-DIGEST-DUPLICATE-LAUNCHED-ROW: the digest builds a second "launched" row for one flight~~ [FILED 2026-09-29 from MISSIONS-TAB-MODEL1. FIXED 2026-10-01, branch `missions-followups`]
 

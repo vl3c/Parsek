@@ -23,16 +23,13 @@ Traced a Kerbin-launch-to-Mun-landing scenario and a Duna-rover-to-Kerbin-sample
 - SurfaceMobile/SurfaceStationary merged (same visual context)
 - Approach is its own class — correct for loopability (loop just the landing approach, don't bundle 30 min of surface driving)
 
-### 3. ChildBranchPointId re-parenting during optimizer splits is correct
+### 3. Branch-point parent links follow the split
 
-The unconditional move of `ChildBranchPointId` to the second half (RecordingStore.cs:931-933) is safe because:
-- In tree mode, `ChildBranchPointId` is always set at recording termination (`CreateSplitBranch`, ParsekFlight.cs:1769-1770)
-- The recorder stops at `branchUT` via `StopRecordingForChainBoundary()`
-- No trajectory data exists past `branchUT`
-- Any optimizer environment split is at an internal boundary, always before `branchUT`
-- Therefore `splitUT < ChildBranchPointId.UT` always holds
-
-The `BranchPoint.ParentRecordingIds` update (RecordingStore.cs:937-968) correctly re-links the moved BP to the second half's new RecordingId.
+`ChildBranchPointId` moves to the second half only when its branch point is at or after the
+cut (`ShouldMoveChildBranchPointToSplitSecondHalf`). Every other parent link at or after the
+cut moves too (`SplitParentLinks.RepointToTail`): a branch point the vessel flew on past (a
+decouple, a post-switch launch) and a child's `ParentRecordingId`. Contract:
+`docs/parsek-flight-recorder-design.md` section 9A.5, "Parent links across a split".
 
 ### 4. Permanent visual state forwarding is correct
 
@@ -108,7 +105,7 @@ Example: BP1.ChildRecordingIds = [rover_cont, rocket]. After optimizer splits ro
 
 The optimizer has tests for split logic (CanAutoSplit, SplitAtSection, environment classification). But there are no tests that exercise the full `RunOptimizationPass` on a tree with branch points — verifying that after splits:
 - ChildBranchPointId ends up on the correct chain segment
-- BranchPoint.ParentRecordingIds is correctly re-linked
+- BranchPoint.ParentRecordingIds follow the split (every parent link at or after the cut)
 - Chain indexing is correct across branch point boundaries
 - Ghost playback can navigate the split tree correctly
 
