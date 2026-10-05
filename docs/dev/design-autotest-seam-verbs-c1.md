@@ -984,7 +984,7 @@ four rows:
 | verb | deferral budget | rationale |
 |---|---|---|
 | `InvokeRewind` | rewind budget (~300 s, LoadGame-class) | a re-fly copies a quicksave, reloads the scene, and runs `ConsumePostLoad`; sized like `LoadGame` (`TestCommandDispatcher.cs:220`) |
-| `AnswerMergeDialog` | scene-exit budget (~120 s) | it may DRIVE the conclusion scene-exit that surfaces the pre-transition dialog, then holds the head through the post-answer scene settle; the wait-plus-settle wants a real bound, not the bare default |
+| `AnswerMergeDialog` | 60 s (was ~120 s; measured 2026-10-06, see the command-seam budget table) | it may DRIVE the conclusion scene-exit that surfaces the pre-transition dialog, then holds the head through the post-answer scene settle; the wait-plus-settle wants a real bound, not the bare default |
 | `TimeJump` | jump budget (~120 s) | the jump is synchronous but the settle + ledger recalc want a bound; well under an infinite hang |
 | `KscAction` | default 60 s | covers the career-ready / SPACECENTER wait; the action itself is immediate |
 

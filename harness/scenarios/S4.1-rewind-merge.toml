@@ -280,9 +280,9 @@ maxParsekFrames = 0
 #   InvokeRewind    max(300,600)+60 = 660   (the gate refusal: priced on the verb name)
 #   TimeJump        max(120,600)+60 = 660
 #   InvokeRewind    max(300,600)+60 = 660
-#   AnswerMergeDialog max(120,120)+60 = 180
+#   AnswerMergeDialog max(120,60+60) = 120
 #   RecordingState  (default)       = 120
-#   FlushAndQuit    (default)       = 120   -> sum 3180; +120 margin = 3300.
+#   FlushAndQuit    (default)       = 120   -> sum 3120; +180 margin = 3300.
 # On the happy path (verbs execute in FLIGHT) the real wall-clock is ~700s,
 # far under this ceiling; the ceiling only governs the unattended defer path.
 budgetSeconds = 3300

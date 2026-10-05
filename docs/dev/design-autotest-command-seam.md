@@ -860,9 +860,8 @@ FLIGHT -> SPACECENTER transition through the stock Space Center exit-button path
 runs. Two-phase, LoadGame-style: the terminal is deferred until SPACECENTER settles with a
 game loaded -> `OK scene=SPACECENTER`; a MAINMENU settle -> `ERROR
 msg=exit-failed-returned-to-menu`; budget expiry -> `ERROR msg=exit-timeout`. Budget
-`ExitToSpaceCenterSeconds = 120`, sized like `AnswerMergeDialog` (the only other verb that
-DRIVES a scene exit and holds the head across its settle) rather than like `LoadGame`,
-which additionally parses a cold save off disk.
+`ExitToSpaceCenterSeconds = 120`, sized for a driven scene exit and its settle rather than
+like `LoadGame`, which additionally parses a cold save off disk.
 
 **Why a narrow verb and not a generic `LoadScene`.** CL-1 needs the live FLIGHT exit WITH
 its side effects: all four pending-tree auto-commit routes are gated on
@@ -3696,7 +3695,7 @@ offTarget=<m> moves=<n>` (a timeout carries the same `offTarget=` / `moves=`). P
 `TryParseStepArgs` / `TryParseStepBearing` / `OffsetLatLonAlongBearing` /
 `StepHorizontalOffset` / `ShouldReapplyStep` / `DecideStepCompletion`.
 
-**Phases.** TWO-PHASE on a 120 s budget (the EvaExit size), NOT a `DEFERRED_SEAM_VERB`;
+**Phases.** TWO-PHASE on a 30 s budget (measured 2026-10-06, see the budget table), NOT a `DEFERRED_SEAM_VERB`;
 `RequiresFlight` plus the EVA family's `not-eva` defer. hlib tail role world-mutating,
 post-mission role `outcome`.
 
@@ -4205,6 +4204,8 @@ wall-clock. Some verbs need a different bound and override the default:
 | `Recover` | 120 s | TWO-PHASE, the `ExitToSpaceCenter` size: stock's save, the Space Center load and the 8-frame delay before `VesselRetrieval.recoverVessels`; NOT a `DEFERRED_SEAM_VERB` |
 | `TrackingStationRecover` | 120 s | TWO-PHASE, the `Recover` size: the Tracking Station load, a few frames of select / confirm / summary dismissal, and the Space Center load back; NOT a `DEFERRED_SEAM_VERB` |
 | `KscMarkerRecover` | 60 s | TWO-PHASE, the default size named: no scene load, the 180-frame marker wait, stock's one-frame recovery and a summary dismissal; NOT a `DEFERRED_SEAM_VERB` |
+| `AnswerMergeDialog` | 60 s | MEASURED 2026-10-06 over 859 collected runs (2026-09-10 to 2026-10-05): OK n=65, p50 3.3 s, p99 6.6 s, max 7.2 s. 4x the OK max is 29 s; the floor is twice `TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds` (30 s), which the re-fly fallback spends before the driven exit (unit-guarded). Was 120 s; all 6 non-OK outcomes (4 `no-refly-dialog` TIMEOUT, 2 `answer-timeout` ERROR) waited the full 120 s and none was a slow success |
+| `EvaGroundScience` | 30 s | MEASURED 2026-10-06 over the same corpus: OK n=412, p50 0.9 s, p99 5.5 s, max 5.5 s (step 3.3, take 0.5, place 3.6, pickup 5.5). Each action is its own command, so the budget bounds one action. 4x the OK max is 22 s, so the 30 s floor applies. Was 120 s (the EvaExit size); all 37 timeouts (27 `step-timeout`, 5 `placement-timeout`, 3 `place-gate-timeout`, 2 `pickup-timeout`) waited the full 120 s, 4,440 s in all |
 
 Budgets are measured from when the command first reaches the head and begins deferring. On
 expiry the pump writes `TIMEOUT` with `msg` carrying the last defer reason and advances.

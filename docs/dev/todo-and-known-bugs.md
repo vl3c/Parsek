@@ -698,6 +698,18 @@ Lost: about 26 min with a dialog up, about 25 min of it avoidable (RB-1 is about
   defer. L3 / L5 / both L6 lanes now expect `REJECTED`. SE-1 needs no change: its two
   deferrals came after an upstream `LaunchFromEditor` failure left the run outside FLIGHT,
   which now rejects fast too. Tests: `TestCommandDispatchTests.CommitTree_*`.
+- [x] Seam budgets that only ever paid out on failure: `EvaGroundScience` 120 s -> 30 s and
+  `AnswerMergeDialog` 120 s -> 60 s (2026-10-06, branch `seam-timeout-budgets`). Measured
+  over 859 collected runs (2026-09-10 to 2026-10-05): EvaGroundScience OK n=412, p99 5.5 s,
+  max 5.5 s, its 37 timeouts all at the full 120 s (4,440 s); AnswerMergeDialog OK n=65,
+  p99 6.6 s, max 7.2 s, its 6 non-OK outcomes all at 120 s. Rule: max(4 x OK max, 30 s);
+  AnswerMergeDialog's floor is twice its 30 s re-fly resume-settle fallback. The hlib
+  `DISPATCH_DEFERRAL_BUDGET_SECONDS` mirror moved with them. Other verbs whose failures
+  all sat at the budget while OK max was under a quarter of it: `StopRecording` (2 at the
+  60 s default, OK max 0.1 s) and `TrackingStationRecover` (2 at 120 s, OK max 3.6 s, only 5
+  OK samples); left unchanged (the default bounds a scene-settle defer for every verb, and
+  5 samples are too few). `CommitTree` (10 at 60 s) is already fixed above. Tests:
+  `TestCommandDeferralBudgetTests.MeasuredBudgets_ArePinned`.
 - [x] ~~Observability: subscribe to `onGUIRecoveryDialogSpawn` / `Despawn` and log the crash
   dialog. Neither dialog logs its own close today, so a stall longer than about 62 s on the
   recovery screen cannot be confirmed from logs.~~ Fix: `PostFlightDialogLog` (pure state and

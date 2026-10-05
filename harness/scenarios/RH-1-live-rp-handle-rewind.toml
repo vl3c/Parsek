@@ -204,11 +204,11 @@ forbidden = [
 #   StopRecording     max(60, 60+60)  = 120
 #   ListHandles       max(60, 60+60)  = 120   (SINGLE-PHASE, rides the default)
 #   InvokeRewind      max(300,600)+60 = 660
-#   AnswerMergeDialog max(120,120+60) = 180
+#   AnswerMergeDialog max(120,60+60)  = 120
 #   RecordingState    max(60, 60+60)  = 120
-#   FlushAndQuit      max(60, 60+60)  = 120   -> sum 2100
+#   FlushAndQuit      max(60, 60+60)  = 120   -> sum 2040
 # The ceiling must EXCEED that sum so no step-wait is capped (a capped deferred wait
-# KILLs mid-step instead of surfacing the seam's own TIMEOUT). 2400 clears it by 300.
+# KILLs mid-step instead of surfacing the seam's own TIMEOUT). 2400 clears it by 360.
 # On the happy path - the verbs EXECUTE in FLIGHT - the real wall clock is a couple of
 # minutes; this ceiling only governs the unattended defer path.
 budgetSeconds = 2400
