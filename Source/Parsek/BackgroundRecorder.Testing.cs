@@ -165,7 +165,7 @@ namespace Parsek
         /// </summary>
         internal void InjectPendingSplitCheckForTesting(uint parentPid, double branchUT, string recordingId)
         {
-            pendingBackgroundSplitChecks[parentPid] = (branchUT, recordingId, (TrajectoryPoint?)null);
+            pendingBackgroundSplitChecks[parentPid] = (branchUT, recordingId, (TrajectoryPoint?)null, "DECOUPLE");
         }
 
         /// <summary>
