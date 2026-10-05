@@ -1010,36 +1010,78 @@ pinned row by row in `StructureListBdockFixtureTests` against the committed fixt
   mid-flight `End: Suborbital | Kerbin, Grasslands` row. A leg with a sequence successor or a
   later ChainIndex in its chain draws none (`continuedEndsSkipped=` in the build summary).
 
-## CI-2-TIMEJUMP-BEFORE-FLIGHT-READY: CI-2 jumps time before the re-fly scene has built its ghost chains, and its Destroyed pin is stale [FILED 2026-10-05 from SPLIT-BRANCHPOINT-PARENT. OPEN, lane + pin]
+## ~~CI-2-TIMEJUMP-BEFORE-FLIGHT-READY: CI-2 jumps time before the re-fly scene has built its ghost chains, and its Destroyed pin is stale~~ [FILED 2026-10-05 from SPLIT-BRANCHPOINT-PARENT. FIXED 2026-10-05, branch `ci2-lane-fix` (lane + pin; the product defect it exposed is REFLY-CONCLUSION-FINALIZES-COMMITTED-CHAIN-HEAD)]
 
-`CI-2-refly-claim-tip-pid` reads PARSEK-FAIL on origin/main and on branch
-`split-branchpoint-parent` alike, for two reasons that do not depend on that branch.
+`CI-2-refly-claim-tip-pid` sent `TimeJump ut=8960` straight after `InvokeRewind` +
+`ListHandles`. `InvokeRewind` answers OK at `Rewind] Invocation complete`, 0.3-0.8 s before
+the re-fly scene's `OnFlightReady`, which is where `ParsekFlight` builds the ghost chains,
+so whether the jump landed after `Chain built: vessel=3620499050 ... spawnUT=8951.5` was a
+coin toss on harness poll timing (origin/main `2026-10-05_1908` won it; branch
+`split-branchpoint-parent` `2026-10-05_1857` lost it: `Chain built` at 21:57:40.462, after
+the jump, and the four chain-ghost / tip-spawn tokens read missing).
 
-1. ORDERING RACE (lane). The seam sends `TimeJump ut=8960` straight after `InvokeRewind`
-   + `ListHandles`, with nothing waiting for the re-fly scene's `OnFlightReady`, which is
-   where `ParsekFlight` builds the ghost chains (`[ChainWalker] Found claims ... Chain built:
-   vessel=3620499050 ... spawnUT=8951.5`). `InvokeRewind` answers OK at `Rewind] Invocation
-   complete`, about 0.6-0.8 s before `OnFlightReady`. Whether the jump lands after the chains
-   is a coin toss on harness poll timing:
-   - origin/main `2026-10-05_1908_CI-2-refly-claim-tip-pid` (DLL `a807bb12...`): `TimeJump`
-     received 22:09:04.265, after `OnFlightReady` (04.215) and `Chain built` (04.237); the
-     chain ghost is created and `Chain tip spawn complete: #19 "Kerbal X" pid=3620499050`
-     follows. Every log contract matched.
-   - branch `2026-10-05_1857_CI-2-refly-claim-tip-pid` (DLL `5b7a58db...`): `TimeJump`
-     received 21:57:39.992, BEFORE `OnFlightReady` (40.436); `FindCrossedChainTips: empty/null
-     chains` and `Time jump complete: 0 vessels spawned`, then `Chain built` at 40.462, past
-     the tip. The four chain-ghost / tip-spawn contracts read missing.
-   Same event sequence on both builds up to the `TimeJump` arrival (InvokeRewind OK -> +0.63 s
-   on main, +0.31 s on the branch). Fix in the lane: wait for the flight scene to be ready
-   (or for the chain build) before `TimeJump`, then re-arm.
-2. STALE PIN (spec). `terminalStates.Destroyed` is armed at exactly 7 (2026-09-08), but the
-   fixture `bdock-recorded` itself carries 12 Destroyed debris recordings (`Kerbal X Debris`,
-   unchanged since 2026-08-12), so every run reads at least 12: the branch run 12 (the debris
-   only), the main run 13 (the debris plus the first tree's chain head `a32f62f5`, which that
-   run extended to UT 8960.24 and ended Destroyed while its chain tail `aecb1e57` still ended
-   at 386.9: a chain head written past its own tail, itself worth a look). The 2026-09-08
-   reading saw 7, so a change since then made five more debris recordings count; re-measure
-   and re-pin after item 1.
+Fix (lane only, no C#): a `ListHandles kind=chains` step between `InvokeRewind` and the
+jump, CI-3's existing readiness read. The seam defers it (`ghost-chains-pending`) until
+`ParsekFlight.FlightReadyObserved`, set at the top of the same synchronous `OnFlightReady`
+call that runs `EvaluateAndApplyGhostChains`, so the read returns only once the chains
+exist. The claimed chain's row (`listhandles chain index=N pid=3620499050 links=1 ...
+tip=37d0dc07...`) is a required token, and `listhandles kind=chains ... evaluated=false` is
+forbidden. Correction to the filed evidence: `FindCrossedChainTips: empty/null chains` and
+`Time jump complete: 0 vessels spawned` are not race signatures. The seam's jump passes null
+chains to `TimeJumpManager.ExecuteJump` by design, the tip spawns come from the playback
+loop right after it, and both lines print on green runs too.
+
+Pin: `terminalStates.Destroyed` is now `{12, 12}`, the fixture's own 12 `Kerbal X Debris`
+recordings. Measured on `2026-10-05_2008_CI-2-refly-claim-tip-pid` (DLL `763a0199...`,
+origin/main source; the jump landed 0.5 s after `Chain built`, both chain tips spawned) at
+13. The 13th is the defect below, so it is quarantined (`[expectedFail]`, subkind
+`save-structure`, exactly `recordings.structure.terminalStates.Destroyed 13 > max 12`)
+rather than pinned. Confirming run `2026-10-05_2013_CI-2-refly-claim-tip-pid` (same DLL): EXPECTED-FAIL
+attempt 1 on exactly that token, every log contract matched, `listhandles kind=chains
+count=2 ... evaluated=true` 0.03 s after `Chain built` and 0.3 s before the jump.
+
+## REFLY-CONCLUSION-FINALIZES-COMMITTED-CHAIN-HEAD: a re-fly conclusion stamps a committed chain head Destroyed, with its crew Dead, through a pid shared with another launch [FILED 2026-10-05 from CI-2 `2026-10-05_2008`, branch `ci2-lane-fix`. OPEN, product]
+
+On `bdock-recorded` the first tree `788554a9`'s Kerbal X recording `a32f62f5` (UT 25.96 to
+386.9, Orbiting, in the fixture) is split by the load-time optimizer at UT 196.26 into the
+head `a32f62f5` (ChainIndex 0, end 196.26, no terminal, crew end states moved off) and the
+tail `d211fb20` (ChainIndex 1, end 386.9, Orbiting). CI-2 then re-flies slot 1 of that
+tree's RewindPoint (UT 382.7) and jumps to UT 8960, which spawns the OTHER tree's chain tip,
+a Kerbal X with pid 3620499050, the same craft-baked pid. At the conclusion's scene exit
+`FinalizeTreeRecordings` walks the live re-fly tree and logs `rec='a32f62f5...' ...
+terminal=Destroyed ... leaf=True`: `TryFinalizeRecording` found a vessel
+(`vesselFound=True`), fell back to the live orbit (`no-solver live-orbit fallback ...
+classifies Destroyed (snapshotFailure=NullSolver, body=Kerbin, startUT=8960.240,
+startAlt=114089.0)`), and the merge then commits `a32f62f5` with end UT 8960.24, terminal
+Destroyed and `CREW_END_STATES` Dead x3 (`PopulateCrewEndStates ... dead=3`, `Crew death
+respawn policy stamped ... deadCrew=3`), while its own chain tail still ends at 386.9. The
+roster stays Assigned; the committed history is what is wrong. Same reading on origin/main
+`2026-10-05_1908` (13 Destroyed); the race-lost branch run read 12 because no tip spawned.
+
+Three things combine, each wrong on its own: (1) the leaf test counts an optimizer chain
+head as a leaf (the split repointed the JointBreak branch point to the tail, and the chain
+successor is not a branch point); (2) the vessel lookup matches by bare `persistentId` with
+no `VesselLaunchIdentity` guid check, so the other launch's spawned tip is taken for this
+recording's vessel; (3) a recording that `SavePendingTreeIfAny` itself calls
+`committed-overlap` ("to avoid mutating committed history before merge consent") is mutated
+at scene exit and the mutation rides the merge. Guard: CI-2's `[expectedFail]` reads XPASS
+once the head is left alone.
+
+## REFLY-LANES-JUMP-BEFORE-FLIGHT-READY: six re-fly lanes jump or warp straight after InvokeRewind, the CI-2 race [FILED 2026-10-05 from CI-2-TIMEJUMP-BEFORE-FLIGHT-READY, branch `ci2-lane-fix`. OPEN, lanes; unflown]
+
+A grep of `harness/scenarios` for a time step directly after `InvokeRewind` finds the same
+shape CI-2 had, with no wait for the re-fly scene's `OnFlightReady`:
+`RF-2-two-reflies-in-sequence` (two sites, `TimeJump`), `RF-3-refly-discard-then-commit`
+(three sites), `RF-6-rewind-category-live-session`, `RF-8-ghost-during-refly`,
+`RF-12-concluded-refly-batch` (all `TimeJump`) and `RF-12W-rewind-batch-after-warp-crash`
+(`WarpToUT`). `S4.1-rewind-merge`'s jump follows a REJECTED rewind (no scene change), so it
+is not one. None of these jumps crosses a chain tip, but `OnFlightReady` is also where the
+re-fly recorder is bound (RF-14 measured the bind about 2 s after the marker write), so a jump
+that lands first can fly the attempt with no recorder. Not changed blind: four of them gate
+an armed `saveParse` block whose readings may have been taken on either side of the race.
+Fix per lane: CI-2's `ListHandles kind=chains` read before the jump (or RF-14's
+`RecordingState` dwell where the recorder bind is the subject), then a re-flight to confirm
+the armed facets.
 
 ## MISSION-SPLIT-RUN-CONTINUATION: a switch continuation after a split reads as its own interval [FILED 2026-10-05 from MISSION-LOG-REWORK. OPEN, needs an owner ruling]
 
