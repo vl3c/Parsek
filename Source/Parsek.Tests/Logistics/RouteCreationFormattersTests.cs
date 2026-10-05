@@ -586,6 +586,93 @@ namespace Parsek.Tests.Logistics
             Assert.DoesNotContain("Route: Kerbin", name);
         }
 
+        // -----------------------------------------------------------------
+        // Default route name: the mission's name, numbered "Name [2]"
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void ResolveDefaultRouteName_MissionName_IsTheRouteName()
+        {
+            // catches: a new route still named "Route: KSC -> Kerbin" when its mission
+            // has a name, repeating the from/to line under it.
+            RouteAnalysisResult analysis = KscOriginDockChildAnalysis(out RecordingTree tree);
+            string name = RouteCreationFormatters.ResolveDefaultRouteName(
+                analysis, tree, "  Duna Supply 1 ", new List<string>(), out bool fromMission);
+            Assert.True(fromMission);
+            Assert.Equal("Duna Supply 1", name);
+        }
+
+        [Fact]
+        public void ResolveDefaultRouteName_SecondRouteOfAMission_IsNumbered()
+        {
+            // catches: two routes from one mission sharing a name (the seam's name
+            // selector would then answer route-ambiguous for both).
+            RouteAnalysisResult analysis = KscOriginDockChildAnalysis(out RecordingTree tree);
+            string name = RouteCreationFormatters.ResolveDefaultRouteName(
+                analysis, tree, "Duna Supply 1",
+                new List<string> { "Route: KSC → Duna", "Duna Supply 1" }, out bool fromMission);
+            Assert.True(fromMission);
+            Assert.Equal("Duna Supply 1 [2]", name);
+        }
+
+        [Fact]
+        public void NumberRouteName_SkipsAnExistingNumberedName()
+        {
+            // catches: numbering by count instead of by the first FREE slot, which
+            // would hand out a second "Duna Supply 1 [2]".
+            Assert.Equal("Duna Supply 1 [3]", RouteCreationFormatters.NumberRouteName(
+                "Duna Supply 1", new List<string> { "Duna Supply 1", "Duna Supply 1 [2]" }));
+            Assert.Equal("Duna Supply 1 [2]", RouteCreationFormatters.NumberRouteName(
+                "Duna Supply 1", new List<string> { "Duna Supply 1", "Duna Supply 1 [3]" }));
+        }
+
+        [Fact]
+        public void NumberRouteName_FreeBareName_StaysBare()
+        {
+            // catches: a "[2]" left over from a deleted first route pushing the next one
+            // to "[3]" or numbering it at all; the first free slot is the bare name.
+            Assert.Equal("Duna Supply 1", RouteCreationFormatters.NumberRouteName(
+                "Duna Supply 1", new List<string> { "Duna Supply 1 [2]", "Mun Supply" }));
+            Assert.Equal("Duna Supply 1", RouteCreationFormatters.NumberRouteName(
+                "Duna Supply 1", null));
+        }
+
+        [Fact]
+        public void NumberRouteName_IsOrderIndependent()
+        {
+            // catches: a result that depends on the route list's order (a reorder or a
+            // rewind reinstall must not change what the next create is called).
+            var a = new List<string> { "X", "X [2]", "X [4]", "Y" };
+            var b = new List<string> { "Y", "X [4]", "X [2]", "X" };
+            Assert.Equal("X [3]", RouteCreationFormatters.NumberRouteName("X", a));
+            Assert.Equal("X [3]", RouteCreationFormatters.NumberRouteName("X", b));
+        }
+
+        [Fact]
+        public void NumberRouteName_ComparesOrdinally()
+        {
+            // catches: a case-insensitive compare treating another mission's
+            // differently-cased name as taken.
+            Assert.Equal("duna supply 1", RouteCreationFormatters.NumberRouteName(
+                "duna supply 1", new List<string> { "Duna Supply 1" }));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void ResolveDefaultRouteName_NoUsableMissionName_FallsBackToFromTo(string missionName)
+        {
+            // catches: a blank or "[2]"-only name when the mission has none; the old
+            // from/to form is the fallback, unnumbered.
+            RouteAnalysisResult analysis = KscOriginDockChildAnalysis(out RecordingTree tree);
+            string name = RouteCreationFormatters.ResolveDefaultRouteName(
+                analysis, tree, missionName,
+                new List<string> { "Route: KSC → Kerbin" }, out bool fromMission);
+            Assert.False(fromMission);
+            Assert.Equal("Route: KSC → Kerbin", name);
+        }
+
         [Fact]
         public void FormatCandidateOrigin_KscOriginViaTreeRoot_ShowsKscLabel()
         {

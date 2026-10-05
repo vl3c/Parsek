@@ -2703,6 +2703,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **A new supply route is named after the mission it repeats.** Creating a route from a
+  Candidates row names it after its mission (`Duna Supply 1`) instead of `Route: KSC -> Duna`,
+  which only repeated the from/to line under it. A second route from the same mission (or any
+  route whose name is taken) is numbered `Duna Supply 1 [2]`, `[3]`, the first free number,
+  the same `[2]` convention the Missions vessel rows and the Logistics `Flights used` line use.
+  The Candidates row shows the name Create will give. A mission without a name still gets the
+  old `Route: KSC -> Duna` form. Existing routes keep their names.
 - **The notes Parsek adds to KSP's own screens read the same way everywhere.** A contract in
   Mission Control that the timeline accepts or finishes later reads `- Accepted on Y1, D03`
   (was `- accepted Y1 D3`), the same date form as its detail panel. Every block reason is

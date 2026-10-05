@@ -123,11 +123,14 @@ these, each deferred as its own change:
 - ~~**Part titles in the create dialog and stored-part holds.**~~ DONE (branch
   `logistics-followups`): the create dialog and the window's hold cell / sentence pass
   `StructureListWindowUI.ResolvePartTitle`, falling back to the internal name.
-- **Default route names.** The name still repeats the from/to line ("Route: KSC -> Duna"
-  over "KSC -> Depot Station Duna I"); naming a new route after its mission was ruled out of
-  this change (it needs "Name [2]" dedupe and makes the Missions route hover tautological).
-  Still open; the restyled Candidates table shows the same repetition (its Route cell is the
-  default name over the from/to line).
+- ~~**Default route names.**~~ DONE (branch `route-default-names`): a new route is named
+  after the mission it repeats ("Duna Supply 1"), numbered "Duna Supply 1 [2]" against every
+  stored route's name (first free number), on the Candidates row's Route cell and on the
+  created route alike (`RouteCreationService.ResolveDefaultName` /
+  `RouteCreationFormatters.ResolveDefaultRouteName`). "Route: KSC -> Duna" is only the
+  fallback for a mission without a name. Existing routes keep their stored names. The
+  Missions route hover now often reads the mission's own name ("Run on the schedule of route
+  'Duna Supply 1'."), accepted with the ruling.
 
 ---
 

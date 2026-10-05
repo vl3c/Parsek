@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace Parsek.Logistics
@@ -62,7 +63,9 @@ namespace Parsek.Logistics
         /// explicit act.
         /// </summary>
         /// <param name="candidate">The eligible candidate (tree + analysis).</param>
-        /// <param name="name">Route name, or null/empty to let the builder generate one.</param>
+        /// <param name="name">Route name, or null/empty for the default: the source
+        /// mission's name, numbered "Name [2]" against the stored routes
+        /// (<see cref="ResolveDefaultName"/>).</param>
         /// <param name="intervalSeconds">Dispatch interval handed to the builder; it is
         /// snapped to <c>N * TransitDuration</c> there.</param>
         /// <param name="mode">The game mode (career cost legs).</param>
@@ -83,6 +86,16 @@ namespace Parsek.Logistics
                     RejectReason = NullCandidateReason,
                     IntervalSeconds = intervalSeconds
                 };
+            }
+
+            if (string.IsNullOrEmpty(name))
+            {
+                name = ResolveDefaultName(candidate, out bool fromMission, out int existingCount);
+                ParsekLog.Verbose(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "CreatePausedFromCandidate default name tree={0} source={1} existingRoutes={2} name='{3}'",
+                    RouteIds.Short(candidate.Tree.Id),
+                    fromMission ? "mission" : "fallback-from-to",
+                    existingCount, name ?? string.Empty));
             }
 
             var inputs = new RouteBuilder.RouteCreationInputs
@@ -137,6 +150,56 @@ namespace Parsek.Logistics
                 ManualLoopsCleared = cleared,
                 IntervalSeconds = intervalSeconds
             };
+        }
+
+        /// <summary>
+        /// The default name a route created from <paramref name="candidate"/> right now
+        /// gets: its source mission's name, numbered against every stored route name
+        /// (committed and dormant) - see
+        /// <see cref="RouteCreationFormatters.ResolveDefaultRouteName"/>. The Candidates
+        /// row draws this same value, so the row shows the name Create would give.
+        /// </summary>
+        internal static string ResolveDefaultName(
+            RouteCandidate candidate, out bool fromMission, out int existingCount)
+        {
+            List<string> existing = CollectStoredRouteNames();
+            existingCount = existing.Count;
+            return RouteCreationFormatters.ResolveDefaultRouteName(
+                candidate?.Analysis, candidate?.Tree, ResolveSourceMissionName(candidate?.Tree),
+                existing, out fromMission);
+        }
+
+        /// <summary>
+        /// The player-facing name of the mission a candidate tree's route would repeat:
+        /// the tree's ORIGINAL mission's name (clones share the tree), else the tree's own
+        /// name, else null. The same chain the Logistics "Built from mission" line reads,
+        /// minus its short-id fallback (an id is not a name).
+        /// </summary>
+        internal static string ResolveSourceMissionName(RecordingTree tree)
+        {
+            if (tree == null)
+                return null;
+            Mission mission = MissionStore.FindOriginalMission(tree.Id);
+            if (!string.IsNullOrWhiteSpace(mission?.Name))
+                return mission.Name;
+            return string.IsNullOrWhiteSpace(tree.TreeName) ? null : tree.TreeName;
+        }
+
+        private static List<string> CollectStoredRouteNames()
+        {
+            var names = new List<string>();
+            AddNames(RouteStore.CommittedRoutes, names);
+            AddNames(RouteStore.DormantRoutes, names);
+            return names;
+        }
+
+        private static void AddNames(IReadOnlyList<Route> routes, List<string> names)
+        {
+            if (routes == null)
+                return;
+            for (int i = 0; i < routes.Count; i++)
+                if (!string.IsNullOrEmpty(routes[i]?.Name))
+                    names.Add(routes[i].Name);
         }
     }
 }

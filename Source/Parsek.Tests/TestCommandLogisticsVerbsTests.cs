@@ -737,10 +737,12 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ResourceTransferability.ResetForTesting();
             RouteStore.ResetForTesting();
+            MissionStore.ResetForTesting();
         }
 
         public void Dispose()
         {
+            MissionStore.ResetForTesting();
             RouteStore.ResetForTesting();
             ResourceTransferability.ResetForTesting();
             ParsekLog.ResetTestOverrides();
@@ -870,10 +872,10 @@ namespace Parsek.Tests
                 && l.Contains("status=Paused"));
         }
 
-        // Absent name= must leave the builder's default naming alone rather than
-        // stamping an empty string over it.
+        // Absent name= with no mission and no tree name: the from/to fallback, never an
+        // empty string stamped over the default.
         [Fact]
-        public void CreatePausedFromCandidate_NullName_LetsTheBuilderName()
+        public void CreatePausedFromCandidate_NullName_NoMissionName_FallsBackToFromTo()
         {
             RouteCandidate candidate = BuildCandidate();
             double span = RouteWindowFixtures.RoverDockUT - RouteWindowFixtures.RoverRootSpanStartUT;
@@ -883,7 +885,87 @@ namespace Parsek.Tests
                     candidate, null, span, Game.Modes.SANDBOX, currentUT: 1000.0);
 
             Assert.NotNull(outcome.Route);
-            Assert.False(string.IsNullOrEmpty(outcome.Route.Name));
+            Assert.StartsWith("Route: ", outcome.Route.Name);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("CreatePausedFromCandidate default name")
+                && l.Contains("source=fallback-from-to"));
+        }
+
+        // catches: a created route still taking the from/to default when its mission has
+        // a name, or the Create path and the Candidates row disagreeing on it (both read
+        // RouteCreationService.ResolveDefaultName).
+        [Fact]
+        public void CreatePausedFromCandidate_NullName_TakesTheMissionName()
+        {
+            RouteCandidate candidate = BuildCandidate();
+            MissionStore.EnsureDefaultsForTrees(new[] { candidate.Tree });
+            MissionStore.RenameMission(MissionStore.FindOriginalMission(TreeId), "Duna Supply 1");
+            double span = RouteWindowFixtures.RoverDockUT - RouteWindowFixtures.RoverRootSpanStartUT;
+
+            string shown = RouteCreationService.ResolveDefaultName(candidate, out bool fromMission, out _);
+            RouteCreationService.RouteCreateOutcome outcome =
+                RouteCreationService.CreatePausedFromCandidate(
+                    candidate, null, span, Game.Modes.SANDBOX, currentUT: 1000.0);
+
+            Assert.True(fromMission);
+            Assert.Equal("Duna Supply 1", shown);
+            Assert.Equal("Duna Supply 1", outcome.Route.Name);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("CreatePausedFromCandidate default name")
+                && l.Contains("source=mission") && l.Contains("name='Duna Supply 1'"));
+        }
+
+        // catches: numbering that ignores the stored routes (committed AND dormant), and
+        // any rename of an existing route by the create - existing names are untouched,
+        // the old from/to form included.
+        [Fact]
+        public void CreatePausedFromCandidate_NullName_NumbersAgainstStoredRoutes_AndRenamesNone()
+        {
+            RouteCandidate candidate = BuildCandidate();
+            MissionStore.EnsureDefaultsForTrees(new[] { candidate.Tree });
+            MissionStore.RenameMission(MissionStore.FindOriginalMission(TreeId), "Duna Supply 1");
+            Route first = StoreMinimalRoute("route-first", RouteStatus.Active);
+            first.Name = "Duna Supply 1";
+            Route old = StoreMinimalRoute("route-old", RouteStatus.Paused);
+            old.Name = "Route: KSC → Duna";
+            var dormant = new Route
+            {
+                Id = "route-dormant",
+                Name = "Duna Supply 1 [2]",
+                Status = RouteStatus.Paused,
+                RecordingIds = new List<string>(),
+                SourceRefs = new List<RouteSourceRef>(),
+                Stops = new List<RouteStop> { new RouteStop() },
+            };
+            RouteStore.InstallRoutesAtRewind(
+                new List<Route>(RouteStore.CommittedRoutes), new List<Route> { dormant });
+            double span = RouteWindowFixtures.RoverDockUT - RouteWindowFixtures.RoverRootSpanStartUT;
+
+            RouteCreationService.RouteCreateOutcome outcome =
+                RouteCreationService.CreatePausedFromCandidate(
+                    candidate, null, span, Game.Modes.SANDBOX, currentUT: 1000.0);
+
+            Assert.Equal("Duna Supply 1 [3]", outcome.Route.Name);
+            Assert.Equal("Duna Supply 1", first.Name);
+            Assert.Equal("Route: KSC → Duna", old.Name);
+            Assert.Equal("Duna Supply 1 [2]", dormant.Name);
+        }
+
+        // An explicit name= is taken verbatim, never numbered, even when it collides.
+        [Fact]
+        public void CreatePausedFromCandidate_ExplicitName_IsNotNumbered()
+        {
+            RouteCandidate candidate = BuildCandidate();
+            MissionStore.EnsureDefaultsForTrees(new[] { candidate.Tree });
+            MissionStore.RenameMission(MissionStore.FindOriginalMission(TreeId), "Duna Supply 1");
+            StoreMinimalRoute("route-first", RouteStatus.Active).Name = "relay-c";
+            double span = RouteWindowFixtures.RoverDockUT - RouteWindowFixtures.RoverRootSpanStartUT;
+
+            RouteCreationService.RouteCreateOutcome outcome =
+                RouteCreationService.CreatePausedFromCandidate(
+                    candidate, "relay-c", span, Game.Modes.SANDBOX, currentUT: 1000.0);
+
+            Assert.Equal("relay-c", outcome.Route.Name);
         }
 
         // The builder's own reject must surface verbatim as the compound tail so the

@@ -488,8 +488,61 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Generate a default route name when the player leaves the name
-        /// field empty. Format: <c>"Route: origin -> endpoint-body"</c>,
+        /// The name a NEW route gets when none is given: the name of the mission it
+        /// repeats (<c>"Duna Supply 1"</c>), numbered against
+        /// <paramref name="existingRouteNames"/> by <see cref="NumberRouteName"/>, so a
+        /// second route from the same mission reads <c>"Duna Supply 1 [2]"</c>. Only
+        /// when the mission has no usable name (null or blank) does it fall back to
+        /// <see cref="GenerateDefaultRouteName"/>'s <c>"Route: KSC -> Duna"</c> form,
+        /// unnumbered. Existing routes are never renamed: this only names a route at
+        /// creation. Pure; the result depends only on the inputs and never on the order
+        /// of <paramref name="existingRouteNames"/>.
+        /// </summary>
+        internal static string ResolveDefaultRouteName(
+            RouteAnalysisResult analysis, RecordingTree tree, string missionName,
+            IEnumerable<string> existingRouteNames, out bool fromMission)
+        {
+            string trimmed = missionName?.Trim();
+            fromMission = !string.IsNullOrEmpty(trimmed);
+            return fromMission
+                ? NumberRouteName(trimmed, existingRouteNames)
+                : GenerateDefaultRouteName(analysis, tree);
+        }
+
+        /// <summary>
+        /// <paramref name="baseName"/> when no existing route carries it, else the first
+        /// free <c>"baseName [k]"</c> for k = 2, 3, ... (the square-bracket numbering of
+        /// <see cref="MissionVesselNaming.FormatNumbered"/>, which the Missions vessel rows
+        /// and the Logistics "Flights used" line also use). Names compare ordinally. The
+        /// first free slot wins, so after the bare-named route is deleted the next one
+        /// takes the bare name again. Pure and order-independent.
+        /// </summary>
+        internal static string NumberRouteName(string baseName, IEnumerable<string> existingRouteNames)
+        {
+            string name = baseName ?? string.Empty;
+            var taken = new HashSet<string>(System.StringComparer.Ordinal);
+            if (existingRouteNames != null)
+                foreach (string existing in existingRouteNames)
+                    if (existing != null)
+                        taken.Add(existing);
+            if (!taken.Contains(name))
+                return name;
+            // At most taken.Count names can be occupied, so a free ordinal is always found
+            // by taken.Count + 2.
+            int limit = taken.Count + 2;
+            for (int k = 2; k <= limit; k++)
+            {
+                string numbered = MissionVesselNaming.FormatNumbered(name, k);
+                if (!taken.Contains(numbered))
+                    return numbered;
+            }
+            return MissionVesselNaming.FormatNumbered(name, limit + 1);
+        }
+
+        /// <summary>
+        /// The fallback default route name, used when the source mission has no usable
+        /// name (and by direct <see cref="RouteBuilder.BuildRoute"/> callers that pass no
+        /// name). Format: <c>"Route: origin -> endpoint-body"</c>,
         /// trimmed to ~40 characters. The <paramref name="tree"/> is plumbed
         /// through to <see cref="ResolveOriginIdentity"/> so a KSC origin resolves
         /// to <c>"KSC"</c> off the tree ROOT rather than the dock-child body; a

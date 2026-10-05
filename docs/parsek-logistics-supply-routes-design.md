@@ -361,7 +361,7 @@ internal class Route
     // Identity
     public string Id;                    // unique route ID (GUID)
     public List<string> RecordingIds;    // ordered chain of source recording IDs
-    public string Name;                  // player-visible name (editable)
+    public string Name;                  // player-visible name (editable); default: the source mission's name, numbered "Name [2]"
     public List<RouteSourceRef> SourceRefs; // immutable source proof/version refs captured at route creation
 
     // Endpoints
@@ -826,6 +826,8 @@ If validation fails, the route confirmation UI shows what's missing (e.g., "Tran
 ### 5.4 Player confirmation
 
 Route configuration panel shows derived values: origin, endpoint, delivery manifest, total transit time, origin cost manifest, KSC dispatch funds cost, and connection kind. Player can edit name, dispatch interval, and enable/disable. On confirm, route is created and scheduling begins.
+
+**Default name.** A route created without a name (every Logistics-window create; a seam `RouteCommand action=create` without `name=`) is named after the mission it repeats: the source tree's original mission's name, else the tree's name (`RouteCreationService.ResolveSourceMissionName`). When a stored route (committed or dormant) already carries that name, the new route takes the first free `"Name [k]"`, k = 2, 3, ... (`RouteCreationFormatters.NumberRouteName`, the `MissionVesselNaming.FormatNumbered` brackets), compared ordinally and independent of route order, so the first route of a mission keeps the bare name and a second reads `"Duna Supply 1 [2]"`. Only a mission with no usable name falls back to `"Route: <origin> -> <endpoint body>"` (`GenerateDefaultRouteName`, unnumbered). The Candidates row's Route cell shows the same resolved name. The name is fixed at creation: a stored route's name is never rewritten on load or when a mission is renamed, and an explicit name is taken verbatim.
 
 ### 5.5 Multi-stop routes
 

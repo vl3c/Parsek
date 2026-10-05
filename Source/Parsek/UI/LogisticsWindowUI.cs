@@ -283,6 +283,10 @@ namespace Parsek
         // the destination vessel live, which must not run on the draw path.
         private sealed class CandidateDisplay
         {
+            // The default name Create would give right now (the source mission's name,
+            // numbered against the stored routes), resolved here because it reads the
+            // mission and route stores.
+            public string Name;
             public string FromTo;
             public string FromToTooltip;
             public string Cargo;
@@ -1926,8 +1930,9 @@ namespace Parsek
             string rowKey = CandidateRowKey(candidate);
             bool expanded = expandedRows.Contains(rowKey);
 
-            string name = RouteCreationFormatters.GenerateDefaultRouteName(candidate.Analysis, candidate.Tree);
             candidateDisplayCache.TryGetValue(treeId, out CandidateDisplay display);
+            string name = display?.Name
+                ?? RouteCreationFormatters.GenerateDefaultRouteName(candidate.Analysis, candidate.Tree);
 
             GUILayout.BeginHorizontal();
 
@@ -3656,6 +3661,7 @@ namespace Parsek
         {
             candidateDisplayCache.Clear();
             int resolved = 0;
+            int missionNamed = 0;
             for (int i = 0; candidates != null && i < candidates.Count; i++)
             {
                 RouteCandidate cand = candidates[i];
@@ -3671,8 +3677,11 @@ namespace Parsek
                 string destShort = destName ?? FormatEndpointPlace(ep);
                 string destLong = (destName != null ? destName + " " : string.Empty)
                     + (ep.HasValue ? FormatEndpointShort(ep.Value) : "-");
+                string defaultName = RouteCreationService.ResolveDefaultName(cand, out bool fromMission, out _);
+                if (fromMission) missionNamed++;
                 candidateDisplayCache[treeId] = new CandidateDisplay
                 {
+                    Name = defaultName,
                     FromTo = LogisticsRoutePresentation.FormatFromTo(
                         FormatCandidateOriginShort(cand.Analysis, cand.Tree), destShort),
                     FromToTooltip = LogisticsRoutePresentation.CapToStrip(
@@ -3687,7 +3696,8 @@ namespace Parsek
             }
             ParsekLog.Verbose("UI",
                 $"Logistics candidate display cache rebuilt candidates={candidateDisplayCache.Count.ToString(CultureInfo.InvariantCulture)} " +
-                $"destinationsResolved={resolved.ToString(CultureInfo.InvariantCulture)}");
+                $"destinationsResolved={resolved.ToString(CultureInfo.InvariantCulture)} " +
+                $"missionNamed={missionNamed.ToString(CultureInfo.InvariantCulture)}");
         }
 
         // ------------------------------------------------------------------

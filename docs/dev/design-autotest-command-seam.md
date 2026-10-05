@@ -1234,9 +1234,10 @@ an arbitrary pick. The prefix tier exists because a route id is a bare
 a lane HAS is the 8-char short id every log line prints (`RouteIds.Short`) or the create
 step's own OK payload. The exact-id tier runs first and alone, so an id that IS a route
 wins even if it also prefixes another - the only way a precise handle can never be made
-ambiguous by an unrelated route appearing later. Duplicate NAMES are ordinary rather than
-exotic (`RouteBuilder` generates default names), which is why the name tier refuses an
-ambiguity instead of picking.
+ambiguous by an unrelated route appearing later. Duplicate NAMES still happen (a default
+name is numbered `Name [2]` against the stored routes, but an explicit `name=` and a player
+rename are taken verbatim), which is why the name tier refuses an ambiguity instead of
+picking.
 
 **Typed-error taxonomy.**
 
