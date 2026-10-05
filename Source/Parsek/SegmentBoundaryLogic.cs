@@ -154,9 +154,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Coalescer-only split cause for a child whose joint broke under force. Never
-        /// persisted: the coalescer emits it as a JointBreak with a null SplitCause, which the
-        /// Missions tab reads by its type as "Broke off".
+        /// Split cause of a part whose joint broke under force, persisted on a JointBreak
+        /// (both recorders) and read as "Broke off". An additive value: an older build
+        /// matches no cause arm and reads the JointBreak type, also "Broke off". A null
+        /// SplitCause keeps its old meaning (a staging decouple in the Missions steps).
         /// </summary>
         internal const string BrokeOffSplitCause = "BROKE_OFF";
 

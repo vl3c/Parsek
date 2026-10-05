@@ -161,8 +161,8 @@ namespace Parsek
         // parent continuation/closure can use an exact split-time pose instead
         // of backdating a later sample from the deferred check frame.
         // splitCause is the BranchPoint.SplitCause the deferred check stamps
-        // ("DECOUPLE"; "UNDOCK" for a docking-port undock; null for a joint that broke
-        // under force, which the Missions tab reads by its JointBreak type as "Broke off").
+        // ("DECOUPLE"; "UNDOCK" for a docking-port undock; "BROKE_OFF" for a joint that
+        // broke under force).
         private Dictionary<uint, (double branchUT, string recordingId, TrajectoryPoint? parentBoundaryPoint, string splitCause)>
             pendingBackgroundSplitChecks
                 = new Dictionary<uint, (double, string, TrajectoryPoint?, string)>();
@@ -747,19 +747,21 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Notes a pre-attached docking-port Undock on a background vessel. Stock shows a
-        /// VAB-built port pair's button as "Undock" (PreAttached state), but
-        /// ModuleDockingNode.Undock routes it through Decouple() and Part.decouple, so no
-        /// onPartUndock fires. onPartDeCouple(part) does fire first, before the part's
-        /// attachJoint is destroyed, so the joint break that follows classifies as UNDOCK.
+        /// Notes a clicked pre-attached docking-port Undock on a background vessel. Stock
+        /// routes that Undock through Decouple() and Part.decouple, so no onPartUndock fires;
+        /// onPartDeCouple(part) fires first, before the part's attachJoint is destroyed. The
+        /// click itself is caught by DockingNodeUndockIntentPatch; staging the same port
+        /// never arms it and stays DECOUPLE.
         /// </summary>
         internal void OnBackgroundPartDeCouple(Part decoupledPart)
         {
             if (tree == null || decoupledPart?.vessel == null) return;
             uint vesselPid = decoupledPart.vessel.persistentId;
             if (!tree.BackgroundMap.ContainsKey(vesselPid)) return;
-            if (!DockingPortSeparation.IsPreAttachedPortDecouple(decoupledPart)) return;
-            NoteBackgroundUndock(decoupledPart.persistentId, Planetarium.GetUniversalTime());
+            double ut = Planetarium.GetUniversalTime();
+            if (!DockingPortSeparation.TryConsumePreAttachedUndock(
+                    decoupledPart.persistentId, ut, "BgRecorder")) return;
+            NoteBackgroundUndock(decoupledPart.persistentId, ut);
             ParsekLog.Verbose("BgRecorder",
                 $"OnBackgroundPartDeCouple: pre-attached docking-port undock on background vessel " +
                 $"part='{decoupledPart.partInfo?.name}' pid={decoupledPart.persistentId} vesselPid={vesselPid}");
@@ -774,7 +776,7 @@ namespace Parsek
         /// <summary>
         /// Pure decision: the SplitCause of a background joint break.
         /// A joint that broke under force (breakForce &gt; 0: PartJoint.OnJointBreak, an
-        /// overstress or impact) returns null, so the JointBreak reads "Broke off". It is
+        /// overstress or impact) returns "BROKE_OFF", read as "Broke off". It is
         /// checked first because KSP's force path then calls Part.decouple too; the
         /// foreground marks the same break the same way. Otherwise the cause is "UNDOCK" when
         /// an undock note (onPartUndock, or onPartDeCouple of a pre-attached port) named the
@@ -790,7 +792,9 @@ namespace Parsek
                 && jointChildPartPid == pendingUndockPartPid
                 && sameUT;
             bool brokeUnderForce = breakForce > 0f;
-            string cause = brokeUnderForce ? null : (undock ? "UNDOCK" : "DECOUPLE");
+            string cause = brokeUnderForce
+                ? SegmentBoundaryLogic.BrokeOffSplitCause
+                : (undock ? "UNDOCK" : "DECOUPLE");
             ParsekLog.Verbose("BgRecorder",
                 $"ClassifyBackgroundJointBreakCause: partPid={jointChildPartPid} " +
                 $"breakForce={breakForce.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} " +

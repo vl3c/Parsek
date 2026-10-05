@@ -759,6 +759,7 @@ namespace Parsek
             {
                 case "DECOUPLE": return "Decoupled";
                 case "UNDOCK": return "Undocked";
+                case "BROKE_OFF": return "Broke off";
                 case "CRASH": return "Crashed";
                 case "OVERHEAT": return "Overheated";
                 case "STRUCTURAL_FAILURE": return "Broke up";

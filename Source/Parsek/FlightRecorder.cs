@@ -1780,15 +1780,17 @@ namespace Parsek
         /// <param name="brokenJointIsAttachJoint">True if the broken joint is the child's attachJoint.</param>
         /// <param name="hasAttachJoint">True if the child part has a non-null attachJoint (false for root parts).</param>
         /// <summary>
-        /// Notes a part that comes off the recorded vessel through a pre-attached docking
-        /// port's Undock (stock routes it through Part.decouple, which fires onPartDeCouple
-        /// first and never onPartUndock); see <see cref="DockingPortSeparation"/>.
+        /// Notes a part that comes off the recorded vessel through a clicked pre-attached
+        /// docking port's Undock (stock routes it through Part.decouple, which fires
+        /// onPartDeCouple first and never onPartUndock); see <see cref="DockingPortSeparation"/>.
+        /// A staged port never arms the click note and stays a decouple.
         /// </summary>
         private void OnPartDeCouple(Part part)
         {
             if (!IsRecording || part?.vessel == null) return;
             if (part.vessel.persistentId != RecordingVesselId) return;
-            if (!DockingPortSeparation.IsPreAttachedPortDecouple(part)) return;
+            if (!DockingPortSeparation.TryConsumePreAttachedUndock(
+                    part.persistentId, Planetarium.GetUniversalTime(), "Recorder")) return;
             preAttachedUndockPartIds.Add(part.persistentId);
             ParsekLog.Verbose("Recorder",
                 $"OnPartDeCouple: pre-attached docking-port undock part='{part.partInfo?.name}' " +

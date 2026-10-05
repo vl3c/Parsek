@@ -183,12 +183,10 @@ namespace Parsek
                 && !string.Equals(windowSeparationCause, "DECOUPLE", StringComparison.Ordinal))
             {
                 // An all-separation window that is not a plain decouple: a pre-attached
-                // docking port's Undock ("UNDOCK") or a joint that broke under force (null
-                // SplitCause, read by the JointBreak type as "Broke off"). Same type as a
-                // decouple window, so every type-keyed reader behaves as before.
-                string storedCause = string.Equals(windowSeparationCause,
-                    SegmentBoundaryLogic.BrokeOffSplitCause, StringComparison.Ordinal)
-                    ? null : windowSeparationCause;
+                // docking port's clicked Undock ("UNDOCK") or a joint that broke under force
+                // ("BROKE_OFF"). Same type as a decouple window, so every type-keyed reader
+                // behaves as before.
+                string storedCause = windowSeparationCause;
                 bp = new BranchPoint
                 {
                     Id = Guid.NewGuid().ToString("N"),
@@ -202,8 +200,8 @@ namespace Parsek
                 };
                 ParsekLog.Info("Coalescer",
                     "SEPARATION emitted: ut=" + windowStartUT.ToString("F2", ic) +
-                    " type=JointBreak splitCause=" + (storedCause ?? "none") +
-                    " windowCause=" + windowSeparationCause +
+                    " type=JointBreak splitCause=" + storedCause +
+                    " decouplerPartId=" + windowDecouplerPartId +
                     " controlledChildren=" + controlledChildPids.Count + " debris=" + debrisPids.Count +
                     " duration=" + bp.BreakupDuration.ToString("F3", ic) + "s window=" + coalesceWindow.ToString("F1", ic) + "s");
             }

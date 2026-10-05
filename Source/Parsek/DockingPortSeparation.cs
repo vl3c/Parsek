@@ -1,64 +1,77 @@
 namespace Parsek
 {
     /// <summary>
-    /// Recognizes a pre-attached docking-port Undock at the moment KSP fires
-    /// <c>GameEvents.onPartDeCouple</c>.
+    /// One-shot note that the player clicked Undock on a pre-attached (VAB-joined) docking
+    /// port, read by the recorders' <c>onPartDeCouple</c> handlers.
     ///
-    /// <para>Stock (decompiled ModuleDockingNode, KSP 1.12.5): a port with a part attached to
-    /// its docking node in the editor enters the "PreAttached" FSM state, whose OnEnter shows
-    /// the "Undock" event. <c>Undock()</c> then sees <c>undockPreAttached</c> and calls
+    /// <para>Stock (decompiled ModuleDockingNode, KSP 1.12.5): a port with a part on its
+    /// docking node in the editor enters the "PreAttached" FSM state, whose OnEnter shows the
+    /// "Undock" event. <c>Undock()</c> then sees <c>undockPreAttached</c> and calls
     /// <c>Decouple()</c>, which calls <c>Part.decouple()</c> on the port or on the part on its
-    /// reference node. <c>Part.decouple</c> fires <c>onPartDeCouple(part)</c> first, while
-    /// <c>part.parent</c> and the node's <c>attachedPart</c> are still set, then destroys the
-    /// part's attachJoint. It never fires <c>onPartUndock</c> or <c>onVesselsUndocking</c>, so
-    /// without this check the separation reads "Decoupled" although the player clicked
-    /// Undock. The "Decouple Node" event is declared <c>active = false</c> and nothing in the
-    /// module turns it on.</para>
+    /// reference node, so <c>onPartDeCouple</c> fires and <c>onPartUndock</c> never does.
+    /// Staging the same port (<c>OnActive</c>, when <c>stagingEnabled</c>) takes the very same
+    /// <c>Decouple()</c> path with the port still PreAttached, so the FSM state cannot tell a
+    /// click from staging. The intent is armed at the click instead, by
+    /// <see cref="Patches.DockingNodeUndockIntentPatch"/> (a Prefix on <c>Undock()</c>); a
+    /// staged port never arms it and keeps reading as a decouple.</para>
     /// </summary>
     internal static class DockingPortSeparation
     {
+        private static uint armedPortPartPid;
+        private static uint armedOtherPartPid;
+        private static double armedUT = double.NaN;
+
+        /// <summary>Arms the note for the port part and the part on its docking node.</summary>
+        internal static void ArmPreAttachedUndock(uint portPartPid, uint otherPartPid, double ut)
+        {
+            armedPortPartPid = portPartPid;
+            armedOtherPartPid = otherPartPid;
+            armedUT = ut;
+            ParsekLog.Verbose("DockUndockIntent",
+                $"Armed pre-attached Undock intent: portPid={portPartPid} otherPid={otherPartPid} " +
+                $"ut={ut.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+        }
+
         /// <summary>
-        /// Pure decision. A decoupling part is a pre-attached port undock when a docking node
-        /// in the PreAttached state faces the other side of the joint (on either part), and
-        /// neither side carries a decoupler: a decoupler stacked on a port's docking face also
-        /// leaves the port PreAttached, and its firing must keep reading "Decoupled".
+        /// Pure decision: an <c>onPartDeCouple</c> part is a clicked pre-attached Undock when
+        /// the note is armed at the same UT (Undock and its Part.decouple run synchronously in
+        /// one call) and the decoupling part is the port or the part on its docking node.
         /// </summary>
-        internal static bool IsPreAttachedPortSeparation(
-            bool partHasPreAttachedNodeFacingParent,
-            bool parentHasPreAttachedNodeFacingPart,
-            bool eitherSideHasDecoupler)
+        internal static bool MatchesPreAttachedUndock(
+            uint armedPortPid, uint armedOtherPid, double armedAtUT,
+            uint decoupledPartPid, double ut)
         {
-            return (partHasPreAttachedNodeFacingParent || parentHasPreAttachedNodeFacingPart)
-                && !eitherSideHasDecoupler;
+            if (armedPortPid == 0 || decoupledPartPid == 0) return false;
+            if (armedAtUT != ut) return false;
+            return decoupledPartPid == armedPortPid
+                || (armedOtherPid != 0 && decoupledPartPid == armedOtherPid);
         }
 
-        /// <summary>Live read for an <c>onPartDeCouple</c> handler.</summary>
-        internal static bool IsPreAttachedPortDecouple(Part part)
+        /// <summary>
+        /// Consumes the note when <paramref name="decoupledPartPid"/> matches it. Returns true
+        /// for a clicked pre-attached Undock (cause UNDOCK); false for anything else, including
+        /// a staged port (never armed) and a stale note from an earlier UT (cleared).
+        /// </summary>
+        internal static bool TryConsumePreAttachedUndock(uint decoupledPartPid, double ut, string consumer)
         {
-            if (part == null || part.parent == null) return false;
-            Part parent = part.parent;
-            bool eitherSideHasDecoupler =
-                part.FindModuleImplementing<ModuleDecouplerBase>() != null
-                || parent.FindModuleImplementing<ModuleDecouplerBase>() != null;
-            return IsPreAttachedPortSeparation(
-                HasPreAttachedNodeFacing(part, parent),
-                HasPreAttachedNodeFacing(parent, part),
-                eitherSideHasDecoupler);
+            if (armedPortPartPid == 0) return false;
+            bool sameUT = armedUT == ut;
+            bool match = MatchesPreAttachedUndock(
+                armedPortPartPid, armedOtherPartPid, armedUT, decoupledPartPid, ut);
+            ParsekLog.Verbose("DockUndockIntent",
+                $"{consumer}: decouple pid={decoupledPartPid} vs armed portPid={armedPortPartPid} " +
+                $"otherPid={armedOtherPartPid} sameUT={(sameUT ? "true" : "false")} " +
+                $"=> {(match ? "UNDOCK (consumed)" : "DECOUPLE")}");
+            if (match || !sameUT)
+                Clear();
+            return match;
         }
 
-        private static bool HasPreAttachedNodeFacing(Part portPart, Part other)
+        internal static void Clear()
         {
-            var nodes = portPart.FindModulesImplementing<ModuleDockingNode>();
-            if (nodes == null) return false;
-            for (int i = 0; i < nodes.Count; i++)
-            {
-                ModuleDockingNode node = nodes[i];
-                if (node == null || node.fsm == null || node.st_preattached == null) continue;
-                if (node.fsm.CurrentState != node.st_preattached) continue;
-                if (node.referenceNode != null && node.referenceNode.attachedPart == other)
-                    return true;
-            }
-            return false;
+            armedPortPartPid = 0;
+            armedOtherPartPid = 0;
+            armedUT = double.NaN;
         }
     }
 }

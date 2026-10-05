@@ -508,10 +508,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BrokeOffWindow_EmitsJointBreakWithNullCause_ReadsBrokeOff()
+        public void BrokeOffWindow_EmitsJointBreakWithBrokeOffCause_ReadsBrokeOff()
         {
             // A joint that broke under force also reaches Part.decouple (the child is
-            // decouple-caught), so the window stays a JointBreak, but with no SplitCause.
+            // decouple-caught), so the window stays a JointBreak, with cause BROKE_OFF.
             var coalescer = new CrashCoalescer();
             coalescer.OnSplitEvent(100.0, 1000, childHasController: false,
                 splitCause: SegmentBoundaryLogic.BrokeOffSplitCause);
@@ -519,11 +519,47 @@ namespace Parsek.Tests
             var bp = coalescer.Tick(100.5);
             Assert.NotNull(bp);
             Assert.Equal(BranchPointType.JointBreak, bp.Type);
-            Assert.Null(bp.SplitCause);
+            Assert.Equal("BROKE_OFF", bp.SplitCause);
             Assert.Null(bp.BreakupCause);
             Assert.Equal("Broke off", MissionCompositionBuilder.BranchEventName(bp.Type, bp.SplitCause));
             Assert.Contains(logLines, l => l.Contains("[Coalescer]") && l.Contains("SEPARATION emitted")
-                && l.Contains("splitCause=none") && l.Contains("windowCause=BROKE_OFF"));
+                && l.Contains("splitCause=BROKE_OFF") && l.Contains("decouplerPartId="));
+        }
+
+        [Fact]
+        public void BrokeOffDebrisWindow_ThroughStructureList_ReadsBrokeOffNotStaged()
+        {
+            // A torn-off parachute: one debris child, no controlled child. The structure
+            // list's debris-only arm used to label any null / DECOUPLE cause "Staged".
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(150.0, 1000, childHasController: false,
+                splitCause: SegmentBoundaryLogic.BrokeOffSplitCause);
+            var bp = coalescer.Tick(150.6);
+            bp.ParentRecordingIds = new List<string> { "r1" };
+
+            var r1 = new Recording
+            {
+                RecordingId = "r1", VesselName = "Lander",
+                ExplicitStartUT = 0, ExplicitEndUT = 500,
+                TerminalStateValue = TerminalState.Landed,
+                StartBodyName = "Mun", TerminalOrbitBody = "Mun"
+            };
+            r1.PartEvents.Add(new PartEvent
+            {
+                ut = 150.0, eventType = PartEventType.Decoupled,
+                partPersistentId = 3239663123u, partName = "parachuteLarge"
+            });
+            var tree = new RecordingTree { Id = "tree-1", RootRecordingId = "r1" };
+            tree.Recordings["r1"] = r1;
+            tree.BranchPoints.Add(bp);
+
+            var structure = MissionStructureBuilder.Build(tree);
+            var steps = MissionStructureListBuilder.Build(tree, structure);
+
+            Assert.Contains(steps, s => s.UT == 150.0
+                && s.Kind == StructureStepKind.Separation
+                && s.Label.StartsWith("Broke off: 1 piece", StringComparison.Ordinal));
+            Assert.DoesNotContain(steps, s => s.Label.StartsWith("Staged", StringComparison.Ordinal));
         }
 
         [Fact]
@@ -548,7 +584,7 @@ namespace Parsek.Tests
 
             var bp = coalescer.Tick(100.6);
             Assert.Equal(BranchPointType.JointBreak, bp.Type);
-            Assert.Null(bp.SplitCause);
+            Assert.Equal("BROKE_OFF", bp.SplitCause);
         }
 
         [Fact]
