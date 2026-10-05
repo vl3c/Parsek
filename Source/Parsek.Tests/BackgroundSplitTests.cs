@@ -68,6 +68,190 @@ namespace Parsek.Tests
             return tree;
         }
 
+        #region Background undock cause
+
+        [Fact]
+        public void ClassifyBackgroundJointBreakCause_UndockedPartSameUT_IsUndock()
+        {
+            string cause = BackgroundRecorder.ClassifyBackgroundJointBreakCause(
+                jointChildPartPid: 4242u, jointBreakUT: 1500.25, breakForce: 0f,
+                pendingUndockPartPid: 4242u, pendingUndockUT: 1500.25);
+
+            Assert.Equal("UNDOCK", cause);
+            Assert.Contains(logLines, l => l.Contains("[BgRecorder]")
+                && l.Contains("ClassifyBackgroundJointBreakCause: partPid=4242")
+                && l.Contains("sameUT=true")
+                && l.Contains("cause=UNDOCK"));
+        }
+
+        [Fact]
+        public void ClassifyBackgroundJointBreakCause_NoPendingUndock_IsDecouple()
+        {
+            // An ordinary decoupler or a dying part shedding its children reaches the joint
+            // break through Part.decouple with breakForce 0 and nothing noted: nothing is
+            // pending.
+            string cause = BackgroundRecorder.ClassifyBackgroundJointBreakCause(
+                jointChildPartPid: 4242u, jointBreakUT: 1500.25, breakForce: 0f,
+                pendingUndockPartPid: 0u, pendingUndockUT: double.NaN);
+
+            Assert.Equal("DECOUPLE", cause);
+            Assert.Contains(logLines, l => l.Contains("[BgRecorder]")
+                && l.Contains("pendingUndockPartPid=0")
+                && l.Contains("cause=DECOUPLE"));
+        }
+
+        [Fact]
+        public void ClassifyBackgroundJointBreakCause_OtherPart_IsDecouple()
+        {
+            string cause = BackgroundRecorder.ClassifyBackgroundJointBreakCause(
+                jointChildPartPid: 5151u, jointBreakUT: 1500.25, breakForce: 0f,
+                pendingUndockPartPid: 4242u, pendingUndockUT: 1500.25);
+
+            Assert.Equal("DECOUPLE", cause);
+        }
+
+        [Fact]
+        public void ClassifyBackgroundJointBreakCause_StaleUndockFromEarlierUT_IsDecouple()
+        {
+            string cause = BackgroundRecorder.ClassifyBackgroundJointBreakCause(
+                jointChildPartPid: 4242u, jointBreakUT: 1612.0, breakForce: 0f,
+                pendingUndockPartPid: 4242u, pendingUndockUT: 1500.25);
+
+            Assert.Equal("DECOUPLE", cause);
+            Assert.Contains(logLines, l => l.Contains("sameUT=false") && l.Contains("cause=DECOUPLE"));
+        }
+
+        [Fact]
+        public void BuildBackgroundSplitBranchData_UndockCause_KeepsJointBreakTypeAndReadsUndocked()
+        {
+            var newVessels = new List<(uint pid, string name, bool hasController)>
+            {
+                (400, "Lander", true)
+            };
+
+            var (bp, children) = BackgroundRecorder.BuildBackgroundSplitBranchData(
+                "parent_rec", "tree_1", 1000.0, BranchPointType.JointBreak,
+                100, newVessels, 0, "UNDOCK");
+
+            Assert.Equal(BranchPointType.JointBreak, bp.Type);
+            Assert.Equal("UNDOCK", bp.SplitCause);
+            Assert.Single(children);
+            Assert.Equal("Undocked",
+                MissionCompositionBuilder.BranchEventName(bp.Type, bp.SplitCause));
+        }
+
+        [Fact]
+        public void ClassifyBackgroundJointBreakCause_BrokeUnderForce_IsNullAndLogsBrokeOff()
+        {
+            // PartJoint.OnJointBreak passes the real break force; DestroyJoint (decouple,
+            // undock) passes 0. A force break reads "Broke off" by its JointBreak type.
+            string cause = BackgroundRecorder.ClassifyBackgroundJointBreakCause(
+                jointChildPartPid: 7373u, jointBreakUT: 1500.25, breakForce: 8526.6f,
+                pendingUndockPartPid: 0u, pendingUndockUT: double.NaN);
+
+            Assert.Equal("BROKE_OFF", cause);
+            Assert.Contains(logLines, l => l.Contains("[BgRecorder]")
+                && l.Contains("ClassifyBackgroundJointBreakCause: partPid=7373")
+                && l.Contains("breakForce=8526.6")
+                && l.Contains("cause=BROKE_OFF"));
+        }
+
+        [Fact]
+        public void ClassifyBackgroundJointBreakCause_ForceBreakOfNotedPart_StillBrokeOff()
+        {
+            // KSP's force path fires onPartJointBreak(force) BEFORE Part.decouple raises
+            // onPartDeCouple, so a note for the same part can only be stale; force wins.
+            string cause = BackgroundRecorder.ClassifyBackgroundJointBreakCause(
+                jointChildPartPid: 4242u, jointBreakUT: 1500.25, breakForce: 120.0f,
+                pendingUndockPartPid: 4242u, pendingUndockUT: 1500.25);
+
+            Assert.Equal("BROKE_OFF", cause);
+        }
+
+        [Fact]
+        public void BuildBackgroundSplitBranchData_BrokeOff_KeepsJointBreakTypeAndReadsBrokeOff()
+        {
+            var newVessels = new List<(uint pid, string name, bool hasController)>
+            {
+                (400, "Wing", false)
+            };
+
+            var (bp, _) = BackgroundRecorder.BuildBackgroundSplitBranchData(
+                "parent_rec", "tree_1", 1000.0, BranchPointType.JointBreak,
+                100, newVessels, 0, "BROKE_OFF");
+
+            Assert.Equal(BranchPointType.JointBreak, bp.Type);
+            Assert.Equal("BROKE_OFF", bp.SplitCause);
+            Assert.Equal("Broke off",
+                MissionCompositionBuilder.BranchEventName(bp.Type, bp.SplitCause));
+        }
+
+        [Theory]
+        [InlineData(10u, 20u, 50.0, 10u, 50.0, true)]   // the port itself comes off
+        [InlineData(10u, 20u, 50.0, 20u, 50.0, true)]   // the part on its docking node comes off
+        [InlineData(10u, 20u, 50.0, 30u, 50.0, false)]  // another part decouples in the same frame
+        [InlineData(10u, 20u, 50.0, 10u, 51.0, false)]  // stale note from an earlier UT
+        [InlineData(0u, 0u, double.NaN, 10u, 50.0, false)] // never armed: a staged port
+        public void MatchesPreAttachedUndock_Table(uint port, uint other, double armedUT,
+            uint decoupled, double ut, bool expected)
+        {
+            Assert.Equal(expected, DockingPortSeparation.MatchesPreAttachedUndock(
+                port, other, armedUT, decoupled, ut));
+        }
+
+        [Fact]
+        public void TryConsumePreAttachedUndock_ArmedSameUT_IsUndockOnce()
+        {
+            DockingPortSeparation.Clear();
+            DockingPortSeparation.ArmPreAttachedUndock(10u, 20u, 50.0);
+
+            Assert.True(DockingPortSeparation.TryConsumePreAttachedUndock(20u, 50.0, "BgRecorder"));
+            Assert.False(DockingPortSeparation.TryConsumePreAttachedUndock(20u, 50.0, "BgRecorder"));
+            Assert.Contains(logLines, l => l.Contains("[DockUndockIntent]")
+                && l.Contains("Armed pre-attached Undock intent: portPid=10 otherPid=20"));
+            Assert.Contains(logLines, l => l.Contains("[DockUndockIntent]")
+                && l.Contains("BgRecorder: decouple pid=20") && l.Contains("UNDOCK (consumed)"));
+        }
+
+        [Fact]
+        public void TryConsumePreAttachedUndock_UnarmedStaging_IsDecouple()
+        {
+            // OnActive (staging) -> Decouple() never passes through Undock(), so nothing is armed.
+            DockingPortSeparation.Clear();
+            Assert.False(DockingPortSeparation.TryConsumePreAttachedUndock(10u, 50.0, "Recorder"));
+        }
+
+        [Fact]
+        public void TryConsumePreAttachedUndock_StaleNote_IsDecoupleAndClears()
+        {
+            DockingPortSeparation.Clear();
+            DockingPortSeparation.ArmPreAttachedUndock(10u, 20u, 50.0);
+
+            Assert.False(DockingPortSeparation.TryConsumePreAttachedUndock(10u, 75.0, "Recorder"));
+            Assert.Contains(logLines, l => l.Contains("[DockUndockIntent]")
+                && l.Contains("sameUT=false") && l.Contains("=> DECOUPLE"));
+            Assert.False(DockingPortSeparation.TryConsumePreAttachedUndock(10u, 50.0, "Recorder"));
+        }
+
+        [Fact]
+        public void BuildBackgroundSplitBranchData_DefaultCause_StillReadsDecoupled()
+        {
+            var newVessels = new List<(uint pid, string name, bool hasController)>
+            {
+                (400, "Booster", false)
+            };
+
+            var (bp, _) = BackgroundRecorder.BuildBackgroundSplitBranchData(
+                "parent_rec", "tree_1", 1000.0, BranchPointType.JointBreak,
+                100, newVessels);
+
+            Assert.Equal("DECOUPLE", bp.SplitCause);
+            Assert.Equal("Decoupled",
+                MissionCompositionBuilder.BranchEventName(bp.Type, bp.SplitCause));
+        }
+
+        #endregion
+
         #region BuildBackgroundSplitBranchData — Pure Logic
 
         [Fact]

@@ -892,9 +892,17 @@ namespace Parsek.TestCommands
         internal const double InvokeRewindToLaunchSeconds = 300.0;
 
         /// <summary>AnswerMergeDialog may DRIVE the conclusion scene-exit that surfaces the
-        /// pre-transition dialog, then hold the head through the post-answer scene settle
-        /// (M-C1, ~120 s).</summary>
-        internal const double AnswerMergeDialogSeconds = 120.0;
+        /// pre-transition dialog, then hold the head through the post-answer scene settle.
+        ///
+        /// <para>60 s, MEASURED: over 859 collected harness runs (2026-09-10 to
+        /// 2026-10-05) the OK steps were n=65, p50 3.3 s, p99 6.6 s, max 7.2 s, so the
+        /// 4x-OK-max rule gives 29 s. The floor is the re-fly resume-settle fallback
+        /// instead: <see cref="TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds"/>
+        /// (30 s) consumes the front of this budget before the driven exit and its scene
+        /// settle, and must stay at most half of it (unit-guarded). Every non-OK outcome
+        /// in the corpus (4 TIMEOUT no-refly-dialog, 2 ERROR answer-timeout) waited the
+        /// full old 120 s budget and none was a slow success.</para></summary>
+        internal const double AnswerMergeDialogSeconds = 60.0;
 
         /// <summary>TimeJump is synchronous but the spawn-queue settle + ledger recalc want a
         /// bound well under an infinite hang (M-C1, ~120 s).</summary>
@@ -922,19 +930,31 @@ namespace Parsek.TestCommands
         internal const double EvaChuteDeploySeconds = 420.0;
 
         /// <summary>EvaGroundScience (coverage wave 10): not-eva defer + the place gate
-        /// (kerbal landed and standing) + the preview build + up to five confirm presses +
-        /// the ground vessel load, or the pick-up's retract animation + vessel kill. Each is
-        /// seconds; 120 s is the EvaExit / EvaBoard size.</summary>
-        internal const double EvaGroundScienceSeconds = 120.0;
+        /// (kerbal landed and standing) + the preview build + the confirm presses and
+        /// face-away re-turns + the ground vessel load, or the pick-up's retract animation +
+        /// vessel kill, or one step move. Each action (step / take / place / pickup) is its
+        /// OWN command, so this budget bounds one action, not a whole sequence.
+        ///
+        /// <para>60 s, MEASURED: over 859 collected harness runs (2026-09-10 to
+        /// 2026-10-05) the OK steps were n=412, p50 0.9 s, p99 5.5 s, max 5.5 s (per
+        /// action max: step 3.3, take 0.5, place 3.6, pickup 5.5). 4x the OK max is only
+        /// 22 s, but the place ladder counts FRAMES, not seconds: eight re-turns of
+        /// ReTurnFrames plus confirm re-arms plus SettleFrames is about 1,000 frames
+        /// worst case, which fits 30 s only at 33 fps or better. 60 s keeps that worst
+        /// case inside the budget down to about 17 fps (a dense scene on a slow
+        /// machine). All 37
+        /// timeouts in the corpus (27 step, 5 placement, 3 place-gate, 2 pickup) waited
+        /// the full old 120 s budget, 4,440 s of wall time, and none was a slow
+        /// success.</para></summary>
+        internal const double EvaGroundScienceSeconds = 60.0;
 
         /// <summary>ExitToSpaceCenter (R12): the pre-exit persist + the FLIGHT teardown
         /// (tree finalize, dirty-sidecar force-write, background-recorder shutdown) + the
         /// KSC scene bootstrap, which RE-READS persistent.sfs from disk and runs
         /// ScenarioRunner.SetProtoModules -> ParsekScenario.OnLoad -> the pending-tree
-        /// auto-commit, all before the scene settles. Sized like AnswerMergeDialog (120 s),
-        /// the only other verb that DRIVES a scene exit and holds the head across its
-        /// settle, rather than like LoadGame (300 s), which additionally parses a cold save
-        /// off disk.</summary>
+        /// auto-commit, all before the scene settles. Sized for a driven scene exit and its
+        /// settle (120 s) rather than like LoadGame (300 s), which additionally parses a
+        /// cold save off disk.</summary>
         internal const double ExitToSpaceCenterSeconds = 120.0;
 
         /// <summary>StartLoopPlayback (player-workflow lane): the forward jump itself

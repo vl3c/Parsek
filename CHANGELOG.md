@@ -1444,6 +1444,17 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **An undock done from EVA now reads "Undocked" in the Missions tab.** When a kerbal on EVA
+  undocked a docked vessel it was not flying, the separation was listed as "Decoupled".
+  A docking port's "Decouple Node" and an ordinary decoupler still read "Decoupled".
+- **A part torn off by force now reads "Broke off", and a VAB-built docking port's Undock reads
+  "Undocked", in the Missions tab.** A wing or parachute ripped off by aerodynamic stress or an
+  impact was listed as "Decoupled", on the vessel you fly and on a vessel recorded in the
+  background alike. Clicking Undock on a pair of docking ports that were joined in the
+  editor was also listed as "Decoupled". A decoupler firing still reads "Decoupled" (or
+  "Staged" in a mission's steps), staging such a docking port still reads the same way, and a
+  break that comes with a crash still reads "Crashed". Neither fix has been checked in a
+  test flight yet.
 - **A branch point after a recording split now names the segment it happened on.** When a
   recording is split (the optimizer's cut at an atmosphere exit or a body change, or a
   Re-Fly's HEAD/TIP cut), every branch point that names the recording as a parent at or
@@ -2743,6 +2754,15 @@ _(unreleased - entries accumulate here per commit)_
   (`msg`). Replayed over the 48 retries on disk, the set skips none and loses none of the 8
   retry passes; it acts on new runs, where the seam now reports a dead EVA kerbal as
   `active-vessel-lost` instead of a step timeout.
+- **Dev: two test-command step budgets are shorter, so a failing harness step gives up
+  sooner.** `EvaGroundScience` now times out after 60 s (was 120 s) and `AnswerMergeDialog`
+  after 60 s (was 120 s). Measured over 859 collected harness runs: the slowest successful
+  `EvaGroundScience` action took 5.5 s (412 steps) and the slowest successful
+  `AnswerMergeDialog` 7.2 s (65 steps), while every one of their 43 timeouts waited the full
+  120 s without a late success, about 86 minutes of wall time in all. `AnswerMergeDialog`
+  keeps 60 s rather than 30 s because its re-fly fallback may spend 30 s waiting for the
+  resumed flight before it drives the scene exit. The harness's mirror of the budget table
+  moves with them, so a step's own wait still outlasts the game's verdict.
 - **A new supply route is named after the mission it repeats.** Creating a route from a
   Candidates row names it after its mission (`Duna Supply 1`) instead of `Route: KSC -> Duna`,
   which only repeated the from/to line under it. A second route from the same mission (or any

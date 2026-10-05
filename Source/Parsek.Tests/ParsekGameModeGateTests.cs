@@ -262,6 +262,7 @@ namespace Parsek.Tests
             "Parsek.Patches.HackGravityPatch.Postfix",
             "Parsek.Patches.GhostTrackingStationInitPatch.Prefix",
             "Parsek.Patches.KerbalAutoHireApplicantPatch.Prefix",
+            "Parsek.Patches.DockingNodeUndockIntentPatch.Prefix",
             "Parsek.Patches.KerbalDismissalPatch.Prefix",
             "Parsek.Patches.KerbalHirePatch.Prefix",
             "Parsek.Patches.KerbalSackPatch.Prefix",

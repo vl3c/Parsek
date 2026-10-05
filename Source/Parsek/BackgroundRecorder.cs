@@ -160,9 +160,22 @@ namespace Parsek
         // The parentBoundaryPoint is captured at the actual joint-break UT so
         // parent continuation/closure can use an exact split-time pose instead
         // of backdating a later sample from the deferred check frame.
-        private Dictionary<uint, (double branchUT, string recordingId, TrajectoryPoint? parentBoundaryPoint)>
+        // splitCause is the BranchPoint.SplitCause the deferred check stamps
+        // ("DECOUPLE"; "UNDOCK" for a docking-port undock; "BROKE_OFF" for a joint that
+        // broke under force).
+        private Dictionary<uint, (double branchUT, string recordingId, TrajectoryPoint? parentBoundaryPoint, string splitCause)>
             pendingBackgroundSplitChecks
-                = new Dictionary<uint, (double, string, TrajectoryPoint?)>();
+                = new Dictionary<uint, (double, string, TrajectoryPoint?, string)>();
+
+        // Docking-port undock handoff for background vessels. KSP's Part.Undock fires
+        // onPartUndock(part) first, then destroys part.attachJoint (the synchronous
+        // onPartJointBreak whose Child is that same part), all inside one call at one UT.
+        // The undock handler notes the part here and the joint-break handler consumes it.
+        // A pre-attached (VAB-built) port's Undock goes through Part.decouple instead, which
+        // fires onPartDeCouple(part) before destroying the same attachJoint; the decouple
+        // handler notes that part in the same slot.
+        private uint pendingBackgroundUndockPartPid;
+        private double pendingBackgroundUndockUT = double.NaN;
 
         // Pre-break snapshot of all vessel PIDs in FlightGlobals, per parent vessel.
         // Used to identify NEW vessels that appeared from the split.
@@ -635,8 +648,10 @@ namespace Parsek
             if (partEventsSubscribed) return;
             GameEvents.onPartDie.Add(OnBackgroundPartDie);
             GameEvents.onPartJointBreak.Add(OnBackgroundPartJointBreak);
+            GameEvents.onPartUndock.Add(OnBackgroundPartUndock);
+            GameEvents.onPartDeCouple.Add(OnBackgroundPartDeCouple);
             partEventsSubscribed = true;
-            ParsekLog.Verbose("BgRecorder", "Subscribed to onPartDie and onPartJointBreak for background vessels");
+            ParsekLog.Verbose("BgRecorder", "Subscribed to onPartDie, onPartJointBreak, onPartUndock and onPartDeCouple for background vessels");
         }
 
         internal void UnsubscribePartEvents()
@@ -644,8 +659,12 @@ namespace Parsek
             if (!partEventsSubscribed) return;
             GameEvents.onPartDie.Remove(OnBackgroundPartDie);
             GameEvents.onPartJointBreak.Remove(OnBackgroundPartJointBreak);
+            GameEvents.onPartUndock.Remove(OnBackgroundPartUndock);
+            GameEvents.onPartDeCouple.Remove(OnBackgroundPartDeCouple);
             partEventsSubscribed = false;
-            ParsekLog.Verbose("BgRecorder", "Unsubscribed from onPartDie and onPartJointBreak");
+            pendingBackgroundUndockPartPid = 0;
+            pendingBackgroundUndockUT = double.NaN;
+            ParsekLog.Verbose("BgRecorder", "Unsubscribed from onPartDie, onPartJointBreak, onPartUndock and onPartDeCouple");
         }
 
         /// <summary>
@@ -710,6 +729,81 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Notes a docking-port undock on a background vessel. A player reaches this by
+        /// clicking Undock on a docked vessel from EVA (ModuleDockingNode.Undock is
+        /// guiActiveUnfocused, externalToEVAOnly, unfocusedRange = 2 m) while the kerbal is
+        /// the active vessel and the docked vessel is background-recorded. The joint break
+        /// that follows in the same Part.Undock call reads this to stamp SplitCause UNDOCK.
+        /// </summary>
+        internal void OnBackgroundPartUndock(Part undockedPart)
+        {
+            if (tree == null || undockedPart?.vessel == null) return;
+            uint vesselPid = undockedPart.vessel.persistentId;
+            if (!tree.BackgroundMap.ContainsKey(vesselPid)) return;
+            NoteBackgroundUndock(undockedPart.persistentId, Planetarium.GetUniversalTime());
+            ParsekLog.Verbose("BgRecorder",
+                $"OnBackgroundPartUndock: docking-port undock on background vessel " +
+                $"part='{undockedPart.partInfo?.name}' pid={undockedPart.persistentId} vesselPid={vesselPid}");
+        }
+
+        /// <summary>
+        /// Notes a clicked pre-attached docking-port Undock on a background vessel. Stock
+        /// routes that Undock through Decouple() and Part.decouple, so no onPartUndock fires;
+        /// onPartDeCouple(part) fires first, before the part's attachJoint is destroyed. The
+        /// click itself is caught by DockingNodeUndockIntentPatch; staging the same port
+        /// never arms it and stays DECOUPLE.
+        /// </summary>
+        internal void OnBackgroundPartDeCouple(Part decoupledPart)
+        {
+            if (tree == null || decoupledPart?.vessel == null) return;
+            uint vesselPid = decoupledPart.vessel.persistentId;
+            if (!tree.BackgroundMap.ContainsKey(vesselPid)) return;
+            double ut = Planetarium.GetUniversalTime();
+            if (!DockingPortSeparation.TryConsumePreAttachedUndock(
+                    decoupledPart.persistentId, ut, "BgRecorder")) return;
+            NoteBackgroundUndock(decoupledPart.persistentId, ut);
+            ParsekLog.Verbose("BgRecorder",
+                $"OnBackgroundPartDeCouple: pre-attached docking-port undock on background vessel " +
+                $"part='{decoupledPart.partInfo?.name}' pid={decoupledPart.persistentId} vesselPid={vesselPid}");
+        }
+
+        internal void NoteBackgroundUndock(uint partPid, double ut)
+        {
+            pendingBackgroundUndockPartPid = partPid;
+            pendingBackgroundUndockUT = ut;
+        }
+
+        /// <summary>
+        /// Pure decision: the SplitCause of a background joint break.
+        /// A joint that broke under force (breakForce &gt; 0: PartJoint.OnJointBreak, an
+        /// overstress or impact) returns "BROKE_OFF", read as "Broke off". It is
+        /// checked first because KSP's force path then calls Part.decouple too; the
+        /// foreground marks the same break the same way. Otherwise the cause is "UNDOCK" when
+        /// an undock note (onPartUndock, or onPartDeCouple of a pre-attached port) named the
+        /// joint's child part at the same UT, else "DECOUPLE" (a decoupler, a dying part
+        /// shedding its children, or a docking port's "Decouple Node").
+        /// </summary>
+        internal static string ClassifyBackgroundJointBreakCause(
+            uint jointChildPartPid, double jointBreakUT, float breakForce,
+            uint pendingUndockPartPid, double pendingUndockUT)
+        {
+            bool sameUT = pendingUndockUT == jointBreakUT;
+            bool undock = pendingUndockPartPid != 0
+                && jointChildPartPid == pendingUndockPartPid
+                && sameUT;
+            bool brokeUnderForce = breakForce > 0f;
+            string cause = brokeUnderForce
+                ? SegmentBoundaryLogic.BrokeOffSplitCause
+                : (undock ? "UNDOCK" : "DECOUPLE");
+            ParsekLog.Verbose("BgRecorder",
+                $"ClassifyBackgroundJointBreakCause: partPid={jointChildPartPid} " +
+                $"breakForce={breakForce.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"pendingUndockPartPid={pendingUndockPartPid} " +
+                $"sameUT={(sameUT ? "true" : "false")} => cause={cause ?? "BROKE_OFF"}");
+            return cause;
+        }
+
+        /// <summary>
         /// Handles part joint breaks for background vessels. Looks up the child part's
         /// vessel in the tree's BackgroundMap; if found and in loaded state, emits a
         /// Decoupled event (with structural-joint and dedup guards).
@@ -771,6 +865,14 @@ namespace Parsek
             }
             state.decoupledPartIds.Add(joint.Child.persistentId);
             double jointBreakUT = Planetarium.GetUniversalTime();
+            string splitCause = ClassifyBackgroundJointBreakCause(
+                joint.Child.persistentId, jointBreakUT, breakForce,
+                pendingBackgroundUndockPartPid, pendingBackgroundUndockUT);
+            if (splitCause == "UNDOCK")
+            {
+                pendingBackgroundUndockPartPid = 0;
+                pendingBackgroundUndockUT = double.NaN;
+            }
 
             treeRec.PartEvents.Add(new PartEvent
             {
@@ -784,7 +886,7 @@ namespace Parsek
             ParsekLog.Verbose("BgRecorder",
                 $"Part joint break on background vessel: Decoupled " +
                 $"'{joint.Child.partInfo?.name}' pid={joint.Child.persistentId} " +
-                $"vesselPid={vesselPid} breakForce={breakForce:F1}");
+                $"vesselPid={vesselPid} breakForce={breakForce:F1} cause={splitCause ?? "BROKE_OFF"}");
 
             var jointBreakInvolved = new List<Vessel>(2);
             if (joint.Child.vessel != null) jointBreakInvolved.Add(joint.Child.vessel);
@@ -821,12 +923,12 @@ namespace Parsek
                     : null;
                 if (parentBoundaryPoint.HasValue)
                     parentBoundaryPoint = FlightRecorder.ApplyStructuralEventFlag(parentBoundaryPoint.Value);
-                pendingBackgroundSplitChecks[vesselPid] = (branchUT, recordingId, parentBoundaryPoint);
+                pendingBackgroundSplitChecks[vesselPid] = (branchUT, recordingId, parentBoundaryPoint, splitCause);
 
                 ParsekLog.Info("BgRecorder",
                     $"Scheduled deferred split check for background vessel: " +
                     $"parentPid={vesselPid} branchUT={branchUT:F1} " +
-                    $"preBreakVesselCount={snapshot.Count}");
+                    $"preBreakVesselCount={snapshot.Count} cause={splitCause ?? "BROKE_OFF"}");
             }
         }
 
@@ -844,7 +946,7 @@ namespace Parsek
             if (pendingBackgroundSplitChecks.Count == 0) return;
 
             // Copy keys to avoid modifying dict during iteration
-            var pending = new List<KeyValuePair<uint, (double branchUT, string recordingId, TrajectoryPoint? parentBoundaryPoint)>>(
+            var pending = new List<KeyValuePair<uint, (double branchUT, string recordingId, TrajectoryPoint? parentBoundaryPoint, string splitCause)>>(
                 pendingBackgroundSplitChecks);
             pendingBackgroundSplitChecks.Clear();
 
@@ -860,7 +962,8 @@ namespace Parsek
                 preBreakVesselPidSnapshots.Remove(parentPid);
 
                 HandleBackgroundVesselSplit(
-                    parentPid, branchUT, parentRecordingId, preBreakPids, parentBoundaryPoint);
+                    parentPid, branchUT, parentRecordingId, preBreakPids, parentBoundaryPoint,
+                    pending[i].Value.splitCause);
             }
         }
 
@@ -872,7 +975,8 @@ namespace Parsek
         /// </summary>
         internal void HandleBackgroundVesselSplit(uint parentPid, double branchUT,
             string parentRecordingId, HashSet<uint> preBreakPids,
-            TrajectoryPoint? parentBoundaryPoint = null)
+            TrajectoryPoint? parentBoundaryPoint = null,
+            string splitCause = "DECOUPLE")
         {
             if (tree == null) return;
 
@@ -932,7 +1036,7 @@ namespace Parsek
             // A split occurred. Build the branch structure.
             ParsekLog.Info("BgRecorder",
                 $"Background vessel split detected: parentPid={parentPid} " +
-                $"childCount={newVesselInfos.Count} branchUT={branchUT:F1}");
+                $"childCount={newVesselInfos.Count} branchUT={branchUT:F1} cause={splitCause ?? "BROKE_OFF"}");
 
             // Determine BranchPoint type: JointBreak (structural separation)
             var branchType = BranchPointType.JointBreak;
@@ -941,7 +1045,7 @@ namespace Parsek
             // Children inherit parentRec.Generation + 1.
             var result = BuildBackgroundSplitBranchData(
                 parentRecordingId, tree.Id, branchUT, branchType,
-                parentPid, newVesselInfos, parentRec.Generation);
+                parentPid, newVesselInfos, parentRec.Generation, splitCause);
 
             var bp = result.bp;
             var childRecordings = result.childRecordings;
@@ -1684,7 +1788,8 @@ namespace Parsek
                 string parentRecordingId, string treeId, double branchUT,
                 BranchPointType branchType, uint parentVesselPid,
                 List<(uint pid, string name, bool hasController)> newVesselInfos,
-                int parentGeneration = 0)
+                int parentGeneration = 0,
+                string splitCause = "DECOUPLE")
         {
             string bpId = System.Guid.NewGuid().ToString("N");
 
@@ -1695,7 +1800,7 @@ namespace Parsek
                 Type = branchType,
                 ParentRecordingIds = new List<string> { parentRecordingId },
                 ChildRecordingIds = new List<string>(),
-                SplitCause = "DECOUPLE"
+                SplitCause = splitCause
             };
 
             var childRecordings = new List<Recording>(newVesselInfos.Count);

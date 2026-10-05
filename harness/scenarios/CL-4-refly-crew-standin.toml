@@ -219,7 +219,7 @@ maxTotal = 0
 # verb), SetSetting max(60, 60+60) = 120 EACH (240 for the two), mission 600 (the raw
 # declared budget - a mission step is a kRPC subprocess, no dispatch margin),
 # TimeJump max(120,600)+60 = 660 (deferred verb),
-# AnswerMergeDialog max(240, 120+60) = 240, RecordingState 120, FlushAndQuit 120
+# AnswerMergeDialog max(240, 60+60) = 240, RecordingState 120, FlushAndQuit 120
 # -> 2640. 2700 clears it by 60, so no step-wait is capped by the run budget.
 budgetSeconds = 2700
 

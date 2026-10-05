@@ -2024,7 +2024,7 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                                 % (verb, step_wait, seam_deferral))
         else:
             # A non-two-phase verb still defers at the seam head up to its OWN dispatch
-            # deferral budget (AnswerMergeDialog 120s, KscAction 60s, ... default 60s)
+            # deferral budget (AnswerMergeDialog 60s, KscAction 60s, ... default 60s)
             # before the seam self-emits a TIMEOUT. Out-wait that budget + the 60s margin
             # so the seam's own verdict (retryable driver-INVALID) is OBSERVED instead of
             # the harness KILLing a genuinely-deferring verb; a spec-pinned larger step

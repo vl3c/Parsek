@@ -8227,11 +8227,12 @@ class BudgetArithmeticTests(unittest.TestCase):
 
     def test_dispatch_deferral_budget_mirrors_c_sharp(self):
         # Item 3: the per-verb dispatch deferral budgets mirror the C# DeferralBudget.
-        self.assertEqual(hlib.dispatch_deferral_budget("AnswerMergeDialog"), 120.0)
+        self.assertEqual(hlib.dispatch_deferral_budget("AnswerMergeDialog"), 60.0)
+        self.assertEqual(hlib.dispatch_deferral_budget("EvaGroundScience"), 60.0)
         self.assertEqual(hlib.dispatch_deferral_budget("KscAction"), 60.0)
         self.assertEqual(hlib.dispatch_deferral_budget("StartRecording"), 180.0)
-        # R12: ExitToSpaceCenterSeconds = 120 (sized like AnswerMergeDialog, the other
-        # scene-exit driver), and SimulateStockSwitchClick is single-phase on the default.
+        # R12: ExitToSpaceCenterSeconds = 120 (sized for a driven scene exit and its
+        # settle), and SimulateStockSwitchClick is single-phase on the default.
         self.assertEqual(hlib.dispatch_deferral_budget("ExitToSpaceCenter"), 120.0)
         self.assertEqual(hlib.dispatch_deferral_budget("SimulateStockSwitchClick"), 60.0)
         # An unlisted verb rides the 60s default (the C# DefaultSeconds).
@@ -8240,9 +8241,9 @@ class BudgetArithmeticTests(unittest.TestCase):
         self.assertEqual(hlib.dispatch_deferral_budget("RunTests", 900.0), 900.0)
 
     def test_required_dispatch_step_wait_adds_margin(self):
-        # Item 3: AnswerMergeDialog (120s) + margin => a non-two-phase verb still
+        # Item 3: AnswerMergeDialog (60s) + margin => a non-two-phase verb still
         # out-waits its seam-side deferral so the seam TIMEOUT is observed, not KILLed.
-        self.assertEqual(hlib.required_dispatch_step_wait("AnswerMergeDialog"), 180.0)
+        self.assertEqual(hlib.required_dispatch_step_wait("AnswerMergeDialog"), 120.0)
         self.assertEqual(hlib.required_dispatch_step_wait("KscAction"), 120.0)
         # A default-60s verb also clears the 60s window + margin (no 60==60 race).
         self.assertEqual(hlib.required_dispatch_step_wait("SetSetting"), 120.0)
