@@ -117,7 +117,7 @@ Parsek defines vessel identity around **command authority** — the presence of 
 
 ### 3.3 Debris
 
-An assembly of parts with no controller is debris. Parsek does not record debris trajectories. KSP's own persistence handles debris positions.
+An assembly of parts with no controller is debris. Debris that separates from a recorded vessel gets a short recording of its own (`Recording.IsDebris = true`, parent-anchored through `ParentAnchorRecordingId`) so the ghost shows spent stages falling away. That recording ends after `BackgroundRecorder.DebrisTTLSeconds` (60 s), on destruction, or when the debris leaves the physics bubble, whichever comes first. Parsek does not track debris beyond that window; KSP's own persistence handles debris positions afterwards.
 
 If a controlled vessel acquires debris (e.g., claw grab of a fuel tank), that's a merge event where one parent is a controller-based vessel and the other is inert. The recording notes the acquisition; the debris's prior existence is irrelevant to the recording.
 
@@ -669,7 +669,7 @@ High-frequency continuous events (engine gimbal angles, control surface deflecti
 
 ### 7.4 Structural Events for All Physics-Bubble Vessels
 
-Events that affect the DAG structure (staging, decoupling, docking, undocking) are captured for all vessels in the physics bubble. A background vessel that stages while the player is focused elsewhere produces a proper SPLIT event in the recording tree. Debris children from intentional splits get a TTL: recording stops after 30 seconds, or on crash/destruction, or when leaving the physics bubble. Rapid-fire crash fragments are coalesced into BREAKUP events and not individually tracked.
+Events that affect the DAG structure (staging, decoupling, docking, undocking) are captured for all vessels in the physics bubble. A background vessel that stages while the player is focused elsewhere produces a proper SPLIT event in the recording tree. Debris children from intentional splits get a TTL: recording stops after `BackgroundRecorder.DebrisTTLSeconds` (60 seconds), or on crash/destruction, or when leaving the physics bubble. Rapid-fire crash fragments are coalesced into BREAKUP events and not individually tracked.
 
 ---
 

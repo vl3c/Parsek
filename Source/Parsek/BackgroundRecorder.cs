@@ -867,7 +867,7 @@ namespace Parsek
         /// <summary>
         /// Called when a background vessel may have split. Checks if new vessels appeared
         /// from the split, creates BranchPoint + child recordings for each new vessel.
-        /// Spent stages and debris get a TTL (stop recording after 30s or on destruction
+        /// Spent stages and debris get a TTL (stop recording after DebrisTTLSeconds or on destruction
         /// or when leaving physics bubble).
         /// </summary>
         internal void HandleBackgroundVesselSplit(uint parentPid, double branchUT,

@@ -1440,11 +1440,11 @@ def _active_vessel_index(lines: List[str]) -> int:
 def _remove_vessel(lines: List[str], pid: str) -> Tuple[List[str], str]:
     """Delete the whole `VESSEL` node carrying ``pid``. Returns (lines, note).
 
-    THE ONE REFUSAL, and it is the reason this mode is safe to ship: `activeVessel`
-    is a positional index into the FLIGHTSTATE vessel list, so deleting a vessel at
-    or before it re-points the focus at a different craft (or at nothing). Every
-    token a lane derives is a statement about the scene that boots, so the patch
-    refuses and names both indices rather than shipping a save whose focus moved."""
+    `activeVessel` is a positional index into the FLIGHTSTATE vessel list, and every
+    token a lane derives is a statement about the scene that boots, so the focus must
+    stay on the same craft: removing a vessel BEFORE the focused one decrements the
+    index, removing one after it leaves the index alone, and removing the focused
+    vessel itself is the one refusal (no index can name a craft that is gone)."""
     vessels = flightstate_vessels(lines)
     matches = [(i, name, span) for i, (name, vpid, span) in enumerate(vessels)
                if vpid == pid]

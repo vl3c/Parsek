@@ -74,12 +74,15 @@ Also mooted by the removal: GUI-P13-D1-D15 (ruled: remove), the GUI-16 raw local
 key (item 15 of the GUI census findings), the missing `GloopsPreview` verb (item 7), and
 #435 (superseded).
 
-## PARSEK-RECORDING-DOC-DRIFT-2026-10-05: four places where recording docs and code disagree [FILED 2026-10-05 from the Gloops investigation, branch `ccr-8a19466a-qh7ey4`. OPEN, docs plus one possible label gap]
+## PARSEK-RECORDING-DOC-DRIFT-2026-10-05: four places where recording docs and code disagree [FILED 2026-10-05 from the Gloops investigation, branch `ccr-8a19466a-qh7ey4`. Items 1, 2 and 4 FIXED 2026-10-05, branch `recording-doc-drift`. OPEN for item 3 only]
 
-1. `docs/parsek-flight-recorder-design.md` line 120 says "Parsek does not record debris
-   trajectories". It does: `IsDebris` recordings, parent-anchored, for up to 60 s.
-2. The same doc (line 672) and the `BackgroundRecorder` split-check comment say the debris
-   TTL is 30 s; `BackgroundRecorder.DebrisTTLSeconds` is 60.
+1. ~~`docs/parsek-flight-recorder-design.md` line 120 says "Parsek does not record debris
+   trajectories". It does: `IsDebris` recordings, parent-anchored, for up to 60 s.~~
+   DONE 2026-10-05: section 3.3 now describes the short parent-anchored debris recording
+   and its end conditions.
+2. ~~The same doc (line 672) and the `BackgroundRecorder` split-check comment say the debris
+   TTL is 30 s; `BackgroundRecorder.DebrisTTLSeconds` is 60.~~ DONE 2026-10-05: both name
+   `DebrisTTLSeconds` (60 s).
 3. Undock branch points never carry a split cause. `SplitCause` is assigned only
    `"DECOUPLE"` in production (`CrashCoalescer.cs:162`, `BackgroundRecorder.cs:1698`), and
    `ParsekFlight.BuildSplitBranchData` sets none for `Undock`. Yet `MissionStructure` /
@@ -88,9 +91,34 @@ key (item 15 of the GUI census findings), the missing `GloopsPreview` verb (item
    `LogisticsRouteOnMissionsRuntimeTests`, `LogisticsShuttleRuntimeTests`) set
    `SplitCause = "UNDOCK"`, which production never writes. Check whether a player-visible
    Missions label depends on it before deciding which side to fix.
-4. `BranchPoint.MergeCause` documents `"CLAW"`; `ParsekFlight.GetMergeCauseForBranchType`
+   **Finding (2026-10-05, branch `recording-doc-drift`): no player-visible label depends on
+   it.** A foreground undock reaches `CreateSplitBranch(BranchPointType.Undock, ...)`
+   (`ParsekFlight.cs:7264-7265`), whose `BuildSplitBranchData` sets only `Type`
+   (`ParsekFlight.cs:5156-5163`), so `MissionStructure.cs:375` / `:403` copy a null
+   `SplitCause ?? BreakupCause`. `MissionCompositionBuilder.BranchEventName`
+   (`MissionComposition.cs:756-768`) then misses the cause switch and takes the type arm,
+   `BranchPointType.Undock -> "Undocked"`: the SAME word the `"UNDOCK"` cause arm returns.
+   Every reader goes through that one function (`MissionComposition.cs:609` / `:748`,
+   `MissionStructureList.cs:816-817` / `:905-906`), `MissionPresentation.SeparationVerb`
+   (`MissionPresentation.cs:648`) keys on the resulting word, and
+   `MissionEventDigest.VerbUndocked` (`MissionEventDigest.cs:380`) does not read the cause.
+   Every fixture that sets `SplitCause = "UNDOCK"` pairs it with `Type = Undock`
+   (`CrossTreeDockLoopUnitInGameTest`, `DockEventGraphInGameTest`,
+   `MissionDockCompositionRuntimeTest`, `RouteBuilderTests`, `MissionStoreTests`,
+   `SyntheticRecordingTests`), so fixtures and production resolve the same label. The cause
+   arm could only matter for an undock surfacing under ANOTHER type; the one such shape in
+   code is a background split, always `JointBreak` + `SplitCause = "DECOUPLE"`
+   (`BackgroundRecorder.cs:938`, `:1698`), which would read "Decoupled" for a background
+   docking-port undock if that path is reachable (not traced), and an `"UNDOCK"` arm nobody
+   writes would not change that. Recommended fix side: the docs and fixtures, not
+   production. Correct the `BranchPoint.SplitCause` comment (`BranchPoint.cs:47`, which also
+   lists `"EVA"`, never written) to `"DECOUPLE"` only, drop `SplitCause = "UNDOCK"` from the
+   fixtures, and either delete the dead `"UNDOCK"` cause arm or keep it as a harmless alias.
+4. ~~`BranchPoint.MergeCause` documents `"CLAW"`; `ParsekFlight.GetMergeCauseForBranchType`
    only returns `"DOCK"` / `"BOARD"`, so a claw couple is a `Dock` with `MergeCause = "DOCK"`
-   (distinguished only by `TransferKind = Grapple`).
+   (distinguished only by `TransferKind = Grapple`).~~ DONE 2026-10-05: the field comment now
+   says so (and the matching cause list in `MissionsWindowUI` drops `"CLAW"` /
+   `"CONSTRUCT"`).
 
 ---
 
@@ -1587,7 +1615,7 @@ parts beside the pod, board, `WarpToUT` about 10 game minutes (ten 60 s transmis
 ids with an empty recording tag, and the log line of the untagged route. Estimate: one
 reading flight after the builder; no product change expected.
 
-## HARNESS-README-SAVEPATCH-SURFACES-STALE: harness/README.md does not describe the 2026-09-28 savepatch changes [FILED 2026-09-28, branch `deployables-lanes`]
+## ~~HARNESS-README-SAVEPATCH-SURFACES-STALE: harness/README.md does not describe the 2026-09-28 savepatch changes~~ [FILED 2026-09-28, branch `deployables-lanes`. FIXED 2026-10-05, branch `recording-doc-drift`]
 
 Two savepatch changes landed with the ground-science cluster lanes without their
 `harness/README.md` paragraphs: `[[fixture.liveState]] remove` now RE-POINTS `activeVessel`
@@ -1597,6 +1625,12 @@ REFUSED), and the new `[[fixture.partInventory]]` surface (a FLIGHTSTATE contain
 `inventory` CSV, contract in `harness/lib/savepatch.py`) has no README row beside
 `[[fixture.crewInventory]]`. The code comments in `savepatch.py` are the authority until the
 README is brought in line.
+
+Fix: the README's `remove` bullet now states the re-point (an earlier removal decrements
+`activeVessel`, a later one leaves it, removing the focused vessel is the one refusal), and a
+new "Per-spec inventory seeds" section carries a row each for `[[fixture.crewInventory]]` and
+`[[fixture.partInventory]]`, taken from the appliers. `_remove_vessel`'s stale docstring in
+`savepatch.py` is corrected to match its code.
 
 ## ~~IDLE-ON-PAD-DISCARDS-PLACED-GROUND-PARTS: a tree whose EVA kerbal placed ground parts within 30 m was auto-discarded as idle on pad~~ [FILED AND FIXED 2026-09-29 from the deployables flights `2026-09-29_1856` / `_1901` / `_1905` / `_1916` (EVA-9 / EVA-10), branch `placed-parts-not-idle`]
 

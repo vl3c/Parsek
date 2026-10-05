@@ -1770,10 +1770,13 @@ inventory = "clear"                  # and empty both containers
 * `remove = true` - DELETE the vessel's whole `VESSEL` node, the only way to author
   "the endpoint this route names is no longer in the save" without a second harvest.
   Exclusive with `resources` / `inventory` (both would patch a node this entry then
-  deletes), and REFUSED for any vessel at or before the save's `activeVessel` INDEX:
-  that key is positional, so removing an earlier vessel silently re-points the focus
-  at a different craft and every token the lane derives becomes a statement about a
-  different scene. It does NOT by itself produce an `EndpointLost` hold -
+  deletes). `activeVessel` is a positional INDEX into the FLIGHTSTATE vessel list, so
+  the patch keeps the focus on the same craft: removing a vessel BEFORE the focused one
+  decrements `activeVessel` (the patch note reads `activeVessel=<old>-><new>`),
+  removing one AFTER it leaves the index alone, and removing the focused vessel ITSELF
+  is REFUSED (no index can name a craft that is gone). EVA-9 relies on the re-point:
+  it removes the index-0 asteroid so the capsule stays the focus. It does NOT by itself
+  produce an `EndpointLost` hold -
   `RouteEndpointResolver` walks root-part -> pid -> SURFACE PROXIMITY, so on a
   surface endpoint a removal only opens the third step, and whether that step misses
   is a property of what else is parked near the recorded coordinates (on
@@ -1782,9 +1785,9 @@ inventory = "clear"                  # and empty both containers
   TRANSFERS the route's persisted stop onto it - RVR-18).
 * **MORE THAN ONE ENTRY MAY REMOVE, and that is how a miss is authored.** Entries
   apply in file order and each re-resolves its own span from the already-shortened
-  text, so a second deletion is not a special case; the `activeVessel` refusal is
-  re-checked per entry against the index the save still carries, and removals
-  strictly AFTER it never move it in any order. RVR-19 is the first lane to use it:
+  text, so a second deletion is not a special case; the re-point and the
+  focused-vessel refusal are re-checked per entry against the index the save still
+  carries, so any order of removals keeps the focus on the same craft. RVR-19 is the first lane to use it:
   it deletes BOTH other surface vessels so the only candidate left inside the radius
   is the route's own TRANSPORT, which the ruling forbids transferring onto, and the
   cycle finally holds `EndpointLost`. The general point, because the roadmap got it
@@ -1947,6 +1950,31 @@ most two - and that the limit is a property of THAT fixture rather than of the
 mechanism: on `rover-route-recorded` the destination starts with three free slots and
 one cycle consumes ALL THREE (a three-part manifest), so RVR-16 reaches the same gate
 with a single `resources` declaration and no new key.
+
+### Per-spec inventory seeds (`[[fixture.crewInventory]]`, `[[fixture.partInventory]]`)
+
+Two sibling surfaces seed a starting inventory without a second harvest. Both write
+stock's own compact form: the node's lowercase `inventory = <csv>` key is set and its
+`STOREDPARTS` child is DROPPED, so `ModuleInventoryPart.OnLoad` builds every stored
+part from the part prefab (nothing authors a PART snapshot by hand). Stock silently
+skips a CSV name that is not an available cargo part and any name past the slot
+count, and the patch has no part database, so a lane asserts what its seam step reads
+back (the `EvaGroundScience` `inventory=` / `sourceInventory=` fields) rather than
+trusting the declaration. The CSV must be part names separated by bare commas.
+
+| Surface | Keys | Node it rewrites | Fails closed (pre-boot `INVALID(staging)`) on | Log line |
+|---|---|---|---|---|
+| `[[fixture.crewInventory]]` | `kerbal`, `inventory` | `GAME / ROSTER / KERBAL / INVENTORY` of the named roster kerbal (a sibling of FLIGHTSTATE, loaded into the EVA kerbal when it leaves the vessel) | not exactly one ROSTER; the kerbal named zero or several times; not exactly one INVENTORY on the kerbal; an INVENTORY with no `inventory` key to rewrite | `crewInventory patched kerbal=... inventory <old>-><new> storedPartsDropped=N` |
+| `[[fixture.partInventory]]` | `pid`, `part`, `inventory` | the one `ModuleInventoryPart` MODULE on the FLIGHTSTATE vessel with that `persistentId`, on the part with that save name (the key is inserted beside `name = ModuleInventoryPart` when absent) | not exactly one FLIGHTSTATE vessel with the pid; not exactly one PART of that name on it; not exactly one `ModuleInventoryPart` on that part | `partInventory patched pid=... name=... part=... inventory <old, or ->-><new> storedPartsDropped=N` |
+
+`partInventory` exists because a stock kerbal carries one Breaking Ground deployable at
+a time (2 slots, 40 L against 25-35 L per part): a cluster lane seeds a container (EVA-8
+seeds the Mk1-3 pod) and the kerbal takes each part out with `EvaGroundScience
+action=take`. The container's slot count and volume are part-config properties the
+save does not carry, so the patch does not check them. A duplicate `kerbal`, or a
+duplicate (`pid`, `part`) pair, is INVALID-SPEC. `run.py::stage_fixture` applies the
+patches in the order `liveState`, `career`, `crewInventory`, `partInventory`, all on
+the staged copy. Contract and decompiled rationale: `harness/lib/savepatch.py`.
 
 ### Recording sidecars: what is committed and what is derived
 
