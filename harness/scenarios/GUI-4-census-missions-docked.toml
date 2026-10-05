@@ -116,12 +116,19 @@ tier = "operator"
 #     mission's Log reads `Undocked (Kerbal X) | Kerbin orbit | Kerbal X (mission
 #     'Kerbal X')` and three End rows named `Kerbal X`, `Kerbal X (mission 'Kerbal X')`,
 #     `Kerbal X Probe` - the ship KSP re-pidded at the undock is the mission's own Kerbal X,
-#     not a second one, so no `[2]` anywhere (`continuations=1 numbered=0`); its Missions row
-#     reads `Kerbal X   Launch -> Decoupled (Kerbal X Probe) -> Docked -> Undocked (Kerbal X)
-#     -> Orbiting` over `Kerbal X Probe` and `Kerbal X`. The clone pair opened `steps=9`
+#     not a second one, so no `[2]` anywhere (`continuations=1 numbered=0`). The clone pair opened `steps=9`
 #     (`Kerbal X`) and `steps=8` (`Kerbal X copy`, its probe excluded) -
 #     `bd-structure-cloneoriginal-advanced` / `bd-structure-clone-advanced`, the measured
 #     counts the pins below carry (also on `2026-10-01_2002`).
+#   - FLOWN `2026-10-05_1734` (MISSION-VESSEL-ROW-UNDOCK-FOLLOWS-PARTNER, PR #2006), PASS
+#     attempt 1: the docking mission's ship row follows its own leg through the undock -
+#     `Kerbal X   Launch -> Decoupled (Kerbal X Probe) -> Docked -> Undocked (Kerbal X
+#     (mission 'Kerbal X')) -> Orbiting`, its Interact cell `Fly` / `Seal` (the ship's own
+#     post-undock slot) - over `Kerbal X Probe` (`Fly` / `Seal`), with the partner's half
+#     beside it as `Kerbal X (mission 'Kerbal X')   Undocked (Kerbal X) -> Orbiting`
+#     (`Stash` / `Seal`); expanded, the ship's last interval reads `after undock: Kerbal X
+#     (mission 'Kerbal X') left - (pod x1, crew x3)` (`bd-missions-missions-collapsed-advanced`
+#     / `-expanded-advanced`; KSP.log `VesselRow: ownSideUndocks=1 skipped=0`).
 #
 # WHAT THE RUN REFUTED, and this header claimed it: the THREE `REWIND_POINTS/POINT` entries
 # do NOT populate `Rewind/FF`. They are SEPARATION RewindPoints and they populate `Re-Fly`

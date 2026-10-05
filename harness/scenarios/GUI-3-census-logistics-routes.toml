@@ -150,6 +150,19 @@ tier = "operator"
 #     is gone), `Duna Supply 1` `steps=11` reading `Undocked (Duna Supply 1)` (its re-pidded
 #     own ship is the same vessel, not `[2]`), and the expanded route panels carry one `Log`
 #     button each where `Log (Route)` / `Log (Mission)` stood.
+#   - FLOWN `2026-10-05_1723` (MISSION-VESSEL-ROW-UNDOCK-FOLLOWS-PARTNER, PR #2006), PASS
+#     attempt 1: each ship's Missions row follows its own leg through the undock
+#     (`ib-missions-missions-expanded-advanced`) - `Duna Supply 1   Launch -> Decoupled
+#     (Duna Supply 1 Probe) -> Docked (Depot Station Duna I (mission 'Kerbal X #5')) ->
+#     Undocked (Depot Station Duna I (mission 'Kerbal X #5')) -> Orbiting` and `Kerbal X
+#     Launch -> Decoupled (Kerbal X Probe) -> Docked (Kerbal X (mission 'Kerbal X #3')) ->
+#     Undocked (Depot (mission 'Kerbal X #3')) -> Orbiting`, with expanded last intervals
+#     `after undock: Depot Station Duna I (mission 'Kerbal X #5') left - (pod x1, crew x1)` /
+#     `after undock: Depot (mission 'Kerbal X #3') left - (pod x1, crew x1)`, and each
+#     partner's half beside its ship (`Depot Station Duna I (mission 'Kerbal X #5')
+#     Undocked (Duna Supply 1) -> Orbiting`, `Depot (mission 'Kerbal X #3')   Undocked
+#     (Kerbal X) -> Orbiting`). This host carries no RewindPoints, so no row draws `Fly` /
+#     `Seal`. KSP.log `VesselRow: ownSideUndocks=1 skipped=0` per ship.
 #   - The `Candidates` section is present and EMPTY (`No eligible Supply Runs...`): this host
 #     carries a DISMISSED list, not live candidates, which the inventory's 6.1 row already
 #     says. A populated Candidates picture still wants a `rover-route-recorded` lane.
