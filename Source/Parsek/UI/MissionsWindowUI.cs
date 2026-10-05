@@ -1677,17 +1677,21 @@ namespace Parsek
                 var (structure, view) = GetMissionView(tree);
                 Dictionary<string, string> vesselNames = GetVesselNames(tree);
                 // The naming pass's partner legs: another mission's vessel that joined this
-                // flight draws beside the vessel it joined, not under it.
+                // flight, or its half after an undock, draws beside the vessel it joined or
+                // left, not under it; and a ship that undocked from a pair carrying the
+                // partner's identity keeps its own row through the undock.
+                HashSet<string> partnerLegIds = vesselNamingCache.PartnerLegIds(tree.Id);
                 rows = MissionVesselRowBuilder.Build(
                     GetCompositionRoots(tree),
                     (ownerHeadId, boundaryUT) =>
                         MissionPresentation.ResolveSameTreeDockPartnerVesselName(
                             structure, view, ownerHeadId, boundaryUT, vesselNames),
                     vesselNames,
-                    vesselNamingCache.PartnerLegIds(tree.Id),
+                    partnerLegIds,
                     (ownerHeadId, endUT) =>
                         MissionPresentation.ResolveTerminalDockPartnerVesselName(
-                            structure, ownerHeadId, endUT, vesselNames));
+                            structure, ownerHeadId, endUT, vesselNames),
+                    MissionVesselRowBuilder.ResolveUndockSides(structure, partnerLegIds));
                 vesselRowsCache[tree.Id] = rows;
             }
             return rows;
@@ -1994,7 +1998,10 @@ namespace Parsek
             // Interact: the vessel's head recording's Fly / Stash + Seal (the only interval key
             // that IS a real recording id - same resolution the first interval row had in the
             // staircase), or a blank cell.
-            if (TryResolveCommittedRecording(row.OwnerHeadId, out int reFlyIdx, out Recording reFlyRec))
+            // The run the row ends on carries it (MissionVesselRow.InteractHeadId): across an
+            // own-side undock that is the ship's own post-undock run, not the launch head.
+            if (TryResolveCommittedRecording(row.InteractHeadId ?? row.OwnerHeadId,
+                    out int reFlyIdx, out Recording reFlyRec))
                 DrawInteractReFly(reFlyRec, reFlyIdx);
             else
                 DrawInteractBlank();
@@ -2014,7 +2021,8 @@ namespace Parsek
                     DrawCompositionRow(interval, mission, depth + 1,
                         j == row.Intervals.Count - 1 && row.Children.Count == 0,
                         true, selfExcluded, selfExcluded, false, false,
-                        ctx, j > 0 ? row.Intervals[j - 1] : null);
+                        ctx, j > 0 ? row.Intervals[j - 1] : null,
+                        MissionVesselRowBuilder.IntervalDetailLabel(row, j, ctx.VesselNames));
                     rows++;
                 }
             }
@@ -2069,10 +2077,13 @@ namespace Parsek
             return rows;
         }
 
+        // labelOverride: the vessel row's own interval label (MissionVesselRowBuilder.
+        // IntervalDetailLabel), which knows the row's own-side undocks; null derives the label
+        // from the composition graph (the foreign partner-journey subtrees).
         private void DrawCompositionRow(MissionCompositionNode node, Mission mission,
             int depth, bool isLast, bool selectable, bool selfExcluded, bool greyed,
             bool hasChildren, bool collapsed,
-            RowDeriveContext ctx, MissionCompositionNode parent)
+            RowDeriveContext ctx, MissionCompositionNode parent, string labelOverride = null)
         {
             // MinHeight floors the row at the recordings-table row stride so the rows do not pack
             // too tightly and the per-row Fly / Seal button has room (label-only cells alone measure
@@ -2122,14 +2133,18 @@ namespace Parsek
             // staircase ("after undock: Kerbal X Lander left - (pod x1, crew x2)", T1.3). The
             // interval key equals the through-line head only on the vessel's first interval.
             // A roster atom has no OwnerHeadId and no boundary of its own, so it never delta-phrases.
-            bool isFirstInterval = node.IsAtom
-                || string.Equals(node.HeadLegId, node.OwnerHeadId, System.StringComparison.Ordinal);
-            string peeledSibling = isFirstInterval
-                ? null
-                : MissionPresentation.ResolvePeeledSiblingVesselName(parent, node, ctx.VesselNames);
-            string label = MissionPresentation.BuildIntervalRowLabel(
-                node.VesselName, node.CompositionLabel, isFirstInterval,
-                node.StartEvent, peeledSibling);
+            string label = labelOverride;
+            if (label == null)
+            {
+                bool isFirstInterval = node.IsAtom
+                    || string.Equals(node.HeadLegId, node.OwnerHeadId, System.StringComparison.Ordinal);
+                string peeledSibling = isFirstInterval
+                    ? null
+                    : MissionPresentation.ResolvePeeledSiblingVesselName(parent, node, ctx.VesselNames);
+                label = MissionPresentation.BuildIntervalRowLabel(
+                    node.VesselName, node.CompositionLabel, isFirstInterval,
+                    node.StartEvent, peeledSibling);
+            }
             string wide = connector + caret + label;
 
             // Wrapped-height-correct wide cell (see DrawWideRowCell): a long T1.3 delta label
