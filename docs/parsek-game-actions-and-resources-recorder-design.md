@@ -561,6 +561,8 @@ KSP LOAD:
 
 In most cases after a KSP load, the patched state will match what's already in the save. The recalculation is a verification step — it ensures consistency even if the save was edited or corrupted.
 
+**AS BUILT (2026-10-06):** step 2 runs only on a COLD load (`LedgerOrchestrator.OnKspLoad` from the cold branch of `ParsekScenario.OnLoad`), and it prunes rows tagged to recordings absent from the save but does NOT prune future spendings and contract lifecycle rows in FLIGHT or at the Space Center: `Ledger.Reconcile` is called with `preserveFutureTimelineActions` there (and whenever the clock is not ready yet), so committed future rows survive and the current-UT cutoff filters their effects until the clock reaches them, which is the committed-is-permanent rule (owner ruling D2, `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md`). A cold load in the Tracking Station or the editor with a ready clock does prune them, so the two differ. An in-session load (F9, scene change) does not re-run this reconcile at all; stock Revert additionally prunes the reverted flight's untagged launch-pad rows (`Ledger.PruneOrphanActionsAfterUT`). The F9 consequences are tracked in `docs/dev/todo-and-known-bugs.md` (the QUICKLOAD-* entries).
+
 ### 15.6 Ledger ground-truth verification and apply-boundary tracing
 
 Two shipped subsystems verify and observe the patch pipeline described above.
