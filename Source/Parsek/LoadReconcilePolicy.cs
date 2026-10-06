@@ -188,7 +188,6 @@ namespace Parsek
         internal const string GapReFlyLists = "QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY";
         internal const string GapRouteState = "ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD";
         internal const string GapColdLoadAbandonedFuture = "COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE";
-        internal const string GapEscDiscardPendingScience = "ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS";
 
         internal const string LogTag = "LoadPolicy";
 
@@ -742,9 +741,9 @@ namespace Parsek
                     return Today(LoadReconcileAction.Bundle,
                         BundleRestores + " (entries captured after the loaded UT are dropped)");
                 case LoadKind.DiscardReFly:
-                    return Gap(LoadReconcileAction.Keep, GapEscDiscardPendingScience,
-                        "neither DiscardReFlyHandler nor the load clears it (the scene is not FLIGHT, so no quickload "
-                        + "discard); the merge-dialog discard does (MergeDialog.EndDiscardedReFlySession)");
+                    return Today(LoadReconcileAction.Clear,
+                        "RevertInterceptor.DiscardReFlyHandler, before its load, through the merge-dialog discard's "
+                        + "session-state half (MergeDialog.EndDiscardedReFlySession)");
                 case LoadKind.StockRevert:
                     return Today(LoadReconcileAction.Clear, "RecordingStore.UnstashPendingTreeOnRevert, unconditionally");
                 case LoadKind.QuickloadFlight:

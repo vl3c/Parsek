@@ -3479,9 +3479,15 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Remove all ghost vessels (rewind or scene cleanup).
+        /// Remove all ghost vessels (rewind or scene cleanup). Before the Die loop the
+        /// planetarium camera is moved off any ghost it targets
+        /// (<see cref="RetargetPlanetariumCameraOffDyingGhosts"/>), except during a scene
+        /// teardown (<paramref name="sceneTeardown"/>, the addons' OnDestroy) or an application
+        /// quit: the KnowledgeBase may already be half destroyed there, so a retarget would NRE
+        /// with Parsek frames on the stack. The quit is covered earlier from
+        /// <c>ParsekHarmony.OnApplicationQuit</c>.
         /// </summary>
-        internal static void RemoveAllGhostVessels(string reason)
+        internal static void RemoveAllGhostVessels(string reason, bool sceneTeardown = false)
         {
             int chainCount = vesselsByChainPid.Count;
             int indexCount = vesselsByRecordingIndex.Count;
@@ -3502,6 +3508,19 @@ namespace Parsek
             vessels.AddRange(vesselsByChainPid.Values);
             vessels.AddRange(vesselsByRecordingIndex.Values);
             vessels.AddRange(overlapInstanceVessels.Values);
+
+            if (sceneTeardown || ParsekProcess.IsApplicationQuitting)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "RemoveAllGhostVessels: planetarium camera retarget skipped (reason={0} sceneTeardown={1} "
+                        + "quitting={2}); the UI may already be torn down",
+                        reason, sceneTeardown, ParsekProcess.IsApplicationQuitting));
+            }
+            else
+            {
+                RetargetPlanetariumCameraOffDyingGhosts(vessels, reason, sceneTeardown: false);
+            }
 
             BeginGhostTeardown();
             removeAllGhostVesselsDepth++;

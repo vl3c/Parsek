@@ -3704,6 +3704,33 @@ _(unreleased - entries accumulate here per commit)_
   Space Center, or after the game saved again) are not covered yet, same todo. Covered by xUnit;
   not yet checked in a test flight.
 
+- **Quitting the game while the map camera is focused on a ghost no longer logs an error.** When
+  a ghost the map view was looking at was removed, KSP moved the camera to the nearest planet on
+  its own; while the game was quitting, its planet info panel was already gone and the move logged
+  a NullReferenceException. Parsek now moves the camera off a ghost before removing it (to your
+  vessel, or the planet the ghost orbits), and on quit does so before KSP starts closing its
+  windows.
+
+- **Discarding a Re-fly from the Esc menu now throws away its science and payouts the same way
+  the end-of-flight Discard does.** Science collected during the discarded attempt but not yet
+  committed stayed queued and could be credited to the next flight you committed, and a payout
+  earned during the attempt stayed linked to the deleted recording, so the next game load could
+  drop it and a later Re-fly could wrongly undo it. The Esc-menu Discard Re-fly now drops the
+  queued science and unlinks those payouts (they stay paid), exactly like the Discard button at
+  the end of a flight.
+
+- **A drill or converter running at the end of a recording that stayed on the ground no longer
+  delivers its resources early.** Parsek shortens a recording that ends with a long idle stretch
+  (sitting landed or coasting) so the real vessel appears sooner, but the vessel it brings back is
+  the one you had when you committed. When ore or fuel was still being produced during that idle
+  stretch, the vessel appeared early already holding all of it. A recording that never left the
+  surface (for example, you switched to a landed base and ran its drills) and whose last stretch
+  changed the vessel's resources (measured when the converters start and stop; electric charge
+  does not count) is now kept to the end, or shortened only to just after the converters stopped.
+  Not fixed yet: a recording that flew before landing and drilling is split at the landing and
+  still shortened, as are resources moved in by a supply route or produced while the vessel was
+  in the background.
+
 - **Altitude, speed, distance and depth record rewards are no longer paid twice.** A flight that
   set several records at once (an ascent passes 500 m, 2 km, 7 km, 22 km and 70 km) was booked
   as a single record entry, and the next time Parsek synced the career it rolled the record back

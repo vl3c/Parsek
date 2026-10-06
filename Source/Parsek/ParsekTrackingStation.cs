@@ -1268,7 +1268,7 @@ namespace Parsek
             DismissCurrentGhostPopup("tracking-station-cleanup");
             DestroyAtmosphericFocusTarget("tracking-station-cleanup");
             GhostTrackingStationSelection.ClearSelectedGhost("tracking-station-cleanup");
-            GhostMapPresence.RemoveAllGhostVessels("tracking-station-cleanup");
+            GhostMapPresence.RemoveAllGhostVessels("tracking-station-cleanup", sceneTeardown: true);
             // Clear ghost-icon sticky state and force atlas re-init when leaving TS.
             // Flight scene's own OnSceneChangeRequested hook runs too, but this
             // addon is the only always-present TS listener — keep it defensive.
