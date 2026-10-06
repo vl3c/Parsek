@@ -5,38 +5,48 @@ id = "QL-3-quickload-before-refly-merge"
 # todo QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY (roadmap "The timeline-operation
 # coverage program", Phase A row TA-1, Lanes table row QL-3).
 #
-# In gameplay terms: the player quicksaves, re-flies an Unfinished Flight (a crewed pod that
-# crashed) so the pod survives, merges, and then loads the quicksave from before the Re-Fly.
+# In gameplay terms: the player saves the game, re-flies an Unfinished Flight (a crewed pod
+# that crashed) so the pod survives, merges, and then loads that save from before the Re-Fly.
 # The recordings and the career ledger stay as the session has them (the re-fly committed),
 # so the Re-Fly bookkeeping must too: the original flight stays replaced (its supersede row)
 # and the crew death the re-fly undid stays retired (its tombstone). Before the fix the load
-# rebuilt both from the quicksave, which has neither: the original crashed pod played back
-# next to its re-fly and the death counted again.
+# rebuilt both from the save, which has neither: the original crashed pod played back next to
+# its re-fly and the death counted again.
+#
+# WHY A NAMED SAVE AND NOT `quicksave`: every merge-dialog merge overwrites quicksave.sfs with
+# the post-merge game (`MergeDialog.MergeCommit` -> `RecordingStore.RefreshQuicksaveAfterMerge`,
+# `refreshQuicksaveAfterCommit` defaults true), so after `AnswerMergeDialog merge` the slot
+# named `quicksave` already holds the merge's rows and could not tell a fixed build from a
+# pre-fix one. The lane saves to `ql3-before-refly`, which nothing but this lane writes (EVA-10's
+# named-slot pattern); that is the player's "load a save from before the Re-Fly" from the Load
+# menu.
 #
 # THE MECHANISM UNDER TEST (ParsekScenario.OnDestroy -> InSessionStagedStateHandoff ->
-# ParsekScenario.ApplyInSessionStagedStateHandoffStepA / ApplyInSessionRewindPointPartitionStepB).
+# ParsekScenario.ApplyInSessionStagedStateHandoffStepA / ApplyInSessionStagedStateHandoffStepB).
 #   1. The scene change the load makes destroys the scenario instance; OnDestroy captures its
 #      rewind points, supersede rows, retirements, tombstones, journal and marker
 #      (`Staged-list handoff captured reason=OnDestroy`).
 #   2. The Space Center's OnLoad (an in-session load: InSessionOther) installs memory's rows
-#      and tombstones over the quicksave's: `In-session staged lists from memory: ...
+#      and tombstones over the save's: `In-session staged lists from memory: ...
 #      supersedes installed=1 loadedFromSave=0 restored=1 ... tombstones installed=N
-#      loadedFromSave=0 restored=N` - loadedFromSave=0 is the quicksave's own count, which is
+#      loadedFromSave=0 restored=N` - loadedFromSave=0 is the named save's own count, which is
 #      what makes the token specific to THIS load (the merge's own exit load reads rows the
 #      merge's durable save already wrote).
 #   3. Step B partitions the rewind points: the merge reaped `rp_cl_root` (CL-3's measured
-#      rewindPoints 0), the quicksave still has it, and its tree is committed in memory, so it
-#      is NOT resurrected (`saveOnlyDropped=1`).
+#      rewindPoints 0), the save still has it, and its tree is committed in memory, so it is
+#      NOT resurrected (`saveOnlyDropped=1`). The save holds the re-flown tree as committed
+#      history (the fixture's) and no active tree, so no tree is detached and resumed: the
+#      resumed-tree row rule finds nothing to hand back to the save (`no tree detached`).
 #
 # THE HOST: CL-3 verbatim (career-pad-craft + the injected `rewind-crew-loss` corpus, the
 # cl3 mission's re-fly of the crewed pod, `AnswerMergeDialog merge`), the only lane whose
 # merge writes a supersede row AND a tombstone with existing verbs (S4.2, the host the
 # roadmap row first named, merges an unflown provisional and writes no row at all). Plus
-# two steps: `SaveGame quicksave` right after the fixture load (before anything records, so
-# the quicksave holds no active tree), and after the merge `LoadGame quicksave
-# scene=spacecenter` (the verb's requested Space Center route: it writes the quicksave game
-# to persistent.sfs and boots the Space Center, which reloads it, exactly as stock F9
-# outside flight does).
+# two steps: `SaveGame ql3-before-refly` right after the fixture load (before anything
+# records, so the save holds no active tree), and after the merge `LoadGame ql3-before-refly
+# scene=spacecenter` (the verb's requested Space Center route: it writes the loaded game to
+# persistent.sfs and boots the Space Center, which reloads it, as stock does for a load that
+# starts outside flight).
 #
 # BEFORE-FIX CONVENTION: PLAIN (lands with the fix). On a pre-fix DLL the prediction is
 # PARSEK-FAIL(expectation): the handoff tokens are missing (`handoff=present` on the
@@ -44,11 +54,12 @@ id = "QL-3-quickload-before-refly-merge"
 # rewind block reads supersedeRows 0, tombstones 0, rewindPoints 1.
 #
 # READING-RUN NOTES:
-#   - A `TryRestoreActiveTreeNode` line restoring a tree from the quicksave means a recorder
-#     was live at the SaveGame (premise miss: the quicksave then carries an active tree the
-#     Space Center load stashes and auto-commits); move the SaveGame earlier.
-#   - `loadedFromSave=1` on the in-session line of the QL-3 load means the quicksave already
-#     had a row (premise miss: the fixture or an earlier step wrote one).
+#   - A `TryRestoreActiveTreeNode` line restoring a tree from `ql3-before-refly` means a
+#     recorder was live at the SaveGame (premise miss: the save then carries an active tree
+#     the Space Center load stashes and auto-commits); move the SaveGame earlier.
+#   - `loadedFromSave=1` on the in-session line of the QL-3 load means the named save already
+#     had a row (premise miss: the fixture or an earlier step wrote one, or something wrote
+#     the slot after the merge).
 #   - The rewind block is REPORT-ONLY; predicted supersedeRows 1, tombstones 2 (CL-3's
 #     2026-09-29 reading), rewindPoints 0. Arm it after a reading run whose facets match.
 #
@@ -58,7 +69,7 @@ id = "QL-3-quickload-before-refly-merge"
 # ParsekTestCommandAddon.LoadGameImpl); the rest are CL-3's.
 # =====================================================================================
 tier = "nightly"
-description = "QL-3: quicksave, re-fly the crewed pod of CL-3's crash and merge it, then load the quicksave from before the Re-Fly at the Space Center. The supersede row and the crew-death tombstone stay from the session (not the quicksave's none), and the reaped rewind point is not resurrected."
+description = "QL-3: save to a named slot, re-fly the crewed pod of CL-3's crash and merge it, then load that save from before the Re-Fly at the Space Center. The supersede row and the crew-death tombstone stay from the session (not the save's none), and the reaped rewind point is not resurrected."
 instanceProfile = "stock-minimal"
 tags = ["QL-3", "TA-1", "quickload", "timeline-ops", "rewind", "refly", "merge", "tombstone",
         "crew-loss", "CL3", "D9", "scene-ksc", "reading-run"]
@@ -74,17 +85,18 @@ mission = "cl3_refly_crew_tombstone"
 # `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
 steps = [
   { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
-  # THE QUICKSAVE from before the Re-Fly: no supersede row, no tombstone, `rp_cl_root` listed.
-  { cmd = "SaveGame",          args = { name = "quicksave" },                       expect = "OK", budget = 120 },
+  # THE SAVE from before the Re-Fly, in a named slot the merge's quicksave refresh does not
+  # touch: no supersede row, no tombstone, `rp_cl_root` listed.
+  { cmd = "SaveGame",          args = { name = "ql3-before-refly" },                expect = "OK", budget = 120 },
   { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
   # CL-3's future-RP gate step, verbatim (rp_cl_root sits 60 s after the template's UT).
   { cmd = "TimeJump",          args = { deltaSeconds = "61.0" },                    expect = "OK", budget = 120 },
   { phase = "mission",                                                    expect = "MISSION-OK", budget = 600 },
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },               expect = "OK", budget = 240 },
   { cmd = "RecordingState",                                               expect = "OK" },
-  # THE QUICKLOAD: the quicksave from before the Re-Fly, booted at the Space Center
-  # (refined load kind InSessionOther).
-  { cmd = "LoadGame",          args = { save = "${runSave}", name = "quicksave", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  # THE LOAD: the save from before the Re-Fly, booted at the Space Center (refined load kind
+  # InSessionOther).
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "ql3-before-refly", scene = "spacecenter" }, expect = "OK", budget = 300 },
   { cmd = "RecordingState",                                               expect = "OK" },
   { cmd = "FlushAndQuit",                                                 expect = "OK" },
 ]
