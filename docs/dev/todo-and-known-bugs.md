@@ -16,6 +16,230 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## INTEGRATION-COVERAGE-LOGISTICS-REWIND-LEDGER: supply routes are tested almost only in isolation [FILED 2026-10-06 from the integration-coverage research, branch `ccr-77f23eb2-dbqh6i`. OPEN; test program]
+
+Research: `docs/dev/research/integration-coverage-gaps-2026-10-06.md`. Of the 54 specs that
+drive `RouteCommand`, none also drives a real Re-Fly, real warp, Real Spawn Control,
+`MissionConfig` or a KSC action; every live dispatch is a Kerbin surface rover after a seam
+`TimeJump`; no inter-body or moon route has dispatched live; the ledger oracle is never run on
+a route or a rewind lane. The code read behind the research found the five defects filed
+below, all in that untested space.
+
+Fix: the phased program in the research doc - Phase A headless red tests for the confirmed
+defects, then the harness capabilities (route-aware ledger oracle that survives a rewind, a
+mid-run route read-back, career route fixtures with a rewind handle, a dispatchable moon
+route), then the IR-1..IR-11 pair lanes and the IC-1..IC-4 campaign lanes.
+
+---
+
+## HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND: the ledger oracle knows no route actions and refuses every rewind lane [FILED 2026-10-06 for the logistics integration program (C1), branch `ccr-77f23eb2-dbqh6i`. OPEN, harness]
+
+`harness/lib/oracle.py` models no route action types, and `hlib.validate_spec` refuses an
+`[expectations.ledger]` block on any lane that rewinds (`InvokeRewind`, `InvokeRewindToLaunch`;
+the L4 deferral, `hlib.py` around the ledger-expectation validator). Route funds are therefore
+pinned only by log tokens (RVR-4 `DispatchDebit ... cost=7410`), and no lane can assert that a
+rewind retired exactly the route rows after its cutoff.
+
+Fix: add the route action types (dispatch debit, recovery credit, delivery, pickup) to the
+oracle's expected model, and a rewind-cutoff model (rows strictly after the cutoff retired,
+dormant routes, re-delivery exactly once) so route lanes can carry a gating ledger block.
+Roadmap: "The logistics integration program", row C1.
+
+---
+
+## HARNESS-ROUTE-STATE-READBACK-SEAM: no seam verb reads a route's live state between steps [FILED 2026-10-06 for the logistics integration program (C2), branch `ccr-77f23eb2-dbqh6i`. OPEN, harness]
+
+The `saveParse` `[expectations.routes]` facet reads the PRODUCED save at the end of a run. The
+reload lanes (IR-1, IR-2, IR-4, IR-6) need the in-memory state right after a `LoadGame` and
+before the next tick: status, `LastObservedLoopCycleIndex`, completed cycles, pending recovery
+credit cycle, endpoint ids. Check also whether the facet exposes the cursor and pending-credit
+fields at all.
+
+Fix: a read-only `ListHandles kind=routes`-style verb (or an extension of an existing one) that
+echoes those fields in one grep-stable line, with the usual source-sync cell in `hlib`.
+
+---
+
+## FIXTURE-CAREER-ROUTE-WITH-REWIND-POINTS: no career save carries both a route and Rewind Points [FILED 2026-10-06 for the logistics integration program (C3), branch `ccr-77f23eb2-dbqh6i`. OPEN, fixture]
+
+`bdock-recorded` is the only committed host with a route window and Rewind Points (station tree
+788554a9 with `rp_72eb...`; interceptor tree 8c677bba with the dock window and 2 RPs), but it is
+SANDBOX, so funds branches are vacuous on it. IR-3 / IR-4 / IC-2 need the same shape on a career
+save.
+
+Fix: a career twin built the way `harness/tools/build_rover_route_career.py` builds
+`rover-route-career`, with the route created and sealed (SealSlot 8c677bba, RouteCommand
+create) and committed as a fixture.
+
+---
+
+## FIXTURE-MOON-AND-INTERBODY-ROUTE-DISPATCH: no moon or inter-body route has ever dispatched live [FILED 2026-10-06 for the logistics integration program (C5), branch `ccr-77f23eb2-dbqh6i`. OPEN, fixture / lanes]
+
+Every live dispatch is a Kerbin surface rover. `interbody-route-recorded` (sandbox, UT 87.6M)
+carries a Paused KSC -> Mun route (transit 85,354 s) and an Active KSC -> Duna re-aim route
+(transit 8.53 Ms) but they are only rendered (B32, V26M, V26T) or photographed (GUI-3, GUI-25).
+No fixture has a route at Minmus, Ike or a Jool moon, and there is no career inter-body route.
+
+Fix: lane IR-5 first (activate the Mun route, send once, jump about a day, read the station's
+cargo); then harvest a Minmus depot route and a Duna or Ike station route, and a career twin of
+the inter-body fixture, for IC-1 / IC-3.
+
+---
+
+## ROUTE-INTERACTION-SEAMS-TO-VERIFY: route interaction risks the code read raised but did not adjudicate [FILED 2026-10-06 from the integration-coverage research, branch `ccr-77f23eb2-dbqh6i`. OPEN, to verify]
+
+Each item needs a trace (or a lane) before it is a defect or a non-issue; see
+`docs/dev/research/integration-coverage-gaps-2026-10-06.md` section 3.8.
+
+- [ ] A chain-tip respawn carries route cargo from the abandoned future (the tip snapshot
+  includes deliveries made before that recording ended), so after a rewind the station has the
+  cargo and the re-fired cycles are blocked while it is hidden: cargo created from nothing.
+- [ ] Spawns are deferred until warp ends while routes keep ticking: a cycle crossing a
+  station's spawn UT during warp is held and its cargo lost.
+- [ ] Multi-stop routes reserve no destination capacity between dispatch and a later window.
+- [ ] A kerbal swapped into a station during a dock is inferred Dead or held indefinitely
+  (`KerbalsModule.cs` around 1786-1821).
+- [ ] The Rewind Point quicksave is written one frame after the split: a route crossing at
+  exactly a staging event against the strict-after-cutoff retire.
+- [ ] A route loop unit and a foreign Mission partner journey can claim the same recordings;
+  only a Warn is logged.
+- [ ] A ghost CommNet relay serving a station drops out during Re-Fly suppression or when its
+  spawn is abandoned (`GhostCommNet.cs` around 741-770).
+- [ ] The every-Nth-window anchor of an inter-body route resets on a rewind
+  (`RouteRewindClassifier.cs:137`), so which windows deliver can change (design 0.9 silent).
+- [ ] Residual of the refuted identity claim: confirm that the chain-tip recording's snapshot
+  for a dock-undock claim is the station half (carrying the recorded root part id), not the
+  transport.
+
+Fix: each item that verifies becomes a Phase A test and an IR lane in the roadmap's logistics
+integration program; each that does not is ticked here with the evidence.
+
+---
+
+## LANE-PROMOTION-FOLLOWUPS-2026-10-06: what the four promoted lanes and GUI-2 still owe [FILED 2026-10-06 from the spec-logic review that promoted RR-1, EVA-9, EVA-10 and GUI-1, branch `ccr-77f23eb2-dbqh6i`. OPEN, harness]
+
+- [ ] GUI-2-census-flight: one re-fly of the committed spec (its newest flight
+  `2026-09-22_1844` predates `screenResolution = "1920x1080"` and two window-table changes);
+  then promote it.
+- [ ] EVA-9: a confirmation flight on plain `main` (it passed only on the integration DLL, and
+  its last spec commit postdates that pass).
+- [ ] EVA-10: one flight of the armed spec (the 17..17 count and the three twin-lander forbids
+  were armed offline off `2026-09-29_2116`).
+- [ ] GUI-1: pin `changed=1` on the `expand key=row:nearmiss:group:MissingRouteProof` step after
+  checking it against the `2026-10-04_1403` KSP.log.
+
+---
+
+## TODO-DOC-ANOMALY-TABLE-IN-FROZEN-ARCHIVE: a harness guard now reads a table inside an archived todo volume [FILED 2026-10-06 from the PR #2018 review, branch `ccr-77f23eb2-dbqh6i`. OPEN, low]
+
+`test_hlib.test_todo_doc_table_lists_every_raised_reason` pins that every raised anomaly reason
+has a row in the ground-truth table of the struck entry "The harness anomaly token set has
+drifted"; the v9 rotation moved that entry to `done/todo-and-known-bugs-v9.md`, so `TODO_DOC`
+now points at the archive. A future reason must be added to a FROZEN file to keep the cell
+green, and the next rotation must remember to carry it.
+
+Fix: move the table into a living doc (the harness-core design or `autotest-status.md`) and
+point the cell there.
+
+---
+
+## ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD: an in-session load back in time leaves route cursors and credits in the abandoned future [FILED 2026-10-06 from the integration-coverage code read, verified by an adversarial pass; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; not yet reproduced]
+
+Routes are loaded from the save only on a cold load (`ParsekScenario.cs:4464`); an in-session
+load (F9 quickload, stock Revert) returns at `ParsekScenario.cs:4320` before any route code.
+The route reconcile (`RouteRewindClassifier.ReconcileStoreAtRewind` +
+`Ledger.RetireFutureRouteActionsAtRewind`) runs only for the go-back rewind
+(`ParsekScenario.cs:4906-4914`) and the Re-Fly bundle (`ReconciliationBundle.cs:316`).
+`RevertInterceptor.DiscardReFlyHandler` reloads the Rewind Point quicksave with no
+`RewindContext`, so it skips the reconcile too. Nothing resets `LastObservedLoopCycleIndex`,
+`RouteLoopClock.TryGetOwedDockCrossing` needs `dockCycleIndex > lastObserved`, the dispatch
+dedup keys on (route, cycle) without UT (`RouteOrchestrator.cs:5001-5036`), and
+`EmitPendingRecoveryCredit` (`:5191-5276`) pays without checking its dispatch row survived.
+
+Expected player effect: after F9 back across a dispatch the funds rows survive while the cargo
+reverts (paid, never delivered); after a Revert the re-flown cycles are swallowed and a pruned
+dispatch's recovery credit can still pay out. Logistics design 10.6 says stock revert/load
+restores route state from the save; the code does not, and the "option C" ruling covers only
+discards with no LoadGame.
+
+Fix: not decided. Either reload the route store from the loaded save's ROUTES node on every
+in-session load, or run the same reconcile the two rewind exits run, keyed to the loaded UT;
+guard `EmitPendingRecoveryCredit` on its dispatch row. Pin it red first: `RouteLoopDeliveryFireTests`
+(swallowed cycle), `RouteRecoveryCreditTests` (orphan credit), a source-text gate on the three
+load paths; then lanes IR-1 / IR-2 / IR-4.
+
+---
+
+## ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND: after a rewind, a surface base hidden by the Ghost Chain Rule gets its route permanently re-pointed to a craft parked within 500 m [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; not yet reproduced]
+
+A base claimed by a committed dock is despawned after a rewind (`VesselGhoster.cs:75`). The
+endpoint resolver misses the root-part and pid steps and falls through to the surface
+proximity step (`RouteEndpointResolver.cs:383-445`), which excludes only ghost-map vessels and
+the route's own transports and then calls `RouteEndpointTransfer.ApplyTransfers` (a persisted
+rebind). No Logistics file asks whether the endpoint is chain-ghosted. The resolver also runs
+from the Logistics window draw, so opening the window can trigger it. When the base respawns
+at the chain tip with its identity preserved, the route already carries the neighbour's root
+part id, which wins at the first resolver step, so the redirect is permanent.
+
+Fix: hold (do not proximity-rebind) while the recorded endpoint is ghosted by a chain; a pure
+predicate beside `RouteEndpointTransferTests`, then lane IR-8.
+
+---
+
+## ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD: the pending recovery credit flush writes a ledger row and live funds while a save is loading [FILED 2026-10-06 from the integration-coverage code read, path verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; UT-0 outcome to confirm]
+
+`RouteStore.FlushPendingRecoveryCreditOnSourceProblem` (`RouteStore.cs:1885-1911`) reads
+`Planetarium.GetUniversalTime()` directly and never consults `ParsekScenario.IsOnLoadInProgress`;
+`EmitPendingRecoveryCredit` then adds a ledger row and credits funds. The cold-load
+`RevalidateSources("OnLoad")` (`ParsekScenario.cs:4465`) reaches it when a route loads Active
+with a pending credit and a source is missing, where the clock can read 0. A UT-0 row survives
+every strict-after-cutoff rewind retire. This contradicts the no-ledger-writes-during-load
+contract (`ParsekScenario.cs:310-321`).
+
+Fix: defer the flush until after load (the route-marker UT resolver already knows the in-load
+state), or emit no row and keep the credit pending. Needs a UT / in-load seam to test headless.
+
+---
+
+## ROUTE-ESCROW-LOST-ON-SCENE-SWITCH: a multi-stop cycle's depot reservation is dropped by a scene change between its windows [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+
+`ClearAllEscrow` runs on every scene switch (`ParsekScenario.cs:8365`); the only re-establish
+site (`RouteOrchestrator.cs:1531`) sits behind the no-due-window early return in
+`ProcessMultiStopCrossings`. A competing route can drain the reserved cargo between windows,
+and window B picks up short after its dispatch was already paid. H60 proves escrow within one
+scene only.
+
+Fix: rebuild escrow for in-flight multi-stop cycles on scene entry (or persist it). Headless
+red test with `RouteCargoEscrowTests` / `RouteEscrowFireTests`, then lane IR-10.
+
+---
+
+## ROUTE-DELIVERY-INTO-DOCKED-VISITOR: cargo delivered to a station lands in (and origin debits drain) whatever is docked to it [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+
+The resolver deliberately returns the docked composite (`RouteEndpointResolver.cs:283-310`),
+and `LiveDeliveryWriters` walks every part of the composite in vessel order (`:150-175`,
+`:251-310`), so a visiting tanker's empty tanks fill first and leave with the cargo when it
+undocks; the capacity gate counts the visitor's tanks; an origin debit can drain a docked
+visitor instead of the depot.
+
+Fix: restrict the writers and the capacity read to the recorded endpoint's own parts (a pure
+part-subset selector), then lane IR-9.
+
+---
+
+## LOGISTICS-DESIGN-DRIFT-2026-10-06: logistics design 10.6 and a RouteRevertSafety comment say a revert / load restores route state; it does not [FILED 2026-10-06 from the integration-coverage code read; branch `ccr-77f23eb2-dbqh6i`. OPEN, docs; waits on ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD]
+
+- Design 10.6 says stock revert / load restores route state from the save; in-session loads
+  do not reload routes (ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD).
+- `RouteRevertSafety.cs:28-30` says Discard Re-fly never calls LoadGame; the Esc > Revert
+  dialog's Discard Re-fly does (`RevertInterceptor.DiscardReFlyHandler`).
+- Corrected on the same branch: 7.1 now records the shipped 500 m proximity radius (it said
+  50 m), and 10.7 records that loop routes collapse missed cycles after a warp.
+
+Fix: rewrite 10.6 and the comment once the reconcile behaviour is decided.
+
+---
+
 ## HARNESS-NO-RETRY-DETERMINISTIC-SEAM-ERROR: a definite seam error is not retried [OPERATOR RULING 2026-10-06, branch `no-retry-deterministic-seam-error`. DONE; the reason set stays open to additions by name]
 
 Ruling (2026-10-06): "Don't retry when the failure is a definite error from the seam, and
