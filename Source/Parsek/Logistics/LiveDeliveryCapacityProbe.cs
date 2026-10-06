@@ -77,11 +77,22 @@ namespace Parsek.Logistics
         // writes the next BackupVessel discards.
         internal readonly bool isLoaded;
 
-        internal LiveDeliveryCapacityProbe(Vessel vessel, bool isLoaded)
+        // The destination's own parts on the captured branch (null = every part). Tanks,
+        // inventory slots and container budgets on a craft merely docked to the destination
+        // are neither counted nor handed out (ROUTE-DELIVERY-INTO-DOCKED-VISITOR); the
+        // orchestrator passes the SAME instance to the writers.
+        private readonly EndpointPartScope partScope;
+
+        internal LiveDeliveryCapacityProbe(Vessel vessel, bool isLoaded, EndpointPartScope partScope = null)
         {
             this.vessel = vessel;
             this.isLoaded = isLoaded;
+            this.partScope = EndpointPartScope.ForBranch(partScope, isLoaded, nameof(LiveDeliveryCapacityProbe));
         }
+
+        /// <summary>The part scope this probe reads through (null = every part), so the
+        /// orchestrator can hand the writers the same one.</summary>
+        internal EndpointPartScope PartScope => partScope;
 
         public double ProbeResourceFreeCapacity(string resourceName)
         {
@@ -350,6 +361,7 @@ namespace Parsek.Logistics
 
             for (int i = 0; i < vessel.parts.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 Part p = vessel.parts[i];
                 if (p == null || p.Modules == null) continue;
                 for (int m = 0; m < p.Modules.Count; m++)
@@ -394,6 +406,7 @@ namespace Parsek.Logistics
 
             for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
                 if (pps == null || pps.modules == null) continue;
                 for (int m = 0; m < pps.modules.Count; m++)
@@ -479,6 +492,7 @@ namespace Parsek.Logistics
             double total = 0.0;
             for (int i = 0; i < vessel.parts.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 Part p = vessel.parts[i];
                 if (p == null || p.Resources == null) continue;
                 PartResource pr = p.Resources.Get(resourceName);
@@ -505,6 +519,7 @@ namespace Parsek.Logistics
 
             for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
                 if (pps == null || pps.resources == null) continue;
                 for (int j = 0; j < pps.resources.Count; j++)
@@ -530,6 +545,7 @@ namespace Parsek.Logistics
             int slotsConsumed = 0;
             for (int i = 0; i < vessel.parts.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 Part p = vessel.parts[i];
                 if (p == null || p.Modules == null) continue;
                 for (int m = 0; m < p.Modules.Count; m++)
@@ -552,6 +568,7 @@ namespace Parsek.Logistics
             }
             ParsekLog.Verbose(Tag,
                 $"ProbeLoadedFirstEmpty: no empty slot on dest={vessel.vesselName ?? "<none>"} " +
+                $"parts={EndpointPartScope.Describe(partScope)} " +
                 $"modulesScanned={modulesScanned.ToString(IC)} slotsOccupied={slotsOccupied.ToString(IC)} " +
                 $"slotsConsumed={slotsConsumed.ToString(IC)}");
             return InventorySlotAddress.None;
@@ -566,6 +583,7 @@ namespace Parsek.Logistics
             int slotsConsumed = 0;
             for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
                 if (pps == null || pps.modules == null) continue;
                 for (int m = 0; m < pps.modules.Count; m++)
@@ -592,6 +610,7 @@ namespace Parsek.Logistics
             }
             ParsekLog.Verbose(Tag,
                 $"ProbeUnloadedFirstEmpty: no empty slot on dest={vessel.vesselName ?? "<none>"} " +
+                $"parts={EndpointPartScope.Describe(partScope)} " +
                 $"modulesScanned={modulesScanned.ToString(IC)} slotsOccupied={slotsOccupied.ToString(IC)} " +
                 $"slotsConsumed={slotsConsumed.ToString(IC)}");
             return InventorySlotAddress.None;

@@ -45,10 +45,16 @@ namespace Parsek.Logistics
         // mid-tick (same rationale as <see cref="LiveDeliveryCapacityProbe.isLoaded"/>).
         internal readonly bool isLoaded;
 
-        internal LiveOriginCargoProbe(Vessel vessel, bool isLoaded)
+        // The origin / pickup endpoint's own parts on the captured branch (null = every
+        // part): a craft docked to the depot is not the depot's stock
+        // (ROUTE-DELIVERY-INTO-DOCKED-VISITOR). Pass the SAME instance to the debit writer.
+        private readonly EndpointPartScope partScope;
+
+        internal LiveOriginCargoProbe(Vessel vessel, bool isLoaded, EndpointPartScope partScope = null)
         {
             this.vessel = vessel;
             this.isLoaded = isLoaded;
+            this.partScope = EndpointPartScope.ForBranch(partScope, isLoaded, nameof(LiveOriginCargoProbe));
         }
 
         public double ProbeResourceStored(string resourceName)
@@ -74,6 +80,7 @@ namespace Parsek.Logistics
             double total = 0.0;
             for (int i = 0; i < vessel.parts.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 Part p = vessel.parts[i];
                 if (p == null || p.Resources == null) continue;
                 PartResource pr = p.Resources.Get(resourceName);
@@ -99,6 +106,7 @@ namespace Parsek.Logistics
 
             for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
                 if (pps == null || pps.resources == null) continue;
                 for (int j = 0; j < pps.resources.Count; j++)

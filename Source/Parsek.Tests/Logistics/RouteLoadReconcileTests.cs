@@ -632,14 +632,22 @@ namespace Parsek.Tests.Logistics
 
             int refined = body.IndexOf("LoadReconcilePolicy.ClassifyRefined(", StringComparison.Ordinal);
             int prune = body.IndexOf("Ledger.PruneOrphanActionsAfterUT(", StringComparison.Ordinal);
-            int future = body.IndexOf("LedgerOrchestrator.HasActionsAfterUT(loadedUT)", StringComparison.Ordinal);
-            int recalc = body.IndexOf("LedgerOrchestrator.RecalculateAndPatch();", StringComparison.Ordinal);
+            // The in-session ledger dispatch (future-actions check + recalculation) lives in
+            // RecalculateLedgerForInSessionLoad, which OnLoad calls after the reconcile.
+            int recalcCall = body.IndexOf("RecalculateLedgerForInSessionLoad(", StringComparison.Ordinal);
             int coldRoutes = body.IndexOf("RouteStore.LoadRoutesFrom(node);", StringComparison.Ordinal);
-            Assert.True(refined >= 0 && prune >= 0 && future >= 0 && recalc >= 0 && coldRoutes >= 0);
+            Assert.True(refined >= 0 && prune >= 0 && recalcCall >= 0 && coldRoutes >= 0);
             Assert.True(refined < first && prune < first,
                 "the route reconcile reads the refined load kind and runs after the revert prune");
-            Assert.True(first < future && first < recalc,
+            Assert.True(first < recalcCall,
                 "the route reconcile retires rows before the future-actions check and the recalculation");
+
+            const string dispatchSig = "internal static bool RecalculateLedgerForInSessionLoad(";
+            int dispatchIdx = prepared.IndexOf(dispatchSig, StringComparison.Ordinal);
+            Assert.True(dispatchIdx >= 0, "RecalculateLedgerForInSessionLoad not found");
+            string dispatch = SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', dispatchIdx));
+            Assert.Contains("LedgerOrchestrator.HasActionsAfterUT(loadedUT)", dispatch);
+            Assert.Contains("LedgerOrchestrator.RecalculateAndPatch();", dispatch);
             Assert.True(first < coldRoutes, "the hook sits in the in-session branch, not on the cold path");
 
             Assert.Contains("Logistics.RouteLoadReconcile.ReconcileAtInSessionLoad( refinedLoadKind, "

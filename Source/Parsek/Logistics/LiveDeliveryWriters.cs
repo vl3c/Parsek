@@ -34,15 +34,22 @@ namespace Parsek.Logistics
         // <see cref="RouteOrchestrator.EndpointStoreIsLiveParts(Vessel)"/>
         // per call would diverge if the destination loads or unloads mid-tick.
         internal readonly bool isLoaded;
+        // The destination's own parts on the captured branch (null = every part). The SAME
+        // scope instance the orchestrator handed the capacity probe, so the writer fills only
+        // the tanks and slots the probe counted - never a craft docked to the destination
+        // (ROUTE-DELIVERY-INTO-DOCKED-VISITOR).
+        private readonly EndpointPartScope partScope;
         private readonly Dictionary<string, double> actualPerResource;
         private int inventoryUnitsStored;
 
-        internal LiveDeliveryWriters(Route route, Vessel vessel, DeliveryPlan plan, bool isLoaded)
+        internal LiveDeliveryWriters(Route route, Vessel vessel, DeliveryPlan plan, bool isLoaded,
+            EndpointPartScope partScope = null)
         {
             this.route = route;
             this.vessel = vessel;
             this.plan = plan;
             this.isLoaded = isLoaded;
+            this.partScope = EndpointPartScope.ForBranch(partScope, isLoaded, nameof(LiveDeliveryWriters));
             this.actualPerResource = new Dictionary<string, double>(
                 plan.Resources?.Count ?? 0, StringComparer.Ordinal);
             this.inventoryUnitsStored = 0;
@@ -112,7 +119,8 @@ namespace Parsek.Logistics
                 $"resource={resourceName} requested={amount.ToString("R", IC)} " +
                 $"written={actual.ToString("R", IC)} " +
                 $"tankBefore={tankBefore.ToString("R", IC)} tankAfter={tankAfter.ToString("R", IC)} " +
-                $"capacity={capacity.ToString("R", IC)} path={(isLoaded ? "loaded" : "unloaded")}");
+                $"capacity={capacity.ToString("R", IC)} path={(isLoaded ? "loaded" : "unloaded")} " +
+                $"parts={EndpointPartScope.Describe(partScope)}");
         }
 
         /// <summary>
@@ -150,6 +158,7 @@ namespace Parsek.Logistics
             if (vessel.parts == null) return;
             for (int i = 0; i < vessel.parts.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 Part p = vessel.parts[i];
                 if (p == null || p.Resources == null) continue;
                 PartResource pr = p.Resources.Get(resourceName);
@@ -168,6 +177,7 @@ namespace Parsek.Logistics
             ResourceFlowMode mode = RouteOrchestrator.LookupResourceFlowMode(resourceName);
             for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
                 if (pps == null || pps.resources == null) continue;
                 for (int j = 0; j < pps.resources.Count; j++)
@@ -257,6 +267,7 @@ namespace Parsek.Logistics
 
             for (int i = 0; i < vessel.parts.Count && remaining > 0.0; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 Part p = vessel.parts[i];
                 if (p == null || p.Resources == null) continue;
                 PartResource pr = p.Resources.Get(resourceName);
@@ -298,6 +309,7 @@ namespace Parsek.Logistics
 
             for (int i = 0; i < pv.protoPartSnapshots.Count && remaining > 0.0; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
                 if (pps == null || pps.resources == null) continue;
                 for (int j = 0; j < pps.resources.Count && remaining > 0.0; j++)
@@ -388,6 +400,13 @@ namespace Parsek.Logistics
                     $"partCount={(vessel?.parts != null ? vessel.parts.Count : 0).ToString(IC)}");
                 return null;
             }
+            if (!EndpointPartScope.Includes(partScope, slot.PartIndex))
+            {
+                ParsekLog.Warn(Tag,
+                    $"ResolveLoadedInventoryModule: slot={slot} is on a part outside the destination's " +
+                    $"own parts (scope={EndpointPartScope.Describe(partScope)}); refusing the store");
+                return null;
+            }
             Part p = vessel.parts[slot.PartIndex];
             if (p == null || p.Modules == null || slot.ModuleIndex >= p.Modules.Count
                 || !(p.Modules[slot.ModuleIndex] is ModuleInventoryPart module))
@@ -451,6 +470,13 @@ namespace Parsek.Logistics
                 return null;
             }
 
+            if (!EndpointPartScope.Includes(partScope, slot.PartIndex))
+            {
+                ParsekLog.Warn(Tag,
+                    $"ResolveUnloadedInventoryModule: slot={slot} is on a part outside the destination's " +
+                    $"own parts (scope={EndpointPartScope.Describe(partScope)}); refusing the store");
+                return null;
+            }
             ProtoPartSnapshot pps = pv.protoPartSnapshots[slot.PartIndex];
             if (pps == null || pps.modules == null || slot.ModuleIndex >= pps.modules.Count)
             {
