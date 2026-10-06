@@ -16,6 +16,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## DESIGN-GO-BACK-REWIND-VESSEL-SOURCE: logistics design 10.6 says a go-back rewind restores the stock vessels from the loaded save; they come from persistent.sfs [FILED 2026-10-07 from the ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING fix, branch `fix-route-rewind-refire`. OPEN, docs; verify then correct]
+
+Decompiled `SpaceCenterMain.Start` calls `LoadGame("persistent")`, and `Game.Load` hands that game's
+protos to OnLoad, so a go-back rewind's world vessels come from persistent.sfs with the future
+vessels stripped, not from the rewind save (the rewind save's own scenario node is only parsed inside
+`RecordingStore.ExecuteRewindSaveLoad`; GS-4's log shows a second "Save loaded from disk" with no
+persistent write between). Design 10.6's "restores the stock vessels from the loaded save" reads
+otherwise. Confirm against a go-back rewind log, then correct 10.6 (and any rewind design text that
+repeats it).
+
+---
+
 ## CLAIMED-VESSEL-DESPAWN-AT-REWIND-OUTSIDE-FLIGHT: a vessel a committed future mission claims should leave the KSC and Tracking Station at the rewind, as it does in flight [FILED 2026-10-07 from the owner ruling on PR #2029, branch `fix-chain-tip-outside-flight`. OPEN, product design; follow-up, not a release blocker]
 
 Design 12.5 / 20.3 despawn a claimed vessel at the rewind in every scene. Today only flight does
