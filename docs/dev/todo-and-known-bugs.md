@@ -523,20 +523,6 @@ Fix per lane: CI-2's `ListHandles kind=chains` read before the jump (or RF-14's
 `RecordingState` dwell where the recorder bind is the subject), then a re-flight to confirm
 the armed facets.
 
-## MISSION-SPLIT-RUN-CONTINUATION: a switch continuation after a split reads as its own interval [FILED 2026-10-05 from MISSION-LOG-REWORK. OPEN, needs an owner ruling]
-
-The Missions composition follows a vessel through the branch point its recording ends at.
-On a recording the optimizer split, a branch point after the cut that the vessel flew on
-past (a post-switch `Launch` onto another vessel, a `VesselSwitchContinuation` back onto it,
-a ground part) peels off the run instead (`SplitParentLinks.IsFlownPastOnLaterSegment`,
-the reading the stored interval keys were cut with). For a switch continuation back onto
-the SAME vessel after a gap (`interbody-route-recorded` tree `54c5efe5`: `ffffab0a` ends at
-UT 49217516, the switch segment `470bdcf9` starts at 52566541) that makes the switch segment
-its own interval key instead of part of the vessel's line, which is what an unsplit
-recording reads. Folding it in would merge two stored keys into one (no lossless remap), so
-it needs a ruling on the migration. The opposite case, an unsplit recording whose
-post-switch `Launch` child (another vessel) is read as its continuation, has the same cost.
-
 ## GROUND-SCIENCE-CLUSTER-FIVE-PART-HOST: no committed fixture can host a cluster with three or more experiments inside stock inventory limits [FILED 2026-09-28, branch `deployables-lanes`]
 
 **Why.** A stock EVA kerbal carries 2 slots / 40 L / 0.065 t
