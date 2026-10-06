@@ -360,6 +360,49 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Quickload-resume seam (<c>ParsekScenario.TrimAndReconcileForQuickloadResume</c>):
+        /// physically removes every action <paramref name="shouldRetire"/> selects, the
+        /// recording-tagged rows of a resumed tree's abandoned future (owner ruling OQ-2).
+        /// Removal, not a tombstone: a tombstoned row still dedupes the resumed flight's
+        /// re-commit (<c>LedgerOrchestrator.DeduplicateAgainstLedger</c> compares against every
+        /// stored row), so the fresh row for the same fact would never be filed. The caller's
+        /// predicate owns the selection; this only removes, bumps the state version and logs.
+        /// Returns the number removed.
+        /// </summary>
+        internal static int RetireAbandonedFutureActions(Func<GameAction, bool> shouldRetire, string reason)
+        {
+            if (shouldRetire == null)
+                return 0;
+
+            int removed = 0;
+            for (int i = actions.Count - 1; i >= 0; i--)
+            {
+                var action = actions[i];
+                if (action == null || !shouldRetire(action))
+                    continue;
+
+                actions.RemoveAt(i);
+                removed++;
+            }
+
+            if (removed > 0)
+            {
+                BumpStateVersion();
+                ParsekLog.Info("Ledger",
+                    $"RetireAbandonedFutureActions: removed {removed} action(s) reason={reason ?? "(none)"} " +
+                    $"total={actions.Count}");
+            }
+            else
+            {
+                ParsekLog.Verbose("Ledger",
+                    $"RetireAbandonedFutureActions: nothing to retire reason={reason ?? "(none)"} " +
+                    $"total={actions.Count}");
+            }
+
+            return removed;
+        }
+
+        /// <summary>
         /// Go-back rewind seam (<c>ParsekScenario.HandleRewindOnLoad</c>): retires
         /// free-standing route ledger rows with UT strictly after the rewind cutoff
         /// IN PLACE, mirroring the Rec-1 retire the Re-Fly seam performs in

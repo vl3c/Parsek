@@ -93,6 +93,10 @@ namespace Parsek
         Bundle,
         /// <summary>Kept from memory and reconciled against the load's cutoff UT.</summary>
         ReconcileAtCutoff,
+        /// <summary>Reconciled when the recorder resumes the restored tree:
+        /// <c>ParsekScenario.TrimAndReconcileForQuickloadResume</c> retires the trimmed set's
+        /// state from after the resume UT (the abandoned future).</summary>
+        ReconcileAtResume,
         /// <summary>Rows after the load's cutoff are removed.</summary>
         Prune,
         /// <summary>The state is emptied or nulled.</summary>
@@ -182,9 +186,6 @@ namespace Parsek
     internal static class LoadReconcilePolicy
     {
         internal const string GapReFlyLists = "QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY";
-        internal const string GapAbandonedFutureEvents = "QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT";
-        internal const string GapDetachedTreeLedgerRows = "QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS";
-        internal const string GapFutureTerminalLeak = "QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE";
         internal const string GapRouteState = "ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD";
         internal const string GapColdLoadAbandonedFuture = "COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE";
 
@@ -595,6 +596,8 @@ namespace Parsek
             "not reachable: TryRestoreActiveTreeNode returns early while rewinding, so no quickload trim is armed";
         private const string ResumeTrimOnlyCutsTrajectories =
             "the quickload resume trim (ParsekScenario.TrimRecordingTreePastUT) cuts trajectories only";
+        private const string ResumeReconcileSkips =
+            "ParsekScenario.TrimAndReconcileForQuickloadResume runs the trim but skips this category on this kind";
 
         private static LoadReconcileDecision DecideAbandonedFutureEvents(LoadKind kind)
         {
@@ -609,7 +612,8 @@ namespace Parsek
                     return Today(LoadReconcileAction.Keep, RewindResumesNothing);
                 case LoadKind.ReFlyStart:
                     return Today(LoadReconcileAction.Keep,
-                        "the event store is not reloaded in session and no Re-Fly path purges by UT");
+                        "the event store is not reloaded in session and no Re-Fly path purges by UT; "
+                        + ResumeReconcileSkips);
                 case LoadKind.DiscardReFly:
                     return Today(LoadReconcileAction.Keep, DiscardResumesNothing
                         + "; the attempt's own events were purged by MergeDialog.PruneActiveReFlyAttemptOwnedTopology");
@@ -618,8 +622,13 @@ namespace Parsek
                         + "; the reverted flight's events stay for an F9 back, hidden by recording-id visibility");
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
-                    return Gap(LoadReconcileAction.Keep, GapAbandonedFutureEvents,
-                        ResumeTrimOnlyCutsTrajectories + "; target: purge the trimmed set's tagged events after the resume UT");
+                    return Today(LoadReconcileAction.ReconcileAtResume,
+                        "FlightRecorder.PrepareQuickloadResumeStateIfNeeded -> "
+                        + "ParsekScenario.TrimAndReconcileForQuickloadResume purges the trimmed set's tagged events "
+                        + "after the resume UT (GameStateStore.PurgeEventsForRecordingAfterUT; every event of a pruned "
+                        + "recording), never an untagged event or one of committed history (a recording still committed, "
+                        + "or one the quicksave already shows as history: IsCommittedHistoryAtQuicksave, even when the "
+                        + "trim prunes it)");
             }
             throw UnknownKind(kind);
         }
@@ -639,16 +648,21 @@ namespace Parsek
                     return Today(LoadReconcileAction.Keep, RewindResumesNothing);
                 case LoadKind.ReFlyStart:
                     return Today(LoadReconcileAction.Bundle,
-                        BundleRestores + " (only route rows after the loaded UT are retired)");
+                        BundleRestores + " (only route rows after the loaded UT are retired); " + ResumeReconcileSkips);
                 case LoadKind.DiscardReFly:
                     return Today(LoadReconcileAction.Keep, DiscardResumesNothing);
                 case LoadKind.StockRevert:
                     return Today(LoadReconcileAction.Keep, RevertResumesNothing);
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
-                    return Gap(LoadReconcileAction.Keep, GapDetachedTreeLedgerRows,
-                        "RecordingStore.RemoveCommittedTreeById detaches a later-committed tree without touching its rows; "
-                        + "target: retire the trimmed set's tagged rows after the resume UT");
+                    return Today(LoadReconcileAction.ReconcileAtResume,
+                        "FlightRecorder.PrepareQuickloadResumeStateIfNeeded -> "
+                        + "ParsekScenario.TrimAndReconcileForQuickloadResume -> Ledger.RetireAbandonedFutureActions "
+                        + "removes the trimmed set's recording-tagged rows that happened after the resume UT, every row "
+                        + "of a pruned recording and the KerbalAssignment row of a recording whose end state it cleared "
+                        + "(owner ruling OQ-2; untagged KSC rows, route rows, seeds and committed history stay: a "
+                        + "recording still committed, or one the quicksave already shows as history, "
+                        + "IsCommittedHistoryAtQuicksave, even when the trim prunes it)");
             }
             throw UnknownKind(kind);
         }
@@ -660,22 +674,25 @@ namespace Parsek
                 case LoadKind.Cold:
                     return Today(LoadReconcileAction.Save,
                         "TryRestoreActiveTreeNode restores the tree from the node and splices only from committed "
-                        + "trees LoadRecordingTrees read from that same node");
+                        + "trees LoadRecordingTrees read from that same node; " + ResumeReconcileSkips);
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.Keep, RewindResumesNothing);
                 case LoadKind.ReFlyStart:
                     return Today(LoadReconcileAction.Keep,
-                        "no end-state reconcile runs on the Re-Fly load; TryRestoreActiveTreeNode's splice refresh "
-                        + "copies the committed copy's end states");
+                        ResumeReconcileSkips + ": the Re-Fly load resumes under the ActiveRecOnly scope once "
+                        + "AtomicMarkerWrite refreshes it, the active recording is the session's fresh provisional, "
+                        + "and the supersede merge owns the re-flown flight's history");
                 case LoadKind.DiscardReFly:
                     return Today(LoadReconcileAction.Keep, DiscardResumesNothing);
                 case LoadKind.StockRevert:
                     return Today(LoadReconcileAction.Keep, RevertResumesNothing);
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
-                    return Gap(LoadReconcileAction.Keep, GapFutureTerminalLeak,
-                        "the splice refresh copies terminal and crew end states from the committed future copy and "
-                        + ResumeTrimOnlyCutsTrajectories + "; target: clear the trimmed set's end states past the resume UT");
+                    return Today(LoadReconcileAction.ReconcileAtResume,
+                        "FlightRecorder.PrepareQuickloadResumeStateIfNeeded -> "
+                        + "ParsekScenario.TrimAndReconcileForQuickloadResume clears the terminal and crew end states "
+                        + "of every trimmed recording that ended after the resume UT (not committed history: a recording "
+                        + "still committed, or one the quicksave already shows as history, IsCommittedHistoryAtQuicksave)");
             }
             throw UnknownKind(kind);
         }

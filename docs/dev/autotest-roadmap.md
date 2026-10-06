@@ -6388,9 +6388,9 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | Id | Pins | Todo |
 |---|---|---|
 | TA-1 | Re-Fly lists carried (or reconciled) on every in-session load | QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY |
-| TA-2 | Abandoned-future tagged events purged on quickload | QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT |
-| TA-3 | Detached tree's future ledger rows retired | QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS |
-| TA-4 | Tree members' future terminal / crew end states cleared by the quickload trim | QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE |
+| TA-2 | ~~Abandoned-future tagged events purged on quickload~~ DONE 2026-10-06 (PR #2025): the resume reconcile purges the trimmed set's tagged events after the resume UT (`GameStateStore.PurgeEventsForRecordingAfterUT`); red cells in `QuickloadAbandonedFutureLedgerTests`. Live proof: QL-2 | QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT |
+| TA-3 | ~~Detached tree's future ledger rows retired~~ DONE 2026-10-06 (PR #2025, owner ruling OQ-2): `Ledger.RetireAbandonedFutureActions` from the resume reconcile, one row per fact after a re-commit; red cells in `QuickloadAbandonedFutureLedgerTests`. Live proof: a career variant of QL-4 | QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS |
+| TA-4 | ~~Tree members' future terminal / crew end states cleared by the quickload trim~~ DONE 2026-10-06 (PR #2025): `ParsekScenario.TrimAndReconcileForQuickloadResume` + `Recording.ClearTerminalEndStateForResume`, gated on the `ReconcileAtResume` cells; red cells in `QuickloadResumeTests` (splice refresh, stale epoch, Re-Fly scope, field gate). Live proof: QL-4 | QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE |
 | TA-5 | Nested origin rewind point survives the Discard Re-fly (editor) load | DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP |
 | TA-6 | One converter-timestamp policy for every Parsek jump | TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND |
 | TA-7 | Route endpoint unresolved until X: no cycle before X delivered from the tip snapshot | CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO |
@@ -6423,7 +6423,7 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | QL-1 | Career KSC actions after a quicksave, back-in-time load at the KSC; ledger rows as ruled | `career-earned-ksc` | TC-4 for pools |
 | QL-2 | In-flight contract completion, crash, F9 back, re-fly differently, commit; no abandoned-future booking | `career-contract-pad` | TC-1 Quickload, TA-2 |
 | QL-3 | Re-Fly merge, then load a quicksave from before it; one visible flight, tombstones hold | S4.2 host | TA-1 |
-| QL-4 | Booster crash after a quicksave, F9, booster survives; terminal state and recording correct | `gs1-two-stage-pad` | TA-4 |
+| QL-4 | Booster crash after a quicksave, F9, booster survives; terminal state and recording correct. AUTHORED 2026-10-06, NOT YET FLOWN: `harness/scenarios/QL-4-quickload-booster-terminal.toml` (lands with the TA-4 fix). The booster commits SubOrbital under canopy instead of crashing (no verb or mission param withholds its chutes; the leak is kind-agnostic), and the F9 is in FLIGHT after an in-flight commit: by code read a Space Center F9 drops the whole saved tree on stale sidecar epochs and never reaches the trim (spec header) | `gs1-two-stage-pad` | TA-4 |
 | QL-5 | Discard Re-fly with a real load (launch and prelaunch) | a Re-Fly host | TC-1 ReFlyRevert, TA-5 |
 | QL-6 | Discard then F9 back into that flight: it records again (ruled 2026-10-06) | `gloops-airshow` | QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN |
 | MINE-0 | Converter events on the drill / ISRU showcases; converter-loop apply line pinned | S1.9 | - |

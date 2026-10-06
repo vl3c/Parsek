@@ -3676,6 +3676,34 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **After a quickload, a booster that survives the replayed flight is recorded again.** If you
+  quicksaved, flew on (a booster crashed with its crew, a lander touched down) and then
+  quickloaded back, the other vessels of that flight kept the ending they had reached after the
+  quicksave: the booster still read as destroyed with its crew dead, was not recorded again, and
+  still played back as exploding even when it survived the second time. The same happened after
+  committing the flight in flight and then quickloading, with no save in between. Now every
+  vessel of the resumed flight whose recording ended after the quicksave's moment has that ending
+  cleared, so it is recorded again from the quicksave and ends however it actually ends; endings
+  reached before the quicksave stay, and the quickload only touches what the quicksave shows
+  was not yet history. Not covered yet: quickloading into a committed flight's
+  quicksave from the Space Center, or in flight once the game has saved again since the
+  quicksave (an autosave, a switch to a far vessel) - todo
+  QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE. A Re-Fly
+  start and resuming a flight after restarting KSP are unchanged. Covered by xUnit; not yet
+  checked in a test flight.
+- **Career rewards from a future you quickloaded away are no longer paid.** A contract completed,
+  a milestone reached or a vessel recovered after your quicksave stayed on the books when you
+  quickloaded back: the reward was booked again when the replayed flight was committed, even if
+  you never completed the contract the second time, and quickloading into a flight you had since
+  committed in flight kept paying its recovery funds, rewards and crew-loss penalties from the
+  ending you abandoned. Quickloading back into a flight in flight now drops that flight's career
+  events and ledger entries from after the quicksave's moment, and the replayed flight books what
+  it actually does. Space Center actions after the quicksave (tech, facility upgrades, hires) are
+  kept, as are supply-route entries and every other committed flight; the quickload only touches
+  what the quicksave shows was not yet history. The two committed-flight routes above (from the
+  Space Center, or after the game saved again) are not covered yet, same todo. Covered by xUnit;
+  not yet checked in a test flight.
+
 - **Quitting the game while the map camera is focused on a ghost no longer logs an error.** When
   a ghost the map view was looking at was removed, KSP moved the camera to the nearest planet on
   its own; while the game was quitting, its planet info panel was already gone and the move logged
@@ -5986,6 +6014,15 @@ _(unreleased - entries accumulate here per commit)_
   node names the two staging methods touch (each must have a category), and where OnLoad
   classifies relative to named steps (after `DetectSaveFolderChange`, before the staging load;
   refined after `RevertDetector.Consume`, before the quickload discard and the revert prune).
+- **Automated testing: a lane for a booster quickloaded back into the air (QL-4).**
+  `QL-4-quickload-booster-terminal` (nightly, not yet flown) is the live check for the
+  quickload end-state fix: on the GS1 two-stage pad it quicksaves with the booster still under
+  its parachutes, flies on, commits the flight in flight (the booster commits SubOrbital), then
+  loads the quicksave in flight. The resumed booster must be back with the background recorder,
+  recorded down to the ground and committed Landed. It loads from flight, not from the Space
+  Center, because a Space Center load of the older quicksave drops the saved tree on stale
+  sidecars before any resume (todo QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE;
+  the spec header has the argument).
 - **Automated testing: the player docks with a ghost-chain tip spawned through Real Spawn
   Control (CI-9).** A new nightly lane, `CI-9-chain-tip-dock`, puts an orbital ghost-chain
   tip (the new `chain-tip-dock` injected preset) 140 m ahead of the focused Kerbal X,

@@ -26,6 +26,8 @@ namespace Parsek.Tests
     {
         private const string ScenarioPath = "ParsekScenario.cs";
         private const string InterceptorPath = "RevertInterceptor.cs";
+        private const string RecorderPath = "FlightRecorder.cs";
+        private const string TrimPath = "ParsekScenario.Trim.cs";
 
         // ---- staging nodes ----
 
@@ -175,6 +177,101 @@ namespace Parsek.Tests
             int clear = discard.IndexOf("GameStateRecorder.PendingScienceSubjects.Clear()", StringComparison.Ordinal);
             Assert.True(guard >= 0 && guard < clear,
                 "load-reconcile gate: the pending-science clear must sit behind the policy flag");
+        }
+
+        // ---- the quickload-resume reconcile ----
+
+        [Fact]
+        public void PrepareQuickloadResumeCallsTheReconcile()
+        {
+            string body = PreparedMethodBody(RecorderPath, "private void PrepareQuickloadResumeStateIfNeeded()");
+            Assert.Equal(1, Occurrences(body, "ParsekScenario.TrimAndReconcileForQuickloadResume("));
+            Assert.Equal(0, Occurrences(body, "TrimRecordingTreePastUT("));
+            Assert.Equal(0, Occurrences(body, "TrimRecordingPastUT("));
+            int kind = IndexOrFail(body, "ParsekScenario.GetPendingQuickloadLoadKind(");
+            int call = IndexOrFail(body, "ParsekScenario.TrimAndReconcileForQuickloadResume(");
+            int clear = IndexOrFail(body, "ParsekScenario.ClearPendingQuickloadResumeContext();");
+            Assert.True(kind < call,
+                "load-reconcile gate: the resume reads the armed load kind before the reconcile");
+            Assert.True(body.LastIndexOf("ParsekScenario.ClearPendingQuickloadResumeContext();", StringComparison.Ordinal) > call,
+                "load-reconcile gate: the context is cleared after the reconcile read it (first clear at " + clear + ")");
+            Assert.Contains("TrimAndReconcileForQuickloadResume( ActiveTree, activeRec, resumeUT, trimScope, loadKind, loadedUT, "
+                + "quicksaveFacts)", Collapse(body));
+            Assert.Contains("var quicksaveFacts = ParsekScenario.GetPendingQuickloadQuicksaveFacts(ActiveTree.Id);",
+                Collapse(body));
+
+            string reconcile = PreparedMethodBody(TrimPath, "internal static bool TrimAndReconcileForQuickloadResume(");
+            int plan = IndexOrFail(reconcile, "BuildAbandonedFuturePlan(");
+            int treeTrim = IndexOrFail(reconcile, "TrimRecordingTreePastUT(");
+            int recTrim = IndexOrFail(reconcile, "TrimRecordingPastUT(");
+            Assert.True(plan < treeTrim && plan < recTrim,
+                "load-reconcile gate: the abandoned-future plan is taken before the trim cuts the payload");
+            string flat = Collapse(reconcile);
+            Assert.Contains("ShouldReconcileAtResume(loadKind, LoadStateCategory.AbandonedFutureEndStates)", flat);
+            Assert.Contains("ShouldReconcileAtResume(loadKind, LoadStateCategory.AbandonedFutureEvents)", flat);
+            Assert.Contains("ShouldReconcileAtResume(loadKind, LoadStateCategory.AbandonedFutureLedgerRows)", flat);
+            // The ledger step reads the end-state step's cleared set (the KerbalAssignment rule),
+            // so the end states are cleared first.
+            int endStates = IndexOrFail(reconcile, "ClearAbandonedFutureEndStates(");
+            int events = IndexOrFail(reconcile, "PurgeAbandonedFutureEvents(");
+            int rows = IndexOrFail(reconcile, "RetireAbandonedFutureLedgerRows(");
+            int recalc = IndexOrFail(reconcile, "LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(");
+            Assert.True(treeTrim < endStates && endStates < events && events < rows && rows < recalc,
+                "load-reconcile gate: trim, end states, events, ledger rows, then the current-timeline recalculation");
+        }
+
+        [Fact]
+        public void RestoreCapturesTheQuicksaveFactsBeforeAnythingChangesTheLoadedTree()
+        {
+            // The committed-history discriminator must read the quicksave as written: before the
+            // sidecar hydration, the stale-epoch keep, the pending-tree salvage and the same-id
+            // refresh, and before the detach of the committed copy.
+            string body = PreparedMethodBody(ScenarioPath, "internal static bool TryRestoreActiveTreeNode(ConfigNode node)");
+            Assert.Equal(1, Occurrences(body, "CaptureQuicksaveTreeFacts("));
+            int load = IndexOrFail(body, "RecordingTree.Load(");
+            int capture = IndexOrFail(body, "CaptureQuicksaveTreeFacts(");
+            int hydrate = IndexOrFail(body, "RecordingStore.LoadRecordingFiles(");
+            int keep = IndexOrFail(body, "ShouldKeepPendingTreeAfterHydrationFailure(");
+            int salvage = IndexOrFail(body, "RestoreHydrationFailedRecordingsFromPendingTree(");
+            int splice = IndexOrFail(body, "SpliceMissingCommittedRecordingsIntoLoadedTree(");
+            int detach = IndexOrFail(body, "RecordingStore.RemoveCommittedTreeById(");
+            Assert.True(load < capture && capture < hydrate && hydrate < keep && keep < salvage
+                && salvage < splice && splice < detach,
+                "load-reconcile gate: TryRestoreActiveTreeNode must capture the quicksave facts right after "
+                + "loading the node, before hydration, the keep, the salvage, the splice and the detach");
+            Assert.Contains("CaptureQuicksaveTreeFacts( tree, CollectQuicksaveCommittedRecordingIds(node));",
+                Collapse(body));
+
+            string arm = PreparedMethodBody(ScenarioPath, "internal static void ConfigurePendingQuickloadResumeContext(");
+            Assert.Contains("QuicksaveFacts = quicksaveFacts,", Collapse(arm));
+        }
+
+        [Fact]
+        public void ResumeContextIsArmedWithTheLoadKind()
+        {
+            string onLoad = Collapse(PreparedMethodBody(ScenarioPath, "public override void OnLoad(ConfigNode node)"));
+            Assert.Equal(2, Occurrences(onLoad, "ConfigurePendingQuickloadResumeContext("));
+            Assert.Contains("ConfigurePendingQuickloadResumeContext( RecordingStore.PendingTree, refinedLoadKind, "
+                + "planetariumReady ? loadedUT : double.NaN);", onLoad);
+            Assert.Contains("ConfigurePendingQuickloadResumeContext(RecordingStore.PendingTree, LoadKind.Cold);", onLoad);
+
+            string root = ParsekSourceRoot();
+            var armFiles = new List<string>();
+            foreach (string path in Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories))
+            {
+                string rel = path.Substring(root.Length)
+                    .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    .Replace('\\', '/');
+                if (rel.StartsWith("bin/", StringComparison.OrdinalIgnoreCase)
+                    || rel.StartsWith("obj/", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+                if (prepared.Contains("ConfigurePendingQuickloadResumeContext("))
+                    armFiles.Add(rel);
+            }
+            Assert.Equal(new[] { "ParsekScenario.cs" }, armFiles);
         }
 
         // ---- the Discard Re-fly intent ----
