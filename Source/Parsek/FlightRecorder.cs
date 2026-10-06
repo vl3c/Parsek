@@ -505,15 +505,13 @@ namespace Parsek
             // singleton is temporarily unavailable.
             var trimScope = ParsekScenario.GetPendingQuickloadTrimScope(
                 ActiveTree.Id, out string trimScopeReason);
-            bool treeTrimmed;
-            if (trimScope == ParsekScenario.QuickloadTrimScope.ActiveRecOnly)
-            {
-                treeTrimmed = ParsekScenario.TrimRecordingPastUT(activeRec, resumeUT);
-            }
-            else
-            {
-                treeTrimmed = ParsekScenario.TrimRecordingTreePastUT(ActiveTree, resumeUT);
-            }
+            // The trim and the abandoned-future reconcile run together: the reconcile's plan
+            // must be taken before the trim cuts the payload, and each category it retires is
+            // gated on the arming load kind's LoadReconcilePolicy cell.
+            LoadKind? loadKind = ParsekScenario.GetPendingQuickloadLoadKind(
+                ActiveTree.Id, out double loadedUT);
+            bool treeTrimmed = ParsekScenario.TrimAndReconcileForQuickloadResume(
+                ActiveTree, activeRec, resumeUT, trimScope, loadKind, loadedUT);
 
             bool hasTailEnv = TryGetTailTrackSectionEnvironment(activeRec, out SegmentEnvironment tailEnv);
             if (hasTailEnv)
@@ -525,6 +523,7 @@ namespace Parsek
                 $"cutoffUT={resumeUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"preTrimEndUT={preTrimEndUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"trimScope={trimScope} ({trimScopeReason}) " +
+                $"loadKind={(loadKind.HasValue ? loadKind.Value.ToString() : "none")} " +
                 $"recordingsInTree={recordingsInTree} " +
                 $"treeTrimmed={treeTrimmed}" +
                 (hasTailEnv ? $" envResyncTarget={tailEnv}" : ""));

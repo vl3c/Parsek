@@ -6383,7 +6383,7 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | TA-1 | Re-Fly lists carried (or reconciled) on every in-session load | QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY |
 | TA-2 | Abandoned-future tagged events purged on quickload | QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT |
 | TA-3 | Detached tree's future ledger rows retired | QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS |
-| TA-4 | Tree members' future terminal / crew end states cleared by the quickload trim | QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE |
+| TA-4 | ~~Tree members' future terminal / crew end states cleared by the quickload trim~~ DONE 2026-10-06 (branch `quickload-abandoned-future`): `ParsekScenario.TrimAndReconcileForQuickloadResume` + `Recording.ClearTerminalEndStateForResume`, gated on the `ReconcileAtResume` cells; red cells in `QuickloadResumeTests` (splice refresh, stale epoch, Re-Fly scope, field gate). Live proof: QL-4 | QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE |
 | TA-5 | Nested origin rewind point survives the Discard Re-fly (editor) load | DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP |
 | TA-6 | One converter-timestamp policy for every Parsek jump | TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND |
 | TA-7 | Route endpoint unresolved until X: no cycle before X delivered from the tip snapshot | CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO |

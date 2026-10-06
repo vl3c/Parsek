@@ -135,6 +135,255 @@ namespace Parsek
             return QuickloadTrimScope.ActiveRecOnly;
         }
 
+        // ------------------------------------------------------------------
+        // Abandoned-future reconcile: the quickload-resume trim owns the
+        // trimmed set's end states (and, per category, its tagged events and
+        // ledger rows) after the resume UT. Nothing outside that set and
+        // nothing still committed is touched.
+        // ------------------------------------------------------------------
+
+        internal const string AbandonedFutureReason = "quickload-abandoned-future";
+
+        /// <summary>
+        /// What one quickload-resume reconcile owns, captured BEFORE the trim: the
+        /// recordings the trim cuts (every recording of the tree, or only the active one
+        /// under the Re-Fly scope), the future-only recordings it prunes, and each one's
+        /// end UT before the trim (the trim stamps <c>ExplicitEndUT</c> = cutoff, so the
+        /// post-trim end cannot tell whether a recording ended after the cutoff). A
+        /// recording that is still committed is left out of every set.
+        /// </summary>
+        internal sealed class AbandonedFuturePlan
+        {
+            internal double CutoffUT;
+            internal QuickloadTrimScope Scope;
+            internal readonly HashSet<string> TrimmedIds = new HashSet<string>(StringComparer.Ordinal);
+            internal readonly HashSet<string> PrunedIds = new HashSet<string>(StringComparer.Ordinal);
+            internal readonly Dictionary<string, double> PreTrimEndUT =
+                new Dictionary<string, double>(StringComparer.Ordinal);
+            internal readonly List<string> SkippedCommittedIds = new List<string>();
+            internal readonly HashSet<string> EndStateClearedIds = new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        /// <summary>
+        /// Pure: the plan for one resume. <paramref name="isStillCommitted"/> answers whether
+        /// a recording id is committed history (production:
+        /// <see cref="IsStillCommittedForResumeReconcile"/>); such an id is recorded in
+        /// <see cref="AbandonedFuturePlan.SkippedCommittedIds"/> and owned by nothing below.
+        /// The pruned set is the trim's own future-only collector, so it is exactly what
+        /// <see cref="TrimRecordingTreePastUT"/> removes.
+        /// </summary>
+        internal static AbandonedFuturePlan BuildAbandonedFuturePlan(
+            RecordingTree tree,
+            string activeRecordingId,
+            double cutoffUT,
+            QuickloadTrimScope scope,
+            Func<string, bool> isStillCommitted)
+        {
+            var plan = new AbandonedFuturePlan { CutoffUT = cutoffUT, Scope = scope };
+            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0
+                || double.IsNaN(cutoffUT) || double.IsInfinity(cutoffUT))
+            {
+                return plan;
+            }
+
+            var candidates = new List<string>();
+            HashSet<string> futureOnlyIds = null;
+            if (scope == QuickloadTrimScope.ActiveRecOnly)
+            {
+                if (!string.IsNullOrEmpty(activeRecordingId))
+                    candidates.Add(activeRecordingId);
+            }
+            else
+            {
+                candidates.AddRange(tree.Recordings.Keys);
+                futureOnlyIds = CollectFutureOnlyRecordingIds(tree, cutoffUT);
+            }
+            candidates.Sort(StringComparer.Ordinal);
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                string id = candidates[i];
+                if (string.IsNullOrEmpty(id)
+                    || !tree.Recordings.TryGetValue(id, out Recording rec)
+                    || rec == null)
+                {
+                    continue;
+                }
+
+                if (isStillCommitted != null && isStillCommitted(id))
+                {
+                    plan.SkippedCommittedIds.Add(id);
+                    continue;
+                }
+
+                plan.TrimmedIds.Add(id);
+                plan.PreTrimEndUT[id] = rec.EndUT;
+                if (futureOnlyIds != null && futureOnlyIds.Contains(id))
+                    plan.PrunedIds.Add(id);
+            }
+
+            return plan;
+        }
+
+        /// <summary>
+        /// Committed history (owner ruling D2: never retired by a load). A Re-Fly
+        /// provisional sits in the committed list as <see cref="MergeState.NotCommitted"/>
+        /// (<c>RecordingStore.AddProvisional</c>); it is the live session's recording, not
+        /// committed history, so it does not count.
+        /// </summary>
+        internal static bool IsStillCommittedForResumeReconcile(string recordingId)
+        {
+            Recording committed = EffectiveState.FindCommittedRecordingByIdRaw(recordingId);
+            return committed != null && committed.MergeState != MergeState.NotCommitted;
+        }
+
+        /// <summary>
+        /// Pure: a trimmed recording's terminal and crew end states belong to the abandoned
+        /// future when it ended strictly after the cutoff (the trim keeps a sample AT the
+        /// cutoff, so an end exactly there is the quicksave's own state) and it carries any
+        /// end state at all.
+        /// </summary>
+        internal static bool ShouldClearFutureEndState(
+            double preTrimEndUT, double cutoffUT, bool hasTerminal, bool hasCrewEndStates)
+        {
+            if (!hasTerminal && !hasCrewEndStates)
+                return false;
+            if (double.IsNaN(preTrimEndUT) || double.IsNaN(cutoffUT) || double.IsInfinity(cutoffUT))
+                return false;
+            return preTrimEndUT > cutoffUT;
+        }
+
+        /// <summary>True when <paramref name="loadKind"/>'s policy cell for
+        /// <paramref name="category"/> is <see cref="LoadReconcileAction.ReconcileAtResume"/>.</summary>
+        internal static bool ShouldReconcileAtResume(LoadKind? loadKind, LoadStateCategory category)
+        {
+            return loadKind.HasValue
+                && LoadReconcilePolicy.Decide(loadKind.Value, category).Action
+                    == LoadReconcileAction.ReconcileAtResume;
+        }
+
+        /// <summary>
+        /// The quickload-resume trim plus the abandoned-future reconcile, called once from
+        /// <c>FlightRecorder.PrepareQuickloadResumeStateIfNeeded</c> when the recorder resumes
+        /// a restored tree. The plan is taken before the trim; the trim itself is unchanged;
+        /// then, per category whose policy cell for the arming load kind is
+        /// <see cref="LoadReconcileAction.ReconcileAtResume"/>, the trimmed set's state from
+        /// after the resume UT is retired. Returns whether the trim changed anything.
+        /// </summary>
+        internal static bool TrimAndReconcileForQuickloadResume(
+            RecordingTree tree,
+            Recording activeRec,
+            double resumeUT,
+            QuickloadTrimScope scope,
+            LoadKind? loadKind,
+            double loadedUT)
+        {
+            bool reconcileEndStates = ShouldReconcileAtResume(loadKind, LoadStateCategory.AbandonedFutureEndStates);
+            bool anyCategory = reconcileEndStates;
+
+            AbandonedFuturePlan plan = anyCategory
+                ? BuildAbandonedFuturePlan(
+                    tree, activeRec?.RecordingId, resumeUT, scope, IsStillCommittedForResumeReconcile)
+                : null;
+
+            bool treeTrimmed = scope == QuickloadTrimScope.ActiveRecOnly
+                ? TrimRecordingPastUT(activeRec, resumeUT)
+                : TrimRecordingTreePastUT(tree, resumeUT);
+
+            string treeName = tree?.TreeName ?? "<null>";
+            string kindText = loadKind.HasValue ? loadKind.Value.ToString() : "none";
+            if (!anyCategory)
+            {
+                ParsekLog.Info("Scenario",
+                    $"Quickload abandoned-future reconcile skipped: tree='{treeName}' kind={kindText} " +
+                    $"scope={scope} reason=policy " +
+                    $"endStates={FormatResumeDecision(loadKind, LoadStateCategory.AbandonedFutureEndStates)}");
+                return treeTrimmed;
+            }
+
+            if (plan.TrimmedIds.Count == 0)
+            {
+                ParsekLog.Info("Scenario",
+                    $"Quickload abandoned-future reconcile skipped: tree='{treeName}' kind={kindText} " +
+                    $"scope={scope} reason=empty-plan " +
+                    $"cutoffUT={resumeUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"skippedCommitted={plan.SkippedCommittedIds.Count}");
+                return treeTrimmed;
+            }
+
+            if (!double.IsNaN(loadedUT) && Math.Abs(loadedUT - resumeUT) > 1.0)
+            {
+                ParsekLog.Warn("Scenario",
+                    "Quickload abandoned-future reconcile: the resume cutoff differs from the load's clock " +
+                    $"by more than 1 s tree='{treeName}' cutoffUT={resumeUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)}");
+            }
+
+            int endStatesCleared = reconcileEndStates ? ClearAbandonedFutureEndStates(tree, plan) : 0;
+            if (endStatesCleared > 0)
+                tree.RebuildBackgroundMap();
+
+            ParsekLog.Info("Scenario",
+                $"Quickload abandoned-future reconcile: tree='{treeName}' kind={kindText} scope={scope} " +
+                $"cutoffUT={resumeUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"trimmed={plan.TrimmedIds.Count} pruned={plan.PrunedIds.Count} " +
+                $"endStatesCleared={endStatesCleared} " +
+                $"skippedCommitted={plan.SkippedCommittedIds.Count}" +
+                (plan.SkippedCommittedIds.Count > 0 && plan.SkippedCommittedIds.Count < 20
+                    ? $" skippedCommittedIds=[{string.Join(",", plan.SkippedCommittedIds.ToArray())}]"
+                    : ""));
+            return treeTrimmed;
+        }
+
+        private static string FormatResumeDecision(LoadKind? loadKind, LoadStateCategory category)
+        {
+            return loadKind.HasValue
+                ? LoadReconcilePolicy.Decide(loadKind.Value, category).Action.ToString()
+                : "none";
+        }
+
+        /// <summary>
+        /// Clears the end states of every surviving trimmed recording that ended after the
+        /// cutoff (<see cref="ShouldClearFutureEndState"/>) and records the ids in
+        /// <see cref="AbandonedFuturePlan.EndStateClearedIds"/>. Returns the count.
+        /// </summary>
+        private static int ClearAbandonedFutureEndStates(RecordingTree tree, AbandonedFuturePlan plan)
+        {
+            var ids = new List<string>(plan.TrimmedIds);
+            ids.Sort(StringComparer.Ordinal);
+            int cleared = 0;
+            for (int i = 0; i < ids.Count; i++)
+            {
+                string id = ids[i];
+                if (plan.PrunedIds.Contains(id)
+                    || !tree.Recordings.TryGetValue(id, out Recording rec)
+                    || rec == null)
+                {
+                    continue;
+                }
+
+                bool hasTerminal = rec.TerminalStateValue.HasValue;
+                bool hasCrewEndStates = rec.CrewEndStates != null || rec.CrewEndStatesResolved;
+                double preTrimEndUT = plan.PreTrimEndUT.TryGetValue(id, out double endUT) ? endUT : double.NaN;
+                if (!ShouldClearFutureEndState(preTrimEndUT, plan.CutoffUT, hasTerminal, hasCrewEndStates))
+                    continue;
+
+                string previousTerminal = hasTerminal ? rec.TerminalStateValue.Value.ToString() : "none";
+                int crewEndStateCount = rec.CrewEndStates != null ? rec.CrewEndStates.Count : 0;
+                rec.ClearTerminalEndStateForResume(AbandonedFutureReason);
+                plan.EndStateClearedIds.Add(id);
+                cleared++;
+                ParsekLog.Verbose("Scenario",
+                    $"Quickload abandoned-future end state cleared: rec={id} previousTerminal={previousTerminal} " +
+                    $"preTrimEndUT={preTrimEndUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"cutoffUT={plan.CutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"crewEndStates={crewEndStateCount}");
+            }
+
+            return cleared;
+        }
+
         private static HashSet<string> CollectFutureOnlyRecordingIds(RecordingTree tree, double cutoffUT)
         {
             HashSet<string> futureOnlyIds = null;

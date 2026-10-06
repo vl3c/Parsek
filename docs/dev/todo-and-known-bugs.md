@@ -216,7 +216,7 @@ recording-tagged ledger rows after the quicksave; untagged KSC rows are kept.
 
 ---
 
-## QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE: other tree members keep the abandoned future's terminal state and crew end states after F9 [FILED 2026-10-06 from the coverage-extension research, partly verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE: other tree members keep the abandoned future's terminal state and crew end states after F9~~ [FILED 2026-10-06 from the coverage-extension research, partly verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, branch `quickload-abandoned-future` (xUnit only; live proof is lane QL-4)]
 
 The splice and same-id refresh (`HydrationRepair.cs:495-508`, `:684-787`) copy terminal state,
 terminal orbit, snapshot and crew end states from the committed future copy, and the stale-epoch
@@ -228,11 +228,17 @@ ACTIVE recording is guarded (`ClearStaleDestroyedTerminalForResume`, Destroyed o
 Expected player effect: a booster that survives the replayed flight still ghosts as exploding at
 the F9 instant and is never recorded afterwards.
 
-Fix: clear terminal state / crew end states past the resume UT for every tree member in the
-trim. Red test: `QuickloadResumeTests` splice + trim on a booster Destroyed with crew Dead at 300.
-Lane QL-4.
-
-Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
+Fix: `ParsekScenario.TrimAndReconcileForQuickloadResume` (called from
+`FlightRecorder.PrepareQuickloadResumeStateIfNeeded` in place of the two trim calls) takes a plan
+of the trimmed set BEFORE the trim (the end UT of each recording, minus any recording still
+committed; a Re-Fly provisional does not count as committed), runs the unchanged trim, and then
+`Recording.ClearTerminalEndStateForResume` retracts the terminal and crew end states of every
+trimmed recording that ended strictly after the resume UT, active one included, and rebuilds the
+background map so the vessel is recorded again. The resume context now carries the load kind:
+the clear runs only where `LoadReconcilePolicy` says `ReconcileAtResume` (F9 in flight, other
+in-session loads such as F9 from the Space Center into a flight quicksave); a Re-Fly start and a
+cold resume skip it with a log line. Red tests in `QuickloadResumeTests` (splice refresh and
+stale-epoch paths through `TryRestoreActiveTreeNode`, Re-Fly scope, field gate). Open: lane QL-4.
 
 ---
 
@@ -249,6 +255,43 @@ cells stub LoadGame / LoadScene).
 
 Fix: keep a point whose creating session is already merged. Red test: xUnit over
 `LoadTimeSweep.Run`; lane QL-5 with a new `ReFlyRevert` verb.
+
+---
+
+## QUICKLOAD-TRIM-STAMPS-CUTOFF-AS-EARLIER-END: the quickload resume trim moves the end of a recording that ended before the quicksave up to the quicksave's moment [FILED 2026-10-06 off the abandoned-future reconcile, branch `quickload-abandoned-future`; verified in code, player effect to trace. OPEN, product]
+
+`ParsekScenario.TrimRecordingPastUT` (`ParsekScenario.Trim.cs`, the `ExplicitEndUT` block) sets
+`ExplicitEndUT = cutoff` on every recording whose `ExplicitEndUT` is NaN or later than the cutoff,
+and the tree-wide trim calls it for every member. A member that ended BEFORE the cutoff with no
+explicit end (its end is its last sample) therefore reads `EndUT = cutoff` after the trim, because
+`Recording.EndUT` is the larger of the trajectory end and `ExplicitEndUT`. The abandoned-future
+reconcile is not affected (it reads each end before the trim). Related: neither the trim nor the
+resume clear touches `SurfacePos` (the background landed position), so a member that landed after
+the cutoff keeps that landing position while it is airborne again.
+
+Fix: to trace first - which members reach the trim with a NaN `ExplicitEndUT` and what reads
+their `EndUT` (ghost end, spawn, the Missions rows); then stamp only recordings whose payload
+actually runs past the cutoff. Red test: `QuickloadResumeTests`, a member with samples to 150 and
+no explicit end, trimmed at 200, `EndUT` stays 150.
+
+---
+
+## QUICKLOAD-REFLY-SCOPE-KEEPS-SESSION-CHILDREN-FUTURE: an F9 inside a Re-Fly session reconciles the active recording only [FILED 2026-10-06 off the abandoned-future reconcile (design risk R9), branch `quickload-abandoned-future`; verified in code, not reproduced. OPEN, product]
+
+When the loaded save carries a Re-Fly marker for the resumed tree, `ChooseQuickloadTrimScope`
+picks `ActiveRecOnly` (#610: a tree-wide trim would prune the other vessels' post-rewind-point
+recordings the splice restored), and the abandoned-future reconcile inherits that scope: only the
+active recording is trimmed and has its end states (later: events and ledger rows) retired.
+Children the session authored after the quicksave's moment survive two ways: the splice copies
+them from a committed copy of the tree (F9 into a quicksave taken during a session that has
+since merged, owner ruling OQ-1), and the stale-epoch path keeps the in-memory future tree
+(`ShouldKeepPendingTreeAfterHydrationFailure`). Their trajectories, end states, tagged events and
+ledger rows from after the quicksave stay.
+
+Fix: to trace - decide which recordings under the Re-Fly scope belong to the abandoned future
+(created by the live session after the cutoff: `CreatingSessionId` or the marker's
+`PreSessionBranchPointIds` against the branch-point UTs) and add them to the plan. Red test:
+`QuickloadResumeTests`, a Re-Fly-scope tree with a session child that starts after the cutoff.
 
 ---
 

@@ -989,7 +989,7 @@ namespace Parsek.Tests
             // Production async load ordering: TryRestoreActiveTreeNode arms the
             // quickload-resume context before the deferred onFlightReady
             // AtomicMarkerWrite creates the Re-Fly marker.
-            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree, LoadKind.ReFlyStart);
             var preMarkerScope = ParsekScenario.GetPendingQuickloadTrimScope(
                 tree.Id, out string preMarkerReason);
             Assert.Equal(ParsekScenario.QuickloadTrimScope.TreeWide, preMarkerScope);

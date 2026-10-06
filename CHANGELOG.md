@@ -3659,6 +3659,17 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **After a quickload, a booster that survives the replayed flight is recorded again.** If you
+  quicksaved, flew on (a booster crashed with its crew, a lander touched down) and then
+  quickloaded back, the other vessels of that flight kept the ending they had reached after the
+  quicksave: the booster still read as destroyed with its crew dead, was not recorded again, and
+  still played back as exploding even when it survived the second time. The same happened after
+  quickloading into a flight that had already been committed. Now every vessel of the resumed
+  flight whose recording ended after the quicksave's moment has that ending cleared, so it is
+  recorded again from the quicksave and ends however it actually ends; endings reached before the
+  quicksave stay. A Re-Fly start and resuming a flight after restarting KSP are unchanged. Covered
+  by xUnit; not yet checked in a test flight.
+
 - **Ending a Re-Fly no longer marks an earlier segment of the same craft destroyed with its crew
   dead.** When a recording had been split into segments and the same vessel was later brought
   back by another flight (for example, docked into, undocked, and re-created at the end of that

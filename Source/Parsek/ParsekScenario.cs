@@ -4244,7 +4244,10 @@ namespace Parsek
                             // Quickload or cold-start resume: defer restore to OnFlightReady.
                             // ParsekFlight.RestoreActiveTreeFromPending picks up the
                             // pending-Limbo tree and wires a fresh recorder to it.
-                            ConfigurePendingQuickloadResumeContext(RecordingStore.PendingTree);
+                            ConfigurePendingQuickloadResumeContext(
+                                RecordingStore.PendingTree,
+                                refinedLoadKind,
+                                planetariumReady ? loadedUT : double.NaN);
                             ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.Quickload;
                             ParsekLog.Info("Scenario",
                                 $"OnLoad: pending-Limbo tree '{RecordingStore.PendingTree?.TreeName}' " +
@@ -4481,7 +4484,7 @@ namespace Parsek
                             ? ActiveTreeRestoreMode.VesselSwitch
                             : ActiveTreeRestoreMode.Quickload;
                     if (ScheduleActiveTreeRestoreOnFlightReady == ActiveTreeRestoreMode.Quickload)
-                        ConfigurePendingQuickloadResumeContext(RecordingStore.PendingTree);
+                        ConfigurePendingQuickloadResumeContext(RecordingStore.PendingTree, LoadKind.Cold);
                     else
                         ClearPendingQuickloadResumeContext();
                     ParsekLog.Info("Scenario",
@@ -6215,6 +6218,11 @@ namespace Parsek
             internal string TreeId;
             internal QuickloadTrimScope TrimScope;
             internal string TrimScopeReason;
+            // The load that armed the resume: TrimAndReconcileForQuickloadResume gates each
+            // abandoned-future category on LoadReconcilePolicy.Decide(LoadKind, category).
+            internal LoadKind LoadKind;
+            // Planetarium UT when OnLoad armed the context (NaN when the clock was not ready).
+            internal double LoadedUT;
         }
 
         // Resume hints parsed from PARSEK_ACTIVE_TREE, consumed by the quickload-resume
@@ -6222,7 +6230,8 @@ namespace Parsek
         internal static string pendingActiveTreeResumeRewindSave;
         private static QuickloadResumeContext pendingQuickloadResumeContext;
 
-        internal static void ConfigurePendingQuickloadResumeContext(RecordingTree tree)
+        internal static void ConfigurePendingQuickloadResumeContext(
+            RecordingTree tree, LoadKind loadKind, double loadedUT = double.NaN)
         {
             if (tree == null || string.IsNullOrEmpty(tree.Id) || string.IsNullOrEmpty(tree.ActiveRecordingId))
             {
@@ -6238,11 +6247,33 @@ namespace Parsek
                 TreeId = tree.Id,
                 TrimScope = trimScope,
                 TrimScopeReason = trimScopeReason,
+                LoadKind = loadKind,
+                LoadedUT = loadedUT,
             };
 
             ParsekLog.Verbose("Scenario",
                 $"Quickload-resume context armed: treeId={tree.Id} activeRecId={tree.ActiveRecordingId} " +
-                $"trimScope={trimScope} ({trimScopeReason})");
+                $"trimScope={trimScope} ({trimScopeReason}) loadKind={loadKind} " +
+                $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// The load kind (and the clock at OnLoad) the pending quickload-resume context was
+        /// armed with, or null when no context is armed for <paramref name="treeId"/>.
+        /// </summary>
+        internal static LoadKind? GetPendingQuickloadLoadKind(string treeId, out double loadedUT)
+        {
+            QuickloadResumeContext context = pendingQuickloadResumeContext;
+            if (context == null
+                || string.IsNullOrEmpty(treeId)
+                || !string.Equals(context.TreeId, treeId, StringComparison.Ordinal))
+            {
+                loadedUT = double.NaN;
+                return null;
+            }
+
+            loadedUT = context.LoadedUT;
+            return context.LoadKind;
         }
 
         internal static void RefreshPendingQuickloadTrimScope()
