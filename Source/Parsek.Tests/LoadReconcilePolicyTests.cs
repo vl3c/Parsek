@@ -263,18 +263,34 @@ namespace Parsek.Tests
                 new[]
                 {
                     LoadReconcilePolicy.GapAbandonedFutureEvents,
+                    LoadReconcilePolicy.GapColdLoadAbandonedFuture,
                     LoadReconcilePolicy.GapDetachedTreeLedgerRows,
+                    LoadReconcilePolicy.GapEscDiscardPendingScience,
                     LoadReconcilePolicy.GapFutureTerminalLeak,
                     LoadReconcilePolicy.GapReFlyLists,
                     LoadReconcilePolicy.GapRouteState,
                 }.OrderBy(s => s, StringComparer.Ordinal),
                 ids.OrderBy(s => s, StringComparer.Ordinal));
 
-            // No gap on a kind whose state another mechanism owns.
+            // No gap on a kind whose state another mechanism owns (the rewind carry, the bundle).
             foreach (LoadStateCategory category in AllCategories())
             {
-                foreach (LoadKind owned in new[] { LoadKind.Cold, LoadKind.PlainRewind, LoadKind.ReFlyStart })
+                foreach (LoadKind owned in new[] { LoadKind.PlainRewind, LoadKind.ReFlyStart })
                     Assert.False(LoadReconcilePolicy.Decide(owned, category).IsKnownGap, owned + " x " + category);
+            }
+
+            // Cold is gapped only on the abandoned-future categories its own todo entry names.
+            foreach (LoadStateCategory category in AllCategories())
+            {
+                var cold = LoadReconcilePolicy.Decide(LoadKind.Cold, category);
+                bool expected = category == LoadStateCategory.AbandonedFutureEvents
+                    || category == LoadStateCategory.AbandonedFutureLedgerRows;
+                Assert.Equal(expected, cold.IsKnownGap);
+                if (expected)
+                {
+                    Assert.Equal(LoadReconcilePolicy.GapColdLoadAbandonedFuture, cold.KnownGapTodoId);
+                    Assert.Contains(LoadReconcilePolicy.GapColdLoadAbandonedFuture, cold.Reason);
+                }
             }
         }
 

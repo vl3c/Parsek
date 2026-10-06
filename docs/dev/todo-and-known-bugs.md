@@ -236,6 +236,58 @@ Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the f
 
 ---
 
+## COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE: a cold load into an older mid-flight quicksave keeps the abandoned future's events and ledger rows [FILED 2026-10-06 from the PR-A review, verified by code read; branch `f9-bookkeeping`. OPEN, product; not yet reproduced]
+
+The cold-path twin of QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT and
+QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS. Both external files are written at every OnSave, so a
+cold load (game start, or the Load menu after the main menu) of an older mid-flight quicksave
+reads them as last written, not as of the quicksave: `LedgerOrchestrator.OnLoad` ->
+`Ledger.LoadFromFile` on every cold load, and `GameStateStore.LoadEventFile` once per save folder
+per process (a later cold load of the same folder keeps the in-memory store). The cold active-tree
+restore (`TryRestoreActiveTreeNode`) stashes the quicksave's tree before `OnKspLoad`, and
+`RecordingStore.BuildKnownRecordingIds` adds the pending tree's ids
+(`RecordingStore.OrphanCleanup.cs` ~275), so `Ledger.Reconcile` keeps the restored tree's
+earnings at any UT and its spendings in FLIGHT / SPACECENTER. The resume trim then cuts
+trajectories only.
+
+Expected player effect: F5 mid-flight, fly on until a contract completes, leave to the main
+menu (the flight is committed), load the quicksave: the abandoned future's contract reward row
+and tagged events survive into the resumed flight.
+
+Fix: not decided. The in-session fix (PR-C, the reconcile at the quickload resume trim) is gated
+on QuickloadFlight / InSessionOther and does not cover this; either extend the same reconcile to
+the cold resume (the cold restore arms the same quickload resume context) or reconcile the
+external files against the loaded save. Red test first: xUnit over a cold restore of an active
+tree plus `Ledger.Reconcile` with a tagged earning after the quicksave UT.
+
+Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide` (Cold x
+AbandonedFutureEvents / AbandonedFutureLedgerRows); the fix flips those cells.
+
+---
+
+## ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS: the Esc-menu Discard Re-fly leaves the attempt's pending science and ledger tags behind [FILED 2026-10-06 from the PR-A review, verified by code read; branch `f9-bookkeeping`. OPEN, product; not yet reproduced]
+
+`RevertInterceptor.DiscardReFlyHandler` prunes the attempt through
+`MergeDialog.PruneActiveReFlyAttemptOwnedTopology` (recordings, events, files) but never clears
+`GameStateRecorder.PendingScienceSubjects` and never calls `Ledger.ClearRecordingTagForRecordings`.
+The merge-dialog discard does both (`MergeDialog.ReFlyDiscard.cs` ~372 in
+`DiscardReFlyAttemptRecordingsAndRewindPoints`, ~390 in `EndDiscardedReFlySession`). The discard's
+own load lands in the Space Center or the editor, so the quickload discard (FLIGHT to FLIGHT only)
+does not clear the science either. Untagged subjects are kept while an uncommitted tree is active
+(`GameStateRecorder.cs` ~1170-1179) and can attach to a later commit; a payout row earned during
+the attempt keeps a tag naming a deleted recording, which the merge-dialog path clears because
+such a tag can later scope a tombstone onto a real payout, and which the next cold load's
+`Ledger.Reconcile` drops as an earning of an unknown recording.
+
+Fix: give the Esc path the same session-state half and tag re-home the merge-dialog discard runs.
+Red test: `ReFlyRevertDialogTests` - a pending subject and an attempt-tagged FundsEarning row,
+`DiscardReFlyHandler`, assert the subjects cleared and the tag cleared.
+
+Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide` (DiscardReFly x
+PendingScience); the fix flips that cell.
+
+---
+
 ## DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP: Discard Re-fly to the editor can delete an origin rewind point created inside an earlier, merged Re-Fly session [FILED 2026-10-06 from the coverage-extension research, partly verified (narrow); branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
 
 `RewindPointAuthor` stamps the creating session on a rewind point created inside a Re-Fly
