@@ -16,6 +16,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## CLAIMED-VESSEL-DESPAWN-AT-REWIND-OUTSIDE-FLIGHT: a vessel a committed future mission claims should leave the KSC and Tracking Station at the rewind, as it does in flight [FILED 2026-10-07 from the owner ruling on PR #2029, branch `fix-chain-tip-outside-flight`. OPEN, product design; follow-up, not a release blocker]
+
+Design 12.5 / 20.3 despawn a claimed vessel at the rewind in every scene. Today only flight does
+(`FilterAndGhostChains`); outside flight PR #2029 replaces the stale vessel when the chain tip's
+spawn UT passes, so between the rewind and that UT the pre-claim vessel stays live and usable at
+the KSC and in the TS, and route deliveries into it in that window are dropped with it on
+replacement. Owner ruling 2026-10-07: ship the spawn-time replacement now; do this as follow-up.
+
+Fix: hide the claimed vessel at the rewind outside flight too (ghost map presence in the TS,
+removal from the KSC / TS vessel lists, routes treating it as chain-ghosted the way flight BLOCKS
+its crossings), reusing `ClaimedVesselRemoval` so crew survive. Decide first how the player sees
+it in the TS until the tip spawns.
+
+---
+
 ## FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a facility downgrade's funds debit never reaches the ledger [FILED 2026-10-06 while fixing KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, branch `fix-facility-upgrade-cost`. OPEN, product, low; reachability not traced]
 
 Decompiled KSP 1.12.5: `SpaceCenterBuilding.DowngradeFacility` also debits funds (about 0.667x
@@ -608,7 +623,9 @@ it under the player). A supply route into it keeps delivering in that window, an
 replacement drops those deliveries with the vessel (with CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO
 this is the same conservation seam; flight BLOCKS those crossings instead). Despawning at the
 rewind out of flight would close both but needs a ruling on when the vessel leaves the KSC / TS
-lists and how routes treat it. Two narrow misses default to the old adoption: a stale vessel
+lists and how routes treat it. RULED 2026-10-07 (owner interview): ship the spawn-time
+replacement for this release; despawning at the rewind in every scene is follow-up design
+work (CLAIMED-VESSEL-DESPAWN-AT-REWIND-OUTSIDE-FLIGHT). Two narrow misses default to the old adoption: a stale vessel
 loaded into physics in flight past the spawn UT (FlightIntegrator moves its `lastUT` forward
 before the spawn decision can read it), and a save made outside flight while the claimed vessel
 was still docked to the transport (its `lastUT` is after the dock, the last claim; a docked
