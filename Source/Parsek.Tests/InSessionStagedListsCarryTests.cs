@@ -392,6 +392,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void StepB_EitherLinkMakesTheCommittedTreeTheOwner()
+        {
+            // A point belongs to a committed tree through its own BranchPointId or through the
+            // tree's branch point naming it (RewindPointId, the link the commit-time promotion
+            // reads); each link alone must keep a memory-only point.
+            var tree = BuildTree(TreeId, null, Rec(OriginId, 50.0, MergeState.Immutable));
+            tree.BranchPoints.Add(new BranchPoint { Id = "bp_by_id", Type = BranchPointType.JointBreak });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp_backref", Type = BranchPointType.JointBreak, RewindPointId = "rp_by_backref",
+            });
+            RecordingStore.AddRecordingWithTreeForTesting(tree.Recordings[OriginId], TreeId);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            var byId = Rp("rp_by_id");
+            byId.BranchPointId = "bp_by_id";
+            var byBackref = Rp("rp_by_backref");
+            byBackref.BranchPointId = "bp_not_in_any_tree";
+            var memory = Memory(s =>
+            {
+                s.RewindPoints.Add(byId);
+                s.RewindPoints.Add(byBackref);
+            });
+
+            var loaded = Load(memory, SaveNode(null), EarlyLoadKind.InSession);
+
+            Assert.Equal(new[] { "rp_by_id", "rp_by_backref" }, loaded.RewindPoints.Select(r => r.RewindPointId));
+        }
+
+        [Fact]
         public void Quickload_RpReapedAfterSave_NotResurrected()
         {
             InstallCommittedTree(TreeId, new[] { "rp_old" }, Rec(OriginId, 50.0, MergeState.Immutable));
