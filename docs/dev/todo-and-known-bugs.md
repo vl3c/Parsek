@@ -441,7 +441,26 @@ Red test: a TS / KSC spawn cell with the claimed pid live and pre-claim; lane RC
 
 ---
 
-## CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER: a heavier or higher-type transport docked to a station becomes the station's chain tip; if it later ends Destroyed or Recovered the station is duplicated [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER: a heavier or higher-type transport docked to a station becomes the station's chain tip; if it later ends Destroyed or Recovered the station is duplicated~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, branch `fix-chain-walk-claimed-identity`; lane RC-5 not flown]
+
+**FIXED: the walk follows the claimed vessel by its PARTS.** `GhostChainWalker.WalkToLeaf` now
+resolves, at the first split with more than one child, the part `persistentId`s the claimed
+vessel owned when it was claimed (`ResolveClaimedPartIds`, from snapshots the tree already
+stores: the start recording's own snapshots when it carries the claimed pid, a background
+claim; else a Dock / Board parent carrying the claimed pid; else the merged child's parts minus
+every parent's parts, which needs a parent snapshot). `SelectWalkChild` then takes the only
+child holding a claimed part; when several hold some, the one keeping the current pid (KSP's
+root-part side), else the one holding most; a same-pid child with no snapshot is kept (it
+cannot be ruled out); with no part set or no holder it keeps the old same-pid / first-child
+rule. Each step logs `rule=`, the walk logs its `part identity source=`.
+Red cells (`GhostChainWalkerTests`, 5 red under the pid rule): transport-dominant tip, recovered
+transport no longer terminating the station's chain, station half destroyed, claimed lighter
+transport, station recorded in the docking tree. Unchanged mirrors: the `bdock-recorded`
+station-dominant shape (with and without snapshots), a claimed transport that is dominant, the
+no-snapshot fallback. Not changed: the breakup-continuous stop (`TryGetContinuedPastChildBranch`)
+still ends the walk at a recording that flew past a Breakup / JointBreak with no same-pid child,
+so a station torn off a dominant partner under force (not undocked) would still tip on the
+partner; no shape that reaches it was seen.
 
 `GhostChainWalker.WalkToLeaf` (`:704-721`) follows the child with the same `VesselPersistentId`,
 which after a dock is the DOMINANT vessel's pid (`Vessel.GetDominantVessel`: higher vessel type,
@@ -456,8 +475,8 @@ Expected player effect: a station that a heavier (or Ship-typed vs Probe-typed) 
 and that tanker was later recovered appears twice, with the same part flightIDs, resources and
 crew seats.
 
-Fix: follow the CLAIMED vessel through the split (part-set or root-part identity, not pid). Red
-test: a pure `GhostChainWalkerTests` cell; lane RC-5.
+Fix: done (FIXED note above): the walk follows the claimed vessel's part set, not the pid.
+The live proof, lane RC-5, is not flown.
 
 ---
 
@@ -608,7 +627,8 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
   (`RouteRewindClassifier.cs:137`), so which windows deliver can change (design 0.9 silent).
 - [x] VERIFIED 2026-10-06 wrong in the transport-dominant shape, filed as CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER (correct on `bdock-recorded`). Residual of the refuted identity claim: confirm that the chain-tip recording's snapshot
   for a dock-undock claim is the station half (carrying the recorded root part id), not the
-  transport.
+  transport. FIXED 2026-10-06 (`fix-chain-walk-claimed-identity`): the tip is the undock half
+  holding the claimed vessel's parts, whichever vessel was dominant.
 
 Fix: each item that verifies becomes a Phase A test and an IR lane in the roadmap's logistics
 integration program; each that does not is ticked here with the evidence.
