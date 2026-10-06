@@ -3676,6 +3676,14 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Discarding a Re-fly from the Esc menu now throws away its science and payouts the same way
+  the end-of-flight Discard does.** Science collected during the discarded attempt but not yet
+  committed stayed queued and could be credited to the next flight you committed, and a payout
+  earned during the attempt stayed linked to the deleted recording, so the next game load could
+  drop it and a later Re-fly could wrongly undo it. The Esc-menu Discard Re-fly now drops the
+  queued science and unlinks those payouts (they stay paid), exactly like the Discard button at
+  the end of a flight.
+
 - **A drill or converter that kept running at the end of a recording no longer delivers its
   resources early.** Parsek shortens a recording that ends with a long idle stretch (sitting
   landed or coasting) so the real vessel appears sooner, but the vessel it brings back is the one

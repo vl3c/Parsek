@@ -45,6 +45,8 @@ namespace Parsek.Tests
             TreeDiscardPurge.ResetCallCountForTesting();
             RevertInterceptor.ResetTestOverrides();
             ReFlyRevertDialog.ResetForTesting();
+            GameStateRecorder.ResetForTesting();
+            Ledger.ResetForTesting();
         }
 
         public void Dispose()
@@ -62,6 +64,8 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = priorStoreSuppress;
             RecordingStore.ResetForTesting();
             ParsekScenario.ResetInstanceForTesting();
+            GameStateRecorder.ResetForTesting();
+            Ledger.ResetForTesting();
         }
 
         // ---------- Helpers ---------------------------------------------
@@ -295,6 +299,102 @@ namespace Parsek.Tests
                 && l.Contains("sess=" + marker.SessionId)
                 && l.Contains("target=Launch")
                 && l.Contains("dispatched=true"));
+        }
+
+        private const string OtherCommittedRecId = "rec_other_committed_p12";
+
+        /// <summary>
+        /// Seeds what an abandoned attempt leaves behind: a pending science subject tagged to
+        /// the attempt, an untagged one, an attempt-tagged FundsEarning row, and a row of an
+        /// unrelated committed recording that must keep its tag.
+        /// </summary>
+        private static (GameAction attemptRow, GameAction otherRow) SeedAttemptScienceAndLedger()
+        {
+            GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
+            {
+                subjectId = "crewReport@KerbinSrfLanded",
+                science = 5f,
+                subjectMaxValue = 10f,
+                captureUT = 50.0,
+                recordingId = ProvisionalRecId,
+            });
+            GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
+            {
+                subjectId = "temperatureScan@KerbinSrfLanded",
+                science = 3f,
+                subjectMaxValue = 8f,
+                captureUT = 55.0,
+                recordingId = null,
+            });
+            var attemptRow = new GameAction
+            {
+                UT = 60.0,
+                Type = GameActionType.FundsEarning,
+                FundsAwarded = 1200f,
+                FundsSource = FundsEarningSource.ContractComplete,
+                RecordingId = ProvisionalRecId,
+            };
+            var otherRow = new GameAction
+            {
+                UT = 30.0,
+                Type = GameActionType.FundsEarning,
+                FundsAwarded = 400f,
+                FundsSource = FundsEarningSource.ContractComplete,
+                RecordingId = OtherCommittedRecId,
+            };
+            Ledger.AddAction(attemptRow);
+            Ledger.AddAction(otherRow);
+            return (attemptRow, otherRow);
+        }
+
+        [Fact]
+        public void DiscardReFly_ClearsPendingScience_AndReHomesAttemptLedgerTags()
+        {
+            // ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS: the Esc-menu Discard
+            // runs the same session-state half and tag re-home as the merge-dialog Discard.
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            WireDiscardSeams();
+            var (attemptRow, otherRow) = SeedAttemptScienceAndLedger();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            Assert.Empty(GameStateRecorder.PendingScienceSubjects);
+            // The row and its career effect stay; only the attribution to the deleted
+            // recording goes, so it cannot later scope a tombstone onto a real payout.
+            Assert.Contains(attemptRow, Ledger.Actions);
+            Assert.Null(attemptRow.RecordingId);
+            Assert.Equal(1200f, attemptRow.FundsAwarded);
+            Assert.Equal(OtherCommittedRecId, otherRow.RecordingId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("PruneActiveReFlyAttemptOwnedTopology")
+                && l.Contains("ledgerTagsCleared=1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("Discarded session end: pendingScienceCleared=2")
+                && l.Contains("callSite=DiscardReFlyHandler:marker-cleared"));
+        }
+
+        [Fact]
+        public void DiscardReFly_UnresolvableRp_StillClearsPendingScienceAndAttemptTags()
+        {
+            var marker = MakeMarker(rpId: "rp_missing_p12");
+            AddProvisional(marker.SessionId);
+            InstallScenario(marker: marker);
+            InstallQuicksaveExistsOverride(true);
+            var caps = WireDiscardSeams();
+            var (attemptRow, otherRow) = SeedAttemptScienceAndLedger();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            Assert.Equal(0, caps.SceneCalls);
+            Assert.Empty(GameStateRecorder.PendingScienceSubjects);
+            Assert.Null(attemptRow.RecordingId);
+            Assert.Equal(OtherCommittedRecId, otherRow.RecordingId);
         }
 
         [Fact]

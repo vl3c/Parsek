@@ -282,7 +282,7 @@ AbandonedFutureEvents / AbandonedFutureLedgerRows); the fix flips those cells.
 
 ---
 
-## ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS: the Esc-menu Discard Re-fly leaves the attempt's pending science and ledger tags behind [FILED 2026-10-06 from the PR #2021 review, verified by code read. OPEN, product; not yet reproduced]
+## ~~ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS: the Esc-menu Discard Re-fly leaves the attempt's pending science and ledger tags behind~~ [FILED 2026-10-06 from the PR #2021 review, verified by code read. FIXED 2026-10-06, branch `release-cheap-fixes`: the Esc path now runs the merge-dialog discard's session-state half and tag re-home]
 
 `RevertInterceptor.DiscardReFlyHandler` prunes the attempt through
 `MergeDialog.PruneActiveReFlyAttemptOwnedTopology` (recordings, events, files) but never clears
@@ -302,6 +302,19 @@ Red test: `ReFlyRevertDialogTests` - a pending subject and an attempt-tagged Fun
 
 Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide` (DiscardReFly x
 PendingScience); the fix flips that cell.
+
+**FIXED 2026-10-06 (branch `release-cheap-fixes`).** `RevertInterceptor.DiscardReFlyHandler` now
+calls `MergeDialog.EndDiscardedReFlySession` (made internal) on both its paths (resolved and
+unresolvable RP) in place of its own copy of the marker / journal / supersede-bump / revert-gate /
+anchor-snapshot block, so it also clears `GameStateRecorder.PendingScienceSubjects` (new Verbose
+`Discarded session end: pendingScienceCleared=N` line, shared by all three discard paths). The tag
+re-home lives in `MergeDialog.PruneActiveReFlyAttemptOwnedTopology`, the Esc path's recording half
+(its only caller): `Ledger.ClearRecordingTagForRecordings(attemptIds)` on both the tree and the
+no-tree fallback branches, counted as `ledgerTagsCleared=` in its summary line. The
+`LoadReconcilePolicy` cell DiscardReFly x PendingScience is now `Clear` and the gap id is gone.
+Tests: `ReFlyRevertDialogTests.DiscardReFly_ClearsPendingScience_AndReHomesAttemptLedgerTags`,
+`DiscardReFly_UnresolvableRp_StillClearsPendingScienceAndAttemptTags`,
+`LoadReconcilePolicyTests.DiscardReFly_PendingScience_IsClearedBeforeTheLoad`.
 
 ---
 
