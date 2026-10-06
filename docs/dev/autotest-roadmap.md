@@ -6366,6 +6366,77 @@ in todo ROUTE-INTERACTION-SEAMS-TO-VERIFY; each that verifies becomes an A-row a
 Each Phase B lane removes one unknown from the campaign lane, so a red IC-3 names a seam
 rather than "something in the career broke".
 
+## The timeline-operation coverage program (2026-10-06)
+
+Registered 2026-10-06. Research: `docs/dev/research/coverage-extension-plan-2026-10-06.md`, with
+the full feature x timeline-operation matrix in
+`docs/dev/research/feature-op-coverage-matrix-2026-10-06.md`. It complements the logistics
+integration program above. Today no lane loads a save BACK in time, none drives a stock revert,
+no fixture mines ore or runs an ISRU, every career rewind check is log-token level, career lanes
+check no playback, and contracts x Re-Fly never executes on any host. Every row is NOT STARTED
+unless its status says otherwise; the todo entry named in a row owns the detail.
+
+### Phase A - red xUnit tests, each landed with its fix or ruling
+
+| Id | Pins | Todo |
+|---|---|---|
+| TA-1 | Re-Fly lists carried (or reconciled) on every in-session load | QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY |
+| TA-2 | Abandoned-future tagged events purged on quickload | QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT |
+| TA-3 | Detached tree's future ledger rows retired | QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS |
+| TA-4 | Tree members' future terminal / crew end states cleared by the quickload trim | QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE |
+| TA-5 | Nested origin rewind point survives the Discard Re-fly (editor) load | DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP |
+| TA-6 | One converter-timestamp policy for every Parsek jump | TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND |
+| TA-7 | Route endpoint unresolved until X: no cycle before X delivered from the tip snapshot | CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO |
+| TA-8 | Chain tip outside FLIGHT does not adopt a live pre-claim vessel | CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT |
+| TA-9 | Chain walk follows the claimed vessel when the transport is dominant | CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER |
+| TA-10 | Tail trim vs resource-changing tail (after the ruling) | TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT |
+| TA-11 | `bdock-recorded` endpoint LF delta is positive (offline over the fixture) | BDOCK-FIXTURE-TRANSFER-INVERTED |
+| TA-W | Load-path x reconciler wiring gate | HARNESS-TIMELINE-FUZZERS |
+| TA-F | Headless timeline fuzzers (ledger / effective-state / route conservation) | HARNESS-TIMELINE-FUZZERS |
+
+### Capabilities
+
+| Id | Capability | Todo |
+|---|---|---|
+| TC-1 | Verbs: `Quickload`, `Revert`, `ReFlyRevert`, `RunInvariantReport`, `ReadVesselResources`, scene-agnostic `WarpToUT` | HARNESS-VERBS-FOR-TIMELINE-OPS |
+| TC-2 | Resource oracle (`resourceq.py`, `[expectations.world.vessels]`) + in-game `ResourceConservation` | HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES |
+| TC-3 | Analyzer INV13 crew conservation, INV14 vessel identity (baseline, then gate) | HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES |
+| TC-4 | Rewind-aware ledger oracle (L4) | HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND |
+| TC-5 | Mission action: deploy drills, start / stop converters | MINING-ISRU-UNTESTED-END-TO-END |
+| TC-6 | Fixtures: `minmus-miner-landed`; career save with a rewind point and a launch quicksave; crewed Mun landing with a rewind point; docking fixture with a launch quicksave; science-bg-pad; dominance and foreign-cargo shapes; re-harvested `bdock-recorded` | several (see each lane) |
+
+### Lanes
+
+| Id | Lane | Host | Needs |
+|---|---|---|---|
+| QL-1 | Career KSC actions after a quicksave, back-in-time load at the KSC; ledger rows as ruled | `career-earned-ksc` | TC-4 for pools |
+| QL-2 | In-flight contract completion, crash, F9 back, re-fly differently, commit; no abandoned-future booking | `career-contract-pad` | TC-1 Quickload, TA-2 |
+| QL-3 | Re-Fly merge, then load a quicksave from before it; one visible flight, tombstones hold | S4.2 host | TA-1 |
+| QL-4 | Booster crash after a quicksave, F9, booster survives; terminal state and recording correct | `gs1-two-stage-pad` | TA-4 |
+| QL-5 | Discard Re-fly with a real load (launch and prelaunch) | a Re-Fly host | TC-1 ReFlyRevert, TA-5 |
+| QL-6 | Discard then F9 back into that flight (after the ruling) | `gloops-airshow` | ruling |
+| MINE-0 | Converter events on the drill / ISRU showcases; converter-loop apply line pinned | S1.9 | - |
+| MINE-1 | Forge `minmus-miner-landed` (B14 landing + drill / ISRU / ore tank / engineer) | new | TC-5, VAB part harvest |
+| MINE-2 | Record, mine, warp, ISRU, commit, Rewind-to-Launch, warp past the end; spawned Ore = end snapshot; `HarvestCapture_CatchUpOnLoad` finally executes | MINE-1 | TC-2 |
+| MINE-3 | Same miner through a forward jump and a Real Spawn Control warp of equal length | MINE-1 | TA-6 |
+| MINE-4 | Mining-base docked-origin route across a rewind (pairs with IR-8) | MINE-1 + route | IR-8 |
+| MINE-5 | Live-drill harvest-origin route (moves D10 harvest-provenance from synthetic to live) | MINE-1 | TC-5 |
+| GS-6r3 | ISRU / drill on the GS-6 sweep craft (closes GS6-CONVERTER-LOOP-NEEDS-AN-ANIMATION-GROUP-PART-ABOARD) | GS-6 | VAB part harvest |
+| RC-1 | Three rewind / replay cycles at `bdock-recorded`'s rewind point, reading the station after each; same LF / MP every cycle, no duplicate part uids | `bdock-recorded` (re-harvested) | TC-1 ReadVesselResources |
+| RC-2 | Route into a station that a committed mission later docks; rewind before the dock | new fixture | TA-7 (expected-fail until fixed) |
+| RC-3 | Rewind-to-Launch, chain tip crossed at the KSC, then into flight; station resources | bdock twin with a launch quicksave | TA-8 |
+| RC-4 | Real warp across a spawn UT and three route crossings | RC-2 host | TC-1 |
+| RC-5 | Probe-typed station docked by a heavier transport that is later recovered; no second station | new fixture | TA-9 |
+| RC-6 | EVA cargo moved from a foreign container, then rewind | new fixture | EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED |
+| GP-1..GP-20 | The ranked gameplay stories of the matrix (section 3), first five: career F5 / transmit / contract / crash / F9 / redo with LedgerGroundTruth after the F9; Revert to Launch in a career with committed history; Re-Fly a booster in a career whose superseded flight completed a contract and recovered science; Rewind-to-Launch after KSC actions then the stock screens; crewed spawn-at-end in a career after warp | per story | TC-1, TC-4, TC-6 |
+| FZ-1 | Seeded timeline-op fuzzer lane, nightly, one seed per night; invariants after every step | rich fixtures (TC-6) | TC-1, TC-2, TC-3, TC-4 |
+| CAMP-1/2 | Career and sandbox "everything" campaign lanes, 30-60 mixed steps (IC-3 is the route slice) | TC-6 | all of the above |
+
+Order: Phase A with its fixes and the wiring gate; the headless fuzzers; TC-1 verbs; TC-2 / TC-3
+baselined then gated; TC-6 fixtures; QL-1..QL-4 and GP-1..GP-5 (back-in-time load and revert are
+the largest blind spot), then MINE-0..MINE-3, the RC lanes, the rest; TC-4 so those lanes gate
+on pools; FZ-1 nightly; the campaign lanes.
+
 ## Trust and fail-open risks still outstanding
 
 What IS load-bearing today: the 8-verifier chain (driverValidity, batchComplete,

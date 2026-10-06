@@ -16,6 +16,317 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## TIMELINE-OP-COVERAGE-PROGRAM: back-in-time loads, revert, mining and resource conservation are barely tested [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. OPEN; test program]
+
+Research: `docs/dev/research/coverage-extension-plan-2026-10-06.md` and
+`docs/dev/research/feature-op-coverage-matrix-2026-10-06.md`. No lane loads a save back in time
+(all 17 green in-place reload lanes reload the instant they saved), no lane drives a stock revert
+(there is no verb), no fixture contains a drill, ISRU or ore, every career rewind check is
+log-token level, career lanes check no playback, and contracts x Re-Fly never executes on any
+host. The defects below were found in that space.
+
+Fix: the register in `docs/dev/autotest-roadmap.md` ("The timeline-operation coverage program"):
+red xUnit tests with each fix, the load-path x reconciler wiring gate, headless timeline fuzzers,
+the new verbs / oracles / fixtures, then the QL / MINE / RC / GP lanes and the FZ-1 fuzzer lane.
+
+---
+
+## RULINGS-NEEDED-TIMELINE-OPS-2026-10-06: owner decisions the coverage-extension research needs [FILED 2026-10-06, branch `ccr-77f23eb2-dbqh6i`. OPEN, needs owner rulings]
+
+- [ ] F9 back into a flight that was Discarded: today it resumes UNRECORDED (Discard deleted the
+  recording files; the restore is skipped). Intended, or should the resumed flight record again?
+  (Blocks lane QL-6.)
+- [ ] Tail trim over a resource-changing tail: keep such tails, or re-snapshot at the trim UT
+  (TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT).
+- [ ] Harvest-origin routes: bound the recorded harvest by drill rate x duration, so a stock
+  catch-up burst recorded inside a harvest window is not replayed every cycle?
+- [ ] Resource-scan unlocks (orbital survey): record and ledger them, so a committed future scan
+  is re-applied after a Rewind-to-Launch?
+- [ ] The Tracking Station's exclusion from the current-UT ledger cutoff is pinned
+  (`RewindUtCutoffTests.CurrentUtCutoffSupportedScene_AcceptsFlightAndSpaceCenterOnly`) but not
+  explained, and a cold TS load prunes future spendings while an in-session one does not: keep, or
+  align with FLIGHT / SPACECENTER?
+
+---
+
+## QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY: an in-session load rebuilds the Re-Fly bookkeeping from the save but keeps recordings and the ledger from memory [FILED 2026-10-06 from the coverage-extension research, adversarially verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; not yet reproduced]
+
+`LoadRewindStagingState` (`ParsekScenario.cs:2783`, called at `:3609` on every load) replaces
+rewind points, supersede rows, retirements, tombstones, the Re-Fly marker and the merge journal
+from the loaded node; the carry that would keep the in-memory lists
+(`ReinstallRewindCarriedRewindPointsAfterLoad` / `...StagedListsAfterLoad`, `:3617` / `:3624`)
+is a no-op unless the load is a plain rewind. Committed recordings and the ledger stay in memory
+on the in-session branch, visibility reads only the in-memory supersede list
+(`EffectiveState.cs:444-455`), and the effective ledger filters only on tombstones
+(`EffectiveState.cs:2170-2213`). Discard Re-fly with the editor target loads the rewind point's
+own quicksave and hits the same path (`RevertInterceptor.cs:691-701`).
+
+Expected player effect: after F9 to a save from before a Re-Fly merge, the original and the
+re-flown flight both replay, the tombstoned crew deaths and reputation penalties count again, and
+rewind points created after the save drop out (Unfinished Flight rows vanish, quicksave files
+leak).
+
+Fix: not decided - either carry the lists on every in-session load (the recordings are carried),
+or reconcile the in-memory recordings / ledger against the loaded lists. Red test first: a
+`RewindStagedListsCarryTests`-style xUnit (commit A and A', supersede row only in memory,
+non-rewind load of a node without it, assert A invisible); then lane QL-3.
+
+---
+
+## QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT: tagged game-state events from the timeline an F9 abandoned are credited when the resumed flight commits [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+
+The quickload trim cuts trajectories only (`ParsekScenario.Trim.cs`); the only after-UT purge of
+tagged events (`GameStateStore` purge, one caller at `RecordingStore.cs:2636`) runs on the Re-Fly
+discard; the event store reloads only on a cold load. Once the resumed flight runs past the
+abandoned events they fall inside the commit window, and duplicate filtering keys on type,
+contract and UT bucket, so a re-completion at a different UT books a second row. The user guide
+(:409) promises the opposite for revert then F9.
+
+Fix: purge the active tree's tagged events after the resume UT on an in-session quickload (the
+same call the Re-Fly discard makes). Red test: `QuickloadResumeTests` - tagged ContractCompleted at
+UT 300, `TrimRecordingTreePastUT(tree, 200)`, commit 100-350, assert no ContractComplete row.
+Lane QL-2.
+
+---
+
+## QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS: a committed tree detached on F9 keeps its future ledger rows [FILED 2026-10-06 from the coverage-extension research, verified (when the detach runs); branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+
+When the loaded save's active tree was committed later, `RemoveCommittedTreeById`
+(`RecordingStore.cs:820-843`) detaches it without touching its ledger rows, and the commit-time
+dedupe drops only new duplicates. Recovery funds or contract rewards from the abandoned future
+survive the resumed flight ending differently. (If the tree's root recording is stale the whole
+saved tree is dropped instead and the flight resumes unrecorded - see QL-R1 in the research.)
+
+Fix: retire the detached tree's rows after the resume UT. Red test: extend
+`TryRestoreActiveTreeNode_SkipsCommittedTreeStashesActiveTree` with a Recovery funds row at 300
+and a loaded UT of 200.
+
+---
+
+## QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE: other tree members keep the abandoned future's terminal state and crew end states after F9 [FILED 2026-10-06 from the coverage-extension research, partly verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+
+The splice and same-id refresh (`HydrationRepair.cs:495-508`, `:684-787`) copy terminal state,
+terminal orbit, snapshot and crew end states from the committed future copy, and the stale-epoch
+path keeps the in-memory future tree (`ParsekScenario.cs:6014-6021`; F5, an autosave, F9 reaches
+it with no commit). The trim never clears terminal state; a recording with one is excluded from
+the background map (`RecordingTree.cs:438-446`), and finalization fills only empty terminals. The
+ACTIVE recording is guarded (`ClearStaleDestroyedTerminalForResume`, Destroyed only).
+
+Expected player effect: a booster that survives the replayed flight still ghosts as exploding at
+the F9 instant and is never recorded afterwards.
+
+Fix: clear terminal state / crew end states past the resume UT for every tree member in the
+trim. Red test: `QuickloadResumeTests` splice + trim on a booster Destroyed with crew Dead at 300.
+Lane QL-4.
+
+---
+
+## DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP: Discard Re-fly to the editor can delete an origin rewind point created inside an earlier, merged Re-Fly session [FILED 2026-10-06 from the coverage-extension research, partly verified (narrow); branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+
+`RewindPointAuthor` stamps the creating session on a rewind point created inside a Re-Fly
+session S0 and adds it before its own quicksave. Discard Re-fly with the Prelaunch target loads
+that quicksave, which carries the S0-stamped point and S0's marker; S0's recording is already
+merged, so `MarkerValidator` rejects the marker and the nested cleanup purges S0's rewind points
+and deletes the quicksave file (`LoadTimeSweep.cs:155-172, 221, 1434-1464`). The in-memory
+promotion `DiscardReFlyHandler` made is lost because the load replaces the list. Deciding runtime
+fact: whether the editor scene re-reads persistent.sfs. No test runs the real load (both in-game
+cells stub LoadGame / LoadScene).
+
+Fix: keep a point whose creating session is already merged. Red test: xUnit over
+`LoadTimeSweep.Run`; lane QL-5 with a new `ReFlyRevert` verb.
+
+---
+
+## TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND: a loaded miner or ISRU produces over a Real Spawn Control warp but not over a fast-forward of the same length [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+
+`TimeJumpManager.ExecuteForwardJump` resets converter `lastUpdateTime` on loaded vessels
+(`:541`, `:812-856`); `ExecuteJump` (`:317-407`) never does. `ExecuteJump` serves Real Spawn
+Control "Warp" and "Warp to Departure" (`SpawnControlUI.cs:484`, `:476` -> `ParsekFlight.cs`)
+and the `TimeJump` seam verb (`ParsekFlight.TimeJump.cs:40`). Logistics design :1658 rules that
+a Parsek jump is not production time. A catch-up burst after `ExecuteJump` can also land inside an
+open harvest window and be credited as harvested.
+
+Fix: one jump-policy decision used by both entry points. Red test: in-game on the H38 /
+`logi-cargo-pad` host (its FuelCell is a converter), same delta through both jumps; the pure
+policy pinned in xUnit. Lane MINE-3.
+
+---
+
+## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. OPEN, harness / fixture]
+
+Converters are exercised only through a FuelCell (H38, GS-6); drill and ISRU ghosts are built
+from prefabs (H37) and rendered without a running loop (S1.9); harvest-route analysis runs on a
+synthetic tree (HV-1); `LogisticsHarvestRuntimeTests.HarvestCapture_CatchUpOnLoad` skips
+everywhere (needs a drill landed on ore); `FixResourceConverterTimestamps` has no test at any
+layer; no fixture contains a drill, an ISRU, an ore tank, a scanner or Ore; the coverage registry
+has no converter value. Mission actions cannot deploy drills (`set_converters` only sets
+`.active`, `set_deployables` skips harvesters).
+
+Fix: MINE-0..MINE-5 in the roadmap register - converter events on the drill / ISRU showcases;
+the `minmus-miner-landed` forge (part definitions harvested from a live VAB session) and a
+record / mine / ISRU / commit / Rewind-to-Launch / spawn lane with a saveParse check of the
+spawned vessel's Ore against the recording's end snapshot; the jump-policy lane; a mining-base
+docked-origin route across a rewind; a live-drill harvest-origin route; GS-6 revision 3 with an
+ISRU aboard. Open questions for a ruling: a drill-rate plausibility bound on harvest-origin
+routes, and whether resource-scan unlocks belong in the ledger.
+
+---
+
+## HARNESS-VERBS-FOR-TIMELINE-OPS: no verb drives F9 while recording, a stock revert, the Re-Fly revert dialog, warp outside flight, or reads a vessel's resources [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. OPEN, harness]
+
+- `Quickload` (or `LoadGame allowLiveRecorder=quickload`): LoadGame refuses a live recorder today
+  except for Re-Fly (`TestCommandDispatcher.cs:619-643`).
+- `Revert target=launch|vab`: no stock-revert verb exists.
+- `ReFlyRevert choice=... target=launch|prelaunch`: the Esc > Revert dialog during a Re-Fly.
+- `RunInvariantReport`: reserved, not implemented (`TestCommandVerbs.cs:343-361`); as a per-step
+  read it lifts the one-`RunTests`-per-lane limit for invariant checks.
+- `ReadVesselResources pid=|name= [expect=...]`: per-vessel resource totals and a part-uid digest
+  in FLIGHT, KSC and TS.
+- Scene-agnostic `WarpToUT` (FLIGHT only today, `ParsekTestCommandAddon.WarpToUT.cs:50`).
+
+Fix: one verb per PR with its hlib source-sync cell, in the order the roadmap register needs them.
+
+---
+
+## HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES: no check anywhere for resource conservation, crew conservation or vessel identity [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. OPEN, harness]
+
+The analyzer's INV1-INV12 include no crew, vessel-identity or resource-conservation rule;
+`saveparse` reads vessel name / type / pid only; `EndResources` is not a reliable source (not
+refreshed when the commit re-snapshots; absent on background leaves), so an oracle must decode the
+snapshot sidecars (`PSN0` + 25-byte header + raw deflate).
+
+Fix: `harness/lib/resourceq.py` + an `[expectations.world.vessels]` block (V1 no part uid on two
+live vessels; V2 a chain-tip vessel equals its snapshot plus the route rows addressed to it after
+the spawn; V3 dock-window conservation with a declared direction; V4 per-vessel windows); an
+in-game `ResourceConservation` category for V1 / V2; analyzer INV13 crew conservation and INV14
+vessel identity, baselined over every fixture first, then gated.
+
+---
+
+## HARNESS-TIMELINE-FUZZERS: no test applies random sequences of timeline operations [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. OPEN, harness / tests]
+
+Fix: (1) a load-path x reconciler wiring gate in xUnit (every load path against every state it
+must reconcile, so a new path or state category cannot be added without a decision); (2) extend
+`LedgerStateFuzzerTests` / `EffectiveStateGraphFuzzerTests` with commit, supersede, cutoff,
+F9-backward, revert-prune and discard, and add `RouteTimelineConservationFuzzerTests`; (3) the
+FZ-1 lane: a seeded generator of declarative step lists over the operation alphabet, invariants
+after each step, oracles at the end, seed and step index printed for exact replay.
+
+---
+
+## CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO: after a rewind before a committed dock, a route-fed station respawns holding cargo the rewind un-paid [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+
+Trigger: a route already delivering into a station BEFORE a later committed mission docks to it,
+then a rewind to before that dock. The station half's snapshot is taken at commit
+(`BackgroundRecorder.cs:3609-3619`, re-snapshotted at finalize, `ParsekFlight.Finalization.cs`)
+so it holds those deliveries; the tip spawn copies it verbatim (`VesselGhoster.cs:179`); ghosting
+starts at the rewind UT (`GhostChainWalker.cs:22-26`); the route rows after the cutoff are retired
+and each crossing while the station is despawned fails eligibility as EndpointLost and is BLOCKED
+with no catch-up (`RouteOrchestrator.cs:999-1035`). Nothing under Logistics/ knows about chains.
+(Ticks ROUTE-INTERACTION-SEAMS-TO-VERIFY item 1; the BLOCKED crossings are its item 2 - lost
+service, not lost cargo.)
+
+Expected player effect: the station comes back holding route cargo that was never paid for
+again; the origin keeps its cargo and KSC funds are refunded.
+
+Fix: not decided (subtract post-cutoff route rows from the tip snapshot at spawn, or keep the
+rows and skip their re-fire). Red test: a `RouteLoopDeliveryFireTests` cell; lane RC-2 on a new
+fixture.
+
+---
+
+## CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT: a chain tip whose spawn UT passes at the KSC or in the Tracking Station adopts the pre-transfer live vessel [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+
+Only the flight scene ghosts a claimed vessel (`VesselGhoster` is created only in
+`ParsekFlight`), and Rewind-to-Launch lands at the Space Center. In the TS a live vessel with the
+tip's pid counts as already materialized and `VesselSpawned` is set with no spawn
+(`GhostMapPresence.cs:7543-7569`); at the KSC `ShouldSpawnAtKscEnd` has no ghost-chain test and a
+surface tip is adopted (`ParsekKSC.cs:1999`; orbital tips deferred, `:8648`); a later flight load
+past SpawnUT adopts through the ordinary leaf path (`VesselSpawner.cs:1450`). The launch-guid
+adoption guard passes because the station half keeps the station's Vessel.id. Design 12.5 / 20.3
+say claimed vessels are despawned on rewind regardless of scene.
+
+Expected player effect: a recorded fuel transfer silently vanishes - the station keeps its
+pre-transfer tanks while the transport half spawns post-transfer.
+
+Fix: apply the chain claim outside flight (ghost or replace the claimed vessel at the tip spawn).
+Red test: a TS / KSC spawn cell with the claimed pid live and pre-claim; lane RC-3.
+
+---
+
+## CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER: a heavier or higher-type transport docked to a station becomes the station's chain tip; if it later ends Destroyed or Recovered the station is duplicated [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+
+`GhostChainWalker.WalkToLeaf` (`:704-721`) follows the child with the same `VesselPersistentId`,
+which after a dock is the DOMINANT vessel's pid (`Vessel.GetDominantVessel`: higher vessel type,
+then mass); KSP gives the departing half a new pid on undock (fixture: 3488240671 -> 1223410921).
+The walker never matches on part sets, launch guid or the background map. When the transport
+tip ends Destroyed / Recovered the chain counts as terminated (`:786-793`) and is skipped before
+ghosting (`ParsekFlight.cs:12559-12566`); the station half has a new pid, so it spawns.
+`bdock-recorded` is correct only because the station outweighed the interceptor. Design 12.8 says
+the station respawns in its post-undock form. (Ticks ROUTE-INTERACTION-SEAMS-TO-VERIFY item 9.)
+
+Expected player effect: a station that a heavier (or Ship-typed vs Probe-typed) tanker docked to
+and that tanker was later recovered appears twice, with the same part flightIDs, resources and
+crew seats.
+
+Fix: follow the CLAIMED vessel through the split (part-set or root-part identity, not pid). Red
+test: a pure `GhostChainWalkerTests` cell; lane RC-5.
+
+---
+
+## EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED: moving a stored part between a tree vessel and a foreign vessel is not recorded, so a rewind duplicates or deletes it [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+
+No inventory or EVA-construction GameEvent is subscribed anywhere in `Source/Parsek`; claims come
+only from dock target pids and background part events, and no part-event type covers an
+inventory transfer. Design 12.6 lists EVA construction as a ghosting trigger.
+
+Fix: record the transfer as a claim on the foreign vessel (or a part event), so the chain rule
+applies. Lane RC-6 with `EvaGroundScience action=take` against a foreign container (new fixture).
+
+---
+
+## TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, needs a ruling]
+
+`RecordingOptimizer.TailTrim` restamps the end UT and SpawnUT earlier (`:820-845`) but never
+touches the snapshot; `FindLastInterestingUT` (`:75`) ignores resources and the guard checks
+orbit / surface shape only (`:156-192`). Resources that changed in the trimmed tail (route
+deliveries, crossfeed, a converter) arrive early, and with CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO
+the crossings between the trimmed SpawnUT and commit are delivered twice.
+
+Fix: ruling first - keep a tail whose resources change, or re-snapshot at the trim UT. Pin the
+current behaviour with a `RecordingOptimizer` tail-trim cell.
+
+---
+
+## BDOCK-FIXTURE-TRANSFER-INVERTED: `bdock-recorded` recorded its fuel transfer backwards [FILED 2026-10-06 from the coverage-extension research, verified from the fixture data; branch `ccr-77f23eb2-dbqh6i`. OPEN, fixture]
+
+BDOCK-1 asks for 40 LF transport -> station and 15 MP station -> transport
+(`BDOCK-1-...toml:173-178`); the committed window (`persistent.sfs:2108-2296`) shows the
+transport (correct part set) going LF 704.23 -> 720 and the station 720 -> 704.23, MP unchanged:
+the requests run backwards, clamped by tank room. Likely cause: the runner's side partition
+(`mission_runner.py:3010-3017`, its own `TODO(flight-14)`). The `Route window delta:` gate checks
+only that the line is present, so every lane on this fixture inherits a pickup-shaped transfer.
+
+Fix: correct the side partition, re-harvest the fixture, and pin the delta direction in the
+gate. Check first: an offline cell over the committed fixture asserting the endpoint's LF delta
+is positive (red today).
+
+---
+
+## LOOP-ROUTE-RESCAN-DOES-NOTHING: the lost-endpoint text tells the player to Re-scan, which a loop route ignores [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product, low]
+
+`LogisticsRoutePresentation.cs:375-379` says "Use Re-scan to find it"; Re-scan only clears
+`NextEligibilityCheckUT` (`LogisticsWindowUI.cs:2420-2440`), which the loop path never reads, and
+the loop path skips routes that are not ghost-driving (`RouteOrchestrator.cs:739-747`). Only
+Pause then Activate recovers such a route. How a loop route reaches EndpointLost in the first
+place is unproven (a divergence inside one tick, or a multi-stop window resolved later than its
+dispatch).
+
+Fix: make Re-scan re-run the loop route's endpoint resolution, or change the text to name Pause /
+Activate.
+
+---
+
 ## INTEGRATION-COVERAGE-LOGISTICS-REWIND-LEDGER: supply routes are tested almost only in isolation [FILED 2026-10-06 from the integration-coverage research, branch `ccr-77f23eb2-dbqh6i`. OPEN; test program]
 
 Research: `docs/dev/research/integration-coverage-gaps-2026-10-06.md`. Of the 54 specs that
@@ -91,10 +402,10 @@ the inter-body fixture, for IC-1 / IC-3.
 Each item needs a trace (or a lane) before it is a defect or a non-issue; see
 `docs/dev/research/integration-coverage-gaps-2026-10-06.md` section 3.8.
 
-- [ ] A chain-tip respawn carries route cargo from the abandoned future (the tip snapshot
+- [x] VERIFIED 2026-10-06, filed as CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (narrower trigger: a route delivering before a later committed dock). A chain-tip respawn carries route cargo from the abandoned future (the tip snapshot
   includes deliveries made before that recording ended), so after a rewind the station has the
   cargo and the re-fired cycles are blocked while it is hidden: cargo created from nothing.
-- [ ] Spawns are deferred until warp ends while routes keep ticking: a cycle crossing a
+- [ ] (Traced 2026-10-06, not adversarially verified: crossings while an endpoint is absent are BLOCKED with no catch-up - lost service, not lost cargo; see CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO.) Spawns are deferred until warp ends while routes keep ticking: a cycle crossing a
   station's spawn UT during warp is held and its cargo lost.
 - [ ] Multi-stop routes reserve no destination capacity between dispatch and a later window.
 - [ ] A kerbal swapped into a station during a dock is inferred Dead or held indefinitely
@@ -107,7 +418,7 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
   spawn is abandoned (`GhostCommNet.cs` around 741-770).
 - [ ] The every-Nth-window anchor of an inter-body route resets on a rewind
   (`RouteRewindClassifier.cs:137`), so which windows deliver can change (design 0.9 silent).
-- [ ] Residual of the refuted identity claim: confirm that the chain-tip recording's snapshot
+- [x] VERIFIED 2026-10-06 wrong in the transport-dominant shape, filed as CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER (correct on `bdock-recorded`). Residual of the refuted identity claim: confirm that the chain-tip recording's snapshot
   for a dock-undock claim is the station half (carrying the recorded root part id), not the
   transport.
 
