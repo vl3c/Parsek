@@ -6299,37 +6299,72 @@ reason a synthetic pair cannot. B4 is NO LONGER a manual flight.
 
 ## The logistics integration program (2026-10-06)
 
-Registered 2026-10-06; the research and the full lane list are in
+Registered 2026-10-06. Research and evidence:
 `docs/dev/research/integration-coverage-gaps-2026-10-06.md`. The supply-route program above
 proved each route feature on its own; this one proves routes TOGETHER with rewind, the
-ledger, real warp, scene changes and other bodies, which today is almost entirely
+ledger, real warp, scene changes and other bodies. Today that space is almost entirely
 unexercised: of 54 route lanes none drives a real Re-Fly, real warp, Real Spawn Control,
-`MissionConfig` or a KSC action, every live dispatch is a Kerbin surface rover, no
-inter-body or moon route has dispatched live, and the ledger oracle never runs on a route or
-a rewind lane. The code read behind it found five confirmed defects in that space (todo
-ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD, ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND,
-ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD, ROUTE-ESCROW-LOST-ON-SCENE-SWITCH,
-ROUTE-DELIVERY-INTO-DOCKED-VISITOR).
+`MissionConfig` or a KSC action; every live dispatch is a Kerbin surface rover after a seam
+`TimeJump`; no inter-body or moon route has dispatched live; the ledger oracle never runs on a
+route or a rewind lane. The code read behind the research found five confirmed defects in
+that space. Every row below is NOT STARTED unless its status says otherwise; the todo entry
+named in a row owns the detail.
 
-Build order:
+### Phase A - headless red tests, each landed with its fix
 
-1. **Phase A, headless:** a red xUnit test per confirmed defect, landed with its fix (A1-A5).
-2. **Capabilities:** a route-aware ledger oracle that survives a rewind (lifts the L4
-   deferral for route lanes); a mid-run route read-back seam; a career twin of
-   `bdock-recorded`; a route fixture with a launch quicksave; a dispatchable moon route
-   (`interbody-route-recorded`'s Mun route first).
-3. **Phase B, pair lanes IR-1..IR-11:** route x F9 across a dispatch, x stock Revert, x a
-   Re-Fly of another tree, x Discard Re-fly, first live moon dispatch, real warp with KSC / TS
-   ticking, Rewind-to-Launch of the route's own tree, chain-ghosted surface endpoint, docked
-   visitor, multi-stop escrow across a scene switch, route costs against committed career
-   actions.
-4. **Phase C, campaign lanes IC-1..IC-4:** inter-body route x rewind across the transit;
-   Mun station route x Re-Fly x F9 x warp; a long career campaign (Minmus depot, two routes,
-   contract, facility upgrade, unrelated Re-Fly, quickload, several cycles, then the ledger
-   oracle over the whole career); route-driven loop ghosts after PLAYER-LOOPING-REMOVAL.
+| Id | Pins | Host tests | Todo |
+|---|---|---|---|
+| A1 | F9 / stock Revert / Discard Re-fly leave route cursors ahead (replayed cycle swallowed) and pay an orphan recovery credit | `RouteLoopDeliveryFireTests`, `RouteRecoveryCreditTests`, a source-text gate on the three load paths | ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD |
+| A2 | A chain-ghosted surface endpoint holds instead of proximity-rebinding | new predicate beside `RouteEndpointTransferTests` | ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND |
+| A3 | Multi-stop escrow survives a scene switch between windows | `RouteCargoEscrowTests` / `RouteEscrowFireTests` | ROUTE-ESCROW-LOST-ON-SCENE-SWITCH |
+| A4 | No ledger write from the recovery-credit flush during OnLoad | a UT / in-load seam on `RouteStore` | ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD |
+| A5 | Delivery writers and the capacity read touch only the endpoint's own parts | a pure part-subset selector | ROUTE-DELIVERY-INTO-DOCKED-VISITOR |
 
-Each Phase B lane removes one unknown from the campaign lane, so a red campaign run names a
-seam rather than "something in the career broke".
+### Capabilities the lanes need
+
+| Id | Capability | Unblocks | Todo |
+|---|---|---|---|
+| C1 | Ledger oracle with route action types and a rewind-cutoff model (lifts the L4 deferral for route lanes) | gating funds on every IR / IC lane | HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND |
+| C2 | Mid-run route read-back seam (status, cursor, completed cycles, pending credit, endpoint ids) | IR-1, IR-2, IR-4, IR-6 | HARNESS-ROUTE-STATE-READBACK-SEAM |
+| C3 | Career twin of `bdock-recorded` (route window + Rewind Points on a career save) | IR-3, IR-4, IC-2 | FIXTURE-CAREER-ROUTE-WITH-REWIND-POINTS |
+| C4 | Route fixture carrying a launch quicksave | IR-7 | ROUTE-REWIND-TO-LAUNCH-UNREACHABLE-ON-COMMITTED-FIXTURES (existing) |
+| C5 | Dispatchable moon and inter-body routes: `interbody-route-recorded`'s Mun route first, then Minmus and Duna / Ike station routes, and a career twin | IR-5, IC-1, IC-3 | FIXTURE-MOON-AND-INTERBODY-ROUTE-DISPATCH |
+| C6 | Route lanes on real warp (`WarpToUT`) and route ticking observed at the KSC and in the TS | IR-6 | covered by IR-6 itself |
+
+### Phase B - pair lanes (one new axis per lane)
+
+| Id | Combination | Host | Gates | Needs |
+|---|---|---|---|---|
+| IR-1 | Route x F9 back across a dispatch (career) | `rover-route-career` | funds after reload equal funds at save; exactly one re-dispatch; destination cargo equals one delivery | A1, C2 |
+| IR-2 | Route x stock Revert to launch mid-cycle (career) | `rover-route-career` + a launch | no swallowed cycle, no orphan credit | A1, C2 |
+| IR-3 | Route x Re-Fly of ANOTHER tree that rewinds the clock under an active route | C3 | rows after the cutoff retired; re-delivery exactly once; funds net | C1, C3 |
+| IR-4 | Route x Esc > Revert > Discard Re-fly | C3 | as IR-3 | A1, C3 |
+| IR-5 | First live moon dispatch and delivery | `interbody-route-recorded` (Mun route) | dispatch / delivery tokens; station cargo read-back | C5 |
+| IR-6 | Route under real warp across several cycles, ticking at the KSC and in the TS | `depot-route-recorded` | fired cycles match the collapse rule (logistics design 10.7 AS BUILT); no duplicate | C2 |
+| IR-7 | Route x Rewind-to-Launch of the route's own backing tree | C4 | dormant twin dropped; route resumes on re-commit | C4 |
+| IR-8 | Surface route x ghost-chain rewind with a neighbour craft inside 500 m | a surface base fixture (to harvest) | endpoint not rebound; delivery resumes at the respawned base | A2 |
+| IR-9 | Docked visitor during a delivery | depot or station fixture + docked tanker | visitor tanks unchanged | A5 |
+| IR-10 | Multi-stop route, scene switch between windows, competing route on the same depot | `rover-relay-c-recorded` | no short pickup after a paid dispatch | A3 |
+| IR-11 | Route costs against committed career actions (facility upgrade, contract, strategy) | `rover-route-career` + KSC actions | stock-screen block still explains the reservation; route holds rather than overdrawing | C1 |
+
+### Phase C - three-feature and campaign lanes
+
+| Id | Story | Needs |
+|---|---|---|
+| IC-1 | Inter-body route to a Duna or Ike station, rewind across the transit, re-aim windows recomputed, funds and cargo checked by the oracle | C1, C5, IR-5 |
+| IC-2 | Mun station route + Re-Fly of the station's resupply mission + F9 + warp | IR-1, IR-3, IR-5 |
+| IC-3 | Career campaign: Minmus depot, two routes sharing it, a contract, a facility upgrade, an unrelated Re-Fly, a quickload, several cycles, then the ledger oracle over the whole career | all Phase B lanes |
+| IC-4 | Route-driven loop ghosts in FLIGHT after PLAYER-LOOPING-REMOVAL: watch, ghost CommNet relay to a station, Real Spawn Control of an endpoint | PLAYER-LOOPING-REMOVAL, IR-5 |
+
+Unverified seams from the same code read (cargo from an abandoned future in a chain-tip
+snapshot, spawns deferred until warp ends while routes tick, no destination-capacity hold
+between windows, crew swapped into a station during a dock, the one-frame-late Rewind Point
+quicksave against a staging-time crossing, a route loop unit and a partner journey claiming
+the same recordings, a ghost CommNet relay dropping out during Re-Fly suppression) are listed
+in todo ROUTE-INTERACTION-SEAMS-TO-VERIFY; each that verifies becomes an A-row and an IR-row.
+
+Each Phase B lane removes one unknown from the campaign lane, so a red IC-3 names a seam
+rather than "something in the career broke".
 
 ## Trust and fail-open risks still outstanding
 

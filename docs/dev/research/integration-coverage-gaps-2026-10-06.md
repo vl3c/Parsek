@@ -259,10 +259,14 @@ a red campaign run names a seam rather than "something in the career broke".
   INTEGRATION-COVERAGE-LOGISTICS-REWIND-LEDGER; the confirmed defects
   ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD, ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND,
   ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD, ROUTE-ESCROW-LOST-ON-SCENE-SWITCH and
-  ROUTE-DELIVERY-INTO-DOCKED-VISITOR; and LOGISTICS-DESIGN-DRIFT-2026-10-06 for the 10.6 text.
+  ROUTE-DELIVERY-INTO-DOCKED-VISITOR; LOGISTICS-DESIGN-DRIFT-2026-10-06 for the 10.6 text; the
+  capability gaps HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND, HARNESS-ROUTE-STATE-READBACK-SEAM,
+  FIXTURE-CAREER-ROUTE-WITH-REWIND-POINTS and FIXTURE-MOON-AND-INTERBODY-ROUTE-DISPATCH; and
+  ROUTE-INTERACTION-SEAMS-TO-VERIFY for the section 3.8 list.
 - Corrected in the logistics design now: 7.1 records the shipped 500 m proximity radius, and
   10.7 records that loop routes collapse missed cycles after a warp.
-- Registered as a program in `docs/dev/autotest-roadmap.md` ("The logistics integration
-  program").
+- Registered in `docs/dev/autotest-roadmap.md` ("The logistics integration program") as a
+  tracked register: Phase A rows A1-A5, capabilities C1-C6, lanes IR-1..IR-11 and IC-1..IC-4,
+  each with its host, gates, dependencies and owning todo entry.
 - Not stale after all: FIXTURE-DEPOT-ROUTE-RECORDED-LANE-PENDING still owes V18M (the
   FLIGHT-map half), although V18T / H40 / LT-4 fly that fixture.
