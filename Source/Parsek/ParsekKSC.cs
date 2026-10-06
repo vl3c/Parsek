@@ -1994,343 +1994,377 @@ namespace Parsek
                 GhostPlaybackLogic.LogChainLoopFirstRunSpawn(
                     "KSCSpawn", "SPACECENTER", recIdx, rec, Planetarium.GetUniversalTime(), true);
 
+            RunKscEndSpawn(rec, recIdx);
+        }
+
+        /// <summary>Test seam replacing the Space Center end-spawn body (rec, recIdx, replacement in progress or null).</summary>
+        internal static Action<Recording, int, StaleVesselReplacement> KscEndSpawnBodyOverrideForTesting;
+
+        /// <summary>
+        /// The Space Center end spawn with the Ghost Chain Rule around it: a live vessel with a
+        /// chain's claimed pid after a rewind to before the chain's tip is the claimed vessel in
+        /// its pre-claim form, so it is replaced by the tip (spawned with its identity preserved),
+        /// never adopted or left beside it. The finally completes the replacement on every exit
+        /// (a spawn, an early return, an exception): a tip that spawned no vessel puts the removed
+        /// vessel back.
+        /// </summary>
+        internal static void RunKscEndSpawn(Recording rec, int recIdx)
+        {
+            StaleVesselReplacement staleReplacement = null;
             try
             {
-                if (VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
-                    rec,
-                    "KSCSpawn",
-                    $"Spawn not needed for #{recIdx} \"{rec.VesselName}\""))
-                    return;
-
-                // Operator ruling 2026-09-23: a flight that ended parked in the KSC
-                // exclusion zone is retired, never spawned (the Space Center used to spawn
-                // it with no exclusion check at all). After adoption, before any spawn
-                // route; the snapshot is re-hydrated first so the decision reads the same
-                // position the spawn would use (no-op when already loaded).
-                RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
-                if (VesselSpawner.TryRetireEndedFlightAtKsc(rec, recIdx))
-                    return;
-
-                // At KSC, FlightGlobals.Vessels may be empty/null but
-                // HighLogic.CurrentGame.flightState.protoVessels is always available.
-                // RespawnVessel uses protoVessels directly - works in any scene.
-                ParsekLog.Info("KSCSpawn",
-                    $"Attempting spawn for #{recIdx} \"{rec.VesselName}\" (id={rec.RecordingId})");
-
-                // The in-memory snapshot is a transient cache that may have been
-                // dropped in-session; re-hydrate from the durable _vessel.craft
-                // sidecar before consuming it. No-op when already loaded.
-                if (!RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec)
-                    || rec.VesselSnapshot == null)
-                {
-                    ParsekLog.Warn("KSCSpawn",
-                        $"Spawn FAILED for #{recIdx} \"{rec.VesselName}\": vessel snapshot " +
-                        "unavailable (in-memory copy dropped and sidecar could not be re-hydrated)");
-                    return;
-                }
-
-                // Keep a private working snapshot for the entire KSC spawn flow so route
-                // selection, fallback repairs, and aborts never mutate the stored recording.
-                ConfigNode spawnSnapshot = rec.VesselSnapshot.CreateCopy();
-
-                // Bug #167: apply crew swap directly on the KSC spawn snapshot because
-                // there is no loaded vessel for SwapReservedCrewInFlight to target here.
-                // The roster-status resolver keeps a stand-in who is already
-                // Assigned aboard a live vessel out of the spawn snapshot (the
-                // seat is left empty) — writing them in would seat the same
-                // kerbal on two vessels at once when the ProtoVessel loads.
-                // Null roster (defensive, not expected at KSC): pass a null
-                // resolver to keep the legacy blind swap rather than emptying
-                // every reserved seat with a misleading "not in roster" reason.
-                var replacements = CrewReservationManager.CrewReplacements;
-                if (replacements.Count > 0)
-                {
-                    var kscRoster = HighLogic.CurrentGame?.CrewRoster;
-                    Func<string, ProtoCrewMember.RosterStatus?> statusResolver =
-                        kscRoster == null
-                            ? (Func<string, ProtoCrewMember.RosterStatus?>)null
-                            : name => kscRoster[name]?.rosterStatus;
-                    int swapped = CrewReservationManager.SwapReservedCrewInSnapshot(
-                        spawnSnapshot, replacements, statusResolver, out int seatsCleared);
-                    if (swapped > 0 || seatsCleared > 0)
-                        ParsekLog.Info("KSCSpawn",
-                            $"Crew swap applied to snapshot for #{recIdx} \"{rec.VesselName}\": " +
-                            $"{swapped} crew replaced, {seatsCleared} seat(s) left empty before spawn");
-                    else
-                        ParsekLog.Verbose("KSCSpawn",
-                            $"Crew swap: {replacements.Count} reservation(s) exist but " +
-                            $"no matches in snapshot for #{recIdx} \"{rec.VesselName}\"");
-                }
-
-                // Correct unsafe snapshot situation before spawning (#169).
-                // Same guard as SpawnOrRecoverIfTooClose — prevents on-rails pressure destruction.
-                VesselSpawner.CorrectUnsafeSnapshotSituation(spawnSnapshot, rec.TerminalStateValue);
-                HashSet<string> excludeCrew = VesselSpawner.BuildExcludeCrewSet(rec);
-                bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
-                bool isBreakupContinuous = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;
-                bool routeThroughSpawnAtPosition = VesselSpawner.ShouldRouteThroughSpawnAtPosition(rec);
-                bool useRecordedTerminalOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva);
-                double spawnUT = Planetarium.GetUniversalTime();
-                TrajectoryPoint? lastPt = rec.Points != null && rec.Points.Count > 0
-                    ? (TrajectoryPoint?)rec.Points[rec.Points.Count - 1]
-                    : null;
-                CelestialBody body = VesselSpawner.ResolveSpawnRotationBody(rec, lastPt);
-                double spawnLat = 0.0;
-                double spawnLon = 0.0;
-                double spawnAlt = 0.0;
-                Vector3d spawnVelocity = Vector3d.zero;
-                Orbit orbitalSpawnOrbit = null;
-                bool haveResolvedSpawnState = false;
-
-                if (lastPt.HasValue)
-                {
-                    VesselSpawner.ResolveSpawnPosition(
-                        rec,
-                        recIdx,
-                        lastPt.Value,
-                        out spawnLat,
-                        out spawnLon,
-                        out spawnAlt);
-                    haveResolvedSpawnState = true;
-
-                    if (useRecordedTerminalOrbit
-                        && body != null
-                        && VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState(
-                            rec,
-                            body,
-                            spawnUT,
-                            out double orbitLat,
-                            out double orbitLon,
-                            out double orbitAlt,
-                            out Vector3d orbitalSpawnVelocity,
-                            out Orbit resolvedOrbit))
-                    {
-                        spawnLat = orbitLat;
-                        spawnLon = orbitLon;
-                        spawnAlt = orbitAlt;
-                        spawnVelocity = orbitalSpawnVelocity;
-                        orbitalSpawnOrbit = resolvedOrbit;
-                    }
-                    else
-                    {
-                        spawnVelocity = new Vector3d(
-                            lastPt.Value.velocity.x,
-                            lastPt.Value.velocity.y,
-                            lastPt.Value.velocity.z);
-                    }
-
-                    // De-overlap landed deliveries (#duplicate-stack): multiple committed
-                    // leaf recordings of the SAME craft delivered to the SAME ground base
-                    // resolve to (lat,lon) within a few metres of each other. At KSC nothing
-                    // is loaded, so CheckOverlapAgainstLoadedVessels finds no blockers and they
-                    // stack on top of each other, then explode when the player loads them into
-                    // physics. Nudge the new spawn clear of existing same-body landed protos
-                    // BEFORE the snapshot apply so both the SpawnAtPosition and the fallback
-                    // RespawnVessel paths use the corrected position. Skipped for EVA (EVAs
-                    // intentionally overlap their parent) and for recorded-terminal-orbit spawns.
-                    if (!isEva
-                        && !useRecordedTerminalOrbit
-                        && body != null
-                        && VesselSpawner.IsSurfaceTerminal(rec.TerminalStateValue))
-                    {
-                        // excludePid=0: at this point the recording is NOT yet materialized
-                        // (ShouldSpawnAtKscEnd already rejected already-spawned recordings),
-                        // and VesselPersistentId is the craft-baked pid shared by every
-                        // delivery of this craft — excluding it would wrongly drop sibling
-                        // deliveries we must de-overlap against. Nudge clear of ALL existing
-                        // same-body landed vessels except vessels of other members of THIS
-                        // committed tree that stood beside this one in the recording (a
-                        // placed-part cluster): those positions are the recorded layout. An
-                        // EVA kerbal or placed part is also not pushed off its spot by a vessel
-                        // of an earlier committed tree (the capsule it came from) that already
-                        // stood there when it was recorded and has not moved since.
-                        var existingLanded = VesselSpawner.GatherExistingLandedVesselPositions(
-                            body, 0u, rec, spawnLat, spawnLon,
-                            SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters);
-                        var deOverlap = SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn(
-                            spawnLat,
-                            spawnLon,
-                            existingLanded,
-                            SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters,
-                            body.Radius);
-                        if (deOverlap.Nudged)
-                        {
-                            ParsekLog.Info("KSCSpawn",
-                                $"De-overlap for #{recIdx} \"{rec.VesselName}\": " +
-                                $"nudged {deOverlap.NudgeMeters.ToString("F1", CultureInfo.InvariantCulture)}m " +
-                                $"(existing landed={existingLanded.Count}, " +
-                                $"nearest now={deOverlap.NearestBlockerMeters.ToString("F1", CultureInfo.InvariantCulture)}m, " +
-                                $"min={SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters.ToString("F0", CultureInfo.InvariantCulture)}m" +
-                                (deOverlap.Exhausted ? ", spiral-exhausted" : "") + ") " +
-                                $"lat {spawnLat.ToString("F6", CultureInfo.InvariantCulture)}->{deOverlap.Latitude.ToString("F6", CultureInfo.InvariantCulture)} " +
-                                $"lon {spawnLon.ToString("F6", CultureInfo.InvariantCulture)}->{deOverlap.Longitude.ToString("F6", CultureInfo.InvariantCulture)}");
-                            spawnLat = deOverlap.Latitude;
-                            spawnLon = deOverlap.Longitude;
-                        }
-                        else
-                        {
-                            ParsekLog.Verbose("KSCSpawn",
-                                $"De-overlap for #{recIdx} \"{rec.VesselName}\": clear " +
-                                $"(existing landed={existingLanded.Count}, " +
-                                $"nearest={deOverlap.NearestBlockerMeters.ToString("F1", CultureInfo.InvariantCulture)}m >= " +
-                                $"min={SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters.ToString("F0", CultureInfo.InvariantCulture)}m)");
-                        }
-                    }
-
-                    if (isEva)
-                    {
-                        VesselSpawner.ApplyResolvedSpawnStateToSnapshot(
-                            spawnSnapshot,
-                            rec,
-                            lastPt,
-                            spawnLat,
-                            spawnLon,
-                            spawnAlt,
-                            recIdx,
-                            rec.VesselName);
-                    }
-                    else if (isBreakupContinuous)
-                    {
-                        VesselSpawner.ApplyResolvedSpawnStateToSnapshot(
-                            spawnSnapshot,
-                            rec,
-                            lastPt,
-                            spawnLat,
-                            spawnLon,
-                            spawnAlt,
-                            recIdx,
-                            rec.VesselName,
-                            allowPreferredRotation: !useRecordedTerminalOrbit,
-                            stripEvaLadder: false);
-                    }
-                    else if (VesselSpawner.IsSurfaceTerminal(rec.TerminalStateValue))
-                    {
-                        VesselSpawner.ApplyResolvedSpawnStateToSnapshot(
-                            spawnSnapshot,
-                            rec,
-                            lastPt,
-                            spawnLat,
-                            spawnLon,
-                            spawnAlt,
-                            recIdx,
-                            rec.VesselName,
-                            stripEvaLadder: false);
-                    }
-                }
-
-                if (!isEva
-                    && VesselSpawner.ShouldBlockSpawnForDeadCrewInSnapshot(
-                        spawnSnapshot,
-                        out List<string> snapshotCrew))
-                {
-                    rec.VesselSpawned = true;
-                    rec.SpawnAbandoned = true;
-                    var classified = VesselSpawner.ClassifySnapshotCrew(snapshotCrew);
-                    ParsekLog.Warn("KSCSpawn",
-                        $"Spawn ABANDONED for #{recIdx} \"{rec.VesselName}\": no spawnable crew — " +
-                        VesselSpawner.FormatSpawnableClassificationSummary(classified));
-                    return;
-                }
-
-                uint spawnedPid = 0;
-                if (routeThroughSpawnAtPosition && haveResolvedSpawnState)
-                {
-                    if (body != null)
-                    {
-                        Quaternion? surfaceRelativeRotationArg = null;
-                        if (!useRecordedTerminalOrbit
-                            && (isEva || isBreakupContinuous)
-                            && VesselSpawner.TryGetPreferredSpawnRotationFrame(
-                                rec,
-                                lastPt,
-                                out _,
-                                out Quaternion preferredSurfaceRelativeRotation,
-                                out _))
-                        {
-                            surfaceRelativeRotationArg = preferredSurfaceRelativeRotation;
-                        }
-
-                        spawnedPid = VesselSpawner.SpawnAtPosition(
-                            spawnSnapshot,
-                            body,
-                            spawnLat,
-                            spawnLon,
-                            spawnAlt,
-                            spawnVelocity,
-                            spawnUT,
-                            excludeCrew,
-                            terminalState: rec.TerminalStateValue,
-                            surfaceRelativeRotation: surfaceRelativeRotationArg,
-                            orbitOverride: orbitalSpawnOrbit);
-                        if (spawnedPid == 0)
-                        {
-                            ParsekLog.Warn("KSCSpawn",
-                                $"SpawnAtPosition returned 0 for #{recIdx} \"{rec.VesselName}\" — " +
-                                "falling back to validated snapshot respawn");
-                        }
-                    }
-                    else
-                    {
-                        ParsekLog.Warn("KSCSpawn",
-                            $"Spawn #{recIdx} \"{rec.VesselName}\": route-through spawn requested " +
-                            "but body resolution failed — falling back to validated snapshot respawn");
-                    }
-                }
-
-                if (spawnedPid == 0)
-                {
-                    ConfigNode validatedSpawnSnapshot = VesselSpawner.BuildValidatedRespawnSnapshot(
-                        spawnSnapshot,
-                        rec,
-                        spawnUT,
-                        $"KSC spawn #{recIdx} ({rec.VesselName})",
-                        out string materializationRejectionReason);
-                    if (validatedSpawnSnapshot == null)
-                    {
-                        if (!string.IsNullOrEmpty(materializationRejectionReason))
-                        {
-                            VesselSpawner.AbandonSpawnForInvalidMaterialization(
-                                rec,
-                                $"KSC spawn #{recIdx} ({rec.VesselName})",
-                                materializationRejectionReason);
-                            return;
-                        }
-
-                        ParsekLog.Warn("KSCSpawn",
-                            $"Spawn FAILED for #{recIdx} \"{rec.VesselName}\" — spawn snapshot validation failed");
-                        return;
-                    }
-
-                    spawnSnapshot = validatedSpawnSnapshot;
-                    spawnedPid = VesselSpawner.RespawnVessel(validatedSpawnSnapshot, excludeCrew);
-                }
-
-                if (spawnedPid != 0)
-                {
-                    rec.VesselSpawned = true;
-                    rec.SpawnedVesselPersistentId = spawnedPid;
-
-                    // Log spawn position for post-spawn diagnosis (#BugB)
-                    string latStr = spawnSnapshot.GetValue("lat") ?? "?";
-                    string lonStr = spawnSnapshot.GetValue("lon") ?? "?";
-                    string altStr = spawnSnapshot.GetValue("alt") ?? "?";
-                    string sitStr = spawnSnapshot.GetValue("sit") ?? "?";
-                    ParsekLog.Info("KSCSpawn",
-                        $"Vessel spawned for #{recIdx} \"{rec.VesselName}\" " +
-                        $"pid={spawnedPid} sit={sitStr} lat={latStr} lon={lonStr} alt={altStr}" +
-                        (isEva ? $" eva={rec.EvaCrewName}" : "") +
-                        " — will appear in Tracking Station");
-                }
+                staleReplacement = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
+                    rec, "SPACECENTER", recIdx);
+                if (KscEndSpawnBodyOverrideForTesting != null)
+                    KscEndSpawnBodyOverrideForTesting(rec, recIdx, staleReplacement);
                 else
-                {
-                    ParsekLog.Warn("KSCSpawn",
-                        $"Spawn FAILED for #{recIdx} \"{rec.VesselName}\" — spawn path returned 0");
-                }
+                    SpawnAtKscEnd(rec, recIdx, staleReplacement != null);
             }
             catch (Exception ex)
             {
                 ParsekLog.Error("KSCSpawn",
                     $"Spawn exception for #{recIdx} \"{rec.VesselName}\": {ex}");
+            }
+            finally
+            {
+                ChainTipStaleVessel.CompleteReplacement(rec, staleReplacement);
+            }
+        }
+
+        private static void SpawnAtKscEnd(Recording rec, int recIdx, bool replacedStaleVessel)
+        {
+            if (!replacedStaleVessel
+                && VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
+                    rec,
+                    "KSCSpawn",
+                    $"Spawn not needed for #{recIdx} \"{rec.VesselName}\""))
+                return;
+
+            // Operator ruling 2026-09-23: a flight that ended parked in the KSC
+            // exclusion zone is retired, never spawned (the Space Center used to spawn
+            // it with no exclusion check at all). After adoption, before any spawn
+            // route; the snapshot is re-hydrated first so the decision reads the same
+            // position the spawn would use (no-op when already loaded).
+            RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
+            if (VesselSpawner.TryRetireEndedFlightAtKsc(rec, recIdx))
+                return;
+
+            // At KSC, FlightGlobals.Vessels may be empty/null but
+            // HighLogic.CurrentGame.flightState.protoVessels is always available.
+            // RespawnVessel uses protoVessels directly - works in any scene.
+            ParsekLog.Info("KSCSpawn",
+                $"Attempting spawn for #{recIdx} \"{rec.VesselName}\" (id={rec.RecordingId})");
+
+            // The in-memory snapshot is a transient cache that may have been
+            // dropped in-session; re-hydrate from the durable _vessel.craft
+            // sidecar before consuming it. No-op when already loaded.
+            if (!RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec)
+                || rec.VesselSnapshot == null)
+            {
+                ParsekLog.Warn("KSCSpawn",
+                    $"Spawn FAILED for #{recIdx} \"{rec.VesselName}\": vessel snapshot " +
+                    "unavailable (in-memory copy dropped and sidecar could not be re-hydrated)");
+                return;
+            }
+
+            // Keep a private working snapshot for the entire KSC spawn flow so route
+            // selection, fallback repairs, and aborts never mutate the stored recording.
+            ConfigNode spawnSnapshot = rec.VesselSnapshot.CreateCopy();
+
+            // Bug #167: apply crew swap directly on the KSC spawn snapshot because
+            // there is no loaded vessel for SwapReservedCrewInFlight to target here.
+            // The roster-status resolver keeps a stand-in who is already
+            // Assigned aboard a live vessel out of the spawn snapshot (the
+            // seat is left empty) - writing them in would seat the same
+            // kerbal on two vessels at once when the ProtoVessel loads.
+            // Null roster (defensive, not expected at KSC): pass a null
+            // resolver to keep the legacy blind swap rather than emptying
+            // every reserved seat with a misleading "not in roster" reason.
+            var replacements = CrewReservationManager.CrewReplacements;
+            if (replacements.Count > 0)
+            {
+                var kscRoster = HighLogic.CurrentGame?.CrewRoster;
+                Func<string, ProtoCrewMember.RosterStatus?> statusResolver =
+                    kscRoster == null
+                        ? (Func<string, ProtoCrewMember.RosterStatus?>)null
+                        : name => kscRoster[name]?.rosterStatus;
+                int swapped = CrewReservationManager.SwapReservedCrewInSnapshot(
+                    spawnSnapshot, replacements, statusResolver, out int seatsCleared);
+                if (swapped > 0 || seatsCleared > 0)
+                    ParsekLog.Info("KSCSpawn",
+                        $"Crew swap applied to snapshot for #{recIdx} \"{rec.VesselName}\": " +
+                        $"{swapped} crew replaced, {seatsCleared} seat(s) left empty before spawn");
+                else
+                    ParsekLog.Verbose("KSCSpawn",
+                        $"Crew swap: {replacements.Count} reservation(s) exist but " +
+                        $"no matches in snapshot for #{recIdx} \"{rec.VesselName}\"");
+            }
+
+            // Correct unsafe snapshot situation before spawning (#169).
+            // Same guard as SpawnOrRecoverIfTooClose - prevents on-rails pressure destruction.
+            VesselSpawner.CorrectUnsafeSnapshotSituation(spawnSnapshot, rec.TerminalStateValue);
+            HashSet<string> excludeCrew = VesselSpawner.BuildExcludeCrewSet(rec);
+            bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
+            bool isBreakupContinuous = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;
+            bool routeThroughSpawnAtPosition = VesselSpawner.ShouldRouteThroughSpawnAtPosition(rec);
+            bool useRecordedTerminalOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva);
+            double spawnUT = Planetarium.GetUniversalTime();
+            TrajectoryPoint? lastPt = rec.Points != null && rec.Points.Count > 0
+                ? (TrajectoryPoint?)rec.Points[rec.Points.Count - 1]
+                : null;
+            CelestialBody body = VesselSpawner.ResolveSpawnRotationBody(rec, lastPt);
+            double spawnLat = 0.0;
+            double spawnLon = 0.0;
+            double spawnAlt = 0.0;
+            Vector3d spawnVelocity = Vector3d.zero;
+            Orbit orbitalSpawnOrbit = null;
+            bool haveResolvedSpawnState = false;
+
+            if (lastPt.HasValue)
+            {
+                VesselSpawner.ResolveSpawnPosition(
+                    rec,
+                    recIdx,
+                    lastPt.Value,
+                    out spawnLat,
+                    out spawnLon,
+                    out spawnAlt);
+                haveResolvedSpawnState = true;
+
+                if (useRecordedTerminalOrbit
+                    && body != null
+                    && VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState(
+                        rec,
+                        body,
+                        spawnUT,
+                        out double orbitLat,
+                        out double orbitLon,
+                        out double orbitAlt,
+                        out Vector3d orbitalSpawnVelocity,
+                        out Orbit resolvedOrbit))
+                {
+                    spawnLat = orbitLat;
+                    spawnLon = orbitLon;
+                    spawnAlt = orbitAlt;
+                    spawnVelocity = orbitalSpawnVelocity;
+                    orbitalSpawnOrbit = resolvedOrbit;
+                }
+                else
+                {
+                    spawnVelocity = new Vector3d(
+                        lastPt.Value.velocity.x,
+                        lastPt.Value.velocity.y,
+                        lastPt.Value.velocity.z);
+                }
+
+                // De-overlap landed deliveries (#duplicate-stack): multiple committed
+                // leaf recordings of the SAME craft delivered to the SAME ground base
+                // resolve to (lat,lon) within a few metres of each other. At KSC nothing
+                // is loaded, so CheckOverlapAgainstLoadedVessels finds no blockers and they
+                // stack on top of each other, then explode when the player loads them into
+                // physics. Nudge the new spawn clear of existing same-body landed protos
+                // BEFORE the snapshot apply so both the SpawnAtPosition and the fallback
+                // RespawnVessel paths use the corrected position. Skipped for EVA (EVAs
+                // intentionally overlap their parent) and for recorded-terminal-orbit spawns.
+                if (!isEva
+                    && !useRecordedTerminalOrbit
+                    && body != null
+                    && VesselSpawner.IsSurfaceTerminal(rec.TerminalStateValue))
+                {
+                    // excludePid=0: at this point the recording is NOT yet materialized
+                    // (ShouldSpawnAtKscEnd already rejected already-spawned recordings),
+                    // and VesselPersistentId is the craft-baked pid shared by every
+                    // delivery of this craft - excluding it would wrongly drop sibling
+                    // deliveries we must de-overlap against. Nudge clear of ALL existing
+                    // same-body landed vessels except vessels of other members of THIS
+                    // committed tree that stood beside this one in the recording (a
+                    // placed-part cluster): those positions are the recorded layout. An
+                    // EVA kerbal or placed part is also not pushed off its spot by a vessel
+                    // of an earlier committed tree (the capsule it came from) that already
+                    // stood there when it was recorded and has not moved since.
+                    var existingLanded = VesselSpawner.GatherExistingLandedVesselPositions(
+                        body, 0u, rec, spawnLat, spawnLon,
+                        SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters);
+                    var deOverlap = SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn(
+                        spawnLat,
+                        spawnLon,
+                        existingLanded,
+                        SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters,
+                        body.Radius);
+                    if (deOverlap.Nudged)
+                    {
+                        ParsekLog.Info("KSCSpawn",
+                            $"De-overlap for #{recIdx} \"{rec.VesselName}\": " +
+                            $"nudged {deOverlap.NudgeMeters.ToString("F1", CultureInfo.InvariantCulture)}m " +
+                            $"(existing landed={existingLanded.Count}, " +
+                            $"nearest now={deOverlap.NearestBlockerMeters.ToString("F1", CultureInfo.InvariantCulture)}m, " +
+                            $"min={SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters.ToString("F0", CultureInfo.InvariantCulture)}m" +
+                            (deOverlap.Exhausted ? ", spiral-exhausted" : "") + ") " +
+                            $"lat {spawnLat.ToString("F6", CultureInfo.InvariantCulture)}->{deOverlap.Latitude.ToString("F6", CultureInfo.InvariantCulture)} " +
+                            $"lon {spawnLon.ToString("F6", CultureInfo.InvariantCulture)}->{deOverlap.Longitude.ToString("F6", CultureInfo.InvariantCulture)}");
+                        spawnLat = deOverlap.Latitude;
+                        spawnLon = deOverlap.Longitude;
+                    }
+                    else
+                    {
+                        ParsekLog.Verbose("KSCSpawn",
+                            $"De-overlap for #{recIdx} \"{rec.VesselName}\": clear " +
+                            $"(existing landed={existingLanded.Count}, " +
+                            $"nearest={deOverlap.NearestBlockerMeters.ToString("F1", CultureInfo.InvariantCulture)}m >= " +
+                            $"min={SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters.ToString("F0", CultureInfo.InvariantCulture)}m)");
+                    }
+                }
+
+                if (isEva)
+                {
+                    VesselSpawner.ApplyResolvedSpawnStateToSnapshot(
+                        spawnSnapshot,
+                        rec,
+                        lastPt,
+                        spawnLat,
+                        spawnLon,
+                        spawnAlt,
+                        recIdx,
+                        rec.VesselName);
+                }
+                else if (isBreakupContinuous)
+                {
+                    VesselSpawner.ApplyResolvedSpawnStateToSnapshot(
+                        spawnSnapshot,
+                        rec,
+                        lastPt,
+                        spawnLat,
+                        spawnLon,
+                        spawnAlt,
+                        recIdx,
+                        rec.VesselName,
+                        allowPreferredRotation: !useRecordedTerminalOrbit,
+                        stripEvaLadder: false);
+                }
+                else if (VesselSpawner.IsSurfaceTerminal(rec.TerminalStateValue))
+                {
+                    VesselSpawner.ApplyResolvedSpawnStateToSnapshot(
+                        spawnSnapshot,
+                        rec,
+                        lastPt,
+                        spawnLat,
+                        spawnLon,
+                        spawnAlt,
+                        recIdx,
+                        rec.VesselName,
+                        stripEvaLadder: false);
+                }
+            }
+
+            if (!isEva
+                && VesselSpawner.ShouldBlockSpawnForDeadCrewInSnapshot(
+                    spawnSnapshot,
+                    out List<string> snapshotCrew))
+            {
+                rec.VesselSpawned = true;
+                rec.SpawnAbandoned = true;
+                var classified = VesselSpawner.ClassifySnapshotCrew(snapshotCrew);
+                ParsekLog.Warn("KSCSpawn",
+                    $"Spawn ABANDONED for #{recIdx} \"{rec.VesselName}\": no spawnable crew — " +
+                    VesselSpawner.FormatSpawnableClassificationSummary(classified));
+                return;
+            }
+
+            uint spawnedPid = 0;
+            if (routeThroughSpawnAtPosition && haveResolvedSpawnState)
+            {
+                if (body != null)
+                {
+                    Quaternion? surfaceRelativeRotationArg = null;
+                    if (!useRecordedTerminalOrbit
+                        && (isEva || isBreakupContinuous)
+                        && VesselSpawner.TryGetPreferredSpawnRotationFrame(
+                            rec,
+                            lastPt,
+                            out _,
+                            out Quaternion preferredSurfaceRelativeRotation,
+                            out _))
+                    {
+                        surfaceRelativeRotationArg = preferredSurfaceRelativeRotation;
+                    }
+
+                    spawnedPid = VesselSpawner.SpawnAtPosition(
+                        spawnSnapshot,
+                        body,
+                        spawnLat,
+                        spawnLon,
+                        spawnAlt,
+                        spawnVelocity,
+                        spawnUT,
+                        excludeCrew,
+                        preserveIdentity: replacedStaleVessel,
+                        terminalState: rec.TerminalStateValue,
+                        surfaceRelativeRotation: surfaceRelativeRotationArg,
+                        orbitOverride: orbitalSpawnOrbit);
+                    if (spawnedPid == 0)
+                    {
+                        ParsekLog.Warn("KSCSpawn",
+                            $"SpawnAtPosition returned 0 for #{recIdx} \"{rec.VesselName}\" — " +
+                            "falling back to validated snapshot respawn");
+                    }
+                }
+                else
+                {
+                    ParsekLog.Warn("KSCSpawn",
+                        $"Spawn #{recIdx} \"{rec.VesselName}\": route-through spawn requested " +
+                        "but body resolution failed — falling back to validated snapshot respawn");
+                }
+            }
+
+            if (spawnedPid == 0)
+            {
+                ConfigNode validatedSpawnSnapshot = VesselSpawner.BuildValidatedRespawnSnapshot(
+                    spawnSnapshot,
+                    rec,
+                    spawnUT,
+                    $"KSC spawn #{recIdx} ({rec.VesselName})",
+                    out string materializationRejectionReason);
+                if (validatedSpawnSnapshot == null)
+                {
+                    if (!string.IsNullOrEmpty(materializationRejectionReason))
+                    {
+                        VesselSpawner.AbandonSpawnForInvalidMaterialization(
+                            rec,
+                            $"KSC spawn #{recIdx} ({rec.VesselName})",
+                            materializationRejectionReason);
+                        return;
+                    }
+
+                    ParsekLog.Warn("KSCSpawn",
+                        $"Spawn FAILED for #{recIdx} \"{rec.VesselName}\" — spawn snapshot validation failed");
+                    return;
+                }
+
+                spawnSnapshot = validatedSpawnSnapshot;
+                spawnedPid = VesselSpawner.RespawnVessel(
+                    validatedSpawnSnapshot, excludeCrew, preserveIdentity: replacedStaleVessel);
+            }
+
+            if (spawnedPid != 0)
+            {
+                rec.VesselSpawned = true;
+                rec.SpawnedVesselPersistentId = spawnedPid;
+
+                // Log spawn position for post-spawn diagnosis (#BugB)
+                string latStr = spawnSnapshot.GetValue("lat") ?? "?";
+                string lonStr = spawnSnapshot.GetValue("lon") ?? "?";
+                string altStr = spawnSnapshot.GetValue("alt") ?? "?";
+                string sitStr = spawnSnapshot.GetValue("sit") ?? "?";
+                ParsekLog.Info("KSCSpawn",
+                    $"Vessel spawned for #{recIdx} \"{rec.VesselName}\" " +
+                    $"pid={spawnedPid} sit={sitStr} lat={latStr} lon={lonStr} alt={altStr}" +
+                    (isEva ? $" eva={rec.EvaCrewName}" : "") +
+                    " — will appear in Tracking Station");
+            }
+            else
+            {
+                ParsekLog.Warn("KSCSpawn",
+                    $"Spawn FAILED for #{recIdx} \"{rec.VesselName}\" — spawn path returned 0");
             }
         }
 

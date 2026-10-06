@@ -3692,6 +3692,31 @@ _(unreleased - entries accumulate here per commit)_
   and its outcome back. Loading another game and starting KSP are unchanged. Covered by xUnit; not
   yet checked in a test flight.
 
+- **A crewed station hidden after a rewind no longer has its crew killed.** When a committed
+  mission docks to a station later, the station is hidden from the rewind until that mission's
+  end. If the station was far from your vessel when you entered flight, hiding it killed
+  everyone aboard: the kerbals were marked dead and a career lost the reputation for each.
+  The crew are now taken off the station before it is hidden and wait at the Space Center,
+  and the station's recorded end state brings back whoever it carries when it reappears.
+
+- **After a rewind, a fuel transfer recorded by a docking mission is no longer lost when the time
+  passes at the Space Center or in the Tracking Station.** A committed mission that docked to a
+  station and moved fuel holds that station until the mission ends, but only the flight scene
+  applied the hold. After a Rewind-to-Launch (which lands at the Space Center) or a load from
+  before the dock, the station stayed in its old form there, and when the mission's end passed
+  at the Space Center, in the Tracking Station or at a later flight load, it kept its old tanks
+  while the departing craft left with the moved fuel. The station is now replaced at that moment
+  by its recorded end state, with the same identity (supply routes and later missions still find
+  it), and no recovery is paid. The kerbals aboard the old station are taken off first and become
+  available at the Space Center; the new station carries the crew its recorded end state holds,
+  except that at the Space Center a kerbal Parsek reserves for a recorded flight is replaced by a
+  stand-in, so the kerbals you see aboard can differ from the ones who were there. The old station
+  is only removed when the recorded one can be spawned, and it is put back if that spawn still
+  fails. Only a station the clock was wound back past is replaced; one that went through the dock
+  in the loaded save, or one you are flying, is kept as it is. A station visited by a heavier
+  ship, whose recorded end state comes back under a new vessel id, is replaced the same way
+  instead of appearing twice at the Space Center or in the Tracking Station.
+
 - **After a quickload, a booster that survives the replayed flight is recorded again.** If you
   quicksaved, flew on (a booster crashed with its crew, a lander touched down) and then
   quickloaded back, the other vessels of that flight kept the ending they had reached after the
