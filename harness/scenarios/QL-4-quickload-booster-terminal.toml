@@ -122,7 +122,7 @@ id = "QL-4-quickload-booster-terminal"
 #   - TA-3 (ledger rows) is not exercised: sandbox, no recovery. The career variant is a
 #     roadmap note (no career fixture flies the GS1 craft).
 #
-# STATUS: AUTHORED 2026-10-06 (branch `ql4-lane`), NEVER FLOWN. Every token is quoted
+# STATUS: AUTHORED 2026-10-06 (PR #2025), NEVER FLOWN. Every token is quoted
 # from its emitting source line or from a sibling lane's measured log (GS-1 / RF-1 /
 # CA-1 / RF-LANES-RELOAD-A-PRE-COMMIT-SAVE), never pasted from a run of this lane; the
 # saveParse blocks are REPORT-ONLY until a reading run.

@@ -175,7 +175,7 @@ future or a reverted flight stay on disk for now (OQ-3).
 
 ---
 
-## ~~QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT: tagged game-state events from the timeline an F9 abandoned are credited when the resumed flight commits~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, branch `quickload-abandoned-future` (xUnit only; live proof is lane QL-2, which needs the TC-1 `Quickload` verb)]
+## ~~QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT: tagged game-state events from the timeline an F9 abandoned are credited when the resumed flight commits~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, PR #2025 (xUnit only; live proof is lane QL-2, which needs the TC-1 `Quickload` verb)]
 
 The quickload trim cuts trajectories only (`ParsekScenario.Trim.cs`); the only after-UT purge of
 tagged events, `GameStateStore.PurgeEventsForRecordingAfterUT`, has one caller
@@ -205,7 +205,7 @@ QL-2.
 
 ---
 
-## ~~QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS: a committed tree detached on F9 keeps its future ledger rows~~ [FILED 2026-10-06 from the coverage-extension research, verified (when the detach runs); branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, branch `quickload-abandoned-future` (xUnit only; live proof is a career variant of lane QL-4)]
+## ~~QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS: a committed tree detached on F9 keeps its future ledger rows~~ [FILED 2026-10-06 from the coverage-extension research, verified (when the detach runs); branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, PR #2025 (xUnit only; live proof is a career variant of lane QL-4)]
 
 When the loaded save's active tree was committed later, `RemoveCommittedTreeById`
 (`RecordingStore.cs:820-843`) detaches it without touching its ledger rows, and the commit-time
@@ -239,7 +239,7 @@ recording-tagged ledger rows after the quicksave; untagged KSC rows are kept.
 
 ---
 
-## ~~QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE: other tree members keep the abandoned future's terminal state and crew end states after F9~~ [FILED 2026-10-06 from the coverage-extension research, partly verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, branch `quickload-abandoned-future` (xUnit only; live proof is lane QL-4)]
+## ~~QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE: other tree members keep the abandoned future's terminal state and crew end states after F9~~ [FILED 2026-10-06 from the coverage-extension research, partly verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, PR #2025 (xUnit only; live proof is lane QL-4)]
 
 The splice and same-id refresh (`HydrationRepair.cs:495-508`, `:684-787`) copy terminal state,
 terminal orbit, snapshot and crew end states from the committed future copy, and the stale-epoch
@@ -413,7 +413,7 @@ Fix: keep a point whose creating session is already merged. Red test: xUnit over
 
 ---
 
-## QUICKLOAD-TRIM-STAMPS-CUTOFF-AS-EARLIER-END: the quickload resume trim moves the end of a recording that ended before the quicksave up to the quicksave's moment [FILED 2026-10-06 off the abandoned-future reconcile, branch `quickload-abandoned-future`; verified in code, player effect to trace. OPEN, product]
+## QUICKLOAD-TRIM-STAMPS-CUTOFF-AS-EARLIER-END: the quickload resume trim moves the end of a recording that ended before the quicksave up to the quicksave's moment [FILED 2026-10-06 off the abandoned-future reconcile, PR #2025; verified in code, player effect to trace. OPEN, product]
 
 `ParsekScenario.TrimRecordingPastUT` (`ParsekScenario.Trim.cs`, the `ExplicitEndUT` block) sets
 `ExplicitEndUT = cutoff` on every recording whose `ExplicitEndUT` is NaN or later than the cutoff,
@@ -480,7 +480,7 @@ and the row is gone.
 
 ---
 
-## QUICKLOAD-REFLY-SCOPE-KEEPS-SESSION-CHILDREN-FUTURE: an F9 inside a Re-Fly session reconciles the active recording only [FILED 2026-10-06 off the abandoned-future reconcile (design risk R9), branch `quickload-abandoned-future`; verified in code, not reproduced. OPEN, product]
+## QUICKLOAD-REFLY-SCOPE-KEEPS-SESSION-CHILDREN-FUTURE: an F9 inside a Re-Fly session reconciles the active recording only [FILED 2026-10-06 off the abandoned-future reconcile (design risk R9), PR #2025; verified in code, not reproduced. OPEN, product]
 
 When the loaded save carries a Re-Fly marker for the resumed tree, `ChooseQuickloadTrimScope`
 picks `ActiveRecOnly` (#610: a tree-wide trim would prune the other vessels' post-rewind-point
