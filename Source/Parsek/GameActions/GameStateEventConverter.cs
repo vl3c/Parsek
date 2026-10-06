@@ -628,6 +628,9 @@ namespace Parsek
 
         /// <summary>
         /// FacilityUpgraded -> FacilityUpgrade (facilityId=key, cost from detail, level from valueAfter).
+        /// The recorder writes <c>cost=</c> from the UpgradeFacility scope
+        /// (<see cref="FacilityUpgradeCapture"/>); an event with no detail (the scene-change
+        /// poll, or one recorded before the capture existed) converts at cost 0.
         /// </summary>
         private static GameAction ConvertFacilityUpgraded(GameStateEvent evt, string recordingId)
         {
@@ -651,7 +654,8 @@ namespace Parsek
                 $"ConvertFacilityUpgraded: facility='{evt.key}' " +
                 $"valueBefore={evt.valueBefore.ToString("R", IC)} " +
                 $"valueAfter={evt.valueAfter.ToString("R", IC)} " +
-                $"toLevel={toLevel.ToString(IC)} clamped={clamped.ToString(IC)}");
+                $"toLevel={toLevel.ToString(IC)} clamped={clamped.ToString(IC)} " +
+                $"cost={cost.ToString("R", IC)}");
 
             return new GameAction
             {
@@ -993,8 +997,36 @@ namespace Parsek
                 MilestoneId = evt.key,
                 MilestoneFundsAwarded = fundsAwarded,
                 MilestoneRepAwarded = repAwarded,
-                MilestoneScienceAwarded = sciAwarded
+                MilestoneScienceAwarded = sciAwarded,
+                MilestoneRecordThresholds = ParseMilestoneRecordThresholds(evt.detail)
             };
+        }
+
+        /// <summary>
+        /// Detail key carrying how many world-record reward thresholds a MilestoneAchieved
+        /// event stands for (<see cref="GameAction.MilestoneRecordThresholds"/>). Written by
+        /// <see cref="GameStateRecorder.BuildMilestoneDetail(double, float, double, int)"/>
+        /// only when not 1.
+        /// </summary>
+        internal const string MilestoneRecordThresholdsDetailKey = "thresholds";
+
+        /// <summary>
+        /// Pure: the world-record threshold count a milestone event detail carries. Absent
+        /// (every one-shot milestone, a record seed with one threshold, and every event an
+        /// older build wrote) or malformed reads 1, the count a row had before the key
+        /// existed.
+        /// </summary>
+        internal static int ParseMilestoneRecordThresholds(string detail)
+        {
+            string raw = ExtractDetail(detail, MilestoneRecordThresholdsDetailKey);
+            if (raw == null)
+                return 1;
+            if (int.TryParse(raw, NumberStyles.Integer, IC, out int parsed) && parsed >= 0)
+                return parsed;
+            ParsekLog.Warn(Tag,
+                $"ParseMilestoneRecordThresholds: malformed {MilestoneRecordThresholdsDetailKey}='{raw}' " +
+                "in milestone detail - reading it as 1 threshold");
+            return 1;
         }
 
         /// <summary>KerbalRescued -> KerbalRescue (name=key, trait from detail).</summary>

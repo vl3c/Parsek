@@ -172,6 +172,9 @@ namespace Parsek
         void OnApplicationQuit()
         {
             ParsekProcess.MarkApplicationQuitting("OnApplicationQuit");
+            // While the scene is intact: the OnDestroy-time ghost removal that follows stands
+            // down, and stock must not retarget off a dying ghost into a torn-down KnowledgeBase.
+            GhostMapPresence.RetargetPlanetariumCameraOffGhostMapVessels("application-quit");
         }
     }
 }

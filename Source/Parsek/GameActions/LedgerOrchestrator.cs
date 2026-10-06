@@ -2123,6 +2123,101 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Live ProgressTracking read the pre-ledger progress seed capture consults:
+        /// presence, the positive OnLoad-done signal
+        /// (<see cref="CurrencyScenarioReadiness.IsScenarioModuleLoaded"/>) and the flattened
+        /// tree (null when the tracker or its tree is unavailable).
+        /// </summary>
+        internal struct ProgressSeedProbe
+        {
+            public bool TrackerPresent;
+            public bool TrackerLoaded;
+            public List<PreLedgerProgressSeed.NodeObservation> Nodes;
+        }
+
+        /// <summary>Test seam replacing <see cref="ReadProgressSeedProbe"/>. Cleared by ResetForTesting.</summary>
+        internal static Func<ProgressSeedProbe> ProgressSeedProbeForTesting;
+
+        internal static ProgressSeedProbe ReadProgressSeedProbe()
+        {
+            var provider = ProgressSeedProbeForTesting;
+            if (provider != null)
+                return provider();
+            return ReadProgressSeedProbeLive();
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static ProgressSeedProbe ReadProgressSeedProbeLive()
+        {
+            var probe = new ProgressSeedProbe();
+            var tracker = ProgressTracking.Instance;
+            if (tracker == null)
+                return probe;
+
+            probe.TrackerPresent = true;
+            probe.TrackerLoaded = CurrencyScenarioReadiness.IsScenarioModuleLoaded(tracker);
+            if (probe.TrackerLoaded && tracker.achievementTree != null)
+                probe.Nodes = KspStatePatcher.ObserveProgressTreeForSeed(tracker.achievementTree);
+            return probe;
+        }
+
+        /// <summary>
+        /// Captures the save's <see cref="PreLedgerProgressSeed"/> once: the stock progress
+        /// the career earned before its ledger began. Runs at the top of every recalc and
+        /// returns immediately once a seed exists. Defers (and the milestone patch skips)
+        /// until ProgressTracking's OnLoad has provably run, because before it the live tree
+        /// is freshly generated and reads every node unreached. Returns true once a seed
+        /// exists.
+        ///
+        /// <para>
+        /// Reads the WHOLE ledger (any effective state, tombstoned and after-cutoff rows
+        /// included) and every captured game-state event, so a node the ledger owns anywhere
+        /// on the timeline, or is about to own through a pending flight, is never seeded.
+        /// That is what keeps a rewound-away node out: its row still exists after the
+        /// cutoff, so the seed never contains it and the patch still clears it.
+        /// </para>
+        /// </summary>
+        internal static bool EnsurePreLedgerProgressSeed()
+        {
+            if (Ledger.ProgressSeed.Captured)
+                return true;
+
+            var probe = ReadProgressSeedProbe();
+            string deferral = PreLedgerProgressSeed.DescribeCaptureDeferral(
+                probe.TrackerPresent, probe.TrackerLoaded, probe.Nodes != null);
+            if (deferral != null)
+            {
+                ParsekLog.VerboseOnChange(Tag, "pre-ledger-progress-seed-defer", deferral,
+                    "PreLedgerProgressSeed: deferring capture - " + deferral +
+                    " (milestone patch skipped until captured)");
+                return false;
+            }
+
+            PreLedgerProgressSeed.CaptureStats stats;
+            var seed = PreLedgerProgressSeed.Capture(probe.Nodes, Ledger.Actions, GameStateStore.Events, out stats);
+            if (!Ledger.TrySetProgressSeed(seed))
+                return Ledger.ProgressSeed.Captured;
+
+            var sampleIds = new List<string>(seed.OneShotIds);
+            sampleIds.Sort(StringComparer.Ordinal);
+            ParsekLog.Info(Tag,
+                "PreLedgerProgressSeed: captured from the live ProgressTracking tree: " +
+                string.Format(CultureInfo.InvariantCulture,
+                    "nodes={0} liveComplete={1} seededNodes={2} excludedByLedgerRow={3} " +
+                    "excludedByEvent={4} seededRecords={5} seededRecordThresholds={6} " +
+                    "recordsOwnedByLedger={7} recordsUnresolved={8} ledgerActions={9}",
+                    stats.NodesObserved, stats.LiveComplete, stats.OneShotSeeded,
+                    stats.ExcludedByLedgerRow, stats.ExcludedByEvent, stats.RecordsSeeded,
+                    stats.RecordThresholdsSeeded, stats.RecordsOwnedByLedger,
+                    stats.RecordsUnresolved, Ledger.Actions.Count) +
+                (sampleIds.Count > 0
+                    ? " ids=[" + KspStatePatcher.ComposeBoundedIdentitySample(sampleIds, 10) + "]"
+                    : ""));
+            return true;
+        }
+
+        /// <summary>
         /// Ensures the career's <see cref="GameActionType.ReputationInitial"/> seed exists
         /// AT THE START OF A COMMIT and reports WHERE it came from, so the kerbal-death
         /// reputation-penalty producer can decide whether the penalty it is about to file
@@ -2912,6 +3007,12 @@ namespace Parsek
             // Baselines can represent legitimate zero science/rep values; once such
             // a seed exists it must not be upgraded later from future live state.
             SeedInitialResourceBalances();
+
+            // Same idea for stock progress: capture (once per save) what the career had
+            // achieved before the ledger began, and hand it to the milestones module for
+            // this walk. Until it is captured PatchMilestones skips, so nothing is cleared.
+            EnsurePreLedgerProgressSeed();
+            milestonesModule.SetPreLedgerProgressSeed(Ledger.ProgressSeed);
 
             // End-state population safety net: catch recordings with unpopulated end states
             PopulateUnpopulatedCrewEndStates();
@@ -4301,6 +4402,7 @@ namespace Parsek
                         $"OnLoad: repaired legacy R&D part-purchase rows " +
                         $"(events={repairedLegacyPartPurchaseEvents}, actions={repairedLegacyPartPurchaseActions})");
                 }
+                RepairZeroCostFacilityUpgradeActionsOnLoad(GameStateStore.Events, Ledger.Actions);
                 ParsekLog.Verbose(Tag, $"OnLoad: ledger loaded from '{path}'");
             }
             else
@@ -4314,6 +4416,31 @@ namespace Parsek
             IReadOnlyList<GameAction> ledgerActions)
         {
             return LedgerLoadMigration.RepairLegacyPartPurchaseActionsOnLoad(events, ledgerActions);
+        }
+
+        /// <summary>
+        /// Load-time repair of FacilityUpgrade rows written at cost 0 before the upgrade cost
+        /// capture (see <see cref="LedgerLoadMigration.RepairZeroCostFacilityUpgradeActionsOnLoad"/>),
+        /// with one summary line. Returns the number of rows repaired.
+        /// </summary>
+        internal static int RepairZeroCostFacilityUpgradeActionsOnLoad(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions)
+        {
+            var result = LedgerLoadMigration.RepairZeroCostFacilityUpgradeActionsOnLoad(events, ledgerActions);
+            if (result.Repaired > 0)
+            {
+                ParsekLog.Info(Tag,
+                    "OnLoad: repaired cost-0 facility-upgrade rows from their saved " +
+                    "StructureConstruction debits: " + result.Format());
+            }
+            else if (result.ZeroCostRows > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    "OnLoad: cost-0 facility-upgrade rows kept as stored (no unique saved debit " +
+                    "proves their cost): " + result.Format());
+            }
+            return result.Repaired;
         }
 
         /// <summary>
@@ -7814,6 +7941,7 @@ namespace Parsek
         {
             initialized = false;
             CurrencyPoolProbeForTesting = null;
+            ProgressSeedProbeForTesting = null;
             fundsSeedDone = false;
             scienceSeedDone = false;
             repSeedDone = false;
