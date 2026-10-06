@@ -16,6 +16,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT: a chain tip whose recording the optimizer split resolves to its first segment, which holds no snapshot, so the tip cannot spawn [FILED 2026-10-07 by code read while fixing CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (PR #2035); also noted by the PR #2026 review. OPEN, product; to verify, not reproduced]
+
+`GhostChainWalker.WalkToLeaf` follows branch points only; it does not follow optimizer chain-segment
+links the way `TraceLineagePids` does, so when `RecordingStore.RunOptimizationPass` has split the
+claimed vessel's tip recording (an environment or body boundary), the walk returns the FIRST
+segment. The snapshot lives on the last segment, so `SpawnAtChainTip` and the out-of-flight
+replacement (`ChainTipStaleVessel`) have no snapshot to spawn from: the claimed vessel would stay
+ghosted / un-replaced past its tip spawn UT. Check first: a committed dock-undock tree whose
+station-half recording crosses an optimizer split boundary (or a fixture forced through
+`RunOptimizationPass`), then `ComputeAllGhostChains` and the tip spawn. Fix direction: let the walk
+continue through same-chain optimizer segments to the last one (PR #2035's cargo identity already
+resolves earlier segments to the snapshot-holding one).
+
+---
+
 ## CLAIMED-VESSEL-DESPAWN-AT-REWIND-OUTSIDE-FLIGHT: a vessel a committed future mission claims should leave the KSC and Tracking Station at the rewind, as it does in flight [FILED 2026-10-07 from the owner ruling on PR #2029, branch `fix-chain-tip-outside-flight`. OPEN, product design; follow-up, not a release blocker]
 
 Design 12.5 / 20.3 despawn a claimed vessel at the rewind in every scene. Today only flight does
