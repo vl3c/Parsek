@@ -1,7 +1,12 @@
 # Refactor-5 Slice 4 Proposal — Cross-File Owner Proposals (Pass 2)
 
-**Date:** 2026-06-14. **Status:** Proposal (not implemented). Discuss before
-landing — these move code across files.
+**Date:** 2026-06-14. **Status:** PARTLY LANDED in 0.10.2. 4.1 landed narrowed to the endpoint serializer and
+`ParseConnectionKind` (CHANGELOG `## 0.10.2` -> Internals & Tests, the behavior-neutral code-health refactor pass: "a shared ConfigNode codec for route endpoints and
+connection kinds"; `Logistics/RouteNodeCodec.cs` records why the manifest, inventory-item
+and endpoint-deserializer codecs stay unshared). 4.2 and 4.3 are NOT implemented (no
+`AnchorResolverContextFactory`, `AnchorWorldFrameHelpers` or `RouteResourceTankIterator`
+in `Source/Parsek`); 4.4 stays deferred. Discuss before landing the rest - these move code
+across files.
 **Roadmap:** `docs/dev/refactor-5/refactor-5-slices.md` (shared rules + validation gate).
 
 Pass 2 = a proven-identical block moved to a new owner behind compatibility

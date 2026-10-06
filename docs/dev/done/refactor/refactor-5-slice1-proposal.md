@@ -1,9 +1,11 @@
 # Refactor-5 Slice 1 Proposal — Pure Same-File Method Extractions
 
 **Date:** 2026-06-14.
-**Status:** Proposal. Implementation-ready, but NOT yet implemented. Every change
-here is **behavior-preserving (zero logic change)** and must pass the validation +
-clean-context review gate in §5 before it lands.
+**Status:** LANDED in 0.10.2 (CHANGELOG `## 0.10.2` -> Internals & Tests, the behavior-neutral code-health refactor pass: "the supply-route builder, the mission loop-unit
+builder, the map render-session rebuild"; the proposed helpers such as
+`TryResolveRouteOrigin`, `LogMissionUnitSummary` and the `TryHandle*` guard cascade are in
+the source). Every change here is specified as **behavior-preserving (zero logic
+change)**, gated by the validation + clean-context review gate in section 5.
 **Parent audit:** `docs/dev/refactor-5/refactor-5-inventory.md` (Slice 1).
 **Rules of record:** `docs/dev/refactor-guidelines.md` (the checklist a clean
 reviewer applies) and the Refactor-4 plan's Extraction Rules.

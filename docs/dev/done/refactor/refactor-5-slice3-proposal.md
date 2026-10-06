@@ -1,6 +1,7 @@
 # Refactor-5 Slice 3 Proposal — `RouteIds.Short` Cross-Cutting Owner
 
-**Date:** 2026-06-14. **Status:** Proposal (not implemented).
+**Date:** 2026-06-14. **Status:** LANDED in 0.10.2 (CHANGELOG `## 0.10.2` -> Internals & Tests, the behavior-neutral code-health refactor pass: "a route-id log-shortening helper used across the
+logistics route files"; `Logistics/RouteIds.Short` is in the source).
 **Roadmap:** `docs/dev/refactor-5/refactor-5-slices.md` (shared rules + validation gate).
 
 Small, independent, **pure** Pass-2 dedup. Can land any time.

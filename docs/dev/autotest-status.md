@@ -1,6 +1,6 @@
 # Automated Testing System - Status
 
-Last updated: 2026-10-06 (**CI-2 RE-ARMED: REFLY-CONCLUSION-FINALIZES-COMMITTED-CHAIN-HEAD FIXED**, branch `refly-chain-head-pid`, automation DLL sha256 `cc79ba6e1cc05428aed658a00e7a2f9659c109c954c6efe23e03d4852d23f042` (this branch's C# fix). The re-fly conclusion no longer finalizes the first tree's committed chain head off the chain tip's spawned vessel: CI-2 read XPASS `2026-10-05_2136` (12 Destroyed), its `[expectedFail]` was removed, and the armed re-flight `2026-10-05_2138` PASSed attempt 1. RF-2 / RF-5 re-flown on the same DLL as regression checks. No registry cell moves. Previous: 2026-10-05, branch `ci2-lane-fix`: CI-2 waits for the re-fly scene's `OnFlightReady` before its `TimeJump`, `terminalStates.Destroyed` re-pinned `{12,12}`.)
+Last updated: 2026-10-06 (**CI-2 RE-ARMED: REFLY-CONCLUSION-FINALIZES-COMMITTED-CHAIN-HEAD FIXED**, branch `refly-chain-head-pid`, automation DLL sha256 `cc79ba6e1cc05428aed658a00e7a2f9659c109c954c6efe23e03d4852d23f042` (this branch's C# fix). The re-fly conclusion no longer finalizes the first tree's committed chain head off the chain tip's spawned vessel: CI-2 read XPASS `2026-10-05_2136` (12 Destroyed), its `[expectedFail]` was removed, and the armed re-flight `2026-10-05_2138` PASSed attempt 1. RF-2 / RF-5 re-flown on the same DLL as regression checks. No registry cell moves. Previous: 2026-10-05, branch `ci2-lane-fix`: CI-2 waits for the re-fly scene's `OnFlightReady` before its `TimeJump`, `terminalStates.Destroyed` re-pinned `{12,12}`. Also 2026-10-06, branch `todo-rotation-v9`: the One-paragraph summary refreshed to the current tables (367 committed, 192 live-proven, coverage 253 of 253), with the stale D11 `loiter-compression` "uncoverable" note replaced by its V8-eve-player-loop claim; no verdict moved.)
 
 Previously: 2026-10-04 (**SN-1 STARTUP NOTICES LIVE-PROVEN**, branch `startup-notices`, PR #1980, automation DLL sha256 `ce1bb67d33ee786ab49144c983dd2c584553727c0684004bfd70fda0451c25db` (the final head, after the main merge and the nested patch-class key). The new `StartupNotices` in-game category (3 AnyScene cells) flew PASS attempt 1 on `fresh-career` (`2026-10-04_1830`, 149 s, DLL `24e4ad86...`, then re-flown PASS attempt 1 on the final head `2026-10-04_1845`, 52 s): no false install-location alarm over KSP's real assembly paths, `Harmony patches applied: 95 succeeded, 0 failed` (final head), stock ScreenMessages accepts a post in a settled scene, and every startup-notice line forbidden and absent. Pinned whole `total=3 passed=3 failed=0 skipped=0`; left `INTERIM_PIN_IDS`. Live-proven 191 -> 192, not-yet-green unchanged at 5, committed scenarios 367, coverage unchanged at 251 of 251.)
 
@@ -1696,96 +1696,42 @@ The system flies KSP missions unattended (kRPC + MechJeb autopilot, or the
 Parsek file-drop command seam), records them with Parsek, and verifies the
 result through the verifier chain (driver validity, in-game test batch,
 offline recording analyzer, log validation, results schema, anomaly sweep,
-expectations, the save-parse row added report-only 2026-07-31 and armed on
-S4.1 the same day, and the ledger
-oracle). Forty-two test cases are live-proven green end-to-end (the 38
-rows in the Live-proven table below plus the four EVA cases in their own
-section), including Mun/Minmus/Duna flybys with a certified no-1x-coast warp
-profile, the Mun/Minmus ORBIT pair, the Mun/Minmus LANDING pair, and both Eve
-cases - the flyby and, as of 2026-07-29, the ORBIT with its capture tail.
-Counting the 16 in-game batch cases and the 1 isolated case in their own
-sections, ALL 60 committed scenarios now have at least one fully-unattended
-PASS, and the "not yet live-run" section is empty for the first time.
-(The four newest are R12's consumers, all flown green 2026-07-30:
-`H23-tracking-station`, `S0.7-exit-auto-commit`, `S0.8-switch-click-segment`, and
-`CL-2-pod-impact-ledger` - the CL-1 extension, PASS on both of its flights.)
-(B1-pad-hop was de-listed from
-live-proven on 2026-07-25 - its PASSes proved the flight but its chute never
-opened, and its terminal could not tell the difference - and was RE-PROVEN on
-2026-07-29 by run `2026-07-29_1532_B1-pad-hop`, which asserts the OBSERVED
-canopy and reaches LANDED. See its row below and gate 7. The 2026-07-25 sweep's
-PASS never counted as that re-prove: it predates the merge of the canopy-gated
-terminal, so it ran the old contract. B10 and L1-passive-sandbox were re-proven
-on 2026-07-26 in a corrected batch category, after their earlier greens were
-shown to have executed zero tests; M1 and M2 are new and flew the same day, and
-S1.6 and S1.7 are the two render-parity cases this branch flew.) All
-infrastructure modules are shipped and merged. The FIRST two-vessel lane
-(B-DOCK: dock/transfer/undock, the logistics-route recording entry point) is
-LIVE-PROVEN: its fixture-forge ran 2026-07-23, its first green flight was
-2026-07-24, and it has been re-confirmed twice since (2026-07-25 and
-2026-08-11) - see its row below, which has said so since 2026-07-29 while this
-paragraph still claimed both were pending. As of 2026-08-11 its produced save is
-also harvested as the `bdock-recorded` fixture that H35 flies. The Mun/Minmus ORBIT lane (B11/B12: capture burn, park, and a
-commit while parked in a FOREIGN SOI) is LIVE-PROVEN on both axes as of
-2026-07-25, as is the Mun/Minmus LANDING lane (B13/B14: a recording that ENDS on
-foreign soil and is COMMITTED there); B15-eve-flyby is green and B16-eve-orbit
-is committed but not yet flown. PLAYBACK is no longer a blind spot either:
-S1.6 + S1.7 drive 47 in-game parity tests between them. Coverage stood at 136 of
-242 registry cells claimed by at least one scenario, RECOMPUTED 2026-08-20 over
-the 132 committed specs. The jump from the 98 this sentence used to print is
-mostly PROSE DRIFT rather than a wave of claims - the number had not been
-recomputed across the career-ledger and moon-to-moon waves - which is the same
-failure mode the rest of this paragraph already documents twice over, and the
-reason the recompute is the rule here. The most recent single addition is D8
-`contracts`, claimed for the first time by `L4-ledger-groundtruth-strict` on
-2026-08-20 (135 -> 136, measured both ways: with and without the claim, over
-the post-merge spec set that also carries R7c's three new claims); it had
-ZERO prior claimants, and it is fixture-carried because a driven accept is
-unreachable - the seam has no verb for it and `Contract.Accept()` is UI-only and
-Harmony-blocked (the L4 spec's header states this in full). Earlier readings: 98
-of 242, and 84 of 241 at the 2026-07-27 recompute (the batch-wiring +
-isolated-batch wave and the UI-mode cell landed since, and the registry grew one
-cell); the 2026-07-30 +1 was D14 `scene-ts`, claimed for the first time by
-`H23-tracking-station` - R12 made the tracking station reachable at all, while
-R12's other two specs claimed no NEW value (D14 `scene-ksc` already had 8
-claimants and D1 `switch-segment` already had H12).
-EVERY number here is RECOMPUTED from
-`hlib.compute_coverage` over the committed specs + the registry, not carried
-forward from either side: the "52" this sentence used to
-print had drifted across many spec additions (it predates the EVA, B-DOCK,
-ORBIT, LANDING and EVE lanes), the "70 of 239" the ORBIT lane measured on
-2026-07-25 was already stale by the time the landing and Eve lanes merged (that
-tree alone recomputes to 74 of 240), the "77 of 238" the batch-coverage lane
-carried predated the orbit/landing registry cells, and the two sides of THIS
-merge printed 75 of 241 and 82 of 240 - each right only for its own tree. The
-claimed-vs-GREEN split is a DIFFERENT number and is deliberately not restated
-here: it needs the run archive, and `harness/results/*.json` plus
+expectations, render composition, the save-parse row, and the ledger
+oracle). All infrastructure modules are shipped and merged. As of 2026-10-06
+there are 367 committed scenarios (`ls harness/scenarios/*.toml`; tiers 183
+nightly, 27 daily, 157 operator, parsed from the specs' `tier` keys), and the
+`## Test cases` tables below account for every one of them (the per-section
+header counts sum to 367, which `AutotestStatusScenarioCountTests` pins):
+192 rows in the Live-proven table; 4 in the Expected-fail table (EVA-5, RB-1,
+RB-2, EX-1, kept there for their history - no committed spec declares an
+`[expectedFail]` bugId today, so none of them reads EXPECTED-FAIL); 5 in
+Committed, not yet green (GUI-1 and GUI-2 on the operator-local census host,
+RR-1, EVA-9, EVA-10 - each row now records a PASS flight, and the table has
+not been re-sorted); and the remaining 166 in 33 per-program sections (the GUI
+census waves, the game-settings axis, recording under physics warp, the
+in-game batch wiring waves, the supply-route and re-fly continuation programs,
+EVA, the long tail, modded-compat and others), whose own headers and rows carry
+their proof state - three of them are filed under "Flown, RED BY FINDING".
+Coverage is 253 of 253 registry cells claimed by at least one scenario:
+`hlib.compute_coverage(specs, [], registry)` over the 361 committed specs
+printed 253 of 253 on 2026-10-03 (`autotest-roadmap.md`, Coverage), and the
+same call over the 367 specs of 2026-10-06 still prints 253 of 253 with zero
+values covered only by expected-fail lanes. EVERY number here is RECOMPUTED
+from the tables, the spec files and `hlib.compute_coverage`, never carried
+forward: this paragraph previously printed 42 live-proven of 60 committed and
+136 of 242 cells (2026-08-20), long after both had moved, which is the
+prose-drift failure mode the recompute rule exists for. The claimed-vs-GREEN
+split is a DIFFERENT number and is deliberately not restated here: it needs the
+run archive, and `harness/results/*.json` plus
 `harness/coverage/coverage.{json,txt}` are generated + gitignored, so re-derive
-it from a full results set rather than trusting a number in prose. The last
-measured split was 2026-07-25's 58 green and 12 claimed-but-never-green over
-that day's 70, and the never-green 12 were every cell claimed only by the two
-un-flown rewind scenarios plus EVA-4's `chute-two-phase`. Breadth (EVA, orbit,
-landing, docking, career-ledger lanes) is the frontier.
+it from a full results set rather than trusting a number in prose.
 
-ONE UNCOVERED CELL IS NOW KNOWN TO BE UNCOVERABLE, which is a different status
-from "not yet claimed" and should stop being counted as ordinary backlog: **D11
-`loiter-compression`**. Measured 2026-08-09 (branch `loop-geometry-gates`) over
-213 archived log folders plus the committed fixtures and the source - every
-archived `ENGAGED` line reads `loiterCuts=0 cutSeconds=0`, every `parking=`
-reads `False`, and `dest-trim` appears in no log ever collected. It is not a gap
-waiting on a spec: `loiterCuts` is assigned only inside
-`MissionLoopUnitBuilder.ApplyReaim`, whose one call site is gated
-`if (!phaseLocked)`, so the four same-parent moon lanes are STRUCTURALLY
-incapable of it; and the one re-aimed fixture cannot produce it either (its
-Kerbin park is 0.72 of a revolution - 1,404.4 s against a 1,957.0 s period -
-because `padAlignEjection` kills the wait, and a cut excises WHOLE periods,
-while its Duna arrival segments are hyperbolic and so have no period at all).
-What WOULD cover it is filed precisely, with its wall-clock cost and its two
-missing machine capabilities, in `docs/dev/todo-and-known-bugs.md` -> "D11
-`loiter-compression` is UNCOVERED and CANNOT be covered by any committed
-fixture"; the build decision is a human one and is deliberately left open there.
-Do not mark the cell covered off M1/M2 (both explicitly disclaim it) or off any
-moon lane.
+D11 `loiter-compression` was recorded here on 2026-08-09 as UNCOVERABLE by any
+committed fixture (every archived `ENGAGED` line then read `loiterCuts=0
+cutSeconds=0`). That is superseded: `V8-eve-player-loop` produces the program's
+first non-zero loiter cut and claims the cell, gated by the exact
+`loiterCuts=1 cutSeconds=11819849` token (see its row and the superseded D11
+entry in `docs/dev/todo-and-known-bugs.md`).
 
 ## Infrastructure modules (all SHIPPED and merged)
 
