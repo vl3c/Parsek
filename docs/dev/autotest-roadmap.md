@@ -6297,6 +6297,40 @@ ITEM EITHER, and the reason is worth carrying: two hand-flown runs from one base
 would have produced two SINGLE-STOP routes, which cannot contend for the same
 reason a synthetic pair cannot. B4 is NO LONGER a manual flight.
 
+## The logistics integration program (2026-10-06)
+
+Registered 2026-10-06; the research and the full lane list are in
+`docs/dev/research/integration-coverage-gaps-2026-10-06.md`. The supply-route program above
+proved each route feature on its own; this one proves routes TOGETHER with rewind, the
+ledger, real warp, scene changes and other bodies, which today is almost entirely
+unexercised: of 54 route lanes none drives a real Re-Fly, real warp, Real Spawn Control,
+`MissionConfig` or a KSC action, every live dispatch is a Kerbin surface rover, no
+inter-body or moon route has dispatched live, and the ledger oracle never runs on a route or
+a rewind lane. The code read behind it found five confirmed defects in that space (todo
+ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD, ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND,
+ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD, ROUTE-ESCROW-LOST-ON-SCENE-SWITCH,
+ROUTE-DELIVERY-INTO-DOCKED-VISITOR).
+
+Build order:
+
+1. **Phase A, headless:** a red xUnit test per confirmed defect, landed with its fix (A1-A5).
+2. **Capabilities:** a route-aware ledger oracle that survives a rewind (lifts the L4
+   deferral for route lanes); a mid-run route read-back seam; a career twin of
+   `bdock-recorded`; a route fixture with a launch quicksave; a dispatchable moon route
+   (`interbody-route-recorded`'s Mun route first).
+3. **Phase B, pair lanes IR-1..IR-11:** route x F9 across a dispatch, x stock Revert, x a
+   Re-Fly of another tree, x Discard Re-fly, first live moon dispatch, real warp with KSC / TS
+   ticking, Rewind-to-Launch of the route's own tree, chain-ghosted surface endpoint, docked
+   visitor, multi-stop escrow across a scene switch, route costs against committed career
+   actions.
+4. **Phase C, campaign lanes IC-1..IC-4:** inter-body route x rewind across the transit;
+   Mun station route x Re-Fly x F9 x warp; a long career campaign (Minmus depot, two routes,
+   contract, facility upgrade, unrelated Re-Fly, quickload, several cycles, then the ledger
+   oracle over the whole career); route-driven loop ghosts after PLAYER-LOOPING-REMOVAL.
+
+Each Phase B lane removes one unknown from the campaign lane, so a red campaign run names a
+seam rather than "something in the career broke".
+
 ## Trust and fail-open risks still outstanding
 
 What IS load-bearing today: the 8-verifier chain (driverValidity, batchComplete,

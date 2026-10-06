@@ -16,6 +16,119 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## INTEGRATION-COVERAGE-LOGISTICS-REWIND-LEDGER: supply routes are tested almost only in isolation [FILED 2026-10-06 from the integration-coverage research, branch `ccr-77f23eb2-dbqh6i`. OPEN; test program]
+
+Research: `docs/dev/research/integration-coverage-gaps-2026-10-06.md`. Of the 54 specs that
+drive `RouteCommand`, none also drives a real Re-Fly, real warp, Real Spawn Control,
+`MissionConfig` or a KSC action; every live dispatch is a Kerbin surface rover after a seam
+`TimeJump`; no inter-body or moon route has dispatched live; the ledger oracle is never run on
+a route or a rewind lane. The code read behind the research found the five defects filed
+below, all in that untested space.
+
+Fix: the phased program in the research doc - Phase A headless red tests for the confirmed
+defects, then the harness capabilities (route-aware ledger oracle that survives a rewind, a
+mid-run route read-back, career route fixtures with a rewind handle, a dispatchable moon
+route), then the IR-1..IR-11 pair lanes and the IC-1..IC-4 campaign lanes.
+
+---
+
+## ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD: an in-session load back in time leaves route cursors and credits in the abandoned future [FILED 2026-10-06 from the integration-coverage code read, verified by an adversarial pass; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; not yet reproduced]
+
+Routes are loaded from the save only on a cold load (`ParsekScenario.cs:4464`); an in-session
+load (F9 quickload, stock Revert) returns at `ParsekScenario.cs:4320` before any route code.
+The route reconcile (`RouteRewindClassifier.ReconcileStoreAtRewind` +
+`Ledger.RetireFutureRouteActionsAtRewind`) runs only for the go-back rewind
+(`ParsekScenario.cs:4906-4914`) and the Re-Fly bundle (`ReconciliationBundle.cs:316`).
+`RevertInterceptor.DiscardReFlyHandler` reloads the Rewind Point quicksave with no
+`RewindContext`, so it skips the reconcile too. Nothing resets `LastObservedLoopCycleIndex`,
+`RouteLoopClock.TryGetOwedDockCrossing` needs `dockCycleIndex > lastObserved`, the dispatch
+dedup keys on (route, cycle) without UT (`RouteOrchestrator.cs:5001-5036`), and
+`EmitPendingRecoveryCredit` (`:5191-5276`) pays without checking its dispatch row survived.
+
+Expected player effect: after F9 back across a dispatch the funds rows survive while the cargo
+reverts (paid, never delivered); after a Revert the re-flown cycles are swallowed and a pruned
+dispatch's recovery credit can still pay out. Logistics design 10.6 says stock revert/load
+restores route state from the save; the code does not, and the "option C" ruling covers only
+discards with no LoadGame.
+
+Fix: not decided. Either reload the route store from the loaded save's ROUTES node on every
+in-session load, or run the same reconcile the two rewind exits run, keyed to the loaded UT;
+guard `EmitPendingRecoveryCredit` on its dispatch row. Pin it red first: `RouteLoopDeliveryFireTests`
+(swallowed cycle), `RouteRecoveryCreditTests` (orphan credit), a source-text gate on the three
+load paths; then lanes IR-1 / IR-2 / IR-4.
+
+---
+
+## ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND: after a rewind, a surface base hidden by the Ghost Chain Rule gets its route permanently re-pointed to a craft parked within 500 m [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; not yet reproduced]
+
+A base claimed by a committed dock is despawned after a rewind (`VesselGhoster.cs:75`). The
+endpoint resolver misses the root-part and pid steps and falls through to the surface
+proximity step (`RouteEndpointResolver.cs:383-445`), which excludes only ghost-map vessels and
+the route's own transports and then calls `RouteEndpointTransfer.ApplyTransfers` (a persisted
+rebind). No Logistics file asks whether the endpoint is chain-ghosted. The resolver also runs
+from the Logistics window draw, so opening the window can trigger it. When the base respawns
+at the chain tip with its identity preserved, the route already carries the neighbour's root
+part id, which wins at the first resolver step, so the redirect is permanent.
+
+Fix: hold (do not proximity-rebind) while the recorded endpoint is ghosted by a chain; a pure
+predicate beside `RouteEndpointTransferTests`, then lane IR-8.
+
+---
+
+## ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD: the pending recovery credit flush writes a ledger row and live funds while a save is loading [FILED 2026-10-06 from the integration-coverage code read, path verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; UT-0 outcome to confirm]
+
+`RouteStore.FlushPendingRecoveryCreditOnSourceProblem` (`RouteStore.cs:1885-1911`) reads
+`Planetarium.GetUniversalTime()` directly and never consults `ParsekScenario.IsOnLoadInProgress`;
+`EmitPendingRecoveryCredit` then adds a ledger row and credits funds. The cold-load
+`RevalidateSources("OnLoad")` (`ParsekScenario.cs:4465`) reaches it when a route loads Active
+with a pending credit and a source is missing, where the clock can read 0. A UT-0 row survives
+every strict-after-cutoff rewind retire. This contradicts the no-ledger-writes-during-load
+contract (`ParsekScenario.cs:310-321`).
+
+Fix: defer the flush until after load (the route-marker UT resolver already knows the in-load
+state), or emit no row and keep the credit pending. Needs a UT / in-load seam to test headless.
+
+---
+
+## ROUTE-ESCROW-LOST-ON-SCENE-SWITCH: a multi-stop cycle's depot reservation is dropped by a scene change between its windows [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+
+`ClearAllEscrow` runs on every scene switch (`ParsekScenario.cs:8365`); the only re-establish
+site (`RouteOrchestrator.cs:1531`) sits behind the no-due-window early return in
+`ProcessMultiStopCrossings`. A competing route can drain the reserved cargo between windows,
+and window B picks up short after its dispatch was already paid. H60 proves escrow within one
+scene only.
+
+Fix: rebuild escrow for in-flight multi-stop cycles on scene entry (or persist it). Headless
+red test with `RouteCargoEscrowTests` / `RouteEscrowFireTests`, then lane IR-10.
+
+---
+
+## ROUTE-DELIVERY-INTO-DOCKED-VISITOR: cargo delivered to a station lands in (and origin debits drain) whatever is docked to it [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+
+The resolver deliberately returns the docked composite (`RouteEndpointResolver.cs:283-310`),
+and `LiveDeliveryWriters` walks every part of the composite in vessel order (`:150-175`,
+`:251-310`), so a visiting tanker's empty tanks fill first and leave with the cargo when it
+undocks; the capacity gate counts the visitor's tanks; an origin debit can drain a docked
+visitor instead of the depot.
+
+Fix: restrict the writers and the capacity read to the recorded endpoint's own parts (a pure
+part-subset selector), then lane IR-9.
+
+---
+
+## LOGISTICS-DESIGN-DRIFT-2026-10-06: logistics design 10.6 and a RouteRevertSafety comment say a revert / load restores route state; it does not [FILED 2026-10-06 from the integration-coverage code read; branch `ccr-77f23eb2-dbqh6i`. OPEN, docs; waits on ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD]
+
+- Design 10.6 says stock revert / load restores route state from the save; in-session loads
+  do not reload routes (ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD).
+- `RouteRevertSafety.cs:28-30` says Discard Re-fly never calls LoadGame; the Esc > Revert
+  dialog's Discard Re-fly does (`RevertInterceptor.DiscardReFlyHandler`).
+- Corrected on the same branch: 7.1 now records the shipped 500 m proximity radius (it said
+  50 m), and 10.7 records that loop routes collapse missed cycles after a warp.
+
+Fix: rewrite 10.6 and the comment once the reconcile behaviour is decided.
+
+---
+
 ## HARNESS-NO-RETRY-DETERMINISTIC-SEAM-ERROR: a definite seam error is not retried [OPERATOR RULING 2026-10-06, branch `no-retry-deterministic-seam-error`. DONE; the reason set stays open to additions by name]
 
 Ruling (2026-10-06): "Don't retry when the failure is a definite error from the seam, and

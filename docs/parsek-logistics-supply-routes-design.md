@@ -958,6 +958,8 @@ A held run (the dispatch evaluator's first failing gate: origin short, funds sho
 
 `RouteEndpointResolver.SurfaceFallbackRadiusMeters = 50.0` in v1. The radius is deliberately tight: it allows rebuilding a surface base in-place, but avoids treating neighboring pads, rovers, or storage craft as one abstract warehouse. If this proves too restrictive for large surface installations, make it a settings-backed value later rather than silently widening v1 matching.
 
+**AS BUILT:** the shipped constant is `RouteOrchestrator.SurfaceProximityRadiusMeters = 500.0` (tuned down from 2000 m after the v0 playtests; it tolerates terrain settling and floating-origin drift while a depot driven away from its dock spot still loses the route). The 50 m figure above was the pre-implementation proposal. Known gap: the proximity step does not yet skip an endpoint that is hidden by the Ghost Chain Rule after a rewind, so a craft parked within 500 m can capture the route permanently (todo ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND).
+
 KSC-origin routes do not resolve an origin vessel: `IsKscOrigin == true` and `Origin.vesselPersistentId == 0` mean "charge/skip KSC funds branch according to game mode." A route stop endpoint with `vesselPersistentId == 0` is invalid.
 
 **AS BUILT 2026-09-02 (P12), a non-KSC origin with `vesselPersistentId == 0` is NOT invalid.** A start-docked origin's pid is unknowable at capture (`Part.Couple` destroys the absorbed half's `Vessel`) and is stamped at the undock bind only when the launch-guid gate clears it, so a legitimate origin routinely carries pid 0. Its identity is `RouteEndpoint.RootPartUId` - the bound half's root part `flightID`, which is launch-unique where a craft-baked `persistentId` is not - and `RouteEndpointResolver` tries the ROOT-PART step FIRST, ahead of the pid and ahead of surface proximity. The invalid case is an origin with neither a root id nor a pid.
@@ -1085,6 +1087,8 @@ Decision surface: `RouteEndpointTransfer.Evaluate` (transfer or keep), `IsRouteT
 ### 10.7 Time warp past multiple cycles
 **Scenario:** Three cycles due at UT=50000, 50500, 51000.
 **Behavior:** The per-tick catch-up loop alternates in-transit progression and dispatch evaluation until the route is no longer due or hits a blocker. All due cycles are processed sequentially in one deterministic route order. Each dispatch checks destination capacity and origin affordability independently. First may deplete origin or fill destination, blocking subsequent cycles without advancing the blocked `NextDispatchUT`.
+
+**AS BUILT (loop routes):** missed cycles are COLLAPSED, not replayed. A loop route fires once for the highest owed dock cycle after a warp and snaps its cycle cursor forward (single-stop: `RouteLoopDeliveryFireTests.WarpJump_FiresOnce_SnapsForward`; multi-stop: each due window fires once, `RouteMultiStopFireTests.WarpPastCyclesAndWindows_FiresEachDueWindowOnce_BumpsOnce`). Delivered totals over a warp therefore depend on how far the warp jumped, by design; the sequential catch-up described above is the pre-loop-route behaviour.
 
 ### 10.8 Transport still docked at recording end
 **Scenario:** Player forgets to undock.
