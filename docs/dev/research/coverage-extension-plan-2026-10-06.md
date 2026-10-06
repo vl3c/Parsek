@@ -59,10 +59,11 @@ implemented; four in-game categories are never run by any spec (DeployedScienceG
 ChainTipBlockedGhost, GhostReapplyFrame, GuiMock); `ContractTombstonesAcrossSupersede` skips on
 every host it runs on.
 
-Thin tests behind large code: the scenario / scene-control layer (`ParsekScenario` and the
-OnLoad branch matrix, about 51k lines behind 220 named xUnit facts; `ParsekKSC` and
+Thin tests behind large code: the scenario / scene-control layer (about 51k lines, mostly `ParsekFlight`; `ParsekScenario`
+alone is about 9.9k lines with 11 named facts, and its OnLoad branch matrix is the code behind
+the quickload defects; `ParsekKSC` and
 `ParsekTrackingStation` have no test file of their own); `GhostCommNetManager` (no xUnit file);
-watch mode (5.9k lines, one test file, two in-game tests); and no crew, vessel-identity or
+watch mode (5.9k lines, four test files, two in-game tests); and no crew, vessel-identity or
 resource-conservation rule among the analyzer's INV1-INV12.
 
 ## 3. Defects (adversarially verified)
@@ -72,7 +73,7 @@ resource-conservation rule among the analyzer's INV1-INV12.
 | Id | Verdict | What happens | Cheapest red test |
 |---|---|---|---|
 | QL-D1 | CONFIRMED | Every load rebuilds rewind points, supersede rows, retirements, tombstones, the Re-Fly marker and the merge journal from the save (`LoadRewindStagingState`, `ParsekScenario.cs:2783`, called at `:3609`); the carry that protects them runs only on a plain rewind (`:3617`, `:3624`). Recordings and the ledger stay in memory. F9 to a save from before a Re-Fly merge leaves the original and the re-flown flight both visible and the tombstoned crew deaths and reputation penalties counting again. Discard Re-fly with the editor target hits the same path | `RewindStagedListsCarryTests`-style xUnit: commit A and A', keep the supersede row only in memory, non-rewind load of a node without it, assert A invisible |
-| QL-D2 | CONFIRMED | Tagged game-state events from the abandoned future are never purged on F9 (the only after-UT purge has one caller, the Re-Fly discard); once the resumed flight runs past them they are booked at commit. A contract completion or milestone reward from the timeline F9 abandoned is credited | `QuickloadResumeTests`: tagged ContractCompleted at 300, trim to 200, commit 100-350, assert no ContractComplete row |
+| QL-D2 | CONFIRMED | Tagged game-state events from the abandoned future are never purged on F9 (the only after-UT purge, `PurgeEventsForRecordingAfterUT`, runs only for a resumed Parsek-spawned committed vessel's pending-tree discard; the Re-Fly discard purges whole recordings with no UT cutoff); once the resumed flight runs past them they are booked at commit. A contract completion or milestone reward from the timeline F9 abandoned is credited | `QuickloadResumeTests`: tagged ContractCompleted at 300, trim to 200, commit 100-350, assert no ContractComplete row |
 | QL-D3 | CONFIRMED (when the detach runs) | A committed tree detached on F9 keeps its ledger rows; recovery funds or contract rewards from the abandoned future survive a different outcome | extend `TryRestoreActiveTreeNode_SkipsCommittedTreeStashesActiveTree` with a funds row at 300 and a loaded UT of 200 |
 | QL-D4 | PARTLY CONFIRMED | Future terminal state and crew end states of OTHER tree members leak into the resumed tree through the splice / refresh and the stale-epoch path; the trim never clears them. A booster that survives the replayed flight still ghosts as exploding and is no longer recorded. (The active recording itself is guarded by `ClearStaleDestroyedTerminalForResume`.) | `QuickloadResumeTests`: splice + trim on a Destroyed / Dead booster at 300, assert terminal cleared and back in the background map |
 | QL-D5 | PARTLY CONFIRMED (narrow) | An origin rewind point created inside an earlier, merged Re-Fly session is purged with its quicksave file when Discard Re-fly (editor target) loads that quicksave. Deciding fact: whether the editor scene re-reads persistent.sfs | xUnit over `LoadTimeSweep.Run` with that point and the merged session's marker |
@@ -112,7 +113,7 @@ replay.
 | Id | Verdict | What happens | Cheapest red test |
 |---|---|---|---|
 | RC-D1 | CONFIRMED (narrow trigger) | A route already delivering into a station BEFORE a later committed mission docks to it: the station half's snapshot (taken at commit) holds those deliveries; after a rewind to before the dock, the route rows after the cutoff are retired and every crossing while the station is despawned is BLOCKED with no catch-up. The station returns holding cargo nobody paid for again; the origin keeps its cargo and KSC funds are refunded | a `RouteLoopDeliveryFireTests` cell: endpoint unresolved until X then resolved, no cycle before X delivered; full effect needs a new fixture (lane RC-2) |
-| RC-D2 | CONFIRMED | Only the flight scene ghosts a claimed vessel. After a Rewind-to-Launch (lands at the Space Center), a chain tip whose SpawnUT passes at the KSC (surface tip, `ParsekKSC.cs:1999`) or in the TS (`GhostMapPresence.cs:7543-7569`) ADOPTS the live pre-transfer vessel and marks itself spawned; the launch-guid adoption guard passes because the station half keeps the station's Vessel.id. The recorded transfer silently vanishes; the station keeps its pre-transfer tanks while the transport half spawns post-transfer | a TS / KSC spawn cell: tip's claimed pid live and pre-claim, assert no adoption |
+| RC-D2 | CONFIRMED | Only the flight scene ghosts a claimed vessel. After a Rewind-to-Launch (lands at the Space Center), a chain tip whose SpawnUT passes at the KSC (surface tip, `ParsekKSC.cs:1999`) or in the TS (`GhostMapPresence.cs:7514-7569`) ADOPTS the live pre-transfer vessel and marks itself spawned; the launch-guid adoption guard passes because the station half keeps the station's Vessel.id. The recorded transfer silently vanishes; the station keeps its pre-transfer tanks while the transport half spawns post-transfer | a TS / KSC spawn cell: tip's claimed pid live and pre-claim, assert no adoption |
 | RC-D3 | CONFIRMED | `GhostChainWalker.WalkToLeaf` follows the same-pid child, i.e. the DOMINANT half of the dock merge; KSP gives the departing half a new pid on undock. When the transport is dominant (higher vessel type, or heavier) and later ends Destroyed or Recovered, the chain counts as terminated, the station is never ghosted, and the station half spawns as a second station (same part flightIDs, resources, crew seats) | a pure `GhostChainWalkerTests` cell with a transport-pid merged child, a Destroyed transport half and a new-pid station half |
 | RC-D4 | CONFIRMED | No inventory or EVA-construction event is recorded, so moving a part between a tree vessel and a FOREIGN vessel creates no claim: after a rewind the part exists twice or not at all | lane RC-6 with `EvaGroundScience action=take` against a foreign container (new fixture) |
 | RC-D5 | MECHANISM CONFIRMED; RULED 2026-10-06: keep resource-changing tails | Tail trim moves EndUT / SpawnUT earlier but keeps the commit-time snapshot, so resources from the trimmed tail arrive early; with RC-D1, crossings between the trimmed SpawnUT and commit are delivered twice | `RecordingOptimizer` tail-trim cell |
@@ -133,7 +134,7 @@ replay.
 ### 3.5 Gameplay cases nobody tests or lists (candidates, not verified)
 
 A check of 22 candidate cases against every spec, test and doc found these neither tested nor
-listed anywhere (ranked likelihood x damage, each 1-5). They are CANDIDATES: none was traced end to
+listed anywhere (the Rank column is likelihood x damage, each 1-5; rows are in rough rank order). They are CANDIDATES: none was traced end to
 end. Already covered or already listed, for the record: reserved-kerbal EVA (KB-5 live), ghosts as
 rendezvous targets (H28, by design not dockable), two vessels in range with switching (S0.8, CI-1,
 GS-3 ...), claw capture (H41 / H42), Making History launch sites (MC-4), overheat / structural
@@ -182,8 +183,9 @@ Verbs:
 - **`ReadVesselResources pid=|name= [expect=...]`**: per-vessel resource totals and a part-uid
   digest, in FLIGHT, KSC and TS.
 - **Scene-agnostic warp**: `WarpToUT` at the KSC and in the TS.
-- **Mission action to deploy drills and start converters** (`set_converters` only sets `.active`;
-  `set_deployables` skips harvesters; kRPC 0.5.4 exposes both).
+- **Mission action to deploy drills** (`set_converters` starts / stops converter processes but
+  only flips a harvester's `active` flag; `set_deployables` skips harvesters; kRPC 0.5.4 exposes
+  `ResourceHarvester.deployed`).
 
 Oracles and analyzer rules:
 - **Rewind-aware ledger oracle (L4)**: pools = seed + rows at or before the cutoff, tombstones

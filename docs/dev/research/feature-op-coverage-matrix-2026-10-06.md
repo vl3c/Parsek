@@ -61,7 +61,7 @@ Legend: **L** = green harness lane(s); **IG** = in-game category executed by a g
 | Loops / periodicity | L GS-12, LF-1/2, SE-1, MC-5; IG Missions (M1), Periodicity (M2), MissionPhasing (M3) | NONE | **NONE** live; H none found (no xUnit method pairs loop + supersede) | L LF-2 (loop armed before RTL), GS-12 | L LF-1/2 (same-instant); H LoopFirstRunSpawnTests, AutoLoopTests | NONE |
 | Crew (reservations, stand-ins, deaths) | L CL-1, CL-2, L7, EVA-7; IG CrewReservation (H31, 11/15 exec), CrewReservationLive (LT-4), AutoHireReservation (AH-1), KerbalInventorySpawn (H72) | live NONE; IG Rewind `TreeDiscardRemovesSupersedesAndTombstones` (exec UNK) | L CL-3, CL-4, RF-12S, RF-13, RF-19, S4.2, RF-12W (`KerbalRecoveryOnSupersede` PASSED); H TombstoneReloadMigrationTests, SupersedeCommitTombstoneTests, RewindCrewLossFixtureTests | L GS-4 (crew swap token), EVA-7 (inventory); H RewindUtCutoffTests (`CutoffZero_...ProjectsCrewReservations`), KerbalDeathRespawnTests | L RF-13, RF-12S (merge then same-instant reload); back-in-time NONE | NONE live; H weak |
 | Science (experiments, transmit, recovery) | L L6 x2, L7, HC-2, L1-research x2 (spend) | live NONE; H RevertDiscardTests / QuickloadDiscardTests (pending subjects cleared) | **NONE green** (RB-1/RB-2 EXPECTED-FAIL); H RewindUtCutoffTests `ScienceEarning_CutoffFiltersLater` | L HC-2 (`PatchScience 107 -> 100` after RTL) | NONE; H QuickloadDiscardTests `..._WithStaleScienceSubjects_Clears` | NONE; H RevertDiscardTests `UnstashPendingTreeOnRevert_ClearsPendingScienceSubjects` |
-| Deployed (BG) science | NONE (EVA-8/9/10 place clusters on SANDBOX, no science awarded) | NONE | NONE | NONE | NONE | NONE - filed DEPLOYED-SCIENCE-FLOW-LANE-NEEDS-A-HOST (todo:855); IG `DeployedScienceGhost` never run by any spec |
+| Deployed (BG) science | NONE (EVA-8/9/10 place clusters on SANDBOX, no science awarded) | NONE | NONE | NONE | NONE | NONE - filed DEPLOYED-SCIENCE-FLOW-LANE-NEEDS-A-HOST (todo DEPLOYED-SCIENCE-FLOW-LANE-NEEDS-A-HOST); IG `DeployedScienceGhost` never run by any spec |
 | Contracts | L L5 (deadline lapse in flight) | IG Contracts (LT-3: `GenuineDiscard_RehomesContractCompletion`, `AbandonDiscard_...`) | live NONE: IG Rewind `ContractTombstonesAcrossSupersede` SKIPS on every host (RF-6/RF-12*: sandbox, no contracts, RF-12W toml:107; R7a/R7c career hosts: no live session, R7a toml:216); H ContractRewindSnapshotTests, SupersedeCommitTombstoneTests | live NONE (KB-3/KB-4 run on a rewound-SHAPE fixture, no real rewind); H RewindUtCutoffTests `ContractAccept_AdvanceCutoff` etc. | NONE | NONE |
 | Strategies | NONE | NONE | NONE; H SupersedeCommitTests, TombstoneEligibilityTests (weak) | NONE; H RewindUtCutoffTests `StrategyActivate_CutoffFiltersLater` | NONE | NONE |
 | Funds / reputation | L CL-2, HC-1, HC-2, L1-*, L6, RVR-4 | NONE | L CL-4 (rep penalty tombstoned, log token); RB-1/2 expected-fail; H SupersedeCommitTombstoneTests, RewindReadbackGuardTests | L HC-1, HC-2 (PatchFunds/Science/Reputation tokens); oracle refuses rewind lanes (`hlib.py:6966-6992`) | L KB-1 (same-instant) | NONE; H RevertDoubleRolloutTests |
@@ -134,7 +134,7 @@ Legend: **L** = green harness lane(s); **IG** = in-game category executed by a g
 - Four in-game categories are run by no spec: DeployedScienceGhost (1), ChainTipBlockedGhost (2),
   GhostReapplyFrame (1), GuiMock (4). The Rewind category executes at most 17 of 39 cells on any
   one host (R7a pin `passed=17 skipped=22`; RF-12* 12-14; R7c 6), and R7-FIXTURE-GAPS
-  (todo:10793) records cells no committed fixture can execute.
+  (todo R7-FIXTURE-GAPS) records cells no committed fixture can execute.
 
 ## 2. Per-layer density by subsystem
 
@@ -216,7 +216,7 @@ existing coverage. Hosts named are committed fixtures unless marked NEW.
 | 17 | Contract deadline crosses during a warp at the KSC, then a rewind past the deadline | contracts x warp x rewind x KSC | 3x3=9 | L5 (deadline in flight) | Headless first, then lane | career-contract-pad |
 | 18 | Watch a ghost, then F9 / change scene / merge a Re-Fly while watching | watch x F9 x scene x Re-Fly | 3x3=9 | RF-8 (watch during Re-Fly); watch x scene NONE | In-game Watch category growth + lane step | kerbin-splashdown-recorded |
 | 19 | CommNet ghost relay provides control to a real probe mid-burn, then the relay's mission is rewound | CommNet x RTL / Re-Fly | 2x4=8 | CN-2 / CN-3 (warp only) | Lane | duna-park-probe + relay preset |
-| 20 | Breaking Ground cluster in career transmits over warp, then Re-Fly / Revert | deployed science x warp x Re-Fly x revert x career | 2x4=8 | NONE (todo:855) | Lane after the science-bg-pad builder | NEW science-bg-pad (costed in todo:855) |
+| 20 | Breaking Ground cluster in career transmits over warp, then Re-Fly / Revert | deployed science x warp x Re-Fly x revert x career | 2x4=8 | NONE (todo DEPLOYED-SCIENCE-FLOW-LANE-NEEDS-A-HOST) | Lane after the science-bg-pad builder | NEW science-bg-pad (costed in todo DEPLOYED-SCIENCE-FLOW-LANE-NEEDS-A-HOST) |
 
 Next below the cut: strategies across RTL/Re-Fly (2x3), mod-compat FX through rewinds (2x2),
 loops x Re-Fly (moot after PLAYER-LOOPING-REMOVAL except through routes - see integration doc).
@@ -306,7 +306,7 @@ loops x Re-Fly (moot after PLAYER-LOOPING-REMOVAL except through routes - see in
 3. **Verbs:** `Revert`, stock `Quickload`, `RunInvariantReport`, scene-agnostic warp.
 4. **Fixtures:** career twin with an RP + rewindSave (unblocks rows 3, 4, 9 and the integration
    doc's IR-3/IR-7), crewed Mun landing with an RP, docking fixture with a rewindSave,
-   science-bg-pad (todo:855).
+   science-bg-pad (todo DEPLOYED-SCIENCE-FLOW-LANE-NEEDS-A-HOST).
 5. **Two-feature lanes** for stories 1-8 (reading run, then arm), F9-backward and Revert first.
 6. **Rewind-aware ledger oracle (L4)** so the career lanes from step 5 gate on pools, not tokens.
 7. **Fuzzer lane** (nightly, one seed per night) on the everything-fixtures, then the **campaign

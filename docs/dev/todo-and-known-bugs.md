@@ -171,14 +171,18 @@ non-rewind load of a node without it, assert A invisible); then lane QL-3.
 ## QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT: tagged game-state events from the timeline an F9 abandoned are credited when the resumed flight commits [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
 
 The quickload trim cuts trajectories only (`ParsekScenario.Trim.cs`); the only after-UT purge of
-tagged events (`GameStateStore` purge, one caller at `RecordingStore.cs:2636`) runs on the Re-Fly
-discard; the event store reloads only on a cold load. Once the resumed flight runs past the
-abandoned events they fall inside the commit window, and duplicate filtering keys on type,
-contract and UT bucket, so a re-completion at a different UT books a second row. The user guide
-(:409) promises the opposite for revert then F9.
+tagged events, `GameStateStore.PurgeEventsForRecordingAfterUT`, has one caller
+(`RecordingStore.cs:2636`, inside `DiscardPendingTree`'s committed-tree restore-attempt purge,
+armed only when a Parsek-spawned committed vessel is resumed, `ParsekFlight.cs:15560`); the Re-Fly
+discard purges whole recordings by id with no UT cutoff (`MergeDialog.ReFlyDiscard.cs:199`); the
+event store reloads only on a cold load. Once the resumed flight runs past the abandoned events
+they fall inside the commit window, and duplicate filtering keys on type, contract and UT bucket,
+so a re-completion at a different UT books a second row.
 
-Fix: purge the active tree's tagged events after the resume UT on an in-session quickload (the
-same call the Re-Fly discard makes). Red test: `QuickloadResumeTests` - tagged ContractCompleted at
+Fix: purge the active tree's tagged events after the resume UT on an in-session quickload, with a
+UT cutoff like the committed-tree restore-attempt purge (`PurgeEventsForRecordingAfterUT`) - not a
+whole-recording purge, which would also delete the resumed flight's events from before the
+quicksave. Red test: `QuickloadResumeTests` - tagged ContractCompleted at
 UT 300, `TrimRecordingTreePastUT(tree, 200)`, commit 100-350, assert no ContractComplete row.
 Lane QL-2.
 
@@ -254,8 +258,8 @@ from prefabs (H37) and rendered without a running loop (S1.9); harvest-route ana
 synthetic tree (HV-1); `LogisticsHarvestRuntimeTests.HarvestCapture_CatchUpOnLoad` skips
 everywhere (needs a drill landed on ore); `FixResourceConverterTimestamps` has no test at any
 layer; no fixture contains a drill, an ISRU, an ore tank, a scanner or Ore; the coverage registry
-has no converter value. Mission actions cannot deploy drills (`set_converters` only sets
-`.active`, `set_deployables` skips harvesters).
+has no converter value. Mission actions cannot deploy drills: `set_converters` starts / stops converter processes but
+only flips a harvester's `active` flag, and `set_deployables` skips harvesters.
 
 Fix: MINE-0..MINE-5 in the roadmap register - converter events on the drill / ISRU showcases;
 the `minmus-miner-landed` forge (part definitions harvested from a live VAB session) and a
@@ -335,8 +339,8 @@ fixture.
 Only the flight scene ghosts a claimed vessel (`VesselGhoster` is created only in
 `ParsekFlight`), and Rewind-to-Launch lands at the Space Center. In the TS a live vessel with the
 tip's pid counts as already materialized and `VesselSpawned` is set with no spawn
-(`GhostMapPresence.cs:7543-7569`); at the KSC `ShouldSpawnAtKscEnd` has no ghost-chain test and a
-surface tip is adopted (`ParsekKSC.cs:1999`; orbital tips deferred, `:8648`); a later flight load
+(`GhostMapPresence.cs:7514-7569`, the `alreadyMaterialized` branch); at the KSC `ShouldSpawnAtKscEnd` has no ghost-chain test and a
+surface tip is adopted (`ParsekKSC.cs:1999`; orbital tips deferred, `GhostPlaybackLogic.cs:8648`); a later flight load
 past SpawnUT adopts through the ordinary leaf path (`VesselSpawner.cs:1450`). The launch-guid
 adoption guard passes because the station half keeps the station's Vessel.id. Design 12.5 / 20.3
 say claimed vessels are despawned on rewind regardless of scene.

@@ -6390,11 +6390,11 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | TA-8 | Chain tip outside FLIGHT does not adopt a live pre-claim vessel | CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT |
 | TA-9 | Chain walk follows the claimed vessel when the transport is dominant | CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER |
 | TA-10 | Tail trim keeps a resource-changing tail (ruled 2026-10-06) | TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT |
+| TA-11 | `bdock-recorded` endpoint LF delta is positive (offline over the fixture) | BDOCK-FIXTURE-TRANSFER-INVERTED |
 | TA-12 | Harvest-origin route capped at drill rate x duration (ruled) | HARVEST-ROUTE-PLAUSIBILITY-CAP |
 | TA-13 | Resource-scan unlock recorded, ledgered and re-applied after a rewind (ruled) | RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED |
 | TA-14 | Tracking Station uses the current-UT ledger cutoff (ruled) | TRACKING-STATION-LEDGER-CUTOFF-ALIGN |
 | TA-15 | F9 into a discarded flight records again (ruled) | QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN |
-| TA-11 | `bdock-recorded` endpoint LF delta is positive (offline over the fixture) | BDOCK-FIXTURE-TRANSFER-INVERTED |
 | TA-W | Load-path x reconciler wiring gate | HARNESS-TIMELINE-FUZZERS |
 | TA-F | Headless timeline fuzzers (ledger / effective-state / route conservation) | HARNESS-TIMELINE-FUZZERS |
 
@@ -6406,7 +6406,7 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | TC-2 | Resource oracle (`resourceq.py`, `[expectations.world.vessels]`) + in-game `ResourceConservation` | HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES |
 | TC-3 | Analyzer INV13 crew conservation, INV14 vessel identity (baseline, then gate) | HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES |
 | TC-4 | Rewind-aware ledger oracle (L4) | HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND |
-| TC-5 | Mission action: deploy drills, start / stop converters | MINING-ISRU-UNTESTED-END-TO-END |
+| TC-5 | Mission action: deploy drills (converters already start / stop through `set_converters`) | MINING-ISRU-UNTESTED-END-TO-END |
 | TC-6 | Fixtures: `minmus-miner-landed`; career save with a rewind point and a launch quicksave; crewed Mun landing with a rewind point; docking fixture with a launch quicksave; science-bg-pad; dominance and foreign-cargo shapes; re-harvested `bdock-recorded` | several (see each lane) |
 
 ### Lanes
@@ -6448,8 +6448,8 @@ Registered 2026-10-06 at the owner's request: a long scripted gameplay run that 
 GENUINE new save and plays the campaign up to landing on the Mun and coming home, so one run
 exercises recording, commit / merge, ghosts, science, the tech tree, contracts, funds,
 facilities, crew and KSC actions together, the way a player meets them. It is the long-run
-target the other programs build towards; the timeline-operation program's CAMP-1 / CAMP-2 rows
-are this program's later stages.
+target the other programs build towards; the timeline-operation program's CAMP-1 (career) row
+is this program's later stages; CAMP-2 (sandbox) stays separate.
 
 Owner decisions (interview 2026-10-06):
 - **Chained stages.** Each stage is its own lane; its produced save (`results/<runId>_save`) is
