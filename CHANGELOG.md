@@ -3676,6 +3676,30 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A base hidden as a ghost after a rewind keeps its supply route.** When you rewind to
+  before a recorded flight that docks with one of your bases and then enter flight, the base
+  is replaced by its ghost until that flight's recording ends, and it stays hidden if you go
+  on to the Space Center or the Tracking Station. (If you never enter flight in between, the
+  base stays as it is at the Space Center and in the Tracking Station and its route keeps
+  serving it.) While the base was hidden, a route serving it used to switch itself, for good,
+  to any craft parked within 500 m of it (and the Logistics window could trigger the switch
+  just by being open); when the base came back the route kept delivering to the neighbour. The route now waits instead: its runs hold with "destination
+  is a ghost until a recorded flight that docks with it ends - deliveries resume when it is
+  back", and it serves the base again as soon as the base reappears. A base that is really
+  gone (destroyed or recovered) still hands its route to a craft parked nearby, as before.
+  Covered by xUnit; not yet checked in a test flight.
+- **Supply-route cargo no longer goes into, or comes out of, a craft docked to the station.**
+  A route delivering to a station or base with another craft docked to it (a visiting tanker,
+  a lander parked at a port) used to fill that craft's empty tanks and cargo slots first, so
+  the cargo left with it when it undocked; the free-space check counted that craft's tanks
+  too, and a route paying from a depot could drain a docked visitor instead of the depot.
+  Routes now deliver into, measure and take from only the station's or depot's own parts: the
+  parts it had when you recorded the supply run, including modules already docked to it then.
+  This works whichever craft KSP treats as the main one after docking, and a lander endpoint
+  docked into a larger station gets its cargo itself. A module you dock to the station after
+  recording the route does not receive route cargo. When Parsek cannot tell which parts are
+  the station's, routes use the whole docked vessel as before. Covered by xUnit; not yet
+
 - **Quickloading back into a flight you discarded records it again.** Discarding a flight deletes
   its recording, so quickloading a quicksave taken during that flight used to resume recording
   into the deleted one: what was flown before the quicksave and the ghost's look were gone, and

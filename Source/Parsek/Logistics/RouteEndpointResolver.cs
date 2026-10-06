@@ -24,6 +24,10 @@ namespace Parsek.Logistics
     /// route's carrier parked back at the dock is routinely the nearest surface vessel to the
     /// recorded coordinates. Both need to know which route owns the endpoint, which is why
     /// that lookup happens on this step and nowhere earlier.</para>
+    ///
+    /// <para>The proximity step is SKIPPED while the recorded endpoint is hidden by the Ghost
+    /// Chain Rule (<see cref="RouteEndpointChainHold"/>): the endpoint is then temporarily
+    /// missing, not lost, and a transfer would hand the route to a neighbour for good.</para>
     /// </summary>
     internal static class RouteEndpointResolver
     {
@@ -284,7 +288,8 @@ namespace Parsek.Logistics
                         // Verbose: it is a standing condition an operator will want to see
                         // when a delivery lands somewhere unexpected - the recorded endpoint
                         // is currently INSIDE a merged craft whose pid is not the recorded
-                        // one, so the delivery goes into the composite. Rate-limited on a key
+                        // one. The writers then touch only the endpoint's own parts of that
+                        // composite (RouteEndpointPartScope). Rate-limited on a key
                         // that carries the resolved pid, so a re-dock to a different visitor
                         // prints at once while a stable pair prints once.
                         if (rootReason == "docked-composite-match"
@@ -379,6 +384,25 @@ namespace Parsek.Logistics
 
                 // EndpointResolutionStep.SurfaceProximity - the last step, so it returns
                 // either way.
+                //
+                // NOT WHILE THE ENDPOINT IS CHAIN-GHOSTED. A base a committed dock claims is
+                // despawned by a flight load after a rewind (and stays gone in every scene)
+                // until its chain tip respawns it with its identity;
+                // the two identity steps above miss for exactly that span, and proximity would
+                // REBIND the route to a craft parked nearby - permanently, since the neighbour's
+                // root part then wins the first step once the base is back
+                // (ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND). The endpoint is held as
+                // temporarily missing instead; a genuinely lost endpoint (no chain, or a
+                // terminated one) is not held and still transfers below.
+                double holdUT = ReadUniversalTime();
+                if (RouteEndpointChainHold.IsEndpointHeldLive(endpoint, holdUT,
+                        out RouteEndpointChainHold.ChainClaim holdingChain))
+                {
+                    RouteEndpointChainHold.LogHold(endpoint, holdingChain, holdUT);
+                    reason = RouteEndpointChainHold.HoldReason;
+                    return false;
+                }
+
                 CelestialBody body = ResolveBodyByName(endpoint.BodyName);
                 if (body == null)
                 {
@@ -727,9 +751,10 @@ namespace Parsek.Logistics
         /// would lose it for exactly as long as the pair stays docked; the walk would fall to
         /// proximity, land on the composite, and REBIND the route to the visitor, which then
         /// undocks and flies away with it. A part flightID is launch-unique, so a vessel
-        /// carrying it IS the physical craft that holds the recorded endpoint - cargo
-        /// delivered into that composite reaches the base, which is the pre-#1627 outcome
-        /// restored by identity rather than by positional accident.</para>
+        /// carrying it IS the physical craft that holds the recorded endpoint. The resolver
+        /// returns the whole composite; which of its parts a delivery or debit may touch is
+        /// decided afterwards by <see cref="RouteEndpointPartScope"/>, which keeps the
+        /// endpoint's own parts and leaves the docked partner's alone.</para>
         ///
         /// <para>PASS ORDER IS THE CONTRACT and it is not symmetric: an own-root match beats a
         /// contains match everywhere, so the MIRROR case (the destination dominates the merge)

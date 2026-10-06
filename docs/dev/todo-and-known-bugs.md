@@ -1195,6 +1195,9 @@ defects, then the harness capabilities (route-aware ledger oracle that survives 
 mid-run route read-back, career route fixtures with a rewind handle, a dispatchable moon
 route), then the IR-1..IR-11 pair lanes and the IC-1..IC-4 campaign lanes.
 
+Progress: Phase A rows A2 (ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND) and A5
+(ROUTE-DELIVERY-INTO-DOCKED-VISITOR) landed with their fixes on `fix-route-endpoint-writes`.
+
 ---
 
 ## HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND: the ledger oracle knows no route actions and refuses every rewind lane [FILED 2026-10-06 for the logistics integration program (C1), branch `ccr-77f23eb2-dbqh6i`. OPEN, harness]
@@ -1396,7 +1399,7 @@ copy where one is trustworthy (Re-Fly). Red test: the probe above against each e
 
 ---
 
-## ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND: after a rewind, a surface base hidden by the Ghost Chain Rule gets its route permanently re-pointed to a craft parked within 500 m [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; not yet reproduced]
+## ~~ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND: after a rewind, a surface base hidden by the Ghost Chain Rule gets its route permanently re-pointed to a craft parked within 500 m~~ [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-route-endpoint-writes` (xUnit only; live proof is lane IR-8)]
 
 A base claimed by a committed dock is despawned after a rewind (`VesselGhoster.cs:75`). The
 endpoint resolver misses the root-part and pid steps and falls through to the surface
@@ -1409,6 +1412,36 @@ part id, which wins at the first resolver step, so the redirect is permanent.
 
 Fix: hold (do not proximity-rebind) while the recorded endpoint is ghosted by a chain; a pure
 predicate beside `RouteEndpointTransferTests`, then lane IR-8.
+
+FIXED 2026-10-07 (`fix-route-endpoint-writes`): `RouteEndpointResolver`'s surface-proximity
+step first asks `RouteEndpointChainHold.IsEndpointHeldLive`; when the endpoint is
+chain-ghosted it returns false with reason `endpoint-chain-ghosted` (logged rate-limited as
+`Endpoint HELD, not rebound:`) and neither searches nor calls `ApplyTransfers`. The pure
+predicate `IsHeldByGhostChain`: a claim with the endpoint's pid, launch guids not conclusively
+different, not terminated, and its tip spawn UT still ahead OR still pending in flight. The
+claims come from `GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees)`
+(memoized on `RecordingStore.StateVersion` + tree count + 120 frames; the UT test is live),
+plus `ParsekFlight.ActiveGhostChains`, which keeps a chain whose tip
+spawn a collision blocked past its spawn UT (the blocker may be the very neighbour). Per scene
+(after PR #2029): only a flight load despawns the claimed base, and it stays gone at the KSC
+and in the TS afterwards, which is why the claims come from the committed trees; a base no
+flight load removed stays live at the KSC / TS until `ChainTipStaleVessel` replaces it at the
+tip spawn UT, so there the root-part / pid step finds it and the hold is never reached. Mirror: a
+terminated chain (destroyed / recovered in the committed future) or no claim is not held and
+still transfers as before. A held loop route blocks its crossings exactly as for any missing
+endpoint (a `RouteHeld` row of kind EndpointLost carrying the `stop-N-` / `origin-` token; the
+route stays Active and fires again once the base resolves by identity), and the hold line now
+says "destination is a ghost until a recorded flight that docks with it ends - deliveries
+resume when it is back" (new `LogisticsHoldClauses` pair, compact "destination is a ghost" /
+"origin is a ghost"; the Route History row drops the advice tail) instead of pointing at
+Re-scan or Delete. Residuals: a delivery already paid for when the hold begins (a multi-stop
+window after a rewind into the cycle) fails like any endpoint-lost delivery; a start-docked
+origin whose pid was never stamped (pid 0) cannot be matched to a chain (chains are keyed by
+pid). Tests: `RouteEndpointChainHoldTests` (red against the never-hold stub
+first), `LogisticsHoldPresentationTests.DescribeHold_EndpointLost_ChainGhostHold`, and
+`RouteEndpointScopeWiringGateTests.ResolverProximityStepAsksTheChainHoldFirst` (the resolver
+reads the hold as a branch condition inside the proximity step, before the search and the
+rebind, and returns false with the hold reason; red with the call deleted or short-circuited).
 
 ---
 
@@ -1440,7 +1473,7 @@ red test with `RouteCargoEscrowTests` / `RouteEscrowFireTests`, then lane IR-10.
 
 ---
 
-## ROUTE-DELIVERY-INTO-DOCKED-VISITOR: cargo delivered to a station lands in (and origin debits drain) whatever is docked to it [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~ROUTE-DELIVERY-INTO-DOCKED-VISITOR: cargo delivered to a station lands in (and origin debits drain) whatever is docked to it~~ [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-route-endpoint-writes` (xUnit only; live proof is lane IR-9)]
 
 The resolver deliberately returns the docked composite (`RouteEndpointResolver.cs:283-310`),
 and `LiveDeliveryWriters` walks every part of the composite in vessel order (`:150-175`,
@@ -1450,6 +1483,40 @@ visitor instead of the depot.
 
 Fix: restrict the writers and the capacity read to the recorded endpoint's own parts (a pure
 part-subset selector), then lane IR-9.
+
+FIXED 2026-10-07 (`fix-route-endpoint-writes`): `RouteEndpointPartScope` cuts the resolved
+vessel at every settled stock dock seam the way an undock would (a docking node or claw with
+stock's `vesselInfo` whose `dockedPartUId` names its parent or child part) and keeps the pieces
+that hold the endpoint's root part or a part the route RECORDED as the endpoint's: the
+connection window's `EndpointPartPersistentIds` for an endpoint captured at a dock (matched by
+root part flightID, by target pid only when the endpoint has no root), and the depot half of
+the start-docked pair seam in the recording's start snapshot for a start-docked origin. Stock's
+own records alone could not decide it: a module docked before the route was recorded and a
+visitor docked after leave identical `DockedVesselInfo` pairs and no time. The resulting
+`EndpointPartScope` is built once per probe / writer bundle on the same loaded / unloaded
+branch and threaded into `LiveDeliveryCapacityProbe`, `LiveDeliveryWriters`,
+`LiveOriginCargoProbe`, `LiveOriginDebitWriters` and `LiveInventoryPickupWriter` at every
+production site (delivery, origin debit and gate, pickup debit and gate, destination gate, the
+Logistics window's capacity line). The multi-stop gates that share one probe per destination
+key it by vessel pid PLUS scope (`EndpointScopedCache`), and the pickup gate groups sources by
+pid plus `PartScopeKey`, so two stops whose endpoints were later docked into one composite are
+each gated against the parts their own writer touches (the review case: a station stop and a
+lander stop docked together used to be planned against the station's tanks, pass, debit the
+origin in full and drop what the lander could not take). Residual: two stops on one vessel
+whose scopes differ but overlap (only when one stop falls back to the whole vessel or two
+recorded sets partly overlap) are probed separately. Both merge directions and the endpoint
+docked INTO a larger station resolve to the endpoint's own parts; an undocked endpoint is unchanged; a station
+assembled from earlier-docked modules stays whole. Fallback to the whole vessel, logged
+rate-limited as `Endpoint part scope undetermined: ... outcome=no-recorded-parts` (or
+`endpoint-not-aboard`): no recorded part set (a route that lost its window recordings) or none
+of the recorded parts aboard. Known consequence: a module docked to the station after the
+route was recorded is excluded too (conservative: cargo stays in the parts the route was proven
+against). Tests: `RouteEndpointPartScopeTests` (red against the whole-vessel stub first),
+`RouteScopedProbeSharingTests` (red against the pid-only cache key and grouping first), and
+the source gate `RouteEndpointScopeWiringGateTests` (every production probe / writer built with
+the endpoint's scope, every part loop guarded, gate probes shared per pid and scope; red under
+each of a dropped scope argument, a `null` scope, an unguarded loop, a pid-only share and a
+pickup resolution without its scope key).
 
 ---
 

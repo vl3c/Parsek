@@ -95,9 +95,9 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void TheWalkIsNotVacuous()
         {
-            Assert.Equal(66, LogisticsHoldClauses.All.Count);
+            Assert.Equal(70, LogisticsHoldClauses.All.Count);
             Assert.Equal(12, LogisticsRejectClauses.All.Count);
-            Assert.Equal(66, DeclaredConstants(typeof(LogisticsHoldClauses)).Count);
+            Assert.Equal(70, DeclaredConstants(typeof(LogisticsHoldClauses)).Count);
             Assert.Equal(12, DeclaredConstants(typeof(LogisticsRejectClauses)).Count);
         }
 

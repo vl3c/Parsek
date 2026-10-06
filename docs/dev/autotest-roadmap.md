@@ -6322,10 +6322,10 @@ named in a row owns the detail.
 | Id | Pins | Host tests | Todo |
 |---|---|---|---|
 | A1 | ~~F9 / stock Revert / Discard Re-fly leave route cursors ahead (replayed cycle swallowed) and pay an orphan recovery credit~~ DONE 2026-10-07 (branch `fix-route-state-on-load`): `RouteLoadReconcile` runs the go-back reconcile at the loaded save's UT and restores the saved loop position; `EmitPendingRecoveryCredit` refuses a retired dispatch | `RouteLoopDeliveryFireTests`, `RouteRecoveryCreditTests`, `RouteLoadReconcileTests` (incl. the OnLoad source gate) | ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD |
-| A2 | A chain-ghosted surface endpoint holds instead of proximity-rebinding | new predicate beside `RouteEndpointTransferTests` | ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND |
+| A2 | A chain-ghosted surface endpoint holds instead of proximity-rebinding. DONE 2026-10-07 (`fix-route-endpoint-writes`) | `RouteEndpointChainHoldTests` | ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND |
 | A3 | Multi-stop escrow survives a scene switch between windows | `RouteCargoEscrowTests` / `RouteEscrowFireTests` | ROUTE-ESCROW-LOST-ON-SCENE-SWITCH |
 | A4 | No ledger write from the recovery-credit flush during OnLoad | a UT / in-load seam on `RouteStore` | ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD |
-| A5 | Delivery writers and the capacity read touch only the endpoint's own parts | a pure part-subset selector | ROUTE-DELIVERY-INTO-DOCKED-VISITOR |
+| A5 | Delivery writers and the capacity read touch only the endpoint's own parts. DONE 2026-10-07 (`fix-route-endpoint-writes`) | `RouteEndpointPartScopeTests` | ROUTE-DELIVERY-INTO-DOCKED-VISITOR |
 
 ### Capabilities the lanes need
 
