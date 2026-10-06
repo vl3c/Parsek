@@ -32,9 +32,16 @@ namespace Parsek.Logistics
             ExcludedComponentCount = excludedComponentCount;
             TotalPartCount = this.ownMask.Length;
             int own = 0;
+            var sb = new System.Text.StringBuilder(isLoadedBranch ? "loaded:" : "unloaded:");
             for (int i = 0; i < this.ownMask.Length; i++)
-                if (this.ownMask[i]) own++;
+            {
+                if (!this.ownMask[i]) continue;
+                if (own > 0) sb.Append(',');
+                sb.Append(i.ToString(CultureInfo.InvariantCulture));
+                own++;
+            }
             OwnPartCount = own;
+            key = sb.ToString();
         }
 
         /// <summary>True when the part at <paramref name="partIndex"/> on this scope's
@@ -51,6 +58,20 @@ namespace Parsek.Logistics
         {
             return scope == null || scope.Includes(partIndex);
         }
+
+        /// <summary>
+        /// Identity of the part set a scope admits: <c>whole</c> for a null scope, else the
+        /// branch and the admitted part indices. Two scopes with the same key read and write
+        /// the same parts. A per-vessel cache that shares capacity accounting across stops
+        /// must key on the vessel pid PLUS this, because two stops resolving to one docked
+        /// composite can own disjoint halves of it.
+        /// </summary>
+        internal static string KeyOf(EndpointPartScope scope)
+        {
+            return scope == null ? "whole" : scope.key;
+        }
+
+        private readonly string key;
 
         /// <summary>Log token: <c>whole</c> for a null scope, else <c>own=N/M</c>.</summary>
         internal static string Describe(EndpointPartScope scope)
@@ -77,6 +98,37 @@ namespace Parsek.Logistics
                 + " readerBranch=" + (isLoaded ? "loaded" : "unloaded")
                 + " - a part mask is only valid on the branch it was built for; using the whole vessel");
             return null;
+        }
+    }
+
+    /// <summary>
+    /// One probe per (resolved vessel, part scope) for a gate that walks several stops.
+    /// Stops that resolve to the same vessel AND the same own-part scope share one probe
+    /// instance, so the capacity gate accounts their combined manifest against one set of
+    /// tanks (<see cref="RouteDestinationCapacityCheck.HasCapacityForAllStops"/>). Stops on
+    /// one docked composite with DIFFERENT scopes (a station and a lander that was docked to
+    /// it after both were recorded) get separate probes, each over the parts its own writer
+    /// will fill; sharing the first stop's probe would plan the second stop's cargo against
+    /// tanks its writer never touches, and the cargo that did not fit would be dropped.
+    /// </summary>
+    internal sealed class EndpointScopedCache<TProbe> where TProbe : class
+    {
+        private readonly Dictionary<string, TProbe> byKey =
+            new Dictionary<string, TProbe>(StringComparer.Ordinal);
+
+        internal static string KeyFor(uint vesselPid, EndpointPartScope scope)
+        {
+            return vesselPid.ToString(CultureInfo.InvariantCulture)
+                + "|" + EndpointPartScope.KeyOf(scope);
+        }
+
+        internal TProbe GetOrAdd(uint vesselPid, EndpointPartScope scope, Func<TProbe> create)
+        {
+            string key = KeyFor(vesselPid, scope);
+            if (byKey.TryGetValue(key, out TProbe cached)) return cached;
+            TProbe made = create != null ? create() : null;
+            byKey[key] = made;
+            return made;
         }
     }
 

@@ -4556,31 +4556,30 @@ namespace Parsek
         /// to find which stop it refuses, so the DestinationFull capacity line names the
         /// stop that is actually full. Mirrors
         /// <c>LiveRouteRuntimeEnvironment.DestinationHasCapacity</c>: one
-        /// <see cref="LiveDeliveryCapacityProbe"/> per resolved vessel pid, shared by every
-        /// stop delivering there, and an unresolved stop fails open (null probe). Returns
+        /// <see cref="LiveDeliveryCapacityProbe"/> per resolved vessel pid and own-part scope,
+        /// shared by every stop delivering there, and an unresolved stop fails open (null
+        /// probe). Returns
         /// -1 when every stop fits now (capacity freed since the hold) or none resolved.
         /// </summary>
         private static int FindFullStopIndex(Route route, Vessel[] stopVessels)
         {
             if (route?.Stops == null || stopVessels == null)
                 return -1;
-            var probeByPid = new Dictionary<uint, IDeliveryCapacityProbe>();
+            var probes = new EndpointScopedCache<IDeliveryCapacityProbe>();
             bool fits = RouteDestinationCapacityCheck.HasCapacityForAllStops(
                 route,
                 stopIndex =>
                 {
                     Vessel v = stopIndex < stopVessels.Length ? stopVessels[stopIndex] : null;
                     if (v == null) return null;
-                    if (probeByPid.TryGetValue(v.persistentId, out IDeliveryCapacityProbe cached))
-                        return cached;
                     bool isLoaded = RouteOrchestrator.EndpointStoreIsLiveParts(v);
                     RouteStop stop = route.Stops[stopIndex];
                     EndpointPartScope scope = stop != null
                         ? RouteEndpointPartScope.ForEndpoint(route, stop.Endpoint, v, isLoaded, "capacity-context")
                         : null;
-                    var probe = new LiveDeliveryCapacityProbe(v, isLoaded, scope);
-                    probeByPid[v.persistentId] = probe;
-                    return probe;
+                    // Same (pid, scope) sharing as the dispatch gate it mirrors.
+                    return probes.GetOrAdd(v.persistentId, scope,
+                        () => new LiveDeliveryCapacityProbe(v, isLoaded, scope));
                 },
                 out _,
                 out int fullStopIndex);

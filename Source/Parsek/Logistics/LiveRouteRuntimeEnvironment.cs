@@ -373,13 +373,17 @@ namespace Parsek.Logistics
                             : RouteIds.Short(reservingRouteId);
                     };
 
+                    // Keyed by scope too: two pickup endpoints docked into one composite
+                    // are read (and later debited) through disjoint part sets, so they
+                    // must not be summed against one source's readers.
                     result = RoutePickupSourceGate.PickupSourceResolution.Ok(
                         sourcePid,
                         vessel.vesselName,
                         nettedReader,
                         inventoryWriter.CountStored,
                         liveReader,
-                        reservingRouteNameLookup);
+                        reservingRouteNameLookup)
+                        .WithPartScopeKey(EndpointPartScope.KeyOf(sourceScope));
                 }
 
                 if (cacheKey != 0u)
@@ -509,13 +513,15 @@ namespace Parsek.Logistics
 
             int resolvedStops = 0;
             int unresolvedStops = 0;
-            // One probe per resolved vessel PID, shared across stops that
-            // deliver to the same destination: the gate accumulates planned
-            // resource amounts per probe instance and the planner's consumed
-            // inventory slots live on the instance, so two windows to one
-            // station are checked against the COMBINED manifest (a fresh probe
-            // per stop would let the combined manifest overflow the tank).
-            var probeByPid = new Dictionary<uint, IDeliveryCapacityProbe>();
+            // One probe per resolved vessel PID AND own-part scope, shared across
+            // stops that deliver to the same destination: the gate accumulates
+            // planned resource amounts per probe instance and the planner's consumed
+            // inventory slots live on the instance, so two windows to one station
+            // are checked against the COMBINED manifest (a fresh probe per stop
+            // would let the combined manifest overflow the tank). The scope is in
+            // the key because two stops on one docked composite can own disjoint
+            // halves of it, and each stop's writer fills only its own half.
+            var probes = new EndpointScopedCache<IDeliveryCapacityProbe>();
             bool hasCapacity = RouteDestinationCapacityCheck.HasCapacityForAllStops(
                 route,
                 stopIndex =>
@@ -529,17 +535,14 @@ namespace Parsek.Logistics
                         return null; // fail-open: endpoint gate owns this failure
                     }
                     resolvedStops++;
-                    uint pid = vessel.persistentId;
-                    if (probeByPid.TryGetValue(pid, out IDeliveryCapacityProbe cached))
-                        return cached;
-                    // Capture the loaded gate ONCE per stop vessel, same
-                    // contract as the delivery applier's destinationIsLoaded.
+                    // Capture the loaded gate per stop vessel, same contract as the
+                    // delivery applier's destinationIsLoaded, and build the SAME
+                    // per-stop scope the applier builds for this stop.
                     bool isLoaded = RouteOrchestrator.EndpointStoreIsLiveParts(vessel);
                     EndpointPartScope destinationScope = RouteEndpointPartScope.ForEndpoint(
                         route, stop.Endpoint, vessel, isLoaded, "destination-gate");
-                    var probe = new LiveDeliveryCapacityProbe(vessel, isLoaded, destinationScope);
-                    probeByPid[pid] = probe;
-                    return probe;
+                    return probes.GetOrAdd(vessel.persistentId, destinationScope,
+                        () => new LiveDeliveryCapacityProbe(vessel, isLoaded, destinationScope));
                 },
                 out string fullToken,
                 out int fullStopIndex);

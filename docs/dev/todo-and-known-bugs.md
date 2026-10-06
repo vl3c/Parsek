@@ -1387,14 +1387,22 @@ visitor docked after leave identical `DockedVesselInfo` pairs and no time. The r
 branch and threaded into `LiveDeliveryCapacityProbe`, `LiveDeliveryWriters`,
 `LiveOriginCargoProbe`, `LiveOriginDebitWriters` and `LiveInventoryPickupWriter` at every
 production site (delivery, origin debit and gate, pickup debit and gate, destination gate, the
-Logistics window's capacity line). Both merge directions and the endpoint docked INTO a larger
-station resolve to the endpoint's own parts; an undocked endpoint is unchanged; a station
+Logistics window's capacity line). The multi-stop gates that share one probe per destination
+key it by vessel pid PLUS scope (`EndpointScopedCache`), and the pickup gate groups sources by
+pid plus `PartScopeKey`, so two stops whose endpoints were later docked into one composite are
+each gated against the parts their own writer touches (the review case: a station stop and a
+lander stop docked together used to be planned against the station's tanks, pass, debit the
+origin in full and drop what the lander could not take). Residual: two stops on one vessel
+whose scopes differ but overlap (only when one stop falls back to the whole vessel or two
+recorded sets partly overlap) are probed separately. Both merge directions and the endpoint
+docked INTO a larger station resolve to the endpoint's own parts; an undocked endpoint is unchanged; a station
 assembled from earlier-docked modules stays whole. Fallback to the whole vessel, logged
 rate-limited as `Endpoint part scope undetermined: ... outcome=no-recorded-parts` (or
 `endpoint-not-aboard`): no recorded part set (a route that lost its window recordings) or none
 of the recorded parts aboard. Known consequence: a module docked to the station after the
 route was recorded is excluded too (conservative: cargo stays in the parts the route was proven
-against). Tests: `RouteEndpointPartScopeTests` (red against the whole-vessel stub first).
+against). Tests: `RouteEndpointPartScopeTests` (red against the whole-vessel stub first),
+`RouteScopedProbeSharingTests` (red against the pid-only cache key and grouping first).
 
 ---
 
