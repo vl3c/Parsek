@@ -5495,6 +5495,13 @@ namespace Parsek
                 // retirements; the OnLoad re-apply then finds nothing left to do on it.
                 CaptureRewindStagedListsForRewind(ParsekScenario.Instance, messageLabel);
 
+                // Same reason, for the rewind save's own route copy: OnLoad will read persistent's
+                // ROUTES, of unknown age, so the go-back loop-position restore in
+                // HandleRewindOnLoad reads this save's from the parsed game's scenario protos,
+                // which still hold the file's nodes.
+                Logistics.RouteLoadReconcile.CaptureRewindSaveRoutes(game.scenarios,
+                    game.flightState.universalTime, messageLabel);
+
                 HighLogic.CurrentGame = game;
                 HighLogic.LoadScene(GameScenes.SPACECENTER);
 
