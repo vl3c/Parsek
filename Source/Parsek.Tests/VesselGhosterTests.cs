@@ -526,5 +526,132 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region GhostVessel crew safety
+
+        /// <summary>
+        /// An unloaded claimed vessel as stock KSP treats it: Destroy() with crew still aboard
+        /// kills them (Vessel.Die -> MurderCrew), and a detached kerbal keeps its roster status
+        /// until released.
+        /// </summary>
+        private sealed class FakeUnloadedClaimedVessel : IClaimedVesselRemovalTarget
+        {
+            internal readonly List<string> Aboard = new List<string>();
+            internal readonly Dictionary<string, string> Status = new Dictionary<string, string>();
+            internal readonly List<string> Calls = new List<string>();
+            internal readonly List<string> Detached = new List<string>();
+            internal bool SuppressedAtDestroy;
+            internal bool ThrowOnDestroy;
+
+            internal FakeUnloadedClaimedVessel(params string[] crew)
+            {
+                foreach (string name in crew)
+                {
+                    Aboard.Add(name);
+                    Status[name] = "Assigned";
+                }
+            }
+
+            public uint PersistentId { get { return 3620499050u; } }
+            public string VesselName { get { return "Kerbal X"; } }
+
+            public List<string> DetachCrew()
+            {
+                Calls.Add("detach");
+                var names = new List<string>(Aboard);
+                Detached.AddRange(names);
+                Aboard.Clear();
+                return names;
+            }
+
+            public void Destroy()
+            {
+                Calls.Add("destroy");
+                SuppressedAtDestroy = GameStateRecorder.SuppressCrewEvents;
+                if (ThrowOnDestroy)
+                    throw new InvalidOperationException("Die failed");
+                foreach (string name in Aboard)
+                    Status[name] = "Dead";
+                Aboard.Clear();
+            }
+
+            public bool ReleaseCrew(string name)
+            {
+                if (!Status.ContainsKey(name) || Status[name] != "Assigned")
+                    return false;
+                Status[name] = "Available";
+                return true;
+            }
+
+            public int ReattachCrew()
+            {
+                Calls.Add("reattach");
+                int back = Detached.Count;
+                Aboard.AddRange(Detached);
+                Detached.Clear();
+                return back;
+            }
+        }
+
+        [Fact]
+        public void GhostVessel_UnloadedCrewedClaimedVessel_CrewSurviveAndAreAvailable()
+        {
+            // The RF-8 / CI-3 / CI-4 shape: "Ghosting vessel: pid=3620499050 name=Kerbal X"
+            // then "Bill Kerman, Bob Kerman, Valentina Kerman are now dead."
+            var claimed = new FakeUnloadedClaimedVessel("Bill Kerman", "Bob Kerman", "Valentina Kerman");
+            VesselGhoster.ResolveClaimedVesselForTesting = pid => new VesselGhoster.ClaimedVesselForGhosting
+            {
+                Name = "Kerbal X",
+                Snapshot = new ConfigNode("VESSEL"),
+                Target = claimed
+            };
+
+            bool ghosted = ghoster.GhostVessel(3620499050u);
+
+            Assert.True(ghosted);
+            Assert.True(ghoster.IsGhosted(3620499050u));
+            Assert.Equal(new List<string> { "detach", "destroy" }, claimed.Calls);
+            Assert.True(claimed.SuppressedAtDestroy);
+            Assert.False(GameStateRecorder.SuppressCrewEvents);
+            Assert.All(claimed.Status.Values, status => Assert.Equal("Available", status));
+            Assert.Contains(logLines, l => l.Contains("[ClaimRemoval]")
+                && l.Contains("crewDetached=3")
+                && l.Contains("crewSetAvailable=3"));
+        }
+
+        [Fact]
+        public void GhostVessel_DespawnThrowsWhileTheVesselStands_CrewGoBackAboard()
+        {
+            // The despawn fails after the crew were taken off; the vessel still exists, so the
+            // ghoster skips its snapshot restore. It must not be left crewless.
+            var claimed = new FakeUnloadedClaimedVessel("Bill Kerman", "Bob Kerman") { ThrowOnDestroy = true };
+            VesselGhoster.ResolveClaimedVesselForTesting = pid => new VesselGhoster.ClaimedVesselForGhosting
+            {
+                Name = "Kerbal X",
+                Snapshot = new ConfigNode("VESSEL"),
+                Target = claimed
+            };
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 3620499050u);
+
+            bool ghosted = ghoster.GhostVessel(3620499050u);
+
+            Assert.False(ghosted);
+            Assert.False(ghoster.IsGhosted(3620499050u));
+            Assert.Equal(new List<string> { "detach", "destroy", "reattach" }, claimed.Calls);
+            Assert.Equal(new List<string> { "Bill Kerman", "Bob Kerman" }, claimed.Aboard);
+            Assert.All(claimed.Status.Values, status => Assert.Equal("Assigned", status));
+            Assert.Contains(logLines, l => l.Contains("Restore from snapshot skipped after despawn failure"));
+        }
+
+        [Fact]
+        public void GhostVessel_ClaimedVesselNotFound_GhostsNothing()
+        {
+            VesselGhoster.ResolveClaimedVesselForTesting = pid => null;
+
+            Assert.False(ghoster.GhostVessel(42u));
+            Assert.False(ghoster.IsGhosted(42u));
+        }
+
+        #endregion
     }
 }

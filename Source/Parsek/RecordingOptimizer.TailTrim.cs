@@ -143,17 +143,118 @@ namespace Parsek
         internal const double TailResourceChangeEpsilon = 1e-6;
 
         /// <summary>
-        /// UT of the last MEASURED resource change in a recording, or NaN when none is
+        /// UT of the last witnessed resource change in a recording, or NaN when none is
         /// witnessed. A trimmed tail must not hide a resource change: the spawn snapshot
         /// is the commit-time vessel, so moving the spawn earlier would deliver the
-        /// change early. The only per-UT resource witness a recording carries is a closed
+        /// change early. Two witnesses, the later one wins:
+        /// <list type="bullet">
+        /// <item>a closed <see cref="RouteHarvestWindow"/> whose measured manifests differ
+        /// (<see cref="FindLastHarvestWindowChangeUT"/>);</item>
+        /// <item>a converter still running at the end
+        /// (<see cref="CountConvertersRunningAtEnd"/>), which returns the recording's end
+        /// UT: the converter runs through the whole tail.</item>
+        /// </list>
+        /// The converter witness exists because the optimizer split voids the harvest
+        /// windows on both halves (logistics D13) and the trim re-runs on every pass,
+        /// while the converter part events are partitioned by the split and re-seeded at
+        /// the start of the second half. It is a proxy, not a measurement: a converter
+        /// switched on but stalled (full tanks, no input) keeps its tail too.
+        /// </summary>
+        internal static double FindLastResourceChangeUT(Recording rec)
+        {
+            double lastUT = FindLastHarvestWindowChangeUT(rec);
+            if (CountConvertersRunningAtEnd(rec) > 0)
+            {
+                double endUT = rec.EndUT;
+                if (double.IsNaN(lastUT) || endUT > lastUT)
+                    lastUT = endUT;
+            }
+
+            return lastUT;
+        }
+
+        /// <summary>
+        /// Number of parts whose converter is still running at the recording's end: the
+        /// part's latest converter state at or before <see cref="Recording.EndUT"/> is
+        /// <see cref="PartEventType.ConverterActivated"/>. The recorders (flight and
+        /// background) emit one ConverterActivated / ConverterDeactivated edge per part
+        /// when any BaseConverter on it (drill, ISRU, fuel cell, modded derivative) turns
+        /// on or the last one turns off, plus a ConverterActivated seed for a converter
+        /// already running when a fresh recording starts. A
+        /// <see cref="PartEventType.Destroyed"/> event on the part ends its run for good,
+        /// whatever follows it: the recorder writes no stop for a part that left the vessel,
+        /// and an optimizer split forwards the Destroyed seed ahead of a ConverterActivated
+        /// seed at the same UT. The list is not assumed sorted; other ties at one UT go to
+        /// the later list entry.
+        /// </summary>
+        internal static int CountConvertersRunningAtEnd(Recording rec)
+        {
+            List<PartEvent> events = rec?.PartEvents;
+            if (events == null || events.Count == 0)
+                return 0;
+
+            double endUT = double.NaN;
+            Dictionary<uint, KeyValuePair<double, bool>> latestByPart = null;
+            HashSet<uint> destroyedParts = null;
+            for (int i = 0; i < events.Count; i++)
+            {
+                PartEvent evt = events[i];
+                bool running;
+                switch (evt.eventType)
+                {
+                    case PartEventType.ConverterActivated:
+                        running = true;
+                        break;
+                    case PartEventType.ConverterDeactivated:
+                    case PartEventType.Destroyed:
+                        running = false;
+                        break;
+                    default:
+                        continue;
+                }
+
+                if (double.IsNaN(endUT))
+                    endUT = rec.EndUT;
+                if (evt.ut > endUT)
+                    continue;
+
+                if (evt.eventType == PartEventType.Destroyed)
+                {
+                    if (destroyedParts == null)
+                        destroyedParts = new HashSet<uint>();
+                    destroyedParts.Add(evt.partPersistentId);
+                }
+
+                if (latestByPart == null)
+                    latestByPart = new Dictionary<uint, KeyValuePair<double, bool>>();
+                if (latestByPart.TryGetValue(evt.partPersistentId, out KeyValuePair<double, bool> prior)
+                    && prior.Key > evt.ut)
+                    continue;
+                latestByPart[evt.partPersistentId] = new KeyValuePair<double, bool>(evt.ut, running);
+            }
+
+            if (latestByPart == null)
+                return 0;
+
+            int runningCount = 0;
+            foreach (KeyValuePair<uint, KeyValuePair<double, bool>> kvp in latestByPart)
+            {
+                if (kvp.Value.Value && (destroyedParts == null || !destroyedParts.Contains(kvp.Key)))
+                    runningCount++;
+            }
+
+            return runningCount;
+        }
+
+        /// <summary>
+        /// UT of the last MEASURED resource change, or NaN: the end UT of the last closed
         /// <see cref="RouteHarvestWindow"/> (converter activity with start and end
-        /// manifests measured on the live vessel); a window counts when any resource
-        /// other than the environmental ones (<c>ResourceTransferability.IsAlwaysIgnored</c>:
+        /// manifests measured on the live vessel) where any resource other than the
+        /// environmental ones (<c>ResourceTransferability.IsAlwaysIgnored</c>:
         /// ElectricCharge, IntakeAir) moved by more than <see cref="TailResourceChangeEpsilon"/>.
         /// An open window has no end manifest and witnesses nothing.
         /// </summary>
-        internal static double FindLastResourceChangeUT(Recording rec)
+        internal static double FindLastHarvestWindowChangeUT(Recording rec)
         {
             double lastUT = double.NaN;
             List<RouteHarvestWindow> windows = rec?.RouteHarvestWindows;
@@ -748,6 +849,7 @@ namespace Parsek
                         $">= endUT={rec.EndUT.ToString("F1", CultureInfo.InvariantCulture)} " +
                         $"(lastInterestingUT={lastInterestingUT.ToString("F1", CultureInfo.InvariantCulture)} " +
                         $"lastResourceChangeUT={resourceChangeUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"runningConverters={CountConvertersRunningAtEnd(rec).ToString(CultureInfo.InvariantCulture)} " +
                         $"buffer={bufferSeconds.ToString("F1", CultureInfo.InvariantCulture)}s)");
                 return false; // boring tail is shorter than buffer, or it changes resources
             }

@@ -25,6 +25,12 @@ namespace Parsek
         /// to prevent infinite retry loops (bug #110).
         /// </summary>
         internal const int MaxCollisionBlocks = 150;
+
+        /// <summary>
+        /// Failed attempts after which the shared end-of-recording spawn stops trying
+        /// (<see cref="SpawnOrRecoverIfTooClose(Recording, int, bool, bool)"/>).
+        /// </summary>
+        internal const int MaxSpawnAttempts = 3;
         internal const int TerminalOrbitSpawnSafetyScanSteps = 180;
 
         /// <summary>
@@ -1438,7 +1444,7 @@ namespace Parsek
             bool preserveIdentity,
             bool allowExistingSourceDuplicate = false)
         {
-            const int maxSpawnAttempts = 3;
+            const int maxSpawnAttempts = MaxSpawnAttempts;
             string logContext = $"recording #{index} ({rec?.VesselName ?? "(unknown)"})";
             if (rec == null)
             {

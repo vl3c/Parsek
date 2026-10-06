@@ -7469,6 +7469,12 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Test seam replacing the Tracking Station hand-off's spawn call
+        /// (rec, index, preserveIdentity); the real call needs a live KSP scene.
+        /// </summary>
+        internal static Action<Recording, int, bool> TrackingStationSpawnOverrideForTesting;
+
         internal static bool TryRunTrackingStationSpawnHandoffForIndex(
             IReadOnlyList<Recording> committed,
             int index,
@@ -7536,6 +7542,29 @@ namespace Parsek
                 rec,
                 realVesselExists);
 
+            // The Ghost Chain Rule here: a live vessel with a chain's claimed pid after a rewind
+            // to before the chain's tip is the claimed vessel in its pre-claim form, not the
+            // tip's result. It is replaced by the tip snapshot instead of adopted (same pid) or
+            // left beside the tip (the tip got a new pid on undock).
+            StaleVesselReplacement staleReplacement = ChainTipStaleVessel.TryReplaceStaleLiveVessel(
+                rec, chains, "TRACKSTATION", index);
+            bool replacedStaleVessel = staleReplacement != null;
+            if (replacedStaleVessel)
+            {
+                realVesselExists = rec.VesselPersistentId != 0
+                    && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
+                alreadyMaterialized = ShouldSkipTrackingStationDuplicateSpawn(rec, realVesselExists);
+                if (alreadyMaterialized)
+                {
+                    // The tip's own identity is live after all (this read covers loaded vessels,
+                    // the replacement's also proto ones): the exit below adopts it, so the
+                    // removed claimed vessel goes back first. No exit may leave it removed.
+                    ChainTipStaleVessel.AbortReplacement(rec, staleReplacement, "tip identity live in the Tracking Station");
+                    staleReplacement = null;
+                    replacedStaleVessel = false;
+                }
+            }
+
             if (alreadyMaterialized)
             {
                 rec.VesselSpawned = true;
@@ -7558,14 +7587,37 @@ namespace Parsek
                 return;
             }
 
-            bool preserveIdentity = ShouldPreserveIdentityForTrackingStationSpawn(
-                chains,
-                rec,
-                realVesselExists);
+            bool preserveIdentity = replacedStaleVessel
+                || ShouldPreserveIdentityForTrackingStationSpawn(
+                    chains,
+                    rec,
+                    realVesselExists);
+            if (replacedStaleVessel)
+            {
+                // The removed vessel's map focus, navigation target and selection move to the
+                // tip that replaces it, as they would from the tip's own ghost.
+                StaleChainVesselFocus staleFocus = staleReplacement.Focus;
+                handoffState = new TrackingStationSpawnHandoffState(
+                    handoffState.GhostPid,
+                    handoffState.WasNavigationTarget || staleFocus.WasNavigationTarget,
+                    handoffState.WasMapFocus || staleFocus.WasMapFocus);
+                reselectSpawnedVessel = reselectSpawnedVessel || staleFocus.WasTrackingStationSelected;
+            }
             GhostPlaybackLogic.LogChainLoopFirstRunSpawn(
                 Tag, "TRACKSTATION", index, rec, currentUT,
                 !string.IsNullOrEmpty(rec.ChainId) && RecordingStore.IsChainLooping(rec.ChainId));
-            VesselSpawner.SpawnOrRecoverIfTooClose(rec, index, preserveIdentity);
+            try
+            {
+                if (TrackingStationSpawnOverrideForTesting != null)
+                    TrackingStationSpawnOverrideForTesting(rec, index, preserveIdentity);
+                else
+                    VesselSpawner.SpawnOrRecoverIfTooClose(rec, index, preserveIdentity);
+            }
+            finally
+            {
+                // A replacement whose tip spawned no vessel puts the removed vessel back.
+                ChainTipStaleVessel.CompleteReplacement(rec, staleReplacement);
+            }
             if (!rec.VesselSpawned)
                 return;
 
@@ -10452,6 +10504,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             CurrentUTNow = GetCurrentUTSafe;
+            TrackingStationSpawnOverrideForTesting = null;
             FindBodyByNameForTesting = null;
             OrbitSeedResolver.ResetForTesting();
             ghostTeardownDepth = 0;

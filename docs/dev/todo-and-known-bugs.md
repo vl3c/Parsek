@@ -16,7 +16,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a facility downgrade's funds debit never reaches the ledger [FILED 2026-10-06 while fixing KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, branch `fix-facility-upgrade-cost`. OPEN, product, low; reachability not traced]
+## CLAIMED-VESSEL-DESPAWN-AT-REWIND-OUTSIDE-FLIGHT: a vessel a committed future mission claims should leave the KSC and Tracking Station at the rewind, as it does in flight [FILED 2026-10-07 from the owner ruling on PR #2029, branch `fix-chain-tip-outside-flight`. OPEN, product design; follow-up, not a release blocker]
+
+Design 12.5 / 20.3 despawn a claimed vessel at the rewind in every scene. Today only flight does
+(`FilterAndGhostChains`); outside flight PR #2029 replaces the stale vessel when the chain tip's
+spawn UT passes, so between the rewind and that UT the pre-claim vessel stays live and usable at
+the KSC and in the TS, and route deliveries into it in that window are dropped with it on
+replacement. Owner ruling 2026-10-07: ship the spawn-time replacement now; do this as follow-up.
+
+Fix: hide the claimed vessel at the rewind outside flight too (ghost map presence in the TS,
+removal from the KSC / TS vessel lists, routes treating it as chain-ghosted the way flight BLOCKS
+its crossings), reusing `ClaimedVesselRemoval` so crew survive. Decide first how the player sees
+it in the TS until the tip spawns.
+
+---
+
+## FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a facility downgrade's funds debit never reaches the ledger [FILED 2026-10-06 while fixing KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, branch `fix-facility-upgrade-cost`. OPEN, product, low; reachability not traced. The older cost-0 upgrade rows paragraph: RULED and DONE 2026-10-07, branch `release-rulings`]
 
 Decompiled KSP 1.12.5: `SpaceCenterBuilding.DowngradeFacility` also debits funds (about 0.667x
 the level cost, reason `StructureConstruction`), but `FacilityDowngraded` events are
@@ -28,10 +43,33 @@ same `FacilityUpgradeCapture` scope pattern and add a row type or a negative-lev
 
 Older cost-0 upgrade rows: the fix above repairs a cost-0 `FacilityUpgrade` row only while the
 save still holds its `FundsChanged(StructureConstruction)` event (events at or before the last
-committed flight's end are pruned), so most existing careers keep their older rows at 0 and
-their ledger high by those upgrades. Owner decision needed: accept a facility cost-table
-estimate (`levelCost` x today's `FundsLossMultiplier`, which can differ from what was charged
-under a changed difficulty or a strategy discount), or leave them.
+committed flight's end are pruned), so most existing careers kept their older rows at 0 and
+their ledger high by those upgrades. RULED 2026-10-07: estimate them from the facility cost
+table. DONE 2026-10-07, branch `release-rulings`: `LedgerLoadMigration.EstimateLegacyFacilityUpgradeCosts`
+prices a career `FacilityUpgrade` row still at cost 0 as stock's `UpgradeableFacility.GetUpgradeCost()`
+does (decompiled: `upgradeLevels[level + 1].levelCost * Career.FundsLossMultiplier`), i.e. the
+`levelCost` of the row's tier (`ToLevel - 1`, three-level facilities only, since the ledger tier
+comes from stock's 0 / 0.5 / 1 normalized level) times TODAY's multiplier. Saved events still win:
+a unique saved debit is applied as in the load repair, an explicit `cost=` or a non-debit keeps 0.
+The level costs exist only where the `UpgradeableFacility` objects do
+(`ScenarioUpgradeableFacilities.protoUpgradeables[id].facilityRefs`, the Space Center, not a cold
+load or the Tracking Station), so `LedgerOrchestrator.EnsureLegacyFacilityUpgradeCostEstimates`
+runs at the top of every recalc, before the walk, until one pass completes (deferring with no
+mutation on no current game, no funds seed, no multiplier, or no loaded facility table), then not
+again until the next load; that same recalc charges the rows. Never double-charged: the
+FundsInitial seed records no capture moment (UT 0, no source), so only a seed equal to the
+non-zero career-start baseline (`|UT| <= 1 s`, the value `DecideInitialFundsSeed` always prefers)
+is known to predate the upgrades; a seed read off the live pool (a mid-career install, or a seed
+deferred past an upgrade) may already hold the debits, so every row is skipped and counted
+`seedCaptureUnknown` (and a row at or before the baseline UT is `beforeSeed`). Science / Sandbox
+rows are never priced. Idempotent (a priced row is no longer cost 0); one summary line per
+completed pass (Info, Verbose when every row is Science / Sandbox) with the counts and a bounded
+`rows=[<actionId> <facility>->LvN estimated=<cost>]` sample. Accepted: the estimate can differ
+from the charge under a changed difficulty or a strategy discount, and the next funds patch
+moves the live pool by that difference. Still open: mid-career-install careers keep their old
+rows at 0 (no evidence of the seed's moment). Tests: `FacilityUpgradeCostTests.Estimate_*`,
+`ClassifyFundsSeedCaptureMoment_*`, `EstimatePass_*`, `Recalc_*` (red first: they did not compile
+before the change).
 
 ---
 
@@ -772,7 +810,74 @@ fixture.
 
 ---
 
-## CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT: a chain tip whose spawn UT passes at the KSC or in the Tracking Station adopts the pre-transfer live vessel [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS: one recording that ends two claimed vessels holds back only one of them [FILED 2026-10-06 from the PR #2029 re-review, by code read and a headless walker cell; not reproduced in game. OPEN, product]
+
+Shape: a tug docks to depot 600, carries it to station 777 and docks there; the final
+recording (777, the station dominant) ends both lineages. `GhostChainWalker.ComputeAllGhostChains`
+builds a chain for each claimed pid, both with that tip, and `MergeCrossTreeLinks` then folds the
+777 chain into the 600 chain because the 600 chain's tip carries 777: one chain keyed 600 whose
+links hold both claims, and no chain keyed 777 (pinned by
+`ChainTipStaleVesselTests.TwoClaims_Fixture_OneChainKeyedByTheDepotEndsAtTheStationTip`).
+
+- Flight (pre-existing): `ParsekFlight.FilterAndGhostChains` ghosts only the chain keys, so after
+  a rewind before the docks it holds back the depot and leaves the stale station live. At the
+  tip `VesselGhoster.SpawnAtChainTip` adopts that live station (`TryAdoptExistingSourceForChainTip`,
+  the tip carries 777) and drops the depot's ghost: the station keeps its pre-dock form and the
+  depot is gone.
+- Outside flight (CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT): the replacement probes every
+  claimed pid ending at the tip (`ChainTipStaleVessel.ResolveClaimedPidsForTip`) and refuses
+  when more than one of them is carried by a live vessel (reason
+  `tip-ends-several-claimed-vessels`), so with both the depot and the station live the sites
+  adopt the stale station as before and the depot stays live beside it. Removing only one of
+  the two (what the first claimed-pid lookup did) deleted the depot for nothing. The count is by
+  live vessel, not by pid: one station claimed again under the new pid it took in a dock it did
+  not dominate (a second mission to the station half, or one mission re-docking
+  transport-dominant) has only its original pid live after a rewind and is replaced
+  (PR #2029 round-two review); with only one of depot and station live, that one is replaced.
+
+What should happen (design 12.5 read for several claims): every claimed vessel is held back from
+the rewind until the tip, and the tip spawns once as their recorded merged form; nothing is
+adopted. That needs the chain to keep every claimed pid (not only its key) for the flight
+ghosting, and the replacement to remove all of them, spawn the tip once and restore all of them
+on a failed spawn. Red tests: a flight `FilterAndGhostChains` cell over this fixture (both pids
+ghosted), and the `TwoClaims_*` cells flipped to "both removed, tip spawned".
+
+---
+
+## ~~CHAIN-GHOSTING-KILLS-UNLOADED-CLAIMED-CREW: a flight load that ghosts an unloaded crewed claimed vessel kills its crew~~ [FILED 2026-10-06 from the PR #2029 review, confirmed in three collected logs. FIXED 2026-10-06, branch `fix-chain-tip-outside-flight`]
+
+`VesselGhoster.GhostVessel` removed a claimed vessel with a bare `Vessel.Die()`. Stock `Die()` on
+an UNLOADED vessel runs `MurderCrew`: every kerbal aboard goes through `ProtoCrewMember.Die()`
+(Dead, or Missing with respawn on), `onCrewKilled` fires and a career pays the kerbal-death
+reputation loss. So every flight load after a rewind past a committed dock killed the crew of a
+claimed vessel outside the physics bubble. Evidence, the three chain-ghosting lanes:
+`logs/2026-09-09_1939_RF-8-ghost-during-refly`, `logs/2026-09-22_2301_CI-3-chain-rederive-readback`
+and `logs/2026-09-23_2137_CI-4-cross-tree-chain-pooled`, each KSP.log reading
+`[Ghoster] Ghosting vessel: pid=3620499050 name=Kerbal X` and 1 ms later
+`[Vessel Kerbal X]: Bill Kerman, Bob Kerman, Valentina Kerman are now dead.` (CI-4 line 13697 /
+13700); CI-4's post-ghost quicksave has all three Dead.
+
+Fix: the ghosting removes the vessel through `ClaimedVesselRemoval.Remove` (shared with the
+chain-tip replacement of CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT). The crew are taken off
+the parts first (`Part.RemoveCrewmember` when loaded; the part snapshots and the ProtoVessel's
+crew list when unloaded, which is what `MurderCrew` reads), the vessel is removed, and the
+detached kerbals still Assigned are set Available, all under `SuppressionGuard.Crew`: no death,
+no `onCrewKilled`, no reputation loss, no Parsek roster event or ledger row. Available is what
+the chain-tip spawn expects: `RespawnVessel` / `SpawnAtPosition` seat the tip snapshot's crew,
+and a kerbal already aboard another loaded vessel is kept out of the snapshot. The despawn
+snapshot taken before the removal still carries the crew, so the despawn-failure restore seats
+them too; a removal that throws after the detach puts the kerbals back aboard before the failure
+propagates (`IClaimedVesselRemovalTarget.ReattachCrew`), so a vessel the ghoster then leaves
+standing is never crewless. Tests: `VesselGhosterTests.GhostVessel_UnloadedCrewedClaimedVessel_CrewSurviveAndAreAvailable`
+(a fake unloaded vessel whose Destroy kills whoever is aboard; red before the fix),
+`GhostVessel_DespawnThrowsWhileTheVesselStands_CrewGoBackAboard`, and `ClaimedVesselRemovalTests`,
+which run the live target over real (uninitialized) ProtoVessel / ProtoPartSnapshot /
+ProtoCrewMember objects so dropping the ProtoVessel crew-list removal (what `MurderCrew` reads)
+reds.
+
+---
+
+## ~~CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT: a chain tip whose spawn UT passes at the KSC or in the Tracking Station adopts the pre-transfer live vessel~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, branch `fix-chain-tip-outside-flight`, by replacing the stale vessel at the tip's spawn UT; the despawn-at-rewind question below stays OPEN, product]
 
 Only the flight scene ghosts a claimed vessel (`VesselGhoster` is created only in
 `ParsekFlight`), and Rewind-to-Launch lands at the Space Center. In the TS a live vessel with the
@@ -786,8 +891,75 @@ say claimed vessels are despawned on rewind regardless of scene.
 Expected player effect: a recorded fuel transfer silently vanishes - the station keeps its
 pre-transfer tanks while the transport half spawns post-transfer.
 
-Fix: apply the chain claim outside flight (ghost or replace the claimed vessel at the tip spawn).
-Red test: a TS / KSC spawn cell with the claimed pid live and pre-claim; lane RC-3.
+Fix (branch `fix-chain-tip-outside-flight`): the three adoption sites (the Tracking Station
+hand-off, `ParsekKSC.TrySpawnAtRecordingEnd`, and the flight leaf branch of
+`ParsekFlight.SpawnVesselOrChainTip`) ask one pure predicate,
+`ChainTipStaleVessel.ShouldReplaceStaleLiveVessel`, before adopting or spawning. The live vessel
+it looks at carries the chain's CLAIMED pid (`GhostChain.OriginalVesselPid`), found through the
+chain whose tip the spawning recording is (`FindChainForTip`), not the tip's own pid: after
+#2026's part-identity walk a transport-dominant dock makes the station half (a new pid on
+undock) the tip, so a tip-pid lookup left the stale station beside the spawned tip, two
+stations (PR #2029 review). The claimed vessel's launch guid must not conclusively differ from
+the chain's (`ExpectedClaimedGuid`: the chain's `LaunchGuid` when the chain is keyed by that
+pid, else the tip's own when it kept the claimed pid, else pid only, as the flight ghosting).
+Every claimed pid ending at the tip is probed (all chains ending there, folded-in links
+included) and the live one is the vessel replaced. It answers "replace" only for the tip of a
+non-terminated chain whose claimed pids exactly one live vessel carries (two live are refused:
+CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS; one station claimed again under its new pid after a
+transport-dominant dock is one live vessel, PR #2029 round-two review), unspawned, with that
+live claimed vessel and no
+live vessel already matching the tip's own pid and launch when the claimed pid is another one
+(that vessel is the site's adoption, so removing the claimed one would lose it; PR #2029
+re-review),
+when (a) this session saw the playhead strictly before the tip's start
+(`PlaybackScopeTracker.WasPlayheadSeenBeforeActivation`, a new no-tolerance, ready-clock latch
+next to the replay-scope one; the sweep re-notes a recording latched only by tolerance; checked
+first, so a spawn candidate without it pays for no chain walk or live probe) AND
+(b) KSP last simulated that vessel before the chain's last claim (`lastUT` < latest link UT: every claim
+happens with the claimed vessel in physics, and FlightIntegrator stamps `lastUT` each physics
+frame), and the vessel is not the active vessel or recorded by the live tree. (a) keeps normal play
+and a commit made seconds after the tip began on adoption; (b) keeps a session that rewound and
+then loaded a save from after the dock from replacing the real station there. A replacement
+never loses the vessel (PR #2029 review): the tip must be able to spawn before anything is
+removed (`ChainTipStaleVessel.ResolveTipSpawnBlocker`: not abandoned, under
+`VesselSpawner.MaxSpawnAttempts`, no terminal-orbit hold, a snapshot, and not a KSC-zone
+retirement, which design 13.1 resolves by adopting the live counterpart), the removal needs a
+snapshot of the vessel taken just before it (crew still aboard), and every site completes the
+replacement in a `finally` after its spawn attempt (`CompleteReplacement`): when the tip spawned
+no vessel (a failure, an abandon such as the KSC dead-crew branch, an exception) that snapshot is
+respawned with its identity (the Space Center's wrapper is `ParsekKSC.RunKscEndSpawn`, whose
+`finally` a test drives through a throwing spawn); the Tracking Station's own adoption exit, should its loaded-only
+existence read find the tip's identity live after a replacement, restores the removed vessel
+first (`AbortReplacement`). On "replace" the stale vessel goes through `ClaimedVesselRemoval`
+(crew taken off its parts and set Available, then `Vessel.Die()`: no recovery, no funds, no
+ledger row, no crew loss; its vessel and part pids are freed synchronously), and the tip spawns
+from its snapshot with its identity preserved (same pid and guid, so route endpoints and later
+chain links still resolve). The KSC spawn's `SwapReservedCrewInSnapshot` may seat stand-ins in
+the tip in place of reserved kerbals, who then stay Available. In the TS the removed vessel's
+map focus, navigation target and selection move to the spawned tip (in flight its navigation
+target). A refused or failed removal, a vessel in use, or any doubt falls back to the old
+adoption with a log line (`[ChainTip]`). Tests: `ChainTipStaleVesselTests`,
+`PlaybackScopeTrackerTests` (strict latch).
+
+Remaining gaps and the design question (OPEN, product): design 12.5 / 20.3 say a claimed
+vessel is despawned AT the rewind in every scene. This fix replaces it only when the tip's
+spawn UT passes, so between the rewind and that UT the pre-claim vessel stays live and usable
+at the KSC and in the TS (the player can Fly it; a flight load before the spawn UT then ghosts
+it under the player). A supply route into it keeps delivering in that window, and the
+replacement drops those deliveries with the vessel (with CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO
+this is the same conservation seam; flight BLOCKS those crossings instead). Despawning at the
+rewind out of flight would close both but needs a ruling on when the vessel leaves the KSC / TS
+lists and how routes treat it. RULED 2026-10-07 (owner interview): ship the spawn-time
+replacement for this release; despawning at the rewind in every scene is follow-up design
+work (CLAIMED-VESSEL-DESPAWN-AT-REWIND-OUTSIDE-FLIGHT). Two narrow misses default to the old adoption: a stale vessel
+loaded into physics in flight past the spawn UT (FlightIntegrator moves its `lastUT` forward
+before the spawn decision can read it), and a save made outside flight while the claimed vessel
+was still docked to the transport (its `lastUT` is after the dock, the last claim; a docked
+save made in flight loads into flight, where the chain path ghosts it). The KSC end spawn still
+has no intermediate-link test and preserves a chain tip's identity only on a replacement (the TS
+preserves it whenever the original is gone).
+The flight ghosting's crew deaths found in this review are CHAIN-GHOSTING-KILLS-UNLOADED-CLAIMED-CREW
+(fixed on this branch with the same removal helper).
 
 ---
 
@@ -841,7 +1013,7 @@ applies. Lane RC-6 with `EvaGroundScience action=take` against a foreign contain
 
 ---
 
-## TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. RULED 2026-10-06: keep resource-changing tails. PARTIAL 2026-10-06, branch `release-cheap-fixes` (PR #2027): fixed for recordings the optimizer does not split; a flown-then-landed recording still loses its witness to the split; NEEDS A RULING on the options below. The unwitnessed sources are TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES]
+## ~~TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources~~ [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. RULED 2026-10-06: keep resource-changing tails. PARTIAL 2026-10-06, branch `release-cheap-fixes` (PR #2027): fixed for recordings the optimizer does not split. RULED 2026-10-07: the converter part events are the witness (option 3). FIXED 2026-10-07, branch `release-rulings`. The sources still unwitnessed are TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES]
 
 `RecordingOptimizer.TailTrim` restamps the end UT and SpawnUT earlier (`:820-845`) but never
 touches the snapshot; `FindLastInterestingUT` (`:75`) ignores resources and the guard checks
@@ -868,51 +1040,82 @@ stopped mid-tail trims to just after it; an EC-only or stalled window changes no
 `TrimBoringTail_ResourceChangeEndingMidTail_TrimsAfterIt`, and through the whole pass
 `RunOptimizationPass_UnsplitDrillRecording_KeepsResourceChangingTail_OnEveryPass`.
 
-**Still open: the split voids the witness (found by the PR #2027 review).** `RunOptimizationPass`
+**The split voided the witness (found by the PR #2027 review).** `RunOptimizationPass`
 (`RecordingStore.Optimization.cs`) runs the split pass BEFORE `TrimBoringTailsForOptimization`, and
 every split goes through `RecordingOptimizer.TransferTerminalFieldsToSecondHalf`, which nulls
 `RouteHarvestWindows` on BOTH halves (logistics plan D13: a window can land on the wrong side of the
-cut). Fly -> land -> drill splits at the Atmospheric -> Surface boundary, the surface leaf has no
-windows, and its drilling tail is trimmed exactly as before (pinned by
-`RunOptimizationPass_FlownThenLandedDrillRecording_TrimsTail_DocumentsDefect`, the cell the fix
-flips). A carry held only within the pass is not enough: the pass runs on every load
-(`ParsekScenario.OnLoad`, phase `optimization`) and after every commit (`MergeDialog.MergeCommit`,
-`ParsekScenario.AutoCommitPendingTreeOutsideFlight`), the trim revisits every committed leaf with no done marker, and after
-the first pass the voided windows are what is flushed and read back. Options (owner ruling needed):
-(1) persist the witness across the split in a new serialized field (e.g. the last resource-change
-UT, moved to the half that contains it before D13 voids the windows) - a schema addition;
-(2) narrow D13 to void only a window that straddles the cut and keep a closed window on the half
-that wholly contains it - a logistics-analysis change; (3) use the converter part events as the
-witness (a converter whose last event is `ConverterActivated` keeps the tail through the end): part
-events are partitioned by the split and the converter state is re-seeded on the second half
-(`RecordingOptimizer.SeedEvents.cs` converter reducer), so it survives splits and every pass with
-no new field and D13 untouched, but it is a proxy (a stalled drill keeps its tail too) - it also
-closes the background-leg item of TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES.
+cut). Fly -> land -> drill splits at the Atmospheric -> Surface boundary, so the surface leaf had no
+windows and its drilling tail was trimmed. A carry held only within the pass was not enough: the
+pass runs on every load (`ParsekScenario.OnLoad`, phase `optimization`) and after every commit
+(`MergeDialog.MergeCommit`, `ParsekScenario.AutoCommitPendingTreeOutsideFlight`), the trim revisits
+every committed leaf with no done marker, and after the first pass the voided windows are what is
+flushed and read back. The options were a new serialized witness field, narrowing D13, or the
+converter part events.
+
+**FIXED 2026-10-07 (branch `release-rulings`), owner ruling 2026-10-07: option 3, the converter part
+events.** New `RecordingOptimizer.CountConvertersRunningAtEnd` reduces the recording's
+`ConverterActivated` / `ConverterDeactivated` events per part (the latest at or before `EndUT` wins,
+ties go to the later list entry; a `Destroyed` event on the part ends its run, since the recorder
+writes no stop for a part that left the vessel). `FindLastResourceChangeUT` now takes the later of
+two witnesses: the harvest-window rule above (moved unchanged into `FindLastHarvestWindowChangeUT`)
+and, when any converter is still running at the end, the recording's `EndUT`, so the tail is kept to
+the end (skip category `resource-changing-tail`; the verbose skip line now also carries
+`runningConverters=`). A converter stop is a non-inert part event, so it already was an interesting
+UT: a converter stopped mid-tail trims to just after the stop. The events survive the split
+(`PartitionPartEvents`, and a converter running at the cut is re-seeded at the start of the second
+half by the `RecordingOptimizer.SeedEvents.cs` converter reducer) and every later pass, with no new
+field and D13 untouched. Accepted approximation (ruling): a converter switched on but stalled (full
+tanks, no input, an idle fuel cell) keeps its tail too. Tests in `RecordingOptimizerTests` (red
+before the fix where marked): `RunOptimizationPass_FlownThenLandedDrillRecording_KeepsConverterTail_OnEveryPass`
+(the flipped `..._TrimsTail_DocumentsDefect` cell; red),
+`RunOptimizationPass_ConverterSwitchedOnBeforeLanding_SeededAcrossSplit_KeepsTail` (red),
+`RunOptimizationPass_FlownThenLandedRecording_NoConverter_TrimsAsBefore`,
+`TrimBoringTail_ConverterRunningAtEnd_IsKept_AndLogsTheReason` (red),
+`TrimBoringTail_ConverterStoppedMidTail_TrimsToJustAfterTheStop`, `TrimBoringTail_ConverterOnlyEverOff_Trims`,
+and the pure `FindLastResourceChangeUT_ConverterRunningAtEnd_ReturnsEndUT` (red),
+`..._OneOfTwoConvertersStillRunning_ReturnsEndUT` (red), `..._ConverterStopped_NotAWitness`,
+`..._ConverterEventsOutOfOrder_UsesTheLatestPerPart`, `..._RunningConverterPartDestroyed_NotAWitness`
+and `..._ConverterOnlyEverOff_NotAWitness`.
 
 ---
 
-## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness]
+## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness. Background-leg item CLOSED 2026-10-07, branch `release-rulings`, by the converter-event witness]
 
-TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT keeps a tail only when a closed `RouteHarvestWindow` measured a
-change. Three sources leave no such witness, so their tails still trim and their resources still
-arrive early with the commit-time snapshot:
+TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT keeps a tail when a closed `RouteHarvestWindow` measured a change
+or a converter is still running at the recording end (the last converter part event of some part is
+`ConverterActivated`). Two sources leave no such witness, so their tails still trim and their
+resources still arrive early with the commit-time snapshot:
 
 - a supply route delivering into (or debiting) the recorded vessel during the tail: the route
   writers (`Logistics/LiveDeliveryWriters.cs`, `LiveOriginDebitWriters.cs`) touch no recording;
   the ledger holds the route rows (`RouteCargoDelivered` / `RouteCargoPickedUp` / `RouteCargoDebited`)
   with their UTs, the endpoint resolving through the route's stop, but the optimizer pass reads no
   ledger;
-- a converter running on a BACKGROUND leg: `BackgroundRecorder` records `ConverterActivated` /
-  `ConverterDeactivated` part events but captures no harvest windows (only the active stop does,
-  `FlightRecorder.BuildCaptureRecording`), so a base left mining in the background trims after its
-  last converter event;
 - an in-vessel transfer (crossfeed, a docked pair's fuel transfer): vessel totals do not move, so no
   manifest sees it, but the per-part split in the snapshot still arrives early.
 
-Fix options: (1) treat a converter still running at the recording end (last converter event per
-part is `ConverterActivated`) as interesting through the end - a proxy, not a measurement, covering
-background legs; (2) give the optimizer pass the ledger's route rows whose endpoint is the
-recording's vessel and treat a row inside the tail as interesting; (3) accept the in-vessel case.
+~~A converter running on a BACKGROUND leg~~ - CLOSED 2026-10-07 (branch `release-rulings`):
+`BackgroundRecorder` emits the same `ConverterActivated` / `ConverterDeactivated` part events
+(`BackgroundRecorder.PartEventPolling.cs` `CheckConverterState`, the same Layer-1
+`FlightRecorder.CheckConverterTransition`, plus the `InitializeLoadedState` seed and the rails-span
+diff), so a base left mining in the background keeps its tail through the converter witness. Two
+narrow residues of that witness, by code read: a background vessel recorded only on rails emits no
+converter event at all (the on-rails init seeds nothing), and a recording started as a promotion
+into a FRESH branch (`CreateSplitBranch`, `CreateSplitBranchFromBackgroundParent`, `CreateMergeBranch`,
+`BindLiveRecorderToSwitchSegment`; `StartRecording(isPromotion: true)` skips non-engine seeds) with a
+converter already running carries no `ConverterActivated`. Such a recording still opens a harvest
+window at start (`InitializeHarvestWindowAtStart`), which witnesses the tail unless the optimizer
+splits the recording. The opposite residue (PR #2031 review): a running converter part that leaves
+the vessel by decouple or undock keeps reading "running" on the parent recording, because
+`CheckConverterState` walks only `v.parts` and the `Decoupled` event carries the pid of the part
+that came off, not the converter's, so that parent's tail is never trimmed (a missed trim, never
+early resources; no recording in the fixture, dev-save or collected-log corpus ends with a
+converter running). A destroyed part is final (fixed in the same PR).
+
+Fix options: (1) give the optimizer pass the ledger's route rows whose endpoint is the recording's
+vessel and treat a row inside the tail as interesting; (2) accept the in-vessel case; (3) for the
+residues, emit a converter seed on a promotion into a fresh branch (it would also start the ghost's
+running loop there).
 
 ---
 
@@ -3318,6 +3521,8 @@ Open residue:
    older rows, whose events were pruned after a commit, stay at 0 - nothing in the save proves
    their cost, and the facility cost table times today's difficulty multiplier is not proof.
    Pinned by `FacilityUpgradeCostTests`. Not yet re-flown (L1-upgrade-facility-career, KB-4).
+   Superseded 2026-10-07 by an owner ruling: those older rows are now priced from the cost
+   table when the funds seed is the career-start baseline (FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED).
 4. The gallery's `op=mock` refuses by COMPLEXITY mode only; it does not know the launcher is
    now Career-mode only, so a mock applied in a Science save would draw a window no Science
    player can open. No lane does that today. The same holds for `op=open window=career`
