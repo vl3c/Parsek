@@ -18288,6 +18288,29 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Test seam replacing the leaf spawn call in <see cref="SpawnVesselOrChainTip"/>
+        /// (rec, index, preserveIdentity, allowExistingSourceDuplicate); the real call needs a
+        /// live KSP scene.
+        /// </summary>
+        internal static Action<Recording, int, bool, bool> LeafSpawnOverrideForTesting;
+
+        /// <summary>
+        /// The stale vessel a chain-tip replacement removed was the navigation target: the
+        /// target moves to the tip that replaced it (same pid, new Vessel object).
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void RetargetReplacedChainTip(uint spawnedPid)
+        {
+            Vessel spawned = FlightRecorder.FindVesselByPid(spawnedPid);
+            if (spawned == null || FlightGlobals.fetch == null)
+                return;
+            FlightGlobals.fetch.SetVesselTarget(spawned);
+            ParsekLog.Info("Flight",
+                $"Navigation target moved to replaced chain tip pid={spawnedPid}");
+        }
+
+        /// <summary>
         /// A chain whose tip flight ended parked in the KSC exclusion zone (operator
         /// ruling 2026-09-23): the tip is settled with no vessel, so the chain is done.
         /// Drop it from the active set and remove its ghost map vessel, the same cleanup a
@@ -18423,11 +18446,37 @@ namespace Parsek
             }
             else
             {
-                VesselSpawner.SpawnOrRecoverIfTooClose(
+                // No active chain here (the flight loaded past the tip's spawn UT, so
+                // FilterAndGhostChains never ghosted the claimed vessel): a live vessel with the
+                // chain's claimed pid after a rewind to before the tip is that vessel in its
+                // pre-claim form. It is replaced by the tip with its identity preserved, the
+                // same end state the chain path reaches, instead of adopted or left beside it.
+                StaleVesselReplacement staleReplacement = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
                     rec,
+                    "FLIGHT",
                     index,
-                    preserveIdentity: false,
-                    allowExistingSourceDuplicate: allowExistingSourceDuplicate);
+                    allowExistingSourceDuplicate);
+                bool replacedStaleVessel = staleReplacement != null;
+                try
+                {
+                    if (LeafSpawnOverrideForTesting != null)
+                        LeafSpawnOverrideForTesting(rec, index, replacedStaleVessel, allowExistingSourceDuplicate);
+                    else
+                        VesselSpawner.SpawnOrRecoverIfTooClose(
+                            rec,
+                            index,
+                            preserveIdentity: replacedStaleVessel,
+                            allowExistingSourceDuplicate: allowExistingSourceDuplicate);
+                }
+                finally
+                {
+                    // A replacement whose tip spawned no vessel puts the removed vessel back.
+                    ChainTipStaleVessel.CompleteReplacement(rec, staleReplacement);
+                }
+                if (replacedStaleVessel
+                    && staleReplacement.Focus.WasNavigationTarget
+                    && rec.SpawnedVesselPersistentId != 0)
+                    RetargetReplacedChainTip(rec.SpawnedVesselPersistentId);
             }
 
             // A jump-armed terminal-orbit shift is spent once its vessel exists.

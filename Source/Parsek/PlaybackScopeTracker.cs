@@ -36,6 +36,16 @@ namespace Parsek
         private static readonly HashSet<string> recordingsInReplayScope = new HashSet<string>();
 
         /// <summary>
+        /// Recordings the live playhead was seen STRICTLY before (no tolerance) at a ready
+        /// clock. Narrower than the replay-scope latch: the tolerance window also catches a
+        /// commit made within a few seconds of a recording's start, when the live world
+        /// already holds the recording's result. The Ghost Chain Rule's stale-vessel test
+        /// (<see cref="ChainTipStaleVessel"/>) reads this one, because it replaces a live
+        /// vessel and must only do so when the playhead really was wound back before it.
+        /// </summary>
+        private static readonly HashSet<string> recordingsSeenBeforeActivation = new HashSet<string>();
+
+        /// <summary>
         /// A rewind lands the playhead on (or a few physics frames past) the target
         /// recording's launch UT, which equals that recording's activation-start to
         /// within timing jitter. Any real, spawnable mission recording is far longer
@@ -55,6 +65,18 @@ namespace Parsek
             if (string.IsNullOrEmpty(recordingId)) return;
             if (currentUT <= activationStartUT + ActivationToleranceSeconds)
                 recordingsInReplayScope.Add(recordingId);
+            if (currentUT < activationStartUT && IsSweepClockReady(currentUT))
+                recordingsSeenBeforeActivation.Add(recordingId);
+        }
+
+        /// <summary>
+        /// True iff the live playhead was seen strictly before the recording's activation
+        /// start at a ready clock this session (a rewind or a load to before it).
+        /// </summary>
+        internal static bool WasPlayheadSeenBeforeActivation(string recordingId)
+        {
+            return !string.IsNullOrEmpty(recordingId)
+                && recordingsSeenBeforeActivation.Contains(recordingId);
         }
 
         /// <summary>
@@ -93,11 +115,13 @@ namespace Parsek
                 Recording rec = recordings[i];
                 if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
                     continue;
-                if (recordingsInReplayScope.Contains(rec.RecordingId))
+                if (recordingsInReplayScope.Contains(rec.RecordingId)
+                    && recordingsSeenBeforeActivation.Contains(rec.RecordingId))
                     continue;
+                bool wasInScope = recordingsInReplayScope.Contains(rec.RecordingId);
                 NotePlayhead(rec.RecordingId, currentUT,
                     PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(rec));
-                if (recordingsInReplayScope.Contains(rec.RecordingId))
+                if (!wasInScope && recordingsInReplayScope.Contains(rec.RecordingId))
                     newlyLatched++;
             }
             return newlyLatched;
@@ -120,11 +144,13 @@ namespace Parsek
         internal static void Reset()
         {
             recordingsInReplayScope.Clear();
+            recordingsSeenBeforeActivation.Clear();
         }
 
         internal static void ResetForTesting()
         {
             recordingsInReplayScope.Clear();
+            recordingsSeenBeforeActivation.Clear();
         }
     }
 }
