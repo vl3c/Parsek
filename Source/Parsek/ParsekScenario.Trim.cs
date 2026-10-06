@@ -138,8 +138,10 @@ namespace Parsek
         // ------------------------------------------------------------------
         // Abandoned-future reconcile: the quickload-resume trim owns the
         // trimmed set's end states, tagged events and ledger rows after the
-        // resume UT. Nothing outside that set and nothing still committed is
-        // touched.
+        // resume UT. Nothing outside that set is touched, and neither is committed
+        // history: a recording still committed in memory, or one the quicksave
+        // itself already shows as history (the trim may still cut or prune such a
+        // member; the reconcile leaves its end states, events and rows alone).
         // ------------------------------------------------------------------
 
         internal const string AbandonedFutureReason = "quickload-abandoned-future";
@@ -150,7 +152,9 @@ namespace Parsek
         /// under the Re-Fly scope), the future-only recordings it prunes, and each one's
         /// end UT before the trim (the trim stamps <c>ExplicitEndUT</c> = cutoff, so the
         /// post-trim end cannot tell whether a recording ended after the cutoff). A
-        /// recording that is still committed is left out of every set.
+        /// recording that is still committed, or that the quicksave already shows as
+        /// committed history (<see cref="IsCommittedHistoryAtQuicksave"/>), is left out of
+        /// every set, including <c>PrunedIds</c> when the trim prunes it.
         /// </summary>
         internal sealed class AbandonedFuturePlan
         {
@@ -340,7 +344,9 @@ namespace Parsek
         /// <see cref="AbandonedFuturePlan.SkippedQuicksaveHistory"/>). The second matters because
         /// the restore detaches the in-memory committed copy of the tree before the plan is
         /// taken, so a tree committed BEFORE the quicksave (a copy-on-write restore clone) would
-        /// otherwise read as abandoned. The pruned set is the trim's own future-only collector,
+        /// otherwise read as abandoned; that save shape is not known to be writable today
+        /// (<see cref="PlanActiveTreeSidecarSaves"/> skips such an active-tree node once the clone
+        /// has recorded), so this half is defensive. The pruned set is the trim's own future-only collector,
         /// so it is exactly what <see cref="TrimRecordingTreePastUT"/> removes.
         /// </summary>
         internal static AbandonedFuturePlan BuildAbandonedFuturePlan(

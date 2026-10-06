@@ -3137,11 +3137,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ClearTerminalEndStateForResume_CoversEveryFieldTheSameIdRefreshCopies()
+        public void ClearTerminalEndStateForResume_CoversEveryFieldApplyPersistenceArtifactsFromCopies()
         {
-            // The same-id refresh copies these from the committed future onto a resumed member
-            // (ParsekScenario.RefreshLoadedRecordingFromCommittedSplit). Each must be cleared by
-            // the resume clear or kept with a reason.
+            // Recording.ApplyPersistenceArtifactsFrom copies these from the committed future onto
+            // a resumed member (called by ParsekScenario.RefreshLoadedRecordingFromCommittedSplit).
+            // Each must be cleared by the resume clear or kept with a reason. Scope: this method
+            // only. The refresh's own direct copies (CopyStartLocationFrom's start fields,
+            // VesselName, the trajectory lists, CrewEndStates, SpawnSuppressedByRewind*,
+            // SidecarEpoch) are outside the scan; CrewEndStates is cleared by the resume clear, and
+            // the others are start, name, trajectory, rewind spawn-suppression or sidecar fields.
             string recordingPath = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
                 "Source", "Parsek", "Recording.cs"));
@@ -3163,7 +3167,7 @@ namespace Parsek.Tests
                 .OrderBy(n => n, StringComparer.Ordinal)
                 .ToList();
             Assert.True(unclassified.Count == 0,
-                "field(s) the same-id refresh copies from the committed future are neither cleared by "
+                "field(s) ApplyPersistenceArtifactsFrom copies from the committed future are neither cleared by "
                 + "Recording.ClearTerminalEndStateForResume nor kept with a reason: " + string.Join(", ", unclassified));
 
             foreach (string name in assigned)

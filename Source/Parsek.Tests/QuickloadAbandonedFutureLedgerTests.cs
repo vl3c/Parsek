@@ -422,10 +422,11 @@ namespace Parsek.Tests
         }
 
         // ============================================================
-        // Committed history at the quicksave: a tree committed BEFORE the quicksave (a
-        // copy-on-write restore clone after Rewind-to-Launch, or after a Re-Fly merge) is
-        // detached by the restore too, so only the quicksave can tell its history members from
-        // the abandoned future. Owner ruling D2: committed history is never retired.
+        // Committed history at the quicksave: if the quicksave's active tree was already
+        // committed (a copy-on-write restore clone; not known to be writable today, see
+        // QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESUMED-CLONE), the restore detaches it
+        // too, so only the quicksave can tell its history members from the abandoned future.
+        // Owner ruling D2: committed history is never retired.
         // ============================================================
 
         [Fact]
@@ -530,6 +531,7 @@ namespace Parsek.Tests
             CommitInMemory(committed);
             AddRow(pId, 340.0, GameActionType.ContractComplete, contractId: "p-340");
             AddRow(p1.RecordingId, 380.0, GameActionType.FundsEarning);
+            AddEvent(p1.RecordingId, 380.0, GameStateEventType.ContractCompleted, "p1-380", "fundsReward=1");
 
             var quicksaved = RecordingTree.DeepClone(committed);
             var resumed = RestoreQuicksaveNode(QuicksaveNodeOf(quicksaved, null));
@@ -539,6 +541,9 @@ namespace Parsek.Tests
 
             Assert.Contains(NonSeedRows(), a => a.ContractId == "p-340");
             Assert.Contains(NonSeedRows(), a => a.RecordingId == "child_after_hist_branch");
+            // P1 starts after the cutoff, so the trim prunes it; as quicksave history it stays
+            // out of the plan's pruned set, so neither its rows nor its events are dropped.
+            Assert.Contains(GameStateStore.Events, e => e.key == "p1-380");
             Assert.Contains(logLines, l =>
                 l.Contains("Quickload abandoned-future reconcile:")
                 && l.Contains(pId + ":branch-after-cutoff-in-quicksave"));

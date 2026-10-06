@@ -627,7 +627,9 @@ namespace Parsek
                         "FlightRecorder.PrepareQuickloadResumeStateIfNeeded -> "
                         + "ParsekScenario.TrimAndReconcileForQuickloadResume purges the trimmed set's tagged events "
                         + "after the resume UT (GameStateStore.PurgeEventsForRecordingAfterUT; every event of a pruned "
-                        + "recording), never an untagged event or one of a recording still committed");
+                        + "recording), never an untagged event or one of committed history (a recording still committed, "
+                        + "or one the quicksave already shows as history: IsCommittedHistoryAtQuicksave, even when the "
+                        + "trim prunes it)");
             }
             throw UnknownKind(kind);
         }
@@ -659,7 +661,9 @@ namespace Parsek
                         + "ParsekScenario.TrimAndReconcileForQuickloadResume -> Ledger.RetireAbandonedFutureActions "
                         + "removes the trimmed set's recording-tagged rows that happened after the resume UT, every row "
                         + "of a pruned recording and the KerbalAssignment row of a recording whose end state it cleared "
-                        + "(owner ruling OQ-2; untagged KSC rows, route rows, seeds and recordings still committed stay)");
+                        + "(owner ruling OQ-2; untagged KSC rows, route rows, seeds and committed history stay: a "
+                        + "recording still committed, or one the quicksave already shows as history, "
+                        + "IsCommittedHistoryAtQuicksave, even when the trim prunes it)");
             }
             throw UnknownKind(kind);
         }
@@ -688,7 +692,8 @@ namespace Parsek
                     return Today(LoadReconcileAction.ReconcileAtResume,
                         "FlightRecorder.PrepareQuickloadResumeStateIfNeeded -> "
                         + "ParsekScenario.TrimAndReconcileForQuickloadResume clears the terminal and crew end states "
-                        + "of every trimmed recording that ended after the resume UT (not one still committed)");
+                        + "of every trimmed recording that ended after the resume UT (not committed history: a recording "
+                        + "still committed, or one the quicksave already shows as history, IsCommittedHistoryAtQuicksave)");
             }
             throw UnknownKind(kind);
         }

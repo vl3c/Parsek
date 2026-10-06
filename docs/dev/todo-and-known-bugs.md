@@ -188,14 +188,20 @@ so a re-completion at a different UT books a second row.
 
 Fix: the quickload-resume reconcile (`ParsekScenario.TrimAndReconcileForQuickloadResume`, see
 QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE) purges, for every surviving trimmed recording
-that is not still committed, its tagged events strictly after the resume UT through
+that is not committed history, its tagged events strictly after the resume UT through
 `GameStateStore.PurgeEventsForRecordingAfterUT` (live list, milestones, and the contract snapshots
 whose accept went with them; called only for recordings that have such an event), and every
-tagged event of a recording the trim pruned (`PurgeEventsForRecordings`). Untagged events and
-other trees' events stay. Gated on the `ReconcileAtResume` cells (F9 in flight, other in-session
-loads). Red tests: `QuickloadAbandonedFutureLedgerTests` (the contract completion at 300, commit
-100-350, no row; pre-cutoff, untagged and other-tree events kept; pruned recording; milestone-held
-event; contract snapshot; committed id). Open: lane QL-2.
+tagged event of a recording the trim pruned (`PurgeEventsForRecordings`). Committed history is a
+recording still committed in memory, or one the quicksave itself already shows as history
+(`ParsekScenario.IsCommittedHistoryAtQuicksave`); the plan leaves such a member out of both sets,
+so its events stay even when the trim prunes it. Untagged events and other trees' events stay.
+Gated on the `ReconcileAtResume` cells (F9 in flight, other in-session loads). Red tests:
+`QuickloadAbandonedFutureLedgerTests` (the contract completion at 300, commit 100-350, no row;
+pre-cutoff, untagged and other-tree events kept; pruned recording; milestone-held event; contract
+snapshot; committed id; quicksave history kept: a terminal member, a committed-node chain segment,
+and a branch-point member plus its pruned child,
+`TryRestoreActiveTreeNode_CommittedBeforeTheQuicksave_BranchAfterCutoffMembersKept`). Open: lane
+QL-2.
 
 ---
 
@@ -215,7 +221,8 @@ see QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE), has no route id and is n
 fact happened strictly after the resume UT (the occurrence UT the commit dedupe uses: a commit-time
 science row is stamped at its recording's end and carries the capture moment in the single-precision
 `StartUT`, compared against the cutoff rounded the same way, so a transmission before the quicksave
-stays), when the trim pruned the recording, or when it is the KerbalAssignment summary of
+stays), when the trim pruned the recording (a pruned history member is not in the plan, so its
+rows stay), or when it is the KerbalAssignment summary of
 a recording whose end state the reconcile cleared (that row has no UT in its identity, so a stale
 one would make the re-commit drop the fresh one). Then one current-timeline recalculation, which
 keeps the KSP patch deferred while the resumed tree is live. Removal, not a tombstone: a tombstoned
@@ -255,8 +262,9 @@ is in a committed tree node of the same save, or its quicksaved copy carries a t
 the quicksave's own active recording), an explicit end, an end branch point or a start after the
 cutoff. Node metadata only: a commit flushes sidecars without advancing a positive epoch, so a
 hydrated trajectory can be newer than the save. Without it the restore's detach of a tree
-committed BEFORE the quicksave (a copy-on-write restore clone after Rewind-to-Launch or a Re-Fly
-merge) made its history members read as abandoned. The reconcile runs the unchanged trim, and then
+committed BEFORE the quicksave would make its history members read as abandoned; that save shape
+is not known to be writable today (QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESUMED-CLONE), so
+the check is defensive. The reconcile runs the unchanged trim, and then
 `Recording.ClearTerminalEndStateForResume` retracts the terminal and crew end states of every
 trimmed recording that ended strictly after the resume UT (or still carries `VesselDestroyed`, which
 the resume guard leaves on the active recording), active one included, and rebuilds the background
@@ -267,8 +275,9 @@ it was committed, or committed in flight with no OnSave in between; an F9 into a
 quicksave from the Space Center, or in flight after a later OnSave, does not reach it
 (QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE). Red tests in
 `QuickloadResumeTests` (splice refresh and stale-epoch paths through `TryRestoreActiveTreeNode`,
-Re-Fly scope, `VesselDestroyed`, the field gate over the end-state names and over every field the
-same-id refresh copies) and `QuickloadAbandonedFutureLedgerTests` (a tree committed before the
+Re-Fly scope, `VesselDestroyed`, the field gate over the end-state names and over every field
+`Recording.ApplyPersistenceArtifactsFrom` copies; the refresh's own direct copies are not
+scanned) and `QuickloadAbandonedFutureLedgerTests` (a tree committed before the
 quicksave: terminal, committed-node and branch-point history members kept). Open: the trim itself
 still cuts such history members (QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESUMED-CLONE).
 
@@ -422,12 +431,11 @@ no explicit end, trimmed at 200, `EndUT` stays 150.
 
 ---
 
-## QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESUMED-CLONE: the quickload resume trim cuts and prunes committed history when the resumed tree was committed before the quicksave [FILED 2026-10-06 from the PR-C review, verified by code read. OPEN, product; not yet reproduced]
+## QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESUMED-CLONE: the quickload resume trim cuts and prunes committed history when the resumed tree was committed before the quicksave [FILED 2026-10-06 from the PR-C review; the trim behaviour verified by code read, the save shape not known to be reachable. OPEN, product; not yet reproduced]
 
-A tree committed BEFORE the quicksave can be the quicksave's active tree: a copy-on-write restore
-clone (`ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore` deep-clones the committed tree
-with the same id when the player takes over a vessel the tree spawned, for example after
-Rewind-to-Launch; the same after a Re-Fly merge with a sibling slot still a ghost). On the F9,
+If a tree committed BEFORE the quicksave were the quicksave's active tree (a copy-on-write restore
+clone: `ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore` deep-clones the committed tree
+with the same id when the player takes over a vessel the tree spawned), then on the F9
 `TryRestoreActiveTreeNode` detaches the in-memory committed copy (`RemoveCommittedTreeById`), and
 the TreeWide trim (`TrimRecordingTreePastUT`) then treats every member as the abandoned future:
 a member that is a committed-history ghost at the cutoff (say it lands at 400, F5 at 260) has its
@@ -436,6 +444,13 @@ branch point. The re-commit of the resumed clone replaces the committed tree, so
 lost. The abandoned-future reconcile leaves these members' end states, events and rows alone (the
 quicksave facts below), so after the trim such a member keeps a terminal its trajectory no longer
 reaches. Pre-existing: the trim did this before the reconcile existed.
+
+Reachability: not known to be reachable today. The save-side overlap guard
+`ParsekScenario.PlanActiveTreeSidecarSaves` skips the whole active-tree node while a committed-tree
+restore attempt is armed and any dirty member's id is in that attempt's set (not a marker-owned
+switch segment), and the clone resumes recording into such a member, so an F5 does not write this
+shape once the clone has recorded anything. Not traced: an F5 before the resumed recording is
+first marked dirty, and paths that clear the attempt while the clone stays active.
 
 Fix: the per-member quicksave facts the reconcile already reads make it easy. Scope the trim's cut
 and prune to the members `ParsekScenario.IsCommittedHistoryAtQuicksave` does not name as history

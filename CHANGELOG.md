@@ -3667,9 +3667,8 @@ _(unreleased - entries accumulate here per commit)_
   committing the flight in flight and then quickloading, with no save in between. Now every
   vessel of the resumed flight whose recording ended after the quicksave's moment has that ending
   cleared, so it is recorded again from the quicksave and ends however it actually ends; endings
-  reached before the quicksave stay, and so does every vessel the quicksave already shows as
-  committed history (a flight committed before the quicksave and resumed from its spawned vessel
-  keeps its other vessels' endings). Not covered yet: quickloading into a committed flight's
+  reached before the quicksave stay, and the quickload only touches what the quicksave shows
+  was not yet history. Not covered yet: quickloading into a committed flight's
   quicksave from the Space Center, or in flight once the game has saved again since the
   quicksave (an autosave, a switch to a far vessel) - todo
   QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE. A Re-Fly
@@ -3683,8 +3682,8 @@ _(unreleased - entries accumulate here per commit)_
   ending you abandoned. Quickloading back into a flight in flight now drops that flight's career
   events and ledger entries from after the quicksave's moment, and the replayed flight books what
   it actually does. Space Center actions after the quicksave (tech, facility upgrades, hires) are
-  kept, as are supply-route entries, every other committed flight, and every recording the
-  quicksave already shows as committed history. The two committed-flight routes above (from the
+  kept, as are supply-route entries and every other committed flight; the quickload only touches
+  what the quicksave shows was not yet history. The two committed-flight routes above (from the
   Space Center, or after the game saved again) are not covered yet, same todo. Covered by xUnit;
   not yet checked in a test flight.
 
