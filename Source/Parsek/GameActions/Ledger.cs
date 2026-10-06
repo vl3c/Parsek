@@ -426,7 +426,7 @@ namespace Parsek
             double cutoffUT, out List<GameAction> keptActions)
         {
             keptActions = Logistics.RouteLedgerRetire.RetireFutureRouteActions(
-                actions, cutoffUT, out int retired);
+                actions, cutoffUT, out int retired, out List<GameAction> retiredRows);
             if (retired > 0)
             {
                 actions.Clear();
@@ -436,6 +436,13 @@ namespace Parsek
                     $"RetireFutureRouteActionsAtRewind: removed {retired} free-standing route " +
                     $"action(s) after UT {cutoffUT.ToString("R", CultureInfo.InvariantCulture)}, " +
                     $"total={actions.Count}");
+                // A committed chain tip snapshot still carries the cargo of these crossings;
+                // the route store still holds the pre-rewind routes here (every caller
+                // reconciles it after this retire).
+                ChainTipRouteCargo.CaptureRetiredRouteCargo(
+                    retiredRows, cutoffUT,
+                    Logistics.RouteStore.CommittedRoutes, Logistics.RouteStore.DormantRoutes,
+                    "ledger retire");
             }
             else
             {
@@ -768,6 +775,7 @@ namespace Parsek
                 // Additive child node: a build that predates it reads only GAME_ACTION
                 // nodes, so the ledger version does not change.
                 progressSeed.SerializeInto(root);
+                Logistics.RetiredRouteCargoStore.SerializeInto(root);
 
                 SafeWriteConfigNode(root, path);
 
@@ -793,6 +801,7 @@ namespace Parsek
                 ParsekLog.Warn("Ledger", "LoadFromFile called with null/empty path");
                 actions.Clear();
                 progressSeed = PreLedgerProgressSeed.NotCaptured;
+                Logistics.RetiredRouteCargoStore.Clear();
                 BumpStateVersion();
                 return false;
             }
@@ -806,6 +815,7 @@ namespace Parsek
                 ParsekLog.Verbose("Ledger", $"Ledger file not found at '{path}', starting with empty ledger");
                 actions.Clear();
                 progressSeed = PreLedgerProgressSeed.NotCaptured;
+                Logistics.RetiredRouteCargoStore.Clear();
                 BumpStateVersion();
                 return true;
             }
@@ -820,6 +830,7 @@ namespace Parsek
                     ParsekLog.Warn("Ledger", $"ConfigNode.Load returned null for '{path}', corrupt file?");
                     actions.Clear();
                     progressSeed = PreLedgerProgressSeed.NotCaptured;
+                    Logistics.RetiredRouteCargoStore.Clear();
                     BumpStateVersion();
                     return false;
                 }
@@ -845,6 +856,7 @@ namespace Parsek
                         "starting with empty ledger");
                     actions.Clear();
                     progressSeed = PreLedgerProgressSeed.NotCaptured;
+                    Logistics.RetiredRouteCargoStore.Clear();
                     BumpStateVersion();
                     return false;
                 }
@@ -872,6 +884,7 @@ namespace Parsek
 
                 actions = newActions;
                 progressSeed = PreLedgerProgressSeed.LoadFrom(loaded, out int seedMalformed);
+                Logistics.RetiredRouteCargoStore.LoadFrom(loaded);
                 BumpStateVersion();
                 ParsekLog.Verbose("Ledger",
                     $"Loaded ledger from '{path}': version={version}, actions={actions.Count}, " +
@@ -903,6 +916,7 @@ namespace Parsek
                 ParsekLog.Warn("Ledger", $"Failed to load ledger from '{path}': {ex.Message}");
                 actions.Clear();
                 progressSeed = PreLedgerProgressSeed.NotCaptured;
+                Logistics.RetiredRouteCargoStore.Clear();
                 BumpStateVersion();
                 return false;
             }
@@ -1349,6 +1363,7 @@ namespace Parsek
         {
             actions = new List<GameAction>();
             progressSeed = PreLedgerProgressSeed.NotCaptured;
+            Logistics.RetiredRouteCargoStore.ResetForTesting();
             BumpStateVersion();
             ResetLegacyActionIdMigrationForTesting();
             ResetContractDeadlineMigrationTally();

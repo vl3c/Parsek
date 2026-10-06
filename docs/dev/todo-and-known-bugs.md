@@ -753,7 +753,7 @@ after each step, oracles at the end, seed and step index printed for exact repla
 
 ---
 
-## CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO: after a rewind before a committed dock, a route-fed station respawns holding cargo the rewind un-paid [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO: after a rewind before a committed dock, a route-fed station respawns holding cargo the rewind un-paid~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-chain-tip-unpaid-route-cargo` (owner ruling 2026-10-07: subtract from the snapshot); lane RC-2 not flown]
 
 Trigger: a route already delivering into a station BEFORE a later committed mission docks to it,
 then a rewind to before that dock. The station half's snapshot is taken at commit
@@ -768,9 +768,43 @@ service, not lost cargo.)
 Expected player effect: the station comes back holding route cargo that was never paid for
 again; the origin keeps its cargo and KSC funds are refunded.
 
-Fix: not decided (subtract post-cutoff route rows from the tip snapshot at spawn, or keep the
-rows and skip their re-fire). Red test: a `RouteLoopDeliveryFireTests` cell; lane RC-2 on a new
-fixture.
+Fix (owner ruling 2026-10-07: subtract the retired rows from the tip snapshot at spawn, never
+from the committed snapshot). The retired rows are removed from the ledger, so the retire keeps
+the ones a tip snapshot carries:
+
+- **Capture at the retire.** `Ledger.RetireFutureRouteActionsAtRewind` (the go-back rewind and
+  the in-session load reconcile) and `ReconciliationBundle.Restore` (Re-Fly) hand their removed
+  rows to `ChainTipRouteCargo.CaptureRetiredRouteCargo`. A cargo row (`RouteCargoDelivered`,
+  `RouteCargoPickedUp`, a physical `RouteCargoDebited`) is kept when its route endpoint (read from
+  the pre-rewind route store: the stop for a delivery or pickup, the origin for a debit, plus the
+  vessel the writer resolved) is one of a committed, non-terminated chain tip's claimed pids or its
+  own pid, launch guids not conclusively different, and its UT is at or before that tip's end
+  (the snapshot capture). Each kept row is tagged with the tip's tree: a crossing retired before a
+  mission was committed is in no snapshot of it, and only trees committed at the retire are
+  tagged. Store: `RetiredRouteCargoStore`, one entry per crossing (route, cycle, stop, row type; a
+  later retire of the same crossing replaces it and keeps its tree tags), persisted as an additive `RETIRED_ROUTE_CARGO`
+  child of the ledger file (absent while empty), kept by `Ledger.Clear`.
+- **Subtract at every spawn copy.** The shared `VesselSpawner.BuildValidatedRespawnSnapshot(Recording, ...)`
+  (flight leaf, Tracking Station hand-off, the chain-tip fallbacks), `VesselGhoster.SpawnChainTipWithResolvedState`
+  (flight chain tip, blocked and walkback) and the Space Center end spawn's working copy call
+  `ChainTipRouteCargo.ApplyToSpawnCopy` on their copy. For a chain tip, every kept row tagged with
+  its tree that names its vessel, lies after its own cutoff and at or before the tip's end, and
+  whose crossing is not back in the ELS is undone latest first: a delivery removed, a pickup or
+  origin debit added back, from the claimed vessel's own parts first
+  (`GhostChainWalker.ResolveClaimedPartIds` at each claim), every tank clamped at zero and at
+  capacity, the rest reported as clamped. A crossing back in the ELS was performed and paid again
+  (for example into the pre-claim station standing live at the Space Center), and the snapshot's
+  copy is the one that survives the replacement, so it stays. One `[ChainTipCargo]` Info line per
+  adjusted spawn names route, resource, removed / added / clamped.
+- Not covered: stored-part inventory (delivery rows carry no inventory manifest; a pickup's
+  stored parts are not put back), and a tail-trimmed tip, whose end moved earlier than the
+  snapshot capture, keeps the crossings of its trimmed tail (TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT).
+
+Tests: `ChainTipRouteCargoTests` (red first: 23 of 26 cells failed against stubs; the pure
+adjustment with clamp, pickup, origin debit, cutoff, capture, other vessel / launch / tree,
+replayed crossing and own parts first; both retire sites; the ledger-file round trip; the shared
+spawn materialization; a source gate over the three spawn-copy sites). Live proof: lane RC-2 (not
+flown).
 
 ---
 
@@ -983,7 +1017,10 @@ applies. Lane RC-6 with `EvaGroundScience action=take` against a foreign contain
 touches the snapshot; `FindLastInterestingUT` (`:75`) ignores resources and the guard checks
 orbit / surface shape only (`:156-192`). Resources that changed in the trimmed tail (route
 deliveries, crossfeed, a converter) arrive early, and with CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO
-the crossings between the trimmed SpawnUT and commit are delivered twice.
+the crossings between the trimmed SpawnUT and commit are delivered twice. (That entry is fixed
+2026-10-07 for crossings up to the tip's end UT, the only capture time a recording keeps; a
+trimmed tail moves that end earlier, so its crossings are still in the spawned tip and are
+delivered again after it.)
 
 Fix: RULED 2026-10-06 - keep a tail whose resources change (it is not boring):
 `FindLastInterestingUT` treats a resource change as interesting. Red test: a `RecordingOptimizer`
@@ -1159,6 +1196,8 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
 - [x] VERIFIED 2026-10-06, filed as CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (narrower trigger: a route delivering before a later committed dock). A chain-tip respawn carries route cargo from the abandoned future (the tip snapshot
   includes deliveries made before that recording ended), so after a rewind the station has the
   cargo and the re-fired cycles are blocked while it is hidden: cargo created from nothing.
+  FIXED 2026-10-07 (branch `fix-chain-tip-unpaid-route-cargo`): the tip's spawn copy drops the
+  cargo of the crossings the rewind retired.
 - [ ] (Traced 2026-10-06, not adversarially verified: crossings while an endpoint is absent are BLOCKED with no catch-up - lost service, not lost cargo; see CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO.) Spawns are deferred until warp ends while routes keep ticking: a cycle crossing a
   station's spawn UT during warp is held and its cargo lost.
 - [ ] Multi-stop routes reserve no destination capacity between dispatch and a later window.

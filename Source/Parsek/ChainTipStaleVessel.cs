@@ -254,7 +254,7 @@ namespace Parsek
             return pids;
         }
 
-        private static uint ResolveLinkClaimedPid(ChainLink link, IList<RecordingTree> trees)
+        internal static uint ResolveLinkClaimedPid(ChainLink link, IList<RecordingTree> trees)
         {
             if (trees == null)
                 return 0u;

@@ -287,14 +287,22 @@ namespace Parsek
             if (bundle.Actions != null && bundle.Actions.Count > 0)
             {
                 keptActions = Logistics.RouteLedgerRetire.RetireFutureRouteActions(
-                    bundle.Actions, dropRouteRowsAfterUT, out int routeRowsRetired);
+                    bundle.Actions, dropRouteRowsAfterUT, out int routeRowsRetired,
+                    out List<GameAction> retiredRouteRows);
                 if (keptActions.Count > 0)
                     Ledger.AddActions(keptActions);
                 if (routeRowsRetired > 0)
+                {
                     ParsekLog.Info("ReconciliationBundle",
                         "Restore: retired " + routeRowsRetired.ToString(System.Globalization.CultureInfo.InvariantCulture) +
                         " free-standing route row(s) with UT > cutoff " +
                         dropRouteRowsAfterUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + " (Rec-1)");
+                    // The committed trees were restored above, so the chain tips are the
+                    // pre-rewind ones whose snapshots carry these crossings.
+                    ChainTipRouteCargo.CaptureRetiredRouteCargo(
+                        retiredRouteRows, dropRouteRowsAfterUT,
+                        bundle.Routes, bundle.DormantRoutes, "re-fly restore");
+                }
             }
 
             // Routes (dormant-routes extension). RouteStore is preserved in

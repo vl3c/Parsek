@@ -131,7 +131,20 @@ namespace Parsek.Logistics
         internal static List<GameAction> RetireFutureRouteActions(
             IReadOnlyList<GameAction> source, double cutoffUT, out int retired)
         {
+            return RetireFutureRouteActions(source, cutoffUT, out retired, out _);
+        }
+
+        /// <summary>
+        /// <see cref="RetireFutureRouteActions(IReadOnlyList{GameAction}, double, out int)"/>
+        /// that also hands back the retired rows, in source order, for the chain-tip cargo
+        /// capture (<c>ChainTipRouteCargo.CaptureRetiredRouteCargo</c>).
+        /// </summary>
+        internal static List<GameAction> RetireFutureRouteActions(
+            IReadOnlyList<GameAction> source, double cutoffUT, out int retired,
+            out List<GameAction> retiredRows)
+        {
             retired = 0;
+            retiredRows = new List<GameAction>();
             if (source == null)
                 return new List<GameAction>();
 
@@ -142,6 +155,7 @@ namespace Parsek.Logistics
                 if (ShouldRetireRouteActionAtRewind(a, cutoffUT))
                 {
                     retired++;
+                    retiredRows.Add(a);
                     continue;
                 }
                 kept.Add(a);
