@@ -2238,27 +2238,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RunOptimizationPass_FlownThenLandedDrillRecording_TrimsTail_DocumentsDefect()
+        public void RunOptimizationPass_FlownThenLandedDrillRecording_KeepsConverterTail_OnEveryPass()
         {
-            // DOCUMENTS A DEFECT (TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT, open): this asserts the
-            // known-wrong outcome on purpose and is the anchor the fix flips. Fly, land, drill:
-            // the split at the Atmospheric -> Surface boundary runs before the trim in the same
-            // pass and voids the harvest windows on BOTH halves (logistics D13), so the surface
-            // leaf has no resource witness and its drilling tail is trimmed. The voided windows
-            // are what every later pass (load, next commit) reads too, so a carry held only for
-            // this pass would not keep the tail either.
+            // TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT, owner ruling 2026-10-07. Fly, land, drill: the
+            // split at the Atmospheric -> Surface boundary runs before the trim in the same pass
+            // and voids the harvest windows on BOTH halves (logistics D13), so the windows cannot
+            // witness the drilling tail. The drill's ConverterActivated part event lands on the
+            // surface half and is still the drill's last converter event at the end, so the tail
+            // is kept - on this pass and on every later one (load, next commit), which read the
+            // same voided windows.
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             try
             {
+                // 10 s point spacing in the tail, so a trim to just after the converter event
+                // keeps two points and would go ahead (a sparser tail is refused as
+                // keep-count-too-low and would pass this cell for the wrong reason).
                 var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
-                    SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+                    SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary,
+                    boringPointCount: 60);
                 rec.RecordingId = "drill_split";
                 rec.VesselName = "Drill";
                 rec.RouteHarvestWindows = new List<RouteHarvestWindow>
                 {
                     MakeHarvestWindow(17035, 17630, oreStart: 0.0, oreEnd: 300.0),
                 };
+                rec.PartEvents.Add(MakeConverterEvent(17035, 4242, PartEventType.ConverterActivated));
                 RecordingStore.AddRecordingWithTreeForTesting(rec);
 
                 RecordingStore.RunOptimizationPass();
@@ -2268,13 +2273,74 @@ namespace Parsek.Tests
                 var leaf = RecordingStore.CommittedRecordings[1];
                 Assert.Null(head.RouteHarvestWindows);
                 Assert.Null(leaf.RouteHarvestWindows);
-                Assert.True(leaf.EndUT < 17630,
-                    $"the defect is fixed (leaf EndUT {leaf.EndUT}): flip this cell to assert the kept tail");
-                Assert.Equal(17060, leaf.EndUT);
+                Assert.Equal(17630, leaf.EndUT);
 
-                // A later pass reads the same voided state and keeps the trimmed end.
                 RecordingStore.RunOptimizationPass();
+                Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
                 Assert.Null(RecordingStore.CommittedRecordings[1].RouteHarvestWindows);
+                Assert.Equal(17630, RecordingStore.CommittedRecordings[1].EndUT);
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void RunOptimizationPass_ConverterSwitchedOnBeforeLanding_SeededAcrossSplit_KeepsTail()
+        {
+            // The converter came on during the flight (a fuel cell, or a drill armed before
+            // touchdown): its event stays on the flown half, and the split re-seeds the running
+            // converter at the start of the surface half (RecordingOptimizer.SeedEvents.cs), so
+            // the surface leaf still knows the converter runs through its end.
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            try
+            {
+                // Dense tail for the same reason as the cell above.
+                var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
+                    SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary,
+                    boringPointCount: 60);
+                rec.RecordingId = "drill_seeded";
+                rec.VesselName = "Drill";
+                rec.PartEvents.Add(MakeConverterEvent(17010, 4242, PartEventType.ConverterActivated));
+                RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+                RecordingStore.RunOptimizationPass();
+                RecordingStore.RunOptimizationPass();
+
+                Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
+                var leaf = RecordingStore.CommittedRecordings[1];
+                Assert.Contains(leaf.PartEvents, e => e.eventType == PartEventType.ConverterActivated
+                    && e.partPersistentId == 4242 && e.ut == 17030);
+                Assert.Equal(17630, leaf.EndUT);
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void RunOptimizationPass_FlownThenLandedRecording_NoConverter_TrimsAsBefore()
+        {
+            // Control for the two cells above: the same flight with no converter event (and no
+            // harvest window) has nothing that witnesses a resource change, so the surface leaf
+            // is all-boring and trims to its second point plus the buffer, exactly as before.
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            try
+            {
+                var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
+                    SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+                rec.RecordingId = "lander_no_converter";
+                rec.VesselName = "Lander";
+                RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+                RecordingStore.RunOptimizationPass();
+
+                Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
+                Assert.Equal(17060, RecordingStore.CommittedRecordings[1].EndUT);
             }
             finally
             {
@@ -3639,6 +3705,93 @@ namespace Parsek.Tests
             Assert.True(double.IsNaN(RecordingOptimizer.FindLastResourceChangeUT(rec)));
         }
 
+        private static PartEvent MakeConverterEvent(double ut, uint pid, PartEventType type)
+        {
+            return new PartEvent
+            {
+                ut = ut,
+                partPersistentId = pid,
+                eventType = type,
+                partName = "RadialDrill",
+            };
+        }
+
+        private static Recording MakeSurfaceRecordingWithEvents(params PartEvent[] events)
+        {
+            var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.PartEvents.AddRange(events);
+            return rec;
+        }
+
+        [Fact]
+        public void FindLastResourceChangeUT_ConverterRunningAtEnd_ReturnsEndUT()
+        {
+            var rec = MakeSurfaceRecordingWithEvents(
+                MakeConverterEvent(17035, 7, PartEventType.ConverterActivated));
+
+            Assert.Equal(17630, RecordingOptimizer.FindLastResourceChangeUT(rec));
+            Assert.Equal(17630, RecordingOptimizer.FindLastInterestingUT(rec));
+        }
+
+        [Fact]
+        public void FindLastResourceChangeUT_ConverterStopped_NotAWitness()
+        {
+            var rec = MakeSurfaceRecordingWithEvents(
+                MakeConverterEvent(17035, 7, PartEventType.ConverterActivated),
+                MakeConverterEvent(17200, 7, PartEventType.ConverterDeactivated));
+
+            Assert.True(double.IsNaN(RecordingOptimizer.FindLastResourceChangeUT(rec)));
+            // The stop itself is an interesting UT: the tail trims to just after it.
+            Assert.Equal(17200, RecordingOptimizer.FindLastInterestingUT(rec));
+        }
+
+        [Fact]
+        public void FindLastResourceChangeUT_OneOfTwoConvertersStillRunning_ReturnsEndUT()
+        {
+            // Per part: the ISRU stopped, the drill did not.
+            var rec = MakeSurfaceRecordingWithEvents(
+                MakeConverterEvent(17035, 7, PartEventType.ConverterActivated),
+                MakeConverterEvent(17040, 8, PartEventType.ConverterActivated),
+                MakeConverterEvent(17200, 8, PartEventType.ConverterDeactivated));
+
+            Assert.Equal(17630, RecordingOptimizer.FindLastResourceChangeUT(rec));
+        }
+
+        [Fact]
+        public void FindLastResourceChangeUT_ConverterEventsOutOfOrder_UsesTheLatestPerPart()
+        {
+            // The list is not guaranteed sorted by UT: the later stop wins over an
+            // earlier-listed start.
+            var rec = MakeSurfaceRecordingWithEvents(
+                MakeConverterEvent(17200, 7, PartEventType.ConverterDeactivated),
+                MakeConverterEvent(17035, 7, PartEventType.ConverterActivated));
+
+            Assert.True(double.IsNaN(RecordingOptimizer.FindLastResourceChangeUT(rec)));
+        }
+
+        [Fact]
+        public void FindLastResourceChangeUT_RunningConverterPartDestroyed_NotAWitness()
+        {
+            // A destroyed part takes its converter with it; the recorder never writes a stop
+            // for a part that left the vessel.
+            var rec = MakeSurfaceRecordingWithEvents(
+                MakeConverterEvent(17035, 7, PartEventType.ConverterActivated),
+                MakeConverterEvent(17100, 7, PartEventType.Destroyed));
+
+            Assert.True(double.IsNaN(RecordingOptimizer.FindLastResourceChangeUT(rec)));
+        }
+
+        [Fact]
+        public void FindLastResourceChangeUT_ConverterOnlyEverOff_NotAWitness()
+        {
+            // A split seeds a stopped converter's off state at the cut; off is not running.
+            var rec = MakeSurfaceRecordingWithEvents(
+                MakeConverterEvent(17030, 7, PartEventType.ConverterDeactivated));
+
+            Assert.True(double.IsNaN(RecordingOptimizer.FindLastResourceChangeUT(rec)));
+        }
+
         #endregion
 
         #region IsLeafRecording
@@ -3804,6 +3957,54 @@ namespace Parsek.Tests
             Assert.True(rec.EndUT >= 17200, $"EndUT {rec.EndUT} cut into the resource change");
             Assert.True(rec.EndUT <= 17200 + RecordingOptimizer.DefaultTailBufferSeconds + 31,
                 $"EndUT {rec.EndUT} not trimmed after the resource change");
+        }
+
+        [Fact]
+        public void TrimBoringTail_ConverterRunningAtEnd_IsKept_AndLogsTheReason()
+        {
+            // No harvest window (a background leg, or a window the split voided): the drill's
+            // last converter event is a start, so the tail is not boring.
+            EnableLogCapture();
+            var rec = MakeSurfaceRecordingWithEvents(
+                MakeConverterEvent(17035, 7, PartEventType.ConverterActivated));
+            rec.RecordingId = "drill_converter_tail";
+            int pointsBefore = rec.Points.Count;
+
+            Assert.False(RecordingOptimizer.TrimBoringTailInternal(
+                rec, new List<Recording> { rec }, RecordingOptimizer.DefaultTailBufferSeconds,
+                logSkipReason: true, skipCategory: out string skipCategory));
+            Assert.Equal("resource-changing-tail", skipCategory);
+            Assert.Equal(17630, rec.EndUT);
+            Assert.Equal(pointsBefore, rec.Points.Count);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("TrimBoringTail: skipped (resource-changing-tail)")
+                && l.Contains("id='drill_converter_tail'")
+                && l.Contains("lastResourceChangeUT=17630.0")
+                && l.Contains("runningConverters=1"));
+        }
+
+        [Fact]
+        public void TrimBoringTail_ConverterStoppedMidTail_TrimsToJustAfterTheStop()
+        {
+            var rec = MakeSurfaceRecordingWithEvents(
+                MakeConverterEvent(17035, 7, PartEventType.ConverterActivated),
+                MakeConverterEvent(17200, 7, PartEventType.ConverterDeactivated));
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, new List<Recording> { rec }));
+            Assert.True(rec.EndUT >= 17200, $"EndUT {rec.EndUT} cut into the converter run");
+            Assert.True(rec.EndUT <= 17200 + RecordingOptimizer.DefaultTailBufferSeconds,
+                $"EndUT {rec.EndUT} not trimmed after the converter stopped");
+        }
+
+        [Fact]
+        public void TrimBoringTail_ConverterOnlyEverOff_Trims()
+        {
+            var rec = MakeSurfaceRecordingWithEvents(
+                MakeConverterEvent(17030, 7, PartEventType.ConverterDeactivated));
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, new List<Recording> { rec }));
+            Assert.True(rec.EndUT <= 17030 + RecordingOptimizer.DefaultTailBufferSeconds + 1,
+                $"EndUT {rec.EndUT} kept a tail no running converter witnesses");
         }
 
         [Fact]

@@ -828,7 +828,7 @@ applies. Lane RC-6 with `EvaGroundScience action=take` against a foreign contain
 
 ---
 
-## TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. RULED 2026-10-06: keep resource-changing tails. PARTIAL 2026-10-06, branch `release-cheap-fixes` (PR #2027): fixed for recordings the optimizer does not split; a flown-then-landed recording still loses its witness to the split; NEEDS A RULING on the options below. The unwitnessed sources are TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES]
+## ~~TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources~~ [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. RULED 2026-10-06: keep resource-changing tails. PARTIAL 2026-10-06, branch `release-cheap-fixes` (PR #2027): fixed for recordings the optimizer does not split. RULED 2026-10-07: the converter part events are the witness (option 3). FIXED 2026-10-07, branch `release-rulings`. The sources still unwitnessed are TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES]
 
 `RecordingOptimizer.TailTrim` restamps the end UT and SpawnUT earlier (`:820-845`) but never
 touches the snapshot; `FindLastInterestingUT` (`:75`) ignores resources and the guard checks
@@ -855,51 +855,77 @@ stopped mid-tail trims to just after it; an EC-only or stalled window changes no
 `TrimBoringTail_ResourceChangeEndingMidTail_TrimsAfterIt`, and through the whole pass
 `RunOptimizationPass_UnsplitDrillRecording_KeepsResourceChangingTail_OnEveryPass`.
 
-**Still open: the split voids the witness (found by the PR #2027 review).** `RunOptimizationPass`
+**The split voided the witness (found by the PR #2027 review).** `RunOptimizationPass`
 (`RecordingStore.Optimization.cs`) runs the split pass BEFORE `TrimBoringTailsForOptimization`, and
 every split goes through `RecordingOptimizer.TransferTerminalFieldsToSecondHalf`, which nulls
 `RouteHarvestWindows` on BOTH halves (logistics plan D13: a window can land on the wrong side of the
-cut). Fly -> land -> drill splits at the Atmospheric -> Surface boundary, the surface leaf has no
-windows, and its drilling tail is trimmed exactly as before (pinned by
-`RunOptimizationPass_FlownThenLandedDrillRecording_TrimsTail_DocumentsDefect`, the cell the fix
-flips). A carry held only within the pass is not enough: the pass runs on every load
-(`ParsekScenario.OnLoad`, phase `optimization`) and after every commit (`MergeDialog.MergeCommit`,
-`ParsekScenario.AutoCommitPendingTreeOutsideFlight`), the trim revisits every committed leaf with no done marker, and after
-the first pass the voided windows are what is flushed and read back. Options (owner ruling needed):
-(1) persist the witness across the split in a new serialized field (e.g. the last resource-change
-UT, moved to the half that contains it before D13 voids the windows) - a schema addition;
-(2) narrow D13 to void only a window that straddles the cut and keep a closed window on the half
-that wholly contains it - a logistics-analysis change; (3) use the converter part events as the
-witness (a converter whose last event is `ConverterActivated` keeps the tail through the end): part
-events are partitioned by the split and the converter state is re-seeded on the second half
-(`RecordingOptimizer.SeedEvents.cs` converter reducer), so it survives splits and every pass with
-no new field and D13 untouched, but it is a proxy (a stalled drill keeps its tail too) - it also
-closes the background-leg item of TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES.
+cut). Fly -> land -> drill splits at the Atmospheric -> Surface boundary, so the surface leaf had no
+windows and its drilling tail was trimmed. A carry held only within the pass was not enough: the
+pass runs on every load (`ParsekScenario.OnLoad`, phase `optimization`) and after every commit
+(`MergeDialog.MergeCommit`, `ParsekScenario.AutoCommitPendingTreeOutsideFlight`), the trim revisits
+every committed leaf with no done marker, and after the first pass the voided windows are what is
+flushed and read back. The options were a new serialized witness field, narrowing D13, or the
+converter part events.
+
+**FIXED 2026-10-07 (branch `release-rulings`), owner ruling 2026-10-07: option 3, the converter part
+events.** New `RecordingOptimizer.CountConvertersRunningAtEnd` reduces the recording's
+`ConverterActivated` / `ConverterDeactivated` events per part (the latest at or before `EndUT` wins,
+ties go to the later list entry; a `Destroyed` event on the part ends its run, since the recorder
+writes no stop for a part that left the vessel). `FindLastResourceChangeUT` now takes the later of
+two witnesses: the harvest-window rule above (moved unchanged into `FindLastHarvestWindowChangeUT`)
+and, when any converter is still running at the end, the recording's `EndUT`, so the tail is kept to
+the end (skip category `resource-changing-tail`; the verbose skip line now also carries
+`runningConverters=`). A converter stop is a non-inert part event, so it already was an interesting
+UT: a converter stopped mid-tail trims to just after the stop. The events survive the split
+(`PartitionPartEvents`, and a converter running at the cut is re-seeded at the start of the second
+half by the `RecordingOptimizer.SeedEvents.cs` converter reducer) and every later pass, with no new
+field and D13 untouched. Accepted approximation (ruling): a converter switched on but stalled (full
+tanks, no input, an idle fuel cell) keeps its tail too. Tests in `RecordingOptimizerTests` (red
+before the fix where marked): `RunOptimizationPass_FlownThenLandedDrillRecording_KeepsConverterTail_OnEveryPass`
+(the flipped `..._TrimsTail_DocumentsDefect` cell; red),
+`RunOptimizationPass_ConverterSwitchedOnBeforeLanding_SeededAcrossSplit_KeepsTail` (red),
+`RunOptimizationPass_FlownThenLandedRecording_NoConverter_TrimsAsBefore`,
+`TrimBoringTail_ConverterRunningAtEnd_IsKept_AndLogsTheReason` (red),
+`TrimBoringTail_ConverterStoppedMidTail_TrimsToJustAfterTheStop`, `TrimBoringTail_ConverterOnlyEverOff_Trims`,
+and the pure `FindLastResourceChangeUT_ConverterRunningAtEnd_ReturnsEndUT` (red),
+`..._OneOfTwoConvertersStillRunning_ReturnsEndUT` (red), `..._ConverterStopped_NotAWitness`,
+`..._ConverterEventsOutOfOrder_UsesTheLatestPerPart`, `..._RunningConverterPartDestroyed_NotAWitness`
+and `..._ConverterOnlyEverOff_NotAWitness`.
 
 ---
 
-## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness]
+## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness. Background-leg item CLOSED 2026-10-07, branch `release-rulings`, by the converter-event witness]
 
-TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT keeps a tail only when a closed `RouteHarvestWindow` measured a
-change. Three sources leave no such witness, so their tails still trim and their resources still
-arrive early with the commit-time snapshot:
+TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT keeps a tail when a closed `RouteHarvestWindow` measured a change
+or a converter is still running at the recording end (the last converter part event of some part is
+`ConverterActivated`). Two sources leave no such witness, so their tails still trim and their
+resources still arrive early with the commit-time snapshot:
 
 - a supply route delivering into (or debiting) the recorded vessel during the tail: the route
   writers (`Logistics/LiveDeliveryWriters.cs`, `LiveOriginDebitWriters.cs`) touch no recording;
   the ledger holds the route rows (`RouteCargoDelivered` / `RouteCargoPickedUp` / `RouteCargoDebited`)
   with their UTs, the endpoint resolving through the route's stop, but the optimizer pass reads no
   ledger;
-- a converter running on a BACKGROUND leg: `BackgroundRecorder` records `ConverterActivated` /
-  `ConverterDeactivated` part events but captures no harvest windows (only the active stop does,
-  `FlightRecorder.BuildCaptureRecording`), so a base left mining in the background trims after its
-  last converter event;
 - an in-vessel transfer (crossfeed, a docked pair's fuel transfer): vessel totals do not move, so no
   manifest sees it, but the per-part split in the snapshot still arrives early.
 
-Fix options: (1) treat a converter still running at the recording end (last converter event per
-part is `ConverterActivated`) as interesting through the end - a proxy, not a measurement, covering
-background legs; (2) give the optimizer pass the ledger's route rows whose endpoint is the
-recording's vessel and treat a row inside the tail as interesting; (3) accept the in-vessel case.
+~~A converter running on a BACKGROUND leg~~ - CLOSED 2026-10-07 (branch `release-rulings`):
+`BackgroundRecorder` emits the same `ConverterActivated` / `ConverterDeactivated` part events
+(`BackgroundRecorder.PartEventPolling.cs` `CheckConverterState`, the same Layer-1
+`FlightRecorder.CheckConverterTransition`, plus the `InitializeLoadedState` seed and the rails-span
+diff), so a base left mining in the background keeps its tail through the converter witness. Two
+narrow residues of that witness, by code read: a background vessel recorded only on rails emits no
+converter event at all (the on-rails init seeds nothing), and a recording started as a promotion
+into a FRESH branch (`CreateSplitBranch`, `CreateSplitBranchFromBackgroundParent`, `CreateMergeBranch`,
+`BindLiveRecorderToSwitchSegment`; `StartRecording(isPromotion: true)` skips non-engine seeds) with a
+converter already running carries no `ConverterActivated`. Such a recording still opens a harvest
+window at start (`InitializeHarvestWindowAtStart`), which witnesses the tail unless the optimizer
+splits the recording.
+
+Fix options: (1) give the optimizer pass the ledger's route rows whose endpoint is the recording's
+vessel and treat a row inside the tail as interesting; (2) accept the in-vessel case; (3) for the
+residues, emit a converter seed on a promotion into a fresh branch (it would also start the ghost's
+running loop there).
 
 ---
 
