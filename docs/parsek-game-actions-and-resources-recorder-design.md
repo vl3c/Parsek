@@ -2000,7 +2000,7 @@ FacilityUpgrade (spending action)
   sequence:     int - order within that UT
   facilityId:   string - "LaunchPad" / "VehicleAssemblyBuilding" / etc.
   toLevel:      int - target level (2 or 3)
-  facilityCost: float - funds spent (code field: FacilityCost)
+  facilityCost: float - the funds stock deducted for it (code field: FacilityCost)
 
 FacilityDestruction (recording-associated action, or a direct KSC row)
   ut:           double - when the building collapsed (stock OnKSCStructureCollapsing)
@@ -2016,7 +2016,9 @@ FacilityRepair (spending action)
 
 Upgrades and repairs are KSC spending actions (frozen UT, sequenced). A destruction during a recorded flight is recording-associated: it becomes a ledger row when that recording commits, is dropped with the recording on a revert discard, re-homed as a direct row on a non-revert discard (stock has already saved the building down), and retired by a Re-Fly that supersedes the flight. A destruction with no live recorder (before a flight's recording starts, or the KSC debug Demolish) is a direct row at its UT. A KSP load to before a direct row prunes it like any other KSC action; a Parsek rewind keeps it as a future row that the walk applies only once the clock passes it.
 
-Destruction and repair are keyed by the single DestructibleBuilding id; a facility is several buildings, and it is destroyed while any of them is. One stock repair (`SpaceCenterBuilding.RepairFacility`) repairs every destroyed building of the facility and deducts one `FundsChanged(StructureRepair)` total (`RepairCost` summed over the destroyed buildings, times `Career.FundsLossMultiplier`); Parsek writes one FacilityRepair per building carrying its share, as one batch, so the KSC reconciliation sums them against the single debit. That FundsChanged event is not converted to a funds row by any other path, so the repair row is the one place the spend is counted. Upgrading a destroyed facility repairs it for free (stock `ResetStructures`), recorded as zero-cost repair rows.
+Destruction and repair are keyed by the single DestructibleBuilding id; a facility is several buildings, and it is destroyed while any of them is. One stock repair (`SpaceCenterBuilding.RepairFacility`) repairs every destroyed building of the facility and deducts one `FundsChanged(StructureRepair)` total (`RepairCost` summed over the destroyed buildings, times `Career.FundsLossMultiplier`); Parsek writes one FacilityRepair per building carrying its share, as one batch, so the KSC reconciliation sums them against the single debit. That FundsChanged event is not converted to a funds row by any other path, so the repair row is the one place the spend is counted. Upgrading a destroyed facility repairs it for free (stock `ResetStructures`), recorded as zero-cost repair rows, written in one batch with the upgrade row.
+
+One stock upgrade (`SpaceCenterBuilding.UpgradeFacility`) deducts one `FundsChanged(StructureConstruction)` (`upgradeLevels[level + 1].levelCost` times `Career.FundsLossMultiplier`, nothing in a game without funds) BEFORE `SetLevel` raises the event the upgrade row is recorded from. Parsek reads that debit as the funds handler observes it inside the call, so the row carries what the pool actually lost (net of a strategy discount, whose funds share no strategy row records for this event-derived reason) and the KSC reconciliation pairs it with that one event. A level change no `UpgradeFacility` call observed (the scene-change poll) carries cost 0 rather than a guessed one. Rows written at cost 0 before this capture take their debit on load when the saved `FundsChanged(StructureConstruction)` event of the row's own tag and UT still proves it, and are left as stored otherwise.
 
 ### 10.3 Funds accounting
 
