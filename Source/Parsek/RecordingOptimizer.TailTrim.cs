@@ -69,7 +69,8 @@ namespace Parsek
         /// <summary>
         /// Finds the UT of the last interesting activity in a recording.
         /// Interesting = last non-boring TrackSection end, last non-inert PartEvent,
-        /// last SegmentEvent, or last FlagEvent — whichever is latest. Returns NaN if
+        /// last SegmentEvent, last FlagEvent, or last witnessed resource change
+        /// (<see cref="FindLastResourceChangeUT"/>), whichever is latest. Returns NaN if
         /// nothing interesting found.
         /// </summary>
         internal static double FindLastInterestingUT(Recording rec)
@@ -127,7 +128,68 @@ namespace Parsek
                 }
             }
 
+            // Last witnessed resource change: a tail whose resources change is not boring.
+            double resourceUT = FindLastResourceChangeUT(rec);
+            if (!double.IsNaN(resourceUT) && (double.IsNaN(lastUT) || resourceUT > lastUT))
+                lastUT = resourceUT;
+
             return lastUT;
+        }
+
+        /// <summary>
+        /// Smallest per-resource amount change that counts as a witnessed resource change.
+        /// Same scale as <c>RouteHarvestAnalysis.GainEpsilon</c>.
+        /// </summary>
+        internal const double TailResourceChangeEpsilon = 1e-6;
+
+        /// <summary>
+        /// UT of the last MEASURED resource change in a recording, or NaN when none is
+        /// witnessed. A trimmed tail must not hide a resource change: the spawn snapshot
+        /// is the commit-time vessel, so moving the spawn earlier would deliver the
+        /// change early. The only per-UT resource witness a recording carries is a closed
+        /// <see cref="RouteHarvestWindow"/> (converter activity with start and end
+        /// manifests measured on the live vessel); a window counts when any resource
+        /// other than the environmental ones (<c>ResourceTransferability.IsAlwaysIgnored</c>:
+        /// ElectricCharge, IntakeAir) moved by more than <see cref="TailResourceChangeEpsilon"/>.
+        /// An open window has no end manifest and witnesses nothing.
+        /// </summary>
+        internal static double FindLastResourceChangeUT(Recording rec)
+        {
+            double lastUT = double.NaN;
+            List<RouteHarvestWindow> windows = rec?.RouteHarvestWindows;
+            if (windows == null)
+                return lastUT;
+
+            for (int i = 0; i < windows.Count; i++)
+            {
+                RouteHarvestWindow window = windows[i];
+                if (window == null || window.IsOpen || double.IsInfinity(window.EndUT))
+                    continue;
+                if (!HarvestWindowChangedResources(window))
+                    continue;
+                if (double.IsNaN(lastUT) || window.EndUT > lastUT)
+                    lastUT = window.EndUT;
+            }
+
+            return lastUT;
+        }
+
+        private static bool HarvestWindowChangedResources(RouteHarvestWindow window)
+        {
+            Dictionary<string, double> delta = ResourceManifest.ComputeResourceDelta(
+                window.StartTransportResources, window.EndTransportResources);
+            if (delta == null || window.EndTransportResources == null)
+                return false;
+
+            foreach (KeyValuePair<string, double> kvp in delta)
+            {
+                if (Logistics.ResourceTransferability.IsAlwaysIgnored(kvp.Key))
+                    continue;
+                if (Math.Abs(kvp.Value) > TailResourceChangeEpsilon)
+                    return true;
+            }
+
+            return false;
         }
 
         internal static bool TailPreservesTerminalSpawnState(Recording rec, double trimUT)
@@ -579,7 +641,8 @@ namespace Parsek
         /// can emit a single aggregated summary instead of one log line per skipped
         /// recording. Categories: <c>rec-null-or-too-few-points</c>, <c>not-leaf</c>,
         /// <c>too-short</c>, <c>no-track-sections</c>, <c>last-section-not-boring</c>,
-        /// <c>all-boring-too-few-points</c>, <c>buffer-not-met</c>, <c>terminal-mismatch</c>,
+        /// <c>all-boring-too-few-points</c>, <c>buffer-not-met</c>, <c>resource-changing-tail</c>,
+        /// <c>terminal-mismatch</c>,
         /// <c>unstable-terminal</c>, <c>no-points-past-trim-ut</c>, <c>keep-count-too-low</c>.
         /// </summary>
         internal static bool TrimBoringTailInternal(
@@ -671,16 +734,22 @@ namespace Parsek
             double trimUT = lastInterestingUT + bufferSeconds;
             if (trimUT >= rec.EndUT)
             {
-                skipCategory = "buffer-not-met";
+                // A resource change that alone reaches the end keeps the tail: name it,
+                // so the bulk pass summary separates it from a merely short tail.
+                double resourceChangeUT = FindLastResourceChangeUT(rec);
+                bool resourceKeepsTail = !double.IsNaN(resourceChangeUT)
+                    && resourceChangeUT + bufferSeconds >= rec.EndUT;
+                skipCategory = resourceKeepsTail ? "resource-changing-tail" : "buffer-not-met";
                 if (logSkipReason)
                     ParsekLog.Verbose("Optimizer",
-                        $"TrimBoringTail: skipped (buffer-not-met) " +
+                        $"TrimBoringTail: skipped ({skipCategory}) " +
                         $"id='{rec.RecordingId}' " +
                         $"trimUT={trimUT.ToString("F1", CultureInfo.InvariantCulture)} " +
                         $">= endUT={rec.EndUT.ToString("F1", CultureInfo.InvariantCulture)} " +
                         $"(lastInterestingUT={lastInterestingUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"lastResourceChangeUT={resourceChangeUT.ToString("F1", CultureInfo.InvariantCulture)} " +
                         $"buffer={bufferSeconds.ToString("F1", CultureInfo.InvariantCulture)}s)");
-                return false; // boring tail is shorter than buffer
+                return false; // boring tail is shorter than buffer, or it changes resources
             }
 
             // Two distinct skip flavors live behind this gate. The non-spawnable-

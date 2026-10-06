@@ -338,7 +338,7 @@ AbandonedFutureEvents / AbandonedFutureLedgerRows); the fix flips those cells.
 
 ---
 
-## ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS: the Esc-menu Discard Re-fly leaves the attempt's pending science and ledger tags behind [FILED 2026-10-06 from the PR #2021 review, verified by code read. OPEN, product; not yet reproduced]
+## ~~ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS: the Esc-menu Discard Re-fly leaves the attempt's pending science and ledger tags behind~~ [FILED 2026-10-06 from the PR #2021 review, verified by code read. FIXED 2026-10-06, branch `release-cheap-fixes`: the Esc path now runs the merge-dialog discard's session-state half and tag re-home]
 
 `RevertInterceptor.DiscardReFlyHandler` prunes the attempt through
 `MergeDialog.PruneActiveReFlyAttemptOwnedTopology` (recordings, events, files) but never clears
@@ -358,6 +358,22 @@ Red test: `ReFlyRevertDialogTests` - a pending subject and an attempt-tagged Fun
 
 Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide` (DiscardReFly x
 PendingScience); the fix flips that cell.
+
+**FIXED 2026-10-06 (branch `release-cheap-fixes`).** `RevertInterceptor.DiscardReFlyHandler` now
+calls `MergeDialog.EndDiscardedReFlySession` (made internal) on both its paths (resolved and
+unresolvable RP) in place of its own copy of the marker / journal / supersede-bump / revert-gate /
+anchor-snapshot block, so it also clears `GameStateRecorder.PendingScienceSubjects` (new Verbose
+`Discarded session end: pendingScienceCleared=N` line, shared by all three discard paths). The tag
+re-home lives in `MergeDialog.PruneActiveReFlyAttemptOwnedTopology`, the Esc path's recording half
+(its only caller): `Ledger.ClearRecordingTagForRecordings(attemptIds)` on both the tree and the
+no-tree fallback branches, counted as `ledgerTagsCleared=` in its summary line. The
+`LoadReconcilePolicy` cell DiscardReFly x PendingScience is now `Clear` and the gap id is gone.
+Tests: `ReFlyRevertDialogTests.DiscardReFly_ClearsPendingScience_AndReHomesAttemptLedgerTags`,
+`DiscardReFly_UnresolvableRp_StillClearsPendingScienceAndAttemptTags` (both reach the no-tree
+fallback), `DiscardReFly_CommittedTreeBranch_ReHomesLedgerTagsOfEveryAttemptRecording` (registers
+the tree, so the tree branch runs and re-homes untagged attempt debris too; red with that branch's
+clear deleted),
+`LoadReconcilePolicyTests.DiscardReFly_PendingScience_IsClearedBeforeTheLoad`.
 
 ---
 
@@ -547,7 +563,7 @@ applies. Lane RC-6 with `EvaGroundScience action=take` against a foreign contain
 
 ---
 
-## TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; RULED 2026-10-06: keep resource-changing tails]
+## TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. RULED 2026-10-06: keep resource-changing tails. PARTIAL 2026-10-06, branch `release-cheap-fixes` (PR #2027): fixed for recordings the optimizer does not split; a flown-then-landed recording still loses its witness to the split; NEEDS A RULING on the options below. The unwitnessed sources are TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES]
 
 `RecordingOptimizer.TailTrim` restamps the end UT and SpawnUT earlier (`:820-845`) but never
 touches the snapshot; `FindLastInterestingUT` (`:75`) ignores resources and the guard checks
@@ -558,6 +574,67 @@ the crossings between the trimmed SpawnUT and commit are delivered twice.
 Fix: RULED 2026-10-06 - keep a tail whose resources change (it is not boring):
 `FindLastInterestingUT` treats a resource change as interesting. Red test: a `RecordingOptimizer`
 tail-trim cell with a resource-changing tail.
+
+**PARTIAL 2026-10-06 (branch `release-cheap-fixes`, PR #2027).** The only per-UT resource witness a recording
+carries is a closed `RouteHarvestWindow` (converter activity, with the transport's resource
+manifest measured on the live vessel when the window opens and closes; `StartResources` /
+`EndResources` are recording-wide and say nothing about the tail, and no point, section or event
+carries resources). New `RecordingOptimizer.FindLastResourceChangeUT` returns the end UT of the last
+closed harvest window whose manifests differ by more than 1e-6 on any resource other than
+ElectricCharge / IntakeAir (`ResourceTransferability.IsAlwaysIgnored`), and `FindLastInterestingUT`
+takes it as one more interest source. A drill running to the end keeps the whole tail (new skip
+category `resource-changing-tail`, its own verbose line with `lastResourceChangeUT=`); a drill that
+stopped mid-tail trims to just after it; an EC-only or stalled window changes nothing. Tests:
+`RecordingOptimizerTests.FindLastInterestingUT_HarvestWindow*`, `FindLastResourceChangeUT_*`,
+`TrimBoringTail_ResourceChangingTail_*`, `TrimBoringTail_UnchangedResourceTail_StillTrims`,
+`TrimBoringTail_ResourceChangeEndingMidTail_TrimsAfterIt`, and through the whole pass
+`RunOptimizationPass_UnsplitDrillRecording_KeepsResourceChangingTail_OnEveryPass`.
+
+**Still open: the split voids the witness (found by the PR #2027 review).** `RunOptimizationPass`
+(`RecordingStore.Optimization.cs`) runs the split pass BEFORE `TrimBoringTailsForOptimization`, and
+every split goes through `RecordingOptimizer.TransferTerminalFieldsToSecondHalf`, which nulls
+`RouteHarvestWindows` on BOTH halves (logistics plan D13: a window can land on the wrong side of the
+cut). Fly -> land -> drill splits at the Atmospheric -> Surface boundary, the surface leaf has no
+windows, and its drilling tail is trimmed exactly as before (pinned by
+`RunOptimizationPass_FlownThenLandedDrillRecording_TrimsTail_DocumentsDefect`, the cell the fix
+flips). A carry held only within the pass is not enough: the pass runs on every load
+(`ParsekScenario.OnLoad`, phase `optimization`) and after every commit (`MergeDialog.MergeCommit`,
+`ParsekScenario.AutoCommitPendingTreeOutsideFlight`), the trim revisits every committed leaf with no done marker, and after
+the first pass the voided windows are what is flushed and read back. Options (owner ruling needed):
+(1) persist the witness across the split in a new serialized field (e.g. the last resource-change
+UT, moved to the half that contains it before D13 voids the windows) - a schema addition;
+(2) narrow D13 to void only a window that straddles the cut and keep a closed window on the half
+that wholly contains it - a logistics-analysis change; (3) use the converter part events as the
+witness (a converter whose last event is `ConverterActivated` keeps the tail through the end): part
+events are partitioned by the split and the converter state is re-seeded on the second half
+(`RecordingOptimizer.SeedEvents.cs` converter reducer), so it survives splits and every pass with
+no new field and D13 untouched, but it is a proxy (a stalled drill keeps its tail too) - it also
+closes the background-leg item of TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES.
+
+---
+
+## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness]
+
+TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT keeps a tail only when a closed `RouteHarvestWindow` measured a
+change. Three sources leave no such witness, so their tails still trim and their resources still
+arrive early with the commit-time snapshot:
+
+- a supply route delivering into (or debiting) the recorded vessel during the tail: the route
+  writers (`Logistics/LiveDeliveryWriters.cs`, `LiveOriginDebitWriters.cs`) touch no recording;
+  the ledger holds the route rows (`RouteCargoDelivered` / `RouteCargoPickedUp` / `RouteCargoDebited`)
+  with their UTs, the endpoint resolving through the route's stop, but the optimizer pass reads no
+  ledger;
+- a converter running on a BACKGROUND leg: `BackgroundRecorder` records `ConverterActivated` /
+  `ConverterDeactivated` part events but captures no harvest windows (only the active stop does,
+  `FlightRecorder.BuildCaptureRecording`), so a base left mining in the background trims after its
+  last converter event;
+- an in-vessel transfer (crossfeed, a docked pair's fuel transfer): vessel totals do not move, so no
+  manifest sees it, but the per-part split in the snapshot still arrives early.
+
+Fix options: (1) treat a converter still running at the recording end (last converter event per
+part is `ConverterActivated`) as interesting through the end - a proxy, not a measurement, covering
+background legs; (2) give the optimizer pass the ledger's route rows whose endpoint is the
+recording's vessel and treat a row inside the tail as interesting; (3) accept the in-vessel case.
 
 ---
 
@@ -8270,9 +8347,30 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   next nightly** - this raise was its only standing red (the lane has never had
   a green armed run; its arming flight red'd on this same event), so that sweep
   IS the regression catcher for this change.
-- **GHOST-MAP-TEARDOWN-NRE-WHEN-CAMERA-TARGETED: destroying a ghost map vessel
+- ~~**GHOST-MAP-TEARDOWN-NRE-WHEN-CAMERA-TARGETED: destroying a ghost map vessel
   that is the `PlanetariumCamera`'s current target NREs stock's KnowledgeBase
-  during the forced retarget** [OPENED 2026-08-26 off V25M reading 3
+  during the forced retarget**~~ **FIXED 2026-10-06, branch `release-cheap-fixes`:**
+  the camera is moved off a targeted ghost while the UI is still intact. Finding: the
+  NRE is not on the dying MapObject but on `KbApp_PlanetParameters`' own transform -
+  every collected quit log (V15M `2026-08-28_2004`, H5, R1, H36, GS-2) prints
+  `KbApp.OnDestroy Planet Parameters` before the stock `Focus:` line, so ANY retarget
+  fired from an OnDestroy-time teardown NREs, whoever fires it (stock picks the nearest
+  body, `FindNearestTarget`). Fix: pure
+  `GhostMapPresence.DecideCameraRetargetBeforeGhostRemoval` (camera on a dying ghost ->
+  active vessel, else the ghost's reference body, else the home body; during a scene
+  teardown the active vessel is skipped, since it dies with the scene and stock would
+  retarget again from its OnDestroy) behind the thin `RetargetPlanetariumCameraOffDyingGhosts`
+  (null-guarded `PlanetariumCamera.fetch`, Info `Planetarium camera retargeted off dying
+  ghost ...`). Called before the Die loop of every in-scene `RemoveAllGhostVessels`
+  (rewind / scene-change request via `DestroyAllTimelineGhosts`, TS Fly, test resets),
+  and from `ParsekHarmony.OnApplicationQuit` (before Unity destroys anything) for the
+  quit; the OnDestroy removals (`scene-cleanup`, `tracking-station-cleanup`, new
+  `sceneTeardown: true`) and any removal after the quit latch stand down with a Verbose
+  line rather than fire the event into a torn-down KnowledgeBase themselves. Not
+  covered: a Tracking Station scene CHANGE with the camera on a ghost still lets stock
+  retarget at ghost destroy (no request-time hook in the TS; same as before), and the
+  single-ghost removers keep stock's retarget (the UI is alive there, no NRE). Tests:
+  `GhostMapCameraRetargetTests`. Original report: [OPENED 2026-08-26 off V25M reading 3
   (`harness/results/2026-08-26_1823_V25M-duna-park-player-loop.json`,
   `unityExceptions` report-only row: 2 NRE lines, both this one event's ERR+EXC
   pair). Owner: `GhostMapPresence`]. Stack has NO Parsek frames but the trigger
