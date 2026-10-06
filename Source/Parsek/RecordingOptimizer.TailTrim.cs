@@ -181,9 +181,11 @@ namespace Parsek
         /// when any BaseConverter on it (drill, ISRU, fuel cell, modded derivative) turns
         /// on or the last one turns off, plus a ConverterActivated seed for a converter
         /// already running when a fresh recording starts. A
-        /// <see cref="PartEventType.Destroyed"/> event on the part ends its run: the
-        /// recorder writes no stop for a part that left the vessel. The list is not
-        /// assumed sorted; ties at one UT go to the later list entry.
+        /// <see cref="PartEventType.Destroyed"/> event on the part ends its run for good,
+        /// whatever follows it: the recorder writes no stop for a part that left the vessel,
+        /// and an optimizer split forwards the Destroyed seed ahead of a ConverterActivated
+        /// seed at the same UT. The list is not assumed sorted; other ties at one UT go to
+        /// the later list entry.
         /// </summary>
         internal static int CountConvertersRunningAtEnd(Recording rec)
         {
@@ -193,6 +195,7 @@ namespace Parsek
 
             double endUT = double.NaN;
             Dictionary<uint, KeyValuePair<double, bool>> latestByPart = null;
+            HashSet<uint> destroyedParts = null;
             for (int i = 0; i < events.Count; i++)
             {
                 PartEvent evt = events[i];
@@ -215,6 +218,13 @@ namespace Parsek
                 if (evt.ut > endUT)
                     continue;
 
+                if (evt.eventType == PartEventType.Destroyed)
+                {
+                    if (destroyedParts == null)
+                        destroyedParts = new HashSet<uint>();
+                    destroyedParts.Add(evt.partPersistentId);
+                }
+
                 if (latestByPart == null)
                     latestByPart = new Dictionary<uint, KeyValuePair<double, bool>>();
                 if (latestByPart.TryGetValue(evt.partPersistentId, out KeyValuePair<double, bool> prior)
@@ -229,7 +239,7 @@ namespace Parsek
             int runningCount = 0;
             foreach (KeyValuePair<uint, KeyValuePair<double, bool>> kvp in latestByPart)
             {
-                if (kvp.Value.Value)
+                if (kvp.Value.Value && (destroyedParts == null || !destroyedParts.Contains(kvp.Key)))
                     runningCount++;
             }
 

@@ -3783,6 +3783,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FindLastResourceChangeUT_DestroyedSeedAheadOfActivatedSeedAtOneUT_NotAWitness()
+        {
+            // An optimizer split forwards the Destroyed seed first and re-adds the running
+            // converter's ConverterActivated seed after it, both at the cut's UT. A destroyed
+            // part never runs again, whatever follows it at the same moment.
+            var rec = MakeSurfaceRecordingWithEvents(
+                MakeConverterEvent(17030, 4242, PartEventType.Destroyed),
+                MakeConverterEvent(17030, 4242, PartEventType.ConverterActivated));
+
+            Assert.Equal(0, RecordingOptimizer.CountConvertersRunningAtEnd(rec));
+            Assert.True(double.IsNaN(RecordingOptimizer.FindLastResourceChangeUT(rec)));
+        }
+
+        [Fact]
         public void FindLastResourceChangeUT_ConverterOnlyEverOff_NotAWitness()
         {
             // A split seeds a stopped converter's off state at the cut; off is not running.

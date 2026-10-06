@@ -943,7 +943,12 @@ into a FRESH branch (`CreateSplitBranch`, `CreateSplitBranchFromBackgroundParent
 `BindLiveRecorderToSwitchSegment`; `StartRecording(isPromotion: true)` skips non-engine seeds) with a
 converter already running carries no `ConverterActivated`. Such a recording still opens a harvest
 window at start (`InitializeHarvestWindowAtStart`), which witnesses the tail unless the optimizer
-splits the recording.
+splits the recording. The opposite residue (PR #2031 review): a running converter part that leaves
+the vessel by decouple or undock keeps reading "running" on the parent recording, because
+`CheckConverterState` walks only `v.parts` and the `Decoupled` event carries the pid of the part
+that came off, not the converter's, so that parent's tail is never trimmed (a missed trim, never
+early resources; no recording in the fixture, dev-save or collected-log corpus ends with a
+converter running). A destroyed part is final (fixed in the same PR).
 
 Fix options: (1) give the optimizer pass the ledger's route rows whose endpoint is the recording's
 vessel and treat a row inside the tail as interesting; (2) accept the in-vessel case; (3) for the
