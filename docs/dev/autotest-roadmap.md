@@ -6389,7 +6389,11 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | TA-7 | Route endpoint unresolved until X: no cycle before X delivered from the tip snapshot | CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO |
 | TA-8 | Chain tip outside FLIGHT does not adopt a live pre-claim vessel | CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT |
 | TA-9 | Chain walk follows the claimed vessel when the transport is dominant | CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER |
-| TA-10 | Tail trim vs resource-changing tail (after the ruling) | TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT |
+| TA-10 | Tail trim keeps a resource-changing tail (ruled 2026-10-06) | TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT |
+| TA-12 | Harvest-origin route capped at drill rate x duration (ruled) | HARVEST-ROUTE-PLAUSIBILITY-CAP |
+| TA-13 | Resource-scan unlock recorded, ledgered and re-applied after a rewind (ruled) | RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED |
+| TA-14 | Tracking Station uses the current-UT ledger cutoff (ruled) | TRACKING-STATION-LEDGER-CUTOFF-ALIGN |
+| TA-15 | F9 into a discarded flight records again (ruled) | QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN |
 | TA-11 | `bdock-recorded` endpoint LF delta is positive (offline over the fixture) | BDOCK-FIXTURE-TRANSFER-INVERTED |
 | TA-W | Load-path x reconciler wiring gate | HARNESS-TIMELINE-FUZZERS |
 | TA-F | Headless timeline fuzzers (ledger / effective-state / route conservation) | HARNESS-TIMELINE-FUZZERS |
@@ -6414,7 +6418,7 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | QL-3 | Re-Fly merge, then load a quicksave from before it; one visible flight, tombstones hold | S4.2 host | TA-1 |
 | QL-4 | Booster crash after a quicksave, F9, booster survives; terminal state and recording correct | `gs1-two-stage-pad` | TA-4 |
 | QL-5 | Discard Re-fly with a real load (launch and prelaunch) | a Re-Fly host | TC-1 ReFlyRevert, TA-5 |
-| QL-6 | Discard then F9 back into that flight (after the ruling) | `gloops-airshow` | ruling |
+| QL-6 | Discard then F9 back into that flight: it records again (ruled 2026-10-06) | `gloops-airshow` | QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN |
 | MINE-0 | Converter events on the drill / ISRU showcases; converter-loop apply line pinned | S1.9 | - |
 | MINE-1 | Forge `minmus-miner-landed` (B14 landing + drill / ISRU / ore tank / engineer) | new | TC-5, VAB part harvest |
 | MINE-2 | Record, mine, warp, ISRU, commit, Rewind-to-Launch, warp past the end; spawned Ore = end snapshot; `HarvestCapture_CatchUpOnLoad` finally executes | MINE-1 | TC-2 |
@@ -6429,13 +6433,69 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | RC-5 | Probe-typed station docked by a heavier transport that is later recovered; no second station | new fixture | TA-9 |
 | RC-6 | EVA cargo moved from a foreign container, then rewind | new fixture | EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED |
 | GP-1..GP-20 | The ranked gameplay stories of the matrix (section 3), first five: career F5 / transmit / contract / crash / F9 / redo with LedgerGroundTruth after the F9; Revert to Launch in a career with committed history; Re-Fly a booster in a career whose superseded flight completed a contract and recovered science; Rewind-to-Launch after KSC actions then the stock screens; crewed spawn-at-end in a career after warp | per story | TC-1, TC-4, TC-6 |
+| GC-1..GC-16 | Gameplay cases nobody tests or lists (research section 3.5), top four: two saves in one KSP session; recovering from the TS / KSC a vessel a committed future docks to; old-generation recordings skipped silently; a contract completed by a spawned vessel or a ghost. Trace each, then pin it (xUnit / in-game) or give it a lane | per case | GAMEPLAY-CASES-UNCOVERED-2026-10-06 |
 | FZ-1 | Seeded timeline-op fuzzer lane, nightly, one seed per night; invariants after every step | rich fixtures (TC-6) | TC-1, TC-2, TC-3, TC-4 |
-| CAMP-1/2 | Career and sandbox "everything" campaign lanes, 30-60 mixed steps (IC-3 is the route slice) | TC-6 | all of the above |
+| CAMP-1/2 | Career and sandbox "everything" campaign lanes, 30-60 mixed steps (IC-3 is the route slice); the scripted campaign program below (CS-*) is the clean, staged form of CAMP-1 | TC-6 | all of the above |
 
 Order: Phase A with its fixes and the wiring gate; the headless fuzzers; TC-1 verbs; TC-2 / TC-3
 baselined then gated; TC-6 fixtures; QL-1..QL-4 and GP-1..GP-5 (back-in-time load and revert are
 the largest blind spot), then MINE-0..MINE-3, the RC lanes, the rest; TC-4 so those lanes gate
 on pools; FZ-1 nightly; the campaign lanes.
+
+## The scripted campaign program: Science, then Career, from a new save to the Mun (2026-10-06)
+
+Registered 2026-10-06 at the owner's request: a long scripted gameplay run that starts a
+GENUINE new save and plays the campaign up to landing on the Mun and coming home, so one run
+exercises recording, commit / merge, ghosts, science, the tech tree, contracts, funds,
+facilities, crew and KSC actions together, the way a player meets them. It is the long-run
+target the other programs build towards; the timeline-operation program's CAMP-1 / CAMP-2 rows
+are this program's later stages.
+
+Owner decisions (interview 2026-10-06):
+- **Chained stages.** Each stage is its own lane; its produced save (`results/<runId>_save`) is
+  harvested into the next stage's fixture. A red stage replays on its own and names itself.
+- **Science mode first, then Career**, on the same ladder.
+- **Clean run first.** Each stage goes green as a plain playthrough before a variant layers
+  Rewind-to-Launch, Re-Fly, merge / discard and (once the verb exists) F9 onto it.
+- **True new game.** A genuine KSP New Game at Normal difficulty (stock starting funds and
+  science, random contract offers), made by a fixture builder - not the pinned `fresh-career` /
+  `fresh-science` saves (funds 500000, science 100, no hire applicant in science).
+- **Stock tech tree.** A new stock-only provision profile without CommunityTechTree /
+  ProbesBeforeCrew (the current stock-minimal profile loads both, and a crewed Jumping Flea was
+  refused for locked parts there, ZF-1); the current profile stays for everything else.
+- **Craft.** Claude drafts each stage's `.craft` from the parts unlocked at that point of the
+  campaign, using the stock craft and the repo's fixture craft (Kerbal X, the GS1 booster, the
+  Jumping Flea, the Mallard, DD1) for inspiration; the owner verifies in the VAB or advises.
+  Part availability per tech node and the level-0 facility limits (part count, mass, patched
+  conics / maneuver nodes gated by the Tracking Station and Mission Control levels) bound each
+  craft.
+
+### The ladder
+
+| Stage | Story | Reuses | Must build |
+|---|---|---|---|
+| CS-0 | Fixture builders: a true new Science save and a true new Career save at Normal difficulty on the stock-tree profile | `fresh-*` builder precedent | the stock-tree provision profile; the new-game builder; a per-node part-unlock listing for the profile |
+| CS-1 | Launch a start-node craft from the VAB, hop, recover, auto-commit | ZF-1 editor steps (`GoToEditor` + `LaunchFromEditor`), the b1 / `science_bench_recover` machines | a tier-legal craft; proof that `LaunchFromEditor` then a mission step works (the validator allows it, no committed lane flies it); the science-mode pool read (`_read_career_pools` reads funds and fails closed outside CAREER) |
+| CS-2 | Run experiments, transmit, recover; research a node at the KSC; relaunch with the new part; LedgerGroundTruth in flight | `sbr_decide`, HC-2 step order, L1-research-node | craft v2; per-situation experiment choice (today `run_science_experiments` runs everything at once); EVA report / surface sample actions |
+| CS-3 (career) | Accept a contract, fly to complete it, hire, upgrade a facility | L1-hire, L1-upgrade, L5 | a verb that lists Offered contracts or accepts by type (accept-contract resolves by GUID only; no lane has ever accepted a contract with OK); a gate on a contract completing live |
+| CS-4 | Reach orbit and come home | B2 + B4 | a tier-legal orbital craft; the facility upgrades MechJeb's planners need; a reading run of MechJeb in a career save (never flown) |
+| CS-5 | Mun flyby and return | B5 | a reentry tail after B5 (B5 ends at Kerbin SOI re-entry) |
+| CS-6 | Mun orbit and return | B11 | the same return tail |
+| CS-7 | Mun landing, EVA, plant a flag, board, ascend, return, recover | B13, EVA-1 verbs, EVA-10 | a Mun ascent + trans-Kerbin injection machine (none exists; the only return machine, b29, has never flown); `PlantFlag` on the Mun; a Mun-capable craft |
+| CS-V | Per stage, once green: a variant with Rewind-to-Launch, Re-Fly of a stage separation, merge vs discard, and F9 (after the `Quickload` verb) | HC-2, RR-1, GS-4, the RF lanes | the timeline-operation program's verbs and the L4 oracle (TC-1, TC-4); LedgerGroundTruth runs BEFORE a rewind until then |
+| CS-ALL | Once every stage is green: one long operator-tier run of the whole ladder in one KSP session | all of the above | a multi-flight mission chain (one autopilot lane takes one mission step today) |
+
+### Known constraints the ladder must respect
+
+- One mission step and one `RunTests` step per lane (`hlib.py`), which is why the stages chain.
+- Harvesting is manual today (`harness/tools/harvest_bdock_station.py --save-dir --keep-parsek`
+  precedent; B13's save became `mun-landing-recorded`); a stage-to-fixture promotion tool would
+  remove the hand step.
+- Wall time: about 38-40% of mission wall time is idle at 1x (HARNESS-FLIGHT-WALL-TIME); B13
+  alone needs about 2,800 s.
+- Post-flight crash and recovery dialogs (HARNESS-POST-FLIGHT-DIALOG-STALLS); re-fly lanes must
+  wait for `OnFlightReady` (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY).
+- The ledger oracle refuses rewind lanes until TC-4.
 
 ## Trust and fail-open risks still outstanding
 

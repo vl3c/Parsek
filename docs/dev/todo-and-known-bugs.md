@@ -31,21 +31,116 @@ the new verbs / oracles / fixtures, then the QL / MINE / RC / GP lanes and the F
 
 ---
 
-## RULINGS-NEEDED-TIMELINE-OPS-2026-10-06: owner decisions the coverage-extension research needs [FILED 2026-10-06, branch `ccr-77f23eb2-dbqh6i`. OPEN, needs owner rulings]
+## GAMEPLAY-CASES-UNCOVERED-2026-10-06: gameplay cases no test covers and no doc lists [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. OPEN, to trace]
 
-- [ ] F9 back into a flight that was Discarded: today it resumes UNRECORDED (Discard deleted the
-  recording files; the restore is skipped). Intended, or should the resumed flight record again?
-  (Blocks lane QL-6.)
-- [ ] Tail trim over a resource-changing tail: keep such tails, or re-snapshot at the trim UT
-  (TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT).
-- [ ] Harvest-origin routes: bound the recorded harvest by drill rate x duration, so a stock
-  catch-up burst recorded inside a harvest window is not replayed every cycle?
-- [ ] Resource-scan unlocks (orbital survey): record and ledger them, so a committed future scan
-  is re-applied after a Rewind-to-Launch?
-- [ ] The Tracking Station's exclusion from the current-UT ledger cutoff is pinned
-  (`RewindUtCutoffTests.CurrentUtCutoffSupportedScene_AcceptsFlightAndSpaceCenterOnly`) but not
-  explained, and a cold TS load prunes future spendings while an in-session one does not: keep, or
-  align with FLIGHT / SPACECENTER?
+Candidates from a check of 22 player situations against every spec, test and doc
+(`docs/dev/research/coverage-extension-plan-2026-10-06.md` section 3.5, ranked there). None was
+traced end to end; each is a question, not a defect.
+
+- [ ] GC-1: Two different saves loaded in one KSP session: static Parsek state leaking between careers (`ParsekScenario.DetectSaveFolderChange` resets some of it; nothing exercises it).
+- [ ] GC-2: Recovering or terminating, from the Tracking Station or the KSC, a vessel that a COMMITTED FUTURE mission docks to (the Ghost Chain Rule only ghosts in FLIGHT; `OnVesselTerminated` / `OnVesselRecovered` have no claim check): the chain tip later brings it back - a duplicate or recovery funds paid twice.
+- [ ] GC-3: Loading a save whose recordings are an older schema generation: they are skipped with only a log warning (`RecordingTree` skip), no player notice, and the first save may make the loss permanent.
+- [ ] GC-4: A contract parameter or milestone completed by a vessel Parsek spawned at a recording's end, or by a ghost map ProtoVessel (no patch guards them; L5 covers live vessels only).
+- [ ] GC-5: A floating EVA kerbal as a recording's terminal spawn after a rewind or warp (H20 covers a landed kerbal only).
+- [ ] GC-6: A held (reserved) kerbal dying aboard a live vessel that is not his reserved flight.
+- [ ] GC-7: Renaming a vessel mid-mission (no recorder hook): ghost label vs spawned name; a rewind across a recorded rename; a dock merge keeping the dominant vessel's name.
+- [ ] GC-8: The Mobile Processing Lab (data processing over time) across a rewind and a spawn.
+- [ ] GC-9: A runway landing and a spawn on the runway.
+- [ ] GC-10: Stock asteroid / comet lifetime: an untracked SpaceObject claimed by a committed claw tree expiring or being replaced after a rewind.
+- [ ] GC-11: External command seats: a kerbal taking a rover seat may be recorded as a dock merge rather than a board (unverified whether stock fires the couple event).
+- [ ] GC-12: Tourists in a spawn-at-end or chain-tip snapshot after a tourism contract removed them.
+- [ ] GC-13: The stock Alarm Clock: alarms bound to vessels that a Re-Fly supersedes or the chain rule despawns, and warp-to-alarm across spawns.
+- [ ] GC-14: CommNet 'require signal for control' with a ghost relay that drops out (loop end, Re-Fly suppression, chain-spawn handoff); the settings research row 'ghosts are CommNet-inert' is stale since ghost relays shipped.
+- [ ] GC-15: A restored backup or a copied save folder: an older persistent.sfs against newer sidecars, or two saves sharing recording ids.
+- [ ] GC-16: Action groups / abort sequences on ghosts (outcomes are recorded as part events; the GS-6 sweep does not cover action-group-bound families); engine plates.
+
+Fix: trace each; a confirmed defect gets its own entry and a red test, a confirmed-fine case gets a
+pinning test (xUnit or in-game) so it stays fine.
+
+---
+
+## SCRIPTED-CAMPAIGN-TO-THE-MUN: a scripted Science-mode then Career-mode campaign from a genuine new save to a Mun landing and return [FILED 2026-10-06 at the owner's request, branch `ccr-77f23eb2-dbqh6i`. OPEN; long-run test target]
+
+The owner's target for a long gameplay run that touches every system the way a player does:
+start a true new game (Normal difficulty) and script the campaign stage by stage up to landing
+on the Mun, planting a flag and coming home, with prebuilt craft for each launch. Owner decisions
+(interview 2026-10-06): chained stages (each stage's produced save harvested as the next stage's
+fixture); Science mode first, then Career; a clean run of each stage before a variant layers
+rewinds / Re-Fly / merge / F9 onto it; a genuine new game, not the pinned `fresh-*` saves; the
+stock tech tree through a new stock-only provision profile (the current profile loads
+CommunityTechTree + ProbesBeforeCrew); Claude drafts each craft from the parts unlocked at that
+point, using stock and fixture craft for inspiration, and the owner verifies in the VAB.
+
+Fix: the ladder CS-0..CS-7, CS-V and CS-ALL in `docs/dev/autotest-roadmap.md` ("The scripted
+campaign program"). Known building blocks to make first: the stock-tree profile and a per-node
+part-unlock listing; the new-game builder; `LaunchFromEditor` then a mission step in one lane;
+the science-mode pool read; per-situation science actions (EVA report, surface sample); a
+contract-offer listing / accept-by-type verb; a Mun ascent + trans-Kerbin injection machine; a
+stage-to-fixture promotion tool.
+
+---
+
+## QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+
+Discard deletes the recording files (`RecordingStore.cs:2856-2886`); on a later F9 back into that
+flight the missing trajectory marks the recordings failed, they are dropped and the restore is
+skipped, so the flight resumes UNRECORDED. Owner ruling 2026-10-06: the resumed flight starts a
+fresh recording from the loaded state, as if it had never been discarded.
+
+Fix: when the restore is skipped because the tree's files were deliberately discarded, start a
+new recording for the active vessel instead of resuming unrecorded. Lane QL-6.
+
+---
+
+## HARVEST-ROUTE-PLAUSIBILITY-CAP: cap a harvest-origin route's recorded harvest at what its drills could produce [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+
+A harvest-origin route replays whatever ore its recorded run gained, including a stock
+catch-up burst recorded inside an open harvest window (see TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND).
+Owner ruling 2026-10-06: bound the recorded harvest by drill rate x duration (with a margin) at
+route creation, and say so in the route's explanation text when the cap applies.
+
+Fix: a pure plausibility bound in the harvest-window capture / route analysis
+(`RouteHarvestCapture`), xUnit cells, then lane MINE-5.
+
+---
+
+## RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED: orbital survey results are not recorded or ledgered, so a rewind does not re-apply a committed future scan [FILED 2026-10-06 from the coverage-extension research and the owner ruling, branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+
+Nothing in `Source/Parsek` references `ResourceScenario` or the scanner modules. Owner ruling
+2026-10-06: treat a scan like other committed career progress - recorded, ledgered, and re-applied
+when the clock reaches it after a rewind.
+
+Fix: capture the scan-completed event as a game-state event / ledger action and patch the
+ResourceScenario state on recalculation; xUnit for the action and the patch; a mining-lane step.
+
+---
+
+## TRACKING-STATION-LEDGER-CUTOFF-ALIGN: the Tracking Station should use the current-UT ledger cutoff like Flight and the Space Center [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+
+`IsCurrentUtCutoffSupportedScene` accepts FLIGHT and SPACECENTER only (pinned by
+`RewindUtCutoffTests.CurrentUtCutoffSupportedScene_AcceptsFlightAndSpaceCenterOnly`, no reason
+recorded); a cold TS load with a ready clock prunes future spendings while an in-session TS load
+walks them with no cutoff. Owner ruling 2026-10-06: align the TS with FLIGHT and the Space Center,
+cold or in-session.
+
+Fix: include TRACKSTATION in the supported scenes, update the pinning test, check the TS load and
+recalculation paths for anything that relied on the exclusion; game-actions design 15.5's AS BUILT
+note changes with it.
+
+---
+
+## RULINGS-NEEDED-TIMELINE-OPS-2026-10-06: owner decisions the coverage-extension research needed [FILED 2026-10-06, branch `ccr-77f23eb2-dbqh6i`. RULED 2026-10-06 (owner interview); each ruling's work item is filed below]
+
+- [x] F9 back into a flight that was Discarded resumes it UNRECORDED today. RULED: the resumed
+  flight records again (QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN; unblocks lane QL-6).
+- [x] Tail trim over a resource-changing tail. RULED: keep such tails - a tail where resources
+  change is not boring (TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT).
+- [x] Harvest-origin routes and catch-up bursts. RULED: cap the recorded harvest at what the
+  drills could plausibly produce (HARVEST-ROUTE-PLAUSIBILITY-CAP).
+- [x] Resource-scan unlocks. RULED: record and ledger them like other committed career progress
+  (RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED).
+- [x] The Tracking Station's exclusion from the current-UT ledger cutoff. RULED: align the TS with
+  FLIGHT and the Space Center, cold or in-session (TRACKING-STATION-LEDGER-CUTOFF-ALIGN).
 
 ---
 
@@ -167,8 +262,8 @@ the `minmus-miner-landed` forge (part definitions harvested from a live VAB sess
 record / mine / ISRU / commit / Rewind-to-Launch / spawn lane with a saveParse check of the
 spawned vessel's Ore against the recording's end snapshot; the jump-policy lane; a mining-base
 docked-origin route across a rewind; a live-drill harvest-origin route; GS-6 revision 3 with an
-ISRU aboard. Open questions for a ruling: a drill-rate plausibility bound on harvest-origin
-routes, and whether resource-scan unlocks belong in the ledger.
+ISRU aboard. The two questions it raised are ruled (2026-10-06): cap harvest-origin routes
+(HARVEST-ROUTE-PLAUSIBILITY-CAP) and ledger resource-scan unlocks (RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED).
 
 ---
 
@@ -285,7 +380,7 @@ applies. Lane RC-6 with `EvaGroundScience action=take` against a foreign contain
 
 ---
 
-## TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, needs a ruling]
+## TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; RULED 2026-10-06: keep resource-changing tails]
 
 `RecordingOptimizer.TailTrim` restamps the end UT and SpawnUT earlier (`:820-845`) but never
 touches the snapshot; `FindLastInterestingUT` (`:75`) ignores resources and the guard checks
@@ -293,8 +388,9 @@ orbit / surface shape only (`:156-192`). Resources that changed in the trimmed t
 deliveries, crossfeed, a converter) arrive early, and with CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO
 the crossings between the trimmed SpawnUT and commit are delivered twice.
 
-Fix: ruling first - keep a tail whose resources change, or re-snapshot at the trim UT. Pin the
-current behaviour with a `RecordingOptimizer` tail-trim cell.
+Fix: RULED 2026-10-06 - keep a tail whose resources change (it is not boring):
+`FindLastInterestingUT` treats a resource change as interesting. Red test: a `RecordingOptimizer`
+tail-trim cell with a resource-changing tail.
 
 ---
 
