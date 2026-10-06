@@ -1946,7 +1946,7 @@ Ghost chain state is not persisted - it is re-derived from committed recordings 
 
 ### 20.3 Ghost Conversion of Quicksave Vessels
 
-On rewind, the quicksave loads vessels that existed at recording start. Claimed vessels are despawned from the quicksave state. The quicksave itself is never modified - it remains a full backup. Loading the quicksave directly (bypassing Parsek rewind) restores all vessels with no ghosting.
+On rewind, the quicksave loads vessels that existed at recording start. Claimed vessels are despawned from the quicksave state, with their crew taken off first and set Available (`ClaimedVesselRemoval`): stock `Vessel.Die()` on an unloaded vessel kills everyone aboard, and a claimed vessel is held back, not destroyed. The chain tip's spawn seats the crew its snapshot carries. The quicksave itself is never modified - it remains a full backup. Loading the quicksave directly (bypassing Parsek rewind) restores all vessels with no ghosting.
 
 ---
 

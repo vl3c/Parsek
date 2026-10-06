@@ -3676,6 +3676,13 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A crewed station hidden after a rewind no longer has its crew killed.** When a committed
+  mission docks to a station later, the station is hidden from the rewind until that mission's
+  end. If the station was far from your vessel when you entered flight, hiding it killed
+  everyone aboard: the kerbals were marked dead and a career lost the reputation for each.
+  The crew are now taken off the station before it is hidden and wait at the Space Center,
+  and the station's recorded end state brings back whoever it carries when it reappears.
+
 - **After a rewind, a fuel transfer recorded by a docking mission is no longer lost when the time
   passes at the Space Center or in the Tracking Station.** A committed mission that docked to a
   station and moved fuel holds that station until the mission ends, but only the flight scene

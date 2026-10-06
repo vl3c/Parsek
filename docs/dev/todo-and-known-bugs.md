@@ -478,6 +478,33 @@ fixture.
 
 ---
 
+## ~~CHAIN-GHOSTING-KILLS-UNLOADED-CLAIMED-CREW: a flight load that ghosts an unloaded crewed claimed vessel kills its crew~~ [FILED 2026-10-06 from the PR #2029 review, confirmed in three collected logs. FIXED 2026-10-06, branch `fix-chain-tip-outside-flight`]
+
+`VesselGhoster.GhostVessel` removed a claimed vessel with a bare `Vessel.Die()`. Stock `Die()` on
+an UNLOADED vessel runs `MurderCrew`: every kerbal aboard goes through `ProtoCrewMember.Die()`
+(Dead, or Missing with respawn on), `onCrewKilled` fires and a career pays the kerbal-death
+reputation loss. So every flight load after a rewind past a committed dock killed the crew of a
+claimed vessel outside the physics bubble. Evidence, the three chain-ghosting lanes:
+`logs/2026-09-09_1939_RF-8-ghost-during-refly`, `logs/2026-09-22_2301_CI-3-chain-rederive-readback`
+and `logs/2026-09-23_2137_CI-4-cross-tree-chain-pooled`, each KSP.log reading
+`[Ghoster] Ghosting vessel: pid=3620499050 name=Kerbal X` and 1 ms later
+`[Vessel Kerbal X]: Bill Kerman, Bob Kerman, Valentina Kerman are now dead.` (CI-4 line 13697 /
+13700); CI-4's post-ghost quicksave has all three Dead.
+
+Fix: the ghosting removes the vessel through `ClaimedVesselRemoval.Remove` (shared with the
+chain-tip replacement of CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT). The crew are taken off
+the parts first (`Part.RemoveCrewmember` when loaded; the part snapshots and the ProtoVessel's
+crew list when unloaded, which is what `MurderCrew` reads), the vessel is removed, and the
+detached kerbals still Assigned are set Available, all under `SuppressionGuard.Crew`: no death,
+no `onCrewKilled`, no reputation loss, no Parsek roster event or ledger row. Available is what
+the chain-tip spawn expects: `RespawnVessel` / `SpawnAtPosition` seat the tip snapshot's crew,
+and a kerbal already aboard another loaded vessel is kept out of the snapshot. The despawn
+snapshot taken before the removal still carries the crew, so the despawn-failure restore seats
+them too. Test: `VesselGhosterTests.GhostVessel_UnloadedCrewedClaimedVessel_CrewSurviveAndAreAvailable`
+(a fake unloaded vessel whose Destroy kills whoever is aboard; red before the fix).
+
+---
+
 ## ~~CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT: a chain tip whose spawn UT passes at the KSC or in the Tracking Station adopts the pre-transfer live vessel~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, branch `fix-chain-tip-outside-flight`, by replacing the stale vessel at the tip's spawn UT; the despawn-at-rewind question below stays OPEN, product]
 
 Only the flight scene ghosts a claimed vessel (`VesselGhoster` is created only in
@@ -529,9 +556,8 @@ was still docked to the transport (its `lastUT` is after the dock, the last clai
 save made in flight loads into flight, where the chain path ghosts it). The KSC end spawn still
 has no intermediate-link test and preserves a chain tip's identity only on a replacement (the TS
 preserves it whenever the original is gone).
-Separately, not verified in game: the flight ghosting (`VesselGhoster.GhostVessel`) calls
-`Die()` without detaching crew, so a crewed claimed vessel that is unloaded at the flight load
-may have its crew killed by stock `MurderCrew`.
+The flight ghosting's crew deaths found in this review are CHAIN-GHOSTING-KILLS-UNLOADED-CLAIMED-CREW
+(fixed on this branch with the same removal helper).
 
 ---
 

@@ -50,10 +50,9 @@ namespace Parsek
     /// made seconds after the tip began, on the adoption path.</para>
     ///
     /// <para>The replacement mirrors the flight chain-tip spawn: the stale vessel is
-    /// removed with <c>Vessel.Die()</c> (no recovery, so no funds and no ledger row) and the
-    /// tip spawns from its snapshot with the original pid preserved. Unlike the flight
-    /// ghosting, the crew are detached first, so an unloaded vessel's <c>Die()</c> does not
-    /// kill them; they become Available and the tip snapshot seats whoever it carries.</para>
+    /// removed through <see cref="ClaimedVesselRemoval"/> (crew taken off and set Available,
+    /// then <c>Vessel.Die()</c>: no recovery, so no funds and no ledger row, and no crew
+    /// loss) and the tip spawns from its snapshot with its identity preserved.</para>
     /// </summary>
     internal static class ChainTipStaleVessel
     {
@@ -454,44 +453,17 @@ namespace Parsek
             if (vessel != null && vessel == FlightGlobals.ActiveVessel)
                 return false;
 
-            string vesselName = vessel != null ? vessel.vesselName : proto.vesselName;
             if (vessel != null)
                 focus = CaptureFocus(vessel);
 
-            var detached = new List<ProtoCrewMember>();
-            int rescued = 0;
-            using (SuppressionGuard.Crew())
-            {
-                if (vessel != null && vessel.loaded)
-                    DetachLoadedCrew(vessel, detached);
-                else if (proto != null)
-                    DetachProtoCrew(proto, detached);
-
-                if (vessel != null)
-                    vessel.Die();
-                if (proto != null && flightState != null && flightState.protoVessels != null)
-                    flightState.protoVessels.Remove(proto);
-
-                for (int i = 0; i < detached.Count; i++)
-                {
-                    ProtoCrewMember pcm = detached[i];
-                    if (pcm != null && pcm.rosterStatus == ProtoCrewMember.RosterStatus.Assigned)
-                    {
-                        pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
-                        rescued++;
-                    }
-                }
-            }
-
-            var crewNames = new List<string>(detached.Count);
-            for (int i = 0; i < detached.Count; i++)
-                crewNames.Add(detached[i] != null ? detached[i].name : "(null)");
+            ClaimedVesselRemoval.Remove(
+                new LiveClaimedVesselRemovalTarget(
+                    vessel, proto, flightState != null ? flightState.protoVessels : null),
+                "chain-tip-replace " + scene);
             ParsekLog.Info(Tag,
                 string.Format(ic,
-                    "Stale chain-tip vessel removed ({0}): pid={1} name=\"{2}\" hadVessel={3} crewDetached={4} [{5}] " +
-                    "crewSetAvailable={6} navTarget={7} mapFocus={8} tsSelected={9} - no recovery, no ledger row",
-                    scene, pid, vesselName ?? "(null)", vessel != null, detached.Count,
-                    string.Join(", ", crewNames.ToArray()), rescued,
+                    "Stale chain-tip vessel removed ({0}): pid={1} hadVessel={2} navTarget={3} mapFocus={4} tsSelected={5}",
+                    scene, pid, vessel != null,
                     focus.WasNavigationTarget, focus.WasMapFocus, focus.WasTrackingStationSelected));
             return true;
         }
@@ -509,47 +481,6 @@ namespace Parsek
                 focus.WasTrackingStationSelected = tracking != null && tracking.SelectedVessel == vessel;
             }
             return focus;
-        }
-
-        private static void DetachLoadedCrew(Vessel vessel, List<ProtoCrewMember> detached)
-        {
-            if (vessel.parts == null)
-                return;
-            for (int p = 0; p < vessel.parts.Count; p++)
-            {
-                Part part = vessel.parts[p];
-                if (part == null || part.protoModuleCrew == null || part.protoModuleCrew.Count == 0)
-                    continue;
-                var crew = part.protoModuleCrew.ToArray();
-                for (int c = 0; c < crew.Length; c++)
-                {
-                    if (crew[c] == null)
-                        continue;
-                    part.RemoveCrewmember(crew[c]);
-                    detached.Add(crew[c]);
-                }
-            }
-        }
-
-        private static void DetachProtoCrew(ProtoVessel proto, List<ProtoCrewMember> detached)
-        {
-            if (proto.protoPartSnapshots == null)
-                return;
-            for (int p = 0; p < proto.protoPartSnapshots.Count; p++)
-            {
-                ProtoPartSnapshot pps = proto.protoPartSnapshots[p];
-                if (pps == null || pps.protoModuleCrew == null || pps.protoModuleCrew.Count == 0)
-                    continue;
-                var crew = pps.protoModuleCrew.ToArray();
-                for (int c = 0; c < crew.Length; c++)
-                {
-                    if (crew[c] == null)
-                        continue;
-                    pps.RemoveCrew(crew[c]);
-                    proto.RemoveCrew(crew[c]);
-                    detached.Add(crew[c]);
-                }
-            }
         }
 
         private static bool IsHeadlessAccessFailure(Exception ex)
