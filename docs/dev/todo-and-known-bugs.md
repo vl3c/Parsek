@@ -572,7 +572,8 @@ live vessel already matching the tip's own pid and launch when the claimed pid i
 re-review),
 when (a) this session saw the playhead strictly before the tip's start
 (`PlaybackScopeTracker.WasPlayheadSeenBeforeActivation`, a new no-tolerance, ready-clock latch
-next to the replay-scope one; the sweep re-notes a recording latched only by tolerance) AND
+next to the replay-scope one; the sweep re-notes a recording latched only by tolerance; checked
+first, so a spawn candidate without it pays for no chain walk or live probe) AND
 (b) KSP last simulated that vessel before the chain's last claim (`lastUT` < latest link UT: every claim
 happens with the claimed vessel in physics, and FlightIntegrator stamps `lastUT` each physics
 frame), and the vessel is not the active vessel or recorded by the live tree. (a) keeps normal play

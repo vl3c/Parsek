@@ -162,12 +162,16 @@ namespace Parsek
         /// <summary>Test seam replacing the live probe of the vessel with a claimed pid.</summary>
         internal static Func<uint, LiveClaimedVesselProbe> LiveVesselProbeOverrideForTesting;
 
+        /// <summary>How many times this class walked the committed trees for chains itself (tests read it).</summary>
+        internal static int ChainWalksForTesting;
+
         internal static void ResetForTesting()
         {
             RemoveOverrideForTesting = null;
             RestoreOverrideForTesting = null;
             LiveVesselInUseOverrideForTesting = null;
             LiveVesselProbeOverrideForTesting = null;
+            ChainWalksForTesting = 0;
         }
 
         /// <summary>
@@ -428,9 +432,17 @@ namespace Parsek
         {
             if (!IsReplacementCandidate(rec))
                 return null;
+            // Only a tip the playhead stood before this session can be replaced; every other
+            // spawn candidate stops here, before the chain walk and the live probe.
+            bool seenBeforeTip = PlaybackScopeTracker.WasPlayheadSeenBeforeActivation(rec.RecordingId);
+            if (!seenBeforeTip)
+                return null;
 
             if (chains == null)
+            {
+                ChainWalksForTesting++;
                 chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, 0.0);
+            }
             GhostChain chain = FindChainForTip(chains, rec.RecordingId);
             if (chain == null || chain.IsTerminated || chain.OriginalVesselPid == 0)
                 return null;
@@ -444,7 +456,7 @@ namespace Parsek
                 LiveExists = probe.Exists,
                 LiveGuid = probe.Guid,
                 LiveLastUT = probe.LastUT,
-                PlayheadSeenBeforeTip = PlaybackScopeTracker.WasPlayheadSeenBeforeActivation(rec.RecordingId),
+                PlayheadSeenBeforeTip = seenBeforeTip,
                 ClaimedVesselCount = claimedPids.Count
             };
             string inUseWhy = null;

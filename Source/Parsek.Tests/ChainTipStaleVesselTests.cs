@@ -852,6 +852,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SpaceCenterAndFlightEntry_NeverRewoundBeforeTheTip_DoNotWalkTheChains()
+        {
+            // Every past-end spawn candidate reaches the entry; only a tip the playhead stood
+            // before this session can be replaced, so nothing else pays for a chain walk.
+            Recording tip = CommitDockUndockTree();
+
+            Assert.Null(ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(tip, "SPACECENTER", 4));
+            Assert.Null(ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(tip, "FLIGHT", 4));
+            Assert.Equal(0, ChainTipStaleVessel.ChainWalksForTesting);
+
+            LatchRewoundBefore(tip);
+            Assert.NotNull(ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(tip, "SPACECENTER", 4));
+            Assert.Equal(1, ChainTipStaleVessel.ChainWalksForTesting);
+        }
+
+        [Fact]
         public void FlightLeafSpawn_ReplayBypass_NeverReplaces()
         {
             Recording tip = CommitDockUndockTree();
