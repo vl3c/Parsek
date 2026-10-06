@@ -89,15 +89,17 @@ tier = "operator"
 # `FindCrossedChainTips: empty/null chains` and `Time jump complete: 0 vessels spawned`
 # are NOT race signatures: the seam's jump passes null chains to ExecuteJump by design
 # and the tip spawns come from the playback loop right after it, on green runs too.
-# THE DESTROYED PIN AND ITS QUARANTINE. The fixture's own 12 `Kerbal X Debris`
-# recordings are Destroyed, so the correct reading is 12 (`terminalStates.Destroyed`
-# below). Every run that spawns the tip reads 13 instead: the re-fly conclusion's
-# scene-exit finalization treats the first tree's optimizer chain HEAD `a32f62f5` as a
-# leaf, matches it by bare pid 3620499050 to the vessel the chain tip just spawned (the
-# other launch of the same craft), and stamps it Destroyed at UT 8960 with its crew
-# Dead, while its chain tail `d211fb20` still ends at 386.9. That is product defect
-# REFLY-CONCLUSION-FINALIZES-COMMITTED-CHAIN-HEAD, quarantined by `[expectedFail]` on
-# exactly that one armed mismatch; a fix reads XPASS.
+# THE DESTROYED PIN. The fixture's own 12 `Kerbal X Debris` recordings are Destroyed,
+# so the reading is 12 (`terminalStates.Destroyed` below). Runs that spawned the tip
+# used to read 13: the re-fly conclusion's scene-exit finalization took the first tree's
+# optimizer chain HEAD `a32f62f5` for a leaf and read its end off the vessel the chain
+# tip had just spawned (the same Kerbal X: same pid AND launch guid), stamping it
+# Destroyed at UT 8960 with its crew Dead. Fixed (REFLY-CONCLUSION-FINALIZES-COMMITTED-
+# CHAIN-HEAD, branch `refly-chain-head-pid`): a non-final chain segment is not a leaf,
+# and a live vessel that a later committed recording spawned is not read as an earlier
+# recording's end. XPASS `2026-10-05_2136` (`is a non-final chain segment` for the head,
+# `is the terminal spawn of later committed recording '37d0dc07...'` for the tail,
+# 12 Destroyed), quarantine removed.
 # =====================================================================================
 description = "Chain-interaction lane 2 (D18 ghost chains), riding R10: bdock-recorded rewound to rp=${handles.rp0} so the committed docking's Dock branch point is in the future and the walker CLAIMS the partner (via MERGE), then TimeJump past the chain tip so the tip spawn re-creates the vessel with its ORIGINAL pid, read back through ListHandles kind=committed."
 instanceProfile = "stock-minimal"
@@ -180,8 +182,8 @@ count = { min = 22, max = 22 }
 # ARMED 2026-09-08 on reading run 1's measured facets. The Dock branch point IS the
 # committed interaction the walker claims through; the terminal counts are the
 # fixture's plus the merged provisional. Destroyed is the fixture's 12 debris
-# recordings (re-measured 2026-10-05: 12 debris + the defective chain-head stamp = 13,
-# quarantined below; see the header). trees admits 3 for the duplicate-tree writer
+# recordings (re-measured 2026-10-05; the chain-head stamp that read 13 is fixed, see
+# the header). trees admits 3 for the duplicate-tree writer
 # hazard (observed 2).
 gating         = true
 trees          = { min = 2, max = 3 }
@@ -232,11 +234,3 @@ budgetSeconds = 3600
 
 [retry]
 policy = "once"
-
-[expectedFail]
-# One defect, one armed token: the chain head stamped Destroyed at the re-fly
-# conclusion (header, "THE DESTROYED PIN AND ITS QUARANTINE"). Any other red stays
-# PARSEK-FAIL.
-bugId = "REFLY-CONCLUSION-FINALIZES-COMMITTED-CHAIN-HEAD"
-subkind = "save-structure"
-mismatches = ["recordings.structure.terminalStates.Destroyed 13 > max 12"]

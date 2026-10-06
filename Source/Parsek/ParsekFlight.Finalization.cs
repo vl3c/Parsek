@@ -287,6 +287,7 @@ namespace Parsek
             private readonly Action<Recording, Vessel> captureTerminalPosition;
             private readonly Func<Vessel, ConfigNode> tryBackupSnapshot;
             private readonly Func<Recording, Vessel, bool, string, bool> tryRefreshStableTerminalSnapshot;
+            private readonly Func<Recording, Vessel, Recording> findLaterSpawnOwner;
 
             internal FinalizationLiveVesselAccess(
                 Func<Vessel, bool> isFound = null,
@@ -294,8 +295,11 @@ namespace Parsek
                 Action<Recording, Vessel> captureTerminalOrbit = null,
                 Action<Recording, Vessel> captureTerminalPosition = null,
                 Func<Vessel, ConfigNode> tryBackupSnapshot = null,
-                Func<Recording, Vessel, bool, string, bool> tryRefreshStableTerminalSnapshot = null)
+                Func<Recording, Vessel, bool, string, bool> tryRefreshStableTerminalSnapshot = null,
+                Func<Recording, Vessel, Recording> findLaterSpawnOwner = null)
             {
+                this.findLaterSpawnOwner = findLaterSpawnOwner
+                    ?? ParsekFlight.FindLaterCommittedSpawnOwnerOfLiveVessel;
                 this.isFound = isFound ?? (vessel => vessel != null);
                 this.determineTerminalState = determineTerminalState
                     ?? (vessel => RecordingTree.DetermineTerminalState((int)vessel.situation, vessel));
@@ -326,7 +330,71 @@ namespace Parsek
                 bool isSceneExit,
                 string logPrefix) =>
                 tryRefreshStableTerminalSnapshot(rec, vessel, isSceneExit, logPrefix);
+
+            internal Recording FindLaterSpawnOwner(Recording rec, Vessel vessel) =>
+                findLaterSpawnOwner(rec, vessel);
         }
+
+        private static Recording FindLaterCommittedSpawnOwnerOfLiveVessel(Recording rec, Vessel vessel)
+        {
+            if (rec == null || ReferenceEquals(vessel, null))
+                return null;
+            string liveGuid = vessel.id != Guid.Empty
+                ? vessel.id.ToString("N", CultureInfo.InvariantCulture)
+                : null;
+            return RecordingStore.FindLaterCommittedSpawnOwner(rec, vessel.persistentId, liveGuid);
+        }
+
+        private static bool IsTreeActiveRecording(Recording rec, RecordingTree tree)
+        {
+            return rec != null
+                && tree != null
+                && !string.IsNullOrEmpty(tree.ActiveRecordingId)
+                && string.Equals(tree.ActiveRecordingId, rec.RecordingId, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// True when <paramref name="rec"/> is a non-final branch-0 segment of a chain whose
+        /// later segment is in the same tree and still starts where <paramref name="rec"/>
+        /// ends. Chains are authored only on committed history (optimizer split, Re-Fly tree
+        /// split, chain-predecessor repair) and the terminal state lives on the final
+        /// segment, so a live tree that carries one (a Re-Fly or resumed tree spliced from the
+        /// committed tree) must not finalize it as an endpoint. The tree's active recording is
+        /// exempt, and so is a segment this session recorded past its successor's start: both
+        /// are being flown, not replayed.
+        /// </summary>
+        internal static bool IsNonFinalChainSegmentInTree(
+            Recording rec,
+            RecordingTree tree,
+            out string successorId)
+        {
+            successorId = null;
+            if (rec == null || tree == null || tree.Recordings == null)
+                return false;
+            if (string.IsNullOrEmpty(rec.ChainId) || rec.ChainIndex < 0 || rec.ChainBranch != 0)
+                return false;
+            if (IsTreeActiveRecording(rec, tree))
+                return false;
+
+            double endUT = rec.EndUT;
+            foreach (Recording other in tree.Recordings.Values)
+            {
+                if (other == null || ReferenceEquals(other, rec))
+                    continue;
+                if (!string.Equals(other.ChainId, rec.ChainId, StringComparison.Ordinal)
+                    || other.ChainBranch != 0
+                    || other.ChainIndex <= rec.ChainIndex)
+                    continue;
+                if (endUT > other.StartUT + NonFinalChainSegmentBoundaryToleranceSeconds)
+                    continue;
+                successorId = other.RecordingId;
+                return true;
+            }
+            return false;
+        }
+
+        // The optimizer cut stamps the first half's end at the second half's start.
+        internal const double NonFinalChainSegmentBoundaryToleranceSeconds = 1e-3;
 
         internal static bool FinalizeIndividualRecording(
             Recording rec,
@@ -370,6 +438,16 @@ namespace Parsek
             // disappears from the Unfinished Flights list (#224 follow-up).
             bool isLeaf = rec.ChildBranchPointId == null
                 || GhostPlaybackLogic.IsEffectiveLeafForVessel(rec, treeContext);
+            // A non-final segment of a committed chain carries no terminal of its own (the
+            // optimizer moved it onto the successor), so it is never finalized as a leaf.
+            if (isLeaf && IsNonFinalChainSegmentInTree(rec, treeContext, out string chainSuccessorId))
+            {
+                isLeaf = false;
+                ParsekLog.Info("Flight",
+                    $"FinalizeIndividualRecording: '{rec.RecordingId}' is a non-final chain segment " +
+                    $"(chain={rec.ChainId} index={rec.ChainIndex} successor={chainSuccessorId}) - " +
+                    "not finalized as a leaf");
+            }
             Func<uint, Vessel> vesselFinder = findVesselByPid ?? FlightRecorder.FindVesselByPid;
             Vessel finalizeVessel = (isLeaf && rec.VesselPersistentId != 0)
                 ? vesselFinder(rec.VesselPersistentId)
@@ -377,6 +455,30 @@ namespace Parsek
             // Headless tests may pass uninitialized Vessel stubs; use the access seam
             // so Unity's overloaded == does not collapse them to null.
             bool finalizeVesselFound = vesselAccess.IsFound(finalizeVessel);
+            // The pid match above says nothing about WHEN the live vessel is from. When it is
+            // the terminal spawn of a different committed recording that ends after this one,
+            // the vessel's later history belongs to that recording, so its live state is not
+            // this recording's end and the recording is left as it stands.
+            if (finalizeVesselFound && !IsTreeActiveRecording(rec, treeContext))
+            {
+                Recording laterSpawnOwner = vesselAccess.FindLaterSpawnOwner(rec, finalizeVessel);
+                if (laterSpawnOwner != null)
+                {
+                    ParsekLog.Info("Flight",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "FinalizeIndividualRecording: live vessel pid={0} for '{1}' (endUT={2:F2}) " +
+                            "is the terminal spawn of later committed recording '{3}' (endUT={4:F2}) - " +
+                            "not finalized from the live vessel",
+                            rec.VesselPersistentId,
+                            rec.RecordingId,
+                            rec.EndUT,
+                            laterSpawnOwner.RecordingId,
+                            laterSpawnOwner.EndUT));
+                    isLeaf = false;
+                    finalizeVessel = null;
+                    finalizeVesselFound = false;
+                }
+            }
             string restoredSceneExitReason = null;
             bool preserveRestoredSceneExitTerminalState =
                 isLeaf

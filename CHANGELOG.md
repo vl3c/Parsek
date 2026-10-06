@@ -1444,6 +1444,15 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Ending a Re-Fly no longer marks an earlier segment of the same craft destroyed with its crew
+  dead.** When a recording had been split into segments and the same vessel was later brought
+  back by another flight (for example, docked into, undocked, and re-created at the end of that
+  flight), concluding a Re-Fly that reached that moment read the earlier segment's end off the
+  live vessel: it was marked Destroyed at the current time with its crew Dead, written past its
+  own next segment. A segment whose recording continues in a later segment is no longer
+  finalized as an endpoint, and a vessel that later committed history put back in the world is
+  no longer read as the end of an earlier recording of it. CI-2 reads 12 Destroyed again.
+
 - **Dev: a harness pad hop whose parachutes cannot be read now stops before arming them.**
   B1, the science-and-recover lane and EVA-4 read the craft's parachute state every poll. When
   that read returns nothing on the descent-entry poll and the one before it, the mission now

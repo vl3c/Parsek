@@ -1210,7 +1210,7 @@ rather than pinned. Confirming run `2026-10-05_2013_CI-2-refly-claim-tip-pid` (s
 attempt 1 on exactly that token, every log contract matched, `listhandles kind=chains
 count=2 ... evaluated=true` 0.03 s after `Chain built` and 0.3 s before the jump.
 
-## REFLY-CONCLUSION-FINALIZES-COMMITTED-CHAIN-HEAD: a re-fly conclusion stamps a committed chain head Destroyed, with its crew Dead, through a pid shared with another launch [FILED 2026-10-05 from CI-2 `2026-10-05_2008`, branch `ci2-lane-fix`. OPEN, product]
+## ~~REFLY-CONCLUSION-FINALIZES-COMMITTED-CHAIN-HEAD: a re-fly conclusion stamps a committed chain head Destroyed, with its crew Dead, through a pid shared with another launch~~ [FILED 2026-10-05 from CI-2 `2026-10-05_2008`, branch `ci2-lane-fix`. FIXED 2026-10-06, branch `refly-chain-head-pid`]
 
 On `bdock-recorded` the first tree `788554a9`'s Kerbal X recording `a32f62f5` (UT 25.96 to
 386.9, Orbiting, in the fixture) is split by the load-time optimizer at UT 196.26 into the
@@ -1236,6 +1236,29 @@ recording's vessel; (3) a recording that `SavePendingTreeIfAny` itself calls
 `committed-overlap` ("to avoid mutating committed history before merge consent") is mutated
 at scene exit and the mutation rides the merge. Guard: CI-2's `[expectedFail]` reads XPASS
 once the head is left alone.
+
+Correction to the filing: the spawned vessel is NOT another launch. `a32f62f5` and the second
+tree's tip `37d0dc07` both carry `recordedVesselGuid` 97813bb6: the second tree docked into the
+first launch's Kerbal X and undocked it, and the chain-tip spawn keeps both pid and guid
+(`RespawnVessel: preserving vessel identity`). So a `LiveVesselIsRecordedLaunch` gate passes this
+match, and it would also refuse a recording's own vessel after an end-of-recording spawn
+(those regenerate the guid while the resumed recording keeps the original one). The live tree's
+`a32f62f5` is the committed head as `SpliceMissingCommittedRecordingsIntoLoadedTree` refreshed it
+(ChainId set, ChildBranchPointId moved to the tail), which is why `leaf=True`.
+
+Fix: two gates in `ParsekFlight.FinalizeIndividualRecording`. (1) `IsNonFinalChainSegmentInTree`: a
+branch-0 chain segment whose later segment is in the same tree and still starts where it ends
+is not a leaf (the tree's active recording, and a segment recorded past its successor's start,
+are exempt). (2) `RecordingStore.FindLaterCommittedSpawnOwner`: a live vessel that is (via
+`VesselLaunchIdentity.LiveVesselIsRecordedSpawn`, unknown guid falls back to pid-only) the terminal
+spawn of a different committed recording ending after this one leaves the recording as
+committed. Gate (2) also covers the tail `990ed615`, which the same run re-snapshotted from the
+spawned vessel (`#289 ... vessel.situation=SUB_ORBITAL`). With the head left at 196.26, the
+`CommitTree: terminal spawn for recording 37d0dc07 superseded by continuation a32f62f5` line
+(`spawned-pid-match`) no longer fires either: its `prior.EndUT > continued.EndUT` gate rejects it.
+Covered by `ReFlyConclusionChainHeadFinalizeTests` (repro, crew cell, both gates and their
+mirrors; each gate mutation-tested red). CI-2 read XPASS `2026-10-05_2136` (12 Destroyed), its `[expectedFail]` is removed, and the armed
+re-flight `2026-10-05_2138` PASSed attempt 1 (automation DLL `cc79ba6e...`).
 
 ## REFLY-LANES-JUMP-BEFORE-FLIGHT-READY: six re-fly lanes jump or warp straight after InvokeRewind, the CI-2 race [FILED 2026-10-05 from CI-2-TIMEJUMP-BEFORE-FLIGHT-READY, branch `ci2-lane-fix`. OPEN, lanes; unflown]
 

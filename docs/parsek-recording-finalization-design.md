@@ -311,6 +311,8 @@ Focus switching is not itself a consumer unless the switch path actually ends th
 21. **Hard quit without commit.** Cache is in-memory, so it is lost. This is acceptable: Parsek commits on recording end, not continuously through power loss.
 22. **Old committed recordings.** No migration. They keep whatever terminal data they already have.
 23. **Many background vessels.** Refresh is per recording, but digest early-outs and 5-second cadence keep cost bounded. Implementation logs aggregate refresh counts rather than per-vessel spam.
+24. **Non-final chain segment in a live tree.** A Re-Fly or resumed tree spliced from the committed tree can carry an optimizer chain HEAD (no terminal, no child branch point) next to its successor. It is never finalized as a leaf (`ParsekFlight.IsNonFinalChainSegmentInTree`): its terminal lives on the final segment. Exempt: the tree's active recording, and a segment this session recorded past its successor's start.
+25. **Live vessel owned by later committed history.** A pid match does not date the live vessel. When it is the terminal spawn of a different committed recording that ends after this one (`RecordingStore.FindLaterCommittedSpawnOwner`, identity through `VesselLaunchIdentity.LiveVesselIsRecordedSpawn`: a unique spawn pid matches alone, an adoption stamp also needs the launch guid not to conclusively differ, an unknown guid falls back to pid-only), the recording is not finalized from it and keeps its committed terminal, snapshot and orbit. A chain-tip spawn keeps both the craft-baked pid and the launch guid, so a launch-guid check alone cannot tell this case apart. The tree's active recording is exempt.
 
 ## What Doesn't Change
 
