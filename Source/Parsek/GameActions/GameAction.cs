@@ -727,6 +727,31 @@ namespace Parsek
         /// recorded in the event detail was silently dropped at convert time.</summary>
         public float MilestoneScienceAwarded;
 
+        /// <summary>
+        /// World-record rows only (RecordsAltitude / Depth / Speed / Distance): how many stock
+        /// reward thresholds this row stands for. The recorder folds every threshold one
+        /// recording scope crosses into ONE row
+        /// (<see cref="GameStateRecorder.TryCoalesceWorldRecordReward"/>), and the record-node
+        /// patch rebuilds the node's band from the sum over rows, so the sum has to be the
+        /// paid-threshold count, not the row count. 0 on a record node's completion row (stock
+        /// completes the node after its last award, so that row pays no threshold).
+        /// <para>
+        /// 1 on every other row and on a row whose producer never wrote the field. A row
+        /// written before the field existed cannot be repaired from its accumulated reward:
+        /// the per-threshold reward depends on difficulty multipliers and strategies that may
+        /// have changed since, and a science-mode row carries no funds at all.
+        /// </para>
+        /// <para>
+        /// Additive: written as <see cref="MilestoneRecordThresholdsKey"/> only when not 1, so
+        /// every other row keeps its bytes, and an older build reads a row as one hit as
+        /// before. Not a schema shape change (.claude/CLAUDE.md, "Recording schema").
+        /// </para>
+        /// </summary>
+        public int MilestoneRecordThresholds = 1;
+
+        /// <summary>ConfigNode key for <see cref="MilestoneRecordThresholds"/>; absent reads 1.</summary>
+        internal const string MilestoneRecordThresholdsKey = "milestoneRecordThresholds";
+
         // ---- Contract fields ----
 
         /// <summary>KSP's unique contract instance ID.</summary>
@@ -1602,6 +1627,8 @@ namespace Parsek
             n.AddValue("milestoneFundsAwarded", MilestoneFundsAwarded.ToString("R", IC));
             n.AddValue("milestoneRepAwarded", MilestoneRepAwarded.ToString("R", IC));
             n.AddValue("milestoneSciAwarded", MilestoneScienceAwarded.ToString("R", IC));
+            if (MilestoneRecordThresholds != 1)
+                n.AddValue(MilestoneRecordThresholdsKey, MilestoneRecordThresholds.ToString(IC));
         }
 
         private static void DeserializeMilestone(ConfigNode n, GameAction a)
@@ -1611,6 +1638,19 @@ namespace Parsek
             TryParseFloat(n, "milestoneRepAwarded", out a.MilestoneRepAwarded);
             // Backward compat: pre-fix saves have no milestoneSciAwarded key; default to 0.
             TryParseFloat(n, "milestoneSciAwarded", out a.MilestoneScienceAwarded);
+
+            // An absent key is the one-threshold shape (every row an older build wrote).
+            string thresholds = n.GetValue(MilestoneRecordThresholdsKey);
+            if (thresholds == null)
+                return;
+            if (int.TryParse(thresholds, NumberStyles.Integer, IC, out int parsed) && parsed >= 0)
+            {
+                a.MilestoneRecordThresholds = parsed;
+                return;
+            }
+            ParsekLog.Warn("GameAction",
+                $"Milestone row '{a.MilestoneId ?? "(none)"}' actionId={a.ActionId ?? "(none)"} " +
+                $"has malformed {MilestoneRecordThresholdsKey}='{thresholds}' - reading it as 1 threshold");
         }
 
         private void SerializeContractAccept(ConfigNode n)

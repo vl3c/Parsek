@@ -99,6 +99,8 @@ namespace Parsek
         ///   - Repeatable Records* hits after the first: stay effective, but do not grow the
         ///     credited set (the progress node still only needs to be patched to achieved once)
         ///   - Other later duplicates: marks effective=false
+        /// A Records* row adds the reward thresholds it stands for to the id's effective
+        /// count; every other row adds 1.
         /// </summary>
         public void ProcessAction(GameAction action)
         {
@@ -107,6 +109,11 @@ namespace Parsek
 
             string milestoneId = action.MilestoneId ?? "";
             bool isRepeatableRecordMilestone = IsRepeatableWorldRecordMilestone(milestoneId);
+            // A record row adds the thresholds it stands for (one coalesced row per recording
+            // scope can carry several, a completion row none); every other id counts the row.
+            int hits = isRepeatableRecordMilestone
+                ? GetRepresentedRecordThresholds(action)
+                : 1;
 
             if (!creditedMilestones.Contains(milestoneId))
             {
@@ -116,22 +123,25 @@ namespace Parsek
                 // every other id starts from zero here.
                 effectiveMilestoneCounts[milestoneId] =
                     (effectiveMilestoneCounts.TryGetValue(milestoneId, out int seededCount)
-                        ? seededCount : 0) + 1;
+                        ? seededCount : 0) + hits;
                 ParsekLog.Verbose("Milestones",
                     $"Credited milestone '{milestoneId}' at UT={action.UT.ToString("F1", IC)}" +
                     $" (recording={action.RecordingId ?? "null"}," +
                     $" funds={action.MilestoneFundsAwarded.ToString("F0", IC)}," +
                     $" rep={action.MilestoneRepAwarded.ToString("F0", IC)}," +
-                    $" sci={action.MilestoneScienceAwarded.ToString("F1", IC)})," +
-                    $" total credited={creditedMilestones.Count}");
+                    $" sci={action.MilestoneScienceAwarded.ToString("F1", IC)}" +
+                    (isRepeatableRecordMilestone
+                        ? $", thresholds={hits.ToString(IC)}"
+                        : "") +
+                    $"), total credited={creditedMilestones.Count}");
             }
             else if (isRepeatableRecordMilestone)
             {
                 action.Effective = true;
                 if (effectiveMilestoneCounts.TryGetValue(milestoneId, out int currentCount))
-                    effectiveMilestoneCounts[milestoneId] = currentCount + 1;
+                    effectiveMilestoneCounts[milestoneId] = currentCount + hits;
                 else
-                    effectiveMilestoneCounts[milestoneId] = 1;
+                    effectiveMilestoneCounts[milestoneId] = hits;
                 // Bug #593: repeatable record milestones (RecordsSpeed/Altitude/
                 // Distance) hit this branch on every recalc walk for every
                 // committed record-grant action, producing 170+ identical
@@ -155,7 +165,8 @@ namespace Parsek
                     $" recording={action.RecordingId ?? "null"}," +
                     $" funds={action.MilestoneFundsAwarded.ToString("F0", IC)}," +
                     $" rep={action.MilestoneRepAwarded.ToString("F0", IC)}," +
-                    $" sci={action.MilestoneScienceAwarded.ToString("F1", IC)})," +
+                    $" sci={action.MilestoneScienceAwarded.ToString("F1", IC)}," +
+                    $" thresholds={hits.ToString(IC)})," +
                     $" total credited={creditedMilestones.Count}");
             }
             else
@@ -189,6 +200,21 @@ namespace Parsek
         }
 
         /// <summary>
+        /// How many stock reward thresholds a world-record row stands for
+        /// (<see cref="GameAction.MilestoneRecordThresholds"/>, never below 0). The record
+        /// node's effective count, and so the band the patch rebuilds, is the sum of this over
+        /// the id's effective rows plus the pre-ledger seed. Shared with
+        /// <see cref="PreLedgerProgressSeed.Capture"/>, which must subtract exactly what the
+        /// walk will add.
+        /// </summary>
+        internal static int GetRepresentedRecordThresholds(GameAction action)
+        {
+            if (action == null)
+                return 0;
+            return action.MilestoneRecordThresholds < 0 ? 0 : action.MilestoneRecordThresholds;
+        }
+
+        /// <summary>
         /// Returns whether the given milestoneId has been credited in the current walk.
         /// </summary>
         internal bool IsMilestoneCredited(string milestoneId)
@@ -205,9 +231,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns how many effective MilestoneAchievement actions survived the current walk
-        /// for the given milestoneId. Repeatable Records* nodes can exceed 1; once-ever
-        /// milestones are either 0 or 1.
+        /// Returns the effective hit count of the given milestoneId in the current walk. For a
+        /// once-ever milestone that is 0 or 1. For a repeatable Records* node it is the reward
+        /// thresholds paid: the pre-ledger seed plus the thresholds every effective row stands
+        /// for (<see cref="GetRepresentedRecordThresholds"/>), not the number of rows.
         /// </summary>
         internal int GetEffectiveMilestoneCount(string milestoneId)
         {
