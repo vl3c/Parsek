@@ -8214,7 +8214,7 @@ namespace Parsek
             // null out in-session (vessel-gone debris, the crew-unreserve pass);
             // the durable copy lives in the _vessel.craft sidecar. Re-hydrate it
             // from disk for genuinely-spawnable, non-debris recordings only. The
-            // checks below reject debris / non-spawnable terminals / ghost-only /
+            // checks below reject debris / non-spawnable terminals / branch > 0 /
             // non-leaf recordings regardless, so they skip the disk probe and keep
             // the cheap early-out (no per-frame I/O). Without this, a spawnable
             // leaf whose snapshot was dropped (e.g. an orbital payload re-flown
@@ -8229,12 +8229,6 @@ namespace Parsek
                 {
                     return (false, "no vessel snapshot");
                 }
-            }
-
-            // Gloops Flight Recorder recordings are ghost-only — never spawn a real vessel
-            if (rec.IsGhostOnly)
-            {
-                return (false, "ghost-only recording (Gloops)");
             }
 
             // Branch > 0 recordings are ghost-only (undock continuations) — never spawn
@@ -8401,7 +8395,7 @@ namespace Parsek
         /// spawn-STATE gates (already spawned, destroyed, snapshot presence, rewind
         /// suppression, PID dedup), so the answer is stable before, during and after the
         /// end-of-recording spawn is settled. False for a recording whose terminal spawn a
-        /// later continuation owns, a ghost-only / debris / branch &gt; 0 recording, an
+        /// later continuation owns, a debris / branch &gt; 0 recording, an
         /// intermediate chain segment, and a non-leaf tree
         /// recording (it branched into a same-vessel continuation: a later chain or
         /// switch-continuation segment carries the flight on). A breakup-continuous
@@ -8415,7 +8409,7 @@ namespace Parsek
                 return false;
             if (!string.IsNullOrEmpty(rec.TerminalSpawnSupersededByRecordingId))
                 return false;
-            if (rec.IsGhostOnly || rec.IsDebris || rec.ChainBranch > 0)
+            if (rec.IsDebris || rec.ChainBranch > 0)
                 return false;
             // A looped phase does not make the chain's tip non-final: the first run is
             // real (design 12.7), the same answer ShouldSpawnAtRecordingEnd gives.

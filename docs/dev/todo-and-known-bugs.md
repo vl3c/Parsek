@@ -957,11 +957,11 @@ time unit, auto loop range) are removed entirely and existing saves drop them; i
 mission loops only behind a logistics route (the Missions tab loses its loop controls);
 the loop infrastructure routes run on stays. Looping at will is a Gloops concern
 (`docs/dev/gloops-recorder-design.md` section 8). The per-recording loop keys are deleted
-without a schema generation bump (plan section 5, for ratification at review); the harness
+without a schema generation bump (plan section 5, ratified 2026-10-05); the harness
 keeps store-mission looping reachable from automation only (plan section 6). PR sequence:
 plan section 7.
 
-## GLOOPS-EXTRACTION-2026-10-05: Gloops leaves Parsek; model agreed, extraction not scheduled [FILED 2026-10-05 from an owner interview and a measured read of the code, branch `ccr-8a19466a-qh7ey4`. OPEN; extraction not scheduled, removal planned]
+## GLOOPS-EXTRACTION-2026-10-05: Gloops leaves Parsek; model agreed, extraction not scheduled [FILED 2026-10-05 from an owner interview and a measured read of the code, branch `ccr-8a19466a-qh7ey4`. OPEN; extraction not scheduled. In-Parsek recorder DELETED as dead code on branch `gloops-dead-code-removal`]
 
 **Owner rulings 2026-10-05** (full text: `docs/dev/gloops-recorder-design.md` section 1):
 the in-Parsek Gloops feature is deleted from Parsek; Gloops becomes a standalone mod in
@@ -979,19 +979,25 @@ the tree / chain / mission layer, and the recorders are entangled with tree, rew
 logistics code (design section 10).
 
 **Next work** is `docs/dev/plans/remove-player-looping.md`: PR 1 deletes the in-Parsek
-Gloops recorder; PRs 2-4 remove player-authored looping (per-recording loops and the
-Missions tab loop controls; in Parsek a mission loops only behind a logistics route).
+Gloops recorder (DONE on branch `gloops-dead-code-removal`, looping untouched); PRs 2-4 remove
+player-authored looping (per-recording loops and the Missions tab loop controls; in Parsek a
+mission loops only behind a logistics route).
 
 **Defects in the in-Parsek Gloops recorder, found 2026-10-05.** All are resolved by the
 removal; none is to be fixed in place. Each is a requirement the standalone take recorder
 must meet (design section 5.8).
 
-1. **Takes are very likely lost on save and reload** (inferred from source, not run).
-   `RecordingStore.CommitGloopsRecording` appends a treeless recording to the committed
-   list; `ParsekScenario.OnSave` writes only `RECORDING_TREE` nodes and OnLoad ignores
-   standalone `RECORDING` nodes (T56). Contradicts the 0.10.4 CHANGELOG claim that existing
-   ghost-only recordings "still load". One reload test settles it before the `isGhostOnly`
-   codec key is deleted.
+1. **Takes are lost on a cold load** (settled 2026-10-05 by a test).
+   `RecordingStore.CommitGloopsRecording` appended a treeless recording to the committed
+   list; `ParsekScenario.SaveTreeRecordings` writes only `RECORDING_TREE` nodes and the cold
+   OnLoad path reads only those (standalone `RECORDING` nodes are warned and dropped, T56),
+   then `CleanOrphanFiles` quarantines the take's sidecars. A warm in-session load kept the
+   static list until the next cold load. The codec read of `isGhostOnly` could only fire for
+   a tree member and no path put a take in a tree; no fixture carried `isGhostOnly = True`.
+   So no save can carry a ghost-only recording, and the key was deleted with no generation
+   bump. Pinned by `PendingTreeSaveTests.SaveThenColdLoad_TreelessCommittedRecording_IsNotPersisted`
+   (passed with `IsGhostOnly = true` on main `99f7a1ad5` before the deletion). The 0.10.4
+   CHANGELOG claim that ghost-only recordings "still load" was wrong.
 2. **A take started while packed freezes.** `InitializeOnRailsOrbitSegment` sets
    `isOnRails = true`; go-off-rails is never forwarded to the gloops recorder, so
    `FlightRecorder.OnPhysicsFrame` returns early for the rest of the take.
@@ -3565,7 +3571,7 @@ smallest remaining surfaces are `op=pointer inject=true` feeding IMGUI a synthet
 do not spend lanes on hover states, and do not read the four existing hover captures as
 coverage - they are text-identical to their un-hovered siblings.
 
-**3. The Gloops Flight Recorder's Recording / Saved / Previewing states are diagnostic
+**3. [MOOT 2026-10-06: the Gloops window, its seam verbs and `op=open window=gloops` are deleted, PR #2022]** The Gloops Flight Recorder's Recording / Saved / Previewing states are diagnostic
 only, because no player can open that window.** `UiSurfaceVisibility.IsRetired` answers true
 for `MainButtonGloops` and is tested BEFORE the mode switch, so the launcher draws in
 neither complexity mode; the only production writer that raises the flag sits behind that
@@ -6549,7 +6555,7 @@ Residue found on the way, left open deliberately:
 
 ---
 
-## GLOOPS-STANDALONE-WINDDOWN: Gloops UI retired from every mode; extraction to a standalone mod pending [OPENED 2026-08-28]
+## ~~GLOOPS-STANDALONE-WINDDOWN: Gloops UI retired from every mode; extraction to a standalone mod pending~~ [OPENED 2026-08-28. CLOSED 2026-10-06: the in-Parsek Gloops recorder is deleted as dead code (PR #2022, branch `gloops-dead-code-removal`); Gloops is to be rebuilt later (GLOOPS-EXTRACTION-2026-10-05); the looping wind-down is PLAYER-LOOPING-REMOVAL. The tests named below were deleted with it]
 
 Product decision (2026-08-28): Gloops becomes a standalone mod later, and Parsek
 gradually winds down player-facing ghost/recording-looping surfaces to focus on

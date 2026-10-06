@@ -937,6 +937,38 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
         }
 
+        [Fact]
+        public void CreateKerbalAssignmentActions_SingleCrewAboard_ProducesRow()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = new ConfigNode("PART");
+            part.AddValue("crew", "Jeb Kerman");
+            snapshot.AddNode(part);
+
+            var rec = new Recording
+            {
+                RecordingId = "normal-kerbal-row",
+                VesselName = "Test Ship",
+                GhostVisualSnapshot = snapshot,
+            };
+            rec.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { "Jeb Kerman", KerbalEndState.Aboard }
+            };
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var actions = LedgerOrchestrator.CreateKerbalAssignmentActions(
+                "normal-kerbal-row", 100.0, 200.0);
+
+            Assert.Single(actions);
+            Assert.Equal(GameActionType.KerbalAssignment, actions[0].Type);
+            Assert.Equal("Jeb Kerman", actions[0].KerbalName);
+            Assert.Equal("normal-kerbal-row", actions[0].RecordingId);
+
+            RecordingStore.ResetForTesting();
+        }
+
         // ================================================================
         // CreateKerbalDeathRepPenaltyActions
         // ================================================================

@@ -60,14 +60,6 @@ namespace Parsek.InGameTests
 
             SettingsWindowUI settings = ui.GetSettingsWindowUI();
 
-            if (IsGloopsRecording())
-            {
-                // Edge case 11: the seam legitimately REFUSES Basic while a manual Gloops
-                // recording runs, so this test cannot drive its own precondition.
-                InGameAssert.Skip("Gloops recording in progress - the switch to Basic is refused by design");
-                yield break;
-            }
-
             UiComplexityMode originalMode = ParsekUI.AppliedUiComplexityMode;
             bool originalOpen = settings.IsOpen;
             bool originalShowUi = flight.ShowUIForTesting;
@@ -158,12 +150,6 @@ namespace Parsek.InGameTests
         // ------------------------------------------------------------------
         // Helpers
         // ------------------------------------------------------------------
-
-        private static bool IsGloopsRecording()
-        {
-            ParsekFlight flight = ParsekFlight.Instance;
-            return flight != null && flight.IsGloopsRecording;
-        }
 
         private static IEnumerator WaitForAppliedMode(UiComplexityMode expected)
         {

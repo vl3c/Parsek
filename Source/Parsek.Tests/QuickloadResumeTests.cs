@@ -3119,7 +3119,7 @@ namespace Parsek.Tests
                 "RecordingId", "TreeId", "TreeOrder", "VesselPersistentId", "RecordedVesselGuid",
                 "ParentRecordingId", "EvaCrewName", "ChainId", "ChainIndex", "ChainBranch",
                 "ParentBranchPointId", "ChildBranchPointId", "IsDebris", "ParentAnchorRecordingId",
-                "IsGhostOnly", "Generation", "RecordingGroups", "Hidden", "PlaybackEnabled",
+                "Generation", "RecordingGroups", "Hidden", "PlaybackEnabled",
                 "RecordingFormatVersion", "RecordingSchemaGeneration");
             Keep("a player loop setting",
                 "LoopPlayback", "LoopIntervalSeconds", "LoopTimeUnit", "LoopStartUT", "LoopEndUT",

@@ -8323,7 +8323,7 @@ namespace Parsek
 
             foreach (var rec in RecordingStore.PendingTree.Recordings.Values)
             {
-                if (rec == null || rec.IsGhostOnly)
+                if (rec == null)
                     continue;
                 if (MatchesVessel(rec, identity, vesselPid))
                     return true;

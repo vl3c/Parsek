@@ -129,7 +129,7 @@ namespace Parsek.Tests
         public void EveryRefusalTokenIsKebabCaseDistinctAndInTheValidSet()
         {
             string[] tokens = TestCommandUiMock.ValidRefusalNames.Split(',');
-            Assert.Equal(11, tokens.Length);
+            Assert.Equal(10, tokens.Length);
             Assert.Equal(tokens.Length, tokens.Distinct(StringComparer.Ordinal).Count());
             foreach (string token in tokens)
             {
@@ -146,7 +146,6 @@ namespace Parsek.Tests
                          TestCommandUiMock.WindowUnsupportedReason,
                          TestCommandUiMock.StateWindowMismatchReason,
                          TestCommandUiMock.RefusedSceneReason,
-                         TestCommandUiMock.RefusedRecordingReason,
                          TestCommandUiMock.RefusedSessionLiveReason,
                          TestCommandUiMock.RefusedModeReason,
                          TestCommandUiMock.NotAppliedReason,

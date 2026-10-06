@@ -281,6 +281,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SaveThenColdLoad_TreelessCommittedRecording_IsNotPersisted()
+        {
+            // T56: OnSave writes RECORDING_TREE nodes only, so a committed recording that
+            // belongs to no tree (the shape the deleted in-Parsek Gloops recorder committed)
+            // is written nowhere and cannot come back on a cold load.
+            var committed = MakeTree("tree_kept", "Kept Mission", "rec_kept");
+            RecordingStore.CommittedTrees.Add(committed);
+            RecordingStore.AddCommittedInternal(committed.Recordings["rec_kept"]);
+            var treeless = new Recording
+            {
+                RecordingId = "rec_treeless",
+                VesselName = "Treeless Take",
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 110.0,
+            };
+            treeless.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            treeless.Points.Add(new TrajectoryPoint { ut = 110.0 });
+            RecordingStore.AddCommittedInternal(treeless);
+
+            var node = new ConfigNode("PARSEK_SCENARIO");
+            ParsekScenario.SaveTreeRecordings(node);
+
+            Assert.Empty(node.GetNodes("RECORDING"));
+            ConfigNode[] treeNodes = node.GetNodes("RECORDING_TREE");
+            Assert.Single(treeNodes);
+            foreach (ConfigNode recNode in treeNodes[0].GetNodes("RECORDING"))
+                Assert.NotEqual("rec_treeless", recNode.GetValue("recordingId"));
+
+            RecordingStore.ClearCommittedInternal();
+            RecordingStore.CommittedTrees.Clear();
+            ParsekScenario.LoadRecordingTrees(node, RecordingStore.CommittedRecordings);
+
+            Assert.Single(RecordingStore.CommittedRecordings);
+            Assert.Equal("rec_kept", RecordingStore.CommittedRecordings[0].RecordingId);
+        }
+
+        [Fact]
         public void TryRestorePendingTreeNode_RestoresFinalizedPendingAndClearsStashedThisTransition()
         {
             var pending = MakeTree("tree_pending_restore", "Restored Pending", "rec_pending_restore");

@@ -83,7 +83,7 @@ class ContactSheetGroupingTests(unittest.TestCase):
 
     def test_group_is_the_first_dash_segment_when_it_is_a_known_scene(self):
         self.assertEqual("ksc", gcs.group_of("ksc-main-advanced.png"))
-        self.assertEqual("flight", gcs.group_of("flight-gloops.png"))
+        self.assertEqual("flight", gcs.group_of("flight-spawncontrol.png"))
         self.assertEqual("map", gcs.group_of("map-overlay.png"))
 
     def test_an_unmodelled_prefix_lands_in_other_rather_than_being_dropped(self):

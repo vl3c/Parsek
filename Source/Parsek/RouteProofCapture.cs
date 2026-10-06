@@ -582,7 +582,7 @@ namespace Parsek
 
         /// <summary>
         /// Logistics start-docked origin proof producer (pure / static).
-        /// Handles the gloops-mode early-skip, null-snapshot warn-skip, the
+        /// Handles the null-snapshot warn-skip, the
         /// <see cref="TryResolveStartDockedOriginPartner"/> dispatch, and the per-branch
         /// log emission. Returns the populated <paramref name="proof"/> +
         /// <paramref name="transportPartPersistentIds"/> on the Captured branch and
@@ -604,7 +604,6 @@ namespace Parsek
             IReadOnlyList<DockSeamPairCandidate> candidates,
             int settledDockSeamsScanned,
             ConfigNode snapshot,
-            bool isGloopsMode,
             string vesselContext,
             uint recordingVesselId,
             out RouteOriginProof proof,
@@ -613,12 +612,6 @@ namespace Parsek
             proof = null;
             transportPartPersistentIds = null;
 
-            if (isGloopsMode)
-            {
-                ParsekLog.Verbose("Recorder",
-                    $"RouteOriginProof skipped: gloops mode recId={recordingVesselId} vessel='{vesselContext}'");
-                return;
-            }
             if (snapshot == null)
             {
                 ParsekLog.Warn("Recorder",
@@ -2344,21 +2337,14 @@ namespace Parsek
         /// rule. Capture stays PERMISSIVE (plan D2): whatever resource names the
         /// snapshot carries are recorded; undefined-name exclusion happens at
         /// analysis only. Returns null (with a log mirroring the
-        /// RouteOriginProof skip branches) for gloops mode, a missing snapshot,
-        /// or a snapshot with no usable part pids.
+        /// RouteOriginProof skip branches) for a missing snapshot or a snapshot
+        /// with no usable part pids.
         /// </summary>
         internal static RouteRunCargoManifest BuildRunCargoManifestAtStart(
             ConfigNode snapshot,
-            bool isGloopsMode,
             string vesselContext,
             uint recordingVesselId)
         {
-            if (isGloopsMode)
-            {
-                ParsekLog.Verbose("Recorder",
-                    $"RouteRunManifest skipped: gloops mode recId={recordingVesselId} vessel='{vesselContext}'");
-                return null;
-            }
             if (snapshot == null)
             {
                 ParsekLog.Warn("Recorder",

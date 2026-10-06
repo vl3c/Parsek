@@ -1490,7 +1490,6 @@ namespace Parsek
                 || rec.SpawnAbandoned
                 || rec.VesselSnapshot == null
                 || rec.IsDebris
-                || rec.IsGhostOnly
                 || rec.ChainBranch > 0)
             {
                 return false;

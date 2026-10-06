@@ -13,9 +13,8 @@ namespace Parsek.TestCommands
     /// editor needs a row key, a draft and a focus sentinel written together, and the
     /// window class owns which three; a seam that wrote two of them would draw a text field
     /// with no keyboard focus, which photographs as an ordinary label. The wrappers also
-    /// carry the refusals the ARMING GESTURE itself carries - an unknown row, and a
-    /// permanent root group, whose double-click is blocked - so the seam refuses exactly
-    /// what a player's double-click refuses.</para>
+    /// carry the refusals the ARMING GESTURE itself carries - an unknown row - so the seam
+    /// refuses exactly what a player's double-click refuses.</para>
     /// </summary>
     public partial class ParsekTestCommandAddon
     {

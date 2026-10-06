@@ -66,12 +66,11 @@ Source/Parsek/ParsekSettingsPersistence.cs
 # verbs are inert unless PARSEK_TEST_COMMANDS=1 arms the addon.
 #
 # A THIRD file joined them with the GUI state gallery:
-# ParsekTestCommandAddon.UiMock.cs reads the APPLIED mode twice, and for the two
-# reasons the sibling applier does - the derived capture label carries the mode
-# token (so a basic and an advanced capture of one state do not collide), and the
-# gloops-recording refusal is reached through ParsekUI.WouldRefuseModeChange,
-# which is the production predicate op=complexity already uses. Neither is a
-# second writer of the mode: that file never calls SetUiComplexityMode.
+# ParsekTestCommandAddon.UiMock.cs reads the APPLIED mode twice - the derived
+# capture label carries the mode token (so a basic and an advanced capture of one
+# state do not collide), and a window whose launcher the applied mode hides is
+# refused through GuiMockCatalogue.IsMockableInMode. Neither is a second writer
+# of the mode: that file never calls SetUiComplexityMode.
 #
 # Deliberately only these THREE files. ParsekTestCommandAddon.cs (the pump) and
 # TestCommandVerbs.cs (the known-verb table) are NOT listed: the pump dispatches

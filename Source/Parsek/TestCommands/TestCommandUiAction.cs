@@ -210,7 +210,7 @@ namespace Parsek.TestCommands
 
         /// <summary>The window class's OWN minimum width, read live from its resize clamp
         /// constant. Zero for a window that has no resize handle and therefore no minimum
-        /// (main, settings, gloops). Reported by describe so a spec author can size a
+        /// (main, settings). Reported by describe so a spec author can size a
         /// capture without reading the source.</summary>
         internal float MinW;
 
@@ -261,7 +261,7 @@ namespace Parsek.TestCommands
     /// its scene availability must be a decision with a cell on it rather than a
     /// null-reference at run time. A window that the current scene does not draw is a
     /// REJECTED (<see cref="WindowNotInSceneReason"/>) naming the scene, not a silent OK:
-    /// an "opened" Gloops recorder at the Space Center would produce a capture of the
+    /// an "opened" Real Spawn Control at the Space Center would produce a capture of the
     /// scene without it and read as a render defect.</para>
     /// </summary>
     internal static class TestCommandUiAction
@@ -314,7 +314,6 @@ namespace Parsek.TestCommands
         internal const string RouteHistoryWindow = "routehistory";
         internal const string SettingsWindow = "settings";
         internal const string SpawnControlWindow = "spawncontrol";
-        internal const string GloopsWindow = "gloops";
         internal const string TestRunnerWindow = "testrunner";
 
         /// <summary>The GLOBAL Ctrl+Shift+T runner (<c>TestRunnerShortcut</c>), a separate
@@ -384,12 +383,6 @@ namespace Parsek.TestCommands
         /// a loaded game, and a scene that hosts no Parsek UI is a state this verb does not
         /// drive rather than a not-yet.</summary>
         internal const string HostUnavailableReason = "ui-host-unavailable";
-
-        /// <summary>PRE-CALL gate for the ONE production refusal
-        /// (<c>ParsekUI.ShouldRefuseModeChange</c>): switching to Basic while a Gloops
-        /// recording runs. Checked explicitly rather than inferred from a failed read-back
-        /// so the response names the cause (the <c>EnterWatchMode</c> discipline).</summary>
-        internal const string ComplexityRefusedRecordingReason = "complexity-refused-gloops-recording";
 
         /// <summary>POST-CALL terminal: the mode was set and latched and
         /// <c>AppliedUiComplexityMode</c> still disagrees. ERROR - we acted and the game
@@ -668,10 +661,9 @@ namespace Parsek.TestCommands
             // section coverage.
             NewSpec(SettingsWindow, true, true),
 
-            // Flight-only: ParsekKSC.OnGUI does not draw either, and SpawnControlUI
+            // Flight-only: ParsekKSC.OnGUI does not draw it, and SpawnControlUI
             // additionally self-closes out of flight (ResolveAutoCloseReason).
             NewSpec(SpawnControlWindow, true, false),
-            NewSpec(GloopsWindow, true, false),
 
             // The Settings-launched TestRunnerUI. NOT the global Ctrl+Shift+T window
             // below, which shares the same title but is a separate MonoBehaviour with a
@@ -1102,8 +1094,8 @@ namespace Parsek.TestCommands
         /// <para>Only FLIGHT and SPACECENTER host Parsek windows at all; every other scene
         /// answers false and the applier's <see cref="HostUnavailableReason"/> gate normally
         /// fires first. Keeping the rule here rather than in the applier is what lets a cell
-        /// pin that the two flight-only windows are exactly
-        /// <c>spawncontrol</c> and <c>gloops</c>.</para>
+        /// pin that the one flight-only window is exactly
+        /// <c>spawncontrol</c>.</para>
         /// </summary>
         internal static bool IsAvailableInScene(UiWindowSpec spec, TestCommandScene scene)
         {
@@ -1415,7 +1407,7 @@ namespace Parsek.TestCommands
         ///
         /// <para>The clamp is per-AXIS and one-directional (raise only), so a caller that
         /// commands MORE than the minimum keeps what it asked for. Zero minimums (a window
-        /// with no resize handle: main, settings, gloops) clamp nothing.</para>
+        /// with no resize handle: main, settings) clamp nothing.</para>
         ///
         /// <para>The CLAMPED rect is what the read-back tolerance is then measured against,
         /// because it is what was written; measuring against the unclamped request would
@@ -1438,7 +1430,7 @@ namespace Parsek.TestCommands
         /// read-back with the rect the window will really draw at. On a screen narrower than
         /// the window's minimum that is the screen width, which is also the smallest the
         /// window can be dragged to there. A window with no resize handle (both minimums
-        /// zero: main, settings, gloops) is not fitted in-game, so it is not fitted here.
+        /// zero: main, settings) is not fitted in-game, so it is not fitted here.
         /// </summary>
         internal static UiActionRect FitRectToScreen(UiActionRect rect, float minW, float minH,
             float screenWidth, float screenHeight, out bool fitted)
