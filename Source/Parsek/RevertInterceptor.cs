@@ -121,9 +121,14 @@ namespace Parsek
         /// </summary>
         internal static Func<RewindPoint, bool> DiscardReFlyQuicksaveExistsForTesting;
 
-        /// <summary>Clears all Phase 12 test seams.</summary>
+        /// <summary>
+        /// Clears all Phase 12 test seams, and the Discard Re-fly load intent a stubbed
+        /// LoadGame / LoadScene run arms with no load to consume it (the in-game
+        /// ReFlyRevertDialog tests reach the handler through these seams).
+        /// </summary>
         internal static void ResetTestOverrides()
         {
+            DiscardReFlyLoadIntent.ResetForTesting();
             DialogShowForTesting = null;
             RewindInvokeStartForTesting = null;
             DiscardReFlyLoadGameForTesting = null;
@@ -540,6 +545,9 @@ namespace Parsek
                 return;
             }
 
+            // The next OnLoad is this discard's own load; its early classification reads this.
+            DiscardReFlyLoadIntent.Arm(target, sessionId);
+
             string facilityText = target == RevertTarget.Prelaunch
                 ? $" facility={facility}"
                 : " facility=--";
@@ -555,6 +563,8 @@ namespace Parsek
 
             // Step 10: scene transition.
             bool dispatched = DispatchScene(target, facility);
+            if (!dispatched)
+                DiscardReFlyLoadIntent.Clear("DiscardReFly:scene-dispatch-failed");
             if (!dispatched && suppressionArmed)
             {
                 if (RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(

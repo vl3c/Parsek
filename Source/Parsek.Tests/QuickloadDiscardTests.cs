@@ -341,6 +341,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DiscardStashedOnQuickload_PolicyNotClear_KeepsPendingScience()
+        {
+            // OnLoad passes LoadReconcilePolicy's PendingScience decision; a decision other
+            // than Clear keeps the subjects and says so.
+            GameStateRecorder.PendingScienceSubjects.Clear();
+            GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
+            {
+                subjectId = "crewReport@KerbinSrfLandedLaunchPad",
+                science = 1.5f,
+            });
+            logLines.Clear();
+
+            ParsekScenario.DiscardStashedOnQuickload(
+                preChangeUT: 400.0, currentUT: 370.0, clearPendingScience: false);
+
+            Assert.Single(GameStateRecorder.PendingScienceSubjects);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("kept 1 pending science subject(s) (load policy decision is not Clear)"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload discard complete") && l.Contains("science=0"));
+            Assert.DoesNotContain(logLines, l => l.Contains("stale pending science subject(s)"));
+        }
+
+        [Fact]
         public void DiscardStashedOnQuickload_NothingStashed_LogsOnlyHeader()
         {
             // Empty state: no pending tree, no science. The

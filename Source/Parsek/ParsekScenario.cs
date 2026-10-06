@@ -1044,9 +1044,15 @@ namespace Parsek
         /// still dependencies of the live session, so the quickload-discard
         /// heuristic must not delete them.
         /// </para>
+        /// <para>
+        /// <paramref name="clearPendingScience"/> is the
+        /// <see cref="LoadReconcilePolicy"/> decision for
+        /// <see cref="LoadStateCategory.PendingScience"/> on this load; OnLoad passes it from
+        /// the refined load kind.
+        /// </para>
         /// </summary>
         internal static void DiscardStashedOnQuickload(
-            double preChangeUT, double currentUT)
+            double preChangeUT, double currentUT, bool clearPendingScience = true)
         {
             // Defense-in-depth: even if a future refactor inlines or removes
             // the ShouldRunQuickloadDiscard gate at the OnLoad call site, the
@@ -1109,12 +1115,19 @@ namespace Parsek
             // in PendingScienceSubjects accumulated between the quicksave and
             // the quickload are by definition from the discarded future. Clear
             // them so they don't get mis-attached to the next commit.
-            int staleScience = GameStateRecorder.PendingScienceSubjects.Count;
-            if (staleScience > 0)
+            int staleScience = 0;
+            int pendingScience = GameStateRecorder.PendingScienceSubjects.Count;
+            if (pendingScience > 0 && clearPendingScience)
             {
+                staleScience = pendingScience;
                 GameStateRecorder.PendingScienceSubjects.Clear();
                 ParsekLog.Info("Scenario",
                     $"Quickload: cleared {staleScience} stale pending science subject(s)");
+            }
+            else if (pendingScience > 0)
+            {
+                ParsekLog.Info("Scenario",
+                    $"Quickload: kept {pendingScience} pending science subject(s) (load policy decision is not Clear)");
             }
 
             ParsekLog.Info("Scenario",
@@ -3503,6 +3516,17 @@ namespace Parsek
             return RecordingStore.BuildKnownRecordingIds();
         }
 
+        /// <summary>The once-per-load <see cref="LoadReconcilePolicy"/> classification line.</summary>
+        private static void LogLoadClassification(
+            EarlyLoadKind early, LoadKind refined,
+            bool initialLoadDoneAtClassify, bool rewinding, bool reFlyInvoke, string discardReFlyTarget)
+        {
+            ParsekLog.Info(LoadReconcilePolicy.LogTag,
+                LoadReconcilePolicy.FormatClassificationLine(
+                    early, refined, HighLogic.LoadedScene.ToString(),
+                    initialLoadDoneAtClassify, rewinding, reFlyInvoke, discardReFlyTarget));
+        }
+
         public override void OnLoad(ConfigNode node)
         {
             // S9 game-mode gate (ParsekGameModeGate): stock never adds this scenario to a
@@ -3598,6 +3622,28 @@ namespace Parsek
                 loadPhase = "hooks";
                 RegisterMainMenuHook();
                 DetectSaveFolderChange();
+
+                // Load classification (LoadReconcilePolicy) before the prologue consumes any
+                // state, after DetectSaveFolderChange settles initialLoadDone. An in-session
+                // load is refined once the revert detector has run (below); every other kind
+                // is final here and logs now.
+                loadPhase = "load-classify";
+                bool classifyInitialLoadDone = initialLoadDone;
+                bool classifyRewinding = RewindContext.IsRewinding;
+                bool classifyReFlyInvoke = RewindInvokeContext.Pending;
+                bool classifyDiscardReFly = DiscardReFlyLoadIntent.TryConsume(
+                    HighLogic.LoadedScene, "ParsekScenario.OnLoad", out RevertTarget discardReFlyIntentTarget);
+                string classifyDiscardReFlyTarget = classifyDiscardReFly
+                    ? discardReFlyIntentTarget.ToString()
+                    : null;
+                EarlyLoadKind earlyLoadKind = LoadReconcilePolicy.ClassifyEarly(
+                    classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFly);
+                if (earlyLoadKind != EarlyLoadKind.InSession)
+                {
+                    LogLoadClassification(earlyLoadKind, LoadReconcilePolicy.ToLoadKind(earlyLoadKind),
+                        classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget);
+                }
+
                 if (!RewindContext.IsRewinding)
                     KerbalLoadRepairDiagnostics.Begin();
                 loadPhase = "crew-groups";
@@ -3810,6 +3856,17 @@ namespace Parsek
                         $"pendingTreeRestoredFromSave={pendingTreeRestoredFromSave}, " +
                         $"hasOrphanedLimboTree={hasOrphanedLimboTree}");
 
+                    // Refined load kind: the revert detector has run, so an in-session load now
+                    // splits into StockRevert / QuickloadFlight / InSessionOther. Every consumer
+                    // of the refined kind sits below this line.
+                    LoadKind refinedLoadKind = LoadReconcilePolicy.ClassifyRefined(
+                        earlyLoadKind, isRevert, isFlightToFlight, utWentBackwards);
+                    if (earlyLoadKind == EarlyLoadKind.InSession)
+                    {
+                        LogLoadClassification(earlyLoadKind, refinedLoadKind,
+                            classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget);
+                    }
+
                     // Capture the launch UT for the editor-revert orphan-prune boundary. A fresh
                     // launch from the editor (NEW_FROM_FILE / NEW_FROM_CRAFT_NODE) enters FLIGHT
                     // with loadedUT == the launch instant, regardless of launch site (KSC
@@ -3862,9 +3919,19 @@ namespace Parsek
                     // The gate treats that pending invoke as active so the RP quicksave and
                     // pending tree survive until RewindInvoker.ConsumePostLoad recreates the
                     // marker and resumes the session.
+                    //
+                    // The pending-science half reads the policy table. Wherever this gate
+                    // passes, the refined kind is QuickloadFlight (Clear): an early ReFlyStart
+                    // keeps RewindInvokeContext.Pending set, so the gate refuses; an early
+                    // DiscardReFly only matches a Space Center / editor load, so
+                    // isFlightToFlight is false; an in-session load with the clock backwards,
+                    // FLIGHT->FLIGHT and no revert refines to QuickloadFlight.
                     if (ShouldRunQuickloadDiscard(utWentBackwards, isFlightToFlight, isRevert))
                     {
-                        DiscardStashedOnQuickload(preChangeUT, loadedUT);
+                        DiscardStashedOnQuickload(preChangeUT, loadedUT,
+                            clearPendingScience: LoadReconcilePolicy.Decide(
+                                refinedLoadKind, LoadStateCategory.PendingScience).Action
+                                == LoadReconcileAction.Clear);
                     }
 
                     RecorderStateLog.RecState(

@@ -6395,7 +6395,7 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | TA-13 | Resource-scan unlock recorded, ledgered and re-applied after a rewind (ruled) | RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED |
 | TA-14 | Tracking Station uses the current-UT ledger cutoff (ruled) | TRACKING-STATION-LEDGER-CUTOFF-ALIGN |
 | TA-15 | F9 into a discarded flight records again (ruled) | QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN |
-| TA-W | Load-path x reconciler wiring gate | HARNESS-TIMELINE-FUZZERS |
+| TA-W | ~~Load-path x reconciler wiring gate~~ DONE 2026-10-06 (PR #2021): `LoadReconcilePolicy` (today's decision per load kind x state category, the filed defects as known gaps) + `LoadReconcilePolicyTests` / `LoadReconcileWiringGateTests` | HARNESS-TIMELINE-FUZZERS |
 | TA-F | Headless timeline fuzzers (ledger / effective-state / route conservation) | HARNESS-TIMELINE-FUZZERS |
 
 ### Capabilities

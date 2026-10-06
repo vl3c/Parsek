@@ -166,6 +166,13 @@ or reconcile the in-memory recordings / ledger against the loaded lists. Red tes
 `RewindStagedListsCarryTests`-style xUnit (commit A and A', supersede row only in memory,
 non-rewind load of a node without it, assert A invisible); then lane QL-3.
 
+Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
+
+Owner rulings 2026-10-06: F9 into a quicksave taken during a Re-Fly session that has since
+merged RESUMES the session, and a later Discard of that resumed session also drops the first
+merge's rows that name the pruned attempt (OQ-1); rewind-point quicksave files of an abandoned
+future or a reverted flight stay on disk for now (OQ-3).
+
 ---
 
 ## QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT: tagged game-state events from the timeline an F9 abandoned are credited when the resumed flight commits [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
@@ -186,6 +193,8 @@ quicksave. Red test: `QuickloadResumeTests` - tagged ContractCompleted at
 UT 300, `TrimRecordingTreePastUT(tree, 200)`, commit 100-350, assert no ContractComplete row.
 Lane QL-2.
 
+Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
+
 ---
 
 ## QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS: a committed tree detached on F9 keeps its future ledger rows [FILED 2026-10-06 from the coverage-extension research, verified (when the detach runs); branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
@@ -199,6 +208,11 @@ saved tree is dropped instead and the flight resumes unrecorded - see QL-R1 in t
 Fix: retire the detached tree's rows after the resume UT. Red test: extend
 `TryRestoreActiveTreeNode_SkipsCommittedTreeStashesActiveTree` with a Recovery funds row at 300
 and a loaded UT of 200.
+
+Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
+
+Owner ruling 2026-10-06 (OQ-2): F9 into a later-committed flight's quicksave retires that tree's
+recording-tagged ledger rows after the quicksave; untagged KSC rows are kept.
 
 ---
 
@@ -217,6 +231,60 @@ the F9 instant and is never recorded afterwards.
 Fix: clear terminal state / crew end states past the resume UT for every tree member in the
 trim. Red test: `QuickloadResumeTests` splice + trim on a booster Destroyed with crew Dead at 300.
 Lane QL-4.
+
+Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
+
+---
+
+## COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE: a cold load into an older mid-flight quicksave keeps the abandoned future's events and ledger rows [FILED 2026-10-06 from the PR #2021 review, verified by code read. OPEN, product; not yet reproduced]
+
+The cold-path twin of QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT and
+QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS. Both external files are written at every OnSave, so a
+cold load (game start, or the Load menu after the main menu) of an older mid-flight quicksave
+reads them as last written, not as of the quicksave: `LedgerOrchestrator.OnLoad` ->
+`Ledger.LoadFromFile` on every cold load, and `GameStateStore.LoadEventFile` once per save folder
+per process (a later cold load of the same folder keeps the in-memory store). The cold active-tree
+restore (`TryRestoreActiveTreeNode`) stashes the quicksave's tree before `OnKspLoad`, and
+`RecordingStore.BuildKnownRecordingIds` adds the pending tree's ids
+(`RecordingStore.OrphanCleanup.cs` ~275), so `Ledger.Reconcile` keeps the restored tree's
+earnings at any UT and its spendings in FLIGHT / SPACECENTER. The resume trim then cuts
+trajectories only.
+
+Expected player effect: F5 mid-flight, fly on until a contract completes, leave to the main
+menu (the flight is committed), load the quicksave: the abandoned future's contract reward row
+and tagged events survive into the resumed flight.
+
+Fix: not decided. The in-session fix (the reconcile at the quickload resume trim, QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT) is gated
+on QuickloadFlight / InSessionOther and does not cover this; either extend the same reconcile to
+the cold resume (the cold restore arms the same quickload resume context) or reconcile the
+external files against the loaded save. Red test first: xUnit over a cold restore of an active
+tree plus `Ledger.Reconcile` with a tagged earning after the quicksave UT.
+
+Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide` (Cold x
+AbandonedFutureEvents / AbandonedFutureLedgerRows); the fix flips those cells.
+
+---
+
+## ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS: the Esc-menu Discard Re-fly leaves the attempt's pending science and ledger tags behind [FILED 2026-10-06 from the PR #2021 review, verified by code read. OPEN, product; not yet reproduced]
+
+`RevertInterceptor.DiscardReFlyHandler` prunes the attempt through
+`MergeDialog.PruneActiveReFlyAttemptOwnedTopology` (recordings, events, files) but never clears
+`GameStateRecorder.PendingScienceSubjects` and never calls `Ledger.ClearRecordingTagForRecordings`.
+The merge-dialog discard does both (`MergeDialog.ReFlyDiscard.cs` ~372 in
+`DiscardReFlyAttemptRecordingsAndRewindPoints`, ~390 in `EndDiscardedReFlySession`). The discard's
+own load lands in the Space Center or the editor, so the quickload discard (FLIGHT to FLIGHT only)
+does not clear the science either. Untagged subjects are kept while an uncommitted tree is active
+(`GameStateRecorder.cs` ~1170-1179) and can attach to a later commit; a payout row earned during
+the attempt keeps a tag naming a deleted recording, which the merge-dialog path clears because
+such a tag can later scope a tombstone onto a real payout, and which the next cold load's
+`Ledger.Reconcile` drops as an earning of an unknown recording.
+
+Fix: give the Esc path the same session-state half and tag re-home the merge-dialog discard runs.
+Red test: `ReFlyRevertDialogTests` - a pending subject and an attempt-tagged FundsEarning row,
+`DiscardReFlyHandler`, assert the subjects cleared and the tag cleared.
+
+Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide` (DiscardReFly x
+PendingScience); the fix flips that cell.
 
 ---
 
@@ -304,8 +372,11 @@ vessel identity, baselined over every fixture first, then gated.
 
 ## HARNESS-TIMELINE-FUZZERS: no test applies random sequences of timeline operations [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. OPEN, harness / tests]
 
-Fix: (1) a load-path x reconciler wiring gate in xUnit (every load path against every state it
-must reconcile, so a new path or state category cannot be added without a decision); (2) extend
+Fix: ~~(1) a load-path x reconciler wiring gate in xUnit (every load path against every state it
+must reconcile, so a new path or state category cannot be added without a decision)~~ DONE
+2026-10-06 (PR #2021, roadmap TA-W): `LoadReconcilePolicy` (load kinds, state
+categories, today's decision per cell with the filed defects as known gaps) gated by
+`LoadReconcilePolicyTests` and `LoadReconcileWiringGateTests`; (2) extend
 `LedgerStateFuzzerTests` / `EffectiveStateGraphFuzzerTests` with commit, supersede, cutoff,
 F9-backward, revert-prune and discard, and add `RouteTimelineConservationFuzzerTests`; (3) the
 FZ-1 lane: a seeded generator of declarative step lists over the operation alphabet, invariants
@@ -578,6 +649,8 @@ in-session load, or run the same reconcile the two rewind exits run, keyed to th
 guard `EmitPendingRecoveryCredit` on its dispatch row. Pin it red first: `RouteLoopDeliveryFireTests`
 (swallowed cycle), `RouteRecoveryCreditTests` (orphan credit), a source-text gate on the three
 load paths; then lanes IR-1 / IR-2 / IR-4.
+
+Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
 
 ---
 
