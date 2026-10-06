@@ -3676,6 +3676,16 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A base hidden as a ghost after a rewind keeps its supply route.** When you rewound to
+  before a recorded flight that docks with one of your bases, the base is replaced by its
+  ghost until that flight's recording ends. During that time a route serving the base used
+  to switch itself, for good, to any craft parked within 500 m of it (and the Logistics
+  window could trigger the switch just by being open); when the base came back the route
+  kept delivering to the neighbour. The route now waits instead: its runs hold with "destination
+  is a ghost until a recorded flight that docks with it ends - deliveries resume when it is
+  back", and it serves the base again as soon as the base reappears. A base that is really
+  gone (destroyed or recovered) still hands its route to a craft parked nearby, as before.
+  Covered by xUnit; not yet checked in a test flight.
 - **Supply-route cargo no longer goes into, or comes out of, a craft docked to the station.**
   A route delivering to a station or base with another craft docked to it (a visiting tanker,
   a lander parked at a port) used to fill that craft's empty tanks and cargo slots first, so

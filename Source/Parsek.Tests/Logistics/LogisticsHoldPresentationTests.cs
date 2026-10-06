@@ -372,6 +372,44 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(EndpointLost, null, 0.0));
         }
 
+        // catches: a chain-ghost hold (ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND) telling
+        // the player to Re-scan or delete a route that resumes by itself, in every token
+        // shape the gate, the delivery applier and the origin check produce.
+        [Fact]
+        public void DescribeHold_EndpointLost_ChainGhostHold()
+        {
+            const string ghostDestination =
+                "destination is a ghost until a recorded flight that docks with it ends"
+                + " - deliveries resume when it is back";
+            Assert.Equal(ghostDestination, LogisticsHoldPresentation.DescribeHold(
+                EndpointLost, "stop-0-" + RouteEndpointChainHold.HoldReason, 0.0));
+            Assert.Equal(ghostDestination, LogisticsHoldPresentation.DescribeHold(
+                EndpointLost, "endpoint-destroyed-at-delivery:" + RouteEndpointChainHold.HoldReason, 0.0));
+            Assert.Equal(
+                "origin vessel is a ghost until a recorded flight that docks with it ends"
+                + " - the route resumes when it is back",
+                LogisticsHoldPresentation.DescribeHold(
+                    EndpointLost, "origin-" + RouteEndpointChainHold.HoldReason, 0.0));
+
+            Assert.Equal("destination is a ghost", LogisticsHoldPresentation.CompactHold(
+                EndpointLost, "stop-1-" + RouteEndpointChainHold.HoldReason, 0.0));
+            Assert.Equal("origin is a ghost", LogisticsHoldPresentation.CompactHold(
+                EndpointLost, "origin-" + RouteEndpointChainHold.HoldReason, 0.0));
+            // Any other EndpointLost token keeps the lost wording.
+            Assert.Equal("destination vessel lost", LogisticsHoldPresentation.CompactHold(
+                EndpointLost, "stop-0-no-vessel-within-radius", 0.0));
+
+            // A Route History row is past fact: the live-route advice tail is cut.
+            Assert.Equal(
+                "destination is a ghost until a recorded flight that docks with it ends",
+                LogisticsHoldPresentation.DescribeHoldForHistory(
+                    EndpointLost, "stop-0-" + RouteEndpointChainHold.HoldReason, 0.0, null));
+            Assert.Equal(
+                "origin vessel is a ghost until a recorded flight that docks with it ends",
+                LogisticsHoldPresentation.DescribeHoldForHistory(
+                    EndpointLost, "origin-" + RouteEndpointChainHold.HoldReason, 0.0, null));
+        }
+
         // catches: token-shape drift between the loop and legacy paths (risk 1).
         // The legacy path stores PREFIXED decision tokens; both shapes must land
         // on the same player text.

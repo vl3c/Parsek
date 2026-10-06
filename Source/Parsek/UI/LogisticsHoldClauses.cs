@@ -71,6 +71,18 @@ namespace Parsek
         internal const string DestinationVesselNotFound =
             "destination vessel could not be found - use Re-scan to find it, or delete this route";
 
+        /// <summary>EndpointLost because the destination is a ghost until its chain tip
+        /// respawns it (the resolver's <c>endpoint-chain-ghosted</c> hold).</summary>
+        internal const string DestinationIsChainGhost =
+            "destination is a ghost until a recorded flight that docks with it ends"
+            + " - deliveries resume when it is back";
+
+        /// <summary>EndpointLost on an "origin-*" token because the origin is a ghost until
+        /// its chain tip respawns it.</summary>
+        internal const string OriginIsChainGhost =
+            "origin vessel is a ghost until a recorded flight that docks with it ends"
+            + " - the route resumes when it is back";
+
         /// <summary>SourcesStale: the flights the route copies did not resolve this run.</summary>
         internal const string SourceRecordingsUnavailable =
             "a flight this route copies is unavailable right now";
@@ -193,6 +205,12 @@ namespace Parsek
 
         /// <summary>Compact EndpointLost on a destination token.</summary>
         internal const string CompactDestinationVesselLost = "destination vessel lost";
+
+        /// <summary>Compact chain-ghost hold on a destination token.</summary>
+        internal const string CompactDestinationIsChainGhost = "destination is a ghost";
+
+        /// <summary>Compact chain-ghost hold on an "origin-*" token.</summary>
+        internal const string CompactOriginIsChainGhost = "origin is a ghost";
 
         /// <summary>Compact SourcesStale.</summary>
         internal const string CompactSourceRecordingsUnavailable = "flight unavailable";
@@ -319,6 +337,8 @@ namespace Parsek
                 Hold("DestinationNoRoomForResource", DestinationNoRoomForResource),
                 Hold("OriginVesselNotFound", OriginVesselNotFound),
                 Hold("DestinationVesselNotFound", DestinationVesselNotFound),
+                Hold("DestinationIsChainGhost", DestinationIsChainGhost),
+                Hold("OriginIsChainGhost", OriginIsChainGhost),
                 Hold("SourceRecordingsUnavailable", SourceRecordingsUnavailable),
                 Hold("WaitingForLinkedRoute", WaitingForLinkedRoute),
                 Hold("WaitingForNamedLinkedRoute", WaitingForNamedLinkedRoute),
@@ -349,6 +369,8 @@ namespace Parsek
                 Hold("CompactNoRoomForResource", CompactNoRoomForResource),
                 Hold("CompactOriginVesselLost", CompactOriginVesselLost),
                 Hold("CompactDestinationVesselLost", CompactDestinationVesselLost),
+                Hold("CompactDestinationIsChainGhost", CompactDestinationIsChainGhost),
+                Hold("CompactOriginIsChainGhost", CompactOriginIsChainGhost),
                 Hold("CompactSourceRecordingsUnavailable", CompactSourceRecordingsUnavailable),
                 Hold("CompactWaitingForLinkedRoute", CompactWaitingForLinkedRoute),
                 Hold("CompactWaitingForNamedRoute", CompactWaitingForNamedRoute),

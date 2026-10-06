@@ -74,13 +74,22 @@ namespace Parsek
                 }
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost:
+                {
                     // "origin-*" names the origin resolver; everything else
                     // ("stop-N-*", "endpoint-destroyed-at-delivery:*", unknown)
-                    // is a destination loss.
-                    return detail != null
-                        && detail.StartsWith("origin-", System.StringComparison.Ordinal)
+                    // is a destination loss. A chain-ghost hold is not a loss: the
+                    // endpoint comes back by itself, so the line says so instead of
+                    // pointing at Re-scan or Delete.
+                    bool origin = detail != null
+                        && detail.StartsWith("origin-", System.StringComparison.Ordinal);
+                    if (IsChainGhostHold(detail))
+                        return origin
+                            ? LogisticsHoldClauses.OriginIsChainGhost
+                            : LogisticsHoldClauses.DestinationIsChainGhost;
+                    return origin
                         ? LogisticsHoldClauses.OriginVesselNotFound
                         : LogisticsHoldClauses.DestinationVesselNotFound;
+                }
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.SourcesStale:
                     return LogisticsHoldClauses.SourceRecordingsUnavailable;
@@ -390,10 +399,17 @@ namespace Parsek
                 }
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost:
-                    return detail != null
-                        && detail.StartsWith("origin-", System.StringComparison.Ordinal)
+                {
+                    bool origin = detail != null
+                        && detail.StartsWith("origin-", System.StringComparison.Ordinal);
+                    if (IsChainGhostHold(detail))
+                        return origin
+                            ? LogisticsHoldClauses.CompactOriginIsChainGhost
+                            : LogisticsHoldClauses.CompactDestinationIsChainGhost;
+                    return origin
                         ? LogisticsHoldClauses.CompactOriginVesselLost
                         : LogisticsHoldClauses.CompactDestinationVesselLost;
+                }
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.SourcesStale:
                     return LogisticsHoldClauses.CompactSourceRecordingsUnavailable;
@@ -495,7 +511,8 @@ namespace Parsek
 
         /// <summary>
         /// The advice tails a long-form clause carries for the LIVE route ("- delivers
-        /// when ...", "- use Re-scan ...", "- it may have moved ..."). A Route History
+        /// when ...", "- use Re-scan ...", "- it may have moved ...", "- deliveries
+        /// resume when ...", "- the route resumes when ..."). A Route History
         /// row is past fact, so <see cref="DescribeHoldForHistory"/> cuts the clause at
         /// the first of these.
         /// </summary>
@@ -504,6 +521,8 @@ namespace Parsek
             " - delivers when ",
             " - use Re-scan ",
             " - it may have moved,",
+            " - deliveries resume when ",
+            " - the route resumes when ",
         };
 
         /// <summary>
@@ -575,6 +594,18 @@ namespace Parsek
             if (string.IsNullOrEmpty(text) || maxChars <= 3 || text.Length <= maxChars)
                 return text;
             return text.Substring(0, maxChars - 3) + "...";
+        }
+
+        /// <summary>
+        /// True when an EndpointLost detail carries the resolver's chain-ghost hold token
+        /// (<see cref="Logistics.RouteEndpointChainHold.HoldReason"/>): the gate wraps it as
+        /// "stop-N-..." / "origin-..." and the delivery applier as
+        /// "endpoint-destroyed-at-delivery:...", so the test is a substring match.
+        /// </summary>
+        internal static bool IsChainGhostHold(string detail)
+        {
+            return detail != null
+                && detail.IndexOf(Logistics.RouteEndpointChainHold.HoldReason, System.StringComparison.Ordinal) >= 0;
         }
 
         // Total fallback row: readable, never blank, never throws - new tokens

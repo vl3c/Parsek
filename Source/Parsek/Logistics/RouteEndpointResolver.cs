@@ -24,6 +24,10 @@ namespace Parsek.Logistics
     /// route's carrier parked back at the dock is routinely the nearest surface vessel to the
     /// recorded coordinates. Both need to know which route owns the endpoint, which is why
     /// that lookup happens on this step and nowhere earlier.</para>
+    ///
+    /// <para>The proximity step is SKIPPED while the recorded endpoint is hidden by the Ghost
+    /// Chain Rule (<see cref="RouteEndpointChainHold"/>): the endpoint is then temporarily
+    /// missing, not lost, and a transfer would hand the route to a neighbour for good.</para>
     /// </summary>
     internal static class RouteEndpointResolver
     {
@@ -380,6 +384,24 @@ namespace Parsek.Logistics
 
                 // EndpointResolutionStep.SurfaceProximity - the last step, so it returns
                 // either way.
+                //
+                // NOT WHILE THE ENDPOINT IS CHAIN-GHOSTED. A base a committed dock claims is
+                // despawned after a rewind until its chain tip respawns it with its identity;
+                // the two identity steps above miss for exactly that span, and proximity would
+                // REBIND the route to a craft parked nearby - permanently, since the neighbour's
+                // root part then wins the first step once the base is back
+                // (ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND). The endpoint is held as
+                // temporarily missing instead; a genuinely lost endpoint (no chain, or a
+                // terminated one) is not held and still transfers below.
+                double holdUT = ReadUniversalTime();
+                if (RouteEndpointChainHold.IsEndpointHeldLive(endpoint, holdUT,
+                        out RouteEndpointChainHold.ChainClaim holdingChain))
+                {
+                    RouteEndpointChainHold.LogHold(endpoint, holdingChain, holdUT);
+                    reason = RouteEndpointChainHold.HoldReason;
+                    return false;
+                }
+
                 CelestialBody body = ResolveBodyByName(endpoint.BodyName);
                 if (body == null)
                 {

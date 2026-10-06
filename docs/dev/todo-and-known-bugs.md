@@ -946,8 +946,8 @@ defects, then the harness capabilities (route-aware ledger oracle that survives 
 mid-run route read-back, career route fixtures with a rewind handle, a dispatchable moon
 route), then the IR-1..IR-11 pair lanes and the IC-1..IC-4 campaign lanes.
 
-Progress: Phase A row A5 landed with its fix (ROUTE-DELIVERY-INTO-DOCKED-VISITOR,
-`fix-route-endpoint-writes`).
+Progress: Phase A rows A2 (ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND) and A5
+(ROUTE-DELIVERY-INTO-DOCKED-VISITOR) landed with their fixes on `fix-route-endpoint-writes`.
 
 ---
 
@@ -1092,7 +1092,7 @@ Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the f
 
 ---
 
-## ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND: after a rewind, a surface base hidden by the Ghost Chain Rule gets its route permanently re-pointed to a craft parked within 500 m [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; not yet reproduced]
+## ~~ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND: after a rewind, a surface base hidden by the Ghost Chain Rule gets its route permanently re-pointed to a craft parked within 500 m~~ [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-route-endpoint-writes` (xUnit only; live proof is lane IR-8)]
 
 A base claimed by a committed dock is despawned after a rewind (`VesselGhoster.cs:75`). The
 endpoint resolver misses the root-part and pid steps and falls through to the surface
@@ -1105,6 +1105,30 @@ part id, which wins at the first resolver step, so the redirect is permanent.
 
 Fix: hold (do not proximity-rebind) while the recorded endpoint is ghosted by a chain; a pure
 predicate beside `RouteEndpointTransferTests`, then lane IR-8.
+
+FIXED 2026-10-07 (`fix-route-endpoint-writes`): `RouteEndpointResolver`'s surface-proximity
+step first asks `RouteEndpointChainHold.IsEndpointHeldLive`; when the endpoint is
+chain-ghosted it returns false with reason `endpoint-chain-ghosted` (logged rate-limited as
+`Endpoint HELD, not rebound:`) and neither searches nor calls `ApplyTransfers`. The pure
+predicate `IsHeldByGhostChain`: a claim with the endpoint's pid, launch guids not conclusively
+different, not terminated, and its tip spawn UT still ahead OR still pending in flight. The
+claims come from `GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees)`
+(memoized on `RecordingStore.StateVersion` + tree count + 120 frames; the UT test is live), so
+the hold works in every scene the resolver runs in - the despawned base is simply absent at
+the KSC and in the TS - plus `ParsekFlight.ActiveGhostChains`, which keeps a chain whose tip
+spawn a collision blocked past its spawn UT (the blocker may be the very neighbour). Mirror: a
+terminated chain (destroyed / recovered in the committed future) or no claim is not held and
+still transfers as before. A held loop route blocks its crossings exactly as for any missing
+endpoint (a `RouteHeld` row of kind EndpointLost carrying the `stop-N-` / `origin-` token; the
+route stays Active and fires again once the base resolves by identity), and the hold line now
+says "destination is a ghost until a recorded flight that docks with it ends - deliveries
+resume when it is back" (new `LogisticsHoldClauses` pair, compact "destination is a ghost" /
+"origin is a ghost"; the Route History row drops the advice tail) instead of pointing at
+Re-scan or Delete. Residuals: a delivery already paid for when the hold begins (a multi-stop
+window after a rewind into the cycle) fails like any endpoint-lost delivery; a start-docked
+origin whose pid was never stamped (pid 0) cannot be matched to a chain (chains are keyed by
+pid). Tests: `RouteEndpointChainHoldTests` (red against the never-hold stub
+first), `LogisticsHoldPresentationTests.DescribeHold_EndpointLost_ChainGhostHold`.
 
 ---
 
