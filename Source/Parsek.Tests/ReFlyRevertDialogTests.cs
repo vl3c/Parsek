@@ -394,6 +394,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResetTestOverrides_ClearsAnIntentTheStubbedLoadArmed()
+        {
+            // A stubbed LoadGame / LoadScene (the in-game ReFlyRevertDialog tests use the same
+            // seams) arms the intent with no real load to consume it; the seam reset drops it.
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+            Assert.True(DiscardReFlyLoadIntent.IsArmed);
+
+            RevertInterceptor.ResetTestOverrides();
+
+            Assert.False(DiscardReFlyLoadIntent.IsArmed);
+        }
+
+        [Fact]
         public void DiscardReFly_QuicksaveMissing_DoesNotArmTheIntent()
         {
             var marker = MakeMarker();

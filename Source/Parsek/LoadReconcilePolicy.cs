@@ -174,17 +174,21 @@ namespace Parsek
     }
 
     /// <summary>
-    /// The load-kind x state-category policy for <see cref="ParsekScenario.OnLoad"/>: every
-    /// decision about where a piece of Parsek state comes from on a given kind of load lives in
-    /// <see cref="Decide"/>, so a new load path or a new state category cannot be added without
-    /// one. Pure: no Unity or KSP calls. Gated by <c>LoadReconcilePolicyTests</c> (table shape,
-    /// classifiers, known-gap ids against the todo file) and <c>LoadReconcileWiringGateTests</c>
-    /// (staging nodes, <c>GamePersistence.LoadGame</c> call sites, classification order in OnLoad).
+    /// The load-kind x state-category policy for <see cref="ParsekScenario.OnLoad"/>: where each
+    /// listed piece of Parsek state comes from on each kind of load, as the code does it today,
+    /// lives in <see cref="Decide"/>. Pure: no Unity or KSP calls. <c>LoadReconcilePolicyTests</c>
+    /// pins the table shape, the classifiers and the known-gap ids against the todo file;
+    /// <c>LoadReconcileWiringGateTests</c> pins the declared <c>GamePersistence.LoadGame(</c> call
+    /// sites, the node names of the two staging methods, and where OnLoad classifies relative to
+    /// named steps. A state category with no staging node, or a load that reuses a declared
+    /// initiator, is not caught mechanically.
     /// </summary>
     internal static class LoadReconcilePolicy
     {
         internal const string GapReFlyLists = "QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY";
         internal const string GapRouteState = "ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD";
+        internal const string GapColdLoadAbandonedFuture = "COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE";
+        internal const string GapEscDiscardPendingScience = "ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS";
 
         internal const string LogTag = "LoadPolicy";
 
@@ -522,7 +526,9 @@ namespace Parsek
                         BundleRestores + ", then RewindInvoker.ConsumePostLoad writes the new session's marker");
                 case LoadKind.DiscardReFly:
                     return Gap(LoadReconcileAction.Save, GapReFlyLists,
-                        StagingFromNode + " after DiscardReFlyHandler cleared the marker in memory; target: memory (null)");
+                        StagingFromNode + " after DiscardReFlyHandler cleared the marker in memory; LoadTimeSweep.Run "
+                        + "(MarkerValidator) validates the loaded marker and may clear it, as on every in-session load; "
+                        + "target: memory (null)");
                 case LoadKind.StockRevert:
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
@@ -589,6 +595,8 @@ namespace Parsek
             + "so the load restores no active tree and arms no trim";
         private const string RewindResumesNothing =
             "not reachable: TryRestoreActiveTreeNode returns early while rewinding, so no quickload trim is armed";
+        private const string ResumeTrimOnlyCutsTrajectories =
+            "the quickload resume trim (ParsekScenario.TrimRecordingTreePastUT) cuts trajectories only";
         private const string ResumeReconcileSkips =
             "ParsekScenario.TrimAndReconcileForQuickloadResume runs the trim but skips this category on this kind";
 
@@ -597,9 +605,10 @@ namespace Parsek
             switch (kind)
             {
                 case LoadKind.Cold:
-                    return Today(LoadReconcileAction.Keep,
-                        "GameStateStore.LoadEventFile reads the external file on the first cold load of a save folder "
-                        + "(memory after); " + ResumeReconcileSkips);
+                    return Gap(LoadReconcileAction.Keep, GapColdLoadAbandonedFuture,
+                        "GameStateStore.LoadEventFile reads the external file as last written, on the first cold load "
+                        + "of a save folder only (memory after); " + ResumeTrimOnlyCutsTrajectories
+                        + " (COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE; the in-session fix does not cover it)");
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.Keep, RewindResumesNothing);
                 case LoadKind.ReFlyStart:
@@ -628,9 +637,12 @@ namespace Parsek
             switch (kind)
             {
                 case LoadKind.Cold:
-                    return Today(LoadReconcileAction.Keep,
-                        "LedgerOrchestrator.OnKspLoad -> Ledger.Reconcile keeps rows tagged to known recording ids, "
-                        + "the restored active tree's included; " + ResumeReconcileSkips);
+                    return Gap(LoadReconcileAction.Keep, GapColdLoadAbandonedFuture,
+                        "LedgerOrchestrator.OnLoad reads the ledger file as last written; the cold active-tree restore runs "
+                        + "before OnKspLoad, so Ledger.Reconcile counts the restored tree's ids as known "
+                        + "(RecordingStore.BuildKnownRecordingIds) and keeps its earnings at any UT and its spendings in "
+                        + "FLIGHT / SPACECENTER (COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE; the in-session "
+                        + "fix does not cover it)");
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.Keep, RewindResumesNothing);
                 case LoadKind.ReFlyStart:
@@ -687,8 +699,10 @@ namespace Parsek
             {
                 case LoadKind.Cold:
                     return Today(LoadReconcileAction.Keep,
-                        "scene rule: LedgerOrchestrator.OnKspLoad -> Ledger.Reconcile prunes every row past the clock "
-                        + "only outside FLIGHT / SPACECENTER with a ready clock (the Tracking Station half is "
+                        "scene rule: LedgerOrchestrator.OnKspLoad -> Ledger.Reconcile never drops an untagged earning "
+                        + "by UT (contract completions aside); outside FLIGHT / SPACECENTER with a ready clock (UT > 0) "
+                        + "it drops untagged spendings, contract lifecycle rows and other untagged rows past the clock; "
+                        + "FLIGHT / SPACECENTER, or a clock not yet ready, keep them all (the Tracking Station half is "
                         + "TRACKING-STATION-LEDGER-CUTOFF-ALIGN)");
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.Keep,
@@ -723,8 +737,9 @@ namespace Parsek
                     return Today(LoadReconcileAction.Bundle,
                         BundleRestores + " (entries captured after the loaded UT are dropped)");
                 case LoadKind.DiscardReFly:
-                    return Today(LoadReconcileAction.Keep,
-                        "neither DiscardReFlyHandler nor the load clears it (the scene is not FLIGHT, so no quickload discard)");
+                    return Gap(LoadReconcileAction.Keep, GapEscDiscardPendingScience,
+                        "neither DiscardReFlyHandler nor the load clears it (the scene is not FLIGHT, so no quickload "
+                        + "discard); the merge-dialog discard does (MergeDialog.EndDiscardedReFlySession)");
                 case LoadKind.StockRevert:
                     return Today(LoadReconcileAction.Clear, "RecordingStore.UnstashPendingTreeOnRevert, unconditionally");
                 case LoadKind.QuickloadFlight:

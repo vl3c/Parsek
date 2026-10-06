@@ -10,9 +10,10 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Source gate for <see cref="LoadReconcilePolicy"/> (roadmap TA-W, todo HARNESS-TIMELINE-FUZZERS
-    /// item 1): every load path and every staged state category has a decision in the table, and
-    /// the production sites that classify loads and arm the Discard Re-fly intent stay wired in
-    /// order. <c>ParsekScenario.OnLoad</c> and <c>RevertInterceptor.DiscardReFlyHandler</c>'s real
+    /// item 1): every <c>GamePersistence.LoadGame(</c> call site is a declared initiator, every node
+    /// the two staging methods touch has a category, and the production sites that classify loads
+    /// and arm the Discard Re-fly intent stay wired in order. A state category with no staging
+    /// node, or a new load through a declared initiator, is outside what a source scan can see. <c>ParsekScenario.OnLoad</c> and <c>RevertInterceptor.DiscardReFlyHandler</c>'s real
     /// load are unreachable headlessly, so a silent unwire would leave every behavioural cell
     /// green; this file pins the WIRING.
     ///
@@ -33,8 +34,14 @@ namespace Parsek.Tests
         [Fact]
         public void EveryStagingNodeLoadedOrSavedHasACategory()
         {
-            HashSet<string> loaded = StagingNodeNames("private void LoadRewindStagingState(ConfigNode node)");
-            HashSet<string> saved = StagingNodeNames("private void SaveRewindStagingState(ConfigNode node)");
+            var scan = new StagingNodeScan();
+            HashSet<string> loaded = scan.ScanStagingMethod("LoadRewindStagingState");
+            HashSet<string> saved = scan.ScanStagingMethod("SaveRewindStagingState");
+
+            Assert.True(scan.Problems.Count == 0,
+                "load-reconcile gate: the staging methods use their ConfigNode in a way the gate cannot "
+                + "resolve to a node name (resolve it to a literal or a const, or teach the gate the "
+                + "helper): " + string.Join("; ", scan.Problems));
 
             var declared = new HashSet<string>(LoadReconcilePolicy.StagingNodeCategories.Keys, StringComparer.Ordinal);
 
@@ -52,6 +59,12 @@ namespace Parsek.Tests
             Assert.True(loaded.SetEquals(saved),
                 "load-reconcile gate: LoadRewindStagingState and SaveRewindStagingState disagree on the node set: "
                 + "loadOnly=" + string.Join(",", loaded.Except(saved)) + " saveOnly=" + string.Join(",", saved.Except(loaded)));
+
+            // The per-entry child allowlist must stay exact too: an entry nothing uses is dead.
+            var unusedChildren = PerEntryChildNames.Keys.Where(k => !scan.ChildNamesSeen.Contains(k)).ToList();
+            Assert.True(unusedChildren.Count == 0,
+                "load-reconcile gate: PerEntryChildNames lists child name(s) no staging helper uses: "
+                + string.Join(", ", unusedChildren));
         }
 
         // ---- load initiators ----
@@ -283,31 +296,415 @@ namespace Parsek.Tests
 
         // ---- helpers ----
 
-        private static HashSet<string> StagingNodeNames(string signature)
+        // ConfigNode members that address a child node by name; their first argument is that name.
+        private static readonly HashSet<string> NodeChildAccessors = new HashSet<string>(StringComparer.Ordinal)
         {
-            string body = CommentStrippedMethodBody(ScenarioPath, signature);
-            var names = new HashSet<string>(StringComparer.Ordinal);
+            "AddNode", "GetNode", "GetNodes", "HasNode", "RemoveNode", "RemoveNodes", "SetNode", "TryGetNode",
+        };
 
-            // Literal node names: every all-caps literal with an underscore (child names such as
-            // "POINT" / "ENTRY" carry none).
-            foreach (Match m in Regex.Matches(body, "\"([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\""))
-                names.Add(m.Groups[1].Value);
-
-            // Singleton node names: Type.NodeName, resolved to the constant's value.
-            Assembly parsek = typeof(LoadReconcilePolicy).Assembly;
-            foreach (Match m in Regex.Matches(body, @"\b([A-Z][A-Za-z0-9_]*)\.NodeName\b"))
+        // Child names one level BELOW a staging node (an entry of a staged list), never a node of
+        // the scenario node itself. Each must be used by a staging helper.
+        private static readonly Dictionary<string, string> PerEntryChildNames =
+            new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                Type type = parsek.GetType("Parsek." + m.Groups[1].Value);
-                Assert.True(type != null, "load-reconcile gate: cannot resolve type " + m.Groups[1].Value);
-                FieldInfo field = type.GetField("NodeName",
-                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-                Assert.True(field != null && field.IsLiteral,
-                    "load-reconcile gate: " + m.Groups[1].Value + ".NodeName is not a const");
-                names.Add((string)field.GetRawConstantValue());
+                { "POINT", "one rewind point under REWIND_POINTS (LoadStagingList childName)" },
+                { "ENTRY", "one row under RECORDING_SUPERSEDES / RECORDING_REWIND_RETIREMENTS / LEDGER_TOMBSTONES (LoadStagingList childName)" },
+            };
+
+        /// <summary>
+        /// Walks every use of a staging method's <c>ConfigNode</c> parameter. A child accessor
+        /// (<see cref="NodeChildAccessors"/>) on it contributes its first argument, resolved from a
+        /// string literal, a const of the scanning type, or a <c>Type.Const</c> member access. A
+        /// call that passes the node on is followed ONE level: a static helper declared on
+        /// <c>ParsekScenario</c>, or <c>member.SaveInto(node)</c> on a scenario field / property
+        /// (scanned in the member type's own source). Anything else - an unknown member of the
+        /// node, an argument that does not resolve, the node passed to an unknown method or on
+        /// again from a helper, the node used outside a call - is a problem, never a silent skip.
+        /// </summary>
+        private sealed class StagingNodeScan
+        {
+            internal readonly List<string> Problems = new List<string>();
+            internal readonly HashSet<string> ChildNamesSeen = new HashSet<string>(StringComparer.Ordinal);
+            private readonly Dictionary<string, Source> sources = new Dictionary<string, Source>(StringComparer.Ordinal);
+            private readonly List<Source> scenarioSources;
+
+            internal sealed class Source
+            {
+                internal string Name;
+                internal string Stripped;
+                internal string Masked;
             }
 
-            Assert.True(names.Count > 0, "load-reconcile gate: no node names found in " + signature);
-            return names;
+            private sealed class Method
+            {
+                internal Source File;
+                internal int Open;
+                internal List<string> Params;
+                internal string Where;
+            }
+
+            private delegate string Resolver(string expr, out string error);
+
+            internal StagingNodeScan()
+            {
+                scenarioSources = Directory.GetFiles(ParsekSourceRoot(), "ParsekScenario*.cs", SearchOption.TopDirectoryOnly)
+                    .Select(LoadSource)
+                    .Where(src => Regex.IsMatch(src.Masked, @"\bpartial\s+class\s+ParsekScenario\b"))
+                    .ToList();
+                Assert.True(scenarioSources.Count > 0, "load-reconcile gate: no ParsekScenario source found");
+            }
+
+            internal HashSet<string> ScanStagingMethod(string methodName)
+            {
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                Method m = FindMethod(scenarioSources, methodName);
+                if (m == null)
+                {
+                    Problems.Add(methodName + ": declaration not found (or not unique)");
+                    return names;
+                }
+                if (m.Params.Count != 1)
+                {
+                    Problems.Add(methodName + ": expected exactly one (ConfigNode) parameter");
+                    return names;
+                }
+                Resolver resolver = (string expr, out string error) =>
+                    ResolveConst(expr, typeof(ParsekScenario), out error);
+                ScanNodeUses(m, m.Params[0], typeof(ParsekScenario), resolver, topLevel: true, names: names);
+                return names;
+            }
+
+            private void ScanNodeUses(
+                Method m, string param, Type context, Resolver resolve, bool topLevel, HashSet<string> names)
+            {
+                string masked = m.File.Masked;
+                int end = m.Open + SourceScanText.BraceMatchedBlock(masked, m.Open).Length;
+                var use = new Regex(@"(?<![\w.])" + Regex.Escape(param) + @"(?!\w)");
+                for (Match u = use.Match(masked, m.Open); u.Success && u.Index < end; u = u.NextMatch())
+                {
+                    int after = SkipSpace(masked, u.Index + param.Length);
+                    if (after < masked.Length && masked[after] == '.')
+                    {
+                        Match member = Regex.Match(masked.Substring(after + 1), @"^\s*(\w+)\s*");
+                        string name = member.Groups[1].Value;
+                        int paren = after + 1 + member.Length;
+                        if (!NodeChildAccessors.Contains(name))
+                        {
+                            Problems.Add($"{m.Where}: {param}.{name} is not a child-node accessor the gate knows");
+                            continue;
+                        }
+                        if (paren >= masked.Length || masked[paren] != '(')
+                        {
+                            Problems.Add($"{m.Where}: {param}.{name} is not called");
+                            continue;
+                        }
+                        List<string> args = CallArgs(m.File, paren);
+                        if (args.Count == 0)
+                        {
+                            Problems.Add($"{m.Where}: {param}.{name}() has no name argument");
+                            continue;
+                        }
+                        string value = resolve(args[0], out string error);
+                        if (value == null)
+                            Problems.Add($"{m.Where}: {param}.{name}({args[0]}): {error}");
+                        else
+                            names.Add(value);
+                        continue;
+                    }
+
+                    if (Regex.IsMatch(masked.Substring(after, Math.Min(16, masked.Length - after)), @"^[!=]=\s*null"))
+                        continue;
+
+                    int open = EnclosingCallParen(masked, m.Open, u.Index);
+                    if (open < 0)
+                    {
+                        Problems.Add($"{m.Where}: '{param}' used outside a call argument list");
+                        continue;
+                    }
+                    Match calleeMatch = Regex.Match(masked.Substring(m.Open, open - m.Open),
+                        @"([A-Za-z_][\w.]*)\s*(?:<[^<>()]*>)?\s*$");
+                    string callee = calleeMatch.Success ? calleeMatch.Groups[1].Value : "<none>";
+                    if (callee == "nameof")
+                        continue;
+                    List<string> callArgs = CallArgs(m.File, open);
+                    int index = callArgs.FindIndex(a => a == param);
+                    if (index < 0)
+                    {
+                        Problems.Add($"{m.Where}: '{param}' passed to {callee} inside an expression");
+                        continue;
+                    }
+                    if (!topLevel)
+                    {
+                        Problems.Add($"{m.Where}: '{param}' passed on to {callee} below the one helper level the gate follows");
+                        continue;
+                    }
+
+                    Resolver callerResolve = resolve;
+                    if (callee.EndsWith(".SaveInto", StringComparison.Ordinal))
+                    {
+                        string receiver = callee.Substring(0, callee.Length - ".SaveInto".Length);
+                        Type memberType = MemberType(context, receiver);
+                        if (memberType == null)
+                        {
+                            Problems.Add($"{m.Where}: {callee}({param}): cannot resolve the type of '{receiver}'");
+                            continue;
+                        }
+                        Method saveInto = FindMethod(TypeSources(memberType), "SaveInto");
+                        if (saveInto == null || saveInto.Params.Count != 1)
+                        {
+                            Problems.Add($"{m.Where}: {memberType.Name}.SaveInto(ConfigNode) not found (or not unique)");
+                            continue;
+                        }
+                        ScanHelper(saveInto, 0, callArgs, callerResolve, memberType, names);
+                    }
+                    else if (callee.IndexOf('.') < 0)
+                    {
+                        Method helper = FindMethod(scenarioSources, callee);
+                        if (helper == null || index >= helper.Params.Count)
+                        {
+                            Problems.Add($"{m.Where}: '{param}' passed to {callee}, which the gate cannot find on ParsekScenario");
+                            continue;
+                        }
+                        ScanHelper(helper, index, callArgs, callerResolve, typeof(ParsekScenario), names);
+                    }
+                    else
+                    {
+                        Problems.Add($"{m.Where}: '{param}' passed to {callee}, which the gate does not know");
+                    }
+                }
+            }
+
+            private void ScanHelper(
+                Method helper, int nodeIndex, List<string> callArgs, Resolver callerResolve,
+                Type helperContext, HashSet<string> names)
+            {
+                Resolver resolve = (string expr, out string error) =>
+                {
+                    int i = helper.Params.IndexOf(expr.Trim());
+                    if (i >= 0)
+                    {
+                        if (i >= callArgs.Count)
+                        {
+                            error = "helper parameter '" + expr + "' has no argument at the call site";
+                            return null;
+                        }
+                        return callerResolve(callArgs[i], out error);
+                    }
+                    return ResolveConst(expr, helperContext, out error);
+                };
+                string nodeParam = helper.Params[nodeIndex];
+                ScanNodeUses(helper, nodeParam, helperContext, resolve, topLevel: false, names: names);
+
+                // Child accessors on any OTHER node inside the helper address an entry of a staged
+                // node; a name that reaches them from the call site must be a declared child name.
+                string masked = helper.File.Masked;
+                int end = helper.Open + SourceScanText.BraceMatchedBlock(masked, helper.Open).Length;
+                var childUse = new Regex(@"(?<![\w.])(\w+)\s*\.\s*(\w+)\s*\(");
+                for (Match c = childUse.Match(masked, helper.Open); c.Success && c.Index < end; c = c.NextMatch())
+                {
+                    if (c.Groups[1].Value == nodeParam || !NodeChildAccessors.Contains(c.Groups[2].Value))
+                        continue;
+                    List<string> args = CallArgs(helper.File, c.Index + c.Length - 1);
+                    if (args.Count == 0 || helper.Params.IndexOf(args[0]) < 0)
+                        continue;
+                    string value = resolve(args[0], out string error);
+                    if (value == null)
+                        Problems.Add($"{helper.Where}: {c.Groups[1].Value}.{c.Groups[2].Value}({args[0]}): {error}");
+                    else if (!PerEntryChildNames.ContainsKey(value))
+                        Problems.Add($"{helper.Where}: child name '{value}' is not a declared per-entry child name");
+                    else
+                        ChildNamesSeen.Add(value);
+                }
+            }
+
+            private static string ResolveConst(string expr, Type context, out string error)
+            {
+                error = null;
+                string e = (expr ?? "").Trim();
+                Match literal = Regex.Match(e, "^\"([^\"\\\\]*)\"$");
+                if (literal.Success)
+                    return literal.Groups[1].Value;
+
+                Match member = Regex.Match(e, @"^(\w+)\.(\w+)$");
+                if (member.Success)
+                {
+                    Type type = typeof(LoadReconcilePolicy).Assembly.GetType("Parsek." + member.Groups[1].Value)
+                        ?? context.GetNestedType(member.Groups[1].Value, BindingFlags.Public | BindingFlags.NonPublic);
+                    if (type == null)
+                    {
+                        error = "cannot resolve type '" + member.Groups[1].Value + "'";
+                        return null;
+                    }
+                    return ConstValue(type, member.Groups[2].Value, out error);
+                }
+
+                if (Regex.IsMatch(e, @"^\w+$"))
+                    return ConstValue(context, e, out error);
+
+                error = "'" + e + "' is not a string literal or a const";
+                return null;
+            }
+
+            private static string ConstValue(Type type, string name, out string error)
+            {
+                error = null;
+                FieldInfo field = type.GetField(name,
+                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.FlattenHierarchy);
+                if (field == null || !field.IsLiteral || field.FieldType != typeof(string))
+                {
+                    error = "'" + name + "' is not a string const of " + type.Name;
+                    return null;
+                }
+                return (string)field.GetRawConstantValue();
+            }
+
+            private static Type MemberType(Type context, string name)
+            {
+                const BindingFlags all = BindingFlags.Instance | BindingFlags.Static
+                    | BindingFlags.Public | BindingFlags.NonPublic;
+                FieldInfo field = context.GetField(name, all);
+                if (field != null) return field.FieldType;
+                PropertyInfo property = context.GetProperty(name, all);
+                return property?.PropertyType;
+            }
+
+            private List<Source> TypeSources(Type type)
+            {
+                var found = new List<Source>();
+                var declares = new Regex(@"\b(?:class|struct)\s+" + Regex.Escape(type.Name) + @"\b");
+                foreach (string path in Directory.GetFiles(ParsekSourceRoot(), "*.cs", SearchOption.AllDirectories))
+                {
+                    string rel = path.Substring(ParsekSourceRoot().Length).TrimStart('/', '\\').Replace('\\', '/');
+                    if (rel.StartsWith("bin/", StringComparison.OrdinalIgnoreCase)
+                        || rel.StartsWith("obj/", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (File.ReadAllText(path).IndexOf(type.Name, StringComparison.Ordinal) < 0)
+                        continue;
+                    Source src = LoadSource(path);
+                    if (declares.IsMatch(src.Masked))
+                        found.Add(src);
+                }
+                return found;
+            }
+
+            private Source LoadSource(string path)
+            {
+                if (sources.TryGetValue(path, out Source cached))
+                    return cached;
+                string stripped = SourceScanText.StripCSharpComments(File.ReadAllText(path));
+                var src = new Source
+                {
+                    Name = Path.GetFileName(path),
+                    Stripped = stripped,
+                    Masked = SourceScanText.MaskStringLiteralContents(stripped),
+                };
+                sources[path] = src;
+                return src;
+            }
+
+            // The unique declaration of `name` (a method body follows its parameter list).
+            private static Method FindMethod(IEnumerable<Source> files, string name)
+            {
+                Method found = null;
+                var decl = new Regex(@"\b" + Regex.Escape(name) + @"\s*(?:<[^<>()]*>)?\s*\(");
+                foreach (Source src in files)
+                {
+                    foreach (Match d in decl.Matches(src.Masked))
+                    {
+                        int open = d.Index + d.Length - 1;
+                        int close = MatchingParen(src.Masked, open);
+                        if (close < 0) continue;
+                        int brace = SkipSpace(src.Masked, close + 1);
+                        if (brace >= src.Masked.Length || src.Masked[brace] != '{') continue;
+                        string before = src.Masked.Substring(Math.Max(0, d.Index - 200), Math.Min(200, d.Index));
+                        if (!Regex.IsMatch(before, @"(?:private|internal|public|protected|static|void|\w>)\s+[\w<>\[\],. ]*$"))
+                            continue;
+                        if (found != null)
+                            return null;
+                        found = new Method
+                        {
+                            File = src,
+                            Open = brace,
+                            Params = SplitTopLevel(src.Masked, open, close, trackAngles: true)
+                                .Select(p => Regex.Replace(src.Masked.Substring(p.Item1, p.Item2 - p.Item1), @"=.*$", "").Trim())
+                                .Where(p => p.Length > 0)
+                                .Select(p => Regex.Match(p, @"(\w+)$").Groups[1].Value)
+                                .ToList(),
+                            Where = src.Name + ":" + name,
+                        };
+                    }
+                }
+                return found;
+            }
+
+            // Argument texts (comment-stripped, literals intact) of the call whose '(' is at `open`.
+            private static List<string> CallArgs(Source src, int open)
+            {
+                int close = MatchingParen(src.Masked, open);
+                if (close < 0) return new List<string>();
+                return SplitTopLevel(src.Masked, open, close, trackAngles: false)
+                    .Select(r => src.Stripped.Substring(r.Item1, r.Item2 - r.Item1).Trim())
+                    .Where(a => a.Length > 0)
+                    .ToList();
+            }
+
+            private static List<Tuple<int, int>> SplitTopLevel(string masked, int open, int close, bool trackAngles)
+            {
+                var parts = new List<Tuple<int, int>>();
+                int depth = 0;
+                int start = open + 1;
+                for (int i = open + 1; i < close; i++)
+                {
+                    char ch = masked[i];
+                    if (ch == '(' || ch == '[' || ch == '{' || (trackAngles && ch == '<')) depth++;
+                    else if (ch == ')' || ch == ']' || ch == '}' || (trackAngles && ch == '>')) depth--;
+                    else if (ch == ',' && depth == 0)
+                    {
+                        parts.Add(Tuple.Create(start, i));
+                        start = i + 1;
+                    }
+                }
+                parts.Add(Tuple.Create(start, close));
+                return parts;
+            }
+
+            private static int MatchingParen(string masked, int open)
+            {
+                int depth = 0;
+                for (int i = open; i < masked.Length; i++)
+                {
+                    if (masked[i] == '(') depth++;
+                    else if (masked[i] == ')' && --depth == 0) return i;
+                }
+                return -1;
+            }
+
+            // The '(' of the innermost call whose argument list contains `index`, or -1 when a
+            // statement or block boundary comes first.
+            private static int EnclosingCallParen(string masked, int lowerBound, int index)
+            {
+                int depth = 0;
+                for (int i = index - 1; i > lowerBound; i--)
+                {
+                    char ch = masked[i];
+                    if (ch == ')' || ch == ']') depth++;
+                    else if (ch == '[' && depth > 0) depth--;
+                    else if (ch == '(')
+                    {
+                        if (depth == 0) return i;
+                        depth--;
+                    }
+                    else if ((ch == ';' || ch == '{' || ch == '}') && depth == 0)
+                        return -1;
+                }
+                return -1;
+            }
+
+            private static int SkipSpace(string text, int i)
+            {
+                while (i < text.Length && char.IsWhiteSpace(text[i])) i++;
+                return i;
+            }
         }
 
         private static string PreparedMethodBody(string relPath, string signatureFragment)
@@ -315,18 +712,6 @@ namespace Parsek.Tests
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(ReadParsekSource(relPath));
             int open = MethodOpenBrace(prepared, relPath, signatureFragment);
             return SourceScanText.BraceMatchedBlock(prepared, open);
-        }
-
-        // Comments blanked, literal contents kept: the brace walk runs over the masked form (same
-        // length, same indices) and the body is cut from the unmasked one.
-        private static string CommentStrippedMethodBody(string relPath, string signatureFragment)
-        {
-            string source = ReadParsekSource(relPath);
-            string stripped = SourceScanText.StripCSharpComments(source);
-            string prepared = SourceScanText.MaskStringLiteralContents(stripped);
-            int open = MethodOpenBrace(prepared, relPath, signatureFragment);
-            string masked = SourceScanText.BraceMatchedBlock(prepared, open);
-            return stripped.Substring(open, masked.Length);
         }
 
         private static int MethodOpenBrace(string prepared, string relPath, string signatureFragment)
