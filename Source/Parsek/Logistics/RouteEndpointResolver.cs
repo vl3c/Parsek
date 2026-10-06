@@ -386,7 +386,8 @@ namespace Parsek.Logistics
                 // either way.
                 //
                 // NOT WHILE THE ENDPOINT IS CHAIN-GHOSTED. A base a committed dock claims is
-                // despawned after a rewind until its chain tip respawns it with its identity;
+                // despawned by a flight load after a rewind (and stays gone in every scene)
+                // until its chain tip respawns it with its identity;
                 // the two identity steps above miss for exactly that span, and proximity would
                 // REBIND the route to a craft parked nearby - permanently, since the neighbour's
                 // root part then wins the first step once the base is back

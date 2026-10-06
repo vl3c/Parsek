@@ -1316,10 +1316,13 @@ chain-ghosted it returns false with reason `endpoint-chain-ghosted` (logged rate
 predicate `IsHeldByGhostChain`: a claim with the endpoint's pid, launch guids not conclusively
 different, not terminated, and its tip spawn UT still ahead OR still pending in flight. The
 claims come from `GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees)`
-(memoized on `RecordingStore.StateVersion` + tree count + 120 frames; the UT test is live), so
-the hold works in every scene the resolver runs in - the despawned base is simply absent at
-the KSC and in the TS - plus `ParsekFlight.ActiveGhostChains`, which keeps a chain whose tip
-spawn a collision blocked past its spawn UT (the blocker may be the very neighbour). Mirror: a
+(memoized on `RecordingStore.StateVersion` + tree count + 120 frames; the UT test is live),
+plus `ParsekFlight.ActiveGhostChains`, which keeps a chain whose tip
+spawn a collision blocked past its spawn UT (the blocker may be the very neighbour). Per scene
+(after PR #2029): only a flight load despawns the claimed base, and it stays gone at the KSC
+and in the TS afterwards, which is why the claims come from the committed trees; a base no
+flight load removed stays live at the KSC / TS until `ChainTipStaleVessel` replaces it at the
+tip spawn UT, so there the root-part / pid step finds it and the hold is never reached. Mirror: a
 terminated chain (destroyed / recovered in the committed future) or no claim is not held and
 still transfers as before. A held loop route blocks its crossings exactly as for any missing
 endpoint (a `RouteHeld` row of kind EndpointLost carrying the `stop-N-` / `origin-` token; the

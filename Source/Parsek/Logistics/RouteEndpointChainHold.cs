@@ -9,9 +9,14 @@ namespace Parsek.Logistics
     /// of letting the resolver's surface-proximity step re-point the route at a neighbour
     /// (ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND).
     ///
-    /// <para>A base claimed by a committed dock is despawned after a rewind and replaced by
-    /// its ghost until the claiming recording's chain tip respawns it (with its identity
-    /// preserved). While it is gone, the resolver's root-part and pid steps miss and the
+    /// <para>A base claimed by a committed dock is despawned by a FLIGHT load after a rewind
+    /// (<see cref="VesselGhoster"/>, while the chain's tip spawn UT is ahead) and stays gone -
+    /// at the Space Center and in the Tracking Station too - until the claiming recording's
+    /// chain tip respawns it with its identity. The Space Center and the Tracking Station never
+    /// despawn it themselves: a base no flight load has removed stays live there in its
+    /// pre-claim form until the tip spawn replaces it (<see cref="ChainTipStaleVessel"/>), so
+    /// there the resolver finds it at the root-part or pid step and never reaches this hold.
+    /// While it is gone, the resolver's root-part and pid steps miss and the
     /// proximity step would find any craft parked within the radius and REBIND the route to it
     /// (<see cref="RouteEndpointTransfer.ApplyTransfers"/>, persisted); the respawned base then
     /// loses to the neighbour's root part at the first resolver step forever. So while the
@@ -19,9 +24,9 @@ namespace Parsek.Logistics
     /// <see cref="HoldReason"/> and the route waits, exactly as for any temporarily missing
     /// endpoint, until the base reappears and resolves by identity again.</para>
     ///
-    /// <para>"Chain-ghosted" is read from the committed trees, so it holds in every scene the
-    /// resolver runs in (the route tick and the Logistics window run outside flight too, where
-    /// the despawned base is simply absent): a non-terminated chain claiming the endpoint's
+    /// <para>"Chain-ghosted" is read from the committed trees, not from flight state, because a
+    /// base a flight load removed is still absent after the player leaves flight, and the
+    /// route tick and the Logistics window run there too: a non-terminated chain claiming the endpoint's
     /// pid whose tip spawn UT is still ahead, or, in flight, a chain the flight still lists as
     /// waiting to spawn (a tip whose spawn a collision blocked - possibly by the very
     /// neighbour the proximity step would pick). A terminated chain (the base is destroyed or
