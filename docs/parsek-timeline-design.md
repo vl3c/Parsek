@@ -5,7 +5,7 @@
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how the timeline aggregates and presents data from the flight recorder system (see `parsek-flight-recorder-design.md`) and the game actions system (see `parsek-game-actions-and-resources-recorder-design.md`).*
 
 **Version:** 1.0 (Implemented in v0.7)
-**Status:** Complete.
+**Status:** Complete. Kept current through v0.10.5: the window layout in section 5 covers the Rewind/FF, Re-Fly and Career views (the Career view with its contract / strategy slot counts replaced the removed Career window), the six-button time range, Unfinished Flight Fly / Seal rows and the row hovers.
 **Out of scope:** Recording, playback, ghost visuals, vessel spawning. See `parsek-flight-recorder-design.md`. Resource tracking, ledger, recalculation engine. See `parsek-game-actions-and-resources-recorder-design.md`. Vessel-level telemetry (part events, segment events) - these remain in the Missions window's Recordings tab.
 
 ---

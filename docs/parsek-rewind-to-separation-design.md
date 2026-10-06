@@ -4,7 +4,7 @@
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to an immutable timeline, and see previously recorded missions play back as ghost vessels alongside new ones. This document extends the flight recorder, timeline, and ledger systems with Rewind-to-Separation. It assumes familiarity with the recording DAG, BranchPoint model, controller identity, ghost chains, and the additive-only invariant (see `parsek-flight-recorder-design.md`) and with the ledger model, immutable ActionId, reservations, and career-state replay (see `parsek-game-actions-and-resources-recorder-design.md`).*
 
-**Status:** shipped. Core feature in v0.9.0; stable-leaf extension (broadened Unfinished Flights predicate, per-slot Seal / Stash actions, Re-Fly merge auto-seal contract, invocation linearization) in v0.9.1.
+**Status:** shipped. Core feature in v0.9.0; stable-leaf extension (broadened Unfinished Flights predicate, per-slot Seal / Stash actions, Re-Fly merge auto-seal contract, invocation linearization) in v0.9.1. Kept current through v0.10.5, including the 2026-09-27 rulings that Re-Fly is for vessel separations only (section 1.5) and that a slot follows its vessel through its own crew's EVA / Board (section 1.6), and the Rewind-to-Launch interaction rules in section 8.
 **Pre-implementation specs (archived):**
 - `docs/dev/done/parsek-rewind-separation-design.md` — pre-v0.9.0 spec, archived as-is alongside the v0.9 rollout.
 - `docs/dev/done/parsek-unfinished-flights-stable-leaves-design.md` — pre-v0.9.1 spec for the stable-leaf extension, archived alongside the v0.9.1 rollout. Promoted from research note `docs/dev/research/extending-rewind-to-stable-leaves.md` (R17, merged in PR #634).
@@ -1763,7 +1763,7 @@ Marker validates against on-disk session-provisional + RP. Session resumes. **No
 - **Ghost playback engine.** Reads ERS via `SessionSuppressionState`; `SessionSuppressedSubtree` is upstream of the engine, not inside it. The v0.9.1 closure-helper split (§6.22) preserves the wrapper contract — runtime ghost suppression continues calling `ComputeSessionSuppressedSubtree(marker)` and gets the same return value as before.
 - **Active-vessel ghost suppression.** Natural ERS filter (`NotCommitted` recordings are excluded; the live provisional is `NotCommitted`).
 - **Ledger recalculation engine.** Reads ELS via `EffectiveState.ComputeELS`; no engine change.
-- **Rewind-to-launch (the existing T0 quicksave-reload feature).** Unchanged path.
+- **Rewind-to-launch (the existing T0 quicksave-reload feature).** Same reload path, with Re-Fly-aware edges added since v0.9: a plain Rewind-to-Launch clears any loaded Re-Fly marker before replay resumes, drops supersede rows whose forks start at or after the rewind UT in the rewound owner's tree, and retires the rewound-out fork (v0.9.2). As of v0.10.5 it carries rewind points, supersede rows, rewind retirements, kerbal-death tombstones and the merge journal across the reload from memory rather than from the possibly stale `persistent.sfs`; a rewind point left in the player's future stays in Unfinished Flights with Fly disabled until the clock reaches its split; and a Rewind-to-Launch taken while a Re-Fly is still open (its vessel destroyed, focus moved on) ends that Re-Fly exactly like leaving it unmerged, so the slot stays re-flyable.
 - **Loop / overlap / chain.** Read ERS through the same filter; no per-feature code change.
 - **Recording sidecar format.** No changes.
 - **Reservation manager internals.** Re-derivation from ERS is existing; the carve-out in `IsLiveReFlyCrew` is a single-method filter.
@@ -1944,7 +1944,7 @@ The shipped feature carries a handful of known risks. Each is mitigated in code 
 - **Legacy hybrid supersede graphs.** §7.72 — tolerated by the design but the hybrid-graph regression test must run green for confidence. If the walker behavior on hybrids differs from expectations, a migration sweep may need to be added back.
 
 
-- **Optimizer chain length (RESOLVED).** Earlier drafts flagged eccentric-orbit BG-recorded vessels with periapsis-grazing atmosphere as a possible source of unbounded chains. Resolved by the `optimizer-meaningful-split-rule.md` investigation: `BackgroundOnRailsState` omits `currentTrackSection` / `trackSections` / `environmentHysteresis` entirely (`BackgroundRecorder.cs:157`), and `OnBackgroundPhysicsFrame` early-returns on `bgVessel.packed`. On-rails BG vessels can't generate optimizer-splittable Atmospheric↔ExoBallistic toggles. Guarded by `EccentricOrbitOptimizerInvariantTests`. No action needed for this feature.
+- **Optimizer chain length (RESOLVED).** Earlier drafts flagged eccentric-orbit BG-recorded vessels with periapsis-grazing atmosphere as a possible source of unbounded chains. Resolved by the `docs/dev/research/optimizer-meaningful-split-rule.md` investigation: `BackgroundOnRailsState` omits `currentTrackSection` / `trackSections` / `environmentHysteresis` entirely (`BackgroundRecorder.cs:157`), and `OnBackgroundPhysicsFrame` early-returns on `bgVessel.packed`. On-rails BG vessels can't generate optimizer-splittable Atmospheric↔ExoBallistic toggles. Guarded by `EccentricOrbitOptimizerInvariantTests`. No action needed for this feature.
 
 ---
 
