@@ -35,6 +35,20 @@ namespace Parsek
         // --- Core lifecycle ---
 
         /// <summary>
+        /// A claimed vessel as <see cref="GhostVessel"/> sees it: its name, the snapshot taken
+        /// before the despawn, and the removal surface. Lets the despawn run headless in tests.
+        /// </summary>
+        internal sealed class ClaimedVesselForGhosting
+        {
+            internal string Name;
+            internal ConfigNode Snapshot;
+            internal IClaimedVesselRemovalTarget Target;
+        }
+
+        /// <summary>Test seam replacing the live vessel lookup and snapshot (null = not found).</summary>
+        internal static Func<uint, ClaimedVesselForGhosting> ResolveClaimedVesselForTesting;
+
+        /// <summary>
         /// Snapshot the real vessel, despawn it, create ghost GO.
         /// Returns true on success. On failure, vessel is left untouched.
         /// </summary>
@@ -47,6 +61,19 @@ namespace Parsek
                 return false;
             }
 
+            if (ResolveClaimedVesselForTesting != null)
+            {
+                ClaimedVesselForGhosting seamed = ResolveClaimedVesselForTesting(vesselPid);
+                if (seamed == null)
+                    return false;
+                return GhostResolvedVessel(vesselPid, seamed.Name ?? "(unnamed)", seamed.Snapshot, seamed.Target);
+            }
+
+            return GhostLiveVessel(vesselPid);
+        }
+
+        private bool GhostLiveVessel(uint vesselPid)
+        {
             // Find vessel via PID
             Vessel vessel = FlightRecorder.FindVesselByPid(vesselPid);
             if (vessel == null)
@@ -67,14 +94,24 @@ namespace Parsek
                 return false;
             }
 
+            return GhostResolvedVessel(
+                vesselPid, vesselName, snapshot,
+                new LiveClaimedVesselRemovalTarget(vessel, vessel.protoVessel, null));
+        }
+
+        private bool GhostResolvedVessel(
+            uint vesselPid, string vesselName, ConfigNode snapshot, IClaimedVesselRemovalTarget target)
+        {
             ParsekLog.Info(Tag,
                 string.Format(ic, "Ghosting vessel: pid={0} name={1} — snapshot captured, despawning",
                     vesselPid, vesselName));
 
-            // Despawn the real vessel
+            // Despawn the real vessel with its crew taken off first: Die() on an unloaded
+            // vessel kills everyone aboard (stock MurderCrew), and a claimed vessel is held
+            // back, not destroyed.
             try
             {
-                vessel.Die();
+                ClaimedVesselRemoval.Remove(target, "ghost-chain");
             }
             catch (Exception ex)
             {
@@ -1378,6 +1415,7 @@ namespace Parsek
         internal void ResetForTesting()
         {
             ghostedVessels.Clear();
+            ResolveClaimedVesselForTesting = null;
         }
 
         /// <summary>

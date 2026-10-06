@@ -3698,6 +3698,31 @@ _(unreleased - entries accumulate here per commit)_
   recording the route does not receive route cargo. When Parsek cannot tell which parts are
   the station's, routes use the whole docked vessel as before. Covered by xUnit; not yet
   checked in a test flight.
+- **A crewed station hidden after a rewind no longer has its crew killed.** When a committed
+  mission docks to a station later, the station is hidden from the rewind until that mission's
+  end. If the station was far from your vessel when you entered flight, hiding it killed
+  everyone aboard: the kerbals were marked dead and a career lost the reputation for each.
+  The crew are now taken off the station before it is hidden and wait at the Space Center,
+  and the station's recorded end state brings back whoever it carries when it reappears.
+
+- **After a rewind, a fuel transfer recorded by a docking mission is no longer lost when the time
+  passes at the Space Center or in the Tracking Station.** A committed mission that docked to a
+  station and moved fuel holds that station until the mission ends, but only the flight scene
+  applied the hold. After a Rewind-to-Launch (which lands at the Space Center) or a load from
+  before the dock, the station stayed in its old form there, and when the mission's end passed
+  at the Space Center, in the Tracking Station or at a later flight load, it kept its old tanks
+  while the departing craft left with the moved fuel. The station is now replaced at that moment
+  by its recorded end state, with the same identity (supply routes and later missions still find
+  it), and no recovery is paid. The kerbals aboard the old station are taken off first and become
+  available at the Space Center; the new station carries the crew its recorded end state holds,
+  except that at the Space Center a kerbal Parsek reserves for a recorded flight is replaced by a
+  stand-in, so the kerbals you see aboard can differ from the ones who were there. The old station
+  is only removed when the recorded one can be spawned, and it is put back if that spawn still
+  fails. Only a station the clock was wound back past is replaced; one that went through the dock
+  in the loaded save, or one you are flying, is kept as it is. A station visited by a heavier
+  ship, whose recorded end state comes back under a new vessel id, is replaced the same way
+  instead of appearing twice at the Space Center or in the Tracking Station.
+
 - **After a quickload, a booster that survives the replayed flight is recorded again.** If you
   quicksaved, flew on (a booster crashed with its crew, a lander touched down) and then
   quickloaded back, the other vessels of that flight kept the ending they had reached after the
@@ -3748,17 +3773,18 @@ _(unreleased - entries accumulate here per commit)_
   queued science and unlinks those payouts (they stay paid), exactly like the Discard button at
   the end of a flight.
 
-- **A drill or converter running at the end of a recording that stayed on the ground no longer
-  delivers its resources early.** Parsek shortens a recording that ends with a long idle stretch
-  (sitting landed or coasting) so the real vessel appears sooner, but the vessel it brings back is
-  the one you had when you committed. When ore or fuel was still being produced during that idle
-  stretch, the vessel appeared early already holding all of it. A recording that never left the
-  surface (for example, you switched to a landed base and ran its drills) and whose last stretch
-  changed the vessel's resources (measured when the converters start and stop; electric charge
-  does not count) is now kept to the end, or shortened only to just after the converters stopped.
-  Not fixed yet: a recording that flew before landing and drilling is split at the landing and
-  still shortened, as are resources moved in by a supply route or produced while the vessel was
-  in the background.
+- **A drill or converter running at the end of a recording no longer delivers its resources
+  early.** Parsek shortens a recording that ends with a long idle stretch (sitting landed or
+  coasting) so the real vessel appears sooner, but the vessel it brings back is the one you had
+  when you committed. When ore or fuel was still being produced during that idle stretch, the
+  vessel appeared early already holding all of it. A recording whose drills, ISRUs, fuel cells
+  or other converters are still switched on at its end is now kept to the end, and one whose
+  converters were switched off during the idle stretch is shortened only to just after the last
+  one stopped. This holds for a recording that flew before landing and drilling (Parsek splits it
+  at the landing), on every later load, and for a base you left mining in the background. A
+  converter that is switched on but producing nothing (full tanks, no input) keeps its stretch
+  too. Not fixed yet: resources moved in by a supply route, or between the tanks of one vessel,
+  during the idle stretch.
 
 - **Altitude, speed, distance and depth record rewards are no longer paid twice.** A flight that
   set several records at once (an ascent passes 500 m, 2 km, 7 km, 22 km and 70 km) was booked
@@ -3792,8 +3818,13 @@ _(unreleased - entries accumulate here per commit)_
   Sandbox), and that message no longer follows an upgrade. Upgrading a destroyed facility
   records its free repair together with the upgrade. In an existing save, an upgrade recorded
   at 0 takes its real price when the save is loaded, if the save still holds the funds record of
-  that upgrade (usually one made since your last committed flight); older upgrades keep 0,
-  because nothing left in the save proves what they cost.
+  that upgrade (usually one made since your last committed flight). Older upgrades are charged
+  the building's listed upgrade price times your current difficulty's funds multiplier, as soon
+  as the Space Center's buildings are loaded (at the latest when you visit the Space Center), so
+  the charge can differ from what you paid if a strategy discount applied or the difficulty has
+  changed since. A career Parsek joined midway keeps those older upgrades at 0: its starting
+  funds were read from the game at an unknown moment that may come after some of them were paid,
+  and charging them again could count them twice.
 
 - **Installing Parsek into an existing career no longer resets its milestones and world
   records.** The first time Parsek synced the career it un-achieved every milestone the career

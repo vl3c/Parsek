@@ -1166,6 +1166,8 @@ function IsIntermediateChainLink(chains, recording):
 
 **Output:** A map of `{vesselPID -> GhostChain}` where each GhostChain contains: the original vessel PID, the ghost start UT, the ordered list of chain links, the tip Recording (which provides the spawn snapshot), the spawn UT, and whether the chain terminates (no spawn). This map is recomputed on every rewind and save load from the committed trees — it is never persisted.
 
+**Outside the flight chain path.** Only the flight scene ghosts a claimed vessel (on flight load, while the chain's spawn UT is ahead). The Space Center and the Tracking Station do not, and a flight load past the spawn UT no longer ghosts the chain, so after a rewind or a load to before the claim the claimed vessel stays live there in its pre-claim form, under its claimed pid (the tip's own pid when the claimed vessel dominated the dock, a new one on undock when it did not, Section 12.8). When the tip's spawn UT then passes (the Tracking Station hand-off, the Space Center end spawn, or the flight leaf spawn), the live vessel carrying one of the claimed pids that end at the tip is replaced, not adopted or left beside the tip: it is removed with `Vessel.Die()` after its crew are taken off and set Available (no recovery, no funds, no ledger row) and the tip spawns from its snapshot with its identity preserved (Section 13.3). The replacement needs two independent pieces of evidence: this session saw the playhead strictly before the tip's start (a rewind or a load), and the live vessel was last simulated in physics (`lastUT`) before the chain's last claim, which no vessel that went through every claim was. A vessel the player is flying or recording is never replaced, nor is the claimed vessel when a live vessel already matches the tip's own identity on another pid (the site adopts that one). Claimed vessels are counted by live vessel, not by pid: a station claimed again under the new pid it took in a dock it did not dominate is still one vessel, its original pid the live one. A tip whose claimed pids two live vessels carry (a tug carrying a depot to a station, both live) is left to the plain adoption for now; flight holds back only one of them too (todo CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS). A replacement never loses the vessel: it is removed only when the tip can spawn now (not abandoned, out of attempts, held by the terminal-orbit safety, without a snapshot, or retiring in the KSC exclusion zone, where 13.1 adopts the live counterpart), and if the spawn still yields no vessel the removed one is respawned from a snapshot taken just before its removal. Any doubt keeps the plain adoption. Despawning the claimed vessel at the rewind outside flight, as this section and 20.3 describe, is not built (todo CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT).
+
 ### 12.6 Ghosting Trigger Taxonomy
 
 **A committed recording forces ghosting on a pre-existing vessel if and only if the recording contains a recorded event that changes that vessel's physical state.**
@@ -1294,6 +1296,8 @@ Recording reaches EndUT
     -> Yes: suppress spawn, continue ghost chain
     -> No: proceed to spawn
   -> Does the real vessel still exist? Yes: adopt it, no spawn
+     (unless it is the chain's claimed original still in its pre-claim form outside the
+     flight chain path: replace it, Section 12.5)
   -> Did the flight end parked in the KSC exclusion zone?
     -> Yes: retire it, no vessel, no hold (Section 13.1)
   -> Is spawn blocked by collision?
@@ -1942,7 +1946,7 @@ Ghost chain state is not persisted - it is re-derived from committed recordings 
 
 ### 20.3 Ghost Conversion of Quicksave Vessels
 
-On rewind, the quicksave loads vessels that existed at recording start. Claimed vessels are despawned from the quicksave state. The quicksave itself is never modified - it remains a full backup. Loading the quicksave directly (bypassing Parsek rewind) restores all vessels with no ghosting.
+On rewind, the quicksave loads vessels that existed at recording start. Claimed vessels are despawned from the quicksave state, with their crew taken off first and set Available (`ClaimedVesselRemoval`): stock `Vessel.Die()` on an unloaded vessel kills everyone aboard, and a claimed vessel is held back, not destroyed. The chain tip's spawn seats the crew its snapshot carries. The quicksave itself is never modified - it remains a full backup. Loading the quicksave directly (bypassing Parsek rewind) restores all vessels with no ghosting.
 
 ---
 
