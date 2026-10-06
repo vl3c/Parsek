@@ -15,6 +15,37 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## HARNESS-NO-RETRY-DETERMINISTIC-SEAM-ERROR: a definite seam error is not retried [OPERATOR RULING 2026-10-06, branch `no-retry-deterministic-seam-error`. DONE; the reason set stays open to additions by name]
+
+Ruling (2026-10-06): "Don't retry when the failure is a definite error from the seam, and
+keep retrying everything that looks like random flakiness. We can recheck failures
+manually." Measured cost before the change: 48 retries over 861 runs spent 11,146 s and only
+8 passed; 17 were `driver-verdict-mismatch`.
+
+Fix: `hlib.decide_retry` = `should_retry` plus one veto. A retryable driver-stage INVALID is
+not retried when its blamed seam step answered `ERROR` / `REJECTED` with a leading reason in
+the closed `hlib.DETERMINISTIC_SEAM_ERROR_REASONS` (protocol rejects, spec-text argument
+refusals, `active-vessel-lost`, executor `not-eva`, CommitTree `not-in-flight`). Verdict and
+subkind unchanged; `run.py` logs `[Retry] retry skipped ...` and writes `retrySkipped` into
+the result JSON; step rows now carry the reply `msg`. Source-sync:
+`DeterministicSeamErrorSourceSyncTests`. Contract: design-autotest-harness-core.md,
+"Deterministic seam errors are not retried".
+
+Replay over the 48 recorded retries (A1 reasons recovered from the collected KSP.log, since
+old step rows carry no msg): 0 skipped, 0 of the 8 retry passes lost. Every historical retry
+failed on a timing reason (`step-timeout`, `placement-timeout`, `*-not-settled`,
+`warp-locked` 3/3 passed on retry, `recording-active` 1/4, `start-refused` 2/3, pointer
+errors 2/3) or a reason deliberately outside the set. Under today's build the two EVA-8
+retries of 2026-09-29 whose kerbal died (601 s) would answer `active-vessel-lost` and be
+skipped.
+
+Open for a ruling, each reproduced on every recorded retry with no pass lost: `unknown-tree`
+/ `unknown-building` (2 retries, 136 s), `eva-refused` (2, 130 s), `stockscreen-no-tooltip`
+(2, 112 s), `refly-gate` / `rewind-gate` (3, 663 s), the UiAction `window-self-closed` /
+`rect-not-applied` / `edit-not-drawn` / `mock-refused-session-live` errors (5, 305 s). Left
+out because each reads live scene or career state a load race could change; adding one is a
+one-line edit to the set plus its justification.
+
 ## PLAYER-LOOPING-REMOVAL: Parsek stops letting the player loop ghosts at will [OWNER-APPROVED 2026-10-05, plan `docs/dev/plans/remove-player-looping.md`, branch `ccr-8a19466a-qh7ey4`. PLANNED, not started]
 
 Owner rulings 2026-10-05: per-recording player loops (Recordings tab loop column, period,
@@ -148,21 +179,77 @@ child is that part at that UT classifies as `"UNDOCK"`
 (`BackgroundRecorder.ClassifyBackgroundJointBreakCause`, logged with part pid and cause), and
 the deferred split check carries the cause into the branch point. The branch-point type
 stays `JointBreak` and the part event stays `Decoupled`, so route / origin-proof readers
-(which key on `BranchPointType.Undock`) are unchanged. A docking port's "Decouple Node", a
-pre-attached port's Undock (both go through `Part.decouple`, which fires no `onPartUndock`)
-and an ordinary decoupler still read "Decoupled".
+(which key on `BranchPointType.Undock`) are unchanged. A docking port's "Decouple Node"
+and an ordinary decoupler still read "Decoupled". (A pre-attached port's Undock, which goes
+through `Part.decouple` and fires no `onPartUndock`, read "Decoupled" here too; fixed in
+PREATTACHED-PORT-UNDOCK-READS-DECOUPLED below.)
 
-## BG-STRUCTURAL-BREAK-READS-DECOUPLED: a background vessel that breaks apart reads "Decoupled", not "Broke off" [FILED 2026-10-06, branch `bg-undock-cause`. OPEN]
+## ~~BG-STRUCTURAL-BREAK-READS-DECOUPLED: a background vessel that breaks apart reads "Decoupled", not "Broke off"~~ [FILED 2026-10-06, branch `bg-undock-cause`. FIXED 2026-10-06, branch `split-cause-followups`, in BOTH recorders]
 
-`BackgroundRecorder` stamps every non-undock structural joint break `SplitCause =
-"DECOUPLE"`, so a background vessel losing a part to a structural failure or impact reads
-"Decoupled" in the Missions tab where the type arm would read "Broke off". The foreground
-tells them apart with `SegmentBoundaryLogic.ClassifyForegroundSplitChildCause`, which needs
-to know whether the split came from a decoupler (`onPartDeCoupleNewVesselComplete` /
-decouple-only trigger). The background recorder tracks no decouple event, so this is not a
-one-line change. Fix: note background `onPartDeCouple` parts the way `onPartUndock` is now
-noted, and classify a break with neither as `"CRASH"` (or leave the cause null) to match the
-foreground.
+**Finding: the foreground had the same mislabel, so the filed premise was wrong.** Decompiled
+KSP 1.12.5: a force break runs `PartJoint.OnJointBreak` (fires `onPartJointBreak(joint,
+breakForce)` with the real force) -> `Part.OnPartJointBreak(breakForce)` -> `Part.decouple(breakForce)`,
+which raises `onPartDeCouple` and `onPartDeCoupleNewVesselComplete` exactly like a decoupler.
+`Part.Die` also `decouple()`s its children. So the foreground's decouple signal
+(`decoupleControllerStatus`, the input of `ClassifyForegroundSplitChildCause`) is true for a
+force break too, and noting background `onPartDeCouple` would have changed nothing. Live
+proof: `logs/2026-09-29_2323_EVA-10-mun-ground-science-cluster/KSP.log` line 27907, a
+parachute torn off at `breakForce=8526.6`, then line 27949 `cause=DECOUPLE,
+decoupleCreated=True` for the child. Of 2199 foreground split children in the collected
+logs, 2176 classified `DECOUPLE`. The discriminator KSP does give is the force:
+`PartJoint.DestroyJoint` (called by `Part.decouple` and `Part.Undock`) fires
+`onPartJointBreak(joint, 0f)`, the physics break fires it with the real force, and it fires
+first.
+
+Fix (type-preserving): a structural joint that broke with `breakForce > 0` is a broken-off
+part, persisted as `SplitCause = "BROKE_OFF"` (an additive value, no schema bump). Background:
+`BackgroundRecorder.ClassifyBackgroundJointBreakCause` returns `BROKE_OFF` for it (force
+checked before the undock note). Foreground: `FlightRecorder.OnPartJointBreak` notes the child
+pid, `ClassifyForegroundSplitChildCause` returns `BROKE_OFF` for a decouple-caught child whose
+root part was noted, and `CrashCoalescer` treats `BROKE_OFF` (and `UNDOCK`) as separations
+like `DECOUPLE`: the window still emits a `JointBreak` (`BROKE_OFF` when any child broke off,
+`CombineSeparationCause`), and any `CRASH` child still escalates it to `Breakup`.
+`MissionCompositionBuilder.BranchEventName` maps it to "Broke off", and the structure list's
+debris-only arm (`isStaging = cause == null || cause == "DECOUPLE"`) reads it as a separation,
+"Broke off: 1 piece", not "Staged". A null cause is not reused, so it keeps its old meaning and
+existing saves do not relabel. An older build reading `BROKE_OFF` matches no cause arm and
+falls back to the `JointBreak` type ("Broke off") and a non-staging step. Branch types
+and `Decoupled` part events are unchanged, so every type-keyed reader (route proof and
+Logistics on `Undock`, `EffectiveState` / `UnfinishedFlightClassifier` / `SupersedeCommit` /
+anchors / `GhostingTriggerClassifier` on `JointBreak` / `Breakup`, ghost part hiding on
+`Decoupled` events) behaves as before; `SplitCause` is read only by the Missions labels.
+
+Left open: a part shed because its parent part DIED (`Part.Die` decouples children with
+force 0) still reads "Decoupled" when no crash child joins the window. Telling it apart
+needs `onPartWillDie`, which fires before those decouples; not done here.
+
+## ~~PREATTACHED-PORT-UNDOCK-READS-DECOUPLED: Undock on a VAB-built docking-port pair reads "Decoupled"~~ [FILED and FIXED 2026-10-06, branch `split-cause-followups`]
+
+What the player clicked (decompiled `ModuleDockingNode`, KSP 1.12.5): a port with a part on
+its docking node in the editor starts in the `PreAttached` FSM state, whose `OnEnter` sets
+`Events["Undock"].active = true` (label `#autoLOC_6001445` = "Undock"). The "Decouple Node"
+event (`#autoLOC_6001446`) is declared `active = false` and nothing in the module activates
+it. `Undock()` with `undockPreAttached` calls `Decouple()`, which calls `Part.decouple()` on
+the port or on the part on its reference node: `onPartDeCouple` / `onPartDeCoupleNewVesselComplete`
+fire, `onPartUndock` / `onVesselsUndocking` never do. So a button labelled Undock produced a
+`JointBreak` + `DECOUPLE` ("Decoupled") in both recorders.
+
+Staging is the trap: `ModuleDockingNode.OnActive()` (a staged port with `stagingEnabled`)
+calls the same `Decouple()` with the port still `PreAttached`, so the FSM state cannot tell a
+click from staging, and a staged port must keep reading "Staged" / "Decoupled".
+
+Fix: the intent is caught at the click. `Patches/DockingNodeUndockIntentPatch` (a Prefix on
+the public, parameterless `ModuleDockingNode.Undock()`, which also serves the Undock action
+group) arms `DockingPortSeparation` with the port pid, the pid of the part on its docking node
+and the UT, only when the port is `PreAttached`. `UndockSameVessel()` is not patched: it only
+runs the FSM undock event, no vessel split. The recorders' `onPartDeCouple` handlers consume
+the note (`TryConsumePreAttachedUndock`, pure `MatchesPreAttachedUndock`: same UT and the
+decoupling part is the port or its partner; a stale note is cleared); staging never passes
+through `Undock()`, so it never arms. Background: the part is noted in the #2012 undock slot,
+so the joint break classifies `UNDOCK`. Foreground: `FlightRecorder.OnPartDeCouple` notes it
+and `ClassifyForegroundSplitChildCause` returns `UNDOCK` for that child, which the coalescer
+emits as `JointBreak` + `UNDOCK`. Type and part events unchanged as above. Not live-proven (no
+lane flies a pre-attached undock or a staged port).
 
 ---
 
@@ -629,7 +716,7 @@ all 8 rows), `test_mlib.NonFiniteDetailScrubTests`, `test_shells.ResultSerialize
   of its bound it compares. Reaching it needs the mission to archive its frames (or the
   per-assertion evidence the compare reads).
 
-## HARNESS-POST-FLIGHT-DIALOG-STALLS: harness runs sit behind KSP's post-flight screens until a timeout or the wall budget ends [FILED 2026-10-03, branch `todo-stuck-dialogs`. CONFIRMED in the collected logs; observability done on branch `post-flight-dialog-logging`; the paused-clock watchdog, the seam active-vessel-loss fail-fast and the CommitTree fast reject FIXED 2026-10-03, branch `harness-dialog-stalls`; the frozen-telemetry item FIXED 2026-10-04, branch `frozen-detector-fix`; the RB-1 chute-read item open]
+## HARNESS-POST-FLIGHT-DIALOG-STALLS: harness runs sit behind KSP's post-flight screens until a timeout or the wall budget ends [FILED 2026-10-03, branch `todo-stuck-dialogs`. CONFIRMED in the collected logs; observability done on branch `post-flight-dialog-logging`; the paused-clock watchdog, the seam active-vessel-loss fail-fast and the CommitTree fast reject FIXED 2026-10-03, branch `harness-dialog-stalls`; the frozen-telemetry item FIXED 2026-10-04, branch `frozen-detector-fix`; the RB-1 chute-read item FIXED 2026-10-06, branch `harness-overhead`]
 
 Operator observation: auto tests sometimes sit on the post-flight "Mission Summary" screen.
 A scan of all 894 collected `_shots/KSP.log` files found two stock dialogs, neither of which
@@ -705,10 +792,15 @@ Lost: about 26 min with a dialog up, about 25 min of it avoidable (RB-1 is about
   `FROZEN_NOTE_LIMIT = 20` per flight; silent on a healthy flight). The jittering field is
   still UNPROVEN: the logs print 3 decimals. The next crash names it in those lines.
   Tests: `test_frozen_detector.py`.
-- [ ] RB-1's chute channel read nothing useful: of the 1,261 telemetry lines, 1,254 print
-  `chute=-` and 7 `chute=Stowed`, and the Flea hit at about 230 m/s. Investigate why the
-  craft chute state was unread for almost the whole flight, and whether the chute ever
-  armed. Not fixed.
+- [x] ~~RB-1's chute channel read nothing useful: of the 1,261 telemetry lines, 1,254 print
+  `chute=-` and 7 `chute=Stowed`, and the Flea hit at about 230 m/s.~~ Cause: the fixture made
+  kRPC read a clone's parts (fixed by 5ab868f0a); the arm logged `on 0 parachute(s)` and the
+  chute never armed. Fixed 2026-10-06, branch `harness-overhead`: B1 / SBR / EVA-4 end the
+  mission before the arm when the chute read returns nothing on the DESCENT-entry poll and
+  the one before it (`mlib.chute_unobservable_at_descent`, `MISSION-ASSERT-FAIL` reason
+  `chute unobservable (part identity?)`, INVALID(mission)), and `deploy_chute` logs
+  `deployed N parachute(s)`. Over the 26 collected flights of these lanes it trips on RB-1
+  and both RB-2 attempts (same defect) and on no other.
 - [x] Seam: a two-phase pending step fails fast when the active vessel is destroyed or
   `FlightResultsDialog.isDisplaying`, instead of waiting its full timeout
   (`ParsekTestCommandAddon.EvaGroundScience.cs` step-move path first). Also log the
@@ -742,6 +834,19 @@ Lost: about 26 min with a dialog up, about 25 min of it avoidable (RB-1 is about
   defer. L3 / L5 / both L6 lanes now expect `REJECTED`. SE-1 needs no change: its two
   deferrals came after an upstream `LaunchFromEditor` failure left the run outside FLIGHT,
   which now rejects fast too. Tests: `TestCommandDispatchTests.CommitTree_*`.
+- [x] Seam budgets that only ever paid out on failure: `EvaGroundScience` 120 s -> 60 s and
+  `AnswerMergeDialog` 120 s -> 60 s (2026-10-06, branch `seam-timeout-budgets`). Measured
+  over 859 collected runs (2026-09-10 to 2026-10-05): EvaGroundScience OK n=412, p99 5.5 s,
+  max 5.5 s, its 37 timeouts all at the full 120 s (4,440 s); AnswerMergeDialog OK n=65,
+  p99 6.6 s, max 7.2 s, its 6 non-OK outcomes all at 120 s. Rule: max(4 x OK max, 30 s),
+  except EvaGroundScience at 60 s because its place ladder counts frames (about 1,000
+  worst case, inside 60 s down to ~17 fps); AnswerMergeDialog's floor is twice its 30 s re-fly resume-settle fallback. The hlib
+  `DISPATCH_DEFERRAL_BUDGET_SECONDS` mirror moved with them. Other verbs whose failures
+  all sat at the budget while OK max was under a quarter of it: `StopRecording` (2 at the
+  60 s default, OK max 0.1 s) and `TrackingStationRecover` (2 at 120 s, OK max 3.6 s, only 5
+  OK samples); left unchanged (the default bounds a scene-settle defer for every verb, and
+  5 samples are too few). `CommitTree` (10 at 60 s) is already fixed above. Tests:
+  `TestCommandDeferralBudgetTests.MeasuredBudgets_ArePinned`.
 - [x] ~~Observability: subscribe to `onGUIRecoveryDialogSpawn` / `Despawn` and log the crash
   dialog. Neither dialog logs its own close today, so a stall longer than about 62 s on the
   recovery screen cannot be confirmed from logs.~~ Fix: `PostFlightDialogLog` (pure state and
@@ -843,6 +948,27 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   B25, B28, B23 and B12. Their capture and PARK waste is already fixed in code; re-flying
   only refreshes the analyzer totals (~150-250 s recoverable each on the stale runs) and
   confirms the fix holds. Batch them (for example a nightly tier) rather than one by one.
+
+## ~~HARNESS-OVERHEAD: harness runs spend ~30 s per run outside the mission on seam polling and verifier builds~~ [FILED 2026-10-06 from the `flight_efficiency.py` overhead rows, branch `harness-overhead`. FIXED 2026-10-06, branch `harness-overhead`]
+
+Measured by `harness/tools/flight_efficiency.py` over the collected runs: `seamGaps` about
+13.7 s per run (47,280 of 48,203 seam gaps were 0.6 s or less, median 0.25 s: the flat
+0.25 s poll, while the addon answers a synchronous verb within a frame or two) and
+`postQuitTail` about 16.8 s per run (`analyze-recordings.ps1` and `validate-ksp-log.ps1`
+each ran `dotnet test`, whose Parsek.Tests build check cost about 9.4 s and 7.3 s).
+
+- [x] Seam poll schedule: `hlib.seam_poll_interval` polls every 25 ms for the first 2 s
+  after each command write, then the old 0.25 s. The response file is read incrementally
+  (`run.ResponseTail`, pure split in `hlib.split_complete_response_lines`; only complete
+  lines answer a step, first terminal per id wins, a shrunken file restarts the tail).
+- [x] Build once: `run.py` builds `Source/Parsek.Tests` once per selection and passes
+  `-NoBuild` to both scripts and to the ledger seed analyzer. A failed build refuses the
+  whole selection pre-boot as terminal, flake-exempt `INVALID(tooling-build)`.
+- [x] The analyzer and the log validation run concurrently behind the prebuild (the log
+  validation is speculative and discarded on an analyzer short-circuit; verdicts, rows and
+  log order unchanged).
+- [ ] Re-measure on the next tier run: expected about 10 s off `seamGaps` and about 13 s off
+  `postQuitTail` per run, less one build check (about 10 s) per selection.
 
 ## ~~RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON: the recording stats frame lookup matches a section end exactly, with no tolerance~~ [FILED 2026-10-01 from the PR #1943 review, branch `l7-nightly-residue`. FIXED 2026-10-03, branch `fix-stats-frame-epsilon`]
 

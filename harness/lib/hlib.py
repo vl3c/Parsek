@@ -939,7 +939,7 @@ DEFERRED_SEAM_VERBS: Tuple[str, ...] = ("RunTests", "LoadGame", "InvokeRewind", 
 # its OWN dispatch deferral budget before the seam self-emits a TIMEOUT terminal
 # (classified retryable driver-INVALID). If the harness step-wait for such a verb is
 # only the bare per-step budget it can KILL a genuinely-deferring verb BEFORE the seam
-# surfaces that TIMEOUT (M-A5 integration item 3): AnswerMergeDialog (120s dialog wait)
+# surfaces that TIMEOUT (M-A5 integration item 3): AnswerMergeDialog (60s dialog wait)
 # and KscAction (60s career-ready wait) are the motivating cases -- deliberately NOT
 # two-phase-deferred (they complete quickly once ready), but their nonzero deferral
 # budget must be out-waited + margin so the seam's own verdict is OBSERVED, not
@@ -951,7 +951,10 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     "LoadGame": 300.0,
     "StartRecording": 180.0,
     "InvokeRewind": 300.0,
-    "AnswerMergeDialog": 120.0,
+    # Mirrors DeferralBudget.AnswerMergeDialogSeconds, MEASURED (859 runs, 2026-09-10 to
+    # 2026-10-05): OK max 7.2 s (n=65); 60 s is twice the C# re-fly resume-settle
+    # fallback (30 s) that spends the front of the budget before the driven exit.
+    "AnswerMergeDialog": 60.0,
     "TimeJump": 120.0,
     # WarpToUT, mirroring DeferralBudget.WarpToUTSeconds. NOT sized like TimeJump: an
     # epoch shift is instant, but a warp costs whatever stock's clamps allow, and a
@@ -975,14 +978,15 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # the full stock EVA canopy). 420 s covers a ~2 km opening altitude with margin and
     # stays under the 540 s cap.
     "EvaChuteDeploy": 420.0,
-    # Coverage wave 10, mirroring DeferralBudget.EvaGroundScienceSeconds (the EvaExit
-    # size): the place gate, preview, confirm presses and ground-vessel load, or the
-    # pick-up's retract animation, each seconds.
-    "EvaGroundScience": 120.0,
-    # R12. ExitToSpaceCenter mirrors the C# ExitToSpaceCenterSeconds = 120.0, sized like
-    # AnswerMergeDialog (the only other verb that DRIVES a scene exit and holds the head
-    # across its settle) rather than like LoadGame, which additionally parses a cold save
-    # off disk. Without the row the harness step-wait would ride the 60 s default + margin
+    # Coverage wave 10, mirroring DeferralBudget.EvaGroundScienceSeconds: one action
+    # (step / take / place / pickup) per command. MEASURED (859 runs, 2026-09-10 to
+    # 2026-10-05): OK max 5.5 s (n=412); 60 s because the place ladder counts frames
+    # (about 1,000 worst case, inside 60 s down to ~17 fps); every timeout in the
+    # corpus waited the full old 120 s and none was a slow success.
+    "EvaGroundScience": 60.0,
+    # R12. ExitToSpaceCenter mirrors the C# ExitToSpaceCenterSeconds = 120.0, sized for
+    # a driven scene exit and its settle rather than like LoadGame, which additionally
+    # parses a cold save off disk. Without the row the harness step-wait would ride the 60 s default + margin
     # and could KILL a healthy KSC bootstrap - which re-reads persistent.sfs and runs
     # SetProtoModules -> the pending-tree auto-commit - at ~120 s, converting a retryable
     # seam TIMEOUT into a terminal KILLED. SimulateStockSwitchClick is deliberately ABSENT:
@@ -5505,6 +5509,128 @@ def _parse_response_line(line: str) -> Optional[Dict[str, str]]:
     if "id" not in fields or "cmd" not in fields or "verdict" not in fields:
         return None
     return fields
+
+
+# ---------------------------------------------------------------------------
+# Seam poll schedule + incremental response tail (HARNESS-OVERHEAD).
+#
+# The addon pumps the command file EVERY FRAME, so a synchronous verb answers within
+# a frame or two of the write. A flat 0.25 s poll therefore charged nearly every step
+# a ~0.2 s floor: 47,280 of 48,203 measured seam gaps were 0.6 s or less (median
+# 0.25 s), about 13.7 s per run. The schedule polls fast for a short window after each
+# command write and then falls back to the old cadence, so a deferred verb that parks
+# for minutes (RunTests, LoadGame) costs no more reads than it did before.
+# ---------------------------------------------------------------------------
+
+SEAM_FAST_POLL_SECONDS = 0.025
+SEAM_FAST_POLL_WINDOW_SECONDS = 2.0
+SEAM_SLOW_POLL_SECONDS = 0.25
+
+
+def seam_poll_interval(seconds_since_write: Optional[float]) -> float:
+    """Sleep before the next response read, given the time since this step's command
+    line was written. Fast inside ``SEAM_FAST_POLL_WINDOW_SECONDS``, the old 0.25 s
+    cadence after it. A missing or non-finite elapsed reads as the slow cadence (the
+    pre-schedule behaviour), never as a spin; a NEGATIVE elapsed (a clock that stepped
+    backwards) is treated as just-written, because the write certainly happened."""
+    if seconds_since_write is None:
+        return SEAM_SLOW_POLL_SECONDS
+    try:
+        elapsed = float(seconds_since_write)
+    except (TypeError, ValueError):
+        return SEAM_SLOW_POLL_SECONDS
+    if not math.isfinite(elapsed):
+        return SEAM_SLOW_POLL_SECONDS
+    if elapsed < SEAM_FAST_POLL_WINDOW_SECONDS:
+        return SEAM_FAST_POLL_SECONDS
+    return SEAM_SLOW_POLL_SECONDS
+
+
+def _response_text_lines(raw: bytes) -> List[str]:
+    """Decode a response-file byte run the way run.py's whole-file reader always did
+    (utf-8, errors=replace, universal newlines, blank lines dropped)."""
+    text = raw.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+    return [line for line in text.split("\n") if line.strip()]
+
+
+def split_complete_response_lines(carry: bytes, chunk: bytes) -> Tuple[List[str], bytes]:
+    """Fold newly read bytes into the response tail.
+
+    Returns ``(complete_lines, new_carry)``: every newline-terminated line in
+    ``carry + chunk``, decoded, plus the torn trailing fragment (bytes after the last
+    ``\\n``) to prepend to the next read. The same whole-line rule the addon applies to
+    the command file (TestCommandChannelIo.WholeLineByteCount), and the seam design's
+    response contract: the file is append-only within a run and a torn trailing line
+    was never durably written, so it is not a response yet. Cutting at a ``\\n`` byte
+    never splits a UTF-8 sequence (0x0A cannot occur inside one), so a chunked decode
+    equals the whole-file decode."""
+    data = (carry or b"") + (chunk or b"")
+    cut = data.rfind(b"\n")
+    if cut < 0:
+        return [], data
+    return _response_text_lines(data[:cut + 1]), data[cut + 1:]
+
+
+def torn_response_tail_lines(carry: bytes) -> List[str]:
+    """The torn trailing fragment as the whole-file reader would have returned it, so a
+    reader of ``result.response_lines`` keeps seeing exactly what it saw before. Never
+    consulted for a terminal verdict: a half-written line is not a response."""
+    if not carry:
+        return []
+    return _response_text_lines(carry)
+
+
+def response_tail_restarted(offset: int, size: int) -> bool:
+    """True when the response file is now SHORTER than the bytes already consumed:
+    it was truncated or replaced (the harness truncates the channel files when it
+    stages a fresh run). The tail must then restart from byte 0 rather than read past
+    the end of a different file."""
+    return size < offset
+
+
+# ---------------------------------------------------------------------------
+# Verifier build-once (HARNESS-OVERHEAD). analyze-recordings.ps1 and
+# validate-ksp-log.ps1 each run `dotnet test`, whose build check of Parsek.Tests cost
+# about 9.4 s and 7.3 s per run. run.py builds the test assembly ONCE at selection
+# start and then passes -NoBuild to both scripts and to the seed analyzer (the
+# injector has always run --no-build). A failed or timed-out build refuses the WHOLE
+# selection pre-boot: running the verifiers against whatever assembly happens to be
+# on disk would judge a flight with stale rules and say nothing.
+# ---------------------------------------------------------------------------
+
+TESTS_BUILD_INVALID_SUBKIND = "tooling-build"
+
+
+@dataclass(frozen=True)
+class TestsPrebuildDecision:
+    ok: bool
+    reason: str
+
+
+def classify_tests_prebuild(exit_code: Optional[int], timed_out: bool,
+                            assembly_present: bool) -> TestsPrebuildDecision:
+    """Decide whether the selection-start ``dotnet build`` of Parsek.Tests may stand
+    behind every later ``-NoBuild`` verifier run. Fail-closed on every leg: a timeout,
+    a nonzero exit, or a zero exit that left no test assembly (the one shape in which
+    ``-NoBuild`` would run NOTHING, the injector's measured fail-open) all refuse."""
+    if timed_out:
+        return TestsPrebuildDecision(False, "Parsek.Tests build timed out")
+    if exit_code != 0:
+        return TestsPrebuildDecision(False, "Parsek.Tests build failed (exit=%s)" % exit_code)
+    if not assembly_present:
+        return TestsPrebuildDecision(
+            False, "Parsek.Tests build exited 0 but left no Parsek.Tests.dll")
+    return TestsPrebuildDecision(True, "")
+
+
+def verifiers_may_overlap(tests_prebuilt: bool) -> bool:
+    """The analyzer and the log validation may run CONCURRENTLY only when both pass
+    -NoBuild. Each is a `dotnet test` over the same Parsek.Tests project; without
+    -NoBuild both would build it at once and race on its obj/ and bin/ outputs. With it
+    they share nothing: separate processes and environments, the analyzer writes only
+    under the produced save's analysis/ dir, and the log validation only reads
+    KSP.log."""
+    return bool(tests_prebuilt)
 
 
 # ---------------------------------------------------------------------------
@@ -10478,6 +10604,208 @@ def should_retry(verdict: Verdict, attempt: int, retry_policy: str) -> bool:
     return verdict.subkind in RETRYABLE_INVALID_SUBKINDS
 
 
+# ---------------------------------------------------------------------------
+# Deterministic seam errors are not retried (operator ruling 2026-10-06: "Don't
+# retry when the failure is a definite error from the seam, and keep retrying
+# everything that looks like random flakiness. We can recheck failures manually.").
+#
+# should_retry above stays the authority on the verdict/subkind/attempt/policy
+# axes; decide_retry adds ONE narrower veto behind it. A retryable INVALID is NOT
+# retried when the driver step the driver stage BLAMED answered ERROR or REJECTED
+# with a reason in DETERMINISTIC_SEAM_ERROR_REASONS - a reason that names a property
+# of the spec text, the build, or a one-way world state the re-staged fixture and
+# the same drive reproduce. Everything else (a TIMEOUT, a deferral that ran out its
+# budget, not-safe-point, a kRPC / mission / autopilot fault, a boot crash, a
+# tooling fault, any reason NOT named here) keeps today's retry exactly.
+#
+# The set is CLOSED and deliberately narrow; a reason missing from it is retried,
+# which is the pre-ruling behaviour, so an omission costs one boot, never a lost
+# signal. Each member must exist as a string literal in Source/Parsek/TestCommands
+# (DeterministicSeamErrorSourceSyncTests). Left OUT on purpose, with the evidence
+# from the 48 recorded retries (2026-09-10..10-03):
+#   - every *-timeout / *-not-settled ERROR (step-timeout, placement-timeout,
+#     place-gate-timeout, goeditor-not-settled, launchfromeditor-not-settled,
+#     tsrecover-timeout, answer-timeout): a wait that ran out is timing by nature;
+#   - recording-active (LoadGame / InvokeRewindToLaunch): 1 of 4 retries PASSED
+#     (the recorder had not yet stopped);
+#   - warp-locked: 3 of 3 retries PASSED (a focus-loss input lock);
+#   - start-refused (StartRecording): 2 of 3 retries PASSED;
+#   - the UiAction pointer / hover errors: 2 of 3 retries PASSED (window focus);
+#   - no-refly-dialog: a DEFER reason only, so it reaches the harness as TIMEOUT;
+#   - fixture lookups that resolve scene objects or mutable career state
+#     (unknown-building, unknown-facility, unknown-kerbal, unknown-contract,
+#     unknown-tree, unknown-rp, unknown-slot) and the gate families (refly-gate,
+#     rewind-gate, stockscreen-*, the driver-dialog / driver-career reasons):
+#     plausibly deterministic, but each reads live state a load race could change,
+#     so they stay retried until a case is made for one by name.
+# ---------------------------------------------------------------------------
+
+# The seam verdicts a deterministic seam error can carry. TIMEOUT is excluded by
+# construction: it is the one verdict that always means a wait ran out.
+DETERMINISTIC_SEAM_ERROR_VERDICTS: Tuple[str, ...] = ("ERROR", "REJECTED")
+
+# The driver-stage subkinds a seam step's own refusal maps to (stage_subkind_for).
+# The veto applies ONLY when the run's INVALID came from the driver stage: an
+# INVALID(tooling) / (analyzer-error) / (boot-crash) / (mission) run that also
+# carries an unmet NON-gating post-mission step keeps its retry, because that step
+# is not what failed the attempt.
+DETERMINISTIC_SEAM_ERROR_STAGE_SUBKINDS: Tuple[str, ...] = (
+    "driver-verdict-mismatch", "load-failed",
+    "driver-gate", "driver-rewind", "driver-dialog", "driver-arg", "driver-career",
+)
+
+# The closed reason set. Grouped by WHY a retry reproduces the reply.
+DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
+    # (1) Protocol rejects (TestCommandDispatcher stage 2 / TestCommandProtocol):
+    # the seam parsed the spec-authored command LINE or looked the verb up in the
+    # build's verb table. The retry writes the byte-identical line to the same DLL.
+    "malformed", "missing-id", "malformed-id", "missing-cmd", "malformed-verb",
+    "unknown-command", "not-implemented-v1",
+    # (2) World states that are one-way or stably closed by the time the reply is
+    # written. active-vessel-lost: stock's DEAD state is one-way and the guard only
+    # fires on a vessel the step itself captured (TestCommandActiveVesselLoss); the
+    # retry re-stages the same fixture and drives the same steps into the same
+    # death (EVA-8, 2026-09-29: every retry reproduced it). not-eva: the dispatcher
+    # already DEFERS until the active vessel is an EVA kerbal, so a REJECTED not-eva
+    # is the executor's instant "stably-closed cause" refusal, not the settle wait
+    # (that one ends TIMEOUT). not-in-flight: REJECTED only for CommitTree in a
+    # SETTLED non-FLIGHT scene (RejectOutsideFlightVerbs; the dispatcher's own
+    # record: 217 runs, all 10 that deferred it ended TIMEOUT, none executed).
+    "active-vessel-lost", "not-eva", "not-in-flight",
+    # (3) Spec-text argument refusals: the verb validated its OWN args (presence,
+    # spelling, number format, closed value sets) before reading any world state.
+    # The retry sends the same args.
+    "missing-arg", "missing-jump-target", "missing-warp-target",
+    "max-rate-invalid", "warp-ladder-invalid",
+    "allow-live-recorder-arg-invalid", "cadence-arg-invalid", "cadence-arg-missing",
+    "category-arg-empty", "dialog-arg-invalid", "edit-commit-arg-invalid",
+    "edit-field-arg-missing", "edit-key-arg-missing", "expand-key-arg-missing",
+    "factor-arg-invalid", "find-ctrl-arg-invalid", "find-index-arg-invalid",
+    "find-text-arg-missing", "goeditor-craft-arg-invalid",
+    "goeditor-facility-arg-invalid", "goeditor-facility-arg-missing",
+    "index-arg-invalid", "interval-arg-invalid", "isolated-arg-invalid",
+    "kind-arg-invalid", "kind-arg-missing", "kscrecover-pid-arg-invalid",
+    "kscrecover-pid-arg-missing", "label-arg-invalid", "label-arg-missing",
+    "loop-arg-invalid", "mock-arg-missing", "mode-arg-invalid", "mode-arg-missing",
+    "op-arg-invalid", "op-arg-missing", "picker-arg-conflict", "picker-arg-missing",
+    "pid-arg-invalid", "pointer-arg-conflict", "pointer-arg-invalid",
+    "pointer-arg-missing", "popup-arg-missing", "realspawn-rec-arg-missing",
+    "recover-pid-arg-invalid", "recover-pid-arg-missing", "rect-arg-invalid",
+    "rect-arg-missing", "route-arg-missing", "run-await-arg-invalid",
+    "run-category-arg-missing", "safewritecrash-phase-arg-invalid",
+    "safewritecrash-phase-arg-missing", "safewritecrash-recording-arg-missing",
+    "scene-arg-invalid", "select-include-arg-invalid", "select-include-arg-missing",
+    "select-key-arg-missing", "site-arg-invalid", "sort-column-arg-missing",
+    "sort-dir-arg-invalid", "sort-dir-arg-missing", "spinvessel-rate-arg-invalid",
+    "spinvessel-rate-arg-missing", "state-arg-invalid", "state-arg-missing",
+    "state-bool-arg-not-for-key", "state-key-arg-missing", "state-value-arg-invalid",
+    "state-value-arg-missing", "state-value-arg-not-for-key",
+    "stockscreen-act-arg-invalid", "stockscreen-act-arg-missing",
+    "stockscreen-item-arg-missing", "stockscreen-pane-arg-invalid",
+    "stockscreen-screen-arg-invalid", "stockscreen-screen-arg-missing",
+    "strict-arg-invalid", "supersize-arg-invalid", "tab-arg-missing",
+    "target-arg-missing", "tree-arg-missing", "tsrecover-pid-arg-invalid",
+    "tsrecover-pid-arg-missing", "unit-arg-invalid", "vessel-arg-invalid",
+    "window-arg-missing",
+)
+
+# The result-JSON key and the rule name it carries.
+RETRY_SKIPPED_KEY = "retrySkipped"
+RETRY_SKIP_RULE_DETERMINISTIC_SEAM_ERROR = "deterministic-seam-error"
+
+
+def seam_reason_token(msg: Optional[str]) -> str:
+    """The leading reason token of a seam reply's ``msg=`` (percent-encoded on the
+    wire, so ``refly-gate%20<detail>`` reads ``refly-gate``). "" when absent."""
+    text = (msg or "").split("%20", 1)[0]
+    return text.split(None, 1)[0] if text.strip() else ""
+
+
+def blamed_driver_step(result: Dict) -> Optional[Dict]:
+    """The driver step the driver stage blamed for the attempt, read from a durable
+    result record, or None when no SEAM step owns the failure.
+
+    Mirrors missionverify.compose_driver_validity over the recorded rows (pure):
+      - seam-only driver: the first unmet row (``met`` is False) in record order;
+      - autopilot driver (a ``phase = mission`` row): the first unmet row BEFORE the
+        mission row; else an unmet mission row owns it (None - a mission is never a
+        seam reply); else a met mission whose post-mission OUTCOME step was a driver
+        fault (``verifiers.missionOutcome.firstUnmet`` with a ``driverSubkind``),
+        returned as that row. A non-gating post-mission recording step is never
+        blamed: it does not fail the driver stage.
+    The returned dict carries at least ``id`` / ``cmd`` / ``verdict`` / ``msg``."""
+    steps = ((result or {}).get("driver") or {}).get("steps") or []
+    mission_idx = next((i for i, s in enumerate(steps)
+                        if isinstance(s, dict) and s.get("phase") == "mission"), None)
+    head = steps if mission_idx is None else steps[:mission_idx]
+    for s in head:
+        if isinstance(s, dict) and s.get("met") is False:
+            return s
+    if mission_idx is None:
+        return None
+    if steps[mission_idx].get("met") is not True:
+        return None
+    outcome = (((result or {}).get("verifiers") or {}).get("missionOutcome") or {})
+    first = outcome.get("firstUnmet")
+    if isinstance(first, dict) and first.get("driverSubkind"):
+        return first
+    return None
+
+
+def deterministic_seam_error_retry_skip(result: Dict) -> Optional[Dict]:
+    """The ``retrySkipped`` record when this attempt's failure is a deterministic seam
+    error (see the section comment), else None.
+
+    All five must hold: the attempt is INVALID with a driver-stage subkind
+    (DETERMINISTIC_SEAM_ERROR_STAGE_SUBKINDS); the blamed step is a SEAM step (has a
+    ``cmd``); its args carried no runtime ``${step.field}`` substitution (a captured
+    value can differ on the next attempt, so the retry would NOT resend the same
+    args); its seam verdict is ERROR or REJECTED; and its reply's leading reason
+    token is in DETERMINISTIC_SEAM_ERROR_REASONS. Pure."""
+    if not isinstance(result, dict):
+        return None
+    if result.get("verdict") != VERDICT_INVALID:
+        return None
+    if result.get("subkind") not in DETERMINISTIC_SEAM_ERROR_STAGE_SUBKINDS:
+        return None
+    step = blamed_driver_step(result)
+    if step is None or not step.get("cmd"):
+        return None
+    if step.get("substitutions"):
+        return None
+    if step.get("verdict") not in DETERMINISTIC_SEAM_ERROR_VERDICTS:
+        return None
+    reason = seam_reason_token(step.get("msg"))
+    if reason not in DETERMINISTIC_SEAM_ERROR_REASONS:
+        return None
+    return {"rule": RETRY_SKIP_RULE_DETERMINISTIC_SEAM_ERROR,
+            "reason": reason, "stepId": str(step.get("id", "")),
+            "verb": step.get("cmd"), "seamVerdict": step.get("verdict")}
+
+
+def decide_retry(verdict: Verdict, attempt: int, retry_policy: str,
+                 result: Optional[Dict]) -> Tuple[bool, Optional[Dict]]:
+    """``(retry, retrySkipped)`` for one finished attempt.
+
+    ``should_retry`` decides first and is unchanged; only when it says retry is the
+    deterministic-seam-error veto consulted. The verdict and subkind are never
+    touched: the veto changes the retry decision and nothing else."""
+    if not should_retry(verdict, attempt, retry_policy):
+        return False, None
+    skip = deterministic_seam_error_retry_skip(result or {})
+    if skip is not None:
+        return False, skip
+    return True, None
+
+
+def format_retry_skip_line(scenario_id: str, skip: Dict) -> str:
+    """The one harness-log line written when the veto fires."""
+    return ("retry skipped scenario=%s rule=%s stepId=%s verb=%s seamVerdict=%s "
+            "reason=%s (deterministic seam error; a retry would reproduce it)"
+            % (scenario_id, skip.get("rule"), skip.get("stepId"), skip.get("verb"),
+               skip.get("seamVerdict"), skip.get("reason")))
+
+
 def resolve_terminal(attempts: Sequence[Verdict]) -> Verdict:
     """Reduce an ordered list of attempt verdicts to the terminal result.
 
@@ -11278,6 +11606,8 @@ FLAKE_NUMERATOR_VERDICTS: Tuple[str, ...] = (VERDICT_INVALID, VERDICT_KILLED)
 #                   exemption; costing nothing is not, and is not true here.
 #   instance-locked a live sibling holds the machine lock (pre-boot preflight).
 #   instance-busy   a live KSP is already bound to the instance (pre-boot preflight).
+#   tooling-build   the selection-start Parsek.Tests build failed (pre-boot, whole
+#                   selection); the verifiers would otherwise run stale rules.
 #
 # WHY DROP RATHER THAN JUST NOT COUNT: the attempt never got a verdict ON THE
 # SCENARIO, so it is not an observation about it. Leaving it in the denominator
@@ -11303,6 +11633,9 @@ FLAKE_NUMERATOR_VERDICTS: Tuple[str, ...] = (VERDICT_INVALID, VERDICT_KILLED)
 # exactly what quarantine exists to catch.
 FLAKE_EXEMPT_INVALID_SUBKINDS: Tuple[str, ...] = (
     VENV_INVALID_SUBKIND, "instance-locked", "instance-busy",
+    # The selection-start Parsek.Tests build failed: a property of the worktree, and
+    # every selected scenario receives the same row before any KSP boot.
+    TESTS_BUILD_INVALID_SUBKIND,
 )
 
 

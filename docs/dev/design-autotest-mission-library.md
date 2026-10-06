@@ -943,6 +943,33 @@ Each: scenario -> expected behavior -> v1 or deferred.
     poll that was not bit-identical, capped at `FROZEN_NOTE_LIMIT` lines per flight;
     a healthy flight logs neither. The machine line reads `frozenCount` off a
     delegated sub-machine (SBR, R1, V1, S/R/T-DOCK). v1.
+22. **Chute read on, but the craft's parachutes unreadable** (RB-1
+    `2026-09-27_1353`: a fixture defect, fixed by 5ab868f0a, made kRPC read a
+    CLONE's parts. The chute read `Stowed` on the first 7 ascent polls and "" on
+    every poll after; the arm logged `set deploy_altitude=2500m on 0 parachute(s)`).
+    The commanded `chute_deployed` latch still went true, the machine flew on, and
+    the Flea hit at 230 m/s. A pad hop's chutes read `Stowed` all the way to the arm,
+    so B1 (and SBR through it) and EVA-4 now fail closed at the DESCENT entry, before
+    the arm: when the snapshot says the chute read is on
+    (`TelemetrySnapshot.chute_read_on`, set by the runner from `read_chute`) and the
+    read returned "" on the entry frame and the frame before it
+    (`chute_unread_streak >= CHUTE_UNOBSERVABLE_DEBOUNCE_K = 2`, the
+    `B1_CANOPY_DEBOUNCE_K` discipline), `mlib.chute_unobservable_at_descent` ends the
+    mission -> `MISSION-ASSERT-FAIL` with a reason starting `chute unobservable (part
+    identity?)`, the vessel-lost terminal's class (INVALID(mission), retry-once; never
+    PARSEK-FAIL). No action rides that frame. One faulted read at the entry frame
+    does not trip it, a runner without the read never does (`chute_read_on` defaults
+    False), and the recovery frames after a landing (the benign "" at alt=0) never
+    reach it (the flight leg is done). Measured over the 26 collected chute-read
+    flights (B1, SBR, EVA-4): it trips on RB-1 `_1353` and both RB-2 attempts
+    (`_1417`, `_1420_a2`, the same "on 0 parachute(s)" defect) and on none of the 23
+    others. Not applied to B4 (it has no DESCENT entry; the chute deploys on the
+    altitude gate into SPLASHDOWN after the service stages drop, and its
+    `craftCanopyObserved` assertion already fails closed) or GS-1 (its chute reads
+    are attributed by vessel name across a booster handoff, and its focus-impact
+    variants never arm the upper chute). The runner's `ACTION_DEPLOY_CHUTE` now logs
+    `deployed N parachute(s)` (Warn on 0 or on a per-part raise, each raise named),
+    beside the altitude setter's line. v1.
 
 ## Amendment A (2026-08-19): the career-earning verbs and `science_bench_recover`
 

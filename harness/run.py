@@ -31,6 +31,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import tomllib
 from datetime import datetime, timezone
@@ -113,6 +114,12 @@ ANALYZER_TIMEOUT_SECONDS = 900
 LOGVALIDATE_TIMEOUT_SECONDS = 600
 COLLECT_LOGS_TIMEOUT_SECONDS = 600
 INJECT_TIMEOUT_SECONDS = 600
+# The selection-start build of Parsek.Tests (HARNESS-OVERHEAD). Every later verifier
+# runs with -NoBuild behind it, so it gets the same ceiling as the slowest verifier.
+TESTS_BUILD_TIMEOUT_SECONDS = 900
+TESTS_PROJECT_PATH = os.path.join(WORKTREE_ROOT, "Source", "Parsek.Tests", "Parsek.Tests.csproj")
+TESTS_ASSEMBLY_PATH = os.path.join(WORKTREE_ROOT, "Source", "Parsek.Tests",
+                                   "bin", "Debug", "net472", "Parsek.Tests.dll")
 
 # Fixture-injection presets run.py will drive, and the RP quicksave sidecar each one
 # MUST leave on disk (the fail-closed postcondition; a preset with no RP maps to None).
@@ -184,7 +191,14 @@ SAVE_TOKEN_BY_METADATA_ONLY_PRESET = {
 DEFAULT_STEP_BUDGET_SECONDS = 60
 DEFAULT_BOOT_BUDGET_SECONDS = 300
 
-POLL_INTERVAL_SECONDS = 0.25
+# The cadence for every poll that is NOT a seam response read right after a command
+# write (the mission-subprocess wait, the post-steps clean-exit wait, and a seam step
+# past hlib.SEAM_FAST_POLL_WINDOW_SECONDS). A seam step's own schedule is
+# hlib.seam_poll_interval.
+POLL_INTERVAL_SECONDS = hlib.SEAM_SLOW_POLL_SECONDS
+# A seam step's "still waiting" Verbose line is time-throttled (it used to be every
+# 40th poll, i.e. every 10 s at the old flat 0.25 s cadence).
+SEAM_POLL_VERBOSE_EVERY_SECONDS = 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +302,12 @@ class ToolResult:
 
 class Runtime:
     """Default runtime: real KSP process + real verifier subprocesses (Windows)."""
+
+    # True once _run_selection's selection-start build of Parsek.Tests succeeded; the
+    # verifier subprocesses then pass -NoBuild. A class attribute so every injected
+    # test runtime (most never call Runtime.__init__) starts False, i.e. the scripts
+    # keep building for themselves exactly as before.
+    tests_prebuilt = False
 
     def now(self) -> float:
         return time.time()
@@ -404,12 +424,25 @@ class Runtime:
 
     # ---- verifier subprocesses -------------------------------------------
 
+    def build_tests(self, timeout: float) -> ToolResult:
+        """Build Parsek.Tests (and Parsek through its ProjectReference) ONCE for the
+        selection. Started from the worktree root, so the KSP deploy gate already
+        skips; -p:SkipKspDeploy=true makes that explicit."""
+        args = ["dotnet", "build", TESTS_PROJECT_PATH, "-v", "minimal", "-nologo",
+                "-p:SkipKspDeploy=true"]
+        return self._run(args, timeout, cwd=WORKTREE_ROOT)
+
+    def tests_assembly_present(self) -> bool:
+        return os.path.isfile(TESTS_ASSEMBLY_PATH)
+
     def run_analyzer(self, save_dir: str, fresh_gate: bool, timeout: float) -> ToolResult:
         args = ["pwsh", "-NoProfile", "-File",
                 os.path.join(SCRIPTS_DIR, "analyze-recordings.ps1"),
                 "-SaveDir", save_dir, "-FailOnRed"]
         if fresh_gate:
             args.append("-FreshSaveGate")
+        if self.tests_prebuilt:
+            args.append("-NoBuild")
         return self._run(args, timeout, cwd=WORKTREE_ROOT)
 
     def run_seed_analyzer(self, save_dir: str, out_dir: str, timeout: float) -> ToolResult:
@@ -423,6 +456,8 @@ class Runtime:
         args = ["pwsh", "-NoProfile", "-File",
                 os.path.join(SCRIPTS_DIR, "analyze-recordings.ps1"),
                 "-SaveDir", save_dir, "-ResultsDir", out_dir]
+        if self.tests_prebuilt:
+            args.append("-NoBuild")
         return self._run(args, timeout, cwd=WORKTREE_ROOT)
 
     def run_log_validate(self, log_path: str, killed: bool, no_recording: bool,
@@ -434,6 +469,8 @@ class Runtime:
             args.append("-KilledRun")
         if no_recording:
             args.append("-NoRecordingRun")
+        if self.tests_prebuilt:
+            args.append("-NoBuild")
         return self._run(args, timeout, cwd=WORKTREE_ROOT)
 
     def run_collect_logs(self, label: str, save_name: str, instance_dir: str,
@@ -1493,24 +1530,68 @@ def _read_response_lines(path: str) -> List[str]:
         return []
 
 
+class ResponseTail:
+    """Incremental reader over the append-only seam response file (seam design,
+    "Orchestrator response contract"). Each poll reads only the bytes past the last
+    consumed offset, so a GUI census lane writing thousands of lines no longer re-reads
+    and re-parses the whole file several times a second. The split and the restart rule
+    are pure (hlib.split_complete_response_lines / hlib.response_tail_restarted).
+
+    ``lines()`` returns exactly what the whole-file ``_read_response_lines`` would (the
+    torn trailing fragment included), for ``result.response_lines``. ``first_terminal``
+    answers from COMPLETE lines only and is FIRST-WINS per id: an M-A2 crash-recovery
+    rewrite re-emits a byte-equivalent line, so the first is what the seam's own
+    orchestrator treats as authoritative - and the R10 capture store reads the SAME
+    line the verdict was taken from."""
+
+    def __init__(self, path: str):
+        self.path = path
+        self._offset = 0
+        self._carry = b""
+        self._complete: List[str] = []
+        self._first_by_id: Dict[str, Dict[str, str]] = {}
+
+    def _reset(self) -> None:
+        self._offset = 0
+        self._carry = b""
+        self._complete = []
+        self._first_by_id = {}
+
+    def poll(self) -> List[str]:
+        try:
+            size = os.path.getsize(self.path)
+        except OSError:
+            return self.lines()
+        if hlib.response_tail_restarted(self._offset, size):
+            self._reset()
+        if size > self._offset:
+            try:
+                with open(self.path, "rb") as fh:
+                    fh.seek(self._offset)
+                    chunk = fh.read(size - self._offset)
+            except OSError:
+                return self.lines()
+            self._offset += len(chunk)
+            new_lines, self._carry = hlib.split_complete_response_lines(self._carry, chunk)
+            for line in new_lines:
+                parsed = hlib._parse_response_line(line)
+                if parsed is not None and parsed.get("id") not in self._first_by_id:
+                    self._first_by_id[parsed.get("id")] = parsed
+            self._complete.extend(new_lines)
+        return self.lines()
+
+    def lines(self) -> List[str]:
+        return self._complete + hlib.torn_response_tail_lines(self._carry)
+
+    def first_terminal(self, step_id: str) -> Optional[Dict[str, str]]:
+        return self._first_by_id.get(step_id)
+
+
 def _response_has_terminal(lines: Sequence[str], step_id: str) -> Optional[str]:
     for line in lines:
         parsed = hlib._parse_response_line(line)
         if parsed is not None and parsed.get("id") == step_id:
             return parsed.get("verdict")
-    return None
-
-
-def _first_terminal_fields(lines: Sequence[str], step_id: str) -> Optional[Dict[str, str]]:
-    """The FIRST terminal response line for ``step_id`` as a parsed field map, or
-    None. First-wins for evaluate_response_stream's reason verbatim: an M-A2
-    crash-recovery rewrite re-emits a byte-equivalent line, so the first is what
-    the seam's own orchestrator treats as authoritative -- and the R10 capture
-    store must read the SAME line the verdict was taken from."""
-    for line in lines:
-        parsed = hlib._parse_response_line(line)
-        if parsed is not None and parsed.get("id") == step_id:
-            return parsed
     return None
 
 
@@ -1921,6 +2002,7 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
     # calls it again -- which is the design's rule: a retry's captures are its own.
     capture_store: Dict[str, Dict[str, str]] = {}
     tail_plan: Optional[hlib.UnmetTailPlan] = None
+    response_tail = ResponseTail(responses_path)
 
     for i, step in enumerate(steps):
         step_id = hlib.step_id_for_index(i)
@@ -2024,7 +2106,7 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                                 % (verb, step_wait, seam_deferral))
         else:
             # A non-two-phase verb still defers at the seam head up to its OWN dispatch
-            # deferral budget (AnswerMergeDialog 120s, KscAction 60s, ... default 60s)
+            # deferral budget (AnswerMergeDialog 60s, KscAction 60s, ... default 60s)
             # before the seam self-emits a TIMEOUT. Out-wait that budget + the 60s margin
             # so the seam's own verdict (retryable driver-INVALID) is OBSERVED instead of
             # the harness KILLing a genuinely-deferring verb; a spec-pinned larger step
@@ -2037,14 +2119,14 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                     logger.warn("Budget", "dispatch-deferring step %s: step-wait %.0fs capped by run budget is below dispatch deferral %.0fs + margin; a seam TIMEOUT may KILL instead of surfacing driver-INVALID"
                                 % (verb, step_wait, dispatch_wait))
         step_start = runtime.now()
-        polls = 0
+        last_verbose = step_start
 
         while True:
-            polls += 1
-            result.response_lines = _read_response_lines(responses_path)
+            result.response_lines = response_tail.poll()
             if result.response_lines:
                 any_response_seen = True
-            verdict = _response_has_terminal(result.response_lines, step_id)
+            terminal = response_tail.first_terminal(step_id)
+            verdict = terminal.get("verdict") if terminal is not None else None
             if verdict is not None:
                 logger.info("Drive", "drive resp id=%s verdict=%s met=%s"
                             % (step_id, verdict, verdict == record_step["expect"]))
@@ -2054,8 +2136,7 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                 # even when EMPTY so an unresolvable reference reports "no such field"
                 # (what the verb emits) rather than "no such step" (a spec typo).
                 if verdict == "OK":
-                    captured = hlib.capture_step_payload(
-                        _first_terminal_fields(result.response_lines, step_id))
+                    captured = hlib.capture_step_payload(terminal)
                     label = step.get(hlib.STEP_LABEL_KEY)
                     capture_store[step_id] = captured
                     if isinstance(label, str) and label:
@@ -2100,10 +2181,13 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                 result.killed_pids = runtime.kill_tree(proc)
                 logger.info("Budget", "kill complete pids=%s" % result.killed_pids)
                 return result
-            if polls % 40 == 0:
+            if now - last_verbose >= SEAM_POLL_VERBOSE_EVERY_SECONDS:
+                last_verbose = now
                 logger.verbose("Drive", "poll: pendingId=%s elapsed=%.0f/%.0f"
                                % (step_id, now - step_start, step_wait))
-            runtime.sleep(POLL_INTERVAL_SECONDS)
+            # Fast right after the write (the addon answers a synchronous verb within a
+            # frame or two), the old cadence once the step has been pending a while.
+            runtime.sleep(hlib.seam_poll_interval(now - step_start))
 
     # All steps got a terminal response; drain a final read and wait briefly for a
     # clean self-exit (the QUIT owner). A clean exit is the normal PASS path.
@@ -2657,9 +2741,25 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # split on.
     analyzer_verdict = None
     analyzer_gating = hlib.analyzer_gating(expectations)
+    # Row 4's log validation is started NOW, beside the analyzer, when both run
+    # -NoBuild (hlib.verifiers_may_overlap). It is SPECULATIVE: its log lines are
+    # buffered and replayed at row 4's own position, and its result is used only if
+    # the chain reaches row 4, so the verdict, the report rows, the subprocess-retry
+    # record order and the log order are all exactly the sequential chain's. On a
+    # short-circuit it is joined and discarded.
+    lv_profile = hlib.select_logvalidate_profile(hlib.spec_expects_live_recording(spec), False)
+    lv_background = None
+    if driver_valid and hlib.verifiers_may_overlap(getattr(runtime, "tests_prebuilt", False)):
+        lv_background = _BackgroundVerifier(
+            "logValidate",
+            lambda lg: _run_log_validate_retrying(
+                runtime, log_path, lv_profile.suppress_recording_rules, lg))
+    analyzer_wall = None
     if driver_valid:
+        t_analyzer = time.monotonic()
         analyzer_raw, analyzer_detail, analyzer_retry = _run_analyzer_retrying(
             save_dir, runtime, logger)
+        analyzer_wall = time.monotonic() - t_analyzer
         row = hlib.evaluate_analyzer_row(analyzer_raw, analyzer_gating)
         analyzer_verdict = row.verdict
         analyzer_detail["gating"] = row.gating
@@ -2711,9 +2811,18 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
 
     # 4. Log validation + LogContract.
     if driver_valid and not short_circuited:
-        prof = hlib.select_logvalidate_profile(hlib.spec_expects_live_recording(spec), False)
+        prof = lv_profile
         no_rec = prof.suppress_recording_rules
-        lv, lv_retry = _run_log_validate_retrying(runtime, log_path, no_rec, logger)
+        if lv_background is not None:
+            lv, lv_retry = lv_background.join(logger)
+            lv_wall = lv_background.wall
+        else:
+            t_lv = time.monotonic()
+            lv, lv_retry = _run_log_validate_retrying(runtime, log_path, no_rec, logger)
+            lv_wall = time.monotonic() - t_lv
+        logger.info("Verify", "verify timing analyzer=%.1fs logValidate=%.1fs mode=%s"
+                    % (analyzer_wall or 0.0, lv_wall or 0.0,
+                       "concurrent" if lv_background is not None else "sequential"))
         if lv_retry is not None:
             subprocess_retries.append(lv_retry)
         if lv.timed_out:
@@ -2733,6 +2842,18 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                     % (detail["logValidate"]["status"], prof.suppress_recording_rules))
     else:
         detail.setdefault("logValidate", {"status": "SKIPPED", "reason": "short-circuit"})
+        if lv_background is not None:
+            # The chain stopped before row 4: the speculative run is waited out (no
+            # orphaned dotnet process outlives the chain) and dropped, buffered log
+            # lines included, so the record reads exactly as a sequential chain's. A
+            # raise is dropped too: the sequential chain would never have made the call.
+            try:
+                lv_background.join(None)
+            except Exception:  # noqa: BLE001 - discarded speculative run
+                pass
+            logger.verbose("Verify", "verify timing logValidate ran concurrently "
+                                     "wall=%.1fs; result discarded (chain short-circuited "
+                                     "before row 4)" % (lv_background.wall or 0.0))
 
     # 5. Results parse (always parsed for triage; drives verdict when reachable).
     results_failures = _parse_results(instance_dir)
@@ -3180,6 +3301,66 @@ def _parse_results(instance_dir: str) -> int:
             return hlib.parse_results_failures(fh.read())
     except OSError:
         return 0
+
+
+class _BufferedLogger:
+    """A HarnessLogger stand-in for a verifier running on a background thread: it
+    records calls and replays them later, in order, onto the real logger, so the
+    harness log reads exactly as if the verifier had run in its sequential slot."""
+
+    def __init__(self):
+        self.entries: List[Tuple[str, str, str]] = []
+
+    def log(self, level, step, message):
+        self.entries.append((level, step, message))
+
+    def info(self, step, msg):
+        self.log("Info", step, msg)
+
+    def warn(self, step, msg):
+        self.log("Warn", step, msg)
+
+    def verbose(self, step, msg):
+        self.log("Verbose", step, msg)
+
+    def error(self, step, msg):
+        self.log("Error", step, msg)
+
+    def replay(self, logger) -> None:
+        for level, step, message in self.entries:
+            logger.log(level, step, message)
+
+
+class _BackgroundVerifier:
+    """Run ``fn(buffered_logger)`` on a daemon thread. ``join(logger)`` waits, replays
+    the buffered log lines onto ``logger`` (None drops them), re-raises anything the
+    call raised, and returns its result. ``wall`` is the call's own duration."""
+
+    def __init__(self, name: str, fn):
+        self._buffer = _BufferedLogger()
+        self._result = None
+        self._error: Optional[BaseException] = None
+        self.wall: Optional[float] = None
+        self._start = time.monotonic()
+        self._thread = threading.Thread(target=self._body, args=(fn,),
+                                        name="verifier-%s" % name, daemon=True)
+        self._thread.start()
+
+    def _body(self, fn) -> None:
+        try:
+            self._result = fn(self._buffer)
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the caller's thread
+            self._error = exc
+        finally:
+            self.wall = time.monotonic() - self._start
+
+    def join(self, logger):
+        self._thread.join()
+        if logger is not None:
+            self._buffer.replay(logger)
+        if self._error is not None:
+            raise self._error
+        return self._result
 
 
 def _run_analyzer(save_dir: str, runtime: Runtime, logger: HarnessLogger,
@@ -4138,6 +4319,10 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
         for o in ev.steps:
             row = {"cmd": o.cmd, "id": o.step_id, "expect": o.expect,
                    "verdict": o.verdict, "met": o.met}
+            # The reply's msg= reason (emitted only when non-empty, so a reply without
+            # one keeps a byte-identical row); hlib.decide_retry reads it.
+            if o.msg:
+                row["msg"] = o.msg
             extra = extras_by_id.get(str(o.step_id), {})
             for key in ("captured", "substitutions", "unresolvedHandle"):
                 if extra.get(key):
@@ -4774,6 +4959,17 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
 def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logger,
                    lock_path, expr) -> int:
     """The selection loop, running under an already-held machine lock."""
+    # Build Parsek.Tests ONCE, before the first lane, so every verifier subprocess
+    # (seed analyzer, analyzer, log validation) runs -NoBuild behind it. A failed
+    # build refuses the WHOLE selection pre-boot with one INVALID(tooling-build) row
+    # per scenario, like the lock refusal: verifiers must never judge a flight with
+    # whatever stale assembly happens to be on disk.
+    if not _prebuild_tests_for_selection(runtime, logger):
+        note = "Parsek.Tests build failed at selection start (see the Build log line)"
+        for spec in selected:
+            _write_selection_refusal_result(spec, hlib.TESTS_BUILD_INVALID_SUBKIND,
+                                            note, logger)
+        return 1
     # Validate every selected spec; an invalid spec is SKIPPED with an INVALID-SPEC
     # result (never launches KSP), so one broken spec cannot abort the batch.
     bug_ids = _load_bug_ids()
@@ -4876,7 +5072,11 @@ def _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger)
                          result.get("note", ""))
         attempts.append(v)
         prior_boot_crashed = (result.get("subkind") == "boot-crash")
-        if not hlib.should_retry(v, attempt, retry_policy):
+        retry, retry_skip = hlib.decide_retry(v, attempt, retry_policy, result)
+        if retry_skip is not None:
+            result[hlib.RETRY_SKIPPED_KEY] = retry_skip
+            logger.info("Retry", hlib.format_retry_skip_line(spec.get("id"), retry_skip))
+        if not retry:
             break
         logger.info("Retry", "retry scenario=%s attempt=2 reason=%s"
                     % (spec.get("id"), result["verdict"]))
@@ -4903,17 +5103,37 @@ def _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger)
     return last_result
 
 
-def _write_instance_locked_result(spec, holder_note, runtime, logger) -> None:
-    """One INVALID(instance-locked) result per SELECTED scenario when the machine
-    lock is refused for the whole invocation.
+def _prebuild_tests_for_selection(runtime, logger) -> bool:
+    """Build Parsek.Tests once for the selection and, on success, switch the runtime's
+    verifier subprocesses to -NoBuild. Returns False (refuse the selection) on a
+    failed, timed-out, or assembly-less build (hlib.classify_tests_prebuild)."""
+    t0 = time.monotonic()
+    logger.info("Build", "tests prebuild: dotnet build %s (once per selection; the "
+                         "verifiers then run -NoBuild)" % TESTS_PROJECT_PATH)
+    res = runtime.build_tests(TESTS_BUILD_TIMEOUT_SECONDS)
+    decision = hlib.classify_tests_prebuild(res.exit_code, res.timed_out,
+                                            runtime.tests_assembly_present())
+    wall = time.monotonic() - t0
+    if not decision.ok:
+        tail = ((res.stdout or "").strip().splitlines()[-15:]
+                + (res.stderr or "").strip().splitlines()[-5:])
+        for line in tail:
+            logger.error("Build", "tests prebuild output: %s" % line)
+        logger.error("Build", "tests prebuild REFUSED wall=%.1fs: %s -> every selected "
+                              "scenario INVALID(%s); no KSP boot (the verifiers would "
+                              "otherwise run stale rules)"
+                     % (wall, decision.reason, hlib.TESTS_BUILD_INVALID_SUBKIND))
+        return False
+    runtime.tests_prebuilt = True
+    logger.info("Build", "tests prebuild ok wall=%.1fs; verifiers run -NoBuild" % wall)
+    return True
 
-    The lock moved from per-attempt to per-invocation, but the RESULTS contract
-    deliberately did not: previously every scenario refused individually and each
-    wrote its own INVALID record, so results/, the index and coverage all saw one
-    row per selected scenario. Emitting the same shape keeps every downstream
-    reader unchanged, and keeps the "a refusal is never a product verdict"
-    property (INVALID, not PARSEK-FAIL).
-    """
+
+def _write_selection_refusal_result(spec, subkind, note, logger) -> None:
+    """One terminal INVALID(<subkind>) result for a scenario the selection refused
+    before staging (no instance dir, no boot). Shared by the machine-lock refusal and
+    the selection-start build refusal; the row shape is the one every downstream
+    reader (results/, the index, coverage) already reads."""
     scenario_id = spec.get("id") or os.path.basename(spec.get("_path", "unknown")).replace(".toml", "")
     safe_id = "".join(c if (c.isalnum() or c in "._-") else "_" for c in scenario_id)
     started = utcnow_iso()
@@ -4928,9 +5148,9 @@ def _write_instance_locked_result(spec, holder_note, runtime, logger) -> None:
         "wallSeconds": 0,
         "attempt": 1,
         "verdict": hlib.VERDICT_INVALID,
-        "subkind": "instance-locked",
-        "note": holder_note,
-        "admission": {"admitted": False, "subkind": "instance-locked", "diff": []},
+        "subkind": subkind,
+        "note": note,
+        "admission": {"admitted": False, "subkind": subkind, "diff": []},
         "driver": {"steps": [], "allExpectedMet": False},
         "verifiers": {},
         "expectedFail": {"bugId": (spec.get("expectedFail", {}) or {}).get("bugId", "") or "",
@@ -4942,6 +5162,20 @@ def _write_instance_locked_result(spec, holder_note, runtime, logger) -> None:
     }
     write_result(result, logger)
     _generate_contact_sheet(result["runId"], logger)
+
+
+def _write_instance_locked_result(spec, holder_note, runtime, logger) -> None:
+    """One INVALID(instance-locked) result per SELECTED scenario when the machine
+    lock is refused for the whole invocation.
+
+    The lock moved from per-attempt to per-invocation, but the RESULTS contract
+    deliberately did not: previously every scenario refused individually and each
+    wrote its own INVALID record, so results/, the index and coverage all saw one
+    row per selected scenario. Emitting the same shape keeps every downstream
+    reader unchanged, and keeps the "a refusal is never a product verdict"
+    property (INVALID, not PARSEK-FAIL).
+    """
+    _write_selection_refusal_result(spec, "instance-locked", holder_note, logger)
 
 
 def _write_invalid_spec_result(spec, errors, runtime, logger) -> None:

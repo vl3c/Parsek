@@ -3231,6 +3231,13 @@ class TelemetrySnapshot:
     # fabricated value. THE lesson of the EVA-4 first flight: "the machine COMMANDED
     # the chute" is not evidence the canopy opened - only this read is.
     craft_chute_state: str = ""
+    # True when the runner was built with read_chute=True, i.e. it READ the craft's
+    # parachutes on this frame and "" above means it found no readable parachute
+    # (no chutes, or every per-part read raised) rather than "never asked". The
+    # chute-unobservable terminal (chute_unobservable_at_descent) gates on it, so a
+    # scripted snapshot that never opted in - every unit cell and every mission
+    # without the chute read - can never trip it.
+    chute_read_on: bool = False
     # The WATCHED kerbal's roster status, normalized by normalize_roster_status
     # over kRPC's SpaceCenter.GetKerbal(name).RosterStatus. "" = UNREAD, the
     # fail-closed sentinel (same discipline as craft_chute_state): it matches no
@@ -5592,6 +5599,9 @@ class B1State:
     # The last non-empty observed chute state, carried so a failure names what the
     # canopy was actually doing ("Armed" = commanded but never opened).
     last_chute_state: str = ""
+    # Consecutive live frames whose chute read was ON and returned "" (reset by any
+    # read state). Feeds the chute-unobservable terminal at the DESCENT entry.
+    chute_unread_streak: int = 0
     phases_reached: Tuple[str, ...] = (B1_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -5651,6 +5661,55 @@ def _update_peak(peak: Optional[float], value: float) -> Optional[float]:
     if _is_finite(value) and (peak is None or value > peak):
         return value
     return peak
+
+
+# The chute-unobservable terminal (HARNESS-OVERHEAD, RB-1 2026-09-27_1353). A
+# fixture defect made kRPC read a CLONE's parts: the chute read `Stowed` for the
+# first 7 ascent polls and "" (no parachute) on every poll after, the set-altitude
+# action logged "on 0 parachute(s)", the arm landed on nothing, and the machine flew
+# a chuted-descent mission without a chute until the Flea hit at 230 m/s. A pad
+# hop's parachutes are readable all the way to the arm (Stowed), so a runner that
+# reads them and gets nothing on the DESCENT-entry frame AND the frame before it is
+# not watching the craft it is flying. The mission ends there as MISSION-ASSERT-FAIL
+# (hlib maps it to INVALID(mission), the vessel-lost terminal's class), before the
+# arm, naming the likely cause.
+CHUTE_UNOBSERVABLE_REASON = "chute unobservable (part identity?)"
+# Consecutive live chute-read-on frames reading "" (the entry frame included) before
+# the terminal fires: the B1_CANOPY_DEBOUNCE_K discipline, so ONE faulted read at
+# the entry frame never ends a healthy flight.
+CHUTE_UNOBSERVABLE_DEBOUNCE_K = 2
+
+
+def advance_chute_unread_streak(streak: int, snapshot: TelemetrySnapshot) -> int:
+    """Fold one frame into the consecutive-unread count: +1 on a live frame whose
+    chute read is ON and returned "", reset on any frame that read a state. A
+    vessel_lost frame or a runner without the read leaves it at 0 (never counts)."""
+    if snapshot.vessel_lost or not snapshot.chute_read_on:
+        return 0
+    if snapshot.craft_chute_state:
+        return 0
+    return streak + 1
+
+
+def chute_unobservable_at_descent(snapshot: TelemetrySnapshot, unread_streak: int) -> bool:
+    """True on the DESCENT-entry frame of a pad hop whose chute read is ON and has
+    returned no parachute state on this frame and the one before it
+    (``unread_streak`` already folded with this frame). Fail-open on a vessel_lost
+    frame (the loss terminals own it) and whenever the runner did not opt into the
+    read."""
+    if snapshot.vessel_lost or not snapshot.chute_read_on or snapshot.craft_chute_state:
+        return False
+    return unread_streak >= CHUTE_UNOBSERVABLE_DEBOUNCE_K
+
+
+def chute_unobservable_reason(snapshot: TelemetrySnapshot, unread_streak: int) -> str:
+    alt = ("%.0fm" % snapshot.altitude) if _is_finite(snapshot.altitude) else "?"
+    return ("%s: the chute read is on but returned no parachute state on the last %d "
+            "frame(s) up to the DESCENT entry (altitude %s), so the arm would command "
+            "parts the flown craft may not own (a fixture whose part identities kRPC "
+            "reads off a clone reads exactly this way); ending before the arm instead "
+            "of flying an unchuted descent"
+            % (CHUTE_UNOBSERVABLE_REASON, unread_streak, alt))
 
 
 def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, List[Action]]:
@@ -5744,6 +5803,8 @@ def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, Lis
     # last frame, still flew a chuted descent.
     if not snapshot.vessel_lost and snapshot.craft_chute_state:
         state = replace(state, last_chute_state=snapshot.craft_chute_state)
+    state = replace(state, chute_unread_streak=advance_chute_unread_streak(
+        state.chute_unread_streak, snapshot))
     if (not snapshot.vessel_lost and state.phase == B1_DESCENT
             and not state.craft_chute_full_seen):
         if snapshot.craft_chute_state == CHUTE_STATE_DEPLOYED:
@@ -5810,6 +5871,14 @@ def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, Lis
             # would push the craft permanently outside it: the inert-chute failure mode
             # in slow motion.
             state = _b1_enter(state, B1_DESCENT, snapshot.ut, peak)
+            # FAIL CLOSED before the arm when the craft's chutes are unreadable
+            # (chute_unobservable_at_descent): no actions, so nothing is commanded on
+            # parts that may belong to another vessel.
+            if chute_unobservable_at_descent(snapshot, state.chute_unread_streak):
+                return replace(state, done=True, verdict=MISSION_ASSERT_FAIL,
+                               loss_reason=_b1_loss_reason_with_altitude(
+                                   state, chute_unobservable_reason(
+                                       snapshot, state.chute_unread_streak))), []
         else:
             return _b1_stay_or_flake(state, snapshot, peak), []
 
@@ -7531,6 +7600,9 @@ class Eva4State:
     chute_armed_rate: Optional[float] = None
     # OBSERVED latch: the craft's chute has READ Deployed at least once.
     craft_chute_full_seen: bool = False
+    # Consecutive live frames whose chute read was ON and returned "" (reset by any
+    # read state). Feeds the chute-unobservable terminal at the DESCENT entry.
+    chute_unread_streak: int = 0
     # Consecutive frames every EVA-window conjunct has held. The transition fires at
     # EVA4_WINDOW_DEBOUNCE_K; any non-open frame resets it to 0 (fail-closed).
     window_open_streak: int = 0
@@ -7645,6 +7717,8 @@ def eva4_decide(state: Eva4State, snapshot: TelemetrySnapshot) -> Tuple[Eva4Stat
 
     if not snapshot.vessel_lost and _is_finite(snapshot.altitude):
         state = replace(state, last_finite_altitude=snapshot.altitude)
+    state = replace(state, chute_unread_streak=advance_chute_unread_streak(
+        state.chute_unread_streak, snapshot))
 
     if snapshot.vessel_lost:
         return replace(
@@ -7687,6 +7761,14 @@ def eva4_decide(state: Eva4State, snapshot: TelemetrySnapshot) -> Tuple[Eva4Stat
             # poll needlessly eats the arming bound, and a few polls of delay would push
             # the craft permanently outside it: the flight-1 failure mode in slow motion.
             state = _eva4_enter(state, EVA4_DESCENT, snapshot.ut, peak)
+            # FAIL CLOSED before the arm, exactly as B1 (chute_unobservable_at_descent).
+            # Without it the window could never open and the craft fell to the window
+            # floor before a reason that named the empty read, not its cause.
+            if chute_unobservable_at_descent(snapshot, state.chute_unread_streak):
+                return replace(state, done=True, verdict=MISSION_ASSERT_FAIL,
+                               loss_reason=_eva4_loss_reason_with_altitude(
+                                   state, chute_unobservable_reason(
+                                       snapshot, state.chute_unread_streak))), []
         else:
             return _eva4_stay_or_flake(state, snapshot, peak), []
 

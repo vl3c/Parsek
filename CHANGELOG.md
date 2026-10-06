@@ -1453,9 +1453,26 @@ _(unreleased - entries accumulate here per commit)_
   finalized as an endpoint, and a vessel that later committed history put back in the world is
   no longer read as the end of an earlier recording of it. CI-2 reads 12 Destroyed again.
 
+- **Dev: a harness pad hop whose parachutes cannot be read now stops before arming them.**
+  B1, the science-and-recover lane and EVA-4 read the craft's parachute state every poll. When
+  that read returns nothing on the descent-entry poll and the one before it, the mission now
+  ends there (`MISSION-ASSERT-FAIL`, reason `chute unobservable (part identity?)`, retried
+  once like a vessel loss) instead of arming nothing and flying on. RB-1 `2026-09-27_1353`
+  (a fixture whose parts kRPC read off a clone) armed "0 parachute(s)" and hit the ground at
+  230 m/s; over the 26 collected flights of these lanes the check trips on that run and the
+  two RB-2 runs with the same defect, and on no other. The deploy action now also logs how
+  many parachutes it fired.
 - **An undock done from EVA now reads "Undocked" in the Missions tab.** When a kerbal on EVA
   undocked a docked vessel it was not flying, the separation was listed as "Decoupled".
   A docking port's "Decouple Node" and an ordinary decoupler still read "Decoupled".
+- **A part torn off by force now reads "Broke off", and a VAB-built docking port's Undock reads
+  "Undocked", in the Missions tab.** A wing or parachute ripped off by aerodynamic stress or an
+  impact was listed as "Decoupled", on the vessel you fly and on a vessel recorded in the
+  background alike. Clicking Undock on a pair of docking ports that were joined in the
+  editor was also listed as "Decoupled". A decoupler firing still reads "Decoupled" (or
+  "Staged" in a mission's steps), staging such a docking port still reads the same way, and a
+  break that comes with a crash still reads "Crashed". Neither fix has been checked in a
+  test flight yet.
 - **A branch point after a recording split now names the segment it happened on.** When a
   recording is split (the optimizer's cut at an atmosphere exit or a body change, or a
   Re-Fly's HEAD/TIP cut), every branch point that names the recording as a parent at or
@@ -2744,6 +2761,35 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **Dev: harness runs spend less time outside the mission.** The seam is polled every 25 ms
+  for the first 2 s after each command (it was a flat 0.25 s, while the game answers within a
+  frame or two; measured 13.7 s per run in such waits), and the response file is read from
+  where the last read stopped. The test assembly the verifiers run is built once per
+  selection instead of twice per run (the build checks cost about 9.4 s and 7.3 s per run);
+  if that build fails, every selected scenario is refused before boot as
+  `INVALID(tooling-build)` rather than checked with old rules. With the assembly prebuilt,
+  the KSP.log validation runs beside the recording analyzer. Verdicts and result rows are
+  unchanged; one timing line is new.
+- **Dev: the harness no longer retries a run that failed on a definite seam error.** A
+  failed attempt whose blamed test-command step answered `ERROR` or `REJECTED` with a
+  reason from a closed set (a malformed or unknown command, a missing or invalid argument,
+  `active-vessel-lost`, an executor `not-eva`, CommitTree's `not-in-flight`) is not flown a
+  second time, because the retry would reproduce it; timeouts, deferrals and mission,
+  autopilot and tooling faults still retry once. The verdict and subkind are unchanged; the
+  harness log names the step, verb and reason, and the result JSON carries `retrySkipped`.
+  Each test-command step row in the result JSON now also records its reply's reason
+  (`msg`). Replayed over the 48 retries on disk, the set skips none and loses none of the 8
+  retry passes; it acts on new runs, where the seam now reports a dead EVA kerbal as
+  `active-vessel-lost` instead of a step timeout.
+- **Dev: two test-command step budgets are shorter, so a failing harness step gives up
+  sooner.** `EvaGroundScience` now times out after 60 s (was 120 s) and `AnswerMergeDialog`
+  after 60 s (was 120 s). Measured over 859 collected harness runs: the slowest successful
+  `EvaGroundScience` action took 5.5 s (412 steps) and the slowest successful
+  `AnswerMergeDialog` 7.2 s (65 steps), while every one of their 43 timeouts waited the full
+  120 s without a late success, about 86 minutes of wall time in all. `AnswerMergeDialog`
+  keeps 60 s rather than 30 s because its re-fly fallback may spend 30 s waiting for the
+  resumed flight before it drives the scene exit. The harness's mirror of the budget table
+  moves with them, so a step's own wait still outlasts the game's verdict.
 - **A new supply route is named after the mission it repeats.** Creating a route from a
   Candidates row names it after its mission (`Duna Supply 1`) instead of `Route: KSC -> Duna`,
   which only repeated the from/to line under it. A second route from the same mission (or any

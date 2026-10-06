@@ -186,6 +186,20 @@ warp watchdog owns pauses then), after a seam step (perform() blocks for the
 whole step, so the watch re-arms), when the machine state declares
 `game_pause_owned` (no mission does today), or on an unread pause state.
 
+### The chute-unobservable terminal (a pad hop watching the wrong parts)
+
+B1, SBR (through B1) and EVA-4 build their runner with `read_chute=True`, and the
+snapshot carries that as `chute_read_on`. If the chute read returns "" (no
+readable parachute) on the DESCENT-entry frame AND the frame before it, the
+machine ends the mission BEFORE the arm: `MISSION-ASSERT-FAIL` with a reason
+starting `chute unobservable (part identity?)`, INVALID(mission) at the harness
+like any vessel-loss terminal. That is the RB-1 `2026-09-27_1353` shape (a
+fixture whose part identities kRPC read off a clone: `on 0 parachute(s)`, then a
+230 m/s impact). One faulted read does not trip it, and the post-landing recovery
+frames never reach it. The runner's `deploy_chute` action now logs `[Chute]
+deployed N parachute(s)` (Warn on 0 or on a raise). Contract: edge case 22 of
+`docs/dev/design-autotest-mission-library.md`.
+
 ## Flight efficiency (where the wall time goes)
 
 `tools/flight_efficiency.py` measures the REAL-TIME cost of finished runs: how
@@ -288,6 +302,44 @@ The estimation contract (full text in the `lib/flighteff.py` docstring):
 Each recommendation names its code site: the mission shell and the mlib state
 machine that drives the phase, plus the spec `missionParams` keys that control it
 (`lib/test_flighteff.py` pins every named key to a `params.get` in mlib).
+
+### Harness overhead (seam polling and the verifier build)
+
+Two harness-side costs the analyzer measured outside the mission (HARNESS-OVERHEAD
+in `docs/dev/todo-and-known-bugs.md`), and what `run.py` does about them:
+
+- **Seam polling** (`seamGaps`, 13.7 s per run). The addon pumps the command file
+  every frame, so a synchronous verb answers within a frame or two. `drive_seam`
+  sleeps `hlib.seam_poll_interval(seconds since the write)`: 25 ms for the first
+  2 s after each command write, then the old 0.25 s. The response file is read
+  incrementally (`run.ResponseTail`: only the bytes past the last offset, only
+  complete lines answer a step, first terminal line per id wins, a shrunken file
+  restarts the tail), so a GUI census lane no longer re-reads thousands of lines
+  per poll. `result.response_lines` reads exactly what the whole-file reader
+  returned.
+- **The verifier build** (`postQuitTail`, 16.8 s per run). `analyze-recordings.ps1`
+  and `validate-ksp-log.ps1` each ran `dotnet test`, whose build check cost about
+  9.4 s and 7.3 s. `run.py` now builds `Source/Parsek.Tests` ONCE per selection,
+  before the first lane (`dotnet build ... -p:SkipKspDeploy=true`, from the
+  worktree root, so it never deploys), then passes `-NoBuild` to both scripts and
+  to the ledger seed analyzer (the injector has always run `--no-build`, so an
+  injected lane in a fresh worktree no longer needs a hand build first). A failed,
+  timed-out or assembly-less build refuses the WHOLE selection pre-boot with one
+  terminal `INVALID(tooling-build)` row per scenario (flake-exempt, like
+  `instance-locked`): the verifiers never judge a flight with stale rules. Log:
+  `[Build] tests prebuild ok wall=...` or `tests prebuild REFUSED ...` with the
+  build output tail.
+- **Analyzer and log validation run concurrently** once prebuilt
+  (`hlib.verifiers_may_overlap`): with `-NoBuild` the two `dotnet test` runs share
+  no build outputs, and the analyzer writes only under the produced save's
+  `analysis/` while the log validation only reads `KSP.log`. The log validation
+  is speculative: it starts beside the analyzer, its log lines are buffered and
+  replayed at row 4's position, and its result is used only if the chain reaches
+  row 4; on an analyzer short-circuit it is joined and discarded. Verdicts, rows,
+  the `subprocessRetry` order and the log order are the sequential chain's;
+  `verify timing analyzer=... logValidate=... mode=concurrent|sequential` is the
+  new line. Without a prebuild (a `run_attempt` driven directly) the chain stays
+  sequential and the scripts build for themselves.
 
 ### The mission warp policy (what a mission warps, and why)
 
@@ -1352,6 +1404,16 @@ What a red means:
   (`cd harness && python provision/provision.py --profile stock-minimal`).
 - **KILLED** - a budget kill. Always called out explicitly in the tally so it
   cannot hide behind twenty passes beside it.
+- **INVALID with `retrySkipped` in its result JSON** - the attempt failed on a
+  deterministic seam error (an `ERROR` / `REJECTED` reply whose reason is in
+  `hlib.DETERMINISTIC_SEAM_ERROR_REASONS`: a protocol reject, a spec-text argument
+  refusal, `active-vessel-lost`, an executor `not-eva`, CommitTree's
+  `not-in-flight`), so `run.py` did not fly the retry (operator ruling
+  2026-10-06). The harness log carries a `[Retry] retry skipped ... stepId=...
+  verb=... reason=...` line. Recheck it by hand; every other retryable INVALID
+  (timeouts, deferrals, mission / autopilot / tooling faults) still retries once.
+  Contract: `docs/dev/design-autotest-harness-core.md`, "Deterministic seam
+  errors are not retried".
 - **XPASS** - amber. An expected-fail guard now passes: confirm the bug is
   closed, then remove the `expectedFail` key so it stops being expected.
 

@@ -5079,3 +5079,58 @@ class KrpcPausedClockSeamTests(unittest.TestCase):
         base = mission_runner.MissionControl()
         self.assertIsNone(base.read_game_paused())
         self.assertFalse(base.paused_clock_exempt())
+
+
+class _FakeChute:
+    def __init__(self, raises=False):
+        self.raises = raises
+        self.deployed = 0
+
+    def deploy(self):
+        if self.raises:
+            raise RuntimeError("deploy blew up")
+        self.deployed += 1
+
+
+class DeployChuteLoggingTests(unittest.TestCase):
+    """ACTION_DEPLOY_CHUTE names how many parachutes it fired, like the deploy-altitude
+    setter does. RB-1 2026-09-27_1353 armed "0 parachute(s)" (kRPC read a clone's
+    parts) and the deploy said nothing, so the impact read as a chute that failed to
+    open. A per-part raise is named, never swallowed silently."""
+
+    def _perform(self, chutes):
+        import types
+        lines = []
+        orig = mission_runner._stdout_sink
+        mission_runner._stdout_sink = lines.append
+        try:
+            c = mission_runner.KrpcMissionControl(client_name="test", read_chute=True)
+            vessel = types.SimpleNamespace(
+                parts=types.SimpleNamespace(parachutes=list(chutes)),
+                control=types.SimpleNamespace())
+            c._conn = types.SimpleNamespace(
+                space_center=types.SimpleNamespace(active_vessel=vessel))
+            c.perform(mlib.Action(mlib.ACTION_DEPLOY_CHUTE))
+        finally:
+            mission_runner._stdout_sink = orig
+        return lines
+
+    def test_the_deploy_count_is_logged(self):
+        chutes = [_FakeChute(), _FakeChute()]
+        lines = self._perform(chutes)
+        self.assertEqual([1, 1], [ch.deployed for ch in chutes])
+        self.assertTrue(any("[Chute]" in l and "deployed 2 parachute(s)" in l
+                            and "[Info]" in l for l in lines), lines)
+
+    def test_zero_parachutes_is_a_warning(self):
+        lines = self._perform([])
+        self.assertTrue(any("deployed 0 parachute(s)" in l and "[Warn]" in l
+                            for l in lines), lines)
+
+    def test_a_raising_part_is_named_and_the_rest_still_fire(self):
+        good = _FakeChute()
+        lines = self._perform([_FakeChute(raises=True), good])
+        self.assertEqual(1, good.deployed)
+        self.assertTrue(any("deployed 1 parachute(s) (1 raised)" in l for l in lines), lines)
+        self.assertTrue(any("deploy raised: RuntimeError: deploy blew up" in l
+                            for l in lines), lines)
