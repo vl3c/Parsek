@@ -111,8 +111,15 @@ namespace Parsek.Logistics
         ///
         /// <para>Resets the loop cursors unconditionally (mirrors the
         /// <c>TryActivate</c> reset discipline: -1 means the first post-rewind
-        /// crossing fires; the ELS dedup over the KEPT rows is the double-fire
-        /// backstop). Clears in-flight cycle state whose UTs lie beyond the
+        /// crossing fires). The reset alone is NOT safe against a double fire:
+        /// the dispatch dedup keys on the counter-based cycle id, not the loop
+        /// index, so the crossing that most recently passed before the cutoff
+        /// would fire again under a fresh id. Each production caller of
+        /// <see cref="ReconcileStoreAtRewind"/> therefore restores the loop
+        /// position from the loaded save's own route copy afterwards
+        /// (<c>RouteLoadReconcile.RestoreLoopPositionFromSave</c>); the reset is
+        /// what stands for a route the save does not carry or whose clock
+        /// definition changed. Clears in-flight cycle state whose UTs lie beyond the
         /// cutoff (an InTransit cycle started after the cutoff returns to
         /// Active), holds / partial reports stamped after the cutoff, and a
         /// pending recovery credit whose dispatch happened after the cutoff.
@@ -700,7 +707,11 @@ namespace Parsek.Logistics
         /// <see cref="ApplyDerivedTimelineStatus"/>,
         /// <see cref="ClearArmedOneShotFlags"/>,
         /// <see cref="ReconstructCycleCounters"/>); then
-        /// <see cref="RouteStore.InstallRoutesAtRewind"/>.</para>
+        /// <see cref="RouteStore.InstallRoutesAtRewind"/>. Each production caller follows it
+        /// with the loop-position restore from the loaded save's route copy
+        /// (<c>RouteLoadReconcile.RestoreLoopPositionAtRewindExit</c> on the two
+        /// rewind exits, <c>RestoreLoopPositionFromSave</c> on an in-session load),
+        /// which the cursor reset needs to avoid a double fire.</para>
         ///
         /// <para><b>OnLoad-safe:</b> emits NO ledger actions (only Route
         /// instance mutation, escrow drop, list install, and logging), so the

@@ -4393,7 +4393,7 @@ namespace Parsek
                     // lands in FLIGHT and the invoker issues LoadScene(FLIGHT)
                     // from FLIGHT/SPACECENTER/TRACKSTATION.
                     loadPhase = "rewind-post-load";
-                    DispatchRewindPostLoadIfPending();
+                    DispatchRewindPostLoadIfPending(node);
 
                     // Phase 10 of Rewind-to-Staging (design §6.9 step 2):
                     // resume any interrupted staged-commit merge on the
@@ -4762,7 +4762,7 @@ namespace Parsek
                 // coroutine (the old scenario's coroutine was torn down with
                 // the scene).
                 loadPhase = "rewind-post-load";
-                DispatchRewindPostLoadIfPending();
+                DispatchRewindPostLoadIfPending(node);
 
                 // Phase 10 of Rewind-to-Staging (design §6.9 step 2): if a
                 // staged-commit merge crashed mid-way, the scenario's
@@ -4832,8 +4832,14 @@ namespace Parsek
         /// always a flight-scene save. Any other scene means the load took an
         /// unexpected branch — log Error and clear the context.
         /// </para>
+        /// <para>
+        /// <paramref name="loadedScenarioNode"/> is this OnLoad's node, which on a Re-Fly start
+        /// is the RP quicksave's own ParsekScenario (<c>FlightDriver</c> loads the in-memory game
+        /// the invoker parsed from that file): the bundle restore reads each kept route's loop
+        /// position from its ROUTES.
+        /// </para>
         /// </summary>
-        private static void DispatchRewindPostLoadIfPending()
+        private static void DispatchRewindPostLoadIfPending(ConfigNode loadedScenarioNode)
         {
             if (!RewindInvokeContext.Pending) return;
 
@@ -4849,7 +4855,7 @@ namespace Parsek
                 return;
             }
 
-            RewindInvoker.ConsumePostLoad();
+            RewindInvoker.ConsumePostLoad(loadedScenarioNode);
         }
 
         /// <summary>
@@ -5030,6 +5036,19 @@ namespace Parsek
                 new List<Logistics.Route>(Logistics.RouteStore.DormantRoutes),
                 routeRewindCutoffUT,
                 keptLedgerActions,
+                logTag: "Rewind",
+                logPrefix: "OnLoad go-back");
+            // The reconcile reset every kept loop cursor to -1, which would re-fire the crossing
+            // that most recently passed before the cutoff under a fresh cycle id. Each kept route
+            // takes its loop position back from the rewind save's own route copy, read from the
+            // parsed save in ExecuteRewindSaveLoad (this OnLoad node is persistent.sfs, not the
+            // rewind save). That copy was written at the save's own UT, up to the lead-time
+            // windback after this cutoff: a crossing inside that window keeps its saved cursor
+            // while its retired row is not charged again. Sets Route fields only.
+            Logistics.RouteLoadReconcile.RestoreLoopPositionAtRewindExit(
+                RewindContext.RewindSaveRoutes,
+                routeRewindCutoffUT,
+                RewindContext.RewindSaveClockUT,
                 logTag: "Rewind",
                 logPrefix: "OnLoad go-back");
 

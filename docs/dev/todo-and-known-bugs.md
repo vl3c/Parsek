@@ -16,6 +16,29 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ROUTE-TICK-BASELINE-SET-BEFORE-GO-BACK-CLOCK-MOVE: after a go-back rewind, route ticks may stall until the clock passes the pre-rewind UT [FILED 2026-10-07 from the PR #2036 review. OPEN, product; unverified, pre-existing]
+
+`ParsekScenario.Update` sets `lastRouteTickUT` on the new scenario's first `Update`, which likely
+runs before `ApplyRewindResourceAdjustment` moves the clock back to the rewind target; if so the
+next ticks see the clock behind `lastRouteTickUT` and route crossings stall until it is passed.
+The H58 log has too few `Tick:` lines to tell. Check first: a go-back rewind log with an Active
+route, the first `Update` / `lastRouteTickUT` stamp against the clock-move line, then the next
+route `Tick:` lines.
+
+---
+
+## DESIGN-GO-BACK-REWIND-VESSEL-SOURCE: logistics design 10.6 says a go-back rewind restores the stock vessels from the loaded save; they come from persistent.sfs [FILED 2026-10-07 from the ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING fix, branch `fix-route-rewind-refire`. OPEN, docs; verify then correct]
+
+Decompiled `SpaceCenterMain.Start` calls `LoadGame("persistent")`, and `Game.Load` hands that game's
+protos to OnLoad, so a go-back rewind's world vessels come from persistent.sfs with the future
+vessels stripped, not from the rewind save (the rewind save's own scenario node is only parsed inside
+`RecordingStore.ExecuteRewindSaveLoad`; GS-4's log shows a second "Save loaded from disk" with no
+persistent write between). Design 10.6's "restores the stock vessels from the loaded save" reads
+otherwise. Confirm against a go-back rewind log, then correct 10.6 (and any rewind design text that
+repeats it).
+
+---
+
 ## CLAIMED-VESSEL-DESPAWN-AT-REWIND-OUTSIDE-FLIGHT: a vessel a committed future mission claims should leave the KSC and Tracking Station at the rewind, as it does in flight [FILED 2026-10-07 from the owner ruling on PR #2029, branch `fix-chain-tip-outside-flight`. OPEN, product design; follow-up, not a release blocker]
 
 Design 12.5 / 20.3 despawn a claimed vessel at the rewind in every scene. Today only flight does
@@ -1346,7 +1369,8 @@ Cold, PlainRewind and ReFlyStart stay with the cold load, `HandleRewindOnLoad` a
 One step goes past the rewind exit: its cursor reset (-1) re-fires the crossing whose dock
 instant most recently passed under a fresh cycle id the dedup cannot match, which on an F9 just
 after a delivery would deliver and charge it twice (see
-ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING). So each kept route takes its loop position
+ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING, since fixed: both rewind exits now run the
+same restore). So each kept route takes its loop position
 back from the loaded save's own ROUTES copy when the save is not newer than the cutoff: the loop
 anchor always (it is the cursors' index space; `TryActivate` after the save moves it), the route
 / per-stop cursors and window anchor when the cadence, transit, dock UTs and window basis are
@@ -1366,16 +1390,58 @@ IR-4 remain the live proof.
 
 ---
 
-## ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING: after a go-back rewind or a Re-Fly start, a loop route fires its last pre-rewind crossing a second time [FILED 2026-10-07 from the `fix-route-state-on-load` work, reproduced headlessly. OPEN, product]
+## ~~ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING: after a go-back rewind or a Re-Fly start, a loop route fires its last pre-rewind crossing a second time~~ [FILED 2026-10-07 from the `fix-route-state-on-load` work, reproduced headlessly. FIXED 2026-10-07 on branch `fix-route-rewind-refire` (headless only, not flown)]
+
+**FIXED.** Both rewind exits now run the in-session load's restore after the shared reconcile:
+`RouteLoadReconcile.RestoreLoopPositionAtRewindExit` runs
+`RestoreLoopPositionFromSave` (unchanged apart from an optional log tag) over the installed kept
+routes, so each takes back its loop anchor, route / per-stop cursors and window anchor (same
+clock definition), partner alternation cursor (same partner) and the recovery credit the save
+still owes. It sets Route fields only; both exits stay OnLoad-safe and the credit is paid by the
+next crossing. Which save copy each exit reads:
+- Go-back rewind: NOT its OnLoad node, which is persistent.sfs as last written
+  (`SpaceCenterMain.Start` reloads persistent and `Game.Load` hands its scenario protos to OnLoad,
+  decompiled; the GS-4 log shows the second `Save loaded from disk` and no persistent write in
+  between). The rewind save's own ParsekScenario node exists only in the `Game`
+  `GamePersistence.LoadGame` parses in `RecordingStore.ExecuteRewindSaveLoad` (its `scenarios`
+  protos hold the file's SCENARIO nodes; `PreProcessRewindSave` edits only FLIGHTSTATE).
+  `RouteLoadReconcile.CaptureRewindSaveRoutes` reads its ROUTES there, before the Space Center
+  load, into `RewindContext.RewindSaveRoutes` with the parsed clock
+  (`flightState.universalTime`, = `RewindAdjustedUT`); `HandleRewindOnLoad` restores from it
+  after `ReconcileStoreAtRewind` and before the career cutoff walk; `EndRewind` /
+  `ResetRewindFlags` clear it.
+- Re-Fly start: its OnLoad node IS the RP quicksave's ParsekScenario (`FlightDriver` runs
+  `Game.Load` on the game the invoker parsed from the file). `DispatchRewindPostLoadIfPending(node)`
+  -> `RewindInvoker.ConsumePostLoad(node)` reads its ROUTES and `KerbalsModule.ReadLoadedSaveUT()`
+  and passes them to the new `ReconciliationBundle.Restore(bundle, cutoff, loadedSaveRoutes,
+  loadedSaveUT)` overload; the two-argument overload keeps the reset (no copy in hand).
+
+Mirror cases as on the in-session load: a changed clock definition keeps the -1 reset (the
+anchor still goes back), a route created after the cutoff goes dormant as before, a kept route the
+save does not carry keeps the reset, no save copy / no usable clock / a save newer than the cutoff
+keeps the reset and logs `loop position not restored ... reason=`, and a rewind with nothing on
+the route after the save leaves its loop position unchanged. Residual (go-back only): the rewind
+save's route copy is as of the save's own UT, up to the 15 s lead-time windback after the cutoff,
+while route rows after the cutoff are retired; a crossing that fired inside that window keeps its
+saved cursor and is not charged again, and its `RouteRecoveryCredited` row (the credit it paid for
+the previous cycle) is retired too while the save no longer owes it, so that credit is lost as
+well (PR #2036 review; never a double charge or a double delivery). Changing the go-back's route
+cutoff to the save's own UT would close both; owner decision, not done here. Red cells (written against stubs, 20 red, then green):
+`RouteRewindLoopPositionTests` (the double fire, no-op, anchor after a re-activation, partner
+cursor, changed clock, created-after / missing-from-save, no save copy, owed credit unpaid by the
+exit, each x {GoBack, ReFlyStart}; the parsed-save capture; source gates on `HandleRewindOnLoad`,
+`ExecuteRewindSaveLoad` and the Re-Fly dispatch), plus a headless
+`RewindInvoker.ConsumePostLoad(node)` cell and the skip-reason table added after, both
+mutation-checked (dropping the routes from either exit's call reds them). The original filing
+follows.
 
 `RouteRewindClassifier.ResetCycleStateForRewind` sets `LastObservedLoopCycleIndex`,
 `WindowAnchorCycleIndex` and every stop's `LastFiredCycleIndex` to -1, and
 `ReconstructCycleCounters` makes the next cycle id fresh (`cycle-{maxKeptOrdinal+1}`). The first
 tick after the rewind sees the crossing whose dock instant most recently passed as owed
 (`dockCycleIndex > -1`) and fires it under that fresh id, which `IsDispatchAlreadyInLedger`
-cannot match: the dedup keys on the counter-based cycle id, not the loop index, so the note on
-`ResetCycleStateForRewind` ("the ELS dedup over the KEPT rows is the double-fire backstop") does
-not hold. When that
+cannot match: the dedup keys on the counter-based cycle id, not the loop index, so the note then
+on `ResetCycleStateForRewind` (that the ELS dedup was the double-fire backstop) did not hold. When that
 crossing was dispatched before the cutoff its cargo is already in the loaded world, so it is
 delivered and charged twice. Headless probe: tick at 1150 (cycle-0), tick at 1450, retire +
 reconcile at 1200, tick at 1200: a second dispatch for crossing 0. Same family: the reconcile
@@ -1393,9 +1459,8 @@ route copy (`RouteLoadReconcile.RestoreLoopPositionFromSave`); the go-back exit 
 persistent.sfs of unknown age), a Re-Fly start could (the RP quicksave carries the routes as of
 the RP).
 
-Fix: not decided. Either rebase the cursors at the first post-rewind tick through the loop clock
-from the latest kept `RouteDispatched` row's UT, or restore them from the rewind save's route
-copy where one is trustworthy (Re-Fly). Red test: the probe above against each exit.
+Fix: shipped as above (restore from each exit's loaded save copy; for the go-back, the copy read
+from the parsed rewind save rather than the OnLoad node).
 
 ---
 

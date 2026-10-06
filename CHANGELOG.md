@@ -3727,6 +3727,16 @@ _(unreleased - entries accumulate here per commit)_
   is never paid for a run the timeline no longer has. Covered by xUnit; not yet checked in a
   test flight.
 
+- **A supply route no longer delivers and charges its last run twice after a rewind or a
+  Re-fly.** Rewinding to a launch, or starting a Re-fly from a separation, made every looping
+  route run again the delivery it had last made before that moment: its cargo was already
+  there, and it arrived and was paid for a second time. Each route now picks up from where it
+  stood in the save the rewind or Re-fly loads, the same way a quickload already does, so a run
+  made before that moment is not repeated, every run after it happens once, a linked pair keeps
+  its turn order and a recovery credit that save still owed is paid on the next run. A route
+  whose schedule you changed since then starts its count again from the next run, as before.
+  Covered by xUnit; not yet checked in a test flight.
+
 - **A crewed station hidden after a rewind no longer has its crew killed.** When a committed
   mission docks to a station later, the station is hidden from the rewind until that mission's
   end. If the station was far from your vessel when you entered flight, hiding it killed
