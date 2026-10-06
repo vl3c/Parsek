@@ -236,7 +236,7 @@ Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the f
 
 ---
 
-## COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE: a cold load into an older mid-flight quicksave keeps the abandoned future's events and ledger rows [FILED 2026-10-06 from the PR-A review, verified by code read; branch `f9-bookkeeping`. OPEN, product; not yet reproduced]
+## COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE: a cold load into an older mid-flight quicksave keeps the abandoned future's events and ledger rows [FILED 2026-10-06 from the PR #2021 review, verified by code read. OPEN, product; not yet reproduced]
 
 The cold-path twin of QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT and
 QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS. Both external files are written at every OnSave, so a
@@ -254,7 +254,7 @@ Expected player effect: F5 mid-flight, fly on until a contract completes, leave 
 menu (the flight is committed), load the quicksave: the abandoned future's contract reward row
 and tagged events survive into the resumed flight.
 
-Fix: not decided. The in-session fix (PR-C, the reconcile at the quickload resume trim) is gated
+Fix: not decided. The in-session fix (the reconcile at the quickload resume trim, QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT) is gated
 on QuickloadFlight / InSessionOther and does not cover this; either extend the same reconcile to
 the cold resume (the cold restore arms the same quickload resume context) or reconcile the
 external files against the loaded save. Red test first: xUnit over a cold restore of an active
@@ -265,7 +265,7 @@ AbandonedFutureEvents / AbandonedFutureLedgerRows); the fix flips those cells.
 
 ---
 
-## ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS: the Esc-menu Discard Re-fly leaves the attempt's pending science and ledger tags behind [FILED 2026-10-06 from the PR-A review, verified by code read; branch `f9-bookkeeping`. OPEN, product; not yet reproduced]
+## ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS: the Esc-menu Discard Re-fly leaves the attempt's pending science and ledger tags behind [FILED 2026-10-06 from the PR #2021 review, verified by code read. OPEN, product; not yet reproduced]
 
 `RevertInterceptor.DiscardReFlyHandler` prunes the attempt through
 `MergeDialog.PruneActiveReFlyAttemptOwnedTopology` (recordings, events, files) but never clears
@@ -374,7 +374,7 @@ vessel identity, baselined over every fixture first, then gated.
 
 Fix: ~~(1) a load-path x reconciler wiring gate in xUnit (every load path against every state it
 must reconcile, so a new path or state category cannot be added without a decision)~~ DONE
-2026-10-06 (branch `f9-bookkeeping`, roadmap TA-W): `LoadReconcilePolicy` (load kinds, state
+2026-10-06 (PR #2021, roadmap TA-W): `LoadReconcilePolicy` (load kinds, state
 categories, today's decision per cell with the filed defects as known gaps) gated by
 `LoadReconcilePolicyTests` and `LoadReconcileWiringGateTests`; (2) extend
 `LedgerStateFuzzerTests` / `EffectiveStateGraphFuzzerTests` with commit, supersede, cutoff,
