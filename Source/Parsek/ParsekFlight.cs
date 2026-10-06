@@ -18258,6 +18258,22 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The stale vessel a chain-tip replacement removed was the navigation target: the
+        /// target moves to the tip that replaced it (same pid, new Vessel object).
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void RetargetReplacedChainTip(uint spawnedPid)
+        {
+            Vessel spawned = FlightRecorder.FindVesselByPid(spawnedPid);
+            if (spawned == null || FlightGlobals.fetch == null)
+                return;
+            FlightGlobals.fetch.SetVesselTarget(spawned);
+            ParsekLog.Info("Flight",
+                $"Navigation target moved to replaced chain tip pid={spawnedPid}");
+        }
+
+        /// <summary>
         /// A chain whose tip flight ended parked in the KSC exclusion zone (operator
         /// ruling 2026-09-23): the tip is settled with no vessel, so the chain is done.
         /// Drop it from the active set and remove its ghost map vessel, the same cleanup a
@@ -18393,11 +18409,26 @@ namespace Parsek
             }
             else
             {
+                // No active chain here (the flight loaded past the tip's spawn UT, so
+                // FilterAndGhostChains never ghosted the claimed vessel): a live vessel carrying
+                // a chain tip's identity after a rewind to before the tip is that vessel in its
+                // pre-claim form. It is replaced by the tip with its identity preserved, the
+                // same end state the chain path reaches, instead of adopted.
+                bool replacedStaleVessel = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
+                    rec,
+                    "FLIGHT",
+                    index,
+                    out StaleChainVesselFocus staleFocus,
+                    allowExistingSourceDuplicate);
                 VesselSpawner.SpawnOrRecoverIfTooClose(
                     rec,
                     index,
-                    preserveIdentity: false,
+                    preserveIdentity: replacedStaleVessel,
                     allowExistingSourceDuplicate: allowExistingSourceDuplicate);
+                if (replacedStaleVessel
+                    && staleFocus.WasNavigationTarget
+                    && rec.SpawnedVesselPersistentId != 0)
+                    RetargetReplacedChainTip(rec.SpawnedVesselPersistentId);
             }
 
             // A jump-armed terminal-orbit shift is spent once its vessel exists.

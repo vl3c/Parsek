@@ -3676,6 +3676,17 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **After a rewind, a fuel transfer recorded by a docking mission is no longer lost when the time
+  passes at the Space Center or in the Tracking Station.** A committed mission that docked to a
+  station and moved fuel holds that station until the mission ends, but only the flight scene
+  applied the hold. After a Rewind-to-Launch (which lands at the Space Center) or a load from
+  before the dock, the station stayed in its old form there, and when the mission's end passed
+  at the Space Center, in the Tracking Station or at a later flight load, it kept its old tanks
+  while the departing craft left with the moved fuel. The station is now replaced at that moment
+  by its recorded end state, with the same identity (supply routes and later missions still find
+  it); its kerbals are kept, not lost, and no recovery is paid. Only a station the clock was
+  wound back past is replaced; one that went through the dock in the loaded save, or one you
+  are flying, is kept as it is.
 - **Installing Parsek into an existing career no longer resets its milestones and world
   records.** The first time Parsek synced the career it un-achieved every milestone the career
   had earned before Parsek was installed (First Launch, orbits, landings and the rest) and

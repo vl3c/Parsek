@@ -106,6 +106,46 @@ namespace Parsek.Tests
             Assert.False(PlaybackScopeTracker.IsHistoricalNeverReplayed("rec3", rewoundUT, 300.0));
         }
 
+        [Fact]
+        public void StrictLatch_PlayheadBeforeStart_IsSeenBefore()
+        {
+            PlaybackScopeTracker.NotePlayhead("rec", currentUT: 50.0, activationStartUT: 100.0);
+            Assert.True(PlaybackScopeTracker.WasPlayheadSeenBeforeActivation("rec"));
+        }
+
+        [Fact]
+        public void StrictLatch_WithinToleranceAfterStart_ArmsScopeButNotSeenBefore()
+        {
+            // A commit a second after the recording began: in replay scope by tolerance, but
+            // the playhead never stood before it.
+            PlaybackScopeTracker.NotePlayhead("rec", currentUT: 101.0, activationStartUT: 100.0);
+            Assert.True(PlaybackScopeTracker.IsInReplayScope("rec"));
+            Assert.False(PlaybackScopeTracker.WasPlayheadSeenBeforeActivation("rec"));
+        }
+
+        [Fact]
+        public void StrictLatch_ClockNotReady_NeverSeenBefore()
+        {
+            PlaybackScopeTracker.NotePlayhead("rec", currentUT: 0.0, activationStartUT: 100.0);
+            Assert.False(PlaybackScopeTracker.WasPlayheadSeenBeforeActivation("rec"));
+            Assert.False(PlaybackScopeTracker.WasPlayheadSeenBeforeActivation(null));
+        }
+
+        [Fact]
+        public void StrictLatch_SweepRenotesARecordingLatchedOnlyByTolerance()
+        {
+            var list = new List<Recording> { Window("tip", 100.0, 200.0) };
+            Assert.Equal(1, PlaybackScopeTracker.NotePlayheadSweep(list, 101.0));
+            Assert.False(PlaybackScopeTracker.WasPlayheadSeenBeforeActivation("tip"));
+
+            // A later rewind to before it: the sweep must still note it.
+            Assert.Equal(0, PlaybackScopeTracker.NotePlayheadSweep(list, 40.0));
+            Assert.True(PlaybackScopeTracker.WasPlayheadSeenBeforeActivation("tip"));
+
+            PlaybackScopeTracker.Reset();
+            Assert.False(PlaybackScopeTracker.WasPlayheadSeenBeforeActivation("tip"));
+        }
+
         private static Recording Window(string id, double start, double end)
         {
             return new Recording { RecordingId = id, ExplicitStartUT = start, ExplicitEndUT = end };

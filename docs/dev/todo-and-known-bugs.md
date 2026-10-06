@@ -422,7 +422,7 @@ fixture.
 
 ---
 
-## CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT: a chain tip whose spawn UT passes at the KSC or in the Tracking Station adopts the pre-transfer live vessel [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT: a chain tip whose spawn UT passes at the KSC or in the Tracking Station adopts the pre-transfer live vessel~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, branch `fix-chain-tip-outside-flight`, by replacing the stale vessel at the tip's spawn UT; the despawn-at-rewind question below stays OPEN, product]
 
 Only the flight scene ghosts a claimed vessel (`VesselGhoster` is created only in
 `ParsekFlight`), and Rewind-to-Launch lands at the Space Center. In the TS a live vessel with the
@@ -436,8 +436,46 @@ say claimed vessels are despawned on rewind regardless of scene.
 Expected player effect: a recorded fuel transfer silently vanishes - the station keeps its
 pre-transfer tanks while the transport half spawns post-transfer.
 
-Fix: apply the chain claim outside flight (ghost or replace the claimed vessel at the tip spawn).
-Red test: a TS / KSC spawn cell with the claimed pid live and pre-claim; lane RC-3.
+Fix (branch `fix-chain-tip-outside-flight`): the three adoption sites (the Tracking Station
+hand-off, `ParsekKSC.TrySpawnAtRecordingEnd`, and the flight leaf branch of
+`ParsekFlight.SpawnVesselOrChainTip`) ask one pure predicate,
+`ChainTipStaleVessel.ShouldReplaceStaleLiveVessel`, before adopting. It answers "replace" only
+for the tip of a non-terminated chain on its own pid, unspawned, with a live same-launch vessel,
+when (a) this session saw the playhead strictly before the tip's start
+(`PlaybackScopeTracker.WasPlayheadSeenBeforeActivation`, a new no-tolerance, ready-clock latch
+next to the replay-scope one; the sweep re-notes a recording latched only by tolerance) AND
+(b) KSP last simulated that vessel before the chain's last claim (`lastUT` < latest link UT: every claim
+happens with the claimed vessel in physics, and FlightIntegrator stamps `lastUT` each physics
+frame), and the vessel is not the active vessel or recorded by the live tree. (a) keeps normal play
+and a commit made seconds after the tip began on adoption; (b) keeps a session that rewound and
+then loaded a save from after the dock from replacing the real station there. On "replace" the
+stale vessel's crew are taken off its parts and set Available (an unloaded vessel's `Die()`
+runs stock `MurderCrew`), the vessel is removed with `Vessel.Die()` (no recovery: no funds, no
+ledger row; its vessel and part pids are freed synchronously), and the tip spawns from its
+snapshot with its identity preserved (same pid and guid, so route endpoints and later chain
+links still resolve). In the TS its map focus, navigation target and selection move to the
+spawned tip (in flight its navigation target). A failed removal, a vessel in use, or any doubt falls back to the old adoption
+with a log line (`[ChainTip]`). Tests: `ChainTipStaleVesselTests`, `PlaybackScopeTrackerTests`
+(strict latch).
+
+Remaining gaps and the design question (OPEN, product): design 12.5 / 20.3 say a claimed
+vessel is despawned AT the rewind in every scene. This fix replaces it only when the tip's
+spawn UT passes, so between the rewind and that UT the pre-claim vessel stays live and usable
+at the KSC and in the TS (the player can Fly it; a flight load before the spawn UT then ghosts
+it under the player). A supply route into it keeps delivering in that window, and the
+replacement drops those deliveries with the vessel (with CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO
+this is the same conservation seam; flight BLOCKS those crossings instead). Despawning at the
+rewind out of flight would close both but needs a ruling on when the vessel leaves the KSC / TS
+lists and how routes treat it. Two narrow misses default to the old adoption: a stale vessel
+loaded into physics in flight past the spawn UT (FlightIntegrator moves its `lastUT` forward
+before the spawn decision can read it), and a save made outside flight while the claimed vessel
+was still docked to the transport (its `lastUT` is after the dock, the last claim; a docked
+save made in flight loads into flight, where the chain path ghosts it). The KSC end spawn still
+has no intermediate-link test and preserves a chain tip's identity only on a replacement (the TS
+preserves it whenever the original is gone).
+Separately, not verified in game: the flight ghosting (`VesselGhoster.GhostVessel`) calls
+`Die()` without detaching crew, so a crewed claimed vessel that is unloaded at the flight load
+may have its crew killed by stock `MurderCrew`.
 
 ---
 

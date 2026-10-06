@@ -1996,10 +1996,16 @@ namespace Parsek
 
             try
             {
-                if (VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
-                    rec,
-                    "KSCSpawn",
-                    $"Spawn not needed for #{recIdx} \"{rec.VesselName}\""))
+                // The Ghost Chain Rule here: a live vessel carrying a chain tip's identity after
+                // a rewind to before the tip is the claimed vessel in its pre-claim form. It is
+                // replaced by the tip (spawned below with its identity preserved), never adopted.
+                bool replacedStaleVessel = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
+                    rec, "SPACECENTER", recIdx, out _);
+                if (!replacedStaleVessel
+                    && VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
+                        rec,
+                        "KSCSpawn",
+                        $"Spawn not needed for #{recIdx} \"{rec.VesselName}\""))
                     return;
 
                 // Operator ruling 2026-09-23: a flight that ended parked in the KSC
@@ -2259,6 +2265,7 @@ namespace Parsek
                             spawnVelocity,
                             spawnUT,
                             excludeCrew,
+                            preserveIdentity: replacedStaleVessel,
                             terminalState: rec.TerminalStateValue,
                             surfaceRelativeRotation: surfaceRelativeRotationArg,
                             orbitOverride: orbitalSpawnOrbit);
@@ -2302,7 +2309,8 @@ namespace Parsek
                     }
 
                     spawnSnapshot = validatedSpawnSnapshot;
-                    spawnedPid = VesselSpawner.RespawnVessel(validatedSpawnSnapshot, excludeCrew);
+                    spawnedPid = VesselSpawner.RespawnVessel(
+                        validatedSpawnSnapshot, excludeCrew, preserveIdentity: replacedStaleVessel);
                 }
 
                 if (spawnedPid != 0)

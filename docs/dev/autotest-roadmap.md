@@ -6394,7 +6394,7 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | TA-5 | Nested origin rewind point survives the Discard Re-fly (editor) load | DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP |
 | TA-6 | One converter-timestamp policy for every Parsek jump | TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND |
 | TA-7 | Route endpoint unresolved until X: no cycle before X delivered from the tip snapshot | CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO |
-| TA-8 | Chain tip outside FLIGHT does not adopt a live pre-claim vessel | CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT |
+| TA-8 | ~~Chain tip outside FLIGHT does not adopt a live pre-claim vessel~~ DONE 2026-10-06 (branch `fix-chain-tip-outside-flight`): `ChainTipStaleVesselTests` (predicate, TS hand-off, KSC / flight entry) | CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT |
 | TA-9 | Chain walk follows the claimed vessel when the transport is dominant | CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER |
 | TA-10 | Tail trim keeps a resource-changing tail (ruled 2026-10-06) | TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT |
 | TA-11 | `bdock-recorded` endpoint LF delta is positive (offline over the fixture) | BDOCK-FIXTURE-TRANSFER-INVERTED |
