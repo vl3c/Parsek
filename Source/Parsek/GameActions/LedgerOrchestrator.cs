@@ -4388,6 +4388,7 @@ namespace Parsek
                         $"OnLoad: repaired legacy R&D part-purchase rows " +
                         $"(events={repairedLegacyPartPurchaseEvents}, actions={repairedLegacyPartPurchaseActions})");
                 }
+                RepairZeroCostFacilityUpgradeActionsOnLoad(GameStateStore.Events, Ledger.Actions);
                 ParsekLog.Verbose(Tag, $"OnLoad: ledger loaded from '{path}'");
             }
             else
@@ -4401,6 +4402,31 @@ namespace Parsek
             IReadOnlyList<GameAction> ledgerActions)
         {
             return LedgerLoadMigration.RepairLegacyPartPurchaseActionsOnLoad(events, ledgerActions);
+        }
+
+        /// <summary>
+        /// Load-time repair of FacilityUpgrade rows written at cost 0 before the upgrade cost
+        /// capture (see <see cref="LedgerLoadMigration.RepairZeroCostFacilityUpgradeActionsOnLoad"/>),
+        /// with one summary line. Returns the number of rows repaired.
+        /// </summary>
+        internal static int RepairZeroCostFacilityUpgradeActionsOnLoad(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions)
+        {
+            var result = LedgerLoadMigration.RepairZeroCostFacilityUpgradeActionsOnLoad(events, ledgerActions);
+            if (result.Repaired > 0)
+            {
+                ParsekLog.Info(Tag,
+                    "OnLoad: repaired cost-0 facility-upgrade rows from their saved " +
+                    "StructureConstruction debits: " + result.Format());
+            }
+            else if (result.ZeroCostRows > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    "OnLoad: cost-0 facility-upgrade rows kept as stored (no unique saved debit " +
+                    "proves their cost): " + result.Format());
+            }
+            return result.Repaired;
         }
 
         /// <summary>

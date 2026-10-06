@@ -367,6 +367,186 @@ namespace Parsek
             return fallbackCount == 1;
         }
 
+        // Refusal tokens of TryResolveLegacyFacilityUpgradeCost (one summary line counts them).
+        internal const string LegacyUpgradeRefusalExplicitZero = "explicit-zero";
+        internal const string LegacyUpgradeRefusalDowngradeInWindow = "downgrade-in-window";
+        internal const string LegacyUpgradeRefusalAmbiguousRows = "ambiguous-rows";
+        internal const string LegacyUpgradeRefusalNoDebitEvent = "no-debit-event";
+        internal const string LegacyUpgradeRefusalAmbiguousEvents = "ambiguous-events";
+        internal const string LegacyUpgradeRefusalNonDebit = "non-debit";
+
+        /// <summary>Tally of one <see cref="RepairZeroCostFacilityUpgradeActionsOnLoad"/> pass.</summary>
+        internal struct FacilityUpgradeCostRepairResult
+        {
+            public int ZeroCostRows;
+            public int Repaired;
+            public int ExplicitZero;
+            public int DowngradeInWindow;
+            public int AmbiguousRows;
+            public int NoDebitEvent;
+            public int AmbiguousEvents;
+            public int NonDebit;
+
+            public string Format()
+            {
+                var ic = CultureInfo.InvariantCulture;
+                return "zeroCostRows=" + ZeroCostRows.ToString(ic)
+                    + " repaired=" + Repaired.ToString(ic)
+                    + " noDebitEvent=" + NoDebitEvent.ToString(ic)
+                    + " ambiguousRows=" + AmbiguousRows.ToString(ic)
+                    + " ambiguousEvents=" + AmbiguousEvents.ToString(ic)
+                    + " downgradeInWindow=" + DowngradeInWindow.ToString(ic)
+                    + " nonDebit=" + NonDebit.ToString(ic)
+                    + " explicitZero=" + ExplicitZero.ToString(ic);
+            }
+        }
+
+        /// <summary>
+        /// Gives a FacilityUpgrade row that was written at cost 0 (every upgrade before the
+        /// UpgradeFacility cost capture, see <see cref="FacilityUpgradeCapture"/>) the funds
+        /// debit stock made for it, when - and only when - the saved game-state events still
+        /// prove it: the one <c>FundsChanged(StructureConstruction)</c> event of the row's own
+        /// recording tag at the row's UT. That event is the observed debit the live capture
+        /// now records, so a repaired row reads exactly as a freshly captured one. Rows whose
+        /// proof is gone (the store prunes events at or before the latest committed flight's
+        /// end) or ambiguous keep cost 0; nothing is derived from the facility cost table,
+        /// whose difficulty multiplier and mod-patched costs need not match the day of the
+        /// upgrade. Mutates the rows in place, after load and before the first walk.
+        /// </summary>
+        internal static FacilityUpgradeCostRepairResult RepairZeroCostFacilityUpgradeActionsOnLoad(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions)
+        {
+            var result = new FacilityUpgradeCostRepairResult();
+            if (ledgerActions == null || ledgerActions.Count == 0)
+                return result;
+
+            for (int i = 0; i < ledgerActions.Count; i++)
+            {
+                var action = ledgerActions[i];
+                if (action == null
+                    || action.Type != GameActionType.FacilityUpgrade
+                    || action.FacilityCost != 0f)
+                    continue;
+
+                result.ZeroCostRows++;
+                float cost;
+                string refusal;
+                if (TryResolveLegacyFacilityUpgradeCost(action, events, ledgerActions, out cost, out refusal))
+                {
+                    action.FacilityCost = cost;
+                    result.Repaired++;
+                    continue;
+                }
+
+                switch (refusal)
+                {
+                    case LegacyUpgradeRefusalExplicitZero: result.ExplicitZero++; break;
+                    case LegacyUpgradeRefusalDowngradeInWindow: result.DowngradeInWindow++; break;
+                    case LegacyUpgradeRefusalAmbiguousRows: result.AmbiguousRows++; break;
+                    case LegacyUpgradeRefusalAmbiguousEvents: result.AmbiguousEvents++; break;
+                    case LegacyUpgradeRefusalNonDebit: result.NonDebit++; break;
+                    default: result.NoDebitEvent++; break;
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Pure: the stock debit of one cost-0 FacilityUpgrade row, read off the saved events
+        /// within <see cref="LedgerOrchestrator.KscReconcileEpsilonSeconds"/> of the row's UT
+        /// and carrying the row's recording tag (the resource store coalesces same-key events
+        /// only inside that window and tag, so the pairing is one-to-one or refused). Refused
+        /// when the upgrade event itself carries a <c>cost=</c> (a captured 0: funds were not
+        /// charged), when a downgrade - the other StructureConstruction debit - shares the
+        /// window, when another upgrade row shares it (one coalesced debit would cover both),
+        /// when there is not exactly one StructureConstruction funds event, or when that event
+        /// is not a debit.
+        /// </summary>
+        internal static bool TryResolveLegacyFacilityUpgradeCost(
+            GameAction row,
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions,
+            out float cost,
+            out string refusal)
+        {
+            cost = 0f;
+            refusal = LegacyUpgradeRefusalNoDebitEvent;
+            if (row == null || events == null)
+                return false;
+
+            double window = LedgerOrchestrator.KscReconcileEpsilonSeconds;
+            string rowTag = row.RecordingId ?? "";
+
+            int debitEvents = 0;
+            double debitDelta = 0.0;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (Math.Abs(e.ut - row.UT) > window)
+                    continue;
+                if (!string.Equals(e.recordingId ?? "", rowTag, StringComparison.Ordinal))
+                    continue;
+
+                if (e.eventType == GameStateEventType.FacilityUpgraded
+                    && string.Equals(e.key, row.FacilityId, StringComparison.Ordinal)
+                    && GameStateEventDisplay.ExtractDetailField(e.detail, "cost") != null)
+                {
+                    refusal = LegacyUpgradeRefusalExplicitZero;
+                    return false;
+                }
+                if (e.eventType == GameStateEventType.FacilityDowngraded)
+                {
+                    refusal = LegacyUpgradeRefusalDowngradeInWindow;
+                    return false;
+                }
+                if (e.eventType == GameStateEventType.FundsChanged
+                    && string.Equals(e.key, "StructureConstruction", StringComparison.Ordinal))
+                {
+                    debitEvents++;
+                    debitDelta = e.valueAfter - e.valueBefore;
+                }
+            }
+
+            if (ledgerActions != null)
+            {
+                for (int i = 0; i < ledgerActions.Count; i++)
+                {
+                    var other = ledgerActions[i];
+                    if (other == null || ReferenceEquals(other, row)
+                        || other.Type != GameActionType.FacilityUpgrade)
+                        continue;
+                    if (Math.Abs(other.UT - row.UT) > window)
+                        continue;
+                    if (!string.Equals(other.RecordingId ?? "", rowTag, StringComparison.Ordinal))
+                        continue;
+                    refusal = LegacyUpgradeRefusalAmbiguousRows;
+                    return false;
+                }
+            }
+
+            if (debitEvents == 0)
+            {
+                refusal = LegacyUpgradeRefusalNoDebitEvent;
+                return false;
+            }
+            if (debitEvents > 1)
+            {
+                refusal = LegacyUpgradeRefusalAmbiguousEvents;
+                return false;
+            }
+            if (!(debitDelta < 0.0))
+            {
+                refusal = LegacyUpgradeRefusalNonDebit;
+                return false;
+            }
+
+            cost = (float)(-debitDelta);
+            refusal = null;
+            return true;
+        }
+
         /// <summary>
         /// One-shot save recovery migration for #401 (c1 bricked funds) and #396
         /// (sci1 bricked science). Walks the GameStateStore events and committed
