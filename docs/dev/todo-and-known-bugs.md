@@ -1107,13 +1107,19 @@ Cold, PlainRewind and ReFlyStart stay with the cold load, `HandleRewindOnLoad` a
 One step goes past the rewind exit: its cursor reset (-1) re-fires the crossing whose dock
 instant most recently passed under a fresh cycle id the dedup cannot match, which on an F9 just
 after a delivery would deliver and charge it twice (see
-ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING). So each kept route takes its loop cursors
-back from the loaded save's own ROUTES copy when its clock definition still matches and the save
-is not newer than the cutoff, plus the recovery credit the save still owes when the reconcile
-cleared a later one. `EmitPendingRecoveryCredit` now refuses (and clears) a credit whose
+ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING). So each kept route takes its loop position
+back from the loaded save's own ROUTES copy when the save is not newer than the cutoff: the loop
+anchor always (it is the cursors' index space; `TryActivate` after the save moves it), the route
+/ per-stop cursors and window anchor when the cadence, transit, dock UTs and window basis are
+unchanged, the partner alternation cursor when the route is linked to the same partner, and the
+recovery credit the save still owes when the reconcile cleared a later one. The loop span's
+other inputs (excluded interval keys, origin undock UT, source refs, creation members) never
+change after creation. `EmitPendingRecoveryCredit` now refuses (and clears) a credit whose
 `RouteDispatched` row is not in ELS; every flush site goes through it. Red cells:
-`RouteLoopDeliveryFireTests.LoadBackPastACrossing_ReflownCycleFiresAgain` (x3 kinds) and
-`QuickloadJustAfterACrossing_DoesNotFireThatCrossingTwice`, `RouteRecoveryCreditTests`
+`RouteLoopDeliveryFireTests.LoadBackPastACrossing_ReflownCycleFiresAgain` (x3 kinds),
+`QuickloadJustAfterACrossing_DoesNotFireThatCrossingTwice` and
+`QuickloadBackPastAReactivation_RestoresTheSavedAnchorWithTheCursor` (PR #2032 review: pause +
+re-activate after the F5, then F9, swallowed all 4 owed crossings), `RouteRecoveryCreditTests`
 (orphan credit, pause flush, F9 past a credit flush), `RouteLoadReconcileTests` (per-kind cells,
 cutoff, evidence, restore, store runs, the OnLoad source gate), `LoadReconcilePolicyTests`
 (Routes cells flipped to ReconcileAtCutoff, the gap id dropped). Not flown; lanes IR-1 / IR-2 /
@@ -1135,12 +1141,16 @@ crossing was dispatched before the cutoff its cargo is already in the loaded wor
 delivered and charged twice. Headless probe: tick at 1150 (cycle-0), tick at 1450, retire +
 reconcile at 1200, tick at 1200: a second dispatch for crossing 0. Same family: the reconcile
 clears a pending recovery credit owed by a dispatch after the cutoff but cannot bring back the
-credit the cutoff still owed when a later flush paid it, so that credit is lost.
+credit the cutoff still owed when a later flush paid it, so that credit is lost. By code read,
+two more positions stay in the abandoned future: `LoopAnchorUT` (a re-activation after the
+cutoff leaves the loop clock anchored after it, so crossings before that anchor are not owed) and
+`LastConsumedPartnerCycle` (left above the partner's rebuilt `CompletedCycles`, it holds a linked
+pair on both sides).
 
 Both rewind exits are affected (`ParsekScenario.HandleRewindOnLoad`,
 `ReconciliationBundle.Restore(cutoff)`). The in-session load reconcile avoids it by taking the
-loop position and owed credit back from the loaded save's route copy
-(`RouteLoadReconcile.RestoreLoopPositionFromSave`); the go-back exit cannot (its OnLoad node is
+loop position (anchor, cursors, partner cursor) and owed credit back from the loaded save's
+route copy (`RouteLoadReconcile.RestoreLoopPositionFromSave`); the go-back exit cannot (its OnLoad node is
 persistent.sfs of unknown age), a Re-Fly start could (the RP quicksave carries the routes as of
 the RP).
 

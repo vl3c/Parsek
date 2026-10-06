@@ -201,10 +201,11 @@ namespace Parsek.Logistics
             // through the codec so a save/reload mid-cycle does NOT double-fire
             // (ELS is the backstop). LoopAnchorUT capture-on-activate (plan Phase 5
             // task 1: "set route.LoopAnchorUT on activate") is set here for the
-            // Paused->Activate path; RouteBuilder seeds it for create-Active. The
-            // value is diagnostic only: the loop builder floors the anchor to
-            // spanEnd, so the route does NOT own render phase (the crossing detector
-            // + LastObservedLoopCycleIndex do).
+            // Paused->Activate path; RouteBuilder seeds it for create-Active. It is
+            // the loop clock's phase anchor (RouteBackingMission.BuildMission copies it
+            // into the backing mission, MissionLoopUnitBuilder takes max(anchor,
+            // spanEnd)), so it defines the index space LastObservedLoopCycleIndex
+            // counts in: moving it and resetting the cursor go together.
             long prevObserved = route.LastObservedLoopCycleIndex;
             double prevAnchor = route.LoopAnchorUT;
             if (route.IsLoopRoute)

@@ -1200,5 +1200,53 @@ namespace Parsek.Tests.Logistics
             Assert.Single(DispatchRows());          // cycle-0 only; crossing 0 not re-fired
             Assert.Equal(0, route.LastObservedLoopCycleIndex);
         }
+
+        // catches: the loop-position restore putting back the saved cursor but not the saved
+        // loop ANCHOR. The anchor defines the cursor's index space (RouteBackingMission copies
+        // route.LoopAnchorUT into the backing mission; MissionLoopUnitBuilder takes the phase
+        // anchor as max(LoopAnchorUT, spanEnd)) and TryActivate moves it to the activation UT.
+        // Pause + re-activate after the quicksave, then F9: a saved cursor (counted from the old
+        // anchor) on the abandoned future's anchor swallows every crossing until the new index
+        // passes it.
+        [Fact]
+        public void QuickloadBackPastAReactivation_RestoresTheSavedAnchorWithTheCursor()
+        {
+            var route = BuildLoopRoute(lastObservedLoopCycleIndex: -1);
+            route.CreatedUT = 900.0;
+            RouteStore.AddRoute(route);
+            // Production-shaped resolver: the phase anchor follows the route's anchor, floored
+            // to the span end (MissionLoopUnitBuilder 7b-i).
+            RouteOrchestrator.LoopUnitResolverForTesting =
+                (r, ut) => BuildUnit(phaseAnchorUT: Math.Max(r.LoopAnchorUT, 1300.0));
+            InstallFakeDeliveryApplier();
+            var env = new EligibleEnv();
+
+            // Anchor 1000 -> 1300: dock instants 1450, 1750, 2050, 2350, 2650, 2950, ...
+            foreach (double ut in new[] { 1450.0, 1750.0, 2050.0, 2350.0 })
+                RouteOrchestrator.Tick(ut, env);
+            Assert.Equal(4, DispatchRows().Count);
+            Assert.Equal(3, route.LastObservedLoopCycleIndex);
+            Route savedAt2400 = SnapshotAsSaved(route);
+
+            // The abandoned future: pause, re-activate (anchor -> 2600, cursor -> -1), one run.
+            Assert.True(RouteOrchestrator.TryPause(route, 2500.0, env));
+            Assert.True(RouteOrchestrator.TryActivate(route, 2600.0));
+            Assert.Equal(2600.0, route.LoopAnchorUT);
+            RouteOrchestrator.Tick(2760.0, env);
+            Assert.Equal(5, DispatchRows().Count);
+
+            RouteLoadReconcile.ReconcileAtInSessionLoad(
+                LoadKind.QuickloadFlight, 2400.0, 2400.0, new[] { savedAt2400 });
+
+            Assert.Equal(1000.0, route.LoopAnchorUT);
+            Assert.Equal(3, route.LastObservedLoopCycleIndex);
+            for (double ut = 2660.0; ut <= 3700.0; ut += 100.0)
+                RouteOrchestrator.Tick(ut, env);
+
+            // The loaded world owes the crossings at 2650, 2950, 3250 and 3550: each fires once,
+            // on the first tick after its dock instant.
+            var reflown = DispatchRows().Where(a => a.UT > 2400.0).Select(a => a.UT).ToList();
+            Assert.Equal(new[] { 2660.0, 2960.0, 3260.0, 3560.0 }, reflown);
+        }
     }
 }

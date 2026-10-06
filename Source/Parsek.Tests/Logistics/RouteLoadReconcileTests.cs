@@ -338,6 +338,65 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
+        public void Restore_PutsTheSavedLoopAnchorBack_EvenWhenTheCadenceChanged()
+        {
+            // The anchor is the cursors' index space; TryActivate after the save moved it to the
+            // activation UT. It goes back with the cursors.
+            var saved = MakeLoopRoute();
+            saved.LoopAnchorUT = 1000.0;
+            saved.LastObservedLoopCycleIndex = 3;
+            var kept = Clone(saved);
+            kept.LoopAnchorUT = 2600.0;
+            kept.LastObservedLoopCycleIndex = -1;
+
+            RouteLoadReconcile.RestoreLoopPositionFromSave(
+                new[] { kept }, new[] { saved }, 2400.0, 2400.0, out _, out _, out _);
+
+            Assert.Equal(1000.0, kept.LoopAnchorUT);
+            Assert.Equal(3, kept.LastObservedLoopCycleIndex);
+
+            // Cadence changed too: the cursors stay reset (another index space), but the anchor
+            // still goes back; a post-save anchor would hold the clock until the activation UT.
+            var keptRetimed = Clone(saved);
+            keptRetimed.LoopAnchorUT = 2600.0;
+            keptRetimed.LastObservedLoopCycleIndex = -1;
+            keptRetimed.CadenceMultiplier = 2;
+            keptRetimed.DispatchInterval = 600.0;
+
+            RouteLoadReconcile.RestoreLoopPositionFromSave(
+                new[] { keptRetimed }, new[] { saved }, 2400.0, 2400.0, out _, out int changed, out _);
+
+            Assert.Equal(1, changed);
+            Assert.Equal(1000.0, keptRetimed.LoopAnchorUT);
+            Assert.Equal(-1, keptRetimed.LastObservedLoopCycleIndex);
+        }
+
+        [Fact]
+        public void Restore_PartnerAlternationCursor_ComesBackWhenTheLinkIsUnchanged()
+        {
+            // A linked pair alternates on LastConsumedPartnerCycle against the partner's
+            // CompletedCycles, which the reconcile rebuilds from the kept rows: a cursor left at
+            // the abandoned future's value holds both routes.
+            var saved = MakeLoopRoute();
+            saved.LinkedRouteId = "partner";
+            saved.LastConsumedPartnerCycle = 2;
+            var kept = Clone(saved);
+            kept.LastConsumedPartnerCycle = 5;
+
+            RouteLoadReconcile.RestoreLoopPositionFromSave(
+                new[] { kept }, new[] { saved }, 1200.0, 1200.0, out _, out _, out _);
+            Assert.Equal(2, kept.LastConsumedPartnerCycle);
+
+            // Linked to another route after the save: the saved value counts a different partner.
+            var relinked = Clone(saved);
+            relinked.LinkedRouteId = "other";
+            relinked.LastConsumedPartnerCycle = 5;
+            RouteLoadReconcile.RestoreLoopPositionFromSave(
+                new[] { relinked }, new[] { saved }, 1200.0, 1200.0, out _, out _, out _);
+            Assert.Equal(5, relinked.LastConsumedPartnerCycle);
+        }
+
+        [Fact]
         public void Restore_SaveNewerThanTheCutoff_RestoresNothing()
         {
             // A revert to the editor can hand OnLoad a game carrying the revert-moment state:

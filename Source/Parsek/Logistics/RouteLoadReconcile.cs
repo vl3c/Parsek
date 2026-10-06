@@ -36,9 +36,9 @@ namespace Parsek.Logistics
     /// the crossing whose dock instant most recently passed, under a fresh cycle id the dispatch
     /// dedup cannot match; that crossing was dispatched before the cutoff and its cargo is in the
     /// loaded world, so an F9 would deliver and charge it twice. An in-session load holds the
-    /// loaded save's own route copy, so each kept route takes its loop position (route cursor,
-    /// per-stop cursors, window anchor) back from it when the clock definition still matches,
-    /// and the recovery credit the save still owes when the reconcile cleared a later one
+    /// loaded save's own route copy, so each kept route takes its loop position back from it
+    /// (loop anchor, route and per-stop cursors, window anchor, partner alternation cursor), and
+    /// the recovery credit the save still owes when the reconcile cleared a later one
     /// (<see cref="RestoreLoopPositionFromSave"/>).</para>
     ///
     /// <para>OnLoad-safe: removes ledger rows and mutates Route instances only, never
@@ -193,12 +193,16 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// After the shared reconcile, gives each kept route back the loop position the loaded
-        /// save carries for it: <see cref="Route.LastObservedLoopCycleIndex"/>,
-        /// <see cref="Route.WindowAnchorCycleIndex"/> and every stop's
-        /// <see cref="RouteStop.LastFiredCycleIndex"/>, when <see cref="ClockDefinitionMatches"/>.
-        /// Also restores the recovery credit the save still owes (its dispatch at or before the
-        /// cutoff) when the live route owes none: the reconcile clears a credit owed by a
-        /// dispatch after the cutoff and cannot bring back the one a later flush paid.
+        /// save carries for it: <see cref="Route.LoopAnchorUT"/> (the index space) always, then
+        /// <see cref="Route.LastObservedLoopCycleIndex"/>, <see cref="Route.WindowAnchorCycleIndex"/>
+        /// and every stop's <see cref="RouteStop.LastFiredCycleIndex"/> when
+        /// <see cref="ClockDefinitionMatches"/>; <see cref="Route.LastConsumedPartnerCycle"/> when
+        /// the route is linked to the same partner. The other inputs of the loop span (excluded
+        /// interval keys, origin undock UT, source refs, creation members) are set at creation and
+        /// never change, so the live copy already equals the save's. Also restores the recovery
+        /// credit the save still owes (its dispatch at or before the cutoff) when the live route
+        /// owes none: the reconcile clears a credit owed by a dispatch after the cutoff and cannot
+        /// bring back the one a later flush paid.
         /// Restores nothing when the save is newer than the cutoff (its position is not the
         /// position at the cutoff) or unknown. A route missing from the save keeps the reset.
         /// Pure over the Route instances handed in. Returns the loop positions restored.
@@ -225,6 +229,8 @@ namespace Parsek.Logistics
             }
 
             int restored = 0;
+            int anchorsRestored = 0;
+            int partnerCursorsRestored = 0;
             for (int i = 0; i < keptRoutes.Count; i++)
             {
                 Route kept = keptRoutes[i];
@@ -234,6 +240,30 @@ namespace Parsek.Logistics
                 {
                     missingFromSave++;
                     continue;
+                }
+
+                // The loop anchor is the cursors' index space: BuildMission copies it into the
+                // backing mission and the loop builder takes the phase anchor as
+                // max(LoopAnchorUT, spanEnd). TryActivate after the save moved it to the
+                // activation UT, which would hold the clock (or offset every saved index) on the
+                // abandoned future's anchor. It goes back even when the cursors stay reset.
+                if (kept.LoopAnchorUT != saved.LoopAnchorUT)
+                {
+                    ParsekLog.Verbose(LogTag,
+                        $"Route reconcile: route {RouteIds.Short(kept.Id)} loop anchor " +
+                        $"{kept.LoopAnchorUT.ToString("R", IC)} -> {saved.LoopAnchorUT.ToString("R", IC)} (saved)");
+                    kept.LoopAnchorUT = saved.LoopAnchorUT;
+                    anchorsRestored++;
+                }
+
+                // A linked pair alternates on LastConsumedPartnerCycle against the partner's
+                // CompletedCycles, which the shared reconcile rebuilds from the kept rows; left at
+                // the abandoned future's value it holds both routes. Only for the same partner.
+                if (string.Equals(kept.LinkedRouteId, saved.LinkedRouteId, StringComparison.Ordinal)
+                    && kept.LastConsumedPartnerCycle != saved.LastConsumedPartnerCycle)
+                {
+                    kept.LastConsumedPartnerCycle = saved.LastConsumedPartnerCycle;
+                    partnerCursorsRestored++;
                 }
 
                 if (string.IsNullOrEmpty(kept.PendingRecoveryCreditCycleId)
@@ -265,6 +295,11 @@ namespace Parsek.Logistics
                 }
                 restored++;
             }
+            ParsekLog.Verbose(LogTag,
+                $"Route reconcile: restored from the save cursors={restored.ToString(IC)} " +
+                $"anchors={anchorsRestored.ToString(IC)} partnerCursors={partnerCursorsRestored.ToString(IC)} " +
+                $"credits={creditsRestored.ToString(IC)} clockChanged={definitionChanged.ToString(IC)} " +
+                $"missingFromSave={missingFromSave.ToString(IC)}");
             return restored;
         }
 
