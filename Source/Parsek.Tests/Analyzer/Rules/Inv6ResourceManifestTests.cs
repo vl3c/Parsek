@@ -43,9 +43,9 @@ namespace Parsek.Tests.Analyzer.Rules
             Assert.Empty(Run(ModelWith(rec)));
         }
 
-        // Guards (edge case 9): a recording with no manifest (Gloops / showcase) ->
-        // zero findings. Fails if the rule wrongly requires manifests on ghost-only
-        // recordings.
+        // Guards (edge case 9): a recording with no manifest (a showcase) ->
+        // zero findings. Fails if the rule wrongly requires manifests on recordings
+        // that carry none.
         [Fact]
         public void ManifestAbsent_NoFindings()
         {

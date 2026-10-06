@@ -1079,12 +1079,10 @@ class SpecValidationRejectTests(unittest.TestCase):
         # alone by ONE: the reserved envelope never carried a UI-introspection verb,
         # and it is not a second spelling of CaptureScreenshot - one produces pixels
         # and the other an IMGUI control tree, and a census drives them as a PAIR.
-        # 38 / 5 after the Gloops pair, an ADDITION again and therefore the first
-        # number moving alone - by TWO, the same signature the GUI-census pair left.
-        # The reserved envelope never carried a ghost-only-recorder verb, and neither
-        # name is a second spelling of StartRecording / StopRecording: those own the
-        # auto-record tree that commits into the career, these own the parallel
-        # ghost-only recorder behind the Gloops window's primary button.
+        # 38 / 5 after the manual ghost-only recorder pair, an ADDITION by two (the
+        # first number moving alone). It was REMOVED again 2026-10-05 together with
+        # that recorder, the second reason the final count is lower than the additions
+        # sum to.
         # 39 / 5 after StockScreen, an ADDITION by one: the reserved envelope never
         # carried a stock-screen verb.
         # 41 / 5 after the editor scene route (GoToEditor / LaunchFromEditor), an
@@ -1104,7 +1102,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # Station half of a player's recovery, for a vessel that is not the active one.
         # 48 / 4 after KscMarkerRecover, an ADDITION by one: the Space Center marker's
         # Recover, the recovery a player makes without leaving the Space Center.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 48)
+        # 46 / 4 after the manual ghost-only recorder pair's removal (2026-10-05), a
+        # REMOVAL by two.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 46)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -1129,37 +1129,6 @@ class SpecValidationRejectTests(unittest.TestCase):
                          cs_initializer_literals(text, "ImplementedVerbs"),
                          "hlib.IMPLEMENTED_SEAM_VERBS must equal the C# "
                          "ImplementedVerbs initializer as an ORDERED list")
-
-    def test_the_gloops_pair_is_implemented_and_is_not_a_second_recorder_pair(self):
-        """The Gloops pair (P2, 2026-09-15). ADDITIVE (never in the reserved envelope)
-        and it must COEXIST with StartRecording / StopRecording rather than replace
-        them: the two pairs drive DIFFERENT recorders (the auto-record tree that
-        commits into the career vs the parallel ghost-only recorder behind the Gloops
-        window's primary button), and a spec's wire token has to say which one it
-        used."""
-        for verb in ("GloopsStart", "GloopsStop"):
-            self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
-            self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
-            # SINGLE-phase: the recorder attaches to the physics-frame patch inside
-            # FlightRecorder.StartRecording and the stop half commits synchronously, so
-            # neither verb may claim a deferred budget it would never spend.
-            self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
-            # World-mutating on the tail axis ("ghost-only" is not "harmless": a
-            # committed take is a real row with its own .prec sidecar), `recording` on
-            # the post-mission axis (its verdict is a Parsek claim, not a kerbal's
-            # physical in-world state). The two axes disagree by design.
-            self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
-                             hlib.SEAM_VERB_TAIL_ROLE[verb])
-            self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
-                             hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
-        self.assertIn("StartRecording", hlib.IMPLEMENTED_SEAM_VERBS)
-        self.assertIn("StopRecording", hlib.IMPLEMENTED_SEAM_VERBS)
-        # Its refusal vocabulary is mapped, so a refusal names a driver-* subkind
-        # instead of collapsing into the coarse driver-verdict-mismatch. All four are
-        # GATE-class: the verbs take no args, so there is no arg fault they can have.
-        for reason in ("gloops-already-recording", "gloops-no-active-vessel",
-                       "gloops-start-blocked", "no-gloops-recorder"):
-            self.assertEqual("driver-gate", hlib._SEAM_REFUSAL_SUBKINDS[reason])
 
     def test_warptout_is_implemented_and_is_not_a_second_timejump(self):
         """RF-12 phase 4. WarpToUT is ADDITIVE (never in the reserved envelope) and
@@ -4180,7 +4149,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # attributes put a floor of 0 on it and nothing more, and a fixture change that
     # moves the parent's collider geometry can legitimately make it skip. H22 is in
     # the same position: all three UiComplexityMode cells carry in-body
-    # InGameAssert.Skip guards (no live ParsekUI, Gloops recording in progress), so
+    # InGameAssert.Skip guards (no live ParsekUI), so
     # its skipped=0 is a claim about the gloops-airshow fixture that the 2026-07-28
     # run measured, not an attribute derivation. Only H18 among the remaining 13 has
     # a comparable caveat (its AssertHandlerRegistered helper skips if a KSP version
@@ -9782,25 +9751,24 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "authoring time (2026-09-15) - the seven PNGs and "
                                        "seven dumps ARE the deliverable - so the tag "
                                        "names the cadence decision only.",
-        # THE STATE-COVERAGE WAVE, 2026-09-21 (GUI-13..GUI-23). Eleven lanes authored off
-        # a read-only audit that enumerated every visibly distinct state of the 14 IMGUI
-        # windows and measured which the census had photographed. All eleven are
+        # THE STATE-COVERAGE WAVE, 2026-09-21 (GUI-13..GUI-23, less the retired GUI-16).
+        # Ten lanes authored off a read-only audit that enumerated every visibly distinct
+        # state of the 14 IMGUI windows and measured which the census had photographed.
+        # All ten are
         # `tier=operator` by CADENCE for the same reason every census lane before them is:
         # the deliverable is a set of PNGs plus `.gui.json` control-tree dumps that a human
         # or a supervising agent reads, and a cadence tier would spend a KSP boot per lane
         # per night producing pictures nobody asked for that night. None owes a human
         # CALL; what each owes is its first flight and then the ordinary promotion
         # decision. They are grouped here rather than one comment each because the reason
-        # is identical across all eleven and the per-lane reading lives in each spec's own
+        # is identical across all ten and the per-lane reading lives in each spec's own
         # header and in `docs/dev/autotest-status.md`, the single status authority.
         #
-        # ALL ELEVEN FLEW 2026-09-21 and every one's FINAL verdict is PASS on attempt 1
-        # (twenty runs in all: 18 PASS + 2 PARSEK-FAIL, both of them GUI-16's own
-        # log-contract regex casing rather than a product failure, fixed in that spec).
+        # ALL TEN FLEW 2026-09-21 and every one's FINAL verdict is PASS on attempt 1.
         # So what each entry below still names is the ordinary CADENCE-PROMOTION call and
         # nothing else - the first flight each one owed is spent.
         #
-        # The last four are a different SHAPE from the first seven and it is worth naming:
+        # The last four are a different SHAPE from the first six and it is worth naming:
         # GUI-20..GUI-23 are CLONES of the RVR-8 / RVR-10 / RVR-13 / RVR-17 driver chains
         # with a census capture tail appended, and they deliberately carry NO
         # `[expectations.routes]` block. The ORIGINALS keep that gating; the clones exist to
@@ -9813,8 +9781,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-21 (run _2042, attempt 1, 61 s; run _2033 found a failed capture, which was relabelled and the min-size step moved). Owed: the ordinary promotion call.",
         "GUI-15-census-career-contracts.toml":
                                        "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-21 (run _2028, attempt 1, 55 s). Owed: the ordinary promotion call.",
-        "GUI-16-census-gloops-states.toml":
-                                       "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-21 (run _2050, attempt 1, 61 s). The reading it owed is IN: GL-1's open derivation answered committed=true points=15 on this host, so the spec moved off its authored 0..1 range and now pins count = {min = 1, max = 1}. Its two earlier runs (_2035, _2045) read PARSEK-FAIL on this lane's OWN regex casing, not on the product. Owed: the ordinary promotion call.",
         "GUI-17-census-missions-loop-mun.toml":
                                        "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-21 (run _2053, attempt 1, 54 s). Owed: the ordinary promotion call.",
         "GUI-18-census-missions-loop-duna.toml":
@@ -10678,14 +10644,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # the only census lane on the 1280x720 frame on purpose: its subject is the Missions
         # and Logistics windows capped to that screen and scrolled sideways.
         "GUI-29-census-wide-windows-1280.toml": "tier=operator by MECHANISM, identical to GUI-1's (the operator-local `c1-gui` host no clone can stage; the same report-only analyzer row). Its captures ARE the deliverable: the Missions window's two tabs scrolled left and right, and Logistics, on the 1280x720 frame. FLOWN PASS 2026-09-26 (run _1926, attempt 1, 5 PNG + 5 dumps); re-flown after the review fixes that pinned the in-game fit lines. Owed: the ordinary promotion call only.",
-        # THE TWO GLOOPS LANES, 2026-09-15 (package P2). Operator-tier by the
-        # CALIBRATION discipline, not by debt: both are first flights of a subject
-        # whose key quantity - how many trajectory points a motionless PRELAUNCH pod
-        # accrues between two seam steps - is DERIVED from the density preset's max
-        # sample interval rather than measured, and the derivation is what the reading
-        # run is for. Neither owes outstanding HUMAN work; what each owes is a flight.
-        "GL-1-gloops-manual-lifecycle.toml": "tier=operator by the calibration discipline; NEVER FLOWN. First driven run of the MANUAL Gloops (ghost-only) recorder, which had no seam producer at all before the GloopsStart / GloopsStop pair. Its ONE derived quantity is deliberately ungated: whether eight inert RecordingState round trips at samplingDensity=2 (High, 1.0 s max interval) let a stationary pod reach TWO points, which is what separates a committed take from GL-2's drop. The lane therefore requires only the production start line and both seam terminals, with `gloopsstop committed=` matched outcome-agnostically and count ranged 0..1; arming the commit token and tightening the count is the operator call AFTER the reading run. A second reading question is recorded in its header rather than assumed: the REC log rules stay suppressed because spec_expects_live_recording keys on a StartRecording step this lane does not have.",
-        "GL-2-gloops-sub-2-point-drop.toml": "tier=operator by the calibration discipline; NEVER FLOWN. The mirror of GL-1 on the same knob - samplingDensity=0 (Low, 8.0 s max interval) with the stop step ADJACENT to the start - so the take cannot reach two points and CommitGloopsRecorderData must refuse it. That refusal IS gated (the production `not enough points (< 2)` Warn, the seam `committed=false`, the `dropped=too-short` payload token, count pinned 0..0), because it is deterministic by construction rather than derived: S0.5 and S0.6 already name the same drop in their headers and WIDEN their assertions to tolerate it, which is the evidence it happens and the reason nothing gated it until now. The reading-run question left open is narrower and is about the VALIDATOR, not the product: whether validate-ksp-log treats a designed refusal Warn on the WRN surface as an unexpected one.",
         # THE GHOST COMMNET RELAY PAIR, 2026-09-26. Operator-tier by the CALIBRATION
         # discipline: first flights of a new in-game category over a new preset, with the
         # batch split and the probe geometry derived rather than measured. Both flew their
@@ -18526,7 +18484,7 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                         # A census must CLOSE what it opened rather than leaning on the
                         # Advanced -> Basic latch's own close set to tidy up: the latch
                         # closes only the GATED windows (career / kerbals / testrunner /
-                        # gloops / spawncontrol), so a spec that left `logistics` open
+                        # spawncontrol), so a spec that left `logistics` open
                         # across the switch would carry it into every Basic capture. This
                         # assertion is also what lets the simulation above ignore the
                         # latch entirely.

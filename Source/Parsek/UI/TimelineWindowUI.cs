@@ -2425,9 +2425,8 @@ namespace Parsek
         /// True when <paramref name="rec"/> belongs to a mission the Go to cross-link can reach.
         /// <para>Missions are keyed on recording TREES, so a recording with no
         /// <see cref="Recording.TreeId"/> belongs to no mission and there is nothing to navigate
-        /// to. That population is not hypothetical: manual Gloops (ghost-only) recordings are
-        /// committed without a tree and DO produce timeline rows, so without this the button
-        /// would be live on those rows and do nothing when clicked. Same argument the design
+        /// to. A treeless committed recording still produces timeline rows, so without this the
+        /// button would be live on those rows and do nothing when clicked. Same argument the design
         /// makes for the Basic-mode message wording (section 9.1) - an affordance that cannot
         /// act is worse than no affordance.</para>
         /// </summary>

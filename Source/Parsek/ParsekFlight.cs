@@ -1420,9 +1420,6 @@ namespace Parsek
             ClearStaleConfirmations();
             HandleMissedVesselSwitchRecovery();
 
-            // Gloops: auto-commit if vessel switch auto-stopped the recorder
-            CheckGloopsAutoStoppedByVesselSwitch();
-
             HandleTreeDockMerge();
             HandleTreeBoardMerge();
             HandleUnconfirmedBoardingStop();
@@ -2223,7 +2220,6 @@ namespace Parsek
                 ui.DrawStructureWindowIfOpen(windowRect);
                 ui.DrawSettingsWindowIfOpen(windowRect);
                 ui.DrawSpawnControlWindowIfOpen(windowRect);
-                ui.DrawGloopsRecorderWindowIfOpen(windowRect);
                 ui.DrawTestRunnerWindowIfOpen(windowRect, this);
             }
         }
@@ -2291,9 +2287,6 @@ namespace Parsek
                 Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
                 backgroundRecorder = null;
             }
-
-            // Clean up Gloops recorder if active
-            CleanupGloopsRecorder();
 
             // Clear tree destruction dialog guard
             treeDestructionDialogPending = false;
@@ -2418,9 +2411,6 @@ namespace Parsek
             // logical atlas). See MapMarkerRenderer.ResetForSceneChange.
             MapMarkerRenderer.ResetForSceneChange();
 
-            // Clean up Gloops recorder on scene change (discard in-progress)
-            CleanupGloopsRecorder();
-
             ClearSceneChangeTransientState();
 
             // Tree mode: finalize and commit tree on scene exit.
@@ -2477,13 +2467,12 @@ namespace Parsek
         ///
         /// <para>Mirrors the recorder-state prep that
         /// <see cref="OnSceneChangeRequested"/> runs immediately before
-        /// <see cref="FinalizeTreeOnSceneChange"/>: clean up the Gloops
-        /// recorder and clear scene-change transient state before
-        /// <c>MergeCommit</c> and the optimization pass run.</para>
+        /// <see cref="FinalizeTreeOnSceneChange"/>: clear scene-change
+        /// transient state before <c>MergeCommit</c> and the optimization
+        /// pass run.</para>
         /// </summary>
         internal void FinalizeTreeOnSceneChangeForCallback(GameScenes scene)
         {
-            CleanupGloopsRecorder();
             ClearSceneChangeTransientState();
             FinalizeTreeOnSceneChangeCore(
                 scene,
@@ -2623,7 +2612,7 @@ namespace Parsek
         /// <see cref="Patches.PhysicsFramePatch.ActiveRecorder"/> and
         /// <see cref="Patches.PhysicsFramePatch.BackgroundRecorderInstance"/>
         /// references, then null the fields. Also runs the same prep as
-        /// <see cref="OnSceneChangeRequested"/> (gloops, transient state)
+        /// <see cref="OnSceneChangeRequested"/> (transient state)
         /// since the prefix returns true after this and
         /// <see cref="OnSceneChangeRequested"/> only re-runs that prep
         /// once it sees <c>activeTree == null</c>.
@@ -3092,9 +3081,7 @@ namespace Parsek
                     $"AutoDiscardActiveTreeCore: {reason}");
 
             // Mirror OnSceneChangeRequested's pre-finalize prep so any
-            // gloops / transient state is cleaned up before we drop the
-            // recorder.
-            CleanupGloopsRecorder();
+            // transient state is cleaned up before we drop the recorder.
             ClearSceneChangeTransientState();
 
             // Mirror DiscardActiveTreeForSuppressedSceneExit's recorder
@@ -4403,8 +4390,7 @@ namespace Parsek
             while (true)
             {
                 yield return waitForFixedUpdate;
-                if (Patches.PhysicsFramePatch.ActiveRecorder == null
-                    && Patches.PhysicsFramePatch.GloopsRecorderInstance == null)
+                if (Patches.PhysicsFramePatch.ActiveRecorder == null)
                 {
                     PostPhysicsPoseCache.Clear();
                     continue;
@@ -17400,331 +17386,6 @@ namespace Parsek
 
         #endregion
 
-        #region Gloops Flight Recorder (parallel ghost-only recording)
-
-        private FlightRecorder gloopsRecorder;
-        private Recording lastGloopsRecording;
-
-        /// <summary>True when the Gloops ghost-only recorder is actively sampling.</summary>
-        internal bool IsGloopsRecording => gloopsRecorder?.IsRecording ?? false;
-
-        /// <summary>
-        /// The most recent Gloops recording (committed or in-progress).
-        /// Used by GloopsRecorderUI for preview and discard.
-        /// </summary>
-        internal Recording LastGloopsRecording => lastGloopsRecording;
-
-        /// <summary>Access to in-progress Gloops recorder for point count display.</summary>
-        internal FlightRecorder GloopsRecorderForUI => gloopsRecorder;
-
-        /// <summary>
-        /// Starts a parallel Gloops ghost-only recording on the active vessel.
-        /// Can run alongside the main auto-recording.
-        /// </summary>
-        internal void StartGloopsRecording()
-        {
-            if (IsGloopsRecording)
-            {
-                ParsekLog.Warn("Flight", "StartGloopsRecording called while already recording");
-                return;
-            }
-
-            Vessel v = FlightGlobals.ActiveVessel;
-            if (v == null)
-            {
-                ParsekLog.Warn("Flight", "StartGloopsRecording: no active vessel");
-                return;
-            }
-
-            gloopsRecorder = new FlightRecorder { IsGloopsMode = true };
-            gloopsRecorder.StartRecording(isPromotion: false);
-
-            if (!gloopsRecorder.IsRecording)
-            {
-                ParsekLog.Warn("Flight", "StartGloopsRecording blocked (paused or no vessel)");
-                gloopsRecorder = null;
-                return;
-            }
-
-            // Capture ghost visual snapshot at recording start (full vessel before staging)
-            ConfigNode ghostSnap = VesselSpawner.TryBackupSnapshot(v);
-
-            // Stash it for later use when building the recording
-            gloopsRecorder.GloopsGhostVisualSnapshot = ghostSnap;
-
-            lastGloopsRecording = null;
-
-            ParsekLog.Info("Flight",
-                $"Gloops recording started: vessel={v.vesselName}, pid={v.persistentId}, " +
-                $"ghostSnap={ghostSnap != null}");
-            ParsekLog.ScreenMessage("Gloops Recording STARTED", 2f);
-        }
-
-        /// <summary>
-        /// Stops the Gloops recorder, builds a Recording, and commits it as ghost-only
-        /// with looping off by default and the loop period initialized to auto.
-        /// </summary>
-        internal void StopGloopsRecording()
-        {
-            if (gloopsRecorder == null)
-            {
-                ParsekLog.Warn("Flight", "StopGloopsRecording: no Gloops recorder");
-                return;
-            }
-
-            // Normal stop: recorder still running
-            if (gloopsRecorder.IsRecording)
-                gloopsRecorder.StopRecording();
-
-            CommitGloopsRecorderData("StopGloopsRecording");
-        }
-
-        /// <summary>
-        /// Called each frame to detect Gloops recordings auto-stopped by vessel switch
-        /// and commit them automatically so recording data is not lost.
-        /// </summary>
-        private void CheckGloopsAutoStoppedByVesselSwitch()
-        {
-            if (gloopsRecorder == null) return;
-            if (!gloopsRecorder.GloopsAutoStoppedByVesselSwitch) return;
-
-            gloopsRecorder.GloopsAutoStoppedByVesselSwitch = false;
-            ParsekLog.Info("Flight", "Gloops recorder was auto-stopped by vessel switch — committing");
-            CommitGloopsRecorderData("GloopsAutoCommit");
-            ParsekLog.ScreenMessage("Gloops recording auto-saved (vessel switched)", 3f);
-        }
-
-        /// <summary>
-        /// Shared commit path for Gloops recordings: builds a Recording from the
-        /// FlightRecorder's buffers, marks it ghost-only, defaults looping off,
-        /// initializes the period to auto, and commits.
-        /// Used by both manual StopGloopsRecording and vessel-switch auto-commit.
-        /// </summary>
-        private static string GetActiveVesselNameOrDefault(string fallbackName)
-        {
-            try
-            {
-                return Recording.ResolveLocalizedName(FlightGlobals.ActiveVessel?.vesselName)
-                    ?? fallbackName;
-            }
-            catch (TypeInitializationException)
-            {
-                return fallbackName;
-            }
-        }
-
-        private void CommitGloopsRecorderData(string logTag)
-        {
-            Recording rec = RecordingStore.CreateRecordingFromFlightData(
-                gloopsRecorder.Recording,
-                GetActiveVesselNameOrDefault("Gloops Recording"),
-                gloopsRecorder.OrbitSegments,
-                partEvents: gloopsRecorder.PartEvents,
-                flagEvents: gloopsRecorder.FlagEvents,
-                segmentEvents: gloopsRecorder.SegmentEvents,
-                trackSections: gloopsRecorder.TrackSections);
-
-            if (rec == null)
-            {
-                ParsekLog.Warn("Flight", $"{logTag}: not enough points (< 2)");
-                gloopsRecorder = null;
-                ParsekLog.ScreenMessage("Gloops recording too short - discarded", 2f);
-                return;
-            }
-
-            rec.IsGhostOnly = true;
-            rec.LoopPlayback = false;
-            rec.LoopIntervalSeconds = 0;
-            rec.LoopTimeUnit = LoopTimeUnit.Auto;
-
-            // Apply snapshots
-            rec.GhostVisualSnapshot = gloopsRecorder.GloopsGhostVisualSnapshot;
-            var captureAtStop = gloopsRecorder.CaptureAtStop;
-            if (captureAtStop != null)
-            {
-                rec.VesselSnapshot = captureAtStop.VesselSnapshot;
-                rec.StampTerminalState(captureAtStop.TerminalStateValue, "CommitGloopsRecording");
-                rec.TerminalPosition = captureAtStop.TerminalPosition;
-                // The capture carries the launch guid already - forward it rather than
-                // leaving this ghost-only recording to the load-time snapshot backfill.
-                rec.RecordedVesselGuid = captureAtStop.RecordedVesselGuid;
-                rec.Controllers = captureAtStop.Controllers != null
-                    ? new List<ControllerInfo>(captureAtStop.Controllers)
-                    : null;
-            }
-
-            RecordingStore.CommitGloopsRecording(rec);
-            lastGloopsRecording = rec;
-            gloopsRecorder = null;
-
-            ParsekLog.Info("Flight",
-                $"{logTag}: Gloops recording committed \"{rec.VesselName}\" " +
-                $"({rec.Points.Count} points, id={rec.RecordingId})");
-        }
-
-        /// <summary>
-        /// Discards the in-progress Gloops recording without committing.
-        /// </summary>
-        internal void DiscardGloopsInProgress()
-        {
-            if (gloopsRecorder == null)
-            {
-                ParsekLog.Warn("Flight", "DiscardGloopsInProgress: no Gloops recorder");
-                return;
-            }
-
-            if (gloopsRecorder.IsRecording)
-                gloopsRecorder.ForceStop();
-            gloopsRecorder = null;
-
-            ParsekLog.Info("Flight", "Gloops in-progress recording discarded");
-            ParsekLog.ScreenMessage("Gloops recording discarded", 2f);
-        }
-
-        /// <summary>
-        /// Deletes the most recently committed Gloops recording.
-        /// Delegates to DeleteGhostOnlyRecording for full cleanup (ghost destroy,
-        /// engine reindex, orbit cache clear, etc.).
-        /// </summary>
-        internal void DiscardLastGloopsRecording()
-        {
-            if (lastGloopsRecording == null)
-            {
-                ParsekLog.Warn("Flight", "DiscardLastGloopsRecording: nothing to discard");
-                return;
-            }
-
-            var committed = RecordingStore.CommittedRecordings;
-            int idx = -1;
-            if (!string.IsNullOrEmpty(lastGloopsRecording.RecordingId))
-                idx = GhostPlaybackLogic.FindRecordingIndexById(committed, lastGloopsRecording.RecordingId);
-
-            if (idx < 0)
-            {
-                for (int i = 0; i < committed.Count; i++)
-                {
-                    if (object.ReferenceEquals(committed[i], lastGloopsRecording))
-                    {
-                        idx = i;
-                        break;
-                    }
-                }
-            }
-
-            if (idx >= 0)
-            {
-                DeleteGhostOnlyRecording(idx);
-            }
-            else
-            {
-                ParsekLog.Warn("Flight",
-                    $"DiscardLastGloopsRecording: recording not found in committed list " +
-                    $"(id={lastGloopsRecording.RecordingId})");
-            }
-
-            lastGloopsRecording = null;
-        }
-
-        /// <summary>
-        /// Starts preview playback of the last Gloops recording and enters watch mode.
-        /// Reuses the existing manual playback system.
-        /// </summary>
-        internal void PreviewGloopsRecording()
-        {
-            if (lastGloopsRecording == null || lastGloopsRecording.Points.Count < 2)
-            {
-                ParsekLog.Warn("Flight", "PreviewGloopsRecording: no recording to preview");
-                return;
-            }
-
-            // Stop any existing preview
-            if (isPlaying)
-                StopPlayback();
-
-            // Use the committed Gloops recording for preview
-            // Set up the preview using the recording's snapshot
-            previewRecording = lastGloopsRecording;
-            previewGhostState = null;
-            GameObject ghost = null;
-            bool builtFromSnapshot = false;
-
-            var buildResult = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
-                previewRecording, "Parsek_Ghost_GloopsPreview");
-            if (buildResult != null)
-                ghost = buildResult.root;
-            builtFromSnapshot = ghost != null;
-
-            if (builtFromSnapshot)
-            {
-                previewGhostState = new GhostPlaybackState
-                {
-                    ghost = ghost,
-                    playbackIndex = 0,
-                    partEventIndex = 0,
-                    partTree = GhostVisualBuilder.BuildPartSubtreeMap(
-                        GhostVisualBuilder.GetGhostSnapshot(previewRecording)),
-                    logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(
-                        GhostVisualBuilder.GetGhostSnapshot(previewRecording))
-                };
-                previewGhostState.materials = new List<Material>();
-
-                GhostPlaybackLogic.PopulateGhostInfoDictionaries(previewGhostState, buildResult);
-                GhostPlaybackLogic.InitializeInventoryPlacementVisibility(previewRecording, previewGhostState);
-                GhostPlaybackLogic.RefreshCompoundPartVisibility(previewGhostState);
-
-                if (TrajectoryMath.HasReentryPotential(previewRecording))
-                {
-                    previewGhostState.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
-                        ghost, previewGhostState.heatInfos, -1, previewRecording.VesselName);
-                }
-                else
-                {
-                    previewGhostState.reentryFxInfo = null;
-                }
-
-                GhostPlaybackLogic.InitializeFlagVisibility(previewRecording, previewGhostState);
-                previewGhostMaterials = previewGhostState.materials;
-            }
-            else
-            {
-                Color previewColor = Color.green;
-                ghost = GhostVisualBuilder.CreateGhostSphere("Parsek_Ghost_GloopsPreview", previewColor);
-                var m = ghost.GetComponent<Renderer>()?.material;
-                previewGhostMaterials = m != null ? new List<Material> { m } : new List<Material>();
-                previewGhostState = null;
-            }
-
-            ghostObject = ghost;
-            playbackStartUT = Planetarium.GetUniversalTime();
-            recordingStartUT = previewRecording.Points[0].ut;
-            lastPlaybackIndex = 0;
-            isPlaying = true;
-
-            ParsekLog.Info("Flight",
-                $"Gloops preview started: \"{previewRecording.VesselName}\" " +
-                $"({previewRecording.Points.Count} points)");
-            ParsekLog.ScreenMessage("Gloops Preview STARTED", 2f);
-        }
-
-        /// <summary>
-        /// Cleans up the Gloops recorder on scene change or destroy.
-        /// </summary>
-        private void CleanupGloopsRecorder()
-        {
-            if (gloopsRecorder != null)
-            {
-                if (gloopsRecorder.IsRecording)
-                {
-                    gloopsRecorder.ForceStop();
-                    ParsekLog.Info("Flight", "Gloops recorder force-stopped on cleanup");
-                }
-                Patches.PhysicsFramePatch.GloopsRecorderInstance = null;
-                gloopsRecorder = null;
-            }
-        }
-
-        #endregion
-
         #region Manual Playback (preview)
 
         public void StartPlayback()
@@ -20470,7 +20131,7 @@ namespace Parsek
 
         /// <summary>
         /// A committed recording is about to leave the list (any internal remover: an
-        /// optimizer merge, a Re-Fly rollback, the Gloops discard). The list is still unshifted, so the engine's OnGhostDestroyed
+        /// optimizer merge, a Re-Fly rollback). The list is still unshifted, so the engine's OnGhostDestroyed
         /// subscribers (GhostMapPresence's index-keyed teardown) read the right recording,
         /// and a retained ghost-less map presence at the slot is torn down too.
         /// </summary>
@@ -20532,37 +20193,6 @@ namespace Parsek
             ParsekLog.Verbose("Flight",
                 $"Committed recording inserted at #{index} - reindexed engine, held, map and watch state " +
                 $"(ghostStates={engine.ghostStates.Count}, committed={RecordingStore.CommittedRecordings.Count})");
-        }
-
-        /// <summary>
-        /// Deletes a ghost-only recording. Its only caller is the Gloops window's
-        /// "Discard Recording" (<see cref="DiscardLastGloopsRecording"/>), which leaves
-        /// Parsek with the Gloops extraction. Ghost-only recordings are independent of the
-        /// auto-recording system, so they can safely be deleted even while auto-recording
-        /// is active.
-        /// </summary>
-        internal void DeleteGhostOnlyRecording(int index)
-        {
-            var committed = RecordingStore.CommittedRecordings;
-            if (index < 0 || index >= committed.Count)
-            {
-                ParsekLog.Warn("Flight", $"DeleteGhostOnlyRecording: index={index} out of range");
-                return;
-            }
-
-            var rec = committed[index];
-            if (!rec.IsGhostOnly)
-            {
-                ParsekLog.Warn("Flight", $"DeleteGhostOnlyRecording: recording at index {index} is not ghost-only");
-                return;
-            }
-
-            ParsekLog.Info("Flight", $"Deleting ghost-only recording '{rec.VesselName}' at index {index}");
-
-            // Ghost teardown + reindex ride on the store's Removing / Removed notifications.
-            RecordingStore.RemoveRecordingAt(index);
-
-            ParsekLog.ScreenMessage($"Ghost recording '{rec.VesselName}' deleted", 2f);
         }
 
         private const double PadFailureDurationThresholdSeconds = 10.0;

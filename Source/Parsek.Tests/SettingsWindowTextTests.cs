@@ -49,7 +49,6 @@ namespace Parsek.Tests
                 case UiSurface.MainButtonKerbals: return "Kerbals";
                 case UiSurface.MainButtonSettings: return "Settings";
                 case UiSurface.MainButtonSpawnControl: return "Spawn";
-                case UiSurface.MainButtonGloops: return "Gloops";
                 default:
                     Assert.False(surface.ToString().StartsWith("MainButton", StringComparison.Ordinal),
                         $"{surface} is a new main-window launcher: name it here so the Basic hover is checked against it");

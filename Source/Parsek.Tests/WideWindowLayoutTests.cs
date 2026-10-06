@@ -359,7 +359,7 @@ namespace Parsek.Tests
         [Fact]
         public void SeamRectFit_SkipsAWindowWithNoResizeHandle()
         {
-            // main / settings / gloops have no minimum and are not fitted in-game either.
+            // main / settings have no minimum and are not fitted in-game either.
             var want = new UiActionRect { X = 1200f, Y = 8f, W = 400f, H = 700f };
             UiActionRect applied = TestCommandUiAction.FitRectToScreen(
                 want, 0f, 0f, 1280f, 720f, out bool fitted);

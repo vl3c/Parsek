@@ -1591,43 +1591,6 @@ namespace Parsek.Tests
             Assert.Equal(3000f, match.FundsAwarded);
         }
 
-        [Fact]
-        public void OnVesselRecoveryFunds_GhostOnlyRecordingMatch_NotTagged()
-        {
-            // Ghost-only (Gloops) recordings have zero career footprint per #432 — they
-            // must NOT be the recordingId tag for a real recovery payout. The lookup
-            // skips them, falling back to null when no real recording matches.
-            var ghost = new Recording
-            {
-                RecordingId = "rec-ghost",
-                VesselName = "GloopsClone",
-                IsGhostOnly = true
-            };
-            ghost.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 0.0 });
-            ghost.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 0.0 });
-            RecordingStore.AddRecordingWithTreeForTesting(ghost);
-
-            var evt = new GameStateEvent
-            {
-                ut = 3000.0,
-                eventType = GameStateEventType.FundsChanged,
-                key = LedgerOrchestrator.VesselRecoveryReasonKey,
-                valueBefore = 100.0,
-                valueAfter = 600.0
-            };
-            GameStateStore.AddEvent(ref evt);
-
-            LedgerOrchestrator.OnVesselRecoveryFunds(3000.0, "GloopsClone", quick: true);
-
-            var match = Ledger.Actions.FirstOrDefault(a =>
-                a.Type == GameActionType.FundsEarning &&
-                a.FundsSource == FundsEarningSource.Recovery &&
-                System.Math.Abs(a.UT - 3000.0) < 0.01);
-            Assert.NotNull(match);
-            Assert.Null(match.RecordingId);
-            Assert.Equal(500f, match.FundsAwarded);
-        }
-
         // -------- #444 review round 1 follow-ups --------
 
         [Fact]

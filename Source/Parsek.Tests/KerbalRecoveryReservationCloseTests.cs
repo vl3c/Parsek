@@ -440,13 +440,11 @@ namespace Parsek.Tests
             var head = MakeRecording("head", "tree-a", 0, 100);
             var tip = MakeRecording("tip", "tree-a", 100, 200);
             var later = MakeRecording("later", "tree-a", 200, 900);      // ends after the recovery
-            var ghost = MakeRecording("ghost", "tree-b", 0, 150);
-            ghost.IsGhostOnly = true;
             var otherTree = MakeRecording("cont", "tree-c", 200, 250);
             var otherLaunch = MakeRecording("relaunch", "tree-d", 0, 100, guid: OtherLaunchGuid);
 
             var owners = CrewRecoveryReservationClose.SelectOwnerRecordings(
-                new List<Recording> { head, tip, later, ghost, otherTree, otherLaunch },
+                new List<Recording> { head, tip, later, otherTree, otherLaunch },
                 CraftPid, LaunchGuid, 300.0);
 
             Assert.Equal(2, owners.Count);

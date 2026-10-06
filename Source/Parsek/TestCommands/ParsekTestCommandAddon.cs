@@ -1520,14 +1520,6 @@ namespace Parsek.TestCommands
         // TryCompleteTwoPhaseCore.
         void ITestCommandExecutor.DumpGuiTree(ParsedCommand cmd) => DumpGuiTreeImpl(cmd);
 
-        // The Gloops pair: bodies in the sibling ParsekTestCommandAddon.Gloops.cs partial.
-        // Both single-phase - the recorder attaches to the physics-frame patch inside
-        // FlightRecorder.StartRecording, and the stop half stops / builds / commits / nulls
-        // inside one synchronous call, so each read-back is a final answer - so neither has
-        // a TryComplete* counterpart in TryCompleteTwoPhaseCore.
-        void ITestCommandExecutor.GloopsStart(ParsedCommand cmd) => GloopsStartImpl(cmd);
-        void ITestCommandExecutor.GloopsStop(ParsedCommand cmd) => GloopsStopImpl(cmd);
-
         // StockScreen: body and its settle poll in the sibling ParsekTestCommandAddon.StockScreen.cs.
         void ITestCommandExecutor.StockScreen(ParsedCommand cmd) => StockScreenImpl(cmd);
 
@@ -1607,8 +1599,6 @@ namespace Parsek.TestCommands
                 case "CaptureScreenshot": exec.CaptureScreenshot(cmd); break;
                 case "UiAction": exec.UiAction(cmd); break;
                 case "DumpGuiTree": exec.DumpGuiTree(cmd); break;
-                case "GloopsStart": exec.GloopsStart(cmd); break;
-                case "GloopsStop": exec.GloopsStop(cmd); break;
                 case "StockScreen": exec.StockScreen(cmd); break;
                 case "GoToEditor": exec.GoToEditor(cmd); break;
                 case "LaunchFromEditor": exec.LaunchFromEditor(cmd); break;

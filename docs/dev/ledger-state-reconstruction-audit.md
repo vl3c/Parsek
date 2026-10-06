@@ -52,8 +52,7 @@ single entry for career-resource writes. It runs all mutations inside
   post-rewind/time-jump), `RecalculateAndPatchForTimeJump` (`:1377`),
   `RecalculateAndPatchForLiveTimelineEvent` (`:1411`),
   `RecalculateAndPatchAfterTombstones` (`:1439`, supersede tombstone refresh).
-- Core flow: `SeedInitialResourceBalances` → `PurgeGhostOnlyActionsFromLedger` →
-  `BuildRecalculationActions` (ELS via `EffectiveState.ComputeELS`) →
+- Core flow: `SeedInitialResourceBalances` → `BuildRecalculationActions` (ELS via `EffectiveState.ComputeELS`) →
   `RecalculationEngine.Recalculate` → **patch-deferral gate**
   (`GetKspPatchDeferralReason`, `:1764` — skips the live KSP write while a live/pending
   tree exists) → `ApplyRecalculatedStateToKsp` (`:1889`) → `KspStatePatcher.PatchAll`.

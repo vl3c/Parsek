@@ -129,8 +129,7 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// The arm wrapper declined: the key names no live row, or it names something the
-        /// ARMING GESTURE ITSELF refuses (a permanent root group, whose double-click is
-        /// blocked). REJECTED rather than a silent OK: the alternative is a capture of an
+        /// ARMING GESTURE ITSELF refuses. REJECTED rather than a silent OK: the alternative is a capture of an
         /// unedited row under a label claiming an editor.
         /// </summary>
         internal const string EditTargetUnavailableReason = "edit-target-unavailable";

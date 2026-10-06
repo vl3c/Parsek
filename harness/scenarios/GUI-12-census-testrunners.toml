@@ -20,13 +20,13 @@ tier = "operator"
 #
 # THE THREE SEAM ADDITIONS THIS LANE FLIES (all automation-only, no player-facing
 # surface):
-#   1. `testrunnerglobal`, a twelfth window-table row reaching `TestRunnerShortcut`'s own
+#   1. `testrunnerglobal`, the LAST window-table row, reaching `TestRunnerShortcut`'s own
 #      singleton the way the `main` row reaches the scene host. It is exempt from the
 #      hidden-host settle refusal (`WindowDrawsOutsideHostShowUi`) because its draw is in
 #      its own `OnGUI`, so a settled read-back over it describes a frame that really did
-#      draw it. Every `describe` echo in the census reads the table size (`windows=12`) for this
+#      draw it. Every `describe` echo in the census reads the table size (`windows=11`) for this
 #      row - the count is the seam's whole TABLE, not the scene's drawn set, which is why
-#      the eleven older census specs had their pins bumped in the same commit.
+#      every census spec carries the same count and moves with the table.
 #   2. `op=expand key=category:<name>` on BOTH runner windows (prefix `category`, one set
 #      per window). The load-bearing direction here is `key=none`: both windows open with
 #      every category expanded, so the COLLAPSED category list is the state no capture
@@ -179,8 +179,8 @@ allowedAnomalies = []
 # as a literal, which is an EXACT claim - a third open window would move the count. That
 # is what catches a seam whose `testrunnerglobal` token is wired to the OTHER runner's
 # fields, and the two windows carry the SAME TITLE, so a screenshot alone could not.
-# `windows=12` on every line counts the whole seam table (this lane added its eleventh
-# row, `testrunnerglobal`; `routehistory` is the twelfth).
+# `windows=11` on every line counts the whole seam table (`testrunnerglobal`, the row this
+# lane added, is its last).
 #
 # THE EXPAND LINES pin `expanded=` exactly and REGEX `total=`: the total is the number of
 # in-game test categories (113 today), which moves whenever a category is added anywhere
@@ -193,9 +193,9 @@ allowedAnomalies = []
 # label claiming a pass), while a test added to that category must not.
 required = [
   # --- the host, then each window as it opens ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,testrunner",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,testrunnerglobal",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,testrunner",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,testrunnerglobal",
   # --- the fold states, settled (the `uiaction expand` line without `initiated`) ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=testrunner key=none state=false changed=[0-9]+ expanded=0 total=[1-9][0-9]* frames=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=testrunner key=category:GuiTree state=true changed=1 expanded=1 total=[1-9][0-9]* frames=[0-9]+",

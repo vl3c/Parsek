@@ -472,13 +472,10 @@ namespace Parsek
             => CommitRecordingRename(EffectiveState.ComputeERS());
 
         /// <summary>Arms the group rename editor on a group NAME (the key this editor
-        /// uses) with a draft. False for an unknown group, and false for a PERMANENT ROOT
-        /// group - the arming double-click is blocked for those too, so the seam refuses
-        /// what the click refuses instead of arming an editor the player cannot.</summary>
+        /// uses) with a draft. False for an unknown group.</summary>
         internal bool TryBeginGroupRenameForTesting(string groupName, string draft)
         {
             if (string.IsNullOrEmpty(groupName)) return false;
-            if (RecordingStore.IsPermanentRootGroup(groupName)) return false;
             if (!EnumerateGroupNamesForTesting().Contains(groupName)) return false;
             // The mirror of the recording-rename arm: commit the rival draft, never
             // discard it.
@@ -2789,13 +2786,6 @@ namespace Parsek
                     float t = Time.realtimeSinceStartup;
                     if (lastClickedGroup == groupName && t - lastGroupClickTime < DoubleClickThreshold)
                     {
-                        if (RecordingStore.IsPermanentRootGroup(groupName))
-                        {
-                            ParsekLog.Verbose("UI", $"Rename blocked for permanent root group '{groupName}'");
-                            lastClickedGroup = null;
-                            return false;
-                        }
-
                         // Commit any active rename first
                         if (renamingRecordingId != null)
                             CommitRecordingRename(committed);
@@ -4930,12 +4920,6 @@ namespace Parsek
             renamingGroup = null;
             activeRenameRect = default;
 
-            if (RecordingStore.IsPermanentRootGroup(oldName))
-            {
-                ParsekLog.Warn("UI", $"Group rename blocked for permanent root group '{oldName}'");
-                return;
-            }
-
             if (string.IsNullOrEmpty(newName) || newName == oldName) return;
 
             if (RecordingStore.IsInvalidGroupName(newName))
@@ -6166,27 +6150,12 @@ namespace Parsek
             bool bIsGroup, string bGroupName, string bSortName, double bSortKey,
             SortColumn column, bool ascending)
         {
-            int pinnedCmp = ComparePinnedRootGroups(aIsGroup, aGroupName, bIsGroup, bGroupName);
-            if (pinnedCmp != 0)
-                return pinnedCmp;
-
             int cmp;
             if (column == SortColumn.Name || column == SortColumn.Phase || column == SortColumn.LaunchSite)
                 cmp = string.Compare(aSortName, bSortName, StringComparison.OrdinalIgnoreCase);
             else
                 cmp = aSortKey.CompareTo(bSortKey);
             return ascending ? cmp : -cmp;
-        }
-
-        private static int ComparePinnedRootGroups(
-            bool aIsGroup, string aGroupName,
-            bool bIsGroup, string bGroupName)
-        {
-            bool aPinned = aIsGroup && RecordingStore.IsPermanentRootGroup(aGroupName);
-            bool bPinned = bIsGroup && RecordingStore.IsPermanentRootGroup(bGroupName);
-            if (aPinned == bPinned)
-                return 0;
-            return aPinned ? -1 : 1;
         }
 
         private RecordingStats GetOrComputeStats(Recording rec)
@@ -6847,8 +6816,8 @@ namespace Parsek
 
         /// <summary>
         /// Builds the group tree data structures used to render the recordings tree.
-        /// No IMGUI calls, but not pure: normalizes permanent root groups and
-        /// falls back to the active scenario supersede list when none is passed.
+        /// No IMGUI calls, but not pure: falls back to the active scenario
+        /// supersede list when none is passed.
         /// </summary>
         internal static void BuildGroupTreeData(
             IReadOnlyList<Recording> committed, int[] sortedIndices,
@@ -6861,8 +6830,6 @@ namespace Parsek
             IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
             IReadOnlyList<RecordingRewindRetirement> retirements = null)
         {
-            GroupHierarchyStore.EnsurePermanentRootGroupsAreRoot();
-
             // group name -> list of recording indices directly in that group
             grpToRecs = new Dictionary<string, List<int>>();
             // chainId -> list of recording indices
@@ -6915,10 +6882,7 @@ namespace Parsek
                 allGrpNames.Add(kvp.Value);
             }
             for (int i = 0; i < KnownEmptyGroups.Count; i++)
-            {
-                if (!RecordingStore.IsPermanentRootGroup(KnownEmptyGroups[i]))
-                    allGrpNames.Add(KnownEmptyGroups[i]);
-            }
+                allGrpNames.Add(KnownEmptyGroups[i]);
 
             foreach (var kvp in GroupHierarchyStore.GroupParents)
             {

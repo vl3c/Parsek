@@ -60,7 +60,7 @@ namespace Parsek.Tests
         [Fact]
         public void RectClamp_IsInertForAWindowWithNoMinimum()
         {
-            // main / settings / gloops have no resize handle, so there is no drag floor to
+            // main / settings have no resize handle, so there is no drag floor to
             // reproduce and a zero minimum must not be read as "clamp to zero".
             var commanded = new UiActionRect { X = 8f, Y = 8f, W = 250f, H = 700f };
             UiActionRect applied = TestCommandUiAction.ClampRectToMinimums(

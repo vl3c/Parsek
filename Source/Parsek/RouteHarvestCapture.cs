@@ -62,12 +62,11 @@ namespace Parsek
         /// <c>packed</c> flag is the authoritative rails state for this gate -
         /// the recorder's <c>isOnRails</c> bookkeeping is NOT a substitute,
         /// because a LANDED / SPLASHED / PRELAUNCH (or below-atmosphere) vessel
-        /// packs without it ever being set. Gloops mode captures no harvest at
-        /// all.
+        /// packs without it ever being set.
         /// </summary>
-        internal static bool ShouldRunHarvestPoll(bool gloopsMode, bool vesselPacked)
+        internal static bool ShouldRunHarvestPoll(bool vesselPacked)
         {
-            return !gloopsMode && !vesselPacked;
+            return !vesselPacked;
         }
 
         /// <summary>

@@ -934,18 +934,6 @@ namespace Parsek.TestCommands
             bool already = TestCommandUiAction.IsComplexityAlreadySatisfied(
                 ParsekUI.AppliedUiComplexityMode, ParsekUI.PersistedUiComplexityMode, want);
 
-            // PRE-CALL: the one production refusal, named rather than inferred from a failed
-            // read-back (the EnterWatchMode discipline). Advanced is never refused.
-            if (!already && ParsekUI.WouldRefuseModeChange(want))
-            {
-                ParsekLog.Warn(Tag, "uiaction rejected reason="
-                    + TestCommandUiAction.ComplexityRefusedRecordingReason
-                    + $" mode={TestCommandUiAction.ModeToken(basic)}");
-                SetExecResult("REJECTED", null,
-                    TestCommandUiAction.ComplexityRefusedRecordingReason);
-                return;
-            }
-
             if (!already)
             {
                 // The production setter (persist + queue when the SETTING differs), then
@@ -1122,14 +1110,6 @@ namespace Parsek.TestCommands
                                   minW: SpawnControlUI.MinWindowWidth,
                                   minH: SpawnControlUI.MinWindowHeight,
                                   windowId: () => SpawnControlUI.WindowIdKey.GetHashCode());
-                }
-                case TestCommandUiAction.GloopsWindow:
-                {
-                    GloopsRecorderUI w = ui.GetGloopsUI();
-                    // NO minimum: no resize handle (the class says so in place).
-                    return Handle(() => w.IsOpen, v => w.IsOpen = v,
-                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
-                                  windowId: () => GloopsRecorderUI.WindowIdKey.GetHashCode());
                 }
                 case TestCommandUiAction.TestRunnerWindow:
                 {

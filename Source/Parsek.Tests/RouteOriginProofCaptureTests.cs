@@ -100,7 +100,6 @@ namespace Parsek.Tests
                 candidates: candidates,
                 settledDockSeamsScanned: candidates.Count,
                 snapshot: MakeVessel(MakePart(100, "fuelTank", MakeResource("LiquidFuel", 100.0, 400.0))),
-                isGloopsMode: false,
                 vesselContext: TestVesselContext,
                 recordingVesselId: TestRecordingVesselId,
                 out RouteOriginProof proof,
@@ -141,7 +140,6 @@ namespace Parsek.Tests
                 candidates: candidates,
                 settledDockSeamsScanned: candidates.Count,
                 snapshot: MakeVessel(MakePart(100, "fuelTank", MakeResource("LiquidFuel", 100.0, 400.0))),
-                isGloopsMode: false,
                 vesselContext: TestVesselContext,
                 recordingVesselId: TestRecordingVesselId,
                 out RouteOriginProof proof,
@@ -352,7 +350,6 @@ namespace Parsek.Tests
                 candidates: candidates,
                 settledDockSeamsScanned: candidates.Count,
                 snapshot: snapshot,
-                isGloopsMode: false,
                 vesselContext: TestVesselContext,
                 recordingVesselId: TestRecordingVesselId,
                 out RouteOriginProof _,
@@ -376,7 +373,6 @@ namespace Parsek.Tests
                 candidates: new List<DockSeamPairCandidate>(),
                 settledDockSeamsScanned: 0,
                 snapshot: snapshot,
-                isGloopsMode: false,
                 vesselContext: TestVesselContext,
                 recordingVesselId: TestRecordingVesselId,
                 out RouteOriginProof _,
@@ -404,7 +400,6 @@ namespace Parsek.Tests
                 candidates: candidates,
                 settledDockSeamsScanned: candidates.Count,
                 snapshot: snapshot,
-                isGloopsMode: false,
                 vesselContext: TestVesselContext,
                 recordingVesselId: TestRecordingVesselId,
                 out RouteOriginProof _,
@@ -432,7 +427,6 @@ namespace Parsek.Tests
                 candidates: candidates,
                 settledDockSeamsScanned: candidates.Count,
                 snapshot: snapshot,
-                isGloopsMode: false,
                 vesselContext: TestVesselContext,
                 recordingVesselId: TestRecordingVesselId,
                 out RouteOriginProof _,
@@ -460,7 +454,6 @@ namespace Parsek.Tests
                 candidates: candidates,
                 settledDockSeamsScanned: candidates.Count,
                 snapshot: snapshot,
-                isGloopsMode: false,
                 vesselContext: TestVesselContext,
                 recordingVesselId: TestRecordingVesselId,
                 out RouteOriginProof _,
@@ -491,7 +484,6 @@ namespace Parsek.Tests
                 candidates: candidates,
                 settledDockSeamsScanned: candidates.Count,
                 snapshot: snapshot,
-                isGloopsMode: false,
                 vesselContext: TestVesselContext,
                 recordingVesselId: TestRecordingVesselId,
                 out RouteOriginProof _,
@@ -503,35 +495,6 @@ namespace Parsek.Tests
                 && l.Contains("distinctPairs=")
                 && l.Contains("9001")
                 && l.Contains("9002"));
-        }
-
-        [Fact]
-        public void GloopsMode_LogsVerboseSkip()
-        {
-            // FAILS IF: gloops-mode recordings (ghost-only) attempt to capture an origin
-            // proof or fail to log the gloops-skip branch.
-            ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
-            var candidates = new List<DockSeamPairCandidate>
-            {
-                Candidate(100, 9001, (int)Vessel.Situations.ORBITING,
-                    null, 0.0, 0.0, 0.0),
-            };
-
-            RouteProofCapture.BuildStartRouteOriginProof(
-                activeVesselSituation: (int)Vessel.Situations.ORBITING,
-                activeVesselIsEva: false,
-                candidates: candidates,
-                settledDockSeamsScanned: candidates.Count,
-                snapshot: snapshot,
-                isGloopsMode: true,
-                vesselContext: TestVesselContext,
-                recordingVesselId: TestRecordingVesselId,
-                out RouteOriginProof proof,
-                out List<uint> _);
-
-            Assert.Null(proof);
-            Assert.Contains(logLines, l => l.Contains("[Recorder]")
-                && l.Contains("gloops mode"));
         }
 
         [Fact]
@@ -551,7 +514,6 @@ namespace Parsek.Tests
                 candidates: candidates,
                 settledDockSeamsScanned: candidates.Count,
                 snapshot: null,
-                isGloopsMode: false,
                 vesselContext: TestVesselContext,
                 recordingVesselId: TestRecordingVesselId,
                 out RouteOriginProof proof,
@@ -587,7 +549,6 @@ namespace Parsek.Tests
                 candidates: candidates,
                 settledDockSeamsScanned: candidates.Count,
                 snapshot: transportSnapshot,
-                isGloopsMode: false,
                 vesselContext: TestVesselContext,
                 recordingVesselId: TestRecordingVesselId,
                 out RouteOriginProof proof,
@@ -630,7 +591,6 @@ namespace Parsek.Tests
                 candidates: new List<DockSeamPairCandidate>(),
                 settledDockSeamsScanned: 0,
                 snapshot: snapshot,
-                isGloopsMode: false,
                 vesselContext: TestVesselContext,
                 recordingVesselId: TestRecordingVesselId,
                 out RouteOriginProof proof,
@@ -659,7 +619,6 @@ namespace Parsek.Tests
                 candidates: candidates,
                 settledDockSeamsScanned: candidates.Count,
                 snapshot: startSnapshot,
-                isGloopsMode: false,
                 vesselContext: TestVesselContext,
                 recordingVesselId: TestRecordingVesselId,
                 out RouteOriginProof proof,
@@ -713,7 +672,6 @@ namespace Parsek.Tests
                 candidates: candidates,
                 settledDockSeamsScanned: candidates.Count,
                 snapshot: startSnapshot,
-                isGloopsMode: false,
                 vesselContext: TestVesselContext,
                 recordingVesselId: TestRecordingVesselId,
                 out RouteOriginProof proof,
@@ -795,7 +753,6 @@ namespace Parsek.Tests
                 candidates: candidates,
                 settledDockSeamsScanned: candidates.Count,
                 snapshot: snapshot,
-                isGloopsMode: false,
                 vesselContext: TestVesselContext,
                 recordingVesselId: TestRecordingVesselId,
                 out RouteOriginProof proof,
@@ -837,7 +794,6 @@ namespace Parsek.Tests
                 candidates: candidates,
                 settledDockSeamsScanned: candidates.Count,
                 snapshot: snapshot,
-                isGloopsMode: false,
                 vesselContext: TestVesselContext,
                 recordingVesselId: TestRecordingVesselId,
                 out RouteOriginProof proof,

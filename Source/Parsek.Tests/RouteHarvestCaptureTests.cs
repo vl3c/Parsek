@@ -74,13 +74,11 @@ namespace Parsek.Tests
         // LANDED/SPLASHED/PRELAUNCH BEFORE setting isOnRails), so the vessel's
         // own packed flag is the gate.
         [Theory]
-        [InlineData(false, false, true)]   // off-rails, capturing: run
-        [InlineData(false, true, false)]   // packed: never run
-        [InlineData(true, false, false)]   // gloops: no harvest capture at all
-        [InlineData(true, true, false)]
-        public void ShouldRunHarvestPoll_Matrix(bool gloopsMode, bool vesselPacked, bool expected)
+        [InlineData(false, true)]   // off-rails, capturing: run
+        [InlineData(true, false)]   // packed: never run
+        public void ShouldRunHarvestPoll_Matrix(bool vesselPacked, bool expected)
         {
-            Assert.Equal(expected, RouteHarvestCapture.ShouldRunHarvestPoll(gloopsMode, vesselPacked));
+            Assert.Equal(expected, RouteHarvestCapture.ShouldRunHarvestPoll(vesselPacked));
         }
 
         // ---------- Rails-exit funnel consume (plan D4 warp rule) ----------
