@@ -5108,6 +5108,40 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// The recovery-credit orphan guard's read: true when a
+        /// <see cref="GameActionType.RouteDispatched"/> row for <c>(routeId, cycleId)</c> is in
+        /// ELS (any stop index: a cycle dispatches once). Fails OPEN: a ComputeELS throw counts
+        /// as present, so a degenerate ledger never costs the player an owed credit (the
+        /// crossing's other ELS reads degrade the same way).
+        /// </summary>
+        private static bool IsCreditDispatchRowInLedger(string routeId, string cycleId)
+        {
+            IReadOnlyList<GameAction> els;
+            try
+            {
+                els = EffectiveState.ComputeELS();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"IsCreditDispatchRowInLedger: ComputeELS threw {ex.GetType().Name}: {ex.Message}; " +
+                    "treating the dispatch row as present");
+                return true;
+            }
+            if (els == null)
+                return true;
+            for (int i = 0; i < els.Count; i++)
+            {
+                GameAction a = els[i];
+                if (a == null || a.Type != GameActionType.RouteDispatched) continue;
+                if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
+                if (!string.Equals(a.RouteCycleId, cycleId, StringComparison.Ordinal)) continue;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Shared route-cycle ELS idempotency scan. Currently forwarded to only by
         /// <see cref="IsRecoveryCreditAlreadyInLedger"/>;
         /// <see cref="IsDeliveryAlreadyInLedger"/> evolved a per-stop inline body during
@@ -5248,6 +5282,22 @@ namespace Parsek.Logistics
             }
 
             double dispatchUTForLog = route.PendingRecoveryCreditDispatchUT;
+
+            // Orphan guard: the credit pays back the pending cycle's dispatch, so it is owed
+            // only while that RouteDispatched row is in the effective ledger. A load or rewind
+            // back past the dispatch retires the row, a tombstone hides it; paying anyway would
+            // credit a cycle the surviving timeline never ran. Every flush site (crossing,
+            // blocked crossing, pause, armed pause, endpoint loss, source-problem revalidation)
+            // reaches this check.
+            if (!IsCreditDispatchRowInLedger(route.Id, pendingCycleId))
+            {
+                ClearPendingRecoveryCredit(route);
+                ParsekLog.Info(Tag,
+                    $"EmitPendingRecoveryCredit: route {ShortIdForLog(route)} cycle={pendingCycleId} " +
+                    "credit-skip orphan (no RouteDispatched row for the cycle in the effective ledger, " +
+                    $"dispatchUT={dispatchUTForLog.ToString("R", IC)}): cleared pending");
+                return false;
+            }
 
             // Emit the credit row (section 6.1) and apply the live stock credit
             // (section 6.3). Sequence 0: emitted FIRST at this crossing's UT,

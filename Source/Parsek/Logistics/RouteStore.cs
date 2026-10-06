@@ -1144,6 +1144,29 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// Decodes the committed routes the <c>ROUTES</c> child of <paramref name="parent"/>
+        /// carries WITHOUT touching the store: a read-only view of a loaded save's route state
+        /// (the in-session load route reconcile reads each route's loop position as of the
+        /// loaded save from it). Returns an empty list for a null parent or a save with no
+        /// routes; codec rejects are dropped (the codec logs why).
+        /// </summary>
+        internal static List<Route> ReadSavedCommittedRoutes(ConfigNode parent)
+        {
+            var saved = new List<Route>();
+            ConfigNode routesNode = parent?.GetNode(RoutesParentNodeName);
+            if (routesNode == null)
+                return saved;
+            ConfigNode[] routeNodes = routesNode.GetNodes(RouteChildNodeName);
+            for (int i = 0; i < routeNodes.Length; i++)
+            {
+                Route route = Route.DeserializeFrom(routeNodes[i]);
+                if (route != null)
+                    saved.Add(route);
+            }
+            return saved;
+        }
+
+        /// <summary>
         /// Replace in-memory state with the contents of the <c>ROUTES</c>
         /// child node under <paramref name="parent"/>. Missing
         /// <c>ROUTES</c> node is the common "save with no routes" path —

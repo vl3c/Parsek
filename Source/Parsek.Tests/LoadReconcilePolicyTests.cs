@@ -293,7 +293,6 @@ namespace Parsek.Tests
                 {
                     LoadReconcilePolicy.GapColdLoadAbandonedFuture,
                     LoadReconcilePolicy.GapReFlyLists,
-                    LoadReconcilePolicy.GapRouteState,
                 }.OrderBy(s => s, StringComparer.Ordinal),
                 ids.OrderBy(s => s, StringComparer.Ordinal));
 
@@ -317,6 +316,35 @@ namespace Parsek.Tests
                     Assert.Contains(LoadReconcilePolicy.GapColdLoadAbandonedFuture, cold.Reason);
                 }
             }
+        }
+
+        [Fact]
+        public void Routes_EveryInSessionLoadReconcilesAtTheCutoff()
+        {
+            // ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD (fixed): the F9 quickload, the
+            // stock revert and the Esc-menu Discard Re-fly load run the go-back rewind's
+            // reconcile keyed to the loaded save (RouteLoadReconcile.ReconcileAtInSessionLoad);
+            // every other in-session load runs it only when route state lies after the save.
+            foreach (LoadKind kind in new[]
+                { LoadKind.DiscardReFly, LoadKind.StockRevert, LoadKind.QuickloadFlight, LoadKind.InSessionOther })
+            {
+                var decision = LoadReconcilePolicy.Decide(kind, LoadStateCategory.Routes);
+                Assert.Equal(LoadReconcileAction.ReconcileAtCutoff, decision.Action);
+                Assert.False(decision.IsKnownGap, kind + " x Routes");
+                Assert.Contains("RouteLoadReconcile.ReconcileAtInSessionLoad", decision.Reason);
+                Assert.Contains("RetireFutureRouteActionsAtRewind", decision.Reason);
+                Assert.Contains("ReconcileStoreAtRewind", decision.Reason);
+            }
+            Assert.Contains("route state lies after the loaded save",
+                LoadReconcilePolicy.Decide(LoadKind.InSessionOther, LoadStateCategory.Routes).Reason);
+
+            // The owners elsewhere keep their cells.
+            Assert.Equal(LoadReconcileAction.Save,
+                LoadReconcilePolicy.Decide(LoadKind.Cold, LoadStateCategory.Routes).Action);
+            Assert.Equal(LoadReconcileAction.ReconcileAtCutoff,
+                LoadReconcilePolicy.Decide(LoadKind.PlainRewind, LoadStateCategory.Routes).Action);
+            Assert.Equal(LoadReconcileAction.Bundle,
+                LoadReconcilePolicy.Decide(LoadKind.ReFlyStart, LoadStateCategory.Routes).Action);
         }
 
         [Fact]
