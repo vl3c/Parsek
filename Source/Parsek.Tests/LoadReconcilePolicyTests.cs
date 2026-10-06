@@ -263,7 +263,11 @@ namespace Parsek.Tests
                 new[]
                 {
                     "InSessionOtherxAbandonedFutureEndStates",
+                    "InSessionOtherxAbandonedFutureEvents",
+                    "InSessionOtherxAbandonedFutureLedgerRows",
                     "QuickloadFlightxAbandonedFutureEndStates",
+                    "QuickloadFlightxAbandonedFutureEvents",
+                    "QuickloadFlightxAbandonedFutureLedgerRows",
                 }.OrderBy(s => s, StringComparer.Ordinal),
                 reconciled.OrderBy(s => s, StringComparer.Ordinal));
         }
@@ -287,8 +291,6 @@ namespace Parsek.Tests
             Assert.Equal(
                 new[]
                 {
-                    LoadReconcilePolicy.GapAbandonedFutureEvents,
-                    LoadReconcilePolicy.GapDetachedTreeLedgerRows,
                     LoadReconcilePolicy.GapReFlyLists,
                     LoadReconcilePolicy.GapRouteState,
                 }.OrderBy(s => s, StringComparer.Ordinal),

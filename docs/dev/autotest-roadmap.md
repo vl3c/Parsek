@@ -6381,8 +6381,8 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | Id | Pins | Todo |
 |---|---|---|
 | TA-1 | Re-Fly lists carried (or reconciled) on every in-session load | QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY |
-| TA-2 | Abandoned-future tagged events purged on quickload | QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT |
-| TA-3 | Detached tree's future ledger rows retired | QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS |
+| TA-2 | ~~Abandoned-future tagged events purged on quickload~~ DONE 2026-10-06 (branch `quickload-abandoned-future`): the resume reconcile purges the trimmed set's tagged events after the resume UT (`GameStateStore.PurgeEventsForRecordingAfterUT`); red cells in `QuickloadAbandonedFutureLedgerTests`. Live proof: QL-2 | QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT |
+| TA-3 | ~~Detached tree's future ledger rows retired~~ DONE 2026-10-06 (branch `quickload-abandoned-future`, owner ruling OQ-2): `Ledger.RetireAbandonedFutureActions` from the resume reconcile, one row per fact after a re-commit; red cells in `QuickloadAbandonedFutureLedgerTests`. Live proof: a career variant of QL-4 | QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS |
 | TA-4 | ~~Tree members' future terminal / crew end states cleared by the quickload trim~~ DONE 2026-10-06 (branch `quickload-abandoned-future`): `ParsekScenario.TrimAndReconcileForQuickloadResume` + `Recording.ClearTerminalEndStateForResume`, gated on the `ReconcileAtResume` cells; red cells in `QuickloadResumeTests` (splice refresh, stale epoch, Re-Fly scope, field gate). Live proof: QL-4 | QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE |
 | TA-5 | Nested origin rewind point survives the Discard Re-fly (editor) load | DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP |
 | TA-6 | One converter-timestamp policy for every Parsek jump | TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND |

@@ -407,6 +407,7 @@ are drawn nowhere and cannot be turned off.
 - **Career events captured** - Tech research, part purchases, facility upgrades/downgrades, building destruction/repair, contract lifecycle, crew changes, and resource changes are recorded automatically in career mode.
 - **Milestone creation** - Events are bundled into milestones at recording commit time and on game save.
 - **Reverted flights stay out** - After a revert, career events captured during the reverted flight are hidden from milestones, the Timeline and the career ledger, because they belong to a recording that was never committed. A quickload that brings that flight back makes them visible again.
+- **A quickload drops the future you left** - When you quickload back into a flight (also one that was committed after the quicksave), everything that flight did after the quicksave's moment is dropped: its career events, its ledger entries (contract rewards, recovery funds, crew-loss penalties) and the endings its vessels reached, so a booster that crashed after the quicksave flies on and is recorded again (during a Re-Fly, this covers the vessel you are re-flying). Space Center actions you took after the quicksave and every other committed flight are kept.
 
 ### Scene Transitions
 

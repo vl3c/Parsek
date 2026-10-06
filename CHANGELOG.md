@@ -3669,6 +3669,16 @@ _(unreleased - entries accumulate here per commit)_
   recorded again from the quicksave and ends however it actually ends; endings reached before the
   quicksave stay. A Re-Fly start and resuming a flight after restarting KSP are unchanged. Covered
   by xUnit; not yet checked in a test flight.
+- **Career rewards from a future you quickloaded away are no longer paid.** A contract completed,
+  a milestone reached or a vessel recovered after your quicksave stayed on the books when you
+  quickloaded back: the reward was booked again when the replayed flight was committed, even if
+  you never completed the contract the second time, and quickloading into a flight that had
+  already been committed kept paying its recovery funds, rewards and crew-loss penalties from the
+  ending you abandoned. Quickloading back into a flight now drops that flight's career events and
+  ledger entries from after the quicksave's moment, and the replayed flight books what it actually
+  does. Space Center actions after the quicksave (tech, facility upgrades, hires) are kept, as are
+  supply-route entries and every other committed flight. Covered by xUnit; not yet checked in a
+  test flight.
 
 - **Ending a Re-Fly no longer marks an earlier segment of the same craft destroyed with its crew
   dead.** When a recording had been split into segments and the same vessel was later brought

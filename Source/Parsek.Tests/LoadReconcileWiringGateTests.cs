@@ -191,8 +191,18 @@ namespace Parsek.Tests
             int recTrim = IndexOrFail(reconcile, "TrimRecordingPastUT(");
             Assert.True(plan < treeTrim && plan < recTrim,
                 "load-reconcile gate: the abandoned-future plan is taken before the trim cuts the payload");
-            Assert.Contains("ShouldReconcileAtResume(loadKind, LoadStateCategory.AbandonedFutureEndStates)",
-                Collapse(reconcile));
+            string flat = Collapse(reconcile);
+            Assert.Contains("ShouldReconcileAtResume(loadKind, LoadStateCategory.AbandonedFutureEndStates)", flat);
+            Assert.Contains("ShouldReconcileAtResume(loadKind, LoadStateCategory.AbandonedFutureEvents)", flat);
+            Assert.Contains("ShouldReconcileAtResume(loadKind, LoadStateCategory.AbandonedFutureLedgerRows)", flat);
+            // The ledger step reads the end-state step's cleared set (the KerbalAssignment rule),
+            // so the end states are cleared first.
+            int endStates = IndexOrFail(reconcile, "ClearAbandonedFutureEndStates(");
+            int events = IndexOrFail(reconcile, "PurgeAbandonedFutureEvents(");
+            int rows = IndexOrFail(reconcile, "RetireAbandonedFutureLedgerRows(");
+            int recalc = IndexOrFail(reconcile, "LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(");
+            Assert.True(treeTrim < endStates && endStates < events && events < rows && rows < recalc,
+                "load-reconcile gate: trim, end states, events, ledger rows, then the current-timeline recalculation");
         }
 
         [Fact]

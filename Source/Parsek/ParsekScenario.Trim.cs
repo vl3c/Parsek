@@ -137,9 +137,9 @@ namespace Parsek
 
         // ------------------------------------------------------------------
         // Abandoned-future reconcile: the quickload-resume trim owns the
-        // trimmed set's end states (and, per category, its tagged events and
-        // ledger rows) after the resume UT. Nothing outside that set and
-        // nothing still committed is touched.
+        // trimmed set's end states, tagged events and ledger rows after the
+        // resume UT. Nothing outside that set and nothing still committed is
+        // touched.
         // ------------------------------------------------------------------
 
         internal const string AbandonedFutureReason = "quickload-abandoned-future";
@@ -279,7 +279,9 @@ namespace Parsek
             double loadedUT)
         {
             bool reconcileEndStates = ShouldReconcileAtResume(loadKind, LoadStateCategory.AbandonedFutureEndStates);
-            bool anyCategory = reconcileEndStates;
+            bool reconcileEvents = ShouldReconcileAtResume(loadKind, LoadStateCategory.AbandonedFutureEvents);
+            bool reconcileLedgerRows = ShouldReconcileAtResume(loadKind, LoadStateCategory.AbandonedFutureLedgerRows);
+            bool anyCategory = reconcileEndStates || reconcileEvents || reconcileLedgerRows;
 
             AbandonedFuturePlan plan = anyCategory
                 ? BuildAbandonedFuturePlan(
@@ -297,7 +299,9 @@ namespace Parsek
                 ParsekLog.Info("Scenario",
                     $"Quickload abandoned-future reconcile skipped: tree='{treeName}' kind={kindText} " +
                     $"scope={scope} reason=policy " +
-                    $"endStates={FormatResumeDecision(loadKind, LoadStateCategory.AbandonedFutureEndStates)}");
+                    $"endStates={FormatResumeDecision(loadKind, LoadStateCategory.AbandonedFutureEndStates)} " +
+                    $"events={FormatResumeDecision(loadKind, LoadStateCategory.AbandonedFutureEvents)} " +
+                    $"ledgerRows={FormatResumeDecision(loadKind, LoadStateCategory.AbandonedFutureLedgerRows)}");
                 return treeTrimmed;
             }
 
@@ -319,16 +323,36 @@ namespace Parsek
                     $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)}");
             }
 
+            // End states first: the ledger step retires the KerbalAssignment summary row of
+            // every recording whose end state this clears.
             int endStatesCleared = reconcileEndStates ? ClearAbandonedFutureEndStates(tree, plan) : 0;
+            int eventsPurged = reconcileEvents ? PurgeAbandonedFutureEvents(plan) : 0;
+            int rowsAfterCutoff = 0;
+            int rowsKerbalAssignment = 0;
+            int rowsPrunedRecording = 0;
+            int ledgerRowsRetired = reconcileLedgerRows
+                ? RetireAbandonedFutureLedgerRows(
+                    plan, out rowsAfterCutoff, out rowsKerbalAssignment, out rowsPrunedRecording)
+                : 0;
+
             if (endStatesCleared > 0)
                 tree.RebuildBackgroundMap();
+            if (ledgerRowsRetired > 0)
+            {
+                // The current-timeline recalculation keeps the KSP patch deferred while the
+                // restored tree is live and uncommitted (LedgerOrchestrator.GetKspPatchDeferralReason).
+                LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
+                    resumeUT, AbandonedFutureReason);
+            }
 
             ParsekLog.Info("Scenario",
                 $"Quickload abandoned-future reconcile: tree='{treeName}' kind={kindText} scope={scope} " +
                 $"cutoffUT={resumeUT.ToString("R", CultureInfo.InvariantCulture)} " +
                 $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
                 $"trimmed={plan.TrimmedIds.Count} pruned={plan.PrunedIds.Count} " +
-                $"endStatesCleared={endStatesCleared} " +
+                $"endStatesCleared={endStatesCleared} eventsPurged={eventsPurged} " +
+                $"ledgerRowsRetired={ledgerRowsRetired} (afterCutoff={rowsAfterCutoff} " +
+                $"kerbalAssignment={rowsKerbalAssignment} prunedRecording={rowsPrunedRecording}) " +
                 $"skippedCommitted={plan.SkippedCommittedIds.Count}" +
                 (plan.SkippedCommittedIds.Count > 0 && plan.SkippedCommittedIds.Count < 20
                     ? $" skippedCommittedIds=[{string.Join(",", plan.SkippedCommittedIds.ToArray())}]"
@@ -382,6 +406,112 @@ namespace Parsek
             }
 
             return cleared;
+        }
+
+        /// <summary>
+        /// Purges the plan's tagged game-state events from the abandoned future: for a
+        /// surviving trimmed recording, every event strictly after the cutoff (the trim's own
+        /// boundary), through <see cref="GameStateStore.PurgeEventsForRecordingAfterUT"/> (live
+        /// list, milestones, and the contract snapshots whose accept went with them); for a
+        /// pruned recording, which no longer exists, every event it tagged. Untagged events and
+        /// other recordings' events are never touched. Returns the number purged.
+        /// </summary>
+        private static int PurgeAbandonedFutureEvents(AbandonedFuturePlan plan)
+        {
+            var surviving = new List<string>();
+            foreach (string id in plan.TrimmedIds)
+            {
+                if (!plan.PrunedIds.Contains(id))
+                    surviving.Add(id);
+            }
+
+            int purged = 0;
+            var withFutureEvents = new List<string>(
+                GameStateStore.CollectRecordingIdsWithTaggedEventsAfterUT(surviving, plan.CutoffUT));
+            withFutureEvents.Sort(StringComparer.Ordinal);
+            for (int i = 0; i < withFutureEvents.Count; i++)
+            {
+                purged += GameStateStore.PurgeEventsForRecordingAfterUT(
+                    withFutureEvents[i], plan.CutoffUT, AbandonedFutureReason);
+            }
+
+            if (plan.PrunedIds.Count > 0)
+            {
+                HashSet<string> prunedWithEvents = GameStateStore.CollectRecordingIdsWithTaggedEventsAfterUT(
+                    plan.PrunedIds, double.NegativeInfinity);
+                if (prunedWithEvents.Count > 0)
+                    purged += GameStateStore.PurgeEventsForRecordings(prunedWithEvents, AbandonedFutureReason);
+            }
+
+            return purged;
+        }
+
+        /// <summary>Why a ledger row belongs to the abandoned future (None: it does not).</summary>
+        internal enum AbandonedFutureRowReason
+        {
+            None = 0,
+            AfterCutoff = 1,
+            PrunedRecording = 2,
+            KerbalAssignment = 3,
+        }
+
+        /// <summary>
+        /// Pure: whether a ledger row is part of the plan's abandoned future (owner ruling OQ-2:
+        /// a quickload into a later-committed flight's quicksave retires that flight's
+        /// recording-tagged rows after the quicksave). Only rows tagged to a trimmed recording,
+        /// never a route row and never a seed; then: the recording was pruned (it no longer
+        /// exists), or the fact happened strictly after the cutoff (the occurrence UT the
+        /// commit dedupe uses: a science row is stamped at its recording's end and carries the
+        /// capture moment in <c>StartUT</c>), or it is the KerbalAssignment summary of a
+        /// recording whose end state was cleared (keyed on recording and kerbal with no UT, so
+        /// a stale one would make the re-commit drop the fresh one). Untagged KSC rows are kept.
+        /// </summary>
+        internal static AbandonedFutureRowReason ClassifyAbandonedFutureRow(
+            GameAction action, AbandonedFuturePlan plan)
+        {
+            if (action == null || plan == null)
+                return AbandonedFutureRowReason.None;
+            if (string.IsNullOrEmpty(action.RecordingId) || !plan.TrimmedIds.Contains(action.RecordingId))
+                return AbandonedFutureRowReason.None;
+            if (!string.IsNullOrEmpty(action.RouteId) || RecalculationEngine.IsSeedType(action.Type))
+                return AbandonedFutureRowReason.None;
+            if (plan.PrunedIds.Contains(action.RecordingId))
+                return AbandonedFutureRowReason.PrunedRecording;
+            if (LedgerOrchestrator.GetDedupOccurrenceUt(action) > plan.CutoffUT)
+                return AbandonedFutureRowReason.AfterCutoff;
+            if (action.Type == GameActionType.KerbalAssignment
+                && plan.EndStateClearedIds.Contains(action.RecordingId))
+            {
+                return AbandonedFutureRowReason.KerbalAssignment;
+            }
+            return AbandonedFutureRowReason.None;
+        }
+
+        internal static bool ShouldRetireAbandonedFutureRow(GameAction action, AbandonedFuturePlan plan)
+        {
+            return ClassifyAbandonedFutureRow(action, plan) != AbandonedFutureRowReason.None;
+        }
+
+        private static int RetireAbandonedFutureLedgerRows(
+            AbandonedFuturePlan plan, out int afterCutoff, out int kerbalAssignment, out int prunedRecording)
+        {
+            int after = 0;
+            int kerbal = 0;
+            int pruned = 0;
+            int removed = Ledger.RetireAbandonedFutureActions(action =>
+            {
+                switch (ClassifyAbandonedFutureRow(action, plan))
+                {
+                    case AbandonedFutureRowReason.AfterCutoff: after++; return true;
+                    case AbandonedFutureRowReason.KerbalAssignment: kerbal++; return true;
+                    case AbandonedFutureRowReason.PrunedRecording: pruned++; return true;
+                    default: return false;
+                }
+            }, AbandonedFutureReason);
+            afterCutoff = after;
+            kerbalAssignment = kerbal;
+            prunedRecording = pruned;
+            return removed;
         }
 
         private static HashSet<string> CollectFutureOnlyRecordingIds(RecordingTree tree, double cutoffUT)

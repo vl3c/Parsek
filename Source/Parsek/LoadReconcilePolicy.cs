@@ -184,8 +184,6 @@ namespace Parsek
     internal static class LoadReconcilePolicy
     {
         internal const string GapReFlyLists = "QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY";
-        internal const string GapAbandonedFutureEvents = "QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT";
-        internal const string GapDetachedTreeLedgerRows = "QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS";
         internal const string GapRouteState = "ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD";
 
         internal const string LogTag = "LoadPolicy";
@@ -591,8 +589,6 @@ namespace Parsek
             + "so the load restores no active tree and arms no trim";
         private const string RewindResumesNothing =
             "not reachable: TryRestoreActiveTreeNode returns early while rewinding, so no quickload trim is armed";
-        private const string ResumeTrimOnlyCutsTrajectories =
-            "the quickload resume trim (ParsekScenario.TrimRecordingTreePastUT) cuts trajectories only";
         private const string ResumeReconcileSkips =
             "ParsekScenario.TrimAndReconcileForQuickloadResume runs the trim but skips this category on this kind";
 
@@ -603,12 +599,13 @@ namespace Parsek
                 case LoadKind.Cold:
                     return Today(LoadReconcileAction.Keep,
                         "GameStateStore.LoadEventFile reads the external file on the first cold load of a save folder "
-                        + "(memory after); " + ResumeTrimOnlyCutsTrajectories + " (not covered by the filed in-session gap)");
+                        + "(memory after); " + ResumeReconcileSkips);
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.Keep, RewindResumesNothing);
                 case LoadKind.ReFlyStart:
                     return Today(LoadReconcileAction.Keep,
-                        "the event store is not reloaded in session and no Re-Fly path purges by UT");
+                        "the event store is not reloaded in session and no Re-Fly path purges by UT; "
+                        + ResumeReconcileSkips);
                 case LoadKind.DiscardReFly:
                     return Today(LoadReconcileAction.Keep, DiscardResumesNothing
                         + "; the attempt's own events were purged by MergeDialog.PruneActiveReFlyAttemptOwnedTopology");
@@ -617,8 +614,11 @@ namespace Parsek
                         + "; the reverted flight's events stay for an F9 back, hidden by recording-id visibility");
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
-                    return Gap(LoadReconcileAction.Keep, GapAbandonedFutureEvents,
-                        ResumeTrimOnlyCutsTrajectories + "; target: purge the trimmed set's tagged events after the resume UT");
+                    return Today(LoadReconcileAction.ReconcileAtResume,
+                        "FlightRecorder.PrepareQuickloadResumeStateIfNeeded -> "
+                        + "ParsekScenario.TrimAndReconcileForQuickloadResume purges the trimmed set's tagged events "
+                        + "after the resume UT (GameStateStore.PurgeEventsForRecordingAfterUT; every event of a pruned "
+                        + "recording), never an untagged event or one of a recording still committed");
             }
             throw UnknownKind(kind);
         }
@@ -630,21 +630,24 @@ namespace Parsek
                 case LoadKind.Cold:
                     return Today(LoadReconcileAction.Keep,
                         "LedgerOrchestrator.OnKspLoad -> Ledger.Reconcile keeps rows tagged to known recording ids, "
-                        + "the restored active tree's included (not covered by the filed in-session gap)");
+                        + "the restored active tree's included; " + ResumeReconcileSkips);
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.Keep, RewindResumesNothing);
                 case LoadKind.ReFlyStart:
                     return Today(LoadReconcileAction.Bundle,
-                        BundleRestores + " (only route rows after the loaded UT are retired)");
+                        BundleRestores + " (only route rows after the loaded UT are retired); " + ResumeReconcileSkips);
                 case LoadKind.DiscardReFly:
                     return Today(LoadReconcileAction.Keep, DiscardResumesNothing);
                 case LoadKind.StockRevert:
                     return Today(LoadReconcileAction.Keep, RevertResumesNothing);
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
-                    return Gap(LoadReconcileAction.Keep, GapDetachedTreeLedgerRows,
-                        "RecordingStore.RemoveCommittedTreeById detaches a later-committed tree without touching its rows; "
-                        + "target: retire the trimmed set's tagged rows after the resume UT");
+                    return Today(LoadReconcileAction.ReconcileAtResume,
+                        "FlightRecorder.PrepareQuickloadResumeStateIfNeeded -> "
+                        + "ParsekScenario.TrimAndReconcileForQuickloadResume -> Ledger.RetireAbandonedFutureActions "
+                        + "removes the trimmed set's recording-tagged rows that happened after the resume UT, every row "
+                        + "of a pruned recording and the KerbalAssignment row of a recording whose end state it cleared "
+                        + "(owner ruling OQ-2; untagged KSC rows, route rows, seeds and recordings still committed stay)");
             }
             throw UnknownKind(kind);
         }

@@ -175,7 +175,7 @@ future or a reverted flight stay on disk for now (OQ-3).
 
 ---
 
-## QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT: tagged game-state events from the timeline an F9 abandoned are credited when the resumed flight commits [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT: tagged game-state events from the timeline an F9 abandoned are credited when the resumed flight commits~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, branch `quickload-abandoned-future` (xUnit only; live proof is lane QL-2, which needs the TC-1 `Quickload` verb)]
 
 The quickload trim cuts trajectories only (`ParsekScenario.Trim.cs`); the only after-UT purge of
 tagged events, `GameStateStore.PurgeEventsForRecordingAfterUT`, has one caller
@@ -186,18 +186,20 @@ event store reloads only on a cold load. Once the resumed flight runs past the a
 they fall inside the commit window, and duplicate filtering keys on type, contract and UT bucket,
 so a re-completion at a different UT books a second row.
 
-Fix: purge the active tree's tagged events after the resume UT on an in-session quickload, with a
-UT cutoff like the committed-tree restore-attempt purge (`PurgeEventsForRecordingAfterUT`) - not a
-whole-recording purge, which would also delete the resumed flight's events from before the
-quicksave. Red test: `QuickloadResumeTests` - tagged ContractCompleted at
-UT 300, `TrimRecordingTreePastUT(tree, 200)`, commit 100-350, assert no ContractComplete row.
-Lane QL-2.
-
-Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
+Fix: the quickload-resume reconcile (`ParsekScenario.TrimAndReconcileForQuickloadResume`, see
+QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE) purges, for every surviving trimmed recording
+that is not still committed, its tagged events strictly after the resume UT through
+`GameStateStore.PurgeEventsForRecordingAfterUT` (live list, milestones, and the contract snapshots
+whose accept went with them; called only for recordings that have such an event), and every
+tagged event of a recording the trim pruned (`PurgeEventsForRecordings`). Untagged events and
+other trees' events stay. Gated on the `ReconcileAtResume` cells (F9 in flight, other in-session
+loads). Red tests: `QuickloadAbandonedFutureLedgerTests` (the contract completion at 300, commit
+100-350, no row; pre-cutoff, untagged and other-tree events kept; pruned recording; milestone-held
+event; contract snapshot; committed id). Open: lane QL-2.
 
 ---
 
-## QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS: a committed tree detached on F9 keeps its future ledger rows [FILED 2026-10-06 from the coverage-extension research, verified (when the detach runs); branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS: a committed tree detached on F9 keeps its future ledger rows~~ [FILED 2026-10-06 from the coverage-extension research, verified (when the detach runs); branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, branch `quickload-abandoned-future` (xUnit only; live proof is a career variant of lane QL-4)]
 
 When the loaded save's active tree was committed later, `RemoveCommittedTreeById`
 (`RecordingStore.cs:820-843`) detaches it without touching its ledger rows, and the commit-time
@@ -205,11 +207,20 @@ dedupe drops only new duplicates. Recovery funds or contract rewards from the ab
 survive the resumed flight ending differently. (If the tree's root recording is stale the whole
 saved tree is dropped instead and the flight resumes unrecorded - see QL-R1 in the research.)
 
-Fix: retire the detached tree's rows after the resume UT. Red test: extend
-`TryRestoreActiveTreeNode_SkipsCommittedTreeStashesActiveTree` with a Recovery funds row at 300
-and a loaded UT of 200.
-
-Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
+Fix: the quickload-resume reconcile retires, by physical removal
+(`Ledger.RetireAbandonedFutureActions`), every ledger row tagged to a trimmed recording that is not
+still committed, has no route id and is not a seed, when the fact happened strictly after the
+resume UT (the occurrence UT the commit dedupe uses: a commit-time science row is stamped at its
+recording's end and carries the capture moment in `StartUT`, so a transmission before the
+quicksave stays), when the trim pruned the recording, or when it is the KerbalAssignment summary of
+a recording whose end state the reconcile cleared (that row has no UT in its identity, so a stale
+one would make the re-commit drop the fresh one). Then one current-timeline recalculation, which
+keeps the KSP patch deferred while the resumed tree is live. Removal, not a tombstone: a tombstoned
+row still dedupes the re-commit. Untagged KSC rows after the cutoff, route rows and other trees'
+rows stay. Red tests: `QuickloadAbandonedFutureLedgerTests` (detached committed tree: recovery
+row at 300, death penalty and the cleared booster's KerbalAssignment retired, the contract at 150
+kept; re-commit books one row per fact; KSC, route, science and other-tree rows kept). Open: a
+career variant of lane QL-4.
 
 Owner ruling 2026-10-06 (OQ-2): F9 into a later-committed flight's quicksave retires that tree's
 recording-tagged ledger rows after the quicksave; untagged KSC rows are kept.
@@ -281,7 +292,7 @@ no explicit end, trimmed at 200, `EndUT` stays 150.
 When the loaded save carries a Re-Fly marker for the resumed tree, `ChooseQuickloadTrimScope`
 picks `ActiveRecOnly` (#610: a tree-wide trim would prune the other vessels' post-rewind-point
 recordings the splice restored), and the abandoned-future reconcile inherits that scope: only the
-active recording is trimmed and has its end states (later: events and ledger rows) retired.
+active recording is trimmed and has its end states, tagged events and ledger rows retired.
 Children the session authored after the quicksave's moment survive two ways: the splice copies
 them from a committed copy of the tree (F9 into a quicksave taken during a session that has
 since merged, owner ruling OQ-1), and the stale-epoch path keeps the in-memory future tree
