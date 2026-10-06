@@ -1698,15 +1698,16 @@ result through the verifier chain (driver validity, in-game test batch,
 offline recording analyzer, log validation, results schema, anomaly sweep,
 expectations, render composition, the save-parse row, and the ledger
 oracle). All infrastructure modules are shipped and merged. As of 2026-10-06
-there are 367 committed scenarios (`ls harness/scenarios/*.toml`; tiers 183
+there are 368 committed scenarios (`ls harness/scenarios/*.toml`; tiers 184
 nightly, 27 daily, 157 operator, parsed from the specs' `tier` keys), and the
 `## Test cases` tables below account for every one of them (the per-section
-header counts sum to 367, which `AutotestStatusScenarioCountTests` pins):
+header counts sum to 368, which `AutotestStatusScenarioCountTests` pins):
 196 rows in the Live-proven table; 4 in the Expected-fail table (EVA-5, RB-1,
 RB-2, EX-1, kept there for their history - no committed spec declares an
-`[expectedFail]` bugId today, so none of them reads EXPECTED-FAIL); 1 in
+`[expectedFail]` bugId today, so none of them reads EXPECTED-FAIL); 2 in
 Committed, not yet green (GUI-2 on the operator-local census host, whose
-current spec has never flown; RR-1, EVA-9, EVA-10 and GUI-1 moved to
+current spec has never flown, and QL-4, authored 2026-10-06 with the quickload
+abandoned-future fix and never flown; RR-1, EVA-9, EVA-10 and GUI-1 moved to
 Live-proven on 2026-10-06); and the remaining 166 in 33 per-program sections (the GUI
 census waves, the game-settings axis, recording under physics warp, the
 in-game batch wiring waves, the supply-route and re-fly continuation programs,
@@ -1715,7 +1716,7 @@ their proof state - three of them are filed under "Flown, RED BY FINDING".
 Coverage is 253 of 253 registry cells claimed by at least one scenario:
 `hlib.compute_coverage(specs, [], registry)` over the 361 committed specs
 printed 253 of 253 on 2026-10-03 (`autotest-roadmap.md`, Coverage), and the
-same call over the 367 specs of 2026-10-06 still prints 253 of 253 with zero
+same call over the 368 specs of 2026-10-06 still prints 253 of 253 with zero
 values covered only by expected-fail lanes. EVERY number here is RECOMPUTED
 from the tables, the spec files and `hlib.compute_coverage`, never carried
 forward: this paragraph previously printed 42 live-proven of 60 committed and

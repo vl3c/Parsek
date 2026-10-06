@@ -1262,6 +1262,17 @@ namespace Parsek
 
         internal static double GetDedupOccurrenceUt(GameAction action)
         {
+            return GetDedupOccurrenceUt(action, out _);
+        }
+
+        /// <summary>
+        /// <see cref="GetDedupOccurrenceUt(GameAction)"/>, also reporting whether the answer came
+        /// from a single-precision field (a science row's <c>StartUT</c>), so a caller comparing
+        /// it against a double UT can round that UT the same way.
+        /// </summary>
+        internal static double GetDedupOccurrenceUt(GameAction action, out bool singlePrecision)
+        {
+            singlePrecision = false;
             if (action.Type == GameActionType.ScienceEarning)
             {
                 bool hasFiniteStartUt =
@@ -1273,7 +1284,10 @@ namespace Parsek
                 bool hasExplicitScienceWindow = action.StartUT > 0f || action.EndUT > 0f;
                 bool isLegacyZeroUtSynthetic = System.Math.Abs(action.UT) <= 0.1;
                 if (hasFiniteStartUt && (hasExplicitScienceWindow || isLegacyZeroUtSynthetic))
+                {
+                    singlePrecision = true;
                     return action.StartUT;
+                }
             }
 
             return action.UT;

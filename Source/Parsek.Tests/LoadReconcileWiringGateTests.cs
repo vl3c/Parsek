@@ -195,7 +195,9 @@ namespace Parsek.Tests
                 "load-reconcile gate: the resume reads the armed load kind before the reconcile");
             Assert.True(body.LastIndexOf("ParsekScenario.ClearPendingQuickloadResumeContext();", StringComparison.Ordinal) > call,
                 "load-reconcile gate: the context is cleared after the reconcile read it (first clear at " + clear + ")");
-            Assert.Contains("TrimAndReconcileForQuickloadResume( ActiveTree, activeRec, resumeUT, trimScope, loadKind, loadedUT)",
+            Assert.Contains("TrimAndReconcileForQuickloadResume( ActiveTree, activeRec, resumeUT, trimScope, loadKind, loadedUT, "
+                + "quicksaveFacts)", Collapse(body));
+            Assert.Contains("var quicksaveFacts = ParsekScenario.GetPendingQuickloadQuicksaveFacts(ActiveTree.Id);",
                 Collapse(body));
 
             string reconcile = PreparedMethodBody(TrimPath, "internal static bool TrimAndReconcileForQuickloadResume(");
@@ -216,6 +218,32 @@ namespace Parsek.Tests
             int recalc = IndexOrFail(reconcile, "LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(");
             Assert.True(treeTrim < endStates && endStates < events && events < rows && rows < recalc,
                 "load-reconcile gate: trim, end states, events, ledger rows, then the current-timeline recalculation");
+        }
+
+        [Fact]
+        public void RestoreCapturesTheQuicksaveFactsBeforeAnythingChangesTheLoadedTree()
+        {
+            // The committed-history discriminator must read the quicksave as written: before the
+            // sidecar hydration, the stale-epoch keep, the pending-tree salvage and the same-id
+            // refresh, and before the detach of the committed copy.
+            string body = PreparedMethodBody(ScenarioPath, "internal static bool TryRestoreActiveTreeNode(ConfigNode node)");
+            Assert.Equal(1, Occurrences(body, "CaptureQuicksaveTreeFacts("));
+            int load = IndexOrFail(body, "RecordingTree.Load(");
+            int capture = IndexOrFail(body, "CaptureQuicksaveTreeFacts(");
+            int hydrate = IndexOrFail(body, "RecordingStore.LoadRecordingFiles(");
+            int keep = IndexOrFail(body, "ShouldKeepPendingTreeAfterHydrationFailure(");
+            int salvage = IndexOrFail(body, "RestoreHydrationFailedRecordingsFromPendingTree(");
+            int splice = IndexOrFail(body, "SpliceMissingCommittedRecordingsIntoLoadedTree(");
+            int detach = IndexOrFail(body, "RecordingStore.RemoveCommittedTreeById(");
+            Assert.True(load < capture && capture < hydrate && hydrate < keep && keep < salvage
+                && salvage < splice && splice < detach,
+                "load-reconcile gate: TryRestoreActiveTreeNode must capture the quicksave facts right after "
+                + "loading the node, before hydration, the keep, the salvage, the splice and the detach");
+            Assert.Contains("CaptureQuicksaveTreeFacts( tree, CollectQuicksaveCommittedRecordingIds(node));",
+                Collapse(body));
+
+            string arm = PreparedMethodBody(ScenarioPath, "internal static void ConfigurePendingQuickloadResumeContext(");
+            Assert.Contains("QuicksaveFacts = quicksaveFacts,", Collapse(arm));
         }
 
         [Fact]

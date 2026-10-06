@@ -510,8 +510,9 @@ namespace Parsek
             // gated on the arming load kind's LoadReconcilePolicy cell.
             LoadKind? loadKind = ParsekScenario.GetPendingQuickloadLoadKind(
                 ActiveTree.Id, out double loadedUT);
+            var quicksaveFacts = ParsekScenario.GetPendingQuickloadQuicksaveFacts(ActiveTree.Id);
             bool treeTrimmed = ParsekScenario.TrimAndReconcileForQuickloadResume(
-                ActiveTree, activeRec, resumeUT, trimScope, loadKind, loadedUT);
+                ActiveTree, activeRec, resumeUT, trimScope, loadKind, loadedUT, quicksaveFacts);
 
             bool hasTailEnv = TryGetTailTrackSectionEnvironment(activeRec, out SegmentEnvironment tailEnv);
             if (hasTailEnv)

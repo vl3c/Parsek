@@ -3664,21 +3664,29 @@ _(unreleased - entries accumulate here per commit)_
   quickloaded back, the other vessels of that flight kept the ending they had reached after the
   quicksave: the booster still read as destroyed with its crew dead, was not recorded again, and
   still played back as exploding even when it survived the second time. The same happened after
-  quickloading into a flight that had already been committed. Now every vessel of the resumed
-  flight whose recording ended after the quicksave's moment has that ending cleared, so it is
-  recorded again from the quicksave and ends however it actually ends; endings reached before the
-  quicksave stay. A Re-Fly start and resuming a flight after restarting KSP are unchanged. Covered
-  by xUnit; not yet checked in a test flight.
+  committing the flight in flight and then quickloading, with no save in between. Now every
+  vessel of the resumed flight whose recording ended after the quicksave's moment has that ending
+  cleared, so it is recorded again from the quicksave and ends however it actually ends; endings
+  reached before the quicksave stay, and so does every vessel the quicksave already shows as
+  committed history (a flight committed before the quicksave and resumed from its spawned vessel
+  keeps its other vessels' endings). Not covered yet: quickloading into a committed flight's
+  quicksave from the Space Center, or in flight once the game has saved again since the
+  quicksave (an autosave, a switch to a far vessel) - todo
+  QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE. A Re-Fly
+  start and resuming a flight after restarting KSP are unchanged. Covered by xUnit; not yet
+  checked in a test flight.
 - **Career rewards from a future you quickloaded away are no longer paid.** A contract completed,
   a milestone reached or a vessel recovered after your quicksave stayed on the books when you
   quickloaded back: the reward was booked again when the replayed flight was committed, even if
-  you never completed the contract the second time, and quickloading into a flight that had
-  already been committed kept paying its recovery funds, rewards and crew-loss penalties from the
-  ending you abandoned. Quickloading back into a flight now drops that flight's career events and
-  ledger entries from after the quicksave's moment, and the replayed flight books what it actually
-  does. Space Center actions after the quicksave (tech, facility upgrades, hires) are kept, as are
-  supply-route entries and every other committed flight. Covered by xUnit; not yet checked in a
-  test flight.
+  you never completed the contract the second time, and quickloading into a flight you had since
+  committed in flight kept paying its recovery funds, rewards and crew-loss penalties from the
+  ending you abandoned. Quickloading back into a flight in flight now drops that flight's career
+  events and ledger entries from after the quicksave's moment, and the replayed flight books what
+  it actually does. Space Center actions after the quicksave (tech, facility upgrades, hires) are
+  kept, as are supply-route entries, every other committed flight, and every recording the
+  quicksave already shows as committed history. The two committed-flight routes above (from the
+  Space Center, or after the game saved again) are not covered yet, same todo. Covered by xUnit;
+  not yet checked in a test flight.
 
 - **Ending a Re-Fly no longer marks an earlier segment of the same craft destroyed with its crew
   dead.** When a recording had been split into segments and the same vessel was later brought
@@ -5923,7 +5931,8 @@ _(unreleased - entries accumulate here per commit)_
   loads the quicksave in flight. The resumed booster must be back with the background recorder,
   recorded down to the ground and committed Landed. It loads from flight, not from the Space
   Center, because a Space Center load of the older quicksave drops the saved tree on stale
-  sidecars before any resume (the spec header has the argument).
+  sidecars before any resume (todo QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE;
+  the spec header has the argument).
 - **Automated testing: the player docks with a ghost-chain tip spawned through Real Spawn
   Control (CI-9).** A new nightly lane, `CI-9-chain-tip-dock`, puts an orbital ghost-chain
   tip (the new `chain-tip-dock` injected preset) 140 m ahead of the focused Kerbal X,

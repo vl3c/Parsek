@@ -47,8 +47,8 @@ id = "QL-4-quickload-booster-terminal"
 #      reconcile never runs.
 # Re-Fly does not hit this only because RewindInvoker refreshes the rewind-point
 # quicksave's sidecar epochs before loading it; a plain load does not. That KSC route is
-# a separate shape (todo QUICKLOAD-FROM-KSC-INTO-COMMITTED-FLIGHT-DROPS-TREE) and is NOT
-# claimed here; it is unflown and
+# a separate shape (todo QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE,
+# Space Center route) and is NOT claimed here; it is unflown and
 # the forbidden `dropped entire tree` token below names it if this lane ever hits it.
 #
 # THE ROUTE TAKEN: COMMIT IN FLIGHT, THEN F9 IN FLIGHT. CommitTree commits the tree
@@ -108,9 +108,13 @@ id = "QL-4-quickload-booster-terminal"
 #
 # READING-RUN NOTES (what to check first if the first flight reds):
 #   - `Sidecar epoch mismatch` lines plus no `removed committed tree` mean an OnSave
-#     (KSP's own FlightAutoSave) landed between SaveGame and LoadGame. The load then
-#     keeps the in-memory Limbo clone instead (the design's stale-epoch cell): a premise
-#     miss for this lane's refresh/detach tokens, not a product finding by itself.
+#     (KSP's own FlightAutoSave) landed between SaveGame and LoadGame. The
+#     load then keeps the in-memory Limbo clone instead (the stale-epoch keep), nothing
+#     is detached, every member reads as still committed and the reconcile logs
+#     `reason=empty-plan`. That is a premise miss for this lane's refresh/detach tokens
+#     AND a product finding: the in-flight route of todo
+#     QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE (OPEN), which
+#     leaves the abandoned future committed. File the run against that todo entry.
 #   - A REJECTED WarpToUT ut=150 (backward) means the mission ended after UT 150:
 #     driver-INVALID; re-derive the target from the run.
 #   - The rewind point is NOT pinned: the F9 rebuilds it from the quicksave (TA-1 owns

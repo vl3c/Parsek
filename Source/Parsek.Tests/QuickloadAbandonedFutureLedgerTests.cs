@@ -55,6 +55,7 @@ namespace Parsek.Tests
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
             ParsekScenario.ClearPendingQuickloadResumeContext();
+            ParsekScenario.ClearRestoredQuicksaveTreeFactsForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             RecalculationEngine.ClearModules();
@@ -388,13 +389,15 @@ namespace Parsek.Tests
         [Fact]
         public void TrimAndReconcile_RecommitAfterRetire_NoDuplicateFreshRows()
         {
-            var committed = CommitBoosterTree("ta3_recommit");
+            // Both commits go through the production tree commit: RecordingStore.CommitTree, then
+            // LedgerOrchestrator.NotifyLedgerTreeCommitted (CommitTreeFlight / MergeCommit order).
+            var committed = MakeBoosterFutureTree("ta3_recommit");
             string boosterId = ChildId(committed, 1);
             AddEvent(boosterId, 150.0, GameStateEventType.ContractCompleted, "guid-150", "fundsReward=100");
             AddEvent(boosterId, 290.0, GameStateEventType.ContractCompleted, "guid-290", "fundsReward=100");
             LedgerOrchestrator.Initialize();
-            bool science = false;
-            LedgerOrchestrator.OnRecordingCommitted(boosterId, 120.0, 300.0, null, ref science);
+            RecordingStore.CommitTree(committed);
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(committed);
             Assert.Single(Ledger.Actions, a => a.Type == GameActionType.KerbalAssignment && a.RecordingId == boosterId);
             Assert.Single(Ledger.Actions, a => a.Type == GameActionType.ContractComplete && a.ContractId == "guid-290");
 
@@ -408,15 +411,165 @@ namespace Parsek.Tests
             SetPoints(booster, 120.0, 180.0, 200.0, 260.0);
             booster.TerminalStateValue = TerminalState.Landed;
             booster.GhostVisualSnapshot = CrewSnapshot("Bob Kerman");
-            RecordingStore.AddCommittedInternal(booster);
-            science = false;
-            LedgerOrchestrator.OnRecordingCommitted(boosterId, 120.0, 260.0, null, ref science);
+            RecordingStore.CommitTree(resumed);
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(resumed);
 
             Assert.Single(Ledger.Actions, a => a.Type == GameActionType.ContractComplete && a.ContractId == "guid-150");
             Assert.DoesNotContain(Ledger.Actions, a => a.ContractId == "guid-290");
             var assignment = Assert.Single(Ledger.Actions,
                 a => a.Type == GameActionType.KerbalAssignment && a.RecordingId == boosterId);
             Assert.NotEqual(KerbalEndState.Dead, assignment.KerbalEndStateField);
+        }
+
+        // ============================================================
+        // Committed history at the quicksave: a tree committed BEFORE the quicksave (a
+        // copy-on-write restore clone after Rewind-to-Launch, or after a Re-Fly merge) is
+        // detached by the restore too, so only the quicksave can tell its history members from
+        // the abandoned future. Owner ruling D2: committed history is never retired.
+        // ============================================================
+
+        [Fact]
+        public void TryRestoreActiveTreeNode_CommittedBeforeTheQuicksave_TerminalMemberKeepsEndStateEventsAndRows()
+        {
+            // M lands at 400 in committed history and is still a ghost at the F5 (260); the
+            // quicksave's own copy of M already runs to 400 with its Landed terminal.
+            var committed = MakeHistoryTree("hist_terminal");
+            CommitInMemory(committed);
+            string rootId = committed.RootRecordingId;
+            string mId = HistoryMemberId(committed);
+            AddEvent(mId, 390.0, GameStateEventType.ContractCompleted, "hist-390", "fundsReward=1");
+            AddRow(mId, 390.0, GameActionType.ContractComplete, contractId: "hist-390");
+            AddRow(mId, 120.0, GameActionType.KerbalAssignment, kerbal: "Bob Kerman");
+            AddRow(rootId, 300.0, GameActionType.FundsEarning);
+
+            var resumed = RestoreQuicksaveNode(QuicksaveNodeOf(MakeHistoryTree("hist_terminal"), null));
+            Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == committed.Id);
+
+            logLines.Clear();
+            RunResumePrep(resumed, 260.0, LoadKind.QuickloadFlight);
+
+            var m = resumed.Recordings[mId];
+            Assert.Equal(TerminalState.Landed, m.TerminalStateValue);
+            Assert.Equal(KerbalEndState.Aboard, m.CrewEndStates["Bob Kerman"]);
+            Assert.True(m.CrewEndStatesResolved);
+            Assert.Contains(GameStateStore.Events, e => e.key == "hist-390");
+            Assert.Contains(NonSeedRows(), a => a.Type == GameActionType.ContractComplete && a.ContractId == "hist-390");
+            Assert.Contains(NonSeedRows(), a => a.Type == GameActionType.KerbalAssignment && a.RecordingId == mId);
+            // The live root's own abandoned future still goes.
+            Assert.DoesNotContain(NonSeedRows(), a => a.Type == GameActionType.FundsEarning && a.RecordingId == rootId);
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload abandoned-future reconcile:")
+                && l.Contains("skippedQuicksaveHistory=1")
+                && l.Contains(mId + ":terminal-in-quicksave"));
+        }
+
+        [Fact]
+        public void TryRestoreActiveTreeNode_CommittedTreeInTheQuicksave_ChainSegmentWithoutTerminalKept()
+        {
+            // The quicksave carries the committed tree's own node (OnSave writes every committed
+            // tree before the active one): a chain segment that ends past the cutoff with no
+            // terminal, no explicit end and no branch point is still committed history.
+            var committed = MakeHistoryTree("hist_chain");
+            string segmentId = HistoryMemberId(committed);
+            Recording segment = committed.Recordings[segmentId];
+            segment.TerminalStateValue = null;
+            segment.CrewEndStates = null;
+            segment.CrewEndStatesResolved = false;
+            segment.ExplicitEndUT = double.NaN;
+            segment.ChainId = "chain_hist";
+            segment.ChainIndex = 0;
+            CommitInMemory(committed);
+            AddEvent(segmentId, 390.0, GameStateEventType.ContractCompleted, "chain-390", "fundsReward=1");
+            AddRow(segmentId, 390.0, GameActionType.ContractComplete, contractId: "chain-390");
+
+            // The live clone adds a fresh segment the player is flying.
+            RecordingTree clone = CloneWithLiveSegment(committed, "live_seg_hist_chain");
+            AddRow("live_seg_hist_chain", 300.0, GameActionType.FundsEarning);
+
+            var resumed = RestoreQuicksaveNode(QuicksaveNodeOf(clone, committed));
+
+            logLines.Clear();
+            RunResumePrep(resumed, 260.0, LoadKind.QuickloadFlight);
+
+            Assert.Contains(GameStateStore.Events, e => e.key == "chain-390");
+            Assert.Contains(NonSeedRows(), a => a.ContractId == "chain-390");
+            Assert.DoesNotContain(NonSeedRows(), a => a.RecordingId == "live_seg_hist_chain");
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload abandoned-future reconcile:")
+                && l.Contains(segmentId + ":committed-in-quicksave"));
+        }
+
+        [Fact]
+        public void TryRestoreActiveTreeNode_CommittedBeforeTheQuicksave_BranchAfterCutoffMembersKept()
+        {
+            // P ends at a branch point at 350 (no terminal, no explicit end); its child P1 starts
+            // there and lands at 420. Both are committed history at the F5 (260).
+            var committed = MakeHistoryTree("hist_branch");
+            string pId = HistoryMemberId(committed);
+            Recording p = committed.Recordings[pId];
+            p.TerminalStateValue = null;
+            p.CrewEndStates = null;
+            p.CrewEndStatesResolved = false;
+            SetPoints(p, 120.0, 300.0, 350.0);
+            p.ExplicitEndUT = double.NaN;
+            p.ChildBranchPointId = "bp_hist_branch_350";
+            var p1 = new Recording
+            {
+                RecordingId = "child_after_hist_branch", TreeId = committed.Id, VesselName = "P1",
+                VesselPersistentId = 333u, ParentBranchPointId = "bp_hist_branch_350",
+                TerminalStateValue = TerminalState.Landed,
+            };
+            SetPoints(p1, 350.0, 420.0);
+            committed.AddOrReplaceRecording(p1);
+            committed.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp_hist_branch_350", UT = 350.0, Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { pId },
+                ChildRecordingIds = new List<string> { p1.RecordingId },
+            });
+            CommitInMemory(committed);
+            AddRow(pId, 340.0, GameActionType.ContractComplete, contractId: "p-340");
+            AddRow(p1.RecordingId, 380.0, GameActionType.FundsEarning);
+
+            var quicksaved = RecordingTree.DeepClone(committed);
+            var resumed = RestoreQuicksaveNode(QuicksaveNodeOf(quicksaved, null));
+
+            logLines.Clear();
+            RunResumePrep(resumed, 260.0, LoadKind.QuickloadFlight);
+
+            Assert.Contains(NonSeedRows(), a => a.ContractId == "p-340");
+            Assert.Contains(NonSeedRows(), a => a.RecordingId == "child_after_hist_branch");
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload abandoned-future reconcile:")
+                && l.Contains(pId + ":branch-after-cutoff-in-quicksave"));
+        }
+
+        [Fact]
+        public void TrimAndReconcile_ScienceAtLargeUT_SinglePrecisionCaptureBeforeCutoffKept()
+        {
+            // At UT ~1e7 a float step is a whole second: a transmission 0.3 s before the F5
+            // rounds up past the double cutoff unless the cutoff is rounded the same way.
+            var tree = MakeTree("ta3_float");
+            string rootId = tree.RootRecordingId;
+            const double cutoff = 10000000.9;
+            Ledger.AddAction(new GameAction
+            {
+                UT = 10000050.0, Type = GameActionType.ScienceEarning, RecordingId = rootId,
+                SubjectId = "crewReport@KerbinFlyingHigh", StartUT = (float)10000000.6,
+                EndUT = (float)10000050.0, ScienceAwarded = 5f,
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 10000050.0, Type = GameActionType.ScienceEarning, RecordingId = rootId,
+                SubjectId = "crewReport@KerbinInSpaceLow", StartUT = (float)10000002.6,
+                EndUT = (float)10000050.0, ScienceAwarded = 5f,
+            });
+            Assert.True((double)(float)10000000.6 > cutoff, "fixture: the capture rounds past the double cutoff");
+
+            RunResumePrep(tree, cutoff, LoadKind.QuickloadFlight);
+
+            var kept = Assert.Single(NonSeedRows());
+            Assert.Equal("crewReport@KerbinFlyingHigh", kept.SubjectId);
         }
 
         [Fact]
@@ -510,9 +663,89 @@ namespace Parsek.Tests
 
         private static string ChildId(RecordingTree tree, int index) => "child_" + tree.Id + "_" + index;
 
+        // A tree committed before the quicksave at 260: the root flew 100..250, member M flew
+        // 120..400 and landed with Bob aboard.
+        private static RecordingTree MakeHistoryTree(string id)
+        {
+            var tree = new RecordingTree
+            {
+                Id = id,
+                TreeName = id,
+                RootRecordingId = "root_" + id,
+                ActiveRecordingId = "root_" + id,
+            };
+            var root = new Recording { RecordingId = "root_" + id, TreeId = id, VesselName = id, VesselPersistentId = 111u };
+            SetPoints(root, 100.0, 180.0, 250.0);
+            tree.AddOrReplaceRecording(root);
+            var m = new Recording
+            {
+                RecordingId = "hist_" + id, TreeId = id, VesselName = id + " lander", VesselPersistentId = 222u,
+                TerminalStateValue = TerminalState.Landed,
+                GhostVisualSnapshot = CrewSnapshot("Bob Kerman"),
+                CrewEndStates = new Dictionary<string, KerbalEndState> { { "Bob Kerman", KerbalEndState.Aboard } },
+                CrewEndStatesResolved = true,
+            };
+            SetPoints(m, 120.0, 300.0, 400.0);
+            tree.AddOrReplaceRecording(m);
+            tree.RebuildBackgroundMap();
+            return tree;
+        }
+
+        private static string HistoryMemberId(RecordingTree tree) => "hist_" + tree.Id;
+
+        private static void CommitInMemory(RecordingTree tree)
+        {
+            foreach (var rec in tree.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+        }
+
+        // The copy-on-write clone the player resumed, plus a fresh live segment that is the
+        // active recording.
+        private static RecordingTree CloneWithLiveSegment(RecordingTree committed, string segmentId)
+        {
+            var clone = RecordingTree.DeepClone(committed);
+            var segment = new Recording
+            {
+                RecordingId = segmentId, TreeId = committed.Id, VesselName = "live", VesselPersistentId = 444u,
+            };
+            SetPoints(segment, 250.0, 260.0);
+            clone.AddOrReplaceRecording(segment);
+            clone.ActiveRecordingId = segmentId;
+            return clone;
+        }
+
+        // A save node holding the active tree (and, when given, a committed tree node written
+        // before it, the way OnSave writes committed trees first).
+        private static ConfigNode QuicksaveNodeOf(RecordingTree activeTree, RecordingTree committedTree)
+        {
+            var node = new ConfigNode("PARSEK_SCENARIO");
+            if (committedTree != null)
+                committedTree.Save(node.AddNode("RECORDING_TREE"));
+            var treeNode = node.AddNode("RECORDING_TREE");
+            activeTree.Save(treeNode);
+            treeNode.AddValue("isActive", "True");
+            return node;
+        }
+
+        private static RecordingTree RestoreQuicksaveNode(ConfigNode node)
+        {
+            Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
+            return RecordingStore.PopPendingTree();
+        }
+
         // The committed future: the booster was destroyed at 300 with Bob aboard and the tree
         // ran on to 320.
         private static RecordingTree CommitBoosterTree(string id)
+        {
+            var tree = MakeBoosterFutureTree(id);
+            foreach (var rec in tree.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            return tree;
+        }
+
+        private static RecordingTree MakeBoosterFutureTree(string id)
         {
             var tree = MakeTree(id);
             SetPoints(tree.Recordings[tree.RootRecordingId], 100.0, 150.0, 320.0);
@@ -523,9 +756,6 @@ namespace Parsek.Tests
             booster.GhostVisualSnapshot = CrewSnapshot("Bob Kerman");
             booster.CrewEndStates = new Dictionary<string, KerbalEndState> { { "Bob Kerman", KerbalEndState.Dead } };
             booster.CrewEndStatesResolved = true;
-            foreach (var rec in tree.Recordings.Values)
-                RecordingStore.AddCommittedInternal(rec);
-            RecordingStore.AddCommittedTreeForTesting(tree);
             return tree;
         }
 

@@ -6023,6 +6023,7 @@ namespace Parsek
         /// </summary>
         internal static bool TryRestoreActiveTreeNode(ConfigNode node)
         {
+            lastRestoredQuicksaveTreeFacts = null;
             if (node == null) return false;
             if (RewindContext.IsRewinding)
             {
@@ -6055,6 +6056,16 @@ namespace Parsek
                         "because all recordings were rejected by the schema gate");
                     return false;
                 }
+
+                // What the quicksave itself says about each member, read from the node before
+                // hydration, salvage, the stale-epoch keep or the same-id refresh can bring the
+                // committed future in. The quickload-resume reconcile reads it to leave alone a
+                // member that was already committed history when the quicksave was taken.
+                lastRestoredQuicksaveTreeFacts = CaptureQuicksaveTreeFacts(
+                    tree, CollectQuicksaveCommittedRecordingIds(node));
+                ParsekLog.Verbose("Scenario",
+                    $"TryRestoreActiveTreeNode: captured quicksave facts tree='{tree.TreeName}' id={tree.Id} " +
+                    $"members={lastRestoredQuicksaveTreeFacts?.Members.Count ?? 0}");
                 if (RecordingStore.TryConsumeNextActiveTreeRestoreSuppression(
                     "TryRestoreActiveTreeNode:active-tree",
                     out string suppressReason))
@@ -6223,7 +6234,14 @@ namespace Parsek
             internal LoadKind LoadKind;
             // Planetarium UT when OnLoad armed the context (NaN when the clock was not ready).
             internal double LoadedUT;
+            // What the loaded save said about the tree's members (null when the resumed tree
+            // did not come from this load's save node).
+            internal QuicksaveTreeFacts QuicksaveFacts;
         }
+
+        // Set by TryRestoreActiveTreeNode, taken by the next ConfigurePendingQuickloadResumeContext
+        // for the same tree id.
+        private static QuicksaveTreeFacts lastRestoredQuicksaveTreeFacts;
 
         // Resume hints parsed from PARSEK_ACTIVE_TREE, consumed by the quickload-resume
         // path when FlightRecorder.StartRecording reopens the restored active tree.
@@ -6242,6 +6260,12 @@ namespace Parsek
             var marker = Instance?.ActiveReFlySessionMarker;
             var trimScope = ChooseQuickloadTrimScope(tree.Id, marker, out string trimScopeReason);
 
+            QuicksaveTreeFacts quicksaveFacts = lastRestoredQuicksaveTreeFacts != null
+                && string.Equals(lastRestoredQuicksaveTreeFacts.TreeId, tree.Id, StringComparison.Ordinal)
+                    ? lastRestoredQuicksaveTreeFacts
+                    : null;
+            lastRestoredQuicksaveTreeFacts = null;
+
             pendingQuickloadResumeContext = new QuickloadResumeContext
             {
                 TreeId = tree.Id,
@@ -6249,12 +6273,35 @@ namespace Parsek
                 TrimScopeReason = trimScopeReason,
                 LoadKind = loadKind,
                 LoadedUT = loadedUT,
+                QuicksaveFacts = quicksaveFacts,
             };
 
             ParsekLog.Verbose("Scenario",
                 $"Quickload-resume context armed: treeId={tree.Id} activeRecId={tree.ActiveRecordingId} " +
                 $"trimScope={trimScope} ({trimScopeReason}) loadKind={loadKind} " +
-                $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)}");
+                $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"quicksaveFacts={(quicksaveFacts != null ? quicksaveFacts.Members.Count.ToString(CultureInfo.InvariantCulture) : "none")}");
+        }
+
+        /// <summary>
+        /// The quicksave facts the pending quickload-resume context carries for
+        /// <paramref name="treeId"/>, or null.
+        /// </summary>
+        internal static QuicksaveTreeFacts GetPendingQuickloadQuicksaveFacts(string treeId)
+        {
+            QuickloadResumeContext context = pendingQuickloadResumeContext;
+            if (context == null
+                || string.IsNullOrEmpty(treeId)
+                || !string.Equals(context.TreeId, treeId, StringComparison.Ordinal))
+            {
+                return null;
+            }
+            return context.QuicksaveFacts;
+        }
+
+        internal static void ClearRestoredQuicksaveTreeFactsForTesting()
+        {
+            lastRestoredQuicksaveTreeFacts = null;
         }
 
         /// <summary>
