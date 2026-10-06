@@ -644,6 +644,33 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The recording tag of every action whose id is in <paramref name="actionIds"/>, keyed by
+        /// action id (the first action wins on a duplicate id). Untagged actions and ids no action
+        /// carries are absent. Read by the in-session handoff's resumed-tree rule, which asks
+        /// whether a tombstone retires an action of the resumed tree.
+        /// </summary>
+        internal static Dictionary<string, string> CollectRecordingIdsForActions(ICollection<string> actionIds)
+        {
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (actionIds == null || actionIds.Count == 0)
+                return map;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null
+                    || string.IsNullOrEmpty(action.ActionId)
+                    || string.IsNullOrEmpty(action.RecordingId)
+                    || map.ContainsKey(action.ActionId)
+                    || !actionIds.Contains(action.ActionId))
+                {
+                    continue;
+                }
+                map[action.ActionId] = action.RecordingId;
+            }
+            return map;
+        }
+
+        /// <summary>
         /// Single-id convenience wrapper over
         /// <see cref="ClearRecordingTagForRecordings"/>.
         /// </summary>

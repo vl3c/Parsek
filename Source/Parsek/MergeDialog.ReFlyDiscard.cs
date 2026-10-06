@@ -286,11 +286,14 @@ namespace Parsek
 
             var removedIds = new List<string>();
             result.Supersedes = RemoveRowsNaming(
-                scenario.RecordingSupersedes, r => r.NewRecordingId, r => r.RelationId, attemptIds, removedIds);
+                scenario.RecordingSupersedes, InSessionStagedStateHandoff.SupersedeWriterId,
+                r => r.RelationId, attemptIds, removedIds);
             result.Tombstones = RemoveRowsNaming(
-                scenario.LedgerTombstones, t => t.RetiringRecordingId, t => t.TombstoneId, attemptIds, removedIds);
+                scenario.LedgerTombstones, InSessionStagedStateHandoff.TombstoneWriterId,
+                t => t.TombstoneId, attemptIds, removedIds);
             result.Retirements = RemoveRowsNaming(
-                scenario.RecordingRewindRetirements, r => r.RecordingId, r => r.RetirementId, attemptIds, removedIds);
+                scenario.RecordingRewindRetirements, InSessionStagedStateHandoff.RetirementWriterId,
+                r => r.RetirementId, attemptIds, removedIds);
 
             if (result.Tombstones > 0)
                 scenario.BumpTombstoneStateVersion();
@@ -633,7 +636,14 @@ namespace Parsek
             return string.Equals(marker.TreeId, tree.Id, System.StringComparison.Ordinal);
         }
 
-        private static HashSet<string> CollectReFlyAttemptOwnedRecordingIds(
+        /// <summary>
+        /// The recordings a Re-Fly attempt owns in <paramref name="tree"/>: the marker's active
+        /// recording, recordings stamped with its session, rewind point or supersede target, and
+        /// children of branch points the session authored. The discards prune these; the
+        /// in-session handoff's resumed-tree rule keeps the rows they wrote when the loaded marker
+        /// resumes the attempt (owner ruling OQ-1).
+        /// </summary>
+        internal static HashSet<string> CollectReFlyAttemptOwnedRecordingIds(
             RecordingTree tree, ReFlySessionMarker marker)
         {
             var ids = new HashSet<string>(System.StringComparer.Ordinal);

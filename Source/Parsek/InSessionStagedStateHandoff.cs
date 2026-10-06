@@ -32,6 +32,23 @@ namespace Parsek
         internal int FollowSaveMemoryOnlyDropped;
     }
 
+    /// <summary>Counts of one <see cref="InSessionStagedStateHandoff.ApplyResumedTreeRowRule{T}"/> call.</summary>
+    internal struct ResumedTreeRowCounts
+    {
+        /// <summary>Rows in the result.</summary>
+        internal int Installed;
+        /// <summary>Rows that name no recording of the resumed tree: memory's, as step A installed them.</summary>
+        internal int Untouched;
+        /// <summary>Rows the resumed Re-Fly attempt wrote (owner ruling OQ-1): memory's copy kept.</summary>
+        internal int AttemptKept;
+        /// <summary>Rows naming the resumed tree that both sides hold: the save's copy.</summary>
+        internal int FollowSave;
+        /// <summary>Rows naming the resumed tree that only memory holds: dropped.</summary>
+        internal int Dropped;
+        /// <summary>Rows naming the resumed tree that only the save holds: put back.</summary>
+        internal int RestoredFromSave;
+    }
+
     /// <summary>
     /// The Re-Fly bookkeeping a <see cref="ParsekScenario"/> instance held when it was torn down
     /// (rewind points, supersede rows, rewind retirements, ledger tombstones, the merge journal and
@@ -107,22 +124,35 @@ namespace Parsek
             return pending == null ? "absent" : "present reason=" + (pending.CaptureReason ?? "<none>");
         }
 
+        internal const string CaptureSkipInertGameMode = "inert-game-mode";
+        internal const string CaptureSkipNoCompletedLoad = "no-completed-load";
+        internal const string CaptureSkipStagedStateNotLoaded = "staged-state-not-loaded";
+
         /// <summary>
         /// Whether a scenario instance being torn down (or replaced) captures a handoff: only
         /// after this session completed a load (a cold load follows otherwise, and the main-menu
-        /// transition resets the flag before stock destroys the scenario) and never for an inert
-        /// (mission / scenario game) instance.
+        /// transition resets the flag before stock destroys the scenario), never for an inert
+        /// (mission / scenario game) instance, and only when this instance's own OnLoad got
+        /// through the staging load and step A (<paramref name="stagedStateLoaded"/>): an OnLoad
+        /// that threw before then leaves empty or half-built lists, which the next load would
+        /// otherwise install over its save.
         /// </summary>
-        internal static bool ShouldCapture(bool initialLoadDone, bool inertGameMode, out string skipReason)
+        internal static bool ShouldCapture(
+            bool initialLoadDone, bool inertGameMode, bool stagedStateLoaded, out string skipReason)
         {
             if (inertGameMode)
             {
-                skipReason = "inert-game-mode";
+                skipReason = CaptureSkipInertGameMode;
                 return false;
             }
             if (!initialLoadDone)
             {
-                skipReason = "no-completed-load";
+                skipReason = CaptureSkipNoCompletedLoad;
+                return false;
+            }
+            if (!stagedStateLoaded)
+            {
+                skipReason = CaptureSkipStagedStateNotLoaded;
                 return false;
             }
             skipReason = null;
@@ -426,6 +456,188 @@ namespace Parsek
                 sb.Append(", ...");
             return sb.ToString();
         }
+
+        // ---------- the resumed-tree row rule (step B) ----------
+
+        /// <summary>
+        /// The recording each row kind names as the Re-Fly attempt that wrote it: the NEW side of
+        /// a supersede row, the retiring recording of a tombstone, the retired recording of a
+        /// rewind retirement. The discard prune (<c>MergeDialog.PruneStagedRowsNamingAttempt</c>)
+        /// removes by it and the resumed-tree rule keeps by it, so the rows a resumed session keeps
+        /// on the load are exactly the rows its discard prunes.
+        /// </summary>
+        internal static readonly Func<RecordingSupersedeRelation, string> SupersedeWriterId = r => r.NewRecordingId;
+        internal static readonly Func<LedgerTombstone, string> TombstoneWriterId = t => t.RetiringRecordingId;
+        internal static readonly Func<RecordingRewindRetirement, string> RetirementWriterId = r => r.RecordingId;
+
+        /// <summary>A supersede row names a recording through either side.</summary>
+        internal static bool SupersedeNamesAny(RecordingSupersedeRelation row, HashSet<string> recordingIds)
+        {
+            if (row == null || recordingIds == null || recordingIds.Count == 0)
+                return false;
+            return ContainsId(recordingIds, row.OldRecordingId) || ContainsId(recordingIds, row.NewRecordingId);
+        }
+
+        /// <summary>A rewind retirement names the recording it retires.</summary>
+        internal static bool RetirementNamesAny(RecordingRewindRetirement row, HashSet<string> recordingIds)
+        {
+            if (row == null || recordingIds == null || recordingIds.Count == 0)
+                return false;
+            return ContainsId(recordingIds, row.RecordingId);
+        }
+
+        /// <summary>
+        /// A tombstone names its retiring recording and, when the ledger still holds the action it
+        /// retires with a recording tag, that action's recording
+        /// (<paramref name="actionRecordingIds"/>: action id to recording id).
+        /// </summary>
+        internal static bool TombstoneNamesAny(
+            LedgerTombstone row, HashSet<string> recordingIds, IReadOnlyDictionary<string, string> actionRecordingIds)
+        {
+            if (row == null || recordingIds == null || recordingIds.Count == 0)
+                return false;
+            if (ContainsId(recordingIds, row.RetiringRecordingId))
+                return true;
+            return actionRecordingIds != null
+                && !string.IsNullOrEmpty(row.ActionId)
+                && actionRecordingIds.TryGetValue(row.ActionId, out string actionRecordingId)
+                && ContainsId(recordingIds, actionRecordingId);
+        }
+
+        /// <summary>
+        /// Owner ruling OQ-1's side of the resumed-tree rule: the loaded marker resumes the
+        /// attempt that wrote a row when it belongs to the resumed tree and the resumed tree holds
+        /// its active Re-Fly recording (the save was taken during that session). Returns the
+        /// reason token either way.
+        /// </summary>
+        internal static bool LoadedMarkerResumesAttempt(
+            ReFlySessionMarker marker, string resumedTreeId, ICollection<string> resumedTreeRecordingIds,
+            out string reason)
+        {
+            if (marker == null)
+            {
+                reason = "no-marker";
+                return false;
+            }
+            if (string.IsNullOrEmpty(resumedTreeId)
+                || !string.Equals(marker.TreeId, resumedTreeId, StringComparison.Ordinal))
+            {
+                reason = "marker-tree-differs";
+                return false;
+            }
+            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                || resumedTreeRecordingIds == null
+                || !resumedTreeRecordingIds.Contains(marker.ActiveReFlyRecordingId))
+            {
+                reason = "attempt-not-in-resumed-tree";
+                return false;
+            }
+            reason = "marker-resumes-attempt";
+            return true;
+        }
+
+        /// <summary>
+        /// Pure: the resumed-tree row rule for one staged list. <paramref name="current"/> is the
+        /// list step A installed (memory's); <paramref name="loaded"/> the loaded save's own copy.
+        /// A row that names no recording of the resumed tree stays as step A left it. A row naming
+        /// the resumed tree follows the save: the save's copy when the save holds that id, dropped
+        /// when only memory does, and a save-only one is put back. Exception (owner ruling OQ-1):
+        /// a row the resumed Re-Fly attempt wrote keeps memory's copy, and a save-only one is not
+        /// put back. Memory's order first, then the save's for rows put back.
+        /// </summary>
+        internal static List<T> ApplyResumedTreeRowRule<T>(
+            List<T> current,
+            List<T> loaded,
+            Func<T, string> idOf,
+            Func<T, bool> namesResumedTree,
+            Func<T, bool> writtenByResumedAttempt,
+            out ResumedTreeRowCounts counts,
+            List<string> decisions)
+            where T : class
+        {
+            counts = new ResumedTreeRowCounts();
+            var loadedById = new Dictionary<string, T>(StringComparer.Ordinal);
+            if (loaded != null)
+            {
+                for (int i = 0; i < loaded.Count; i++)
+                {
+                    T row = loaded[i];
+                    string id = row != null ? idOf(row) : null;
+                    if (!string.IsNullOrEmpty(id) && !loadedById.ContainsKey(id))
+                        loadedById[id] = row;
+                }
+            }
+
+            var result = new List<T>(current?.Count ?? 0);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            if (current != null)
+            {
+                for (int i = 0; i < current.Count; i++)
+                {
+                    T row = current[i];
+                    if (row == null)
+                        continue;
+                    string id = idOf(row);
+                    if (!string.IsNullOrEmpty(id))
+                        seen.Add(id);
+                    if (!namesResumedTree(row))
+                    {
+                        result.Add(row);
+                        counts.Untouched++;
+                        continue;
+                    }
+                    if (writtenByResumedAttempt(row))
+                    {
+                        result.Add(row);
+                        counts.AttemptKept++;
+                        decisions?.Add((id ?? "<no-id>") + ":attempt-kept");
+                        continue;
+                    }
+                    if (!string.IsNullOrEmpty(id) && loadedById.TryGetValue(id, out T savedRow))
+                    {
+                        result.Add(savedRow);
+                        counts.FollowSave++;
+                        decisions?.Add(id + ":save");
+                        continue;
+                    }
+                    counts.Dropped++;
+                    decisions?.Add((id ?? "<no-id>") + ":dropped");
+                }
+            }
+
+            if (loaded != null)
+            {
+                for (int i = 0; i < loaded.Count; i++)
+                {
+                    T row = loaded[i];
+                    if (row == null)
+                        continue;
+                    string id = idOf(row);
+                    if (string.IsNullOrEmpty(id) || seen.Contains(id))
+                        continue;
+                    if (!namesResumedTree(row) || writtenByResumedAttempt(row))
+                        continue;
+                    seen.Add(id);
+                    result.Add(row);
+                    counts.RestoredFromSave++;
+                    decisions?.Add(id + ":restored-from-save");
+                }
+            }
+
+            counts.Installed = result.Count;
+            return result;
+        }
+
+        internal static string FormatResumedTreeRowCounts(string label, ResumedTreeRowCounts c)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            return $"{label} installed={c.Installed.ToString(ic)} untouched={c.Untouched.ToString(ic)} " +
+                   $"attemptKept={c.AttemptKept.ToString(ic)} followSave={c.FollowSave.ToString(ic)} " +
+                   $"dropped={c.Dropped.ToString(ic)} restoredFromSave={c.RestoredFromSave.ToString(ic)}";
+        }
+
+        private static bool ContainsId(HashSet<string> ids, string id)
+            => !string.IsNullOrEmpty(id) && ids.Contains(id);
 
         private static List<T> CopyNonNull<T>(List<T> source) where T : class
         {

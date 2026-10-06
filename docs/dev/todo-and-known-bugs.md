@@ -269,16 +269,31 @@ active and pending tree restores, so a resumed tree is already detached) partiti
 points by owner (`MergeRewindPointsByOwner`): session-scoped points from both sides (memory's
 instance first; the sweep then spares or purges them against the loaded marker, with files),
 memory's copy for points of trees memory holds committed, the save's for everything else (the
-resumed or reverted flight: OQ-3, files untouched). An in-session load with no handoff keeps the
-save's lists and Warns. OQ-1: `MergeDialog.PruneStagedRowsNamingAttempt`, called from both Re-Fly
-discard helpers, removes supersede rows whose new side, tombstones whose retiring recording and
-rewind retirements whose retired recording is a pruned attempt recording. The
+resumed or reverted flight: OQ-3, files untouched). Step B then gives the rows of a tree the load
+resumed from the save back to the save: when the active-tree restore's committed-copy rule
+(`ResumeFromQuicksave`, the flight was committed after the save) detached the committed copy, a
+supersede row naming one of that tree's recordings on either side, a retirement retiring one, or a
+tombstone whose retiring recording is one or whose retired action is tagged to one follows the save
+(the save's copy kept, a memory-only one dropped, a save-only one put back), since a Re-Fly merged
+into that flight after the save is part of the future the quickload retires. Exception (OQ-1): a
+row the loaded marker's resumed attempt wrote (writer side in the set the discard prune removes)
+keeps memory's copy. A detach that keeps the committed future (a load outside flight) keeps
+memory's rows. A scenario instance hands off only after its own OnLoad got through step A (capture
+skip `staged-state-not-loaded`). An in-session load with no handoff keeps the save's lists and
+Warns. OQ-1: `MergeDialog.PruneStagedRowsNamingAttempt`, called from both Re-Fly discard helpers,
+removes supersede rows whose new side, tombstones whose retiring recording and rewind retirements
+whose retired recording is a pruned attempt recording (the same writer selectors the load-time
+exception keeps by). The
 `LoadReconcilePolicy` cells flipped to Memory / OwnerPartition and lost this known-gap id. Red
 first: `InSessionStagedListsCarryTests` (origin stays invisible, tombstoned death stays out of the
 ELS, rows only in the save not resurrected, committed tree's newer RP kept, reaped RP not
 resurrected, session RPs of a session the save never had purged with files, merged-session resume
-keeps its rows, both Discard Re-fly loads keep the origin RP, stale journal dropped); the OQ-1
-discard pair red with the prune removed; `InSessionHandoffWiringGateTests` pins the order. Decompile
+keeps its rows, both Discard Re-fly loads keep the origin RP, stale journal dropped; the review
+follow-up's `Quickload_SaveBeforeReFlyMergeOfTheResumedFlight_RowsFollowTheSave` through the real
+`TryRestoreActiveTreeNode`, red with the row O->A' still installed); the OQ-1 discard pair red with
+the prune or its tombstone-version bump removed; `InSessionHandoffWiringGateTests` pins the order.
+The OQ-1 Esc-menu Discard is proven for the rows only (see
+ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE). Decompile
 note: the Discard Re-fly load is ONE OnLoad, and it reads persistent.sfs, not the rewind-point
 quicksave (see DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT).
 
@@ -654,6 +669,49 @@ which need the point again.
 
 Fix: none planned; revisit with a disk-usage sweep that knows every quicksave still able to name
 the point.
+
+---
+
+## ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE: Discard Re-fly from the Esc menu after an F9 during a Re-Fly may drop the flight's tree [FILED 2026-10-06 from the in-session carry review, branch `insession-staged-lists`; pre-existing, verified by code read, not reproduced. OPEN, product]
+
+An F9 during any Re-Fly session restores the quicksave's active tree, and
+`ParsekScenario.TryRestoreActiveTreeNode` detaches any committed copy of that tree (a session that
+merged since, a fork attached to the committed tree) through `RecordingStore.RemoveCommittedTreeById`
+on every path past the stale-epoch keep. The Esc-menu
+`RevertInterceptor.DiscardReFlyHandler` then prunes the attempt
+(`MergeDialog.PruneActiveReFlyAttemptOwnedTopology`) and arms
+`RecordingStore.ArmNextTreeSceneExitCommitSuppression`, so the scene exit does not commit the live
+tree, and that path has no `RestoreSanitizedPendingTreeIfDetached` (the merge-dialog Discard's
+`DiscardReFlyAttemptRecordingsAndRewindPoints` puts a detached committed tree back sanitized).
+Expected player effect: the whole flight the Re-Fly belonged to (origin included) is missing from
+the timeline after the discard. The OQ-1 Esc cell in `InSessionStagedListsCarryTests` asserts the
+rows only (its seams leave the suppression unarmed), so the "discarding it brings the original
+flight back" claim is proven for the merge-dialog Discard alone.
+
+Fix: to trace first (the suppression's consumer and what the Discard Re-fly load restores for the
+tree); candidate: put a detached committed tree back sanitized on the Esc path as the merge-dialog
+Discard does. Red test: the resumed-session fixture through `DiscardReFlyHandler` with the
+suppression armed, then the Discard Re-fly load; the committed tree must hold the origin.
+
+---
+
+## SESSION-RPS-OF-A-RESUMED-SESSIONS-ABANDONED-FUTURE-STAY-LISTED: an F9 back into a Re-Fly session keeps the rewind points that session made after the quicksave [FILED 2026-10-06 from the in-session carry review, branch `insession-staged-lists`; verified by code read, not reproduced. OPEN, product; narrow]
+
+The in-session owner partition keeps a session-scoped rewind point (`SessionProvisional` with a
+`CreatingSessionId`) from either side, and `LoadTimeSweep` spares it when the loaded marker is that
+session. After an F5 during Re-Fly session S, a split later in S (a new session-scoped point
+stamped S, in memory only) and an F9 back to the F5, S resumes from the save and the memory-only
+point is kept and spared, though the restored tree has no branch point for it (the split is in the
+future the quickload retires). Before the carry it dropped out of the list (the save never had
+it). Expected player effect: an Unfinished Flight row for a split that has not happened in the
+resumed flight (its Fly button waits for the split's time), next to the row the flight makes when
+it separates again.
+
+Fix: a memory-only session-scoped point whose branch point is in no tree after the restore (the
+resumed pending tree, the committed trees) follows the save (dropped from the list, file untouched
+per OQ-3); or the sweep spares a session point only when its branch point exists. Red test: the
+`InSessionStagedListsCarryTests` merged-session resume shape with a memory-only point stamped S
+and no branch point in the restored tree; the point must be gone after the load.
 
 ---
 

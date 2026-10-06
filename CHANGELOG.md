@@ -3685,12 +3685,14 @@ _(unreleased - entries accumulate here per commit)_
   bookkeeping from the session you are playing, like the recordings: re-flown flights stay
   replaced, retired deaths stay retired, an Unfinished Flight made since the save stays listed and
   one already closed does not come back. The flight a quickload resumes, and a flight you reverted,
-  still keep the save's Unfinished Flights for that flight. Discard Re-fly from the Esc menu now
-  also keeps the Unfinished Flight it promised to keep: the load that follows no longer brings back
-  the discarded session and deletes its rewind point. Quickloading into a save taken during a
-  Re-Fly you have since merged resumes that Re-Fly; discarding it then brings the original flight
-  and its outcome back. Loading another game and starting KSP are unchanged. Covered by xUnit; not
-  yet checked in a test flight.
+  still keep the save's Unfinished Flights for that flight, and a Re-Fly you merged into the
+  resumed flight after the save is dropped with the rest of that flight's future: the vessel you
+  re-flew flies again as the save had it. Discard Re-fly from the Esc menu now also keeps the
+  Unfinished Flight it promised to keep: the load that follows no longer brings back the discarded
+  session and deletes its rewind point. Quickloading into a save taken during a Re-Fly you have
+  since merged resumes that Re-Fly; discarding it at the Merge dialog then brings the original
+  flight and its outcome back. Loading another game and starting KSP are unchanged.
+  Covered by xUnit; not yet checked in a test flight.
 
 - **A crewed station hidden after a rewind no longer has its crew killed.** When a committed
   mission docks to a station later, the station is hidden from the rewind until that mission's

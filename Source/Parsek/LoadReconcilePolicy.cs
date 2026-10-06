@@ -93,7 +93,7 @@ namespace Parsek
         Bundle,
         /// <summary>Kept from memory and reconciled against the load's cutoff UT.</summary>
         ReconcileAtCutoff,
-        /// <summary>Split by owner: <c>ParsekScenario.ApplyInSessionRewindPointPartitionStepB</c>
+        /// <summary>Split by owner: <c>ParsekScenario.ApplyInSessionStagedStateHandoffStepB</c>
         /// keeps memory's copy for points of trees committed in memory, the loaded copy for every
         /// other point, and both sides' session-scoped points
         /// (<c>InSessionStagedStateHandoff.MergeRewindPointsByOwner</c>).</summary>
@@ -465,7 +465,11 @@ namespace Parsek
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
                     return Today(LoadReconcileAction.Memory,
-                        InSessionHandoffInstalls + " (RecordingStore.MergeCarriedStagedList)");
+                        InSessionHandoffInstalls + " (RecordingStore.MergeCarriedStagedList); "
+                        + "ParsekScenario.ApplyInSessionStagedStateHandoffStepB then hands the rows naming a tree "
+                        + "a quickload resumed from the save (the committed-copy restore, ResumeFromQuicksave) "
+                        + "back to the save, except rows the loaded marker's resumed Re-Fly attempt wrote "
+                        + "(owner ruling OQ-1)");
             }
             throw UnknownKind(kind);
         }
@@ -511,7 +515,7 @@ namespace Parsek
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
                     return Today(LoadReconcileAction.OwnerPartition,
-                        "ParsekScenario.ApplyInSessionRewindPointPartitionStepB, after the active-tree detach: memory's "
+                        "ParsekScenario.ApplyInSessionStagedStateHandoffStepB, after the active-tree detach: memory's "
                         + "copy for points of trees committed in memory (DiscardReFlyHandler's origin-RP promotion "
                         + "included), the loaded copy for the resumed or reverted flight's and unknown owners' points "
                         + "(their quicksave files stay, owner ruling OQ-3), both sides' session-scoped points "

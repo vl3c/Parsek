@@ -25,7 +25,7 @@ namespace Parsek.Tests
         private const string DiscardPath = "MergeDialog.ReFlyDiscard.cs";
 
         private const string StepA = "ApplyInSessionStagedStateHandoffStepA(";
-        private const string StepB = "ApplyInSessionRewindPointPartitionStepB(";
+        private const string StepB = "ApplyInSessionStagedStateHandoffStepB(";
 
         [Fact]
         public void OnLoadAppliesTheHandoffInOrder()

@@ -3693,8 +3693,8 @@ namespace Parsek
                 // and the ledger do (InSessionStagedStateHandoff, captured in OnDestroy). Consumed
                 // by every load: a cold load, a plain rewind (the carries above own its lists) and
                 // a Re-Fly start (the reconciliation bundle owns them) drop it. The rewind points
-                // are partitioned by owner once the tree restores below have detached a resumed
-                // tree (step B).
+                // are partitioned by owner, and a resumed tree's rows handed back to the save, once
+                // the tree restores below have detached that tree (step B).
                 loadPhase = "in-session-staged-handoff";
                 ApplyInSessionStagedStateHandoffStepA(earlyLoadKind);
 
@@ -3771,10 +3771,12 @@ namespace Parsek
                     RecorderStateLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
 
                     // Step B of the in-session handoff: rewind points of trees memory still holds
-                    // committed come from memory, the rest from the save. After the restores above,
-                    // so a tree the load resumes has already been detached from the committed set.
-                    loadPhase = "in-session-rp-partition";
-                    ApplyInSessionRewindPointPartitionStepB();
+                    // committed come from memory, the rest from the save, and the supersede rows,
+                    // retirements and tombstones naming a tree the restore resumed from the save
+                    // follow the save. After the restores above, so a tree the load resumes has
+                    // already been detached from the committed set.
+                    loadPhase = "in-session-handoff-step-b";
+                    ApplyInSessionStagedStateHandoffStepB();
 
                     loadPhase = "revert-classification";
                     ConfigNode[] savedRecNodes = node.GetNodes("RECORDING");
@@ -6070,6 +6072,7 @@ namespace Parsek
             bool loadedSceneIsFlight = true)
         {
             lastRestoredQuicksaveTreeFacts = null;
+            ClearQuickloadResumeDetach();
             if (node == null) return false;
             if (RewindContext.IsRewinding)
             {
@@ -6207,9 +6210,16 @@ namespace Parsek
                 // though the save file has the T2 active version), remove the committed
                 // copy so the active version is the single source of truth. Otherwise
                 // the next OnSave would write the tree twice with the same id.
-                if (!RecordingStore.RemoveCommittedTreeById(
-                        tree.Id,
-                        logContext: "TryRestoreActiveTreeNode"))
+                // A resume from the quicksave notes the detached copy's members for the
+                // in-session handoff's step B (its rows follow the save).
+                List<string> resumeDetachedCopyIds =
+                    committedCopyAction == CommittedCopyRestoreAction.ResumeFromQuicksave
+                        ? CollectCommittedCopyRecordingIds(tree)
+                        : null;
+                bool committedCopyDetached = RecordingStore.RemoveCommittedTreeById(
+                    tree.Id,
+                    logContext: "TryRestoreActiveTreeNode");
+                if (!committedCopyDetached)
                 {
                     ParsekLog.Verbose("Scenario",
                         $"TryRestoreActiveTreeNode: no committed copy of tree '{tree.TreeName}' " +
@@ -6250,6 +6260,8 @@ namespace Parsek
                     ? PendingTreeState.LimboVesselSwitch
                     : PendingTreeState.Limbo;
                 RecordingStore.StashPendingTree(tree, stashState);
+                if (committedCopyDetached && resumeDetachedCopyIds != null)
+                    NoteQuickloadResumeDetach(tree, resumeDetachedCopyIds);
 
                 // Read resume hints for the restore coroutine (rewind save filename only).
                 pendingActiveTreeResumeRewindSave = treeNodes[t].GetValue("resumeRewindSave");

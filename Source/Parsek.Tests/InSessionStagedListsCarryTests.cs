@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using Xunit;
@@ -31,6 +32,7 @@ namespace Parsek.Tests
         private readonly List<string> deletedRpIds = new List<string>();
         private readonly GameScenes previousScene;
         private string currentSaveFolder;
+        private string tempSaveRoot;
         private readonly bool previousInitialLoadDone;
         private readonly bool priorStoreSuppress;
 
@@ -63,6 +65,11 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            if (tempSaveRoot != null)
+            {
+                RecordingPaths.SaveRootOverrideForTesting = null;
+                try { Directory.Delete(tempSaveRoot, true); } catch { }
+            }
             InitialLoadDone = previousInitialLoadDone;
             HighLogic.LoadedScene = previousScene;
             ResetAll();
@@ -94,6 +101,10 @@ namespace Parsek.Tests
             ReFlyRevertDialog.ResetForTesting();
             TreeDiscardPurge.ResetTestOverrides();
             RecordingStore.SaveGameForTesting = null;
+            RevertDetector.ResetForTesting();
+            ParsekScenario.ClearPendingQuickloadResumeContext();
+            ParsekScenario.ClearRestoredQuicksaveTreeFactsForTesting();
+            ParsekScenario.pendingActiveTreeResumeRewindSave = null;
         }
 
         private static bool InitialLoadDone
@@ -248,11 +259,12 @@ namespace Parsek.Tests
             return node;
         }
 
-        /// <summary>The live (memory) scenario, installed as Instance.</summary>
+        /// <summary>The live (memory) scenario, installed as Instance, standing for an instance whose OnLoad completed.</summary>
         private static ParsekScenario Memory(Action<ParsekScenario> fill)
         {
             var memory = NewScenario();
             fill?.Invoke(memory);
+            memory.MarkInSessionStagedStateLoadedForTesting();
             ParsekScenario.SetInstanceForTesting(memory);
             return memory;
         }
@@ -264,7 +276,8 @@ namespace Parsek.Tests
         /// step B, and the sweep.
         /// </summary>
         private static ParsekScenario Load(ParsekScenario memory, ConfigNode saved, EarlyLoadKind early,
-            Action treeRestore = null, bool sweep = false, bool capture = true)
+            Action treeRestore = null, bool sweep = false, bool capture = true,
+            Action<ParsekScenario> afterStepA = null)
         {
             if (capture && !ReferenceEquals(memory, null))
                 memory.CaptureInSessionStagedStateHandoff(InSessionStagedStateHandoff.CaptureReasonOnDestroy);
@@ -274,8 +287,9 @@ namespace Parsek.Tests
             RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(fresh);
             RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(fresh);
             fresh.ApplyInSessionStagedStateHandoffStepA(early);
+            afterStepA?.Invoke(fresh);
             treeRestore?.Invoke();
-            fresh.ApplyInSessionRewindPointPartitionStepB();
+            fresh.ApplyInSessionStagedStateHandoffStepB();
             if (sweep)
                 LoadTimeSweep.Run();
             EffectiveState.ResetCachesForTesting();
@@ -326,6 +340,9 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[INFO][Rewind]")
                 && l.Contains("In-session staged lists from memory:")
                 && l.Contains("supersedes installed=1 loadedFromSave=0 restored=1 staleDropped=0"));
+            // QL-3's shape: the save holds no active tree, so nothing is resumed from it.
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE][Rewind]")
+                && l.Contains("In-session resumed-tree rows: no tree detached and resumed on this load"));
         }
 
         [Fact]
@@ -596,6 +613,457 @@ namespace Parsek.Tests
         }
 
         // =====================================================================
+        // F9 into a save of a flight committed and re-flown since: the committed-copy restore
+        // (ParsekScenario.TryRestoreActiveTreeNode, ResumeFromQuicksave) detaches the committed
+        // tree and resumes the save's, so the rows naming that tree follow the save.
+        // =====================================================================
+
+        private const string CoreId = "rec_core";
+        private const string SecondChildId = "rec_c";
+        private const string SecondForkId = "rec_c_prime";
+        private const double NamedSaveUT = 200.0;
+
+        private void UseTempSaveRoot()
+        {
+            tempSaveRoot = Path.Combine(Path.GetTempPath(), "parsek-insession-rows-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempSaveRoot);
+            RecordingPaths.SaveRootOverrideForTesting = tempSaveRoot;
+        }
+
+        private static Recording Flown(string id, uint pid, int epoch, MergeState state, params double[] uts)
+        {
+            var rec = new Recording
+            {
+                RecordingId = id,
+                TreeId = TreeId,
+                VesselName = id,
+                VesselPersistentId = pid,
+                MergeState = state,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
+                SidecarEpoch = epoch,
+            };
+            foreach (double ut in uts)
+            {
+                rec.Points.Add(new TrajectoryPoint
+                {
+                    ut = ut, altitude = 1000.0, bodyName = "Kerbin",
+                    rotation = UnityEngine.Quaternion.identity, velocity = UnityEngine.Vector3.zero,
+                });
+            }
+            rec.ExplicitStartUT = uts[0];
+            rec.ExplicitEndUT = uts[uts.Length - 1];
+            return rec;
+        }
+
+        /// <summary>
+        /// Tree T as memory holds it now: the core stage, the booster O that crashed at 300 and
+        /// its merged Re-Fly A', plus <paramref name="extra"/>; every member's sidecars written
+        /// at epoch 2 by the OnSaves since the named save, so the save's epoch-1 members read
+        /// stale and the restore salvages them from this copy.
+        /// </summary>
+        private static RecordingTree InstallCommittedFlownTree(params Recording[] extra)
+        {
+            var recs = new List<Recording>
+            {
+                Flown(CoreId, 111u, 2, MergeState.Immutable, 100.0, 150.0, 320.0),
+                Flown(OriginId, 222u, 2, MergeState.Immutable, 120.0, 180.0, 300.0),
+                Flown(ForkId, 223u, 2, MergeState.Immutable, 120.0, 200.0, 310.0),
+            };
+            recs.AddRange(extra);
+            var tree = InstallCommittedTree(TreeId, new[] { "rp_t" }, recs.ToArray());
+            tree.RootRecordingId = CoreId;
+            tree.Recordings[OriginId].TerminalStateValue = TerminalState.Destroyed;
+            foreach (var rec in tree.Recordings.Values)
+                WriteSidecars(rec, 2);
+            return tree;
+        }
+
+        private static void WriteSidecars(Recording rec, int epoch)
+        {
+            var onDisk = Recording.DeepClone(rec);
+            onDisk.SidecarEpoch = epoch - 1;
+            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                onDisk,
+                RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildTrajectoryRelativePath(onDisk.RecordingId)),
+                RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildVesselSnapshotRelativePath(onDisk.RecordingId)),
+                RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildGhostSnapshotRelativePath(onDisk.RecordingId)),
+                incrementEpoch: true));
+            Assert.Equal(epoch, onDisk.SidecarEpoch);
+        }
+
+        /// <summary>The named save's own copy of T, still flying at 200: the active tree node.</summary>
+        private static RecordingTree AddSavedActiveTree(ConfigNode saved, params Recording[] extra)
+        {
+            var recs = new List<Recording>
+            {
+                Flown(CoreId, 111u, 1, MergeState.NotCommitted, 100.0, 150.0, NamedSaveUT),
+                Flown(OriginId, 222u, 1, MergeState.NotCommitted, 120.0, 180.0, NamedSaveUT),
+            };
+            recs.AddRange(extra);
+            var tree = BuildTree(TreeId, new[] { "rp_t" }, recs.ToArray());
+            tree.RootRecordingId = CoreId;
+            tree.ActiveRecordingId = CoreId;
+            tree.RebuildBackgroundMap();
+            var treeNode = saved.AddNode("RECORDING_TREE");
+            tree.Save(treeNode);
+            treeNode.AddValue("isActive", "True");
+            return tree;
+        }
+
+        private static Action RealActiveTreeRestore(ConfigNode saved)
+            => () => Assert.True(ParsekScenario.TryRestoreActiveTreeNode(saved, EarlyLoadKind.InSession, true));
+
+        /// <summary>
+        /// The reviewer's sequence: fly T, save to a named slot after the crewed booster O
+        /// separates (rp_t), return to the Space Center (T commits), re-fly O and merge (row
+        /// O->A', O's death tombstoned by A'), then load the named save in flight. The restore
+        /// resumes the save's T and detaches the committed copy; the merge is that flight's
+        /// abandoned future, so its rows follow the save, which has none: O stays visible and
+        /// rp_t's slot resolves to the resumed flight's own O.
+        /// </summary>
+        [Fact]
+        public void Quickload_SaveBeforeReFlyMergeOfTheResumedFlight_RowsFollowTheSave()
+        {
+            UseTempSaveRoot();
+            InstallCommittedFlownTree();
+            AddDeathAction();
+            var memory = Memory(s =>
+            {
+                s.RewindPoints.Add(Rp("rp_t"));
+                s.RecordingSupersedes.Add(Rel("rel_a", OriginId, ForkId));
+                s.LedgerTombstones.Add(Tomb("tomb_a", DeathActionId, ForkId));
+            });
+            ConfigNode saved = SaveNode(s => s.RewindPoints.Add(Rp("rp_t")));
+            AddSavedActiveTree(saved);
+            int supersedeVersionAfterStepA = 0;
+            int tombstoneVersionAfterStepA = 0;
+
+            var loaded = Load(memory, saved, EarlyLoadKind.InSession, treeRestore: RealActiveTreeRestore(saved),
+                afterStepA: fresh =>
+                {
+                    Assert.Single(fresh.RecordingSupersedes);
+                    supersedeVersionAfterStepA = fresh.SupersedeStateVersion;
+                    tombstoneVersionAfterStepA = fresh.TombstoneStateVersion;
+                });
+
+            Assert.True(loaded.SupersedeStateVersion > supersedeVersionAfterStepA,
+                "step B's row change must invalidate the cached ERS");
+            Assert.True(loaded.TombstoneStateVersion > tombstoneVersionAfterStepA,
+                "step B's row change must invalidate the cached ELS");
+            Assert.Null(ParsekScenario.PeekQuickloadResumeDetachForTesting());
+            Assert.Contains(logLines, l => l.Contains("Quickload committed-copy restore:")
+                && l.Contains("action=ResumeFromQuicksave"));
+            Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == TreeId);
+            RecordingTree resumed = RecordingStore.PendingTree;
+            Assert.NotNull(resumed);
+            Assert.Equal(TreeId, resumed.Id);
+            Assert.True(resumed.Recordings.ContainsKey(ForkId), "premise: the restore splices A' into the resumed tree");
+
+            Assert.Empty(loaded.RecordingSupersedes);
+            Assert.Empty(loaded.LedgerTombstones);
+            // Nothing supersedes O, so the resumed flight's booster is visible once it commits again.
+            Assert.Equal(OriginId, EffectiveState.EffectiveRecordingId(OriginId, loaded.RecordingSupersedes));
+            Assert.Equal(OriginId, EffectiveState.EffectiveTipRecordingId(
+                OriginId, loaded.RecordingSupersedes, resumed.Recordings, resumed));
+            Assert.Contains(loaded.RewindPoints, r => r.RewindPointId == "rp_t");
+            Assert.Contains(logLines, l => l.Contains("[INFO][Rewind]")
+                && l.Contains("In-session resumed-tree rows: tree=" + TreeId)
+                && l.Contains("supersedes installed=0 untouched=0 attemptKept=0 followSave=0 dropped=1 restoredFromSave=0")
+                && l.Contains("tombstones installed=0 untouched=0 attemptKept=0 followSave=0 dropped=1 restoredFromSave=0"));
+        }
+
+        /// <summary>
+        /// The rule reaches only the resumed tree: a different tree's Re-Fly merged after the save
+        /// (X, still committed) keeps memory's rows, and a row the save already holds for the
+        /// resumed tree (C->C', merged before the save) stays, as the save's copy.
+        /// </summary>
+        [Fact]
+        public void Quickload_ResumedFlight_OtherTreesRowsStayFromMemory_AndTheSavesOwnRowStays()
+        {
+            UseTempSaveRoot();
+            InstallCommittedFlownTree(
+                Flown(SecondChildId, 224u, 2, MergeState.Immutable, 130.0, 160.0, 250.0),
+                Flown(SecondForkId, 225u, 2, MergeState.Immutable, 130.0, 170.0, 260.0));
+            InstallCommittedTree("tree_x", null,
+                Rec("rec_x_origin", 20.0, MergeState.Immutable, "tree_x"),
+                Rec("rec_x_fork", 25.0, MergeState.Immutable, "tree_x"));
+            AddDeathAction();
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_x_penalty",
+                UT = 22.0,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = "rec_x_origin",
+            });
+            var memoryRelC = Rel("rel_c", SecondChildId, SecondForkId);
+            var memory = Memory(s =>
+            {
+                s.RewindPoints.Add(Rp("rp_t"));
+                s.RecordingSupersedes.Add(Rel("rel_a", OriginId, ForkId));
+                s.RecordingSupersedes.Add(memoryRelC);
+                s.RecordingSupersedes.Add(Rel("rel_x", "rec_x_origin", "rec_x_fork"));
+                s.LedgerTombstones.Add(Tomb("tomb_a", DeathActionId, ForkId));
+                s.LedgerTombstones.Add(Tomb("tomb_x", "act_x_penalty", "rec_x_fork"));
+            });
+            ConfigNode saved = SaveNode(s =>
+            {
+                s.RewindPoints.Add(Rp("rp_t"));
+                s.RecordingSupersedes.Add(Rel("rel_c", SecondChildId, SecondForkId));
+            });
+            AddSavedActiveTree(saved,
+                Flown(SecondChildId, 224u, 1, MergeState.NotCommitted, 130.0, 160.0, 190.0),
+                Flown(SecondForkId, 225u, 1, MergeState.NotCommitted, 130.0, 170.0, NamedSaveUT));
+
+            var loaded = Load(memory, saved, EarlyLoadKind.InSession, treeRestore: RealActiveTreeRestore(saved));
+
+            Assert.Equal(new[] { "rel_c", "rel_x" }, loaded.RecordingSupersedes.Select(r => r.RelationId));
+            Assert.NotSame(memoryRelC, loaded.RecordingSupersedes[0]);
+            Assert.Equal(new[] { "tomb_x" }, loaded.LedgerTombstones.Select(t => t.TombstoneId));
+            Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == "tree_x");
+            Assert.False(ElsHas("act_x_penalty"), "the still-committed tree's retired penalty stays retired");
+            Assert.Contains(logLines, l => l.Contains("In-session resumed-tree rows: tree=" + TreeId)
+                && l.Contains("attempt=none(no-marker)")
+                && l.Contains("supersedes installed=2 untouched=1 attemptKept=0 followSave=1 dropped=1 restoredFromSave=0")
+                && l.Contains("tombstones installed=1 untouched=1 attemptKept=0 followSave=0 dropped=1 restoredFromSave=0"));
+        }
+
+        /// <summary>
+        /// Owner ruling OQ-1 through the real restore: the named save was taken during Re-Fly
+        /// session S (its marker, A' the session's NotCommitted provisional); S merged, then a
+        /// second Re-Fly S2 of C merged too. The load resumes S, so the rows S's attempt wrote stay
+        /// from memory (its discard prunes them later), while S2's rows, written after the save by
+        /// another attempt, follow the save and go.
+        /// </summary>
+        [Fact]
+        public void Quickload_SaveDuringMergedSession_RealRestore_AttemptRowsKept_LaterAttemptRowsDropped()
+        {
+            UseTempSaveRoot();
+            InstallCommittedFlownTree(
+                Flown(SecondChildId, 224u, 2, MergeState.Immutable, 130.0, 160.0, 250.0),
+                Flown(SecondForkId, 225u, 2, MergeState.Immutable, 130.0, 170.0, 260.0));
+            AddDeathAction();
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_c_death",
+                UT = 250.0,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = SecondChildId,
+            });
+            var memory = Memory(s =>
+            {
+                s.RewindPoints.Add(Rp("rp_t"));
+                s.RecordingSupersedes.Add(Rel("rel_a", OriginId, ForkId));
+                s.RecordingSupersedes.Add(Rel("rel_c", SecondChildId, SecondForkId));
+                s.LedgerTombstones.Add(Tomb("tomb_a", DeathActionId, ForkId));
+                s.LedgerTombstones.Add(Tomb("tomb_c", "act_c_death", SecondForkId));
+            });
+            ConfigNode saved = SaveNode(s =>
+            {
+                s.RewindPoints.Add(Rp("rp_t"));
+                s.ActiveReFlySessionMarker = Marker(SessionS, ForkId, OriginId, "rp_t");
+            });
+            var provisional = Flown(ForkId, 223u, 1, MergeState.NotCommitted, 120.0, 190.0);
+            provisional.CreatingSessionId = SessionS;
+            provisional.SupersedeTargetId = OriginId;
+            AddSavedActiveTree(saved, provisional,
+                Flown(SecondChildId, 224u, 1, MergeState.NotCommitted, 130.0, 160.0, 190.0));
+
+            var loaded = Load(memory, saved, EarlyLoadKind.InSession, treeRestore: RealActiveTreeRestore(saved));
+
+            Assert.Equal(SessionS, loaded.ActiveReFlySessionMarker?.SessionId);
+            Assert.Equal(new[] { "rel_a" }, loaded.RecordingSupersedes.Select(r => r.RelationId));
+            Assert.Equal(new[] { "tomb_a" }, loaded.LedgerTombstones.Select(t => t.TombstoneId));
+            Assert.Contains(logLines, l => l.Contains("In-session resumed-tree rows: tree=" + TreeId)
+                && l.Contains("attempt=sess=" + SessionS + " ids=1 (marker-resumes-attempt)")
+                && l.Contains("supersedes installed=1 untouched=0 attemptKept=1 followSave=0 dropped=1 restoredFromSave=0")
+                && l.Contains("tombstones installed=1 untouched=0 attemptKept=1 followSave=0 dropped=1 restoredFromSave=0"));
+        }
+
+        /// <summary>
+        /// A load that does not land in FLIGHT resumes no recorder, so the committed-copy restore
+        /// leaves the committed future alone (Unchanged, scene-not-flight) even though it still
+        /// detaches the copy and stashes the save's tree with A' spliced in: the rows stay from
+        /// memory, so O stays replaced by the A' the outside-flight commit keeps.
+        /// </summary>
+        [Fact]
+        public void LoadOutsideFlight_DetachWithoutResume_RowsStayFromMemory()
+        {
+            UseTempSaveRoot();
+            InstallCommittedFlownTree();
+            AddDeathAction();
+            var memory = Memory(s =>
+            {
+                s.RewindPoints.Add(Rp("rp_t"));
+                s.RecordingSupersedes.Add(Rel("rel_a", OriginId, ForkId));
+                s.LedgerTombstones.Add(Tomb("tomb_a", DeathActionId, ForkId));
+            });
+            ConfigNode saved = SaveNode(s => s.RewindPoints.Add(Rp("rp_t")));
+            RecordingTree savedTree = AddSavedActiveTree(saved);
+            foreach (var rec in savedTree.Recordings.Values)
+                WriteSidecars(rec, 1);
+
+            var loaded = Load(memory, saved, EarlyLoadKind.InSession, treeRestore: () =>
+                Assert.True(ParsekScenario.TryRestoreActiveTreeNode(saved, EarlyLoadKind.InSession, false)));
+
+            Assert.Contains(logLines, l => l.Contains("Quickload committed-copy restore:")
+                && l.Contains("action=Unchanged reason=scene-not-flight"));
+            Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == TreeId);
+            Assert.True(RecordingStore.PendingTree.Recordings.ContainsKey(ForkId));
+            Assert.Equal(new[] { "rel_a" }, loaded.RecordingSupersedes.Select(r => r.RelationId));
+            Assert.Equal(new[] { "tomb_a" }, loaded.LedgerTombstones.Select(t => t.TombstoneId));
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE][Rewind]")
+                && l.Contains("In-session resumed-tree rows: no tree detached and resumed on this load"));
+        }
+
+        [Fact]
+        public void ResumeNote_ConsumedByStepBWithoutAHandoff_AndClearedByTheNextRestore()
+        {
+            UseTempSaveRoot();
+            InstallCommittedFlownTree();
+            ConfigNode saved = SaveNode(null);
+            AddSavedActiveTree(saved);
+
+            RealActiveTreeRestore(saved)();
+            Assert.NotNull(ParsekScenario.PeekQuickloadResumeDetachForTesting());
+            Assert.Equal(TreeId, ParsekScenario.PeekQuickloadResumeDetachForTesting().TreeId);
+            Assert.Contains(ForkId, ParsekScenario.PeekQuickloadResumeDetachForTesting().RecordingIds);
+            Assert.False(ParsekScenario.TryRestoreActiveTreeNode(new ConfigNode("SCENARIO")));
+            Assert.Null(ParsekScenario.PeekQuickloadResumeDetachForTesting());
+
+            ResetAll();
+            InSessionStagedStateHandoff.SaveFolderProviderForTesting = () => currentSaveFolder;
+            InstallCommittedFlownTree();
+            saved = SaveNode(null);
+            AddSavedActiveTree(saved);
+            logLines.Clear();
+            Load(null, saved, EarlyLoadKind.InSession, treeRestore: RealActiveTreeRestore(saved));
+
+            Assert.Null(ParsekScenario.PeekQuickloadResumeDetachForTesting());
+            Assert.Contains(logLines, l => l.Contains("In-session handoff step B: nothing pending")
+                && l.Contains("resumed tree=" + TreeId + " keeps the save's rows and rewind points"));
+        }
+
+        public static IEnumerable<object[]> ResumedTreeRowCases()
+        {
+            // id, inMemory, inSave, namesTree, writtenByAttempt, expectedKept, expectedSource
+            yield return new object[] { "untouched-both", true, true, false, false, true, "memory" };
+            yield return new object[] { "untouched-memory-only", true, false, false, false, true, "memory" };
+            yield return new object[] { "untouched-save-only", false, true, false, false, false, null };
+            yield return new object[] { "tree-both", true, true, true, false, true, "save" };
+            yield return new object[] { "tree-memory-only", true, false, true, false, false, null };
+            yield return new object[] { "tree-save-only", false, true, true, false, true, "save" };
+            yield return new object[] { "attempt-both", true, true, true, true, true, "memory" };
+            yield return new object[] { "attempt-memory-only", true, false, true, true, true, "memory" };
+            yield return new object[] { "attempt-save-only", false, true, true, true, false, null };
+        }
+
+        [Theory]
+        [MemberData(nameof(ResumedTreeRowCases))]
+        public void ApplyResumedTreeRowRule_Pure(string id, bool inMemory, bool inSave, bool namesTree,
+            bool writtenByAttempt, bool expectedKept, string expectedSource)
+        {
+            var memoryRow = Rel(id, "old", "new");
+            var saveRow = Rel(id, "old", "new");
+            var current = inMemory ? new List<RecordingSupersedeRelation> { memoryRow } : new List<RecordingSupersedeRelation>();
+            var loaded = inSave ? new List<RecordingSupersedeRelation> { saveRow } : new List<RecordingSupersedeRelation>();
+
+            var result = InSessionStagedStateHandoff.ApplyResumedTreeRowRule(
+                current, loaded, r => r.RelationId, r => namesTree, r => writtenByAttempt,
+                out ResumedTreeRowCounts counts, new List<string>());
+
+            Assert.Equal(expectedKept ? 1 : 0, result.Count);
+            Assert.Equal(result.Count, counts.Installed);
+            if (expectedKept)
+                Assert.Same(expectedSource == "memory" ? memoryRow : saveRow, result[0]);
+        }
+
+        [Fact]
+        public void ApplyResumedTreeRowRule_KeepsMemoryOrderThenAppendsTheSavesOwn()
+        {
+            var tree = new HashSet<string> { "t" };
+            var current = new List<RecordingSupersedeRelation>
+            {
+                Rel("m1", "x", "y"), Rel("m2", "t", "u"), Rel("m3", "x", "z"),
+            };
+            var loaded = new List<RecordingSupersedeRelation> { Rel("s1", "t", "v"), Rel("m3", "x", "z") };
+            var decisions = new List<string>();
+
+            var result = InSessionStagedStateHandoff.ApplyResumedTreeRowRule(
+                current, loaded, r => r.RelationId,
+                r => InSessionStagedStateHandoff.SupersedeNamesAny(r, tree), r => false,
+                out ResumedTreeRowCounts counts, decisions);
+
+            Assert.Equal(new[] { "m1", "m3", "s1" }, result.Select(r => r.RelationId));
+            Assert.Same(current[2], result[1]);
+            Assert.Equal("supersedes installed=3 untouched=2 attemptKept=0 followSave=0 dropped=1 restoredFromSave=1",
+                InSessionStagedStateHandoff.FormatResumedTreeRowCounts("supersedes", counts));
+            Assert.Equal(new[] { "m2:dropped", "s1:restored-from-save" }, decisions);
+        }
+
+        [Fact]
+        public void ResumedTreeRowPredicates_NameTheTreeOnTheDocumentedSides()
+        {
+            var tree = new HashSet<string> { "t1", "t2" };
+            Assert.True(InSessionStagedStateHandoff.SupersedeNamesAny(Rel("r", "t1", "other"), tree));
+            Assert.True(InSessionStagedStateHandoff.SupersedeNamesAny(Rel("r", "other", "t2"), tree));
+            Assert.False(InSessionStagedStateHandoff.SupersedeNamesAny(Rel("r", "a", "b"), tree));
+
+            var actionRecordings = new Dictionary<string, string> { { "act_t", "t1" }, { "act_other", "other" } };
+            Assert.True(InSessionStagedStateHandoff.TombstoneNamesAny(Tomb("k", "act_none", "t2"), tree, actionRecordings));
+            Assert.True(InSessionStagedStateHandoff.TombstoneNamesAny(Tomb("k", "act_t", "elsewhere"), tree, actionRecordings));
+            Assert.False(InSessionStagedStateHandoff.TombstoneNamesAny(Tomb("k", "act_other", "elsewhere"), tree, actionRecordings));
+            Assert.False(InSessionStagedStateHandoff.TombstoneNamesAny(Tomb("k", "act_missing", "elsewhere"), tree, actionRecordings));
+            Assert.False(InSessionStagedStateHandoff.TombstoneNamesAny(Tomb("k", "act_t", "elsewhere"), tree, null));
+
+            Assert.True(InSessionStagedStateHandoff.RetirementNamesAny(
+                new RecordingRewindRetirement { RetirementId = "q", RecordingId = "t1", RestoredRecordingId = "x" }, tree));
+            Assert.False(InSessionStagedStateHandoff.RetirementNamesAny(
+                new RecordingRewindRetirement { RetirementId = "q", RecordingId = "x", RestoredRecordingId = "t1" }, tree));
+
+            // The writer side the OQ-1 exception keeps by is the side the discard prune removes by.
+            Assert.Equal("n", InSessionStagedStateHandoff.SupersedeWriterId(Rel("r", "o", "n")));
+            Assert.Equal("ret", InSessionStagedStateHandoff.TombstoneWriterId(Tomb("k", "a", "ret")));
+            Assert.Equal("rr", InSessionStagedStateHandoff.RetirementWriterId(
+                new RecordingRewindRetirement { RecordingId = "rr", RestoredRecordingId = "x" }));
+        }
+
+        [Theory]
+        [InlineData(false, TreeId, ForkId, false, "no-marker")]
+        [InlineData(true, "tree_other", ForkId, false, "marker-tree-differs")]
+        [InlineData(true, TreeId, "rec_not_in_tree", false, "attempt-not-in-resumed-tree")]
+        [InlineData(true, TreeId, ForkId, true, "marker-resumes-attempt")]
+        public void LoadedMarkerResumesAttempt_Pure(bool withMarker, string markerTree, string activeId,
+            bool expected, string expectedReason)
+        {
+            ReFlySessionMarker marker = null;
+            if (withMarker)
+            {
+                marker = Marker(SessionS, activeId, OriginId, "rp_t");
+                marker.TreeId = markerTree;
+            }
+            bool resumes = InSessionStagedStateHandoff.LoadedMarkerResumesAttempt(
+                marker, TreeId, new HashSet<string> { OriginId, ForkId }, out string reason);
+            Assert.Equal(expected, resumes);
+            Assert.Equal(expectedReason, reason);
+        }
+
+        [Fact]
+        public void Ledger_CollectRecordingIdsForActions_MapsTaggedActionsOnly()
+        {
+            Ledger.AddAction(new GameAction { ActionId = "a1", UT = 1.0, Type = GameActionType.ReputationPenalty, RecordingId = "r1" });
+            Ledger.AddAction(new GameAction { ActionId = "a2", UT = 2.0, Type = GameActionType.ReputationPenalty, RecordingId = null });
+            Ledger.AddAction(new GameAction { ActionId = "a3", UT = 3.0, Type = GameActionType.ReputationPenalty, RecordingId = "r3" });
+
+            var map = Ledger.CollectRecordingIdsForActions(new HashSet<string> { "a1", "a2", "a_missing" });
+
+            Assert.Equal(new[] { "a1" }, map.Keys.ToArray());
+            Assert.Equal("r1", map["a1"]);
+            Assert.Empty(Ledger.CollectRecordingIdsForActions(new HashSet<string>()));
+            Assert.Empty(Ledger.CollectRecordingIdsForActions(null));
+        }
+
+        // =====================================================================
         // Discard Re-fly (design 3.4 case 6; DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP)
         // =====================================================================
 
@@ -749,11 +1217,16 @@ namespace Parsek.Tests
             return (scenario, tree, marker);
         }
 
-        private void AssertFirstMergeRowsNamingTheAttemptAreGone(ParsekScenario scenario, Recording origin)
+        private void AssertFirstMergeRowsNamingTheAttemptAreGone(
+            ParsekScenario scenario, Recording origin, int tombstoneVersionBefore)
         {
             Assert.Equal(new[] { "rel_x" }, scenario.RecordingSupersedes.Select(r => r.RelationId));
             Assert.Equal(new[] { "tomb_x" }, scenario.LedgerTombstones.Select(t => t.TombstoneId));
             Assert.Empty(scenario.RecordingRewindRetirements);
+            // The prune is the only tombstone-version producer on either discard path: without its
+            // bump a cached ELS keeps the death retired until something unrelated bumps the ledger.
+            Assert.True(scenario.TombstoneStateVersion > tombstoneVersionBefore,
+                "the prune that removed a tombstone must bump the tombstone version");
             // No cache reset: the prune's tombstone-version bump must invalidate the ELS the
             // fixture computed.
             Assert.True(EffectiveState.IsVisible(origin, scenario.RecordingSupersedes),
@@ -770,12 +1243,13 @@ namespace Parsek.Tests
         {
             var resumed = BuildResumedMergedSession();
             Recording origin = resumed.Tree.Recordings[OriginId];
+            int tombstoneVersionBefore = resumed.Scenario.TombstoneStateVersion;
             WireDiscardSeams();
 
             RevertInterceptor.DiscardReFlyHandler(resumed.Marker, RevertTarget.Launch, EditorFacility.VAB);
 
             Assert.Null(resumed.Scenario.ActiveReFlySessionMarker);
-            AssertFirstMergeRowsNamingTheAttemptAreGone(resumed.Scenario, origin);
+            AssertFirstMergeRowsNamingTheAttemptAreGone(resumed.Scenario, origin, tombstoneVersionBefore);
         }
 
         [Fact]
@@ -783,11 +1257,12 @@ namespace Parsek.Tests
         {
             var resumed = BuildResumedMergedSession();
             Recording origin = resumed.Tree.Recordings[OriginId];
+            int tombstoneVersionBefore = resumed.Scenario.TombstoneStateVersion;
 
             MergeDialog.MergeDiscard(resumed.Tree);
 
             Assert.Null(resumed.Scenario.ActiveReFlySessionMarker);
-            AssertFirstMergeRowsNamingTheAttemptAreGone(resumed.Scenario, origin);
+            AssertFirstMergeRowsNamingTheAttemptAreGone(resumed.Scenario, origin, tombstoneVersionBefore);
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == TreeId);
             Assert.True(ErsHas(OriginId), "the sanitized tree is committed again with its origin visible");
             Assert.False(ErsHas(ForkId));
@@ -1081,6 +1556,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Capture_SkipsWhenThisInstanceNeverReachedStepA()
+        {
+            // An OnLoad that threw before the staging load and step A leaves empty or half-built
+            // lists; capturing them would install them over the next load's save.
+            InstallMergedReFlyTree();
+            var broken = NewScenario();
+            ParsekScenario.SetInstanceForTesting(broken);
+            Assert.False(broken.InSessionStagedStateLoadedForTesting);
+
+            broken.CaptureInSessionStagedStateHandoff(InSessionStagedStateHandoff.CaptureReasonOnDestroy);
+
+            Assert.False(InSessionStagedStateHandoff.HasPending);
+            Assert.Contains(logLines, l => l.Contains("[WARN][Rewind]")
+                && l.Contains("Staged-list handoff capture skipped reason=staged-state-not-loaded site=OnDestroy"));
+            var loaded = Load(null, SaveNode(s => s.RecordingSupersedes.Add(Rel("rel_a", OriginId, ForkId))),
+                EarlyLoadKind.InSession);
+            Assert.Equal(new[] { "rel_a" }, loaded.RecordingSupersedes.Select(r => r.RelationId));
+            Assert.True(loaded.InSessionStagedStateLoadedForTesting, "step A marks the new instance loaded");
+        }
+
+        [Fact]
         public void Capture_IsASnapshot_AndAReplacedCaptureWarns()
         {
             var memory = Memory(s => s.RecordingSupersedes.Add(Rel("rel_mem", "o", "n")));
@@ -1131,12 +1627,15 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(true, false, true, null)]
-        [InlineData(false, false, false, "no-completed-load")]
-        [InlineData(true, true, false, "inert-game-mode")]
-        public void ShouldCapture_Pure(bool initialLoadDone, bool inert, bool expected, string skip)
+        [InlineData(true, false, true, true, null)]
+        [InlineData(false, false, true, false, "no-completed-load")]
+        [InlineData(true, true, true, false, "inert-game-mode")]
+        [InlineData(true, false, false, false, "staged-state-not-loaded")]
+        [InlineData(false, false, false, false, "no-completed-load")]
+        public void ShouldCapture_Pure(bool initialLoadDone, bool inert, bool stagedStateLoaded, bool expected, string skip)
         {
-            Assert.Equal(expected, InSessionStagedStateHandoff.ShouldCapture(initialLoadDone, inert, out string reason));
+            Assert.Equal(expected, InSessionStagedStateHandoff.ShouldCapture(
+                initialLoadDone, inert, stagedStateLoaded, out string reason));
             Assert.Equal(skip, reason);
         }
 
