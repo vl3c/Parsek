@@ -587,7 +587,7 @@ Handling: Stage 1 smoothing is precomputed at commit. Stage 2 frame transformati
 
 Per-frame cost per ghost: one spline eval, one matrix multiply, one anchor lookup, one lerp. All small and bounded.
 
-Existing ghost soft caps and zone-based culling apply unchanged.
+Existing zone-based culling and the distance LOD (flight-recorder design 11.4; it replaced the ghost soft caps in 0.8.1) apply unchanged.
 
 ### 15.14 Looped Ghost Near Live Vessel
 
@@ -628,7 +628,7 @@ Handling: anchor corrections at structural events use whatever samples exist nea
 | Lerp | Render time | One multiply-add per ghost per frame |
 | Terrain raycast | Render time (surface) | One physics raycast per surface ghost per frame, cacheable |
 
-The total per-ghost per-frame budget is small and bounded. Existing zone-based culling (Zone 3+ ghosts not rendered) and soft caps continue to dominate large-scene budgets.
+The total per-ghost per-frame budget is small and bounded. Existing zone-based culling (Zone 3+ ghosts not rendered) and the distance LOD continue to dominate large-scene budgets.
 
 ### 16.2 Cached Data
 

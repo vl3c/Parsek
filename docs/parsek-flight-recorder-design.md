@@ -1008,15 +1008,24 @@ KSP uses Unity's single-precision float coordinate system with the scene origin 
 - Zone 2 to Zone 1 (inward): switch from orbital propagation to physics-bubble trajectory data. Part events begin.
 - Zone 1 to Zone 2 (outward): switch from trajectory to orbital propagation. Part events stop.
 
-### 11.4 Soft Cap System
+### 11.4 Distance-Based Ghost LOD (replaced the soft caps)
 
-Rather than hard limits, configurable soft caps degrade gracefully:
+There is no ghost-count cap. The original count-based soft caps (reduce fidelity, despawn
+the oldest loops, collapse to an orbit line past a ghost count) and their settings were
+removed in 0.8.1 (PR #226) in favour of a per-ghost distance LOD, so cost scales with what
+is near the camera rather than with how many recordings exist. The thresholds live in
+`ParsekConfig.DistanceThresholds.GhostFlight`; the per-frame decision is
+`GhostPlaybackLogic`'s render-tier resolver:
 
-| Condition | Action |
+| Distance from the active vessel | Tier |
 |---|---|
-| Zone 1 ghosts > 8 | Reduce background ghost fidelity |
-| Zone 1 ghosts > 15 | Despawn lowest-priority ghosts (oldest loops first) |
-| Zone 2 ghosts > 20 | Reduce to orbit-line-only |
+| Under 10 km (`FullFidelityRangeMeters`) | Full fidelity: full mesh, part events, engine / RCS / reentry FX |
+| 10 km to 50 km (`LoopSimplifiedMeters`) | Reduced: a coarse mesh silhouette, FX suppressed; full fidelity returns below 9.7 km (`FullFidelityRestoreMeters`, hysteresis) |
+| 50 km and beyond | Mesh hidden; the ghost's logical playback, map presence and CommNet node continue |
+
+A watched ghost (watch mode, 15.10) ignores the LOD and always renders at full fidelity.
+Hidden-tier ghosts unload their built mesh and rebuild it from the snapshot shortly before
+they come back into the visible tiers or before an imminent structural part event.
 
 ### 11.5 Map View
 
@@ -1846,7 +1855,7 @@ Costs independent of ghost count:
 
 ### 18.2 Profiling Guidance
 
-The soft cap thresholds (Section 11.4) are estimates. The architecture (zone-based rendering, looped ghost spawn thresholds, anchor-dependent lifecycle) provides all the levers needed to tune performance based on empirical data.
+The distance LOD thresholds (Section 11.4) were set from the Phase 11.5 playtest measurements and are backend-owned constants, not player settings. The architecture (zone-based rendering, looped ghost spawn thresholds, anchor-dependent lifecycle) provides the levers to retune them from new measurements.
 
 ---
 
@@ -1886,7 +1895,7 @@ Ghost chain vessel conversion (Section 13.10) introduces the first modification 
 - **Docking port occupied:** Ghost plays approach but despawns before dock event. Loop continues cycling.
 - **Part type missing (mod removed):** Skip visual event for that part. Log on first occurrence per part type.
 - **Ghost mesh fails to instantiate:** Skip ghost, retry on next load.
-- **Too many ghosts:** Degrade via soft cap rules. Never hard-fail.
+- **Too many ghosts:** Distant ghosts degrade through the distance LOD (11.4); there is no count cap and no hard failure.
 
 ### 19.6 Ghost Chain Errors
 
@@ -1945,7 +1954,7 @@ The recording system core is fully implemented:
 - **Phase 2:** Multi-vessel sessions, focus switching, background trajectory recording with proximity-based sample rate, highest-fidelity-wins merge.
 - **Phase 3:** Relative-frame recording, anchor-relative loop playback, loop phase tracking across vessel load/unload.
 - **Phase 4:** Rewind procedure, spawn-at-recording-end, warp spawn queue, PID-based deduplication, timeline immutability.
-- **Phase 5:** Distance-based rendering zones, ghost soft caps with priority-based despawning.
+- **Phase 5:** Distance-based rendering zones, ghost soft caps with priority-based despawning (the soft caps were replaced by the distance LOD in 0.8.1, see 11.4).
 
 ### 21.2 Phase 6: Vessel Interaction Paradox Extension — COMPLETE
 

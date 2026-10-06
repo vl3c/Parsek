@@ -88,7 +88,7 @@ Comprehensive redesign of the recording and playback systems. Multi-vessel sessi
 
 **Rendering & performance:**
 - Distance-based zones — Physics, Visual, Beyond — with zone-aware playback and part event gating
-- Ghost soft caps — configurable thresholds with priority-based despawning, reduced fidelity (75% renderer culling), simplified orbit-line mode
+- Ghost soft caps — configurable thresholds with priority-based despawning, reduced fidelity (75% renderer culling), simplified orbit-line mode (removed in 0.8.1, PR #226: replaced by the distance-based ghost LOD)
 - Terminated chain early-out — fully-terminated trees and chains skip per-frame evaluation
 
 **Ghost visual hardening:** Variant textures and materials (TEXTURE/MATERIAL/GAMEOBJECT rules), damaged wheel filtering, fairing meshes with procedural truss and nosecone caps, SRB nozzle glow (FXModuleAnimateThrottle), engine shrouds with variant awareness, initial state seeding for all 16 tracking set types. Compound part visuals (fuel lines, struts). Plume and smoke trail fixes (KSPParticleEmitter native control, emission module disabled). Control surfaces, robotics/servo detection, cabin lights, animation-based deployables. RCS debounce (8-frame threshold). Part separation smoke/spark FX. Lingering particle systems on ghost despawn.
