@@ -195,10 +195,12 @@ namespace Parsek
         /// ledger is about to own (a pending flight), and an event with a row is already
         /// covered by the row check.</para>
         ///
-        /// <para>Record node: seeded with the live implied paid count minus the ledger rows
-        /// for its id minus its pending event scopes (events whose (id, recording) scope has
-        /// no row yet; each such scope becomes one row at commit), clamped at 0. That keeps
-        /// the live band exactly at capture: the walk's effective count becomes seed + rows.</para>
+        /// <para>Record node: seeded with the live implied paid count minus the reward
+        /// thresholds the ledger rows for its id stand for minus those of its pending events
+        /// (events whose (id, recording) scope has no row yet; each becomes its own row at
+        /// commit, carrying the threshold count in its detail), clamped at 0. That keeps the
+        /// live band exactly at capture: the walk's effective count becomes seed + the rows'
+        /// thresholds (<see cref="MilestonesModule.GetRepresentedRecordThresholds"/>).</para>
         /// </summary>
         internal static PreLedgerProgressSeed Capture(
             IReadOnlyList<NodeObservation> nodes,
@@ -209,6 +211,7 @@ namespace Parsek
             stats = default(CaptureStats);
 
             var rowCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            var rowThresholds = new Dictionary<string, int>(StringComparer.Ordinal);
             var rowScopes = new HashSet<string>(StringComparer.Ordinal);
             if (ledgerActions != null)
             {
@@ -221,13 +224,14 @@ namespace Parsek
                     if (string.IsNullOrEmpty(id))
                         continue;
                     rowCounts[id] = (rowCounts.TryGetValue(id, out int c) ? c : 0) + 1;
+                    rowThresholds[id] = (rowThresholds.TryGetValue(id, out int t) ? t : 0)
+                        + MilestonesModule.GetRepresentedRecordThresholds(action);
                     rowScopes.Add(ScopeKey(id, action.RecordingId));
                 }
             }
 
             var eventIds = new HashSet<string>(StringComparer.Ordinal);
-            var pendingScopeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
-            var pendingScopes = new HashSet<string>(StringComparer.Ordinal);
+            var pendingThresholds = new Dictionary<string, int>(StringComparer.Ordinal);
             if (events != null)
             {
                 for (int i = 0; i < events.Count; i++)
@@ -240,8 +244,10 @@ namespace Parsek
                         continue;
                     eventIds.Add(id);
                     string scope = ScopeKey(id, evt.recordingId);
-                    if (!rowScopes.Contains(scope) && pendingScopes.Add(scope))
-                        pendingScopeCounts[id] = (pendingScopeCounts.TryGetValue(id, out int c) ? c : 0) + 1;
+                    if (rowScopes.Contains(scope))
+                        continue;
+                    pendingThresholds[id] = (pendingThresholds.TryGetValue(id, out int c) ? c : 0)
+                        + GameStateEventConverter.ParseMilestoneRecordThresholds(evt.detail);
                 }
             }
 
@@ -266,8 +272,8 @@ namespace Parsek
                         if (node.ImpliedPaidCount <= 0)
                             continue;
 
-                        int owned = CountOf(rowCounts, node.QualifiedId)
-                            + CountOf(pendingScopeCounts, node.QualifiedId);
+                        int owned = CountOf(rowThresholds, node.QualifiedId)
+                            + CountOf(pendingThresholds, node.QualifiedId);
                         int seeded = node.ImpliedPaidCount - owned;
                         if (seeded <= 0)
                         {
