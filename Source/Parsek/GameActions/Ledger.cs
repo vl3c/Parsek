@@ -24,6 +24,44 @@ namespace Parsek
         /// <summary>Read-only view of all actions in the ledger.</summary>
         internal static IReadOnlyList<GameAction> Actions => actions;
 
+        // Save-level fact persisted beside the actions. Replaced by LoadFromFile and
+        // ResetForTesting only: Clear() keeps it, because its callers restore a captured
+        // action list of the SAME save (rewind bundle restore), not a different career.
+        private static PreLedgerProgressSeed progressSeed = PreLedgerProgressSeed.NotCaptured;
+
+        /// <summary>
+        /// Stock progress the career earned before the ledger began (see
+        /// <see cref="PreLedgerProgressSeed"/>). <see cref="PreLedgerProgressSeed.NotCaptured"/>
+        /// until the first safe capture for this save.
+        /// </summary>
+        internal static PreLedgerProgressSeed ProgressSeed => progressSeed;
+
+        /// <summary>
+        /// Installs the captured pre-ledger progress seed. Captured once per save: a second
+        /// capture is refused so a later live tree (which already reflects ledger patches)
+        /// can never replace the record of what predates the ledger. Returns true when
+        /// installed.
+        /// </summary>
+        internal static bool TrySetProgressSeed(PreLedgerProgressSeed seed)
+        {
+            if (seed == null || !seed.Captured)
+            {
+                ParsekLog.Warn("Ledger", "TrySetProgressSeed: refusing a null or not-captured seed");
+                return false;
+            }
+
+            if (progressSeed.Captured)
+            {
+                ParsekLog.Verbose("Ledger",
+                    $"TrySetProgressSeed: seed already captured ({progressSeed.FormatSummary()}), " +
+                    $"ignoring new seed ({seed.FormatSummary()})");
+                return false;
+            }
+
+            progressSeed = seed;
+            return true;
+        }
+
         // Phase 2 (Rewind-to-Staging): state-version counter consumed by
         // <see cref="EffectiveState"/> to invalidate the ELS cache. Bumped
         // whenever <see cref="actions"/> mutates.
@@ -684,6 +722,10 @@ namespace Parsek
                     actions[i].SerializeInto(root);
                 }
 
+                // Additive child node: a build that predates it reads only GAME_ACTION
+                // nodes, so the ledger version does not change.
+                progressSeed.SerializeInto(root);
+
                 SafeWriteConfigNode(root, path);
 
                 ParsekLog.Verbose("Ledger",
@@ -707,6 +749,7 @@ namespace Parsek
             {
                 ParsekLog.Warn("Ledger", "LoadFromFile called with null/empty path");
                 actions.Clear();
+                progressSeed = PreLedgerProgressSeed.NotCaptured;
                 BumpStateVersion();
                 return false;
             }
@@ -719,6 +762,7 @@ namespace Parsek
             {
                 ParsekLog.Verbose("Ledger", $"Ledger file not found at '{path}', starting with empty ledger");
                 actions.Clear();
+                progressSeed = PreLedgerProgressSeed.NotCaptured;
                 BumpStateVersion();
                 return true;
             }
@@ -732,6 +776,7 @@ namespace Parsek
                 {
                     ParsekLog.Warn("Ledger", $"ConfigNode.Load returned null for '{path}', corrupt file?");
                     actions.Clear();
+                    progressSeed = PreLedgerProgressSeed.NotCaptured;
                     BumpStateVersion();
                     return false;
                 }
@@ -756,6 +801,7 @@ namespace Parsek
                         $"expectedGeneration={RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture)}; " +
                         "starting with empty ledger");
                     actions.Clear();
+                    progressSeed = PreLedgerProgressSeed.NotCaptured;
                     BumpStateVersion();
                     return false;
                 }
@@ -782,10 +828,23 @@ namespace Parsek
                 }
 
                 actions = newActions;
+                progressSeed = PreLedgerProgressSeed.LoadFrom(loaded, out int seedMalformed);
                 BumpStateVersion();
                 ParsekLog.Verbose("Ledger",
                     $"Loaded ledger from '{path}': version={version}, actions={actions.Count}, " +
                     $"parseErrors={parseErrors}");
+                if (seedMalformed > 0)
+                {
+                    ParsekLog.Warn("Ledger",
+                        $"Pre-ledger progress seed in '{path}' had " +
+                        $"{seedMalformed.ToString(CultureInfo.InvariantCulture)} unreadable entries (dropped); " +
+                        $"seed={progressSeed.FormatSummary()}");
+                }
+                else
+                {
+                    ParsekLog.Verbose("Ledger",
+                        $"Loaded pre-ledger progress seed: {progressSeed.FormatSummary()}");
+                }
                 // Rewind-to-Staging Phase 1 (design section 9): emit the one-shot
                 // legacy ActionId migration log if any actions were rehydrated on load.
                 EmitLegacyActionIdMigrationLogOnce();
@@ -800,6 +859,7 @@ namespace Parsek
             {
                 ParsekLog.Warn("Ledger", $"Failed to load ledger from '{path}': {ex.Message}");
                 actions.Clear();
+                progressSeed = PreLedgerProgressSeed.NotCaptured;
                 BumpStateVersion();
                 return false;
             }
@@ -1245,6 +1305,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             actions = new List<GameAction>();
+            progressSeed = PreLedgerProgressSeed.NotCaptured;
             BumpStateVersion();
             ResetLegacyActionIdMigrationForTesting();
             ResetContractDeadlineMigrationTally();

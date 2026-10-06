@@ -3481,7 +3481,8 @@ measurement, and the mirror's own 13px font calibration shows how visible that e
 300-state run would drop 536 files into `skipped_over_cap`; the Missions and Recordings
 windows are store-shaped (frame-keyed caches, index-into-the-live-list row identity) and
 belong to synthetic SAVE fixtures rather than an in-memory mock; and any such fixture work
-must splice onto a HARVESTED save per `SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE`.
+must splice onto a HARVESTED save per `SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE` (since
+corrected: that was Parsek's milestone patch clearing pre-ledger progress, fixed 2026-10-06).
 
 ## ~~KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL~~: a kerbal whose committed flight ends Aboard stays reserved forever, even after the vessel is recovered - and an ordinary in-flight "Recover" with auto-merge on ends every crewed flight Aboard [FOUND BY READING 2026-09-23 while fixing KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME, then MEASURED the same night on `L3-career-science-recover` run `2026-09-22_2132` (and read back into the 2026-09-02 L3 log). PRODUCT GAP against design 9.3 ("RECOVERED ... available after recovery"; STRANDED "stays open until a future recording rescues the kerbal"). FIXED 2026-09-23 on branch `kerbal-aboard-recovery` (the recovery half; see Residual)]
 
@@ -8861,7 +8862,25 @@ that folder is flight 1, whose ledger loaded `actions=1` and which logged ZERO
 injection lines, so it contradicts rather than supports this entry. It is the correct
 pointer for the Progress-node finding below, and only there.
 
-## SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE: a `Progress { FirstLaunch }` node written into a file-constructed career save is not read back, and it silently kills any save-authored Active `PartTest` [MEASURED 2026-08-20 by `L5-career-contract-complete`'s first flight (run `2026-08-20_2217`). HARNESS-FIXTURE FINDING, REPORT-ONLY: no product change is proposed, and nothing gates it. It is filed because it BLOCKS a specific class of fixture and because the next author to try one will otherwise spend the same flight]
+## ~~SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE: a `Progress { FirstLaunch }` node written into a file-constructed career save is not read back, and it silently kills any save-authored Active `PartTest`~~ [MEASURED 2026-08-20 by `L5-career-contract-complete`'s first flight (run `2026-08-20_2217`). MISDIAGNOSED as a harness-fixture finding. FIXED 2026-10-06, branch `fix-pre-parsek-progress-seed`: it was a PRODUCT defect, see the correction below]
+
+**CORRECTION (2026-10-06): the node WAS loaded; Parsek un-achieved it.** The real cause is
+`KspStatePatcher.PatchMilestones` -> `PatchProgressNodeTree`, which sets every one-shot stock
+progress node to the `MilestonesModule` credited set and clears any complete node no ledger
+`MilestoneAchievement` row credits. Nothing told the ledger about progress a save earned
+before Parsek, so the first recalc cleared it: `logs/2026-08-21_0124_L5-career-contract-complete/KSP.log`
+logs `PatchMilestones: cleared achieved 'FirstLaunch'` then `credited=0, unreached=1 ...
+moduleCredited=0` at 01:17:49, before the flight, which is why stock later logged FirstLaunch
+reached and complete again. The same patch reset the four world-record nodes to their first
+band. Every save Parsek is installed into hit this, not only file-constructed fixtures, and the
+"lineage" difference below was a red herring (`career-earned-pad`'s FirstLaunch has a ledger
+row). Fix: a persisted pre-ledger progress seed (`PreLedgerProgressSeed`, a `PROGRESS_SEED`
+child of the ledger file) captured once per save from the live tree after ProgressTracking's
+OnLoad has run; seeded nodes stay credited and seeded record thresholds count as paid, and
+`PatchMilestones` skips until the seed exists. A save-authored node with no ledger row is
+therefore now kept, so the fixture class this entry said was blocked should be reachable (not
+yet flown). The body below is the original report, kept as history.
+
 
 **What was tried.** `career-contract-pad` v1 spliced two nodes into
 `career-science-pad`'s save so the `science_bench_recover` flight would COMPLETE a
