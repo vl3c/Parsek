@@ -14058,7 +14058,9 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))
         self.assertEqual(len(self.decls), stated_decls)
-TODO_DOC = os.path.join(DOCS_DEV_DIR, "todo-and-known-bugs.md")
+# The anomaly-token entry was struck 2026-08-04 and left the live todo in the
+# 2026-10-06 rotation; the guard follows the text it pins into the v9 volume.
+TODO_DOC = os.path.join(DOCS_DEV_DIR, "done", "todo-and-known-bugs-v9.md")
 
 # A reason token: lowercase words joined by hyphens. Deliberately requires a
 # hyphen so it cannot match a bare word, and forbids spaces / `=` so it cannot
