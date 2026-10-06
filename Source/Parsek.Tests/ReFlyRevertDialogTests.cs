@@ -1584,5 +1584,135 @@ namespace Parsek.Tests
                 && l.Contains("callSite=RevertInterceptor:DiscardReFly")
                 && l.Contains("sess=" + sessionId));
         }
+
+        /// <summary>
+        /// ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS, tree branch: with the
+        /// marker's tree registered, PruneActiveReFlyAttemptOwnedTopology takes its tree branch
+        /// (not the no-tree fallback) and re-homes the ledger tags of EVERY attempt-owned
+        /// recording, including untagged attempt debris the fallback cannot see. A row of the
+        /// committed origin keeps its tag.
+        /// </summary>
+        [Fact]
+        public void DiscardReFly_CommittedTreeBranch_ReHomesLedgerTagsOfEveryAttemptRecording()
+        {
+            const string treeId = "tree-esc-tags";
+            const string sessionId = "sess-esc-tags";
+            const string rpId = "rp_esc_tags";
+            const string originId = "rec-esc-tags-origin";
+            const string forkId = "rec-esc-tags-fork";
+            const string attemptDebrisId = "rec-esc-tags-debris";
+            const string preSessionBpId = "bp-esc-tags-pre";
+            const string sessionAuthoredBpId = "bp-esc-tags-session";
+
+            var origin = new Recording
+            {
+                RecordingId = originId,
+                TreeId = treeId,
+                MergeState = MergeState.Immutable,
+                VesselName = "rec_origin",
+                ChildBranchPointId = preSessionBpId,
+            };
+            var fork = new Recording
+            {
+                RecordingId = forkId,
+                TreeId = treeId,
+                MergeState = MergeState.NotCommitted,
+                CreatingSessionId = sessionId,
+                ProvisionalForRpId = rpId,
+                SupersedeTargetId = originId,
+                VesselName = "rec_origin",
+            };
+            var attemptDebris = new Recording
+            {
+                RecordingId = attemptDebrisId,
+                TreeId = treeId,
+                MergeState = MergeState.NotCommitted,
+                ParentBranchPointId = sessionAuthoredBpId,
+            };
+            var committedTree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = treeId,
+                RootRecordingId = originId,
+                ActiveRecordingId = forkId,
+            };
+            committedTree.AddOrReplaceRecording(origin);
+            committedTree.AddOrReplaceRecording(fork);
+            committedTree.AddOrReplaceRecording(attemptDebris);
+            committedTree.BranchPoints.Add(new BranchPoint
+            {
+                Id = preSessionBpId,
+                UT = 50.0,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { originId },
+                ChildRecordingIds = new List<string>(),
+            });
+            committedTree.BranchPoints.Add(new BranchPoint
+            {
+                Id = sessionAuthoredBpId,
+                UT = 80.0,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { forkId },
+                ChildRecordingIds = new List<string> { attemptDebrisId },
+            });
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            RecordingStore.AddCommittedInternal(origin);
+            RecordingStore.AddProvisional(fork);
+
+            var forkRow = new GameAction
+            {
+                UT = 90.0,
+                Type = GameActionType.FundsEarning,
+                FundsAwarded = 1500f,
+                FundsSource = FundsEarningSource.ContractComplete,
+                RecordingId = forkId,
+            };
+            var debrisRow = new GameAction
+            {
+                UT = 95.0,
+                Type = GameActionType.FundsEarning,
+                FundsAwarded = 250f,
+                FundsSource = FundsEarningSource.ContractComplete,
+                RecordingId = attemptDebrisId,
+            };
+            var originRow = new GameAction
+            {
+                UT = 40.0,
+                Type = GameActionType.FundsEarning,
+                FundsAwarded = 800f,
+                FundsSource = FundsEarningSource.ContractComplete,
+                RecordingId = originId,
+            };
+            Ledger.AddAction(forkRow);
+            Ledger.AddAction(debrisRow);
+            Ledger.AddAction(originRow);
+
+            var marker = MakeMarker(
+                sessionId: sessionId, treeId: treeId, rpId: rpId,
+                originId: originId, activeReFlyRecordingId: forkId);
+            marker.SupersedeTargetId = originId;
+            marker.InPlaceContinuation = true;
+            marker.PreSessionBranchPointIds = new List<string> { preSessionBpId };
+            var rp = MakeRewindPoint(rpId, originId, sessionProvisional: true,
+                creatingSessionId: sessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            // The tree branch ran (the fallback warns "no in-memory tree found").
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("PruneActiveReFlyAttemptOwnedTopology: no in-memory tree found"));
+            Assert.False(committedTree.Recordings.ContainsKey(attemptDebrisId));
+
+            // Every attempt row keeps its payout and loses the deleted recording's tag;
+            // the debris row is reachable only through the tree branch's attempt set.
+            Assert.Null(forkRow.RecordingId);
+            Assert.Null(debrisRow.RecordingId);
+            Assert.Equal(250f, debrisRow.FundsAwarded);
+            Assert.Contains(debrisRow, Ledger.Actions);
+            Assert.Equal(originId, originRow.RecordingId);
+        }
     }
 }

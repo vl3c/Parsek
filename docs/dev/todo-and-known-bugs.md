@@ -313,7 +313,10 @@ re-home lives in `MergeDialog.PruneActiveReFlyAttemptOwnedTopology`, the Esc pat
 no-tree fallback branches, counted as `ledgerTagsCleared=` in its summary line. The
 `LoadReconcilePolicy` cell DiscardReFly x PendingScience is now `Clear` and the gap id is gone.
 Tests: `ReFlyRevertDialogTests.DiscardReFly_ClearsPendingScience_AndReHomesAttemptLedgerTags`,
-`DiscardReFly_UnresolvableRp_StillClearsPendingScienceAndAttemptTags`,
+`DiscardReFly_UnresolvableRp_StillClearsPendingScienceAndAttemptTags` (both reach the no-tree
+fallback), `DiscardReFly_CommittedTreeBranch_ReHomesLedgerTagsOfEveryAttemptRecording` (registers
+the tree, so the tree branch runs and re-homes untagged attempt debris too; red with that branch's
+clear deleted),
 `LoadReconcilePolicyTests.DiscardReFly_PendingScience_IsClearedBeforeTheLoad`.
 
 ---
