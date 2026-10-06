@@ -16,20 +16,52 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## RECORD-COALESCED-ROW-COUNTS-ONE-HIT: a world-record row that coalesced several threshold breaks counts as one hit when the record node is rebuilt [FILED 2026-10-06 while fixing SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE, branch `fix-pre-parsek-progress-seed`. OPEN, product; to verify, not reproduced]
+## ~~RECORD-COALESCED-ROW-COUNTS-ONE-HIT: a world-record row that coalesced several threshold breaks counts as one hit when the record node is rebuilt~~ [FILED 2026-10-06 while fixing SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE, branch `fix-pre-parsek-progress-seed`. CONFIRMED and FIXED 2026-10-06, branch `fix-record-coalesced-hits`]
 
 `GameStateRecorder.TryCoalesceWorldRecordReward` folds every RecordsAltitude / Depth / Speed /
 Distance break of one (milestone, recording) scope into ONE MilestoneAchieved event and ledger
-row, accumulating funds / rep / science. `MilestonesModule` counts that row as one effective
+row, accumulating funds / rep / science. `MilestonesModule` counted that row as one effective
 hit, and `KspStatePatcher.TryComputeRepeatableRecordState` rebuilds the stock node from the
-hit count: a live record above the next threshold "spills into a later band" and falls back to
-the last paid threshold. If one recording crosses several thresholds (an ascent past 500 m,
-2 km, 7 km, 22 km, 70 km), the patch would set the record back to the first threshold and
-stock would re-award the rest on a later flight. Collected logs show the resync at work
-(`synced repeatable record 'RecordsAltitude' hits=2 ... record=2000.0` x456) but not which
-ascents coalesced into how many rows. Check first: one ascent's KSP.log - the stock
-`[Progress Node Reached]` / award lines per threshold, the coalesced row, and the next
-`synced repeatable record` line.
+hit count, falling back to the last paid threshold when the live record spills past it.
+
+Evidence (`logs/2026-10-03_1335_PWR-3-physwarp-ascent-high/KSP.log`, one ascent to an 81 km
+orbit): stock paid all five altitude thresholds into one scope - one
+`MilestoneAchieved (standalone) 'RecordsAltitude' funds=4800` at UT 44.5 and four
+`Coalesced world-record milestone 'RecordsAltitude'` folds ending `totals funds=24000 rep=3.0
+sci=1.0` - then `[Progress Node Complete]: RecordsAltitude` added a second, zero-reward event
+(stock completes a record node after its award loop, decompiled `RecordsAltitude.iterateVessels`).
+The in-flight commit filed the two events as two rows, and the recalc logged
+`synced repeatable record 'RecordsAltitude' hits=2 reached=True complete=False record=2000.0
+nextThreshold=7000.0`. 76 ms later, with the craft still at 81 km, stock re-paid altitude
+7 km / 22 km / 70 km, and the same reset re-paid three speed bands (`RecordsSpeed hits=1
+record=25.0`, four paid in the ascent) and three distance bands (`hits=2 record=3000.0`): nine
+duplicate awards, 43,200 funds. The first re-award of altitude and distance went to the stale
+pending completion event of the ascent (`EnrichPendingMilestoneRewards: store had no matching
+event ... ut=212.2`), overwriting that old row's zero reward. The same shape is in the July B2
+runs (`2026-07-20_1924_B2-lko-ascent`: 24000 folded, `hits=2 ... record=2000.0`, three
+re-awards) and RF-9 (`wave-0910/runs/2026-09-11_0151`), where the re-awards push the node to
+`hits=5 complete=True` and a later recalc puts it back to `hits=2 record=2000.0`. No row or event carried a
+threshold count anywhere; the ledger ground-truth harness and `oracle.py` compare milestone
+id sets only.
+
+Fix: a row now carries how many thresholds it stands for (`GameAction.MilestoneRecordThresholds`,
+key `milestoneRecordThresholds`, event detail key `thresholds`, both written only when not 1
+and parsed InvariantCulture). The coalescer adds one per fold to the event and to the seed's
+own ledger row, now matched by UT as well as scope: in the same PWR-3 run the recording kept
+its id past the in-flight commit, so the 480.0 fold (`Coalesced ... (scope='e004...')`, no
+forward: tagged) added its 4800 to a committed UT 44.5 / 212.2 row of that scope while the new
+UT 480 event, which commits as its own row, carried it too (read off the code path with the
+log's ledger state; the old fold logged no row);
+a record node's completion event carries 0 and is no longer left pending for a later award;
+`MilestonesModule` adds the row's thresholds to a record id's effective count; and the
+pre-ledger progress seed subtracts the thresholds rows and pending events stand for (each
+pending event, not each pending scope, since every event becomes its own row at commit).
+Rows and events written before the fix read as one threshold each: their accumulated reward
+cannot give an exact count (per-threshold rewards follow difficulty multipliers and
+strategies, and science-mode rows pay no funds), so a career that already holds them may see
+the higher bands paid once more before the count catches up. Residue, not fixed here: a
+coalesced row sits at its first fold's UT, so a rewind to mid-ascent keeps every threshold of
+that row (and its reward) in the pre-rewind segment.
 
 ---
 
