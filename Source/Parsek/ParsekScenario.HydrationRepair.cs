@@ -46,12 +46,18 @@ namespace Parsek
         /// and never reaches the detach. Left alone (<see cref="CommittedCopyRestoreAction.Unchanged"/>):
         /// a tree the quicksave holds as committed (a clone of a tree committed BEFORE the
         /// quicksave; owner ruling D2, committed history is permanent), a load with no facts,
-        /// a revert, and every load that is not a plain in-session load (a cold load reads its
-        /// committed trees from the same save; a Re-Fly start owns its own tree handling).
+        /// a revert, every load that is not a plain in-session load (a cold load reads its
+        /// committed trees from the same save; a Re-Fly start owns its own tree handling), a load
+        /// that does not land in FLIGHT (no recorder resumes there, so nothing would trim what
+        /// the salvage and the refresh bring in, and the outside-flight auto-commit would commit
+        /// it untrimmed), and a same-id pending tree already Finalized (the restore keeps that
+        /// tree as authoritative, bug #290d, so the committed copy must stay its original).
         /// </summary>
         internal static CommittedCopyRestoreAction DecideCommittedCopyRestore(
             bool committedCopyInMemory,
             EarlyLoadKind earlyLoadKind,
+            bool loadedSceneIsFlight,
+            bool finalizedSameIdPendingTree,
             bool revertPending,
             QuicksaveTreeFacts quicksaveFacts,
             out string reason)
@@ -64,6 +70,16 @@ namespace Parsek
             if (earlyLoadKind != EarlyLoadKind.InSession)
             {
                 reason = "load-kind-" + earlyLoadKind;
+                return CommittedCopyRestoreAction.Unchanged;
+            }
+            if (!loadedSceneIsFlight)
+            {
+                reason = "scene-not-flight";
+                return CommittedCopyRestoreAction.Unchanged;
+            }
+            if (finalizedSameIdPendingTree)
+            {
+                reason = "finalized-pending-tree";
                 return CommittedCopyRestoreAction.Unchanged;
             }
             if (revertPending)
@@ -165,13 +181,19 @@ namespace Parsek
         /// route (the flight was committed at a scene exit).
         /// </summary>
         private static CommittedCopyRestoreAction ResolveCommittedCopyRestore(
-            RecordingTree tree, EarlyLoadKind earlyLoadKind, ref int staleEpochHydrationFailures)
+            RecordingTree tree, EarlyLoadKind earlyLoadKind, bool loadedSceneIsFlight,
+            ref int staleEpochHydrationFailures)
         {
             RecordingTree committedCopy = FindCommittedTreeById(tree.Id, exclude: tree);
             bool revertPending = RevertDetector.PendingKind != RevertKind.None;
+            bool pendingSameId = RecordingStore.HasPendingTree
+                && RecordingStore.PendingTree != null
+                && string.Equals(RecordingStore.PendingTree.Id, tree.Id, StringComparison.Ordinal);
+            bool finalizedSameIdPendingTree = pendingSameId
+                && RecordingStore.PendingTreeStateValue == PendingTreeState.Finalized;
             CommittedCopyRestoreAction action = DecideCommittedCopyRestore(
-                committedCopy != null, earlyLoadKind, revertPending, lastRestoredQuicksaveTreeFacts,
-                out string reason);
+                committedCopy != null, earlyLoadKind, loadedSceneIsFlight, finalizedSameIdPendingTree,
+                revertPending, lastRestoredQuicksaveTreeFacts, out string reason);
 
             int staleBefore = staleEpochHydrationFailures;
             if (action == CommittedCopyRestoreAction.None)
@@ -182,9 +204,6 @@ namespace Parsek
                 return action;
             }
 
-            bool pendingSameId = RecordingStore.HasPendingTree
-                && RecordingStore.PendingTree != null
-                && string.Equals(RecordingStore.PendingTree.Id, tree.Id, StringComparison.Ordinal);
             string route = pendingSameId ? "in-flight" : "space-center";
 
             int salvaged = 0;

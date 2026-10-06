@@ -252,11 +252,12 @@ namespace Parsek.Tests
             Assert.Contains("if (committedCopyAction == CommittedCopyRestoreAction.ResumeFromQuicksave) "
                 + "ClearCommittedTreeRestoreAttemptAfterDetach(tree);", Collapse(body));
 
-            // Both OnLoad call sites pass the prologue's load kind.
+            // Both OnLoad call sites pass the prologue's load kind and whether the load lands in
+            // FLIGHT (the defaults model an F9 in flight, for tests only).
             string onLoad = Collapse(PreparedMethodBody(ScenarioPath, "public override void OnLoad(ConfigNode node)"));
             Assert.Equal(2, Occurrences(onLoad, "TryRestoreActiveTreeNode("));
-            Assert.Contains("TryRestoreActiveTreeNode(node, earlyLoadKind)", onLoad);
-            Assert.Contains("TryRestoreActiveTreeNode(node, EarlyLoadKind.Cold)", onLoad);
+            Assert.Contains("TryRestoreActiveTreeNode( node, earlyLoadKind, HighLogic.LoadedScene == GameScenes.FLIGHT)", onLoad);
+            Assert.Contains("TryRestoreActiveTreeNode( node, EarlyLoadKind.Cold, HighLogic.LoadedScene == GameScenes.FLIGHT)", onLoad);
 
             string arm = PreparedMethodBody(ScenarioPath, "internal static void ConfigurePendingQuickloadResumeContext(");
             Assert.Contains("QuicksaveFacts = quicksaveFacts,", Collapse(arm));

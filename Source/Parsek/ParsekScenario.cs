@@ -3735,7 +3735,8 @@ namespace Parsek
                     // affect the rest of OnLoad, but BEFORE revert detection so the
                     // pending slot is populated when it runs.
                     loadPhase = "active-tree-restore";
-                    bool activeTreeRestoredFromSave = TryRestoreActiveTreeNode(node, earlyLoadKind);
+                    bool activeTreeRestoredFromSave = TryRestoreActiveTreeNode(
+                        node, earlyLoadKind, HighLogic.LoadedScene == GameScenes.FLIGHT);
                     bool pendingTreeRestoredFromSave = TryRestorePendingTreeNode(
                         node, activeTreeRestoredFromSave);
                     RecorderStateLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
@@ -4468,7 +4469,8 @@ namespace Parsek
                 // original Bug C scenario.
                 loadPhase = "cold-active-tree-restore";
                 ClearPendingQuickloadResumeContext();
-                if (TryRestoreActiveTreeNode(node, EarlyLoadKind.Cold))
+                if (TryRestoreActiveTreeNode(
+                        node, EarlyLoadKind.Cold, HighLogic.LoadedScene == GameScenes.FLIGHT))
                 {
                     // Flag the coroutine to run on OnFlightReady so the active vessel is
                     // available for name matching. Cold start always lands in flight for
@@ -6020,11 +6022,15 @@ namespace Parsek
         /// the load is Parsek's own rewind flow which explicitly resets playback state.</para>
         ///
         /// Returns true if an active tree was found and stashed as Limbo.
-        /// <paramref name="earlyLoadKind"/> is the load's prologue kind; the committed-copy rule
-        /// (<see cref="DecideCommittedCopyRestore"/>) applies to a plain in-session load only.
+        /// <paramref name="earlyLoadKind"/> is the load's prologue kind and
+        /// <paramref name="loadedSceneIsFlight"/> whether the load lands in FLIGHT; the
+        /// committed-copy rule (<see cref="DecideCommittedCopyRestore"/>) applies to a plain
+        /// in-session load into FLIGHT only.
         /// </summary>
         internal static bool TryRestoreActiveTreeNode(
-            ConfigNode node, EarlyLoadKind earlyLoadKind = EarlyLoadKind.InSession)
+            ConfigNode node,
+            EarlyLoadKind earlyLoadKind = EarlyLoadKind.InSession,
+            bool loadedSceneIsFlight = true)
         {
             lastRestoredQuicksaveTreeFacts = null;
             if (node == null) return false;
@@ -6101,7 +6107,7 @@ namespace Parsek
                 // salvaged from the committed copy here, and the stale-epoch keep below does not
                 // run for it, so the splice, refresh and detach that follow always do.
                 CommittedCopyRestoreAction committedCopyAction = ResolveCommittedCopyRestore(
-                    tree, earlyLoadKind, ref staleEpochHydrationFailures);
+                    tree, earlyLoadKind, loadedSceneIsFlight, ref staleEpochHydrationFailures);
 
                 if (committedCopyAction != CommittedCopyRestoreAction.ResumeFromQuicksave
                     && ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))

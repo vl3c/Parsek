@@ -357,6 +357,56 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LoadLandingOutsideFlight_SpaceCenterShape_Unchanged()
+        {
+            // A flight quicksave loaded straight to the Space Center (the automation-only
+            // `LoadGame scene=spacecenter`): no recorder resumes, so nothing would trim the
+            // salvaged payload before the outside-flight auto-commit re-committed it.
+            var committed = CommitFuture("ql_ksc_scene");
+            ConfigNode node = QuicksaveNode(MakeQuicksaveTree("ql_ksc_scene"), committedTree: null);
+
+            logLines.Clear();
+            Assert.False(ParsekScenario.TryRestoreActiveTreeNode(
+                node, EarlyLoadKind.InSession, loadedSceneIsFlight: false));
+
+            Assert.Contains(RecordingStore.CommittedTrees, t => ReferenceEquals(t, committed));
+            Assert.Contains(logLines, l => l.Contains("dropped entire tree 'ql_ksc_scene'"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload committed-copy restore:")
+                && l.Contains("action=Unchanged")
+                && l.Contains("reason=scene-not-flight"));
+        }
+
+        [Fact]
+        public void FinalizedSameIdPendingTree_RestoreAttemptNotClearedBeforeTheFinalizedKeep()
+        {
+            // A same-id pending tree already Finalized (bug #290d: the restore keeps it as
+            // authoritative) is not the quicksave's flight resuming: the rule stays out, so the
+            // restore attempt armed for its committed original is not cleared.
+            var committed = MakeFutureTree("ql_finalized");
+            foreach (var rec in committed.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+            RecordingStore.AddCommittedTreeForTesting(committed);
+            RecordingStore.ArmCommittedTreeRestoreAttempt(committed, "test copy-on-write resume");
+            var finalizedClone = RecordingTree.DeepClone(committed);
+            RecordingStore.StashPendingTree(finalizedClone, PendingTreeState.Finalized);
+            ConfigNode node = QuicksaveNode(MakeQuicksaveTree("ql_finalized"), committedTree: null);
+
+            logLines.Clear();
+            Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
+
+            Assert.Same(finalizedClone, RecordingStore.PendingTree);
+            Assert.Contains(logLines, l => l.Contains("keeping in-memory Finalized tree"));
+            Assert.True(RecordingStore.HasCommittedTreeRestoreAttempt);
+            AssertNoLine("cleared the committed-tree restore attempt");
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload committed-copy restore:")
+                && l.Contains("tree='ql_finalized'")
+                && l.Contains("action=Unchanged")
+                && l.Contains("reason=finalized-pending-tree"));
+        }
+
+        [Fact]
         public void ReFlyStartLoad_SpaceCenterShape_Unchanged()
         {
             var committed = CommitFuture("ql_refly");
@@ -387,28 +437,34 @@ namespace Parsek.Tests
 
             string reason;
             Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.None,
-                ParsekScenario.DecideCommittedCopyRestore(false, EarlyLoadKind.InSession, false, notCommitted, out reason));
+                ParsekScenario.DecideCommittedCopyRestore(false, EarlyLoadKind.InSession, true, false, false, notCommitted, out reason));
             Assert.Equal("no-committed-copy", reason);
             Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.ResumeFromQuicksave,
-                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, false, notCommitted, out reason));
+                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, true, false, false, notCommitted, out reason));
             Assert.Equal("committed-after-quicksave", reason);
             Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.Unchanged,
-                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, false, treeCommitted, out reason));
+                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, true, false, false, treeCommitted, out reason));
             Assert.Equal("tree-committed-in-quicksave", reason);
             Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.Unchanged,
-                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, false, memberCommitted, out reason));
+                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, true, false, false, memberCommitted, out reason));
             Assert.Equal("member-committed-in-quicksave", reason);
             Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.Unchanged,
-                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, false, null, out reason));
+                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, true, false, false, null, out reason));
             Assert.Equal("no-quicksave-facts", reason);
             Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.Unchanged,
-                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, true, notCommitted, out reason));
+                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, true, false, true, notCommitted, out reason));
             Assert.Equal("revert-pending", reason);
+            Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.Unchanged,
+                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, false, false, false, notCommitted, out reason));
+            Assert.Equal("scene-not-flight", reason);
+            Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.Unchanged,
+                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, true, true, false, notCommitted, out reason));
+            Assert.Equal("finalized-pending-tree", reason);
             foreach (EarlyLoadKind kind in new[]
                 { EarlyLoadKind.Cold, EarlyLoadKind.PlainRewind, EarlyLoadKind.ReFlyStart, EarlyLoadKind.DiscardReFly })
             {
                 Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.Unchanged,
-                    ParsekScenario.DecideCommittedCopyRestore(true, kind, false, notCommitted, out reason));
+                    ParsekScenario.DecideCommittedCopyRestore(true, kind, true, false, false, notCommitted, out reason));
                 Assert.Equal("load-kind-" + kind, reason);
             }
         }

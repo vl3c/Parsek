@@ -352,8 +352,12 @@ popped as before, its post-commit tail with it); the resume trim cuts the salvag
 the cutoff and the abandoned-future reconcile retires end states, events and rows as for the
 no-save route. Left alone (`action=Unchanged`, logged with the reason): a tree the quicksave holds
 as committed (a copy-on-write clone of a tree committed BEFORE the quicksave, D2), a pending
-revert, a load with no facts, and every load that is not a plain in-session one (cold, Re-Fly
-start). One `[Scenario] Quickload committed-copy restore:` Info line per decision names the route
+revert, a load with no facts, every load that is not a plain in-session one (cold, Re-Fly
+start), a load that does not land in FLIGHT (`scene-not-flight`: the automation-only
+`LoadGame scene=spacecenter` of a flight quicksave resumes no recorder, so nothing would trim the
+salvaged payload before the outside-flight auto-commit re-committed it), and a same-id pending tree
+already Finalized (`finalized-pending-tree`: the restore keeps that tree as authoritative, bug
+#290d, so its restore attempt must not be cleared). One `[Scenario] Quickload committed-copy restore:` Info line per decision names the route
 (`in-flight` when a same-id pending tree is in memory, else `space-center`), the action, the
 reason, the stale count, the salvage count and whether it replaced the stale-epoch keep; no
 committed copy logs a Verbose skip. A stale member the committed copy no longer holds (merged away
@@ -372,7 +376,8 @@ clear after the detach, both OnLoad call sites passing the load kind). Residual:
 before the quicksave and re-committed after it keeps today's behaviour (D2 wins over the second
 commit's future; QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESUMED-CLONE's neighbourhood);
 game-state events tagged to a recording created only on the in-flight route's resumed clone
-(after the commit) stay tagged to an id no tree holds, as on the no-save route.
+(after the commit) stay tagged to an id no tree holds, as on the no-save route
+(QUICKLOAD-RESUMED-CLONE-EVENTS-ORPHANED).
 
 Live proof (authored 2026-10-06, never flown; fly on request once the fix is in the automation
 DLL): `harness/scenarios/QL-4b-quickload-from-space-center.toml` (QL-4's flight, `ExitToSpaceCenter`
@@ -380,7 +385,33 @@ for the auto-merge and the exit save, then `LoadGame` of the flight quicksave at
 `harness/scenarios/QL-4c-quickload-after-in-flight-save.toml` (QL-4 plus a `SaveGame persistent`
 between the in-flight commit and the load). Each requires the decision line and the reconcile line
 and forbids the pre-fix witnesses: `dropped entire tree` (Space Center), `keeping in-memory pending
-tree` plus `reason=empty-plan` (in flight).
+tree` plus `reason=empty-plan` (in flight). First reading run of QL-4b: read the log for a
+commit-time optimizer split of the quicksave's active recording at a point before the cutoff (the
+pod lands about a second before the quicksave). The resume would then run on a truncated chain
+head under the quicksave's active id while the spliced tail survives the trim up to the cutoff;
+file it here if it shows.
+
+---
+
+## QUICKLOAD-RESUMED-CLONE-EVENTS-ORPHANED: events tagged to a recording only the resumed clone created stay tagged to an id no tree holds [FILED 2026-10-06 from the QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE fix, verified by code read. OPEN, clutter, not data integrity]
+
+After an in-flight commit the recorder resumes on a same-id copy-on-write clone
+(`ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore`). A recording the clone creates after
+the commit (a separation, an EVA) exists only in the clone. An F9 into the flight's quicksave
+restores the quicksave's tree and pops the clone (`TryRestoreActiveTreeNode`, the no-save route
+and, since the committed-copy restore rule, the in-flight route after a later save too), so that
+recording leaves no tree, and the abandoned-future reconcile never sees it (its plan is built
+from the restored tree). Game-state events tagged to it stay in the store with a tag no tree
+holds: `GameStateStore.IsEventVisibleToCurrentTimeline` is false for them
+(`RecordingStore.IsCurrentTimelineRecordingId`), so `MilestoneStore.CreateMilestone` skips them,
+`GameStateStore.PruneProcessedEvents` keeps them as hidden, and no later commit can book them
+because no recording carries that id. Clutter in the event store, not a booking or integrity
+problem.
+
+Fix: not decided; either purge the popped clone's clone-only recording ids' events when the
+restore drops the clone, or let the reconcile take them from the popped tree. Red test: xUnit -
+a stashed clone with a clone-only recording and a tagged event, the restore, then assert the event
+is gone.
 
 ---
 

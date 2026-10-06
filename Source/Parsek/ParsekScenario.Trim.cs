@@ -221,7 +221,12 @@ namespace Parsek
         /// Pure: the ids of every recording the save node holds in a COMMITTED tree (active and
         /// pending tree nodes skipped). OnSave writes every committed tree before the active one,
         /// so a member whose id is here was committed history when the quicksave was taken (a
-        /// copy-on-write restore clone shares its committed tree's ids).
+        /// copy-on-write restore clone shares its committed tree's ids). One exception:
+        /// <c>SaveTreeRecordings</c> drops a committed tree it cannot serialize (Error) when no
+        /// last-known-good node can be carried forward. The committed-copy rule still never reads
+        /// such a tree's clone as committed after the save, because the clone shares the failing
+        /// recordings' ids and sidecars, so the same failure keeps its active node out of that
+        /// save too (<c>SaveActiveTreeIfAny</c> writes both-or-neither).
         /// </summary>
         internal static HashSet<string> CollectQuicksaveCommittedRecordingIds(ConfigNode scenarioNode)
         {

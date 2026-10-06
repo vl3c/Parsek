@@ -50,10 +50,19 @@ id = "QL-4b-quickload-from-space-center"
 #   exit    ExitToSpaceCenter: the scene-exit auto-merge commits the resumed tree.
 #
 # BEFORE-FIX CONVENTION: PLAIN. This lane lands in the same PR as the fix, so it carries no
-# [expectedFail] block. On a pre-fix DLL the prediction is PARSEK-FAIL(expectation): the
-# forbidden `dropped entire tree` matches, and the decision line, the detach, the resume
-# prep, the reconcile line, the background attach and the post-F9 Landed finalize are all
-# missing.
+# [expectedFail] block. On a pre-fix DLL the prediction is PARSEK-FAIL(expectation), in one
+# of two shapes depending on whether the landed pod (the root recording) took any sample
+# after the quicksave:
+#   - the pod sampled after the quicksave (expected): its sidecar is stale, the forbidden
+#     `dropped entire tree` matches, and the decision line, the detach, the resume prep,
+#     the reconcile line, the background attach and the post-F9 Landed finalize are all
+#     missing;
+#   - the pod took no sample after it: only the booster is stale, a pre-fix DLL drops just
+#     the booster, the splice re-adds it from the committed copy and the restore reaches the
+#     detach and the resume anyway; that reading reds on the missing decision line (and on
+#     whatever the re-added booster's committed end does to the later tokens), not on
+#     `dropped entire tree`.
+# The post-fix tokens hold in both shapes (staleMembers >= 1 either way).
 #
 # READING-RUN NOTES (what to check first if the first flight reds):
 #   - No `Sidecar epoch mismatch` after the load means nothing was rewritten between the
@@ -66,6 +75,17 @@ id = "QL-4b-quickload-from-space-center"
 #     finalizer may extrapolate the descending booster (SubOrbital, Landed or Destroyed);
 #     the reconcile clears it whatever it is (endStatesCleared >= 1).
 #   - TA-3 (ledger rows) is not exercised: sandbox, no recovery.
+#   - READ THE FIRST LOG FOR AN OPTIMIZER SPLIT OF THE POD'S RECORDING. The exit auto-merge
+#     runs the optimizer pass; if it splits the quicksave's active recording at a point
+#     BEFORE the cutoff (`Split recording 'GS1 Auto-Chute Booster' at section N` /
+#     `Optimization pass: split N recording(s)` before the load), the same-id refresh hands
+#     the resumed tree a truncated chain head under the quicksave's active id while the
+#     spliced tail (`SpliceMissingCommittedRecordings: ... splicedRecordings=` above 0)
+#     survives the trim up to the cutoff, and the resume appends to the head. QL-4's header
+#     ties the surface splits to stages sitting landed for well over 120 s, which this exit
+#     (~30 s after the landing) does not reach, but the candidate boundary is the pod's
+#     landing at ~UT 119, one second before the cutoff, so it is not ruled out: file it
+#     against the todo if it shows.
 #
 # STATUS: AUTHORED 2026-10-06 (branch `quickload-after-save`), NEVER FLOWN. Every token is
 # quoted from its emitting source line or from QL-4's header, never pasted from a run of this
