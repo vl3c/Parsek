@@ -5895,6 +5895,14 @@ _(unreleased - entries accumulate here per commit)_
   node names the two staging methods touch (each must have a category), and where OnLoad
   classifies relative to named steps (after `DetectSaveFolderChange`, before the staging load;
   refined after `RevertDetector.Consume`, before the quickload discard and the revert prune).
+- **Automated testing: a lane for a booster quickloaded back into the air (QL-4).**
+  `QL-4-quickload-booster-terminal` (nightly, not yet flown) is the live check for the
+  quickload end-state fix: on the GS1 two-stage pad it quicksaves with the booster still under
+  its parachutes, flies on, commits the flight in flight (the booster commits SubOrbital), then
+  loads the quicksave in flight. The resumed booster must be back with the background recorder,
+  recorded down to the ground and committed Landed. It loads from flight, not from the Space
+  Center, because a Space Center load of the older quicksave drops the saved tree on stale
+  sidecars before any resume (the spec header has the argument).
 - **Automated testing: the player docks with a ghost-chain tip spawned through Real Spawn
   Control (CI-9).** A new nightly lane, `CI-9-chain-tip-dock`, puts an orbital ghost-chain
   tip (the new `chain-tip-dock` injected preset) 140 m ahead of the focused Kerbal X,

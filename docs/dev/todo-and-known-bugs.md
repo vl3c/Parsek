@@ -232,6 +232,11 @@ Fix: clear terminal state / crew end states past the resume UT for every tree me
 trim. Red test: `QuickloadResumeTests` splice + trim on a booster Destroyed with crew Dead at 300.
 Lane QL-4.
 
+Live proof: `harness/scenarios/QL-4-quickload-booster-terminal.toml` (authored 2026-10-06, never
+flown; fly on request once the fix is in the automation DLL). It F9s in FLIGHT after an in-flight
+commit, because by code read a Space Center F9 into the older flight quicksave drops the whole
+saved tree on stale sidecar epochs and never reaches the trim (the spec header has the argument).
+
 Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
 
 ---

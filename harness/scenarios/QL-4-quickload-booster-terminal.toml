@@ -1,0 +1,322 @@
+schema = 1
+id = "QL-4-quickload-booster-terminal"
+# =====================================================================================
+# QL-4: AN F9 BACK INTO A FLIGHT THAT WAS COMMITTED AFTER THE QUICKSAVE MUST NOT CARRY
+# THE ABANDONED FUTURE'S TERMINAL STATE INTO THE RESUMED TREE. The live proof of TA-4,
+# todo QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE (roadmap "The timeline-operation
+# coverage program", Lanes table, row QL-4).
+#
+# In gameplay terms: the player quicksaves while the probe-cored booster is still under
+# its parachutes, flies on, commits the flight, then quickloads. In the replay the
+# booster lands. Today the booster keeps the ending it had in the abandoned future, is
+# left out of the background recorder, and is never recorded again. After the fix the
+# quickload resume clears that ending, the booster is recorded again, and it commits
+# Landed.
+#
+# THE MECHANISM UNDER TEST (code read at origin/main 9e682842). On the in-session load,
+# TryRestoreActiveTreeNode restores the quicksave's ACTIVE tree, and
+# SpliceMissingCommittedRecordingsIntoLoadedTree refreshes every same-id member from the
+# in-memory COMMITTED copy of that tree (RefreshLoadedRecordingFromCommittedSplit copies
+# the terminal state and crew end states), then RecordingStore.RemoveCommittedTreeById
+# detaches the committed copy. The quickload resume trim
+# (FlightRecorder.PrepareQuickloadResumeStateIfNeeded -> TrimRecordingTreePastUT) cuts
+# trajectories only, so the booster keeps the committed copy's terminal, and
+# RecordingTree.IsBackgroundMapEligible (TerminalStateValue == null) leaves it out of the
+# background map. The fix (ParsekScenario.TrimAndReconcileForQuickloadResume, design
+# f9-fix-design sections 4.1-4.2) clears the end states of every trimmed member whose
+# pre-trim end was after the cutoff and rebuilds the background map.
+#
+# -------------------------------------------------------------------------------------
+# WHY THIS LANE DOES NOT F9 FROM THE SPACE CENTER (the design's plan for QL-4).
+#
+# The design proposed: stage, quicksave, ExitToSpaceCenter (auto-merge commits), then
+# LoadGame the flight quicksave from the KSC. By code read that load never reaches the
+# trim, so it cannot witness the fix:
+#   1. ExitToSpaceCenter calls SceneExitInterceptor.SafeWritePersistent before
+#      LoadScene (stock saveAndExit). That OnSave runs ParsekScenario.SaveActiveTreeIfAny,
+#      which flushes the recorder and rewrites every dirty sidecar with the epoch
+#      ADVANCED (RecordingSidecarStore.SaveRecordingFiles, incrementEpoch).
+#   2. The flight quicksave still names the old epochs. LoadRecordingFiles marks each
+#      rewritten member `stale-sidecar-epoch` (ShouldSkipStaleSidecar, bug #270).
+#   3. At the Space Center no pending tree of that id exists, so
+#      ShouldKeepPendingTreeAfterHydrationFailure is false, and
+#      DropFailedSidecarHydrationRecordings drops the WHOLE saved tree because its root
+#      recording (the pod, which kept recording after the quicksave) is stale:
+#      `TryRestoreActiveTreeNode: dropped entire tree ...`. No quickload resume is armed,
+#      the flight resumes unrecorded, the committed future tree stays committed, and the
+#      reconcile never runs.
+# Re-Fly does not hit this only because RewindInvoker refreshes the rewind-point
+# quicksave's sidecar epochs before loading it; a plain load does not. That KSC route is
+# a separate shape (the todo's "root recording is stale" aside under
+# QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS) and is NOT claimed here; it is unflown and
+# the forbidden `dropped entire tree` token below names it if this lane ever hits it.
+#
+# THE ROUTE TAKEN: COMMIT IN FLIGHT, THEN F9 IN FLIGHT. CommitTree commits the tree
+# without an OnSave, and RecordingStore.FlushDirtyFiles keeps every positive epoch
+# (ShouldAdvanceSidecarEpochOnFlush: "a pre-flush quicksave reads the flushed content at a
+# matching epoch"), so the quicksave hydrates, the same-id refresh runs, and the
+# committed copy is detached - TA-4's named leak, on TA-3's detach shape. The player
+# shape is F5, fly on, Merge in the pre-switch decision dialog (the live callers of
+# ParsekFlight.CommitTreeFlight), F9.
+#
+# ONE SEAM DEVIATION. The LoadGame seam refuses `recording-active`, and its only opt-in
+# (`allowLiveRecorder=refly`) needs a live Re-Fly marker, so the lane stops the recorder
+# before the load. CommitTree auto-resumes a recorder on the still-active vessel
+# (H58 flight 1, the committed-restore clone), so StopRecording runs after it as well
+# (H58 / EX-1 / LF-1 / LF-2's pair). A player's F9 would carry that resumed clone into
+# the Limbo stash at OnSceneChangeRequested; TryRestoreActiveTreeNode pops the stash
+# either way (PopPendingTree after the detach). The TC-1 `Quickload` verb would remove
+# this deviation (todo HARNESS-VERBS-FOR-TIMELINE-OPS).
+#
+# WHY THE BOOSTER DOES NOT CRASH (the roadmap row says "booster crash"). The GS1
+# booster's six Mk2-R are staged with the decoupler (one STAGE click arms them), and no
+# gs1_auto_chute_booster param withholds them (focusImpactAtExit withholds the UPPER
+# stage's chute). The leak does not depend on the kind: any terminal on a trimmed member
+# takes it out of the background map. The lane turns that into its witness: the
+# abandoned future ends the booster SubOrbital (committed while it is still under
+# canopy), and the replay lets it LAND, so the two readings differ by kind:
+#   leaked (pre-fix): the booster's final terminal is the abandoned future's SubOrbital
+#     (FinalizeIndividualRecording fills only an EMPTY terminal), its background entry
+#     count is 0, and ListHandles reads bg=0.
+#   fixed: the booster is re-registered (1 background entry, ListHandles bg=1), is
+#     recorded down to the ground, and finalizes Landed with an end snapshot (the
+#     design's risk R7 asks QL-4 to assert the end snapshot).
+#
+# THE TIMELINE (UTs from GS-1 / RF-1 / CA-1 readings, not measured on this lane):
+#   ~UT 31  staging; RewindPoint authored; the booster becomes a controlled child.
+#   ~UT 119 the pod lands (RF-1 measured 118.98); the mission concludes on the
+#           siblingAirborneAtExit profile once the booster reads airborne (RF-1's).
+#   ~UT 120 SaveGame quicksave = THE CUTOFF. The booster is near 400 m (CA-1: 442 m at
+#           UT ~110), descending at about 4 m/s, down near UT 210.
+#   UT 150  WarpToUT: about 30 s of abandoned future, the booster still airborne.
+#   ~UT 150 CommitTree: booster SubOrbital, pod Landed, both in the committed copy.
+#   F9      back to ~UT 120: refresh from the committed copy, detach, resume, trim.
+#   UT 400  WarpToUT (CA-1's verb and cap): the booster lands in the replay.
+#   exit    ExitToSpaceCenter: the scene-exit auto-merge commits the resumed tree.
+#
+# BEFORE-FIX CONVENTION: PLAIN. This lane lands in the same PR as the fix, so it carries
+# no [expectedFail] block and must PASS on a DLL with the fix. On a pre-fix DLL the
+# prediction is PARSEK-FAIL(expectation) with exactly these mismatches (every one of them
+# reds on the leak, none on an unrelated cause):
+#   required not matched: the two FIX-BLOCK tokens, the 1-entry background attach, the
+#     `listhandles kind=active count=` >= 1 token and the post-F9 booster Landed finalize;
+#   forbidden matched: the 0-entry background attach, `listhandles kind=active count=0`
+#     and the post-F9 booster SubOrbital finalize.
+# If the lane ever has to land ahead of the fix, convert it to
+# `[expectedFail] bugId = "QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE"`,
+# `subkind = "expectation"` with those strings as `mismatches`.
+#
+# READING-RUN NOTES (what to check first if the first flight reds):
+#   - `Sidecar epoch mismatch` lines plus no `removed committed tree` mean an OnSave
+#     (KSP's own FlightAutoSave) landed between SaveGame and LoadGame. The load then
+#     keeps the in-memory Limbo clone instead (the design's stale-epoch cell): a premise
+#     miss for this lane's refresh/detach tokens, not a product finding by itself.
+#   - A REJECTED WarpToUT ut=150 (backward) means the mission ended after UT 150:
+#     driver-INVALID; re-derive the target from the run.
+#   - The rewind point is NOT pinned: the F9 rebuilds it from the quicksave (TA-1 owns
+#     that), and the fixed path should reap it at the final commit (both slots Landed).
+#   - TA-3 (ledger rows) is not exercised: sandbox, no recovery. The career variant is a
+#     roadmap note (no career fixture flies the GS1 craft).
+#
+# STATUS: AUTHORED 2026-10-06 (branch `ql4-lane`), NEVER FLOWN. Every token is quoted
+# from its emitting source line or from a sibling lane's measured log (GS-1 / RF-1 /
+# CA-1 / RF-LANES-RELOAD-A-PRE-COMMIT-SAVE), never pasted from a run of this lane; the
+# saveParse blocks are REPORT-ONLY until a reading run.
+# =====================================================================================
+tier = "nightly"
+description = "QL-4: TA-4 live proof. GS-1's two-stage hop ends with the pod landed and the probe booster still under canopy; quicksave, fly on, commit in flight (the booster commits SubOrbital), then F9 back into the quicksave. The resumed tree must not keep the abandoned future's booster terminal: the booster is re-registered with the background recorder, is recorded down to the ground and commits Landed."
+instanceProfile = "stock-minimal"
+tags = ["QL-4", "TA-4", "quickload", "timeline-ops", "GS1", "staging", "controlled-child",
+        "in-flight-commit", "scene-exit", "auto-merge", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster"
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" },    expect = "OK" },
+  # The final commit is the scene-exit auto-merge (no merge modal can stand at the exit).
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },             expect = "OK" },
+  # LOAD-BEARING: FinalizeTreeRecordings' per-recording line and the background-recorder
+  # attach line are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },        expect = "OK" },
+  # RF-1's mission: the pod lands, the booster is still airborne at the exit of the phase.
+  { phase = "mission",                                                                 expect = "MISSION-OK", budget = 900 },
+  # THE F5. The cutoff UT of the later quickload.
+  { cmd = "SaveGame",       args = { name = "quicksave" },                             expect = "OK", budget = 120 },
+  # The abandoned future: about 30 s, the booster still descending. CA-1's ladder and cap.
+  { cmd = "WarpToUT",       args = { ut = "150", maxRate = "2", ladder = "phys" },     expect = "OK", budget = 300 },
+  # Commit in flight (CA-1's order). No OnSave, so the quicksave's epochs still match.
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  { cmd = "CommitTree",                                                                expect = "OK", budget = 120 },
+  # CommitTree auto-resumes a recorder on the still-active vessel (H58 flight 1).
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  # THE F9, in FLIGHT (refined load kind QuickloadFlight). No live recorder, so the
+  # dispatch `recording-active` guard admits it.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave" },        expect = "OK", budget = 300 },
+  # Settle: RestoreActiveTreeFromPending runs from OnFlightReady and may wait for the
+  # active vessel; read the background map only after it has run.
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  # The live tree's background map, read through the seam: bg=1 (the booster) when its
+  # abandoned-future terminal was cleared, bg=0 when it leaked.
+  { cmd = "ListHandles",    args = { kind = "active" },                                expect = "OK" },
+  # The replay: the booster lands (CA-1's verb, target and cap).
+  { cmd = "WarpToUT",       args = { ut = "400", maxRate = "2", ladder = "phys" },     expect = "OK", budget = 540 },
+  # THE COMMIT: the scene-exit auto-merge of the resumed tree.
+  { cmd = "ExitToSpaceCenter",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                              expect = "OK" },
+]
+
+[driver.missionParams]
+# RF-1's values VERBATIM (GS-1's plus siblingAirborneAtExit).
+throttle = 1.0
+stagingApoapsisMeters = 700
+stagingMaxAltMeters = 1500
+apoapsisWindowMeters = { min = 600, max = 1600 }
+stageSettleFrames = 2
+chuteArmMaxRateMps = 30
+chuteFullDeployAltMeters = 600
+landedSituations = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds = 90
+coastTimeoutSeconds = 120
+stageTimeoutSeconds = 60
+descentTimeoutSeconds = 300
+siblingVesselName = "GS1 Auto-Chute Booster Probe"
+siblingAirborneAtExit = true
+siblingDownTimeoutSeconds = 240
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No new claim: no D-value names a
+# back-in-time load yet.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The pod and the booster; the ceiling absorbs touchdown debris (GS-1's reason) and the
+# optimizer's surface splits at the final scene-exit commit (both stages sit landed for
+# well over the 120 s persistence window before the exit).
+count = { min = 2, max = 8 }
+
+# REPORT-ONLY until a reading run. Predicted on the FIXED build: one tree, committed once
+# (the F9 detached the committed copy and the exit re-committed it), both stages Landed,
+# nothing SubOrbital, and the rewind point reaped with both slots closed. A pre-fix
+# build reads Landed 1 / SubOrbital 1 and keeps the rewind point open.
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2, max = 8 }
+terminalStates = { Landed = { min = 2 }, SubOrbital = { max = 0 } }
+branchPoints   = { JointBreak = { min = 1 } }
+
+[expectations.rewind]
+gating        = false
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.logContracts]
+required = [
+  # GROUP 1 - THE FLIGHT AND THE SPLIT (GS-1 / RF-1 / CA-1 measured).
+  "Recording started",
+  "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+
+  # GROUP 2 - THE QUICKSAVE AND THE ABANDONED FUTURE.
+  # SaveGameImpl's Info line.
+  "savegame name=quicksave folder=.+ saved=true",
+  "warptout complete",
+  # The in-flight commit, after the first warp (CommitTreeFlight, F1).
+  "CommitTreeFlight: starting tree commit at UT=(1[5-9][0-9]|[2-9][0-9]{2})\\.[0-9]",
+  # The abandoned future's booster ending: committed while still under canopy.
+  # Unordered on purpose: the post-F9 forbidden twin below is anchored after the load.
+  "FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[1-9][0-9]* orbitSegs=0 terminal=SubOrbital",
+  "committree committed=true",
+
+  # GROUP 3 - THE F9 REACHES THE QUICKLOAD RESUME (existing wording, PR #2021 for the
+  # classification line; RF-LANES-RELOAD-A-PRE-COMMIT-SAVE measured the detach line).
+  "loadgame start save=\\S+ name=quicksave scene=FLIGHT requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false",
+  "Load classified: early=InSession refined=QuickloadFlight scene=FLIGHT initialLoadDone=true rewinding=false reFlyInvoke=false discardReFly=none",
+  # TA-4's named leak: both same-id members refreshed from the committed copy (the
+  # active pod in recorder-state-preserving mode, the booster in full).
+  "SpliceMissingCommittedRecordings: tree 'GS1 Auto-Chute Booster' \\(id=\\S+\\) loadedBefore=[0-9]+ committed=[0-9]+ after=[0-9]+ splicedRecordings=[0-9]+ refreshedRecordings=(?:[2-9]|[1-9][0-9]+) \\(full=[1-9][0-9]* recorderStatePreserved=1\\)",
+  # TA-3's detach shape: the F9 un-commits the later-committed tree.
+  "TryRestoreActiveTreeNode: removed committed tree 'GS1 Auto-Chute Booster' \\(id=\\S+, [1-9][0-9]* recording\\(s\\)\\)",
+  "OnLoad: pending-Limbo tree 'GS1 Auto-Chute Booster' deferred to OnFlightReady for quickload-resume",
+  "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide",
+  "RestoreActiveTreeFromPending: resumed recording tree 'GS1 Auto-Chute Booster' activeRec='[0-9a-f]{32}'",
+
+  # GROUP 4 - THE BOOSTER IS RECORDED AGAIN (existing wording; each reds on the leak).
+  # The background recorder attaches to the resumed tree with the booster in its map.
+  "RestoreActiveTreeFromPending: attached BackgroundRecorder for tree 'GS1 Auto-Chute Booster' \\([1-9][0-9]* background entry\\(ies\\)\\)",
+  # The same map read through the seam after the restore settled (count = bg).
+  "listhandles kind=active count=[1-9][0-9]* truncated=false",
+  # The replay's commit: the booster finalizes LANDED with an end snapshot, AFTER the F9.
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[1-9][0-9]* orbitSegs=0 terminal=Landed maxDist=[0-9]+m snapshot=True leaf=True",
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true",
+
+  # =================================================================================
+  # FIX BLOCK - THE ONLY TOKENS THAT DEPEND ON THE IN-PROGRESS FIX'S LOG WORDING
+  # (f9-fix-design section 6, ParsekScenario.TrimAndReconcileForQuickloadResume).
+  # RE-PIN BOTH ONCE THE FIX LANDS: read the emitting interpolations in
+  # ParsekScenario.Trim.cs and keep each field this block names. Field order is
+  # tolerated through lookaheads (each `.*` stays on the one line).
+  #   Summary (Info, design wording): `[Scenario] Quickload abandoned-future reconcile:
+  #   tree='<n>' kind=<k> scope=<s> cutoffUT=<R> loadedUT=<R> trimmed=N pruned=N
+  #   endStatesCleared=N eventsPurged=N ledgerRowsRetired=N (...) skippedCommitted=N
+  #   detachedFromCommitted=<b>`. Pinned: the tree, kind=QuickloadFlight (an in-flight
+  #   F9), scope=TreeWide (no Re-Fly marker), endStatesCleared >= 1 (expected 2: the
+  #   pod's future Landed and the booster's future SubOrbital).
+  "\\[Scenario\\] Quickload abandoned-future reconcile: tree='GS1 Auto-Chute Booster' (?=.*\\bkind=QuickloadFlight\\b)(?=.*\\bscope=TreeWide\\b)(?=.*\\bendStatesCleared=[1-9][0-9]*\\b)",
+  #   Per-recording clear (Verbose, design wording `rec=<id> previousTerminal=<k>
+  #   preTrimEndUT=<R> crewEndStates=<n>`; its message prefix is not designed yet):
+  #   the booster's leaked SubOrbital is the one that was cleared.
+  "\\brec=[0-9a-f]{32} previousTerminal=SubOrbital preTrimEndUT=\\S+",
+  # END FIX BLOCK
+  # =================================================================================
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The KSC-route shape (header): the saved tree dropped on stale sidecars, no resume.
+  "dropped entire tree 'GS1 Auto-Chute Booster'",
+  "TryRestoreActiveTreeNode: skipped active tree 'GS1 Auto-Chute Booster'",
+  "Quickload resume prep skipped",
+  # THE LEAK, three ways (each is the pre-fix reading).
+  "RestoreActiveTreeFromPending: attached BackgroundRecorder for tree 'GS1 Auto-Chute Booster' \\(0 background entry\\(ies\\)\\)",
+  "listhandles kind=active count=0 truncated=false",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[0-9]+ orbitSegs=0 terminal=SubOrbital",
+]
+
+[runtime]
+# Wall clock for the whole drive phase including boot: two LoadGame (max(300,600)+60
+# each = 1320), SetSetting x3 360, mission 900, SaveGame 180, the two warps 300 + 540,
+# StopRecording / CommitTree / StopRecording 420, ListHandles / ExitToSpaceCenter /
+# FlushAndQuit 420; the twelve RecordingState settle steps answer at once. Expected wall
+# about 10 minutes (boot, a ~100 s mission, ~15 s + ~140 s of 2x warp, one reload).
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
