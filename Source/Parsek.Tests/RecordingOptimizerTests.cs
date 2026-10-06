@@ -2204,6 +2204,84 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
         }
 
+        [Fact]
+        public void RunOptimizationPass_UnsplitDrillRecording_KeepsResourceChangingTail_OnEveryPass()
+        {
+            // A recording that stays on the surface (rover drive, then parked with the drill
+            // running) is not split, so its harvest windows survive into the trim of this pass
+            // and of every later pass (load, next commit).
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            try
+            {
+                var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
+                    SegmentEnvironment.SurfaceMobile, SegmentEnvironment.SurfaceStationary);
+                rec.RecordingId = "drill_unsplit";
+                rec.VesselName = "Drill";
+                rec.RouteHarvestWindows = new List<RouteHarvestWindow>
+                {
+                    MakeHarvestWindow(17035, 17630, oreStart: 0.0, oreEnd: 300.0),
+                };
+                RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+                RecordingStore.RunOptimizationPass();
+                RecordingStore.RunOptimizationPass();
+
+                var leaf = Assert.Single(RecordingStore.CommittedRecordings);
+                Assert.Equal(17630, leaf.EndUT);
+                Assert.NotNull(leaf.RouteHarvestWindows);
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void RunOptimizationPass_FlownThenLandedDrillRecording_TrimsTail_DocumentsDefect()
+        {
+            // DOCUMENTS A DEFECT (TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT, open): this asserts the
+            // known-wrong outcome on purpose and is the anchor the fix flips. Fly, land, drill:
+            // the split at the Atmospheric -> Surface boundary runs before the trim in the same
+            // pass and voids the harvest windows on BOTH halves (logistics D13), so the surface
+            // leaf has no resource witness and its drilling tail is trimmed. The voided windows
+            // are what every later pass (load, next commit) reads too, so a carry held only for
+            // this pass would not keep the tail either.
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            try
+            {
+                var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
+                    SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+                rec.RecordingId = "drill_split";
+                rec.VesselName = "Drill";
+                rec.RouteHarvestWindows = new List<RouteHarvestWindow>
+                {
+                    MakeHarvestWindow(17035, 17630, oreStart: 0.0, oreEnd: 300.0),
+                };
+                RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+                RecordingStore.RunOptimizationPass();
+
+                Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
+                var head = RecordingStore.CommittedRecordings[0];
+                var leaf = RecordingStore.CommittedRecordings[1];
+                Assert.Null(head.RouteHarvestWindows);
+                Assert.Null(leaf.RouteHarvestWindows);
+                Assert.True(leaf.EndUT < 17630,
+                    $"the defect is fixed (leaf EndUT {leaf.EndUT}): flip this cell to assert the kept tail");
+                Assert.Equal(17060, leaf.EndUT);
+
+                // A later pass reads the same voided state and keeps the trimmed end.
+                RecordingStore.RunOptimizationPass();
+                Assert.Null(RecordingStore.CommittedRecordings[1].RouteHarvestWindows);
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
         #endregion
 
         #region CanAutoSplitIgnoringGhostTriggers

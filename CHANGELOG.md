@@ -3691,15 +3691,17 @@ _(unreleased - entries accumulate here per commit)_
   queued science and unlinks those payouts (they stay paid), exactly like the Discard button at
   the end of a flight.
 
-- **A drill or converter that kept running at the end of a recording no longer delivers its
-  resources early.** Parsek shortens a recording that ends with a long idle stretch (sitting
-  landed or coasting) so the real vessel appears sooner, but the vessel it brings back is the one
-  you had when you committed. When ore or fuel was still being produced during that idle
-  stretch, the vessel appeared early already holding all of it. A recording whose last stretch
+- **A drill or converter running at the end of a recording that stayed on the ground no longer
+  delivers its resources early.** Parsek shortens a recording that ends with a long idle stretch
+  (sitting landed or coasting) so the real vessel appears sooner, but the vessel it brings back is
+  the one you had when you committed. When ore or fuel was still being produced during that idle
+  stretch, the vessel appeared early already holding all of it. A recording that never left the
+  surface (for example, you switched to a landed base and ran its drills) and whose last stretch
   changed the vessel's resources (measured when the converters start and stop; electric charge
-  does not count) is now kept to the end, or shortened only to just after the converters
-  stopped. Resources moved in by a supply route or recorded while the vessel was in the
-  background are not seen by this check yet.
+  does not count) is now kept to the end, or shortened only to just after the converters stopped.
+  Not fixed yet: a recording that flew before landing and drilling is split at the landing and
+  still shortened, as are resources moved in by a supply route or produced while the vessel was
+  in the background.
 
 - **Installing Parsek into an existing career no longer resets its milestones and world
   records.** The first time Parsek synced the career it un-achieved every milestone the career

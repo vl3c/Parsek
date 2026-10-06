@@ -485,7 +485,7 @@ applies. Lane RC-6 with `EvaGroundScience action=take` against a foreign contain
 
 ---
 
-## ~~TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources~~ [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. RULED 2026-10-06: keep resource-changing tails. FIXED 2026-10-06, branch `release-cheap-fixes`, for every resource change the recording witnesses; the unwitnessed sources moved to TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES]
+## TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. RULED 2026-10-06: keep resource-changing tails. PARTIAL 2026-10-06, branch `release-cheap-fixes` (PR #2027): fixed for recordings the optimizer does not split; a flown-then-landed recording still loses its witness to the split; NEEDS A RULING on the options below. The unwitnessed sources are TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES]
 
 `RecordingOptimizer.TailTrim` restamps the end UT and SpawnUT earlier (`:820-845`) but never
 touches the snapshot; `FindLastInterestingUT` (`:75`) ignores resources and the guard checks
@@ -497,7 +497,7 @@ Fix: RULED 2026-10-06 - keep a tail whose resources change (it is not boring):
 `FindLastInterestingUT` treats a resource change as interesting. Red test: a `RecordingOptimizer`
 tail-trim cell with a resource-changing tail.
 
-**FIXED 2026-10-06 (branch `release-cheap-fixes`).** The only per-UT resource witness a recording
+**PARTIAL 2026-10-06 (branch `release-cheap-fixes`, PR #2027).** The only per-UT resource witness a recording
 carries is a closed `RouteHarvestWindow` (converter activity, with the transport's resource
 manifest measured on the live vessel when the window opens and closes; `StartResources` /
 `EndResources` are recording-wide and say nothing about the tail, and no point, section or event
@@ -509,7 +509,29 @@ category `resource-changing-tail`, its own verbose line with `lastResourceChange
 stopped mid-tail trims to just after it; an EC-only or stalled window changes nothing. Tests:
 `RecordingOptimizerTests.FindLastInterestingUT_HarvestWindow*`, `FindLastResourceChangeUT_*`,
 `TrimBoringTail_ResourceChangingTail_*`, `TrimBoringTail_UnchangedResourceTail_StillTrims`,
-`TrimBoringTail_ResourceChangeEndingMidTail_TrimsAfterIt`.
+`TrimBoringTail_ResourceChangeEndingMidTail_TrimsAfterIt`, and through the whole pass
+`RunOptimizationPass_UnsplitDrillRecording_KeepsResourceChangingTail_OnEveryPass`.
+
+**Still open: the split voids the witness (found by the PR #2027 review).** `RunOptimizationPass`
+(`RecordingStore.Optimization.cs`) runs the split pass BEFORE `TrimBoringTailsForOptimization`, and
+every split goes through `RecordingOptimizer.TransferTerminalFieldsToSecondHalf`, which nulls
+`RouteHarvestWindows` on BOTH halves (logistics plan D13: a window can land on the wrong side of the
+cut). Fly -> land -> drill splits at the Atmospheric -> Surface boundary, the surface leaf has no
+windows, and its drilling tail is trimmed exactly as before (pinned by
+`RunOptimizationPass_FlownThenLandedDrillRecording_TrimsTail_DocumentsDefect`, the cell the fix
+flips). A carry held only within the pass is not enough: the pass runs on every load
+(`ParsekScenario.OnLoad`, phase `optimization`) and after every commit (`MergeDialog.MergeCommit`,
+`ParsekScenario.AutoCommitPendingTreeOutsideFlight`), the trim revisits every committed leaf with no done marker, and after
+the first pass the voided windows are what is flushed and read back. Options (owner ruling needed):
+(1) persist the witness across the split in a new serialized field (e.g. the last resource-change
+UT, moved to the half that contains it before D13 voids the windows) - a schema addition;
+(2) narrow D13 to void only a window that straddles the cut and keep a closed window on the half
+that wholly contains it - a logistics-analysis change; (3) use the converter part events as the
+witness (a converter whose last event is `ConverterActivated` keeps the tail through the end): part
+events are partitioned by the split and the converter state is re-seeded on the second half
+(`RecordingOptimizer.SeedEvents.cs` converter reducer), so it survives splits and every pass with
+no new field and D13 untouched, but it is a proxy (a stalled drill keeps its tail too) - it also
+closes the background-leg item of TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES.
 
 ---
 
