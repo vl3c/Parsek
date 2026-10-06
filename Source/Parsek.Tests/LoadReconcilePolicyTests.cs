@@ -244,6 +244,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ReconcileAtResume_IsTheAbandonedFutureCellsOfTheKindsThatResume()
+        {
+            // The quickload-resume reconcile (ParsekScenario.TrimAndReconcileForQuickloadResume)
+            // gates each category on its own cell. Only an F9 in flight and the other in-session
+            // loads that restore a flight (F9 from the Space Center into a flight quicksave) own
+            // the abandoned future; a Re-Fly start and a cold resume reach the trim but not the
+            // reconcile, and the other kinds arm no resume at all.
+            var reconciled = new HashSet<string>(StringComparer.Ordinal);
+            foreach (LoadKind kind in AllKinds())
+                foreach (LoadStateCategory category in AllCategories())
+                {
+                    if (LoadReconcilePolicy.Decide(kind, category).Action == LoadReconcileAction.ReconcileAtResume)
+                        reconciled.Add(kind + "x" + category);
+                }
+
+            Assert.Equal(
+                new[]
+                {
+                    "InSessionOtherxAbandonedFutureEndStates",
+                    "InSessionOtherxAbandonedFutureEvents",
+                    "InSessionOtherxAbandonedFutureLedgerRows",
+                    "QuickloadFlightxAbandonedFutureEndStates",
+                    "QuickloadFlightxAbandonedFutureEvents",
+                    "QuickloadFlightxAbandonedFutureLedgerRows",
+                }.OrderBy(s => s, StringComparer.Ordinal),
+                reconciled.OrderBy(s => s, StringComparer.Ordinal));
+        }
+
+        [Fact]
         public void KnownGaps_AreExactlyTheFiledDefects()
         {
             var ids = new HashSet<string>(StringComparer.Ordinal);
@@ -262,11 +291,7 @@ namespace Parsek.Tests
             Assert.Equal(
                 new[]
                 {
-                    LoadReconcilePolicy.GapAbandonedFutureEvents,
                     LoadReconcilePolicy.GapColdLoadAbandonedFuture,
-                    LoadReconcilePolicy.GapDetachedTreeLedgerRows,
-                    LoadReconcilePolicy.GapEscDiscardPendingScience,
-                    LoadReconcilePolicy.GapFutureTerminalLeak,
                     LoadReconcilePolicy.GapReFlyLists,
                     LoadReconcilePolicy.GapRouteState,
                 }.OrderBy(s => s, StringComparer.Ordinal),
@@ -292,6 +317,17 @@ namespace Parsek.Tests
                     Assert.Contains(LoadReconcilePolicy.GapColdLoadAbandonedFuture, cold.Reason);
                 }
             }
+        }
+
+        [Fact]
+        public void DiscardReFly_PendingScience_IsClearedBeforeTheLoad()
+        {
+            // RevertInterceptor.DiscardReFlyHandler clears it through the merge-dialog discard's
+            // session-state half (ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS, fixed).
+            var decision = LoadReconcilePolicy.Decide(LoadKind.DiscardReFly, LoadStateCategory.PendingScience);
+            Assert.Equal(LoadReconcileAction.Clear, decision.Action);
+            Assert.False(decision.IsKnownGap);
+            Assert.Contains("DiscardReFlyHandler", decision.Reason);
         }
 
         [Fact]

@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace Parsek.Tests
@@ -52,6 +54,7 @@ namespace Parsek.Tests
             RewindContext.ResetForTesting();
             ParsekScenario.SetInstanceForTesting(null);
             ParsekScenario.ClearPendingQuickloadResumeContext();
+            ParsekScenario.ClearRestoredQuicksaveTreeFactsForTesting();
             ParsekScenario.pendingActiveTreeResumeRewindSave = null;
             FlightRecorder.QuickloadResumeUTProviderForTesting = null;
             ParsekLog.ResetTestOverrides();
@@ -602,7 +605,7 @@ namespace Parsek.Tests
             var tree = MakeTree("resume_tree", "Resume", 1);
             var other = MakeTree("other_tree", "Other", 1);
 
-            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree, LoadKind.QuickloadFlight);
 
             Assert.True(ParsekScenario.MatchesPendingQuickloadResumeContext(tree.Id));
 
@@ -644,7 +647,7 @@ namespace Parsek.Tests
                 ActiveTree = tree,
             };
             FlightRecorder.QuickloadResumeUTProviderForTesting = () => 150.0;
-            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree, LoadKind.QuickloadFlight);
 
             logLines.Clear();
             InvokePrepareQuickloadResumeStateIfNeeded(recorder);
@@ -692,7 +695,7 @@ namespace Parsek.Tests
                 ActiveTree = tree,
             };
             FlightRecorder.QuickloadResumeUTProviderForTesting = () => 107.0;
-            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree, LoadKind.QuickloadFlight);
 
             logLines.Clear();
             InvokePrepareQuickloadResumeStateIfNeeded(recorder);
@@ -1214,7 +1217,7 @@ namespace Parsek.Tests
             {
                 var recorder = new FlightRecorder { ActiveTree = tree };
                 FlightRecorder.QuickloadResumeUTProviderForTesting = () => 203.0;
-                ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+                ParsekScenario.ConfigurePendingQuickloadResumeContext(tree, LoadKind.ReFlyStart);
 
                 logLines.Clear();
                 InvokePrepareQuickloadResumeStateIfNeeded(recorder);
@@ -1288,7 +1291,7 @@ namespace Parsek.Tests
                 },
             };
             ParsekScenario.SetInstanceForTesting(scenario);
-            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree, LoadKind.ReFlyStart);
 
             ParsekScenario.SetInstanceForTesting(null);
 
@@ -1333,7 +1336,7 @@ namespace Parsek.Tests
 
             var scenario = new ParsekScenario();
             ParsekScenario.SetInstanceForTesting(scenario);
-            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree, LoadKind.ReFlyStart);
 
             scenario.ActiveReFlySessionMarker = new ReFlySessionMarker
             {
@@ -1396,7 +1399,7 @@ namespace Parsek.Tests
                 },
             };
             ParsekScenario.SetInstanceForTesting(scenario);
-            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree, LoadKind.QuickloadFlight);
 
             scenario.ActiveReFlySessionMarker = null;
             ParsekScenario.RefreshPendingQuickloadTrimScope();
@@ -1458,7 +1461,7 @@ namespace Parsek.Tests
 
             var recorder = new FlightRecorder { ActiveTree = tree };
             FlightRecorder.QuickloadResumeUTProviderForTesting = () => 150.0;
-            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree, LoadKind.QuickloadFlight);
 
             logLines.Clear();
             InvokePrepareQuickloadResumeStateIfNeeded(recorder);
@@ -1524,7 +1527,7 @@ namespace Parsek.Tests
             {
                 var recorder = new FlightRecorder { ActiveTree = tree };
                 FlightRecorder.QuickloadResumeUTProviderForTesting = () => 150.0;
-                ParsekScenario.ConfigurePendingQuickloadResumeContext(tree);
+                ParsekScenario.ConfigurePendingQuickloadResumeContext(tree, LoadKind.QuickloadFlight);
 
                 logLines.Clear();
                 InvokePrepareQuickloadResumeStateIfNeeded(recorder);
@@ -2584,6 +2587,851 @@ namespace Parsek.Tests
             Assert.Equal("child_tree_t_1", tree.BackgroundMap[5555]);
             Assert.Equal("child_tree_t_2", tree.BackgroundMap[6666]);
             Assert.Equal("root_tree_t", tree.BackgroundMap[7777]);
+        }
+
+        // ============================================================
+        // Abandoned-future reconcile at the quickload-resume trim (TA-4):
+        // terminal and crew end states from after the resume UT
+        // ============================================================
+
+        [Fact]
+        public void TrimAndReconcile_FutureDestroyedBoosterWithDeadCrew_EndStateClearedAndBackInBackgroundMap()
+        {
+            var tree = MakeBoosterTree("ta4_destroyed");
+            var booster = tree.Recordings["child_ta4_destroyed_1"];
+            SetPoints(booster, 120.0, 180.0, 300.0);
+            StampDestroyedWithDeadCrew(booster, "Bob Kerman");
+            tree.RebuildBackgroundMap();
+            Assert.False(tree.BackgroundMap.ContainsKey(222u));
+
+            logLines.Clear();
+            RunResumePrep(tree, 200.0, LoadKind.QuickloadFlight);
+
+            Assert.Null(booster.TerminalStateValue);
+            Assert.False(booster.VesselDestroyed);
+            Assert.Null(booster.CrewEndStates);
+            Assert.False(booster.CrewEndStatesResolved);
+            Assert.Null(booster.CrewDeathRespawns);
+            Assert.True(double.IsNaN(booster.CrewDeathRespawnSeconds));
+            Assert.Null(booster.VesselSituation);
+            Assert.True(booster.FilesDirty);
+            Assert.Equal(200.0, booster.EndUT);
+            Assert.True(tree.BackgroundMap.TryGetValue(222u, out string bgId));
+            Assert.Equal(booster.RecordingId, bgId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("Quickload abandoned-future reconcile:")
+                && l.Contains("tree='ta4_destroyed'")
+                && l.Contains("kind=QuickloadFlight")
+                && l.Contains("scope=TreeWide")
+                && l.Contains("cutoffUT=200")
+                && l.Contains("trimmed=2")
+                && l.Contains("pruned=0")
+                && l.Contains("endStatesCleared=1")
+                && l.Contains("skippedCommitted=0"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("abandoned-future end state cleared")
+                && l.Contains("rec=child_ta4_destroyed_1")
+                && l.Contains("previousTerminal=Destroyed")
+                && l.Contains("preTrimEndUT=300")
+                && l.Contains("crewEndStates=1"));
+        }
+
+        [Fact]
+        public void TrimAndReconcile_BoosterEndedBeforeCutoff_KeepsTerminal()
+        {
+            var tree = MakeBoosterTree("ta4_early");
+            var booster = tree.Recordings["child_ta4_early_1"];
+            SetPoints(booster, 120.0, 150.0);
+            StampDestroyedWithDeadCrew(booster, "Bob Kerman");
+            tree.RebuildBackgroundMap();
+
+            RunResumePrep(tree, 200.0, LoadKind.QuickloadFlight);
+
+            Assert.Equal(TerminalState.Destroyed, booster.TerminalStateValue);
+            Assert.True(booster.VesselDestroyed);
+            Assert.Equal(KerbalEndState.Dead, booster.CrewEndStates["Bob Kerman"]);
+            Assert.True(booster.CrewEndStatesResolved);
+            Assert.False(tree.BackgroundMap.ContainsKey(222u));
+        }
+
+        [Fact]
+        public void TrimAndReconcile_EndedExactlyAtCutoff_KeepsTerminal()
+        {
+            var tree = MakeBoosterTree("ta4_at_cutoff");
+            var booster = tree.Recordings["child_ta4_at_cutoff_1"];
+            SetPoints(booster, 120.0, 200.0);
+            StampDestroyedWithDeadCrew(booster, "Bob Kerman");
+
+            RunResumePrep(tree, 200.0, LoadKind.QuickloadFlight);
+
+            Assert.Equal(TerminalState.Destroyed, booster.TerminalStateValue);
+            Assert.True(booster.CrewEndStatesResolved);
+        }
+
+        [Fact]
+        public void TrimAndReconcile_ActiveRecFutureLanded_Cleared()
+        {
+            var tree = MakeBoosterTree("ta4_active");
+            var active = tree.Recordings[tree.ActiveRecordingId];
+            SetPoints(active, 100.0, 150.0, 300.0);
+            active.TerminalStateValue = TerminalState.Landed;
+            active.TerminalPosition = new SurfacePosition { body = "Kerbin", latitude = 1.0, longitude = 2.0 };
+            active.TerrainHeightAtEnd = 70.0;
+            active.EndpointPhase = RecordingEndpointPhase.TerminalPosition;
+            active.EndpointBodyName = "Kerbin";
+            active.VesselSituation = "Landed on Kerbin";
+            active.SceneExitSituation = 1;
+            active.EndBiome = "Shores";
+            active.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { "Jebediah Kerman", KerbalEndState.Aboard },
+            };
+            active.CrewEndStatesResolved = true;
+
+            RunResumePrep(tree, 200.0, LoadKind.QuickloadFlight);
+
+            Assert.Null(active.TerminalStateValue);
+            Assert.Null(active.TerminalPosition);
+            Assert.True(double.IsNaN(active.TerrainHeightAtEnd));
+            Assert.Equal(RecordingEndpointPhase.Unknown, active.EndpointPhase);
+            Assert.Null(active.EndpointBodyName);
+            Assert.Null(active.VesselSituation);
+            Assert.Equal(-1, active.SceneExitSituation);
+            Assert.Null(active.EndBiome);
+            Assert.Null(active.CrewEndStates);
+            Assert.False(active.CrewEndStatesResolved);
+        }
+
+        [Fact]
+        public void TrimAndReconcile_ActiveRecFutureDestroyedWithoutCrew_VesselDestroyedCleared()
+        {
+            // The resume guard runs first (ParsekFlight.RestoreActiveTreeFromPending) and nulls a
+            // Destroyed terminal on the active recording but leaves VesselDestroyed, which blocks
+            // the end spawn. A probe has no crew end states, so only the flag says it ended.
+            var tree = MakeBoosterTree("ta4_destroyed_flag");
+            var active = tree.Recordings[tree.ActiveRecordingId];
+            SetPoints(active, 100.0, 150.0, 300.0);
+            active.TerminalStateValue = TerminalState.Destroyed;
+            active.VesselDestroyed = true;
+            Assert.True(IncompleteBallisticSceneExitFinalizer.ClearStaleDestroyedTerminalForResume(
+                active, "test"));
+            Assert.True(active.VesselDestroyed);
+
+            RunResumePrep(tree, 200.0, LoadKind.QuickloadFlight);
+
+            Assert.False(active.VesselDestroyed);
+            Assert.Null(active.TerminalStateValue);
+        }
+
+        [Fact]
+        public void TrimAndReconcile_ReFlyScope_ClearsActiveOnlyKeepsSibling()
+        {
+            // F9 inside a live Re-Fly session: the loaded save carries the marker, so the
+            // trim (and the reconcile with it) touches the active recording only.
+            var tree = MakeBoosterTree("ta4_refly");
+            var active = tree.Recordings[tree.ActiveRecordingId];
+            SetPoints(active, 100.0, 150.0, 280.0);
+            active.TerminalStateValue = TerminalState.Splashed;
+            active.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { "Jebediah Kerman", KerbalEndState.Aboard },
+            };
+            active.CrewEndStatesResolved = true;
+            var sibling = tree.Recordings["child_ta4_refly_1"];
+            SetPoints(sibling, 120.0, 400.0, 696.0);
+            StampDestroyedWithDeadCrew(sibling, "Bob Kerman");
+
+            var scenario = new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_ta4_refly",
+                    TreeId = tree.Id,
+                    ActiveReFlyRecordingId = active.RecordingId,
+                    OriginChildRecordingId = active.RecordingId,
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                logLines.Clear();
+                RunResumePrep(tree, 200.0, LoadKind.QuickloadFlight);
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
+
+            Assert.Null(active.TerminalStateValue);
+            Assert.Null(active.CrewEndStates);
+            Assert.Equal(TerminalState.Destroyed, sibling.TerminalStateValue);
+            Assert.Equal(KerbalEndState.Dead, sibling.CrewEndStates["Bob Kerman"]);
+            Assert.Equal(696.0, sibling.EndUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload abandoned-future reconcile:")
+                && l.Contains("scope=ActiveRecOnly")
+                && l.Contains("trimmed=1")
+                && l.Contains("endStatesCleared=1"));
+        }
+
+        [Fact]
+        public void TrimAndReconcile_ReFlyProvisionalActiveRec_IsNotTreatedAsCommitted()
+        {
+            // A Re-Fly provisional sits in the committed list as NotCommitted (AddProvisional);
+            // it is session state, not committed history, so the reconcile still owns it.
+            var tree = MakeBoosterTree("ta4_provisional");
+            var active = tree.Recordings[tree.ActiveRecordingId];
+            SetPoints(active, 100.0, 150.0, 280.0);
+            active.TerminalStateValue = TerminalState.Landed;
+            active.MergeState = MergeState.NotCommitted;
+            RecordingStore.AddProvisional(active);
+
+            var scenario = new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_ta4_provisional",
+                    TreeId = tree.Id,
+                    ActiveReFlyRecordingId = active.RecordingId,
+                    OriginChildRecordingId = active.RecordingId,
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                RunResumePrep(tree, 200.0, LoadKind.QuickloadFlight);
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
+
+            Assert.Null(active.TerminalStateValue);
+        }
+
+        [Fact]
+        public void TrimAndReconcile_IdStillCommitted_EndStateKept()
+        {
+            // D2: a recording still committed is never touched, even when the resumed tree
+            // carries a member under its id.
+            var tree = MakeBoosterTree("ta4_committed");
+            var booster = tree.Recordings["child_ta4_committed_1"];
+            SetPoints(booster, 120.0, 180.0, 300.0);
+            StampDestroyedWithDeadCrew(booster, "Bob Kerman");
+
+            var otherTree = new RecordingTree
+            {
+                Id = "ta4_committed_other",
+                TreeName = "Other",
+                RootRecordingId = booster.RecordingId,
+            };
+            otherTree.Recordings[booster.RecordingId] = new Recording
+            {
+                RecordingId = booster.RecordingId,
+                TreeId = otherTree.Id,
+                MergeState = MergeState.Immutable,
+            };
+            RecordingStore.AddCommittedTreeForTesting(otherTree);
+
+            logLines.Clear();
+            RunResumePrep(tree, 200.0, LoadKind.QuickloadFlight);
+
+            Assert.Equal(TerminalState.Destroyed, booster.TerminalStateValue);
+            Assert.Equal(KerbalEndState.Dead, booster.CrewEndStates["Bob Kerman"]);
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload abandoned-future reconcile:")
+                && l.Contains("trimmed=1")
+                && l.Contains("endStatesCleared=0")
+                && l.Contains("skippedCommitted=1"));
+        }
+
+        [Theory]
+        [InlineData("ReFlyStart")]
+        [InlineData("Cold")]
+        public void TrimAndReconcile_KindWithoutReconcileCell_SkipsAndLogs(string kindName)
+        {
+            var kind = (LoadKind)Enum.Parse(typeof(LoadKind), kindName);
+            var tree = MakeBoosterTree("ta4_kind_" + kind);
+            var booster = tree.Recordings["child_ta4_kind_" + kind + "_1"];
+            SetPoints(booster, 120.0, 180.0, 300.0);
+            StampDestroyedWithDeadCrew(booster, "Bob Kerman");
+
+            logLines.Clear();
+            RunResumePrep(tree, 200.0, kind);
+
+            Assert.Equal(TerminalState.Destroyed, booster.TerminalStateValue);
+            Assert.Equal(200.0, booster.ExplicitEndUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("Quickload abandoned-future reconcile skipped:")
+                && l.Contains("kind=" + kind)
+                && l.Contains("reason=policy")
+                && l.Contains("endStates="
+                    + LoadReconcilePolicy.Decide(kind, LoadStateCategory.AbandonedFutureEndStates).Action));
+            Assert.DoesNotContain(logLines, l => l.Contains("Quickload abandoned-future reconcile:"));
+        }
+
+        [Fact]
+        public void TryRestoreActiveTreeNode_SpliceRefreshThenTrim_NoFutureTerminalLeaks()
+        {
+            // F5 at 200, the flight runs on and is committed with the booster destroyed at
+            // 300 (crew dead), then F9 back to the quicksave: the splice refresh copies the
+            // committed copy's end states onto the loaded booster.
+            var committed = MakeBoosterTree("ta4_splice");
+            var committedBooster = committed.Recordings["child_ta4_splice_1"];
+            SetPoints(committed.Recordings[committed.ActiveRecordingId], 100.0, 150.0, 320.0);
+            SetPoints(committedBooster, 120.0, 180.0, 300.0);
+            StampDestroyedWithDeadCrew(committedBooster, "Bob Kerman");
+            RecordingStore.AddCommittedTreeForTesting(committed);
+
+            var quicksaved = MakeBoosterTree("ta4_splice");
+            var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
+            var activeNode = scenarioNode.AddNode("RECORDING_TREE");
+            quicksaved.Save(activeNode);
+            activeNode.AddValue("isActive", "True");
+
+            Assert.True(ParsekScenario.TryRestoreActiveTreeNode(scenarioNode));
+            Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == "ta4_splice");
+            var resumed = RecordingStore.PopPendingTree();
+            var booster = resumed.Recordings["child_ta4_splice_1"];
+            Assert.Equal(TerminalState.Destroyed, booster.TerminalStateValue);
+
+            RunResumePrep(resumed, 200.0, LoadKind.QuickloadFlight);
+
+            Assert.Null(booster.TerminalStateValue);
+            Assert.Null(booster.CrewEndStates);
+            Assert.False(booster.CrewEndStatesResolved);
+            Assert.False(booster.VesselDestroyed);
+            Assert.True(resumed.BackgroundMap.TryGetValue(222u, out string bgId));
+            Assert.Equal(booster.RecordingId, bgId);
+        }
+
+        [Fact]
+        public void StaleEpochKeptTree_ThenTrim_FutureTerminalCleared()
+        {
+            // F5 at 200, fly on (booster destroyed at 300), an autosave advances the sidecar
+            // epoch, F9: the stale-epoch path keeps the in-memory future tree as is (no
+            // splice, no detach), so the trim is the only point that sees it.
+            string root = Path.Combine(Path.GetTempPath(), "parsek-ta4-stale-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            RecordingPaths.SaveRootOverrideForTesting = root;
+            try
+            {
+                var future = MakeBoosterTree("ta4_stale");
+                var futureBooster = future.Recordings["child_ta4_stale_1"];
+                SetPoints(future.Recordings[future.ActiveRecordingId], 100.0, 150.0, 320.0);
+                SetPoints(futureBooster, 120.0, 180.0, 300.0);
+                StampDestroyedWithDeadCrew(futureBooster, "Bob Kerman");
+                foreach (var rec in future.Recordings.Values)
+                {
+                    rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+                    rec.RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration;
+                }
+                RecordingStore.StashPendingTree(future, PendingTreeState.Limbo);
+
+                // The quicksave's .sfs names epoch 1; the sidecar on disk is at epoch 3.
+                var quicksaved = MakeBoosterTree("ta4_stale");
+                var quicksavedBooster = quicksaved.Recordings["child_ta4_stale_1"];
+                quicksavedBooster.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+                quicksavedBooster.RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration;
+                var onDisk = Recording.DeepClone(quicksavedBooster);
+                onDisk.SidecarEpoch = 2;
+                Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                    onDisk,
+                    RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildTrajectoryRelativePath(onDisk.RecordingId)),
+                    RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildVesselSnapshotRelativePath(onDisk.RecordingId)),
+                    RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildGhostSnapshotRelativePath(onDisk.RecordingId)),
+                    incrementEpoch: true));
+                quicksavedBooster.SidecarEpoch = 1;
+
+                var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
+                var activeNode = scenarioNode.AddNode("RECORDING_TREE");
+                quicksaved.Save(activeNode);
+                activeNode.AddValue("isActive", "True");
+
+                logLines.Clear();
+                Assert.True(ParsekScenario.TryRestoreActiveTreeNode(scenarioNode));
+                Assert.Contains(logLines, l => l.Contains("keeping in-memory pending tree"));
+                Assert.Same(future, RecordingStore.PendingTree);
+                var resumed = RecordingStore.PopPendingTree();
+
+                RunResumePrep(resumed, 200.0, LoadKind.QuickloadFlight);
+
+                Assert.Null(futureBooster.TerminalStateValue);
+                Assert.Null(futureBooster.CrewEndStates);
+                Assert.True(resumed.BackgroundMap.ContainsKey(222u));
+            }
+            finally
+            {
+                RecordingPaths.SaveRootOverrideForTesting = null;
+                try { Directory.Delete(root, true); } catch { }
+            }
+        }
+
+        [Theory]
+        [InlineData(300.0, 200.0, true, false, false, true)]
+        [InlineData(300.0, 200.0, false, true, false, true)]
+        [InlineData(300.0, 200.0, false, false, true, true)]
+        [InlineData(300.0, 200.0, true, true, true, true)]
+        [InlineData(300.0, 200.0, false, false, false, false)]
+        [InlineData(200.0, 200.0, true, true, true, false)]
+        [InlineData(150.0, 200.0, true, true, true, false)]
+        [InlineData(double.NaN, 200.0, true, true, true, false)]
+        [InlineData(300.0, double.NaN, true, true, true, false)]
+        [InlineData(300.0, double.PositiveInfinity, true, true, true, false)]
+        public void ShouldClearFutureEndState_StrictlyAfterTheCutoffAndOnlyWithAnEndState(
+            double preTrimEndUT, double cutoffUT, bool hasTerminal, bool hasCrewEndStates,
+            bool vesselDestroyed, bool expected)
+        {
+            Assert.Equal(expected, ParsekScenario.ShouldClearFutureEndState(
+                preTrimEndUT, cutoffUT, hasTerminal, hasCrewEndStates, vesselDestroyed));
+        }
+
+        [Fact]
+        public void BuildAbandonedFuturePlan_TreeWide_TrimmedPrunedAndCommittedSkips()
+        {
+            var tree = MakeTree("plan_tree", "Plan Tree", 4);
+            SetPoints(tree.Recordings["root_plan_tree"], 100.0, 300.0);
+            SetPoints(tree.Recordings["child_plan_tree_1"], 120.0, 250.0);
+            SetPoints(tree.Recordings["child_plan_tree_2"], 250.0, 400.0);
+            SetPoints(tree.Recordings["child_plan_tree_3"], 130.0, 260.0);
+
+            var plan = ParsekScenario.BuildAbandonedFuturePlan(
+                tree, tree.ActiveRecordingId, 200.0, ParsekScenario.QuickloadTrimScope.TreeWide,
+                id => id == "child_plan_tree_3", null);
+
+            Assert.Equal(new[] { "child_plan_tree_1", "child_plan_tree_2", "root_plan_tree" },
+                plan.TrimmedIds.OrderBy(i => i, StringComparer.Ordinal));
+            Assert.Equal(new[] { "child_plan_tree_2" }, plan.PrunedIds.ToArray());
+            Assert.Equal(new[] { "child_plan_tree_3" }, plan.SkippedCommittedIds.ToArray());
+            Assert.Equal(250.0, plan.PreTrimEndUT["child_plan_tree_1"]);
+            Assert.Equal(300.0, plan.PreTrimEndUT["root_plan_tree"]);
+            Assert.False(plan.PreTrimEndUT.ContainsKey("child_plan_tree_3"));
+            Assert.Equal(200.0, plan.CutoffUT);
+            // The plan is read before the trim and changes nothing.
+            Assert.Equal(4, tree.Recordings.Count);
+            Assert.Equal(400.0, tree.Recordings["child_plan_tree_2"].EndUT);
+        }
+
+        [Fact]
+        public void BuildAbandonedFuturePlan_ActiveRecOnly_OwnsTheActiveRecordingOnly()
+        {
+            var tree = MakeTree("plan_active", "Plan Active", 3);
+            SetPoints(tree.Recordings["child_plan_active_2"], 250.0, 400.0);
+
+            var plan = ParsekScenario.BuildAbandonedFuturePlan(
+                tree, tree.ActiveRecordingId, 200.0, ParsekScenario.QuickloadTrimScope.ActiveRecOnly,
+                id => false, null);
+
+            Assert.Equal(new[] { "root_plan_active" }, plan.TrimmedIds.ToArray());
+            Assert.Empty(plan.PrunedIds);
+        }
+
+        [Fact]
+        public void BuildAbandonedFuturePlan_InvalidCutoffOrNoTree_IsEmpty()
+        {
+            var tree = MakeTree("plan_invalid", "Plan Invalid", 2);
+            Assert.Empty(ParsekScenario.BuildAbandonedFuturePlan(
+                tree, tree.ActiveRecordingId, double.NaN, ParsekScenario.QuickloadTrimScope.TreeWide, null, null).TrimmedIds);
+            Assert.Empty(ParsekScenario.BuildAbandonedFuturePlan(
+                tree, tree.ActiveRecordingId, double.PositiveInfinity, ParsekScenario.QuickloadTrimScope.TreeWide, null, null).TrimmedIds);
+            Assert.Empty(ParsekScenario.BuildAbandonedFuturePlan(
+                null, "x", 200.0, ParsekScenario.QuickloadTrimScope.TreeWide, null, null).TrimmedIds);
+        }
+
+        [Fact]
+        public void IsStillCommittedForResumeReconcile_CommittedYes_ProvisionalAndAbsentNo()
+        {
+            var committedTree = MakeTree("still_committed", "Still Committed", 1);
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            var provisional = new Recording { RecordingId = "refly_provisional", MergeState = MergeState.NotCommitted };
+            RecordingStore.AddProvisional(provisional);
+            var openSlot = new Recording { RecordingId = "open_slot", MergeState = MergeState.CommittedProvisional };
+            RecordingStore.AddProvisional(openSlot);
+
+            Assert.True(ParsekScenario.IsStillCommittedForResumeReconcile("root_still_committed"));
+            Assert.True(ParsekScenario.IsStillCommittedForResumeReconcile("open_slot"));
+            Assert.False(ParsekScenario.IsStillCommittedForResumeReconcile("refly_provisional"));
+            Assert.False(ParsekScenario.IsStillCommittedForResumeReconcile("never_committed"));
+            Assert.False(ParsekScenario.IsStillCommittedForResumeReconcile(null));
+        }
+
+        // Every Recording field named like an end state is either retracted by the resume
+        // clear or kept on purpose. A new end-state field must join one of the two sets.
+        private static readonly Regex EndStateFieldName = new Regex(
+            "^(Terminal|CrewEnd|CrewDeath|EndBiome|EndResources|EndInventory|EndCrew|Endpoint"
+            + "|VesselSituation|SceneExitSituation|VesselDestroyed|TerrainHeightAtEnd)");
+
+        private static readonly string[] ResumeClearedEndStateFields =
+        {
+            "TerminalStateValue",
+            "TerminalOrbitInclination", "TerminalOrbitEccentricity", "TerminalOrbitSemiMajorAxis",
+            "TerminalOrbitLAN", "TerminalOrbitArgumentOfPeriapsis", "TerminalOrbitMeanAnomalyAtEpoch",
+            "TerminalOrbitEpoch", "TerminalOrbitBody",
+            "TerminalPosition", "EndpointPhase", "EndpointBodyName", "TerrainHeightAtEnd",
+            "CrewEndStates", "CrewEndStatesResolved", "CrewDeathRespawns", "CrewDeathRespawnSeconds",
+            "VesselDestroyed", "VesselSituation", "SceneExitSituation", "EndBiome",
+            "TerminalSpawnSupersededByRecordingId",
+            "TerminalSpawnSafetyDeferred", "TerminalSpawnCannotSpawnSafely",
+            "TerminalSpawnSafetyReasonCode", "TerminalSpawnSafetyReason",
+            "TerminalSpawnSafetyDecisionUT", "TerminalSpawnNextAttemptUT",
+            "TerminalSpawnSafetyAltitude", "TerminalSpawnSafetySafeAltitude",
+            "TerminalSpawnSafetyPeriapsisAltitude", "TerminalSpawnSafetyApoapsisAltitude",
+            "TerminalSpawnSafetyPressure",
+        };
+
+        private static readonly Dictionary<string, string> ResumeKeptEndStateFields = BuildResumeKeptFields();
+
+        // Every field the same-id refresh (Recording.ApplyPersistenceArtifactsFrom) copies from the
+        // committed future that the resume clear keeps, with the reason.
+        private static Dictionary<string, string> BuildResumeKeptFields()
+        {
+            var kept = new Dictionary<string, string>(StringComparer.Ordinal);
+            void Keep(string reason, params string[] names)
+            {
+                foreach (string name in names)
+                    kept.Add(name, reason);
+            }
+
+            Keep("end manifest; commit-time finalization re-captures it from the live leaf",
+                "EndResources", "EndInventory", "EndInventorySlots", "EndCrew");
+            Keep("the end snapshot; finalization re-snapshots the live leaf (design risk R7)",
+                "VesselSnapshot");
+            Keep("ghost visuals captured at the recording start, not an end state",
+                "GhostVisualSnapshot", "GhostSnapshotMode");
+            Keep("a trajectory statistic the recorder only raises; a stale future peak can only keep "
+                + "the flight from reading idle on the pad",
+                "DistanceFromLaunch", "MaxDistanceFromLaunch");
+            Keep("the background landed position: a vessel landed at the cutoff is still there and the "
+                + "background recorder re-captures it when it lands or goes on rails; clearing it would "
+                + "leave a points-less landed recording with no position",
+                "SurfacePos");
+            Keep("a segment-wide 'a dock happened here' flag (loop toggle, switch-segment keep) that "
+                + "cannot tell a dock before the cutoff from one after it; a stale value only keeps a "
+                + "loop toggle offered",
+                "DockTargetVesselPid");
+            Keep("set on a merged child at its START; a member that started after the cutoff is pruned, "
+                + "so the value always describes history",
+                "TransferTargetVesselPid", "TransferKind");
+            Keep("identity, topology or a player setting; the trim owns the branch links",
+                "RecordingId", "TreeId", "TreeOrder", "VesselPersistentId", "RecordedVesselGuid",
+                "ParentRecordingId", "EvaCrewName", "ChainId", "ChainIndex", "ChainBranch",
+                "ParentBranchPointId", "ChildBranchPointId", "IsDebris", "ParentAnchorRecordingId",
+                "Generation", "RecordingGroups", "Hidden", "PlaybackEnabled",
+                "RecordingFormatVersion", "RecordingSchemaGeneration");
+            Keep("a player loop setting",
+                "LoopPlayback", "LoopIntervalSeconds", "LoopTimeUnit", "LoopStartUT", "LoopEndUT",
+                "LoopAnchorVesselId", "LoopAnchorBodyName");
+            Keep("the recording's start state, before the cutoff",
+                "PreLaunchFunds", "PreLaunchScience", "PreLaunchReputation", "RewindSaveFileName",
+                "RewindReservedFunds", "RewindReservedScience", "RewindReservedRep", "StartResources",
+                "StartInventory", "StartInventorySlots", "StartCrew", "SegmentPhase", "SegmentBodyName");
+            Keep("trajectory payload and bounds: the trim cuts them at the cutoff",
+                "ExplicitStartUT", "ExplicitEndUT", "SegmentEvents", "TrackSections", "Controllers");
+            Keep("route-proof metadata; routes are out of scope (ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD)",
+                "RouteConnectionWindows", "RouteOriginProof", "RouteRunManifest", "RunManifestVoided",
+                "RouteHarvestWindows");
+            return kept;
+        }
+
+        [Fact]
+        public void ClearTerminalEndStateForResume_CoversEveryFieldApplyPersistenceArtifactsFromCopies()
+        {
+            // Recording.ApplyPersistenceArtifactsFrom copies these from the committed future onto
+            // a resumed member (called by ParsekScenario.CopyCommittedPayloadIntoLoadedRecording, the
+            // overwrite behind the same-id refresh and the stale-epoch salvage).
+            // Each must be cleared by the resume clear or kept with a reason. Scope: this method
+            // only. The refresh's own direct copies (CopyStartLocationFrom's start fields,
+            // VesselName, the trajectory lists, CrewEndStates, SpawnSuppressedByRewind*,
+            // SidecarEpoch) are outside the scan; CrewEndStates is cleared by the resume clear, and
+            // the others are start, name, trajectory, rewind spawn-suppression or sidecar fields.
+            string recordingPath = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
+                "Source", "Parsek", "Recording.cs"));
+            Assert.True(File.Exists(recordingPath), "Recording.cs not found at " + recordingPath);
+            string stripped = SourceScanText.StripCSharpComments(File.ReadAllText(recordingPath));
+            string prepared = SourceScanText.MaskStringLiteralContents(stripped);
+            const string signature = "public void ApplyPersistenceArtifactsFrom(Recording source)";
+            int sig = prepared.IndexOf(signature, StringComparison.Ordinal);
+            Assert.True(sig >= 0, "signature not found: " + signature);
+            string body = SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', sig));
+
+            var assigned = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Match m in Regex.Matches(body, @"(?m)^\s*([A-Z][A-Za-z0-9]*)\s*=(?!=)"))
+                assigned.Add(m.Groups[1].Value);
+            Assert.True(assigned.Count > 50, "the scan found only " + assigned.Count + " assignments");
+
+            var unclassified = assigned
+                .Where(n => !ResumeClearedEndStateFields.Contains(n) && !ResumeKeptEndStateFields.ContainsKey(n))
+                .OrderBy(n => n, StringComparer.Ordinal)
+                .ToList();
+            Assert.True(unclassified.Count == 0,
+                "field(s) ApplyPersistenceArtifactsFrom copies from the committed future are neither cleared by "
+                + "Recording.ClearTerminalEndStateForResume nor kept with a reason: " + string.Join(", ", unclassified));
+
+            foreach (string name in assigned)
+            {
+                bool exists = typeof(Recording).GetField(name,
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) != null
+                    || typeof(Recording).GetProperty(name,
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) != null;
+                Assert.True(exists, "the scan read a name that is not a Recording member: " + name);
+            }
+        }
+
+        [Fact]
+        public void ClearTerminalEndStateForResume_FieldGate()
+        {
+            FieldInfo[] fields = typeof(Recording)
+                .GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .Where(f => EndStateFieldName.IsMatch(f.Name))
+                .ToArray();
+            var names = new HashSet<string>(fields.Select(f => f.Name), StringComparer.Ordinal);
+
+            var unclassified = names
+                .Where(n => !ResumeClearedEndStateFields.Contains(n) && !ResumeKeptEndStateFields.ContainsKey(n))
+                .OrderBy(n => n, StringComparer.Ordinal)
+                .ToList();
+            Assert.True(unclassified.Count == 0,
+                "end-state field(s) neither cleared by Recording.ClearTerminalEndStateForResume nor kept "
+                + "with a reason: " + string.Join(", ", unclassified));
+            foreach (string listed in ResumeClearedEndStateFields.Concat(ResumeKeptEndStateFields.Keys))
+            {
+                bool exists = typeof(Recording).GetField(listed,
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) != null
+                    || typeof(Recording).GetProperty(listed,
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) != null;
+                Assert.True(exists, "listed field no longer exists on Recording: " + listed);
+            }
+            Assert.Empty(ResumeClearedEndStateFields.Intersect(ResumeKeptEndStateFields.Keys));
+
+            var fresh = new Recording();
+            var rec = new Recording { RecordingId = "field_gate" };
+            foreach (FieldInfo field in fields)
+                field.SetValue(rec, DirtyValueFor(field.FieldType));
+            var keptBefore = fields
+                .Where(f => ResumeKeptEndStateFields.ContainsKey(f.Name))
+                .ToDictionary(f => f.Name, f => f.GetValue(rec));
+
+            rec.ClearTerminalEndStateForResume("field-gate");
+
+            foreach (FieldInfo field in fields)
+            {
+                if (ResumeKeptEndStateFields.ContainsKey(field.Name))
+                {
+                    Assert.True(ReferenceEquals(keptBefore[field.Name], field.GetValue(rec))
+                        || Equals(keptBefore[field.Name], field.GetValue(rec)),
+                        field.Name + " is kept by the resume clear");
+                    continue;
+                }
+                Assert.True(Equals(field.GetValue(fresh), field.GetValue(rec)),
+                    field.Name + " must be reset to a fresh recording's value; was "
+                    + (field.GetValue(rec) ?? "null") + ", fresh " + (field.GetValue(fresh) ?? "null"));
+            }
+            Assert.True(rec.FilesDirty);
+        }
+
+        private static object DirtyValueFor(Type type)
+        {
+            Type underlying = Nullable.GetUnderlyingType(type);
+            if (underlying != null)
+                return DirtyValueFor(underlying);
+            if (type == typeof(string)) return "dirty";
+            if (type == typeof(double)) return 12345.5;
+            if (type == typeof(float)) return 1.5f;
+            if (type == typeof(int)) return 42;
+            if (type == typeof(uint)) return 7u;
+            if (type == typeof(bool)) return true;
+            if (type.IsEnum)
+            {
+                Array values = Enum.GetValues(type);
+                return values.GetValue(values.Length - 1);
+            }
+            return Activator.CreateInstance(type);
+        }
+
+        private static ParsekScenario.QuicksaveMemberFacts Facts(
+            bool terminal = false, double start = double.NaN, double end = double.NaN,
+            double startBranch = double.NaN, double endBranch = double.NaN, bool committed = false)
+        {
+            return new ParsekScenario.QuicksaveMemberFacts
+            {
+                HasTerminal = terminal,
+                ExplicitStartUT = start,
+                ExplicitEndUT = end,
+                StartBranchUT = startBranch,
+                EndBranchUT = endBranch,
+                CommittedInQuicksave = committed,
+            };
+        }
+
+        [Fact]
+        public void IsCommittedHistoryAtQuicksave_Table()
+        {
+            var facts = new ParsekScenario.QuicksaveTreeFacts { TreeId = "t", ActiveRecordingId = "active" };
+            facts.Members["live"] = Facts(start: 120.0, end: 260.0);
+            facts.Members["active"] = Facts(terminal: true, start: 100.0, end: 250.0);
+            facts.Members["activeCommitted"] = Facts(committed: true);
+            facts.Members["committed"] = Facts(committed: true, start: 100.0);
+            facts.Members["terminal"] = Facts(terminal: true, start: 120.0, end: 150.0);
+            facts.Members["endAfter"] = Facts(end: 400.0);
+            facts.Members["branchAfter"] = Facts(endBranch: 350.0);
+            facts.Members["branchBefore"] = Facts(endBranch: 200.0);
+            facts.Members["startAfter"] = Facts(start: 300.0);
+            facts.Members["startBranchAfter"] = Facts(startBranch: 300.0);
+            const double cutoff = 260.0;
+
+            string reason;
+            Assert.False(ParsekScenario.IsCommittedHistoryAtQuicksave(facts, "live", cutoff, out reason));
+            Assert.False(ParsekScenario.IsCommittedHistoryAtQuicksave(facts, "active", cutoff, out reason));
+            Assert.False(ParsekScenario.IsCommittedHistoryAtQuicksave(facts, "branchBefore", cutoff, out reason));
+            Assert.False(ParsekScenario.IsCommittedHistoryAtQuicksave(facts, "absent", cutoff, out reason));
+            Assert.False(ParsekScenario.IsCommittedHistoryAtQuicksave(null, "live", cutoff, out reason));
+            Assert.False(ParsekScenario.IsCommittedHistoryAtQuicksave(facts, null, cutoff, out reason));
+
+            facts.ActiveRecordingId = "activeCommitted";
+            Assert.True(ParsekScenario.IsCommittedHistoryAtQuicksave(facts, "activeCommitted", cutoff, out reason));
+            Assert.Equal("committed-in-quicksave", reason);
+            facts.ActiveRecordingId = "active";
+
+            Assert.True(ParsekScenario.IsCommittedHistoryAtQuicksave(facts, "committed", cutoff, out reason));
+            Assert.Equal("committed-in-quicksave", reason);
+            Assert.True(ParsekScenario.IsCommittedHistoryAtQuicksave(facts, "terminal", cutoff, out reason));
+            Assert.Equal("terminal-in-quicksave", reason);
+            Assert.True(ParsekScenario.IsCommittedHistoryAtQuicksave(facts, "endAfter", cutoff, out reason));
+            Assert.Equal("end-after-cutoff-in-quicksave", reason);
+            Assert.True(ParsekScenario.IsCommittedHistoryAtQuicksave(facts, "branchAfter", cutoff, out reason));
+            Assert.Equal("branch-after-cutoff-in-quicksave", reason);
+            Assert.True(ParsekScenario.IsCommittedHistoryAtQuicksave(facts, "startAfter", cutoff, out reason));
+            Assert.Equal("start-after-cutoff-in-quicksave", reason);
+            Assert.True(ParsekScenario.IsCommittedHistoryAtQuicksave(facts, "startBranchAfter", cutoff, out reason));
+            Assert.Equal("start-after-cutoff-in-quicksave", reason);
+        }
+
+        [Fact]
+        public void CaptureQuicksaveTreeFacts_ReadsTheNodeMetadataAndOnlyCommittedTreeNodes()
+        {
+            var tree = MakeTree("facts_tree", "Facts Tree", 3);
+            var root = tree.Recordings["root_facts_tree"];
+            var child = tree.Recordings["child_facts_tree_1"];
+            var grandchild = tree.Recordings["child_facts_tree_2"];
+            child.TerminalStateValue = TerminalState.Landed;
+            child.ExplicitEndUT = 400.0;
+            child.ChildBranchPointId = "bp_facts";
+            grandchild.ParentBranchPointId = "bp_facts";
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp_facts", UT = 350.0, Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { child.RecordingId },
+                ChildRecordingIds = new List<string> { grandchild.RecordingId },
+            });
+
+            var node = new ConfigNode("PARSEK_SCENARIO");
+            MakeTree("facts_committed", "Committed", 1).Save(node.AddNode("RECORDING_TREE"));
+            var pendingNode = node.AddNode("RECORDING_TREE");
+            MakeTree("facts_pending", "Pending", 1).Save(pendingNode);
+            pendingNode.AddValue("isPending", "True");
+            var activeNode = node.AddNode("RECORDING_TREE");
+            tree.Save(activeNode);
+            activeNode.AddValue("isActive", "True");
+
+            HashSet<string> committedIds = ParsekScenario.CollectQuicksaveCommittedRecordingIds(node);
+            Assert.Equal(new[] { "root_facts_committed" }, committedIds.ToArray());
+
+            var facts = ParsekScenario.CaptureQuicksaveTreeFacts(
+                RecordingTree.Load(activeNode), committedIds);
+            Assert.Equal("facts_tree", facts.TreeId);
+            Assert.Equal(root.RecordingId, facts.ActiveRecordingId);
+            Assert.Equal(3, facts.Members.Count);
+            Assert.True(facts.Members[child.RecordingId].HasTerminal);
+            Assert.Equal(400.0, facts.Members[child.RecordingId].ExplicitEndUT);
+            Assert.Equal(350.0, facts.Members[child.RecordingId].EndBranchUT);
+            Assert.Equal(350.0, facts.Members[grandchild.RecordingId].StartBranchUT);
+            Assert.False(facts.Members[root.RecordingId].HasTerminal);
+            Assert.True(double.IsNaN(facts.Members[root.RecordingId].EndBranchUT));
+            Assert.False(facts.Members[root.RecordingId].CommittedInQuicksave);
+            Assert.Null(ParsekScenario.CaptureQuicksaveTreeFacts(null, committedIds));
+        }
+
+        [Fact]
+        public void TryRestoreActiveTreeNode_CapturesFacts_ContextTakesThemOnceForTheSameTree()
+        {
+            var quicksaved = MakeBoosterTree("facts_flow");
+            var node = new ConfigNode("PARSEK_SCENARIO");
+            var activeNode = node.AddNode("RECORDING_TREE");
+            quicksaved.Save(activeNode);
+            activeNode.AddValue("isActive", "True");
+
+            Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
+            var resumed = RecordingStore.PopPendingTree();
+
+            // A context for another tree does not take them.
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(MakeTree("facts_other", "Other", 1), LoadKind.QuickloadFlight);
+            Assert.Null(ParsekScenario.GetPendingQuickloadQuicksaveFacts("facts_other"));
+
+            Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
+            resumed = RecordingStore.PopPendingTree();
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(resumed, LoadKind.QuickloadFlight);
+            var facts = ParsekScenario.GetPendingQuickloadQuicksaveFacts(resumed.Id);
+            Assert.NotNull(facts);
+            Assert.Equal(2, facts.Members.Count);
+
+            // Taken once: re-arming without a new restore carries none.
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(resumed, LoadKind.QuickloadFlight);
+            Assert.Null(ParsekScenario.GetPendingQuickloadQuicksaveFacts(resumed.Id));
+        }
+
+        private static RecordingTree MakeBoosterTree(string id)
+        {
+            var tree = MakeTree(id, id, 2);
+            var active = tree.Recordings[tree.ActiveRecordingId];
+            active.VesselPersistentId = 111u;
+            SetPoints(active, 100.0, 150.0, 200.0);
+            var booster = tree.Recordings["child_" + id + "_1"];
+            booster.VesselPersistentId = 222u;
+            SetPoints(booster, 120.0, 180.0, 200.0);
+            tree.RebuildBackgroundMap();
+            return tree;
+        }
+
+        private static void SetPoints(Recording rec, params double[] uts)
+        {
+            rec.Points.Clear();
+            rec.TrackSections.Clear();
+            rec.PartEvents.Clear();
+            foreach (double ut in uts)
+                rec.Points.Add(new TrajectoryPoint { ut = ut, bodyName = "Kerbin" });
+            rec.ExplicitStartUT = uts[0];
+            rec.ExplicitEndUT = uts[uts.Length - 1];
+        }
+
+        private static void StampDestroyedWithDeadCrew(Recording rec, string kerbal)
+        {
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.VesselDestroyed = true;
+            rec.VesselSituation = "Destroyed";
+            rec.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { kerbal, KerbalEndState.Dead },
+            };
+            rec.CrewEndStatesResolved = true;
+            rec.CrewDeathRespawns = false;
+            rec.CrewDeathRespawnSeconds = 0.0;
+        }
+
+        private static void RunResumePrep(RecordingTree tree, double resumeUT, LoadKind kind)
+        {
+            var recorder = new FlightRecorder { ActiveTree = tree };
+            FlightRecorder.QuickloadResumeUTProviderForTesting = () => resumeUT;
+            ArmResumeContext(tree, kind);
+            InvokePrepareQuickloadResumeStateIfNeeded(recorder);
+        }
+
+        private static void ArmResumeContext(RecordingTree tree, LoadKind kind)
+        {
+            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree, kind);
         }
 
         // ============================================================

@@ -599,6 +599,45 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The ids from <paramref name="recordingIds"/> that tag at least one event strictly
+        /// after <paramref name="afterUT"/>, in the live list or in any milestone (pass
+        /// <see cref="double.NegativeInfinity"/> for any UT). Read-only: lets a caller purge
+        /// only the recordings that have something to purge, so the per-recording purge lines
+        /// stay bounded.
+        /// </summary>
+        internal static HashSet<string> CollectRecordingIdsWithTaggedEventsAfterUT(
+            ICollection<string> recordingIds, double afterUT)
+        {
+            var found = new HashSet<string>(StringComparer.Ordinal);
+            if (recordingIds == null || recordingIds.Count == 0 || double.IsNaN(afterUT))
+                return found;
+
+            var set = recordingIds as HashSet<string> ?? new HashSet<string>(recordingIds, StringComparer.Ordinal);
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (!string.IsNullOrEmpty(e.recordingId) && e.ut > afterUT && set.Contains(e.recordingId))
+                    found.Add(e.recordingId);
+            }
+
+            var milestones = MilestoneStore.Milestones;
+            for (int m = 0; m < milestones.Count; m++)
+            {
+                var milestoneEvents = milestones[m]?.Events;
+                if (milestoneEvents == null)
+                    continue;
+                for (int i = 0; i < milestoneEvents.Count; i++)
+                {
+                    var e = milestoneEvents[i];
+                    if (!string.IsNullOrEmpty(e.recordingId) && e.ut > afterUT && set.Contains(e.recordingId))
+                        found.Add(e.recordingId);
+                }
+            }
+
+            return found;
+        }
+
+        /// <summary>
         /// #431: deletes contract snapshots whose corresponding <see cref="GameStateEventType.ContractAccepted"/>
         /// event appears in the purged list. Both snapshot populations follow the accept
         /// event's fate: the accept-time row from <c>GameStateRecorder.OnContractAccepted</c>

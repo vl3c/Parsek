@@ -3735,7 +3735,8 @@ namespace Parsek
                     // affect the rest of OnLoad, but BEFORE revert detection so the
                     // pending slot is populated when it runs.
                     loadPhase = "active-tree-restore";
-                    bool activeTreeRestoredFromSave = TryRestoreActiveTreeNode(node);
+                    bool activeTreeRestoredFromSave = TryRestoreActiveTreeNode(
+                        node, earlyLoadKind, HighLogic.LoadedScene == GameScenes.FLIGHT);
                     bool pendingTreeRestoredFromSave = TryRestorePendingTreeNode(
                         node, activeTreeRestoredFromSave);
                     RecorderStateLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
@@ -4244,7 +4245,10 @@ namespace Parsek
                             // Quickload or cold-start resume: defer restore to OnFlightReady.
                             // ParsekFlight.RestoreActiveTreeFromPending picks up the
                             // pending-Limbo tree and wires a fresh recorder to it.
-                            ConfigurePendingQuickloadResumeContext(RecordingStore.PendingTree);
+                            ConfigurePendingQuickloadResumeContext(
+                                RecordingStore.PendingTree,
+                                refinedLoadKind,
+                                planetariumReady ? loadedUT : double.NaN);
                             ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.Quickload;
                             ParsekLog.Info("Scenario",
                                 $"OnLoad: pending-Limbo tree '{RecordingStore.PendingTree?.TreeName}' " +
@@ -4465,7 +4469,8 @@ namespace Parsek
                 // original Bug C scenario.
                 loadPhase = "cold-active-tree-restore";
                 ClearPendingQuickloadResumeContext();
-                if (TryRestoreActiveTreeNode(node))
+                if (TryRestoreActiveTreeNode(
+                        node, EarlyLoadKind.Cold, HighLogic.LoadedScene == GameScenes.FLIGHT))
                 {
                     // Flag the coroutine to run on OnFlightReady so the active vessel is
                     // available for name matching. Cold start always lands in flight for
@@ -4481,7 +4486,7 @@ namespace Parsek
                             ? ActiveTreeRestoreMode.VesselSwitch
                             : ActiveTreeRestoreMode.Quickload;
                     if (ScheduleActiveTreeRestoreOnFlightReady == ActiveTreeRestoreMode.Quickload)
-                        ConfigurePendingQuickloadResumeContext(RecordingStore.PendingTree);
+                        ConfigurePendingQuickloadResumeContext(RecordingStore.PendingTree, LoadKind.Cold);
                     else
                         ClearPendingQuickloadResumeContext();
                     ParsekLog.Info("Scenario",
@@ -6017,9 +6022,17 @@ namespace Parsek
         /// the load is Parsek's own rewind flow which explicitly resets playback state.</para>
         ///
         /// Returns true if an active tree was found and stashed as Limbo.
+        /// <paramref name="earlyLoadKind"/> is the load's prologue kind and
+        /// <paramref name="loadedSceneIsFlight"/> whether the load lands in FLIGHT; the
+        /// committed-copy rule (<see cref="DecideCommittedCopyRestore"/>) applies to a plain
+        /// in-session load into FLIGHT only.
         /// </summary>
-        internal static bool TryRestoreActiveTreeNode(ConfigNode node)
+        internal static bool TryRestoreActiveTreeNode(
+            ConfigNode node,
+            EarlyLoadKind earlyLoadKind = EarlyLoadKind.InSession,
+            bool loadedSceneIsFlight = true)
         {
+            lastRestoredQuicksaveTreeFacts = null;
             if (node == null) return false;
             if (RewindContext.IsRewinding)
             {
@@ -6052,6 +6065,17 @@ namespace Parsek
                         "because all recordings were rejected by the schema gate");
                     return false;
                 }
+
+                // What the quicksave itself says about each member, read from the node before
+                // hydration, salvage, the stale-epoch keep or the same-id refresh can bring the
+                // committed future in. The quickload-resume reconcile reads it to leave alone a
+                // member that was already committed history when the quicksave was taken.
+                lastRestoredQuicksaveTreeFacts = CaptureQuicksaveTreeFacts(
+                    tree, CollectQuicksaveCommittedRecordingIds(node), CollectQuicksaveCommittedTreeIds(node));
+                ParsekLog.Verbose("Scenario",
+                    $"TryRestoreActiveTreeNode: captured quicksave facts tree='{tree.TreeName}' id={tree.Id} " +
+                    $"members={lastRestoredQuicksaveTreeFacts?.Members.Count ?? 0} " +
+                    $"treeCommittedInQuicksave={(lastRestoredQuicksaveTreeFacts != null && lastRestoredQuicksaveTreeFacts.TreeCommittedInQuicksave ? "true" : "false")}");
                 if (RecordingStore.TryConsumeNextActiveTreeRestoreSuppression(
                     "TryRestoreActiveTreeNode:active-tree",
                     out string suppressReason))
@@ -6073,12 +6097,20 @@ namespace Parsek
                     if (!RecordingStore.LoadRecordingFiles(rec))
                     {
                         sidecarHydrationFailures++;
-                        if (rec.SidecarLoadFailureReason == "stale-sidecar-epoch")
+                        if (rec.SidecarLoadFailureReason == StaleSidecarEpochReason)
                             staleEpochHydrationFailures++;
                     }
                 }
 
-                if (ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))
+                // A committed tree with this id that the quicksave does not hold as committed was
+                // committed after the quicksave (owner ruling OQ-2). Its stale-epoch members are
+                // salvaged from the committed copy here, and the stale-epoch keep below does not
+                // run for it, so the splice, refresh and detach that follow always do.
+                CommittedCopyRestoreAction committedCopyAction = ResolveCommittedCopyRestore(
+                    tree, earlyLoadKind, loadedSceneIsFlight, ref staleEpochHydrationFailures);
+
+                if (committedCopyAction != CommittedCopyRestoreAction.ResumeFromQuicksave
+                    && ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))
                 {
                     ParsekLog.Warn("Scenario",
                         $"TryRestoreActiveTreeNode: keeping in-memory pending tree " +
@@ -6146,6 +6178,8 @@ namespace Parsek
                         $"TryRestoreActiveTreeNode: no committed copy of tree '{tree.TreeName}' " +
                         $"(id={tree.Id}) needed detaching");
                 }
+                if (committedCopyAction == CommittedCopyRestoreAction.ResumeFromQuicksave)
+                    ClearCommittedTreeRestoreAttemptAfterDetach(tree);
 
                 // Bug #290d: if the pending tree is already Finalized (set by
                 // CommitTreeSceneExit during the same scene transition), it has
@@ -6215,14 +6249,27 @@ namespace Parsek
             internal string TreeId;
             internal QuickloadTrimScope TrimScope;
             internal string TrimScopeReason;
+            // The load that armed the resume: TrimAndReconcileForQuickloadResume gates each
+            // abandoned-future category on LoadReconcilePolicy.Decide(LoadKind, category).
+            internal LoadKind LoadKind;
+            // Planetarium UT when OnLoad armed the context (NaN when the clock was not ready).
+            internal double LoadedUT;
+            // What the loaded save said about the tree's members (null when the resumed tree
+            // did not come from this load's save node).
+            internal QuicksaveTreeFacts QuicksaveFacts;
         }
+
+        // Set by TryRestoreActiveTreeNode, taken by the next ConfigurePendingQuickloadResumeContext
+        // for the same tree id.
+        private static QuicksaveTreeFacts lastRestoredQuicksaveTreeFacts;
 
         // Resume hints parsed from PARSEK_ACTIVE_TREE, consumed by the quickload-resume
         // path when FlightRecorder.StartRecording reopens the restored active tree.
         internal static string pendingActiveTreeResumeRewindSave;
         private static QuickloadResumeContext pendingQuickloadResumeContext;
 
-        internal static void ConfigurePendingQuickloadResumeContext(RecordingTree tree)
+        internal static void ConfigurePendingQuickloadResumeContext(
+            RecordingTree tree, LoadKind loadKind, double loadedUT = double.NaN)
         {
             if (tree == null || string.IsNullOrEmpty(tree.Id) || string.IsNullOrEmpty(tree.ActiveRecordingId))
             {
@@ -6233,16 +6280,67 @@ namespace Parsek
             var marker = Instance?.ActiveReFlySessionMarker;
             var trimScope = ChooseQuickloadTrimScope(tree.Id, marker, out string trimScopeReason);
 
+            QuicksaveTreeFacts quicksaveFacts = lastRestoredQuicksaveTreeFacts != null
+                && string.Equals(lastRestoredQuicksaveTreeFacts.TreeId, tree.Id, StringComparison.Ordinal)
+                    ? lastRestoredQuicksaveTreeFacts
+                    : null;
+            lastRestoredQuicksaveTreeFacts = null;
+
             pendingQuickloadResumeContext = new QuickloadResumeContext
             {
                 TreeId = tree.Id,
                 TrimScope = trimScope,
                 TrimScopeReason = trimScopeReason,
+                LoadKind = loadKind,
+                LoadedUT = loadedUT,
+                QuicksaveFacts = quicksaveFacts,
             };
 
             ParsekLog.Verbose("Scenario",
                 $"Quickload-resume context armed: treeId={tree.Id} activeRecId={tree.ActiveRecordingId} " +
-                $"trimScope={trimScope} ({trimScopeReason})");
+                $"trimScope={trimScope} ({trimScopeReason}) loadKind={loadKind} " +
+                $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"quicksaveFacts={(quicksaveFacts != null ? quicksaveFacts.Members.Count.ToString(CultureInfo.InvariantCulture) : "none")}");
+        }
+
+        /// <summary>
+        /// The quicksave facts the pending quickload-resume context carries for
+        /// <paramref name="treeId"/>, or null.
+        /// </summary>
+        internal static QuicksaveTreeFacts GetPendingQuickloadQuicksaveFacts(string treeId)
+        {
+            QuickloadResumeContext context = pendingQuickloadResumeContext;
+            if (context == null
+                || string.IsNullOrEmpty(treeId)
+                || !string.Equals(context.TreeId, treeId, StringComparison.Ordinal))
+            {
+                return null;
+            }
+            return context.QuicksaveFacts;
+        }
+
+        internal static void ClearRestoredQuicksaveTreeFactsForTesting()
+        {
+            lastRestoredQuicksaveTreeFacts = null;
+        }
+
+        /// <summary>
+        /// The load kind (and the clock at OnLoad) the pending quickload-resume context was
+        /// armed with, or null when no context is armed for <paramref name="treeId"/>.
+        /// </summary>
+        internal static LoadKind? GetPendingQuickloadLoadKind(string treeId, out double loadedUT)
+        {
+            QuickloadResumeContext context = pendingQuickloadResumeContext;
+            if (context == null
+                || string.IsNullOrEmpty(treeId)
+                || !string.Equals(context.TreeId, treeId, StringComparison.Ordinal))
+            {
+                loadedUT = double.NaN;
+                return null;
+            }
+
+            loadedUT = context.LoadedUT;
+            return context.LoadKind;
         }
 
         internal static void RefreshPendingQuickloadTrimScope()

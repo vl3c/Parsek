@@ -263,7 +263,7 @@ future or a reverted flight stay on disk for now (OQ-3).
 
 ---
 
-## QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT: tagged game-state events from the timeline an F9 abandoned are credited when the resumed flight commits [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT: tagged game-state events from the timeline an F9 abandoned are credited when the resumed flight commits~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, PR #2025 (xUnit only; live proof is lane QL-2, which needs the TC-1 `Quickload` verb)]
 
 The quickload trim cuts trajectories only (`ParsekScenario.Trim.cs`); the only after-UT purge of
 tagged events, `GameStateStore.PurgeEventsForRecordingAfterUT`, has one caller
@@ -274,37 +274,60 @@ event store reloads only on a cold load. Once the resumed flight runs past the a
 they fall inside the commit window, and duplicate filtering keys on type, contract and UT bucket,
 so a re-completion at a different UT books a second row.
 
-Fix: purge the active tree's tagged events after the resume UT on an in-session quickload, with a
-UT cutoff like the committed-tree restore-attempt purge (`PurgeEventsForRecordingAfterUT`) - not a
-whole-recording purge, which would also delete the resumed flight's events from before the
-quicksave. Red test: `QuickloadResumeTests` - tagged ContractCompleted at
-UT 300, `TrimRecordingTreePastUT(tree, 200)`, commit 100-350, assert no ContractComplete row.
-Lane QL-2.
-
-Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
+Fix: the quickload-resume reconcile (`ParsekScenario.TrimAndReconcileForQuickloadResume`, see
+QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE) purges, for every surviving trimmed recording
+that is not committed history, its tagged events strictly after the resume UT through
+`GameStateStore.PurgeEventsForRecordingAfterUT` (live list, milestones, and the contract snapshots
+whose accept went with them; called only for recordings that have such an event), and every
+tagged event of a recording the trim pruned (`PurgeEventsForRecordings`). Committed history is a
+recording still committed in memory, or one the quicksave itself already shows as history
+(`ParsekScenario.IsCommittedHistoryAtQuicksave`); the plan leaves such a member out of both sets,
+so its events stay even when the trim prunes it. Untagged events and other trees' events stay.
+Gated on the `ReconcileAtResume` cells (F9 in flight, other in-session loads). Red tests:
+`QuickloadAbandonedFutureLedgerTests` (the contract completion at 300, commit 100-350, no row;
+pre-cutoff, untagged and other-tree events kept; pruned recording; milestone-held event; contract
+snapshot; committed id; quicksave history kept: a terminal member, a committed-node chain segment,
+and a branch-point member plus its pruned child,
+`TryRestoreActiveTreeNode_CommittedBeforeTheQuicksave_BranchAfterCutoffMembersKept`). Open: lane
+QL-2.
 
 ---
 
-## QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS: a committed tree detached on F9 keeps its future ledger rows [FILED 2026-10-06 from the coverage-extension research, verified (when the detach runs); branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS: a committed tree detached on F9 keeps its future ledger rows~~ [FILED 2026-10-06 from the coverage-extension research, verified (when the detach runs); branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, PR #2025 (xUnit only; live proof is a career variant of lane QL-4)]
 
 When the loaded save's active tree was committed later, `RemoveCommittedTreeById`
 (`RecordingStore.cs:820-843`) detaches it without touching its ledger rows, and the commit-time
 dedupe drops only new duplicates. Recovery funds or contract rewards from the abandoned future
-survive the resumed flight ending differently. (If the tree's root recording is stale the whole
-saved tree is dropped instead and the flight resumes unrecorded - see QL-R1 in the research.)
+survive the resumed flight ending differently. (When an OnSave ran between the commit and the
+F9, the detach did not run at all until the committed-copy restore rule -
+QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE, fixed.)
 
-Fix: retire the detached tree's rows after the resume UT. Red test: extend
-`TryRestoreActiveTreeNode_SkipsCommittedTreeStashesActiveTree` with a Recovery funds row at 300
-and a loaded UT of 200.
-
-Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
+Fix: the quickload-resume reconcile retires, by physical removal
+(`Ledger.RetireAbandonedFutureActions`), every ledger row tagged to a trimmed recording that is not
+committed history (neither still committed in memory nor shown as history by the quicksave itself,
+see QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE), has no route id and is not a seed, when the
+fact happened strictly after the resume UT (the occurrence UT the commit dedupe uses: a commit-time
+science row is stamped at its recording's end and carries the capture moment in the single-precision
+`StartUT`, compared against the cutoff rounded the same way, so a transmission before the quicksave
+stays), when the trim pruned the recording (a pruned history member is not in the plan, so its
+rows stay), or when it is the KerbalAssignment summary of
+a recording whose end state the reconcile cleared (that row has no UT in its identity, so a stale
+one would make the re-commit drop the fresh one). Then one current-timeline recalculation, which
+keeps the KSP patch deferred while the resumed tree is live. Removal, not a tombstone: a tombstoned
+row still dedupes the re-commit. Untagged KSC rows after the cutoff, route rows and other trees'
+rows stay. Red tests: `QuickloadAbandonedFutureLedgerTests` (detached committed tree: recovery
+row at 300, death penalty and the cleared booster's KerbalAssignment retired, the contract at 150
+kept; re-commit through the tree commit books one row per fact; KSC, route, science (also at UT
+~1e7) and other-tree rows kept; a tree committed BEFORE the quicksave keeps its history members'
+rows). Open: a career variant of lane QL-4; the residual
+QUICKLOAD-ENDED-MEMBER-RESTAMPED-AFTER-THE-SAVE-KEEPS-ITS-FUTURE.
 
 Owner ruling 2026-10-06 (OQ-2): F9 into a later-committed flight's quicksave retires that tree's
 recording-tagged ledger rows after the quicksave; untagged KSC rows are kept.
 
 ---
 
-## QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE: other tree members keep the abandoned future's terminal state and crew end states after F9 [FILED 2026-10-06 from the coverage-extension research, partly verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE: other tree members keep the abandoned future's terminal state and crew end states after F9~~ [FILED 2026-10-06 from the coverage-extension research, partly verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, PR #2025 (xUnit only; live proof is lane QL-4)]
 
 The splice and same-id refresh (`HydrationRepair.cs:495-508`, `:684-787`) copy terminal state,
 terminal orbit, snapshot and crew end states from the committed future copy, and the stale-epoch
@@ -316,11 +339,167 @@ ACTIVE recording is guarded (`ClearStaleDestroyedTerminalForResume`, Destroyed o
 Expected player effect: a booster that survives the replayed flight still ghosts as exploding at
 the F9 instant and is never recorded afterwards.
 
-Fix: clear terminal state / crew end states past the resume UT for every tree member in the
-trim. Red test: `QuickloadResumeTests` splice + trim on a booster Destroyed with crew Dead at 300.
-Lane QL-4.
+Fix: `ParsekScenario.TrimAndReconcileForQuickloadResume` (called from
+`FlightRecorder.PrepareQuickloadResumeStateIfNeeded` in place of the two trim calls) takes a plan
+of the trimmed set BEFORE the trim (the end UT of each recording), leaving out committed history:
+a recording still committed in memory (a Re-Fly provisional does not count), and one the
+quicksave itself already shows as history past the cutoff. The second is read by
+`TryRestoreActiveTreeNode` from the save node before hydration, the stale-epoch keep, the salvage
+and the same-id refresh (`CaptureQuicksaveTreeFacts`, carried in the resume context): the member
+is in a committed tree node of the same save, or its quicksaved copy carries a terminal (not for
+the quicksave's own active recording), an explicit end, an end branch point or a start after the
+cutoff. Node metadata only: a commit flushes sidecars without advancing a positive epoch, so a
+hydrated trajectory can be newer than the save. Without it the restore's detach of a tree
+committed BEFORE the quicksave would make its history members read as abandoned; that save shape
+is not known to be writable today (QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESUMED-CLONE), so
+the check is defensive. The reconcile runs the unchanged trim, and then
+`Recording.ClearTerminalEndStateForResume` retracts the terminal and crew end states of every
+trimmed recording that ended strictly after the resume UT (or still carries `VesselDestroyed`, which
+the resume guard leaves on the active recording), active one included, and rebuilds the background
+map so the vessel is recorded again. The resume context carries the load kind: the clear runs only
+where `LoadReconcilePolicy` says `ReconcileAtResume` (F9 in flight, other in-session loads); a
+Re-Fly start and a cold resume skip it with a log line. It reaches a flight F9'd back into before
+it was committed, or committed in flight with no OnSave in between, and, since the committed-copy
+restore rule, an F9 into a committed flight's quicksave from the Space Center or in flight after a
+later OnSave (QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE, fixed). Red tests in
+`QuickloadResumeTests` (splice refresh and stale-epoch paths through `TryRestoreActiveTreeNode`,
+Re-Fly scope, `VesselDestroyed`, the field gate over the end-state names and over every field
+`Recording.ApplyPersistenceArtifactsFrom` copies; the refresh's own direct copies are not
+scanned) and `QuickloadAbandonedFutureLedgerTests` (a tree committed before the
+quicksave: terminal, committed-node and branch-point history members kept). Open: the trim itself
+still cuts such history members (QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESUMED-CLONE).
 
-Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
+Live proof: `harness/scenarios/QL-4-quickload-booster-terminal.toml` (authored 2026-10-06, never
+flown; fly on request once the fix is in the automation DLL). It F9s in FLIGHT after an in-flight
+commit with no save in between; the Space Center F9 into the older flight quicksave (which
+dropped the whole saved tree on stale sidecar epochs until
+QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE was fixed) is lane QL-4b, and
+the in-flight F9 after a later save is lane QL-4c.
+
+---
+
+## ~~QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE: F9 into a committed flight's quicksave after any later save (the Space Center exit, an autosave, a far vessel switch) leaves its abandoned future committed~~ [FILED 2026-10-06 while authoring lane QL-4 (Space Center route), verified by code read; in-flight route folded in 2026-10-06 from the PR-C review, verified by code read. FIXED 2026-10-06, PR #2030 (xUnit; live proof is lanes QL-4b and QL-4c, authored, never flown)]
+
+One root, two routes. Any OnSave between the quicksave and the F9 of a flight committed in that
+window rewrites the flight's changed
+sidecars with their epochs advanced (`RecordingSidecarStore.cs` `rec.SidecarEpoch++`; a commit on
+its own flushes without advancing a positive epoch, `ShouldAdvanceSidecarEpochOnFlush`). The
+flight quicksave still names the older epochs, so on the F9 `LoadRecordingFiles` rejects each
+rewritten sidecar as `stale-sidecar-epoch` (`ShouldSkipStaleSidecar`, bug #270), and
+`TryRestoreActiveTreeNode` never reaches the detach of the committed copy:
+
+- Space Center route: F5 in flight, Esc -> Space Center (the tree auto-merges; leaving saves the
+  game, `SafeWritePersistent`), F9. At the Space Center no pending tree of that id exists, so the
+  stale-epoch keep (`ShouldKeepPendingTreeAfterHydrationFailure`) and the pending-tree salvage
+  (`RestoreHydrationFailedRecordingsFromPendingTree`) both decline - the in-memory copy is a
+  COMMITTED tree, which neither reads - and `DropFailedSidecarHydrationRecordings` drops the whole
+  saved tree because its root is stale ("dropped entire tree"). The vessel flies on unrecorded.
+- In-flight route: F5, fly on, commit in flight (Merge in the pre-switch dialog;
+  `CommitTreeFlight` resumes a recorder on the still-active vessel through a copy-on-write clone
+  with the same tree id), then any OnSave (KSP's in-flight autosave, a far vessel switch), then F9.
+  The stale epochs send `TryRestoreActiveTreeNode` down the stale-epoch keep: it keeps the
+  same-id Limbo clone and returns before the splice and the detach. The committed tree stays
+  committed, every member reads as still committed, and the abandoned-future reconcile logs
+  `Quickload abandoned-future reconcile skipped: ... reason=empty-plan skippedCommitted=N` and
+  retires nothing.
+
+Expected player effect: the committed tree's abandoned future (trajectory, terminal, crew end
+states, tagged events and ledger rows) stays committed, and its ghost replays next to the live
+vessel; on the Space Center route the resumed flight is also unrecorded. TA-2, TA-3 and TA-4 do
+nothing on either route.
+
+Duplicate vessel (traced by code read 2026-10-06, not reproduced): in the common shapes no second
+vessel spawned. The in-flight commit stamps the live vessel's recording `VesselSpawned`
+(`CommitTreeFlight`), and every end-of-recording spawn first adopts a same-launch vessel that
+still exists (`VesselSpawner.TryAdoptExistingSourceVesselForSpawn`: same pid and launch guid);
+the Space Center's spawn pass adopts the exit save's real vessels that way, and those flags live
+on the in-memory committed copy, which an in-session load keeps. One path was left: a committed
+leaf of the vessel being flown that was not yet adopted at the F9 (its end after the Space
+Center's last pass) reaches `ParsekFlight.SpawnVesselOrChainTip`, where the #226 bypass
+(`ShouldAllowExistingSourceDuplicateForCurrentFlight`, source pid = active vessel pid) skips the
+adoption and spawns a second copy at the leaf's end. The fix removes the committed copy on both
+routes, so no leaf of the abandoned future is left to spawn; the resumed members keep the
+quicksave's own spawn flags (the refresh and the salvage do not copy `VesselSpawned`).
+
+Fix: the committed-copy restore rule in `ParsekScenario.TryRestoreActiveTreeNode`
+(`DecideCommittedCopyRestore` / `ResolveCommittedCopyRestore`, `ParsekScenario.HydrationRepair.cs`;
+owner rulings 2026-10-06: F9 into a flight committed after the quicksave resumes it and retires its
+recording-tagged future, OQ-2; a flight F9'd back into records again; committed history is
+permanent, D2). After hydration, when a committed tree with the saved active tree's id is in memory
+and the quicksave holds no committed node for that tree id and none of its member ids
+(`QuicksaveTreeFacts.TreeCommittedInQuicksave` / `AnyMemberCommittedInQuicksave`, read from the
+save node before anything changes), the flight was committed after the quicksave: every
+stale-epoch member takes the payload of its same-id member in the committed copy
+(`SalvageStaleEpochMembersFromCommittedTree`, the same overwrite as the same-id refresh,
+`CopyCommittedPayloadIntoLoadedRecording`: identity kept, failure cleared, marked dirty), the
+stale-epoch keep does not run, and the existing splice, refresh and detach do; then a
+committed-tree restore attempt armed for the tree (the in-flight route's copy-on-write clone) is
+cleared, since its committed original is gone and, left armed, it would stop every later OnSave
+from writing the resumed tree. The resumed tree is the QUICKSAVE's (route 2's Limbo clone is
+popped as before, its post-commit tail with it); the resume trim cuts the salvaged payload back to
+the cutoff and the abandoned-future reconcile retires end states, events and rows as for the
+no-save route. Left alone (`action=Unchanged`, logged with the reason): a tree the quicksave holds
+as committed (a copy-on-write clone of a tree committed BEFORE the quicksave, D2), a pending
+revert, a load with no facts, every load that is not a plain in-session one (cold, Re-Fly
+start), a load that does not land in FLIGHT (`scene-not-flight`: the automation-only
+`LoadGame scene=spacecenter` of a flight quicksave resumes no recorder, so nothing would trim the
+salvaged payload before the outside-flight auto-commit re-committed it), and a same-id pending tree
+already Finalized (`finalized-pending-tree`: the restore keeps that tree as authoritative, bug
+#290d, so its restore attempt must not be cleared). One `[Scenario] Quickload committed-copy restore:` Info line per decision names the route
+(`in-flight` when a same-id pending tree is in memory, else `space-center`), the action, the
+reason, the stale count, the salvage count and whether it replaced the stale-epoch keep; no
+committed copy logs a Verbose skip. A stale member the committed copy no longer holds (merged away
+by the commit's optimizer pass) is dropped as before (`unsalvaged`). The trim now also cuts
+`TrackSection.bodyFixedFrames` (a parent-anchored section's primary surface was left past the
+cutoff while its `frames` and bounds were cut; the salvage, the refresh and the stale-epoch keep
+all hand the trim such sections). Red tests: `QuickloadCommittedAfterQuicksaveTests` (Space Center
+route, red on `dropped entire tree`; in-flight route, red on `reason=empty-plan`; both then the
+tree restored, the committed copy detached, a non-empty plan, the future end states cleared and
+the events and rows retired; a stale member the committed copy no longer holds is dropped and
+the clone still not kept; the D2 shape with and without a pending clone keeps today's keep or
+drop; the plain stale-epoch keep with no committed copy unchanged; QL-4's no-save shape clears the
+restore attempt; revert and Re-Fly start unchanged; the decision table, the salvage and the facts),
+plus `LoadReconcileWiringGateTests` (the decision after hydration and before the keep, the attempt
+clear after the detach, both OnLoad call sites passing the load kind). Residual: a tree committed
+before the quicksave and re-committed after it keeps today's behaviour (D2 wins over the second
+commit's future; QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESUMED-CLONE's neighbourhood);
+game-state events tagged to a recording created only on the in-flight route's resumed clone
+(after the commit) stay tagged to an id no tree holds, as on the no-save route
+(QUICKLOAD-RESUMED-CLONE-EVENTS-ORPHANED).
+
+Live proof (authored 2026-10-06, never flown; fly on request once the fix is in the automation
+DLL): `harness/scenarios/QL-4b-quickload-from-space-center.toml` (QL-4's flight, `ExitToSpaceCenter`
+for the auto-merge and the exit save, then `LoadGame` of the flight quicksave at the KSC) and
+`harness/scenarios/QL-4c-quickload-after-in-flight-save.toml` (QL-4 plus a `SaveGame persistent`
+between the in-flight commit and the load). Each requires the decision line and the reconcile line
+and forbids the pre-fix witnesses: `dropped entire tree` (Space Center), `keeping in-memory pending
+tree` plus `reason=empty-plan` (in flight). First reading run of QL-4b: read the log for a
+commit-time optimizer split of the quicksave's active recording at a point before the cutoff (the
+pod lands about a second before the quicksave). The resume would then run on a truncated chain
+head under the quicksave's active id while the spliced tail survives the trim up to the cutoff;
+file it here if it shows.
+
+---
+
+## QUICKLOAD-RESUMED-CLONE-EVENTS-ORPHANED: events tagged to a recording only the resumed clone created stay tagged to an id no tree holds [FILED 2026-10-06 from the QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE fix, verified by code read. OPEN, clutter, not data integrity]
+
+After an in-flight commit the recorder resumes on a same-id copy-on-write clone
+(`ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore`). A recording the clone creates after
+the commit (a separation, an EVA) exists only in the clone. An F9 into the flight's quicksave
+restores the quicksave's tree and pops the clone (`TryRestoreActiveTreeNode`, the no-save route
+and, since the committed-copy restore rule, the in-flight route after a later save too), so that
+recording leaves no tree, and the abandoned-future reconcile never sees it (its plan is built
+from the restored tree). Game-state events tagged to it stay in the store with a tag no tree
+holds: `GameStateStore.IsEventVisibleToCurrentTimeline` is false for them
+(`RecordingStore.IsCurrentTimelineRecordingId`), so `MilestoneStore.CreateMilestone` skips them,
+`GameStateStore.PruneProcessedEvents` keeps them as hidden, and no later commit can book them
+because no recording carries that id. Clutter in the event store, not a booking or integrity
+problem.
+
+Fix: not decided; either purge the popped clone's clone-only recording ids' events when the
+restore drops the clone, or let the reconcile take them from the popped tree. Red test: xUnit -
+a stashed clone with a clone-only recording and a tagged event, the restore, then assert the event
+is gone.
 
 ---
 
@@ -353,7 +532,7 @@ AbandonedFutureEvents / AbandonedFutureLedgerRows); the fix flips those cells.
 
 ---
 
-## ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS: the Esc-menu Discard Re-fly leaves the attempt's pending science and ledger tags behind [FILED 2026-10-06 from the PR #2021 review, verified by code read. OPEN, product; not yet reproduced]
+## ~~ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS: the Esc-menu Discard Re-fly leaves the attempt's pending science and ledger tags behind~~ [FILED 2026-10-06 from the PR #2021 review, verified by code read. FIXED 2026-10-06, branch `release-cheap-fixes`: the Esc path now runs the merge-dialog discard's session-state half and tag re-home]
 
 `RevertInterceptor.DiscardReFlyHandler` prunes the attempt through
 `MergeDialog.PruneActiveReFlyAttemptOwnedTopology` (recordings, events, files) but never clears
@@ -374,6 +553,22 @@ Red test: `ReFlyRevertDialogTests` - a pending subject and an attempt-tagged Fun
 Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide` (DiscardReFly x
 PendingScience); the fix flips that cell.
 
+**FIXED 2026-10-06 (branch `release-cheap-fixes`).** `RevertInterceptor.DiscardReFlyHandler` now
+calls `MergeDialog.EndDiscardedReFlySession` (made internal) on both its paths (resolved and
+unresolvable RP) in place of its own copy of the marker / journal / supersede-bump / revert-gate /
+anchor-snapshot block, so it also clears `GameStateRecorder.PendingScienceSubjects` (new Verbose
+`Discarded session end: pendingScienceCleared=N` line, shared by all three discard paths). The tag
+re-home lives in `MergeDialog.PruneActiveReFlyAttemptOwnedTopology`, the Esc path's recording half
+(its only caller): `Ledger.ClearRecordingTagForRecordings(attemptIds)` on both the tree and the
+no-tree fallback branches, counted as `ledgerTagsCleared=` in its summary line. The
+`LoadReconcilePolicy` cell DiscardReFly x PendingScience is now `Clear` and the gap id is gone.
+Tests: `ReFlyRevertDialogTests.DiscardReFly_ClearsPendingScience_AndReHomesAttemptLedgerTags`,
+`DiscardReFly_UnresolvableRp_StillClearsPendingScienceAndAttemptTags` (both reach the no-tree
+fallback), `DiscardReFly_CommittedTreeBranch_ReHomesLedgerTagsOfEveryAttemptRecording` (registers
+the tree, so the tree branch runs and re-homes untagged attempt debris too; red with that branch's
+clear deleted),
+`LoadReconcilePolicyTests.DiscardReFly_PendingScience_IsClearedBeforeTheLoad`.
+
 ---
 
 ## DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP: Discard Re-fly to the editor can delete an origin rewind point created inside an earlier, merged Re-Fly session [FILED 2026-10-06 from the coverage-extension research, partly verified (narrow); branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
@@ -389,6 +584,92 @@ cells stub LoadGame / LoadScene).
 
 Fix: keep a point whose creating session is already merged. Red test: xUnit over
 `LoadTimeSweep.Run`; lane QL-5 with a new `ReFlyRevert` verb.
+
+---
+
+## QUICKLOAD-TRIM-STAMPS-CUTOFF-AS-EARLIER-END: the quickload resume trim moves the end of a recording that ended before the quicksave up to the quicksave's moment [FILED 2026-10-06 off the abandoned-future reconcile, PR #2025; verified in code, player effect to trace. OPEN, product]
+
+`ParsekScenario.TrimRecordingPastUT` (`ParsekScenario.Trim.cs`, the `ExplicitEndUT` block) sets
+`ExplicitEndUT = cutoff` on every recording whose `ExplicitEndUT` is NaN or later than the cutoff,
+and the tree-wide trim calls it for every member. A member that ended BEFORE the cutoff with no
+explicit end (its end is its last sample) therefore reads `EndUT = cutoff` after the trim, because
+`Recording.EndUT` is the larger of the trajectory end and `ExplicitEndUT`. The abandoned-future
+reconcile is not affected (it reads each end before the trim). Related: neither the trim nor the
+resume clear touches `SurfacePos` (the background landed position), so a member that landed after
+the cutoff keeps that landing position while it is airborne again.
+
+Fix: to trace first - which members reach the trim with a NaN `ExplicitEndUT` and what reads
+their `EndUT` (ghost end, spawn, the Missions rows); then stamp only recordings whose payload
+actually runs past the cutoff. Red test: `QuickloadResumeTests`, a member with samples to 150 and
+no explicit end, trimmed at 200, `EndUT` stays 150.
+
+---
+
+## QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESUMED-CLONE: the quickload resume trim cuts and prunes committed history when the resumed tree was committed before the quicksave [FILED 2026-10-06 from the PR-C review; the trim behaviour verified by code read, the save shape not known to be reachable. OPEN, product; not yet reproduced]
+
+If a tree committed BEFORE the quicksave were the quicksave's active tree (a copy-on-write restore
+clone: `ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore` deep-clones the committed tree
+with the same id when the player takes over a vessel the tree spawned), then on the F9
+`TryRestoreActiveTreeNode` detaches the in-memory committed copy (`RemoveCommittedTreeById`), and
+the TreeWide trim (`TrimRecordingTreePastUT`) then treats every member as the abandoned future:
+a member that is a committed-history ghost at the cutoff (say it lands at 400, F5 at 260) has its
+trajectory cut at 260, and a committed member that starts after the cutoff is pruned with its
+branch point. The re-commit of the resumed clone replaces the committed tree, so that history is
+lost. The abandoned-future reconcile leaves these members' end states, events and rows alone (the
+quicksave facts below), so after the trim such a member keeps a terminal its trajectory no longer
+reaches. Pre-existing: the trim did this before the reconcile existed.
+
+Reachability: not known to be reachable today. The save-side overlap guard
+`ParsekScenario.PlanActiveTreeSidecarSaves` skips the whole active-tree node while a committed-tree
+restore attempt is armed and any dirty member's id is in that attempt's set (not a marker-owned
+switch segment), and the clone resumes recording into such a member, so an F5 does not write this
+shape once the clone has recorded anything. Not traced: an F5 before the resumed recording is
+first marked dirty, and paths that clear the attempt while the clone stays active.
+
+Fix: the per-member quicksave facts the reconcile already reads make it easy. Scope the trim's cut
+and prune to the members `ParsekScenario.IsCommittedHistoryAtQuicksave` does not name as history
+(the same plan, captured before the trim), and leave the history members whole. Red test first:
+`QuickloadAbandonedFutureLedgerTests`' tree committed before the quicksave, asserting the history
+member still ends at 400 and the future-only history child is still in the tree after the resume.
+
+---
+
+## QUICKLOAD-ENDED-MEMBER-RESTAMPED-AFTER-THE-SAVE-KEEPS-ITS-FUTURE: a member that had already ended at the quicksave keeps a later restamp of its ending [FILED 2026-10-06 off the PR-C committed-history discriminator, verified by code read. OPEN, product; narrow]
+
+The abandoned-future reconcile leaves alone every member whose quicksaved copy already carries a
+terminal (the conservative half of the committed-history discriminator, so no committed history
+is ever retired). A member that ended BEFORE the quicksave but was restamped after it is therefore
+kept as the committed copy has it: a vessel that landed at 150 (quicksave at 200) and was recovered
+at 300 keeps its Recovered terminal (`ParsekScenario.CanOverwriteTerminalState` lets Recovered
+overwrite Landed) and its recovery funds row at 300 after F9 back to 200, although the landed
+vessel is back in the world. It stays out of the background recorder and the recovery is paid
+whether or not the player recovers it again.
+
+Fix: compare the quicksaved facts with the refreshed copy instead of trusting the terminal alone:
+a member whose terminal or explicit end changed after the save (and that the quicksave does not
+hold in a committed tree node) is abandoned future past its quicksaved end. Red test:
+`QuickloadAbandonedFutureLedgerTests`, a member Landed at 150 in the quicksave and Recovered at 300
+in the committed copy with a recovery row at 300; after the resume the Recovered ending is cleared
+and the row is gone.
+
+---
+
+## QUICKLOAD-REFLY-SCOPE-KEEPS-SESSION-CHILDREN-FUTURE: an F9 inside a Re-Fly session reconciles the active recording only [FILED 2026-10-06 off the abandoned-future reconcile (design risk R9), PR #2025; verified in code, not reproduced. OPEN, product]
+
+When the loaded save carries a Re-Fly marker for the resumed tree, `ChooseQuickloadTrimScope`
+picks `ActiveRecOnly` (#610: a tree-wide trim would prune the other vessels' post-rewind-point
+recordings the splice restored), and the abandoned-future reconcile inherits that scope: only the
+active recording is trimmed and has its end states, tagged events and ledger rows retired.
+Children the session authored after the quicksave's moment survive two ways: the splice copies
+them from a committed copy of the tree (F9 into a quicksave taken during a session that has
+since merged, owner ruling OQ-1), and the stale-epoch path keeps the in-memory future tree
+(`ShouldKeepPendingTreeAfterHydrationFailure`). Their trajectories, end states, tagged events and
+ledger rows from after the quicksave stay.
+
+Fix: to trace - decide which recordings under the Re-Fly scope belong to the abandoned future
+(created by the live session after the cutoff: `CreatingSessionId` or the marker's
+`PreSessionBranchPointIds` against the branch-point UTs) and add them to the plan. Red test:
+`QuickloadResumeTests`, a Re-Fly-scope tree with a session child that starts after the cutoff.
 
 ---
 
@@ -696,7 +977,7 @@ applies. Lane RC-6 with `EvaGroundScience action=take` against a foreign contain
 
 ---
 
-## TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; RULED 2026-10-06: keep resource-changing tails]
+## TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. RULED 2026-10-06: keep resource-changing tails. PARTIAL 2026-10-06, branch `release-cheap-fixes` (PR #2027): fixed for recordings the optimizer does not split; a flown-then-landed recording still loses its witness to the split; NEEDS A RULING on the options below. The unwitnessed sources are TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES]
 
 `RecordingOptimizer.TailTrim` restamps the end UT and SpawnUT earlier (`:820-845`) but never
 touches the snapshot; `FindLastInterestingUT` (`:75`) ignores resources and the guard checks
@@ -707,6 +988,67 @@ the crossings between the trimmed SpawnUT and commit are delivered twice.
 Fix: RULED 2026-10-06 - keep a tail whose resources change (it is not boring):
 `FindLastInterestingUT` treats a resource change as interesting. Red test: a `RecordingOptimizer`
 tail-trim cell with a resource-changing tail.
+
+**PARTIAL 2026-10-06 (branch `release-cheap-fixes`, PR #2027).** The only per-UT resource witness a recording
+carries is a closed `RouteHarvestWindow` (converter activity, with the transport's resource
+manifest measured on the live vessel when the window opens and closes; `StartResources` /
+`EndResources` are recording-wide and say nothing about the tail, and no point, section or event
+carries resources). New `RecordingOptimizer.FindLastResourceChangeUT` returns the end UT of the last
+closed harvest window whose manifests differ by more than 1e-6 on any resource other than
+ElectricCharge / IntakeAir (`ResourceTransferability.IsAlwaysIgnored`), and `FindLastInterestingUT`
+takes it as one more interest source. A drill running to the end keeps the whole tail (new skip
+category `resource-changing-tail`, its own verbose line with `lastResourceChangeUT=`); a drill that
+stopped mid-tail trims to just after it; an EC-only or stalled window changes nothing. Tests:
+`RecordingOptimizerTests.FindLastInterestingUT_HarvestWindow*`, `FindLastResourceChangeUT_*`,
+`TrimBoringTail_ResourceChangingTail_*`, `TrimBoringTail_UnchangedResourceTail_StillTrims`,
+`TrimBoringTail_ResourceChangeEndingMidTail_TrimsAfterIt`, and through the whole pass
+`RunOptimizationPass_UnsplitDrillRecording_KeepsResourceChangingTail_OnEveryPass`.
+
+**Still open: the split voids the witness (found by the PR #2027 review).** `RunOptimizationPass`
+(`RecordingStore.Optimization.cs`) runs the split pass BEFORE `TrimBoringTailsForOptimization`, and
+every split goes through `RecordingOptimizer.TransferTerminalFieldsToSecondHalf`, which nulls
+`RouteHarvestWindows` on BOTH halves (logistics plan D13: a window can land on the wrong side of the
+cut). Fly -> land -> drill splits at the Atmospheric -> Surface boundary, the surface leaf has no
+windows, and its drilling tail is trimmed exactly as before (pinned by
+`RunOptimizationPass_FlownThenLandedDrillRecording_TrimsTail_DocumentsDefect`, the cell the fix
+flips). A carry held only within the pass is not enough: the pass runs on every load
+(`ParsekScenario.OnLoad`, phase `optimization`) and after every commit (`MergeDialog.MergeCommit`,
+`ParsekScenario.AutoCommitPendingTreeOutsideFlight`), the trim revisits every committed leaf with no done marker, and after
+the first pass the voided windows are what is flushed and read back. Options (owner ruling needed):
+(1) persist the witness across the split in a new serialized field (e.g. the last resource-change
+UT, moved to the half that contains it before D13 voids the windows) - a schema addition;
+(2) narrow D13 to void only a window that straddles the cut and keep a closed window on the half
+that wholly contains it - a logistics-analysis change; (3) use the converter part events as the
+witness (a converter whose last event is `ConverterActivated` keeps the tail through the end): part
+events are partitioned by the split and the converter state is re-seeded on the second half
+(`RecordingOptimizer.SeedEvents.cs` converter reducer), so it survives splits and every pass with
+no new field and D13 untouched, but it is a proxy (a stalled drill keeps its tail too) - it also
+closes the background-leg item of TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES.
+
+---
+
+## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness]
+
+TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT keeps a tail only when a closed `RouteHarvestWindow` measured a
+change. Three sources leave no such witness, so their tails still trim and their resources still
+arrive early with the commit-time snapshot:
+
+- a supply route delivering into (or debiting) the recorded vessel during the tail: the route
+  writers (`Logistics/LiveDeliveryWriters.cs`, `LiveOriginDebitWriters.cs`) touch no recording;
+  the ledger holds the route rows (`RouteCargoDelivered` / `RouteCargoPickedUp` / `RouteCargoDebited`)
+  with their UTs, the endpoint resolving through the route's stop, but the optimizer pass reads no
+  ledger;
+- a converter running on a BACKGROUND leg: `BackgroundRecorder` records `ConverterActivated` /
+  `ConverterDeactivated` part events but captures no harvest windows (only the active stop does,
+  `FlightRecorder.BuildCaptureRecording`), so a base left mining in the background trims after its
+  last converter event;
+- an in-vessel transfer (crossfeed, a docked pair's fuel transfer): vessel totals do not move, so no
+  manifest sees it, but the per-part split in the snapshot still arrives early.
+
+Fix options: (1) treat a converter still running at the recording end (last converter event per
+part is `ConverterActivated`) as interesting through the end - a proxy, not a measurement, covering
+background legs; (2) give the optimizer pass the ledger's route rows whose endpoint is the
+recording's vessel and treat a row inside the tail as interesting; (3) accept the in-vessel case.
 
 ---
 
@@ -8419,9 +8761,30 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   next nightly** - this raise was its only standing red (the lane has never had
   a green armed run; its arming flight red'd on this same event), so that sweep
   IS the regression catcher for this change.
-- **GHOST-MAP-TEARDOWN-NRE-WHEN-CAMERA-TARGETED: destroying a ghost map vessel
+- ~~**GHOST-MAP-TEARDOWN-NRE-WHEN-CAMERA-TARGETED: destroying a ghost map vessel
   that is the `PlanetariumCamera`'s current target NREs stock's KnowledgeBase
-  during the forced retarget** [OPENED 2026-08-26 off V25M reading 3
+  during the forced retarget**~~ **FIXED 2026-10-06, branch `release-cheap-fixes`:**
+  the camera is moved off a targeted ghost while the UI is still intact. Finding: the
+  NRE is not on the dying MapObject but on `KbApp_PlanetParameters`' own transform -
+  every collected quit log (V15M `2026-08-28_2004`, H5, R1, H36, GS-2) prints
+  `KbApp.OnDestroy Planet Parameters` before the stock `Focus:` line, so ANY retarget
+  fired from an OnDestroy-time teardown NREs, whoever fires it (stock picks the nearest
+  body, `FindNearestTarget`). Fix: pure
+  `GhostMapPresence.DecideCameraRetargetBeforeGhostRemoval` (camera on a dying ghost ->
+  active vessel, else the ghost's reference body, else the home body; during a scene
+  teardown the active vessel is skipped, since it dies with the scene and stock would
+  retarget again from its OnDestroy) behind the thin `RetargetPlanetariumCameraOffDyingGhosts`
+  (null-guarded `PlanetariumCamera.fetch`, Info `Planetarium camera retargeted off dying
+  ghost ...`). Called before the Die loop of every in-scene `RemoveAllGhostVessels`
+  (rewind / scene-change request via `DestroyAllTimelineGhosts`, TS Fly, test resets),
+  and from `ParsekHarmony.OnApplicationQuit` (before Unity destroys anything) for the
+  quit; the OnDestroy removals (`scene-cleanup`, `tracking-station-cleanup`, new
+  `sceneTeardown: true`) and any removal after the quit latch stand down with a Verbose
+  line rather than fire the event into a torn-down KnowledgeBase themselves. Not
+  covered: a Tracking Station scene CHANGE with the camera on a ghost still lets stock
+  retarget at ghost destroy (no request-time hook in the TS; same as before), and the
+  single-ghost removers keep stock's retarget (the UI is alive there, no NRE). Tests:
+  `GhostMapCameraRetargetTests`. Original report: [OPENED 2026-08-26 off V25M reading 3
   (`harness/results/2026-08-26_1823_V25M-duna-park-player-loop.json`,
   `unityExceptions` report-only row: 2 NRE lines, both this one event's ERR+EXC
   pair). Owner: `GhostMapPresence`]. Stack has NO Parsek frames but the trigger

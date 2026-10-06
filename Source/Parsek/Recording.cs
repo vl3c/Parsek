@@ -867,6 +867,62 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Retracts the terminal verdict and every end-state field derived from it, for a
+        /// recording whose end lies after a quickload-resume cutoff: the world was loaded
+        /// back to before that end, so the vessel is live again and the recorder (or the
+        /// commit-time finalization) decides its end anew. The retraction goes through
+        /// <see cref="StampTerminalState"/> (a null stamp does not re-infer crew end states)
+        /// and the crew end states are then dropped explicitly, because they describe the
+        /// abandoned outcome. The vessel snapshot and the End* manifests stay: finalization
+        /// re-captures them from the live leaf. Pinned field by field by
+        /// <c>QuickloadResumeTests.ClearTerminalEndStateForResume_FieldGate</c>.
+        /// </summary>
+        internal void ClearTerminalEndStateForResume(string context)
+        {
+            StampTerminalState(null, "ClearTerminalEndStateForResume:" + (context ?? "(none)"));
+
+            CrewEndStates = null;
+            CrewEndStatesResolved = false;
+            CrewDeathRespawns = null;
+            CrewDeathRespawnSeconds = double.NaN;
+            VesselDestroyed = false;
+
+            // The codec gates the whole terminal-orbit block on TerminalOrbitBody, so the
+            // null body is what drops it; the numeric resets keep memory consistent.
+            TerminalOrbitBody = null;
+            TerminalOrbitInclination = 0.0;
+            TerminalOrbitEccentricity = 0.0;
+            TerminalOrbitSemiMajorAxis = 0.0;
+            TerminalOrbitLAN = 0.0;
+            TerminalOrbitArgumentOfPeriapsis = 0.0;
+            TerminalOrbitMeanAnomalyAtEpoch = 0.0;
+            TerminalOrbitEpoch = 0.0;
+
+            TerminalPosition = null;
+            TerrainHeightAtEnd = double.NaN;
+            EndpointPhase = RecordingEndpointPhase.Unknown;
+            EndpointBodyName = null;
+            VesselSituation = null;
+            SceneExitSituation = -1;
+            EndBiome = null;
+
+            TerminalSpawnSafetyDeferred = false;
+            TerminalSpawnCannotSpawnSafely = false;
+            TerminalSpawnSafetyReasonCode = null;
+            TerminalSpawnSafetyReason = null;
+            TerminalSpawnSafetyDecisionUT = double.NaN;
+            TerminalSpawnNextAttemptUT = double.NaN;
+            TerminalSpawnSafetyAltitude = double.NaN;
+            TerminalSpawnSafetySafeAltitude = double.NaN;
+            TerminalSpawnSafetyPeriapsisAltitude = double.NaN;
+            TerminalSpawnSafetyApoapsisAltitude = double.NaN;
+            TerminalSpawnSafetyPressure = double.NaN;
+            TerminalSpawnSupersededByRecordingId = null;
+
+            MarkFilesDirty();
+        }
+
+        /// <summary>
         /// Copies persistence/capture artifacts from a stop-time captured recording.
         /// Intentionally does NOT copy Points/OrbitSegments/VesselName, which are
         /// set by CreateRecordingFromFlightData from the current recorder buffers.
