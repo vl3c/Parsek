@@ -16,6 +16,23 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## RECORD-COALESCED-ROW-COUNTS-ONE-HIT: a world-record row that coalesced several threshold breaks counts as one hit when the record node is rebuilt [FILED 2026-10-06 while fixing SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE, branch `fix-pre-parsek-progress-seed`. OPEN, product; to verify, not reproduced]
+
+`GameStateRecorder.TryCoalesceWorldRecordReward` folds every RecordsAltitude / Depth / Speed /
+Distance break of one (milestone, recording) scope into ONE MilestoneAchieved event and ledger
+row, accumulating funds / rep / science. `MilestonesModule` counts that row as one effective
+hit, and `KspStatePatcher.TryComputeRepeatableRecordState` rebuilds the stock node from the
+hit count: a live record above the next threshold "spills into a later band" and falls back to
+the last paid threshold. If one recording crosses several thresholds (an ascent past 500 m,
+2 km, 7 km, 22 km, 70 km), the patch would set the record back to the first threshold and
+stock would re-award the rest on a later flight. Collected logs show the resync at work
+(`synced repeatable record 'RecordsAltitude' hits=2 ... record=2000.0` x456) but not which
+ascents coalesced into how many rows. Check first: one ascent's KSP.log - the stock
+`[Progress Node Reached]` / award lines per threshold, the coalesced row, and the next
+`synced repeatable record` line.
+
+---
+
 ## TIMELINE-OP-COVERAGE-PROGRAM: back-in-time loads, revert, mining and resource conservation are barely tested [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. OPEN; test program]
 
 Research: `docs/dev/research/coverage-extension-plan-2026-10-06.md` and
