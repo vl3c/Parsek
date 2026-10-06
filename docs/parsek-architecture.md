@@ -44,8 +44,8 @@ Historical note: the original 0.4.3-era architecture spec (class-level pseudo-co
   +----------------+             +-----------------+
   | RecordingStore |             |    Ledger       |
   | (sidecar files |             | (GameAction     |
-  |  .prec / .craft|             |  list, source of|
-  |  /.pcrf)       |             |  truth per save)|
+  |  .prec, .craft)|             |  list, source of|
+  |                |             |  truth per save)|
   +----------------+             +-----------------+
          |                               |
          +-------+------------------+----+
@@ -105,7 +105,7 @@ Completed design specs (now implementation-historical) live under [`dev/done/`](
 |---|---|---|
 | Flight / Map | `ParsekFlight` | Recorder, ghost playback engine, watch mode, UI, toolbar button |
 | KSC | `ParsekKSC` | UI, game-state recorder, toolbar button |
-| Tracking Station | `ParsekTrackingStation` | Ghost ProtoVessel + icon presence, UI |
+| Tracking Station | `ParsekTrackingStation` | Ghost ProtoVessel + icon presence, ghost CommNet, the ghost Warp to Spawn popup (no Parsek window or toolbar button) |
 | (save/load glue) | `ParsekScenario` | All persistence: committed recordings, game-action ledger, milestones, kerbal slots |
 
 The `KspStatePatcher` runs during save-load and after rewind to restore stock KSP state (funds, reputation, science, facilities, contracts, crew) to match the ledger's committed position.
@@ -114,7 +114,7 @@ The `KspStatePatcher` runs during save-load and after rewind to restore stock KS
 
 ## File inventory
 
-The canonical, up-to-date list of source files + line counts + extraction history (T25 decomposition, Phase 11.5 storage layer, etc.) is maintained in `CLAUDE.md` at the repo root. That file is updated as a matter of routine when subsystems move; this index deliberately does not duplicate it.
+The canonical, up-to-date map of key source files and their contracts is maintained in `.claude/CLAUDE.md` ("Key source files"; mirrored byte-for-byte at the repo-root `AGENTS.md`). That file is updated as a matter of routine when subsystems move; this index deliberately does not duplicate it.
 
 ---
 
@@ -123,5 +123,5 @@ The canonical, up-to-date list of source files + line counts + extraction histor
 - `Ledger.Actions` is the single authoritative source of career-state truth per save. Modules hold terminal-state snapshots derived from walking the ledger.
 - Recording format is version 1, schema generation 4, and any recording or sidecar with a mismatched format version or older/newer schema generation is rejected on load (`RecordingStore.IsRecordingSchemaCompatible`). There are no legacy migration or forward-compatibility paths pre-1.0; each generation bump deletes the prior generation's tolerance seams. The legacy v5 world-offset RELATIVE contract was purged in PR #916, leaving a single current RELATIVE contract.
 - All recordings are tree recordings; the standalone format was removed in PR #214.
-- Save-file writes go through sidecar files under `saves/<save>/Parsek/Recordings/` (`.prec`, `_vessel.craft`, `_ghost.craft`, `.pcrf`). Only lightweight metadata + mutable state live in `.sfs`.
+- Save-file writes go through sidecar files under `saves/<save>/Parsek/Recordings/` (`.prec`, `_vessel.craft`, `_ghost.craft`; the legacy `.pcrf` ghost-geometry file is no longer written). Only lightweight metadata + mutable state live in `.sfs`.
 - KSP surface-frame rotation is stored unconditionally surface-relative since the format reset.

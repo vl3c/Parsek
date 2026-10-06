@@ -57,9 +57,18 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 266 committed
+### Scenarios: 367 committed
 
-RE-DERIVED AGAIN 2026-09-15 after the Gloops PR merged `origin/main` twice (the second
+RE-DERIVED 2026-10-06 on `todo-rotation-v9`: `ls harness/scenarios/*.toml` returns **367**
+files, the total `autotest-status.md`'s `## Test cases` header states (its per-section
+header counts sum to 367: 196 live-proven, 4 expected-fail, 1 committed-not-yet-green and
+166 across the per-program sections, after RR-1 / EVA-9 / EVA-10 / GUI-1 moved to
+live-proven the same day); tiers: 183 nightly, 27 daily, 157 operator, parsed
+from the specs' `tier` keys. Net +101 since the 266 below; the coverage notes in the
+next section name the waves that added them (GUI census, click-block, game-settings,
+physics-warp, chain-interaction and EVA lanes among them).
+
+The derivation before it: RE-DERIVED AGAIN 2026-09-15 after the Gloops PR merged `origin/main` twice (the second
 merge brought `GUI-10-census-dialogs` in): `ls harness/scenarios/*.toml` returns **266**
 files; tiers: 129 nightly, 26 daily, 111 operator, parsed from the specs' `tier` keys.
 Three new files since the registry PR's 263 - GL-1, GL-2 and GUI-10 - all `operator`, so
@@ -116,6 +125,8 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 these rather than editing them by memory; both numbers have moved many times.
 
 ### Coverage: 253 of 253 registry cells (the game-settings axis added D14 `hard-preset` on 2026-09-29, claimed by HC-1, `vessel-budget` on 2026-09-30, claimed by VB-1, and `reward-multipliers` / `zero-starting-funds` on 2026-10-03, claimed by HC-2 / ZF-1; D2 `physics-warp-{low,medium,high}` added 2026-10-02, claimed by PWR-1 / PWR-2 / PWR-3)
+
+RE-DERIVED 2026-10-06 on `todo-rotation-v9`: `hlib.compute_coverage(specs, [], registry)` over the 367 committed specs prints 253 of 253 (rollup `values 253 covered 253 uncovered 0`, zero values covered only by expected-fail lanes). No cell moved since the 2026-10-03 reading below; the net six specs added since claim no new registry value.
 
 RE-DERIVED 2026-10-03 on `settings-risks`: `hlib.compute_coverage(specs, [], registry)` over the 361 committed specs prints 253 of 253. The operator's three remaining game-settings risks: reward multipliers where money and science change hands (HC-2, Hard career earning, spending, committing and rewinding, every amount 0.6x L3's x1 flight), a zero-funds career (ZF-1, KSP-SETTINGS-AUDIT S4 live-proven) and quickload off during a Re-Fly (closed by evidence, no flight; todo KSP-SETTINGS-AUDIT-2026-09-26 S7). Rows in `autotest-status.md`.
 

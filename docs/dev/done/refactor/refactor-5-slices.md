@@ -1,9 +1,11 @@
 # Refactor-5 Execution Roadmap (Slice Index)
 
 **Date:** 2026-06-14.
-**Status:** Planning roadmap. No production code has been changed. These slices are
-to be implemented from a checkout that can build + run the xUnit gate (the remote
-audit container has no .NET SDK). Each slice is a separate proposal doc.
+**Status:** Planning roadmap, now executed in part. Slices 1, 2, 3 and 5 LANDED in 0.10.2
+and slice 4 PARTLY (4.1 only) - see each proposal's status line and CHANGELOG `## 0.10.2` -> Internals & Tests, the behavior-neutral code-health refactor pass. Slice 6
+(`docs/dev/refactor-5/refactor-5-slice6-proposal.md`) remains deferred. The slices were to be
+implemented from a checkout that can build + run the xUnit gate (the remote audit
+container has no .NET SDK). Each slice is a separate proposal doc.
 **Parent audit:** `docs/dev/refactor-5/refactor-5-inventory.md`.
 **Rules of record:** `docs/dev/refactor-guidelines.md`.
 

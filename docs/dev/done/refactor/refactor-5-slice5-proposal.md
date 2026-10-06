@@ -1,6 +1,10 @@
 # Refactor-5 Slice 5 Proposal — Remaining Pure Same-File Phase Extractions
 
-**Date:** 2026-06-14. **Status:** Proposal (not implemented).
+**Date:** 2026-06-14. **Status:** LANDED in 0.10.2 (CHANGELOG `## 0.10.2` -> Internals & Tests, the behavior-neutral code-health refactor pass: "mission scheduling and structure building, route
+source revalidation and harvest analysis, the relative-anchor resolver, terminal-orbit
+spawn safety, and the pannotations / FX sidecar codecs"; helpers such as
+`TryResolveBestShift`, `BuildErsIndex`, `ReadSplineBlock` and `ElsContainsRouteCycleRow`
+are in the source).
 **Roadmap:** `docs/dev/refactor-5/refactor-5-slices.md` (shared rules + validation gate).
 
 Pure (headless) Pass-1 same-file phase extractions that didn't make Slice 1's top

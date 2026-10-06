@@ -62,9 +62,10 @@ id = "RR-1-relaunch-rewind-keeps-earlier-launch"
 # NEGATIVE CONTROL (offline, at authoring). hlib.evaluate_expectations over a seeded log
 # built from the source literals: green as seeded; with the pre-fix shape seeded (the
 # summary `2 by name [Kerbal X], 0 by PID`, no keep line, no OnLoad keep line, the
-# capsule row reset to 0) it reds on exactly the tokens that name the fix. The same check
-# over the real reading-run log is owed, with the pre-fix log absent (no pre-fix flight
-# of this lane exists).
+# capsule row reset to 0) it reds on exactly the tokens that name the fix. The green half
+# was CONFIRMED on a real log by `2026-10-03_1441` (PASS attempt 1, DLL built from
+# origin/main `cb899a8f9`): every fix token met in order and no forbidden one printed.
+# The red half stays offline only: no pre-fix flight of this lane exists.
 # =====================================================================================
 tier = "nightly"
 description = "Live proof of PR #1894: on kerbin-splashdown-recorded (the committed stock Kerbal X capsule landed far from the pad), relaunch the same stock Kerbal X from the SPH onto the Runway, record a few seconds, commit, Rewind-to-Launch that newest tree, and settle at the Space Center. The rewind strips the relaunch's own vessel by name but keeps the earlier capsule (same resolved name, a different launch guid) in the rewind save and the loaded game."

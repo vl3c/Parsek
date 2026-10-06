@@ -1,0 +1,29 @@
+@page{size:A4;margin:14mm}
+body{font-family:"Segoe UI","Inter","DejaVu Sans",sans-serif;font-size:11px;line-height:1.5;color:#1f2328;background:#fff;margin:0;padding:0;word-wrap:break-word}
+h1,h2,h3,h4,h5,h6{margin-top:20px;margin-bottom:10px;font-weight:600;line-height:1.25;page-break-after:avoid;break-after:avoid}
+h1{font-size:2em;padding-bottom:.3em;border-bottom:1px solid #d1d9e0b3}
+h2{font-size:1.5em;padding-bottom:.3em;border-bottom:1px solid #d1d9e0b3}
+h3{font-size:1.25em}h4{font-size:1em}h5{font-size:.875em}h6{font-size:.85em;color:#59636e}
+p,blockquote,ul,ol,dl,table,pre{margin-top:0;margin-bottom:12px}
+a{color:#0969da;text-decoration:none}
+code,tt{font-family:Consolas,"DejaVu Sans Mono","Liberation Mono",monospace;font-size:85%;padding:.2em .4em;margin:0;background:#818b981f;border-radius:6px;white-space:break-spaces}
+pre{padding:12px;overflow:visible;font-size:85%;line-height:1.45;background:#f6f8fa;border-radius:6px;white-space:pre-wrap;word-break:break-word}
+pre code{padding:0;background:transparent;font-size:100%;white-space:pre-wrap}
+blockquote{padding:0 1em;color:#59636e;border-left:.25em solid #d1d9e0;margin-left:0}
+ul,ol{padding-left:2em}li+li{margin-top:.25em}
+table{border-spacing:0;border-collapse:collapse;display:table;width:max-content;max-width:100%;font-size:95%}
+table th{font-weight:600}
+table th,table td{padding:4px 9px;border:1px solid #d1d9e0;vertical-align:top}
+table tr{background:#fff;border-top:1px solid #d1d9e0b3;page-break-inside:avoid}
+table tr:nth-child(2n){background:#f6f8fa}
+hr{height:.25em;padding:0;margin:20px 0;background:#d1d9e0;border:0}
+img{max-width:100%}
+header#title-block-header{display:none}
+table{width:auto;max-width:100%;table-layout:auto}
+th,td{overflow-wrap:anywhere;word-break:normal}
+code,pre,pre code{overflow-wrap:anywhere}
+pre code{display:block;white-space:pre-wrap;word-break:break-all;overflow-wrap:anywhere;padding:0;margin:0}
+pre{padding:10px 12px}
+pre > code.sourceCode{white-space:pre-wrap !important}
+pre > code.sourceCode > span{display:inline !important;text-indent:0 !important;padding-left:0 !important}
+div.sourceCode,pre.sourceCode{overflow:visible !important;background:#f6f8fa}

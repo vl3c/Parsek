@@ -8,6 +8,19 @@ All notable changes to Parsek are documented here.
 
 _(unreleased - entries accumulate here per commit)_
 
+### Highlights
+
+- **A full UI refresh.** Every main Parsek window was redesigned or rebuilt around one
+  shared style - the same countdowns, colours, "Go to" and Interact buttons, empty-list
+  wording and column alignment everywhere. Real Spawn Control, Logistics, Missions, the
+  Mission Log, Kerbals, the Timeline (now with a Career view), the Recordings tab and
+  Settings all have new layouts, and Logistics gains a Route History window that replaces
+  the old route logs. The Career window is gone (its counts now live in the Timeline), and
+  so is every way to delete a recording or wipe data. On KSP's own screens - R&D, Mission
+  Control, Administration, the Astronaut Complex, the VAB/SPH crew dialog, part purchases
+  and the KSC facility menus - anything your timeline has reserved is now greyed out with
+  a short, dated reason on hover, using KSP's own controls instead of Parsek badges.
+
 ### Added
 
 - **Parsek now tells you on screen when it starts up broken.** Two problems used to reach
@@ -1442,1323 +1455,6 @@ _(unreleased - entries accumulate here per commit)_
   cross-module file pairs that keep changing together, in the checker and in a
   new atlas section. No player-visible behavior changes.
 
-### Fixed
-
-- **Ending a Re-Fly no longer marks an earlier segment of the same craft destroyed with its crew
-  dead.** When a recording had been split into segments and the same vessel was later brought
-  back by another flight (for example, docked into, undocked, and re-created at the end of that
-  flight), concluding a Re-Fly that reached that moment read the earlier segment's end off the
-  live vessel: it was marked Destroyed at the current time with its crew Dead, written past its
-  own next segment. A segment whose recording continues in a later segment is no longer
-  finalized as an endpoint, and a vessel that later committed history put back in the world is
-  no longer read as the end of an earlier recording of it. CI-2 reads 12 Destroyed again.
-
-- **Dev: a harness pad hop whose parachutes cannot be read now stops before arming them.**
-  B1, the science-and-recover lane and EVA-4 read the craft's parachute state every poll. When
-  that read returns nothing on the descent-entry poll and the one before it, the mission now
-  ends there (`MISSION-ASSERT-FAIL`, reason `chute unobservable (part identity?)`, retried
-  once like a vessel loss) instead of arming nothing and flying on. RB-1 `2026-09-27_1353`
-  (a fixture whose parts kRPC read off a clone) armed "0 parachute(s)" and hit the ground at
-  230 m/s; over the 26 collected flights of these lanes the check trips on that run and the
-  two RB-2 runs with the same defect, and on no other. The deploy action now also logs how
-  many parachutes it fired.
-- **An undock done from EVA now reads "Undocked" in the Missions tab.** When a kerbal on EVA
-  undocked a docked vessel it was not flying, the separation was listed as "Decoupled".
-  A docking port's "Decouple Node" and an ordinary decoupler still read "Decoupled".
-- **A part torn off by force now reads "Broke off", and a VAB-built docking port's Undock reads
-  "Undocked", in the Missions tab.** A wing or parachute ripped off by aerodynamic stress or an
-  impact was listed as "Decoupled", on the vessel you fly and on a vessel recorded in the
-  background alike. Clicking Undock on a pair of docking ports that were joined in the
-  editor was also listed as "Decoupled". A decoupler firing still reads "Decoupled" (or
-  "Staged" in a mission's steps), staging such a docking port still reads the same way, and a
-  break that comes with a crash still reads "Crashed". Neither fix has been checked in a
-  test flight yet.
-- **A branch point after a recording split now names the segment it happened on.** When a
-  recording is split (the optimizer's cut at an atmosphere exit or a body change, or a
-  Re-Fly's HEAD/TIP cut), every branch point that names the recording as a parent at or
-  after the cut, and every EVA kerbal or switch continuation linked to it from then on, now
-  names the later segment that holds the event; a split only moved the branch point the
-  recording ended at, so a probe decoupled in orbit still named the launch segment. The merge
-  that reverses a split points those links back at the surviving recording. Saves written
-  before the fix are corrected on load (once per tree, logged as
-  `[SplitParentLinks] RepairStaleParents`), with no change to the recording format. Visible
-  changes: a Log row for a stage dropped after a split now reads the body it dropped at
-  (`Duna`, not `Kerbin`); and in an existing save the load repair can remove a Re-Fly slot
-  that existed only because of the stale link. A slot is refused when the vessel flew on
-  past a later controllable separation, and that separation used to be invisible because
-  it named the first segment; once it names the segment the vessel was flying, the slot
-  is gone, which is the correct answer. The Missions composition, its stored interval keys
-  (checked on every recorded fixture), which recording spawns at the end of a flight, a
-  Re-Fly's debris and a supply route's transport lineage (now followed back across the
-  split to the launch) read as before.
-- **R&D's Research button now greys out when science held for later research makes a node
-  unaffordable.** Stock never greys Research for science; it refuses at the click. When the
-  science bar showed enough but later research on the timeline needed part of it, Parsek
-  refused the click with its own dialog while the button looked live. The button is now
-  greyed with the reason on its tooltip, `Reserved for later research, blocked by timeline.
-  Needs 45.0 science, 12.0 free.`, and the refused-click dialog says the same (it read `Not
-  enough science: tech unlocks later on timeline need it, blocked by timeline.`). A plain
-  shortage, where the science bar itself is below the cost, is left to stock's own refusal:
-  no grey, no reason, no Parsek dialog.
-- **Checking whether research or a purchase is affordable no longer frees reserved kerbals.**
-  The check re-ran the ledger walk up to the current time over the live game state, which
-  dropped every crew hold a later committed flight owns: until the next full recalculation
-  those kerbals could be dismissed or put in a crew. The check now walks a private copy and
-  leaves the live state, and every row's counted / not-counted marks, as they were.
-- **A refused tech names the tech, not its internal id.** When a tech's title was empty the
-  refusal printed the id (`Cannot research "basicRocketry"`); it now reads the tech tree's
-  title for the id, and the id only when no title exists.
-- **Real Spawn Control and the nearby-craft message name where a departing craft goes in words.**
-  A craft orbiting Kerbin that was going to land read `departs to Kerbin`, the body it
-  already orbits, and a craft changing orbit around the same body read the raw word
-  `departs to maneuver`, in the window and in the on-screen `Nearby craft` message (Basic
-  mode too). They now read `leaves orbit to land on Kerbin` (`to come down on Kerbin` for a
-  crash; the body is the one the flight ended on, so a Kerbin-orbit craft that lands on the
-  Mun reads `to land on Mun`), `leaves orbit for a new orbit`, and `leaves orbit for Mun` for
-  another body. A flight that ends landed or destroyed always reads as coming down, even when
-  its last recorded orbit was a sub-orbital arc around the same body.
-- **Real Spawn Control's spawn-time sort follows the Warp button.** On a craft that leaves its
-  orbit before it would spawn, the sort used the far-away spawn while the button (and `Warp to
-  Next Spawn`) acted on the departure, so the top row was not the next thing Warp would do.
-  The sort, both time cells and the button now use the same moment.
-- **Real Spawn Control's Warp puts an orbiting vessel where its ghost stood.**
-  Park beside a ghost in orbit whose flight ends Orbiting and press its Warp: the
-  clock jumps to the flight's end while your own vessel keeps its place, as designed, but
-  the vessel that appeared used to sit on its recorded orbit at the new time, tens or
-  hundreds of kilometres along the orbit (120 km after a 54 s jump in low Kerbin orbit).
-  A ghost standing within the physics bubble when the jump crosses its end now gets the
-  same time shift your vessel gets, so the real vessel appears where the ghost was, with
-  the same distance and relative speed to you. Ghosts outside the bubble, and landed or
-  splashed ones (the planet carries both vessels), spawn as before. The same applies to a
-  Warp to a craft's departure and every other epoch-shift jump. The spawn's collision check looks
-  at that same spot, so a vessel that would appear inside something beside you is held
-  back as before, and a held ghost is drawn where its vessel would appear. No new
-  interface.
-
-- **A vessel Parsek brought into the world that you recover from the Tracking Station or
-  the KSC no longer comes back.** Recover a vessel Parsek spawned at the end of a recorded
-  flight without flying it first (the Tracking Station Recover button, the KSC vessel
-  marker), on a sandbox save or with no crew aboard, and the next flight scene used to read
-  the vessel's absence as a crash and spawn it again. Parsek only learned of such a
-  recovery through the recovery payout (which a sandbox save never pays) or the crew coming
-  home (which an uncrewed vessel has none of). Every recovery you make of a vessel that
-  continues a recorded flight now writes its own ledger entry, in every game mode, and that
-  recording's vessel is never spawned again, also after a rewind to before the recovery.
-  A vanished vessel whose recording reads recovered is no longer counted as a death either.
-  Parsek's own housekeeping recoveries write nothing. A Re-Fly that puts the vessel back in
-  the world retires the entry with the recovery payout. No new interface.
-
-- **A vessel you recover right after switching to it no longer comes back.** Bring a
-  recorded flight's vessel into the world (Real Spawn Control, or its end-of-recording
-  spawn), switch to it and press stock's Recover at once, and the next flight scene used to
-  spawn the same vessel again, which on a career save could be recovered a second time.
-  Switching to the vessel resumes its committed recording; on the way to the Space Center,
-  Parsek's "nothing changed, drop the resume" check ran before the recovery was written
-  into the recording, so the recording kept its landed ending and the vessel's absence
-  later read as a death to be undone. That check, and the two like it on the same exit
-  (the switch-segment and idle-on-the-pad versions), now keep a resumed recording whose
-  vessel is being recovered, and the recording is committed ending Recovered. The recovery
-  now also finds a vessel whose spawn gave it a new identity: it follows the recording that
-  was recording the vessel when Recover was pressed. And a recording committed ending
-  Recovered, Destroyed or Disassembled no longer inherits the old "already spawned" claim
-  from the version it replaces, so the next flight scene does not read the recovered vessel
-  as one that died. A fresh, never-committed flight recovered from the pad is still dropped
-  silently.
-
-- **Dev: a harness mission no longer waits out its wall budget behind KSP's crash screen.**
-  About 60 s after the active vessel is destroyed, stock KSP opens the flight results dialog
-  and pauses the game. Every mission phase budget counts game time, so a mission whose craft
-  crashed polled the stopped game until its wall budget ran out (one run lost about 1,100 s
-  this way). The mission shell now ends the mission once the game has read paused with the
-  clock stopped for 15 s, as a vessel loss naming the pause (`MISSION-ASSERT-FAIL`, reason
-  `vessel-lost (paused-clock: ...)`, the same class as every other vessel loss). It never
-  fires during a native warp, right after a seam step, or on a pause shorter than 15 s, and it
-  reads the pause state only when the clock did not move.
-- **Dev: a harness hop mission now notices a destroyed craft whose telemetry froze.**
-  After the craft is destroyed, kRPC can keep returning its last readings while the clock
-  runs. The mission ends as a vessel loss after 10 polls in a row whose altitude, vertical
-  speed and orbit did not change, but one run polled such readings about 118 times without
-  ending, because one value kept differing by less than a millimetre. The airborne hop
-  missions (pad hop and its science recovery, EVA-4, GS-1, and the reentry mission's
-  descent) now treat values within 0.001 as unchanged (`frozenToleranceAbs`); the orbit
-  missions still require identical values. A poll whose clock did not advance no longer
-  restarts the count, and the mission log names the value that broke a run (with its exact
-  previous and current readings), so the next crash shows which reading moved. The machine
-  status line also shows the real count for missions that delegate their flight
-  (`frozenCount=` used to print `-` there).
-- **Dev: two harness waits behind KSP's post-flight screens now end at once.** A test
-  command waiting on the EVA kerbal (`EvaGroundScience`, `PlantFlag`) now ends with
-  `ERROR active-vessel-lost` on the first check after the kerbal dies, instead of sitting out
-  its whole budget. Stock KSP keeps a dead active vessel in place rather than deleting it, so
-  the old check never saw the loss; six EVA-8 runs each lost 120 s this way. And `CommitTree`
-  sent after a stock recovery, when the game is already back at the Space Center with nothing
-  to commit, now answers `REJECTED not-in-flight` straight away instead of waiting 60 s with
-  the recovery summary up. L3, L5 and both L6 lanes expect that answer now.
-- **Dev: booster debris no longer logs a sparse-sampling warning on every launch.** Once
-  a background vessel leaves proximity range the recorder stops sampling it by design, and
-  the long gap until it came back (about 14 s for each booster pair) read as a stalled
-  sampler. The recorder now notes each out-of-range silence, from the first skipped moment to
-  the moment the vessel is back in range or records an event out of range (a booster hitting
-  the ground), and a gap counts toward the warning only by the part of it outside that
-  silence; the line stays at Verbose with a
-  `largeGapsOutOfRange=` count.
-- **Dev: the recorder's sparse-sampling warning fires under physics warp again.** A recorded
-  section whose samples sat further apart than the sampler allows logs
-  `TrackSection sparse sampling:` as a warning, but any time warp downgraded it to a verbose
-  line, including physics warp, where every physics frame still runs and the sampler keeps
-  its spacing. Only rails warp (and on-rails recording) now downgrades it; the count token
-  is renamed `largeGapsOffRails=`. An on-schedule physics-warp gap stays under the
-  threshold, which already clears the max interval plus one 4x frame. Headless runs no
-  longer read a missing `TimeWarp` as rails warp.
-- **Recording: a sample taken when a frame runs long now sits where the vessel was at that
-  moment.** When one rendered frame holds several physics steps (a warp-rate change, staging,
-  a slow stretch), KSP hands the recorder a mid-step reading on the later steps: the clock
-  has moved on but the vessel has not, and the first step of the frame is never offered at
-  all. A recording could carry a point up to one step (0.08 s at 4x warp) behind its own
-  time, and the max-interval heartbeat could land a step late. The recorder now keeps the
-  vessel's position from the end of every physics step and samples that, so each point's
-  position belongs to its time and every step is seen once. Background recordings skip the
-  mid-step reading instead and sample at the end of the frame.
-- **Recording: no more doubled samples at staging and launch.** When two parts of the
-  recorder wrote a sample at the same moment (a staging joint break, the reopened section
-  after it, a launch-clamp release), the recording kept both, one right after the other.
-  One section now holds one sample per moment: a repeat is dropped, and when the two
-  differ the later one is kept (at clamp release, the one taken after the vessel went off
-  rails), with its event marker carried over. No recording format change.
-- **Dev: an in-game test batch in the Tracking Station no longer orphans the ghost map
-  vessels.** Before a batch the test runner cleared Parsek's list of ghost map vessels without
-  removing the vessels, and in the Tracking Station nothing else removed them. They then read
-  as real vessels: the batch's two start-up saves counted them against the stock vessel
-  budget and dropped real debris, and the scene built a second set of ghosts beside them. The
-  runner now removes every registered ghost vessel first (the same removal the scene uses
-  when you leave it) and the Tracking Station rebuilds them a moment later; the in-game
-  `VesselBudget` check waits for the rebuilt ghosts instead of skipping. Flight batches are
-  unchanged. Proven live 2026-10-03: VB-1 runs the in-game step again, removes all eight
-  ghosts before the batch and passes the check.
-
-- **Recording Distance and Range no longer misread a sample sitting on a section boundary.**
-  A recording is cut into sections, and samples recorded relative to a parent vessel store
-  metres where the others store latitude and longitude. The Distance and Range figures on a
-  recording's hover looked up each sample's section more strictly than playback does, so a
-  relative sample a hair past its section's end could still be read as degrees and add
-  hundreds of km. They now share playback's boundary rule (a sample on the line between two
-  sections belongs to the later one; one within a billionth of a second of a section edge
-  belongs to that section). Range had the same flaw for a section's last sample and is fixed
-  too. (RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON)
-
-- **Dev: the harness `DiscardTree` command now leaves a restored vessel idle.** On a
-  recorded save the flight scene resumes the committed recording of the vessel you are
-  flying, and keeps retrying that once a second while nothing records. A lane that stopped
-  and discarded that recording (every EVA-6 to EVA-9 lane does, before the kerbal steps out)
-  could see it resumed again a few milliseconds later, so the kerbal's own recording was
-  refused. `DiscardTree` now tells the retry to skip that vessel until something records
-  again, the active vessel changes, or the scene ends, and logs
-  `CommittedSpawnedRestoreSuppression: armed` / `cleared`. Player discards are unchanged.
-  The lanes keep `retry policy = "once"`: the 2026-10-03 EVA-6 flight passed with no
-  re-adoption, but its boot took the ordering where the discard finds nothing to discard.
-- **The Missions tab no longer lists another mission's vessel as a piece of your ship.**
-  When you switched to another mission's vessel and flew it to a dock with your ship, that
-  vessel showed under your ship as if it had separated from it ("Depot Station Duna I
-  (mission 'Kerbal X #5')   Launch -> Docked"), your ship's event chain read "Launch ->
-  Launch (Depot Station Duna I ...) -> Docked", the expanded interval rows (Advanced) read
-  "Decoupled -> Launch" and "Launch -> Docked", and the interval after the switch lost the
-  other vessel's pod from your ship's count ("Kerbal X (crew x1)"). The other vessel's row
-  now sits beside your ship instead of under it, reads "Docked (Duna Supply 1)" with no
-  launch, keeps its own include checkbox in Advanced (so its part of the loop can still be
-  kept or trimmed), and is not counted as one of your mission's vessels. Your ship's
-  interval rows split at the switch with blank event cells, and its count stays its own
-  ("pod x1, crew x1"). A vessel you switched to that belongs to no other mission (an old
-  station, a stock vessel) stays under your ship as before, without the false "Launch".
-  Any vessel or kerbal row whose flight ends by docking or boarding now names what it joined,
-  e.g. a kerbal's row ending "Boarded (Kerbal X)". Mission selections are unaffected: the
-  interval keys a mission stores do not change.
-- **The mission Log's Undocked row names your ship, not the vessel it undocked from.** KSP
-  keeps a docked pair under one vessel's identity, often the other mission's, so the Log of
-  a mission that docked with another mission's vessel read e.g. "Undocked (Deliverer Mun 1)"
-  with "Kerbal X (mission 'Kerbal X #3')" in the Vessel column. It now reads "Undocked (Depot
-  (mission 'Kerbal X #3'))" on "Deliverer Mun 1", the same way the Docked row puts your ship
-  in the Vessel column and the other vessel in the event. A dock that lists the other vessel
-  first, or where the other vessel docked into yours, reads the same way. When your ship kept
-  the identity and the other vessel left, the row reads as before.
-- **A ship's Missions row follows the ship after it undocks.** When your ship undocked from
-  another mission's vessel that kept the docked pair's identity, your ship's row went on
-  along the other vessel's half ("Duna Supply 1   ... Undocked (Duna Supply 1) -> Orbiting",
-  its last interval the depot's, and Kerbal X #4's expanded detail reading "after undock:
-  Deliverer Mun 1 left" about itself), while your ship's real flight after the undock was a
-  separate row under it. Your ship's row now continues into its own flight after the undock
-  ("Undocked (Depot Station Duna I (mission 'Kerbal X #5')) -> Orbiting", detail "after
-  undock: Depot Station Duna I (mission 'Kerbal X #5') left"), and the other vessel's half is
-  a row beside it naming your ship ("Undocked (Duna Supply 1) -> Orbiting"), like that
-  vessel's row before the dock. When your ship kept the identity and the other vessel left,
-  your row was already right; the other vessel's half now also sits beside your ship rather
-  than under it. Your ship's row's Fly / Seal (or Stash / Seal) is now its flight after the
-  undock, so a ship that undocked and then crashed can be re-flown straight from its row,
-  while the other vessel's half keeps its own on its own row. The mission summary counts your
-  ship once and reads its outcome from your ship's own flight. Mission selections are unaffected: every interval a mission stores keeps
-  naming the same stretch of the same recording, only the row it is drawn in moves, so an
-  exclusion made on the other vessel's half now shows on that vessel's row.
-- **Dev: a harness mission that ends early writes its result file again.** A mission's
-  assertion rows could carry a reading still at its "not yet measured" NaN default (the
-  `kx_rewind_watch` core discard altitude and time, peak booster thrust and rewind times, on
-  any flight lost before the core discard), and the result writer refuses NaN. The write ran
-  outside the mission's error handling, so the mission died with no result file and the run
-  read INVALID(tooling-mission) instead of INVALID(mission), losing every assertion row. This
-  hit all 13 lanes that fly `kx_rewind_watch`. Every row now writes such a reading as null,
-  for every mission, and if the result still cannot be written a reduced result keeping the
-  verdict, reason and assertion names is written instead (`serializationFallback: true`).
-- **A vessel whose return is blocked by another vessel stays visible until it can appear.**
-  When a replayed vessel that later flights build on (a ghost-chain tip) reaches the moment it
-  becomes real, and a vessel you have parked in its spot blocks it, its ghost used to stand
-  still for five seconds and then vanish, and the vessel did not come back for the rest of the
-  scene. Its ghost now stays for as long as the spot is blocked, even when no clear spot can be
-  found nearby, keeps moving along its orbit (or stays where it landed), and turns into the real
-  vessel the moment you move the blocker away or Parsek finds a clear spot just behind it. Its
-  status in the recordings list now reads "Spawn blocked -- spot occupied, appears when it
-  clears" instead of asking for a manual placement that does not exist.
-- **A vessel you recover from flight is saved as Recovered, and its replay ends with no
-  vessel.** Pressing Recover in flight leaves the flight scene before the game pays out the
-  recovery at the Space Center, so with auto-merge on (and with the Merge button of the merge
-  window) the flight was saved as Landed. After a rewind to before that flight, its replay
-  then put the vessel back at the landing site while the recovery still paid out, so you
-  could recover it a second time; the flight could also be stashed and re-flown. The flight is
-  now saved as Recovered, its replay ends with no vessel, and the recovery is paid once.
-  Flights already saved as Landed whose vessel was recovered (including a recovery from the
-  Tracking Station of an older flight) are recognised by their recovery payout or crew
-  return: their replay no longer spawns the vessel, and they are not offered for Stash or
-  Re-Fly. A flight that landed and was never recovered still leaves its vessel in the world.
-- **A recovered vessel is credited to its own flight by identity, not by name.** When you
-  recover a vessel, Parsek ties the recovery payout, the recovered science and the crew's
-  experience to the recording of that flight. It used to find that recording by the
-  vessel's name, so a vessel renamed after its flight was recorded credited no flight at all
-  (the payout and science landed unattributed and the crew experience was not booked), and a
-  vessel Parsek spawned at the end of a replay was treated as a stranger. Parsek now matches
-  the vessel's unique launch identity first, then the identity of a vessel it spawned, and
-  uses the name only for old recordings that carry no identity. Two launches of the same
-  craft never share a recovery, a recording replaced by a Re-Fly or undone by a rewind is
-  never credited, and among the segments of one flight the one that ends last is still the
-  one credited.
-- **Debris rows in Recordings no longer report impossible speeds and distances.** The
-  Max Speed and Distance on a recording's hover are computed from its samples and orbit
-  segments. A destroyed vessel's last moments are kept as a ballistic arc whose lowest point
-  (periapsis) lies deep inside the planet, and Max Speed took the speed at that point: a 48 s,
-  1.9 km debris fall read 318.4 km/s. The arc's speed is now taken no lower than the surface
-  (that row reads 337.6 m/s), and its distance can no longer outrun its top speed. Separately,
-  most debris rows read about 1000 km of Distance: the step where a piece stops being recorded
-  relative to its parent stage measured metres as if they were degrees of latitude. That step
-  is no longer counted, and those rows now read 1 to 3 km. Orbits that stay above the surface
-  read exactly as before.
-- **The Recordings Period cell explains a raised period in plain words.** When a loop period
-  would put more than 20 copies of a flight in the air at once, Parsek flies the shortest period
-  that keeps it to 20, and the cell already showed that slower period in amber. Its hover now
-  says what you typed and why, in the row's own unit: `Period raised from 5s to 6s to fit the
-  overlap cap - at most 20 copies of this flight can play at once.` (it used to read `Runtime
-  cadence clamped to 6s to keep concurrent cycles <= 20 ...`, always in seconds). Clicking the
-  cell still edits the period you typed, which is what stays saved. A period under the cap
-  looks exactly as before.
-- **The Logistics window describes a supply route with several stops as a whole.** A route
-  built from a Supply Run that docked at more than one vessel delivers at every stop each
-  cycle, but four cells read only its first stop. A relay that picked up cargo at one rover
-  and delivered it to another showed the pickup rover as its Destination and "(nothing)" as
-  what it delivers per cycle. Now what each run delivers adds up every stop's delivery (with
-  "across N stops" when more than one stop receives cargo), the destination (now in the
-  grey from / to line under the route's name) names the first stop that receives cargo plus
-  the others (`Mun Base (+2 stops)`) and lists every stop in order with its pickup or
-  delivery role on hover, the "tanks full" line names the stop that is
-  actually full, and Re-scan for endpoint searches for every stop and retries delivery only
-  once all of them are found. Routes with one stop look exactly as before.
-- **A second science award for the same experiment at the same moment is no longer lost.**
-  Recovering two canisters of the same experiment together (stock pays each one separately),
-  or two Breaking Ground stations sending the same result in the same moment, credited only
-  the first one: Parsek took the second for a copy of the first and dropped it, so your
-  science total came out lower than stock's. Each payout now keeps its own identity, so both
-  count, while a genuine copy of one payout reaching the ledger a second time is still
-  dropped. Science already in your save is unchanged.
-- **Ticking Loop on a recording no longer frees its crew for other flights.** The Loop
-  checkbox is meant to be visual only: the first run is the real flight and only the replays
-  after it are ghosts. But the crew bookkeeping ignored a looped recording entirely, so its
-  kerbals read as free for the whole recorded flight and could be put on another vessel over
-  the same span (a double booking), and unticking Loop took them back. A looped recording now
-  holds its crew exactly like any other committed flight: until the end of a recovered
-  flight, until the vessel is recovered or retired at the Space Center, or by the stock
-  respawn rules after a death. The replays reserve nobody. Its kerbals also count as flown
-  for the stand-in rules, and a split whose continuing phase is looped now ends the earlier
-  phase's hold at the split. A looped mission (which loops a whole mission, including supply
-  route missions) never had this problem. The log line is `Loop recording holds crew like
-  its real first run:` (`KerbalsModule.ProcessAction`, `CrewRecoveryReservationClose`).
-  Existing careers see this apply to the past too: a kerbal who flew a looped flight and was
-  since put on another vessel (which the old behaviour allowed) now reads as reserved until
-  that looped flight's vessel is recovered.
-
-- **Dev: the GUI mirror no longer paints scrolled-out rows in the colours of whatever is
-  under them.** A scroll view's rows below (or above) its viewport are in the control-tree
-  dump but not in the photo, so their colours were sampled off the window footer or the
-  terrain (Missions tab, mission 7 onwards). A scrolled-out node now reads no pixels and
-  borrows the colours of the nearest visible node of the same kind and style at the same
-  depth, and a row the viewport cuts through samples only its visible part
-  (`harness/tools/gui_mirror.py`; `docs/dev/design-gui-mirror.md`, "A scrolled-out row is
-  not sampled").
-- **A flight merged without leaving the flight scene is tidied at once.** Merging from the
-  Switch-To Merge / Discard dialog now trims idle tails and splits the flight into its phases
-  right away, as leaving for the Space Center already did, so the vessels it ends with appear
-  one after another on a later rewind instead of all at the moment of the merge (the trim used
-  to wait for the next time KSP loaded the save from cold). The vessel you are flying stays
-  marked as the real vessel on the trimmed flight's last segment. Skipped during a Re-Fly.
-- **A rewind no longer spawns a second copy of a landed vessel on top of the one it kept.**
-  When a recording was stopped before the flight scene had finished loading and the scene then
-  reset, the next recording start kept the stopped recording's last few samples as a separate
-  recording outside any flight. That recording was never saved, and it did not carry the
-  vessel's identity, so a later Rewind-to-Launch kept the landed vessel as history while the
-  leftover recording replayed and spawned the same vessel again in the same spot; the two
-  collided and shed parts. The leftover samples of a flight the scene already dropped are now
-  discarded (log: `FallbackCommitSplitRecorder: discarded capture of dropped tree`), and a
-  recording kept outside a flight now carries its vessel's identity, so the rewind and the
-  spawn recognise the live vessel as the same launch (a rewind removes it when that recording
-  will replay, and a spawn adopts it instead of building a copy). Found by the automated tests;
-  ordinary play does not stop a recording that early.
-- **Setting up ground science next to a landed vessel no longer throws the flight away.** When
-  nothing in a flight moved more than 30 m, Parsek treats it as "idle on the pad" and discards
-  it on leaving the scene. A kerbal who stepped out of a landed capsule and placed a Breaking
-  Ground experiment, power, comms or Central Station part beside it counted as idle, so the
-  flight, the placed parts' recordings and its rewind point were all deleted. A flight in which
-  a kerbal placed any ground part or planted a flag is now never idle (log: `IsTreeIdleOnPad:
-  not idle - tree has N placed ground part(s)` / `... N planted flag(s)`). A plain EVA with
-  nothing placed and no flag is still idle, as before.
-
-- **The Space Center facility menu no longer shows `#autoLOC_900122` above Parsek's reason.**
-  When the committed timeline upgrades a facility later, Parsek adds the reason under the
-  facility's description in its Space Center menu. The description is a translation key that
-  the game only translates when the text is exactly that key, so adding a line to it made the
-  menu show the raw key instead of the description (for the Tracking Station, "At the Tracking
-  Station, all ongoing missions can be viewed and focused..."). Parsek now translates the game's
-  text before adding its line, on every stock text it adds to: the facility menu description
-  and button tooltips, the R&D node description and tooltip, the part tooltip, Mission Control
-  row labels and contract details, the Administration strategy reason and button tooltips, the
-  Astronaut Complex labels and tooltips, and the flight crew EVA and hatch tooltips.
-- **A vessel that dropped a stage and kept flying is no longer treated as if its flight ended at
-  the staging.** Every staging or decouple of the vessel you are flying is recorded as a branch
-  that the vessel flies straight past, but several places read any branch as "this vessel's
-  flight ended here". Fixed:
-  - A station you docked to, when the docked craft later dropped a stage that crashed, was no
-    longer hidden during the replay (and at the end of the replay it was handed the dropped
-    stage).
-  - After switching away from a staged rocket and reloading, the rocket stopped being recorded
-    in the background, and a crash of the vessel you switched to could close the whole flight
-    while the rocket was still flying.
-  - Switching back to a staged rocket started a new flight instead of continuing its own.
-  - Going on EVA from a staged rocket you had switched back to did not record the EVA.
-  - The staged rocket was left out of the merge dialog's keep / discard choices when you were
-    flying another vessel of the same flight.
-  - A staged flight had no phase label in the recordings list, the Timeline had no "appears"
-    row for it, and the Missions event list had no row for how it ended.
-  - A replayed vessel that staged and was later flown again could drop out of the CommNet relay
-    network between its recording's end and the later flight.
-  - A scoped Discard of a switched-to flight that staged twice missed the first stage.
-  - The Missions partner journey could jump onto an unrelated vessel you switched to.
-- **Dropping a spent stage, or switching away, no longer takes away a Re-Fly.** A vessel you
-  separated from at a rewind point stopped being offered as an Unfinished Flight once it later
-  dropped a stage that was only debris, or once you switched away from it while not recording,
-  even though nothing re-flyable happened after the separation. Both now keep the flight
-  re-flyable (and a Re-Fly that only drops debris no longer seals itself). Dropping a stage with
-  a probe core or crew still ends it, as before.
-- **A kerbal held by a committed flight can no longer be taken out on EVA or transferred in
-  flight.** A kerbal a committed flight still needs, who is aboard a live vessel that is not
-  the continuation of a committed flight (for example a craft a rewind left flying), could be
-  sent on EVA or moved to another part with no warning; when the committed flight later
-  spawned, his seat in it came out empty. The crew portrait's EVA button and the hatch
-  dialog's EVA and Transfer buttons are now greyed for him with the reason in their tooltip
-  (the hatch row also shows his status), and stock's EVA and transfer entry points refuse
-  him with the same text. Kerbals aboard a vessel Parsek spawned or adopted for a committed
-  flight fly on as before, a retired stand-in is not held, and nothing is blocked while a
-  Re-Fly is in progress (its crew may EVA and transfer from any vessel of the re-fly).
-- **Administration now says when a strategy stock refuses is activated later.** With every
-  strategy slot in use, the strategy the committed timeline activates later showed only
-  stock's "cannot support more than N active strategies"; the committed activation date now
-  follows stock's reason on its own line. Stock's refusal still decides.
-- **Mission Control says "expired" for a committed contract deadline expiry.** An Active
-  contract whose committed outcome is its deadline running out read "fails" / "Fails on" in
-  the row label, the detail panel and the Cancel refusal, while the Timeline says "Expired";
-  it now reads "Expired on <date>".
-- **Ghosts on the ground no longer jump up and down while crew portraits are showing.** A replayed
-  EVA kerbal or a Breaking Ground part he placed, recorded standing slightly below the terrain height
-  KSP reports, is lifted just clear of the ground as it replays. On the frames where stock redrew a
-  crew portrait (about eight times a second), that lift was skipped and the ghost drew at its
-  recorded height, so it flickered between the two, about a metre apart. Every frame now shows the
-  same height. The log line `Ghost camera pre-cull before LateUpdate: kept N reapply entries for
-  LateUpdate` marks the frames that used to flicker.
-- **A cluster of ground parts an EVA kerbal placed now spawns whole after a rewind.** When a
-  kerbal set out a Breaking Ground cluster a few metres apart (RTG, solar panels, experiments,
-  Central Station), only the first part to finish replaying became a real vessel: every later
-  part found the earlier one inside its spawn-collision box, waited, then gave up with "Manual
-  placement required", and its ghost vanished. The rover and the kerbal ending among the parts
-  would have hit the same wall. A spawn at a member's recorded end spot now ignores a vessel
-  Parsek spawned from another member of the same committed flight that still stands where it was
-  put; the player's own craft, another flight's spawn and a member since moved elsewhere still
-  block. When a spawn has to step back along its own path, a member counts only if it was
-  already standing there at that moment of the recording, so a rover is never placed inside a
-  part set down later where it once drove. At the Space Center the same members are no longer
-  nudged 15 m apart. A kerbal or a placed part is also no longer pushed off its spot by the
-  vessel it stood beside when that vessel was already standing there when the recording was
-  made and has not moved since, such as the landed capsule the kerbal climbed out of, recorded
-  in an earlier flight: after a rewind the Space Center used to move both the kerbal and his
-  seismometer 15 m away from it. Parsek knows the capsule was there from the capsule's own
-  saved flight, which was saved before the kerbal's and ended, standing on that spot, before
-  the kerbal got there. A vessel that arrived later, one moved since, or one Parsek has
-  no saved flight for still pushes, and a rover or other craft is still nudged clear as before.
-- **Watching a replayed flight to its end now holds on that vessel, not on a stage it dropped
-  earlier.** When a replayed rocket had decoupled a controllable stage (a probe core) earlier in
-  the flight and kept flying, the camera at the end of the rocket's flight jumped to that stage,
-  dropped minutes before, and held on it instead. The end-of-flight watch now switches to a
-  different vessel only when the watched flight really ended at the split. It still does that for
-  a stage that exploded as it decoupled, and a crash breakup still holds on the wreck as before.
-  GS-8 (the Kerbal X zone round trip) flies green again.
-- **A Re-Fly that brings back a vessel you recovered now takes the recovery money back.** If
-  you flew, landed and recovered a vessel, then re-flew an earlier separation whose rewind
-  point still had that vessel in the world, the vessel came back and its recovery funds stayed
-  in the account, so it could be recovered and paid for a second time. Parsek already had a
-  step for this, but it only recognised a flight that was saved as "Recovered". With
-  auto-merge on (the normal setting), an in-flight Recover saves the flight as Landed before
-  the game actually recovers the vessel, and a recovery from the Tracking Station reaches a
-  flight that was saved long before, so the step never matched. It now also recognises the
-  recovery from what Parsek records at the moment of the recovery: the recovery payout, or
-  the crew being returned to the roster. The vessel must still be positively the same launch,
-  and a recovery from before the rewind point is left alone.
-- **Supply routes between nearby vessels now really move the cargo during time warp.** When a
-  route's pickup or delivery vessel was close enough to your active vessel to be loaded but was
-  on rails (time warp), Parsek wrote the fuel and parts into the vessel's saved copy instead of
-  the vessel itself. The next save or scene change rebuilt that copy from the vessel, so the
-  pickup and the delivery quietly vanished: the source kept its fuel, the destination never got
-  it, and the route could run again on cargo it had already taken. A loaded vessel now always
-  has its tanks and inventories changed directly, whether or not it is on rails; only a vessel
-  that is truly unloaded is written through its saved copy.
-- **A Re-Fly in which a crew member goes EVA now replaces the old flight when you merge.**
-  Stepping out of the re-flown vessel (for an EVA report, a flag, a part) and climbing back in,
-  or leaving the kerbal outside, used to make the merge keep the old flight: the log read
-  `refused-unflown-provisional` and the old stretch stayed on the timeline next to the new one.
-  The merge now reads the vessel's ending past its own EVA and re-board, the same way the
-  Unfinished Flights list does, writes the supersede rows, and closes the slot as the Re-Fly
-  rules say (a stable ending or an EVA during the Re-Fly seals it; a crash keeps it open for
-  another try; a kerbal who left for a different vessel seals it). The kerbal's own EVA and the
-  vessel after the re-board are part of the new flight and are never hidden by the merge. The
-  same fix covers a stock Switch-To away and back during a Re-Fly.
-
-- **A Re-Fly in which the re-flown vessel undocks now replaces the old flight when you merge.**
-  An undock during a Re-Fly used to make the merge keep the old flight next to the new one
-  (`refused-unflown-provisional`): the recorder ends the vessel's recording at the undock with no
-  ending of its own, and the Re-Fly slot stops at a separation by design. The merge now accepts a
-  flight that ended at a separation made during this Re-Fly, writes the supersede rows and closes
-  the slot (the undock is a downstream separation, which the Re-Fly rules always seal). Both
-  halves after the undock are part of the new flight and are never hidden by the merge. An
-  undock that already existed before the Re-Fly began does not count.
-
-- **Looping one phase of a split flight is now visual only.** A long flight that Parsek
-  splits into phases (launch, coast, landing) is a chain. Ticking Loop on any one phase used to
-  change the whole flight's outcome: its final vessel never spawned, its crew stayed reserved
-  forever, and a crew death became permanent even with stock respawn on. Now the loop only adds
-  ghost replays. The flight plays once for real and its final vessel spawns once at the end, in
-  flight, at the Space Center and in the Tracking Station. The crew of its other phases are
-  freed exactly as for any flight: at the end of a recovered flight, when the vessel is
-  recovered, or when a flight that ends parked at the Space Center is retired (the looped
-  phase's own crew are held the same way since the LOOP-RECORDING-CREW-NEVER-RESERVED fix).
-  A death follows stock respawn. Phases before the
-  end still never spawn a vessel, and a looped mission (which loops the whole mission) is
-  unchanged. A kerbal's hover no longer says a loop holds him. The log names the spawn with
-  `Chain loop first-run spawn:`.
-- **Every orbit Parsek calls Orbiting now spawns, and a refused ghost no longer lingers.** A
-  recording ending in orbit is marked Orbiting only when its periapsis clears the body's
-  atmosphere, and on a body with no atmosphere its highest terrain, so a low Mun orbit that
-  would hit a mountain ends as a sub-orbital flight. The spawn check now uses that same line.
-  Before, a vessel whose periapsis was up to 5 km above the atmosphere (a 72 x 100 km Kerbin
-  orbit, and the same band over Duna, Eve, Laythe and Jool) was recorded as Orbiting and then
-  refused at spawn, and its ghost stayed on screen past the end of the recording for the rest
-  of the scene. The 5 km margin is now used only to wait while the vessel is low in that band,
-  and the vessel spawns once it climbs. A recording that ended with its vessel unloaded no
-  longer counts as Orbiting just because its periapsis is above sea level: a periapsis inside
-  the atmosphere makes it sub-orbital. A spawn that can never succeed (an orbit that cannot
-  be rebuilt, a spawned vessel that died, bad numbers) no longer holds its ghost: the ghost
-  finishes its replay and disappears at the recording's end, along with its map-view orbit.
-  A refusal saved in an existing game is checked again under the new rule when the game loads,
-  except a vessel that already died when it spawned, which stays refused. Ruling 2026-09-27.
-- **Every column of the Missions and Logistics windows can be reached on a 1280 px screen.**
-  Both windows are laid out wider than 1280 px (Missions 1355, Logistics 1410), and nothing
-  kept a window on the screen, so on a 1280x720 game window their right-hand columns were
-  drawn off the edge and could not be reached. A Parsek window that cannot fit the screen at
-  its own width is now made as wide as the screen and moved onto it, and its table scrolls
-  sideways: in the Missions window the column headers scroll together with the rows, so every
-  column stays under its header, and the Close button and the help line stay in place. Such
-  a window cannot be dragged wider than the screen, and it returns to its normal width when
-  the screen is large enough again. On a screen the window already fits, nothing changes: it
-  stays where you put it, even partly off-screen.
-- **Recovering a vessel no longer pays its recovery funds twice, or rewrites the earlier legs of
-  its flight.** When a vessel was recovered or deleted while its flight was still waiting to be
-  merged (a Re-Fly or vessel-switch merge dialog, for example), Parsek marked every earlier
-  recorded leg of the same vessel as recovered too: the leg before a staging, undock or EVA,
-  the leg before a dock, and each earlier part of a background recording. Those legs then
-  claimed to last until the recovery, lost their saved vessel, and on merge each one booked
-  the recovery payout again. Only the leg the vessel was actually flying at the recovery is
-  marked now, so the payout is booked once; a flight that shed only debris is still marked as
-  before.
-- **A kerbal who died and respawns reads Lost until his respawn even when he flies again
-  later.** With crew respawn on, a kerbal killed on a recorded flight who was then flown again
-  on a flight ending after his respawn read as reserved for that later flight over the whole
-  time, including while stock still had him dead or missing, and a free stand-in took his seat
-  there (also before the death after a rewind). He now reads Lost until the respawn date, with
-  no stand-in, exactly as with the death alone; from the respawn on the later flight holds him
-  as usual and a stand-in covers his seat, which now appears at the respawn without waiting for
-  a scene change.
-- **No false "Held your funds at the spent value" message on Moderate or Hard when your
-  funds go negative.** Those presets let stock take funds (or science) below zero, for
-  example with a failed contract's penalty. Parsek treated the negative balance as a spend it
-  had missed: it showed the message, wrote a warning to the log on every recalculation, and a
-  rewind reset the balance to zero. It now keeps a negative balance that already exists, as
-  stock shows it; money a committed future flight will spend later still never takes the
-  balance below zero early. On the presets that keep currency at zero nothing changes.
-- **Auto-hire no longer seats a kerbal your committed future hires.** With the difficulty
-  option that hires crew automatically for empty seats, after a rewind to before a kerbal's
-  recorded hire, auto-hire could pick that same applicant: Parsek refused the hire, but the
-  game seated him anyway without hiring him, announced a hire that cost nothing, and with two
-  seats short put him in both. Auto-hire now passes over applicants a committed flight hires
-  later and takes the next one (or a new applicant when none is left).
-- **Recording through the Alt+F12 cheats and from alternate launch sites.** Four follow-ups
-  from the stock-settings audit:
-  - A Set Orbit, Rendezvous or Set Position teleport during a recording is now recorded as a
-    jump. A same-planet jump is not itself a split point (the recording still splits where the
-    flight phase really changes, such as surface to orbit), and a jump from the surface
-    or the atmosphere to another planet or moon now splits the recording at the new body the
-    way an SOI change does (before, one piece of the recording spanned both bodies). In orbit
-    the ghost follows the new orbit from the moment of the jump instead of the old orbit for a
-    few frames. Every teleport is logged.
-  - A recording that did not start with a launch no longer carries a launch site. Starting a
-    recording on a vessel taken off from a remote landing, switched to, or picked in the
-    Tracking Station tagged it with the site of your last launch, and a supply route built from
-    it was treated and priced as a KSC launch. A launch from the pad or runway, a vessel still
-    on a launch site, and a fresh rollout keep their site, and a vessel standing on a site now
-    names that site rather than the last one you launched from.
-  - A flight that ends parked on any stock launch site (the Making History Desert pad and
-    airfield, the Woomerang pad and the Island airfield when Making History is installed, as
-    well as the KSC pad and runway) is retired: no vessel is spawned there, its crew is freed
-    and no funds are paid. KSC behaves exactly as before.
-  - Recording while Hack Gravity is on now writes one warning to KSP.log: orbits recorded under
-    changed gravity replay at the wrong rate once gravity is back to normal. Nothing else
-    changes.
-- **Kerbals keep the inventory they carried when their vessel reappears.** A vessel that
-  appears at the end of a recording used to give each kerbal the inventory he has on the roster
-  now, not what he carried at the end of the flight, because a kerbal's own inventory is stored
-  with him rather than with the vessel. A part could exist twice (brought from the VAB, stowed
-  in the pod or placed during the flight, then revert and commit) or disappear (taken out of the
-  pod and kept by the kerbal). Parsek now records each crew member's inventory with the vessel
-  and gives it back to him when the vessel appears, EVA kerbals included; a stand-in who takes a
-  reserved kerbal's seat gets that seat's recorded inventory. Recordings made before this
-  version keep the old behaviour.
-- **Career ledger follows non-Normal difficulty settings (science gain, declined contracts,
-  zero starting pools).** Four gaps found by the stock-settings audit, each invisible on the
-  Normal preset every test save uses:
-  - Science on Easy, Moderate or Hard (or any custom science-reward slider) now counts at the
-    rate stock paid. Parsek recorded the experiment value before stock's science multiplier, so
-    on Easy it credited half the science stock gave you and on Hard more than stock gave, and a
-    rewind reset your science to that wrong total. The multiplier in effect when the science
-    arrives is now saved with it (changing the slider later does not rewrite past science),
-    while the per-experiment "how much is left" math stays in stock's own units.
-  - Declining a contract now costs the reputation stock took (the difficulty's "reputation lost
-    on decline", 1 on Normal and 3 on Hard) in Parsek's timeline too, instead of being handed
-    back by the next rewind. Nothing is recorded when the setting is 0.
-  - A career that starts with 0 funds, or a Science game at 0 science, now has its starting
-    balance recorded, so Parsek can keep the balance in step, and loading such a save no longer
-    waits about 10 seconds before Parsek sets its balances. Science and Sandbox games also stop
-    waiting 2 seconds on every load for funds and reputation, which those modes do not have.
-  - Currency from the Alt+F12 cheat menu is still not recorded (by design, the next rewind
-    removes it); each cheat now writes one log line saying so.
-- **Deploy-limited cargo bays now open on the replay.** A cargo bay set to open only part of the
-  way (the stock Mallard's Mk3 bays ship at 44, 45 and 51 percent) recorded nothing when opened
-  or shut, so its ghost's doors never moved. Parsek now counts a bay as open once its doors stop
-  at the limit, and the ghost opens its doors to that same limit rather than all the way.
-
-- **A contract penalty or a facility repair is no longer charged twice across a rewind.**
-  After a rewind, the timeline can hold two endings for one contract: something you did in
-  the present (a cancel, a completion, or a failure caused by losing a vessel) and the fail or
-  cancel your committed flights recorded later. Parsek charged the later penalty as well, so
-  the contract cost you twice. It now charges a fail or cancel penalty only if the contract is
-  still open at that point, as stock does, and the first ending stays the contract's state. A
-  repair of a building the timeline already has repaired (a second repair of one collapse) now
-  costs nothing and is logged. A repair of a building Parsek has no collapse record for still
-  charges, because stock only repairs destroyed buildings. A single fail, cancel or repair
-  still costs exactly what it did.
-
-- **Rewinding a later flight no longer deletes a vessel an earlier flight left behind.** A
-  plain rewind removed every vessel Parsek had spawned or adopted for any committed recording,
-  expecting each recording to spawn its vessel again. A recording that ended before the rewind
-  point is history, though: it does not replay after the rewind, so its vessel never came back.
-  For example, land a capsule, commit it through the Switch-To dialog, launch another flight
-  and rewind that one: the capsule was gone. A rewind now keeps a
-  spawned vessel when no recording that replays after the rewind will spawn it again, and the
-  kept vessel stays linked to its recording, the same way a revert keeps an earlier flight's
-  vessels. Vessels of the rewound flight, and of any recording that replays, are removed and
-  spawned again as before.
-
-- **Rewinding a relaunch of a craft no longer deletes the earlier launch of that craft.** A
-  rewind removes the rewound flight's own vessel from the save it goes back to, and it found
-  that vessel by name. Launching a craft again gives the new vessel the same name, so rewinding
-  the second flight also removed the first one (for example the first Kerbal X, still landed
-  where you left it), and nothing brought it back. The rewind now also checks the vessel's
-  launch identity: a vessel with the craft's name from a different launch stays where it was.
-  When a recording has no launch identity, or the save does not hold the rewound flight's own
-  vessel, the name decides as before. A flight renamed in the recordings table after it was
-  flown now also has its own vessel removed on its rewind.
-
-- **After a revert or a rewind, debris and recovered vessels keep the ending they recorded.**
-  Reverting a flight or rewinding to an earlier point used to wipe the "destroyed" or
-  "recovered" ending from committed recordings that Parsek had marked as handled, which hit
-  almost every debris recording. The recording then played back as if its vessel had never
-  ended, and the ending was not saved again. Committed endings are now left alone on both
-  paths. Spawn tracking still resets as before, and revert and rewind still differ in the same
-  way: a revert throws the reverted flight away, a rewind commits it.
-
-- **Science is no longer over-credited when the same experiment is submitted more than once.**
-  Parsek recorded a science subject's running total at each submission, and the ledger adds
-  every submission, so transmitting or recovering the same experiment a second time (in one
-  flight, across flights, or at the Space Center) credited the earlier science again, up to
-  the experiment's cap. Breaking Ground deployed experiments, which send their results in about
-  ten chunks, reached an experiment's full value after three or four sends. Each submission now
-  records only the science it added, at the science rate stock paid (see the difficulty entry
-  above), so your science total matches stock. Saves recorded before this keep their past
-  credit unchanged; only science gathered from now on is counted the new way.
-- **Ghosts on the map no longer push real debris out of your save.** KSP keeps at most
-  `MAX_VESSELS_BUDGET` vessels (250 by default) when it saves, dropping the oldest debris
-  first. Parsek's map ghosts are vessels while you are in flight or the Tracking Station, and
-  KSP counted each one against that limit before Parsek removed them from the save, so every
-  ghost cost you one real piece of debris. KSP now saves as if the ghosts were not there, and
-  your budget setting is never changed. With the limit set to "no limit" nothing changes.
-  Behavior on a live save is inferred from the stock code and covered by an in-game check;
-  it has not been flown yet.
-- **Logistics: a day is a day on your calendar.** The Logistics window showed intervals of a
-  day or more in 6-hour Kerbin days but only switched to days at 24 hours, so a 24-hour
-  interval read `4.0d` on the Kerbin calendar and on the Earth calendar alike, and typing
-  `1d` into the interval field always meant 6 hours. Both now follow the game's calendar
-  setting: 6 hours on the Kerbin calendar, 24 hours on the Earth calendar, and a displayed
-  value types back in unchanged.
-- **Recovering or losing one vessel no longer ends a same-named recording of another.** When
-  KSP recovered or removed a vessel (for example its automatic clean-up of debris landed at the
-  Space Center), Parsek marked every same-named recording in the pending flight as recovered
-  and dropped its end snapshot. It now also checks that the recording is of that very vessel
-  (same vessel id and launch), and falls back to the name only when either side lacks the id.
-- **A debris vessel KSP drops from the save now ends where it was last seen.** When KSP left a
-  background-recorded vessel out of the save (its vessel budget), the reloaded recording kept
-  claiming the vessel existed, stretching its end forward every 30 seconds, and a Commit Flight
-  could then mark it destroyed and replay it as an explosion. After a reload Parsek now closes
-  each such recording at the last moment the vessel was recorded, as orbiting, landed,
-  splashed down or sub-orbital from its own recorded path, with no explosion; one it already
-  marked recovered (the Space Center clean-up of landed debris is a recovery) keeps that. One
-  log line names every such vessel, its recording and how it was closed.
-- **Parsek stays off in Making History missions, the mission builder and stock training or
-  scenario saves.** These games script their own facility locks, recovery rules and endings,
-  and Parsek was never built for them; worse, after playing a career and then loading one of
-  them, Parsek's in-memory copy of that career could still play its ghosts, draw its supply
-  routes on the map and block stock screens with its reservations. Now, in the MISSION,
-  MISSION_BUILDER, SCENARIO and SCENARIO_NON_RESUMABLE game modes, Parsek shows no toolbar
-  button and does not record, play ghosts, show map presence, rewind or re-fly, capture or patch
-  the ledger, or annotate and block any stock control. `KSP.log` carries one line per scene
-  naming the mode (`[GameModeGate] Parsek inert: game mode MISSION ...`). A mission or scenario
-  save that somehow carries a Parsek section keeps it unchanged when saved. Career, Science and
-  Sandbox games are unaffected.
-
-- **Re-Fly on the Hard preset: Retry is not offered; merge or discard by leaving the flight.**
-  Rewind and Re-Fly ignore the difficulty's "Allow Quickload" and "Allow Revert" settings, but
-  stock only shows the Esc menu's Revert Flight button (the way into the re-fly Retry / Discard
-  / Continue Flying choice) when Allow Revert is on. On a game with Allow Revert off, such as
-  the Hard preset, Retry from the rewind point is therefore not available during a re-fly;
-  leaving the flight (Esc > Space Center or Tracking Station) still opens the merge dialog to
-  keep or discard it. `KSP.log` notes this under `[ReFlySession]` when a re-fly starts on such
-  a game.
-
-- **Breaking Ground deployed-experiment science is never attributed to the vessel you are
-  flying.** Science from deployed experiments is recorded like science earned at the Space
-  Center, so re-flying a flight no longer removes it and it no longer locks a re-fly as if
-  you had earned it on that vessel.
-
-- **Repairing a KSC building that your committed timeline already repairs later is now
-  refused, so it is no longer charged twice.** After a rewind to between a building's
-  destruction and its committed repair, repairing it again charged both repairs. The
-  building's menu now greys out Repair, with the reason in its tooltip ("Repaired on
-  <date> on your committed timeline. ..."), and a Repair click is refused with the same
-  text before any funds are taken, the way a committed facility upgrade is already blocked.
-  A building you destroy yourself after rewinding to before its committed destruction can
-  still be repaired.
-
-- **A crew death's reputation penalty now stays with the death when a recording is split.**
-  When the optimizer or a Re-Fly split cut a recording between the moment a crashed vessel's
-  reputation penalty was stamped and the crew's death, the death went to the later part and
-  the penalty stayed on the earlier one, so re-flying the later part brought the crew back but
-  kept the reputation loss. The penalty now always lands on the same part as its death, on both
-  splits, and a re-fly that undoes the death undoes the penalty too. Penalties from contracts
-  and other sources are placed as before.
-
-- **Spinning vessels recorded with PersistentRotation now replay spinning.** Parsek never
-  recognised the KSP 1.12 build of PersistentRotation (PersistentRotationUpgraded), so a
-  vessel that went into time warp while spinning was always replayed holding its attitude.
-  Parsek now recognises the mod by any of its names, logged as `PersistentRotation mod
-  detected: True (matched=...)` at recording start. A recording that goes on rails while
-  spinning faster than 0.05 rad/s stores the spin, and the ghost turns at that rate for
-  the whole on-rails stretch. The stored spin axis is now correct too: KSP reports a
-  vessel's angular velocity relative to its control part, and the old code read it as a
-  world vector. That was harmless while the mod was never recognised.
-
-- **A ground part a kerbal places on EVA is now recorded as its own vessel and replays as a
-  ghost.** Breaking Ground experiments, power and comms units and the Central Station become
-  their own vessel when a kerbal places them, and Parsek used to record the placement on the
-  kerbal instead, so the replay showed the kerbal walking up to an empty patch of ground. The
-  placed part now gets its own recording in the flight's tree from the moment it is placed:
-  its ghost stands where it was placed and disappears when the kerbal picks it up. A part
-  that is still placed when the flight ends comes back as a real vessel after a rewind, like
-  any other vessel the flight leaves behind; a part that was picked up ends as "Disassembled"
-  and is never spawned. The kerbal who placed it still counts as the end of his own flight, so a
-  kerbal left standing on EVA after placing a part also comes back after a rewind (he used to be
-  treated as having branched into the part and never came back). Only a real placement by the
-  kerbal you are recording counts: an old
-  experiment that merely loads nearby no longer adds anything to the recording, and one
-  pick-up records one pick-up (stock reports it twice).
-
-- **Rewind-to-Launch no longer undoes another flight's Re-Fly from a stale save.** A plain
-  rewind reloads the career from `persistent.sfs` as it was last written, and while the
-  recordings, the ledger and (since the earlier fix) the rewind points were kept from memory,
-  the supersede rows, the rewind retirements, the kerbal-death tombstones and the merge journal
-  were read back from that file. Any change to them since the last write was undone: rows
-  added then were lost (a Re-Fly merge finished at load time, whose saves are deferred; the
-  retirements an earlier rewind wrote, so its re-flown flight could show again), and rows
-  removed then came back (a discarded flight's rows, the rows an earlier rewind dropped). The
-  rewind now carries all four from memory, the same way it carries the rewind
-  points; the rewound flight's own Re-Fly is still undone exactly as before. A merge journal
-  still on disk for a merge memory had already finished is dropped instead of being run a
-  second time on the next load. Log: `Staged lists carried across rewind:`.
-
-- **Recordings are no longer lost when the game closes right after loading or committing.**
-  Loading a save and committing a flight both write the changed recordings to disk straight
-  away, and that write advanced each recording file's save counter past the one stored in the
-  save. If the game then closed, crashed or was killed before the next save, the next load read
-  every such recording as belonging to a different save and dropped it (a whole flight when it
-  was the first recording of the tree). That immediate write now keeps the counter the save
-  already holds, so the next load accepts the file, and the next real save advances the counter
-  on the file and in the save together, so a quicksave taken before the write is again
-  recognised as older. Until that save (and for good if the game closes first) such a quicksave
-  loads the rewritten file instead of being rejected. A recording no save has ever stored still
-  gets its first counter from the immediate write.
-
-- **Missions: cloning a looping mission no longer leaves two loops on one flight.** The Clone
-  button copied the Loop setting too, so a copy of a looping mission also read Loop on even though
-  only one mission per flight can loop; the copy did nothing and the log warned on every rebuild
-  until the next load switched it off. The copy is now created with Loop off while the original
-  keeps looping. It keeps the original's loop period and unit, so turning Loop on for the copy
-  later loops it with the same settings (and, as before, switches the original's loop off). The
-  Clone button's tooltip now says so.
-
-- **A save interrupted by a crash no longer leaves a stray `.tmp` file next to Parsek's
-  career files.** Parsek writes each file to a temporary copy and then swaps it into place. A
-  crash before the swap keeps the real file and leaves the temporary copy beside it. Only the
-  recordings folder was cleaned of these copies; the ledger (`ledger.pgld`), game-state events
-  (`events.pgse`), milestones (`milestones.pgsm`), per-UT baselines (`baseline_*.pgsb`) and the
-  install-wide `settings.cfg` kept theirs. Each of those now deletes its own leftover
-  `<file>.tmp` when it loads, before reading the real file, which it never touches. The baselines
-  mattered most: their names change with every save, so their leftovers accumulated instead of
-  being overwritten by the next save. One case is left alone on purpose: when the real file is
-  missing, the temporary copy may be the newest complete save (a crash in the middle of the
-  fallback swap, which parks the previous file as `<file>.bak.<id>` first) or a half-written
-  first save, and the two cannot be told apart. That copy is kept, not deleted and not put in
-  place, and the log warns with its path, size and any `.bak` copy, so it can be recovered by hand.
-
-- **A dropped booster you switch to and fly no longer reports a distance of over 1000 km.**
-  When you switch to a booster Parsek was recording in the background and it flies on near its
-  sibling, part of its track is stored relative to that sibling in metres. The distance worked
-  out when the recording ended read those metres as map coordinates, so a booster that fell 5 km
-  from the pad was listed with a maximum distance of about 1205 km. The distance now comes from
-  the booster's real map positions (the same data Parsek already used for boosters it never
-  switched to), and so does the biome a destroyed vessel ended in. The same booster also no
-  longer logs a background time-limit close after you switched to it: switching now cancels the
-  60 s limit it had as debris.
-
-- **Astronaut Complex: a stand-in and the kerbal it stands in for count as one active kerbal.**
-  While your committed timeline holds a kerbal, Parsek puts a generated stand-in in that seat,
-  and stock counted the two as two active kerbals: the complex could read `Active Kerbals: 6
-  [Max: 5]`, lock every applicant at the crew limit early and charge more for the next hire.
-  The active-crew count now treats the held kerbal and his active stand-in as one seat, so the
-  header, the hire limit, the hire cost (and the editor's auto-hire) read what they read before
-  the hold, and Parsek's ledger records the same hire cost stock charges. A retired or displaced
-  stand-in still counts, and the count returns to stock's own when the hold ends. The stand-in's
-  dismiss tooltip adds that it shares the owner's seat and does not count against the limit.
-- **Ghost replay no longer reports a placed ground-science part as shown.** The part-event
-  log line for an EVA inventory placement or pick-up said the ghost applied it even when the
-  ghost had no such part (always the case today); it now says `no-info-for-part`.
-
-- **Space Center: the Administration building keeps stock's own reason when stock already
-  refuses a strategy, and a strategy Parsek refuses now looks refused.** With every strategy
-  slot taken, all ten inactive strategies showed Parsek's "a committed activation needs this
-  slot" instead of stock's own slot-full reason. Parsek now adds its reason only where stock
-  would allow the activation (or the Cancel); when stock refuses for its own reason (slots,
-  a conflict, the cost, a minimum duration), stock's greyed state and stock's text stand
-  untouched, and the Accept / Cancel click is left to stock. The Accept / Cancel button used
-  to look fully enabled while Parsek had disabled it (stock gives that button no disabled
-  picture, for its own refusals too); it is now dimmed while a Parsek refusal disables it and
-  gets its exact stock look back when you select a strategy Parsek does not refuse.
-- **Astronaut Complex: an applicant your committed timeline hires later shows "Hired on
-  <date>" on its row.** The date was written to the row's status line, which applicant rows
-  never display (stock's own "For Hire" is hidden there too), so the row kept showing only the
-  trait and the date was in the hover tooltip alone. It now replaces the trait line under the
-  applicant's name (the trait stays in the tooltip) and the stock line returns once the hire is
-  no longer ahead.
-- **Astronaut Complex: a stand-in's row reads "Stand-in for Bill Kerman".** An active stand-in
-  kept stock's "Available for next mission" although his dismiss button was locked; the row
-  now says whose seat he is covering, in the Kerbals window's wording.
-- **Stock screens: a button Parsek blocks now looks disabled.** The R&D Research and
-  purchase-all button and Mission Control's Accept, Decline and Cancel draw no disabled state
-  of their own, so a blocked one looked clickable and only the reason text said otherwise.
-  They are now greyed while Parsek blocks them (a button whose own style has a disabled look
-  keeps using it), and get their exact stock look back when the block lifts or another,
-  unblocked contract or node is selected.
-- **KSC facility menu: the Upgrade explanation wraps.** The tooltip on a blocked Upgrade
-  button drew as one very long line to the left of the menu; it now wraps to short lines.
-- **Mission Control: row labels fit.** A contract the committed timeline accepts or resolves
-  reads e.g. "- Accepted on Y1, D03" or "- Completed on Y2, D114" after its title, instead of
-  a long status the three-line row cut off; the detail panel still gives the full
-  explanation.
-- **Mission Control: the slot refusal names the contract's agent.** When several offers share
-  a title, "Accept is unavailable" now says which one the committed timeline accepts, e.g.
-  "'Conduct a focused observational survey of Kerbin.' from Zaltonic Electronics". The agent
-  comes from the contract's saved accept record, or else from Mission Control's own offer list
-  at the moment the reason is shown; it was missing when the save kept no accept record,
-  because Parsek looked for the offer while the game was still loading its contracts.
-- **Astronaut Complex: a stand-in's dismiss refusal says whose seat he covers.** It read "This
-  kerbal is a stand-in in a reserved kerbal's replacement chain"; it now reads e.g. "Standing
-  in for Bill Kerman, reserved by timeline for 'Mun Lander' until Y1, D09, 18:40." A stand-in
-  who covers no seat right now reads "Kept as a stand-in for Bill Kerman, ..." (or "Kept as a
-  stand-in for a reserved kerbal, blocked by timeline.").
-- **Timeline: a kerbal's experience row reads "XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin,
-  Recovered)" instead of the raw word "KerbalExperience".** The row a crewed recovery writes for the
-  kerbal's career log had no Timeline display arm, so it showed as an unstyled event with the type name
-  as its text and logged an "Unknown GameActionType" warning every time the Timeline rebuilt. It now
-  shows in the crew bucket, beside `Recovered: <name>`, naming the logged entries. Supply-route ledger
-  rows, which the Timeline design gives no row, are now skipped instead of taking the same fallback.
-- **A committed tech unlock now reaches the R&D tree when the Space Center clock passes it as
-  the last committed event.** When the clock caught up with a committed research (for example
-  after a rewind to before it) and that research was the last thing on the committed timeline,
-  the ledger recalculated without a time limit, and that kind of recalculation leaves the tech
-  tree alone so it cannot re-lock anything. The node's science was charged but the node stayed
-  locked, and once its research block lifted it could be bought a second time. Those
-  recalculations now also unlock every committed node at or before the current time. They only
-  unlock, never re-lock, never unlock a node whose research is still ahead, and wait while a
-  rewind is still moving the clock. A committed part purchase on that node now applies in the
-  same pass.
-- **Buying a part no longer charges again for the identical parts the game gives you free.**
-  When you buy a part in the VAB/SPH or in R&D, the game also marks the part's identical
-  variants (same tech node) as purchased without charging for them. Parsek recorded each of
-  those as a paid purchase, so its funds history charged the entry cost once per variant
-  while the game charged it once. It now records what the game charged: the part you
-  bought at its entry cost, and each identical variant as a free purchase. The free record
-  still counts: after a rewind the variant is marked purchased again when its date passes,
-  and it cannot be bought before then, like the part you paid for. Purchases recorded
-  before this fix keep the amount they were recorded with.
-- **Kerbals window: column text now starts exactly under its header.**
-  Its body cells were plain labels under boxed headers, so the text sat 4px left of the
-  header text (Roster: header text at x=289, body at x=285). Every body cell now uses the
-  shared table cell style, including the label-styled link cells (the Last flight and
-  Flights rows).
-- **Real Spawn Control and the Log window: column text now starts exactly under
-  its header.** The header cells are boxes that inset their text 4px, while the body cells
-  were plain labels with no inset, so every column's text sat 4px left of its header in
-  Real Spawn Control (1px right in the Log window, whose hand-set indent was 5px). Body
-  cells now use one shared table cell style that takes the header's own padding, so the
-  measured header-to-cell text delta is 0px on every column. Both tables also draw their
-  pinned header row inside the same dark box as the rows, so the box no longer starts 4px
-  left of the header cells above it.
-- **Dev: the GUI mirror's Timeline `Career` view button no longer jumps to the Career window.**
-  The page's launcher rule sent any control whose text spelled a window's name to that
-  window. Only the main window's controls launch windows now; elsewhere such a control is
-  routed as a view or state of its own window, or says there is no capture for it
-  (`harness/tools/gui_mirror.py`, `routeClick`).
-- **Dev: the GUI mirror names windows, tabs and states by what the game draws.** The rail,
-  headers, Compare and the notes list showed seam tokens (`structure`, `rewindff`,
-  `expandedstats`), so a window whose token is not its title could not be found. A window
-  now reads by its own title without the `Parsek - ` prefix (the structure window by the
-  title it draws with no mission or route open, its other titles in the tooltip), a
-  Timeline view by its button's text, and a state by the one control its step changed
-  where the capture shows it (`Info`, `Recordings off`, `Last Day`); every name comes from
-  the captures, and the token stays in the tooltip and in every link and note key.
-- **Space Center: a refused research, contract accept, facility upgrade, hire or dismissal now
-  says why, and when the item frees up.** The "Action Blocked" dialog and the badge hovers on
-  the R&D, Astronaut Complex and Mission Control screens used to print a raw `UT 183420`. They
-  now say what the timeline does and on which calendar date (for example `Researched on Y2,
-  D114, 14:05, blocked by timeline until then.`). A kerbal held by a committed flight says
-  which flight holds him and when he is free again, or that he is free once the flight is
-  recovered. The hover and the refused
-  click now show the same text, and the facility dialog names the building instead of its
-  internal id.
-- **Space Center: facility upgrades no longer stay blocked after the committed upgrade has
-  happened.** After a rewind, a facility upgrade a committed flight made later refused every
-  upgrade of that facility for good, even long after that upgrade had taken place. The
-  block now lifts once the clock passes the last committed upgrade of that facility. The
-  research, contract and hire blocks (and their marks) likewise lift once the committed
-  date passes, and they only protect committed history: a flight still in progress never
-  blocks a Space Center action.
-- **Mission Control: a contract your committed timeline accepts later is marked on its own
-  row and explained in its details, with Accept and Decline greyed out.** The small blue
-  badge (hover-only, and gone after any tab switch) is replaced by the stock screen's own
-  parts: the row's title now reads, for example, `Explore the Mun - Accepted on Y2, D114`,
-  the contract details end with `Accept and Decline are unavailable` and the same
-  explanation the refusal dialog gives, and both buttons are
-  disabled. All of it is re-applied whenever Mission Control rebuilds its list, so it
-  survives switching tabs and contracts being offered or completed. It also works with
-  Contract Configurator installed, whose own contract list and Accept button used to switch
-  the marking off.
-- **Mission Control: declining a contract your committed timeline accepts later is now
-  refused.** Declining it did nothing useful: the contract came back as active on the
-  committed date anyway, and the decline could still cost reputation. The refusal says when
-  the contract becomes active. Contracts the committed timeline leaves alone decline as
-  before.
-- **Space Center: the Administration building explains and refuses strategy actions that
-  conflict with your committed timeline.** A strategy your committed timeline activates later
-  can no longer be activated early (which also charged its setup cost a second time); nor can
-  one whose activation would take a slot a committed activation needs, or one that stock's own
-  conflict rule would not allow beside a strategy your committed timeline activates while it
-  is still running. An active strategy your committed timeline deactivates or re-activates
-  later can no longer be cancelled before then. Stock greys the row or the Cancel button and
-  prints why in its own orange reason line, for example `Activated on Y2, D114, 14:05,
-  blocked by timeline until then.` Where stock itself already refuses the
-  action, stock's own reason is the one shown.
-  Stock's own strategy expiry is never blocked.
-- **Space Center: committed strategy activations and deactivations now take effect in the
-  stock game.** After a rewind, a strategy your committed timeline activated was charged its
-  setup cost but never switched on, and one it deactivated stayed on. The stock strategy list
-  now follows the committed timeline at each ledger recalculation, including the one when a
-  save loads (applied as soon as the game has loaded its strategy list, a frame later),
-  without charging or refunding anything again. Strategies activated before the save used
-  Parsek are left alone.
-- **After a rewind, a strategy's committed expiry no longer records a second deactivation.**
-  With KSPCommunityFixes installed, stock strategies expire when their duration runs out.
-  After a rewind to before a committed expiry, the game expired the strategy again when the
-  clock passed that date, Parsek recorded a second deactivation of it (the Timeline showed
-  it twice), and every later recalculation warned that the strategy was not active. The
-  committed deactivation (an expiry, or a cancel you made) now switches the strategy off at
-  its committed date, before the game's own expiry check runs, so the game never expires it
-  a second time and nothing new is recorded. A strategy you activate again after that date,
-  and any expiry your committed timeline does not already have, expire and are recorded as
-  before.
-- **Mission Control: cancelling an active contract your committed timeline completes,
-  fails or cancels later is now refused, and its Active-tab row says so.** Cancelling it
-  used to charge the cancel penalty now and then either wipe out the later completion's
-  reward (with anything the committed timeline bought with it) or charge the committed
-  failure or cancellation penalty a second time. The row now reads, for example,
-  `Explore the Mun - Completed on Y2, D114`, the contract details end with `Cancel is
-  unavailable` and the explanation (`Completed on Y2, D114, 14:05, blocked by timeline until
-  then.`), and Cancel is greyed out; a cancel from anywhere else gets the same
-  explanation. A contract whose only future is its deadline stays cancellable, since
-  cancelling early for the smaller penalty is ordinary play, and the debug toolbar's
-  "regenerate contracts" still works.
-- **Space Center and VAB/SPH: buying a part your committed timeline buys later is refused,
-  and a committed part purchase now actually takes effect after a rewind.** With the
-  difficulty option that bypasses part entry purchases off, rewinding to before a committed
-  purchase left the part unpurchased for good: the committed purchase was still charged on
-  its date, but the part never became usable, and buying it again charged the entry cost a
-  second time. Now the part's tooltip (in the VAB/SPH part list and in R&D) greys out its
-  purchase button and says why, for example `Purchased on Y2, D114, 14:05, blocked by
-  timeline until then.`; a purchase from anywhere else gets the same explanation. R&D's
-  "purchase all parts" buys the others and names the parts it skipped, and is greyed out
-  when every remaining part is one of them. When the committed date passes, the part is
-  marked purchased in the game, with no second charge. Parsek's ledger keeps every purchase
-  you made; nothing is dropped or merged. With the bypass option on, purchases are free and
-  nothing changes.
-- **Space Center: the facility menu greys out Upgrade, with the reason, when your committed
-  timeline upgrades that facility later.** Clicking Upgrade on such a building used to be the
-  first you heard of it: an "Action Blocked" popup. Now the Upgrade button in the building's
-  menu is greyed out, and hovering it shows the same explanation the popup gives (for example
-  `Upgraded to level 2 on Y2, D114, 14:05, blocked by timeline until then.`). Once the clock passes the
-  last committed upgrade, Upgrade is back the next time the menu opens; a change to the
-  committed timeline while the menu is open updates it at once. The refusal stays in place
-  for any other way of starting the upgrade, and both name the building, never its internal
-  id.
-- **Mission Control: accepting a contract is now refused, with a reason, when a contract
-  your committed timeline accepts later needs that slot.** Accepting it used to fill the
-  slot the committed accept relies on, so the committed timeline ended up over the Mission
-  Control limit. Accept is now greyed out on every contract the committed timeline does not
-  accept itself, and the details end with `Accept is unavailable` and the explanation
-  (`Slot needed from Y2, D114, 14:05 for 'Rescue Bill', blocked by timeline.`); an
-  accept from anywhere else, including Contract Configurator's Accept, gets the same answer.
-  The count follows the committed timeline to its end: contracts active now hold their slot
-  until a committed completion, failure or cancellation, or until their deadline, committed
-  accepts add theirs until their own resolution or deadline (auto-accepted contracts, which
-  stock does not count, are left out), and a committed Mission Control upgrade raises the
-  limit from its date. A contract whose own deadline ends before the committed accept that
-  needs the slot is not refused. Decline stays available, and when stock already shows every
-  slot full nothing extra is said.
-
-- **Automated testing: the reentry lane now checks that the parachute really opened, and
-  flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as
-  soon as it had sent the deploy command. It now reads the parachute's own state and
-  requires Parsek's recording of both parachute stages. Flying the real check found that
-  the lane's craft could not open its chute: dropping the spent stage in the same moment
-  as cutting the engine broke the craft up, and with that fixed, the pod came down with
-  the whole upper stage still attached, too fast for the parachute to open. The lane now
-  drops each stage a moment after the last, sheds the upper stage so the pod reenters
-  alone, and arms the parachute high enough to open once it is safe. Nothing in Parsek
-  itself changed.
-- **Timeline strategy rows show the strategy's real name.** The Timeline named strategies
-  from a hand-written table whose ids never matched stock's (`AppreciationCamp` against
-  stock's `AppreciationCampaignCfg`), so every stock strategy read as its split config
-  name, e.g. "Activate: Outsourced Research Cfg". The Timeline now uses one lookup:
-  stock's own title ("Outsourced R&D") when the game can answer, else the config name
-  without its `Cfg` suffix ("Outsourced Research").
-
-- **A ghost passing through your vessel can no longer damage it.** Each ghost in orbit has a
-  small invisible placeholder vessel that puts it on the map. When a ghost's path ran through
-  a real vessel within a couple of kilometres of you, that placeholder could collide with it
-  as the scene loaded, exploding the placeholder or breaking the real vessel into debris. The
-  placeholder is now made fully non-physical as soon as the game loads it.
-- **Docking two halves of one recorded flight back together now records both of them.**
-  Undock a pair Parsek is recording and dock it again: when the vessel you were flying kept
-  its identity through the dock, Parsek recorded the dock as if only that vessel had taken
-  part. The other half's recording kept running as if it were still in orbit, showed up as
-  an unfinished flight to re-fly, and the commit tried to spawn a vessel that no longer
-  existed. Parsek now takes the docking partner straight from the dock event, so both halves
-  end as docked and the docked vessel's recording starts from both. The old guess that
-  replaced it could also have picked an unrelated stage of the same flight that was out of
-  loading range and marked it as docked; that can no longer happen.
-- **A Rewind to Launch no longer loses (or brings back) the re-fly points of the flight.**
-  A split that leaves an unfinished sibling keeps a rewind point, shown as the Fly button in
-  Unfinished Flights. Whether it survived a Rewind to Launch used to depend on which scenes
-  you had passed through since the split: the rewind reloads the game at the Space Center,
-  and the list of rewind points came back from the last full save KSP had written, which
-  could predate the split (the point vanished, its quicksave file left behind on disk) or
-  predate a later cleanup (a point already removed came back with no quicksave). Rewind
-  points now survive a Rewind to Launch (and Warp to game start) exactly as they were, the
-  same way the recordings do. A rewind point that lies in your future (after a Rewind to
-  Launch, or after a Re-Fly took the clock back past a later mission's split) stays in
-  Unfinished Flights, but its Fly button is disabled until the game clock reaches the moment
-  of that split again; its tooltip says so. Re-fly checks this on every route, including the
-  confirmation and the Retry from Rewind Point option.
-
-- **A launch Parsek refuses to attach to a resumed committed tree no longer leaves an idle
-  copy of that tree parked behind it.** When a craft is launched from flight (by a mod such as
-  kRPC; stock KSP always launches through the editor or the Space Center) and Parsek declines
-  to record it into the tree of the vessel the scene opened on, that tree was left waiting as
-  an unfinished stash: the already-committed history plus whatever Parsek had recorded since
-  resuming it after the load. It could then surface as a merge dialog offering to re-commit
-  recordings that were already committed, a later stash replaced it with only a log warning,
-  and one shape of it could be put back on the launched craft after a quicksave and quickload.
-  Now, when that copy recorded nothing meaningful after the load (the vessel just sat or
-  coasted for up to a minute: no staging, docking, burn, new branch or new recording), it is
-  discarded on the spot, as the merge dialog's Discard would do. The committed mission and its
-  files are kept as they were, and only those idle seconds go. A copy that did record
-  something meaningful, and a tree that was never committed, are committed on the spot
-  instead (next entry).
-- **A tree Parsek refuses to attach to a launch from flight is now committed, not left
-  waiting to be overwritten.** In the same situation (a craft launched from flight by a mod
-  such as kRPC), a refused tree that is not an idle copy used to stay behind as an unfinished
-  stash until the next scene change replaced it with only a log warning, losing what it held.
-  That covered a mission that was never committed (you were recording craft A when B was
-  launched), a resumed committed mission that recorded something meaningful after the load
-  (a switch segment, a new branch, a burn, or more than a minute of flight), and a resumed
-  mission whose committed copy the load had set aside, where the stash was the only copy of
-  that committed history. Each is now committed the moment the launch is refused, through the
-  same commit that runs when you leave the flight scene: a never-committed tree is added, and
-  a resumed mission replaces its committed version in place, so no mission or recording
-  appears twice. Nothing is committed while a Re-Fly is in progress or a merge is still being
-  finished; those keep the old behaviour. Stock KSP cannot reach this, since a stock launch
-  leaves the flight scene first.
-- **KSC building destructions and repairs are now part of the career history.** A building
-  repaired at the Space Center never became a ledger action: Parsek recorded it only at the
-  next scene change, with no cost and no owner, so nothing kept it. A building knocked down
-  while no recording was running was lost the same way. Both are now recorded the moment stock
-  fires them (`OnKSCStructureCollapsing` / `OnKSCStructureRepairing`), at that moment's UT. A
-  repair made at the Space Center is written straight to the ledger with what it cost - each
-  building's share of the one funds debit stock takes for the whole facility - so the funds
-  walk no longer misses that spend. A collapse during a recorded flight still belongs to that
-  flight and becomes a ledger action when the flight is committed; if the flight is discarded
-  without a reload, the collapse is kept, because stock keeps the building down. Upgrading a
-  destroyed facility, which stock repairs for free as part of the upgrade, now also records the
-  repair. After a rewind, a repair made later in the timeline does not count as done before
-  its date. The Timeline shows one row per facility event, not one per building (a Runway
-  repair touches up to ten), with the repair's total cost, and its rows are not doubled by
-  the older event list either.
-  Parsek changes a building only when the career history, up to the current moment, says
-  something the building contradicts: a collapse or repair dated later in the timeline (after
-  a revert or a rewind) is not applied early, a building the history says nothing about is
-  never touched, a building that is still collapsing or being repaired is left alone, and
-  nothing is changed while a flight is being recorded or waiting to be merged, or while a
-  save is still loading.
-- **The Timeline names the contract on every contract row, and the facility on every
-  facility row.** A contract's completion, failure or cancellation used to read
-  `Complete: unknown +4375 funds`, because only the accept action stored the contract's
-  title. These rows now take the name from the same contract's accept in the ledger, so
-  existing saves are fixed without any conversion: `Complete: Test LV-T45 "Swivel" Liquid
-  Fuel Engine at the Launch Site. +4375 funds`. New completions, failures and cancellations
-  also store the title themselves (an optional `contractTitle` value on the ledger row;
-  older rows without it still resolve through the accept). A contract whose accept is not in
-  the ledger (accepted before Parsek was installed, or its accept retired by a Re-Fly) reads
-  `Contract 7a726c83`, the first block of its id, never `unknown`. Facility rows used the raw
-  stock key (`Upgrade SpaceCenter/LaunchPad`, or a single building's id such as
-  `SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_cylTank destroyed`); they now use
-  the facility's stock name (`Upgrade Launchpad`, `Launchpad destroyed`), from one shared
-  helper.
-- **The Timeline's Actions and Events tooltips describe the rows they actually toggle.** The
-  Events tooltip promised crew deaths, but those rows come from recorded flights and follow
-  the Recordings toggle; the Actions tooltip said contracts, but contract completions and
-  failures are Events. Each tooltip now lists what its toggle governs: Recordings (launches,
-  separations, spawns, crew deaths), Actions (builds, hires, tech, upgrades, repairs,
-  strategies, contract accepts and cancels), Events (milestones, completed or failed
-  contracts, earnings, recoveries, destroyed buildings).
-- **A launch started from flight in the first second or two of a flight scene no longer joins
-  the tree of the vessel that scene opened on.** KSP reports the scene's opening camera focus
-  as a vessel switch, and Parsek counted it as one for the next 60 frames. A launch made from
-  flight inside that window (by a mod such as kRPC; stock KSP always launches through the
-  editor or the Space Center, which commits the tree) was then handled as a tracking-station
-  switch: the tree of the vessel the scene opened on, often a committed tree Parsek had just
-  resumed, was put back in place, the new craft recorded inside it as a second root, and a
-  later dock with that vessel became a merge inside the same tree that rewrote its committed
-  recordings. The opening focus no longer counts as a switch, and a switch restore now refuses
-  a freshly launched craft outright, so the launch always starts its own tree. The refused tree
-  is turned back into an ordinary quickload stash, so a later quicksave and quickload cannot
-  put it back on the launched craft either. The same fix stops an F9 pressed right after a
-  scene loads from being taken for a switch.
-- **A looped mission's first run is drawn again.** With a mission loop on, a Rewind to Launch
-  showed nothing for the whole first run: the loop's copies only start after the recorded flight
-  has ended, and until then the looped mission's vessels were simply skipped. The real vessel
-  appeared at the end, then the copies began. Now, until its first copy starts, a looped mission
-  plays exactly like one that does not loop, in flight, at the Space Center and in the Tracking
-  Station: its ghosts fly the first run, the map shows them, the watch camera can follow them,
-  and the flight's end brings the real vessel back through the ordinary spawn. The copies take
-  over from there with one ghost, not two. A loop turned on after the first run (the usual case)
-  is unchanged, and later loops stay ghost-only.
-- **A looping recording's first run is real again: its vessel comes back after a rewind even
-  while the loop is on.** A looped mission (or a recording with its own loop toggle) replays
-  on its loop clock, and that path never reached the spawn at the end of the recording. So a
-  Rewind-to-Launch with the loop on removed the vessel and nothing brought it back, leaving no
-  real vessel at all. Now the first time the clock passes the recording's end, its vessel
-  spawns once, exactly as a non-looping recording's would (same checks: not already spawned,
-  not a purely historical recording, the rewind and chain rules). Every later loop is still
-  ghost-only. This applies in flight and at the Space Center. The Tracking Station already
-  spawned looping recordings; it now applies the same "never replayed" check to them as to
-  any other recording. A chain with one looped phase now follows the same rule (see "Looping
-  one phase of a chain no longer stops its final vessel from spawning").
-- **A ghost whose vessel cannot spawn yet now stays visible while Parsek retries.** When a
-  recording's spawn could not settle at once (a one-point recording on an occupied spot, or
-  a spawn that failed), Parsek logged that it would keep the ghost at its final position for the 5 second retry
-  window, but the playback engine had already removed the ghost in the same frame: its
-  past-end cleanup ran before the spawn policy had heard that the recording finished, so it
-  saw a ghost nobody was holding. The cleanup for a slot that has just finished now waits
-  until the policy has received that event (still in the same frame), so a held ghost is
-  kept until the spawn succeeds or the hold times out, and a ghost nobody holds is still
-  cleaned up at once. The same applies to the hold while a spawn waits for time warp to end.
-  The policy's log line now says when there is no ghost left to keep visible.
-- **A recording's loop period unit now survives a save and reload.** The unit chosen with
-  the Recordings table's unit button (sec, min, hr or auto) was never saved, so every reload
-  set it back to seconds. A Gloops recording, which starts on auto, then lost its place in the
-  shared auto launch queue and looped on a seconds period instead: its stored 0 seconds,
-  either raised to the 5-second minimum with a warning or repaired on load to the
-  recording's own length. The unit is now saved with the recording (only when it is
-  not seconds) and read back on load; an unreadable value falls back to seconds with one
-  warning in the log. Existing saves load unchanged and keep seconds until the unit is set
-  again.
-- **A kerbal whose committed flight ended with his recovery is free again once game time
-  passes that recovery.** A Recovered flight's crew reservation was meant to last from the
-  start of time until the recovery (design 9.3), but nothing ever compared it with the
-  clock, so the kerbal stayed hidden from the crew dialog forever and a stand-in was
-  generated for him even when the flight was committed after he was already home. Every
-  reservation check now asks whether the hold is in force at the current game time; the
-  kerbal is free from the recovery instant on. When he returns, an unused stand-in is
-  deleted and one who flew a committed flight is retired, as the design describes, and the
-  returning kerbal is not swapped out of a craft he boards. Rewinding to before the
-  recovery reserves him again, brings back the same stand-in name, and reactivates a
-  retired stand-in. Loads judge the hold against the loaded save's own time. Time passing
-  in the Space Center or the Tracking Station, and the crew dialog opening, trigger one
-  recalculation when a recovery time is crossed. The Kerbals window again shows
-  `Reserved until <date>` for such a hold, and its hover says when he is free (in flight
-  the window catches up at the next time warp exit or scene change). A returned kerbal
-  still cannot be dismissed from the Astronaut Complex while a committed flight names
-  him, since a rewind may need him again. Kerbals
-  whose flight ends with them still aboard a vessel stay reserved with no end date until
-  that vessel is recovered (next entry).
-- **Recovering a vessel frees the kerbals aboard it, including after the in-flight Recover
-  button.** With auto-merge on (the shipping setting), Recover in flight commits the flight
-  at the scene change, just before the game recovers the vessel, so the committed flight
-  ended with the crew still aboard and they stayed reserved forever, hidden from the crew
-  dialog and replaced by a stand-in. The same happened when a vessel Parsek had put back
-  at the end of a flight was recovered later from the Tracking Station. Now a recovery of
-  the real vessel that continues a committed flight (the same launch, or the vessel Parsek
-  spawned from that flight) records that its crew came home at that moment, and their
-  reservation ends there: they are free at once, an unused stand-in is deleted and a used
-  one retired, and rewinding to before the recovery reserves them again. A kerbal left
-  aboard a vessel that is never recovered stays reserved, a kerbal stranded by a different
-  mission is not freed by it, and a later flight that names the kerbal keeps him reserved
-  until it ends. A re-fly that replaces the recovered flight takes the record back with it.
-- **A re-fly that saves crew who boarded before the rewind point now brings them back.**
-  When a flight's crew boarded at launch, the rewind point came later in the same flight,
-  and the original flight then killed them, merging a re-fly kept them Dead. The death
-  row's boarding time came before the rewind point, and the merge treats anything before
-  the rewind point as part of the flight it keeps. A kerbal-death row is now placed on the
-  timeline by the moment of death: a death after the rewind point is refunded by the
-  merge, as design 7.16 promises. The tombstone guard and the tree splitter's ledger retag
-  share that rule through one helper, so both sides of the seam still agree exactly.
-  Every other ledger row keeps its old placement. A re-fly that kills the crew again
-  records its own death under the re-fly's recording, which the merge never touches;
-  with the dedup fix below that now also holds when the same slot is re-flown more than
-  once. The fix holds in-session and, with the entry below, after a reload. Two rare
-  shapes are accepted limits (TOMBSTONE-ENDUT-SCREEN-LOW-LIMITS): late in a career a
-  death within about one float step of the rewind point may land on the wrong side (now
-  logged as a warning), and a kerbal killed before the rewind point on a vessel that
-  flew on past it returns alive.
-
-- **The crew a re-fly saved no longer die again on the next load.** The common re-fly
-  shape (crew boarded at launch, the rewind point later in the same flight) splits the
-  original recording in two at the rewind point, and loading the save then brought the
-  retired deaths back, for both halves. Two causes, both fixed. The load-time rebuild of
-  crew rows gave each rebuilt row a new identity, so the merge's retirement, which is
-  keyed on that identity, no longer covered it; a rebuilt row now keeps the identity of
-  the row it replaces for the same flight and kerbal. And the split left the whole
-  flight's crew fates (Dead) on the first half; they now move to the second half with the
-  flight's ending, and the first half's crew read as handed on to the next segment, the
-  same finite reservation any chain segment gets. The same move applies when the
-  recording optimizer later splits a recording whose crew fates were already worked out.
-  Committing a flight again no longer adds a second crew row for the same kerbal next to
-  a retired one. The fix applies to re-fly merges made with this build: a save whose merge
-  was made by an older build keeps the first half's Dead crew fates and is not repaired.
-
-- **Re-flying the later part of a flight the recording optimizer split now retires its
-  deaths at once, and a re-fly's retired flight no longer comes back.** The optimizer
-  splits a flight into segments (for example at the edge of the atmosphere). When it did
-  that to a flight whose results were already booked, every booked entry stayed on the
-  first segment: a re-fly of the later segment could not reach the crew deaths (or their
-  reputation penalty) there, so the crew stayed dead until a later load. Each entry now
-  moves to the segment it belongs to, by the same rule a re-fly's own split uses. The
-  optimizer also no longer splits a flight a re-fly replaced: the new piece was not
-  covered by the replacement, so the replaced flight's tail played again as a ghost and,
-  after a second load, its crew died again. And when the optimizer joins two segments
-  back into one, the later segment's booked entries now move to the joined flight;
-  before, they were dropped on the next load (only the mission's very first recording
-  was handled), and after such a join a crew death now keeps its identity across the
-  next load.
-
-- **A re-fly's crew assignments are no longer dropped as duplicates of another flight's.**
-  The ledger's duplicate check treated any two crew-assignment rows less than 0.1 s apart
-  as the same row, whatever the kerbal or flight. Re-flying a slot a second time
-  therefore lost the new flight's crew rows against the previous attempt's, so a crew
-  killed again could read alive. The same collision could also drop one of two crews
-  starting at the same instant. Rows are now matched per flight and kerbal; committing
-  the same flight twice still records it once.
-
-- **No more Parsek-attributed NullReferenceException while KSP quits from the Tracking
-  Station.** Destroying a vessel makes the Tracking Station rebuild its list, and Parsek's
-  hook on that rebuild repaired any ghost missing its orbit line. During shutdown that
-  repair rebuilt objects that were already being destroyed, and stock code threw with
-  Parsek on the stack. The repair now stands down once the game is quitting (and, as a
-  narrower extra guard, while Parsek's remove-all-ghosts loop is running); nothing changes
-  during play.
-
-- **A supply route's overview line no longer disappears wholesale while a ghost flies one
-  part of it.** The route line and the ghost trajectory line share the map, and they take
-  turns so the same path is never drawn twice: whichever part of a flight the ghost is
-  currently drawing, the route line leaves alone. That hand-off used to work at the wrong
-  size. The moment the ghost started drawing any part of a flight the route line dropped
-  that flight's ENTIRE path - so on a long delivery, where the ghost is drawing one leg of
-  it, everything before and after that leg vanished from the overview, which is the only
-  thing that draws it. The hand-off is now leg by leg: the ghost keeps the piece it is
-  actually drawing and the route line keeps the rest. On a single-leg flight nothing
-  changes, because there the two answers were already the same.
-
 ### Changed
 
 - **Dev: harness runs spend less time outside the mission.** The seam is polled every 25 ms
@@ -3363,8 +2059,6 @@ _(unreleased - entries accumulate here per commit)_
   comma-locale host is exactly how that would ship unnoticed. Nothing in the product
   changed; the suite exists so that the clause-constant extraction that follows it can be
   proved to have changed nothing either.
-
-### Changed
 
 - **Tests: sixteen cells from the audit's Low T1 (vacuous) register, slice 2, now fail for
   the reason their names give, or are gone.** Eleven were strengthened - five of them
@@ -4964,6 +3658,1321 @@ _(unreleased - entries accumulate here per commit)_
   is fixed.
 
 ### Fixed
+
+- **Ending a Re-Fly no longer marks an earlier segment of the same craft destroyed with its crew
+  dead.** When a recording had been split into segments and the same vessel was later brought
+  back by another flight (for example, docked into, undocked, and re-created at the end of that
+  flight), concluding a Re-Fly that reached that moment read the earlier segment's end off the
+  live vessel: it was marked Destroyed at the current time with its crew Dead, written past its
+  own next segment. A segment whose recording continues in a later segment is no longer
+  finalized as an endpoint, and a vessel that later committed history put back in the world is
+  no longer read as the end of an earlier recording of it. CI-2 reads 12 Destroyed again.
+
+- **Dev: a harness pad hop whose parachutes cannot be read now stops before arming them.**
+  B1, the science-and-recover lane and EVA-4 read the craft's parachute state every poll. When
+  that read returns nothing on the descent-entry poll and the one before it, the mission now
+  ends there (`MISSION-ASSERT-FAIL`, reason `chute unobservable (part identity?)`, retried
+  once like a vessel loss) instead of arming nothing and flying on. RB-1 `2026-09-27_1353`
+  (a fixture whose parts kRPC read off a clone) armed "0 parachute(s)" and hit the ground at
+  230 m/s; over the 26 collected flights of these lanes the check trips on that run and the
+  two RB-2 runs with the same defect, and on no other. The deploy action now also logs how
+  many parachutes it fired.
+- **An undock done from EVA now reads "Undocked" in the Missions tab.** When a kerbal on EVA
+  undocked a docked vessel it was not flying, the separation was listed as "Decoupled".
+  A docking port's "Decouple Node" and an ordinary decoupler still read "Decoupled".
+- **A part torn off by force now reads "Broke off", and a VAB-built docking port's Undock reads
+  "Undocked", in the Missions tab.** A wing or parachute ripped off by aerodynamic stress or an
+  impact was listed as "Decoupled", on the vessel you fly and on a vessel recorded in the
+  background alike. Clicking Undock on a pair of docking ports that were joined in the
+  editor was also listed as "Decoupled". A decoupler firing still reads "Decoupled" (or
+  "Staged" in a mission's steps), staging such a docking port still reads the same way, and a
+  break that comes with a crash still reads "Crashed". Neither fix has been checked in a
+  test flight yet.
+- **A branch point after a recording split now names the segment it happened on.** When a
+  recording is split (the optimizer's cut at an atmosphere exit or a body change, or a
+  Re-Fly's HEAD/TIP cut), every branch point that names the recording as a parent at or
+  after the cut, and every EVA kerbal or switch continuation linked to it from then on, now
+  names the later segment that holds the event; a split only moved the branch point the
+  recording ended at, so a probe decoupled in orbit still named the launch segment. The merge
+  that reverses a split points those links back at the surviving recording. Saves written
+  before the fix are corrected on load (once per tree, logged as
+  `[SplitParentLinks] RepairStaleParents`), with no change to the recording format. Visible
+  changes: a Log row for a stage dropped after a split now reads the body it dropped at
+  (`Duna`, not `Kerbin`); and in an existing save the load repair can remove a Re-Fly slot
+  that existed only because of the stale link. A slot is refused when the vessel flew on
+  past a later controllable separation, and that separation used to be invisible because
+  it named the first segment; once it names the segment the vessel was flying, the slot
+  is gone, which is the correct answer. The Missions composition, its stored interval keys
+  (checked on every recorded fixture), which recording spawns at the end of a flight, a
+  Re-Fly's debris and a supply route's transport lineage (now followed back across the
+  split to the launch) read as before.
+- **R&D's Research button now greys out when science held for later research makes a node
+  unaffordable.** Stock never greys Research for science; it refuses at the click. When the
+  science bar showed enough but later research on the timeline needed part of it, Parsek
+  refused the click with its own dialog while the button looked live. The button is now
+  greyed with the reason on its tooltip, `Reserved for later research, blocked by timeline.
+  Needs 45.0 science, 12.0 free.`, and the refused-click dialog says the same (it read `Not
+  enough science: tech unlocks later on timeline need it, blocked by timeline.`). A plain
+  shortage, where the science bar itself is below the cost, is left to stock's own refusal:
+  no grey, no reason, no Parsek dialog.
+- **Checking whether research or a purchase is affordable no longer frees reserved kerbals.**
+  The check re-ran the ledger walk up to the current time over the live game state, which
+  dropped every crew hold a later committed flight owns: until the next full recalculation
+  those kerbals could be dismissed or put in a crew. The check now walks a private copy and
+  leaves the live state, and every row's counted / not-counted marks, as they were.
+- **A refused tech names the tech, not its internal id.** When a tech's title was empty the
+  refusal printed the id (`Cannot research "basicRocketry"`); it now reads the tech tree's
+  title for the id, and the id only when no title exists.
+- **Real Spawn Control and the nearby-craft message name where a departing craft goes in words.**
+  A craft orbiting Kerbin that was going to land read `departs to Kerbin`, the body it
+  already orbits, and a craft changing orbit around the same body read the raw word
+  `departs to maneuver`, in the window and in the on-screen `Nearby craft` message (Basic
+  mode too). They now read `leaves orbit to land on Kerbin` (`to come down on Kerbin` for a
+  crash; the body is the one the flight ended on, so a Kerbin-orbit craft that lands on the
+  Mun reads `to land on Mun`), `leaves orbit for a new orbit`, and `leaves orbit for Mun` for
+  another body. A flight that ends landed or destroyed always reads as coming down, even when
+  its last recorded orbit was a sub-orbital arc around the same body.
+- **Real Spawn Control's spawn-time sort follows the Warp button.** On a craft that leaves its
+  orbit before it would spawn, the sort used the far-away spawn while the button (and `Warp to
+  Next Spawn`) acted on the departure, so the top row was not the next thing Warp would do.
+  The sort, both time cells and the button now use the same moment.
+- **Real Spawn Control's Warp puts an orbiting vessel where its ghost stood.**
+  Park beside a ghost in orbit whose flight ends Orbiting and press its Warp: the
+  clock jumps to the flight's end while your own vessel keeps its place, as designed, but
+  the vessel that appeared used to sit on its recorded orbit at the new time, tens or
+  hundreds of kilometres along the orbit (120 km after a 54 s jump in low Kerbin orbit).
+  A ghost standing within the physics bubble when the jump crosses its end now gets the
+  same time shift your vessel gets, so the real vessel appears where the ghost was, with
+  the same distance and relative speed to you. Ghosts outside the bubble, and landed or
+  splashed ones (the planet carries both vessels), spawn as before. The same applies to a
+  Warp to a craft's departure and every other epoch-shift jump. The spawn's collision check looks
+  at that same spot, so a vessel that would appear inside something beside you is held
+  back as before, and a held ghost is drawn where its vessel would appear. No new
+  interface.
+
+- **A vessel Parsek brought into the world that you recover from the Tracking Station or
+  the KSC no longer comes back.** Recover a vessel Parsek spawned at the end of a recorded
+  flight without flying it first (the Tracking Station Recover button, the KSC vessel
+  marker), on a sandbox save or with no crew aboard, and the next flight scene used to read
+  the vessel's absence as a crash and spawn it again. Parsek only learned of such a
+  recovery through the recovery payout (which a sandbox save never pays) or the crew coming
+  home (which an uncrewed vessel has none of). Every recovery you make of a vessel that
+  continues a recorded flight now writes its own ledger entry, in every game mode, and that
+  recording's vessel is never spawned again, also after a rewind to before the recovery.
+  A vanished vessel whose recording reads recovered is no longer counted as a death either.
+  Parsek's own housekeeping recoveries write nothing. A Re-Fly that puts the vessel back in
+  the world retires the entry with the recovery payout. No new interface.
+
+- **A vessel you recover right after switching to it no longer comes back.** Bring a
+  recorded flight's vessel into the world (Real Spawn Control, or its end-of-recording
+  spawn), switch to it and press stock's Recover at once, and the next flight scene used to
+  spawn the same vessel again, which on a career save could be recovered a second time.
+  Switching to the vessel resumes its committed recording; on the way to the Space Center,
+  Parsek's "nothing changed, drop the resume" check ran before the recovery was written
+  into the recording, so the recording kept its landed ending and the vessel's absence
+  later read as a death to be undone. That check, and the two like it on the same exit
+  (the switch-segment and idle-on-the-pad versions), now keep a resumed recording whose
+  vessel is being recovered, and the recording is committed ending Recovered. The recovery
+  now also finds a vessel whose spawn gave it a new identity: it follows the recording that
+  was recording the vessel when Recover was pressed. And a recording committed ending
+  Recovered, Destroyed or Disassembled no longer inherits the old "already spawned" claim
+  from the version it replaces, so the next flight scene does not read the recovered vessel
+  as one that died. A fresh, never-committed flight recovered from the pad is still dropped
+  silently.
+
+- **Dev: a harness mission no longer waits out its wall budget behind KSP's crash screen.**
+  About 60 s after the active vessel is destroyed, stock KSP opens the flight results dialog
+  and pauses the game. Every mission phase budget counts game time, so a mission whose craft
+  crashed polled the stopped game until its wall budget ran out (one run lost about 1,100 s
+  this way). The mission shell now ends the mission once the game has read paused with the
+  clock stopped for 15 s, as a vessel loss naming the pause (`MISSION-ASSERT-FAIL`, reason
+  `vessel-lost (paused-clock: ...)`, the same class as every other vessel loss). It never
+  fires during a native warp, right after a seam step, or on a pause shorter than 15 s, and it
+  reads the pause state only when the clock did not move.
+- **Dev: a harness hop mission now notices a destroyed craft whose telemetry froze.**
+  After the craft is destroyed, kRPC can keep returning its last readings while the clock
+  runs. The mission ends as a vessel loss after 10 polls in a row whose altitude, vertical
+  speed and orbit did not change, but one run polled such readings about 118 times without
+  ending, because one value kept differing by less than a millimetre. The airborne hop
+  missions (pad hop and its science recovery, EVA-4, GS-1, and the reentry mission's
+  descent) now treat values within 0.001 as unchanged (`frozenToleranceAbs`); the orbit
+  missions still require identical values. A poll whose clock did not advance no longer
+  restarts the count, and the mission log names the value that broke a run (with its exact
+  previous and current readings), so the next crash shows which reading moved. The machine
+  status line also shows the real count for missions that delegate their flight
+  (`frozenCount=` used to print `-` there).
+- **Dev: two harness waits behind KSP's post-flight screens now end at once.** A test
+  command waiting on the EVA kerbal (`EvaGroundScience`, `PlantFlag`) now ends with
+  `ERROR active-vessel-lost` on the first check after the kerbal dies, instead of sitting out
+  its whole budget. Stock KSP keeps a dead active vessel in place rather than deleting it, so
+  the old check never saw the loss; six EVA-8 runs each lost 120 s this way. And `CommitTree`
+  sent after a stock recovery, when the game is already back at the Space Center with nothing
+  to commit, now answers `REJECTED not-in-flight` straight away instead of waiting 60 s with
+  the recovery summary up. L3, L5 and both L6 lanes expect that answer now.
+- **Dev: booster debris no longer logs a sparse-sampling warning on every launch.** Once
+  a background vessel leaves proximity range the recorder stops sampling it by design, and
+  the long gap until it came back (about 14 s for each booster pair) read as a stalled
+  sampler. The recorder now notes each out-of-range silence, from the first skipped moment to
+  the moment the vessel is back in range or records an event out of range (a booster hitting
+  the ground), and a gap counts toward the warning only by the part of it outside that
+  silence; the line stays at Verbose with a
+  `largeGapsOutOfRange=` count.
+- **Dev: the recorder's sparse-sampling warning fires under physics warp again.** A recorded
+  section whose samples sat further apart than the sampler allows logs
+  `TrackSection sparse sampling:` as a warning, but any time warp downgraded it to a verbose
+  line, including physics warp, where every physics frame still runs and the sampler keeps
+  its spacing. Only rails warp (and on-rails recording) now downgrades it; the count token
+  is renamed `largeGapsOffRails=`. An on-schedule physics-warp gap stays under the
+  threshold, which already clears the max interval plus one 4x frame. Headless runs no
+  longer read a missing `TimeWarp` as rails warp.
+- **Recording: a sample taken when a frame runs long now sits where the vessel was at that
+  moment.** When one rendered frame holds several physics steps (a warp-rate change, staging,
+  a slow stretch), KSP hands the recorder a mid-step reading on the later steps: the clock
+  has moved on but the vessel has not, and the first step of the frame is never offered at
+  all. A recording could carry a point up to one step (0.08 s at 4x warp) behind its own
+  time, and the max-interval heartbeat could land a step late. The recorder now keeps the
+  vessel's position from the end of every physics step and samples that, so each point's
+  position belongs to its time and every step is seen once. Background recordings skip the
+  mid-step reading instead and sample at the end of the frame.
+- **Recording: no more doubled samples at staging and launch.** When two parts of the
+  recorder wrote a sample at the same moment (a staging joint break, the reopened section
+  after it, a launch-clamp release), the recording kept both, one right after the other.
+  One section now holds one sample per moment: a repeat is dropped, and when the two
+  differ the later one is kept (at clamp release, the one taken after the vessel went off
+  rails), with its event marker carried over. No recording format change.
+- **Dev: an in-game test batch in the Tracking Station no longer orphans the ghost map
+  vessels.** Before a batch the test runner cleared Parsek's list of ghost map vessels without
+  removing the vessels, and in the Tracking Station nothing else removed them. They then read
+  as real vessels: the batch's two start-up saves counted them against the stock vessel
+  budget and dropped real debris, and the scene built a second set of ghosts beside them. The
+  runner now removes every registered ghost vessel first (the same removal the scene uses
+  when you leave it) and the Tracking Station rebuilds them a moment later; the in-game
+  `VesselBudget` check waits for the rebuilt ghosts instead of skipping. Flight batches are
+  unchanged. Proven live 2026-10-03: VB-1 runs the in-game step again, removes all eight
+  ghosts before the batch and passes the check.
+
+- **Recording Distance and Range no longer misread a sample sitting on a section boundary.**
+  A recording is cut into sections, and samples recorded relative to a parent vessel store
+  metres where the others store latitude and longitude. The Distance and Range figures on a
+  recording's hover looked up each sample's section more strictly than playback does, so a
+  relative sample a hair past its section's end could still be read as degrees and add
+  hundreds of km. They now share playback's boundary rule (a sample on the line between two
+  sections belongs to the later one; one within a billionth of a second of a section edge
+  belongs to that section). Range had the same flaw for a section's last sample and is fixed
+  too. (RECORDING-STATS-FRAME-LOOKUP-NO-EPSILON)
+
+- **Dev: the harness `DiscardTree` command now leaves a restored vessel idle.** On a
+  recorded save the flight scene resumes the committed recording of the vessel you are
+  flying, and keeps retrying that once a second while nothing records. A lane that stopped
+  and discarded that recording (every EVA-6 to EVA-9 lane does, before the kerbal steps out)
+  could see it resumed again a few milliseconds later, so the kerbal's own recording was
+  refused. `DiscardTree` now tells the retry to skip that vessel until something records
+  again, the active vessel changes, or the scene ends, and logs
+  `CommittedSpawnedRestoreSuppression: armed` / `cleared`. Player discards are unchanged.
+  The lanes keep `retry policy = "once"`: the 2026-10-03 EVA-6 flight passed with no
+  re-adoption, but its boot took the ordering where the discard finds nothing to discard.
+- **The Missions tab no longer lists another mission's vessel as a piece of your ship.**
+  When you switched to another mission's vessel and flew it to a dock with your ship, that
+  vessel showed under your ship as if it had separated from it ("Depot Station Duna I
+  (mission 'Kerbal X #5')   Launch -> Docked"), your ship's event chain read "Launch ->
+  Launch (Depot Station Duna I ...) -> Docked", the expanded interval rows (Advanced) read
+  "Decoupled -> Launch" and "Launch -> Docked", and the interval after the switch lost the
+  other vessel's pod from your ship's count ("Kerbal X (crew x1)"). The other vessel's row
+  now sits beside your ship instead of under it, reads "Docked (Duna Supply 1)" with no
+  launch, keeps its own include checkbox in Advanced (so its part of the loop can still be
+  kept or trimmed), and is not counted as one of your mission's vessels. Your ship's
+  interval rows split at the switch with blank event cells, and its count stays its own
+  ("pod x1, crew x1"). A vessel you switched to that belongs to no other mission (an old
+  station, a stock vessel) stays under your ship as before, without the false "Launch".
+  Any vessel or kerbal row whose flight ends by docking or boarding now names what it joined,
+  e.g. a kerbal's row ending "Boarded (Kerbal X)". Mission selections are unaffected: the
+  interval keys a mission stores do not change.
+- **The mission Log's Undocked row names your ship, not the vessel it undocked from.** KSP
+  keeps a docked pair under one vessel's identity, often the other mission's, so the Log of
+  a mission that docked with another mission's vessel read e.g. "Undocked (Deliverer Mun 1)"
+  with "Kerbal X (mission 'Kerbal X #3')" in the Vessel column. It now reads "Undocked (Depot
+  (mission 'Kerbal X #3'))" on "Deliverer Mun 1", the same way the Docked row puts your ship
+  in the Vessel column and the other vessel in the event. A dock that lists the other vessel
+  first, or where the other vessel docked into yours, reads the same way. When your ship kept
+  the identity and the other vessel left, the row reads as before.
+- **A ship's Missions row follows the ship after it undocks.** When your ship undocked from
+  another mission's vessel that kept the docked pair's identity, your ship's row went on
+  along the other vessel's half ("Duna Supply 1   ... Undocked (Duna Supply 1) -> Orbiting",
+  its last interval the depot's, and Kerbal X #4's expanded detail reading "after undock:
+  Deliverer Mun 1 left" about itself), while your ship's real flight after the undock was a
+  separate row under it. Your ship's row now continues into its own flight after the undock
+  ("Undocked (Depot Station Duna I (mission 'Kerbal X #5')) -> Orbiting", detail "after
+  undock: Depot Station Duna I (mission 'Kerbal X #5') left"), and the other vessel's half is
+  a row beside it naming your ship ("Undocked (Duna Supply 1) -> Orbiting"), like that
+  vessel's row before the dock. When your ship kept the identity and the other vessel left,
+  your row was already right; the other vessel's half now also sits beside your ship rather
+  than under it. Your ship's row's Fly / Seal (or Stash / Seal) is now its flight after the
+  undock, so a ship that undocked and then crashed can be re-flown straight from its row,
+  while the other vessel's half keeps its own on its own row. The mission summary counts your
+  ship once and reads its outcome from your ship's own flight. Mission selections are unaffected: every interval a mission stores keeps
+  naming the same stretch of the same recording, only the row it is drawn in moves, so an
+  exclusion made on the other vessel's half now shows on that vessel's row.
+- **Dev: a harness mission that ends early writes its result file again.** A mission's
+  assertion rows could carry a reading still at its "not yet measured" NaN default (the
+  `kx_rewind_watch` core discard altitude and time, peak booster thrust and rewind times, on
+  any flight lost before the core discard), and the result writer refuses NaN. The write ran
+  outside the mission's error handling, so the mission died with no result file and the run
+  read INVALID(tooling-mission) instead of INVALID(mission), losing every assertion row. This
+  hit all 13 lanes that fly `kx_rewind_watch`. Every row now writes such a reading as null,
+  for every mission, and if the result still cannot be written a reduced result keeping the
+  verdict, reason and assertion names is written instead (`serializationFallback: true`).
+- **A vessel whose return is blocked by another vessel stays visible until it can appear.**
+  When a replayed vessel that later flights build on (a ghost-chain tip) reaches the moment it
+  becomes real, and a vessel you have parked in its spot blocks it, its ghost used to stand
+  still for five seconds and then vanish, and the vessel did not come back for the rest of the
+  scene. Its ghost now stays for as long as the spot is blocked, even when no clear spot can be
+  found nearby, keeps moving along its orbit (or stays where it landed), and turns into the real
+  vessel the moment you move the blocker away or Parsek finds a clear spot just behind it. Its
+  status in the recordings list now reads "Spawn blocked -- spot occupied, appears when it
+  clears" instead of asking for a manual placement that does not exist.
+- **A vessel you recover from flight is saved as Recovered, and its replay ends with no
+  vessel.** Pressing Recover in flight leaves the flight scene before the game pays out the
+  recovery at the Space Center, so with auto-merge on (and with the Merge button of the merge
+  window) the flight was saved as Landed. After a rewind to before that flight, its replay
+  then put the vessel back at the landing site while the recovery still paid out, so you
+  could recover it a second time; the flight could also be stashed and re-flown. The flight is
+  now saved as Recovered, its replay ends with no vessel, and the recovery is paid once.
+  Flights already saved as Landed whose vessel was recovered (including a recovery from the
+  Tracking Station of an older flight) are recognised by their recovery payout or crew
+  return: their replay no longer spawns the vessel, and they are not offered for Stash or
+  Re-Fly. A flight that landed and was never recovered still leaves its vessel in the world.
+- **A recovered vessel is credited to its own flight by identity, not by name.** When you
+  recover a vessel, Parsek ties the recovery payout, the recovered science and the crew's
+  experience to the recording of that flight. It used to find that recording by the
+  vessel's name, so a vessel renamed after its flight was recorded credited no flight at all
+  (the payout and science landed unattributed and the crew experience was not booked), and a
+  vessel Parsek spawned at the end of a replay was treated as a stranger. Parsek now matches
+  the vessel's unique launch identity first, then the identity of a vessel it spawned, and
+  uses the name only for old recordings that carry no identity. Two launches of the same
+  craft never share a recovery, a recording replaced by a Re-Fly or undone by a rewind is
+  never credited, and among the segments of one flight the one that ends last is still the
+  one credited.
+- **Debris rows in Recordings no longer report impossible speeds and distances.** The
+  Max Speed and Distance on a recording's hover are computed from its samples and orbit
+  segments. A destroyed vessel's last moments are kept as a ballistic arc whose lowest point
+  (periapsis) lies deep inside the planet, and Max Speed took the speed at that point: a 48 s,
+  1.9 km debris fall read 318.4 km/s. The arc's speed is now taken no lower than the surface
+  (that row reads 337.6 m/s), and its distance can no longer outrun its top speed. Separately,
+  most debris rows read about 1000 km of Distance: the step where a piece stops being recorded
+  relative to its parent stage measured metres as if they were degrees of latitude. That step
+  is no longer counted, and those rows now read 1 to 3 km. Orbits that stay above the surface
+  read exactly as before.
+- **The Recordings Period cell explains a raised period in plain words.** When a loop period
+  would put more than 20 copies of a flight in the air at once, Parsek flies the shortest period
+  that keeps it to 20, and the cell already showed that slower period in amber. Its hover now
+  says what you typed and why, in the row's own unit: `Period raised from 5s to 6s to fit the
+  overlap cap - at most 20 copies of this flight can play at once.` (it used to read `Runtime
+  cadence clamped to 6s to keep concurrent cycles <= 20 ...`, always in seconds). Clicking the
+  cell still edits the period you typed, which is what stays saved. A period under the cap
+  looks exactly as before.
+- **The Logistics window describes a supply route with several stops as a whole.** A route
+  built from a Supply Run that docked at more than one vessel delivers at every stop each
+  cycle, but four cells read only its first stop. A relay that picked up cargo at one rover
+  and delivered it to another showed the pickup rover as its Destination and "(nothing)" as
+  what it delivers per cycle. Now what each run delivers adds up every stop's delivery (with
+  "across N stops" when more than one stop receives cargo), the destination (now in the
+  grey from / to line under the route's name) names the first stop that receives cargo plus
+  the others (`Mun Base (+2 stops)`) and lists every stop in order with its pickup or
+  delivery role on hover, the "tanks full" line names the stop that is
+  actually full, and Re-scan for endpoint searches for every stop and retries delivery only
+  once all of them are found. Routes with one stop look exactly as before.
+- **A second science award for the same experiment at the same moment is no longer lost.**
+  Recovering two canisters of the same experiment together (stock pays each one separately),
+  or two Breaking Ground stations sending the same result in the same moment, credited only
+  the first one: Parsek took the second for a copy of the first and dropped it, so your
+  science total came out lower than stock's. Each payout now keeps its own identity, so both
+  count, while a genuine copy of one payout reaching the ledger a second time is still
+  dropped. Science already in your save is unchanged.
+- **Ticking Loop on a recording no longer frees its crew for other flights.** The Loop
+  checkbox is meant to be visual only: the first run is the real flight and only the replays
+  after it are ghosts. But the crew bookkeeping ignored a looped recording entirely, so its
+  kerbals read as free for the whole recorded flight and could be put on another vessel over
+  the same span (a double booking), and unticking Loop took them back. A looped recording now
+  holds its crew exactly like any other committed flight: until the end of a recovered
+  flight, until the vessel is recovered or retired at the Space Center, or by the stock
+  respawn rules after a death. The replays reserve nobody. Its kerbals also count as flown
+  for the stand-in rules, and a split whose continuing phase is looped now ends the earlier
+  phase's hold at the split. A looped mission (which loops a whole mission, including supply
+  route missions) never had this problem. The log line is `Loop recording holds crew like
+  its real first run:` (`KerbalsModule.ProcessAction`, `CrewRecoveryReservationClose`).
+  Existing careers see this apply to the past too: a kerbal who flew a looped flight and was
+  since put on another vessel (which the old behaviour allowed) now reads as reserved until
+  that looped flight's vessel is recovered.
+
+- **Dev: the GUI mirror no longer paints scrolled-out rows in the colours of whatever is
+  under them.** A scroll view's rows below (or above) its viewport are in the control-tree
+  dump but not in the photo, so their colours were sampled off the window footer or the
+  terrain (Missions tab, mission 7 onwards). A scrolled-out node now reads no pixels and
+  borrows the colours of the nearest visible node of the same kind and style at the same
+  depth, and a row the viewport cuts through samples only its visible part
+  (`harness/tools/gui_mirror.py`; `docs/dev/design-gui-mirror.md`, "A scrolled-out row is
+  not sampled").
+- **A flight merged without leaving the flight scene is tidied at once.** Merging from the
+  Switch-To Merge / Discard dialog now trims idle tails and splits the flight into its phases
+  right away, as leaving for the Space Center already did, so the vessels it ends with appear
+  one after another on a later rewind instead of all at the moment of the merge (the trim used
+  to wait for the next time KSP loaded the save from cold). The vessel you are flying stays
+  marked as the real vessel on the trimmed flight's last segment. Skipped during a Re-Fly.
+- **A rewind no longer spawns a second copy of a landed vessel on top of the one it kept.**
+  When a recording was stopped before the flight scene had finished loading and the scene then
+  reset, the next recording start kept the stopped recording's last few samples as a separate
+  recording outside any flight. That recording was never saved, and it did not carry the
+  vessel's identity, so a later Rewind-to-Launch kept the landed vessel as history while the
+  leftover recording replayed and spawned the same vessel again in the same spot; the two
+  collided and shed parts. The leftover samples of a flight the scene already dropped are now
+  discarded (log: `FallbackCommitSplitRecorder: discarded capture of dropped tree`), and a
+  recording kept outside a flight now carries its vessel's identity, so the rewind and the
+  spawn recognise the live vessel as the same launch (a rewind removes it when that recording
+  will replay, and a spawn adopts it instead of building a copy). Found by the automated tests;
+  ordinary play does not stop a recording that early.
+- **Setting up ground science next to a landed vessel no longer throws the flight away.** When
+  nothing in a flight moved more than 30 m, Parsek treats it as "idle on the pad" and discards
+  it on leaving the scene. A kerbal who stepped out of a landed capsule and placed a Breaking
+  Ground experiment, power, comms or Central Station part beside it counted as idle, so the
+  flight, the placed parts' recordings and its rewind point were all deleted. A flight in which
+  a kerbal placed any ground part or planted a flag is now never idle (log: `IsTreeIdleOnPad:
+  not idle - tree has N placed ground part(s)` / `... N planted flag(s)`). A plain EVA with
+  nothing placed and no flag is still idle, as before.
+
+- **The Space Center facility menu no longer shows `#autoLOC_900122` above Parsek's reason.**
+  When the committed timeline upgrades a facility later, Parsek adds the reason under the
+  facility's description in its Space Center menu. The description is a translation key that
+  the game only translates when the text is exactly that key, so adding a line to it made the
+  menu show the raw key instead of the description (for the Tracking Station, "At the Tracking
+  Station, all ongoing missions can be viewed and focused..."). Parsek now translates the game's
+  text before adding its line, on every stock text it adds to: the facility menu description
+  and button tooltips, the R&D node description and tooltip, the part tooltip, Mission Control
+  row labels and contract details, the Administration strategy reason and button tooltips, the
+  Astronaut Complex labels and tooltips, and the flight crew EVA and hatch tooltips.
+- **A vessel that dropped a stage and kept flying is no longer treated as if its flight ended at
+  the staging.** Every staging or decouple of the vessel you are flying is recorded as a branch
+  that the vessel flies straight past, but several places read any branch as "this vessel's
+  flight ended here". Fixed:
+  - A station you docked to, when the docked craft later dropped a stage that crashed, was no
+    longer hidden during the replay (and at the end of the replay it was handed the dropped
+    stage).
+  - After switching away from a staged rocket and reloading, the rocket stopped being recorded
+    in the background, and a crash of the vessel you switched to could close the whole flight
+    while the rocket was still flying.
+  - Switching back to a staged rocket started a new flight instead of continuing its own.
+  - Going on EVA from a staged rocket you had switched back to did not record the EVA.
+  - The staged rocket was left out of the merge dialog's keep / discard choices when you were
+    flying another vessel of the same flight.
+  - A staged flight had no phase label in the recordings list, the Timeline had no "appears"
+    row for it, and the Missions event list had no row for how it ended.
+  - A replayed vessel that staged and was later flown again could drop out of the CommNet relay
+    network between its recording's end and the later flight.
+  - A scoped Discard of a switched-to flight that staged twice missed the first stage.
+  - The Missions partner journey could jump onto an unrelated vessel you switched to.
+- **Dropping a spent stage, or switching away, no longer takes away a Re-Fly.** A vessel you
+  separated from at a rewind point stopped being offered as an Unfinished Flight once it later
+  dropped a stage that was only debris, or once you switched away from it while not recording,
+  even though nothing re-flyable happened after the separation. Both now keep the flight
+  re-flyable (and a Re-Fly that only drops debris no longer seals itself). Dropping a stage with
+  a probe core or crew still ends it, as before.
+- **A kerbal held by a committed flight can no longer be taken out on EVA or transferred in
+  flight.** A kerbal a committed flight still needs, who is aboard a live vessel that is not
+  the continuation of a committed flight (for example a craft a rewind left flying), could be
+  sent on EVA or moved to another part with no warning; when the committed flight later
+  spawned, his seat in it came out empty. The crew portrait's EVA button and the hatch
+  dialog's EVA and Transfer buttons are now greyed for him with the reason in their tooltip
+  (the hatch row also shows his status), and stock's EVA and transfer entry points refuse
+  him with the same text. Kerbals aboard a vessel Parsek spawned or adopted for a committed
+  flight fly on as before, a retired stand-in is not held, and nothing is blocked while a
+  Re-Fly is in progress (its crew may EVA and transfer from any vessel of the re-fly).
+- **Administration now says when a strategy stock refuses is activated later.** With every
+  strategy slot in use, the strategy the committed timeline activates later showed only
+  stock's "cannot support more than N active strategies"; the committed activation date now
+  follows stock's reason on its own line. Stock's refusal still decides.
+- **Mission Control says "expired" for a committed contract deadline expiry.** An Active
+  contract whose committed outcome is its deadline running out read "fails" / "Fails on" in
+  the row label, the detail panel and the Cancel refusal, while the Timeline says "Expired";
+  it now reads "Expired on <date>".
+- **Ghosts on the ground no longer jump up and down while crew portraits are showing.** A replayed
+  EVA kerbal or a Breaking Ground part he placed, recorded standing slightly below the terrain height
+  KSP reports, is lifted just clear of the ground as it replays. On the frames where stock redrew a
+  crew portrait (about eight times a second), that lift was skipped and the ghost drew at its
+  recorded height, so it flickered between the two, about a metre apart. Every frame now shows the
+  same height. The log line `Ghost camera pre-cull before LateUpdate: kept N reapply entries for
+  LateUpdate` marks the frames that used to flicker.
+- **A cluster of ground parts an EVA kerbal placed now spawns whole after a rewind.** When a
+  kerbal set out a Breaking Ground cluster a few metres apart (RTG, solar panels, experiments,
+  Central Station), only the first part to finish replaying became a real vessel: every later
+  part found the earlier one inside its spawn-collision box, waited, then gave up with "Manual
+  placement required", and its ghost vanished. The rover and the kerbal ending among the parts
+  would have hit the same wall. A spawn at a member's recorded end spot now ignores a vessel
+  Parsek spawned from another member of the same committed flight that still stands where it was
+  put; the player's own craft, another flight's spawn and a member since moved elsewhere still
+  block. When a spawn has to step back along its own path, a member counts only if it was
+  already standing there at that moment of the recording, so a rover is never placed inside a
+  part set down later where it once drove. At the Space Center the same members are no longer
+  nudged 15 m apart. A kerbal or a placed part is also no longer pushed off its spot by the
+  vessel it stood beside when that vessel was already standing there when the recording was
+  made and has not moved since, such as the landed capsule the kerbal climbed out of, recorded
+  in an earlier flight: after a rewind the Space Center used to move both the kerbal and his
+  seismometer 15 m away from it. Parsek knows the capsule was there from the capsule's own
+  saved flight, which was saved before the kerbal's and ended, standing on that spot, before
+  the kerbal got there. A vessel that arrived later, one moved since, or one Parsek has
+  no saved flight for still pushes, and a rover or other craft is still nudged clear as before.
+- **Watching a replayed flight to its end now holds on that vessel, not on a stage it dropped
+  earlier.** When a replayed rocket had decoupled a controllable stage (a probe core) earlier in
+  the flight and kept flying, the camera at the end of the rocket's flight jumped to that stage,
+  dropped minutes before, and held on it instead. The end-of-flight watch now switches to a
+  different vessel only when the watched flight really ended at the split. It still does that for
+  a stage that exploded as it decoupled, and a crash breakup still holds on the wreck as before.
+  GS-8 (the Kerbal X zone round trip) flies green again.
+- **A Re-Fly that brings back a vessel you recovered now takes the recovery money back.** If
+  you flew, landed and recovered a vessel, then re-flew an earlier separation whose rewind
+  point still had that vessel in the world, the vessel came back and its recovery funds stayed
+  in the account, so it could be recovered and paid for a second time. Parsek already had a
+  step for this, but it only recognised a flight that was saved as "Recovered". With
+  auto-merge on (the normal setting), an in-flight Recover saves the flight as Landed before
+  the game actually recovers the vessel, and a recovery from the Tracking Station reaches a
+  flight that was saved long before, so the step never matched. It now also recognises the
+  recovery from what Parsek records at the moment of the recovery: the recovery payout, or
+  the crew being returned to the roster. The vessel must still be positively the same launch,
+  and a recovery from before the rewind point is left alone.
+- **Supply routes between nearby vessels now really move the cargo during time warp.** When a
+  route's pickup or delivery vessel was close enough to your active vessel to be loaded but was
+  on rails (time warp), Parsek wrote the fuel and parts into the vessel's saved copy instead of
+  the vessel itself. The next save or scene change rebuilt that copy from the vessel, so the
+  pickup and the delivery quietly vanished: the source kept its fuel, the destination never got
+  it, and the route could run again on cargo it had already taken. A loaded vessel now always
+  has its tanks and inventories changed directly, whether or not it is on rails; only a vessel
+  that is truly unloaded is written through its saved copy.
+- **A Re-Fly in which a crew member goes EVA now replaces the old flight when you merge.**
+  Stepping out of the re-flown vessel (for an EVA report, a flag, a part) and climbing back in,
+  or leaving the kerbal outside, used to make the merge keep the old flight: the log read
+  `refused-unflown-provisional` and the old stretch stayed on the timeline next to the new one.
+  The merge now reads the vessel's ending past its own EVA and re-board, the same way the
+  Unfinished Flights list does, writes the supersede rows, and closes the slot as the Re-Fly
+  rules say (a stable ending or an EVA during the Re-Fly seals it; a crash keeps it open for
+  another try; a kerbal who left for a different vessel seals it). The kerbal's own EVA and the
+  vessel after the re-board are part of the new flight and are never hidden by the merge. The
+  same fix covers a stock Switch-To away and back during a Re-Fly.
+
+- **A Re-Fly in which the re-flown vessel undocks now replaces the old flight when you merge.**
+  An undock during a Re-Fly used to make the merge keep the old flight next to the new one
+  (`refused-unflown-provisional`): the recorder ends the vessel's recording at the undock with no
+  ending of its own, and the Re-Fly slot stops at a separation by design. The merge now accepts a
+  flight that ended at a separation made during this Re-Fly, writes the supersede rows and closes
+  the slot (the undock is a downstream separation, which the Re-Fly rules always seal). Both
+  halves after the undock are part of the new flight and are never hidden by the merge. An
+  undock that already existed before the Re-Fly began does not count.
+
+- **Looping one phase of a split flight is now visual only.** A long flight that Parsek
+  splits into phases (launch, coast, landing) is a chain. Ticking Loop on any one phase used to
+  change the whole flight's outcome: its final vessel never spawned, its crew stayed reserved
+  forever, and a crew death became permanent even with stock respawn on. Now the loop only adds
+  ghost replays. The flight plays once for real and its final vessel spawns once at the end, in
+  flight, at the Space Center and in the Tracking Station. The crew of its other phases are
+  freed exactly as for any flight: at the end of a recovered flight, when the vessel is
+  recovered, or when a flight that ends parked at the Space Center is retired (the looped
+  phase's own crew are held the same way since the LOOP-RECORDING-CREW-NEVER-RESERVED fix).
+  A death follows stock respawn. Phases before the
+  end still never spawn a vessel, and a looped mission (which loops the whole mission) is
+  unchanged. A kerbal's hover no longer says a loop holds him. The log names the spawn with
+  `Chain loop first-run spawn:`.
+- **Every orbit Parsek calls Orbiting now spawns, and a refused ghost no longer lingers.** A
+  recording ending in orbit is marked Orbiting only when its periapsis clears the body's
+  atmosphere, and on a body with no atmosphere its highest terrain, so a low Mun orbit that
+  would hit a mountain ends as a sub-orbital flight. The spawn check now uses that same line.
+  Before, a vessel whose periapsis was up to 5 km above the atmosphere (a 72 x 100 km Kerbin
+  orbit, and the same band over Duna, Eve, Laythe and Jool) was recorded as Orbiting and then
+  refused at spawn, and its ghost stayed on screen past the end of the recording for the rest
+  of the scene. The 5 km margin is now used only to wait while the vessel is low in that band,
+  and the vessel spawns once it climbs. A recording that ended with its vessel unloaded no
+  longer counts as Orbiting just because its periapsis is above sea level: a periapsis inside
+  the atmosphere makes it sub-orbital. A spawn that can never succeed (an orbit that cannot
+  be rebuilt, a spawned vessel that died, bad numbers) no longer holds its ghost: the ghost
+  finishes its replay and disappears at the recording's end, along with its map-view orbit.
+  A refusal saved in an existing game is checked again under the new rule when the game loads,
+  except a vessel that already died when it spawned, which stays refused. Ruling 2026-09-27.
+- **Every column of the Missions and Logistics windows can be reached on a 1280 px screen.**
+  Both windows are laid out wider than 1280 px (Missions 1355, Logistics 1410), and nothing
+  kept a window on the screen, so on a 1280x720 game window their right-hand columns were
+  drawn off the edge and could not be reached. A Parsek window that cannot fit the screen at
+  its own width is now made as wide as the screen and moved onto it, and its table scrolls
+  sideways: in the Missions window the column headers scroll together with the rows, so every
+  column stays under its header, and the Close button and the help line stay in place. Such
+  a window cannot be dragged wider than the screen, and it returns to its normal width when
+  the screen is large enough again. On a screen the window already fits, nothing changes: it
+  stays where you put it, even partly off-screen.
+- **Recovering a vessel no longer pays its recovery funds twice, or rewrites the earlier legs of
+  its flight.** When a vessel was recovered or deleted while its flight was still waiting to be
+  merged (a Re-Fly or vessel-switch merge dialog, for example), Parsek marked every earlier
+  recorded leg of the same vessel as recovered too: the leg before a staging, undock or EVA,
+  the leg before a dock, and each earlier part of a background recording. Those legs then
+  claimed to last until the recovery, lost their saved vessel, and on merge each one booked
+  the recovery payout again. Only the leg the vessel was actually flying at the recovery is
+  marked now, so the payout is booked once; a flight that shed only debris is still marked as
+  before.
+- **A kerbal who died and respawns reads Lost until his respawn even when he flies again
+  later.** With crew respawn on, a kerbal killed on a recorded flight who was then flown again
+  on a flight ending after his respawn read as reserved for that later flight over the whole
+  time, including while stock still had him dead or missing, and a free stand-in took his seat
+  there (also before the death after a rewind). He now reads Lost until the respawn date, with
+  no stand-in, exactly as with the death alone; from the respawn on the later flight holds him
+  as usual and a stand-in covers his seat, which now appears at the respawn without waiting for
+  a scene change.
+- **No false "Held your funds at the spent value" message on Moderate or Hard when your
+  funds go negative.** Those presets let stock take funds (or science) below zero, for
+  example with a failed contract's penalty. Parsek treated the negative balance as a spend it
+  had missed: it showed the message, wrote a warning to the log on every recalculation, and a
+  rewind reset the balance to zero. It now keeps a negative balance that already exists, as
+  stock shows it; money a committed future flight will spend later still never takes the
+  balance below zero early. On the presets that keep currency at zero nothing changes.
+- **Auto-hire no longer seats a kerbal your committed future hires.** With the difficulty
+  option that hires crew automatically for empty seats, after a rewind to before a kerbal's
+  recorded hire, auto-hire could pick that same applicant: Parsek refused the hire, but the
+  game seated him anyway without hiring him, announced a hire that cost nothing, and with two
+  seats short put him in both. Auto-hire now passes over applicants a committed flight hires
+  later and takes the next one (or a new applicant when none is left).
+- **Recording through the Alt+F12 cheats and from alternate launch sites.** Four follow-ups
+  from the stock-settings audit:
+  - A Set Orbit, Rendezvous or Set Position teleport during a recording is now recorded as a
+    jump. A same-planet jump is not itself a split point (the recording still splits where the
+    flight phase really changes, such as surface to orbit), and a jump from the surface
+    or the atmosphere to another planet or moon now splits the recording at the new body the
+    way an SOI change does (before, one piece of the recording spanned both bodies). In orbit
+    the ghost follows the new orbit from the moment of the jump instead of the old orbit for a
+    few frames. Every teleport is logged.
+  - A recording that did not start with a launch no longer carries a launch site. Starting a
+    recording on a vessel taken off from a remote landing, switched to, or picked in the
+    Tracking Station tagged it with the site of your last launch, and a supply route built from
+    it was treated and priced as a KSC launch. A launch from the pad or runway, a vessel still
+    on a launch site, and a fresh rollout keep their site, and a vessel standing on a site now
+    names that site rather than the last one you launched from.
+  - A flight that ends parked on any stock launch site (the Making History Desert pad and
+    airfield, the Woomerang pad and the Island airfield when Making History is installed, as
+    well as the KSC pad and runway) is retired: no vessel is spawned there, its crew is freed
+    and no funds are paid. KSC behaves exactly as before.
+  - Recording while Hack Gravity is on now writes one warning to KSP.log: orbits recorded under
+    changed gravity replay at the wrong rate once gravity is back to normal. Nothing else
+    changes.
+- **Kerbals keep the inventory they carried when their vessel reappears.** A vessel that
+  appears at the end of a recording used to give each kerbal the inventory he has on the roster
+  now, not what he carried at the end of the flight, because a kerbal's own inventory is stored
+  with him rather than with the vessel. A part could exist twice (brought from the VAB, stowed
+  in the pod or placed during the flight, then revert and commit) or disappear (taken out of the
+  pod and kept by the kerbal). Parsek now records each crew member's inventory with the vessel
+  and gives it back to him when the vessel appears, EVA kerbals included; a stand-in who takes a
+  reserved kerbal's seat gets that seat's recorded inventory. Recordings made before this
+  version keep the old behaviour.
+- **Career ledger follows non-Normal difficulty settings (science gain, declined contracts,
+  zero starting pools).** Four gaps found by the stock-settings audit, each invisible on the
+  Normal preset every test save uses:
+  - Science on Easy, Moderate or Hard (or any custom science-reward slider) now counts at the
+    rate stock paid. Parsek recorded the experiment value before stock's science multiplier, so
+    on Easy it credited half the science stock gave you and on Hard more than stock gave, and a
+    rewind reset your science to that wrong total. The multiplier in effect when the science
+    arrives is now saved with it (changing the slider later does not rewrite past science),
+    while the per-experiment "how much is left" math stays in stock's own units.
+  - Declining a contract now costs the reputation stock took (the difficulty's "reputation lost
+    on decline", 1 on Normal and 3 on Hard) in Parsek's timeline too, instead of being handed
+    back by the next rewind. Nothing is recorded when the setting is 0.
+  - A career that starts with 0 funds, or a Science game at 0 science, now has its starting
+    balance recorded, so Parsek can keep the balance in step, and loading such a save no longer
+    waits about 10 seconds before Parsek sets its balances. Science and Sandbox games also stop
+    waiting 2 seconds on every load for funds and reputation, which those modes do not have.
+  - Currency from the Alt+F12 cheat menu is still not recorded (by design, the next rewind
+    removes it); each cheat now writes one log line saying so.
+- **Deploy-limited cargo bays now open on the replay.** A cargo bay set to open only part of the
+  way (the stock Mallard's Mk3 bays ship at 44, 45 and 51 percent) recorded nothing when opened
+  or shut, so its ghost's doors never moved. Parsek now counts a bay as open once its doors stop
+  at the limit, and the ghost opens its doors to that same limit rather than all the way.
+
+- **A contract penalty or a facility repair is no longer charged twice across a rewind.**
+  After a rewind, the timeline can hold two endings for one contract: something you did in
+  the present (a cancel, a completion, or a failure caused by losing a vessel) and the fail or
+  cancel your committed flights recorded later. Parsek charged the later penalty as well, so
+  the contract cost you twice. It now charges a fail or cancel penalty only if the contract is
+  still open at that point, as stock does, and the first ending stays the contract's state. A
+  repair of a building the timeline already has repaired (a second repair of one collapse) now
+  costs nothing and is logged. A repair of a building Parsek has no collapse record for still
+  charges, because stock only repairs destroyed buildings. A single fail, cancel or repair
+  still costs exactly what it did.
+
+- **Rewinding a later flight no longer deletes a vessel an earlier flight left behind.** A
+  plain rewind removed every vessel Parsek had spawned or adopted for any committed recording,
+  expecting each recording to spawn its vessel again. A recording that ended before the rewind
+  point is history, though: it does not replay after the rewind, so its vessel never came back.
+  For example, land a capsule, commit it through the Switch-To dialog, launch another flight
+  and rewind that one: the capsule was gone. A rewind now keeps a
+  spawned vessel when no recording that replays after the rewind will spawn it again, and the
+  kept vessel stays linked to its recording, the same way a revert keeps an earlier flight's
+  vessels. Vessels of the rewound flight, and of any recording that replays, are removed and
+  spawned again as before.
+
+- **Rewinding a relaunch of a craft no longer deletes the earlier launch of that craft.** A
+  rewind removes the rewound flight's own vessel from the save it goes back to, and it found
+  that vessel by name. Launching a craft again gives the new vessel the same name, so rewinding
+  the second flight also removed the first one (for example the first Kerbal X, still landed
+  where you left it), and nothing brought it back. The rewind now also checks the vessel's
+  launch identity: a vessel with the craft's name from a different launch stays where it was.
+  When a recording has no launch identity, or the save does not hold the rewound flight's own
+  vessel, the name decides as before. A flight renamed in the recordings table after it was
+  flown now also has its own vessel removed on its rewind.
+
+- **After a revert or a rewind, debris and recovered vessels keep the ending they recorded.**
+  Reverting a flight or rewinding to an earlier point used to wipe the "destroyed" or
+  "recovered" ending from committed recordings that Parsek had marked as handled, which hit
+  almost every debris recording. The recording then played back as if its vessel had never
+  ended, and the ending was not saved again. Committed endings are now left alone on both
+  paths. Spawn tracking still resets as before, and revert and rewind still differ in the same
+  way: a revert throws the reverted flight away, a rewind commits it.
+
+- **Science is no longer over-credited when the same experiment is submitted more than once.**
+  Parsek recorded a science subject's running total at each submission, and the ledger adds
+  every submission, so transmitting or recovering the same experiment a second time (in one
+  flight, across flights, or at the Space Center) credited the earlier science again, up to
+  the experiment's cap. Breaking Ground deployed experiments, which send their results in about
+  ten chunks, reached an experiment's full value after three or four sends. Each submission now
+  records only the science it added, at the science rate stock paid (see the difficulty entry
+  above), so your science total matches stock. Saves recorded before this keep their past
+  credit unchanged; only science gathered from now on is counted the new way.
+- **Ghosts on the map no longer push real debris out of your save.** KSP keeps at most
+  `MAX_VESSELS_BUDGET` vessels (250 by default) when it saves, dropping the oldest debris
+  first. Parsek's map ghosts are vessels while you are in flight or the Tracking Station, and
+  KSP counted each one against that limit before Parsek removed them from the save, so every
+  ghost cost you one real piece of debris. KSP now saves as if the ghosts were not there, and
+  your budget setting is never changed. With the limit set to "no limit" nothing changes.
+  Behavior on a live save is inferred from the stock code and covered by an in-game check;
+  it has not been flown yet.
+- **Logistics: a day is a day on your calendar.** The Logistics window showed intervals of a
+  day or more in 6-hour Kerbin days but only switched to days at 24 hours, so a 24-hour
+  interval read `4.0d` on the Kerbin calendar and on the Earth calendar alike, and typing
+  `1d` into the interval field always meant 6 hours. Both now follow the game's calendar
+  setting: 6 hours on the Kerbin calendar, 24 hours on the Earth calendar, and a displayed
+  value types back in unchanged.
+- **Recovering or losing one vessel no longer ends a same-named recording of another.** When
+  KSP recovered or removed a vessel (for example its automatic clean-up of debris landed at the
+  Space Center), Parsek marked every same-named recording in the pending flight as recovered
+  and dropped its end snapshot. It now also checks that the recording is of that very vessel
+  (same vessel id and launch), and falls back to the name only when either side lacks the id.
+- **A debris vessel KSP drops from the save now ends where it was last seen.** When KSP left a
+  background-recorded vessel out of the save (its vessel budget), the reloaded recording kept
+  claiming the vessel existed, stretching its end forward every 30 seconds, and a Commit Flight
+  could then mark it destroyed and replay it as an explosion. After a reload Parsek now closes
+  each such recording at the last moment the vessel was recorded, as orbiting, landed,
+  splashed down or sub-orbital from its own recorded path, with no explosion; one it already
+  marked recovered (the Space Center clean-up of landed debris is a recovery) keeps that. One
+  log line names every such vessel, its recording and how it was closed.
+- **Parsek stays off in Making History missions, the mission builder and stock training or
+  scenario saves.** These games script their own facility locks, recovery rules and endings,
+  and Parsek was never built for them; worse, after playing a career and then loading one of
+  them, Parsek's in-memory copy of that career could still play its ghosts, draw its supply
+  routes on the map and block stock screens with its reservations. Now, in the MISSION,
+  MISSION_BUILDER, SCENARIO and SCENARIO_NON_RESUMABLE game modes, Parsek shows no toolbar
+  button and does not record, play ghosts, show map presence, rewind or re-fly, capture or patch
+  the ledger, or annotate and block any stock control. `KSP.log` carries one line per scene
+  naming the mode (`[GameModeGate] Parsek inert: game mode MISSION ...`). A mission or scenario
+  save that somehow carries a Parsek section keeps it unchanged when saved. Career, Science and
+  Sandbox games are unaffected.
+
+- **Re-Fly on the Hard preset: Retry is not offered; merge or discard by leaving the flight.**
+  Rewind and Re-Fly ignore the difficulty's "Allow Quickload" and "Allow Revert" settings, but
+  stock only shows the Esc menu's Revert Flight button (the way into the re-fly Retry / Discard
+  / Continue Flying choice) when Allow Revert is on. On a game with Allow Revert off, such as
+  the Hard preset, Retry from the rewind point is therefore not available during a re-fly;
+  leaving the flight (Esc > Space Center or Tracking Station) still opens the merge dialog to
+  keep or discard it. `KSP.log` notes this under `[ReFlySession]` when a re-fly starts on such
+  a game.
+
+- **Breaking Ground deployed-experiment science is never attributed to the vessel you are
+  flying.** Science from deployed experiments is recorded like science earned at the Space
+  Center, so re-flying a flight no longer removes it and it no longer locks a re-fly as if
+  you had earned it on that vessel.
+
+- **Repairing a KSC building that your committed timeline already repairs later is now
+  refused, so it is no longer charged twice.** After a rewind to between a building's
+  destruction and its committed repair, repairing it again charged both repairs. The
+  building's menu now greys out Repair, with the reason in its tooltip ("Repaired on
+  <date> on your committed timeline. ..."), and a Repair click is refused with the same
+  text before any funds are taken, the way a committed facility upgrade is already blocked.
+  A building you destroy yourself after rewinding to before its committed destruction can
+  still be repaired.
+
+- **A crew death's reputation penalty now stays with the death when a recording is split.**
+  When the optimizer or a Re-Fly split cut a recording between the moment a crashed vessel's
+  reputation penalty was stamped and the crew's death, the death went to the later part and
+  the penalty stayed on the earlier one, so re-flying the later part brought the crew back but
+  kept the reputation loss. The penalty now always lands on the same part as its death, on both
+  splits, and a re-fly that undoes the death undoes the penalty too. Penalties from contracts
+  and other sources are placed as before.
+
+- **Spinning vessels recorded with PersistentRotation now replay spinning.** Parsek never
+  recognised the KSP 1.12 build of PersistentRotation (PersistentRotationUpgraded), so a
+  vessel that went into time warp while spinning was always replayed holding its attitude.
+  Parsek now recognises the mod by any of its names, logged as `PersistentRotation mod
+  detected: True (matched=...)` at recording start. A recording that goes on rails while
+  spinning faster than 0.05 rad/s stores the spin, and the ghost turns at that rate for
+  the whole on-rails stretch. The stored spin axis is now correct too: KSP reports a
+  vessel's angular velocity relative to its control part, and the old code read it as a
+  world vector. That was harmless while the mod was never recognised.
+
+- **A ground part a kerbal places on EVA is now recorded as its own vessel and replays as a
+  ghost.** Breaking Ground experiments, power and comms units and the Central Station become
+  their own vessel when a kerbal places them, and Parsek used to record the placement on the
+  kerbal instead, so the replay showed the kerbal walking up to an empty patch of ground. The
+  placed part now gets its own recording in the flight's tree from the moment it is placed:
+  its ghost stands where it was placed and disappears when the kerbal picks it up. A part
+  that is still placed when the flight ends comes back as a real vessel after a rewind, like
+  any other vessel the flight leaves behind; a part that was picked up ends as "Disassembled"
+  and is never spawned. The kerbal who placed it still counts as the end of his own flight, so a
+  kerbal left standing on EVA after placing a part also comes back after a rewind (he used to be
+  treated as having branched into the part and never came back). Only a real placement by the
+  kerbal you are recording counts: an old
+  experiment that merely loads nearby no longer adds anything to the recording, and one
+  pick-up records one pick-up (stock reports it twice).
+
+- **Rewind-to-Launch no longer undoes another flight's Re-Fly from a stale save.** A plain
+  rewind reloads the career from `persistent.sfs` as it was last written, and while the
+  recordings, the ledger and (since the earlier fix) the rewind points were kept from memory,
+  the supersede rows, the rewind retirements, the kerbal-death tombstones and the merge journal
+  were read back from that file. Any change to them since the last write was undone: rows
+  added then were lost (a Re-Fly merge finished at load time, whose saves are deferred; the
+  retirements an earlier rewind wrote, so its re-flown flight could show again), and rows
+  removed then came back (a discarded flight's rows, the rows an earlier rewind dropped). The
+  rewind now carries all four from memory, the same way it carries the rewind
+  points; the rewound flight's own Re-Fly is still undone exactly as before. A merge journal
+  still on disk for a merge memory had already finished is dropped instead of being run a
+  second time on the next load. Log: `Staged lists carried across rewind:`.
+
+- **Recordings are no longer lost when the game closes right after loading or committing.**
+  Loading a save and committing a flight both write the changed recordings to disk straight
+  away, and that write advanced each recording file's save counter past the one stored in the
+  save. If the game then closed, crashed or was killed before the next save, the next load read
+  every such recording as belonging to a different save and dropped it (a whole flight when it
+  was the first recording of the tree). That immediate write now keeps the counter the save
+  already holds, so the next load accepts the file, and the next real save advances the counter
+  on the file and in the save together, so a quicksave taken before the write is again
+  recognised as older. Until that save (and for good if the game closes first) such a quicksave
+  loads the rewritten file instead of being rejected. A recording no save has ever stored still
+  gets its first counter from the immediate write.
+
+- **Missions: cloning a looping mission no longer leaves two loops on one flight.** The Clone
+  button copied the Loop setting too, so a copy of a looping mission also read Loop on even though
+  only one mission per flight can loop; the copy did nothing and the log warned on every rebuild
+  until the next load switched it off. The copy is now created with Loop off while the original
+  keeps looping. It keeps the original's loop period and unit, so turning Loop on for the copy
+  later loops it with the same settings (and, as before, switches the original's loop off). The
+  Clone button's tooltip now says so.
+
+- **A save interrupted by a crash no longer leaves a stray `.tmp` file next to Parsek's
+  career files.** Parsek writes each file to a temporary copy and then swaps it into place. A
+  crash before the swap keeps the real file and leaves the temporary copy beside it. Only the
+  recordings folder was cleaned of these copies; the ledger (`ledger.pgld`), game-state events
+  (`events.pgse`), milestones (`milestones.pgsm`), per-UT baselines (`baseline_*.pgsb`) and the
+  install-wide `settings.cfg` kept theirs. Each of those now deletes its own leftover
+  `<file>.tmp` when it loads, before reading the real file, which it never touches. The baselines
+  mattered most: their names change with every save, so their leftovers accumulated instead of
+  being overwritten by the next save. One case is left alone on purpose: when the real file is
+  missing, the temporary copy may be the newest complete save (a crash in the middle of the
+  fallback swap, which parks the previous file as `<file>.bak.<id>` first) or a half-written
+  first save, and the two cannot be told apart. That copy is kept, not deleted and not put in
+  place, and the log warns with its path, size and any `.bak` copy, so it can be recovered by hand.
+
+- **A dropped booster you switch to and fly no longer reports a distance of over 1000 km.**
+  When you switch to a booster Parsek was recording in the background and it flies on near its
+  sibling, part of its track is stored relative to that sibling in metres. The distance worked
+  out when the recording ended read those metres as map coordinates, so a booster that fell 5 km
+  from the pad was listed with a maximum distance of about 1205 km. The distance now comes from
+  the booster's real map positions (the same data Parsek already used for boosters it never
+  switched to), and so does the biome a destroyed vessel ended in. The same booster also no
+  longer logs a background time-limit close after you switched to it: switching now cancels the
+  60 s limit it had as debris.
+
+- **Astronaut Complex: a stand-in and the kerbal it stands in for count as one active kerbal.**
+  While your committed timeline holds a kerbal, Parsek puts a generated stand-in in that seat,
+  and stock counted the two as two active kerbals: the complex could read `Active Kerbals: 6
+  [Max: 5]`, lock every applicant at the crew limit early and charge more for the next hire.
+  The active-crew count now treats the held kerbal and his active stand-in as one seat, so the
+  header, the hire limit, the hire cost (and the editor's auto-hire) read what they read before
+  the hold, and Parsek's ledger records the same hire cost stock charges. A retired or displaced
+  stand-in still counts, and the count returns to stock's own when the hold ends. The stand-in's
+  dismiss tooltip adds that it shares the owner's seat and does not count against the limit.
+- **Ghost replay no longer reports a placed ground-science part as shown.** The part-event
+  log line for an EVA inventory placement or pick-up said the ghost applied it even when the
+  ghost had no such part (always the case today); it now says `no-info-for-part`.
+
+- **Space Center: the Administration building keeps stock's own reason when stock already
+  refuses a strategy, and a strategy Parsek refuses now looks refused.** With every strategy
+  slot taken, all ten inactive strategies showed Parsek's "a committed activation needs this
+  slot" instead of stock's own slot-full reason. Parsek now adds its reason only where stock
+  would allow the activation (or the Cancel); when stock refuses for its own reason (slots,
+  a conflict, the cost, a minimum duration), stock's greyed state and stock's text stand
+  untouched, and the Accept / Cancel click is left to stock. The Accept / Cancel button used
+  to look fully enabled while Parsek had disabled it (stock gives that button no disabled
+  picture, for its own refusals too); it is now dimmed while a Parsek refusal disables it and
+  gets its exact stock look back when you select a strategy Parsek does not refuse.
+- **Astronaut Complex: an applicant your committed timeline hires later shows "Hired on
+  <date>" on its row.** The date was written to the row's status line, which applicant rows
+  never display (stock's own "For Hire" is hidden there too), so the row kept showing only the
+  trait and the date was in the hover tooltip alone. It now replaces the trait line under the
+  applicant's name (the trait stays in the tooltip) and the stock line returns once the hire is
+  no longer ahead.
+- **Astronaut Complex: a stand-in's row reads "Stand-in for Bill Kerman".** An active stand-in
+  kept stock's "Available for next mission" although his dismiss button was locked; the row
+  now says whose seat he is covering, in the Kerbals window's wording.
+- **Stock screens: a button Parsek blocks now looks disabled.** The R&D Research and
+  purchase-all button and Mission Control's Accept, Decline and Cancel draw no disabled state
+  of their own, so a blocked one looked clickable and only the reason text said otherwise.
+  They are now greyed while Parsek blocks them (a button whose own style has a disabled look
+  keeps using it), and get their exact stock look back when the block lifts or another,
+  unblocked contract or node is selected.
+- **KSC facility menu: the Upgrade explanation wraps.** The tooltip on a blocked Upgrade
+  button drew as one very long line to the left of the menu; it now wraps to short lines.
+- **Mission Control: row labels fit.** A contract the committed timeline accepts or resolves
+  reads e.g. "- Accepted on Y1, D03" or "- Completed on Y2, D114" after its title, instead of
+  a long status the three-line row cut off; the detail panel still gives the full
+  explanation.
+- **Mission Control: the slot refusal names the contract's agent.** When several offers share
+  a title, "Accept is unavailable" now says which one the committed timeline accepts, e.g.
+  "'Conduct a focused observational survey of Kerbin.' from Zaltonic Electronics". The agent
+  comes from the contract's saved accept record, or else from Mission Control's own offer list
+  at the moment the reason is shown; it was missing when the save kept no accept record,
+  because Parsek looked for the offer while the game was still loading its contracts.
+- **Astronaut Complex: a stand-in's dismiss refusal says whose seat he covers.** It read "This
+  kerbal is a stand-in in a reserved kerbal's replacement chain"; it now reads e.g. "Standing
+  in for Bill Kerman, reserved by timeline for 'Mun Lander' until Y1, D09, 18:40." A stand-in
+  who covers no seat right now reads "Kept as a stand-in for Bill Kerman, ..." (or "Kept as a
+  stand-in for a reserved kerbal, blocked by timeline.").
+- **Timeline: a kerbal's experience row reads "XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin,
+  Recovered)" instead of the raw word "KerbalExperience".** The row a crewed recovery writes for the
+  kerbal's career log had no Timeline display arm, so it showed as an unstyled event with the type name
+  as its text and logged an "Unknown GameActionType" warning every time the Timeline rebuilt. It now
+  shows in the crew bucket, beside `Recovered: <name>`, naming the logged entries. Supply-route ledger
+  rows, which the Timeline design gives no row, are now skipped instead of taking the same fallback.
+- **A committed tech unlock now reaches the R&D tree when the Space Center clock passes it as
+  the last committed event.** When the clock caught up with a committed research (for example
+  after a rewind to before it) and that research was the last thing on the committed timeline,
+  the ledger recalculated without a time limit, and that kind of recalculation leaves the tech
+  tree alone so it cannot re-lock anything. The node's science was charged but the node stayed
+  locked, and once its research block lifted it could be bought a second time. Those
+  recalculations now also unlock every committed node at or before the current time. They only
+  unlock, never re-lock, never unlock a node whose research is still ahead, and wait while a
+  rewind is still moving the clock. A committed part purchase on that node now applies in the
+  same pass.
+- **Buying a part no longer charges again for the identical parts the game gives you free.**
+  When you buy a part in the VAB/SPH or in R&D, the game also marks the part's identical
+  variants (same tech node) as purchased without charging for them. Parsek recorded each of
+  those as a paid purchase, so its funds history charged the entry cost once per variant
+  while the game charged it once. It now records what the game charged: the part you
+  bought at its entry cost, and each identical variant as a free purchase. The free record
+  still counts: after a rewind the variant is marked purchased again when its date passes,
+  and it cannot be bought before then, like the part you paid for. Purchases recorded
+  before this fix keep the amount they were recorded with.
+- **Kerbals window: column text now starts exactly under its header.**
+  Its body cells were plain labels under boxed headers, so the text sat 4px left of the
+  header text (Roster: header text at x=289, body at x=285). Every body cell now uses the
+  shared table cell style, including the label-styled link cells (the Last flight and
+  Flights rows).
+- **Real Spawn Control and the Log window: column text now starts exactly under
+  its header.** The header cells are boxes that inset their text 4px, while the body cells
+  were plain labels with no inset, so every column's text sat 4px left of its header in
+  Real Spawn Control (1px right in the Log window, whose hand-set indent was 5px). Body
+  cells now use one shared table cell style that takes the header's own padding, so the
+  measured header-to-cell text delta is 0px on every column. Both tables also draw their
+  pinned header row inside the same dark box as the rows, so the box no longer starts 4px
+  left of the header cells above it.
+- **Dev: the GUI mirror's Timeline `Career` view button no longer jumps to the Career window.**
+  The page's launcher rule sent any control whose text spelled a window's name to that
+  window. Only the main window's controls launch windows now; elsewhere such a control is
+  routed as a view or state of its own window, or says there is no capture for it
+  (`harness/tools/gui_mirror.py`, `routeClick`).
+- **Dev: the GUI mirror names windows, tabs and states by what the game draws.** The rail,
+  headers, Compare and the notes list showed seam tokens (`structure`, `rewindff`,
+  `expandedstats`), so a window whose token is not its title could not be found. A window
+  now reads by its own title without the `Parsek - ` prefix (the structure window by the
+  title it draws with no mission or route open, its other titles in the tooltip), a
+  Timeline view by its button's text, and a state by the one control its step changed
+  where the capture shows it (`Info`, `Recordings off`, `Last Day`); every name comes from
+  the captures, and the token stays in the tooltip and in every link and note key.
+- **Space Center: a refused research, contract accept, facility upgrade, hire or dismissal now
+  says why, and when the item frees up.** The "Action Blocked" dialog and the badge hovers on
+  the R&D, Astronaut Complex and Mission Control screens used to print a raw `UT 183420`. They
+  now say what the timeline does and on which calendar date (for example `Researched on Y2,
+  D114, 14:05, blocked by timeline until then.`). A kerbal held by a committed flight says
+  which flight holds him and when he is free again, or that he is free once the flight is
+  recovered. The hover and the refused
+  click now show the same text, and the facility dialog names the building instead of its
+  internal id.
+- **Space Center: facility upgrades no longer stay blocked after the committed upgrade has
+  happened.** After a rewind, a facility upgrade a committed flight made later refused every
+  upgrade of that facility for good, even long after that upgrade had taken place. The
+  block now lifts once the clock passes the last committed upgrade of that facility. The
+  research, contract and hire blocks (and their marks) likewise lift once the committed
+  date passes, and they only protect committed history: a flight still in progress never
+  blocks a Space Center action.
+- **Mission Control: a contract your committed timeline accepts later is marked on its own
+  row and explained in its details, with Accept and Decline greyed out.** The small blue
+  badge (hover-only, and gone after any tab switch) is replaced by the stock screen's own
+  parts: the row's title now reads, for example, `Explore the Mun - Accepted on Y2, D114`,
+  the contract details end with `Accept and Decline are unavailable` and the same
+  explanation the refusal dialog gives, and both buttons are
+  disabled. All of it is re-applied whenever Mission Control rebuilds its list, so it
+  survives switching tabs and contracts being offered or completed. It also works with
+  Contract Configurator installed, whose own contract list and Accept button used to switch
+  the marking off.
+- **Mission Control: declining a contract your committed timeline accepts later is now
+  refused.** Declining it did nothing useful: the contract came back as active on the
+  committed date anyway, and the decline could still cost reputation. The refusal says when
+  the contract becomes active. Contracts the committed timeline leaves alone decline as
+  before.
+- **Space Center: the Administration building explains and refuses strategy actions that
+  conflict with your committed timeline.** A strategy your committed timeline activates later
+  can no longer be activated early (which also charged its setup cost a second time); nor can
+  one whose activation would take a slot a committed activation needs, or one that stock's own
+  conflict rule would not allow beside a strategy your committed timeline activates while it
+  is still running. An active strategy your committed timeline deactivates or re-activates
+  later can no longer be cancelled before then. Stock greys the row or the Cancel button and
+  prints why in its own orange reason line, for example `Activated on Y2, D114, 14:05,
+  blocked by timeline until then.` Where stock itself already refuses the
+  action, stock's own reason is the one shown.
+  Stock's own strategy expiry is never blocked.
+- **Space Center: committed strategy activations and deactivations now take effect in the
+  stock game.** After a rewind, a strategy your committed timeline activated was charged its
+  setup cost but never switched on, and one it deactivated stayed on. The stock strategy list
+  now follows the committed timeline at each ledger recalculation, including the one when a
+  save loads (applied as soon as the game has loaded its strategy list, a frame later),
+  without charging or refunding anything again. Strategies activated before the save used
+  Parsek are left alone.
+- **After a rewind, a strategy's committed expiry no longer records a second deactivation.**
+  With KSPCommunityFixes installed, stock strategies expire when their duration runs out.
+  After a rewind to before a committed expiry, the game expired the strategy again when the
+  clock passed that date, Parsek recorded a second deactivation of it (the Timeline showed
+  it twice), and every later recalculation warned that the strategy was not active. The
+  committed deactivation (an expiry, or a cancel you made) now switches the strategy off at
+  its committed date, before the game's own expiry check runs, so the game never expires it
+  a second time and nothing new is recorded. A strategy you activate again after that date,
+  and any expiry your committed timeline does not already have, expire and are recorded as
+  before.
+- **Mission Control: cancelling an active contract your committed timeline completes,
+  fails or cancels later is now refused, and its Active-tab row says so.** Cancelling it
+  used to charge the cancel penalty now and then either wipe out the later completion's
+  reward (with anything the committed timeline bought with it) or charge the committed
+  failure or cancellation penalty a second time. The row now reads, for example,
+  `Explore the Mun - Completed on Y2, D114`, the contract details end with `Cancel is
+  unavailable` and the explanation (`Completed on Y2, D114, 14:05, blocked by timeline until
+  then.`), and Cancel is greyed out; a cancel from anywhere else gets the same
+  explanation. A contract whose only future is its deadline stays cancellable, since
+  cancelling early for the smaller penalty is ordinary play, and the debug toolbar's
+  "regenerate contracts" still works.
+- **Space Center and VAB/SPH: buying a part your committed timeline buys later is refused,
+  and a committed part purchase now actually takes effect after a rewind.** With the
+  difficulty option that bypasses part entry purchases off, rewinding to before a committed
+  purchase left the part unpurchased for good: the committed purchase was still charged on
+  its date, but the part never became usable, and buying it again charged the entry cost a
+  second time. Now the part's tooltip (in the VAB/SPH part list and in R&D) greys out its
+  purchase button and says why, for example `Purchased on Y2, D114, 14:05, blocked by
+  timeline until then.`; a purchase from anywhere else gets the same explanation. R&D's
+  "purchase all parts" buys the others and names the parts it skipped, and is greyed out
+  when every remaining part is one of them. When the committed date passes, the part is
+  marked purchased in the game, with no second charge. Parsek's ledger keeps every purchase
+  you made; nothing is dropped or merged. With the bypass option on, purchases are free and
+  nothing changes.
+- **Space Center: the facility menu greys out Upgrade, with the reason, when your committed
+  timeline upgrades that facility later.** Clicking Upgrade on such a building used to be the
+  first you heard of it: an "Action Blocked" popup. Now the Upgrade button in the building's
+  menu is greyed out, and hovering it shows the same explanation the popup gives (for example
+  `Upgraded to level 2 on Y2, D114, 14:05, blocked by timeline until then.`). Once the clock passes the
+  last committed upgrade, Upgrade is back the next time the menu opens; a change to the
+  committed timeline while the menu is open updates it at once. The refusal stays in place
+  for any other way of starting the upgrade, and both name the building, never its internal
+  id.
+- **Mission Control: accepting a contract is now refused, with a reason, when a contract
+  your committed timeline accepts later needs that slot.** Accepting it used to fill the
+  slot the committed accept relies on, so the committed timeline ended up over the Mission
+  Control limit. Accept is now greyed out on every contract the committed timeline does not
+  accept itself, and the details end with `Accept is unavailable` and the explanation
+  (`Slot needed from Y2, D114, 14:05 for 'Rescue Bill', blocked by timeline.`); an
+  accept from anywhere else, including Contract Configurator's Accept, gets the same answer.
+  The count follows the committed timeline to its end: contracts active now hold their slot
+  until a committed completion, failure or cancellation, or until their deadline, committed
+  accepts add theirs until their own resolution or deadline (auto-accepted contracts, which
+  stock does not count, are left out), and a committed Mission Control upgrade raises the
+  limit from its date. A contract whose own deadline ends before the committed accept that
+  needs the slot is not refused. Decline stays available, and when stock already shows every
+  slot full nothing extra is said.
+
+- **Automated testing: the reentry lane now checks that the parachute really opened, and
+  flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as
+  soon as it had sent the deploy command. It now reads the parachute's own state and
+  requires Parsek's recording of both parachute stages. Flying the real check found that
+  the lane's craft could not open its chute: dropping the spent stage in the same moment
+  as cutting the engine broke the craft up, and with that fixed, the pod came down with
+  the whole upper stage still attached, too fast for the parachute to open. The lane now
+  drops each stage a moment after the last, sheds the upper stage so the pod reenters
+  alone, and arms the parachute high enough to open once it is safe. Nothing in Parsek
+  itself changed.
+- **Timeline strategy rows show the strategy's real name.** The Timeline named strategies
+  from a hand-written table whose ids never matched stock's (`AppreciationCamp` against
+  stock's `AppreciationCampaignCfg`), so every stock strategy read as its split config
+  name, e.g. "Activate: Outsourced Research Cfg". The Timeline now uses one lookup:
+  stock's own title ("Outsourced R&D") when the game can answer, else the config name
+  without its `Cfg` suffix ("Outsourced Research").
+
+- **A ghost passing through your vessel can no longer damage it.** Each ghost in orbit has a
+  small invisible placeholder vessel that puts it on the map. When a ghost's path ran through
+  a real vessel within a couple of kilometres of you, that placeholder could collide with it
+  as the scene loaded, exploding the placeholder or breaking the real vessel into debris. The
+  placeholder is now made fully non-physical as soon as the game loads it.
+- **Docking two halves of one recorded flight back together now records both of them.**
+  Undock a pair Parsek is recording and dock it again: when the vessel you were flying kept
+  its identity through the dock, Parsek recorded the dock as if only that vessel had taken
+  part. The other half's recording kept running as if it were still in orbit, showed up as
+  an unfinished flight to re-fly, and the commit tried to spawn a vessel that no longer
+  existed. Parsek now takes the docking partner straight from the dock event, so both halves
+  end as docked and the docked vessel's recording starts from both. The old guess that
+  replaced it could also have picked an unrelated stage of the same flight that was out of
+  loading range and marked it as docked; that can no longer happen.
+- **A Rewind to Launch no longer loses (or brings back) the re-fly points of the flight.**
+  A split that leaves an unfinished sibling keeps a rewind point, shown as the Fly button in
+  Unfinished Flights. Whether it survived a Rewind to Launch used to depend on which scenes
+  you had passed through since the split: the rewind reloads the game at the Space Center,
+  and the list of rewind points came back from the last full save KSP had written, which
+  could predate the split (the point vanished, its quicksave file left behind on disk) or
+  predate a later cleanup (a point already removed came back with no quicksave). Rewind
+  points now survive a Rewind to Launch (and Warp to game start) exactly as they were, the
+  same way the recordings do. A rewind point that lies in your future (after a Rewind to
+  Launch, or after a Re-Fly took the clock back past a later mission's split) stays in
+  Unfinished Flights, but its Fly button is disabled until the game clock reaches the moment
+  of that split again; its tooltip says so. Re-fly checks this on every route, including the
+  confirmation and the Retry from Rewind Point option.
+
+- **A launch Parsek refuses to attach to a resumed committed tree no longer leaves an idle
+  copy of that tree parked behind it.** When a craft is launched from flight (by a mod such as
+  kRPC; stock KSP always launches through the editor or the Space Center) and Parsek declines
+  to record it into the tree of the vessel the scene opened on, that tree was left waiting as
+  an unfinished stash: the already-committed history plus whatever Parsek had recorded since
+  resuming it after the load. It could then surface as a merge dialog offering to re-commit
+  recordings that were already committed, a later stash replaced it with only a log warning,
+  and one shape of it could be put back on the launched craft after a quicksave and quickload.
+  Now, when that copy recorded nothing meaningful after the load (the vessel just sat or
+  coasted for up to a minute: no staging, docking, burn, new branch or new recording), it is
+  discarded on the spot, as the merge dialog's Discard would do. The committed mission and its
+  files are kept as they were, and only those idle seconds go. A copy that did record
+  something meaningful, and a tree that was never committed, are committed on the spot
+  instead (next entry).
+- **A tree Parsek refuses to attach to a launch from flight is now committed, not left
+  waiting to be overwritten.** In the same situation (a craft launched from flight by a mod
+  such as kRPC), a refused tree that is not an idle copy used to stay behind as an unfinished
+  stash until the next scene change replaced it with only a log warning, losing what it held.
+  That covered a mission that was never committed (you were recording craft A when B was
+  launched), a resumed committed mission that recorded something meaningful after the load
+  (a switch segment, a new branch, a burn, or more than a minute of flight), and a resumed
+  mission whose committed copy the load had set aside, where the stash was the only copy of
+  that committed history. Each is now committed the moment the launch is refused, through the
+  same commit that runs when you leave the flight scene: a never-committed tree is added, and
+  a resumed mission replaces its committed version in place, so no mission or recording
+  appears twice. Nothing is committed while a Re-Fly is in progress or a merge is still being
+  finished; those keep the old behaviour. Stock KSP cannot reach this, since a stock launch
+  leaves the flight scene first.
+- **KSC building destructions and repairs are now part of the career history.** A building
+  repaired at the Space Center never became a ledger action: Parsek recorded it only at the
+  next scene change, with no cost and no owner, so nothing kept it. A building knocked down
+  while no recording was running was lost the same way. Both are now recorded the moment stock
+  fires them (`OnKSCStructureCollapsing` / `OnKSCStructureRepairing`), at that moment's UT. A
+  repair made at the Space Center is written straight to the ledger with what it cost - each
+  building's share of the one funds debit stock takes for the whole facility - so the funds
+  walk no longer misses that spend. A collapse during a recorded flight still belongs to that
+  flight and becomes a ledger action when the flight is committed; if the flight is discarded
+  without a reload, the collapse is kept, because stock keeps the building down. Upgrading a
+  destroyed facility, which stock repairs for free as part of the upgrade, now also records the
+  repair. After a rewind, a repair made later in the timeline does not count as done before
+  its date. The Timeline shows one row per facility event, not one per building (a Runway
+  repair touches up to ten), with the repair's total cost, and its rows are not doubled by
+  the older event list either.
+  Parsek changes a building only when the career history, up to the current moment, says
+  something the building contradicts: a collapse or repair dated later in the timeline (after
+  a revert or a rewind) is not applied early, a building the history says nothing about is
+  never touched, a building that is still collapsing or being repaired is left alone, and
+  nothing is changed while a flight is being recorded or waiting to be merged, or while a
+  save is still loading.
+- **The Timeline names the contract on every contract row, and the facility on every
+  facility row.** A contract's completion, failure or cancellation used to read
+  `Complete: unknown +4375 funds`, because only the accept action stored the contract's
+  title. These rows now take the name from the same contract's accept in the ledger, so
+  existing saves are fixed without any conversion: `Complete: Test LV-T45 "Swivel" Liquid
+  Fuel Engine at the Launch Site. +4375 funds`. New completions, failures and cancellations
+  also store the title themselves (an optional `contractTitle` value on the ledger row;
+  older rows without it still resolve through the accept). A contract whose accept is not in
+  the ledger (accepted before Parsek was installed, or its accept retired by a Re-Fly) reads
+  `Contract 7a726c83`, the first block of its id, never `unknown`. Facility rows used the raw
+  stock key (`Upgrade SpaceCenter/LaunchPad`, or a single building's id such as
+  `SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_cylTank destroyed`); they now use
+  the facility's stock name (`Upgrade Launchpad`, `Launchpad destroyed`), from one shared
+  helper.
+- **The Timeline's Actions and Events tooltips describe the rows they actually toggle.** The
+  Events tooltip promised crew deaths, but those rows come from recorded flights and follow
+  the Recordings toggle; the Actions tooltip said contracts, but contract completions and
+  failures are Events. Each tooltip now lists what its toggle governs: Recordings (launches,
+  separations, spawns, crew deaths), Actions (builds, hires, tech, upgrades, repairs,
+  strategies, contract accepts and cancels), Events (milestones, completed or failed
+  contracts, earnings, recoveries, destroyed buildings).
+- **A launch started from flight in the first second or two of a flight scene no longer joins
+  the tree of the vessel that scene opened on.** KSP reports the scene's opening camera focus
+  as a vessel switch, and Parsek counted it as one for the next 60 frames. A launch made from
+  flight inside that window (by a mod such as kRPC; stock KSP always launches through the
+  editor or the Space Center, which commits the tree) was then handled as a tracking-station
+  switch: the tree of the vessel the scene opened on, often a committed tree Parsek had just
+  resumed, was put back in place, the new craft recorded inside it as a second root, and a
+  later dock with that vessel became a merge inside the same tree that rewrote its committed
+  recordings. The opening focus no longer counts as a switch, and a switch restore now refuses
+  a freshly launched craft outright, so the launch always starts its own tree. The refused tree
+  is turned back into an ordinary quickload stash, so a later quicksave and quickload cannot
+  put it back on the launched craft either. The same fix stops an F9 pressed right after a
+  scene loads from being taken for a switch.
+- **A looped mission's first run is drawn again.** With a mission loop on, a Rewind to Launch
+  showed nothing for the whole first run: the loop's copies only start after the recorded flight
+  has ended, and until then the looped mission's vessels were simply skipped. The real vessel
+  appeared at the end, then the copies began. Now, until its first copy starts, a looped mission
+  plays exactly like one that does not loop, in flight, at the Space Center and in the Tracking
+  Station: its ghosts fly the first run, the map shows them, the watch camera can follow them,
+  and the flight's end brings the real vessel back through the ordinary spawn. The copies take
+  over from there with one ghost, not two. A loop turned on after the first run (the usual case)
+  is unchanged, and later loops stay ghost-only.
+- **A looping recording's first run is real again: its vessel comes back after a rewind even
+  while the loop is on.** A looped mission (or a recording with its own loop toggle) replays
+  on its loop clock, and that path never reached the spawn at the end of the recording. So a
+  Rewind-to-Launch with the loop on removed the vessel and nothing brought it back, leaving no
+  real vessel at all. Now the first time the clock passes the recording's end, its vessel
+  spawns once, exactly as a non-looping recording's would (same checks: not already spawned,
+  not a purely historical recording, the rewind and chain rules). Every later loop is still
+  ghost-only. This applies in flight and at the Space Center. The Tracking Station already
+  spawned looping recordings; it now applies the same "never replayed" check to them as to
+  any other recording. A chain with one looped phase now follows the same rule (see "Looping
+  one phase of a chain no longer stops its final vessel from spawning").
+- **A ghost whose vessel cannot spawn yet now stays visible while Parsek retries.** When a
+  recording's spawn could not settle at once (a one-point recording on an occupied spot, or
+  a spawn that failed), Parsek logged that it would keep the ghost at its final position for the 5 second retry
+  window, but the playback engine had already removed the ghost in the same frame: its
+  past-end cleanup ran before the spawn policy had heard that the recording finished, so it
+  saw a ghost nobody was holding. The cleanup for a slot that has just finished now waits
+  until the policy has received that event (still in the same frame), so a held ghost is
+  kept until the spawn succeeds or the hold times out, and a ghost nobody holds is still
+  cleaned up at once. The same applies to the hold while a spawn waits for time warp to end.
+  The policy's log line now says when there is no ghost left to keep visible.
+- **A recording's loop period unit now survives a save and reload.** The unit chosen with
+  the Recordings table's unit button (sec, min, hr or auto) was never saved, so every reload
+  set it back to seconds. A Gloops recording, which starts on auto, then lost its place in the
+  shared auto launch queue and looped on a seconds period instead: its stored 0 seconds,
+  either raised to the 5-second minimum with a warning or repaired on load to the
+  recording's own length. The unit is now saved with the recording (only when it is
+  not seconds) and read back on load; an unreadable value falls back to seconds with one
+  warning in the log. Existing saves load unchanged and keep seconds until the unit is set
+  again.
+- **A kerbal whose committed flight ended with his recovery is free again once game time
+  passes that recovery.** A Recovered flight's crew reservation was meant to last from the
+  start of time until the recovery (design 9.3), but nothing ever compared it with the
+  clock, so the kerbal stayed hidden from the crew dialog forever and a stand-in was
+  generated for him even when the flight was committed after he was already home. Every
+  reservation check now asks whether the hold is in force at the current game time; the
+  kerbal is free from the recovery instant on. When he returns, an unused stand-in is
+  deleted and one who flew a committed flight is retired, as the design describes, and the
+  returning kerbal is not swapped out of a craft he boards. Rewinding to before the
+  recovery reserves him again, brings back the same stand-in name, and reactivates a
+  retired stand-in. Loads judge the hold against the loaded save's own time. Time passing
+  in the Space Center or the Tracking Station, and the crew dialog opening, trigger one
+  recalculation when a recovery time is crossed. The Kerbals window again shows
+  `Reserved until <date>` for such a hold, and its hover says when he is free (in flight
+  the window catches up at the next time warp exit or scene change). A returned kerbal
+  still cannot be dismissed from the Astronaut Complex while a committed flight names
+  him, since a rewind may need him again. Kerbals
+  whose flight ends with them still aboard a vessel stay reserved with no end date until
+  that vessel is recovered (next entry).
+- **Recovering a vessel frees the kerbals aboard it, including after the in-flight Recover
+  button.** With auto-merge on (the shipping setting), Recover in flight commits the flight
+  at the scene change, just before the game recovers the vessel, so the committed flight
+  ended with the crew still aboard and they stayed reserved forever, hidden from the crew
+  dialog and replaced by a stand-in. The same happened when a vessel Parsek had put back
+  at the end of a flight was recovered later from the Tracking Station. Now a recovery of
+  the real vessel that continues a committed flight (the same launch, or the vessel Parsek
+  spawned from that flight) records that its crew came home at that moment, and their
+  reservation ends there: they are free at once, an unused stand-in is deleted and a used
+  one retired, and rewinding to before the recovery reserves them again. A kerbal left
+  aboard a vessel that is never recovered stays reserved, a kerbal stranded by a different
+  mission is not freed by it, and a later flight that names the kerbal keeps him reserved
+  until it ends. A re-fly that replaces the recovered flight takes the record back with it.
+- **A re-fly that saves crew who boarded before the rewind point now brings them back.**
+  When a flight's crew boarded at launch, the rewind point came later in the same flight,
+  and the original flight then killed them, merging a re-fly kept them Dead. The death
+  row's boarding time came before the rewind point, and the merge treats anything before
+  the rewind point as part of the flight it keeps. A kerbal-death row is now placed on the
+  timeline by the moment of death: a death after the rewind point is refunded by the
+  merge, as design 7.16 promises. The tombstone guard and the tree splitter's ledger retag
+  share that rule through one helper, so both sides of the seam still agree exactly.
+  Every other ledger row keeps its old placement. A re-fly that kills the crew again
+  records its own death under the re-fly's recording, which the merge never touches;
+  with the dedup fix below that now also holds when the same slot is re-flown more than
+  once. The fix holds in-session and, with the entry below, after a reload. Two rare
+  shapes are accepted limits (TOMBSTONE-ENDUT-SCREEN-LOW-LIMITS): late in a career a
+  death within about one float step of the rewind point may land on the wrong side (now
+  logged as a warning), and a kerbal killed before the rewind point on a vessel that
+  flew on past it returns alive.
+
+- **The crew a re-fly saved no longer die again on the next load.** The common re-fly
+  shape (crew boarded at launch, the rewind point later in the same flight) splits the
+  original recording in two at the rewind point, and loading the save then brought the
+  retired deaths back, for both halves. Two causes, both fixed. The load-time rebuild of
+  crew rows gave each rebuilt row a new identity, so the merge's retirement, which is
+  keyed on that identity, no longer covered it; a rebuilt row now keeps the identity of
+  the row it replaces for the same flight and kerbal. And the split left the whole
+  flight's crew fates (Dead) on the first half; they now move to the second half with the
+  flight's ending, and the first half's crew read as handed on to the next segment, the
+  same finite reservation any chain segment gets. The same move applies when the
+  recording optimizer later splits a recording whose crew fates were already worked out.
+  Committing a flight again no longer adds a second crew row for the same kerbal next to
+  a retired one. The fix applies to re-fly merges made with this build: a save whose merge
+  was made by an older build keeps the first half's Dead crew fates and is not repaired.
+
+- **Re-flying the later part of a flight the recording optimizer split now retires its
+  deaths at once, and a re-fly's retired flight no longer comes back.** The optimizer
+  splits a flight into segments (for example at the edge of the atmosphere). When it did
+  that to a flight whose results were already booked, every booked entry stayed on the
+  first segment: a re-fly of the later segment could not reach the crew deaths (or their
+  reputation penalty) there, so the crew stayed dead until a later load. Each entry now
+  moves to the segment it belongs to, by the same rule a re-fly's own split uses. The
+  optimizer also no longer splits a flight a re-fly replaced: the new piece was not
+  covered by the replacement, so the replaced flight's tail played again as a ghost and,
+  after a second load, its crew died again. And when the optimizer joins two segments
+  back into one, the later segment's booked entries now move to the joined flight;
+  before, they were dropped on the next load (only the mission's very first recording
+  was handled), and after such a join a crew death now keeps its identity across the
+  next load.
+
+- **A re-fly's crew assignments are no longer dropped as duplicates of another flight's.**
+  The ledger's duplicate check treated any two crew-assignment rows less than 0.1 s apart
+  as the same row, whatever the kerbal or flight. Re-flying a slot a second time
+  therefore lost the new flight's crew rows against the previous attempt's, so a crew
+  killed again could read alive. The same collision could also drop one of two crews
+  starting at the same instant. Rows are now matched per flight and kerbal; committing
+  the same flight twice still records it once.
+
+- **No more Parsek-attributed NullReferenceException while KSP quits from the Tracking
+  Station.** Destroying a vessel makes the Tracking Station rebuild its list, and Parsek's
+  hook on that rebuild repaired any ghost missing its orbit line. During shutdown that
+  repair rebuilt objects that were already being destroyed, and stock code threw with
+  Parsek on the stack. The repair now stands down once the game is quitting (and, as a
+  narrower extra guard, while Parsek's remove-all-ghosts loop is running); nothing changes
+  during play.
+
+- **A supply route's overview line no longer disappears wholesale while a ghost flies one
+  part of it.** The route line and the ghost trajectory line share the map, and they take
+  turns so the same path is never drawn twice: whichever part of a flight the ghost is
+  currently drawing, the route line leaves alone. That hand-off used to work at the wrong
+  size. The moment the ghost started drawing any part of a flight the route line dropped
+  that flight's ENTIRE path - so on a long delivery, where the ghost is drawing one leg of
+  it, everything before and after that leg vanished from the overview, which is the only
+  thing that draws it. The hand-off is now leg by leg: the ghost keeps the piece it is
+  actually drawing and the route line keeps the rest. On a single-leg flight nothing
+  changes, because there the two answers were already the same.
 
 - **A reputation award earned during a flight is no longer counted twice on a career
   Parsek first meets mid-game.** Parsek has to guess a starting reputation for a save

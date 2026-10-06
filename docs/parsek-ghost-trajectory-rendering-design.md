@@ -10,7 +10,7 @@
 
 *Comprehensive design specification for rendering ghost vessel trajectories during recording playback and re-fly sessions. Covers anchor correction, smoothing, multi-anchor interpolation, DAG propagation across vessel lineages, frame-of-reference handling per segment, terrain correction during playback, and edge-case handling.*
 
-*Parsek is a KSP1 mod for time-rewind mission recording. This document extends the flight recorder, multi-vessel session, and ghost chain systems with the rendering-pipeline algorithm that converts recorded trajectory data into stable, geometrically faithful visual ghosts during playback. It assumes familiarity with the recording DAG, environment and reference-frame taxonomies, ghost chain model, and rewind-to-staging from `parsek-flight-recorder-design.md` and `parsek-rewind-to-staging-design.md`.*
+*Parsek is a KSP1 mod for time-rewind mission recording. This document extends the flight recorder, multi-vessel session, and ghost chain systems with the rendering-pipeline algorithm that converts recorded trajectory data into stable, geometrically faithful visual ghosts during playback. It assumes familiarity with the recording DAG, environment and reference-frame taxonomies, ghost chain model, and Rewind to Separation from `parsek-flight-recorder-design.md` and `parsek-rewind-to-separation-design.md`.*
 
 **Status:** as-built design of record for the flight-scene ghost-geometry pipeline. The pipeline is SHIPPED and wired live: the stages described here (Stages 1-4 in Section 5) run in `Source/Parsek/Rendering/*` (`SmoothingSpline`, `SmoothingPipeline`, `AnchorCorrection`, `AnchorPriority`, `AnchorPropagator`, `AnchorCandidateBuilder`, `OutlierClassifier`, `OutlierFlags`, `TerrainCacheBuckets`, `RenderSessionState`, `SectionAnnotationStore`), alongside `Source/Parsek/PannotationsSidecarBinary.cs` and `Source/Parsek/TrajectoryMath.CatmullRomFit.cs`. They are consumed in `ParsekFlight` interpolation (`SectionAnnotationStore.TryGetSmoothingSpline`, `RenderSessionState` lookups, `SmoothingPipeline`) and at `RecordingSidecarStore` commit / load (LoadOrCompute / PersistAfterCommit). Persistence additions are the minimum needed for cache invalidation and raw-data capture for the surface-terrain and structural-event-snapshot phases:
 
@@ -19,7 +19,7 @@
 
 No `.sfs` save-file shape changes beyond the reset generation stamp. Pre-reset recordings and trajectory sidecars are not compatibility targets; older format notes below describe historical contracts, not accepted load input.
 
-> **MAP / TRACKING-STATION RENDER POINTER (2026-06-06):** the map-view and Tracking-Station ghost render path described here is now driven by the modular Director pipeline (chain assemble -> sample -> decide -> treatment -> draw), which replaced the legacy Harmony-patch + OnGUI + lifecycle-tick smear. That render architecture is complete: it is the single render path (the legacy render fallbacks were deleted and the `mapRenderDirectorDrive` gate dropped). See `docs/dev/design-map-ts-render-architecture.md` for the design and `docs/dev/plans/maprender-rewrite-status.md` for the per-PR status. This document remains the trajectory-rendering (ghost geometry / anchor-correction) design; the Director pipeline consumes that output for the map/TS layer.
+> **MAP / TRACKING-STATION RENDER POINTER (2026-06-06):** the map-view and Tracking-Station ghost render path described here is now driven by the modular Director pipeline (chain assemble -> sample -> decide -> treatment -> draw), which replaced the legacy Harmony-patch + OnGUI + lifecycle-tick smear. That render architecture is complete: it is the single render path (the legacy render fallbacks were deleted and the `mapRenderDirectorDrive` gate dropped). See `docs/dev/design-map-ts-render-architecture.md` for the design and `docs/dev/done/plans/maprender-rewrite-status.md` for the per-PR status. This document remains the trajectory-rendering (ghost geometry / anchor-correction) design; the Director pipeline consumes that output for the map/TS layer.
 
 ---
 
@@ -383,7 +383,7 @@ This makes the multi-recording, multi-tree case work without special handling â€
 
 ### 9.4 Suppressed Subtree Handling
 
-Ghost playback already filters by session-suppressed subtree (existing rewind-to-staging mechanism). Suppressed segments are not rendered. They do not propagate anchor corrections: a suppressed segment's anchors are not consulted by downstream non-suppressed segments. If a non-suppressed segment had a suppressed predecessor, its start-anchor type falls back to whatever non-suppressed reference is available (live, or no anchor).
+Ghost playback already filters by session-suppressed subtree (the existing Rewind to Separation mechanism). Suppressed segments are not rendered. They do not propagate anchor corrections: a suppressed segment's anchors are not consulted by downstream non-suppressed segments. If a non-suppressed segment had a suppressed predecessor, its start-anchor type falls back to whatever non-suppressed reference is available (live, or no anchor).
 
 ### 9.5 Cycles and Termination
 
@@ -587,7 +587,7 @@ Handling: Stage 1 smoothing is precomputed at commit. Stage 2 frame transformati
 
 Per-frame cost per ghost: one spline eval, one matrix multiply, one anchor lookup, one lerp. All small and bounded.
 
-Existing ghost soft caps and zone-based culling apply unchanged.
+Existing zone-based culling and the distance LOD (flight-recorder design 11.4; it replaced the ghost soft caps in 0.8.1) apply unchanged.
 
 ### 15.14 Looped Ghost Near Live Vessel
 
@@ -628,7 +628,7 @@ Handling: anchor corrections at structural events use whatever samples exist nea
 | Lerp | Render time | One multiply-add per ghost per frame |
 | Terrain raycast | Render time (surface) | One physics raycast per surface ghost per frame, cacheable |
 
-The total per-ghost per-frame budget is small and bounded. Existing zone-based culling (Zone 3+ ghosts not rendered) and soft caps continue to dominate large-scene budgets.
+The total per-ghost per-frame budget is small and bounded. Existing zone-based culling (Zone 3+ ghosts not rendered) and the distance LOD continue to dominate large-scene budgets.
 
 ### 16.2 Cached Data
 
@@ -1592,7 +1592,7 @@ The pipeline is bound by the following non-negotiable rules. Every line of pipel
 
 **HR-7. No smoothing or anchoring across hard discontinuities.** Sections 11 and 6.1 are absolute. A spline does not span a structural event, environment transition, frame transition, SOI crossing, bubble entry/exit, TIME_JUMP, or recording boundary. An anchor lerp does not span any of the same.
 
-**HR-8. No suppressed-data influence.** Suppressed segments (rewind-to-staging suppression) do not contribute to any computation that affects non-suppressed output: not anchors, not splines, not aggregation.
+**HR-8. No suppressed-data influence.** Suppressed segments (Rewind to Separation session suppression) do not contribute to any computation that affects non-suppressed output: not anchors, not splines, not aggregation.
 
 **HR-9. Failure is visible, not silent.** If the pipeline cannot produce a correct rendering (missing data, version mismatch, algorithm error), it falls back to a clearly-labeled degraded mode and logs the failure. It does not produce a plausible-looking-but-wrong result.
 

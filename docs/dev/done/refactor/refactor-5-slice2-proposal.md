@@ -1,6 +1,8 @@
 # Refactor-5 Slice 2 Proposal — Pure Repeated-Block Dedups
 
-**Date:** 2026-06-14. **Status:** Proposal (not implemented).
+**Date:** 2026-06-14. **Status:** LANDED in 0.10.2 (CHANGELOG `## 0.10.2` -> Internals & Tests, the behavior-neutral code-health refactor pass: "settings persistence, switch-segment refusal
+logging, route-codec field loaders, and recovered-credit sums" folded into shared helpers;
+`TryLoadBool`, `Refuse`, `LoadStringList` and `SumRecoveredCreditsCore` are in the source).
 **Roadmap:** `docs/dev/refactor-5/refactor-5-slices.md` (shared rules + the universal
 validation/review gate apply here verbatim).
 

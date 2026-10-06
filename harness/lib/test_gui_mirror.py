@@ -1864,8 +1864,14 @@ Fix: not decided.
         path = os.path.join(repo, "docs", "dev", "todo-and-known-bugs.md")
         if not os.path.exists(path):
             self.skipTest("todo file not present")
+        # Read what the tool reads: the live file plus every archived volume, so a
+        # todo rotation that moves closed entries out of the live file stays green.
         with open(path, encoding="utf-8") as fh:
-            entries = gmi.parse_todo(fh.read())
+            text = fh.read()
+        for extra in gmi._done_volumes(repo):
+            with open(extra, encoding="utf-8") as fh:
+                text += "\n" + fh.read()
+        entries = gmi.parse_todo(text)
         self.assertGreater(len(entries), 20)
         self.assertGreater(sum(1 for e in entries if e["fix"]), 10,
                            "no Fix line was extracted from the real file")

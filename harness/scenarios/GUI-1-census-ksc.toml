@@ -68,10 +68,13 @@ tier = "operator"
 # argument is in the `[expectations.analyzer]` block at the bottom; the findings
 # themselves stay filed as U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER.
 #
-# WINDOW COVERAGE. Eight windows are drawn at the Space Center by `ParsekKSC.OnGUI`:
-# main, missions, timeline, kerbals, logistics, structure, settings, testrunner (the Career
-# State window was removed 2026-09-27; its slot counts live in the Timeline's Contracts and
-# Strategies button hovers).
+# WINDOW COVERAGE. Nine windows are drawn at the Space Center by `ParsekKSC.OnGUI`:
+# main, missions, timeline, kerbals, logistics, structure, routehistory, settings,
+# testrunner (the Career State window was removed 2026-09-27; its slot counts live in the
+# Timeline's Contracts and Strategies button hovers). This lane opens EIGHT of them: the
+# Route History (`routehistory`, 2026-10-03) is populated only once targeted at a supply
+# route (`op=target window=routehistory route=<id>`), and GUI-3-census-logistics-routes
+# photographs it on its committed route fixture.
 # A TENTH is reachable there and is NOT this lane's: `testrunnerglobal`, the global
 # Ctrl+Shift+T runner, which draws from its own MonoBehaviour outside that host's showUI
 # gate and is photographed by GUI-12-census-testrunners together with the states of the
@@ -79,7 +82,7 @@ tier = "operator"
 # the count is the seam's whole TABLE, not the scene's drawn set.
 # The two flight-only windows - spawncontrol and gloops - belong to GUI-2; asking for
 # either here is a REJECTED (`window-not-in-scene`) by design rather than a capture of a
-# scene without them. Fourteen of the captures are TABS: missions x7 (its two tabs, each
+# scene without them. Thirteen of the captures are TABS: missions x7 (its two tabs, each
 # in the restored, the collapsed and the fully expanded state, plus one deep fold on
 # the Recordings tab), timeline x4 (its filter modes), kerbals x2. Settings has six SECTIONS rather than tabs (they
 # all draw in one pass, and three are hidden in Basic), so the Advanced/Basic pair IS its
@@ -92,10 +95,10 @@ tier = "operator"
 # why the dump steps did not need it raised; it is 1024 since the GUI state gallery's P1b
 # (a capture PAIR is two files, so 64 harvested at most 32 STATES and silently dropped the
 # rest), so this arithmetic has three hundred-odd captures of headroom now. Re-check it
-# anyway before adding a 28th capture: the BYTE cap is the one that binds at scale.
+# anyway before adding a 26th capture: the BYTE cap is the one that binds at scale.
 #
-# THE SIX FOLD CAPTURES (24th-29th) WERE ADDED 2026-09-22, and the gap they close is one
-# a reader of the GUI mirror hits immediately: the Missions window's two tabs were each
+# THE FOLD CAPTURES (six added 2026-09-22, five left; the 4th-8th captures today) close a gap
+# that a reader of the GUI mirror hits immediately: the Missions window's two tabs were each
 # photographed in exactly ONE state, so every fold arrow in both pictures pointed at
 # nothing. The mirror could show that a row COLLAPSES and never what collapsing hides.
 # Six labels, all Advanced, all on the Missions window and all inside its existing
@@ -495,18 +498,18 @@ allowedAnomalies = []
 # whole census ran where it said (GUI-2's twin pins `scene=FLIGHT`), and `complexity=`
 # separates the two passes.
 #
-# ONE CAPTURE LINE is pinned, not twenty-eight: `capturescreenshot ok` is emitted only after
+# ONE CAPTURE LINE is pinned, not twenty-five: `capturescreenshot ok` is emitted only after
 # the file settled at a stable non-zero size, so one is proof the write-and-poll path
-# works end to end, and the other twenty-seven are the PRODUCT - a reviewer counts them in
+# works end to end, and the other twenty-four are the PRODUCT - a reviewer counts them in
 # the contact sheet. `bytes=` is deliberately not pinned; it is a real file size and would
 # pin a machine.
 #
-# ALL TWENTY-EIGHT DUMP LINES ARE PINNED, and the asymmetry with the captures above is
+# ALL TWENTY-FIVE DUMP LINES ARE PINNED, and the asymmetry with the captures above is
 # deliberate rather than untidy. `patched=<ok>/<of>` is the recorder's ARM-TIME
 # Harmony.GetPatchInfo reading, taken FRESH on every arm - the patches are applied at arm
 # and removed again when each capture flushes - so it is a per-dump measurement and not a
 # property of the build. `patched=17/17` therefore asserts that all seventeen
-# interceptions were installed for THAT frame, twenty-eight times over, and one funnel
+# interceptions were installed for THAT frame, twenty-five times over, and one funnel
 # whose signature drifted out from under the patch reds the lane at the dump where it
 # happened. It is also the pinning that MADE this lane's first flight a measurement of the
 # interception layer, which had never run inside KSP: all 22 read `patched=17/17` on both

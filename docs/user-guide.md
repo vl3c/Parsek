@@ -1,6 +1,6 @@
 # Parsek User Guide
 
-Parsek lets you record missions, revert to launch, and merge them into the timeline so they play out automatically while you fly new missions.
+Parsek lets you record missions, commit them to the timeline, and rewind to an earlier launch so they play out automatically while you fly new missions.
 
 ## Controls
 
@@ -12,6 +12,12 @@ Parsek lets you record missions, revert to launch, and merge them into the timel
 
 The Parsek window is available from the toolbar button in Flight, Map, and KSC views. The Tracking Station has no Parsek window and no toolbar button: every recording, mission, loop and watch control lives in the Parsek window in Flight or at the Space Center. Recording is triggered automatically on launch/EVA; there is no start/stop hotkey.
 
+## Install and First Load
+
+Parsek must sit in `GameData/Parsek`. If it is installed wrong, a message on screen once the main menu settles says so and how to fix it: when Parsek loads from the wrong place (inside a second `GameData` folder, inside the zip's own folder, loose in `GameData`, or a leftover copy in another folder), and when some of its game patches fail to load (usually another mod or a different KSP version), naming the features that may not work. Each notice shows once per game start and never on a correct install; details are in `KSP.log`.
+
+The first time Parsek opens one of your existing saves, it first makes a one-time backup of that save, taken before Parsek changes anything, and says so on screen. The copy is a separate save named `<Name> (pre-Parsek <date>_<time>)` in KSP's Load menu, so you can always go back to your career as it was before Parsek. If the backup fails, an on-screen message asks you to back the save up yourself, and Parsek tries again the next time the save is loaded.
+
 ## How It Works
 
 ### Recording a Mission
@@ -19,18 +25,18 @@ The Parsek window is available from the toolbar button in Flight, Map, and KSC v
 1. Launch any vessel (career mode recommended for resource tracking)
 2. Recording starts automatically when the vessel leaves the pad/runway
 3. Fly your mission normally
-4. Recording stops when the active vessel changes (docking, switching with `[`/`]`, scene exit) or on revert
-5. Revert to Launch (Esc > Revert to Launch)
+4. Recording follows the whole mission: staging, docking, undocking and EVAs become branches of the same mission tree, and switching vessels does not stop it (see Vessel change below)
+5. Leave the flight (Esc > Space Center or Tracking Station): the mission is committed to the timeline automatically. A Revert to Launch instead throws the reverted flight away
 
-Going EVA from a vessel on the pad auto-starts recording on the EVA kerbal. Going EVA mid-flight stops the parent recording and starts a linked child recording on the EVA kerbal. Both are always on: there is no setting to turn automatic recording off.
+Going EVA from a vessel on the pad auto-starts recording on the EVA kerbal. Going EVA mid-flight branches the recording: the kerbal gets a linked child recording and the vessel keeps recording as another branch of the same mission. Both are always on: there is no setting to turn automatic recording off.
 
 ### EVA During Recording
 
 If a kerbal goes EVA while recording a vessel, Parsek automatically:
 
-1. Stops the parent vessel recording and commits it to the timeline
-2. Starts a new linked child recording for the EVA kerbal
-3. On revert, both ghosts play back - the vessel ghost and the EVA kerbal ghost
+1. Ends the vessel's current recording segment at an EVA branch point (nothing is committed yet)
+2. Starts a new linked child recording for the EVA kerbal, while the vessel keeps recording as a second child of the same branch
+3. Once the mission is committed, both ghosts play back - the vessel ghost and the EVA kerbal ghost
 4. When the parent vessel spawns, the EVA'd kerbal is excluded from its crew
 
 ### Gloops Flight Recorder (retired)
@@ -38,13 +44,13 @@ If a kerbal goes EVA while recording a vessel, Parsek automatically:
 The Gloops Flight Recorder — a manual ghost-only recorder — is being spun off into a
 standalone mod, and its button and window have been removed from the Parsek UI.
 Ghost-only recordings you already made keep working: they still appear in the
-**Gloops - Ghosts Only** group in the Recordings Manager, still play back as ghosts,
+**Gloops - Ghosts Only** group in the Recordings tab, still play back as ghosts,
 can be archived like any other recording, and remain purely visual
 (no funds, crew reservations, contracts, science, or milestones).
 
 ### Merge Dialog
 
-After reverting (or aborting a mission to the Space Center with a recording pending), a dialog appears with context-aware options:
+When Parsek needs you to decide what happens to a recorded flight (see below for when), a dialog offers:
 
 | Situation | Options |
 |-----------|---------|
@@ -54,9 +60,12 @@ After reverting (or aborting a mission to the Space Center with a recording pend
 - **Merge to Timeline** - Recording is merged; if the vessel is intact, it will appear in the game world when the ghost finishes playing
 - **Discard** - Recording is thrown away. Every career effect captured during the discarded flight — contracts accepted or completed, tech researched, crew changes, milestones achieved, funds/science/reputation deltas — is rolled back as if the flight never happened. (Career actions unrelated to a recording, e.g. unlocking a tech node at KSC, stay.)
 
-Auto-merge is always on, so the merge normally happens silently without this dialog.
-Two exits always ask regardless: concluding a Rewind to Separation attempt, and quitting
-to the main menu with an uncommitted mission. (There is no setting for this. The
+Auto-merge is always on, so the merge normally happens silently without this dialog:
+leaving the flight for the Space Center or the Tracking Station commits the mission. Two
+exits always ask regardless: concluding a Rewind to Separation attempt (whose dialog can
+also offer "Merge & Seal" and "Commit (don't seal)"), and quitting to the main menu with an
+uncommitted mission. A map Switch To onto another vessel can also ask first about the flight
+you are leaving. A Revert never shows it: the reverted flight is thrown away. (There is no setting for this. The
 2026-08-27 settings simplification hardwired auto-merge on; the toggle earlier versions
 of this guide described no longer exists.)
 
@@ -64,9 +73,10 @@ of this guide described no longer exists.)
 
 When a vessel stages, decouples, or undocks into two or more controllable pieces, Parsek automatically captures a **Rewind Point** (a quicksave plus a per-slot vessel map) so you can replay the split. An EVA is not a separation: going EVA never creates a Rewind Point, and an EVA kerbal never appears in Unfinished Flights. To undo an EVA mistake, use F9 (quickload) or Discard the flight. A crew member stepping out of a separated vessel does not end that vessel's flight, though: if the stage you staged puts Jeb out for an EVA report, takes him back in and later crashes, the stage is still an Unfinished Flight, and re-flying it replays the EVA too (Jeb is aboard at the separation). If Jeb instead boarded a different vessel, the stage can no longer be re-flown. This is the booster-recovery feature in spirit: launch an AB stack, stage, take B to orbit and commit — and later come back to fly A down as a self-landing booster.
 
-- **Unfinished Flights group** — appears in the Recordings Manager when a sibling from a past split ends badly (crash, destroyed, BG-crash). The group is read-only: you cannot hide it and you cannot drag its members into manual groups.
-- **Rewind button** — click the row to re-fly the unfinished sibling from the moment of the split. Parsek loads the Rewind Point quicksave, strips the other split siblings to ghosts, and hands you the active vessel. The five preconditions (Corrupted flag, quicksave file present, no active session already, scene is not transitioning, parts still load) are checked before the button enables.
-- **Merging the re-fly** — when your re-fly ends, the normal Merge dialog appears. Merging writes supersede relations for the retired siblings; if the re-fly landed/recovered/orbited it seals as `Immutable`, if it crashed it commits as `CommittedProvisional` and remains re-rewindable from the same slot.
+- **Unfinished Flights** - a separated controllable vessel whose flight you can still re-fly. It qualifies when it was destroyed (a crashed booster or lander), or when you left it orbiting or on a sub-orbital arc while you flew the other piece (a deployed probe, an upper stage left coasting). Any other separated vessel that ended landed, splashed down, orbiting or sub-orbital can be added by hand with its **Stash** button while its Rewind Point still exists. A flight that ended Recovered, Docked or Boarded, or that earned science on the vessel (Crew Report, EVA Report, Surface Sample, Transmit, Recover), cannot be re-flown. An EVA kerbal is never an Unfinished Flight. The list shows as the read-only **STASH** folder under its mission in the Recordings tab (you cannot hide it or drag its members into manual groups); the same rows carry their buttons in the Missions window, and the Timeline's Re-Fly view lists them too.
+- **Fly** - re-flies the unfinished vessel from the moment of the split. Parsek loads the Rewind Point quicksave, strips the other split siblings to ghosts, and hands you the active vessel. Fly is greyed, with the reason on hover, while it cannot run safely (for example while another re-fly is in progress, or while the split still lies in your future after a Rewind to Launch).
+- **Seal** - closes the slot for good: the flight as recorded becomes final and leaves Unfinished Flights, and once every slot of a Rewind Point is closed its quicksave is deleted.
+- **Merging the re-fly** - when your re-fly ends, the normal Merge dialog appears. Merging writes supersede relations for the retired siblings; if the re-fly reached a stable ending (orbit, landed, splashed, recovered, docked, boarded), split again, or earned science on the vessel, the slot seals; if it crashed it stays an Unfinished Flight you can re-fly again from the same slot. When the slot could stay open, the dialog offers "Merge & Seal" beside "Commit (don't seal)".
 - **What survives supersede** — Parsek retires reviewed recording-scoped career actions from the superseded subtree: contracts, milestones, facilities, strategies, tech unlocks, science, funds/reputation, and crew consequences are recalculated from the surviving ledger. Seed rows, KSC/system rows that are not tied to a recording, already-paid rollout costs, and unknown future action types stay preserved until reviewed.
 - **Revert during re-fly** — pressing stock Revert-to-Launch or Revert-to-VAB/SPH while a session is active shows the same three-option dialog: Retry from Rewind Point (re-loads the split moment in FLIGHT either way), Discard Re-fly (throws away the current attempt and returns you to the scene you clicked at the split UT; the tree's other re-fly state is preserved and the Unfinished Flights entry remains), or Continue Flying. On a game with "Allow Revert" off (the Hard preset) stock hides the revert buttons, so Retry is not offered there; leave the flight (Esc > Space Center) to merge or discard the re-fly.
 - **Disk usage** — Settings > Diagnostics shows "Rewind points on disk" (total size + file count; hover it for the live counts). Rewind Points self-reap when the split has been fully resolved.
@@ -89,7 +99,7 @@ After merging, wait on the pad (or time warp) until UT reaches the recording's t
 - Procedural fairings are displayed on the ghost and disappear when jettisoned
 - RCS thrusters emit particle FX when firing on the ghost
 - Funds, science, and reputation changes from the recording are applied at the correct time
-- When the ghost finishes, the vessel appears at its final position (if "Keep Vessel" was chosen)
+- When the ghost finishes, a vessel that survived the flight appears at its final position as a real vessel (unless the flight ended parked on the launch pad or runway; see Vessel Spawning)
 
 ### Crew Management
 
@@ -112,7 +122,7 @@ In Career games, hovering **Contracts** or **Strategies** also counts your slots
 Each entry row shows UT, a description, and (for `RecordingStart` entries) the following buttons:
 
 - **W** - watch button in flight. Enabled only when the recording currently has an active same-body ghost within the watch cutoff; otherwise shown grayed out. A watched row shows **W\***.
-- **R** / **FF** - same rewind / fast-forward buttons as the Recordings Manager.
+- **R** / **FF** - same rewind / fast-forward buttons as the Recordings tab.
 - **GoTo** - opens the Missions window on the mission this recording belongs to, revealing the row (the window opens itself if it was closed). There is no loop toggle on a Timeline row: looping is authored per mission in the Missions window, or per recording in the Recordings tab.
 
 Hover a row's description to have the help line at the bottom of the window explain it:
@@ -123,13 +133,13 @@ Hover a row's description to have the help line at the bottom of the window expl
 - **Greyed rows** say why they did not count, for example `Not counted: already completed earlier on timeline, so no reward was paid.`
 - The **now divider** reads `Rows below happen on their date and hold stock controls until then.`
 
-### Recordings Manager
+### Recordings Tab
 
-Click the "Recordings" button in the main Parsek window to open the Recordings Manager. This secondary window shows all committed recordings in a sortable table. Recordings that belong to the same mission tree or user group collapse into expandable parent rows. Under a mission's row, the launched vessel's own segments are listed directly, while every other vessel that flew in the mission (a probe, a lander) gets an expandable flight row of its own; a mission's `/ Debris` and `/ Crew` subfolders show just `Debris` and `Crew` under it.
+The Recordings tab is the second tab of the Missions window (click "Missions" in the main Parsek window); it is shown in Advanced mode only. It lists all committed recordings in a sortable table. Recordings that belong to the same mission tree or user group collapse into expandable parent rows. Under a mission's row, the launched vessel's own segments are listed directly, while every other vessel that flew in the mission (a probe, a lander) gets an expandable flight row of its own; a mission's `/ Debris` and `/ Crew` subfolders show just `Debris` and `Crew` under it.
 
 Columns:
 
-- **Playback enable** - per-row checkbox; when unchecked, the flight has no ghost anywhere: no ghost in the world, no map icon, no orbit line, no Tracking Station entry and no drawn trajectory. Re-ticking it brings all of them straight back. Visual-only: the recording's career effects (resources, contracts, crew, and the final vessel spawn) still apply regardless. To fully exclude a recording from the career, Delete (post-commit) or Discard (pre-commit) it. The header checkbox toggles all rows at once, and so do the folder and flight-block checkboxes for their own members.
+- **Playback enable** - per-row checkbox; when unchecked, the flight has no ghost anywhere: no ghost in the world, no map icon, no orbit line, no Tracking Station entry and no drawn trajectory. Re-ticking it brings all of them straight back. Visual-only: the recording's career effects (resources, contracts, crew, and the final vessel spawn) still apply regardless. To keep a flight out of the career, Discard it before it is committed; a committed recording cannot be deleted. The header checkbox toggles all rows at once, and so do the folder and flight-block checkboxes for their own members.
 - **#** - row index.
 - **Name** - vessel name; double-click to rename.
 - **Phase** - colored label (`atmo`, `exo`, `space`, `approach`, `surface`), with the body path when the flight changed bodies (`Kerbin -> Mun exo`).
@@ -204,7 +214,7 @@ See `docs/parsek-logistics-supply-routes-design.md` for the full feature design.
 
 ### Watch Mode
 
-Click **W** on a recording in either the Timeline or the Recordings Manager (or on a group header in the Recordings Manager) to enter watch mode — the KSP camera follows the ghost vessel instead of the active vessel. A watched row shows **W\*** and any group containing the watched recording also shows **W\***. Press `[`, `]`, or click W again to exit. Press **V** while watching to toggle the camera between Free Orbit (stock behavior) and Horizon-Locked (ground stays at the bottom of the screen; picked automatically near planetary surfaces, free in orbit).
+In flight, click **W** on a recording in either the Timeline or the Recordings tab (or on a group header in the Recordings tab), or **Watch** on a mission in the Missions window, to enter watch mode - the KSP camera follows the ghost vessel instead of the active vessel. A watched row shows **W\*** and any group containing the watched recording also shows **W\***. Press `[`, `]`, or click W again to exit. Press **V** while watching to toggle the camera between Free Orbit (stock behavior) and Horizon-Locked (ground stays at the bottom of the screen; picked automatically near planetary surfaces, free in orbit).
 
 Clicking **W** on a group header cycles through the group's watchable vessels: each press advances to the next member with an active same-body in-range ghost.
 
@@ -254,7 +264,7 @@ Click the "Kerbals" button in the main Parsek window to open the Kerbals window.
   - **One row per mission**, not one per recorded flight segment: a mission flown across several segments (a launch, a docking, a landing) is one row. Rows carry the mission's launch **Date** (calendar time, the same form the Timeline uses), the **Mission** name (followed by `(flown by <kerbal>)` when a stand-in flew that seat instead of its owner), and its final **Outcome** (`Recovered`, `Lost`, `Still aboard`, or `Outcome unknown` when the mission has no recorded ending). Hovering the Outcome cell lists every segment and how each one ended; hovering the Mission cell names the underlying recording.
   - **Click any row to scroll the Timeline window to the mission's last recorded flight** (it opens the Timeline if it is closed).
 
-When Parsek takes a reserved kerbal out of a craft you launched and seats his stand-in, a short on-screen message says so. Trying to dismiss a kerbal Parsek manages (reserved, standing in, or retired) shows an "Action Blocked" dialog explaining why. In the Astronaut Complex, Parsek's badge tooltips use the same words as this window.
+When Parsek takes a reserved kerbal out of a craft you launched and seats his stand-in, a short on-screen message says so. Trying to dismiss a kerbal Parsek manages (reserved, standing in, or retired) shows an "Action Blocked" dialog explaining why. In the Astronaut Complex and the VAB/SPH crew dialog, a reserved kerbal's row and tooltip use the same words as this window.
 
 The window is draggable and resizable. Fold state is transient: it survives closing and reopening the window, and resets on a scene change.
 
@@ -328,7 +338,17 @@ as **Total** and **Reserved**.
 
 ### Action Blocking
 
-If you try to re-research a technology or re-upgrade a facility that is already committed on your timeline (but not yet replayed), Parsek blocks the action and shows a popup dialog explaining why. This prevents paradoxes - you can't spend resources that are already committed to future timeline events.
+Anything your committed timeline does later is reserved on KSP's own screens, so you cannot do it twice or take what a recorded flight needs. Parsek uses the stock controls themselves, never badges or extra windows: the control is greyed out and its stock tooltip or description gives a short, dated reason, for example `Upgraded to level 2 on Y2, D114, 14:05, blocked by timeline until then.`. This covers:
+
+- **R&D** - researching a tech node the timeline researches later, and buying a part it buys later (also in the VAB/SPH part list; "purchase all parts" skips those parts and names them).
+- **Mission Control** - accepting a contract when a later committed accept needs the slot, declining a contract the timeline accepts later, and cancelling a contract the timeline completes, fails or cancels later. The contract's row also carries a dated note.
+- **Administration** - activating or deactivating a strategy against a committed change.
+- **Astronaut Complex** - hiring an applicant the timeline hires later (its row reads `Hired on <date>`), and dismissing a kerbal Parsek manages.
+- **VAB/SPH crew dialog** - kerbals a committed flight holds are listed greyed with the reason and cannot be seated.
+- **Space Center facility menus** - upgrading (or repairing) a building the timeline upgrades or repairs later.
+- **In flight** - the EVA and Transfer buttons for a kerbal a committed flight still needs.
+
+A click that reaches the action some other way (another mod, a different button) is refused with the same text. Where stock already refuses for its own reason (a full strategy slot, for example), its own greyed state and text are left alone.
 
 ### Milestones
 
@@ -338,7 +358,7 @@ Milestones are created:
 - When you commit a recording (bundles events since the last milestone)
 - On game save (captures any events not yet bundled)
 
-Hiding a recording does not affect its milestone or ghost playback - hidden recordings still play as ghosts normally.
+Archiving a recording does not affect its milestone or ghost playback - archived recordings still play as ghosts normally.
 
 ## Automatic Behaviors
 
@@ -352,10 +372,10 @@ are drawn nowhere and cannot be turned off.
 
 - **Auto-start on launch** - Recording begins automatically when a vessel leaves the pad or runway (transitions out of PRELAUNCH). A screen message confirms "Recording STARTED (auto)".
 - **Auto-start on EVA from pad** - Going EVA from a vessel sitting on the pad/runway also auto-starts recording on the EVA kerbal.
-- **Mid-recording EVA** - Going EVA during an active recording auto-stops the parent recording, commits it, and starts a linked child recording on the EVA kerbal.
+- **Mid-recording EVA** - Going EVA during an active recording branches it: the EVA kerbal gets a linked child recording and the vessel keeps recording as the other branch. Both are committed with the mission.
 - **Part events** - 28 event types are recorded with timestamps, including staging, decoupling, engine ignition/shutdown/throttle, parachute deploy/cut, solar panel/antenna/radiator extend/retract, light on/off/blink, landing gear deploy/retract, cargo bay open/close, fairing jettison, RCS fire, docking/undocking, and inventory part placement/removal. During ghost playback, decoupled parts (and their subtrees) disappear from the ghost at the correct time. Engines and RCS thrusters emit particle FX during burn phases. Parachute canopies deploy with the real mesh, engine shrouds are jettisoned, and deployable parts animate between stowed/deployed states. Docking/undocking events are used as chain segment boundaries, not direct ghost mesh transforms.
 - **Paused game** - Recording cannot start while the game is paused.
-- **Vessel change** - If the active vessel changes during recording (docking, switching with `[`/`]`), the recording stops automatically with a screen message.
+- **Vessel change** - Changing the active vessel does not stop recording. Docking and undocking become branch points in the mission tree. When you switch away, the vessel you leave keeps recording in the background, and switching back to a vessel the mission already tracks resumes its recording. A map Switch To, Tracking Station Fly or Space Center marker Fly onto a vessel starts a new recording segment for it (continuing that vessel's mission when it has one); a vessel sitting on the pad, ground or water starts recording only when it launches, takes off or stages. If you switch away from such a segment without changing anything (no burn, staging, docking or orbit change), it is dropped automatically. A Switch To can first ask you to Merge or Discard the flight you are leaving.
 - **Very short recordings** - Recordings with fewer than 2 sample points are silently dropped on revert (nothing to play back).
 
 ### Ghost Playback
@@ -380,16 +400,16 @@ are drawn nowhere and cannot be turned off.
 - **No negative balance** - Funds, science, and reputation deltas are clamped so they never go below zero.
 - **Quicksave safety** - Resource application progress is saved, so quickloading doesn't double-apply deltas.
 - **Resource deduction on revert** - When you revert, committed resource costs are deducted from game state so KSP's funds/science/reputation displays and purchase checks reflect what's actually available.
-- **Action blocking** - Researching tech or upgrading facilities that are already committed on the timeline is blocked with an explanatory dialog.
+- **Action blocking** - Stock actions the committed timeline performs later (tech, part purchases, contracts, strategies, hires, facility upgrades) are greyed out on the stock screens with a dated reason; see Action Blocking above.
 
 ### Game State Recording
 
 - **Career events captured** - Tech research, part purchases, facility upgrades/downgrades, building destruction/repair, contract lifecycle, crew changes, and resource changes are recorded automatically in career mode.
 - **Milestone creation** - Events are bundled into milestones at recording commit time and on game save.
-- **Epoch isolation** - After a revert, events from the abandoned timeline branch are excluded from new milestones. This prevents old-branch actions from contaminating the current branch.
+- **Reverted flights stay out** - After a revert, career events captured during the reverted flight are hidden from milestones, the Timeline and the career ledger, because they belong to a recording that was never committed. A quickload that brings that flight back makes them visible again.
 
 ### Scene Transitions
 
-- **Abort Mission** - If you leave Flight without reverting (e.g. Esc > Abort Mission to Space Center), any pending recording is automatically committed to the timeline. The vessel snapshot is discarded since the merge dialog isn't available outside Flight.
-- **Revert to Launch / VAB / SPH** - KSP's stock flight-results dialog (with its Revert buttons) shows first on a crash; Parsek no longer pre-empts it. Picking Revert unstashes the in-progress recording without deleting it — sidecar files and career events captured during the reverted flight stay on disk, so a quicksave you took during the flight can still be F9'd back into. The reverted events are hidden from the current career's ledger by an epoch bump. If you want the merge dialog instead, pick **Space Center** (or any non-revert exit).
+- **Leaving Flight** - If you leave Flight without reverting (Esc > Space Center or Tracking Station), the mission is committed to the timeline automatically, with the same result as Merge to Timeline: a vessel that survived still appears as a real vessel when its ghost finishes. A flight that never left the pad is discarded instead. Quitting to the main menu, or ending a Re-Fly, asks with the Merge dialog.
+- **Revert to Launch / VAB / SPH** - KSP's stock flight-results dialog (with its Revert buttons) shows first on a crash; Parsek no longer pre-empts it. Picking Revert unstashes the in-progress recording without deleting it - sidecar files and career events captured during the reverted flight stay on disk, so a quicksave you took during the flight can still be F9'd back into. The reverted flight's career events are hidden from the current career's ledger because its recording was never committed. To keep the flight instead, pick **Space Center** (or any non-revert exit).
 - **Missed EndUT** - If a recording's EndUT passes while you're in the Space Center or Tracking Station, reserved crew are automatically freed so they don't stay stuck as Assigned forever.

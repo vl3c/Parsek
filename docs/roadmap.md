@@ -88,7 +88,7 @@ Comprehensive redesign of the recording and playback systems. Multi-vessel sessi
 
 **Rendering & performance:**
 - Distance-based zones — Physics, Visual, Beyond — with zone-aware playback and part event gating
-- Ghost soft caps — configurable thresholds with priority-based despawning, reduced fidelity (75% renderer culling), simplified orbit-line mode
+- Ghost soft caps — configurable thresholds with priority-based despawning, reduced fidelity (75% renderer culling), simplified orbit-line mode (removed in 0.8.1, PR #226: replaced by the distance-based ghost LOD)
 - Terminated chain early-out — fully-terminated trees and chains skip per-frame evaluation
 
 **Ghost visual hardening:** Variant textures and materials (TEXTURE/MATERIAL/GAMEOBJECT rules), damaged wheel filtering, fairing meshes with procedural truss and nosecone caps, SRB nozzle glow (FXModuleAnimateThrottle), engine shrouds with variant awareness, initial state seeding for all 16 tracking set types. Compound part visuals (fuel lines, struts). Plume and smoke trail fixes (KSPParticleEmitter native control, emission module disabled). Control surfaces, robotics/servo detection, cabin lights, animation-based deployables. RCS debounce (8-frame threshold). Part separation smoke/spark FX. Lingering particle systems on ghost despawn.
@@ -401,6 +401,23 @@ Point release maturing the re-aim / looping engine and expanding Supply Routes i
 - **Claw producer** - supply runs that transfer across the Advanced Grabbing Unit (including asteroid grabs) can become routes, the second connection producer after docking.
 - **Multi-moon and dual-constraint missions** - a looped multi-moon tour (the Jool-5 profile) aligns its moons' joint configuration on replay; a mission that both lands and docks with a station at the same destination aligns both; and a mission docked by a vessel from another mission can loop its whole shared journey from its own side (Partner journey). Shapes that cannot align fail closed to a faithful replay with an amber reason.
 
+### v0.10.4 - Career Integrity, Missions and Basic Mode
+
+- **Career books that add up** - long careers no longer silently lose accepted contracts (Parsek recorded the time allowed instead of the due date; old saves are repaired on load and the lost contracts restored), a researched tech node can no longer be quietly re-locked, and money, science, reputation and crew experience earned before or during a re-flight survive the merge. Strategy payouts, skims and currency trades are recorded, and recovery refunds and crew experience are filed against the flight they belong to.
+- **No more lost missions or vessels** - a quickload can no longer cost a mission (neither a vanished mission nor a ghost-only commit of an interrupted flight), debris outcomes survive leaving a flight, discarding a flight cleans up its stranded recording files, and rewinding to re-fly a separation no longer removes every other real vessel from the game.
+- **Missions and Basic mode** - the Recordings window becomes Missions, with a plain-language summary, a readable event history, chapters for sub-stories and named dock partners per mission. A Basic mode shows only Timeline, Missions, Logistics and Settings; Advanced is the full UI.
+- **Leaner settings, auto-merge on** - nine settings were removed or hardwired, and auto-merge ships ON, so leaving a flight commits the mission (a Re-Fly exit and quitting to the main menu still ask). The one-time pre-Parsek save backup is now unconditional and verifies its own work.
+- **Supply Routes, Watch mode and ghosts** - routes run between planets on real transfer windows, draw their path on the map and Tracking Station, name their exact blocker, wait instead of losing cargo when a destination is full, and survive a rewind. Watch mode works within its promised 300 km and no longer runs on with nothing to watch when a loop starts its next lap. Ghosts animate plumes, panels, gear, bays, drills and EVA jetpacks over their real durations, and a disabled control's hover says what is blocking it.
+
+### v0.10.5 - UI Refresh (in progress, unreleased)
+
+- **A full UI refresh** - Real Spawn Control, Logistics (with a new Route History window replacing the old route logs), Missions, the Mission Log, Kerbals, the Timeline (with a new Career view), the Recordings tab and Settings are redesigned or rebuilt under one shared window style: the same countdowns, colours, "Go to" and Interact buttons, empty-list wording and column alignment everywhere. The Career window is removed (its counts live in the Timeline), as is every recording-deletion and data-wipe surface. KSP's own KSC screens - R&D, Mission Control, Administration, the Astronaut Complex, the VAB/SPH crew dialog, part purchases and the facility menus - grey out actions the committed timeline has reserved, with a short dated reason on hover, using stock's own controls instead of Parsek badges.
+- **Career and KSC reservations** - research, contract accept / decline / cancel, facility upgrades and repairs, hires and dismissals, strategy activation, part purchases and kerbal EVA or transfer are refused with a reason when the committed timeline needs them later; KSC building destructions and repairs join the career history, and the ledger follows non-Normal difficulty settings.
+- **Re-Fly and rewind correctness** - Re-Fly is limited to vessel separations (an EVA kerbal is never an Unfinished Flight; old EVA Rewind Points are removed on load), a Re-Fly survives dropping a stage or switching away, and re-flies with an EVA or an undock replace the old flight on merge. Rewinds no longer delete an earlier launch of the same craft or a vessel an earlier flight left behind, nor spawn a second copy of a landed vessel, and a Rewind-to-Launch taken mid-Re-Fly ends that Re-Fly.
+- **Recordings and replay** - recordings can no longer be deleted (Archive hides one instead); recording fixes for long frames, doubled staging samples, optimizer-split flights and PersistentRotation spin; a ground part placed on EVA is its own vessel that replays and spawns whole after a rewind; recovered vessels are saved as Recovered and credited to their own flight by identity; ghosts count for CommNet as the vessel they replay; and Parsek says on screen when it starts up with a failed patch or from the wrong folder.
+- **Logistics updates** - routes are named after the mission they repeat, the Logistics window and Route History are rebuilt, a held route says how much fuel is missing, loading a save no longer stops routes, and cargo really moves between nearby vessels during time warp.
+- **Automated test harness buildout** - the harness grows to 367 committed scenarios with every registry coverage cell claimed (253 of 253, [`docs/dev/autotest-status.md`](dev/autotest-status.md)), every in-game test group driven by an unattended run, a game-settings axis, physics-warp recording lanes, GUI census lanes that photograph Parsek's windows and the stock-screen annotations, and mutation checks that show a lane's gates can fail.
+
 ---
 
 ## Phase 13: Logistics (Supply Routes) - shipped in v0.10.0
@@ -530,7 +547,8 @@ Phase 12.5: Stable Leaves + Re-Fly Hardening (v0.9.1 ✓)
     ▼
 Phase 13: Logistics (Supply Routes) (v0.10.0 ✓)
     │  Stock-first Supply Routes from proven dock/transfer/undock Supply Runs
-    │  (v0: docking/delivery/single-stop/same-body; pickup/multi-stop/round-trip deferred)
+    │  (v0 cut: docking/delivery/single-stop/same-body; pickup, multi-stop, round-trip,
+    │   non-KSC origins, claw and inter-body routes followed in v0.10.1-v0.10.3, M1-M6)
     │
     ▼
 Phase 14: Cooperative Async Multiplayer
@@ -582,8 +600,8 @@ Commit crash window closed (sidecar files flushed immediately). Remaining gap: s
 ### Ghost LOD follow-up
 Distance-based ghost LOD shipped in `0.8.1`, including the hidden-tier ghost unload/rebuild follow-up. Particle pooling for engine/RCS FX is not scheduled; the Phase 11.5 outcome there was observability/measurement only. Storage-side optimization is also now shipped, so the remaining Phase 11.5 follow-up is synthetic stress benchmarking/tuning.
 
-### Kerbal reservation refactor (T44)
-Replace `rosterStatus = Assigned` workaround with Parsek-internal state + Harmony crew dialog filtering. Would eliminate 2 workaround patches and ~27 KSP warnings per session. Low priority — current workaround is functional.
+### ~~Kerbal reservation refactor (T44)~~ - done
+Shipped in 0.6.2: reserved kerbals keep their natural roster status and a Harmony patch handles the VAB/SPH crew dialog, which removed both workaround patches. In 0.10.5 the dialog shows reserved kerbals greyed out with the reason instead of hiding them.
 
 ### Hyperbolic escape orbit line rendering (189b)
 Ghost escape orbits clip at finite distance (~12,000 km). Active vessels show full escape trajectory via PatchedConicSolver which ghosts don't have. Needs custom LineRenderer or orbit line extension.
