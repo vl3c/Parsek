@@ -4,6 +4,8 @@
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones.*
 
+**Status:** shipped; current to Parsek 0.10.5 (owner rulings through 2026-10-01). Sections 9A.1-9A.4 are retained as history of the removed chain mode, as their own note says.
+
 ---
 
 ## 1. Introduction
@@ -14,7 +16,7 @@ This document specifies the full architecture of Parsek's flight recorder system
 - Segment boundary rule (only structural separation creates segments)
 - Within-segment events for controller changes, part destruction, etc.
 - Crash breakup coalescing
-- Multi-vessel recording sessions with focus switching
+- Multi-vessel recording sessions with focus switching, and Switch-To / Fly continuation segments
 - Segment taxonomy (environment, reference frame, rendering zones)
 - Background vessel recording in the physics bubble
 - Orbital checkpoint system for on-rails vessels
@@ -28,7 +30,7 @@ This document specifies the full architecture of Parsek's flight recorder system
 - Ghost world presence: tracking station, map view, CommNet relay
 - Distance-based rendering zones and performance budget
 - Rewind and fast-forward with ghost playback
-- Ghost implementation constraints
+- Ghost implementation constraints, ghost FX and audio, mod FX recovery, and watch mode (camera follow)
 - Recording file format
 - Error recovery and schema compatibility
 
@@ -185,7 +187,7 @@ Recording
   OrbitSegments:            list of OrbitSegment — flat orbit segments
 
   // Events
-  PartEvents:               list of PartEvent — discrete visual state changes (35 event types)
+  PartEvents:               list of PartEvent - discrete visual state changes (45 event types, `PartEventType`)
   SegmentEvents:            list of SegmentEvent — within-segment state changes (Section 4.8)
   Controllers:              list of ControllerInfo — controller parts at segment start
   IsDebris:                 bool — true if no controllers
@@ -248,6 +250,8 @@ BranchPoint
   TerminalCause:            RECOVERED | DESTROYED | RECYCLED | DESPAWNED
 ```
 
+`VesselSwitchContinuation` is not a physical event: it attaches the recording that starts when the player takes a vessel over through a stock Fly or Switch-To button (Section 5.4) under that vessel's last recording in the tree, so its history stays one lineage across the gap. When no earlier recording of the vessel exists, the new recording is a tree root and no branch point is written.
+
 **TrajectoryPoint** — position sample. Recorded at up to 50 Hz in atmospheric flight, down to 0.1 Hz for surface-stationary. The most-sampled data structure in the system.
 
 ```
@@ -301,7 +305,7 @@ TrackSection
   boundaryDiscontinuityMeters: float — position gap vs previous section end
 ```
 
-**PartEvent** — a discrete visual state change on a specific part. 35 event types covering engines, parachutes, solar panels, antennas, lights, landing gear, cargo bays, fairings, RCS, robotics, thermal animations, inventory deployables.
+**PartEvent** - a discrete visual state change on a specific part. 45 event types (`PartEventType` in `PartEvent.cs`; values from 34 on are explicitly numbered and append-only) covering engines, parachutes, solar panels, antennas, lights, landing gear, cargo bays, fairings, RCS, robotics, thermal animations, inventory deployables, resource converters, and EVA jetpack / ragdoll state.
 
 ```
 PartEvent
@@ -311,7 +315,7 @@ PartEvent
                       DeployableExtended, DeployableRetracted, LightOn, LightOff,
                       GearDeployed, GearRetracted, ParachuteDeployed, ParachuteCut,
                       CargoBayOpened, CargoBayClosed, FairingJettisoned, RCSActivated,
-                      RCSStopped, Decoupled, Destroyed, Docked, Undocked, ... 35 total)
+                      RCSStopped, Decoupled, Destroyed, Docked, Undocked, ... 45 total)
   partName:         string
   value:            float — event-specific (e.g., throttle percentage)
   moduleIndex:      int — which module on the part (for multi-module parts)
@@ -583,6 +587,19 @@ When the player switches focus from vessel A to vessel B:
 3. The tree's ActiveRecordingId changes.
 
 The focus history is implicit in the sequence of ActiveRecordingId changes — no explicit focus log is stored.
+
+The decision is `FlightRecorder.DecideOnVesselSwitch` (`TransitionToBackground` / `PromoteFromBackground`). It has no stop outcome: a focus change never ends the tree's recording session.
+
+**Switch-To and Fly continuation segments.** Taking a vessel over through a stock button (Tracking Station Fly, the Space Center vessel marker's Fly, Map view Switch-To) starts a recording segment for it at once. The trigger is a positive intent armed by the click, never an inference from a focus change. Plan of record: `docs/dev/done/plans/segment-scoped-switch-fly-autorecord.md`.
+
+- **Arming.** `StockActionIntentMarker` is armed only by confirmed stock-UI click handlers: `SwitchIntentTrackingStationFlyPatch` (`Patches/GhostTrackingStationPatch.cs`), `Patches/KscVesselMarkerFlyPatch.cs` (`KSCVesselMarkers.FlyVessel`) and `Patches/MapFocusObjectOnSelectPatch.cs` (`MapContextMenuOptions.FocusObject.OnSelect`; the Postfix refunds the marker when stock's `SetActiveVessel` returns early). The marker carries the target pid, the capture UT, a wall-clock TTL (10 s for the two Fly buttons, 2 s for Switch-To) and `ParsekProcess.ProcessSessionId`. `ParsekScenario` saves it, so a Fly marker survives the scene load; on load the pure `EvaluateStaleness` clears a marker from another process, past its TTL, or from before a UT regression (a quickload).
+- **Consuming.** `ParsekFlight.TryConsumeStockActionIntent` runs from `OnVesselSwitchComplete` (Switch-To) and `OnFlightReady` (Fly). The pure `StockActionIntentConsumeDecision.Evaluate` (`SwitchSegmentConsume.cs`) re-applies the staleness checks and also refuses a marker for a different vessel, a duplicate of the armed session's target, or one raised during missed-switch recovery; every refusal clears the marker and logs its reason. A target on the surface (PRELAUNCH, LANDED, SPLASHED) is left to the ordinary auto-record trigger, so flying to a parked vessel does not start a segment that would only be discarded as idle.
+- **Three branches**, tried in order. (1) **Committed-tree clone:** the vessel is the spawned end of a committed tree; a copy-on-write clone of that tree becomes the live tree (`TryRestoreCommittedTreeForSpawnedActiveVessel`) and the segment attaches under it, so the committed original is untouched until the player merges. (2) **Background-member continuation:** the live tree tracks the vessel in its `BackgroundMap`; the segment continues that member. (3) **Standalone:** otherwise the segment is the root of a new tree.
+- **Building.** `SwitchSegmentBuilder` is the pure tree mutation. `ResolveSwitchContinuationParent` walks read-only from the vessel's recordings forward to terminal leaves carrying the same pid; `CreateSwitchContinuationSegment` creates the recording, stamps `Recording.SwitchSegmentSessionId`, attaches it under the chosen leaf with a `VesselSwitchContinuation` branch point (none when standalone) and makes it the tree's active recording. The live wrapper flushes the parent's background track before and removes the vessel from the background map after.
+- **Session.** A started segment arms a `SwitchSegmentSession` (session id, tree, parent and segment recording ids, source and focused pids, switch UT, entry reason). It is owned by `ParsekScenario` and saved with the game, so the scoped Discard below stays correct across a save and reload. A successful merge clears it.
+- **Scoped Discard.** With a session armed, Discard at the merge dialog removes only the segment: `RecordingStore.TryDiscardActiveSwitchSegmentAttempt` deletes the segment recording and its whole topological subtree (debris, EVA and dock children made during the segment), their branch points, game-state events and sidecars, and the session marker; every committed recording is kept. A segment in a committed-tree clone drops the clone; a segment in a pending tree prunes the tree in place. Without a session, Discard falls back to the whole pending tree (`MergeDialog.MergeDiscardRanToCompletion`).
+- **No-op auto-discard.** A resumed segment that changed nothing is dropped rather than prolonging the ghost state. `SwitchSegmentNoOpClassifier.IsNoOpSegment` keeps a segment that has descendants, a destroyed vessel, a meaningful part event (structural, deploy, parachute, robotic, inventory, dock, or engine / RCS at positive throttle; shutdown and zero-throttle seeds are inert here, deliberately unlike `RecordingOptimizer.IsInertPartEventForTailTrim`), a segment event other than a time jump, a flag plant, a dock target, a non-boring track section (atmospheric flight, powered flight, surface motion, an approach), or an orbit change beyond small element tolerances; when in doubt it keeps. At scene exit `SceneExitInterceptor.TryAutoDiscardNoOpSwitchSegment` tears down a no-op standalone segment's tree or reverts a committed-clone segment to the committed original; a segment of a background member of a still-live tree takes the normal commit.
+- **Pre-switch Merge / Discard dialog.** The Map Switch-To Prefix may open `MergeDialog.ShowPreSwitchDecisionDialog` before stock switches, gated by the pure `MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction`. **Case A:** a session is armed and the new target is a different vessel; Merge commits the prior session, Discard scope-discards it. **Case B:** no session is armed, a recording is live, and the target is either unloaded (a far Switch-To reloads the scene through `FlightDriver.StartAndFocusVessel`, which bypasses the scene-exit merge prompt) or a loaded vessel of a separate committed tree (whose clone restore needs no live tree); Merge commits the live tree, Discard discards it. Both buttons then arm a fresh intent and call `FlightGlobals.SetActiveVessel`; there is no Cancel. A re-click on the same target and a re-entry while the dialog is open are filtered by the same predicate.
 
 ### 5.5 Scene Changes
 
@@ -1396,7 +1413,7 @@ Committed recordings are permanent — they survive rewind. Rewinding moves the 
 
 Each committed recording has an associated quicksave taken at its launch UT. This quicksave captures the game state needed to resume from that point.
 
-**Timeline immutability (append-only):** Committed recordings are not edited or deleted in place. The player's decision at recording end is commit to timeline or discard. Immutability is append-only rather than absolute: a committed subtree can be superseded by a re-flown fork (Rewind-to-Separation, Section 14.9) - the original rows are retained and marked superseded, never mutated or removed. The entire timeline can still be wiped. In-place deletion is disallowed because it could orphan spawned vessels, break chain continuity, or create inconsistent ghost playback.
+**Timeline immutability (append-only):** Committed recordings are not edited or deleted in place. The player's decision at recording end is commit to timeline or discard. Immutability is append-only rather than absolute: a committed subtree can be superseded by a re-flown fork (Rewind-to-Separation, Section 14.9) - the original rows are retained and marked superseded, never mutated or removed. Nothing in the UI deletes a committed recording or wipes the timeline (the Wipe All buttons and the table's delete button were removed in 0.10.5); to stop seeing a recording the player ticks its Archive checkbox in the Recordings tab instead. Deletion is disallowed because it could orphan spawned vessels, break chain continuity, or create inconsistent ghost playback.
 
 ### 14.2 Rewind Procedure
 
@@ -1670,9 +1687,40 @@ Passive background processes (science lab processing, ore drilling, ISRU convers
 
 After the chain tip fires and the real vessel spawns, all passive processes resume normally from that point forward. Any new passive earnings are captured when the player eventually commits.
 
-### 15.8 Mod Compatibility for Ghost Visuals
+### 15.8 Ghost Visual Effects and Audio
+
+Every effect on a ghost is rebuilt by Parsek from the part prefabs and the recording; nothing is copied from a live vessel. Following the minimal-recording principle, the recording stores threshold crossings (the `PartEvent` stream of Section 4.3), and anything derivable at playback (reentry heating, audio choice) is derived, not stored.
+
+- **Engines** (`EngineFxBuilder`). At ghost build, each engine module's particle FX is built from the part's EFFECTS node (or its legacy top-level `fx_*` keys); `EngineIgnited` / `EngineThrottle` / `EngineShutdown` events at their recorded UTs drive emission. The recorder keys engines by `(ulong)pid << 8 | (uint)moduleIndex`, so a part may carry up to 256 engine modules.
+- **RCS.** `RCSActivated` / `RCSThrottle` / `RCSStopped` carry a normalized aggregate power; the recorder tracks them in their own dictionaries (`activeRcsKeys` / `lastRcsThrottle`), so RCS and engine keys may overlap.
+- **Part state.** Deployables, gear, cargo bays, lights (including blink), fairings, parachute stages, robotics, heat animations and inventory placements replay from their events; `Decoupled` and `Destroyed` hide the part's subtree.
+- **Reentry** (`GhostVisualBuilder.TryBuildReentryFx`): fire particles over a combined emission mesh, an additive flame-shell overlay and part-material glow. It is built lazily, and only for a trajectory with reentry potential (`TrajectoryMath.HasReentryPotential`: any orbit segment, or a sample at 400 m/s or more). Intensity is computed each frame from the playback speed and the body's atmospheric density and Mach number (`ComputeReentryIntensity`), matched to stock aeroFX: nothing below Mach 2.5 or near the top of the atmosphere.
+- **Explosions.** A recording whose terminal state is Destroyed fires one explosion at its end (`GhostPlaybackLogic.ShouldTriggerExplosion`), and an individual `Destroyed` part event explodes at that part through stock `FXMonger.Explode` with the part's `explosionPotential`.
+- **Audio** (`GhostAudioPresets`). Engine loops are chosen by propellant and thrust class (light / medium / heavy at 50 kN and 300 kN) from stock clips, independent of the part's EFFECTS AUDIO config, which sound mods delete. At most 4 looped sources play per ghost, ranked by priority and distance; explosion one-shots pick a clip by explosion power.
+
+### 15.9 Mod Compatibility for Ghost Visuals
 
 Ghosts load part meshes from whatever parts the original vessel used, including modded parts. Base mesh rendering works for any part. Custom visual effects from mods may require explicit support. Unsupported modded visuals degrade gracefully — the mesh is in the right place but the custom animation doesn't play.
+
+**Waterfall and ReStock: ghost FX recovery.** Waterfall config packs (Stock Waterfall Effects) replace stock engine and RCS particles with Waterfall plumes and delete the stock EFFECTS definitions the ghost FX are built from; ReStock re-authors stock parts' EFFECTS in its ModuleManager patches. Parsek recovers a ghost plume from the pristine configs instead of drawing nothing:
+
+- `WaterfallCompat.cs` is the per-part gate (a name check for `ModuleWaterfallFX`, with no compile-time Waterfall reference). With the gate closed, a stock install behaves identically.
+- `PristinePartFxResolver.cs` reads the part's pre-ModuleManager EFFECTS node, per-ordinal engine / RCS effect names and legacy `fx_*` keys from its on-disk `.cfg` (ModuleManager patches the GameDatabase in memory only); `EngineFxBuilder.TryApplyPristineEngineFxFallback` and `GhostVisualBuilder.TryApplyPristineRcsFxFallback` consume it.
+- `ReStockPatchFxIndex.cs` is a lazy per-session index of the EFFECTS ReStock authors for stock parts, parsed from ReStock's patch files on disk. A missing ReStock directory is a permanently empty index. `HasAuthoredEffectsFor` stands down Parsek's hardcoded stock per-part FX tunings for a part ReStock re-authored (gated on ReStock, not on Waterfall).
+- Two hard rules. Never add `Effects/` to the shared `TryResolveFxPrefabExact` probes: legacy `fx_*` names resolve through KSP's builtin `Effects/{name}` path on their own, and stock paths rely on the deliberate `fxPrefabFallbacks` substitutions. Match a fresh `EFFECTS` patch node by its exact name, never `!EFFECTS` (a delete).
+
+Parity instruments are `GhostFxFingerprint.cs` (`[FxFingerprint]` lines per built part) and `GhostFxEmissionProbe.cs` (`[FxEmissionProbe] measured:`, the measured particle direction). The full contract is `docs/dev/mod-compatibility-notes.md`, "Waterfall ... and ReStock".
+
+### 15.10 Watch Mode (Camera Follow)
+
+`WatchModeController` (owned by `ParsekFlight`, flight scene only) locks the flight camera onto a ghost so the player can follow a replay, then hands the camera back. It is a camera only: the ghost stays visual and the active vessel stays under KSP's control.
+
+- **Entry.** `EnterWatchMode(index)` is reached from the Watch buttons of the Recordings table, the Missions window and the Timeline; pressing it again on the watched recording exits. Entry is refused for a recording suppressed by an active Re-Fly session, for a recording with no ghost state, for a ghost on another body than the active vessel, and for a ghost at or beyond `WatchEnterCutoffMeters` (300 km) from the active vessel, which posts `Ghost too far to watch (N km, max 300 km)`: the floating origin, terrain, atmosphere and skybox are all anchored to the active vessel. If the active vessel is not in a safe situation, `Your vessel continues unattended` is shown.
+- **While watching.** A control lock (`ParsekWatch`: staging, throttle, vessel switching, EVA input, camera modes, pitch) keeps keys from reaching the unattended vessel, and KSP's pivot tracking is turned off so Parsek drives the camera. `V` toggles Free / Horizon-Locked framing, `W` cycles to the next watchable ghost (not debris, on the same body, within visual range), and `[` or `]` exits (Backspace is stock's Abort key). Inside the exit cutoff the watched ghost is forced to full fidelity (mesh, part events, positioning) whatever its rendering zone.
+- **Range exit.** The camera leaves a ghost that passes `WatchExitCutoffMeters` (305 km, a 5 km hysteresis band over entry) for `WatchExitCutoffDebounceFrames` (3) consecutive frames, so one stale distance across a floating-origin seam does not exit. Three consecutive frames with no usable camera target also exit (`WatchNoTargetExitFrames`).
+- **Chains and loops.** When the watched recording ends, the camera follows onto its continuation (`TransferWatchToNextSegment`, keeping the camera framing), during a short end hold when that ghost has not spawned yet. On a loop cycle boundary or an overlap copy rebuild the camera is bridged on a temporary anchor at the ghost's last pose and retargeted to the new cycle's ghost; a destroyed cycle holds on the explosion first. Entering watch on a looping ghost that is beyond visual range resets its loop phase so it replays from the start, unless its current phase is itself watchable.
+- **Exit and restore.** `ExitWatchMode` removes the lock, restores the pivot sharpness, and returns the camera to the vessel, distance, pitch and heading saved at fresh entry (hops between ghosts keep the original); if that vessel is gone it falls back to the active vessel. If the active vessel is destroyed while watching, the camera restore is skipped and KSP assigns the new vessel. An automatic exit (range cutoff, end of playback, lost target) keeps the watched lineage protected until a computed UT (`GhostPlaybackLogic.ComputeWatchLineageProtectionUntilUT`), so the watched flight's debris does not vanish the moment the camera leaves.
+- **Index contract.** The controller keys its state by committed-list index plus recording id and rebinds through the committed-list notifications (`OnRecordingInserted` / `OnRecordingDeleted`).
 
 ---
 
@@ -1859,6 +1907,15 @@ Ghost chain vessel conversion (Section 13.10) introduces the first modification 
 - **Orphaned sidecar files:** Ignore on load, preserve files.
 - **Missing quicksave:** Rewind to that recording unavailable. Fall back to nearest prior quicksave.
 - **Save during active recording:** Parsek captures session state for resume. If this fails, in-progress recording is lost but committed recordings are unaffected.
+
+### 19.8 Broken Install and Failed Patches
+
+Parsek does not warn about which other mods are installed; a mod it cannot cope with degrades with a log line. Two startup EVENTS are told to the player on screen, once per game start and never on a correct install (`StartupNotices.cs` pure, `ParsekHarmony.cs` collect and post):
+
+- **Failed Harmony patches.** Each `[HarmonyPatch]` class maps to a player-facing feature by name prefix (`StartupNotices.PatchFeatureFor`); the notice gives the failed count and up to three affected features (for example crew or tech tree reservations). A unit test fails when a new patch class has no feature rule.
+- **Install location.** The loaded `Parsek.dll` must sit in a folder directly under `GameData`. A nested `GameData`, the zip's own wrapper folder, or a loose DLL posts a notice naming where it was found and how to fix it.
+
+Stock `ScreenMessages` drops a post made during a scene load, so `StartupNoticePoster` waits for a playable scene to stay current for 3 s, posts through `ParsekLog.TryScreenMessage`, and re-queues a dropped notice for the next frame. Contract: `docs/dev/mod-compatibility-notes.md`, "Startup notices".
 
 ---
 
