@@ -15,13 +15,30 @@ namespace Parsek
         internal double MaxAmount;
     }
 
-    /// <summary>Who a chain tip's snapshot is: the vessels whose route cargo it carries.</summary>
+    /// <summary>A cargo-moving route row of the current effective ledger, as the replay match reads it.</summary>
+    internal struct ReplayedCrossing
+    {
+        internal string RouteId;
+        internal int StopIndex;
+        internal GameActionType Type;
+        internal double UT;
+    }
+
+    /// <summary>Who a chain tip's snapshot is: which snapshot, and the vessels whose route cargo it carries.</summary>
     internal sealed class ChainTipCargoIdentity
     {
         internal string TipRecordingId;
         internal string TipTreeId;
-        /// <summary>When the snapshot was captured (the tip recording's end).</summary>
+        /// <summary>The tip recording's end now (a tag keeps the capture time it was tagged with).</summary>
         internal double CaptureUT;
+        /// <summary><see cref="ChainTipRouteCargo.SnapshotFingerprint(ConfigNode)"/> of the tip's stored snapshot; null without one.</summary>
+        internal string Fingerprint;
+        /// <summary>The tip recording's optimizer chain id; null when it has none.</summary>
+        internal string ChainId;
+        /// <summary>The tip's own id and the earlier segments of its optimizer chain (an optimizer split moves the snapshot to the later half).</summary>
+        internal HashSet<string> AcceptedRecordingIds = new HashSet<string>(StringComparer.Ordinal);
+        /// <summary>Every recording id in the tip's tree (a tagged id missing from it was merged away by the optimizer); null when unknown.</summary>
+        internal HashSet<string> TreeRecordingIds;
         /// <summary>Every claimed pid ending in the tip plus the tip's own, each with the launch guid it must not conclusively differ from (null = pid only).</summary>
         internal List<KeyValuePair<uint, string>> Vessels = new List<KeyValuePair<uint, string>>();
         /// <summary>The claimed vessel's own part persistentIds (taken from first); null when unknown.</summary>
@@ -45,7 +62,7 @@ namespace Parsek
         internal double[] Amounts;
         internal List<ChainTipCargoEntry> Entries = new List<ChainTipCargoEntry>();
         internal int RowsApplied;
-        internal int SkippedOtherTree;
+        internal int SkippedOtherSnapshot;
         internal int SkippedOtherVessel;
         internal int SkippedNotAfterCutoff;
         internal int SkippedAfterCapture;
@@ -61,19 +78,30 @@ namespace Parsek
     /// rewind to before the claim retires and refunds the route rows after the cutoff (the
     /// reverted save restores the origin), and the replayed crossings into the station are
     /// blocked while it is held back, so those deliveries never happen again: the spawned
-    /// station would hold cargo nobody paid for. The rewind keeps the retired crossings that
-    /// a committed tip snapshot carries (<see cref="RetiredRouteCargoStore"/>, tagged with the
-    /// tip's tree), and each spawn copy of that tip takes them back out: deliveries removed,
-    /// pickups and origin debits (cargo the route took from the station) added back, per tank
-    /// clamped at zero and at capacity, the claimed vessel's own parts first. The committed
-    /// snapshot is never touched.
+    /// station would hold cargo nobody paid for. The rewind keeps the retired crossings that a
+    /// committed tip snapshot carries (<see cref="RetiredRouteCargoStore"/>), and a spawn copy
+    /// of that SAME snapshot takes them back out: deliveries removed, pickups and origin debits
+    /// (cargo the route took from the station) added back, per tank clamped at zero and at
+    /// capacity, the claimed vessel's own parts first. The committed snapshot is never touched.
     ///
-    /// <para>The tree tag carries the timeline: a crossing retired before the tip's mission
-    /// was committed is in no snapshot of it (the snapshot was captured after that rewind),
-    /// and the retire only tags trees committed at that moment. A crossing the current
-    /// timeline performed again (its row is back in the effective ledger, e.g. a route into
-    /// the pre-claim station while it stood live at the Space Center) is paid again and the
-    /// snapshot's copy of it is the one that survives the replacement, so it is left in.</para>
+    /// <para><b>Which snapshot.</b> A retired row is tagged with the tip snapshots that carry
+    /// it: the recording holding the snapshot, its optimizer chain, its capture time and a
+    /// fingerprint of its resource content (<see cref="RetiredRouteCargoTipTag"/>). A later tip
+    /// of the same tree (a switch continuation flown on from the spawned station, a Re-Fly
+    /// fork) is another recording with its own snapshot and gets none of those rows; an
+    /// optimizer split that moves the snapshot to its later half is followed through the chain.
+    /// A row is tagged only when it is no later than the snapshot's capture and no later than
+    /// the lowest cutoff of every earlier retire since that snapshot was first seen (its
+    /// watermark): a row above that was created in a timeline that branched after the capture,
+    /// so the snapshot cannot hold it.</para>
+    ///
+    /// <para><b>Replays.</b> A crossing the current timeline performed again (its row is back
+    /// in the effective ledger, for example into the pre-claim station standing live at the
+    /// Space Center) is paid again, and the snapshot's copy is the one that survives the
+    /// replacement, so it is left in. A replay is matched to a stashed crossing by route, stop,
+    /// row type and the nearest UT inside the snapshot's window, one to one, never by cycle id:
+    /// the counters behind cycle ids are rebuilt from the kept rows at every rewind, and a
+    /// blocked crossing writes no dispatch row, so a replay can carry another id.</para>
     ///
     /// <para>Inventory (stored parts) is not adjusted: delivery rows carry no inventory
     /// manifest, and a pickup's stored parts are not put back.</para>
@@ -115,20 +143,58 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: does <paramref name="tag"/> name the snapshot <paramref name="tip"/> spawns
+        /// from? Same tree and the same resource fingerprint, and the tagged recording is the
+        /// tip, an earlier segment of its optimizer chain (a split moved the snapshot on), or a
+        /// recording of its chain the optimizer has since merged away.
+        /// </summary>
+        internal static bool TagMatchesTip(RetiredRouteCargoTipTag tag, ChainTipCargoIdentity tip)
+        {
+            if (tag == null || tip == null)
+                return false;
+            if (!string.Equals(tag.TreeId, tip.TipTreeId, StringComparison.Ordinal))
+                return false;
+            if (string.IsNullOrEmpty(tag.Fingerprint)
+                || !string.Equals(tag.Fingerprint, tip.Fingerprint, StringComparison.Ordinal))
+                return false;
+            if (tip.AcceptedRecordingIds != null && tag.RecordingId != null
+                && tip.AcceptedRecordingIds.Contains(tag.RecordingId))
+                return true;
+            return !string.IsNullOrEmpty(tag.ChainId)
+                && string.Equals(tag.ChainId, tip.ChainId, StringComparison.Ordinal)
+                && tip.TreeRecordingIds != null
+                && tag.RecordingId != null
+                && !tip.TreeRecordingIds.Contains(tag.RecordingId);
+        }
+
+        /// <summary>The tag naming the snapshot <paramref name="tip"/> spawns from today.</summary>
+        internal static RetiredRouteCargoTipTag TagFor(ChainTipCargoIdentity tip)
+        {
+            return new RetiredRouteCargoTipTag
+            {
+                TreeId = tip.TipTreeId,
+                RecordingId = tip.TipRecordingId,
+                ChainId = tip.ChainId,
+                CaptureUT = tip.CaptureUT,
+                Fingerprint = tip.Fingerprint
+            };
+        }
+
+        /// <summary>
         /// Pure: the spawn copy's new tank amounts after taking out every stashed crossing that
-        /// this tip's snapshot carries and the current timeline has not performed again: the
-        /// row is tagged with the tip's tree, names one of its vessels, lies after its own
-        /// rewind cutoff and at or before the snapshot capture, and its crossing key is not in
-        /// <paramref name="replayedCrossingKeys"/>. Rows are undone latest first; a delivery is
-        /// removed, a pickup or debit added back, each resource from the claimed vessel's own
-        /// parts first, every tank clamped at zero and at its capacity. What could not be
-        /// removed or added is reported as clamped.
+        /// this tip's snapshot carries and the current timeline has not performed again: a tag
+        /// of the row names this snapshot, the row names one of its vessels, lies after its own
+        /// rewind cutoff and at or before the tag's capture, and no replay in
+        /// <paramref name="replayed"/> was matched to it (<see cref="MatchReplays"/>). Rows are
+        /// undone latest first; a delivery is removed, a pickup or debit added back, each
+        /// resource from the claimed vessel's own parts first, every tank clamped at zero and at
+        /// its capacity. What could not be removed or added is reported as clamped.
         /// </summary>
         internal static ChainTipCargoAdjustment ComputeAdjustment(
             IList<SnapshotTank> tanks,
             IList<RetiredRouteCargoRow> rows,
             ChainTipCargoIdentity tip,
-            ICollection<string> replayedCrossingKeys)
+            IList<ReplayedCrossing> replayed)
         {
             var result = new ChainTipCargoAdjustment();
             int n = tanks != null ? tanks.Count : 0;
@@ -138,16 +204,18 @@ namespace Parsek
             if (tip == null || rows == null)
                 return result;
 
-            var selected = new List<KeyValuePair<int, RetiredRouteCargoRow>>();
+            var selected = new List<RetiredRouteCargoRow>();
+            var selectedTags = new List<RetiredRouteCargoTipTag>();
+            var selectedOrder = new List<int>();
             for (int r = 0; r < rows.Count; r++)
             {
                 RetiredRouteCargoRow row = rows[r];
                 if (row == null)
                     continue;
-                if (string.IsNullOrEmpty(tip.TipTreeId) || row.TipTreeIds == null
-                    || !row.TipTreeIds.Contains(tip.TipTreeId))
+                RetiredRouteCargoTipTag tag = FirstMatchingTag(row, tip);
+                if (tag == null)
                 {
-                    result.SkippedOtherTree++;
+                    result.SkippedOtherSnapshot++;
                     continue;
                 }
                 if (!RowAddressesTip(row, tip))
@@ -160,14 +228,9 @@ namespace Parsek
                     result.SkippedNotAfterCutoff++;
                     continue;
                 }
-                if (row.UT > tip.CaptureUT)
+                if (row.UT > tag.CaptureUT)
                 {
                     result.SkippedAfterCapture++;
-                    continue;
-                }
-                if (replayedCrossingKeys != null && replayedCrossingKeys.Contains(row.CrossingKey))
-                {
-                    result.SkippedReplayed++;
                     continue;
                 }
                 if (row.Resources == null || row.Resources.Count == 0)
@@ -175,20 +238,32 @@ namespace Parsek
                     result.SkippedNoResources++;
                     continue;
                 }
-                selected.Add(new KeyValuePair<int, RetiredRouteCargoRow>(r, row));
+                selected.Add(row);
+                selectedTags.Add(tag);
+                selectedOrder.Add(r);
+            }
+
+            bool[] matched = MatchReplays(selected, selectedTags, replayed);
+            var apply = new List<int>();
+            for (int s = 0; s < selected.Count; s++)
+            {
+                if (matched[s])
+                    result.SkippedReplayed++;
+                else
+                    apply.Add(s);
             }
 
             // Undo latest first; equal UTs keep the stash order reversed.
-            selected.Sort((a, b) =>
+            apply.Sort((a, b) =>
             {
-                int c = b.Value.UT.CompareTo(a.Value.UT);
-                return c != 0 ? c : b.Key.CompareTo(a.Key);
+                int c = selected[b].UT.CompareTo(selected[a].UT);
+                return c != 0 ? c : selectedOrder[b].CompareTo(selectedOrder[a]);
             });
 
             var entryIndex = new Dictionary<string, int>(StringComparer.Ordinal);
-            for (int s = 0; s < selected.Count; s++)
+            for (int s = 0; s < apply.Count; s++)
             {
-                RetiredRouteCargoRow row = selected[s].Value;
+                RetiredRouteCargoRow row = selected[apply[s]];
                 result.RowsApplied++;
                 var names = new List<string>(row.Resources.Keys);
                 names.Sort(StringComparer.Ordinal);
@@ -230,6 +305,64 @@ namespace Parsek
                 }
             }
             return result;
+        }
+
+        private static RetiredRouteCargoTipTag FirstMatchingTag(RetiredRouteCargoRow row, ChainTipCargoIdentity tip)
+        {
+            if (row.Tips == null)
+                return null;
+            for (int t = 0; t < row.Tips.Count; t++)
+            {
+                if (TagMatchesTip(row.Tips[t], tip))
+                    return row.Tips[t];
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Pure: which stashed crossings the current timeline performed again. Replays are taken
+        /// in UT order; each is matched to the unmatched stashed crossing of the same route,
+        /// stop and row type whose window (its own cutoff, the tag's capture] holds the replay's
+        /// UT, the nearest in UT first (the earlier on a tie). One replay pays for one crossing.
+        /// </summary>
+        internal static bool[] MatchReplays(
+            IList<RetiredRouteCargoRow> selected,
+            IList<RetiredRouteCargoTipTag> tags,
+            IList<ReplayedCrossing> replayed)
+        {
+            var matched = new bool[selected != null ? selected.Count : 0];
+            if (selected == null || selected.Count == 0 || replayed == null || replayed.Count == 0)
+                return matched;
+
+            var order = new List<ReplayedCrossing>(replayed);
+            order.Sort((a, b) => a.UT.CompareTo(b.UT));
+            for (int e = 0; e < order.Count; e++)
+            {
+                ReplayedCrossing replay = order[e];
+                string group = RetiredRouteCargoStore.ReplayGroupKey(replay.RouteId, replay.StopIndex, replay.Type);
+                int best = -1;
+                double bestDistance = double.PositiveInfinity;
+                for (int s = 0; s < selected.Count; s++)
+                {
+                    if (matched[s])
+                        continue;
+                    RetiredRouteCargoRow row = selected[s];
+                    if (!string.Equals(row.ReplayGroupKey, group, StringComparison.Ordinal))
+                        continue;
+                    if (!(replay.UT > row.CutoffUT) || replay.UT > tags[s].CaptureUT)
+                        continue;
+                    double distance = Math.Abs(replay.UT - row.UT);
+                    if (distance < bestDistance
+                        || (distance == bestDistance && best >= 0 && row.UT < selected[best].UT))
+                    {
+                        best = s;
+                        bestDistance = distance;
+                    }
+                }
+                if (best >= 0)
+                    matched[best] = true;
+            }
+            return matched;
         }
 
         private static bool IsOwnPart(SnapshotTank tank, HashSet<uint> ownParts)
@@ -287,39 +420,102 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: the rows a retire should keep, each tagged with the trees whose chain tip
-        /// snapshot carries it (the row names the tip's vessel, lies after its cutoff and at or
-        /// before the capture). Rows no tip carries are dropped.
+        /// Pure: the rows a retire should keep, each tagged with the tip snapshots that carry
+        /// it: the row names the tip's vessel, lies after its cutoff, and is no later than both
+        /// the snapshot's capture and the snapshot's watermark (<paramref name="watermarkOf"/>,
+        /// +infinity when null or when the snapshot has none). Rows no snapshot carries are
+        /// dropped.
         /// </summary>
         internal static List<RetiredRouteCargoRow> TagForChainTips(
-            IList<RetiredRouteCargoRow> candidates, IList<ChainTipCargoIdentity> tips)
+            IList<RetiredRouteCargoRow> candidates,
+            IList<ChainTipCargoIdentity> tips,
+            Func<ChainTipCargoIdentity, double> watermarkOf)
         {
             var kept = new List<RetiredRouteCargoRow>();
             if (candidates == null || tips == null)
                 return kept;
+            var limits = new double[tips.Count];
+            for (int t = 0; t < tips.Count; t++)
+            {
+                double watermark = tips[t] != null && watermarkOf != null
+                    ? watermarkOf(tips[t])
+                    : double.PositiveInfinity;
+                limits[t] = tips[t] != null ? Math.Min(tips[t].CaptureUT, watermark) : double.NegativeInfinity;
+            }
             for (int r = 0; r < candidates.Count; r++)
             {
                 RetiredRouteCargoRow row = candidates[r];
                 if (row == null)
                     continue;
-                if (row.TipTreeIds == null)
-                    row.TipTreeIds = new List<string>();
+                if (row.Tips == null)
+                    row.Tips = new List<RetiredRouteCargoTipTag>();
                 for (int t = 0; t < tips.Count; t++)
                 {
                     ChainTipCargoIdentity tip = tips[t];
-                    if (tip == null || string.IsNullOrEmpty(tip.TipTreeId))
+                    if (tip == null || string.IsNullOrEmpty(tip.TipTreeId) || string.IsNullOrEmpty(tip.Fingerprint))
                         continue;
-                    if (!(row.UT > row.CutoffUT) || row.UT > tip.CaptureUT)
+                    if (!(row.UT > row.CutoffUT) || row.UT > limits[t])
                         continue;
                     if (!RowAddressesTip(row, tip))
                         continue;
-                    if (!row.TipTreeIds.Contains(tip.TipTreeId))
-                        row.TipTreeIds.Add(tip.TipTreeId);
+                    RetiredRouteCargoTipTag tag = TagFor(tip);
+                    bool known = false;
+                    for (int k = 0; k < row.Tips.Count; k++)
+                    {
+                        if (row.Tips[k].SameAs(tag))
+                        {
+                            known = true;
+                            break;
+                        }
+                    }
+                    if (!known)
+                        row.Tips.Add(tag);
                 }
-                if (row.TipTreeIds.Count > 0)
+                if (row.Tips.Count > 0)
                     kept.Add(row);
             }
             return kept;
+        }
+
+        // ------------------------------------------------------------------
+        // Snapshot identity
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// A fingerprint of a vessel snapshot's resource content: every PART's persistentId and
+        /// every RESOURCE's name, amount and capacity, in order (FNV-1a 64 over the invariant
+        /// text). Spawn paths rewrite a stored snapshot's position, situation and crew, never
+        /// its resources, and an optimizer split moves the snapshot unchanged, so the
+        /// fingerprint names one captured snapshot. Null for a null snapshot.
+        /// </summary>
+        internal static string SnapshotFingerprint(ConfigNode vessel)
+        {
+            if (vessel == null)
+                return null;
+            return SnapshotFingerprint(ReadTanks(vessel, null));
+        }
+
+        internal static string SnapshotFingerprint(IList<SnapshotTank> tanks)
+        {
+            var sb = new StringBuilder();
+            if (tanks != null)
+            {
+                for (int i = 0; i < tanks.Count; i++)
+                {
+                    sb.Append(tanks[i].PartPersistentId.ToString(IC)).Append(':')
+                        .Append(tanks[i].Resource ?? "").Append(':')
+                        .Append(tanks[i].Amount.ToString("R", IC)).Append(':')
+                        .Append(tanks[i].MaxAmount.ToString("R", IC)).Append(';');
+                }
+            }
+            ulong hash = 14695981039346656037UL;
+            string text = sb.ToString();
+            for (int i = 0; i < text.Length; i++)
+            {
+                hash ^= text[i];
+                hash *= 1099511628211UL;
+            }
+            return hash.ToString("x16", IC);
         }
 
         // ------------------------------------------------------------------
@@ -328,28 +524,62 @@ namespace Parsek
 
         /// <summary>
         /// The cargo identity of <paramref name="tip"/> when it is the tip of a non-terminated
-        /// ghost chain, else null: every claimed pid ending in it with its expected launch guid
-        /// (<see cref="ChainTipStaleVessel.ExpectedClaimedGuid"/>, the replacement's rule), the
-        /// tip's own pid and guid, and the claimed vessels' parts at their claims
+        /// ghost chain, else null: its snapshot (fingerprint, optimizer chain, the recording ids
+        /// a tag of that snapshot can name), every claimed pid ending in it with its expected
+        /// launch guid (<see cref="ChainTipStaleVessel.ExpectedClaimedGuid"/>, the replacement's
+        /// rule), the tip's own pid and guid, and the claimed vessels' parts at their claims
         /// (<see cref="GhostChainWalker.ResolveClaimedPartIds"/>).
         /// </summary>
         internal static ChainTipCargoIdentity BuildTipIdentity(
-            Recording tip, Dictionary<uint, GhostChain> chains, IList<RecordingTree> trees)
+            Recording rec, Dictionary<uint, GhostChain> chains, IList<RecordingTree> trees)
         {
-            if (tip == null || string.IsNullOrEmpty(tip.RecordingId))
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
                 return null;
-            List<GhostChain> tipChains = ChainTipStaleVessel.FindChainsForTip(chains, tip.RecordingId);
+            RecordingTree recTree = FindTree(trees, rec.TreeId);
+
+            // The walker's tip is the recording its walk reached; an optimizer split leaves the
+            // walk on the first segment and moves the snapshot to the last one, so the tip is
+            // also found through the earlier segments of this recording's chain.
+            List<GhostChain> tipChains = ChainTipStaleVessel.FindChainsForTip(chains, rec.RecordingId);
+            if (tipChains.Count == 0)
+            {
+                List<Recording> earlier = EarlierChainSegments(rec, recTree);
+                for (int i = 0; i < earlier.Count && tipChains.Count == 0; i++)
+                    tipChains = ChainTipStaleVessel.FindChainsForTip(chains, earlier[i].RecordingId);
+            }
             if (tipChains.Count == 0 || tipChains[0].IsTerminated)
                 return null;
+            string walkerTipId = tipChains[0].TipRecordingId;
+
+            // The recording that holds the snapshot: the tip itself, or the last segment of its
+            // chain when a split moved the snapshot there.
+            Recording tip = rec;
+            if (tip.VesselSnapshot == null)
+            {
+                Recording later = LatestChainSegmentWithSnapshot(rec, recTree);
+                if (later != null)
+                    tip = later;
+            }
 
             var id = new ChainTipCargoIdentity
             {
                 TipRecordingId = tip.RecordingId,
                 TipTreeId = !string.IsNullOrEmpty(tipChains[0].TipTreeId) ? tipChains[0].TipTreeId : tip.TreeId,
-                CaptureUT = tip.EndUT
+                CaptureUT = tip.EndUT,
+                Fingerprint = SnapshotFingerprint(tip.VesselSnapshot),
+                ChainId = string.IsNullOrEmpty(tip.ChainId) ? null : tip.ChainId
             };
+            id.AcceptedRecordingIds.Add(tip.RecordingId);
+            RecordingTree tipTree = FindTree(trees, id.TipTreeId);
+            if (tipTree != null && tipTree.Recordings != null)
+            {
+                id.TreeRecordingIds = new HashSet<string>(tipTree.Recordings.Keys, StringComparer.Ordinal);
+                List<Recording> earlier = EarlierChainSegments(tip, tipTree);
+                for (int i = 0; i < earlier.Count; i++)
+                    id.AcceptedRecordingIds.Add(earlier[i].RecordingId);
+            }
 
-            var claimed = new List<uint>(ChainTipStaleVessel.ResolveClaimedPidsForTip(chains, tip.RecordingId, trees));
+            var claimed = new List<uint>(ChainTipStaleVessel.ResolveClaimedPidsForTip(chains, walkerTipId, trees));
             claimed.Sort();
             for (int i = 0; i < claimed.Count; i++)
             {
@@ -394,7 +624,10 @@ namespace Parsek
             return id;
         }
 
-        /// <summary>The cargo identity of every non-terminated chain tip, one per tip recording.</summary>
+        /// <summary>
+        /// The cargo identity of every non-terminated chain tip, one per tip recording. A tip
+        /// whose in-memory snapshot was dropped is re-hydrated from its sidecar first.
+        /// </summary>
         internal static List<ChainTipCargoIdentity> BuildTipIdentities(
             Dictionary<uint, GhostChain> chains, IList<RecordingTree> trees)
         {
@@ -412,11 +645,62 @@ namespace Parsek
                 if (!seen.Add(chain.TipRecordingId))
                     continue;
                 Recording tip = FindRecording(trees, chain.TipTreeId, chain.TipRecordingId);
+                if (tip != null && tip.VesselSnapshot == null)
+                {
+                    try
+                    {
+                        RecordingStore.TryHydrateVesselSnapshotFromSidecar(tip);
+                    }
+                    catch (Exception ex)
+                    {
+                        ParsekLog.Verbose(Tag,
+                            "Tip snapshot re-hydrate threw " + ex.GetType().Name + " for rec="
+                            + tip.RecordingId + " - its retired cargo is not kept");
+                    }
+                }
                 ChainTipCargoIdentity id = BuildTipIdentity(tip, chains, trees);
                 if (id != null)
                     tips.Add(id);
             }
             return tips;
+        }
+
+        /// <summary>The earlier segments of <paramref name="rec"/>'s optimizer chain in its tree (same chain id and branch, lower index).</summary>
+        private static List<Recording> EarlierChainSegments(Recording rec, RecordingTree tree)
+        {
+            var found = new List<Recording>();
+            if (rec == null || tree == null || tree.Recordings == null
+                || string.IsNullOrEmpty(rec.ChainId) || rec.ChainIndex < 0)
+                return found;
+            foreach (Recording r in tree.Recordings.Values)
+            {
+                if (r != null && !ReferenceEquals(r, rec)
+                    && string.Equals(r.ChainId, rec.ChainId, StringComparison.Ordinal)
+                    && r.ChainBranch == rec.ChainBranch
+                    && r.ChainIndex >= 0 && r.ChainIndex < rec.ChainIndex)
+                    found.Add(r);
+            }
+            found.Sort((a, b) => b.ChainIndex.CompareTo(a.ChainIndex));
+            return found;
+        }
+
+        /// <summary>The highest later segment of <paramref name="rec"/>'s optimizer chain that holds a snapshot; null when none.</summary>
+        private static Recording LatestChainSegmentWithSnapshot(Recording rec, RecordingTree tree)
+        {
+            if (rec == null || tree == null || tree.Recordings == null
+                || string.IsNullOrEmpty(rec.ChainId) || rec.ChainIndex < 0)
+                return null;
+            Recording best = null;
+            foreach (Recording r in tree.Recordings.Values)
+            {
+                if (r == null || r.VesselSnapshot == null
+                    || !string.Equals(r.ChainId, rec.ChainId, StringComparison.Ordinal)
+                    || r.ChainBranch != rec.ChainBranch || r.ChainIndex <= rec.ChainIndex)
+                    continue;
+                if (best == null || r.ChainIndex > best.ChainIndex)
+                    best = r;
+            }
+            return best;
         }
 
         private static RecordingTree FindTree(IList<RecordingTree> trees, string treeId)
@@ -491,11 +775,12 @@ namespace Parsek
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// Called by the ledger retire (go-back rewind, in-session load back in time) and the
-        /// Re-Fly restore with the rows they just removed: stashes the cargo rows that a
-        /// committed chain tip snapshot carries, tagged with the tip's tree. The chains are
-        /// walked over the trees committed now, before the rewind's future is replayed. Never
-        /// throws. Returns how many rows were stashed.
+        /// Called by every retire (the ledger retire of the go-back rewind and the in-session
+        /// load reconcile, and the Re-Fly restore) with the rows it just removed, even when it
+        /// removed none: keeps the cargo rows a committed chain tip snapshot carries, tagged with
+        /// that snapshot, then lowers every tip snapshot's watermark to this cutoff. The chains
+        /// are walked over the trees committed now, before the rewind's future is replayed.
+        /// Never throws. Returns how many rows were stashed.
         /// </summary>
         internal static int CaptureRetiredRouteCargo(
             IReadOnlyList<GameAction> retired,
@@ -504,17 +789,21 @@ namespace Parsek
             IEnumerable<Route> dormantRoutes,
             string site)
         {
-            if (retired == null || retired.Count == 0)
-                return 0;
+            string siteLabel = site ?? "?";
             try
             {
+                List<RecordingTree> trees = RecordingStore.CommittedTrees;
+                if (trees == null || trees.Count == 0)
+                    return 0;
+
                 var routes = new Dictionary<string, Route>(StringComparer.Ordinal);
                 AddRoutes(routes, committedRoutes);
                 AddRoutes(routes, dormantRoutes);
 
                 var candidates = new List<RetiredRouteCargoRow>();
+                int retiredCount = retired != null ? retired.Count : 0;
                 int cargoRows = 0, noResource = 0, noRoute = 0;
-                for (int i = 0; i < retired.Count; i++)
+                for (int i = 0; i < retiredCount; i++)
                 {
                     GameAction a = retired[i];
                     if (a == null || !RetiredRouteCargoStore.IsCargoRowType(a.Type))
@@ -533,41 +822,49 @@ namespace Parsek
                     candidates.Add(row);
                 }
 
-                string cutoff = cutoffUT.ToString("R", IC);
-                if (candidates.Count == 0)
+                List<ChainTipCargoIdentity> tips =
+                    BuildTipIdentities(GhostChainWalker.ComputeAllGhostChains(trees, 0.0), trees);
+                List<RetiredRouteCargoRow> tagged = TagForChainTips(candidates, tips,
+                    tip => RetiredRouteCargoStore.WatermarkOf(tag => TagMatchesTip(tag, tip)));
+                int added = RetiredRouteCargoStore.Merge(tagged, out int merged);
+
+                int lowered = 0, noSnapshot = 0;
+                for (int t = 0; t < tips.Count; t++)
                 {
-                    ParsekLog.Verbose(Tag,
-                        "Retired route cargo (" + (site ?? "?") + "): nothing to keep cutoffUT=" + cutoff
-                        + " retiredRows=" + retired.Count.ToString(IC)
-                        + " cargoRows=" + cargoRows.ToString(IC)
-                        + " noResource=" + noResource.ToString(IC));
-                    return 0;
+                    ChainTipCargoIdentity tip = tips[t];
+                    if (string.IsNullOrEmpty(tip.Fingerprint))
+                    {
+                        noSnapshot++;
+                        continue;
+                    }
+                    RetiredRouteCargoStore.LowerWatermark(TagFor(tip), cutoffUT, tag => TagMatchesTip(tag, tip));
+                    lowered++;
                 }
 
-                List<RecordingTree> trees = RecordingStore.CommittedTrees;
-                List<ChainTipCargoIdentity> tips = trees != null && trees.Count > 0
-                    ? BuildTipIdentities(GhostChainWalker.ComputeAllGhostChains(trees, 0.0), trees)
-                    : new List<ChainTipCargoIdentity>();
-                List<RetiredRouteCargoRow> tagged = TagForChainTips(candidates, tips);
-                int added = RetiredRouteCargoStore.Merge(tagged, out int replaced);
-
-                ParsekLog.Info(Tag,
-                    "Retired route cargo kept for chain tips (" + (site ?? "?") + "): cutoffUT=" + cutoff
-                    + " retiredRows=" + retired.Count.ToString(IC)
+                string line = "Retired route cargo kept for chain tips (" + siteLabel + "): cutoffUT="
+                    + cutoffUT.ToString("R", IC)
+                    + " retiredRows=" + retiredCount.ToString(IC)
                     + " cargoRows=" + cargoRows.ToString(IC)
                     + " stashed=" + tagged.Count.ToString(IC)
-                    + " (new=" + added.ToString(IC) + " replaced=" + replaced.ToString(IC) + ")"
-                    + " carriedByNoTip=" + (candidates.Count - tagged.Count).ToString(IC)
+                    + " (new=" + added.ToString(IC) + " merged=" + merged.ToString(IC) + ")"
+                    + " carriedByNoSnapshot=" + (candidates.Count - tagged.Count).ToString(IC)
                     + " noResource=" + noResource.ToString(IC)
                     + " routeNotFound=" + noRoute.ToString(IC)
                     + " chainTips=" + tips.Count.ToString(IC)
-                    + " total=" + RetiredRouteCargoStore.Rows.Count.ToString(IC));
+                    + " watermarksLowered=" + lowered.ToString(IC)
+                    + " tipsWithoutSnapshot=" + noSnapshot.ToString(IC)
+                    + " totalRows=" + RetiredRouteCargoStore.Rows.Count.ToString(IC)
+                    + " totalWatermarks=" + RetiredRouteCargoStore.Watermarks.Count.ToString(IC);
+                if (tagged.Count > 0)
+                    ParsekLog.Info(Tag, line);
+                else
+                    ParsekLog.Verbose(Tag, line);
                 return tagged.Count;
             }
             catch (Exception ex)
             {
                 ParsekLog.Warn(Tag,
-                    "Retired route cargo capture (" + (site ?? "?") + ") threw " + ex.GetType().Name
+                    "Retired route cargo capture (" + siteLabel + ") threw " + ex.GetType().Name
                     + ": " + ex.Message + " - nothing kept, a chain tip spawned later carries the refunded cargo");
                 return 0;
             }
@@ -588,8 +885,8 @@ namespace Parsek
         /// Takes the stashed retired route cargo out of a chain tip's spawn copy. Every site
         /// that turns a recording's stored snapshot into a spawn copy calls it on the copy
         /// (never on the stored snapshot), so each spawn attempt starts again from the
-        /// recorded state. A recording that is not a chain tip, or that no stashed crossing
-        /// names, is left as it is. Never throws.
+        /// recorded state. A recording that is not a chain tip, or whose snapshot no stashed
+        /// crossing names, is left as it is. Never throws.
         /// </summary>
         internal static void ApplyToSpawnCopy(ConfigNode spawnCopy, Recording rec, string site)
         {
@@ -622,7 +919,7 @@ namespace Parsek
                     return;
                 }
 
-                HashSet<string> replayed = CollectReplayedCrossingKeys();
+                List<ReplayedCrossing> replayed = CollectReplayedCrossings();
                 var resourceNodes = new List<ConfigNode>();
                 List<SnapshotTank> tanks = ReadTanks(spawnCopy, resourceNodes);
                 var rows = new List<RetiredRouteCargoRow>(stash);
@@ -637,7 +934,7 @@ namespace Parsek
                     tanksChanged++;
                 }
 
-                string skipped = " skipped(otherTree=" + adj.SkippedOtherTree.ToString(IC)
+                string skipped = " skipped(otherSnapshot=" + adj.SkippedOtherSnapshot.ToString(IC)
                     + " otherVessel=" + adj.SkippedOtherVessel.ToString(IC)
                     + " notAfterCutoff=" + adj.SkippedNotAfterCutoff.ToString(IC)
                     + " afterCapture=" + adj.SkippedAfterCapture.ToString(IC)
@@ -648,8 +945,8 @@ namespace Parsek
                     ParsekLog.Verbose(Tag,
                         "Spawn copy kept as recorded (" + siteLabel + "): chain tip rec=" + tip.TipRecordingId
                         + " tree=" + (tip.TipTreeId ?? "(null)")
-                        + " captureUT=" + tip.CaptureUT.ToString("R", IC)
-                        + " - no retired route crossing in it" + skipped);
+                        + " fingerprint=" + (tip.Fingerprint ?? "(none)")
+                        + " - no retired route crossing in this snapshot" + skipped);
                     return;
                 }
 
@@ -657,7 +954,7 @@ namespace Parsek
                     "Retired route cargo taken out of the chain tip spawn copy (" + siteLabel + "): rec="
                     + tip.TipRecordingId + " vessel=\"" + (rec.VesselName ?? "(null)") + "\""
                     + " tree=" + (tip.TipTreeId ?? "(null)")
-                    + " captureUT=" + tip.CaptureUT.ToString("R", IC)
+                    + " fingerprint=" + (tip.Fingerprint ?? "(none)")
                     + " rows=" + adj.RowsApplied.ToString(IC)
                     + " tanksChanged=" + tanksChanged.ToString(IC)
                     + " ownParts=" + (tip.EndpointPartIds != null ? tip.EndpointPartIds.Count : 0).ToString(IC)
@@ -677,19 +974,25 @@ namespace Parsek
         {
             for (int i = 0; i < stash.Count; i++)
             {
-                if (stash[i] != null && stash[i].TipTreeIds != null && stash[i].TipTreeIds.Contains(treeId))
-                    return true;
+                List<RetiredRouteCargoTipTag> tips = stash[i]?.Tips;
+                if (tips == null)
+                    continue;
+                for (int t = 0; t < tips.Count; t++)
+                {
+                    if (tips[t] != null && string.Equals(tips[t].TreeId, treeId, StringComparison.Ordinal))
+                        return true;
+                }
             }
             return false;
         }
 
         /// <summary>
-        /// The crossing keys of every cargo-moving route row in the effective ledger: crossings
-        /// the current timeline performed (and paid) again.
+        /// Every cargo-moving route row in the effective ledger: crossings the current timeline
+        /// performed (and paid).
         /// </summary>
-        private static HashSet<string> CollectReplayedCrossingKeys()
+        private static List<ReplayedCrossing> CollectReplayedCrossings()
         {
-            var keys = new HashSet<string>(StringComparer.Ordinal);
+            var replayed = new List<ReplayedCrossing>();
             IReadOnlyList<GameAction> els;
             try
             {
@@ -700,19 +1003,25 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     "ComputeELS threw " + ex.GetType().Name + ": " + ex.Message
                     + " - treating no retired crossing as replayed");
-                return keys;
+                return replayed;
             }
             if (els == null)
-                return keys;
+                return replayed;
             for (int i = 0; i < els.Count; i++)
             {
                 GameAction a = els[i];
                 if (a == null || !RetiredRouteCargoStore.IsCargoRowType(a.Type)
                     || !RouteLedgerRetire.IsPhysicalRouteMutation(a))
                     continue;
-                keys.Add(RetiredRouteCargoStore.CrossingKey(a));
+                replayed.Add(new ReplayedCrossing
+                {
+                    RouteId = a.RouteId,
+                    StopIndex = a.RouteStopIndex,
+                    Type = a.Type,
+                    UT = a.UT
+                });
             }
-            return keys;
+            return replayed;
         }
 
         private static string FormatEntries(List<ChainTipCargoEntry> entries)

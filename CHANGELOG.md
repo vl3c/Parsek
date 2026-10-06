@@ -3726,8 +3726,10 @@ _(unreleased - entries accumulate here per commit)_
   of those deliveries, so that cargo existed twice. It now reappears without the cargo of the
   refunded deliveries, and with any cargo the route had taken from it given back, each tank kept
   between empty and full; a delivery the route made again after the rewind was paid again and
-  stays. The recorded mission itself is not changed. Covered by xUnit; not yet checked in a test
-  flight.
+  stays. Only the station as that mission recorded it is corrected: a later recording of it (a
+  flight continued from the corrected station, a Re-fly) carries its own cargo and is left
+  alone, and a second rewind does not take the same delivery out twice. The recorded
+  mission itself is not changed. Covered by xUnit; not yet checked in a test flight.
 
 - **After a quickload, a booster that survives the replayed flight is recorded again.** If you
   quicksaved, flew on (a booster crashed with its crew, a lander touched down) and then

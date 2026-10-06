@@ -436,13 +436,6 @@ namespace Parsek
                     $"RetireFutureRouteActionsAtRewind: removed {retired} free-standing route " +
                     $"action(s) after UT {cutoffUT.ToString("R", CultureInfo.InvariantCulture)}, " +
                     $"total={actions.Count}");
-                // A committed chain tip snapshot still carries the cargo of these crossings;
-                // the route store still holds the pre-rewind routes here (every caller
-                // reconciles it after this retire).
-                ChainTipRouteCargo.CaptureRetiredRouteCargo(
-                    retiredRows, cutoffUT,
-                    Logistics.RouteStore.CommittedRoutes, Logistics.RouteStore.DormantRoutes,
-                    "ledger retire");
             }
             else
             {
@@ -450,6 +443,14 @@ namespace Parsek
                     "RetireFutureRouteActionsAtRewind: no free-standing route actions after UT " +
                     $"{cutoffUT.ToString("R", CultureInfo.InvariantCulture)} (total={actions.Count})");
             }
+            // A committed chain tip snapshot still carries the cargo of these crossings; the
+            // route store still holds the pre-rewind routes here (every caller reconciles it
+            // after this retire). Called with no rows too: the cutoff still lowers every tip
+            // snapshot's watermark, since rows created from now on are not in any of them.
+            ChainTipRouteCargo.CaptureRetiredRouteCargo(
+                retiredRows, cutoffUT,
+                Logistics.RouteStore.CommittedRoutes, Logistics.RouteStore.DormantRoutes,
+                "ledger retire");
             return retired;
         }
 

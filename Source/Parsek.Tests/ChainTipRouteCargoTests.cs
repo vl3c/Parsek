@@ -85,6 +85,8 @@ namespace Parsek.Tests
             return new SnapshotTank { PartPersistentId = part, Resource = res, Amount = amount, MaxAmount = max };
         }
 
+        private const string StationFingerprint = "fp-station";
+
         private static ChainTipCargoIdentity StationTip(bool withParts = true)
         {
             var tip = new ChainTipCargoIdentity
@@ -92,17 +94,39 @@ namespace Parsek.Tests
                 TipRecordingId = "station-tip",
                 TipTreeId = TreeId,
                 CaptureUT = CaptureUT,
+                Fingerprint = StationFingerprint,
                 EndpointPartIds = withParts ? new HashSet<uint> { StationPartA, StationPartB } : null
             };
+            tip.AcceptedRecordingIds.Add("station-tip");
             tip.Vessels.Add(new KeyValuePair<uint, string>(StationPid, StationGuid));
             return tip;
+        }
+
+        private static RetiredRouteCargoTipTag StationTag(
+            string recordingId = "station-tip", string fingerprint = StationFingerprint,
+            string treeId = TreeId, double capture = CaptureUT, string chainId = null)
+        {
+            return new RetiredRouteCargoTipTag
+            {
+                TreeId = treeId,
+                RecordingId = recordingId,
+                ChainId = chainId,
+                CaptureUT = capture,
+                Fingerprint = fingerprint
+            };
+        }
+
+        private static ReplayedCrossing Replay(double ut, string routeId = "route-a",
+            GameActionType type = GameActionType.RouteCargoDelivered, int stop = 0)
+        {
+            return new ReplayedCrossing { RouteId = routeId, StopIndex = stop, Type = type, UT = ut };
         }
 
         private static RetiredRouteCargoRow Row(
             GameActionType type, double ut, string res, double amount,
             string routeId = "route-a", string cycle = null, uint endpointPid = StationPid,
             string endpointGuid = StationGuid, uint actualPid = 0u, double cutoff = CutoffUT,
-            string treeId = TreeId)
+            RetiredRouteCargoTipTag tag = null, bool untagged = false)
         {
             var row = new RetiredRouteCargoRow
             {
@@ -117,15 +141,15 @@ namespace Parsek.Tests
                 ActualVesselPid = actualPid,
                 Resources = new Dictionary<string, double> { { res, amount } }
             };
-            if (treeId != null)
-                row.TipTreeIds.Add(treeId);
+            if (!untagged)
+                row.Tips.Add(tag ?? StationTag());
             return row;
         }
 
         private static ChainTipCargoAdjustment Compute(
             List<SnapshotTank> tanks, params RetiredRouteCargoRow[] rows)
         {
-            return ChainTipRouteCargo.ComputeAdjustment(tanks, rows, StationTip(), new HashSet<string>());
+            return ChainTipRouteCargo.ComputeAdjustment(tanks, rows, StationTip(), new List<ReplayedCrossing>());
         }
 
         #endregion
@@ -271,16 +295,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RowTaggedForAnotherTreesTip_IsUntouched()
+        public void RowTaggedForAnotherSnapshot_IsUntouched()
         {
-            // A crossing retired before this tip's mission was committed is not in its snapshot.
+            // Another tree's tip, a later tip of this tree, and this recording with its snapshot
+            // replaced in place: none is the snapshot that carries the crossing.
             var tanks = new List<SnapshotTank> { Tank(StationPartA, "LiquidFuel", 300, 400) };
 
             ChainTipCargoAdjustment adj = Compute(tanks,
-                Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100, treeId: "tree-other"));
+                Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100,
+                    tag: StationTag(treeId: "tree-other")),
+                Row(GameActionType.RouteCargoDelivered, 1310, "LiquidFuel", 100,
+                    tag: StationTag(recordingId: "station-cont")),
+                Row(GameActionType.RouteCargoDelivered, 1320, "LiquidFuel", 100,
+                    tag: StationTag(fingerprint: "fp-replaced")));
 
             Assert.Equal(300.0, adj.Amounts[0], 6);
-            Assert.Equal(1, adj.SkippedOtherTree);
+            Assert.Equal(3, adj.SkippedOtherSnapshot);
+        }
+
+        [Fact]
+        public void TagMatchesTip_FollowsTheOptimizerChain_NeverAnotherRecording()
+        {
+            ChainTipCargoIdentity tip = StationTip();
+            tip.TipRecordingId = "station-tip-2";
+            tip.ChainId = "chain-1";
+            tip.AcceptedRecordingIds.Clear();
+            tip.AcceptedRecordingIds.Add("station-tip-2");
+            tip.AcceptedRecordingIds.Add("station-tip"); // the split's first half
+            tip.TreeRecordingIds = new HashSet<string> { "station-tip", "station-tip-2", "station-cont" };
+
+            // The split moved the tagged snapshot on to the later half.
+            Assert.True(ChainTipRouteCargo.TagMatchesTip(StationTag(), tip));
+            // A segment of the chain the optimizer merged away.
+            Assert.True(ChainTipRouteCargo.TagMatchesTip(
+                StationTag(recordingId: "merged-away", chainId: "chain-1"), tip));
+            // Another recording of the tree that still exists, even on the same chain id.
+            Assert.False(ChainTipRouteCargo.TagMatchesTip(
+                StationTag(recordingId: "station-cont", chainId: "chain-1"), tip));
+            // The same recording with another snapshot.
+            Assert.False(ChainTipRouteCargo.TagMatchesTip(StationTag(fingerprint: "fp-other"), tip));
+            // Another tree.
+            Assert.False(ChainTipRouteCargo.TagMatchesTip(StationTag(treeId: "tree-other"), tip));
         }
 
         [Fact]
@@ -290,9 +345,67 @@ namespace Parsek.Tests
             RetiredRouteCargoRow row = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100);
 
             ChainTipCargoAdjustment adj = ChainTipRouteCargo.ComputeAdjustment(
-                tanks, new[] { row }, StationTip(), new HashSet<string> { row.CrossingKey });
+                tanks, new[] { row }, StationTip(), new[] { Replay(1300) });
 
             Assert.Equal(300.0, adj.Amounts[0], 6);
+            Assert.Equal(1, adj.SkippedReplayed);
+        }
+
+        [Fact]
+        public void ReplayUnderAnotherCycleIdAndUT_StandsForTheNearestCrossingOnly()
+        {
+            // Two carried crossings; the replay (another cycle id, a tick later) pays for the
+            // one at 1300, so only the 1400 crossing comes out.
+            var tanks = new List<SnapshotTank> { Tank(StationPartA, "LiquidFuel", 300, 400) };
+
+            ChainTipCargoAdjustment adj = ChainTipRouteCargo.ComputeAdjustment(tanks,
+                new[]
+                {
+                    Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100, cycle: "cycle-3"),
+                    Row(GameActionType.RouteCargoDelivered, 1400, "LiquidFuel", 60, cycle: "cycle-4")
+                },
+                StationTip(), new[] { Replay(1300.7) });
+
+            Assert.Equal(240.0, adj.Amounts[0], 6);
+            Assert.Equal(1, adj.SkippedReplayed);
+            Assert.Equal(60.0, Assert.Single(adj.Entries).Removed, 6);
+        }
+
+        [Fact]
+        public void ReplayOfAnotherRouteStopTypeOrOutsideTheWindow_StandsForNothing()
+        {
+            var tanks = new List<SnapshotTank> { Tank(StationPartA, "LiquidFuel", 300, 400) };
+
+            ChainTipCargoAdjustment adj = ChainTipRouteCargo.ComputeAdjustment(tanks,
+                new[] { Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100) },
+                StationTip(),
+                new[]
+                {
+                    Replay(1300, routeId: "route-b"),
+                    Replay(1300, stop: 1),
+                    Replay(1300, type: GameActionType.RouteCargoPickedUp),
+                    Replay(1100),          // at or before the cutoff: kept history
+                    Replay(1800)           // after the snapshot capture
+                });
+
+            Assert.Equal(200.0, adj.Amounts[0], 6);
+            Assert.Equal(0, adj.SkippedReplayed);
+        }
+
+        [Fact]
+        public void OneReplay_PaysForOneCrossing()
+        {
+            var tanks = new List<SnapshotTank> { Tank(StationPartA, "LiquidFuel", 300, 400) };
+
+            ChainTipCargoAdjustment adj = ChainTipRouteCargo.ComputeAdjustment(tanks,
+                new[]
+                {
+                    Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100, cycle: "cycle-3"),
+                    Row(GameActionType.RouteCargoDelivered, 1301, "LiquidFuel", 100, cycle: "cycle-4")
+                },
+                StationTip(), new[] { Replay(1300.5) });
+
+            Assert.Equal(200.0, adj.Amounts[0], 6);
             Assert.Equal(1, adj.SkippedReplayed);
         }
 
@@ -329,19 +442,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TagForChainTips_KeepsOnlyRowsATipCarries()
+        public void TagForChainTips_KeepsOnlyRowsATipSnapshotCarries()
         {
-            var inWindow = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100, treeId: null);
-            var afterCapture = Row(GameActionType.RouteCargoDelivered, 1800, "LiquidFuel", 100, treeId: null);
+            var inWindow = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100, untagged: true);
+            var afterCapture = Row(GameActionType.RouteCargoDelivered, 1800, "LiquidFuel", 100, untagged: true);
             var otherVessel = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100,
-                routeId: "route-b", endpointPid: 999u, endpointGuid: OtherGuid, treeId: null);
+                routeId: "route-b", endpointPid: 999u, endpointGuid: OtherGuid, untagged: true);
 
             List<RetiredRouteCargoRow> kept = ChainTipRouteCargo.TagForChainTips(
-                new[] { inWindow, afterCapture, otherVessel }, new[] { StationTip() });
+                new[] { inWindow, afterCapture, otherVessel }, new[] { StationTip() }, null);
 
             RetiredRouteCargoRow only = Assert.Single(kept);
             Assert.Same(inWindow, only);
-            Assert.Equal(new List<string> { TreeId }, only.TipTreeIds);
+            RetiredRouteCargoTipTag tag = Assert.Single(only.Tips);
+            Assert.Equal("station-tip", tag.RecordingId);
+            Assert.Equal(StationFingerprint, tag.Fingerprint);
+            Assert.Equal(CaptureUT, tag.CaptureUT);
+        }
+
+        [Fact]
+        public void TagForChainTips_RowAboveTheSnapshotsWatermark_IsNotTagged()
+        {
+            // A row created after an earlier retire at 1250 belongs to a timeline that branched
+            // after the snapshot was captured, so the snapshot cannot hold it.
+            var below = Row(GameActionType.RouteCargoDelivered, 1240, "LiquidFuel", 100, cutoff: 1210, untagged: true);
+            var above = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100, cutoff: 1210, untagged: true);
+
+            List<RetiredRouteCargoRow> kept = ChainTipRouteCargo.TagForChainTips(
+                new[] { below, above }, new[] { StationTip() }, _ => 1250.0);
+
+            Assert.Same(below, Assert.Single(kept));
         }
 
         #endregion
@@ -362,24 +492,37 @@ namespace Parsek.Tests
             };
         }
 
+        private static GameAction DispatchedAction(string routeId, string cycleId, double ut)
+        {
+            return new GameAction
+            {
+                Type = GameActionType.RouteDispatched,
+                UT = ut,
+                RouteId = routeId,
+                RouteCycleId = cycleId,
+                RouteStopIndex = 0,
+                Sequence = 0
+            };
+        }
+
         [Fact]
-        public void Merge_SameCrossingRetiredAgain_ReplacesTheEntry()
+        public void Merge_SameRowAgain_FoldsItsTags_AnotherRowOfTheCycleStaysApart()
         {
             RetiredRouteCargoRow first = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100, cycle: "cycle-3");
-            RetiredRouteCargoRow again = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 90,
-                cycle: "cycle-3", treeId: "tree-later");
-            RetiredRouteCargoRow other = Row(GameActionType.RouteCargoDelivered, 1400, "LiquidFuel", 100, cycle: "cycle-4");
+            RetiredRouteCargoRow again = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100,
+                cycle: "cycle-3", tag: StationTag(recordingId: "station-cont", fingerprint: "fp-cont"));
+            // Same cycle id, another crossing (cycle ids are rebuilt at every rewind).
+            RetiredRouteCargoRow sameIdOtherCrossing = Row(GameActionType.RouteCargoDelivered, 1400, "LiquidFuel", 100,
+                cycle: "cycle-3");
 
-            Assert.Equal(1, RetiredRouteCargoStore.Merge(new[] { first }, out int replaced0));
-            Assert.Equal(0, replaced0);
-            Assert.Equal(1, RetiredRouteCargoStore.Merge(new[] { again, other }, out int replaced1));
-            Assert.Equal(1, replaced1);
+            Assert.Equal(1, RetiredRouteCargoStore.Merge(new[] { first }, out int merged0));
+            Assert.Equal(0, merged0);
+            Assert.Equal(1, RetiredRouteCargoStore.Merge(new[] { again, sameIdOtherCrossing }, out int merged1));
+            Assert.Equal(1, merged1);
 
             Assert.Equal(2, RetiredRouteCargoStore.Rows.Count);
-            RetiredRouteCargoRow merged = RetiredRouteCargoStore.Rows.Single(r => r.CycleId == "cycle-3");
-            Assert.Equal(90.0, merged.Resources["LiquidFuel"], 6);
-            // The first entry's tree still carries the crossing in its snapshot.
-            Assert.Equal(new[] { "tree-later", TreeId }, merged.TipTreeIds.ToArray());
+            RetiredRouteCargoRow folded = RetiredRouteCargoStore.Rows.Single(r => r.UT == 1300.0);
+            Assert.Equal(new[] { "station-tip", "station-cont" }, folded.Tips.Select(t => t.RecordingId).ToArray());
         }
 
         [Fact]
@@ -419,6 +562,7 @@ namespace Parsek.Tests
             RetiredRouteCargoRow row = Row(GameActionType.RouteCargoPickedUp, 1300.25, "Ore", 12.5,
                 cycle: "cycle-7", actualPid: StationPid);
             RetiredRouteCargoStore.Merge(new[] { row }, out _);
+            RetiredRouteCargoStore.LowerWatermark(StationTag(chainId: "chain-9"), 1250.5, null);
             Assert.True(Ledger.SaveToFile(path));
 
             RetiredRouteCargoStore.ResetForTesting();
@@ -435,7 +579,14 @@ namespace Parsek.Tests
             Assert.Equal(StationGuid, back.EndpointGuid);
             Assert.Equal(StationPid, back.ActualVesselPid);
             Assert.Equal(12.5, back.Resources["Ore"]);
-            Assert.Equal(new List<string> { TreeId }, back.TipTreeIds);
+            RetiredRouteCargoTipTag tag = Assert.Single(back.Tips);
+            Assert.Equal(TreeId, tag.TreeId);
+            Assert.Equal("station-tip", tag.RecordingId);
+            Assert.Equal(StationFingerprint, tag.Fingerprint);
+            Assert.Equal(CaptureUT, tag.CaptureUT);
+            RetiredRouteCargoWatermark mark = Assert.Single(RetiredRouteCargoStore.Watermarks);
+            Assert.Equal(1250.5, mark.LowestCutoffUT);
+            Assert.Equal("chain-9", mark.Snapshot.ChainId);
         }
 
         [Fact]
@@ -604,7 +755,12 @@ namespace Parsek.Tests
             Assert.Equal(1300.0, row.UT);
             Assert.Equal(CutoffUT, row.CutoffUT);
             Assert.Equal(StationPid, row.EndpointPid);
-            Assert.Equal(new List<string> { TreeId }, row.TipTreeIds);
+            RetiredRouteCargoTipTag tag = Assert.Single(row.Tips);
+            Assert.Equal(TreeId, tag.TreeId);
+            Assert.Equal("station-tip", tag.RecordingId);
+            Assert.Equal(CaptureUT, tag.CaptureUT);
+            Assert.Equal(ChainTipRouteCargo.SnapshotFingerprint(
+                RecordingStore.CommittedTrees[0].Recordings["station-tip"].VesselSnapshot), tag.Fingerprint);
             Assert.Equal(100.0, row.Resources["LiquidFuel"], 6);
         }
 
@@ -689,6 +845,176 @@ namespace Parsek.Tests
                 && l.Contains("route-a")
                 && l.Contains("LiquidFuel")
                 && l.Contains("removed=100"));
+        }
+
+        /// <summary>
+        /// Attaches a switch continuation under the station tip: the station, spawned with the
+        /// cargo already taken out (A = 200), was flown on to UT 2000 and committed. It is the
+        /// chain's new tip, in the same tree, with its own snapshot.
+        /// </summary>
+        private static Recording AttachSwitchContinuation(Recording stationTip)
+        {
+            RecordingTree tree = RecordingStore.CommittedTrees[0];
+            var cont = MakeRecording("station-cont", StationPid, StationGuid, CaptureUT, 2000,
+                TerminalState.Orbiting, "bp-switch", null, "Station",
+                (StationPartA, 200, 400), (StationPartB, 50, 100));
+            stationTip.ChildBranchPointId = "bp-switch";
+            stationTip.TerminalStateValue = null;
+            tree.AddOrReplaceRecording(cont);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-switch",
+                Type = BranchPointType.VesselSwitchContinuation,
+                UT = CaptureUT,
+                ParentRecordingIds = new List<string> { stationTip.RecordingId },
+                ChildRecordingIds = new List<string> { cont.RecordingId }
+            });
+            return cont;
+        }
+
+        [Fact]
+        public void LaterTipInTheSameTree_SwitchContinuation_GetsNoneOfTheEarlierTipsCargo()
+        {
+            InstallKerbin();
+            Recording tip = CommitDockUndockTree();
+            SeedRouteHistory();
+            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            ConfigNode first = VesselSpawner.BuildValidatedRespawnSnapshot(tip, 1750.0, "tip-spawn");
+            Assert.Equal(200.0, LiquidFuelOf(first, StationPartA), 6);
+
+            Recording cont = AttachSwitchContinuation(tip);
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(cont, 2050.0, "continuation-spawn");
+
+            Assert.NotNull(copy);
+            Assert.Equal(200.0, LiquidFuelOf(copy, StationPartA), 6);
+        }
+
+        [Fact]
+        public void LaterTipInTheSameTree_ReFlyProvisional_GetsNoneOfTheEarlierTipsCargo()
+        {
+            // A Re-Fly fork of the station half replaces it as the tip, in the same tree, with
+            // a snapshot copied from the origin (the inherited copy a fork starts from).
+            InstallKerbin();
+            Recording tip = CommitDockUndockTree();
+            SeedRouteHistory();
+            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+
+            RecordingTree tree = RecordingStore.CommittedTrees[0];
+            var fork = MakeRecording("rec_refly", StationPid, StationGuid, 1600, 1720,
+                TerminalState.Orbiting, "bp-undock", null, "Station");
+            fork.VesselSnapshot = tip.VesselSnapshot.CreateCopy();
+            tree.Recordings.Remove(tip.RecordingId);
+            tree.AddOrReplaceRecording(fork);
+            BranchPoint undock = tree.BranchPoints.Single(b => b.Id == "bp-undock");
+            undock.ChildRecordingIds[undock.ChildRecordingIds.IndexOf(tip.RecordingId)] = fork.RecordingId;
+
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(fork, 1750.0, "refly-spawn");
+
+            Assert.NotNull(copy);
+            Assert.Equal(300.0, LiquidFuelOf(copy, StationPartA), 6);
+        }
+
+        [Fact]
+        public void ReplayPaidUnderAnotherCycleId_AfterTheCounterRebuild_IsLeftInTheCopy()
+        {
+            // Cycles 0 and 1 fire, cycle 2 is blocked (no dispatch row), cycle-3 delivers at
+            // 1300; the go-back rewind to 1200 rebuilds the counters from the kept dispatches
+            // (max ordinal 1, so 2), and the station standing live at the Space Center takes
+            // the 1300 crossing again, paid as cycle-2.
+            InstallKerbin();
+            Recording tip = CommitDockUndockTree();
+            Route route = StationRoute("route-a");
+            RouteStore.AddRoute(route);
+            Ledger.AddAction(DispatchedAction("route-a", "cycle-0", 1000));
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-0", 1000, "LiquidFuel", 100));
+            Ledger.AddAction(DispatchedAction("route-a", "cycle-1", 1100));
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1100, "LiquidFuel", 100));
+            Ledger.AddAction(DispatchedAction("route-a", "cycle-3", 1300));
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-3", 1300, "LiquidFuel", 100));
+
+            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out List<GameAction> kept);
+            RouteRewindClassifier.ReconcileStoreAtRewind(
+                new List<Route>(RouteStore.CommittedRoutes), new List<Route>(RouteStore.DormantRoutes),
+                CutoffUT, kept, logTag: "Rewind", logPrefix: "test go-back");
+            Route reconciled = RouteStore.CommittedRoutes.Single(r => r.Id == "route-a");
+            string replayCycle = "cycle-" + (reconciled.CompletedCycles + reconciled.SkippedCycles)
+                .ToString(CultureInfo.InvariantCulture);
+            Assert.Equal("cycle-2", replayCycle);
+            Ledger.AddAction(DispatchedAction("route-a", replayCycle, 1300.6));
+            Ledger.AddAction(DeliveredAction("route-a", replayCycle, 1300.6, "LiquidFuel", 100));
+
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(tip, 1750.0, "ksc-end-spawn");
+
+            Assert.NotNull(copy);
+            Assert.Equal(300.0, LiquidFuelOf(copy, StationPartA), 6);
+        }
+
+        [Fact]
+        public void SecondRewind_ReplayFromTheLaterTimeline_IsNotTakenOutTwice()
+        {
+            // Timeline 2 took the 1300 crossing again into the live pre-claim station (paid as
+            // another cycle); a second rewind to 1250 retires that replay. The tip snapshot
+            // carries the crossing once, so it is taken out once.
+            InstallKerbin();
+            Recording tip = CommitDockUndockTree();
+            SeedRouteHistory();
+            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-7", 1300.4, "LiquidFuel", 100));
+
+            Ledger.RetireFutureRouteActionsAtRewind(1250.0, out _);
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(tip, 1750.0, "second-rewind");
+
+            Assert.NotNull(copy);
+            Assert.Equal(200.0, LiquidFuelOf(copy, StationPartA), 6);
+        }
+
+        [Fact]
+        public void OptimizerSplitAfterTheRetire_TheHalfThatGotTheSnapshotIsStillAdjusted()
+        {
+            // The optimizer splits the station tip after the rewind: the first half keeps the
+            // id the rows were tagged with, the second half takes the snapshot under a new id.
+            InstallKerbin();
+            Recording tip = CommitDockUndockTree();
+            SeedRouteHistory();
+            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+
+            RecordingTree tree = RecordingStore.CommittedTrees[0];
+            var tail = MakeRecording("station-tip-2", StationPid, StationGuid, 1650, CaptureUT,
+                TerminalState.Orbiting, null, null, "Station");
+            tail.VesselSnapshot = tip.VesselSnapshot;
+            tip.VesselSnapshot = null;
+            tip.ExplicitEndUT = 1650;
+            tip.Points[tip.Points.Count - 1] = new TrajectoryPoint { ut = 1650, bodyName = "Kerbin", altitude = 100000 };
+            tip.TerminalStateValue = null;
+            tip.ChainId = "chain-station";
+            tip.ChainIndex = 0;
+            tail.ChainId = "chain-station";
+            tail.ChainIndex = 1;
+            tree.AddOrReplaceRecording(tail);
+
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(tail, 1750.0, "split-tail");
+
+            Assert.NotNull(copy);
+            Assert.Equal(200.0, LiquidFuelOf(copy, StationPartA), 6);
+        }
+
+        [Fact]
+        public void SnapshotReplacedInPlace_SameRecordingId_GetsNone()
+        {
+            InstallKerbin();
+            Recording tip = CommitDockUndockTree();
+            SeedRouteHistory();
+            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            foreach (ConfigNode part in tip.VesselSnapshot.GetNodes("PART"))
+            {
+                if (part.GetValue("persistentId") == StationPartA.ToString(CultureInfo.InvariantCulture))
+                    part.GetNode("RESOURCE").SetValue("amount", "250");
+            }
+
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(tip, 1750.0, "replaced-in-place");
+
+            Assert.NotNull(copy);
+            Assert.Equal(250.0, LiquidFuelOf(copy, StationPartA), 6);
         }
 
         [Fact]
