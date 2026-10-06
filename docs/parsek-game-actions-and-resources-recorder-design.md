@@ -4,9 +4,9 @@
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how the game's resource state (everything except vessel trajectories) is tracked, reconciled, and kept consistent across rewinds.*
 
-**Version:** 0.6 (Phases 1-8 complete)
+**Version:** current to Parsek 0.10.5. The ledger engine (Phases 1-8) was completed in 0.6; later releases added the items listed under Status, the stock-screen reservation layer (section 14) and the pre-Parsek save backup (section 4.6).
 **Status:** All phases implemented and tested (4700+ tests). Full ledger-based recalculation engine with 9 resource modules (Science, Funds, Reputation, Milestones, Contracts, Facilities, Strategies, Kerbals, Routes). KSP state patching for all resource types including contract restoration from ConfigNode snapshots and milestone reversal via reflection. Kerbal lifecycle management with reservation chains, stand-in generation, and retirement is fully integrated into the engine walk via IResourceModule (T42 complete): KerbalsModule is a registered first-tier module that consumes KerbalAssignment in ProcessAction and builds the replacement chains + retired set in PostWalk. Shipped since the earlier draft: contract deadline-expiry penalties (ContractsModule injects a synthetic ContractFail with funds + reputation penalties at the deadline UT), contract-completion science crediting (ScienceModule credits TransformedScienceReward), the second-tier RouteModule (logistics/supply routes, milestones M1-M6), rescue detection, warp facility-visual patching, and MIA respawn override. Verification tooling is shipped: the ledger ground-truth harness (CareerSaveParser / LedgerGroundTruthDiff / in-game LedgerGroundTruthHarness) diffs recalc output against the on-disk save, and the event-driven LedgerTrace tracer instruments the apply boundary. The re-fly work binds ledger state to recording lifecycle via EffectiveState ERS/ELS routing, RecordingSupersedeRelation rows, and recording-scoped LedgerTombstones.
-**Out of scope:** Vessel recording system, DAG structure, ghost rendering, distance zones. See `parsek-recording-system-design.md` for those.
+**Out of scope:** Vessel recording system, DAG structure, ghost rendering, distance zones. See `parsek-flight-recorder-design.md` (recording, recording trees / DAG, playback, distance zones) and `parsek-ghost-trajectory-rendering-design.md` (ghost rendering) for those.
 
 ---
 
@@ -44,7 +44,7 @@ Resources committed to future recordings are **reserved**. If you rewound to bef
 | Kerbal used in a committed recording | Reserved from the start of time until recovery. A free stand-in fills their roster slot. Original returns when their recording resolves. |
 | Tech node unlocked at KSC | Science cost is reserved against the future science cashflow. Can't unlock if the projected science balance would dip negative. |
 | Facility upgraded at KSC | Fund cost reserved. Building visuals update during fast-forward. |
-| Contract accepted | Slot reserved from start of time. Can't over-accept after rewind. |
+| Contract accepted | Active from its accept UT. After a rewind, Mission Control refuses an accept that would leave a later committed accept without a slot (section 10.2). |
 | KSP load (hard reset) | Everything resets to the loaded save. Ledger is pruned to match. This is the only destructive operation. |
 
 ### 1.4 The three layers of paradox prevention
@@ -55,7 +55,7 @@ Parsek prevents time-travel paradoxes through three complementary layers, all wo
 
 **Layer 2: Spending reservation.** Committed spendings — past, present, and future — are reserved against the resource cashflow. New spendings (vessel builds, tech nodes, facility upgrades, kerbal hires) are blocked if they would create a deficit at any point on the timeline. Applies to science and funds.
 
-**Layer 3: UT=0 reservation.** Identity and slot resources are locked from the start of time. Kerbals used in any recording are reserved as a continuous block — no gaps, no reuse until all recordings resolve. Contracts consume their slots from the start until resolved; strategies are checked against the committed timeline at the Administration building instead (section 13.3). This prevents duplicate kerbals, slot overflow, and resource diversion conflicts.
+**Layer 3: UT=0 reservation and stock-control blocks.** Kerbal identity is locked from the start of time. Kerbals used in any recording are reserved as a continuous block - no gaps, no reuse until all recordings resolve. Contract and strategy slots are not reserved from UT=0: Mission Control and the Administration building refuse an accept or activation that would leave a committed one without a slot (sections 10.2, 13.3, 14). This prevents duplicate kerbals, slot overflow, and resource diversion conflicts.
 
 The player never sees a broken state. If something goes truly wrong, KSP load (the hard reset) is always available.
 
@@ -149,7 +149,7 @@ These principles govern every design decision in the game actions system. They a
 
 6. **Spending reservation locks resources globally.** Committed spendings (past and future) are reserved against projected cashflow. The player can only add new spendings if the projected minimum balance covers them.
 
-7. **Identity reservation locks from UT=0.** Kerbals and contract slots are reserved from the start of time as continuous blocks. No gaps, no reuse until resolved. Strategy slots are checked against the committed timeline instead (section 13.3).
+7. **Identity reservation locks from UT=0.** Kerbals are reserved from the start of time as continuous blocks. No gaps, no reuse until resolved. Contract and strategy slots are checked against the committed timeline at the stock control instead (sections 10.2, 13.3).
 
 8. **Conservative over precise.** Where Parsek's model diverges from KSP's exact mechanics (e.g., hard cap vs diminishing returns curve for science), it errs on the side that prevents overcredit.
 
@@ -339,7 +339,7 @@ Parsek prevents time-travel paradoxes through three complementary design layers:
 
 **Layer 2: Spending reservation.** Committed spendings — past, present, and future — are reserved against projected cashflow. The player can only add new spendings (vessel builds, tech nodes, facility upgrades, kerbal hires) if the projected balance never dips negative. This prevents the player from creating new deficits after rewinding to an earlier UT. Applies to science and funds.
 
-**Layer 3: UT=0 reservation.** Identity and slot resources are locked from the start of time when committed anywhere on the timeline. Kerbals used in a recording are reserved from UT=0 as a continuous block — no gaps, no reuse until all recordings resolve. Contracts consume their slots from UT=0 until resolved. Strategies are NOT reserved from UT=0: the Administration building refuses an activation the committed timeline makes later, an activation that leaves no slot for a committed activation, and a player deactivation while a committed row for that strategy is still ahead (section 13.3). This prevents duplicate kerbals, slot overflow, and resource diversion conflicts that could cascade into downstream paradoxes.
+**Layer 3: UT=0 reservation and stock-control blocks.** Kerbal identity is locked from the start of time when committed anywhere on the timeline. Kerbals used in a recording are reserved from UT=0 as a continuous block - no gaps, no reuse until all recordings resolve. Contract slots are NOT reserved from UT=0: Mission Control refuses an accept that would leave a committed future accept without a slot (section 10.2). Strategies are NOT reserved from UT=0 either: the Administration building refuses an activation the committed timeline makes later, an activation that leaves no slot for a committed activation, and a player deactivation while a committed row for that strategy is still ahead (section 13.3). This prevents duplicate kerbals, slot overflow, and resource diversion conflicts that could cascade into downstream paradoxes.
 
 **Core philosophy: conservative by design.** Every restriction exists to prevent a specific paradox. The tradeoff is reduced gameplay flexibility — kerbals can't be reused freely across rewinds, a strategy can't be activated earlier or cancelled before its committed timeline changes it, available funds may show zero at early UTs because the budget is fully committed to future events. But the player never sees a broken timeline, never encounters an unresolvable deficit, and never needs to manually fix inconsistencies. If a situation becomes truly stuck, KSP load (the hard reset) is always available as the escape hatch.
 
@@ -443,6 +443,15 @@ Some resources start at non-zero values when a career save is created. The ledge
 All three core resources are seeded: **funds** (career starting funds vary by difficulty), **science**, and **reputation**. While science and reputation typically start at 0 in stock difficulty presets, seeding them is necessary to handle mid-career Parsek installation — without seeding, installing Parsek on an existing career save would wipe the player's accumulated science and reputation balances to 0 during recalculation.
 
 The seeds are written to the ledger file once when Parsek first initializes on a career save. They are immutable. Action types: `FundsInitial`, `ScienceInitial`, `ReputationInitial`.
+
+### 4.6 Pre-Parsek save backup
+
+Parsek rewrites `persistent.sfs` (patched funds, science, reputation, crew, tech, contracts, facilities, plus its own `ParsekScenario` node), so the first time it opens an existing save it keeps a copy of that save as it was before Parsek touched it (`PreParsekBackup.cs`). The backup is unconditional; its old setting was removed.
+
+- **When.** On the first cold `ParsekScenario.OnLoad` of a save (the `!initialLoadDone` path), before Parsek's first read or recalculation and before any Parsek write, so the copied `persistent.sfs` carries no Parsek gameplay state. It is skipped when the save already has a Parsek footprint (a `Parsek/` folder or a populated `ParsekScenario` node), when the advisory done-marker `Parsek/pre-parsek-backup.txt` exists, when the save is itself a backup (sentinel file `parsek_backup_source.txt` or the `(pre-Parsek` name fragment), when it has no on-disk `persistent.sfs`, and when it parses as a brand-new empty career (no vessels, science, milestones or active contracts; an unparseable save is backed up).
+- **What.** `persistent.sfs`, `persistent.loadmeta` and the `Ships/` and `Subassemblies/` craft folders, plus the sentinel. Quicksaves, `Parsek/` and KSP's own backups are not copied.
+- **Where.** A sibling save folder `saves/<Name> (pre-Parsek <yyyy-MM-dd_HHmm>)/`, which KSP lists in its Load menu as an ordinary resumable save. The copy is staged in a `.parsek-backup-staging-<guid>` folder inside the source save (not under `Parsek/`, so a failed copy leaves no false footprint) and published with one directory move; orphaned staging folders are swept on the next cold load.
+- **Fail-open, fail-loud.** A failure never stops the load. It logs an Error, shows a one-shot screen message asking the player to back the save up by hand, deletes the staging folder and writes no marker, so the next cold load retries. A success writes the marker and shows a screen message naming the backup. After publishing, the published folder is re-read and the capture line reports whether it is gameplay-pristine (an Error if not, a Warn if it could not be checked; the folder is kept either way).
 
 ---
 
@@ -1319,32 +1328,41 @@ Each transition has resource effects:
 
 Contracts are offered by KSP procedurally based on progress, reputation level, and randomness. Mission Control has a limited number of active contract slots (determined by building level). Each contract has a unique ID assigned by KSP.
 
-### 8.2 Contract reservation — UT=0 to resolution
+### 8.2 Contract slot reservation - the committed-future slot forecast
 
-Contracts follow the same reservation pattern as kerbals: once accepted anywhere on the timeline, a contract is reserved from UT=0 until it resolves (completed, failed, or cancelled). This means:
+**Correction (0.10.5, stock-UI overlay program).** An earlier draft reserved an accepted contract's Mission Control slot from UT=0 and showed the contract as accepted at every UT. That is not the shipped rule. Stock's contract state follows the clock: whenever committed rows lie after now, the recalculations that patch KSP state walk with a current-UT cutoff (a rewind passes the rewind UT to `LedgerOrchestrator.RecalculateAndPatch(utCutoff)`; a KSP load, a commit, a time jump and a live KSC event go through `RecalculateAndPatchForCurrentTimelineUT` or its `...IfFutureActions` / `ForLiveTimelineEvent` wrappers). The cutoff walk sees only rows at or before now, and `KspStatePatcher.PatchContracts` restores exactly the contracts `ContractsModule.GetActiveContractIds` holds after that walk. A contract is therefore Active in Mission Control from its accept UT to its resolution or deadline, and a contract the committed timeline accepts later is still an offer (or absent) before that date.
 
-- A contract accepted at UT=1000 consumes a Mission Control slot from UT=0.
-- At any rewind point before UT=1000, the slot is still consumed.
-- The contract shows as "accepted" in Mission Control at all UTs, even before its accept UT.
-- The slot is freed when the contract resolves.
-- An unresolved contract (no completion, failure, or cancellation on the timeline) reserves the slot indefinitely.
+The committed slots are protected at the stock control instead, by a forecast over the committed future (`ContractSlotReservation`, block C2 of `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md`). It reads the contracts Active in stock now and the committed rows of the committed-future index (section 14), so a live, pending or Re-Fly tree reserves nothing:
 
-```
-ContractReservation (derived, per contract)
-  contractId:     string
-  reservedFrom:   0 (always — invariant)
-  reservedUntil:  resolution UT (complete/fail/cancel), or INDEFINITE if unresolved
-```
-
-**Slot availability at any UT:**
+- Every contract Active now (counted as stock counts them: Active and not auto-accepted) holds its slot until the earlier of its first committed complete / fail / cancel row after now and its deadline, or throughout when it has neither.
+- Every committed `ContractAccept` ahead adds its contract at its UT, until the earlier of its first committed resolution and its accepted deadline. A stock auto-accept contract is not counted (stock's `GetActiveContractCount` skips it).
+- A deadline frees the slot AT the deadline UT, the rule `ContractsModule.CheckDeadlines` uses (section 10.6). On a UT tie, removals come first, then a committed Mission Control upgrade (which raises the limit to stock's limit for the new level), then accepts.
 
 ```
-activeContracts = count of contracts that are reserved and unresolved at current UT,
-                  OR resolved but resolution UT is after current UT
-availableSlots(ut) = maxSlots (from Mission Control level) - activeContracts
+ContractSlotForecast (derived per query; ContractSlotReservation.Forecast)
+  LimitNow:                 stock slot limit at the current Mission Control level
+  ActiveNow:                contracts Active in stock now (auto-accept excluded)
+  PeakCommitted:            most contracts active at once from now to the end of
+                            the committed timeline, with no new accept
+  FreeSlotsForNewAcceptNow: min over now and each committed accept ahead of
+                            (limit at that UT - committed count at that UT)
+  FirstStarvedAccept:       earliest committed accept a contract accepted now
+                            would leave without a slot, or null
+
+BlocksNewAccept(releaseUT) = ActiveNow < LimitNow
+                             AND FirstStarvedAccept != null
+                             AND FirstStarvedAccept.UT < releaseUT
 ```
 
-This prevents the player from over-accepting contracts after a rewind. Future-accepted contracts hold their slots.
+A new contract holds its slot until its own deadline (`NewAcceptReleaseUT`, following stock's `Contract.Accept` deadline rules), so it is refused only when a committed accept before that release would be starved. When no slot is free now, stock's own rule already refuses the accept and Parsek adds nothing.
+
+What Mission Control does with this (the screen side is section 14):
+
+- **Accept of any other offer** is greyed and refused while `BlocksNewAccept` holds, with the reason `Slot needed from <date> for '<contract>' (<agent>), blocked by timeline.` Decline stays available.
+- **An offer the committed timeline accepts later** has Accept and Decline greyed and refused, and its row reads e.g. `- Accepted on Y1, D03`. Accepting it early would accept it twice; declining it changes nothing (it becomes Active on the committed date anyway) but could cost reputation.
+- **An Active contract the committed timeline completes, fails or cancels later** has Cancel greyed and refused, and its row reads e.g. `- Completed on Y2, D114`. A contract whose only future is its deadline stays cancellable.
+
+The same forecast ends the Timeline's Contracts button hover in Career mode (`CareerSlotSummary`, e.g. `Contract slots: 4 of 7 free now (2 active, 1 reserved for later).`), which replaced the removed Career window.
 
 ### 8.3 Once-ever completion (like milestones)
 
@@ -1460,7 +1478,7 @@ All of these participate in the funds reservation system (section 7.6). The adva
 
 On warp exit / rewind, Parsek patches KSP's `ContractSystem` to match the ledger's contract state at the current UT:
 
-- **Accepted contracts**: patched into KSP as active, regardless of whether their accept UT has been reached. They are reserved from UT=0.
+- **Accepted contracts**: patched into KSP as active when the walk has them active, i.e. accepted at or before the walk's cutoff and not yet resolved or expired. A contract the committed timeline accepts later is not active before its accept UT; its slot is held at the stock control by the forecast in section 10.2.
 - **Completed contracts**: patched as completed. KSP won't re-offer them.
 - **Failed contracts**: patched as failed.
 - **Cancelled contracts**: patched as cancelled.
@@ -1507,15 +1525,21 @@ Contract B: accepted UT=200, pending (no resolution).
 Contract C: accepted UT=300, cancelled UT=400.
 
 Player rewinds to UT=50.
-  All three reserved from UT=0.
-  A resolved at UT=500, C resolved at UT=400, B unresolved.
-  Active at UT=50: A (resolved UT=500 > 50), B (unresolved), C (resolved UT=400 > 50) = 3.
-  Available slots: 3 - 3 = 0. Player can't accept new contracts.
+  Stock state at UT=50: none of A, B, C is active yet (all accepted later). ActiveNow = 0.
+  Forecast: A from 100 to 500, B from 200 on, C from 300 to 400.
+  Peak committed = 3 at UT=300. FreeSlotsForNewAcceptNow = 3 - 3 = 0.
+  A new contract X with no deadline, accepted now: at UT=300 the count is 4 > 3,
+    so FirstStarvedAccept = C. Accept on X is greyed and refused:
+    "Slot needed from <C's date> for 'C', blocked by timeline."
+  An X whose deadline is before UT=300 frees its slot in time and is allowed.
+  A, B or C on offer: Accept and Decline greyed, row reads "- Accepted on <date>".
 
 Player fast-forwards to UT=450.
-  C resolved at UT=400 (cancelled). A still active (resolved UT=500 > 450). B unresolved.
-  Active: 2 (A, B).
-  Available slots: 3 - 2 = 1. Player can accept one more.
+  Warp exit walks to UT=450: A active (completes at 500), B active, C cancelled at 400.
+  ActiveNow = 2. No committed accept ahead, so no accept is starved.
+  Stock's own rule applies: 3 - 2 = 1 free slot. Player can accept one more.
+  Cancel on A is greyed ("- Completed on <date>"); B has no committed resolution
+  and stays cancellable.
 ```
 
 **Deadline failure during walk:**
@@ -2067,6 +2091,8 @@ The setup cost is deducted from funds by the `FundsModule` when processing `Stra
 
 The original rationale (a new strategy could divert earnings that committed spendings downstream rely on) does not hold for stock strategies: the walk never re-derives a committed reward from the active strategy set, so a present-day activation or deactivation cannot change a committed row's value.
 
+These predicates read the committed-future index shared by every stock-screen block (`StrategyReservationGate` over `CommittedFutureIndex`). How the Administration building shows them (stock's own reason line, greyed Accept / Cancel with a tooltip, stock-first precedence, the shared explanation text) is described with the other stock screens in section 14.
+
 ### 11.4 Transforms during recalculation
 
 **Note (as shipped, #439 Phase A):** the walk does not apply this transform. Stock strategies transform a contract reward through `GameEvents.Modifiers.OnCurrencyModifierQuery` before the completion is captured, so the captured reward is already post-transform and `StrategiesModule.TransformContractReward` is a logged identity no-op; strategy currency conversions are captured as their own rows (StrategyScienceDebit / Credit, the StrategyConverter funds and reputation sources). The design below is kept for reference.
@@ -2164,11 +2190,54 @@ Conflict checking (group tags) is KSP-native, and the activation block mirrors i
 
 ---
 
-## 14. Gameplay Simulation Findings (v0.4)
+## 14. Stock-Screen Reservation Layer
+
+**Status:** Implemented (0.10.5). Plan, block audit and owner rulings: `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md`.
+
+**Game mode applicability:** A block applies wherever its stock screen exists and the effective ledger holds a committed future row of its kind; most kinds (contracts, strategies, facility upgrades, hires, part purchases) exist only in Career. Parsek is inert in Mission and Scenario games (section 1.5).
+
+Several reservations in this document protect committed history that lies AFTER the current UT: a tech node, part purchase, hire, facility upgrade or repair, contract accept or resolution, or strategy change that the committed timeline makes later, and a kerbal a committed flight holds. Repeating such an action now would apply or charge it twice when the clock reaches the committed row. Parsek refuses these actions at the stock control the player is about to click, and explains the refusal on that same control.
+
+### 14.1 The committed-future index
+
+Every stock-screen block and mark reads one index, `CommittedFutureIndex` (`CommittedFutureIndex.cs`), built over the effective ledger:
+
+- **Committed.** A row counts when it is in the effective ledger (`EffectiveState.ComputeELS`: not tombstoned) AND either has no recording (a KSC-origin row, written the moment the player acted) or belongs to a recording in the Effective Recording Set (`EffectiveState.ComputeERS`: committed, not superseded, not session-suppressed). A row tagged to the live or pending tree or to a Re-Fly provisional reserves nothing: a flight still in progress never blocks a Space Center action.
+- **Future.** A committed row is future when `row.UT > now`, strictly (`CommittedFutureIndex.IsFuture`). A row AT now is already applied, matching the walk's `UT <= cutoff` rule (section 3.8).
+- **Keys.** Rows are grouped by kind and key and sorted by UT: tech id, facility id, destructible building id, contract guid (accept, complete, fail, cancel), kerbal name (hire, plus a retire kind read from committed `CrewRemoved` milestone events), strategy id (activate, deactivate) and part name (entry-cost purchase). The index also keeps every committed `KerbalAssignment`, so a kerbal's explanation can name the flight that holds him (`ResolveHoldAssignment`).
+- **Lifetime.** `CommittedFutureIndexCache.Current` rebuilds only when an input changes (the identity of the ELS / ERS lists, a milestone fingerprint, or an explicit `Invalidate` from `LedgerOrchestrator.OnTimelineDataChanged`). Every query takes `now` explicitly, so a block lifts as soon as the clock passes the last committed row, with no rebuild. When the clock cannot be read, `now` is UT 0, which over-blocks rather than under-blocks.
+
+Kerbal holds themselves are the derived reservations of `KerbalsModule` (section 11); the index only supplies the committed assignments for their text.
+
+### 14.2 The pairing rule and the stock-mechanism rule
+
+- **Pairing.** For every clickable kind, the mark on the control and the click-block behind it read the SAME predicate over the SAME index instance (`StockUiReservationPredicates`, `StrategyReservationPredicates`, `StockUiDecorationQuery`), so they cannot disagree. A mark with no block would mislead; a block with no mark is a surprise. Each block also has a Harmony backstop on the stock method behind the control (for example `RDTech.UnlockTech`, `Contract.Accept` / `Decline` / `Cancel`, `SpaceCenterBuilding.UpgradeFacility`, `KerbalRoster.SackAvailable`, `FlightEVA.spawnEVA`, `CrewTransfer.Create`), so a call from anywhere else, Contract Configurator's Accept included, is refused with the same text.
+- **Stock mechanisms only** (owner ruling D1, 2026-09-25; the stock-control annotation exception to the "no new player-facing UI surfaces" rule in `.claude/CLAUDE.md`). An annotation uses only what the stock control already has: its disabled / greyed state, text appended to its existing stock tooltip or description, stock's own reason field (`Strategy.CanBeActivated` reason, `CrewListItem.SetButtonEnabled` caption), the row's own status or label text, or a tint of its existing icon. A greyed button gets its reason on a stock tooltip (`StockUiReasonTooltip`), and gets its exact stock look back when the block lifts (`StockUiGreyedButton`). No Parsek-drawn box, badge, counter or panel appears on a stock screen; an informational mark (a committed completion on an Active contract, a lost or stand-in kerbal) lives only in the row's own label.
+- **Stock first.** Where stock itself already refuses the action (no free slot, a strategy conflict, the cost), stock's result and reason stand and Parsek adds at most its dated fact.
+
+### 14.3 One explanation text
+
+`ReservationExplanation` builds one short sentence per reservation kind, and the control's hover, the greyed button's tooltip, the row label and the refused-click dialog (`CommittedActionDialog.ShowBlocked`, titled "Action Blocked") all show that same text. The sentence is the participle, the date and time (`KSPUtil.PrintDateCompact` with hour and minute), then "blocked by timeline until then.", e.g. `Researched on Y1, D06, 14:05, blocked by timeline until then.` or, for a kerbal, `Reserved by timeline for 'Mun Lander' until Y1, D09, 18:40.` It never says "committed" or "your timeline". Block reasons are drawn in stock's own reason orange. The Timeline window's row hover reads the same check to say which stock control a future row holds (`Holds Research in R&D until ...`).
+
+### 14.4 Screen by screen
+
+| Screen | Refused while a committed row is ahead | Mark |
+|---|---|---|
+| R&D | Research of a node the timeline researches later; purchase of a part it buys later (with entry purchases on); Purchase-all skips such parts and names them, and is greyed when only they remain | Tinted node icon; the reason in the node tooltip and side-panel description; greyed Research / Purchase-all with a tooltip; the part tooltip greys its purchase button (also in the VAB / SPH part list) |
+| Mission Control | Accept and Decline of an offer the timeline accepts later; Cancel of an Active contract it completes, fails or cancels later; Accept of any other offer while the slot forecast says it would starve a committed accept (section 10.2) | Row label `- Accepted on Y1, D03` / `- Completed on Y2, D114`; the reason at the end of the detail panel; greyed buttons with tooltips. The slot block has no row mark by design |
+| Administration | Activating a strategy the timeline activates later, one that would take a slot a committed activation needs, or one that would conflict with a committed activation; cancelling one the timeline deactivates or re-activates later (section 13.3) | Stock's own reason line in the description panel; greyed Accept / Cancel with a tooltip |
+| Astronaut Complex | Hiring an applicant the timeline hires later; dismissing any kerbal Parsek manages (reserved, stand-in, retired; section 11.12) | The row's own status label (`Hired on ...`, `Reserved until ...`, `Lost`, `Retired`, `Stand-in for Bill Kerman`); stock's locked-with-reason button state. A stand-in's dismissal reads e.g. `Standing in for Bill Kerman, reserved by timeline for 'Mun Lander' until Y1, D09, 18:40.` |
+| KSC facility menu | Upgrade of a facility the timeline upgrades later (lifts after the last committed upgrade); Repair of a building whose current destruction a committed repair already covers | Greyed Upgrade / Repair with a tooltip; the reason in the menu's description |
+| VAB / SPH crew dialog | Seating a kerbal the timeline reserves, has lost, or retired as a stand-in (`KerbalsModule.ShouldFilterFromCrewDialog`) | The kerbal is listed, not hidden, with stock's inactive-crew look, the status in place of his trait (`Reserved until Y1, D07`) and stock's locked-with-reason tooltip |
+| Flight | EVA or crew transfer of a kerbal a committed flight holds, aboard a vessel that does not continue a committed flight; stands down during a Re-Fly session (`StockUiFlightCrewDecoration.IsMoveRefused`) | Greyed EVA on the portrait (reason in stock's EVA tooltip); greyed EVA / Transfer in the hatch dialog, with the status on the row's name label |
+
+The part-purchase and strategy blocks have a state half too: `KspStatePatcher.PatchPurchasedParts` marks a committed purchase purchased when the clock reaches it (no second charge), and the strategy patch makes stock's active set follow the ledger (section 13.7).
+
+## 15. Gameplay Simulation Findings (v0.4)
 
 Edge cases and gaps discovered by simulating concrete KSP gameplay scenarios against the implementation.
 
-### 13.1 ~~Critical Gaps~~ Resolved
+### 15.1 ~~Critical Gaps~~ Resolved
 
 **~~Vessel build cost not captured.~~** FIXED (v0.4). `LedgerOrchestrator.CreateVesselCostActions` injects vessel build cost at commit time from `Recording.PreLaunchFunds` delta as a `FundsSpending` with `source=VESSEL_BUILD`.
 
@@ -2178,7 +2247,7 @@ Edge cases and gaps discovered by simulating concrete KSP gameplay scenarios aga
 
 **~~Contract science rewards not credited.~~** FIXED. `ScienceModule.ProcessAction` dispatches `ContractComplete` to `ProcessContractScienceReward`, which credits `action.TransformedScienceReward` (the post-strategy-transform value) into effective earnings when `action.Effective == true` (the chronologically first completion gets the credit; later duplicate completions are skipped).
 
-### 13.2 Edge Cases Discovered
+### 15.2 Edge Cases Discovered
 
 **~~Facility destroyed state not patched.~~** FIXED (v0.4). `KspStatePatcher.PatchDestructionState` is fully implemented — iterates `DestructibleBuilding` objects and calls `db.Demolish()` / `db.Repair()` to sync visual state with the ledger's derived destruction state.
 
@@ -2192,7 +2261,7 @@ Edge cases and gaps discovered by simulating concrete KSP gameplay scenarios aga
 
 **Empty ledger + mid-career = no replay of past events.** When Parsek is installed mid-career, only the funds seed is captured. All prior tech unlocks, facility upgrades, contract completions, and kerbal assignments are NOT in the ledger. The recalculation walk only knows about events captured by Parsek from this point forward. This is by design (the ledger starts fresh) but means the game actions list will be incomplete for the pre-Parsek period.
 
-### 14.3 Performance Notes
+### 15.3 Performance Notes
 
 The recalculation walk is O(n log n) sort + O(n × m) dispatch (n=actions, m=9 modules). For 500 actions, this completes in well under 1ms. The most expensive per-action operation is the reputation curve evaluation (integer-step loop per nominal rep value), but even with 50 rep actions this is trivially fast. LINQ `SortActions` allocates a new list each call — minor GC pressure, could be optimized to sort in-place if needed.
 
