@@ -3751,17 +3751,18 @@ _(unreleased - entries accumulate here per commit)_
   queued science and unlinks those payouts (they stay paid), exactly like the Discard button at
   the end of a flight.
 
-- **A drill or converter running at the end of a recording that stayed on the ground no longer
-  delivers its resources early.** Parsek shortens a recording that ends with a long idle stretch
-  (sitting landed or coasting) so the real vessel appears sooner, but the vessel it brings back is
-  the one you had when you committed. When ore or fuel was still being produced during that idle
-  stretch, the vessel appeared early already holding all of it. A recording that never left the
-  surface (for example, you switched to a landed base and ran its drills) and whose last stretch
-  changed the vessel's resources (measured when the converters start and stop; electric charge
-  does not count) is now kept to the end, or shortened only to just after the converters stopped.
-  Not fixed yet: a recording that flew before landing and drilling is split at the landing and
-  still shortened, as are resources moved in by a supply route or produced while the vessel was
-  in the background.
+- **A drill or converter running at the end of a recording no longer delivers its resources
+  early.** Parsek shortens a recording that ends with a long idle stretch (sitting landed or
+  coasting) so the real vessel appears sooner, but the vessel it brings back is the one you had
+  when you committed. When ore or fuel was still being produced during that idle stretch, the
+  vessel appeared early already holding all of it. A recording whose drills, ISRUs, fuel cells
+  or other converters are still switched on at its end is now kept to the end, and one whose
+  converters were switched off during the idle stretch is shortened only to just after the last
+  one stopped. This holds for a recording that flew before landing and drilling (Parsek splits it
+  at the landing), on every later load, and for a base you left mining in the background. A
+  converter that is switched on but producing nothing (full tanks, no input) keeps its stretch
+  too. Not fixed yet: resources moved in by a supply route, or between the tanks of one vessel,
+  during the idle stretch.
 
 - **Altitude, speed, distance and depth record rewards are no longer paid twice.** A flight that
   set several records at once (an ascent passes 500 m, 2 km, 7 km, 22 km and 70 km) was booked
@@ -3795,8 +3796,13 @@ _(unreleased - entries accumulate here per commit)_
   Sandbox), and that message no longer follows an upgrade. Upgrading a destroyed facility
   records its free repair together with the upgrade. In an existing save, an upgrade recorded
   at 0 takes its real price when the save is loaded, if the save still holds the funds record of
-  that upgrade (usually one made since your last committed flight); older upgrades keep 0,
-  because nothing left in the save proves what they cost.
+  that upgrade (usually one made since your last committed flight). Older upgrades are charged
+  the building's listed upgrade price times your current difficulty's funds multiplier, as soon
+  as the Space Center's buildings are loaded (at the latest when you visit the Space Center), so
+  the charge can differ from what you paid if a strategy discount applied or the difficulty has
+  changed since. A career Parsek joined midway keeps those older upgrades at 0: its starting
+  funds were read from the game at an unknown moment that may come after some of them were paid,
+  and charging them again could count them twice.
 
 - **Installing Parsek into an existing career no longer resets its milestones and world
   records.** The first time Parsek synced the career it un-achieved every milestone the career

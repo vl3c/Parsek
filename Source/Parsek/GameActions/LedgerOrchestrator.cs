@@ -33,6 +33,7 @@ namespace Parsek
         private static bool fundsSeedDone;
         private static bool scienceSeedDone;
         private static bool repSeedDone;
+        private static bool legacyFacilityUpgradeEstimateDone;
         [ThreadStatic]
         private static bool? fundsTrackedOverrideForTesting;
         [ThreadStatic]
@@ -2399,6 +2400,131 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>Test seam replacing <see cref="ReadFacilityCostTableProbe"/>. Cleared by ResetForTesting.</summary>
+        internal static Func<LedgerLoadMigration.FacilityCostTableProbe> FacilityCostTableProbeForTesting;
+
+        /// <summary>
+        /// Runs <see cref="LedgerLoadMigration.EstimateLegacyFacilityUpgradeCosts"/> once per
+        /// load: every recalc retries it until a pass completes (the funds seed exists, and in
+        /// a career the multiplier and the facility cost table are readable), then never again
+        /// until the next load. A completed pass that priced a row bumps the ledger state
+        /// version, so caches built on the cost-0 rows rebuild, and writes one Info summary.
+        /// </summary>
+        private static void EnsureLegacyFacilityUpgradeCostEstimates()
+        {
+            if (legacyFacilityUpgradeEstimateDone)
+                return;
+
+            GameAction seed;
+            bool hasSeed = TryGetFundsSeed(out seed);
+            GameStateBaseline initialBaseline;
+            bool hasInitialBaseline = TryGetInitialResourceBaseline(out initialBaseline);
+            var seedMoment = LedgerLoadMigration.ClassifyFundsSeedCaptureMoment(
+                hasSeed,
+                hasSeed ? seed.InitialFunds : 0f,
+                hasInitialBaseline,
+                hasInitialBaseline ? initialBaseline.funds : 0.0);
+            double seedCaptureUT = hasInitialBaseline ? initialBaseline.ut : double.NaN;
+
+            var result = LedgerLoadMigration.EstimateLegacyFacilityUpgradeCosts(
+                Ledger.Actions, GameStateStore.Events, ReadFacilityCostTableProbe(),
+                seedMoment, seedCaptureUT);
+            if (!result.Complete)
+            {
+                ParsekLog.VerboseOnChange(Tag, "legacy-facility-upgrade-estimate-defer", result.DeferReason,
+                    "Legacy facility-upgrade cost estimate: deferred - " + result.DeferReason +
+                    " (" + result.Candidates.ToString(CultureInfo.InvariantCulture) +
+                    " cost-0 row(s) wait for the next recalc)");
+                return;
+            }
+
+            legacyFacilityUpgradeEstimateDone = true;
+            if (result.Estimated > 0 || result.Repaired > 0)
+                Ledger.BumpStateVersion();
+            if (result.Candidates == 0)
+                return;
+            // Science / Sandbox rows are 0 by design (no funds were charged): not news.
+            if (result.NotCareer == result.Candidates)
+                ParsekLog.Verbose(Tag, "Legacy facility-upgrade cost estimate: " + result.Format());
+            else
+                ParsekLog.Info(Tag, "Legacy facility-upgrade cost estimate: " + result.Format());
+        }
+
+        internal static LedgerLoadMigration.FacilityCostTableProbe ReadFacilityCostTableProbe()
+        {
+            var provider = FacilityCostTableProbeForTesting;
+            if (provider != null)
+                return provider();
+            try
+            {
+                return ReadFacilityCostTableProbeLive();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseOnChange(Tag, "legacy-facility-upgrade-estimate-probe", ex.GetType().Name,
+                    "Legacy facility-upgrade cost estimate: game read failed (" + ex.GetType().Name +
+                    ": " + ex.Message + ") - treated as no current game");
+                return new LedgerLoadMigration.FacilityCostTableProbe();
+            }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static LedgerLoadMigration.FacilityCostTableProbe ReadFacilityCostTableProbeLive()
+        {
+            var probe = new LedgerLoadMigration.FacilityCostTableProbe();
+            Game game = HighLogic.CurrentGame;
+            if (game == null)
+                return probe;
+
+            probe.GameAvailable = true;
+            probe.IsCareer = game.Mode == Game.Modes.CAREER;
+            if (game.Parameters != null && game.Parameters.Career != null)
+            {
+                probe.MultiplierReadable = true;
+                probe.FundsLossMultiplier = game.Parameters.Career.FundsLossMultiplier;
+            }
+
+            // The table is loaded when at least one facility has a live object with levels;
+            // after that an id with no object is one the game does not know.
+            var protos = ScenarioUpgradeableFacilities.protoUpgradeables;
+            if (protos != null)
+            {
+                foreach (var kvp in protos)
+                {
+                    if (ReadFacilityLevelCosts(kvp.Value) != null)
+                    {
+                        probe.FacilityDataLoaded = true;
+                        break;
+                    }
+                }
+            }
+            probe.LevelCosts = id =>
+            {
+                ScenarioUpgradeableFacilities.ProtoUpgradeable proto;
+                var table = ScenarioUpgradeableFacilities.protoUpgradeables;
+                if (table == null || string.IsNullOrEmpty(id) || !table.TryGetValue(id, out proto))
+                    return null;
+                return ReadFacilityLevelCosts(proto);
+            };
+            return probe;
+        }
+
+        private static float[] ReadFacilityLevelCosts(ScenarioUpgradeableFacilities.ProtoUpgradeable proto)
+        {
+            if (proto == null || proto.facilityRefs == null || proto.facilityRefs.Count == 0)
+                return null;
+            var facility = proto.facilityRefs[0];
+            var levels = facility != null ? facility.UpgradeLevels : null;
+            if (levels == null || levels.Length == 0)
+                return null;
+
+            var costs = new float[levels.Length];
+            for (int i = 0; i < levels.Length; i++)
+                costs[i] = levels[i] != null ? levels[i].levelCost : float.NaN;
+            return costs;
+        }
+
         private static bool EnsureInitialScienceSeed(bool hasInitialBaseline, GameStateBaseline initialBaseline)
         {
             if (LedgerHasSeed(GameActionType.ScienceInitial))
@@ -3007,6 +3133,11 @@ namespace Parsek
             // Baselines can represent legitimate zero science/rep values; once such
             // a seed exists it must not be upgraded later from future live state.
             SeedInitialResourceBalances();
+
+            // Price the cost-0 facility-upgrade rows no saved debit proves, once per load, as
+            // soon as the seed and the facility cost table are readable. Runs before the walk,
+            // so this recalc is the one that charges them.
+            EnsureLegacyFacilityUpgradeCostEstimates();
 
             // Same idea for stock progress: capture (once per save) what the career had
             // achieved before the ledger began, and hand it to the milestones module for
@@ -4387,6 +4518,7 @@ namespace Parsek
             fundsSeedDone = false;
             scienceSeedDone = false;
             repSeedDone = false;
+            legacyFacilityUpgradeEstimateDone = false;
 
             string path = Ledger.GetLedgerPath();
             if (!string.IsNullOrEmpty(path))
@@ -7942,6 +8074,8 @@ namespace Parsek
             initialized = false;
             CurrencyPoolProbeForTesting = null;
             ProgressSeedProbeForTesting = null;
+            FacilityCostTableProbeForTesting = null;
+            legacyFacilityUpgradeEstimateDone = false;
             fundsSeedDone = false;
             scienceSeedDone = false;
             repSeedDone = false;
