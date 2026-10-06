@@ -3687,6 +3687,18 @@ _(unreleased - entries accumulate here per commit)_
   Parsek now follows the station through the undock by its own parts, which keep their identity
   through docking and undocking, so the station comes back once, in its post-undock form.
 
+- **Facility upgrades are now charged in Parsek's career timeline.** Every KSC building upgrade
+  was recorded at a cost of 0, so the timeline's funds ran high by the upgrade's price: the
+  Timeline row read `Upgrade Tracking Station -> Lv.2 -0`, every funds update after an upgrade
+  held your balance at the spent value (the "Held your funds at the spent value" message), and
+  anything that looks ahead at your funds counted money already spent. An upgrade now records
+  exactly what the game charged for it (after any strategy discount; nothing in Science or
+  Sandbox), and that message no longer follows an upgrade. Upgrading a destroyed facility
+  records its free repair together with the upgrade. In an existing save, an upgrade recorded
+  at 0 takes its real price when the save is loaded, if the save still holds the funds record of
+  that upgrade (usually one made since your last committed flight); older upgrades keep 0,
+  because nothing left in the save proves what they cost.
+
 - **Installing Parsek into an existing career no longer resets its milestones and world
   records.** The first time Parsek synced the career it un-achieved every milestone the career
   had earned before Parsek was installed (First Launch, orbits, landings and the rest) and
