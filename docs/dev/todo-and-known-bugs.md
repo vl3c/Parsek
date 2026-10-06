@@ -8223,9 +8223,30 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   next nightly** - this raise was its only standing red (the lane has never had
   a green armed run; its arming flight red'd on this same event), so that sweep
   IS the regression catcher for this change.
-- **GHOST-MAP-TEARDOWN-NRE-WHEN-CAMERA-TARGETED: destroying a ghost map vessel
+- ~~**GHOST-MAP-TEARDOWN-NRE-WHEN-CAMERA-TARGETED: destroying a ghost map vessel
   that is the `PlanetariumCamera`'s current target NREs stock's KnowledgeBase
-  during the forced retarget** [OPENED 2026-08-26 off V25M reading 3
+  during the forced retarget**~~ **FIXED 2026-10-06, branch `release-cheap-fixes`:**
+  the camera is moved off a targeted ghost while the UI is still intact. Finding: the
+  NRE is not on the dying MapObject but on `KbApp_PlanetParameters`' own transform -
+  every collected quit log (V15M `2026-08-28_2004`, H5, R1, H36, GS-2) prints
+  `KbApp.OnDestroy Planet Parameters` before the stock `Focus:` line, so ANY retarget
+  fired from an OnDestroy-time teardown NREs, whoever fires it (stock picks the nearest
+  body, `FindNearestTarget`). Fix: pure
+  `GhostMapPresence.DecideCameraRetargetBeforeGhostRemoval` (camera on a dying ghost ->
+  active vessel, else the ghost's reference body, else the home body; during a scene
+  teardown the active vessel is skipped, since it dies with the scene and stock would
+  retarget again from its OnDestroy) behind the thin `RetargetPlanetariumCameraOffDyingGhosts`
+  (null-guarded `PlanetariumCamera.fetch`, Info `Planetarium camera retargeted off dying
+  ghost ...`). Called before the Die loop of every in-scene `RemoveAllGhostVessels`
+  (rewind / scene-change request via `DestroyAllTimelineGhosts`, TS Fly, test resets),
+  and from `ParsekHarmony.OnApplicationQuit` (before Unity destroys anything) for the
+  quit; the OnDestroy removals (`scene-cleanup`, `tracking-station-cleanup`, new
+  `sceneTeardown: true`) and any removal after the quit latch stand down with a Verbose
+  line rather than fire the event into a torn-down KnowledgeBase themselves. Not
+  covered: a Tracking Station scene CHANGE with the camera on a ghost still lets stock
+  retarget at ghost destroy (no request-time hook in the TS; same as before), and the
+  single-ghost removers keep stock's retarget (the UI is alive there, no NRE). Tests:
+  `GhostMapCameraRetargetTests`. Original report: [OPENED 2026-08-26 off V25M reading 3
   (`harness/results/2026-08-26_1823_V25M-duna-park-player-loop.json`,
   `unityExceptions` report-only row: 2 NRE lines, both this one event's ERR+EXC
   pair). Owner: `GhostMapPresence`]. Stack has NO Parsek frames but the trigger

@@ -3676,6 +3676,13 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Quitting the game while the map camera is focused on a ghost no longer logs an error.** When
+  a ghost the map view was looking at was removed, KSP moved the camera to the nearest planet on
+  its own; while the game was quitting, its planet info panel was already gone and the move logged
+  a NullReferenceException. Parsek now moves the camera off a ghost before removing it (to your
+  vessel, or the planet the ghost orbits), and on quit does so before KSP starts closing its
+  windows.
+
 - **Discarding a Re-fly from the Esc menu now throws away its science and payouts the same way
   the end-of-flight Discard does.** Science collected during the discarded attempt but not yet
   committed stayed queued and could be credited to the next flight you committed, and a payout
