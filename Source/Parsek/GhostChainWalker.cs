@@ -651,7 +651,12 @@ namespace Parsek
         /// null for a background-event claim). At a split with more than one child the
         /// child is chosen by <see cref="SelectWalkChild"/> against the claimed vessel's
         /// part set, resolved once (<see cref="ResolveClaimedPartIds"/>) at the first such
-        /// split so a walk with no multi-child split reads no snapshot.
+        /// split so a walk with no multi-child split reads no snapshot. Where the vessel ends
+        /// in a recording (no child branch point, or one it flew past) the walk goes on to
+        /// the last segment of that recording's optimizer chain
+        /// (<see cref="EffectiveState.ResolveChainTerminalRecording(Recording, RecordingTree)"/>),
+        /// which holds the vessel snapshot and the terminal state, so the leaf is always the
+        /// segment a chain-tip spawn reads.
         /// </summary>
         private static Recording WalkToLeaf(
             Recording rec, RecordingTree tree, uint claimedPid, string claimBranchPointId)
@@ -671,23 +676,54 @@ namespace Parsek
             bool claimedPartsResolved = false;
             HashSet<uint> claimedParts = null;
 
-            while (current.ChildBranchPointId != null && !visited.Contains(current.RecordingId))
+            while (!visited.Contains(current.RecordingId))
             {
                 visited.Add(current.RecordingId);
 
                 // Breakup-continuous: the recording flew past its split and no child carries
                 // its PID, so the vessel ends in this recording; its children are the stages
                 // and debris it dropped, not where the vessel went.
+                bool vesselEndsInThisRecording = current.ChildBranchPointId == null;
                 BranchPoint continuedPast;
-                if (GhostPlaybackLogic.TryGetContinuedPastChildBranch(current, tree, out continuedPast))
+                if (!vesselEndsInThisRecording
+                    && GhostPlaybackLogic.TryGetContinuedPastChildBranch(current, tree, out continuedPast))
                 {
                     ParsekLog.VerboseOnChange(Tag,
                         identity: string.Format(ic, "walk-continued|{0}", rec.RecordingId),
                         stateKey: string.Format(ic, "{0}|{1}", current.RecordingId, continuedPast.Id),
                         message: string.Format(ic,
-                            "WalkToLeaf: rec={0} continued past bp={1} type={2} with no same-PID child - stopping here",
+                            "WalkToLeaf: rec={0} continued past bp={1} type={2} with no same-PID child - " +
+                            "the vessel ends in this recording or a later segment of its chain",
                             current.RecordingId, continuedPast.Id, continuedPast.Type));
-                    break;
+                    vesselEndsInThisRecording = true;
+                }
+
+                // An optimizer split (environment / body boundary) keeps the recording id on
+                // the FIRST segment, which stays the branch point's child, and moves the end
+                // state (vessel snapshot, terminal state, the child branch point that closes
+                // the recording) to the last one. So where the vessel ends in this recording,
+                // go on to the last segment of its chain; it may carry the next branch point.
+                if (vesselEndsInThisRecording)
+                {
+                    Recording lastSegment = EffectiveState.ResolveChainTerminalRecording(current, tree);
+                    if (lastSegment == null
+                        || ReferenceEquals(lastSegment, current)
+                        || string.IsNullOrEmpty(lastSegment.RecordingId)
+                        || visited.Contains(lastSegment.RecordingId))
+                        break;
+
+                    steps++;
+                    ParsekLog.VerboseOnChange(Tag,
+                        identity: string.Format(ic,
+                            "walk-step|{0}|{1}", rec.RecordingId, steps),
+                        stateKey: string.Format(ic,
+                            "{0}|{1}|{2}", current.RecordingId, lastSegment.RecordingId, RuleOptimizerChainSegment),
+                        message: string.Format(ic,
+                            "WalkToLeaf: step {0}: rec={1} -> segment={2} chain={3} index={4}->{5} rule={6}",
+                            steps, current.RecordingId, lastSegment.RecordingId, current.ChainId,
+                            current.ChainIndex, lastSegment.ChainIndex, RuleOptimizerChainSegment));
+                    current = lastSegment;
+                    continue;
                 }
 
                 BranchPoint bp = null;
@@ -777,6 +813,7 @@ namespace Parsek
         internal const string RuleSamePid = "same-pid";
         internal const string RuleSamePidNoPartData = "same-pid-no-part-data";
         internal const string RuleFirstChild = "first-child";
+        internal const string RuleOptimizerChainSegment = "optimizer-chain";
 
         // Where the claimed vessel's part set came from, named in the walk-identity line.
         internal const string ClaimedPartsSourceClaimRecording = "claim-recording";
@@ -1127,6 +1164,10 @@ namespace Parsek
                 // with no same-PID continuation (its own terminal is the vessel's ending).
                 if (rec.ChildBranchPointId != null
                     && !GhostPlaybackLogic.RecordingContinuesPastChildBranch(rec, tree))
+                    continue;
+                // An optimizer chain segment followed by a later one is not a leaf: the
+                // split moved its terminal state to the last segment.
+                if (RecordingTree.HasNextChainSegment(rec, tree.Recordings))
                     continue;
 
                 if (!rec.TerminalStateValue.HasValue)

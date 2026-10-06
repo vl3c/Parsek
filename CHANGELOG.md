@@ -3676,6 +3676,19 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A station hidden after a rewind comes back when its recorded future ends, also when that
+  future crossed into the atmosphere or another world.** When a committed mission docks with
+  or undocks from one of your vessels, the vessel is hidden after a rewind until the mission's
+  recording of it ends, then reappears in its recorded final form. Parsek cuts a long recording
+  into parts where the flight changes environment (space, atmosphere, surface) or world, and
+  the final form is kept on the last part. Parsek used to stop at the first part: the vessel
+  was due back at the end of that part instead of the end of the flight, it could not be put
+  back as itself (it came back as a different vessel, which supply routes and later missions
+  do not recognise; outside flight its old form stayed, or the new one appeared beside it),
+  and one that was destroyed at the end still counted as alive. Parsek now follows the vessel
+  to the last part, so it reappears at the right time and with its identity, or stays gone
+  when the recording ends in its loss. Covered by xUnit; not yet checked in a test flight.
+
 - **A base hidden as a ghost after a rewind keeps its supply route.** When you rewind to
   before a recorded flight that docks with one of your bases and then enter flight, the base
   is replaced by its ghost until that flight's recording ends, and it stays hidden if you go
