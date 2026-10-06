@@ -152,9 +152,13 @@ namespace Parsek
         /// session-authored branch points, dangling parent/child id refs,
         /// and stale <c>ActiveRecordingId</c> behind for OnSave to serialise
         /// as committed mission history.
+        /// Also re-homes the attempt's ledger tags
+        /// (<see cref="Ledger.ClearRecordingTagForRecordings"/>), same contract as
+        /// <see cref="DiscardReFlyAttemptRecordingsAndRewindPoints"/>: a payout earned during the
+        /// attempt keeps its row but loses the tag naming a recording this discard deletes.
         /// Caller is responsible for clearing the marker / scenario journal
-        /// and any flow-specific cleanup; this helper handles only the
-        /// recording/topology side.
+        /// and any flow-specific cleanup (<see cref="EndDiscardedReFlySession"/>); this helper
+        /// handles only the recording/topology side.
         /// </summary>
         internal static AttemptDiscardSummary PruneActiveReFlyAttemptOwnedTopology(
             ReFlySessionMarker marker, string callSite)
@@ -186,6 +190,7 @@ namespace Parsek
                     };
                     summary.AttemptIds = single;
                     summary.RemovedCommitted = RemoveCommittedAttemptRecordings(single);
+                    summary.LedgerTagsCleared = Ledger.ClearRecordingTagForRecordings(single);
                     summary.StagedRows = PruneStagedRowsNamingAttempt(
                         ParsekScenario.Instance, single, callSite ?? "PruneActiveReFlyAttemptOwnedTopology");
                 }
@@ -193,7 +198,8 @@ namespace Parsek
                     $"PruneActiveReFlyAttemptOwnedTopology: no in-memory tree found " +
                     $"for treeId={marker.TreeId ?? "<none>"} callSite={callSite ?? "<none>"} " +
                     $"sess={marker.SessionId ?? "<none>"} - falling back to single-id removal " +
-                    $"(lost descendant + topology cleanup; removedCommitted={summary.RemovedCommitted})");
+                    $"(lost descendant + topology cleanup; removedCommitted={summary.RemovedCommitted} " +
+                    $"ledgerTagsCleared={summary.LedgerTagsCleared})");
                 return summary;
             }
 
@@ -207,6 +213,7 @@ namespace Parsek
                 summary.AttemptIds, marker);
             summary.TransientCleared = ClearReFlyAttemptTransientFields(
                 tree, marker, summary.AttemptIds);
+            summary.LedgerTagsCleared = Ledger.ClearRecordingTagForRecordings(summary.AttemptIds);
             summary.StagedRows = PruneStagedRowsNamingAttempt(
                 ParsekScenario.Instance, summary.AttemptIds, callSite ?? "PruneActiveReFlyAttemptOwnedTopology");
 
@@ -220,6 +227,7 @@ namespace Parsek
                 $"deletedFiles={summary.DeletedFiles} " +
                 $"prunedCommittedTreeEntries={summary.PrunedCommittedTreeEntries} " +
                 $"transientCleared={summary.TransientCleared} " +
+                $"ledgerTagsCleared={summary.LedgerTagsCleared} " +
                 $"stagedRowsPruned={summary.StagedRows.Total}");
 
             return summary;
@@ -238,6 +246,7 @@ namespace Parsek
             internal int DeletedFiles;
             internal int PrunedCommittedTreeEntries;
             internal int TransientCleared;
+            internal int LedgerTagsCleared;
             internal StagedRowsPruneResult StagedRows;
         }
 
@@ -479,12 +488,18 @@ namespace Parsek
         /// The session-state half of a Re-Fly session discard: drops the attempt's pending
         /// science, the marker (with everything <see cref="ParsekScenario.ClearActiveReFlySessionMarker"/>
         /// pairs with it) and the journal slot, bumps the supersede caches, re-applies the stock
-        /// revert gate, and drops the session's pre-Re-Fly anchor snapshots.
+        /// revert gate, and drops the session's pre-Re-Fly anchor snapshots. Shared by the
+        /// merge-dialog Discard, the rewind discard and the Esc-menu Discard
+        /// (<see cref="RevertInterceptor.DiscardReFlyHandler"/>).
         /// </summary>
-        private static void EndDiscardedReFlySession(
+        internal static void EndDiscardedReFlySession(
             ParsekScenario scenario, string sessionId, string gateCallSite)
         {
+            int pendingScienceCleared = GameStateRecorder.PendingScienceSubjects.Count;
             GameStateRecorder.PendingScienceSubjects.Clear();
+            ParsekLog.Verbose("ReFlySession",
+                $"Discarded session end: pendingScienceCleared={pendingScienceCleared} " +
+                $"sess={sessionId ?? "<no-id>"} callSite={gateCallSite ?? "<none>"}");
             scenario.ClearActiveReFlySessionMarker("marker-cleared");
             scenario.ActiveMergeJournal = null;
             // Live variant (route-timeline events): the discard is player-driven; a route

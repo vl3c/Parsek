@@ -387,15 +387,11 @@ namespace Parsek
                     marker, "RevertInterceptor:DiscardReFly:rp-unresolvable");
                 if (!ReferenceEquals(null, scenario))
                 {
-                    scenario.ClearActiveReFlySessionMarker("marker-cleared");
-                    scenario.ActiveMergeJournal = null;
-                    // Live variant (route-timeline events): player Discard click.
-                    scenario.BumpSupersedeStateVersionLive();
-                    ReFlyRevertButtonGate.Apply("DiscardReFlyHandler:rp-unresolvable");
-                    // #688 follow-up: drop the captured pre-Re-Fly anchor
-                    // trajectory snapshot — the discarded session is dead
-                    // and the snapshot is no longer needed for any ghost.
-                    SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(sessionId);
+                    // The merge-dialog discard's session-state half: pending science,
+                    // marker, journal, supersede caches (live variant: player Discard
+                    // click), stock revert gate, pre-Re-Fly anchor snapshots.
+                    MergeDialog.EndDiscardedReFlySession(
+                        scenario, sessionId, "DiscardReFlyHandler:rp-unresolvable");
                 }
 
                 PostScreenMessage("Discard Re-fly failed: rewind point missing");
@@ -444,23 +440,17 @@ namespace Parsek
             // CreatingSessionId from a crashed session.
             originRp.CreatingSessionId = null;
 
-            // Step 5-6: clear scenario session state + bump caches.
+            // Step 5-6: clear scenario session state + bump caches through the
+            // merge-dialog discard's session-state half (pending science, marker,
+            // journal, live supersede bump, revert gate, anchor snapshots). The
+            // gate is applied now so the failure paths in steps 8-9 (which may
+            // bail and leave the player in flight) do not strand a forced
+            // CanRevertToPostInit; on success the next FlightDriver.Start
+            // recomputes it.
             if (!ReferenceEquals(null, scenario))
             {
-                scenario.ClearActiveReFlySessionMarker("marker-cleared");
-                scenario.ActiveMergeJournal = null;
-                // Live variant (route-timeline events): player Discard click.
-                scenario.BumpSupersedeStateVersionLive();
-                // Apply now so the failure paths in steps 8-9 (which may bail
-                // and leave the player in flight) do not strand a forced
-                // CanRevertToPostInit. The success path transitions out of
-                // flight where the next FlightDriver.Start will recompute,
-                // making the call a logged no-op there — cheap and consistent.
-                ReFlyRevertButtonGate.Apply("DiscardReFlyHandler:marker-cleared");
-                // #688 follow-up: drop the captured pre-Re-Fly anchor
-                // trajectory snapshot — the discarded session is dead and
-                // the snapshot is no longer needed for any ghost.
-                SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(sessionId);
+                MergeDialog.EndDiscardedReFlySession(
+                    scenario, sessionId, "DiscardReFlyHandler:marker-cleared");
             }
 
             // Step 7: defensively clean up the prior session's temp quicksave

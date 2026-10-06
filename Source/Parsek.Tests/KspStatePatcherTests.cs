@@ -1307,6 +1307,9 @@ namespace Parsek.Tests
             var milestones = new MilestonesModule();
             var facilities = new FacilitiesModule();
             var contracts = new ContractsModule();
+            // A captured (empty) pre-ledger progress seed, so the milestones patch reaches
+            // its singleton check instead of stopping at the not-yet-captured guard.
+            milestones.SetPreLedgerProgressSeed(PreLedgerProgressSeed.CreateCaptured(null, null));
 
             KspStatePatcher.PatchAll(science, funds, reputation, milestones, facilities, contracts);
 

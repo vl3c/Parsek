@@ -333,7 +333,6 @@ namespace Parsek.Tests
                 new[]
                 {
                     LoadReconcilePolicy.GapColdLoadAbandonedFuture,
-                    LoadReconcilePolicy.GapEscDiscardPendingScience,
                     LoadReconcilePolicy.GapRouteState,
                 }.OrderBy(s => s, StringComparer.Ordinal),
                 ids.OrderBy(s => s, StringComparer.Ordinal));
@@ -358,6 +357,17 @@ namespace Parsek.Tests
                     Assert.Contains(LoadReconcilePolicy.GapColdLoadAbandonedFuture, cold.Reason);
                 }
             }
+        }
+
+        [Fact]
+        public void DiscardReFly_PendingScience_IsClearedBeforeTheLoad()
+        {
+            // RevertInterceptor.DiscardReFlyHandler clears it through the merge-dialog discard's
+            // session-state half (ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS, fixed).
+            var decision = LoadReconcilePolicy.Decide(LoadKind.DiscardReFly, LoadStateCategory.PendingScience);
+            Assert.Equal(LoadReconcileAction.Clear, decision.Action);
+            Assert.False(decision.IsKnownGap);
+            Assert.Contains("DiscardReFlyHandler", decision.Reason);
         }
 
         [Fact]

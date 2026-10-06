@@ -3727,6 +3727,80 @@ _(unreleased - entries accumulate here per commit)_
   and saved again since (see the entry below). Covered by xUnit; not yet checked in a test
   flight.
 
+- **Quitting the game while the map camera is focused on a ghost no longer logs an error.** When
+  a ghost the map view was looking at was removed, KSP moved the camera to the nearest planet on
+  its own; while the game was quitting, its planet info panel was already gone and the move logged
+  a NullReferenceException. Parsek now moves the camera off a ghost before removing it (to your
+  vessel, or the planet the ghost orbits), and on quit does so before KSP starts closing its
+  windows.
+
+- **Discarding a Re-fly from the Esc menu now throws away its science and payouts the same way
+  the end-of-flight Discard does.** Science collected during the discarded attempt but not yet
+  committed stayed queued and could be credited to the next flight you committed, and a payout
+  earned during the attempt stayed linked to the deleted recording, so the next game load could
+  drop it and a later Re-fly could wrongly undo it. The Esc-menu Discard Re-fly now drops the
+  queued science and unlinks those payouts (they stay paid), exactly like the Discard button at
+  the end of a flight.
+
+- **A drill or converter running at the end of a recording that stayed on the ground no longer
+  delivers its resources early.** Parsek shortens a recording that ends with a long idle stretch
+  (sitting landed or coasting) so the real vessel appears sooner, but the vessel it brings back is
+  the one you had when you committed. When ore or fuel was still being produced during that idle
+  stretch, the vessel appeared early already holding all of it. A recording that never left the
+  surface (for example, you switched to a landed base and ran its drills) and whose last stretch
+  changed the vessel's resources (measured when the converters start and stop; electric charge
+  does not count) is now kept to the end, or shortened only to just after the converters stopped.
+  Not fixed yet: a recording that flew before landing and drilling is split at the landing and
+  still shortened, as are resources moved in by a supply route or produced while the vessel was
+  in the background.
+
+- **Altitude, speed, distance and depth record rewards are no longer paid twice.** A flight that
+  set several records at once (an ascent passes 500 m, 2 km, 7 km, 22 km and 70 km) was booked
+  as a single record entry, and the next time Parsek synced the career it rolled the record back
+  to a lower band. Stock then paid the higher bands again: at once if the craft was still up
+  there, otherwise on the next flight that reached them. Measured on one ascent to orbit: three
+  altitude, three speed and three distance bands (43,200 funds) were paid a second time as soon
+  as the flight was committed. Each record entry now remembers how many bands it paid, so the
+  record stays where the flight left it, and a band paid after a flight was committed mid-flight
+  is no longer added to that flight's earlier entry as well as to its own. Entries saved by an
+  earlier version still count as one band each, so a career that already has them may see the
+  higher bands paid once more, after which they stay put.
+
+- **A station visited by a heavier ship no longer appears twice after a rewind.** When a
+  recorded flight docked a ship to an existing station and later undocked, Parsek decided which
+  half of the undock was the station by the vessel id, but after a dock KSP keeps the id of the
+  more important vessel (the higher vessel type, then the heavier one), and on undock the other
+  half gets a new id. With a heavier (or Ship-typed against a Probe-typed) visitor, Parsek took
+  the visitor's half for the station. If that ship was later recovered or destroyed, the station
+  was treated as gone: after a rewind it was not hidden while its recorded future played, and its
+  recorded post-undock form appeared next to it, with the same parts, resources and crew seats.
+  Parsek now follows the station through the undock by its own parts, which keep their identity
+  through docking and undocking, so the station comes back once, in its post-undock form.
+
+- **Facility upgrades are now charged in Parsek's career timeline.** Every KSC building upgrade
+  was recorded at a cost of 0, so the timeline's funds ran high by the upgrade's price: the
+  Timeline row read `Upgrade Tracking Station -> Lv.2 -0`, every funds update after an upgrade
+  held your balance at the spent value (the "Held your funds at the spent value" message), and
+  anything that looks ahead at your funds counted money already spent. An upgrade now records
+  exactly what the game charged for it (after any strategy discount; nothing in Science or
+  Sandbox), and that message no longer follows an upgrade. Upgrading a destroyed facility
+  records its free repair together with the upgrade. In an existing save, an upgrade recorded
+  at 0 takes its real price when the save is loaded, if the save still holds the funds record of
+  that upgrade (usually one made since your last committed flight); older upgrades keep 0,
+  because nothing left in the save proves what they cost.
+
+- **Installing Parsek into an existing career no longer resets its milestones and world
+  records.** The first time Parsek synced the career it un-achieved every milestone the career
+  had earned before Parsek was installed (First Launch, orbits, landings and the rest) and
+  rolled the altitude, speed, distance and depth records back to their first band. Contracts
+  that need one of those milestones (for example part tests, which need First Launch) were
+  withdrawn, and stock paid each milestone and record reward again when it was reached a
+  second time. Parsek now records that earlier progress once, the first time it loads such a
+  save, and keeps it: the milestones stay achieved, the records keep the bands already paid,
+  and nothing is paid twice. Progress earned while Parsek runs is handled exactly as before,
+  including rewinds, which still undo milestones reached after the rewind point. A career that
+  an earlier Parsek version already reset is not repaired.
+
 - **Ending a Re-Fly no longer marks an earlier segment of the same craft destroyed with its crew
   dead.** When a recording had been split into segments and the same vessel was later brought
   back by another flight (for example, docked into, undocked, and re-created at the end of that

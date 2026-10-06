@@ -2307,7 +2307,7 @@ namespace Parsek
             activeGhostChains = null;
 
             // Remove ghost map ProtoVessels on scene teardown
-            GhostMapPresence.RemoveAllGhostVessels("scene-cleanup");
+            GhostMapPresence.RemoveAllGhostVessels("scene-cleanup", sceneTeardown: true);
 
             // Unsubscribe camera events before policy/engine disposal
             if (engine != null)
