@@ -61,8 +61,9 @@ None of the items in this roadmap are blocked on a missing module.
 
 RE-DERIVED 2026-10-06 on `todo-rotation-v9`: `ls harness/scenarios/*.toml` returns **367**
 files, the total `autotest-status.md`'s `## Test cases` header states (its per-section
-header counts sum to 367: 192 live-proven, 4 expected-fail, 5 committed-not-yet-green and
-166 across the per-program sections); tiers: 183 nightly, 27 daily, 157 operator, parsed
+header counts sum to 367: 196 live-proven, 4 expected-fail, 1 committed-not-yet-green and
+166 across the per-program sections, after RR-1 / EVA-9 / EVA-10 / GUI-1 moved to
+live-proven the same day); tiers: 183 nightly, 27 daily, 157 operator, parsed
 from the specs' `tier` keys. Net +101 since the 266 below; the coverage notes in the
 next section name the waves that added them (GUI census, click-block, game-settings,
 physics-warp, chain-interaction and EVA lanes among them).

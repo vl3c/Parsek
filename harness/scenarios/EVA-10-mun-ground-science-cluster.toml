@@ -1039,9 +1039,11 @@ required = [
   "Ground part placed: tree member created part='DeployedGoExOb' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*TrimBoringTail: trimmed '[^'\\r\\n]*' \\(\\1\\) from endUT=",
   "Captured rewind save at UT ([0-9.]+): vessel \\\"Jebediah Kerman\\\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
   "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
-  # EVERY member left standing spawns on the Mun from the Space Center (EVA-6's pair).
-  # The fix's own witness (#1920), per member placed after the Central Station: its Space
-  # Center spawn found an earlier sibling standing and the de-overlap exempted it.
+  # The committed store after the scene-exit commit holds exactly 17 rows (the fixture's
+  # 11 after the boot's split plus this tree's 6; see `[expectations.recordings]`). The
+  # members then spawn on the Mun in FLIGHT after the reload onto the lander, never from
+  # the Space Center (ParsekKSC.IsKscStructurallyEligible admits only Kerbin-first
+  # recordings): the reload / spawned read-backs and the FLIGHT sibling exemptions follow.
   "MISSIONMARK label=eva10-commit-count-17(?:\\s|$)",
   # Right after the reload no member is spawned yet (the reload beat every EndUT).
   "Ground part placed: tree member created part='DeployedCentralStation' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-reloaded-count-17-[^\\r\\n]*-\\1-false(?:-|\\s)",
