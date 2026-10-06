@@ -3700,6 +3700,23 @@ _(unreleased - entries accumulate here per commit)_
   recording the route does not receive route cargo. When Parsek cannot tell which parts are
   the station's, routes use the whole docked vessel as before. Covered by xUnit; not yet
   checked in a test flight.
+
+- **Supply routes now go back in time with a quickload, a revert or a discarded Re-fly.**
+  Loading back past a route delivery (F9, Revert to Launch or to the VAB/SPH, or Discard Re-fly
+  from the Esc menu) left the route where it had got to in the future you abandoned: the funds
+  for the abandoned delivery stayed spent while its cargo vanished with the reload, the
+  deliveries you flew through again were skipped until the route caught up, and a recovery
+  credit from the abandoned run could still be paid. Routes now go back with the save: the
+  abandoned future's route entries are dropped, each route picks up from where it stood in the
+  loaded save, so every delivery you fly through again happens and is charged exactly once, a
+  delivery made before the save is not repeated, and the recovery credit the save still owed is
+  paid on the next run. A route you built after that moment comes back, paused, when the
+  timeline reaches it again, and an armed Send Once or pause-after-this-run is cleared, as after
+  a rewind. A quickload at the Space Center or Tracking Station gets the same treatment when a
+  route ran after the quicksave; an ordinary scene change leaves routes alone. A recovery credit
+  is never paid for a run the timeline no longer has. Covered by xUnit; not yet checked in a
+  test flight.
+
 - **A crewed station hidden after a rewind no longer has its crew killed.** When a committed
   mission docks to a station later, the station is hidden from the rewind until that mission's
   end. If the station was far from your vessel when you entered flight, hiding it killed
@@ -3755,7 +3772,8 @@ _(unreleased - entries accumulate here per commit)_
   ending you abandoned. Quickloading back into a flight in flight now drops that flight's career
   events and ledger entries from after the quicksave's moment, and the replayed flight books what
   it actually does. Space Center actions after the quicksave (tech, facility upgrades, hires) are
-  kept, as are supply-route entries and every other committed flight; the quickload only touches
+  kept, as is every other committed flight (supply routes go back with the quicksave on their
+  own; see the supply-route entry above); the quickload only touches
   what the quicksave shows was not yet history, including a flight committed after the quicksave
   and saved again since (see the entry below). Covered by xUnit; not yet checked in a test
   flight.

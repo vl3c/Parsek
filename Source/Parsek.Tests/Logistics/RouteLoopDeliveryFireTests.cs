@@ -1118,5 +1118,135 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(before, Ledger.Actions.Count); // nothing emitted
             Assert.Equal(0, seamCalls); // physical debit never invoked on replay
         }
+
+        // ==================================================================
+        // In-session load back in time (ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD)
+        // ==================================================================
+
+        // The save taken at UT 1200, between the cycle-0 crossing (dock 1150) and the
+        // cycle-1 crossing (dock 1450): the route as the loaded .sfs carries it.
+        private static Route SnapshotAsSaved(Route route)
+        {
+            var node = new ConfigNode("ROUTE");
+            route.SerializeInto(node);
+            return Route.DeserializeFrom(node);
+        }
+
+        private static List<GameAction> DispatchRows()
+        {
+            return Ledger.Actions.Where(a => a.Type == GameActionType.RouteDispatched).ToList();
+        }
+
+        // catches: a revert / F9 back past a crossing leaving the abandoned future's cursor
+        // and route rows in place, so the re-flown crossing is swallowed (the cursor already
+        // observed it) while its funds row survives - paid, never delivered.
+        [Theory]
+        [InlineData((int)LoadKind.StockRevert)]
+        [InlineData((int)LoadKind.QuickloadFlight)]
+        [InlineData((int)LoadKind.DiscardReFly)]
+        public void LoadBackPastACrossing_ReflownCycleFiresAgain(int kindValue)
+        {
+            var route = BuildLoopRoute(lastObservedLoopCycleIndex: -1);
+            route.CreatedUT = 900.0;
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakeDeliveryApplier();
+            var env = new EligibleEnv();
+
+            RouteOrchestrator.Tick(1150.0, env);              // cycle-0 crossing
+            Route savedAt1200 = SnapshotAsSaved(route);       // F5 / launch backup / RP at 1200
+            RouteOrchestrator.Tick(1450.0, env);              // cycle-1 in the abandoned future
+            Assert.Equal(2, DispatchRows().Count);
+
+            Assert.Equal(RouteLoadReconcileOutcome.Reconciled,
+                RouteLoadReconcile.ReconcileAtInSessionLoad(
+                    (LoadKind)kindValue, 1200.0, 1200.0, new[] { savedAt1200 }));
+
+            // The re-flown timeline reaches the cycle-1 dock instant again.
+            RouteOrchestrator.Tick(1460.0, env);
+
+            var rows = DispatchRows();
+            Assert.Equal(2, rows.Count);
+            Assert.Contains(rows, a => a.UT == 1150.0 && a.RouteCycleId == "cycle-0");
+            Assert.Contains(rows, a => a.UT == 1460.0);           // fired again, not swallowed
+            Assert.DoesNotContain(rows, a => a.UT == 1450.0);     // the abandoned row is retired
+            Assert.Equal(1, route.LastObservedLoopCycleIndex);
+        }
+
+        // catches: the mirror direction. Resetting the loop cursor to -1 at the cutoff (the
+        // rewind exits' discipline) makes the next tick fire the crossing whose dock instant
+        // most recently passed - here cycle 0, already dispatched before the save and present
+        // in the loaded world - under a fresh cycle id the dispatch dedup cannot match, so an
+        // F9 would deliver and charge it twice. The load reconcile takes the loop position
+        // back from the loaded save instead.
+        [Fact]
+        public void QuickloadJustAfterACrossing_DoesNotFireThatCrossingTwice()
+        {
+            var route = BuildLoopRoute(lastObservedLoopCycleIndex: -1);
+            route.CreatedUT = 900.0;
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakeDeliveryApplier();
+            var env = new EligibleEnv();
+
+            RouteOrchestrator.Tick(1150.0, env);
+            Route savedAt1200 = SnapshotAsSaved(route);
+            RouteOrchestrator.Tick(1450.0, env);
+
+            RouteLoadReconcile.ReconcileAtInSessionLoad(
+                LoadKind.QuickloadFlight, 1200.0, 1200.0, new[] { savedAt1200 });
+            RouteOrchestrator.Tick(1201.0, env);   // first tick after the load
+
+            Assert.Single(DispatchRows());          // cycle-0 only; crossing 0 not re-fired
+            Assert.Equal(0, route.LastObservedLoopCycleIndex);
+        }
+
+        // catches: the loop-position restore putting back the saved cursor but not the saved
+        // loop ANCHOR. The anchor defines the cursor's index space (RouteBackingMission copies
+        // route.LoopAnchorUT into the backing mission; MissionLoopUnitBuilder takes the phase
+        // anchor as max(LoopAnchorUT, spanEnd)) and TryActivate moves it to the activation UT.
+        // Pause + re-activate after the quicksave, then F9: a saved cursor (counted from the old
+        // anchor) on the abandoned future's anchor swallows every crossing until the new index
+        // passes it.
+        [Fact]
+        public void QuickloadBackPastAReactivation_RestoresTheSavedAnchorWithTheCursor()
+        {
+            var route = BuildLoopRoute(lastObservedLoopCycleIndex: -1);
+            route.CreatedUT = 900.0;
+            RouteStore.AddRoute(route);
+            // Production-shaped resolver: the phase anchor follows the route's anchor, floored
+            // to the span end (MissionLoopUnitBuilder 7b-i).
+            RouteOrchestrator.LoopUnitResolverForTesting =
+                (r, ut) => BuildUnit(phaseAnchorUT: Math.Max(r.LoopAnchorUT, 1300.0));
+            InstallFakeDeliveryApplier();
+            var env = new EligibleEnv();
+
+            // Anchor 1000 -> 1300: dock instants 1450, 1750, 2050, 2350, 2650, 2950, ...
+            foreach (double ut in new[] { 1450.0, 1750.0, 2050.0, 2350.0 })
+                RouteOrchestrator.Tick(ut, env);
+            Assert.Equal(4, DispatchRows().Count);
+            Assert.Equal(3, route.LastObservedLoopCycleIndex);
+            Route savedAt2400 = SnapshotAsSaved(route);
+
+            // The abandoned future: pause, re-activate (anchor -> 2600, cursor -> -1), one run.
+            Assert.True(RouteOrchestrator.TryPause(route, 2500.0, env));
+            Assert.True(RouteOrchestrator.TryActivate(route, 2600.0));
+            Assert.Equal(2600.0, route.LoopAnchorUT);
+            RouteOrchestrator.Tick(2760.0, env);
+            Assert.Equal(5, DispatchRows().Count);
+
+            RouteLoadReconcile.ReconcileAtInSessionLoad(
+                LoadKind.QuickloadFlight, 2400.0, 2400.0, new[] { savedAt2400 });
+
+            Assert.Equal(1000.0, route.LoopAnchorUT);
+            Assert.Equal(3, route.LastObservedLoopCycleIndex);
+            for (double ut = 2660.0; ut <= 3700.0; ut += 100.0)
+                RouteOrchestrator.Tick(ut, env);
+
+            // The loaded world owes the crossings at 2650, 2950, 3250 and 3550: each fires once,
+            // on the first tick after its dock instant.
+            var reflown = DispatchRows().Where(a => a.UT > 2400.0).Select(a => a.UT).ToList();
+            Assert.Equal(new[] { 2660.0, 2960.0, 3260.0, 3560.0 }, reflown);
+        }
     }
 }

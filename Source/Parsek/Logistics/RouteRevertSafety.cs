@@ -13,21 +13,25 @@ namespace Parsek.Logistics
     /// <see cref="LiveDeliveryWriters"/> (<c>WriteResource</c> / <c>WriteInventory</c>),
     /// <see cref="LiveOriginDebitWriters"/> (<c>WriteResourceDebit</c>), and
     /// <see cref="LiveInventoryPickupWriter"/> (<c>RemoveOne</c>). Their <b>only</b>
-    /// rollback is the Rewind-to-Separation quicksave (a full-world
-    /// <c>GamePersistence.LoadGame</c>): there is no per-writer undo, the
-    /// <c>ReconciliationBundle</c> does not snapshot route state, and the recalc only
-    /// reconstructs the funds scalar — never the physical tanks/inventory.</para>
+    /// rollback is a full-world load of an earlier save (an F9 quickload, a stock
+    /// revert, the Esc-menu Discard Re-fly's reload of the Rewind Point quicksave, a
+    /// Rewind-to-Separation or a go-back rewind): there is no per-writer undo, and the
+    /// recalc only reconstructs the funds scalar - never the physical tanks/inventory.
+    /// Each of those loads also reconciles the route ledger rows and loop cursors at the
+    /// loaded UT (<c>RouteLoadReconcile</c>, <c>ParsekScenario.HandleRewindOnLoad</c>,
+    /// <c>ReconciliationBundle.Restore</c>).</para>
     ///
     /// <para>So if a route physically fires <b>inside a segment the player then
-    /// discards WITHOUT a rewind</b>, that mutation leaks into the surviving timeline
+    /// discards WITHOUT a load</b>, that mutation leaks into the surviving timeline
     /// with no rollback path. The discard cores
     /// (<c>RecordingStore.DiscardPendingTree</c> /
     /// <c>TryDiscardActiveSwitchSegmentAttempt</c> /
-    /// <c>ParsekFlight.AutoDiscardActiveTreeCore</c>) and
-    /// <c>MergeDialog.ReFlyDiscard</c> hold no quicksave —
-    /// <c>MergeDialog.ReFlyDiscard</c> reverts purely via
+    /// <c>ParsekFlight.AutoDiscardActiveTreeCore</c>) and the merge dialog's
+    /// <c>MergeDialog.ReFlyDiscard</c> hold no quicksave - the latter reverts purely via
     /// <c>LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions</c>
-    /// (NO <c>LoadGame</c>), so the physical effect is never undone there either.</para>
+    /// (NO <c>LoadGame</c>), so the physical effect is never undone there either. The
+    /// Esc-menu Discard Re-fly (<c>RevertInterceptor.DiscardReFlyHandler</c>) is not one
+    /// of them: it calls <c>GamePersistence.LoadGame</c> on the Rewind Point quicksave.</para>
     ///
     /// <para><b>Scope of THIS file (observability only — the full fix is DEFERRED).</b>
     /// This is a pure, testable predicate that answers "does this route physical

@@ -189,6 +189,22 @@ namespace Parsek.Tests.Logistics
             return row;
         }
 
+        // Seed the RouteDispatched row a pending credit pays back. Production arms a
+        // pending credit only right after EmitDispatchDebit wrote this row, and
+        // EmitPendingRecoveryCredit refuses a credit whose dispatch row is gone.
+        private static void SeedDispatchRow(string cycleId, double ut = 1000.0, string routeId = "route-credit")
+        {
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteDispatched,
+                UT = ut,
+                RouteId = routeId,
+                RouteCycleId = cycleId,
+                RouteStopIndex = -1,
+                Sequence = 0,
+            });
+        }
+
         private sealed class EligibleEnv : IRouteRuntimeEnvironment
         {
             public bool IsCareer { get; set; }
@@ -274,6 +290,7 @@ namespace Parsek.Tests.Logistics
         {
             InstallSourceTree();
             SeedRecoveryRow(Recovered);
+            SeedDispatchRow("cycle-0", 1150.0);   // the dispatch the owed credit pays back
             var route = BuildLoopRoute();
             route.PendingRecoveryCreditCycleId = "cycle-0";
             route.PendingRecoveryCreditDispatchUT = 1000.0;
@@ -301,6 +318,7 @@ namespace Parsek.Tests.Logistics
             InstallSourceTree();
             SeedRecoveryRow(1200.0, RootRecId);
             SeedRecoveryRow(6100.0, RecoveryRecId);
+            SeedDispatchRow("cycle-0", 1150.0);   // the dispatch the owed credit pays back
             var route = BuildLoopRoute();
             route.PendingRecoveryCreditCycleId = "cycle-0";
             var env = new EligibleEnv { IsCareer = true };
@@ -632,6 +650,7 @@ namespace Parsek.Tests.Logistics
         {
             InstallSourceTree();
             SeedRecoveryRow(Recovered);
+            SeedDispatchRow("cycle-0", 1150.0);   // the dispatch the owed credit pays back
             var route = BuildLoopRoute(status: RouteStatus.InTransit);
             // This cycle dispatched + armed its own pending credit during EmitLoopCycle.
             route.PendingRecoveryCreditCycleId = "cycle-0";
@@ -689,6 +708,7 @@ namespace Parsek.Tests.Logistics
         {
             InstallSourceTree();
             SeedRecoveryRow(Recovered);
+            SeedDispatchRow("cycle-0", 1150.0);   // the dispatch the owed credit pays back
             var route = BuildLoopRoute(status: RouteStatus.InTransit);
             route.PendingRecoveryCreditCycleId = "cycle-0";
             route.PendingRecoveryCreditDispatchUT = 1150.0;
@@ -756,6 +776,7 @@ namespace Parsek.Tests.Logistics
         {
             InstallSourceTree();
             SeedRecoveryRow(Recovered);
+            SeedDispatchRow("cycle-0", 1150.0);   // the dispatch the owed credit pays back
             var route = BuildLoopRoute();
             route.PendingRecoveryCreditCycleId = "cycle-0";
             var env = new EligibleEnv { IsCareer = true };
@@ -787,6 +808,7 @@ namespace Parsek.Tests.Logistics
             InstallSourceTree();
             SeedRecoveryRow(Recovered);
             // Route reloaded with a pending marker set but no credit row in ledger.
+            SeedDispatchRow("cycle-0", 1150.0);   // the dispatch the owed credit pays back
             var route = BuildLoopRoute(lastObservedLoopCycleIndex: 0);
             route.CompletedCycles = 1; // cycle-0 already delivered before the crash
             route.PendingRecoveryCreditCycleId = "cycle-0";
@@ -967,6 +989,7 @@ namespace Parsek.Tests.Logistics
             SeedRecoveryRow(Recovered, RecoveryRecId);          // creation-time recover leg
             SeedRecoveryRow(9999.0, newBranchRecId);            // post-creation branch recovery
 
+            SeedDispatchRow("cycle-0", 1150.0);   // the dispatch the owed credit pays back
             var route = BuildLoopRoute();
             route.CreationTreeRecordingIds.Add(RootRecId);
             route.CreationTreeRecordingIds.Add(RecoveryRecId);  // whole tree at creation
@@ -1029,6 +1052,97 @@ namespace Parsek.Tests.Logistics
                 pickedUp, new List<GameAction>());
 
             Assert.False(worldStateChanging);
+        }
+
+        // ==================================================================
+        // Orphan credit: the dispatch it pays back is gone
+        // (ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD)
+        // ==================================================================
+
+        // catches: a pending credit whose RouteDispatched row a load or rewind back in time
+        // retired (or a tombstone hid) paying out anyway - funds for a cycle the surviving
+        // timeline never ran or charged.
+        [Fact]
+        public void OrphanPendingCredit_DispatchRowGone_ClearedNotPaid()
+        {
+            InstallSourceTree();
+            SeedRecoveryRow(Recovered);
+            SeedDispatchRow("cycle-0", 1150.0);   // a different cycle's row does not count
+            var route = BuildLoopRoute();
+            route.PendingRecoveryCreditCycleId = "cycle-3";
+            route.PendingRecoveryCreditDispatchUT = 1450.0;
+            var env = new EligibleEnv { IsCareer = true };
+
+            bool emitted = RouteOrchestrator.EmitPendingRecoveryCredit(route, 1700.0, env);
+
+            Assert.False(emitted);
+            Assert.Empty(Credits());
+            Assert.Empty(liveCredits);
+            Assert.Null(route.PendingRecoveryCreditCycleId);
+            Assert.Equal(-1.0, route.PendingRecoveryCreditDispatchUT);
+            Assert.Contains(logLines, l => l.Contains("[Route]")
+                && l.Contains("cycle=cycle-3") && l.Contains("credit-skip orphan"));
+        }
+
+        // catches: a flush site other than the crossing (here the immediate pause; the
+        // source-problem flush in RevalidateSources is the same call) paying an orphan
+        // credit. Every flush site routes through EmitPendingRecoveryCredit's guard.
+        [Fact]
+        public void OrphanPendingCredit_GuardHoldsForEveryFlushSite()
+        {
+            InstallSourceTree();
+            SeedRecoveryRow(Recovered);
+            var route = BuildLoopRoute();
+            route.PendingRecoveryCreditCycleId = "cycle-0";
+            route.PendingRecoveryCreditDispatchUT = 1150.0;
+            RouteStore.AddRoute(route);
+
+            // The immediate-pause path flushes the owed credit; the dispatch row was retired.
+            bool paused = RouteOrchestrator.TryPause(route, 1300.0, new EligibleEnv { IsCareer = true });
+
+            Assert.True(paused);
+            Assert.Empty(Credits());
+            Assert.Empty(liveCredits);
+            Assert.Null(route.PendingRecoveryCreditCycleId);
+        }
+
+        // catches: an F9 back past a credit flush losing the credit the loaded save still
+        // owes (the reconcile can only clear a pending marker, the save carries the owed one)
+        // or paying the abandoned future's credit twice.
+        [Fact]
+        public void QuickloadBackPastACreditFlush_OwedCreditPaysOnceOnTheReflownCrossing()
+        {
+            InstallSourceTree();
+            SeedRecoveryRow(Recovered);
+            var route = BuildLoopRoute();
+            route.CreatedUT = 900.0;
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakeDeliveryApplier();
+            var env = new EligibleEnv { IsCareer = true };
+
+            RouteOrchestrator.Tick(1150.0, env);       // cycle-0 dispatched, credit owed
+            var saveNode = new ConfigNode("ROUTE");
+            route.SerializeInto(saveNode);
+            Route savedAt1200 = Route.DeserializeFrom(saveNode);
+            Assert.Equal("cycle-0", savedAt1200.PendingRecoveryCreditCycleId);
+            RouteOrchestrator.Tick(1450.0, env);       // abandoned future: cycle-0 credit paid, cycle-1 owed
+            Assert.Single(Credits());
+            liveCredits.Clear();
+
+            RouteLoadReconcile.ReconcileAtInSessionLoad(
+                LoadKind.QuickloadFlight, 1200.0, 1200.0, new[] { savedAt1200 });
+
+            Assert.Empty(Credits());                   // the abandoned flush is retired
+            Assert.Equal("cycle-0", route.PendingRecoveryCreditCycleId);
+
+            RouteOrchestrator.Tick(1460.0, env);       // the re-flown crossing
+
+            var credit = Assert.Single(Credits());
+            Assert.Equal("cycle-0", credit.RouteCycleId);
+            Assert.Equal(1460.0, credit.UT);
+            Assert.Single(liveCredits);
+            Assert.Equal("cycle-1", route.PendingRecoveryCreditCycleId);
         }
     }
 }

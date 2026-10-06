@@ -447,6 +447,24 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when the ledger holds at least one free-standing route row
+        /// (<c>RouteLedgerRetire.ShouldRetireRouteActionAtRewind</c>, the same predicate and
+        /// strict-<c>&gt;</c> boundary <see cref="RetireFutureRouteActionsAtRewind"/> uses) with
+        /// UT after <paramref name="cutoffUT"/>. Read-only. The in-session load route reconcile
+        /// (<c>RouteLoadReconcile</c>) reads it as evidence that a load went back in time past
+        /// route activity.
+        /// </summary>
+        internal static bool HasFreeStandingRouteActionsAfterUT(double cutoffUT)
+        {
+            for (int i = 0; i < actions.Count; i++)
+            {
+                if (Logistics.RouteLedgerRetire.ShouldRetireRouteActionAtRewind(actions[i], cutoffUT))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Returns the UT of the most recent untagged (no recording id) vessel rollout spend
         /// (<see cref="GameActionType.FundsSpending"/> with <see cref="FundsSpendingSource.VesselBuild"/>),
         /// or <c>double.NaN</c> when none exists. This is the pad/runway placement UT of the

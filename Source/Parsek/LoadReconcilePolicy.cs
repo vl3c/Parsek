@@ -186,7 +186,6 @@ namespace Parsek
     internal static class LoadReconcilePolicy
     {
         internal const string GapReFlyLists = "QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY";
-        internal const string GapRouteState = "ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD";
         internal const string GapColdLoadAbandonedFuture = "COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE";
 
         internal const string LogTag = "LoadPolicy";
@@ -772,13 +771,22 @@ namespace Parsek
                 case LoadKind.DiscardReFly:
                 case LoadKind.StockRevert:
                 case LoadKind.QuickloadFlight:
+                    return Today(LoadReconcileAction.ReconcileAtCutoff, InSessionRouteReconcile);
                 case LoadKind.InSessionOther:
-                    return Gap(LoadReconcileAction.Memory, GapRouteState,
-                        "RouteStore is loaded on the cold path only and no in-session load reconciles it "
-                        + "(a forward scene change needs nothing; a load back in time does)");
+                    return Today(LoadReconcileAction.ReconcileAtCutoff,
+                        InSessionRouteReconcile + ", only when route state lies after the loaded save "
+                        + "(an F9 at the Space Center or Tracking Station, or into a flight quicksave from the "
+                        + "Space Center); a forward or same-instant scene change finds none and touches nothing");
             }
             throw UnknownKind(kind);
         }
+
+        private const string InSessionRouteReconcile =
+            "ParsekScenario.OnLoad -> RouteLoadReconcile.ReconcileAtInSessionLoad, before the recalculation: "
+            + "Ledger.RetireFutureRouteActionsAtRewind + RouteRewindClassifier.ReconcileStoreAtRewind at the "
+            + "loaded save's UT (a stock revert: the earlier of it and the revert prune's launch boundary), "
+            + "then each kept route takes its loop position and owed recovery credit back from the loaded "
+            + "save's own route copy";
 
         private const string CrewAndSlotsFromNode =
             "ParsekScenario.LoadCrewAndGroupState reads the loaded node";
