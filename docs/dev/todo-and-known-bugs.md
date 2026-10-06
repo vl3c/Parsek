@@ -363,7 +363,7 @@ the in-flight F9 after a later save is lane QL-4c.
 
 ---
 
-## ~~QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE: F9 into a committed flight's quicksave after any later save (the Space Center exit, an autosave, a far vessel switch) leaves its abandoned future committed~~ [FILED 2026-10-06 while authoring lane QL-4 (Space Center route), verified by code read; in-flight route folded in 2026-10-06 from the PR-C review, verified by code read. FIXED 2026-10-06, branch `quickload-after-save` (xUnit; live proof is lanes QL-4b and QL-4c, authored, never flown)]
+## ~~QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE: F9 into a committed flight's quicksave after any later save (the Space Center exit, an autosave, a far vessel switch) leaves its abandoned future committed~~ [FILED 2026-10-06 while authoring lane QL-4 (Space Center route), verified by code read; in-flight route folded in 2026-10-06 from the PR-C review, verified by code read. FIXED 2026-10-06, PR #2030 (xUnit; live proof is lanes QL-4b and QL-4c, authored, never flown)]
 
 One root, two routes. Any OnSave between the quicksave and the F9 of a flight committed in that
 window rewrites the flight's changed

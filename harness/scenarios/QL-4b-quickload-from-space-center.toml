@@ -87,7 +87,7 @@ id = "QL-4b-quickload-from-space-center"
 #     landing at ~UT 119, one second before the cutoff, so it is not ruled out: file it
 #     against the todo if it shows.
 #
-# STATUS: AUTHORED 2026-10-06 (branch `quickload-after-save`), NEVER FLOWN. Every token is
+# STATUS: AUTHORED 2026-10-06 (PR #2030), NEVER FLOWN. Every token is
 # quoted from its emitting source line or from QL-4's header, never pasted from a run of this
 # lane; the saveParse blocks are REPORT-ONLY until a reading run.
 # =====================================================================================
