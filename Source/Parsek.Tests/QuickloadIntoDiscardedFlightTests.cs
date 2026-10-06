@@ -204,6 +204,77 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("TryRestoreActiveTreeNode: dropped entire tree 'ql_corrupt'"));
         }
 
+        [Fact]
+        public void DiscardedCloneOfACommittedTree_RestoresAsBefore()
+        {
+            // The copy-on-write shape: tree ql_cow is committed, the recorder resumed its vessel
+            // on a same-id clone that gained a segment, F5 saved the clone, and the Discard
+            // deleted the segment only (committed ids are preserved), so the tree id is noted.
+            // The committed members' files are gone too here (a damaged folder), so every member
+            // reads trajectory-missing and only the committed-copy guard keeps the decline off.
+            RecordingTree committed = MakeTree("ql_cow");
+            WriteSidecars(committed);
+            foreach (Recording rec in committed.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+            RecordingStore.AddCommittedTreeForTesting(committed);
+
+            RecordingTree clone = RecordingTree.DeepClone(committed);
+            var segment = new Recording
+            {
+                RecordingId = "seg_ql_cow", TreeId = "ql_cow", VesselName = "ql_cow", VesselPersistentId = RootPid,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
+                SidecarEpoch = 0,
+            };
+            SetPoints(segment, 200.0, 250.0);
+            WriteSidecar(segment);
+            clone.AddOrReplaceRecording(segment);
+            clone.ActiveRecordingId = "seg_ql_cow";
+            clone.RebuildBackgroundMap();
+            ConfigNode quicksave = QuicksaveNode(clone);
+
+            RecordingStore.StashPendingTree(RecordingTree.DeepClone(clone), PendingTreeState.Finalized);
+            RecordingStore.DiscardPendingTree();
+            Assert.True(RecordingStore.WasTreeDiscardedThisSession("ql_cow"));
+            Assert.False(File.Exists(TrajectoryPath("seg_ql_cow")));
+            Assert.True(File.Exists(TrajectoryPath("root_ql_cow")));
+            foreach (Recording rec in committed.Recordings.Values)
+                File.Delete(TrajectoryPath(rec.RecordingId));
+
+            logLines.Clear();
+            ParsekScenario.TryRestoreActiveTreeNode(quicksave);
+
+            Assert.False(ParsekScenario.IsFreshRecordingAfterDiscardArmed);
+            Assert.DoesNotContain(logLines, l => l.Contains("- not restoring it"));
+            Assert.Contains(logLines, l =>
+                l.Contains("TryRestoreActiveTreeNode: tree 'ql_cow' id=ql_cow was discarded this session "
+                    + "but is restored as before (reason=committed-copy-in-memory)"));
+        }
+
+        [Fact]
+        public void DiscardedTreeWithASameIdPendingTree_RestoresAsBeforeFromThePendingTree()
+        {
+            // A pending tree carrying the discarded tree's id is live state the restore salvages
+            // from, not a discard to honour: the decline must neither fire nor pop it.
+            RecordingTree tree = MakeTree("ql_same");
+            ConfigNode quicksave = F5(tree);
+            Discard(tree);
+            RecordingTree sameId = RecordingTree.DeepClone(tree);
+            RecordingStore.StashPendingTree(sameId, PendingTreeState.Limbo);
+
+            logLines.Clear();
+            Assert.True(ParsekScenario.TryRestoreActiveTreeNode(quicksave));
+
+            Assert.False(ParsekScenario.IsFreshRecordingAfterDiscardArmed);
+            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+            Assert.Equal("ql_same", RecordingStore.PendingTree.Id);
+            Assert.Contains(logLines, l =>
+                l.Contains("TryRestoreActiveTreeNode: tree 'ql_same' id=ql_same was discarded this session "
+                    + "but is restored as before (reason=pending-same-id-in-memory)"));
+            Assert.Contains(logLines, l =>
+                l.Contains("TryRestoreActiveTreeNode: restored 2 hydration-failed recording(s) from matching pending tree 'ql_same'"));
+        }
+
         // ============================================================
         // Mirror: the save holds the discarded tree as its PENDING tree.
         // ============================================================
@@ -253,7 +324,7 @@ namespace Parsek.Tests
             Assert.True(RecordingStore.WasTreeDiscardedThisSession("ql_noted"));
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]")
-                && l.Contains("Noted tree 'ql_noted' id=ql_noted as discarded this session (deletedSidecarSets=2"));
+                && l.Contains("Noted tree 'ql_noted' id=ql_noted as discarded this session (removedSidecarSets=2"));
 
             // Every member committed history: the discard deletes nothing and notes nothing.
             RecordingTree overlap = MakeTree("ql_overlap");
@@ -398,14 +469,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TheLoadRecalculatesAsTheResumeItReplaces_NoCurrentUtCutoff()
+        public void DiscardThenF9_TheLoadRecalculatesAtTheLoadedUT_NoFutureRowReachesKsp()
         {
-            Assert.True(ParsekScenario.ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
-                false, true, true, false, ParsekScenario.ActiveTreeRestoreMode.None, false, false, true,
-                freshRecordingAfterDiscardArmed: false));
-            Assert.False(ParsekScenario.ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
-                false, true, true, false, ParsekScenario.ActiveTreeRestoreMode.None, false, false, true,
-                freshRecordingAfterDiscardArmed: true));
+            // A resume defers the load's KSP patch (its Limbo stash sits in the pending slot);
+            // the decline leaves no pending tree, recorder or active tree, so an uncut walk
+            // would patch every row after the loaded UT into KSP. A committed-future Space
+            // Center spending at 400 must stay out of the state at 150.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0, Type = GameActionType.FundsInitial, InitialFunds = 100000f,
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 400.0, Type = GameActionType.FacilityUpgrade, FacilityId = "LaunchPad",
+                ToLevel = 2, FacilityCost = 50000f,
+            });
+            ArmByDiscardThenF9();
+            Assert.False(RecordingStore.HasPendingTree);
+
+            logLines.Clear();
+            bool cutoffUsed = ParsekScenario.RecalculateLedgerForInSessionLoad(
+                isRevert: false, loadedScene: GameScenes.FLIGHT, planetariumReady: true, loadedUT: 150.0);
+
+            Assert.True(cutoffUsed);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff=True"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Current-UT ledger recalculation: reason=post-rewind-load cutoffUT=150"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("RecalculateAndPatch: ") && l.Contains("cutoffUT=null"));
+            Assert.Equal(100000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Equal(0.0, LedgerOrchestrator.Funds.GetTotalCommittedSpendings(), 1);
         }
 
         // ============================================================
@@ -511,16 +606,19 @@ namespace Parsek.Tests
         private static void WriteSidecars(RecordingTree tree)
         {
             foreach (Recording rec in tree.Recordings.Values)
-            {
-                Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
-                    rec,
-                    TrajectoryPath(rec.RecordingId),
-                    RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId)),
-                    RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId)),
-                    incrementEpoch: true));
-                Assert.Equal(1, rec.SidecarEpoch);
-                Assert.True(File.Exists(TrajectoryPath(rec.RecordingId)));
-            }
+                WriteSidecar(rec);
+        }
+
+        private static void WriteSidecar(Recording rec)
+        {
+            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                rec,
+                TrajectoryPath(rec.RecordingId),
+                RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId)),
+                RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId)),
+                incrementEpoch: true));
+            Assert.Equal(1, rec.SidecarEpoch);
+            Assert.True(File.Exists(TrajectoryPath(rec.RecordingId)));
         }
 
         private static string TrajectoryPath(string recordingId)

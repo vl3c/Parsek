@@ -719,12 +719,6 @@ namespace Parsek
                 "pending-tree-discard");
         }
 
-        /// <summary>
-        /// <paramref name="freshRecordingAfterDiscardArmed"/>: the load declined a discarded
-        /// active tree and arms a fresh recording for flight ready. The flight records again as
-        /// if it had never been discarded, so the load recalculates as the quickload resume it
-        /// replaces does (no cutoff).
-        /// </summary>
         internal static bool ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
             bool isRevert,
             bool loadedSceneSupportsCurrentUtCutoff,
@@ -733,18 +727,65 @@ namespace Parsek
             ActiveTreeRestoreMode restoreMode,
             bool hasLiveRecorder,
             bool hasActiveUncommittedTree,
-            bool hasFutureLedgerActions,
-            bool freshRecordingAfterDiscardArmed = false)
+            bool hasFutureLedgerActions)
         {
             return !isRevert
                 && loadedSceneSupportsCurrentUtCutoff
                 && planetariumReady
                 && !hasPendingTree
                 && restoreMode == ActiveTreeRestoreMode.None
-                && !freshRecordingAfterDiscardArmed
                 && !hasLiveRecorder
                 && !hasActiveUncommittedTree
                 && hasFutureLedgerActions;
+        }
+
+        /// <summary>
+        /// The in-session OnLoad's ledger recalculation: reads the live load state, decides
+        /// between the current-UT cutoff and the plain walk
+        /// (<see cref="ShouldUseCurrentUtCutoffForPostRewindFlightLoad"/>), logs the decision
+        /// and runs it. Returns true when the cutoff walk ran.
+        /// </summary>
+        internal static bool RecalculateLedgerForInSessionLoad(
+            bool isRevert, GameScenes loadedScene, bool planetariumReady, double loadedUT)
+        {
+            bool loadedSceneSupportsCurrentUtCutoff =
+                IsCurrentUtCutoffSupportedScene(loadedScene);
+            bool hasPendingTree = RecordingStore.HasPendingTree;
+            ActiveTreeRestoreMode restoreMode = ScheduleActiveTreeRestoreOnFlightReady;
+            bool hasLiveRecorder = GameStateRecorder.HasLiveRecorder();
+            bool hasActiveUncommittedTree = GameStateRecorder.HasActiveUncommittedTree();
+            bool hasFutureLedgerActions = LedgerOrchestrator.HasActionsAfterUT(loadedUT);
+            bool useCurrentUtCutoffForPostRewindFlightLoad =
+                ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
+                    isRevert,
+                    loadedSceneSupportsCurrentUtCutoff,
+                    planetariumReady,
+                    hasPendingTree,
+                    restoreMode,
+                    hasLiveRecorder,
+                    hasActiveUncommittedTree,
+                    hasFutureLedgerActions);
+            ParsekLog.Info("Scenario",
+                $"OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff={useCurrentUtCutoffForPostRewindFlightLoad} " +
+                $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"isRevert={isRevert} loadedScene={loadedScene} " +
+                $"loadedSceneSupportsCurrentUtCutoff={loadedSceneSupportsCurrentUtCutoff} " +
+                $"planetariumReady={planetariumReady} hasPendingTree={hasPendingTree} " +
+                $"restoreMode={restoreMode} hasLiveRecorder={hasLiveRecorder} " +
+                $"hasActiveUncommittedTree={hasActiveUncommittedTree} " +
+                $"hasFutureLedgerActions={hasFutureLedgerActions}");
+            if (useCurrentUtCutoffForPostRewindFlightLoad)
+            {
+                ParsekLog.Info("Scenario",
+                    $"OnLoad: post-rewind scene-load recalc using current-UT cutoff {loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    "to keep future funds/contracts filtered until replay catches up");
+                RecalculateAndPatchForPostRewindFlightLoad(loadedUT);
+            }
+            else
+            {
+                LedgerOrchestrator.RecalculateAndPatch();
+            }
+            return useCurrentUtCutoffForPostRewindFlightLoad;
         }
 
         internal static bool IsCurrentUtCutoffSupportedScene(GameScenes scene)
@@ -4309,48 +4350,9 @@ namespace Parsek
                         }
                     }
 
-                    GameScenes loadedScene = HighLogic.LoadedScene;
-                    bool loadedSceneSupportsCurrentUtCutoff =
-                        IsCurrentUtCutoffSupportedScene(loadedScene);
-                    bool hasPendingTree = RecordingStore.HasPendingTree;
-                    ActiveTreeRestoreMode restoreMode = ScheduleActiveTreeRestoreOnFlightReady;
-                    bool hasLiveRecorder = GameStateRecorder.HasLiveRecorder();
-                    bool hasActiveUncommittedTree = GameStateRecorder.HasActiveUncommittedTree();
-                    bool hasFutureLedgerActions = LedgerOrchestrator.HasActionsAfterUT(loadedUT);
-                    bool freshRecordingAfterDiscardArmed = IsFreshRecordingAfterDiscardArmed;
                     loadPhase = "ledger-recalculate";
-                    bool useCurrentUtCutoffForPostRewindFlightLoad =
-                        ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
-                            isRevert,
-                            loadedSceneSupportsCurrentUtCutoff,
-                            planetariumReady,
-                            hasPendingTree,
-                            restoreMode,
-                            hasLiveRecorder,
-                            hasActiveUncommittedTree,
-                            hasFutureLedgerActions,
-                            freshRecordingAfterDiscardArmed);
-                    ParsekLog.Info("Scenario",
-                        $"OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff={useCurrentUtCutoffForPostRewindFlightLoad} " +
-                        $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                        $"isRevert={isRevert} loadedScene={loadedScene} " +
-                        $"loadedSceneSupportsCurrentUtCutoff={loadedSceneSupportsCurrentUtCutoff} " +
-                        $"planetariumReady={planetariumReady} hasPendingTree={hasPendingTree} " +
-                        $"restoreMode={restoreMode} hasLiveRecorder={hasLiveRecorder} " +
-                        $"hasActiveUncommittedTree={hasActiveUncommittedTree} " +
-                        $"hasFutureLedgerActions={hasFutureLedgerActions} " +
-                        $"freshRecordingAfterDiscard={freshRecordingAfterDiscardArmed}");
-                    if (useCurrentUtCutoffForPostRewindFlightLoad)
-                    {
-                        ParsekLog.Info("Scenario",
-                            $"OnLoad: post-rewind scene-load recalc using current-UT cutoff {loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                            "to keep future funds/contracts filtered until replay catches up");
-                        RecalculateAndPatchForPostRewindFlightLoad(loadedUT);
-                    }
-                    else
-                    {
-                        LedgerOrchestrator.RecalculateAndPatch();
-                    }
+                    RecalculateLedgerForInSessionLoad(
+                        isRevert, HighLogic.LoadedScene, planetariumReady, loadedUT);
                     if (KerbalLoadRepairDiagnostics.IsActive)
                         KerbalLoadRepairDiagnostics.EmitAndReset();
                     ParsekLog.Info("Scenario", $"{(isRevert ? "Revert" : "Scene change")} — preserving {recordings.Count} session recordings");

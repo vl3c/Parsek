@@ -160,6 +160,10 @@ namespace Parsek
             ClearPendingQuickloadResumeContext();
             lastRestoredQuicksaveTreeFacts = null;
 
+            // With no pending tree left, the load's ledger recalculation takes the current-UT
+            // cutoff. Nothing armed here may steer it to the uncut walk, which would patch every
+            // committed-future row into KSP (a resume escapes that only because its Limbo stash
+            // defers the patch).
             string poppedLimbo = "none";
             if (RecordingStore.HasPendingTree
                 && (RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo

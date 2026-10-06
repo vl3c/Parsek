@@ -2691,14 +2691,14 @@ namespace Parsek
         /// still holds the tree as its active tree reads this to tell a deliberate discard
         /// from a damaged or incomplete save folder.
         /// </summary>
-        internal static void NoteTreeDiscardedThisSession(string treeId, string treeName, int deletedSidecarSets)
+        internal static void NoteTreeDiscardedThisSession(string treeId, string treeName, int removedSidecarSets)
         {
             if (string.IsNullOrEmpty(treeId))
                 return;
             bool added = treesDiscardedThisSession.Add(treeId);
             ParsekLog.Verbose("RecordingStore",
                 $"Noted tree '{treeName ?? "<unnamed>"}' id={treeId} as discarded this session " +
-                $"(deletedSidecarSets={deletedSidecarSets.ToString(CultureInfo.InvariantCulture)}, " +
+                $"(removedSidecarSets={removedSidecarSets.ToString(CultureInfo.InvariantCulture)}, " +
                 $"new={(added ? "true" : "false")})");
         }
 
@@ -2853,7 +2853,7 @@ namespace Parsek
 
             int skippedCommittedDeletes = 0;
             int skippedDeletesByDurableHint = 0;
-            int deletedSidecarSets = 0;
+            int removedSidecarSets = 0;
             foreach (var rec in pendingTree.Recordings.Values)
             {
                 string deleteCandidateId = rec?.RecordingId;
@@ -2867,11 +2867,13 @@ namespace Parsek
                         skippedDeletesByDurableHint++;
                     continue;
                 }
-                DeleteRecordingFiles(rec);
-                deletedSidecarSets++;
+                // Counted only when nothing was left behind: a locked file that survives
+                // is not proof of a discard.
+                if (DeleteRecordingFiles(rec))
+                    removedSidecarSets++;
             }
-            if (deletedSidecarSets > 0)
-                NoteTreeDiscardedThisSession(pendingTree.Id, pendingTree.TreeName, deletedSidecarSets);
+            if (removedSidecarSets > 0)
+                NoteTreeDiscardedThisSession(pendingTree.Id, pendingTree.TreeName, removedSidecarSets);
             if (skippedCommittedDeletes > 0)
             {
                 ParsekLog.Warn("RecordingStore",

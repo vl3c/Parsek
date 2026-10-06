@@ -207,7 +207,7 @@ evidence: `logs/2026-08-12_0011_S4.2-refly-world-preservation/KSP.log`, a discar
 "resumed recording tree 'WP Stack'" into the deleted ids). Only a member failing for another
 reason (a root whose `.prec` delete failed while its craft went) reached the drop-and-skip shape.
 
-Fix: `DiscardPendingTree` notes every tree it deleted sidecars for
+Fix: `DiscardPendingTree` notes every tree whose sidecar sets it fully removed
 (`RecordingStore.NoteTreeDiscardedThisSession`, process lifetime). After hydration,
 `TryRestoreActiveTreeNode` runs the pure `ParsekScenario.DecideDiscardedActiveTreeRestore`
 (`ParsekScenario.DiscardedFlightRestore.cs`): a tree discarded this session whose every member
@@ -218,7 +218,10 @@ a fresh recording is armed. `ParsekFlight.OnFlightReady` consumes it on every pa
 `ParsekScenario.ConsumeFreshRecordingAfterDiscard`, starting `ParsekFlight.StartRecording` (the
 auto-record entry: a new tree, fresh Guid ids) only when no restore is scheduled, no recorder
 or tree is live and an active vessel exists, after the committed-spawned-vessel restore. The
-load recalculates without the current-UT cutoff, as the resume it replaces does. Mirror:
+load's ledger recalculation takes the ordinary current-UT cutoff at the loaded UT (no pending
+tree, recorder or active tree is left at OnLoad; a resume escapes the uncut walk only because its
+Limbo stash defers the KSP patch, so an uncut walk here would patch committed-future rows into
+KSP; PR #2034 review). Mirror:
 `TryRestorePendingTreeNode` declines the same tree saved as the PENDING tree (a save the
 discard's own save refresh did not rewrite), which would otherwise come back as an empty shell to
 merge or auto-commit. A missing or damaged sidecar not from this session's discard, a hydrated
