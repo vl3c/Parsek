@@ -647,6 +647,12 @@ namespace Parsek.Tests.Logistics
             string call = body.Substring(restoreIdx, pruneIdx - restoreIdx);
             Assert.Contains("RewindContext.RewindSaveRoutes", call);
             Assert.Contains("RewindContext.RewindSaveClockUT", call);
+            // The exact arguments: a different cutoff or save clock turns the restore off in
+            // production (save-newer-than-cutoff) while the copied exit in the cells stays green.
+            string flatCall = System.Text.RegularExpressions.Regex.Replace(call, @"\s+", " ");
+            Assert.Contains("Logistics.RouteLoadReconcile.RestoreLoopPositionAtRewindExit( "
+                + "RewindContext.RewindSaveRoutes, routeRewindCutoffUT, RewindContext.RewindSaveClockUT,",
+                flatCall);
         }
 
         [Fact]
@@ -665,6 +671,11 @@ namespace Parsek.Tests.Logistics
                 "the rewind save's routes must be read from the parsed game after LoadGame");
             Assert.True(sceneIdx > captureIdx,
                 "and before the Space Center load replaces the game with persistent.sfs");
+            // The capture clock is the parsed save's own flight-state UT, the restore's skip test
+            // compares against it.
+            string flat = System.Text.RegularExpressions.Regex.Replace(body, @"\s+", " ");
+            Assert.Contains("Logistics.RouteLoadReconcile.CaptureRewindSaveRoutes(game.scenarios, "
+                + "game.flightState.universalTime, messageLabel);", flat);
         }
 
         [Fact]

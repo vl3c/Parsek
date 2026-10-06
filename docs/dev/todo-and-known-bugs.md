@@ -16,6 +16,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ROUTE-TICK-BASELINE-SET-BEFORE-GO-BACK-CLOCK-MOVE: after a go-back rewind, route ticks may stall until the clock passes the pre-rewind UT [FILED 2026-10-07 from the PR #2036 review. OPEN, product; unverified, pre-existing]
+
+`ParsekScenario.Update` sets `lastRouteTickUT` on the new scenario's first `Update`, which likely
+runs before `ApplyRewindResourceAdjustment` moves the clock back to the rewind target; if so the
+next ticks see the clock behind `lastRouteTickUT` and route crossings stall until it is passed.
+The H58 log has too few `Tick:` lines to tell. Check first: a go-back rewind log with an Active
+route, the first `Update` / `lastRouteTickUT` stamp against the clock-move line, then the next
+route `Tick:` lines.
+
+---
+
 ## DESIGN-GO-BACK-REWIND-VESSEL-SOURCE: logistics design 10.6 says a go-back rewind restores the stock vessels from the loaded save; they come from persistent.sfs [FILED 2026-10-07 from the ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING fix, branch `fix-route-rewind-refire`. OPEN, docs; verify then correct]
 
 Decompiled `SpaceCenterMain.Start` calls `LoadGame("persistent")`, and `Game.Load` hands that game's
@@ -1412,8 +1423,10 @@ keeps the reset and logs `loop position not restored ... reason=`, and a rewind 
 the route after the save leaves its loop position unchanged. Residual (go-back only): the rewind
 save's route copy is as of the save's own UT, up to the 15 s lead-time windback after the cutoff,
 while route rows after the cutoff are retired; a crossing that fired inside that window keeps its
-saved cursor and is not charged again. Changing the go-back's route cutoff to the save's own UT
-would close it; not done here. Red cells (written against stubs, 20 red, then green):
+saved cursor and is not charged again, and its `RouteRecoveryCredited` row (the credit it paid for
+the previous cycle) is retired too while the save no longer owes it, so that credit is lost as
+well (PR #2036 review; never a double charge or a double delivery). Changing the go-back's route
+cutoff to the save's own UT would close both; owner decision, not done here. Red cells (written against stubs, 20 red, then green):
 `RouteRewindLoopPositionTests` (the double fire, no-op, anchor after a re-activation, partner
 cursor, changed clock, created-after / missing-from-save, no save copy, owed credit unpaid by the
 exit, each x {GoBack, ReFlyStart}; the parsed-save capture; source gates on `HandleRewindOnLoad`,
