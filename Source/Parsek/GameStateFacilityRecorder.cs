@@ -71,6 +71,10 @@ namespace Parsek
         /// recalc apply boundary (wrapped in SuppressionGuard.ResourcesAndReplay), so bail on
         /// IsReplayingActions / SuppressResourceEvents to never re-record a Parsek-driven
         /// level patch as a fresh player upgrade.
+        ///
+        /// The upgrade's funds cost comes from the <see cref="FacilityUpgradeCapture"/> scope
+        /// of the enclosing <c>SpaceCenterBuilding.UpgradeFacility</c> call, which has already
+        /// seen stock's StructureConstruction debit when SetLevel fires this event.
         /// </summary>
         internal void OnFacilityUpgrading(Upgradeables.UpgradeableFacility fac, int newLevelIndex)
         {
@@ -88,36 +92,71 @@ namespace Parsek
             // matching KSP's GetNormLevel contract (level / MaxLevel).
             float before = fac.GetNormLevel();
             float after = NormalizedLevel(newLevelIndex, fac.MaxLevel);
+            RecordEventDrivenLevelChange(fac.id, before, after, Planetarium.GetUniversalTime());
+        }
 
+        /// <summary>
+        /// The core of <see cref="OnFacilityUpgrading"/> past the replay guard: emits the level
+        /// change, stamps an upgrade with its captured cost (<c>cost=</c>, read by
+        /// <c>ConvertFacilityUpgraded</c>), and writes an untagged upgrade to the ledger in one
+        /// batch with any building repairs the same UpgradeFacility call queued. A tagged
+        /// upgrade becomes a ledger row when its recording commits, carrying the same detail.
+        /// Returns true when an event was emitted.
+        /// </summary>
+        internal bool RecordEventDrivenLevelChange(string facilityId, float before, float after, double ut)
+        {
             GameStateEventType? kind = ClassifyFacilityLevelChange(before, after);
             if (kind == null)
             {
                 // No-op SetLevel: keep the poll cache coherent so a later poll sees no delta.
-                lastFacilityLevels[fac.id] = after;
-                return;
+                lastFacilityLevels[facilityId] = after;
+                return false;
             }
 
-            double ut = Planetarium.GetUniversalTime();
+            bool upgrade = kind.Value == GameStateEventType.FacilityUpgraded;
+            float cost = 0f;
+            string costSource = null;
+            if (upgrade)
+                cost = FacilityUpgradeCapture.ConsumeCostForUpgrade(facilityId, out costSource);
+
             var evt = new GameStateEvent
             {
                 ut = ut,
                 eventType = kind.Value,
-                key = fac.id,
+                key = facilityId,
+                detail = upgrade ? FacilityUpgradeCapture.BuildUpgradeDetail(cost) : null,
                 valueBefore = before,
                 valueAfter = after
             };
             owner.EmitFacilityEvent(ref evt, kind.Value.ToString());
+            var ic = CultureInfo.InvariantCulture;
             ParsekLog.Info("GameStateRecorder",
-                $"Game state: {kind.Value} '{fac.id}' {before:F2} → {after:F2} (event-driven)");
+                $"Game state: {kind.Value} '{facilityId}' {before.ToString("F2", ic)} → " +
+                $"{after.ToString("F2", ic)} (event-driven)" +
+                (upgrade ? $" cost={cost.ToString("R", ic)} costSource={costSource}" : ""));
 
             // Mirror the poll's ledger-forward: only upgrades forward (downgrades are
             // informational), gated on ShouldForwardFacilityLedgerEvent.
-            if (kind.Value == GameStateEventType.FacilityUpgraded
-                && owner.ShouldForwardFacilityLedgerEvent(evt.recordingId))
-                LedgerOrchestrator.OnKscSpending(evt);
+            if (upgrade)
+            {
+                var batch = FacilityUpgradeCapture.TakePendingForward();
+                if (owner.ShouldForwardFacilityLedgerEvent(evt.recordingId))
+                {
+                    batch.Add(evt);
+                }
+                else
+                {
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"Facility upgrade '{facilityId}' owned by recording '{evt.recordingId ?? ""}' " +
+                        "(or a live recorder) - becomes a ledger row at commit");
+                }
+                if (batch.Count > 0)
+                    LedgerOrchestrator.OnKscSpendingBatch(batch, "facility-upgrade");
+            }
 
             // Update the poll cache so a subsequent scene-change poll does not re-emit.
-            lastFacilityLevels[fac.id] = after;
+            lastFacilityLevels[facilityId] = after;
+            return true;
         }
 
         /// <summary>
@@ -272,6 +311,15 @@ namespace Parsek
                 return true;
             }
 
+            // A free repair by ResetStructures inside UpgradeFacility: written with the upgrade
+            // row, so no recalc runs between stock's debit and the row that charges it.
+            if (nowIntact && FacilityUpgradeCapture.TryDeferForward(evt))
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"Building repair '{buildingId}' queued for the facility upgrade batch");
+                return true;
+            }
+
             LedgerOrchestrator.OnKscSpending(evt);
             return true;
         }
@@ -330,7 +378,14 @@ namespace Parsek
                             };
                             owner.EmitFacilityEvent(ref evt, eventType.ToString());
                             eventsEmitted++;
-                            ParsekLog.Info("GameStateRecorder", $"Game state: {eventType} '{kvp.Key}' {cachedLevel:F2} → {currentLevel:F2}");
+                            // No UpgradeFacility scope saw this change (the event-driven path
+                            // updates this cache), so no stock debit is known: the upgrade row
+                            // carries cost 0 rather than a guessed one.
+                            ParsekLog.Info("GameStateRecorder",
+                                $"Game state: {eventType} '{kvp.Key}' {cachedLevel:F2} → {currentLevel:F2}" +
+                                (eventType == GameStateEventType.FacilityUpgraded
+                                    ? " cost=0 costSource=poll (no UpgradeFacility call observed this change)"
+                                    : ""));
 
                             // #553 follow-up: gate on ShouldForwardDirectLedgerEvent so
                             // untagged pre-recording FLIGHT facility upgrades reach the

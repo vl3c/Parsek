@@ -251,6 +251,8 @@ RecalculateAndPatch():
      - SeedInitialFunds from Funding.Instance.Funds
      - SeedInitialScience from ResearchAndDevelopment.Instance.Science
      - SeedInitialReputation from Reputation.Instance.reputation
+     Capture the pre-ledger progress seed (once per save, once ProgressTracking
+     has loaded; see 4.5).
      Update slot limits from current facility levels.
   1. Reset all derived state to zero/default.
   2. Collect all game actions from the ledger file.
@@ -443,6 +445,24 @@ Some resources start at non-zero values when a career save is created. The ledge
 All three core resources are seeded: **funds** (career starting funds vary by difficulty), **science**, and **reputation**. While science and reputation typically start at 0 in stock difficulty presets, seeding them is necessary to handle mid-career Parsek installation — without seeding, installing Parsek on an existing career save would wipe the player's accumulated science and reputation balances to 0 during recalculation.
 
 The seeds are written to the ledger file once when Parsek first initializes on a career save. They are immutable. Action types: `FundsInitial`, `ScienceInitial`, `ReputationInitial`.
+
+**Progress seed.** Stock progress has the same mid-career problem: the milestone patch rebuilds every progress node from `MilestoneAchievement` rows, and progress earned before Parsek has no row. `PreLedgerProgressSeed` records it once per save, at the first recalculation after ProgressTracking's OnLoad has provably run (`CurrencyScenarioReadiness.IsScenarioModuleLoaded`; before that the live tree reads every node unreached). It holds (a) the qualified ids (bare at the top level, `Body/Node` in a body subtree) of one-shot nodes that are complete in the live tree and that no ledger row in any state and no captured `MilestoneAchieved` game-state event names (a row anywhere on the timeline, or a pending flight's event, means the ledger owns the node), and (b) per world-record node, the reward thresholds the live node implies stock already paid minus that node's ledger rows and pending event scopes, clamped at 0. It carries no rewards: the currency seeds already hold whatever stock paid. It is stored as a child of the ledger file, additive so older builds ignore it:
+
+```
+PROGRESS_SEED
+{
+    captured = True
+    node = FirstLaunch
+    node = Mun/Landing
+    RECORD
+    {
+        id = RecordsAltitude
+        paidCount = 3
+    }
+}
+```
+
+No `PROGRESS_SEED` node means not captured yet (a new save, or one saved by an older build), and the next recalculation captures it; a captured seed may be empty, which on a save that has always run Parsek is the normal case. A ledger load replaces it with the file's content and a test reset clears it; `Ledger.Clear()` keeps it, because its callers restore an action list of the same save. Until it is captured, `PatchMilestones` skips entirely, so nothing is cleared before it can be recorded. How the walk uses it is in 9 (7.7).
 
 ### 4.6 Pre-Parsek save backup
 
@@ -1303,6 +1323,10 @@ The same no-delete safety applies: adding a recording can only shift which recor
 - **Science mode milestones:** In Science mode, milestones track progression but award nothing. The ledger tracks them for progression gating consistency. KSP's native Progress Tracking remains the authoritative source for milestone state.
 - **Milestone list:** The ledger only tracks achieved milestones. It does not maintain a list of all possible milestones — that's KSP's domain.
 
+### 7.7 Progress earned before the ledger
+
+`MilestonesModule.Reset` folds the save's pre-ledger progress seed (4.5) into every walk. A seeded one-shot id starts credited, so the patch keeps its node achieved; it predates every ledger row, so a later row for the same id (stock re-awarding a node something un-achieved) is a duplicate under the first-hit rule and is not counted. A seeded world-record count starts that node's effective hit count, and every record row still adds on top and stays effective, so the patched band is the pre-ledger band plus the ledger's hits, on a normal and on an authoritative (rewind) patch alike. Nodes outside the seed are patched exactly as before. A node with a ledger row anywhere on the timeline is never in the seed, so a rewind before that row still clears it, and a rewind into a tree that lacks it does not set it.
+
 ---
 
 ## 10. Contracts Module
@@ -1976,7 +2000,7 @@ FacilityUpgrade (spending action)
   sequence:     int - order within that UT
   facilityId:   string - "LaunchPad" / "VehicleAssemblyBuilding" / etc.
   toLevel:      int - target level (2 or 3)
-  facilityCost: float - funds spent (code field: FacilityCost)
+  facilityCost: float - the funds stock deducted for it (code field: FacilityCost)
 
 FacilityDestruction (recording-associated action, or a direct KSC row)
   ut:           double - when the building collapsed (stock OnKSCStructureCollapsing)
@@ -1992,7 +2016,9 @@ FacilityRepair (spending action)
 
 Upgrades and repairs are KSC spending actions (frozen UT, sequenced). A destruction during a recorded flight is recording-associated: it becomes a ledger row when that recording commits, is dropped with the recording on a revert discard, re-homed as a direct row on a non-revert discard (stock has already saved the building down), and retired by a Re-Fly that supersedes the flight. A destruction with no live recorder (before a flight's recording starts, or the KSC debug Demolish) is a direct row at its UT. A KSP load to before a direct row prunes it like any other KSC action; a Parsek rewind keeps it as a future row that the walk applies only once the clock passes it.
 
-Destruction and repair are keyed by the single DestructibleBuilding id; a facility is several buildings, and it is destroyed while any of them is. One stock repair (`SpaceCenterBuilding.RepairFacility`) repairs every destroyed building of the facility and deducts one `FundsChanged(StructureRepair)` total (`RepairCost` summed over the destroyed buildings, times `Career.FundsLossMultiplier`); Parsek writes one FacilityRepair per building carrying its share, as one batch, so the KSC reconciliation sums them against the single debit. That FundsChanged event is not converted to a funds row by any other path, so the repair row is the one place the spend is counted. Upgrading a destroyed facility repairs it for free (stock `ResetStructures`), recorded as zero-cost repair rows.
+Destruction and repair are keyed by the single DestructibleBuilding id; a facility is several buildings, and it is destroyed while any of them is. One stock repair (`SpaceCenterBuilding.RepairFacility`) repairs every destroyed building of the facility and deducts one `FundsChanged(StructureRepair)` total (`RepairCost` summed over the destroyed buildings, times `Career.FundsLossMultiplier`); Parsek writes one FacilityRepair per building carrying its share, as one batch, so the KSC reconciliation sums them against the single debit. That FundsChanged event is not converted to a funds row by any other path, so the repair row is the one place the spend is counted. Upgrading a destroyed facility repairs it for free (stock `ResetStructures`), recorded as zero-cost repair rows, written in one batch with the upgrade row.
+
+One stock upgrade (`SpaceCenterBuilding.UpgradeFacility`) deducts one `FundsChanged(StructureConstruction)` (`upgradeLevels[level + 1].levelCost` times `Career.FundsLossMultiplier`, nothing in a game without funds) BEFORE `SetLevel` raises the event the upgrade row is recorded from. Parsek reads that debit as the funds handler observes it inside the call, so the row carries what the pool actually lost (net of a strategy discount, whose funds share no strategy row records for this event-derived reason) and the KSC reconciliation pairs it with that one event. A level change no `UpgradeFacility` call observed (the scene-change poll) carries cost 0 rather than a guessed one. Rows written at cost 0 before this capture take their debit on load when the saved `FundsChanged(StructureConstruction)` event of the row's own tag and UT still proves it, and are left as stored otherwise.
 
 ### 10.3 Funds accounting
 

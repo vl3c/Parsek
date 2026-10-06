@@ -628,6 +628,9 @@ namespace Parsek
 
         /// <summary>
         /// FacilityUpgraded -> FacilityUpgrade (facilityId=key, cost from detail, level from valueAfter).
+        /// The recorder writes <c>cost=</c> from the UpgradeFacility scope
+        /// (<see cref="FacilityUpgradeCapture"/>); an event with no detail (the scene-change
+        /// poll, or one recorded before the capture existed) converts at cost 0.
         /// </summary>
         private static GameAction ConvertFacilityUpgraded(GameStateEvent evt, string recordingId)
         {
@@ -651,7 +654,8 @@ namespace Parsek
                 $"ConvertFacilityUpgraded: facility='{evt.key}' " +
                 $"valueBefore={evt.valueBefore.ToString("R", IC)} " +
                 $"valueAfter={evt.valueAfter.ToString("R", IC)} " +
-                $"toLevel={toLevel.ToString(IC)} clamped={clamped.ToString(IC)}");
+                $"toLevel={toLevel.ToString(IC)} clamped={clamped.ToString(IC)} " +
+                $"cost={cost.ToString("R", IC)}");
 
             return new GameAction
             {

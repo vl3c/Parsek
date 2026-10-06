@@ -3704,6 +3704,41 @@ _(unreleased - entries accumulate here per commit)_
   Space Center, or after the game saved again) are not covered yet, same todo. Covered by xUnit;
   not yet checked in a test flight.
 
+- **A station visited by a heavier ship no longer appears twice after a rewind.** When a
+  recorded flight docked a ship to an existing station and later undocked, Parsek decided which
+  half of the undock was the station by the vessel id, but after a dock KSP keeps the id of the
+  more important vessel (the higher vessel type, then the heavier one), and on undock the other
+  half gets a new id. With a heavier (or Ship-typed against a Probe-typed) visitor, Parsek took
+  the visitor's half for the station. If that ship was later recovered or destroyed, the station
+  was treated as gone: after a rewind it was not hidden while its recorded future played, and its
+  recorded post-undock form appeared next to it, with the same parts, resources and crew seats.
+  Parsek now follows the station through the undock by its own parts, which keep their identity
+  through docking and undocking, so the station comes back once, in its post-undock form.
+
+- **Facility upgrades are now charged in Parsek's career timeline.** Every KSC building upgrade
+  was recorded at a cost of 0, so the timeline's funds ran high by the upgrade's price: the
+  Timeline row read `Upgrade Tracking Station -> Lv.2 -0`, every funds update after an upgrade
+  held your balance at the spent value (the "Held your funds at the spent value" message), and
+  anything that looks ahead at your funds counted money already spent. An upgrade now records
+  exactly what the game charged for it (after any strategy discount; nothing in Science or
+  Sandbox), and that message no longer follows an upgrade. Upgrading a destroyed facility
+  records its free repair together with the upgrade. In an existing save, an upgrade recorded
+  at 0 takes its real price when the save is loaded, if the save still holds the funds record of
+  that upgrade (usually one made since your last committed flight); older upgrades keep 0,
+  because nothing left in the save proves what they cost.
+
+- **Installing Parsek into an existing career no longer resets its milestones and world
+  records.** The first time Parsek synced the career it un-achieved every milestone the career
+  had earned before Parsek was installed (First Launch, orbits, landings and the rest) and
+  rolled the altitude, speed, distance and depth records back to their first band. Contracts
+  that need one of those milestones (for example part tests, which need First Launch) were
+  withdrawn, and stock paid each milestone and record reward again when it was reached a
+  second time. Parsek now records that earlier progress once, the first time it loads such a
+  save, and keeps it: the milestones stay achieved, the records keep the bands already paid,
+  and nothing is paid twice. Progress earned while Parsek runs is handled exactly as before,
+  including rewinds, which still undo milestones reached after the rewind point. A career that
+  an earlier Parsek version already reset is not repaired.
+
 - **Ending a Re-Fly no longer marks an earlier segment of the same craft destroyed with its crew
   dead.** When a recording had been split into segments and the same vessel was later brought
   back by another flight (for example, docked into, undocked, and re-created at the end of that

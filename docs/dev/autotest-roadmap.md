@@ -6395,7 +6395,7 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | TA-6 | One converter-timestamp policy for every Parsek jump | TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND |
 | TA-7 | Route endpoint unresolved until X: no cycle before X delivered from the tip snapshot | CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO |
 | TA-8 | Chain tip outside FLIGHT does not adopt a live pre-claim vessel | CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT |
-| TA-9 | Chain walk follows the claimed vessel when the transport is dominant | CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER |
+| TA-9 | ~~Chain walk follows the claimed vessel when the transport is dominant~~ DONE 2026-10-06 (branch `fix-chain-walk-claimed-identity`): the tip walk follows the claimed vessel's part set (`GhostChainWalker.ResolveClaimedPartIds` / `SelectWalkChild`), red cells in `GhostChainWalkerTests`; lane RC-5 not flown | CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER |
 | TA-10 | Tail trim keeps a resource-changing tail (ruled 2026-10-06) | TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT |
 | TA-11 | `bdock-recorded` endpoint LF delta is positive (offline over the fixture) | BDOCK-FIXTURE-TRANSFER-INVERTED |
 | TA-12 | Harvest-origin route capped at drill rate x duration (ruled) | HARVEST-ROUTE-PLAUSIBILITY-CAP |

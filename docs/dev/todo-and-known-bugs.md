@@ -16,6 +16,42 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a facility downgrade's funds debit never reaches the ledger [FILED 2026-10-06 while fixing KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, branch `fix-facility-upgrade-cost`. OPEN, product, low; reachability not traced]
+
+Decompiled KSP 1.12.5: `SpaceCenterBuilding.DowngradeFacility` also debits funds (about 0.667x
+the level cost, reason `StructureConstruction`), but `FacilityDowngraded` events are
+informational only - no ledger row is written, so a downgrade leaves the ledger high by its
+debit, the same shape the upgrade had before its fix. First check whether any stock UI path
+a player can reach calls `DowngradeFacility` at all; if one does, record the debit through the
+same `FacilityUpgradeCapture` scope pattern and add a row type or a negative-level
+`FacilityUpgrade` row (decide which).
+
+Older cost-0 upgrade rows: the fix above repairs a cost-0 `FacilityUpgrade` row only while the
+save still holds its `FundsChanged(StructureConstruction)` event (events at or before the last
+committed flight's end are pruned), so most existing careers keep their older rows at 0 and
+their ledger high by those upgrades. Owner decision needed: accept a facility cost-table
+estimate (`levelCost` x today's `FundsLossMultiplier`, which can differ from what was charged
+under a changed difficulty or a strategy discount), or leave them.
+
+---
+
+## RECORD-COALESCED-ROW-COUNTS-ONE-HIT: a world-record row that coalesced several threshold breaks counts as one hit when the record node is rebuilt [FILED 2026-10-06 while fixing SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE, branch `fix-pre-parsek-progress-seed`. OPEN, product; to verify, not reproduced]
+
+`GameStateRecorder.TryCoalesceWorldRecordReward` folds every RecordsAltitude / Depth / Speed /
+Distance break of one (milestone, recording) scope into ONE MilestoneAchieved event and ledger
+row, accumulating funds / rep / science. `MilestonesModule` counts that row as one effective
+hit, and `KspStatePatcher.TryComputeRepeatableRecordState` rebuilds the stock node from the
+hit count: a live record above the next threshold "spills into a later band" and falls back to
+the last paid threshold. If one recording crosses several thresholds (an ascent past 500 m,
+2 km, 7 km, 22 km, 70 km), the patch would set the record back to the first threshold and
+stock would re-award the rest on a later flight. Collected logs show the resync at work
+(`synced repeatable record 'RecordsAltitude' hits=2 ... record=2000.0` x456) but not which
+ascents coalesced into how many rows. Check first: one ascent's KSP.log - the stock
+`[Progress Node Reached]` / award lines per threshold, the coalesced row, and the next
+`synced repeatable record` line.
+
+---
+
 ## TIMELINE-OP-COVERAGE-PROGRAM: back-in-time loads, revert, mining and resource conservation are barely tested [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. OPEN; test program]
 
 Research: `docs/dev/research/coverage-extension-plan-2026-10-06.md` and
@@ -619,7 +655,26 @@ Red test: a TS / KSC spawn cell with the claimed pid live and pre-claim; lane RC
 
 ---
 
-## CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER: a heavier or higher-type transport docked to a station becomes the station's chain tip; if it later ends Destroyed or Recovered the station is duplicated [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER: a heavier or higher-type transport docked to a station becomes the station's chain tip; if it later ends Destroyed or Recovered the station is duplicated~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, branch `fix-chain-walk-claimed-identity`; lane RC-5 not flown]
+
+**FIXED: the walk follows the claimed vessel by its PARTS.** `GhostChainWalker.WalkToLeaf` now
+resolves, at the first split with more than one child, the part `persistentId`s the claimed
+vessel owned when it was claimed (`ResolveClaimedPartIds`, from snapshots the tree already
+stores: the start recording's own snapshots when it carries the claimed pid, a background
+claim; else a Dock / Board parent carrying the claimed pid; else the merged child's parts minus
+every parent's parts, which needs a parent snapshot). `SelectWalkChild` then takes the only
+child holding a claimed part; when several hold some, the one keeping the current pid (KSP's
+root-part side), else the one holding most; a same-pid child with no snapshot is kept (it
+cannot be ruled out); with no part set or no holder it keeps the old same-pid / first-child
+rule. Each step logs `rule=`, the walk logs its `part identity source=`.
+Red cells (`GhostChainWalkerTests`, 5 red under the pid rule): transport-dominant tip, recovered
+transport no longer terminating the station's chain, station half destroyed, claimed lighter
+transport, station recorded in the docking tree. Unchanged mirrors: the `bdock-recorded`
+station-dominant shape (with and without snapshots), a claimed transport that is dominant, the
+no-snapshot fallback. Not changed: the breakup-continuous stop (`TryGetContinuedPastChildBranch`)
+still ends the walk at a recording that flew past a Breakup / JointBreak with no same-pid child,
+so a station torn off a dominant partner under force (not undocked) would still tip on the
+partner; no shape that reaches it was seen.
 
 `GhostChainWalker.WalkToLeaf` (`:704-721`) follows the child with the same `VesselPersistentId`,
 which after a dock is the DOMINANT vessel's pid (`Vessel.GetDominantVessel`: higher vessel type,
@@ -634,8 +689,8 @@ Expected player effect: a station that a heavier (or Ship-typed vs Probe-typed) 
 and that tanker was later recovered appears twice, with the same part flightIDs, resources and
 crew seats.
 
-Fix: follow the CLAIMED vessel through the split (part-set or root-part identity, not pid). Red
-test: a pure `GhostChainWalkerTests` cell; lane RC-5.
+Fix: done (FIXED note above): the walk follows the claimed vessel's part set, not the pid.
+The live proof, lane RC-5, is not flown.
 
 ---
 
@@ -786,7 +841,8 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
   (`RouteRewindClassifier.cs:137`), so which windows deliver can change (design 0.9 silent).
 - [x] VERIFIED 2026-10-06 wrong in the transport-dominant shape, filed as CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER (correct on `bdock-recorded`). Residual of the refuted identity claim: confirm that the chain-tip recording's snapshot
   for a dock-undock claim is the station half (carrying the recorded root part id), not the
-  transport.
+  transport. FIXED 2026-10-06 (`fix-chain-walk-claimed-identity`): the tip is the undock half
+  holding the claimed vessel's parts, whichever vessel was dominant.
 
 Fix: each item that verifies becomes a Phase A test and an IR lane in the roadmap's logistics
 integration program; each that does not is ticked here with the evidence.
@@ -1586,7 +1642,7 @@ Next step if it recurs: have the hover verb pick the part icon's visible centre 
 by the viewport mask) and re-read the tooltip's presence at capture time, so a lost
 tooltip reads INVALID(pointer) instead of a missing product token.
 
-## STOCK-SCREEN-CENSUS-FUNDS-GUARD-CLAMPS: the census career's funds guard clamps both ways, and an allowed upgrade does not move the walk target [FILED 2026-09-28 from KB-4 `2026-09-28_2031`, branch `kb4-block-proof`. OPEN, not investigated, not gated]
+## STOCK-SCREEN-CENSUS-FUNDS-GUARD-CLAMPS: the census career's funds guard clamps both ways, and an allowed upgrade does not move the walk target [FILED 2026-09-28 from KB-4 `2026-09-28_2031`, branch `kb4-block-proof`. OPEN for the load-time drawdown, not gated; the after-upgrade uplift is KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, fixed 2026-10-06]
 
 On `stock-screen-census` the funds patch clamps at load (`PatchFunds: GUARDED DRAWDOWN
 clamped resource=Funds running=244370.5 live=465808 wouldBeTarget=244370.5 clampedTo=465808`,
@@ -1601,6 +1657,15 @@ the fixture (its ledger seed disagrees with its save pools: `running` 244370.5 v
 465808 at load) or a walk that does not charge a present-day upgrade on this host. Next
 step: read `FundsModule` over the census ledger headless (the committed rows plus one
 KSC FacilityUpgrade at UT 473) and compare the walk's running total with the save's pool.
+
+Update 2026-10-06 (branch `fix-facility-upgrade-cost`): the after-upgrade UPLIFT clamp is
+KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO (CAREER-STATE-VIEW-2026-09-24 item 3), not this
+host. KB-4 `2026-09-28_2329` shows it directly: `OnCurrencyModified ... reason=StructureConstruction
+inF=-150000`, then `[Funds] FacilityUpgrade: -0, facilityId=SpaceCenter/Administration`, then the
+clamp - the row carried cost 0, so the walk kept the pre-upgrade pool. The row now carries the
+observed 150000 debit, so the walk target should drop to the live 86416.75 with no clamp (not
+re-flown). The load-time DRAWDOWN clamp (the fixture's ledger seed, `running` 244370.5, against
+its save pool, `live` 465808) is a separate fixture question and stays open.
 
 ## CHILD-BRANCH-SINGLE-SLOT-OVERWRITE: a second split overwrites a breakup-continuous recording's `ChildBranchPointId` [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OPEN, low; owner ruling 2026-09-28: leave filed until a player-visible defect shows]
 
@@ -2923,7 +2988,7 @@ Option if #266's "keep the mission across a far switch" behavior is wanted: subs
 the new readiness gate. That revives a path that has effectively never run in play, so it
 needs its own design pass and a flight, not a one-line subscribe.
 
-## CAREER-STATE-VIEW-2026-09-24: the Career window became the state view of contracts and strategies (PR 4 of the career-vs-timeline plan) [FILED 2026-09-24 with branch `career-state-view`. DONE on that branch; the residue below is MOOT since CAREER-WINDOW-REMOVED-2026-09-27 except item 3]
+## CAREER-STATE-VIEW-2026-09-24: the Career window became the state view of contracts and strategies (PR 4 of the career-vs-timeline plan) [FILED 2026-09-24 with branch `career-state-view`. DONE on that branch; the residue below is MOOT since CAREER-WINDOW-REMOVED-2026-09-27 except item 3, FIXED 2026-10-06 on branch `fix-facility-upgrade-cost`]
 
 Done: tabs Contracts and Strategies only (Facilities and Milestones removed with their VM,
 draw code, gallery states and tests; the Timeline's Career view owns that history); ONE
@@ -2974,12 +3039,26 @@ Open residue:
 2. The cross-link click itself is not driven by any lane (hover does not paint, and no seam
    op clicks a row cell); the pure half is unit-tested (`OnRowNameClicked`, the subject-id
    agreement test). A Timeline scroll after a click is unverified in-game.
-3. KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO: GUI-14's `KscAction upgrade-facility` wrote a
+3. ~~KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO: GUI-14's `KscAction upgrade-facility` wrote a
    `FacilityUpgrade` ledger row with cost 0 (`[Funds] FacilityUpgrade: -0 ...
    runningBalance=500000` in `2026-09-24_1525`'s KSP.log), so the Timeline row reads
    `Upgrade Tracking Station -> Lv.2 -0`. L1-upgrade-facility-career recorded the -150,000
    debit on the same fixture, so the question is whether the cost reaches the ledger row on
-   the seam path only or on a player click too. Not traced.
+   the seam path only or on a player click too. Not traced.~~ FIXED 2026-10-06 on branch
+   `fix-facility-upgrade-cost`. NOT seam-only: every stock upgrade (the seam calls the same
+   `SpaceCenterBuilding.UpgradeFacility(true)` a click reaches) wrote the `FacilityUpgraded`
+   event with no `cost=`, so `ConvertFacilityUpgraded` defaulted the row to 0, and the
+   `FundsChanged(StructureConstruction)` debit is never converted to a row. The
+   `UpgradeFacility` prefix (`FacilityUpgradeSpendPatch`, after its committed-upgrade block)
+   now opens a `FacilityUpgradeCapture` scope that reads the debit off the recorder's own
+   StructureConstruction FundsChanged delta and stamps it on the event (`cost=`), so the row
+   pairs with that event in the KSC reconciliation; a `ResetStructures` free repair inside the
+   call is written in one batch with the upgrade row. On load, a cost-0 upgrade row takes the
+   debit of the one saved `FundsChanged(StructureConstruction)` event at its UT and tag when
+   that event survives (`LedgerLoadMigration.RepairZeroCostFacilityUpgradeActionsOnLoad`);
+   older rows, whose events were pruned after a commit, stay at 0 - nothing in the save proves
+   their cost, and the facility cost table times today's difficulty multiplier is not proof.
+   Pinned by `FacilityUpgradeCostTests`. Not yet re-flown (L1-upgrade-facility-career, KB-4).
 4. The gallery's `op=mock` refuses by COMPLEXITY mode only; it does not know the launcher is
    now Career-mode only, so a mock applied in a Science save would draw a window no Science
    player can open. No lane does that today. The same holds for `op=open window=career`
@@ -3682,7 +3761,8 @@ measurement, and the mirror's own 13px font calibration shows how visible that e
 300-state run would drop 536 files into `skipped_over_cap`; the Missions and Recordings
 windows are store-shaped (frame-keyed caches, index-into-the-live-list row identity) and
 belong to synthetic SAVE fixtures rather than an in-memory mock; and any such fixture work
-must splice onto a HARVESTED save per `SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE`.
+must splice onto a HARVESTED save per `SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE` (since
+corrected: that was Parsek's milestone patch clearing pre-ledger progress, fixed 2026-10-06).
 
 ## ~~KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL~~: a kerbal whose committed flight ends Aboard stays reserved forever, even after the vessel is recovered - and an ordinary in-flight "Recover" with auto-merge on ends every crewed flight Aboard [FOUND BY READING 2026-09-23 while fixing KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME, then MEASURED the same night on `L3-career-science-recover` run `2026-09-22_2132` (and read back into the 2026-09-02 L3 log). PRODUCT GAP against design 9.3 ("RECOVERED ... available after recovery"; STRANDED "stays open until a future recording rescues the kerbal"). FIXED 2026-09-23 on branch `kerbal-aboard-recovery` (the recovery half; see Residual)]
 
@@ -9062,7 +9142,25 @@ that folder is flight 1, whose ledger loaded `actions=1` and which logged ZERO
 injection lines, so it contradicts rather than supports this entry. It is the correct
 pointer for the Progress-node finding below, and only there.
 
-## SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE: a `Progress { FirstLaunch }` node written into a file-constructed career save is not read back, and it silently kills any save-authored Active `PartTest` [MEASURED 2026-08-20 by `L5-career-contract-complete`'s first flight (run `2026-08-20_2217`). HARNESS-FIXTURE FINDING, REPORT-ONLY: no product change is proposed, and nothing gates it. It is filed because it BLOCKS a specific class of fixture and because the next author to try one will otherwise spend the same flight]
+## ~~SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE: a `Progress { FirstLaunch }` node written into a file-constructed career save is not read back, and it silently kills any save-authored Active `PartTest`~~ [MEASURED 2026-08-20 by `L5-career-contract-complete`'s first flight (run `2026-08-20_2217`). MISDIAGNOSED as a harness-fixture finding. FIXED 2026-10-06, branch `fix-pre-parsek-progress-seed`: it was a PRODUCT defect, see the correction below]
+
+**CORRECTION (2026-10-06): the node WAS loaded; Parsek un-achieved it.** The real cause is
+`KspStatePatcher.PatchMilestones` -> `PatchProgressNodeTree`, which sets every one-shot stock
+progress node to the `MilestonesModule` credited set and clears any complete node no ledger
+`MilestoneAchievement` row credits. Nothing told the ledger about progress a save earned
+before Parsek, so the first recalc cleared it: `logs/2026-08-21_0124_L5-career-contract-complete/KSP.log`
+logs `PatchMilestones: cleared achieved 'FirstLaunch'` then `credited=0, unreached=1 ...
+moduleCredited=0` at 01:17:49, before the flight, which is why stock later logged FirstLaunch
+reached and complete again. The same patch reset the four world-record nodes to their first
+band. Every save Parsek is installed into hit this, not only file-constructed fixtures, and the
+"lineage" difference below was a red herring (`career-earned-pad`'s FirstLaunch has a ledger
+row). Fix: a persisted pre-ledger progress seed (`PreLedgerProgressSeed`, a `PROGRESS_SEED`
+child of the ledger file) captured once per save from the live tree after ProgressTracking's
+OnLoad has run; seeded nodes stay credited and seeded record thresholds count as paid, and
+`PatchMilestones` skips until the seed exists. A save-authored node with no ledger row is
+therefore now kept, so the fixture class this entry said was blocked should be reachable (not
+yet flown). The body below is the original report, kept as history.
+
 
 **What was tried.** `career-contract-pad` v1 spliced two nodes into
 `career-science-pad`'s save so the `science_bench_recover` flight would COMPLETE a

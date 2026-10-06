@@ -60,8 +60,10 @@ namespace Parsek.Tests
         [Fact]
         public void PatchMilestones_NullProgressTracking_SkipsGracefully()
         {
-            // ProgressTracking.Instance is null in test environment
+            // ProgressTracking.Instance is null in test environment. A captured (empty)
+            // pre-ledger seed gets the patch past its not-yet-captured guard.
             var module = new MilestonesModule();
+            module.SetPreLedgerProgressSeed(PreLedgerProgressSeed.CreateCaptured(null, null));
 
             KspStatePatcher.PatchMilestones(module);
 
