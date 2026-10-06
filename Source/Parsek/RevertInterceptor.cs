@@ -540,6 +540,9 @@ namespace Parsek
                 return;
             }
 
+            // The next OnLoad is this discard's own load; its early classification reads this.
+            DiscardReFlyLoadIntent.Arm(target, sessionId);
+
             string facilityText = target == RevertTarget.Prelaunch
                 ? $" facility={facility}"
                 : " facility=--";
@@ -555,6 +558,8 @@ namespace Parsek
 
             // Step 10: scene transition.
             bool dispatched = DispatchScene(target, facility);
+            if (!dispatched)
+                DiscardReFlyLoadIntent.Clear("DiscardReFly:scene-dispatch-failed");
             if (!dispatched && suppressionArmed)
             {
                 if (RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(

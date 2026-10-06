@@ -5881,6 +5881,19 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Load reconcile policy table and wiring gate (TA-W).** `LoadReconcilePolicy` names every
+  kind of `ParsekScenario.OnLoad` (cold, plain rewind, Re-Fly start, Discard Re-fly, stock
+  revert, F9 in flight, any other in-session load) and holds today's decision for every load
+  kind x state category: the Re-Fly staged lists, abandoned-future events, ledger rows and end
+  states, untagged ledger rows after the cutoff, pending science, routes, crew, kerbal slots,
+  groups, missions and milestones. The five filed in-session load defects are recorded as known
+  gaps that their fixes flip. Each load logs one `[LoadPolicy] Load classified:` line, and
+  Discard Re-fly leaves a one-shot load intent that its own load consumes (checked against the
+  scene it dispatched to). No behaviour change: the quickload discard's pending-science clear
+  now reads the table, which answers Clear on every load that reaches it.
+  `LoadReconcileWiringGateTests` fails the suite when a staging node has no category, a
+  `GamePersistence.LoadGame` call site is undeclared, or OnLoad classifies after its first
+  consumer.
 - **Automated testing: the player docks with a ghost-chain tip spawned through Real Spawn
   Control (CI-9).** A new nightly lane, `CI-9-chain-tip-dock`, puts an orbital ghost-chain
   tip (the new `chain-tip-dock` injected preset) 140 m ahead of the focused Kerbal X,

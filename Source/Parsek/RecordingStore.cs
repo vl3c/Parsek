@@ -4711,6 +4711,7 @@ namespace Parsek
             suppressNextTreeSceneExitCommitReason = null;
             suppressNextActiveTreeRestore = false;
             suppressNextActiveTreeRestoreReason = null;
+            DiscardReFlyLoadIntent.ResetForTesting();
         }
 
         /// <summary>

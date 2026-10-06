@@ -166,6 +166,13 @@ or reconcile the in-memory recordings / ledger against the loaded lists. Red tes
 `RewindStagedListsCarryTests`-style xUnit (commit A and A', supersede row only in memory,
 non-rewind load of a node without it, assert A invisible); then lane QL-3.
 
+Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
+
+Owner rulings 2026-10-06: F9 into a quicksave taken during a Re-Fly session that has since
+merged RESUMES the session, and a later Discard of that resumed session also drops the first
+merge's rows that name the pruned attempt (OQ-1); rewind-point quicksave files of an abandoned
+future or a reverted flight stay on disk for now (OQ-3).
+
 ---
 
 ## QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT: tagged game-state events from the timeline an F9 abandoned are credited when the resumed flight commits [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
@@ -186,6 +193,8 @@ quicksave. Red test: `QuickloadResumeTests` - tagged ContractCompleted at
 UT 300, `TrimRecordingTreePastUT(tree, 200)`, commit 100-350, assert no ContractComplete row.
 Lane QL-2.
 
+Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
+
 ---
 
 ## QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS: a committed tree detached on F9 keeps its future ledger rows [FILED 2026-10-06 from the coverage-extension research, verified (when the detach runs); branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
@@ -199,6 +208,11 @@ saved tree is dropped instead and the flight resumes unrecorded - see QL-R1 in t
 Fix: retire the detached tree's rows after the resume UT. Red test: extend
 `TryRestoreActiveTreeNode_SkipsCommittedTreeStashesActiveTree` with a Recovery funds row at 300
 and a loaded UT of 200.
+
+Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
+
+Owner ruling 2026-10-06 (OQ-2): F9 into a later-committed flight's quicksave retires that tree's
+recording-tagged ledger rows after the quicksave; untagged KSC rows are kept.
 
 ---
 
@@ -217,6 +231,8 @@ the F9 instant and is never recorded afterwards.
 Fix: clear terminal state / crew end states past the resume UT for every tree member in the
 trim. Red test: `QuickloadResumeTests` splice + trim on a booster Destroyed with crew Dead at 300.
 Lane QL-4.
+
+Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
 
 ---
 
@@ -304,8 +320,11 @@ vessel identity, baselined over every fixture first, then gated.
 
 ## HARNESS-TIMELINE-FUZZERS: no test applies random sequences of timeline operations [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. OPEN, harness / tests]
 
-Fix: (1) a load-path x reconciler wiring gate in xUnit (every load path against every state it
-must reconcile, so a new path or state category cannot be added without a decision); (2) extend
+Fix: ~~(1) a load-path x reconciler wiring gate in xUnit (every load path against every state it
+must reconcile, so a new path or state category cannot be added without a decision)~~ DONE
+2026-10-06 (branch `f9-bookkeeping`, roadmap TA-W): `LoadReconcilePolicy` (load kinds, state
+categories, today's decision per cell with the filed defects as known gaps) gated by
+`LoadReconcilePolicyTests` and `LoadReconcileWiringGateTests`; (2) extend
 `LedgerStateFuzzerTests` / `EffectiveStateGraphFuzzerTests` with commit, supersede, cutoff,
 F9-backward, revert-prune and discard, and add `RouteTimelineConservationFuzzerTests`; (3) the
 FZ-1 lane: a seeded generator of declarative step lists over the operation alphabet, invariants
@@ -578,6 +597,8 @@ in-session load, or run the same reconcile the two rewind exits run, keyed to th
 guard `EmitPendingRecoveryCredit` on its dispatch row. Pin it red first: `RouteLoopDeliveryFireTests`
 (swallowed cycle), `RouteRecoveryCreditTests` (orphan credit), a source-text gate on the three
 load paths; then lanes IR-1 / IR-2 / IR-4.
+
+Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
 
 ---
 

@@ -343,6 +343,74 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DiscardReFly_ArmsTheDiscardLoadIntent()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            var caps = WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Prelaunch, EditorFacility.SPH);
+
+            Assert.Equal(1, caps.LoadGameCalls);
+            Assert.True(DiscardReFlyLoadIntent.IsArmed,
+                "a successful Discard Re-fly load must leave the intent for its own OnLoad");
+            Assert.Equal(RevertTarget.Prelaunch, DiscardReFlyLoadIntent.ArmedTarget);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadPolicy]")
+                && l.Contains("DiscardReFly load intent armed target=Prelaunch sess=" + marker.SessionId)
+                && l.Contains("expectedScene=EDITOR"));
+
+            // The discard's own load (the editor) consumes it exactly once.
+            Assert.True(DiscardReFlyLoadIntent.TryConsume(GameScenes.EDITOR, "test", out RevertTarget target));
+            Assert.Equal(RevertTarget.Prelaunch, target);
+            Assert.False(DiscardReFlyLoadIntent.IsArmed);
+        }
+
+        [Fact]
+        public void DiscardReFly_DispatchFailure_ClearsTheIntent()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            var caps = WireDiscardSeams(wireScene: false);
+            RevertInterceptor.DiscardReFlyDispatchSceneResultForTesting = (_, __) => false;
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            Assert.Equal(1, caps.LoadGameCalls);
+            Assert.False(DiscardReFlyLoadIntent.IsArmed,
+                "no scene load follows a failed dispatch, so the next OnLoad is not the discard's");
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadPolicy]")
+                && l.Contains("DiscardReFly load intent armed target=Launch"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadPolicy]")
+                && l.Contains("DiscardReFly load intent cleared reason=DiscardReFly:scene-dispatch-failed target=Launch"));
+        }
+
+        [Fact]
+        public void DiscardReFly_QuicksaveMissing_DoesNotArmTheIntent()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(false);
+            var caps = WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            Assert.Equal(0, caps.LoadGameCalls);
+            Assert.False(DiscardReFlyLoadIntent.IsArmed);
+            Assert.DoesNotContain(logLines, l => l.Contains("DiscardReFly load intent armed"));
+        }
+
+        [Fact]
         public void SceneExitCommitSuppression_ConsumesOnce()
         {
             RecordingStore.ArmNextTreeSceneExitCommitSuppression(
