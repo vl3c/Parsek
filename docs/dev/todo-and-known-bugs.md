@@ -1385,7 +1385,7 @@ Next step if it recurs: have the hover verb pick the part icon's visible centre 
 by the viewport mask) and re-read the tooltip's presence at capture time, so a lost
 tooltip reads INVALID(pointer) instead of a missing product token.
 
-## STOCK-SCREEN-CENSUS-FUNDS-GUARD-CLAMPS: the census career's funds guard clamps both ways, and an allowed upgrade does not move the walk target [FILED 2026-09-28 from KB-4 `2026-09-28_2031`, branch `kb4-block-proof`. OPEN, not investigated, not gated]
+## STOCK-SCREEN-CENSUS-FUNDS-GUARD-CLAMPS: the census career's funds guard clamps both ways, and an allowed upgrade does not move the walk target [FILED 2026-09-28 from KB-4 `2026-09-28_2031`, branch `kb4-block-proof`. OPEN for the load-time drawdown, not gated; the after-upgrade uplift is KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, fixed 2026-10-06]
 
 On `stock-screen-census` the funds patch clamps at load (`PatchFunds: GUARDED DRAWDOWN
 clamped resource=Funds running=244370.5 live=465808 wouldBeTarget=244370.5 clampedTo=465808`,
@@ -1400,6 +1400,15 @@ the fixture (its ledger seed disagrees with its save pools: `running` 244370.5 v
 465808 at load) or a walk that does not charge a present-day upgrade on this host. Next
 step: read `FundsModule` over the census ledger headless (the committed rows plus one
 KSC FacilityUpgrade at UT 473) and compare the walk's running total with the save's pool.
+
+Update 2026-10-06 (branch `fix-facility-upgrade-cost`): the after-upgrade UPLIFT clamp is
+KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO (CAREER-STATE-VIEW-2026-09-24 item 3), not this
+host. KB-4 `2026-09-28_2329` shows it directly: `OnCurrencyModified ... reason=StructureConstruction
+inF=-150000`, then `[Funds] FacilityUpgrade: -0, facilityId=SpaceCenter/Administration`, then the
+clamp - the row carried cost 0, so the walk kept the pre-upgrade pool. The row now carries the
+observed 150000 debit, so the walk target should drop to the live 86416.75 with no clamp (not
+re-flown). The load-time DRAWDOWN clamp (the fixture's ledger seed, `running` 244370.5, against
+its save pool, `live` 465808) is a separate fixture question and stays open.
 
 ## CHILD-BRANCH-SINGLE-SLOT-OVERWRITE: a second split overwrites a breakup-continuous recording's `ChildBranchPointId` [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OPEN, low; owner ruling 2026-09-28: leave filed until a player-visible defect shows]
 
@@ -2722,7 +2731,7 @@ Option if #266's "keep the mission across a far switch" behavior is wanted: subs
 the new readiness gate. That revives a path that has effectively never run in play, so it
 needs its own design pass and a flight, not a one-line subscribe.
 
-## CAREER-STATE-VIEW-2026-09-24: the Career window became the state view of contracts and strategies (PR 4 of the career-vs-timeline plan) [FILED 2026-09-24 with branch `career-state-view`. DONE on that branch; the residue below is MOOT since CAREER-WINDOW-REMOVED-2026-09-27 except item 3]
+## CAREER-STATE-VIEW-2026-09-24: the Career window became the state view of contracts and strategies (PR 4 of the career-vs-timeline plan) [FILED 2026-09-24 with branch `career-state-view`. DONE on that branch; the residue below is MOOT since CAREER-WINDOW-REMOVED-2026-09-27 except item 3, FIXED 2026-10-06 on branch `fix-facility-upgrade-cost`]
 
 Done: tabs Contracts and Strategies only (Facilities and Milestones removed with their VM,
 draw code, gallery states and tests; the Timeline's Career view owns that history); ONE
@@ -2773,12 +2782,26 @@ Open residue:
 2. The cross-link click itself is not driven by any lane (hover does not paint, and no seam
    op clicks a row cell); the pure half is unit-tested (`OnRowNameClicked`, the subject-id
    agreement test). A Timeline scroll after a click is unverified in-game.
-3. KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO: GUI-14's `KscAction upgrade-facility` wrote a
+3. ~~KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO: GUI-14's `KscAction upgrade-facility` wrote a
    `FacilityUpgrade` ledger row with cost 0 (`[Funds] FacilityUpgrade: -0 ...
    runningBalance=500000` in `2026-09-24_1525`'s KSP.log), so the Timeline row reads
    `Upgrade Tracking Station -> Lv.2 -0`. L1-upgrade-facility-career recorded the -150,000
    debit on the same fixture, so the question is whether the cost reaches the ledger row on
-   the seam path only or on a player click too. Not traced.
+   the seam path only or on a player click too. Not traced.~~ FIXED 2026-10-06 on branch
+   `fix-facility-upgrade-cost`. NOT seam-only: every stock upgrade (the seam calls the same
+   `SpaceCenterBuilding.UpgradeFacility(true)` a click reaches) wrote the `FacilityUpgraded`
+   event with no `cost=`, so `ConvertFacilityUpgraded` defaulted the row to 0, and the
+   `FundsChanged(StructureConstruction)` debit is never converted to a row. The
+   `UpgradeFacility` prefix (`FacilityUpgradeSpendPatch`, after its committed-upgrade block)
+   now opens a `FacilityUpgradeCapture` scope that reads the debit off the recorder's own
+   StructureConstruction FundsChanged delta and stamps it on the event (`cost=`), so the row
+   pairs with that event in the KSC reconciliation; a `ResetStructures` free repair inside the
+   call is written in one batch with the upgrade row. On load, a cost-0 upgrade row takes the
+   debit of the one saved `FundsChanged(StructureConstruction)` event at its UT and tag when
+   that event survives (`LedgerLoadMigration.RepairZeroCostFacilityUpgradeActionsOnLoad`);
+   older rows, whose events were pruned after a commit, stay at 0 - nothing in the save proves
+   their cost, and the facility cost table times today's difficulty multiplier is not proof.
+   Pinned by `FacilityUpgradeCostTests`. Not yet re-flown (L1-upgrade-facility-career, KB-4).
 4. The gallery's `op=mock` refuses by COMPLEXITY mode only; it does not know the launcher is
    now Career-mode only, so a mock applied in a Science save would draw a window no Science
    player can open. No lane does that today. The same holds for `op=open window=career`
