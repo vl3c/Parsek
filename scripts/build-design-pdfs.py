@@ -88,6 +88,8 @@ def build_one(name, md_rel, browser, html_dir):
     subprocess.run(["pandoc", "-f", "gfm", "-t", "html5", "--standalone",
                     "--metadata", "title=" + title_of(md),
                     "--css", CSS.as_uri(), str(md), "-o", str(html)], check=True)
+    if pdf.exists():
+        pdf.unlink()  # so a browser that writes nothing cannot leave the old PDF looking fresh
     profile = tempfile.mkdtemp(prefix="parsek-pdf-profile-")
     try:
         subprocess.run([browser, "--headless", "--disable-gpu", "--no-sandbox",

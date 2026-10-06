@@ -97,8 +97,8 @@ tier = "operator"
 # rest), so this arithmetic has three hundred-odd captures of headroom now. Re-check it
 # anyway before adding a 26th capture: the BYTE cap is the one that binds at scale.
 #
-# THE SIX FOLD CAPTURES (24th-29th) WERE ADDED 2026-09-22, and the gap they close is one
-# a reader of the GUI mirror hits immediately: the Missions window's two tabs were each
+# THE FOLD CAPTURES (six added 2026-09-22, five left; the 4th-8th captures today) close a gap
+# that a reader of the GUI mirror hits immediately: the Missions window's two tabs were each
 # photographed in exactly ONE state, so every fold arrow in both pictures pointed at
 # nothing. The mirror could show that a row COLLAPSES and never what collapsing hides.
 # Six labels, all Advanced, all on the Missions window and all inside its existing
