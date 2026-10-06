@@ -16,6 +16,25 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a facility downgrade's funds debit never reaches the ledger [FILED 2026-10-06 while fixing KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, branch `fix-facility-upgrade-cost`. OPEN, product, low; reachability not traced]
+
+Decompiled KSP 1.12.5: `SpaceCenterBuilding.DowngradeFacility` also debits funds (about 0.667x
+the level cost, reason `StructureConstruction`), but `FacilityDowngraded` events are
+informational only - no ledger row is written, so a downgrade leaves the ledger high by its
+debit, the same shape the upgrade had before its fix. First check whether any stock UI path
+a player can reach calls `DowngradeFacility` at all; if one does, record the debit through the
+same `FacilityUpgradeCapture` scope pattern and add a row type or a negative-level
+`FacilityUpgrade` row (decide which).
+
+Older cost-0 upgrade rows: the fix above repairs a cost-0 `FacilityUpgrade` row only while the
+save still holds its `FundsChanged(StructureConstruction)` event (events at or before the last
+committed flight's end are pruned), so most existing careers keep their older rows at 0 and
+their ledger high by those upgrades. Owner decision needed: accept a facility cost-table
+estimate (`levelCost` x today's `FundsLossMultiplier`, which can differ from what was charged
+under a changed difficulty or a strategy discount), or leave them.
+
+---
+
 ## TIMELINE-OP-COVERAGE-PROGRAM: back-in-time loads, revert, mining and resource conservation are barely tested [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. OPEN; test program]
 
 Research: `docs/dev/research/coverage-extension-plan-2026-10-06.md` and
