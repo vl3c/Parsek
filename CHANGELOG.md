@@ -3676,6 +3676,17 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A station visited by a heavier ship no longer appears twice after a rewind.** When a
+  recorded flight docked a ship to an existing station and later undocked, Parsek decided which
+  half of the undock was the station by the vessel id, but after a dock KSP keeps the id of the
+  more important vessel (the higher vessel type, then the heavier one), and on undock the other
+  half gets a new id. With a heavier (or Ship-typed against a Probe-typed) visitor, Parsek took
+  the visitor's half for the station. If that ship was later recovered or destroyed, the station
+  was treated as gone: after a rewind it was not hidden while its recorded future played, and its
+  recorded post-undock form appeared next to it, with the same parts, resources and crew seats.
+  Parsek now follows the station through the undock by its own parts, which keep their identity
+  through docking and undocking, so the station comes back once, in its post-undock form.
+
 - **Facility upgrades are now charged in Parsek's career timeline.** Every KSC building upgrade
   was recorded at a cost of 0, so the timeline's funds ran high by the upgrade's price: the
   Timeline row read `Upgrade Tracking Station -> Lv.2 -0`, every funds update after an upgrade
