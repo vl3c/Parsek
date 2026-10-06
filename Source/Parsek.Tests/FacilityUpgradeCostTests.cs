@@ -468,6 +468,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TaggedUpgradeOfADestroyedFacility_LeavesTheFreeRepairForTheCommit()
+        {
+            // The batch above holds only repairs the forward gate already let through: a repair
+            // owned by a live recording is written at commit, never inside the upgrade batch.
+            var recorder = new GameStateRecorder();
+            recorder.RecordBuildingTransitionForTesting(AdminBuilding, false, 100.0, 0f, "test");
+
+            GameStateRecorder.TagResolverForTesting = () => "rec-live";
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => true;
+            OpenScopeAndDebit(Admin, 500000.0, 350000.0);
+            recorder.RecordBuildingTransitionForTesting(AdminBuilding, true, 1500.0, 0f, "facility-level-reset");
+            recorder.RecordFacilityLevelChangeForTesting(Admin, 0f, 0.5f, 1500.0);
+            FacilityUpgradeCapture.EndScope("upgrade-returned");
+
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.FacilityRepair);
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.FacilityUpgrade);
+            var converted = GameStateEventConverter.ConvertEvents(GameStateStore.Events, "rec-live", 1000.0, 2000.0);
+            Assert.Single(converted, a => a.Type == GameActionType.FacilityRepair);
+            Assert.Equal(150000f, converted.Single(a => a.Type == GameActionType.FacilityUpgrade).FacilityCost);
+        }
+
+        [Fact]
         public void QueuedFreeRepair_WithNoUpgradeEvent_IsWrittenWhenTheScopeCloses()
         {
             var recorder = new GameStateRecorder();
