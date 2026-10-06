@@ -997,8 +997,36 @@ namespace Parsek
                 MilestoneId = evt.key,
                 MilestoneFundsAwarded = fundsAwarded,
                 MilestoneRepAwarded = repAwarded,
-                MilestoneScienceAwarded = sciAwarded
+                MilestoneScienceAwarded = sciAwarded,
+                MilestoneRecordThresholds = ParseMilestoneRecordThresholds(evt.detail)
             };
+        }
+
+        /// <summary>
+        /// Detail key carrying how many world-record reward thresholds a MilestoneAchieved
+        /// event stands for (<see cref="GameAction.MilestoneRecordThresholds"/>). Written by
+        /// <see cref="GameStateRecorder.BuildMilestoneDetail(double, float, double, int)"/>
+        /// only when not 1.
+        /// </summary>
+        internal const string MilestoneRecordThresholdsDetailKey = "thresholds";
+
+        /// <summary>
+        /// Pure: the world-record threshold count a milestone event detail carries. Absent
+        /// (every one-shot milestone, a record seed with one threshold, and every event an
+        /// older build wrote) or malformed reads 1, the count a row had before the key
+        /// existed.
+        /// </summary>
+        internal static int ParseMilestoneRecordThresholds(string detail)
+        {
+            string raw = ExtractDetail(detail, MilestoneRecordThresholdsDetailKey);
+            if (raw == null)
+                return 1;
+            if (int.TryParse(raw, NumberStyles.Integer, IC, out int parsed) && parsed >= 0)
+                return parsed;
+            ParsekLog.Warn(Tag,
+                $"ParseMilestoneRecordThresholds: malformed {MilestoneRecordThresholdsDetailKey}='{raw}' " +
+                "in milestone detail - reading it as 1 threshold");
+            return 1;
         }
 
         /// <summary>KerbalRescued -> KerbalRescue (name=key, trait from detail).</summary>

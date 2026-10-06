@@ -3704,6 +3704,18 @@ _(unreleased - entries accumulate here per commit)_
   Space Center, or after the game saved again) are not covered yet, same todo. Covered by xUnit;
   not yet checked in a test flight.
 
+- **Altitude, speed, distance and depth record rewards are no longer paid twice.** A flight that
+  set several records at once (an ascent passes 500 m, 2 km, 7 km, 22 km and 70 km) was booked
+  as a single record entry, and the next time Parsek synced the career it rolled the record back
+  to a lower band. Stock then paid the higher bands again: at once if the craft was still up
+  there, otherwise on the next flight that reached them. Measured on one ascent to orbit: three
+  altitude, three speed and three distance bands (43,200 funds) were paid a second time as soon
+  as the flight was committed. Each record entry now remembers how many bands it paid, so the
+  record stays where the flight left it, and a band paid after a flight was committed mid-flight
+  is no longer added to that flight's earlier entry as well as to its own. Entries saved by an
+  earlier version still count as one band each, so a career that already has them may see the
+  higher bands paid once more, after which they stay put.
+
 - **A station visited by a heavier ship no longer appears twice after a rewind.** When a
   recorded flight docked a ship to an existing station and later undocked, Parsek decided which
   half of the undock was the station by the vessel id, but after a dock KSP keeps the id of the
