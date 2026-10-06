@@ -153,15 +153,43 @@ stage-to-fixture promotion tool.
 
 ---
 
-## QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-quickload-into-discarded` (xUnit only; live proof is lane QL-6, not flown)]
 
-Discard deletes the recording files (`RecordingStore.cs:2856-2886`); on a later F9 back into that
-flight the missing trajectory marks the recordings failed, they are dropped and the restore is
-skipped, so the flight resumes UNRECORDED. Owner ruling 2026-10-06: the resumed flight starts a
-fresh recording from the loaded state, as if it had never been discarded.
+Discard deletes the recording files (`RecordingStore.DiscardPendingTree` -> `DeleteRecordingFiles`).
+Owner ruling 2026-10-06: an F9 back into that flight starts a fresh recording from the loaded
+state, as if it had never been discarded.
 
-Fix: when the restore is skipped because the tree's files were deliberately discarded, start a
-new recording for the active vessel instead of resuming unrecorded. Lane QL-6.
+Traced path (corrects the filing, which said the recordings are dropped and the flight resumes
+unrecorded): every member of the quicksave's active tree loads `trajectory-missing` with no
+points, the synthetic-fixture shape `DropFailedSidecarHydrationRecordings` keeps, so
+`TryRestoreActiveTreeNode` stashed the tree as Limbo "with N sidecar hydration failure(s)" and
+`RestoreActiveTreeFromPending` resumed the recorder INTO the discarded ids: no pre-quicksave
+trajectory, no ghost or vessel snapshot, and the other members metadata-only shells (live
+evidence: `logs/2026-08-12_0011_S4.2-refly-world-preservation/KSP.log`, a discard followed by
+"resumed recording tree 'WP Stack'" into the deleted ids). Only a member failing for another
+reason (a root whose `.prec` delete failed while its craft went) reached the drop-and-skip shape.
+
+Fix: `DiscardPendingTree` notes every tree it deleted sidecars for
+(`RecordingStore.NoteTreeDiscardedThisSession`, process lifetime). After hydration,
+`TryRestoreActiveTreeNode` runs the pure `ParsekScenario.DecideDiscardedActiveTreeRestore`
+(`ParsekScenario.DiscardedFlightRestore.cs`): a tree discarded this session whose every member
+failed `trajectory-missing`, with no committed copy and no same-id pending tree in memory, is not
+restored; the quickload resume hints are cleared, an in-memory Limbo stash the load abandons is
+popped as the restore would have popped it, and (landing in FLIGHT, with an active recording)
+a fresh recording is armed. `ParsekFlight.OnFlightReady` consumes it on every path through
+`ParsekScenario.ConsumeFreshRecordingAfterDiscard`, starting `ParsekFlight.StartRecording` (the
+auto-record entry: a new tree, fresh Guid ids) only when no restore is scheduled, no recorder
+or tree is live and an active vessel exists, after the committed-spawned-vessel restore. The
+load recalculates without the current-UT cutoff, as the resume it replaces does. Mirror:
+`TryRestorePendingTreeNode` declines the same tree saved as the PENDING tree (a save the
+discard's own save refresh did not rewrite), which would otherwise come back as an empty shell to
+merge or auto-commit. A missing or damaged sidecar not from this session's discard, a hydrated
+member, or any other failure reason keeps today's handling. Red cells:
+`QuickloadIntoDiscardedFlightTests`.
+
+Residue (owner decision): the proof is in memory, so after a KSP restart a load of that quicksave
+still resumes into the discarded ids (a durable discard tombstone outside the loaded save would
+be needed). No `LoadReconcilePolicy` cell covers the saved active tree itself.
 
 ---
 
@@ -205,7 +233,9 @@ note changes with it.
 ## RULINGS-NEEDED-TIMELINE-OPS-2026-10-06: owner decisions the coverage-extension research needed [FILED 2026-10-06, branch `ccr-77f23eb2-dbqh6i`. RULED 2026-10-06 (owner interview); each ruling's work item is filed below]
 
 - [x] F9 back into a flight that was Discarded resumes it UNRECORDED today. RULED: the resumed
-  flight records again (QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN; unblocks lane QL-6).
+  flight records again (QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN; unblocks lane QL-6). FIXED
+  2026-10-07 (branch `fix-quickload-into-discarded`); the trace found it resumed into the deleted
+  ids rather than unrecorded.
 - [x] Tail trim over a resource-changing tail. RULED: keep such tails - a tail where resources
   change is not boring (TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT).
 - [x] Harvest-origin routes and catch-up bursts. RULED: cap the recorded harvest at what the

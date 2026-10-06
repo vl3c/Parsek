@@ -3676,6 +3676,16 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Quickloading back into a flight you discarded records it again.** Discarding a flight deletes
+  its recording, so quickloading a quicksave taken during that flight used to resume recording
+  into the deleted one: what was flown before the quicksave and the ghost's look were gone, and
+  the flight's other vessels kept empty recordings. The flight you quickload into now starts a
+  new recording from the quicksave's moment, as if it had never been discarded; the discarded
+  flight stays discarded and nothing of it comes back, also from a save that still held it
+  waiting for the merge dialog. This applies to a flight discarded earlier in the same game
+  session; after restarting KSP the old behaviour is kept. A save whose recording files are
+  missing or damaged for any other reason is handled as before. Covered by xUnit; not yet
+  checked in a test flight.
 - **After a quickload, a booster that survives the replayed flight is recorded again.** If you
   quicksaved, flew on (a booster crashed with its crew, a lander touched down) and then
   quickloaded back, the other vessels of that flight kept the ending they had reached after the

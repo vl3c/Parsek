@@ -12203,6 +12203,7 @@ namespace Parsek
             {
                 ParsekLog.Warn("Flight",
                     "OnFlightReady: restore coroutine already in progress — skipping reset and dispatch");
+                ConsumeFreshRecordingAfterDiscardedRestore(restoreScheduled: true);
                 return;
             }
 
@@ -12229,6 +12230,7 @@ namespace Parsek
             {
                 ParsekLog.Info("Flight",
                     "OnFlightReady: live recorder/tree already own the current flight — skipping reset");
+                ConsumeFreshRecordingAfterDiscardedRestore(restoreScheduled: false);
                 return;
             }
 
@@ -12289,10 +12291,14 @@ namespace Parsek
                 {
                     StartCoroutine(RestoreActiveTreeFromPending());
                 }
+                ConsumeFreshRecordingAfterDiscardedRestore(restoreScheduled: true);
             }
             else
             {
                 TryRestoreCommittedTreeForSpawnedActiveVessel();
+                // Runs after the committed-tree restore so a vessel that path binds is not
+                // double-started; the consume refuses when a recorder or tree is live.
+                ConsumeFreshRecordingAfterDiscardedRestore(restoreScheduled: false);
             }
 
             // Note: consume dispatch lives at the top of OnFlightReady — see DispatchConsumeIntentIfArmed.
@@ -12408,6 +12414,30 @@ namespace Parsek
         #endregion
 
         #region Flight Ready Helpers
+
+        /// <summary>
+        /// Flight-ready consume of the fresh recording OnLoad armed after declining a saved
+        /// active tree this session discarded (QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN).
+        /// Starts through <see cref="StartRecording"/>, the auto-record entry, which builds a new
+        /// tree with fresh ids because no tree is active here. Called on every OnFlightReady path
+        /// so the request never outlives this scene.
+        /// </summary>
+        private void ConsumeFreshRecordingAfterDiscardedRestore(bool restoreScheduled)
+        {
+            Vessel v = FlightGlobals.ActiveVessel;
+            ParsekScenario.ConsumeFreshRecordingAfterDiscard(
+                restoreScheduled,
+                recorderLive: recorder != null && recorder.IsRecording,
+                hasActiveTree: activeTree != null,
+                hasActiveVessel: v != null && !GhostMapPresence.IsGhostMapVessel(v.persistentId),
+                startRecording: () =>
+                {
+                    StartRecording(suppressStartScreenMessage: true);
+                    if (IsRecording)
+                        Log("Auto-record started (quickload into a discarded flight)");
+                    return IsRecording;
+                });
+        }
 
         /// <summary>
         /// Resets all transient state on flight ready: background recorder, tree, chain,
