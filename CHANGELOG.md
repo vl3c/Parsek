@@ -3681,16 +3681,23 @@ _(unreleased - entries accumulate here per commit)_
   quickloaded back, the other vessels of that flight kept the ending they had reached after the
   quicksave: the booster still read as destroyed with its crew dead, was not recorded again, and
   still played back as exploding even when it survived the second time. The same happened after
-  committing the flight in flight and then quickloading, with no save in between. Now every
-  vessel of the resumed flight whose recording ended after the quicksave's moment has that ending
-  cleared, so it is recorded again from the quicksave and ends however it actually ends; endings
-  reached before the quicksave stay, and the quickload only touches what the quicksave shows
-  was not yet history. Not covered yet: quickloading into a committed flight's
-  quicksave from the Space Center, or in flight once the game has saved again since the
-  quicksave (an autosave, a switch to a far vessel) - todo
-  QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE. A Re-Fly
+  committing the flight and then quickloading. Now every vessel of the resumed flight whose
+  recording ended after the quicksave's moment has that ending cleared, so it is recorded again
+  from the quicksave and ends however it actually ends; endings reached before the quicksave
+  stay, and the quickload only touches what the quicksave shows was not yet history. A Re-Fly
   start and resuming a flight after restarting KSP are unchanged. Covered by xUnit; not yet
   checked in a test flight.
+- **Quickloading into a flight you committed after the quicksave works after the game has saved
+  again.** Quickloading from the Space Center into a flight you had left (and so committed), or
+  in flight once the game had saved since you committed it (an autosave, a switch to a far
+  vessel), used to drop the saved flight and leave it unrecorded, or keep the committed copy:
+  either way the ending, career events and ledger entries you abandoned stayed committed and
+  replayed as ghosts beside your vessel. That flight now resumes from the quicksave like any other
+  quickload in flight: the committed copy is taken back out of the timeline, the vessels record
+  again, and what happened after the quicksave's moment is dropped. A flight you committed before
+  taking the quicksave stays committed history and is left as it was. The quickload trim also
+  cuts a debris stage's ground-relative track at the quicksave's moment now, as it already did
+  its other samples. Covered by xUnit; not yet checked in a test flight.
 - **Career rewards from a future you quickloaded away are no longer paid.** A contract completed,
   a milestone reached or a vessel recovered after your quicksave stayed on the books when you
   quickloaded back: the reward was booked again when the replayed flight was committed, even if
@@ -3700,9 +3707,9 @@ _(unreleased - entries accumulate here per commit)_
   events and ledger entries from after the quicksave's moment, and the replayed flight books what
   it actually does. Space Center actions after the quicksave (tech, facility upgrades, hires) are
   kept, as are supply-route entries and every other committed flight; the quickload only touches
-  what the quicksave shows was not yet history. The two committed-flight routes above (from the
-  Space Center, or after the game saved again) are not covered yet, same todo. Covered by xUnit;
-  not yet checked in a test flight.
+  what the quicksave shows was not yet history, including a flight committed after the quicksave
+  and saved again since (see the entry below). Covered by xUnit; not yet checked in a test
+  flight.
 
 - **Ending a Re-Fly no longer marks an earlier segment of the same craft destroyed with its crew
   dead.** When a recording had been split into segments and the same vessel was later brought
@@ -5940,15 +5947,18 @@ _(unreleased - entries accumulate here per commit)_
   node names the two staging methods touch (each must have a category), and where OnLoad
   classifies relative to named steps (after `DetectSaveFolderChange`, before the staging load;
   refined after `RevertDetector.Consume`, before the quickload discard and the revert prune).
-- **Automated testing: a lane for a booster quickloaded back into the air (QL-4).**
-  `QL-4-quickload-booster-terminal` (nightly, not yet flown) is the live check for the
+- **Automated testing: lanes for a booster quickloaded back into the air (QL-4, QL-4b,
+  QL-4c).** `QL-4-quickload-booster-terminal` (nightly, not yet flown) is the live check for the
   quickload end-state fix: on the GS1 two-stage pad it quicksaves with the booster still under
   its parachutes, flies on, commits the flight in flight (the booster commits SubOrbital), then
   loads the quicksave in flight. The resumed booster must be back with the background recorder,
-  recorded down to the ground and committed Landed. It loads from flight, not from the Space
-  Center, because a Space Center load of the older quicksave drops the saved tree on stale
-  sidecars before any resume (todo QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE;
-  the spec header has the argument).
+  recorded down to the ground and committed Landed. `QL-4b-quickload-from-space-center` and
+  `QL-4c-quickload-after-in-flight-save` (nightly, not yet flown) are its two committed-after-a-save
+  routes: QL-4b leaves for the Space Center (the flight auto-merges and the exit saves) and loads
+  the quicksave from there; QL-4c saves the game between the in-flight commit and the load. Both
+  require the new `Quickload committed-copy restore:` decision line, the detach and the
+  abandoned-future reconcile line, and forbid the pre-fix witnesses (`dropped entire tree`;
+  `keeping in-memory pending tree` with `reason=empty-plan`).
 - **Automated testing: the player docks with a ghost-chain tip spawned through Real Spawn
   Control (CI-9).** A new nightly lane, `CI-9-chain-tip-dock`, puts an orbital ghost-chain
   tip (the new `chain-tip-dock` injected preset) 140 m ahead of the focused Kerbal X,

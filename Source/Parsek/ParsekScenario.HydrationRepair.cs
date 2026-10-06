@@ -17,6 +17,225 @@ namespace Parsek
                 && RecordingStore.PendingTree.Id == loadedTree.Id;
         }
 
+        /// <summary>
+        /// What <see cref="TryRestoreActiveTreeNode"/> does about an in-memory COMMITTED tree that
+        /// carries the saved active tree's id.
+        /// </summary>
+        internal enum CommittedCopyRestoreAction
+        {
+            /// <summary>No committed tree with the saved tree's id: the restore runs as before.</summary>
+            None = 0,
+            /// <summary>A committed copy exists but the rule does not apply (the quicksave already
+            /// holds the tree as committed history, or the load is not an in-session load):
+            /// the restore runs as before.</summary>
+            Unchanged = 1,
+            /// <summary>The tree was committed after the quicksave (owner ruling OQ-2): stale-epoch
+            /// members are salvaged from the committed copy, the stale-epoch keep does not run, and
+            /// the existing splice, refresh and detach do.</summary>
+            ResumeFromQuicksave = 2,
+        }
+
+        /// <summary>
+        /// Pure: the committed-copy rule. A committed tree in memory with the saved active tree's
+        /// id, which the quicksave itself does not hold as committed, was committed after the
+        /// quicksave; an F9 into that quicksave resumes the quicksave's flight and retires the
+        /// commit's future (owner ruling OQ-2). Any OnSave since the commit advanced the
+        /// sidecar epochs past the ones the quicksave names, so without the rule the members
+        /// read stale and the restore either drops the saved tree (no pending tree) or keeps
+        /// the same-id Limbo clone (the copy-on-write clone resumed after an in-flight commit),
+        /// and never reaches the detach. Left alone (<see cref="CommittedCopyRestoreAction.Unchanged"/>):
+        /// a tree the quicksave holds as committed (a clone of a tree committed BEFORE the
+        /// quicksave; owner ruling D2, committed history is permanent), a load with no facts,
+        /// a revert, and every load that is not a plain in-session load (a cold load reads its
+        /// committed trees from the same save; a Re-Fly start owns its own tree handling).
+        /// </summary>
+        internal static CommittedCopyRestoreAction DecideCommittedCopyRestore(
+            bool committedCopyInMemory,
+            EarlyLoadKind earlyLoadKind,
+            bool revertPending,
+            QuicksaveTreeFacts quicksaveFacts,
+            out string reason)
+        {
+            if (!committedCopyInMemory)
+            {
+                reason = "no-committed-copy";
+                return CommittedCopyRestoreAction.None;
+            }
+            if (earlyLoadKind != EarlyLoadKind.InSession)
+            {
+                reason = "load-kind-" + earlyLoadKind;
+                return CommittedCopyRestoreAction.Unchanged;
+            }
+            if (revertPending)
+            {
+                reason = "revert-pending";
+                return CommittedCopyRestoreAction.Unchanged;
+            }
+            if (quicksaveFacts == null)
+            {
+                reason = "no-quicksave-facts";
+                return CommittedCopyRestoreAction.Unchanged;
+            }
+            if (quicksaveFacts.TreeCommittedInQuicksave)
+            {
+                reason = "tree-committed-in-quicksave";
+                return CommittedCopyRestoreAction.Unchanged;
+            }
+            if (quicksaveFacts.AnyMemberCommittedInQuicksave)
+            {
+                reason = "member-committed-in-quicksave";
+                return CommittedCopyRestoreAction.Unchanged;
+            }
+            reason = "committed-after-quicksave";
+            return CommittedCopyRestoreAction.ResumeFromQuicksave;
+        }
+
+        /// <summary>
+        /// Gives every stale-epoch member of <paramref name="loadedTree"/> the payload of its
+        /// same-id member in <paramref name="committedTree"/>: the newer sidecar on disk was
+        /// written from that in-memory copy, so it is the same data the hydration skipped. The
+        /// loaded member keeps its identity, its failure is cleared and it is marked dirty, the
+        /// same overwrite the same-id refresh applies (<see cref="CopyCommittedPayloadIntoLoadedRecording"/>).
+        /// The copy runs past the quicksave; the resume trim cuts it back to the cutoff. A stale
+        /// member the committed copy no longer holds is left failed and counted in
+        /// <paramref name="unsalvaged"/>. Returns the number salvaged.
+        /// </summary>
+        internal static int SalvageStaleEpochMembersFromCommittedTree(
+            RecordingTree loadedTree, RecordingTree committedTree, out int unsalvaged)
+        {
+            unsalvaged = 0;
+            if (loadedTree == null || loadedTree.Recordings == null
+                || committedTree == null || committedTree.Recordings == null)
+            {
+                return 0;
+            }
+
+            var staleIds = new List<string>();
+            foreach (KeyValuePair<string, Recording> kvp in loadedTree.Recordings)
+            {
+                if (kvp.Value != null
+                    && kvp.Value.SidecarLoadFailed
+                    && kvp.Value.SidecarLoadFailureReason == StaleSidecarEpochReason)
+                {
+                    staleIds.Add(kvp.Key);
+                }
+            }
+            staleIds.Sort(StringComparer.Ordinal);
+
+            int salvaged = 0;
+            for (int i = 0; i < staleIds.Count; i++)
+            {
+                if (!committedTree.Recordings.TryGetValue(staleIds[i], out Recording committedRec)
+                    || committedRec == null)
+                {
+                    unsalvaged++;
+                    continue;
+                }
+                CopyCommittedPayloadIntoLoadedRecording(
+                    loadedTree.Recordings[staleIds[i]], committedRec, preserveRecorderOwnedState: false);
+                salvaged++;
+            }
+
+            if (salvaged > 0)
+                loadedTree.RebuildBackgroundMap();
+            return salvaged;
+        }
+
+        internal const string StaleSidecarEpochReason = "stale-sidecar-epoch";
+
+        private static int CountStaleEpochMembers(RecordingTree tree)
+        {
+            int count = 0;
+            if (tree?.Recordings == null)
+                return 0;
+            foreach (Recording rec in tree.Recordings.Values)
+            {
+                if (rec != null && rec.SidecarLoadFailed && rec.SidecarLoadFailureReason == StaleSidecarEpochReason)
+                    count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Runs <see cref="DecideCommittedCopyRestore"/> for <see cref="TryRestoreActiveTreeNode"/>
+        /// after hydration, salvages on <see cref="CommittedCopyRestoreAction.ResumeFromQuicksave"/>,
+        /// and logs the decision. <paramref name="staleEpochHydrationFailures"/> is recounted after
+        /// the salvage. The route is read from memory: a same-id pending tree is the clone the
+        /// recorder resumed after an in-flight commit (in-flight route); none is the Space Center
+        /// route (the flight was committed at a scene exit).
+        /// </summary>
+        private static CommittedCopyRestoreAction ResolveCommittedCopyRestore(
+            RecordingTree tree, EarlyLoadKind earlyLoadKind, ref int staleEpochHydrationFailures)
+        {
+            RecordingTree committedCopy = FindCommittedTreeById(tree.Id, exclude: tree);
+            bool revertPending = RevertDetector.PendingKind != RevertKind.None;
+            CommittedCopyRestoreAction action = DecideCommittedCopyRestore(
+                committedCopy != null, earlyLoadKind, revertPending, lastRestoredQuicksaveTreeFacts,
+                out string reason);
+
+            int staleBefore = staleEpochHydrationFailures;
+            if (action == CommittedCopyRestoreAction.None)
+            {
+                ParsekLog.Verbose("Scenario",
+                    $"Quickload committed-copy restore skipped: tree='{tree.TreeName}' id={tree.Id} " +
+                    $"reason={reason} staleMembers={staleBefore.ToString(CultureInfo.InvariantCulture)}");
+                return action;
+            }
+
+            bool pendingSameId = RecordingStore.HasPendingTree
+                && RecordingStore.PendingTree != null
+                && string.Equals(RecordingStore.PendingTree.Id, tree.Id, StringComparison.Ordinal);
+            string route = pendingSameId ? "in-flight" : "space-center";
+
+            int salvaged = 0;
+            int unsalvaged = 0;
+            if (action == CommittedCopyRestoreAction.ResumeFromQuicksave)
+            {
+                salvaged = SalvageStaleEpochMembersFromCommittedTree(tree, committedCopy, out unsalvaged);
+                staleEpochHydrationFailures = CountStaleEpochMembers(tree);
+                ParsekLog.Info("Scenario",
+                    $"Quickload committed-copy restore: tree='{tree.TreeName}' id={tree.Id} route={route} " +
+                    $"action={action} reason={reason} loadKind={earlyLoadKind} " +
+                    $"staleMembers={staleBefore.ToString(CultureInfo.InvariantCulture)} " +
+                    $"salvagedFromCommitted={salvaged.ToString(CultureInfo.InvariantCulture)} " +
+                    $"unsalvaged={unsalvaged.ToString(CultureInfo.InvariantCulture)} " +
+                    $"replacesStaleKeep={(pendingSameId && staleBefore > 0 ? "true" : "false")} " +
+                    "- the quicksave's tree is restored and the committed copy detached; the resume trim retires its future");
+                return action;
+            }
+
+            ParsekLog.Info("Scenario",
+                $"Quickload committed-copy restore: tree='{tree.TreeName}' id={tree.Id} route={route} " +
+                $"action={action} reason={reason} loadKind={earlyLoadKind} " +
+                $"staleMembers={staleBefore.ToString(CultureInfo.InvariantCulture)} salvagedFromCommitted=0 " +
+                "- the restore runs as before (committed history is left alone)");
+            return action;
+        }
+
+        /// <summary>
+        /// After <see cref="CommittedCopyRestoreAction.ResumeFromQuicksave"/> detached the committed
+        /// copy: a committed-tree restore attempt armed for this tree (the copy-on-write clone the
+        /// recorder resumed after an in-flight commit) has nothing left to protect - the clone was
+        /// dropped for the quicksave's tree and its committed original is no longer committed.
+        /// Left armed, it would keep every later OnSave from writing the resumed tree (the
+        /// committed-restore overlap skip in <see cref="PlanActiveTreeSidecarSaves"/>).
+        /// </summary>
+        private static void ClearCommittedTreeRestoreAttemptAfterDetach(RecordingTree tree)
+        {
+            if (!RecordingStore.IsCommittedTreeRestoreAttemptTree(tree.Id))
+            {
+                ParsekLog.Verbose("Scenario",
+                    $"Quickload committed-copy restore: no committed-tree restore attempt armed for " +
+                    $"tree='{tree.TreeName}' id={tree.Id}");
+                return;
+            }
+            RecordingStore.ClearCommittedTreeRestoreAttempt("quickload into a flight committed after its quicksave");
+            ParsekLog.Info("Scenario",
+                $"Quickload committed-copy restore: cleared the committed-tree restore attempt for " +
+                $"tree='{tree.TreeName}' id={tree.Id} (its copy-on-write clone was replaced by the " +
+                "quicksave's tree and its committed original detached)");
+        }
+
         internal static int RestoreHydrationFailedRecordingsFromPendingTree(RecordingTree loadedTree)
         {
             if (loadedTree == null
@@ -724,6 +943,22 @@ namespace Parsek
             if (!diverged)
                 return false;
 
+            CopyCommittedPayloadIntoLoadedRecording(loadedRec, committedRec, preserveRecorderOwnedState);
+            return true;
+        }
+
+        /// <summary>
+        /// The overwrite half of <see cref="RefreshLoadedRecordingFromCommittedSplit"/>, with no
+        /// divergence check: copies the committed copy's payload, end state and snapshots onto the
+        /// loaded recording, keeps the loaded recording's identity, clears its sidecar-load
+        /// failure and marks it dirty (the next OnSave writes it with a fresh epoch). In
+        /// recorder-state-preserving mode the recorder-owned transient flags are put back.
+        /// </summary>
+        private static void CopyCommittedPayloadIntoLoadedRecording(
+            Recording loadedRec,
+            Recording committedRec,
+            bool preserveRecorderOwnedState)
+        {
             // Preserve identity + transient flight state owned by the loaded
             // recording. These fields tag the recording within its tree shape
             // and are NOT what SplitAtSection rewrites; clobbering them would
@@ -817,8 +1052,6 @@ namespace Parsek
                 loadedRec.PreReFlyAnchorOrbitSegments = savedPreReFlyAnchorOrbitSegments;
                 loadedRec.PreReFlyAnchorTrackSections = savedPreReFlyAnchorTrackSections;
             }
-
-            return true;
         }
 
         private static int CountOrNull<T>(List<T> list) => list != null ? list.Count : 0;

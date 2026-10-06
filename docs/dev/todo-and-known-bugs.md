@@ -211,8 +211,8 @@ When the loaded save's active tree was committed later, `RemoveCommittedTreeById
 (`RecordingStore.cs:820-843`) detaches it without touching its ledger rows, and the commit-time
 dedupe drops only new duplicates. Recovery funds or contract rewards from the abandoned future
 survive the resumed flight ending differently. (When an OnSave ran between the commit and the
-F9, the detach does not run at all - see
-QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE.)
+F9, the detach did not run at all until the committed-copy restore rule -
+QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE, fixed.)
 
 Fix: the quickload-resume reconcile retires, by physical removal
 (`Ledger.RetireAbandonedFutureActions`), every ledger row tagged to a trimmed recording that is not
@@ -271,9 +271,9 @@ the resume guard leaves on the active recording), active one included, and rebui
 map so the vessel is recorded again. The resume context carries the load kind: the clear runs only
 where `LoadReconcilePolicy` says `ReconcileAtResume` (F9 in flight, other in-session loads); a
 Re-Fly start and a cold resume skip it with a log line. It reaches a flight F9'd back into before
-it was committed, or committed in flight with no OnSave in between; an F9 into a committed flight's
-quicksave from the Space Center, or in flight after a later OnSave, does not reach it
-(QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE). Red tests in
+it was committed, or committed in flight with no OnSave in between, and, since the committed-copy
+restore rule, an F9 into a committed flight's quicksave from the Space Center or in flight after a
+later OnSave (QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE, fixed). Red tests in
 `QuickloadResumeTests` (splice refresh and stale-epoch paths through `TryRestoreActiveTreeNode`,
 Re-Fly scope, `VesselDestroyed`, the field gate over the end-state names and over every field
 `Recording.ApplyPersistenceArtifactsFrom` copies; the refresh's own direct copies are not
@@ -283,14 +283,14 @@ still cuts such history members (QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESU
 
 Live proof: `harness/scenarios/QL-4-quickload-booster-terminal.toml` (authored 2026-10-06, never
 flown; fly on request once the fix is in the automation DLL). It F9s in FLIGHT after an in-flight
-commit with no save in between, because by code read a Space Center F9 into the older flight
-quicksave drops the whole saved tree on stale sidecar epochs and never reaches the trim
-(QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE; the spec header has the
-argument).
+commit with no save in between; the Space Center F9 into the older flight quicksave (which
+dropped the whole saved tree on stale sidecar epochs until
+QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE was fixed) is lane QL-4b, and
+the in-flight F9 after a later save is lane QL-4c.
 
 ---
 
-## QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE: F9 into a committed flight's quicksave after any later save (the Space Center exit, an autosave, a far vessel switch) leaves its abandoned future committed [FILED 2026-10-06 while authoring lane QL-4 (Space Center route), verified by code read; in-flight route folded in 2026-10-06 from the PR-C review, verified by code read. OPEN, product; not yet reproduced]
+## ~~QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE: F9 into a committed flight's quicksave after any later save (the Space Center exit, an autosave, a far vessel switch) leaves its abandoned future committed~~ [FILED 2026-10-06 while authoring lane QL-4 (Space Center route), verified by code read; in-flight route folded in 2026-10-06 from the PR-C review, verified by code read. FIXED 2026-10-06, branch `quickload-after-save` (xUnit; live proof is lanes QL-4b and QL-4c, authored, never flown)]
 
 One root, two routes. Any OnSave between the quicksave and the F9 of a flight committed in that
 window rewrites the flight's changed
@@ -318,30 +318,69 @@ rewritten sidecar as `stale-sidecar-epoch` (`ShouldSkipStaleSidecar`, bug #270),
 Expected player effect: the committed tree's abandoned future (trajectory, terminal, crew end
 states, tagged events and ledger rows) stays committed, and its ghost replays next to the live
 vessel; on the Space Center route the resumed flight is also unrecorded. TA-2, TA-3 and TA-4 do
-nothing on either route. Whether the committed leaf also spawns a duplicate vessel at its end is
-not traced.
+nothing on either route.
 
-Fix direction (consistent with the 2026-10-06 rulings: F9 into a later-committed flight resumes
-it, and a flight F9'd back into records again): when the saved active tree's id matches a
-committed tree in memory, salvage its stale-epoch members from that committed copy (the same-id
-refresh already reads it) instead of dropping the tree or keeping the Limbo clone, then detach the
-committed copy, so the existing trim and abandoned-future reconcile run. The quicksave facts the
-reconcile already reads (`CaptureQuicksaveTreeFacts`, captured before the keep) still tell
-committed history apart.
+Duplicate vessel (traced by code read 2026-10-06, not reproduced): in the common shapes no second
+vessel spawned. The in-flight commit stamps the live vessel's recording `VesselSpawned`
+(`CommitTreeFlight`), and every end-of-recording spawn first adopts a same-launch vessel that
+still exists (`VesselSpawner.TryAdoptExistingSourceVesselForSpawn`: same pid and launch guid);
+the Space Center's spawn pass adopts the exit save's real vessels that way, and those flags live
+on the in-memory committed copy, which an in-session load keeps. One path was left: a committed
+leaf of the vessel being flown that was not yet adopted at the F9 (its end after the Space
+Center's last pass) reaches `ParsekFlight.SpawnVesselOrChainTip`, where the #226 bypass
+(`ShouldAllowExistingSourceDuplicateForCurrentFlight`, source pid = active vessel pid) skips the
+adoption and spawns a second copy at the leaf's end. The fix removes the committed copy on both
+routes, so no leaf of the abandoned future is left to spawn; the resumed members keep the
+quicksave's own spawn flags (the refresh and the salvage do not copy `VesselSpawned`).
 
-Red tests first, one per route:
-- Space Center: xUnit over `TryRestoreActiveTreeNode` with a committed same-id tree in memory,
-  no pending tree, the root's sidecar on disk at epoch N+1 and the saved node naming N; assert the
-  tree is restored (not "dropped entire tree") and the committed copy detached.
-- In flight: the same, plus a same-id Limbo clone stashed as pending (the copy-on-write resume
-  after the in-flight commit); run the resume prep after the restore and assert the committed copy
-  is detached and the reconcile's plan is not empty (no `reason=empty-plan`).
+Fix: the committed-copy restore rule in `ParsekScenario.TryRestoreActiveTreeNode`
+(`DecideCommittedCopyRestore` / `ResolveCommittedCopyRestore`, `ParsekScenario.HydrationRepair.cs`;
+owner rulings 2026-10-06: F9 into a flight committed after the quicksave resumes it and retires its
+recording-tagged future, OQ-2; a flight F9'd back into records again; committed history is
+permanent, D2). After hydration, when a committed tree with the saved active tree's id is in memory
+and the quicksave holds no committed node for that tree id and none of its member ids
+(`QuicksaveTreeFacts.TreeCommittedInQuicksave` / `AnyMemberCommittedInQuicksave`, read from the
+save node before anything changes), the flight was committed after the quicksave: every
+stale-epoch member takes the payload of its same-id member in the committed copy
+(`SalvageStaleEpochMembersFromCommittedTree`, the same overwrite as the same-id refresh,
+`CopyCommittedPayloadIntoLoadedRecording`: identity kept, failure cleared, marked dirty), the
+stale-epoch keep does not run, and the existing splice, refresh and detach do; then a
+committed-tree restore attempt armed for the tree (the in-flight route's copy-on-write clone) is
+cleared, since its committed original is gone and, left armed, it would stop every later OnSave
+from writing the resumed tree. The resumed tree is the QUICKSAVE's (route 2's Limbo clone is
+popped as before, its post-commit tail with it); the resume trim cuts the salvaged payload back to
+the cutoff and the abandoned-future reconcile retires end states, events and rows as for the
+no-save route. Left alone (`action=Unchanged`, logged with the reason): a tree the quicksave holds
+as committed (a copy-on-write clone of a tree committed BEFORE the quicksave, D2), a pending
+revert, a load with no facts, and every load that is not a plain in-session one (cold, Re-Fly
+start). One `[Scenario] Quickload committed-copy restore:` Info line per decision names the route
+(`in-flight` when a same-id pending tree is in memory, else `space-center`), the action, the
+reason, the stale count, the salvage count and whether it replaced the stale-epoch keep; no
+committed copy logs a Verbose skip. A stale member the committed copy no longer holds (merged away
+by the commit's optimizer pass) is dropped as before (`unsalvaged`). The trim now also cuts
+`TrackSection.bodyFixedFrames` (a parent-anchored section's primary surface was left past the
+cutoff while its `frames` and bounds were cut; the salvage, the refresh and the stale-epoch keep
+all hand the trim such sections). Red tests: `QuickloadCommittedAfterQuicksaveTests` (Space Center
+route, red on `dropped entire tree`; in-flight route, red on `reason=empty-plan`; both then the
+tree restored, the committed copy detached, a non-empty plan, the future end states cleared and
+the events and rows retired; a stale member the committed copy no longer holds is dropped and
+the clone still not kept; the D2 shape with and without a pending clone keeps today's keep or
+drop; the plain stale-epoch keep with no committed copy unchanged; QL-4's no-save shape clears the
+restore attempt; revert and Re-Fly start unchanged; the decision table, the salvage and the facts),
+plus `LoadReconcileWiringGateTests` (the decision after hydration and before the keep, the attempt
+clear after the detach, both OnLoad call sites passing the load kind). Residual: a tree committed
+before the quicksave and re-committed after it keeps today's behaviour (D2 wins over the second
+commit's future; QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESUMED-CLONE's neighbourhood);
+game-state events tagged to a recording created only on the in-flight route's resumed clone
+(after the commit) stay tagged to an id no tree holds, as on the no-save route.
 
-Live proof: a Space Center variant of lane QL-4 (the design's original route: auto-merge on
-`ExitToSpaceCenter`, then `LoadGame` the flight quicksave at the KSC), and an in-flight variant
-with a `SaveGame persistent` between the commit and the load; both expected to fail until the fix.
-Witnesses for the defect today: `dropped entire tree` plus `Sidecar epoch mismatch` (Space Center),
-`keeping in-memory pending tree` plus `reason=empty-plan` (in flight).
+Live proof (authored 2026-10-06, never flown; fly on request once the fix is in the automation
+DLL): `harness/scenarios/QL-4b-quickload-from-space-center.toml` (QL-4's flight, `ExitToSpaceCenter`
+for the auto-merge and the exit save, then `LoadGame` of the flight quicksave at the KSC) and
+`harness/scenarios/QL-4c-quickload-after-in-flight-save.toml` (QL-4 plus a `SaveGame persistent`
+between the in-flight commit and the load). Each requires the decision line and the reconcile line
+and forbids the pre-fix witnesses: `dropped entire tree` (Space Center), `keeping in-memory pending
+tree` plus `reason=empty-plan` (in flight).
 
 ---
 

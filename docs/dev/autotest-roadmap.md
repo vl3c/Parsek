@@ -6423,7 +6423,9 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | QL-1 | Career KSC actions after a quicksave, back-in-time load at the KSC; ledger rows as ruled | `career-earned-ksc` | TC-4 for pools |
 | QL-2 | In-flight contract completion, crash, F9 back, re-fly differently, commit; no abandoned-future booking | `career-contract-pad` | TC-1 Quickload, TA-2 |
 | QL-3 | Re-Fly merge, then load a quicksave from before it; one visible flight, tombstones hold | S4.2 host | TA-1 |
-| QL-4 | Booster crash after a quicksave, F9, booster survives; terminal state and recording correct. AUTHORED 2026-10-06, NOT YET FLOWN: `harness/scenarios/QL-4-quickload-booster-terminal.toml` (lands with the TA-4 fix). The booster commits SubOrbital under canopy instead of crashing (no verb or mission param withholds its chutes; the leak is kind-agnostic), and the F9 is in FLIGHT after an in-flight commit: by code read a Space Center F9 drops the whole saved tree on stale sidecar epochs and never reaches the trim (spec header) | `gs1-two-stage-pad` | TA-4 |
+| QL-4 | Booster crash after a quicksave, F9, booster survives; terminal state and recording correct. AUTHORED 2026-10-06, NOT YET FLOWN: `harness/scenarios/QL-4-quickload-booster-terminal.toml` (lands with the TA-4 fix). The booster commits SubOrbital under canopy instead of crashing (no verb or mission param withholds its chutes; the leak is kind-agnostic), and the F9 is in FLIGHT after an in-flight commit with no save in between; the Space Center F9 is QL-4b | `gs1-two-stage-pad` | TA-4 |
+| QL-4b | QL-4's flight, then Esc to the Space Center (auto-merge, exit save) and the quicksave loaded from there: the committed-copy restore salvages the stale members, detaches the committed copy and resumes; reconcile retires the future. AUTHORED 2026-10-06, NOT YET FLOWN: `harness/scenarios/QL-4b-quickload-from-space-center.toml` (lands with the fix) | `gs1-two-stage-pad` | QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE |
+| QL-4c | QL-4 with a `SaveGame persistent` between the in-flight commit and the F9: the stale-epoch keep of the resumed clone is replaced, the committed copy detached and its restore attempt cleared. AUTHORED 2026-10-06, NOT YET FLOWN: `harness/scenarios/QL-4c-quickload-after-in-flight-save.toml` (lands with the fix) | `gs1-two-stage-pad` | QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE |
 | QL-5 | Discard Re-fly with a real load (launch and prelaunch) | a Re-Fly host | TC-1 ReFlyRevert, TA-5 |
 | QL-6 | Discard then F9 back into that flight: it records again (ruled 2026-10-06) | `gloops-airshow` | QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN |
 | MINE-0 | Converter events on the drill / ISRU showcases; converter-loop apply line pinned | S1.9 | - |
@@ -6445,7 +6447,7 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | CAMP-1/2 | Career and sandbox "everything" campaign lanes, 30-60 mixed steps (IC-3 is the route slice); the scripted campaign program below (CS-*) is the clean, staged form of CAMP-1 | TC-6 | all of the above |
 
 Order: Phase A with its fixes and the wiring gate; the headless fuzzers; TC-1 verbs; TC-2 / TC-3
-baselined then gated; TC-6 fixtures; QL-1..QL-4 and GP-1..GP-5 (back-in-time load and revert are
+baselined then gated; TC-6 fixtures; QL-1..QL-4c and GP-1..GP-5 (back-in-time load and revert are
 the largest blind spot), then MINE-0..MINE-3, the RC lanes, the rest; TC-4 so those lanes gate
 on pools; FZ-1 nightly; the campaign lanes.
 

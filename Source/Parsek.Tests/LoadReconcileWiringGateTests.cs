@@ -224,23 +224,39 @@ namespace Parsek.Tests
         public void RestoreCapturesTheQuicksaveFactsBeforeAnythingChangesTheLoadedTree()
         {
             // The committed-history discriminator must read the quicksave as written: before the
-            // sidecar hydration, the stale-epoch keep, the pending-tree salvage and the same-id
-            // refresh, and before the detach of the committed copy.
-            string body = PreparedMethodBody(ScenarioPath, "internal static bool TryRestoreActiveTreeNode(ConfigNode node)");
+            // sidecar hydration, the committed-copy decision and its salvage, the stale-epoch
+            // keep, the pending-tree salvage and the same-id refresh, and before the detach of
+            // the committed copy.
+            string body = PreparedMethodBody(ScenarioPath, "internal static bool TryRestoreActiveTreeNode(");
             Assert.Equal(1, Occurrences(body, "CaptureQuicksaveTreeFacts("));
             int load = IndexOrFail(body, "RecordingTree.Load(");
             int capture = IndexOrFail(body, "CaptureQuicksaveTreeFacts(");
             int hydrate = IndexOrFail(body, "RecordingStore.LoadRecordingFiles(");
+            int decide = IndexOrFail(body, "ResolveCommittedCopyRestore(");
             int keep = IndexOrFail(body, "ShouldKeepPendingTreeAfterHydrationFailure(");
             int salvage = IndexOrFail(body, "RestoreHydrationFailedRecordingsFromPendingTree(");
             int splice = IndexOrFail(body, "SpliceMissingCommittedRecordingsIntoLoadedTree(");
             int detach = IndexOrFail(body, "RecordingStore.RemoveCommittedTreeById(");
-            Assert.True(load < capture && capture < hydrate && hydrate < keep && keep < salvage
-                && salvage < splice && splice < detach,
+            int clearAttempt = IndexOrFail(body, "ClearCommittedTreeRestoreAttemptAfterDetach(");
+            Assert.True(load < capture && capture < hydrate && hydrate < decide && decide < keep
+                && keep < salvage && salvage < splice && splice < detach && detach < clearAttempt,
                 "load-reconcile gate: TryRestoreActiveTreeNode must capture the quicksave facts right after "
-                + "loading the node, before hydration, the keep, the salvage, the splice and the detach");
-            Assert.Contains("CaptureQuicksaveTreeFacts( tree, CollectQuicksaveCommittedRecordingIds(node));",
-                Collapse(body));
+                + "loading the node, before hydration; decide the committed-copy rule after hydration and "
+                + "before the keep, the salvage, the splice and the detach; clear the restore attempt after the detach");
+            Assert.Contains("CaptureQuicksaveTreeFacts( tree, CollectQuicksaveCommittedRecordingIds(node), "
+                + "CollectQuicksaveCommittedTreeIds(node));", Collapse(body));
+            // The rule replaces the stale-epoch keep: the keep is gated on it, and the restore
+            // attempt is cleared only on it.
+            Assert.Contains("if (committedCopyAction != CommittedCopyRestoreAction.ResumeFromQuicksave "
+                + "&& ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))", Collapse(body));
+            Assert.Contains("if (committedCopyAction == CommittedCopyRestoreAction.ResumeFromQuicksave) "
+                + "ClearCommittedTreeRestoreAttemptAfterDetach(tree);", Collapse(body));
+
+            // Both OnLoad call sites pass the prologue's load kind.
+            string onLoad = Collapse(PreparedMethodBody(ScenarioPath, "public override void OnLoad(ConfigNode node)"));
+            Assert.Equal(2, Occurrences(onLoad, "TryRestoreActiveTreeNode("));
+            Assert.Contains("TryRestoreActiveTreeNode(node, earlyLoadKind)", onLoad);
+            Assert.Contains("TryRestoreActiveTreeNode(node, EarlyLoadKind.Cold)", onLoad);
 
             string arm = PreparedMethodBody(ScenarioPath, "internal static void ConfigurePendingQuickloadResumeContext(");
             Assert.Contains("QuicksaveFacts = quicksaveFacts,", Collapse(arm));

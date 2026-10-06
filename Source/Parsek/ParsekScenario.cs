@@ -3735,7 +3735,7 @@ namespace Parsek
                     // affect the rest of OnLoad, but BEFORE revert detection so the
                     // pending slot is populated when it runs.
                     loadPhase = "active-tree-restore";
-                    bool activeTreeRestoredFromSave = TryRestoreActiveTreeNode(node);
+                    bool activeTreeRestoredFromSave = TryRestoreActiveTreeNode(node, earlyLoadKind);
                     bool pendingTreeRestoredFromSave = TryRestorePendingTreeNode(
                         node, activeTreeRestoredFromSave);
                     RecorderStateLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
@@ -4468,7 +4468,7 @@ namespace Parsek
                 // original Bug C scenario.
                 loadPhase = "cold-active-tree-restore";
                 ClearPendingQuickloadResumeContext();
-                if (TryRestoreActiveTreeNode(node))
+                if (TryRestoreActiveTreeNode(node, EarlyLoadKind.Cold))
                 {
                     // Flag the coroutine to run on OnFlightReady so the active vessel is
                     // available for name matching. Cold start always lands in flight for
@@ -6020,8 +6020,11 @@ namespace Parsek
         /// the load is Parsek's own rewind flow which explicitly resets playback state.</para>
         ///
         /// Returns true if an active tree was found and stashed as Limbo.
+        /// <paramref name="earlyLoadKind"/> is the load's prologue kind; the committed-copy rule
+        /// (<see cref="DecideCommittedCopyRestore"/>) applies to a plain in-session load only.
         /// </summary>
-        internal static bool TryRestoreActiveTreeNode(ConfigNode node)
+        internal static bool TryRestoreActiveTreeNode(
+            ConfigNode node, EarlyLoadKind earlyLoadKind = EarlyLoadKind.InSession)
         {
             lastRestoredQuicksaveTreeFacts = null;
             if (node == null) return false;
@@ -6062,10 +6065,11 @@ namespace Parsek
                 // committed future in. The quickload-resume reconcile reads it to leave alone a
                 // member that was already committed history when the quicksave was taken.
                 lastRestoredQuicksaveTreeFacts = CaptureQuicksaveTreeFacts(
-                    tree, CollectQuicksaveCommittedRecordingIds(node));
+                    tree, CollectQuicksaveCommittedRecordingIds(node), CollectQuicksaveCommittedTreeIds(node));
                 ParsekLog.Verbose("Scenario",
                     $"TryRestoreActiveTreeNode: captured quicksave facts tree='{tree.TreeName}' id={tree.Id} " +
-                    $"members={lastRestoredQuicksaveTreeFacts?.Members.Count ?? 0}");
+                    $"members={lastRestoredQuicksaveTreeFacts?.Members.Count ?? 0} " +
+                    $"treeCommittedInQuicksave={(lastRestoredQuicksaveTreeFacts != null && lastRestoredQuicksaveTreeFacts.TreeCommittedInQuicksave ? "true" : "false")}");
                 if (RecordingStore.TryConsumeNextActiveTreeRestoreSuppression(
                     "TryRestoreActiveTreeNode:active-tree",
                     out string suppressReason))
@@ -6087,12 +6091,20 @@ namespace Parsek
                     if (!RecordingStore.LoadRecordingFiles(rec))
                     {
                         sidecarHydrationFailures++;
-                        if (rec.SidecarLoadFailureReason == "stale-sidecar-epoch")
+                        if (rec.SidecarLoadFailureReason == StaleSidecarEpochReason)
                             staleEpochHydrationFailures++;
                     }
                 }
 
-                if (ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))
+                // A committed tree with this id that the quicksave does not hold as committed was
+                // committed after the quicksave (owner ruling OQ-2). Its stale-epoch members are
+                // salvaged from the committed copy here, and the stale-epoch keep below does not
+                // run for it, so the splice, refresh and detach that follow always do.
+                CommittedCopyRestoreAction committedCopyAction = ResolveCommittedCopyRestore(
+                    tree, earlyLoadKind, ref staleEpochHydrationFailures);
+
+                if (committedCopyAction != CommittedCopyRestoreAction.ResumeFromQuicksave
+                    && ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))
                 {
                     ParsekLog.Warn("Scenario",
                         $"TryRestoreActiveTreeNode: keeping in-memory pending tree " +
@@ -6160,6 +6172,8 @@ namespace Parsek
                         $"TryRestoreActiveTreeNode: no committed copy of tree '{tree.TreeName}' " +
                         $"(id={tree.Id}) needed detaching");
                 }
+                if (committedCopyAction == CommittedCopyRestoreAction.ResumeFromQuicksave)
+                    ClearCommittedTreeRestoreAttemptAfterDetach(tree);
 
                 // Bug #290d: if the pending tree is already Finalized (set by
                 // CommitTreeSceneExit during the same scene transition), it has

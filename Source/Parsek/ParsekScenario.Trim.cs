@@ -196,8 +196,25 @@ namespace Parsek
         {
             internal string TreeId;
             internal string ActiveRecordingId;
+            // The save node also holds a COMMITTED tree with this id (a copy-on-write restore
+            // clone of a tree committed before the save).
+            internal bool TreeCommittedInQuicksave;
             internal readonly Dictionary<string, QuicksaveMemberFacts> Members =
                 new Dictionary<string, QuicksaveMemberFacts>(StringComparer.Ordinal);
+
+            /// <summary>True when any member is in a committed tree node of the save.</summary>
+            internal bool AnyMemberCommittedInQuicksave
+            {
+                get
+                {
+                    foreach (KeyValuePair<string, QuicksaveMemberFacts> kvp in Members)
+                    {
+                        if (kvp.Value.CommittedInQuicksave)
+                            return true;
+                    }
+                    return false;
+                }
+            }
         }
 
         /// <summary>
@@ -226,11 +243,32 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: the ids of every COMMITTED tree the save node holds (active and pending tree
+        /// nodes skipped).
+        /// </summary>
+        internal static HashSet<string> CollectQuicksaveCommittedTreeIds(ConfigNode scenarioNode)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (scenarioNode == null)
+                return ids;
+            foreach (ConfigNode treeNode in scenarioNode.GetNodes("RECORDING_TREE"))
+            {
+                if (treeNode == null || IsActiveTreeNode(treeNode) || IsPendingTreeNode(treeNode))
+                    continue;
+                string treeId = treeNode.GetValue("id");
+                if (!string.IsNullOrEmpty(treeId))
+                    ids.Add(treeId);
+            }
+            return ids;
+        }
+
+        /// <summary>
         /// Pure: captures <see cref="QuicksaveTreeFacts"/> from an active tree just loaded from a
         /// save node, before hydration, salvage or the same-id refresh change any member.
         /// </summary>
         internal static QuicksaveTreeFacts CaptureQuicksaveTreeFacts(
-            RecordingTree loadedTree, HashSet<string> committedIdsInQuicksave)
+            RecordingTree loadedTree, HashSet<string> committedIdsInQuicksave,
+            HashSet<string> committedTreeIdsInQuicksave = null)
         {
             if (loadedTree == null || string.IsNullOrEmpty(loadedTree.Id))
                 return null;
@@ -250,6 +288,8 @@ namespace Parsek
             {
                 TreeId = loadedTree.Id,
                 ActiveRecordingId = loadedTree.ActiveRecordingId,
+                TreeCommittedInQuicksave = committedTreeIdsInQuicksave != null
+                    && committedTreeIdsInQuicksave.Contains(loadedTree.Id),
             };
             if (loadedTree.Recordings == null)
                 return facts;
@@ -884,6 +924,7 @@ namespace Parsek
                 }
 
                 sectionMutated |= TrimTrackSectionFramesPastUT(ref section, cutoffUT);
+                sectionMutated |= TrimTrackSectionBodyFixedFramesPastUT(ref section, cutoffUT);
                 sectionMutated |= TrimTrackSectionCheckpointsPastUT(ref section, cutoffUT);
 
                 bool hasFrames = section.frames != null && section.frames.Count > 0;
@@ -922,6 +963,27 @@ namespace Parsek
                 section.frames = null;
 
             int remainingCount = section.frames != null ? section.frames.Count : 0;
+            return remainingCount != originalCount;
+        }
+
+        // The body-fixed surface of a parent-anchored Relative section is sampled alongside
+        // `frames` and is the primary playback surface, so it is cut at the same boundary.
+        private static bool TrimTrackSectionBodyFixedFramesPastUT(ref TrackSection section, double cutoffUT)
+        {
+            if (section.bodyFixedFrames == null || section.bodyFixedFrames.Count == 0)
+                return false;
+
+            int originalCount = section.bodyFixedFrames.Count;
+            for (int i = section.bodyFixedFrames.Count - 1; i >= 0; i--)
+            {
+                if (section.bodyFixedFrames[i].ut > cutoffUT)
+                    section.bodyFixedFrames.RemoveAt(i);
+            }
+
+            if (section.bodyFixedFrames.Count == 0)
+                section.bodyFixedFrames = null;
+
+            int remainingCount = section.bodyFixedFrames != null ? section.bodyFixedFrames.Count : 0;
             return remainingCount != originalCount;
         }
 
