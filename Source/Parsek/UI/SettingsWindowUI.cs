@@ -515,62 +515,27 @@ namespace Parsek
         {
             GUILayout.Label("Interface", parentUI.GetSectionHeaderStyle());
 
-            // Design 7.2 / edge case 11: Basic hides the Gloops window WITHOUT stopping the
-            // recording (philosophy 1), which would strand a running recorder with no
-            // reachable Stop / Discard control. Null-safe: in SPACECENTER parentUI.Flight is
-            // null and this falls back to "not recording", which is sound - Gloops
-            // live-recording state dies with the FLIGHT-scene ParsekFlight.
-            //
-            // Deliberately NOT logged: this runs every frame the Settings window is open.
-            // ParsekUI.SetUiComplexityMode logs the refusal at Info if a click ever gets
-            // through, and that seam - not this disable - is the load-bearing half.
-            bool gloopsRecording = parentUI.Flight != null && parentUI.Flight.IsGloopsRecording;
-
             float cellWidth = SettingsWindowPresentation.OptionCellWidth(settingsWindowRect.width, 2);
             GUILayout.BeginHorizontal();
             foreach (UiComplexityMode mode in new[] { UiComplexityMode.Basic, UiComplexityMode.Advanced })
             {
                 bool isSelected = s.UiComplexityModeLevel == mode;
 
-                // GUI.enabled changes how the control renders and whether it reports a
-                // click; it does NOT change the control COUNT, so this is safe to vary
-                // between one frame's Layout and Repaint passes.
-                bool prevEnabled = GUI.enabled;
-                GUI.enabled = prevEnabled && !IsModeOptionDisabled(mode, gloopsRecording);
                 bool pressed = GUILayout.Toggle(isSelected,
                     new GUIContent(UiComplexityModeLabel(mode), UiComplexityModeTooltip(mode)),
                     optionToggleStyle, GUILayout.Width(cellWidth));
-                GUI.enabled = prevEnabled;
 
                 if (pressed && !isSelected)
                     ParsekUI.SetUiComplexityMode(mode);
             }
             GUILayout.EndHorizontal();
 
-            GUILayout.Label(InterfaceSectionHint(gloopsRecording), GUI.skin.label);
+            GUILayout.Label(InterfaceSectionHint(), GUI.skin.label);
         }
 
-        /// <summary>
-        /// Whether the given mode's option button is disabled (design 7.2, edge case 11).
-        /// Only Basic is ever disabled, and only while a manual Gloops recording is running.
-        /// Advanced is never disabled: it only reveals surfaces.
-        /// </summary>
-        internal static bool IsModeOptionDisabled(UiComplexityMode mode, bool gloopsRecording)
-        {
-            return mode == UiComplexityMode.Basic && gloopsRecording;
-        }
-
-        /// <summary>
-        /// The Interface section's hint label. One label either way (never a second control),
-        /// so the inline Gloops reason cannot change the IMGUI control count mid-frame.
-        /// </summary>
-        internal static string InterfaceSectionHint(bool gloopsRecording)
-        {
-            const string BaseHint = "Basic hides power-user windows. Advanced is the full UI.";
-            return gloopsRecording
-                ? BaseHint + " Stop the Gloops recording first."
-                : BaseHint;
-        }
+        /// <summary>The Interface section's hint label, constant in every mode and scene.</summary>
+        internal static string InterfaceSectionHint()
+            => "Basic hides power-user windows. Advanced is the full UI.";
 
         private static string UiComplexityModeLabel(UiComplexityMode mode)
             => mode == UiComplexityMode.Basic ? "Basic" : "Advanced";

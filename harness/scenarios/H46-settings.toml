@@ -11,7 +11,7 @@ tier = "nightly"
 #
 # WHY A READING RUN: two of the four admitted cells carry guards that are genuinely
 # runtime. `SettingsWindowShrinksWhenEnteringBasic` needs a live `ParsekUI`, a live
-# `ParsekFlight`, no Gloops recording in progress, and - the load-bearing pair - the
+# `ParsekFlight`, and - the load-bearing pair - the
 # window to have been LAID OUT at all ("The Settings window was never laid out
 # (height=0", "The baseline height fit never ran"). `TooltipEchoBox_NarrowWindow_
 # ReservesWrappedHeight` needs the probe to observe an IMGUI Repaint pass at all

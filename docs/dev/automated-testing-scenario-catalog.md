@@ -17,7 +17,7 @@ report; headline values only here.
 
 - **D1 Recording lifecycle**: auto-record on launch / on EVA / on
   first-modification-after-switch (all shipped defaults, ParsekSettings.cs),
-  manual Gloops ghost-only, switch-backgrounds-recording (renamed from
+  switch-backgrounds-recording (renamed from
   `stop-on-switch` 2026-09-15, register B3: there is no Stop decision, and a
   vessel switch BACKGROUNDS the live recording), commit via
   revert-merge / scene exit / abort, commit in a FOREIGN SOI (the recording

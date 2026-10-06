@@ -3,6 +3,20 @@
 Measured 2026-09-11 against commit `4eb427e9e`. All `file:line` references are relative to
 `Source/Parsek/` unless they start with `harness/`, `docs/` or `scripts/`.
 
+STRUCTURAL CHANGE 2026-10-05 (owner decision): the Gloops Flight Recorder is DELETED - its
+window (`UI/GloopsRecorderUI.cs`), the main window's launcher block, its `UiSurface` key
+(`MainButtonGloops`, the only retired key, so the retirement gate `IsRetired` went with it),
+the Settings Interface guard that greyed `Basic` while a take recorded, the `Gloops - Ghosts
+Only` permanent group, the ghost-only recording flag, its six screen messages, its entry in
+the mode-change close set, its seam verbs and its seam window token `gloops`. So the window
+population is **13** (was 14), the gate has **13** keys (was 14, 3.16), the close set has
+**4** targets (was 5), and the screen-message producers are **87** (was 92; 3.14). Section
+3.10 is kept as a one-paragraph tombstone and window row 11 of 3.0 as an unused number, so
+the numbers other sections cite do not move. Findings D1, D15, H2, P13 and the 5.2 question
+"Is Gloops retired" are resolved by the deletion and marked so in place. The tallies of
+section 2 and the coverage history elsewhere are the record of the flights that took them and
+are not rewritten.
+
 STRUCTURAL CHANGE 2026-09-27 (owner decision): the Career State window is REMOVED - its class,
 its launcher, its `UiSurface` key (`MainButtonCareer`), its seam token `career` and its gallery
 states. So the window population is **13** (was 14), the main window's launchers are one fewer
@@ -98,7 +112,8 @@ here. What DOES belong here and is recorded now, because it corrects claims this
   in BOTH complexity modes (`UI/UiComplexityMode.cs`, `IsRetired`), so no player can open the
   Gloops Recorder; its three states are photographed through the seam's own `IsOpen` write
   and are DIAGNOSTIC in practice. Both are filed with their source gates as todo
-  `GUI-STATE-COVERAGE-RESIDUE-2026-09-21`.
+  `GUI-STATE-COVERAGE-RESIDUE-2026-09-21`. (The second left with the Gloops Recorder itself,
+  deleted 2026-10-05.)
 - **The Timeline's grey `!IsEffective` row is neither a supersede's trace nor a
   tombstone's, and it is not a strike.** `TimelineEntry.IsEffective` is written only from
   `action.Effective` and from the milestone-compaction merge
@@ -159,12 +174,12 @@ structure:
 
 | grep over `Source/Parsek` | result |
 |---|---|
-| `ClickThruBlocker.GUILayoutWindow(` / `GUILayout.Window(` / `GUI.Window(` | 16 sites: 15 player-facing hosts drawing **14 distinct windows**, 1 test-only probe at `InGameTests/GuiTreeDumpImguiTest.cs:484` |
+| `ClickThruBlocker.GUILayoutWindow(` / `GUILayout.Window(` / `GUI.Window(` | 14 sites since the Gloops removal (2026-10-05): 13 player-facing hosts drawing **13 distinct windows** (the main window has two hosts, and `StructureListWindowUI`'s one site draws both the Log and the Route History), 1 test-only probe at `InGameTests/GuiTreeDumpImguiTest.cs:484`. 16 sites and 14 windows at `4eb427e9e` |
 | `PopupDialog.SpawnPopupDialog(` excluding `InGameTests/` + `TestCommands/` | **19** modal dialogs (21 at `4eb427e9e`; the two Settings wipe confirmations were removed 2026-09-26) |
 | `void OnGUI()` in production | **5** hosts: `ParsekFlight.cs:2087`, `ParsekKSC.cs:227`, `ParsekTrackingStation.cs:350`, `CurrencyReservationOverlay.cs:87`, `InGameTests/TestRunnerShortcut.cs:177` (`OverlayBadge.cs` was the sixth until 2026-09-25, when the stock-UI badges moved to stock mechanisms and the file was deleted) |
 | IMGUI draw calls outside `UI/` | 6 files: `CurrencyReservationOverlay.cs`, `MapMarkerRenderer.cs`, `ParsekFlight.cs`, `ParsekKSC.cs`, `ParsekUI.cs`, `WatchModeController.cs` (`OverlayBadge.cs` deleted 2026-09-25) |
-| `UiSurfaceVisibility.IsVisible(` | **12** call sites in 5 files; 4 of the 14 enum keys have none |
-| `ParsekLog.ScreenMessage` / `ScreenMessages.PostScreenMessage` | 107 raw, **95** real producers at `4eb427e9e`; **92** since the two `All ... wiped` toasts left with the Settings wipes and `ParsekFlight.DeleteRecording`'s toast with it (2026-09-26) |
+| `UiSurfaceVisibility.IsVisible(` | **12** call sites in 5 files at `4eb427e9e`, where 4 of the 14 enum keys had none; the enum has **13** keys since the Gloops removal (3.16) |
+| `ParsekLog.ScreenMessage` / `ScreenMessages.PostScreenMessage` | 107 raw, **95** real producers at `4eb427e9e`; **92** since the two `All ... wiped` toasts left with the Settings wipes and `ParsekFlight.DeleteRecording`'s toast with it (2026-09-26); **87** measured 2026-10-05 after the six Gloops toasts left with the Gloops recorder (the 92 reading was one low: `DeleteGhostOnlyRecording`'s toast was still in the tree, 93) |
 
 ## 2. How the picture was taken
 
@@ -356,10 +371,10 @@ not these lines.
 
 ### 3.0 Window index
 
-The 14 IMGUI windows Parsek draws, in the main window's own button order (the order
-`TestCommands/TestCommandUiAction.cs` pins for the same reason). Row 5 is an unused number kept
-so the rows other sections cite keep their numbers; the Route History is row 8b, the second
-instance of row 8's class.
+The 13 IMGUI windows Parsek draws, in the main window's own button order (the order
+`TestCommands/TestCommandUiAction.cs` pins for the same reason). Rows 5 and 11 are unused
+numbers kept so the rows other sections cite keep their numbers; the Route History is row 8b,
+the second instance of row 8's class.
 
 | # | title | class + host line | scenes | seam token | census labels |
 |---|---|---|---|---|---|
@@ -374,7 +389,7 @@ instance of row 8's class.
 | 8b | `Parsek - Route History: <route>` | `UI/StructureListWindowUI.cs` (second instance, `RouteHistoryWindowIdKey`) | FLIGHT, SPACECENTER | `routehistory` (`op=target route=`) | `ib-routehistory-advanced` (GUI-3) |
 | 9 | `Parsek - Settings` | `UI/SettingsWindowUI.cs:128` | FLIGHT, SPACECENTER | `settings` | `ksc-settings-advanced/basic` |
 | 10 | `Parsek - Real Spawn Control` | `UI/SpawnControlUI.cs` | FLIGHT only | `spawncontrol` | `rsc-spawncontrol-before-warp` (RSC-1, one candidate row) |
-| 11 | `Gloops Flight Recorder` | `UI/GloopsRecorderUI.cs` | FLIGHT only | `gloops` | `flight-gloops-advanced` |
+| 11 | (unused number) | - | - | - | - |
 | 12 | `Parsek - Test Runner` (Settings-launched) | `UI/TestRunnerUI.cs` | FLIGHT, SPACECENTER | `testrunner` | `ksc-testrunner-advanced`, and four GUI-12 states on `career-earned-ksc`: `cek-testrunner-idle-advanced`, `-collapsed-advanced`, `-category-advanced`, `-results-advanced` (3.11) |
 | 13 | `Parsek - Test Runner` (global Ctrl+Shift+T) | `InGameTests/TestRunnerShortcut.cs` | ANY scene but LOADING | `testrunnerglobal` | three GUI-12 states: `cek-testrunnerglobal-idle-advanced`, `-collapsed-advanced`, `-category-advanced` (3.11) |
 | 14 | `Set Parent Group` / `Manage Groups` | `UI/GroupPickerUI.cs` | as its host | excluded from the window table; reached by `op=picker picker=manage|setparent` | both titles on GUI-3 (`ib-missions-grouppicker-manage/setparent-advanced`) and GUI-4 (`bd-missions-grouppicker-manage/setparent-advanced`) |
@@ -407,9 +422,9 @@ stock toolbar button handlers and the window's `Close`. Both hosts draw the wind
 `GUILayout.Width(250)` and reset its height to 0 each frame, so it is always exactly as tall as
 its content; it has no resize handle. The title `Parsek` uses `GetMainWindowStyle()`, the
 shared opaque window style, bold and 2 px larger than every sub-window title. No `UiSurface`
-key gates the window itself. After it, the flight host draws nine sub-windows (Missions,
-Timeline, Kerbals, Logistics, Log, Settings, Real Spawn Control, Gloops, Test Runner) and the
-KSC host seven (the same minus Real Spawn Control and Gloops). The flight host also draws the
+key gates the window itself. After it, the flight host draws eight sub-windows (Missions,
+Timeline, Kerbals, Logistics, Log, Settings, Real Spawn Control, Test Runner) and the
+KSC host seven (the same minus Real Spawn Control). The flight host also draws the
 ghost map markers and the in-world ghost labels outside the `showUI` gate (3.13).
 
 Contents, top-down (`ParsekUI.DrawWindow`): a 10 px gap, the launcher column, the Supply
@@ -424,7 +439,6 @@ the rest.
 | `Missions` | `Your missions, and the recordings they are built from.` | `IsVisible(MainButtonRecordings)` | `ToggleRecordingsWindow()` |
 | `Logistics` | `Supply routes that repeat a delivery you already flew.` | `IsVisible(MainButtonLogistics)` | toggles the Logistics window; tinted red when `LogisticsButtonState.AnyRouteHardBroken`, else cyan while a Supply Route candidate banner is pending (broken outranks the hint) |
 | `Kerbals` | `Who is reserved, flying or retired on timeline.` | `IsVisible(MainButtonKerbals)` | toggles the Kerbals window; a gap opens the group only when the button draws |
-| `Gloops Flight Recorder` | `Record a ghost-only flight that your career ignores.` | `InFlight && IsVisible(MainButtonGloops)` - **never true**: the key is retired in both modes (3.10, 3.16) | would toggle the Gloops window |
 | `Settings` | `Interface, ghosts and data - plus more in Advanced.` | `IsVisible(MainButtonSettings)` | `ToggleSettingsWindow()` |
 
 The Supply Route candidate banner (`RouteRunPrompt.HasPendingPrompt`): a boxed label
@@ -1180,7 +1194,7 @@ Without an active game it draws `Settings unavailable (no active game).` and `Cl
 
 | # | section | gate | controls |
 |---|---|---|---|
-| 1 | Interface | always | `Basic` / `Advanced` pressed toggles of one fixed equal width (`SettingsWindowPresentation.OptionCellWidth`) plus the hint `Basic hides power-user windows. Advanced is the full UI.`; `Basic` is greyed while a Gloops recording runs (`IsModeOptionDisabled`), and the hint then adds `Stop the Gloops recording first.` |
+| 1 | Interface | always | `Basic` / `Advanced` pressed toggles of one fixed equal width (`SettingsWindowPresentation.OptionCellWidth`) plus the hint `Basic hides power-user windows. Advanced is the full UI.`; neither option is ever greyed |
 | 2 | Ghosts | always | `Ghost audio` label (85 px), a 0..1 slider and a 35 px percent label; the ` Show supply route paths on map` toggle |
 | 3 | Looping | `SettingsSectionLooping` | `Auto-launch every` label, a 45 px value field, a 40 px unit button |
 | 4 | Recorder Sample Density | `SettingsSectionSampleDensity` | `Low` / `Medium` / `High` pressed toggles of one fixed equal width, plus a summary label |
@@ -1274,26 +1288,11 @@ host lists no row (its rover is outside 250 m), and that lane asserts the window
 
 ### 3.10 Gloops Flight Recorder
 
-Purpose: record a ghost-only flight the career ignores. FLIGHT only. First opened at 280 x 230,
-no resize handle.
-
-**Its launcher is RETIRED in BOTH modes.** `UiSurfaceVisibility.IsRetired` returns true for
-`MainButtonGloops` and `IsVisible` short-circuits before consulting the mode, so the launcher
-never draws, in Advanced either. The window BODY is not gated, so it still draws when its flag
-is set - and the only remaining writer of that flag is the harness seam. The cost of that
-state, and why un-retiring it is not a one-line change, is finding 5.2 "Is Gloops retired".
-
-Contents: a FIXED button order so positions never shift between states - the primary button
-(`Stop Recording` / `Start New Recording` / `Start Recording`, hover `Records a ghost-only
-flight; your career never sees it.`), `Preview` / `Stop Preview` (greyed with no last take or
-while recording), a gap, `Discard Recording` (greyed with nothing to discard) - then a
-three-block status ladder selected by `SelectStatusBlock(isRecording, hasLastRecording)` on a
-snapshot RE-READ after the button handlers (the #446 NRE guard): `Recording...` with `Points:`
-and `Duration:`; `Saved: "<name>"` with `Points:` and `Duration:`; or `Vessel: <name>` with
-`Ghost-only - loops by default`. Then the two-line tooltip strip and `Close`.
-
-Picture: `flight-gloops-advanced`, the empty block with Preview and Discard greyed. No picture:
-the `Recording` or `Saved` blocks, `Stop Preview`.
+Deleted 2026-10-05 (owner decision), with its launcher, its `UiSurface` key, its seam verbs and
+window token, its screen messages and the ghost-only recording flag. Parsek has no manual
+ghost-only recorder (Gloops is planned as a separate mod,
+`docs/dev/gloops-recorder-design.md`). The section number is kept so the
+references elsewhere in this file keep their meaning.
 
 ### 3.11 The two Test Runner windows
 
@@ -1415,8 +1414,8 @@ tooltip and the annotations' tooltip text (hover-only, and hover does not paint,
 Tracking Station markers, the in-world ghost labels, the Logistics tint.
 
 **The hover strip.** `TooltipEchoBox` (`UI/TooltipEchoBox.cs`) is the permanently visible one-
-or two-line help strip in 11 windows: single-line in Missions, Timeline, Logistics, Log and Real
-Spawn Control; two-line in the main window, Kerbals, Settings, Gloops and both Test Runners.
+or two-line help strip in 10 windows: single-line in Missions, Timeline, Logistics, Log and Real
+Spawn Control; two-line in the main window, Kerbals, Settings and both Test Runners.
 The group picker and the Logistics link picker have none. It draws exactly one `Space` plus one
 `Label` per pass at a probe-measured fixed height (23 px single-line, 38 px two-line), so the
 control count and the window height never move on hover, and it marquee-scrolls overflowing
@@ -1431,7 +1430,7 @@ slot. At most one carrier paints per frame.
 window's strip shows without scrolling: `budget = floor(lines * (firstOpenWidth - 30) / 7)`
 characters (`TooltipEchoBox.BudgetChars`; 30 px of chrome and padding, a pessimistic 7 px
 average advance). The `StripWindows` rows are the main window 250 px (two lines), Settings 280
-(two), Gloops 280 (two), Kerbals 760 (two), Timeline 820 (one), Missions / Recordings 1355
+(two), Kerbals 760 (two), Timeline 820 (one), Missions / Recordings 1355
 (one), Logistics 1556 (one), Real Spawn Control 750 (one), Log 900 (one) and both Test Runners
 440 (two). The scan covers every `new GUIContent(label, tooltip)` whose tooltip is a literal or
 a same-file `const string`; each row pins a minimum literal count so a parser regression cannot
@@ -1440,12 +1439,17 @@ window's own `new TooltipEchoBox(...)`. Runtime-built hovers are pinned by cells
 builders (the Timeline row hovers, the Career-mode slot sentences, the Logistics hold and cost
 texts).
 
-### 3.14 Screen messages (95 producers)
+### 3.14 Screen messages (87 producers)
 
 The whole non-window notification budget, grouped by trigger class: 91 producing call sites of
 `ParsekLog.ScreenMessage` / `ScreenMessages.PostScreenMessage` outside `InGameTests/` and
 `TestCommands/` (the sink itself and one forwarding wrapper excluded). Full per-site table with
-exact text: research note appendix 2 (its 2026-09-11 reading).
+exact text: research note appendix 2 (its 2026-09-11 reading, 95 producers). Eight have left
+since (87 measured 2026-10-05): the two `All ... wiped` toasts (2026-09-26), and the six
+Gloops toasts (`Gloops Recording STARTED`, `... auto-saved (vessel switched)`, `... too
+short - discarded`, `... discarded`, `Gloops Preview STARTED`, and `DeleteGhostOnlyRecording`'s
+`Ghost recording ... deleted`) with the Gloops recorder (2026-10-05), which also retires the
+table's Gloops class.
 
 | trigger class | producers | notes |
 |---|---|---|
@@ -1463,7 +1467,6 @@ exact text: research note appendix 2 (its 2026-09-11 reading).
 | Crew | 1 (`CrewReservationManager`) | posted only when a reserved kerbal is actually swapped out of a seat |
 | Save lifecycle / pre-Parsek backup | 2 (`PreParsekBackup`) | |
 | Ledger | **1** (`GameActions/KspStatePatcher.cs`, latched once per session) | the only player-visible signal that the reconstructed ledger disagreed with the live pool |
-| Gloops | 6 (`ParsekFlight`) | all player-unreachable: every trigger starts in the retired window or the seam |
 | Playback seam | 1 (`ParsekPlaybackPolicy`) | throttled |
 | Startup problems | 2 (`ParsekHarmony`, text from `StartupNotices`): failed Harmony patches (count + affected features), misplaced install | queued at `Startup.Instantly`, posted once per process after a playable scene has been current 3 s, re-queued while stock drops posts during a scene load; silent on a correct install |
 
@@ -1486,7 +1489,6 @@ appendix 3 lists it with per-site citations at its 2026-09-11 reading; the load-
 | status-word definitions | `static` and `stationary` (Recordings tab), the STASH group's entire meaning (`UI/UnfinishedFlightsGroup.cs`), a locked loop period's qualifier (`Mun window, varies`) | the word alone is not self-describing |
 | cross-window side effects | the Recordings tab's `Clear` of the time filter also resets the Timeline sliders | the click changes something off-screen |
 | full values a cell shortens | an event cell's dock partner (`Docked with <partner>`), the full crew roster and span dates of a mission, endpoint coordinates in Logistics, the untruncated hold clause | the cell shows a capped form |
-| the Gloops hovers | `Record a ghost-only flight that your career ignores.` | reach nobody: the launcher is retired |
 
 `GUIContent` tooltips do not exist on `PopupDialog` surfaces, and a `GUILayout.TextField` takes
 no `GUIContent`, which is why the Missions period cell's state is carried by the unit button
@@ -1495,8 +1497,9 @@ beside it.
 ### 3.16 The UiSurface gate
 
 One pure decision point, `UiSurfaceVisibility.IsVisible(UiSurface, UiComplexityMode)`
-(`UI/UiComplexityMode.cs`), with an exhaustive switch that THROWS on an undecided value;
-retirement (`IsRetired`) outranks the mode and short-circuits first. The mode is
+(`UI/UiComplexityMode.cs`), with an exhaustive switch that THROWS on an undecided value
+in either mode; there is no retired key (the one retired key, `MainButtonGloops`, left with
+the Gloops recorder on 2026-10-05, and `IsRetired` with it). The mode is
 frame-latched: `SetUiComplexityMode` sets a PENDING value and
 `ApplyPendingUiComplexityModeIfAny` latches it from `Update()`, so Layout and Repaint of one
 frame can never disagree about the control count. Every draw site reads
@@ -1509,7 +1512,6 @@ frame can never disagree about the control count. Every draw site reads
 | `MainButtonRecordings` | `UiComplexityMode.cs` | KEEP | `ParsekUI.DrawWindow` | nothing (the `Missions` launcher) |
 | `MainButtonLogistics` | `UiComplexityMode.cs` | KEEP | `ParsekUI.DrawWindow` | nothing |
 | `MainButtonKerbals` | `UiComplexityMode.cs` | KEEP | `ParsekUI.DrawWindow` | nothing |
-| `MainButtonGloops` | `UiComplexityMode.cs` | RETIRED in both (`IsRetired`) | `ParsekUI.DrawWindow` | the Gloops launcher, in Advanced too |
 | `MainButtonSettings` | `UiComplexityMode.cs` | KEEP | `ParsekUI.DrawWindow` | nothing |
 | `TabRecordings` | `UiComplexityMode.cs` | HIDE | `RecordingsTableUI.VisibleTabCount` | the tab bar, the Recordings tab and its whole body |
 | `TabMissions` | `UiComplexityMode.cs` | KEEP | `TimelineWindowUI` (the `Go to` button) | nothing; `Go to` is gated by its TARGET's key, so re-pointing it at a hidden surface would hide it |
@@ -1524,7 +1526,7 @@ and the `SettingsSectionLooping` gate is read twice in `SettingsWindowUI.DrawSet
 (the section and its click-away commit). `UiSurfaceVisibility.HiddenSurfaces` feeds only the
 mode-change log line (`ParsekUI.FormatHiddenSurfaces`) and is the subject of a doc comment at
 `ParsekUI.cs:471` explaining why the real close set is the hand-written
-`BuildGatedWindowCloseSet`. That set has five targets - GloopsRecorder, SpawnControl,
+`BuildGatedWindowCloseSet`. That set has four targets - SpawnControl,
 TestRunner (maps to no `UiSurface`; its launcher lives in the hidden Diagnostics section),
 GroupPicker (a reachability rule, not a lock rule) and LogisticsLinkPicker (its opener is the
 Advanced-only Link control; no lock) - and deliberately omits the Missions, Mission Log, Route
@@ -1560,7 +1562,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | id | item | file:line |
 |---|---|---|
 | H1 | No Parsek window or toolbar button in the TRACKING STATION, while the guide advertised that missions and routes loop there (`docs/user-guide.md:160`). RULED 2026-10-01 (operator): option (a), no TS control surface; the user guide now says the TS shows ghost presence, orbit lines, targeting and the Warp to Spawn popup, and that every control lives in the Parsek window in Flight / KSC | `ParsekTrackingStation.cs:26`, `:350`; the only `AddToAllToolbars` calls are `ParsekFlight.cs:1351`, `ParsekKSC.cs:153` |
-| D1 | The main-window Gloops launcher block never draws in either mode | `ParsekUI.cs:941-951`, gate `UI/UiComplexityMode.cs:140-143` |
+| D1 | ~~The main-window Gloops launcher block never draws in either mode~~ RESOLVED 2026-10-05: the block and the Gloops recorder are deleted (5.2) | `ParsekUI.cs:941-951`, gate `UI/UiComplexityMode.cs:140-143` |
 | P7 | ~~The stock Difficulty screen draws 5 Parsek settings whose edits the sidecar silently reverts~~ FIXED 2026-09-14: `ParsekSettings.GameMode` returns `GameParameters.GameMode.NONE`, so the stock screen builds no Parsek section at all (see 5.2) | `ParsekSettings.cs:22-56` |
 | P18 | The Settings launcher tooltip advertises four topics, three of which can be absent | `ParsekUI.cs:957` |
 | - | The `W` cycle key is real and undocumented (the Controls table omits it) | `ParsekFlight.cs:13410` vs `docs/user-guide.md:6-12` |
@@ -1632,7 +1634,7 @@ the full rows; the per-subsystem row counts are in the table above.
 
 | id | item | file:line |
 |---|---|---|
-| H2 | The whole Gloops recorder, its 7 screen messages and its recordings group are reachable only through the seam | `UI/GloopsRecorderUI.cs`, verbs `ParsekFlight.cs:16978`+, retirement `UI/UiComplexityMode.cs:140-143` |
+| H2 | ~~The whole Gloops recorder, its 7 screen messages and its recordings group are reachable only through the seam~~ RESOLVED 2026-10-05: the recorder, its seam verbs, its screen messages and its group are deleted (5.2) | `UI/GloopsRecorderUI.cs`, verbs `ParsekFlight.cs:16978`+, retirement `UI/UiComplexityMode.cs:140-143` |
 | H10 | The 20-clone overlap cap silently RAISES the typed loop period while the Period cell keeps showing the typed value. STALE + FIXED 2026-10-01: the manual-mode cell has shown the flown (cap-raised) period in amber since April; its hover now names the typed value and the 20-copy reason in the row's unit (`RecordingsTableUI.BuildLoopPeriodCellView`). An `auto` row still shows the shared Settings launch gap | `ParsekConfig.cs:150`, `:168`; `GhostPlaybackLogic.WarpLoopPolicy.cs:469`; verdict `GhostPlaybackEngine.cs:976` |
 | H11 | Render zones, warp-hide and loop-spawn thresholds: ghosts stop drawing at 120 km, stop spawning past 50 km, lose part-event visuals past 10 km, lose FX past 10x warp and vanish past 50x. Every one reads as a bug | `ParsekConfig.cs:41`, `:71`, `:73-74`, `:327`, `:333`; `RenderingZoneManager.cs:31`, `:62`, `:76` |
 | H12 | 20 playback skip reasons; one has a control | `GhostPlaybackEvents.cs:5-56`, counters `:110-133`, log `GhostPlaybackEngine.cs:893-914` |
@@ -1646,7 +1648,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | P1 | The per-recording playback checkbox: the map icon, orbit line, TS row and the KSC terminal-vessel spawn all ignore `PlaybackEnabled` (bug #433). RULED + FIXED 2026-09-14 on the RENDER surfaces (see 5.2); the KSC terminal-vessel spawn stays, by the same ruling | tooltip `UI/RecordingsTableUI.cs:1849`; `GhostMapPresence*.cs` / `ParsekTrackingStation.cs` never read it; `ParsekKSC.cs:373-396` |
 | P2 | The Period cell shows the typed value, not the cadence being flown. FIXED 2026-10-01 (see H10): the read-out is the flown cadence, the hover says `Period raised from 5s to 6s to fit the overlap cap - at most 20 copies of this flight can play at once.` | header tooltip `UI/RecordingsTableUI.cs:1341`, engine `GhostPlaybackLogic.WarpLoopPolicy.cs:469` |
 | P4 | Real Spawn Control's row `Warp` (on a `Ready` row) performs a time jump only; whether a vessel appears is then decided by 15 silent refusals, and an invalid jump is itself silent | `UI/SpawnControlPresentation.cs:104`, `ParsekFlight.WarpToRecordingEnd:27367`, `:27384-27389` |
-| P13 | The Gloops idle label says `Ghost-only - loops by default` while the code sets `LoopPlayback = false`; the class doc says the opposite of the label | `UI/GloopsRecorderUI.cs:333`, `ParsekFlight.cs:17090`, doc `:8-10` |
+| P13 | ~~The Gloops idle label says `Ghost-only - loops by default` while the code sets `LoopPlayback = false`; the class doc says the opposite of the label~~ RESOLVED 2026-10-05: the window is deleted (5.2) | `UI/GloopsRecorderUI.cs:333`, `ParsekFlight.cs:17090`, doc `:8-10` |
 
 **7. Settings, diagnostics, test runner, automation seams** (18 HIDDEN, 3 DEAD, 3 promised)
 
@@ -1660,7 +1662,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | H8 | `LandingBodyAlignmentMode` pinned Loose as an `internal const`; `Drop` / `Tight` reachable only from tests | `ParsekSettings.cs:237` |
 | H9 | In Basic - the DEFAULT for a new install - the loop period, recorder fidelity and verbose logging have no in-game control, and there is no Career window either (Kerbals is visible in Basic since 2026-09-22) | `UI/UiComplexityMode.cs:185-187`, `:256`, `:181-182` |
 | D12 | Five reserved seam verbs answering `not-implemented-v1`; three documented as never to be implemented | `TestCommands/TestCommandVerbs.cs:248-255` |
-| D15 | The Basic-disabled-while-Gloops-recording guard and its hint string, which no player can produce | `UI/SettingsWindowUI.cs:505`, `:514` |
+| D15 | ~~The Basic-disabled-while-Gloops-recording guard and its hint string, which no player can produce~~ RESOLVED 2026-10-05: the guard and the hint are deleted with the Gloops recorder (5.2) | `UI/SettingsWindowUI.cs:505`, `:514` |
 | D17 | The legacy sampling-threshold migration, which only fires for pre-preset config keys nothing has written since | `ParsekSettings.cs:395`, `:425-445` |
 | P8 | `Defaults` resets 9 values and skips `ghostAudioVolume` and `uiComplexityMode`, both drawn in the same window | `UI/SettingsWindowUI.cs:416`, defaults `UI/SettingsWindowPresentation.cs:55-66`, skipped `:591`, `:488` |
 | P14 | Five shipped user-guide claims with no code behind them: the Timeline `L` toggle, the Timeline footer counts, the Ghosts settings table, `Show ghosts in Tracking Station`, and pin-on-click | `docs/user-guide.md:111`, `:115`, `:336`; pinning is RIGHT-click (`MapMarkerRenderer.cs:349`) |
@@ -1795,8 +1797,8 @@ unreachable in shipping play because `autoMerge` is clamped, yet the guide descr
 (`docs/user-guide.md:45-61`) and the harness still needs it - retire the dialog or keep it as a
 harness-only path?
 
-**Is Gloops retired, or is it coming back?** Today it is in the worst of both states: the
-launcher is retired in BOTH modes (`UI/UiComplexityMode.cs:140-143`), so the window, its 377
+**Is Gloops retired, or is it coming back? ANSWERED 2026-10-05 (owner): delete the subsystem. The Gloops recorder, its window, launcher, `UiSurface` key, Basic-mode guard, group, seam verbs and lanes are gone from Parsek, which resolves D1, D15, H2 and P13; Gloops is planned as a separate mod (`docs/dev/gloops-recorder-design.md`).** The question as filed: it was in the worst of both states: the
+launcher was retired in BOTH modes (`UI/UiComplexityMode.cs:140-143`), so the window, its 377
 lines, its three controls, its seven screen messages, its recordings group and every downstream
 Gloops branch are exercised by nothing but the harness seam - while the code, the seam verb, the
 tests and a census label (`flight-gloops-advanced`) all still carry it. Three dead findings hang
@@ -1866,8 +1868,7 @@ drawing, so a lane selects its tab and sets Advanced before it captures.
 
 WHAT STAYS UNREACHABLE, so no lane should be aimed at it: about 60 hover / disabled-reason
 strings (measured, not assumed - `focus=true nudge=true` delivered a real `WM_MOUSEMOVE`
-and `GUI.tooltip` was still empty), the Gloops window's three in-progress states (its
-launcher is retired in BOTH modes, so no player can open it), the map marker label and its
+and `GUI.tooltip` was still empty), the map marker label and its
 sticky icon alpha, and `popup=rewind` on the whole committed fixture set. Full reasoning:
 `docs/dev/todo-and-known-bugs.md` -> `GUI-SEAM-WAVE6-RESIDUE-2026-09-21`.
 
@@ -2139,7 +2140,6 @@ instance and a 1920x1080 player screen. "First-open" rects are seeded only when
 | Structure | 420 x 160 (`UI/StructureListWindowUI.cs:69-70`) | 820 x 320 | yes | yes | yes |
 | Settings | none | 280 x 600 (the 600 is replaced by a height fit on first open and on every mode change) | NO handle; height is fixed between fits | yes | yes |
 | Real Spawn Control | 350 x 150 (`SpawnControlUI.MinWindowWidth` / `MinWindowHeight`) | 750 x rows (`SpawnControlPresentation.FirstOpenHeight`, 191 for one row) | yes | yes | yes |
-| Gloops | none | 280 x 230 (`GloopsRecorderUI.DefaultWindowWidth` / `DefaultWindowHeight`) | NO handle | yes | yes |
 | Test Runner (Settings) | 320 x 600 (`TestRunnerUI.MinWindowWidth` / `MinWindowHeight`) | 440 x 600 | yes | yes, 600 of 720 | yes |
 | Test Runner (global) | 320 x 600 (`TestRunnerShortcut.MinWindowWidth` / `MinWindowHeight`) | 440 x 600 at a FIXED screen position (20, 60), not anchored to the main window | yes | yes | yes. GUI-12 commands it to 620x700 through `op=rect window=testrunnerglobal`, the same rect as its twin, so the two are comparable at a glance |
 | Group picker | 260 x 220 (`GroupPickerUI.GroupPopupMinW` / `GroupPopupMinH`) | 320 x 360 (`GroupPopupDefaultW` / `GroupPopupDefaultH`), next to the click or centred over the Missions window, clamped on screen (`PickerWindowLayout.PlaceOnOpen`) | yes | yes | yes |
@@ -2157,7 +2157,7 @@ player put it. A resize drag is never wider than the screen, and its floor becom
 window wraps its pinned header and its body scroll view in one horizontal scroll view laid
 out at 1355 (the body's vertical bar then sits at the content's right end), and Logistics
 gets a minimum content width inside its existing scroll view. On a screen the window fits,
-neither draws anything. The windows with no resize handle (main, Settings, Gloops) are not
+neither draws anything. The windows with no resize handle (main, Settings) are not
 fitted. `op=rect` applies the same fit, so on a narrow screen a rect commanded at the
 minimum reads back at the screen width with `clamped=true`; `op=state window=missions
 key=scrollX` drives the Missions window's horizontal offset. Census lane:
@@ -2180,7 +2180,7 @@ class of defect the Milestones `Rewards` overflow belongs to:
 | overlays | watch box 300x50 pinned; currency tooltip 147 wide; stock-control annotations draw no Parsek box; map icon 20 with 6 px click and 24 px toggle pads; ghost label 250x40 |
 
 The tooltip echo strip is 23 px in single-line windows (Timeline, Logistics, Log, Missions,
-Real Spawn Control) and 38 px in two-line windows (main, Kerbals, Settings, Gloops,
+Real Spawn Control) and 38 px in two-line windows (main, Kerbals, Settings,
 both Test Runners); its height is pinned to a probe measurement so the window never changes
 height on hover (`TooltipEchoBox`'s probe lines).
 

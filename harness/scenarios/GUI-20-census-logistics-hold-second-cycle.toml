@@ -137,20 +137,17 @@ tier = "operator"
 #
 # ------------------------------------------------------------------------------------
 # TWO CORRECTIONS TO THE AUTHORING BRIEF, measured before the preamble was placed.
-#   1. `op=complexity mode=advanced` IS NEVER REFUSED. The refusal is
-#      `ParsekUI.ShouldRefuseModeChange` (`ParsekUI.cs:690-693`), whose whole body is
-#      `next == UiComplexityMode.Basic && gloopsRecording` - Basic only, and GLOOPS
-#      recording (`WouldRefuseModeChange` -> `IsGloopsRecordingNow()`, `:705-708`), not a
-#      flight recording. The preamble is still placed after `StopRecording` /
+#   1. `op=complexity mode=advanced` IS NEVER REFUSED: `op=complexity` has no production
+#      refusal in either direction. The preamble is still placed after `StopRecording` /
 #      `DiscardTree` because that is where it reads best and those steps are the chain's
 #      own second and third, but the placement is not load-bearing and the brief's stated
 #      reason for it does not hold.
-#   2. `windows=12` IS SCENE-INDEPENDENT. The describe echo prints
+#   2. `windows=11` IS SCENE-INDEPENDENT. The describe echo prints
 #      `windows={Int(rows.Count)}` over the whole window TABLE
 #      (`ParsekTestCommandAddon.UiAction.cs:835`, rows built from
 #      `TestCommandUiAction.Windows` at `:796-821`), not over the scene-available subset,
-#      so the FLIGHT echo carries the same 12 GUI-13's SPACECENTER echo does. GUI-2 and
-#      GUI-6 pin `scene=FLIGHT ... windows=12` already, which is the precedent rather
+#      so the FLIGHT echo carries the same 11 GUI-13's SPACECENTER echo does. GUI-2 and
+#      GUI-6 pin `scene=FLIGHT ... windows=11` already, which is the precedent rather
 #      than this lane's reading.
 #
 # THE WINDOW DOES NOT FIT THIS INSTANCE, the GUI-1 / GUI-13 residue verbatim:
@@ -278,7 +275,7 @@ count = { min = 10, max = 10 }
 # THE SEAM RECORDS ARE THIS LANE'S OWN, in the GUI-13 style and DREW-ONLY. Nothing is
 # pinned about WHAT the window drew - the dump is the evidence a human or an agent reads.
 # The two describe echoes are the in-run mapping check and are EXACT claims (a third open
-# window would move `open=`); `scene=FLIGHT ... windows=12` follows GUI-2 / GUI-6, and
+# window would move `open=`); `scene=FLIGHT ... windows=11` follows GUI-2 / GUI-6, and
 # `windows=` counts the whole table rather than the scene-available subset (see the
 # header's correction 2).
 #
@@ -308,8 +305,8 @@ required  = [
   "TryActivate: route=[0-9a-f]{8} now Active",
   "LifecycleMarker: route [0-9a-f]{8} type=RouteResumed reason=player-activate",
   "routecommand complete action=activate route=.* name='relay-c' match=name statusBefore=Paused status=Active",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,logistics",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=logistics key=all state=true changed=[1-9][0-9]* expanded=[1-9][0-9]* total=[1-9][0-9]*",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=rvr8-logistics-paused-hold-advanced",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=rvr8-logistics-paused-hold-advanced .*patched=17/17",

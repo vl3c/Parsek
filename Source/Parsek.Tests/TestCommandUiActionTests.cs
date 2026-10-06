@@ -13,7 +13,7 @@ namespace Parsek.Tests
     /// asymmetric rect read-back, and the describe payload shape.
     ///
     /// <para>Three properties carry the most weight. First, a window the current scene does
-    /// not draw must be a REJECTED rather than a cheerful OK: an "opened" Gloops recorder at
+    /// not draw must be a REJECTED rather than a cheerful OK: an "opened" Spawn Control at
     /// the Space Center would produce a capture of the scene WITHOUT it, which a reviewer
     /// reads as a render defect. Second, the describe payload must be complete and stable -
     /// it is the inventory a supervisor reads instead of the source, so a row that
@@ -217,7 +217,7 @@ namespace Parsek.Tests
             // for at all.
             Assert.Equal(
                 new[] { "main", "missions", "timeline", "kerbals", "logistics",
-                        "structure", "routehistory", "settings", "spawncontrol", "gloops",
+                        "structure", "routehistory", "settings", "spawncontrol",
                         "testrunner", "testrunnerglobal" },
                 TestCommandUiAction.Windows.Select(w => w.Name).ToArray());
         }
@@ -261,16 +261,16 @@ namespace Parsek.Tests
         // ----- scene availability -----
 
         [Fact]
-        public void ExactlySpawnControlAndGloopsAreFlightOnly()
+        public void ExactlySpawnControlIsFlightOnly()
         {
-            // Derived from ParsekKSC.OnGUI, which draws every sub-window EXCEPT those two
+            // Derived from ParsekKSC.OnGUI, which draws every sub-window EXCEPT that one
             // (SpawnControlUI additionally self-closes out of flight). Pinned as a set so a
             // future window added to one host and not the other cannot slip through as an
             // "available" window that photographs empty.
             var flightOnly = TestCommandUiAction.Windows
                 .Where(w => w.InFlight && !w.InSpaceCenter)
                 .Select(w => w.Name).OrderBy(n => n).ToArray();
-            Assert.Equal(new[] { "gloops", "spawncontrol" }, flightOnly);
+            Assert.Equal(new[] { "spawncontrol" }, flightOnly);
 
             // And nothing is KSC-only.
             Assert.Empty(TestCommandUiAction.Windows
@@ -323,7 +323,7 @@ namespace Parsek.Tests
             // vocabulary, so `op=tab` on them is WindowHasNoTabs and not a silently ignored
             // arg.
             foreach (string name in new[] { "main", "logistics", "structure", "settings",
-                                            "spawncontrol", "gloops", "testrunner" })
+                                            "spawncontrol", "testrunner" })
                 Assert.Empty(TabsOf(name));
         }
 
@@ -858,9 +858,9 @@ namespace Parsek.Tests
                                                   "tab" })
                     Assert.Contains(prefix + suffix, p.Select(kv => kv.Key));
             }
-            // The two flight-only rows are present and marked unavailable.
-            int gloops = rows.FindIndex(r => r.Name == "gloops");
-            Assert.Equal("false", Value(p, "w" + gloops + "avail"));
+            // The flight-only row is present and marked unavailable.
+            int spawnControl = rows.FindIndex(r => r.Name == "spawncontrol");
+            Assert.Equal("false", Value(p, "w" + spawnControl + "avail"));
         }
 
         [Fact]
@@ -946,7 +946,6 @@ namespace Parsek.Tests
                 TestCommandUiAction.RectArgMissingReason,
                 TestCommandUiAction.RectArgInvalidReason,
                 TestCommandUiAction.HostUnavailableReason,
-                TestCommandUiAction.ComplexityRefusedRecordingReason,
                 TestCommandUiAction.ComplexityNotAppliedReason,
                 TestCommandUiAction.WindowNotToggledReason,
                 TestCommandUiAction.WindowSelfClosedReason,

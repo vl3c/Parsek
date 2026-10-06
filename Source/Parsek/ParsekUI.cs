@@ -113,9 +113,6 @@ namespace Parsek
         // supply route's Log button (its own id, rect, lock and open state).
         private StructureListWindowUI routeHistoryUI;
 
-        // Gloops Flight Recorder window (extracted to GloopsRecorderUI)
-        private GloopsRecorderUI gloopsUI;
-
         // Logistics window (v0 — Supply Routes tab + Send Once button)
         private LogisticsWindowUI logisticsUI;
 
@@ -138,7 +135,6 @@ namespace Parsek
         // same way as the accessors above so the unit and in-game mode tests can open them
         // and assert the close handler shut them again.
         internal KerbalsWindowUI GetKerbalsUI() { return kerbalsUI; }
-        internal GloopsRecorderUI GetGloopsUI() { return gloopsUI; }
         internal SpawnControlUI GetSpawnControlUI() { return spawnControlUI; }
         internal TestRunnerUI GetTestRunnerUI() { return testRunnerUI; }
 
@@ -175,7 +171,6 @@ namespace Parsek
             this.recordingsTableUI = new RecordingsTableUI(this);
             this.missionsUI = new MissionsWindowUI(this);
             this.spawnControlUI = new SpawnControlUI(this);
-            this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
             this.kerbalsUI = new KerbalsWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
@@ -196,7 +191,6 @@ namespace Parsek
             this.recordingsTableUI = new RecordingsTableUI(this);
             this.missionsUI = new MissionsWindowUI(this);
             this.spawnControlUI = new SpawnControlUI(this);
-            this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
             this.kerbalsUI = new KerbalsWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
@@ -221,8 +215,8 @@ namespace Parsek
 
         // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
         // permanently visible box of constant height. The main window is the mod's entry
-        // point and every launcher below is a bare noun ("Timeline", "Gloops Flight
-        // Recorder"), so this is the first surface a new player can read by hovering.
+        // point and every launcher below is a bare noun ("Timeline", "Kerbals"), so this
+        // is the first surface a new player can read by hovering.
         // One instance per ParsekUI, and ParsekUI is constructed per scene by
         // ParsekFlight / ParsekKSC, so the skin-scoped style never outlives its scene and
         // no ResetStyles call is needed (unlike the DDOL TestRunnerShortcut).
@@ -326,20 +320,6 @@ namespace Parsek
             if (next == previous)
             {
                 ParsekLog.Verbose("UI", $"Mode change to {next} is a no-op (already active)");
-                return;
-            }
-
-            // Design 7.2 / edge case 11: the seam is the LOAD-BEARING half of the Gloops
-            // guard. The Settings toggle also disables the Basic option while recording, but
-            // that is a UI courtesy on one call site; refusing here covers every writer,
-            // including future ones. Short-circuited on Advanced so the live-flight probe
-            // never runs on the reveal path. Nothing is written or persisted on refusal.
-            bool gloopsRecording = next == UiComplexityMode.Basic && IsGloopsRecordingNow();
-            if (ShouldRefuseModeChange(next, gloopsRecording))
-            {
-                ParsekLog.Info("UI",
-                    $"Mode switch refused: Gloops recording in progress " +
-                    $"(requested={next}, staying on {previous})");
                 return;
             }
 
@@ -516,7 +496,7 @@ namespace Parsek
 
         /// <summary>
         /// The EXPLICIT design 7.2 close set, in close order. Deliberately NOT derived from
-        /// <see cref="Cleanup"/> (which omits gloops, logistics and the test runner) and not
+        /// <see cref="Cleanup"/> (which omits logistics and the test runner) and not
         /// from <c>HiddenSurfaces(Basic)</c> alone, because three entries map to no
         /// <see cref="UiSurface"/>:
         /// <list type="bullet">
@@ -546,12 +526,6 @@ namespace Parsek
         {
             return new List<GatedWindowCloseTarget>
             {
-                new GatedWindowCloseTarget(
-                    "GloopsRecorder",
-                    GloopsRecorderUI.InputLockId,
-                    () => gloopsUI.IsOpen,
-                    () => gloopsUI.HasInputLock,
-                    () => { gloopsUI.IsOpen = false; gloopsUI.ReleaseInputLock(); }),
                 new GatedWindowCloseTarget(
                     "SpawnControl",
                     SpawnControlUI.SpawnControlInputLockId,
@@ -613,7 +587,7 @@ namespace Parsek
                     {
                         closed++;
                         // Per closed window only (design 12.2). Logging the untouched ones too
-                        // would put five no-op lines in the log on every single mode switch.
+                        // would put four no-op lines in the log on every single mode switch.
                         ParsekLog.Verbose("UI",
                             $"Window auto-closed on mode change: window={target.Name} " +
                             $"wasOpen={wasOpen} heldLock={heldLock}");
@@ -647,7 +621,6 @@ namespace Parsek
             appliedUiComplexityMode = UiComplexityMode.Advanced;
             pendingUiComplexityMode = null;
             activeInstance = null;
-            GloopsRecordingProbeForTesting = null;
         }
 
         /// <summary>Test seam: the queued-but-not-yet-latched mode, null when none.</summary>
@@ -659,62 +632,6 @@ namespace Parsek
         /// the REAL windows the mode-change close handler acts on.
         /// </summary>
         internal static ParsekUI ActiveInstance => activeInstance;
-
-        // --- Gloops in-progress guard (design 7.2, edge case 11) ---
-
-        /// <summary>
-        /// Test seam replacing the live <c>ParsekFlight.IsGloopsRecording</c> read.
-        /// <c>IsGloopsRecording</c> is a computed property over a live
-        /// <see cref="FlightRecorder"/> on a MonoBehaviour that xUnit cannot construct, so
-        /// the refusal path is unreachable headless without this hook. Null (the default)
-        /// means "ask the live flight".
-        /// </summary>
-        internal static Func<bool> GloopsRecordingProbeForTesting;
-
-        /// <summary>
-        /// Whether the Gloops manual ghost-only recorder is sampling right now.
-        /// <para>Null-safe by design: in SPACECENTER the UI has no <see cref="ParsekFlight"/>
-        /// (the <see cref="UIMode.KSC"/> constructor leaves <c>flight</c> null) and the check
-        /// falls back to "not recording", which is sound - Gloops live-recording state dies
-        /// with the FLIGHT-scene <c>ParsekFlight</c>, so it can never be in progress
-        /// there (design 7.2).</para>
-        /// </summary>
-        private static bool IsGloopsRecordingNow()
-        {
-            Func<bool> probe = GloopsRecordingProbeForTesting;
-            if (probe != null)
-                return probe();
-
-            ParsekFlight liveFlight = activeInstance?.flight;
-            return liveFlight != null && liveFlight.IsGloopsRecording;
-        }
-
-        /// <summary>
-        /// Pure refusal predicate for the design 7.2 Gloops guard (edge case 11). Switching
-        /// to Basic while a manual Gloops recording is running would hide the Gloops window
-        /// WITHOUT stopping the recording (philosophy 1: the gate is visibility-only), which
-        /// would leave it sampling with no reachable Stop or Discard control. Advanced is
-        /// never refused - it only ever reveals surfaces.
-        /// </summary>
-        internal static bool ShouldRefuseModeChange(UiComplexityMode next, bool gloopsRecording)
-        {
-            return next == UiComplexityMode.Basic && gloopsRecording;
-        }
-
-        /// <summary>
-        /// The live form of <see cref="ShouldRefuseModeChange"/>: would a switch to
-        /// <paramref name="next"/> be refused right now?
-        /// <para>Exists so the automation-only <c>UiAction op=complexity</c> seam op can NAME
-        /// the one production refusal in its response instead of inferring it from a failed
-        /// read-back. Inferring would be wrong in both directions: it would report
-        /// "refused because a Gloops recording is running" for any future refusal reason,
-        /// and it reads the live recorder state that only this class can see (the probe hook
-        /// and the null-safe flight walk are both private).</para>
-        /// </summary>
-        internal static bool WouldRefuseModeChange(UiComplexityMode next)
-        {
-            return ShouldRefuseModeChange(next, IsGloopsRecordingNow());
-        }
 
         /// <summary>
         /// The PERSISTED interface mode - what <see cref="SetUiComplexityMode"/> compares
@@ -743,9 +660,7 @@ namespace Parsek
         /// it. Returns true when something was queued.
         /// <para>Deliberately NOT a general "queue this mode" setter: it can only ever queue
         /// the value the settings object already holds, so it cannot apply a mode the save
-        /// does not carry and it cannot get around
-        /// <see cref="ShouldRefuseModeChange"/> (a refused change never reached the setting
-        /// in the first place). It closes the one gap <see cref="SetUiComplexityMode"/>
+        /// does not carry. It closes the one gap <see cref="SetUiComplexityMode"/>
         /// leaves by design: that setter no-ops when the requested mode equals the SETTING,
         /// so a drifted latch could never be corrected by asking for the mode the save
         /// already has.</para>
@@ -772,9 +687,7 @@ namespace Parsek
         ///
         /// <para>The queued value can only ever be <paramref name="persisted"/>, and that is
         /// the helper's safety property rather than an implementation detail: it cannot
-        /// apply a mode the save does not carry, so it cannot route around
-        /// <see cref="ShouldRefuseModeChange"/> (a refused change never reached the setting
-        /// in the first place).</para>
+        /// apply a mode the save does not carry.</para>
         ///
         /// <para>THE REQUESTED MODE IS NOT AN INPUT, deliberately. The one caller that has
         /// a request - the <c>UiAction op=complexity</c> seam - calls
@@ -800,8 +713,7 @@ namespace Parsek
             //   1. Real Spawn Control  (InFlight-only; its trailing separator is inside the block)
             //   2. Timeline / Recordings
             //   3. Kerbals
-            //   4. Gloops Flight Recorder  (InFlight-only; RETIRED in every mode - never draws)
-            //   5. Settings
+            //   4. Settings
             //
             // Basic / Advanced gating (design 7.1): EVERY launcher is wrapped in an
             // IsVisible check reading the FRAME-LATCHED mode below, never the settings
@@ -973,24 +885,6 @@ namespace Parsek
             }
 
             GUILayout.Space(SpacingLarge);
-
-            // --- Gloops Flight Recorder (InFlight-only; trailing separator before Settings) ---
-            // RETIRED: MainButtonGloops is hidden in EVERY mode (UiSurfaceVisibility.IsRetired)
-            // while Gloops winds down toward a standalone mod, so this block currently never
-            // draws. Kept behind the gate rather than deleted so the eventual extraction (or
-            // a rollback) is a one-line visibility decision, not a layout re-derivation.
-            if (InFlight && UiSurfaceVisibility.IsVisible(UiSurface.MainButtonGloops, complexity))
-            {
-                if (GUILayout.Button(new GUIContent(
-                    "Gloops Flight Recorder",
-                    "Record a ghost-only flight that your career ignores.")))
-                {
-                    gloopsUI.IsOpen = !gloopsUI.IsOpen;
-                    ParsekLog.Verbose("UI",
-                        $"Gloops Flight Recorder window toggled: {(gloopsUI.IsOpen ? "open" : "closed")}");
-                }
-                GUILayout.Space(SpacingLarge);
-            }
 
             // --- Settings ---
             // The tooltip names only what the window ALWAYS draws: Interface (the
@@ -2128,12 +2022,6 @@ namespace Parsek
         public void DrawSpawnControlWindowIfOpen(Rect mainWindowRect)
         {
             spawnControlUI.DrawIfOpen(mainWindowRect, flight, InFlight);
-        }
-
-        public void DrawGloopsRecorderWindowIfOpen(Rect mainWindowRect)
-        {
-            if (InFlight && flight != null)
-                gloopsUI.DrawIfOpen(mainWindowRect, flight);
         }
 
         public void DrawTestRunnerWindowIfOpen(Rect mainWindowRect, MonoBehaviour host)

@@ -2503,6 +2503,12 @@ namespace Parsek
         /// band, while authoritative rewind-style patching rebuilds strictly from ledger-
         /// backed hit counts so discarded future progress cannot leak through.
         ///
+        /// Progress that predates the ledger (a career Parsek was installed into) reaches
+        /// the module through the save's <see cref="PreLedgerProgressSeed"/>: seeded one-shot
+        /// ids are credited and seeded record thresholds add to the hit count. Until that
+        /// seed is captured the whole patch is skipped, because the credited set cannot yet
+        /// tell pre-ledger progress from progress the ledger rewound away.
+        ///
         /// Note: After clearing a node, KSP's ProgressTracking.Update() may immediately
         /// re-trigger it if conditions are still met (e.g., a vessel is in orbit). This is
         /// correct behavior — milestones whose conditions are still satisfied SHOULD remain
@@ -2515,6 +2521,17 @@ namespace Parsek
             if (milestones == null)
             {
                 ParsekLog.Warn(Tag, "PatchMilestones: null module — skipping");
+                return;
+            }
+
+            // The credited set only knows ledger rows. Until the save's pre-ledger progress
+            // seed is captured, a node achieved before Parsek was installed reads as
+            // un-credited, and patching would clear it before the capture can record it.
+            if (!milestones.HasProgressSeed)
+            {
+                VerboseStablePatchState("patch-skip|milestones|progress-seed", "seed-not-captured",
+                    "PatchMilestones: pre-ledger progress seed not captured yet - skipping so " +
+                    "progress the ledger has not recorded is not cleared");
                 return;
             }
 
@@ -2558,6 +2575,7 @@ namespace Parsek
             }
 
             int credited = 0, unreached = 0, skipped = 0;
+            int seedKept = 0, seedRecordBands = 0;
 
             // LedgerTrace Tier-B coverage for milestones (gap 6) is intentionally
             // DEFERRED from v1: the Prompt-4 Tier-B enumeration is "subject / node /
@@ -2568,13 +2586,27 @@ namespace Parsek
             PatchProgressNodeTree(tree, milestones, reachedField, completeField,
                 mannedProp, unmannedProp,
                 "", authoritativeRepeatableRecordState,
-                ref credited, ref unreached, ref skipped);
+                ref credited, ref unreached, ref skipped,
+                ref seedKept, ref seedRecordBands);
 
             ParsekLog.Info(Tag,
                 $"PatchMilestones: credited={credited.ToString(IC)}, " +
                 $"unreached={unreached.ToString(IC)}, " +
                 $"skipped={skipped.ToString(IC)}, " +
                 $"moduleCredited={milestones.GetCreditedCount().ToString(IC)}");
+
+            if (milestones.PreLedgerSeedOneShotCount > 0 || milestones.PreLedgerSeedRecordCount > 0)
+            {
+                string seedState = string.Format(IC, "{0}|{1}|{2}|{3}",
+                    seedKept, seedRecordBands,
+                    milestones.PreLedgerSeedOneShotCount, milestones.PreLedgerSeedRecordCount);
+                VerboseStablePatchState("patch-milestones-pre-ledger-seed", seedState,
+                    string.Format(IC,
+                        "PatchMilestones: pre-ledger progress seed kept {0} node(s) and {1} record band(s) " +
+                        "(seed holds {2} node(s), {3} record(s))",
+                        seedKept, seedRecordBands,
+                        milestones.PreLedgerSeedOneShotCount, milestones.PreLedgerSeedRecordCount));
+            }
         }
 
         /// <summary>
@@ -2597,7 +2629,8 @@ namespace Parsek
             PropertyInfo mannedProp, PropertyInfo unmannedProp,
             string pathPrefix,
             bool authoritativeRepeatableRecordState,
-            ref int credited, ref int unreached, ref int skipped)
+            ref int credited, ref int unreached, ref int skipped,
+            ref int seedKept, ref int seedRecordBands)
         {
             for (int i = 0; i < tree.Count; i++)
             {
@@ -2614,6 +2647,8 @@ namespace Parsek
                     node, effectiveCount, qualifiedId, reachedField, completeField,
                     authoritativeRepeatableRecordState, out bool repeatableChanged))
                 {
+                    if (milestones.GetPreLedgerRecordPaidCount(qualifiedId) > 0)
+                        seedRecordBands++;
                     if (repeatableChanged)
                     {
                         if (effectiveCount > 0)
@@ -2658,6 +2693,8 @@ namespace Parsek
                     }
 
                     bool isCurrentlyAchieved = node.IsComplete;
+                    if (shouldBeAchieved && milestones.IsPreLedgerSeeded(qualifiedId))
+                        seedKept++;
 
                     if (shouldBeAchieved && !isCurrentlyAchieved)
                     {
@@ -2693,7 +2730,8 @@ namespace Parsek
                     PatchProgressNodeTree(node.Subtree, milestones,
                         reachedField, completeField, mannedProp, unmannedProp,
                         qualifiedId, authoritativeRepeatableRecordState,
-                        ref credited, ref unreached, ref skipped);
+                        ref credited, ref unreached, ref skipped,
+                        ref seedKept, ref seedRecordBands);
                 }
             }
         }
@@ -2811,6 +2849,173 @@ namespace Parsek
             state.RewardThreshold = isComplete ? 0.0 : nextThreshold;
             state.RewardInterval = isComplete ? 1 : nextInterval;
             return true;
+        }
+
+        // Upper bound on the reward bands the inverse below enumerates. Stock has
+        // ContractDefs.Progression.RecordSplit thresholds (5 by default); the walk stops at
+        // the first complete band, so this only guards a pathological config.
+        private const int MaxRepeatableRecordBands = 256;
+
+        /// <summary>
+        /// Inverse of <see cref="TryComputeRepeatableRecordState(ProgressNode, int, out RepeatableRecordState)"/>:
+        /// how many reward thresholds the LIVE state of a repeatable record node says stock
+        /// has already paid. A complete node has paid every threshold (the smallest count
+        /// whose computed state is complete). Otherwise the count is the k whose computed
+        /// next threshold equals the live <c>rewardThreshold</c> (k = 0 matches the first
+        /// threshold), and when no k matches (an unset threshold, as Parsek's own unreached
+        /// patch leaves it) the band the live best value sits in: stock re-derives the next
+        /// threshold from <c>record</c> on load, so the record alone implies the same count.
+        /// Returns false when the node is not a recognized record node.
+        /// </summary>
+        internal static bool TryComputeRepeatableRecordImpliedPaidCount(
+            ProgressNode node, bool liveComplete, double liveRecord, double liveRewardThreshold,
+            out int paidCount)
+        {
+            paidCount = 0;
+            if (!TryGetRepeatableRecordDefinition(node, out double maxRecord, out double roundValue))
+                return false;
+
+            RepeatableRecordState state;
+            if (liveComplete)
+            {
+                for (int k = 1; k <= MaxRepeatableRecordBands; k++)
+                {
+                    if (!TryComputeRepeatableRecordState(node, k, out state))
+                        return false;
+                    if (state.Complete)
+                    {
+                        paidCount = k;
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            if (!double.IsNaN(liveRewardThreshold) && liveRewardThreshold > RecordStateEpsilon)
+            {
+                int initialInterval = 1;
+                double initialThreshold = FinePrint.Utilities.ProgressUtilities.FindNextRecord(
+                    0.0, maxRecord, roundValue, ref initialInterval);
+                for (int k = 0; k <= MaxRepeatableRecordBands; k++)
+                {
+                    double nextThreshold;
+                    if (k == 0)
+                    {
+                        nextThreshold = initialThreshold;
+                    }
+                    else
+                    {
+                        if (!TryComputeRepeatableRecordState(node, k, out state) || state.Complete)
+                            break;
+                        nextThreshold = state.RewardThreshold;
+                    }
+
+                    if (Math.Abs(nextThreshold - liveRewardThreshold) <= RecordStateEpsilon)
+                    {
+                        paidCount = k;
+                        return true;
+                    }
+                    if (nextThreshold > liveRewardThreshold + RecordStateEpsilon)
+                        break;
+                }
+            }
+
+            double boundedRecord = NormalizeRepeatableRecordValue(liveRecord, maxRecord);
+            int best = 0;
+            for (int k = 1; k <= MaxRepeatableRecordBands; k++)
+            {
+                if (!TryComputeRepeatableRecordState(node, k, out state))
+                    return false;
+                if (state.Complete)
+                {
+                    if (boundedRecord >= maxRecord - RecordStateEpsilon)
+                        best = k;
+                    break;
+                }
+                if (state.Record > boundedRecord + RecordStateEpsilon)
+                    break;
+                best = k;
+            }
+
+            paidCount = best;
+            return true;
+        }
+
+        /// <summary>
+        /// Reads the live <c>record</c> / <c>rewardThreshold</c> of a repeatable record node
+        /// and resolves its implied paid threshold count. False when the node is not a
+        /// record node or is missing the stock record fields.
+        /// </summary>
+        internal static bool TryReadRepeatableRecordImpliedPaidCount(ProgressNode node, out int paidCount)
+        {
+            paidCount = 0;
+            if (!IsRepeatableRecordType(node))
+                return false;
+
+            Type nodeType = node.GetType();
+            FieldInfo recordField = nodeType.GetField("record",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            FieldInfo rewardThresholdField = nodeType.GetField("rewardThreshold",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (recordField == null || rewardThresholdField == null)
+                return false;
+
+            double liveRecord = NormalizeRepeatableRecordValue(recordField.GetValue(node), double.MaxValue);
+            object thresholdValue = rewardThresholdField.GetValue(node);
+            double liveRewardThreshold = thresholdValue is double d ? d : 0.0;
+            return TryComputeRepeatableRecordImpliedPaidCount(
+                node, node.IsComplete, liveRecord, liveRewardThreshold, out paidCount);
+        }
+
+        /// <summary>
+        /// Flattens the live progress tree into the observations the pre-ledger progress
+        /// seed capture decides from. Qualification mirrors <see cref="PatchProgressNodeTree"/>
+        /// exactly (bare id at the top level, "Parent/NodeId" below it, the node's own id as
+        /// the legacy bare fallback for subtree nodes), so a seeded id is the id the patch
+        /// looks up.
+        /// </summary>
+        internal static List<PreLedgerProgressSeed.NodeObservation> ObserveProgressTreeForSeed(
+            ProgressTree tree)
+        {
+            var result = new List<PreLedgerProgressSeed.NodeObservation>();
+            ObserveProgressTreeForSeedCore(tree, "", result);
+            return result;
+        }
+
+        private static void ObserveProgressTreeForSeedCore(
+            ProgressTree tree, string pathPrefix, List<PreLedgerProgressSeed.NodeObservation> result)
+        {
+            if (tree == null)
+                return;
+
+            for (int i = 0; i < tree.Count; i++)
+            {
+                var node = tree[i];
+                if (node == null) continue;
+
+                string nodeId = node.Id ?? "";
+                string qualifiedId = string.IsNullOrEmpty(pathPrefix)
+                    ? nodeId
+                    : pathPrefix + "/" + nodeId;
+
+                var observation = new PreLedgerProgressSeed.NodeObservation
+                {
+                    QualifiedId = qualifiedId,
+                    BareId = string.IsNullOrEmpty(pathPrefix) ? null : nodeId,
+                    IsComplete = node.IsComplete
+                };
+                if (IsRepeatableRecordType(node))
+                {
+                    observation.IsRepeatableRecord = true;
+                    observation.ImpliedPaidCountKnown =
+                        TryReadRepeatableRecordImpliedPaidCount(node, out int paid);
+                    observation.ImpliedPaidCount = paid;
+                }
+                result.Add(observation);
+
+                if (node.Subtree != null && node.Subtree.Count > 0)
+                    ObserveProgressTreeForSeedCore(node.Subtree, qualifiedId, result);
+            }
         }
 
         /// <summary>

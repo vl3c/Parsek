@@ -78,10 +78,10 @@ tier = "operator"
 # A TENTH is reachable there and is NOT this lane's: `testrunnerglobal`, the global
 # Ctrl+Shift+T runner, which draws from its own MonoBehaviour outside that host's showUI
 # gate and is photographed by GUI-12-census-testrunners together with the states of the
-# Settings-launched one. That is also why every `describe` echo below reads `windows=12`:
+# Settings-launched one. That is also why every `describe` echo below reads `windows=11`:
 # the count is the seam's whole TABLE, not the scene's drawn set.
-# The two flight-only windows - spawncontrol and gloops - belong to GUI-2; asking for
-# either here is a REJECTED (`window-not-in-scene`) by design rather than a capture of a
+# The one flight-only window - spawncontrol - belongs to GUI-2; asking for
+# it here is a REJECTED (`window-not-in-scene`) by design rather than a capture of a
 # scene without them. Thirteen of the captures are TABS: missions x7 (its two tabs, each
 # in the restored, the collapsed and the fully expanded state, plus one deep fold on
 # the Recordings tab), timeline x4 (its filter modes), kerbals x2. Settings has six SECTIONS rather than tabs (they
@@ -402,7 +402,7 @@ steps = [
 
   # --- Basic pass ---
   # The mode switch itself CLOSES the gated, lock-owning windows (testrunner,
-  # gloops, spawncontrol, group picker) and clamps the Missions window's tab
+  # spawncontrol, group picker) and clamps the Missions window's tab
   # to index 0. Everything is already shut here, so the switch is only doing the surface
   # gating - which is the thing being photographed.
   { cmd = "UiAction", args = { op = "complexity", mode = "basic" }, expect = "OK" },
@@ -542,20 +542,20 @@ allowedAnomalies = []
 # the remedy for a red here is a HOST where the probe draws - never a looser pin.
 required = [
   # --- Advanced pass: main alone, then one per window opened ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,missions",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,timeline",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,kerbals",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,logistics",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,structure",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,settings",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,testrunner",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,kerbals",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,structure",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,settings",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,testrunner",
   # --- Basic pass: the mode switch itself, then the windows Basic still offers ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,missions",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,timeline",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,logistics",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,settings",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,settings",
   # --- the near-miss expand, pinned `changed=1` so a key the window no longer enumerates
   # reds here rather than producing a picture of the collapsed section under the expanded
   # label. `expanded=` / `total=` are left open: they count this host's live row set. ---

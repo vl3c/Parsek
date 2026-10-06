@@ -251,6 +251,8 @@ RecalculateAndPatch():
      - SeedInitialFunds from Funding.Instance.Funds
      - SeedInitialScience from ResearchAndDevelopment.Instance.Science
      - SeedInitialReputation from Reputation.Instance.reputation
+     Capture the pre-ledger progress seed (once per save, once ProgressTracking
+     has loaded; see 4.5).
      Update slot limits from current facility levels.
   1. Reset all derived state to zero/default.
   2. Collect all game actions from the ledger file.
@@ -443,6 +445,24 @@ Some resources start at non-zero values when a career save is created. The ledge
 All three core resources are seeded: **funds** (career starting funds vary by difficulty), **science**, and **reputation**. While science and reputation typically start at 0 in stock difficulty presets, seeding them is necessary to handle mid-career Parsek installation — without seeding, installing Parsek on an existing career save would wipe the player's accumulated science and reputation balances to 0 during recalculation.
 
 The seeds are written to the ledger file once when Parsek first initializes on a career save. They are immutable. Action types: `FundsInitial`, `ScienceInitial`, `ReputationInitial`.
+
+**Progress seed.** Stock progress has the same mid-career problem: the milestone patch rebuilds every progress node from `MilestoneAchievement` rows, and progress earned before Parsek has no row. `PreLedgerProgressSeed` records it once per save, at the first recalculation after ProgressTracking's OnLoad has provably run (`CurrencyScenarioReadiness.IsScenarioModuleLoaded`; before that the live tree reads every node unreached). It holds (a) the qualified ids (bare at the top level, `Body/Node` in a body subtree) of one-shot nodes that are complete in the live tree and that no ledger row in any state and no captured `MilestoneAchieved` game-state event names (a row anywhere on the timeline, or a pending flight's event, means the ledger owns the node), and (b) per world-record node, the reward thresholds the live node implies stock already paid minus that node's ledger rows and pending event scopes, clamped at 0. It carries no rewards: the currency seeds already hold whatever stock paid. It is stored as a child of the ledger file, additive so older builds ignore it:
+
+```
+PROGRESS_SEED
+{
+    captured = True
+    node = FirstLaunch
+    node = Mun/Landing
+    RECORD
+    {
+        id = RecordsAltitude
+        paidCount = 3
+    }
+}
+```
+
+No `PROGRESS_SEED` node means not captured yet (a new save, or one saved by an older build), and the next recalculation captures it; a captured seed may be empty, which on a save that has always run Parsek is the normal case. A ledger load replaces it with the file's content and a test reset clears it; `Ledger.Clear()` keeps it, because its callers restore an action list of the same save. Until it is captured, `PatchMilestones` skips entirely, so nothing is cleared before it can be recorded. How the walk uses it is in 9 (7.7).
 
 ### 4.6 Pre-Parsek save backup
 
@@ -1302,6 +1322,10 @@ The same no-delete safety applies: adding a recording can only shift which recor
 - **Milestone detection during recording:** RESOLVED. `GameStateRecorder` subscribes to `GameEvents.OnProgressComplete`. Events are converted to `MilestoneAchievement` actions via `GameStateEventConverter.ConvertMilestoneAchieved` at commit time. Known limitation: `OnProgressComplete` provides the progress node but not the associated fund/rep reward values — reward amounts must be extracted from the World Firsts contract strategy configuration (deferred item D17).
 - **Science mode milestones:** In Science mode, milestones track progression but award nothing. The ledger tracks them for progression gating consistency. KSP's native Progress Tracking remains the authoritative source for milestone state.
 - **Milestone list:** The ledger only tracks achieved milestones. It does not maintain a list of all possible milestones — that's KSP's domain.
+
+### 7.7 Progress earned before the ledger
+
+`MilestonesModule.Reset` folds the save's pre-ledger progress seed (4.5) into every walk. A seeded one-shot id starts credited, so the patch keeps its node achieved; it predates every ledger row, so a later row for the same id (stock re-awarding a node something un-achieved) is a duplicate under the first-hit rule and is not counted. A seeded world-record count starts that node's effective hit count, and every record row still adds on top and stays effective, so the patched band is the pre-ledger band plus the ledger's hits, on a normal and on an authoritative (rewind) patch alike. Nodes outside the seed are patched exactly as before. A node with a ledger row anywhere on the timeline is never in the seed, so a rewind before that row still clears it, and a rewind into a tree that lacks it does not set it.
 
 ---
 

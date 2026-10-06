@@ -1387,7 +1387,9 @@ _(unreleased - entries accumulate here per commit)_
   it - closing two recording-lifecycle coverage cells that no automated test could
   reach before. Both scenarios have flown: the short take commits at three points and
   the deliberately-too-short one is refused at one, each confirmed by a repeat run and
-  by a control run that was made to expect the wrong number and duly failed.
+  by a control run that was made to expect the wrong number and duly failed. (Removed
+  again in this release with the recorder itself: see "The Gloops recorder is gone from
+  Parsek" under Changed.)
 
 - **Developer tooling: the source tree now has a module dependency map with four
   ways to look at it, and a boundary check that reports without failing anything.**
@@ -1486,6 +1488,21 @@ _(unreleased - entries accumulate here per commit)_
   keeps 60 s rather than 30 s because its re-fly fallback may spend 30 s waiting for the
   resumed flight before it drives the scene exit. The harness's mirror of the budget table
   moves with them, so a step's own wait still outlasts the game's verdict.
+- **The Gloops recorder is gone from Parsek.** Its button was already removed in 0.10.4;
+  now the recorder itself, its window and its "Gloops - Ghosts Only" group handling are
+  deleted too; Gloops will be built anew later (`docs/dev/gloops-recorder-design.md`). No take
+  was ever kept past a game restart, because Parsek saves only flights that belong to a
+  recording tree and a Gloops take never did. So nothing is lost, and the 0.10.4 note that
+  existing ghost-only recordings "still load" was wrong. A group you named
+  `Gloops - Ghosts Only` is now an ordinary group. Recordings no longer carry the
+  `isGhostOnly` value, and an old save's line for it is ignored, with no schema change.
+  Dev: the `GloopsStart` / `GloopsStop` test commands, the `gloops` UiAction window, the
+  Basic-mode guard that refused Basic while a take was recording (with its
+  `complexity-refused-gloops-recording` and `mock-refused-recording` refusals) and the lanes
+  `GL-1`, `GL-2` and `GUI-16` are retired. Every GUI census describe echo now reads
+  `windows=11`. A new xUnit test pins that a committed recording outside any tree is never
+  saved. The lanes the removal touched flew green on the new build: GUI-1, GUI-2, GUI-6,
+  H22 and H46.
 - **A new supply route is named after the mission it repeats.** Creating a route from a
   Candidates row names it after its mission (`Duna Supply 1`) instead of `Route: KSC -> Duna`,
   which only repeated the from/to line under it. A second route from the same mission (or any
@@ -3670,6 +3687,18 @@ _(unreleased - entries accumulate here per commit)_
   at 0 takes its real price when the save is loaded, if the save still holds the funds record of
   that upgrade (usually one made since your last committed flight); older upgrades keep 0,
   because nothing left in the save proves what they cost.
+
+- **Installing Parsek into an existing career no longer resets its milestones and world
+  records.** The first time Parsek synced the career it un-achieved every milestone the career
+  had earned before Parsek was installed (First Launch, orbits, landings and the rest) and
+  rolled the altitude, speed, distance and depth records back to their first band. Contracts
+  that need one of those milestones (for example part tests, which need First Launch) were
+  withdrawn, and stock paid each milestone and record reward again when it was reached a
+  second time. Parsek now records that earlier progress once, the first time it loads such a
+  save, and keeps it: the milestones stay achieved, the records keep the bands already paid,
+  and nothing is paid twice. Progress earned while Parsek runs is handled exactly as before,
+  including rewinds, which still undo milestones reached after the rewind point. A career that
+  an earlier Parsek version already reset is not repaired.
 
 - **Ending a Re-Fly no longer marks an earlier segment of the same craft destroyed with its crew
   dead.** When a recording had been split into segments and the same vessel was later brought

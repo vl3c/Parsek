@@ -82,8 +82,6 @@ allowedAnomalies = []
 # always-tree mode. A tree commit never passes through
 # RecordingStore.CreateRecordingFromFlightData at all, so nothing in this lane can
 # drop for being short and the range is robust for the reason above and no other.
-# The drop has its own lane now - GL-2-gloops-sub-2-point-drop, over the Gloops
-# recorder, LIVE-PROVEN 2026-09-15 at exactly one point.
 # NOTE: count.max==0 does NOT suppress the REC rules here - suppression keys on
 # spec_expects_live_recording (True via StartRecording), not on the count.
 count = { min = 0, max = 0 }

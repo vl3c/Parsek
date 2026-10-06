@@ -20,15 +20,66 @@ namespace Parsek
 
         private readonly HashSet<string> creditedMilestones = new HashSet<string>();
         private readonly Dictionary<string, int> effectiveMilestoneCounts = new Dictionary<string, int>();
+        private PreLedgerProgressSeed progressSeed = PreLedgerProgressSeed.NotCaptured;
 
         /// <summary>
-        /// Resets all credited milestones before a recalculation walk.
+        /// Installs the save's pre-ledger progress seed; the next <see cref="Reset"/> folds
+        /// it in. Null is treated as not captured.
+        /// </summary>
+        internal void SetPreLedgerProgressSeed(PreLedgerProgressSeed seed)
+        {
+            progressSeed = seed ?? PreLedgerProgressSeed.NotCaptured;
+        }
+
+        /// <summary>
+        /// True once the save's pre-ledger progress seed has been captured. Until then the
+        /// credited set says nothing about progress that predates the ledger, so the
+        /// milestone patch must not run from it.
+        /// </summary>
+        internal bool HasProgressSeed => progressSeed.Captured;
+
+        /// <summary>True when the id is credited by the pre-ledger seed rather than by a ledger row.</summary>
+        internal bool IsPreLedgerSeeded(string milestoneId)
+        {
+            return progressSeed.ContainsOneShot(milestoneId);
+        }
+
+        /// <summary>Record thresholds the pre-ledger seed adds to this id's effective count.</summary>
+        internal int GetPreLedgerRecordPaidCount(string milestoneId)
+        {
+            return progressSeed.GetRecordPaidCount(milestoneId);
+        }
+
+        internal int PreLedgerSeedOneShotCount => progressSeed.OneShotCount;
+
+        internal int PreLedgerSeedRecordCount => progressSeed.RecordCount;
+
+        /// <summary>
+        /// Resets all credited milestones before a recalculation walk, then folds in the
+        /// pre-ledger progress seed: seeded one-shot ids start credited (they were achieved
+        /// before any ledger row, so a later row for the same id is a true duplicate under
+        /// the first-hit-wins rule below), and seeded record counts start the effective
+        /// count of their id (record rows stay effective and add on top).
         /// </summary>
         public void Reset()
         {
             int previousCount = creditedMilestones.Count;
             creditedMilestones.Clear();
             effectiveMilestoneCounts.Clear();
+
+            if (progressSeed.Captured)
+            {
+                foreach (string id in progressSeed.OneShotIds)
+                    creditedMilestones.Add(id);
+                foreach (var kv in progressSeed.RecordPaidCounts)
+                    effectiveMilestoneCounts[kv.Key] = kv.Value;
+                ParsekLog.Verbose("Milestones",
+                    $"Reset: cleared {previousCount} credited milestones; pre-ledger seed credits " +
+                    $"{progressSeed.OneShotCount.ToString(IC)} node(s) and " +
+                    $"{progressSeed.RecordCount.ToString(IC)} record band(s)");
+                return;
+            }
+
             ParsekLog.Verbose("Milestones", $"Reset: cleared {previousCount} credited milestones");
         }
 
@@ -61,7 +112,11 @@ namespace Parsek
             {
                 action.Effective = true;
                 creditedMilestones.Add(milestoneId);
-                effectiveMilestoneCounts[milestoneId] = 1;
+                // A record id may already carry the pre-ledger seed's paid thresholds;
+                // every other id starts from zero here.
+                effectiveMilestoneCounts[milestoneId] =
+                    (effectiveMilestoneCounts.TryGetValue(milestoneId, out int seededCount)
+                        ? seededCount : 0) + 1;
                 ParsekLog.Verbose("Milestones",
                     $"Credited milestone '{milestoneId}' at UT={action.UT.ToString("F1", IC)}" +
                     $" (recording={action.RecordingId ?? "null"}," +
@@ -109,7 +164,10 @@ namespace Parsek
                 action.NotCountedReason = GameActionNotCountedReason.MilestoneAlreadyAchieved;
                 ParsekLog.Verbose("Milestones",
                     $"Duplicate milestone '{milestoneId}' zeroed at UT={action.UT.ToString("F1", IC)}" +
-                    $" (recording={action.RecordingId ?? "null"})");
+                    $" (recording={action.RecordingId ?? "null"})" +
+                    (progressSeed.ContainsOneShot(milestoneId)
+                        ? " - achieved before the ledger began (pre-ledger progress seed)"
+                        : ""));
             }
         }
 

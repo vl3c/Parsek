@@ -35,6 +35,23 @@ under a changed difficulty or a strategy discount), or leave them.
 
 ---
 
+## RECORD-COALESCED-ROW-COUNTS-ONE-HIT: a world-record row that coalesced several threshold breaks counts as one hit when the record node is rebuilt [FILED 2026-10-06 while fixing SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE, branch `fix-pre-parsek-progress-seed`. OPEN, product; to verify, not reproduced]
+
+`GameStateRecorder.TryCoalesceWorldRecordReward` folds every RecordsAltitude / Depth / Speed /
+Distance break of one (milestone, recording) scope into ONE MilestoneAchieved event and ledger
+row, accumulating funds / rep / science. `MilestonesModule` counts that row as one effective
+hit, and `KspStatePatcher.TryComputeRepeatableRecordState` rebuilds the stock node from the
+hit count: a live record above the next threshold "spills into a later band" and falls back to
+the last paid threshold. If one recording crosses several thresholds (an ascent past 500 m,
+2 km, 7 km, 22 km, 70 km), the patch would set the record back to the first threshold and
+stock would re-award the rest on a later flight. Collected logs show the resync at work
+(`synced repeatable record 'RecordsAltitude' hits=2 ... record=2000.0` x456) but not which
+ascents coalesced into how many rows. Check first: one ascent's KSP.log - the stock
+`[Progress Node Reached]` / award lines per threshold, the coalesced row, and the next
+`synced repeatable record` line.
+
+---
+
 ## TIMELINE-OP-COVERAGE-PROGRAM: back-in-time loads, revert, mining and resource conservation are barely tested [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. OPEN; test program]
 
 Research: `docs/dev/research/coverage-extension-plan-2026-10-06.md` and
@@ -781,11 +798,11 @@ time unit, auto loop range) are removed entirely and existing saves drop them; i
 mission loops only behind a logistics route (the Missions tab loses its loop controls);
 the loop infrastructure routes run on stays. Looping at will is a Gloops concern
 (`docs/dev/gloops-recorder-design.md` section 8). The per-recording loop keys are deleted
-without a schema generation bump (plan section 5, for ratification at review); the harness
+without a schema generation bump (plan section 5, ratified 2026-10-05); the harness
 keeps store-mission looping reachable from automation only (plan section 6). PR sequence:
 plan section 7.
 
-## GLOOPS-EXTRACTION-2026-10-05: Gloops leaves Parsek; model agreed, extraction not scheduled [FILED 2026-10-05 from an owner interview and a measured read of the code, branch `ccr-8a19466a-qh7ey4`. OPEN; extraction not scheduled, removal planned]
+## GLOOPS-EXTRACTION-2026-10-05: Gloops leaves Parsek; model agreed, extraction not scheduled [FILED 2026-10-05 from an owner interview and a measured read of the code, branch `ccr-8a19466a-qh7ey4`. OPEN; extraction not scheduled. In-Parsek recorder DELETED as dead code on branch `gloops-dead-code-removal`]
 
 **Owner rulings 2026-10-05** (full text: `docs/dev/gloops-recorder-design.md` section 1):
 the in-Parsek Gloops feature is deleted from Parsek; Gloops becomes a standalone mod in
@@ -803,19 +820,25 @@ the tree / chain / mission layer, and the recorders are entangled with tree, rew
 logistics code (design section 10).
 
 **Next work** is `docs/dev/plans/remove-player-looping.md`: PR 1 deletes the in-Parsek
-Gloops recorder; PRs 2-4 remove player-authored looping (per-recording loops and the
-Missions tab loop controls; in Parsek a mission loops only behind a logistics route).
+Gloops recorder (DONE on branch `gloops-dead-code-removal`, looping untouched); PRs 2-4 remove
+player-authored looping (per-recording loops and the Missions tab loop controls; in Parsek a
+mission loops only behind a logistics route).
 
 **Defects in the in-Parsek Gloops recorder, found 2026-10-05.** All are resolved by the
 removal; none is to be fixed in place. Each is a requirement the standalone take recorder
 must meet (design section 5.8).
 
-1. **Takes are very likely lost on save and reload** (inferred from source, not run).
-   `RecordingStore.CommitGloopsRecording` appends a treeless recording to the committed
-   list; `ParsekScenario.OnSave` writes only `RECORDING_TREE` nodes and OnLoad ignores
-   standalone `RECORDING` nodes (T56). Contradicts the 0.10.4 CHANGELOG claim that existing
-   ghost-only recordings "still load". One reload test settles it before the `isGhostOnly`
-   codec key is deleted.
+1. **Takes are lost on a cold load** (settled 2026-10-05 by a test).
+   `RecordingStore.CommitGloopsRecording` appended a treeless recording to the committed
+   list; `ParsekScenario.SaveTreeRecordings` writes only `RECORDING_TREE` nodes and the cold
+   OnLoad path reads only those (standalone `RECORDING` nodes are warned and dropped, T56),
+   then `CleanOrphanFiles` quarantines the take's sidecars. A warm in-session load kept the
+   static list until the next cold load. The codec read of `isGhostOnly` could only fire for
+   a tree member and no path put a take in a tree; no fixture carried `isGhostOnly = True`.
+   So no save can carry a ghost-only recording, and the key was deleted with no generation
+   bump. Pinned by `PendingTreeSaveTests.SaveThenColdLoad_TreelessCommittedRecording_IsNotPersisted`
+   (passed with `IsGhostOnly = true` on main `99f7a1ad5` before the deletion). The 0.10.4
+   CHANGELOG claim that ghost-only recordings "still load" was wrong.
 2. **A take started while packed freezes.** `InitializeOnRailsOrbitSegment` sets
    `isOnRails = true`; go-off-rails is never forwarded to the gloops recorder, so
    `FlightRecorder.OnPhysicsFrame` returns early for the rest of the take.
@@ -3412,7 +3435,7 @@ smallest remaining surfaces are `op=pointer inject=true` feeding IMGUI a synthet
 do not spend lanes on hover states, and do not read the four existing hover captures as
 coverage - they are text-identical to their un-hovered siblings.
 
-**3. The Gloops Flight Recorder's Recording / Saved / Previewing states are diagnostic
+**3. [MOOT 2026-10-06: the Gloops window, its seam verbs and `op=open window=gloops` are deleted, PR #2022]** The Gloops Flight Recorder's Recording / Saved / Previewing states are diagnostic
 only, because no player can open that window.** `UiSurfaceVisibility.IsRetired` answers true
 for `MainButtonGloops` and is tested BEFORE the mode switch, so the launcher draws in
 neither complexity mode; the only production writer that raises the flag sits behind that
@@ -3523,7 +3546,8 @@ measurement, and the mirror's own 13px font calibration shows how visible that e
 300-state run would drop 536 files into `skipped_over_cap`; the Missions and Recordings
 windows are store-shaped (frame-keyed caches, index-into-the-live-list row identity) and
 belong to synthetic SAVE fixtures rather than an in-memory mock; and any such fixture work
-must splice onto a HARVESTED save per `SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE`.
+must splice onto a HARVESTED save per `SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE` (since
+corrected: that was Parsek's milestone patch clearing pre-ledger progress, fixed 2026-10-06).
 
 ## ~~KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL~~: a kerbal whose committed flight ends Aboard stays reserved forever, even after the vessel is recovered - and an ordinary in-flight "Recover" with auto-merge on ends every crewed flight Aboard [FOUND BY READING 2026-09-23 while fixing KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME, then MEASURED the same night on `L3-career-science-recover` run `2026-09-22_2132` (and read back into the 2026-09-02 L3 log). PRODUCT GAP against design 9.3 ("RECOVERED ... available after recovery"; STRANDED "stays open until a future recording rescues the kerbal"). FIXED 2026-09-23 on branch `kerbal-aboard-recovery` (the recovery half; see Residual)]
 
@@ -6396,7 +6420,7 @@ Residue found on the way, left open deliberately:
 
 ---
 
-## GLOOPS-STANDALONE-WINDDOWN: Gloops UI retired from every mode; extraction to a standalone mod pending [OPENED 2026-08-28]
+## ~~GLOOPS-STANDALONE-WINDDOWN: Gloops UI retired from every mode; extraction to a standalone mod pending~~ [OPENED 2026-08-28. CLOSED 2026-10-06: the in-Parsek Gloops recorder is deleted as dead code (PR #2022, branch `gloops-dead-code-removal`); Gloops is to be rebuilt later (GLOOPS-EXTRACTION-2026-10-05); the looping wind-down is PLAYER-LOOPING-REMOVAL. The tests named below were deleted with it]
 
 Product decision (2026-08-28): Gloops becomes a standalone mod later, and Parsek
 gradually winds down player-facing ghost/recording-looping surfaces to focus on
@@ -8903,7 +8927,25 @@ that folder is flight 1, whose ledger loaded `actions=1` and which logged ZERO
 injection lines, so it contradicts rather than supports this entry. It is the correct
 pointer for the Progress-node finding below, and only there.
 
-## SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE: a `Progress { FirstLaunch }` node written into a file-constructed career save is not read back, and it silently kills any save-authored Active `PartTest` [MEASURED 2026-08-20 by `L5-career-contract-complete`'s first flight (run `2026-08-20_2217`). HARNESS-FIXTURE FINDING, REPORT-ONLY: no product change is proposed, and nothing gates it. It is filed because it BLOCKS a specific class of fixture and because the next author to try one will otherwise spend the same flight]
+## ~~SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE: a `Progress { FirstLaunch }` node written into a file-constructed career save is not read back, and it silently kills any save-authored Active `PartTest`~~ [MEASURED 2026-08-20 by `L5-career-contract-complete`'s first flight (run `2026-08-20_2217`). MISDIAGNOSED as a harness-fixture finding. FIXED 2026-10-06, branch `fix-pre-parsek-progress-seed`: it was a PRODUCT defect, see the correction below]
+
+**CORRECTION (2026-10-06): the node WAS loaded; Parsek un-achieved it.** The real cause is
+`KspStatePatcher.PatchMilestones` -> `PatchProgressNodeTree`, which sets every one-shot stock
+progress node to the `MilestonesModule` credited set and clears any complete node no ledger
+`MilestoneAchievement` row credits. Nothing told the ledger about progress a save earned
+before Parsek, so the first recalc cleared it: `logs/2026-08-21_0124_L5-career-contract-complete/KSP.log`
+logs `PatchMilestones: cleared achieved 'FirstLaunch'` then `credited=0, unreached=1 ...
+moduleCredited=0` at 01:17:49, before the flight, which is why stock later logged FirstLaunch
+reached and complete again. The same patch reset the four world-record nodes to their first
+band. Every save Parsek is installed into hit this, not only file-constructed fixtures, and the
+"lineage" difference below was a red herring (`career-earned-pad`'s FirstLaunch has a ledger
+row). Fix: a persisted pre-ledger progress seed (`PreLedgerProgressSeed`, a `PROGRESS_SEED`
+child of the ledger file) captured once per save from the live tree after ProgressTracking's
+OnLoad has run; seeded nodes stay credited and seeded record thresholds count as paid, and
+`PatchMilestones` skips until the seed exists. A save-authored node with no ledger row is
+therefore now kept, so the fixture class this entry said was blocked should be reachable (not
+yet flown). The body below is the original report, kept as history.
+
 
 **What was tried.** `career-contract-pad` v1 spliced two nodes into
 `career-science-pad`'s save so the `science_bench_recover` flight would COMPLETE a

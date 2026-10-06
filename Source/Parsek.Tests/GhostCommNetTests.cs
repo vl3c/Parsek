@@ -833,23 +833,22 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        // chainWouldSpawn, superseded, spawnable, leaf, debris, ghostOnly, branch, spawnedOrDestroyed, expected
-        [InlineData(true, false, false, false, false, false, false, false, true)]
-        [InlineData(true, false, true, true, true, false, false, false, false)]
-        [InlineData(true, false, true, true, false, false, false, true, false)]
-        [InlineData(false, false, true, true, false, false, false, false, false)]
-        [InlineData(false, true, true, true, false, false, false, false, true)]
-        [InlineData(false, true, false, true, false, false, false, false, false)]
-        [InlineData(false, true, true, false, false, false, false, false, false)]
-        [InlineData(false, true, true, true, false, true, false, false, false)]
-        [InlineData(false, true, true, true, false, false, true, false, false)]
-        [InlineData(false, true, true, true, false, false, false, true, false)]
+        // chainWouldSpawn, superseded, spawnable, leaf, debris, branch, spawnedOrDestroyed, expected
+        [InlineData(true, false, false, false, false, false, false, true)]
+        [InlineData(true, false, true, true, true, false, false, false)]
+        [InlineData(true, false, true, true, false, false, true, false)]
+        [InlineData(false, false, true, true, false, false, false, false)]
+        [InlineData(false, true, true, true, false, false, false, true)]
+        [InlineData(false, true, false, true, false, false, false, false)]
+        [InlineData(false, true, true, false, false, false, false, false)]
+        [InlineData(false, true, true, true, false, true, false, false)]
+        [InlineData(false, true, true, true, false, false, true, false)]
         public void ContinuationOwnsTerminalSpawn_Cases(
             bool chainWouldSpawn, bool superseded, bool spawnable, bool leaf, bool debris,
-            bool ghostOnly, bool branch, bool spawnedOrDestroyed, bool expected)
+            bool branch, bool spawnedOrDestroyed, bool expected)
         {
             Assert.Equal(expected, GhostCommNetMath.ContinuationOwnsTerminalSpawn(
-                chainWouldSpawn, superseded, spawnable, leaf, debris, ghostOnly, branch, spawnedOrDestroyed));
+                chainWouldSpawn, superseded, spawnable, leaf, debris, branch, spawnedOrDestroyed));
         }
 
         [Fact]

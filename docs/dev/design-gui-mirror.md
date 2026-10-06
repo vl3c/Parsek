@@ -441,8 +441,8 @@ without re-placing it must not demote that window everywhere (that bug hid the
 main window from the whole page once). Of what is left, a root repeating
 identically under four or more different windows is another mod's chrome (the kRPC
 server window, the MechJeb menu button) and is hidden behind the `other mods`
-toggle. A root seen under one window only - a group picker, the Gloops recorder,
-the watch-mode overlay - is Parsek's and stays.
+toggle. A root seen under one window only - a group picker, the Logistics link
+picker, the watch-mode overlay - is Parsek's and stays.
 
 ## 9. Regenerating
 

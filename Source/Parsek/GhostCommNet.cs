@@ -817,8 +817,8 @@ namespace Parsek
         /// continuation takes it over (design 15.6 scenario 15)? Either the ghost-chain walker
         /// suppressed an otherwise ready spawn because a later claim continues the vessel, or
         /// the terminal spawn was superseded by a continuation recording. The superseded case
-        /// is checked structurally: a spawnable terminal on a leaf that is not debris, ghost-only
-        /// or an undock branch, and has not spawned, been adopted or been destroyed.
+        /// is checked structurally: a spawnable terminal on a leaf that is not debris or an
+        /// undock branch, and has not spawned, been adopted or been destroyed.
         /// </summary>
         internal static bool ContinuationOwnsTerminalSpawn(
             bool chainIntermediateWouldSpawn,
@@ -826,7 +826,6 @@ namespace Parsek
             bool hasSpawnableTerminal,
             bool isLeaf,
             bool isDebris,
-            bool isGhostOnly,
             bool isBranchGhostOnly,
             bool alreadySpawnedOrDestroyed)
         {
@@ -836,7 +835,7 @@ namespace Parsek
                 return true;
             if (!terminalSpawnSuperseded)
                 return false;
-            return hasSpawnableTerminal && isLeaf && !isGhostOnly && !isBranchGhostOnly;
+            return hasSpawnableTerminal && isLeaf && !isBranchGhostOnly;
         }
 
         /// <summary>
@@ -968,7 +967,6 @@ namespace Parsek
                 string.IsNullOrEmpty(rec.ChildBranchPointId)
                     || GhostPlaybackLogic.IsEffectiveLeafForVessel(rec),
                 rec.IsDebris,
-                rec.IsGhostOnly,
                 rec.ChainBranch > 0,
                 rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0 || rec.VesselDestroyed);
             if (!owns)

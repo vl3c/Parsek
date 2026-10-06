@@ -96,14 +96,9 @@ tier = "operator"
 # resumes a live recording on a FLIGHT load, and a live tree left standing would be
 # written into the produced save by `FlushAndQuit`.
 #
-# THE ONE PRODUCTION REFUSAL `op=complexity` HAS IS NARROWER THAN THE AUDIT SAID, and
-# it is worth stating because an earlier draft of this header got it wrong:
-# `ParsekUI.ShouldRefuseModeChange` is exactly `next == Basic && gloopsRecording` -
-# BASIC only, and a manual GLOOPS recording only, never a flight recording. Advanced
-# is never refused, because it only ever reveals surfaces. So this lane's single
-# `mode=advanced` op could stand anywhere; it is placed after the two teardown steps
-# because that is where the rest of the preamble belongs, not because a recorder
-# would have blocked it.
+# `op=complexity` HAS NO PRODUCTION REFUSAL: neither mode is ever refused, so this
+# lane's single `mode=advanced` op could stand anywhere; it is placed after the two
+# teardown steps because that is where the rest of the preamble belongs.
 #
 # WHAT THIS LANE DOES NOT CLAIM. It asserts that each window DREW and that the supersede
 # relation loaded. It does NOT claim a strikethrough - see the header for why no host
@@ -223,9 +218,9 @@ count = { min = 10, max = 11 }
 # supersede load surface says the relation is live. There is no rendering half, because a
 # supersede draws no Timeline pixel - see the header.
 required = [
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,timeline",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,missions",
   "d096297d815647de988c380fb6931d0a",
   "missionconfig applied: mission='.*' tree=47cea2fe7d9e4e9eb6a729a7e280cc41 loop=True",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=ra-timeline-details-flight-advanced",

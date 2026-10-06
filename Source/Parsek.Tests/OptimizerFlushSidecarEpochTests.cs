@@ -292,7 +292,7 @@ namespace Parsek.Tests
 
             var committed = MakeRecording(id);
             Assert.Equal(0, committed.SidecarEpoch);
-            RecordingStore.CommitGloopsRecording(committed);
+            RecordingStore.CommitRecordingDirect(committed);
 
             Assert.False(committed.FilesDirty);
             Assert.Equal(1, committed.SidecarEpoch);

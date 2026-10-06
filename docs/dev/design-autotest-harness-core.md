@@ -700,7 +700,7 @@ what exists to cover. One table per dimension, each a list of value tokens.
 ```toml
 schema = 1
 [D1]  # recording lifecycle
-values = ["auto-record-launch", "auto-record-eva", "manual-gloops", "commit-scene-exit",
+values = ["auto-record-launch", "auto-record-eva", "commit-scene-exit",
           "discard-rollback", "auto-merge", "switch-segment", "ballistic-extrapolation", "..."]
 [D8]  # ledger / economy
 values = ["funds", "science", "reputation", "milestones", "kerbals", "facilities",

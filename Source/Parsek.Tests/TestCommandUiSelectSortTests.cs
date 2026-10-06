@@ -36,7 +36,6 @@ namespace Parsek.Tests
         [InlineData("main", false)]
         [InlineData("settings", false)]
         [InlineData("structure", false)]
-        [InlineData("gloops", false)]
         [InlineData("testrunner", false)]
         [InlineData("testrunnerglobal", false)]
         public void SortableWindows_AreExactlyTheThreeWithATable(string window,
