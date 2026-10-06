@@ -3676,6 +3676,18 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Installing Parsek into an existing career no longer resets its milestones and world
+  records.** The first time Parsek synced the career it un-achieved every milestone the career
+  had earned before Parsek was installed (First Launch, orbits, landings and the rest) and
+  rolled the altitude, speed, distance and depth records back to their first band. Contracts
+  that need one of those milestones (for example part tests, which need First Launch) were
+  withdrawn, and stock paid each milestone and record reward again when it was reached a
+  second time. Parsek now records that earlier progress once, the first time it loads such a
+  save, and keeps it: the milestones stay achieved, the records keep the bands already paid,
+  and nothing is paid twice. Progress earned while Parsek runs is handled exactly as before,
+  including rewinds, which still undo milestones reached after the rewind point. A career that
+  an earlier Parsek version already reset is not repaired.
+
 - **Ending a Re-Fly no longer marks an earlier segment of the same craft destroyed with its crew
   dead.** When a recording had been split into segments and the same vessel was later brought
   back by another flight (for example, docked into, undocked, and re-created at the end of that
