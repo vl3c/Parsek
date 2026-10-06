@@ -3676,6 +3676,22 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A quickload no longer brings back a re-flown flight or a retired crew death.** Quickloading,
+  reverting or changing scene restored Parsek's Re-Fly bookkeeping from the save while it kept your
+  recordings and career ledger as they were. After quickloading to a save from before a Re-Fly
+  merge, the flight you had replaced played back next to its re-fly, the crew death and reputation
+  penalty the re-fly had undone counted again, and Unfinished Flights made after the save
+  disappeared (their quicksave files left behind). Every load inside a game session now keeps that
+  bookkeeping from the session you are playing, like the recordings: re-flown flights stay
+  replaced, retired deaths stay retired, an Unfinished Flight made since the save stays listed and
+  one already closed does not come back. The flight a quickload resumes, and a flight you reverted,
+  still keep the save's Unfinished Flights for that flight. Discard Re-fly from the Esc menu now
+  also keeps the Unfinished Flight it promised to keep: the load that follows no longer brings back
+  the discarded session and deletes its rewind point. Quickloading into a save taken during a
+  Re-Fly you have since merged resumes that Re-Fly; discarding it then brings the original flight
+  and its outcome back. Loading another game and starting KSP are unchanged. Covered by xUnit; not
+  yet checked in a test flight.
+
 - **After a quickload, a booster that survives the replayed flight is recorded again.** If you
   quicksaved, flew on (a booster crashed with its crew, a lander touched down) and then
   quickloaded back, the other vessels of that flight kept the ending they had reached after the

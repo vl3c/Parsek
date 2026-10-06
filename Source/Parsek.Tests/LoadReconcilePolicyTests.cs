@@ -119,14 +119,15 @@ namespace Parsek.Tests
         {
             Assert.Equal(
                 "Load classified: early=InSession refined=QuickloadFlight scene=FLIGHT initialLoadDone=true "
-                + "rewinding=false reFlyInvoke=false discardReFly=none",
+                + "rewinding=false reFlyInvoke=false discardReFly=none handoff=present reason=OnDestroy",
                 LoadReconcilePolicy.FormatClassificationLine(
-                    EarlyLoadKind.InSession, LoadKind.QuickloadFlight, "FLIGHT", true, false, false, null));
+                    EarlyLoadKind.InSession, LoadKind.QuickloadFlight, "FLIGHT", true, false, false, null,
+                    "present reason=OnDestroy"));
             Assert.Equal(
                 "Load classified: early=DiscardReFly refined=DiscardReFly scene=EDITOR initialLoadDone=true "
-                + "rewinding=false reFlyInvoke=false discardReFly=Prelaunch",
+                + "rewinding=false reFlyInvoke=false discardReFly=Prelaunch handoff=absent",
                 LoadReconcilePolicy.FormatClassificationLine(
-                    EarlyLoadKind.DiscardReFly, LoadKind.DiscardReFly, "EDITOR", true, false, false, "Prelaunch"));
+                    EarlyLoadKind.DiscardReFly, LoadKind.DiscardReFly, "EDITOR", true, false, false, "Prelaunch", null));
         }
 
         // ---- the table ----
@@ -244,6 +245,46 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void InSessionHandoffCells_HoldTheDecisionsStepAAndStepBRead()
+        {
+            // ParsekScenario.ApplyInSessionStagedStateHandoffStepA keys on these cells: the lists
+            // decide Memory exactly on the in-session kinds (and the Discard Re-fly load), the
+            // journal follows, the rewind points are partitioned by owner, and the marker comes
+            // from memory only on the Discard Re-fly load.
+            var handoffKinds = new[]
+            {
+                LoadKind.DiscardReFly, LoadKind.StockRevert, LoadKind.QuickloadFlight, LoadKind.InSessionOther,
+            };
+            foreach (LoadKind kind in AllKinds())
+            {
+                bool handoff = handoffKinds.Contains(kind);
+                foreach (var category in new[]
+                {
+                    LoadStateCategory.SupersedeRows, LoadStateCategory.RewindRetirements,
+                    LoadStateCategory.LedgerTombstones, LoadStateCategory.MergeJournal,
+                })
+                {
+                    var d = LoadReconcilePolicy.Decide(kind, category);
+                    Assert.Equal(handoff, d.Action == LoadReconcileAction.Memory);
+                    Assert.False(d.IsKnownGap, kind + " x " + category);
+                }
+                var rps = LoadReconcilePolicy.Decide(kind, LoadStateCategory.RewindPoints);
+                Assert.Equal(handoff, rps.Action == LoadReconcileAction.OwnerPartition);
+                Assert.False(rps.IsKnownGap, kind + " x RewindPoints");
+                var marker = LoadReconcilePolicy.Decide(kind, LoadStateCategory.ReFlyMarker);
+                Assert.Equal(kind == LoadKind.DiscardReFly, marker.Action == LoadReconcileAction.Memory);
+                Assert.False(marker.IsKnownGap, kind + " x ReFlyMarker");
+            }
+            // The only OwnerPartition cells are the rewind points'.
+            foreach (LoadKind kind in AllKinds())
+                foreach (LoadStateCategory category in AllCategories())
+                {
+                    if (LoadReconcilePolicy.Decide(kind, category).Action == LoadReconcileAction.OwnerPartition)
+                        Assert.Equal(LoadStateCategory.RewindPoints, category);
+                }
+        }
+
+        [Fact]
         public void ReconcileAtResume_IsTheAbandonedFutureCellsOfTheKindsThatResume()
         {
             // The quickload-resume reconcile (ParsekScenario.TrimAndReconcileForQuickloadResume)
@@ -293,7 +334,6 @@ namespace Parsek.Tests
                 {
                     LoadReconcilePolicy.GapColdLoadAbandonedFuture,
                     LoadReconcilePolicy.GapEscDiscardPendingScience,
-                    LoadReconcilePolicy.GapReFlyLists,
                     LoadReconcilePolicy.GapRouteState,
                 }.OrderBy(s => s, StringComparer.Ordinal),
                 ids.OrderBy(s => s, StringComparer.Ordinal));

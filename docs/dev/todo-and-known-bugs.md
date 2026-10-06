@@ -144,7 +144,7 @@ note changes with it.
 
 ---
 
-## QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY: an in-session load rebuilds the Re-Fly bookkeeping from the save but keeps recordings and the ledger from memory [FILED 2026-10-06 from the coverage-extension research, adversarially verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; not yet reproduced]
+## ~~QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY: an in-session load rebuilds the Re-Fly bookkeeping from the save but keeps recordings and the ledger from memory~~ [FILED 2026-10-06 from the coverage-extension research, adversarially verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, branch `insession-staged-lists` (xUnit only; live proof is lane QL-3, authored, never flown, and QL-5 for the Discard Re-fly load, which needs the TC-1 `ReFlyRevert` verb)]
 
 `LoadRewindStagingState` (`ParsekScenario.cs:2783`, called at `:3609` on every load) replaces
 rewind points, supersede rows, retirements, tombstones, the Re-Fly marker and the merge journal
@@ -161,17 +161,38 @@ re-flown flight both replay, the tombstoned crew deaths and reputation penalties
 rewind points created after the save drop out (Unfinished Flight rows vanish, quicksave files
 leak).
 
-Fix: not decided - either carry the lists on every in-session load (the recordings are carried),
-or reconcile the in-memory recordings / ledger against the loaded lists. Red test first: a
-`RewindStagedListsCarryTests`-style xUnit (commit A and A', supersede row only in memory,
-non-rewind load of a node without it, assert A invisible); then lane QL-3.
-
-Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
-
 Owner rulings 2026-10-06: F9 into a quicksave taken during a Re-Fly session that has since
 merged RESUMES the session, and a later Discard of that resumed session also drops the first
 merge's rows that name the pruned attempt (OQ-1); rewind-point quicksave files of an abandoned
 future or a reverted flight stay on disk for now (OQ-3).
+
+Fix: the lists are carried on every in-session load, as the recordings are.
+`ParsekScenario.OnDestroy` (stock `ScenarioRunner.OnGameSceneLoadRequested` destroys every scenario
+module when a scene load is requested, before the next scene's `Game.Load`; an `OnAwake` fallback
+covers a predecessor still registered) captures the instance's rewind points, supersede rows,
+retirements, tombstones, merge journal and marker into `InSessionStagedStateHandoff`; every OnLoad
+consumes it once. A cold load, a plain rewind (`rewind-carry-owns`) and a Re-Fly start
+(`refly-bundle-owns`) drop it, as do the main-menu transition, a save-folder change and the inert
+game-mode return. On the in-session kinds and the Discard Re-fly load, step A (prologue, after the
+rewind carries) installs memory's rows, retirements and tombstones, the journal when memory's is
+null or Complete (an in-flight one keeps the loaded journal with a Warn), and on the Discard
+Re-fly load memory's (cleared) marker through `ClearActiveReFlySessionMarker`; step B (after the
+active and pending tree restores, so a resumed tree is already detached) partitions the rewind
+points by owner (`MergeRewindPointsByOwner`): session-scoped points from both sides (memory's
+instance first; the sweep then spares or purges them against the loaded marker, with files),
+memory's copy for points of trees memory holds committed, the save's for everything else (the
+resumed or reverted flight: OQ-3, files untouched). An in-session load with no handoff keeps the
+save's lists and Warns. OQ-1: `MergeDialog.PruneStagedRowsNamingAttempt`, called from both Re-Fly
+discard helpers, removes supersede rows whose new side, tombstones whose retiring recording and
+rewind retirements whose retired recording is a pruned attempt recording. The
+`LoadReconcilePolicy` cells flipped to Memory / OwnerPartition and lost this known-gap id. Red
+first: `InSessionStagedListsCarryTests` (origin stays invisible, tombstoned death stays out of the
+ELS, rows only in the save not resurrected, committed tree's newer RP kept, reaped RP not
+resurrected, session RPs of a session the save never had purged with files, merged-session resume
+keeps its rows, both Discard Re-fly loads keep the origin RP, stale journal dropped); the OQ-1
+discard pair red with the prune removed; `InSessionHandoffWiringGateTests` pins the order. Decompile
+note: the Discard Re-fly load is ONE OnLoad, and it reads persistent.sfs, not the rewind-point
+quicksave (see DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT).
 
 ---
 
@@ -467,7 +488,7 @@ PendingScience); the fix flips that cell.
 
 ---
 
-## DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP: Discard Re-fly to the editor can delete an origin rewind point created inside an earlier, merged Re-Fly session [FILED 2026-10-06 from the coverage-extension research, partly verified (narrow); branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP: Discard Re-fly to the editor can delete an origin rewind point created inside an earlier, merged Re-Fly session [FILED 2026-10-06 from the coverage-extension research, partly verified (narrow); branch `ccr-77f23eb2-dbqh6i`. OPEN, product; trigger removed by the in-session carry (branch `insession-staged-lists`); close after lane QL-5]
 
 `RewindPointAuthor` stamps the creating session on a rewind point created inside a Re-Fly
 session S0 and adds it before its own quicksave. Discard Re-fly with the Prelaunch target loads
@@ -480,6 +501,71 @@ cells stub LoadGame / LoadScene).
 
 Fix: keep a point whose creating session is already merged. Red test: xUnit over
 `LoadTimeSweep.Run`; lane QL-5 with a new `ReFlyRevert` verb.
+
+Trigger removed by the in-session carry (QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY): the
+Discard Re-fly load now takes the marker (cleared) and the committed tree's rewind points
+(the handler's promoted instance) from memory, so whatever the loaded node carries, no stale
+marker reaches the sweep and the point is not session-scoped
+(`InSessionStagedListsCarryTests.DiscardReFlyPrelaunch_NestedOriginRp_NotPurged`, red before the
+carry). The deciding runtime fact is answered by decompile (KSP 1.12.5): `EditorDriver.Start`, like
+`SpaceCenterMain.Start`, calls `GamePersistence.LoadGame("persistent")` and `Game.Load` on that, so
+the editor load reads persistent.sfs, not the point's quicksave (see
+DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT); the node the load reads is whatever
+persistent.sfs last held. Close after lane QL-5 flies both targets.
+
+---
+
+## DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT: Discard Re-fly loads the rewind point's quicksave, but the scene it then opens reloads persistent.sfs [FILED 2026-10-06 from the in-session carry work (branch `insession-staged-lists`), verified by decompile; player effect not traced. OPEN, product; to trace]
+
+`RevertInterceptor.DiscardReFlyHandler` loads the origin rewind point's quicksave into
+`HighLogic.CurrentGame` and calls `HighLogic.LoadScene(SPACECENTER)` (Launch) or
+`LoadScene(EDITOR)` (Prelaunch). Decompiled KSP 1.12.5: `SpaceCenterMain.Start` and
+`EditorDriver.Start` both call `GamePersistence.LoadGame("persistent", ...)` and `Game.Load` on that
+game, so the quicksave game is thrown away, and the discard arms
+`ArmNextTreeSceneExitCommitSuppression`, so Parsek's pre-LoadScene `SafeWritePersistent` does not
+write it to persistent.sfs either. The load therefore restores whatever persistent.sfs last held:
+normally the Re-Fly flight's own start (`FlightDriver` PostInit writes `PostInitState` there), but
+a later persistent write during the session (a switch to an unloaded vessel,
+`FlightGlobals.setActiveVessel`) would put the clock and the vessels at that later moment. One
+OnLoad per discard (stock `ScenarioRunner` destroys the scenario on the scene request, then the
+scene start runs `Game.Load` once); the in-session handoff supplies Parsek's own bookkeeping on it.
+
+Fix: to trace first (does any reachable session write persistent.sfs after its start; what the
+player sees at the Space Center / in the editor). Candidate: write the quicksave game to
+persistent.sfs before the scene load, as stock `QuickSaveLoad.onQuickloadPipelineFinished` does
+for a non-flight quickload (`GamePersistence.SaveGame(Game, "persistent", ...)` then `LoadScene`).
+Live proof: lane QL-5.
+
+---
+
+## REWIND-POINT-FILES-OF-AN-ABANDONED-FUTURE-STAY-ON-DISK: a quickload or a revert drops rewind points from the list but leaves their quicksave files [FILED 2026-10-06 from the in-session carry (owner ruling OQ-3), branch `insession-staged-lists`. OPEN, residual by ruling]
+
+The in-session owner partition (`InSessionStagedStateHandoff.MergeRewindPointsByOwner`) lets a
+rewind point whose owner is the flight a quickload resumes, a reverted flight or an unknown tree
+follow the loaded save: a point that flight created after the save drops out of the list and its
+`Parsek/RewindPoints/<id>.sfs` stays on disk (no reaper or sweep walks a file the list no longer
+names). Owner ruling OQ-3 (2026-10-06): leave the files for now; deleting them would break revert
+then F9 back into a mid-flight quicksave, and F9 to another quicksave of the same flight, both of
+which need the point again.
+
+Fix: none planned; revisit with a disk-usage sweep that knows every quicksave still able to name
+the point.
+
+---
+
+## RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW: Retry on a Re-Fly session a quickload resumed after its merge keeps the first merge's rows [FILED 2026-10-06 from the in-session carry (owner ruling OQ-1), branch `insession-staged-lists`; verified by code read, not reproduced. OPEN, product; narrow]
+
+OQ-1's discard prune (`MergeDialog.PruneStagedRowsNamingAttempt`) runs from the two Re-Fly
+discard helpers. `RevertInterceptor.RetryHandler` does not prune the attempt (the sweep reaps the
+NotCommitted provisional as a zombie), so after an F9 into a session that has since merged and a
+Retry, the first merge's supersede row A->A' and the tombstones retiring A' stay while A' is
+reaped. Harmless while the retried session merges (A->A'' then supersedes A again); if the retried
+session is then discarded, A stays hidden behind the one-sided A->A' row and A's crew death stays
+retired.
+
+Fix: prune the rows naming the retried attempt's provisional in `RetryHandler` too (or in the
+sweep, for a supersede row whose new side is a reaped zombie). Red test: the
+`InSessionStagedListsCarryTests` resumed-session fixture, Retry, then Discard; A must be visible.
 
 ---
 

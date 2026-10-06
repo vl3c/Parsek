@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Parsek
@@ -185,6 +186,8 @@ namespace Parsek
                     };
                     summary.AttemptIds = single;
                     summary.RemovedCommitted = RemoveCommittedAttemptRecordings(single);
+                    summary.StagedRows = PruneStagedRowsNamingAttempt(
+                        ParsekScenario.Instance, single, callSite ?? "PruneActiveReFlyAttemptOwnedTopology");
                 }
                 ParsekLog.Warn("MergeDialog",
                     $"PruneActiveReFlyAttemptOwnedTopology: no in-memory tree found " +
@@ -204,6 +207,8 @@ namespace Parsek
                 summary.AttemptIds, marker);
             summary.TransientCleared = ClearReFlyAttemptTransientFields(
                 tree, marker, summary.AttemptIds);
+            summary.StagedRows = PruneStagedRowsNamingAttempt(
+                ParsekScenario.Instance, summary.AttemptIds, callSite ?? "PruneActiveReFlyAttemptOwnedTopology");
 
             ParsekLog.Info("MergeDialog",
                 $"PruneActiveReFlyAttemptOwnedTopology callSite={callSite ?? "<none>"} " +
@@ -214,7 +219,8 @@ namespace Parsek
                 $"purgedEvents={summary.PurgedEvents} " +
                 $"deletedFiles={summary.DeletedFiles} " +
                 $"prunedCommittedTreeEntries={summary.PrunedCommittedTreeEntries} " +
-                $"transientCleared={summary.TransientCleared}");
+                $"transientCleared={summary.TransientCleared} " +
+                $"stagedRowsPruned={summary.StagedRows.Total}");
 
             return summary;
         }
@@ -232,6 +238,94 @@ namespace Parsek
             internal int DeletedFiles;
             internal int PrunedCommittedTreeEntries;
             internal int TransientCleared;
+            internal StagedRowsPruneResult StagedRows;
+        }
+
+        /// <summary>Counts of <see cref="PruneStagedRowsNamingAttempt"/>.</summary>
+        internal struct StagedRowsPruneResult
+        {
+            internal int Supersedes;
+            internal int Tombstones;
+            internal int Retirements;
+            internal int Total => Supersedes + Tombstones + Retirements;
+        }
+
+        /// <summary>
+        /// Owner ruling OQ-1: a quickload into a quicksave taken during a Re-Fly session that has
+        /// since merged resumes that session while memory keeps the first merge's rows. A discard
+        /// of the resumed session prunes the attempt's recordings, so the rows that NAME them must
+        /// go too, or a supersede row left pointing at a pruned recording keeps hiding the origin
+        /// (<see cref="EffectiveState.IsVisible"/> walks to the missing recording and
+        /// <c>LoadTimeSweep</c> keeps one-sided rows) and a tombstone the first merge wrote keeps
+        /// the origin's crew death and penalties retired. Removes supersede rows whose NEW side is
+        /// a pruned recording, tombstones whose retiring recording is one, and rewind retirements
+        /// that retire one. A fresh session's discard finds none (rows are written only at merge).
+        /// Bumps the tombstone version when a tombstone went; the callers bump the supersede
+        /// version when they end the session.
+        /// </summary>
+        internal static StagedRowsPruneResult PruneStagedRowsNamingAttempt(
+            ParsekScenario scenario, HashSet<string> attemptIds, string callSite)
+        {
+            var result = new StagedRowsPruneResult();
+            if (object.ReferenceEquals(null, scenario) || attemptIds == null || attemptIds.Count == 0)
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"PruneStagedRowsNamingAttempt callSite={callSite ?? "<none>"}: "
+                    + (object.ReferenceEquals(null, scenario) ? "no scenario" : "no attempt ids") + " - nothing to prune");
+                return result;
+            }
+
+            var removedIds = new List<string>();
+            result.Supersedes = RemoveRowsNaming(
+                scenario.RecordingSupersedes, r => r.NewRecordingId, r => r.RelationId, attemptIds, removedIds);
+            result.Tombstones = RemoveRowsNaming(
+                scenario.LedgerTombstones, t => t.RetiringRecordingId, t => t.TombstoneId, attemptIds, removedIds);
+            result.Retirements = RemoveRowsNaming(
+                scenario.RecordingRewindRetirements, r => r.RecordingId, r => r.RetirementId, attemptIds, removedIds);
+
+            if (result.Tombstones > 0)
+                scenario.BumpTombstoneStateVersion();
+
+            if (result.Total > 0)
+            {
+                ParsekLog.Info("MergeDialog",
+                    $"PruneStagedRowsNamingAttempt callSite={callSite ?? "<none>"}: removed rows naming the pruned "
+                    + $"attempt supersedes={result.Supersedes} tombstones={result.Tombstones} "
+                    + $"retirements={result.Retirements} attemptIds={attemptIds.Count} "
+                    + $"[{InSessionStagedStateHandoff.JoinBounded(removedIds, 20)}]");
+            }
+            else
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"PruneStagedRowsNamingAttempt callSite={callSite ?? "<none>"}: no row names the "
+                    + $"{attemptIds.Count} pruned attempt recording(s)");
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Pure: removes every row whose <paramref name="namedIdOf"/> is in <paramref name="ids"/>,
+        /// appending each removed row's own id to <paramref name="removedIds"/>. Returns the count.
+        /// </summary>
+        internal static int RemoveRowsNaming<T>(
+            List<T> rows, Func<T, string> namedIdOf, Func<T, string> rowIdOf,
+            HashSet<string> ids, List<string> removedIds)
+            where T : class
+        {
+            if (rows == null || rows.Count == 0 || ids == null || ids.Count == 0)
+                return 0;
+            int removed = 0;
+            for (int i = rows.Count - 1; i >= 0; i--)
+            {
+                var row = rows[i];
+                if (row == null) continue;
+                string named = namedIdOf(row);
+                if (string.IsNullOrEmpty(named) || !ids.Contains(named)) continue;
+                removedIds?.Add(rowIdOf(row) ?? "<no-id>");
+                rows.RemoveAt(i);
+                removed++;
+            }
+            return removed;
         }
 
         /// <summary>
@@ -303,6 +397,7 @@ namespace Parsek
                 $"transientCleared={discard.TransientCleared}, " +
                 $"ledgerTagsCleared={discard.LedgerTagsCleared}, " +
                 $"rpPromoted={discard.RpPromoted}, discardedSessionRps={discard.DiscardedSessionRps}, " +
+                $"stagedRowsPruned={discard.StagedRows.Total}, " +
                 $"restoredCommittedTree={discard.RestoredCommittedTree}, durableSaved={durableSaved})");
             ParsekLog.Info("ReFlySession",
                 $"End reason={MergeDialogDiscardReason} sess={sessionId ?? "<no-id>"} " +
@@ -330,6 +425,7 @@ namespace Parsek
             internal bool RpPromoted;
             internal int DiscardedSessionRps;
             internal bool RestoredCommittedTree;
+            internal StagedRowsPruneResult StagedRows;
         }
 
         /// <summary>
@@ -357,6 +453,7 @@ namespace Parsek
             result.PrunedCommittedTreeEntries = PruneAttemptRecordingsFromCommittedTrees(
                 result.AttemptIds, marker);
             result.TransientCleared = ClearReFlyAttemptTransientFields(tree, marker, result.AttemptIds);
+            result.StagedRows = PruneStagedRowsNamingAttempt(scenario, result.AttemptIds, reason);
             // Retire-time tag re-home, same contract as
             // SupersedeCommit.ConcludeRetiredProvisional: this path already purges the
             // attempt's store events and files but never touched Ledger.Actions, so a payout
