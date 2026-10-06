@@ -635,9 +635,9 @@ namespace Parsek
                 return;
             }
 
-            // Walk to the leaf through ChildBranchPointId
+            // Walk to the leaf through ChildBranchPointId, following the CLAIMED vessel.
             RecordingTree tree = FindTree(treeId, committedTrees);
-            Recording leaf = WalkToLeaf(rec, tree);
+            Recording leaf = WalkToLeaf(rec, tree, chain.OriginalVesselPid, lastLink.branchPointId);
 
             chain.TipRecordingId = leaf.RecordingId;
             chain.TipTreeId = treeId;
@@ -646,22 +646,30 @@ namespace Parsek
 
         /// <summary>
         /// Walks from a recording through ChildBranchPointId to find the leaf recording
-        /// (one with no ChildBranchPointId).
+        /// (one with no ChildBranchPointId) that continues the CLAIMED vessel
+        /// (<paramref name="claimedPid"/>, claimed at <paramref name="claimBranchPointId"/>,
+        /// null for a background-event claim). At a split with more than one child the
+        /// child is chosen by <see cref="SelectWalkChild"/> against the claimed vessel's
+        /// part set, resolved once (<see cref="ResolveClaimedPartIds"/>) at the first such
+        /// split so a walk with no multi-child split reads no snapshot.
         /// </summary>
-        private static Recording WalkToLeaf(Recording rec, RecordingTree tree)
+        private static Recording WalkToLeaf(
+            Recording rec, RecordingTree tree, uint claimedPid, string claimBranchPointId)
         {
             var ic = CultureInfo.InvariantCulture;
 
             if (tree == null)
             {
                 ParsekLog.Verbose(Tag,
-                    string.Format(ic, "WalkToLeaf: tree is null — returning rec={0}", rec.RecordingId));
+                    string.Format(ic, "WalkToLeaf: tree is null - returning rec={0}", rec.RecordingId));
                 return rec;
             }
 
             var visited = new HashSet<string>();
             var current = rec;
             int steps = 0;
+            bool claimedPartsResolved = false;
+            HashSet<uint> claimedParts = null;
 
             while (current.ChildBranchPointId != null && !visited.Contains(current.RecordingId))
             {
@@ -701,45 +709,53 @@ namespace Parsek
                     break;
                 }
 
-                // Prefer the child whose VesselPersistentId matches the current recording's PID.
-                // This ensures we follow the same vessel through splits rather than arbitrarily
-                // picking the first child, which may be a detached stage or debris piece.
-                // Fall back to child[0] if no PID match is found (e.g. EVA, or PID not set).
-                string bestChildId = bp.ChildRecordingIds[0];
-                if (current.VesselPersistentId != 0)
+                string bestChildId;
+                string rule;
+                if (bp.ChildRecordingIds.Count == 1)
                 {
-                    for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                    bestChildId = bp.ChildRecordingIds[0];
+                    rule = RuleOnlyChild;
+                }
+                else
+                {
+                    if (!claimedPartsResolved)
                     {
-                        Recording candidate;
-                        if (tree.Recordings.TryGetValue(bp.ChildRecordingIds[c], out candidate)
-                            && candidate.VesselPersistentId == current.VesselPersistentId)
-                        {
-                            bestChildId = bp.ChildRecordingIds[c];
-                            break;
-                        }
+                        claimedPartsResolved = true;
+                        string source;
+                        claimedParts = ResolveClaimedPartIds(
+                            rec, tree, claimedPid, claimBranchPointId, out source);
+                        ParsekLog.VerboseOnChange(Tag,
+                            identity: string.Format(ic, "walk-identity|{0}", rec.RecordingId),
+                            stateKey: string.Format(ic, "{0}|{1}|{2}",
+                                claimedPid, source, claimedParts != null ? claimedParts.Count : 0),
+                            message: string.Format(ic,
+                                "WalkToLeaf: claimed vessel PID={0} part identity source={1} parts={2} (start={3})",
+                                claimedPid, source,
+                                claimedParts != null ? claimedParts.Count : 0, rec.RecordingId));
                     }
+                    bestChildId = SelectWalkChild(bp, tree, current, claimedParts, out rule);
                 }
 
                 Recording child;
-                if (tree.Recordings.TryGetValue(bestChildId, out child))
+                if (bestChildId != null && tree.Recordings.TryGetValue(bestChildId, out child))
                 {
                     steps++;
                     ParsekLog.VerboseOnChange(Tag,
                         identity: string.Format(ic,
                             "walk-step|{0}|{1}", rec.RecordingId, steps),
                         stateKey: string.Format(ic,
-                            "{0}|{1}|{2}", current.RecordingId, bestChildId, bp.Id),
+                            "{0}|{1}|{2}|{3}", current.RecordingId, bestChildId, bp.Id, rule),
                         message: string.Format(ic,
-                            "WalkToLeaf: step {0}: rec={1} → child={2} via bp={3}",
-                            steps, current.RecordingId, bestChildId, bp.Id));
+                            "WalkToLeaf: step {0}: rec={1} -> child={2} via bp={3} rule={4}",
+                            steps, current.RecordingId, bestChildId, bp.Id, rule));
                     current = child;
                 }
                 else
                 {
                     ParsekLog.Verbose(Tag,
                         string.Format(ic,
-                            "WalkToLeaf: child recording '{0}' not found in tree — stopping",
-                            bestChildId));
+                            "WalkToLeaf: child recording '{0}' not found in tree - stopping",
+                            bestChildId ?? "(null)"));
                     break;
                 }
             }
@@ -751,6 +767,224 @@ namespace Parsek
                     "WalkToLeaf: reached leaf={0} after {1} steps from start={2}",
                     current.RecordingId, steps, rec.RecordingId));
             return current;
+        }
+
+        // Child-selection rules, named in the WalkToLeaf step line.
+        internal const string RuleOnlyChild = "only-child";
+        internal const string RuleClaimedParts = "claimed-parts";
+        internal const string RuleClaimedPartsSamePid = "claimed-parts-same-pid";
+        internal const string RuleClaimedPartsMost = "claimed-parts-most";
+        internal const string RuleSamePid = "same-pid";
+        internal const string RuleSamePidNoPartData = "same-pid-no-part-data";
+        internal const string RuleFirstChild = "first-child";
+
+        // Where the claimed vessel's part set came from, named in the walk-identity line.
+        internal const string ClaimedPartsSourceClaimRecording = "claim-recording";
+        internal const string ClaimedPartsSourceMergeParent = "merge-parent";
+        internal const string ClaimedPartsSourceMergedMinusPartner = "merged-minus-partner";
+        internal const string ClaimedPartsSourceNone = "none";
+
+        /// <summary>
+        /// The part persistentIds the claimed vessel owned when it was claimed, or null when
+        /// no recorded snapshot can say. The walk needs PART identity because the vessel pid
+        /// does not follow the claimed vessel: a dock keeps the DOMINANT vessel's pid
+        /// (<c>Vessel.GetDominantVessel</c>: higher vessel type, then mass) and an undock
+        /// gives the departing half a new pid, while every part keeps its persistentId
+        /// through both. Sources, the first that yields parts wins:
+        /// <list type="bullet">
+        /// <item><c>claim-recording</c>: the walk's start recording carries the claimed pid
+        /// (a background-event claim); its own snapshots.</item>
+        /// <item><c>merge-parent</c>: a parent of the claiming Dock / Board carries the
+        /// claimed pid (the claimed vessel was recorded in this tree); that parent's
+        /// snapshots, whose end state is the vessel as it docked.</item>
+        /// <item><c>merged-minus-partner</c>: the claimed vessel was foreign to this tree,
+        /// so its parts are the merged child's parts minus every parent's parts. Needs a
+        /// parent snapshot: without one the difference would be the whole merged vessel.</item>
+        /// </list>
+        /// </summary>
+        internal static HashSet<uint> ResolveClaimedPartIds(
+            Recording start, RecordingTree tree, uint claimedPid, string claimBranchPointId,
+            out string source)
+        {
+            source = ClaimedPartsSourceNone;
+            if (claimedPid == 0 || tree == null || tree.Recordings == null)
+                return null;
+
+            if (start != null && start.VesselPersistentId == claimedPid)
+            {
+                HashSet<uint> own = CollectRecordingPartIds(start);
+                if (own.Count > 0)
+                {
+                    source = ClaimedPartsSourceClaimRecording;
+                    return own;
+                }
+            }
+
+            BranchPoint claimBp = FindBranchPoint(tree, claimBranchPointId);
+            if (claimBp == null
+                || (claimBp.Type != BranchPointType.Dock && claimBp.Type != BranchPointType.Board)
+                || claimBp.ChildRecordingIds == null || claimBp.ChildRecordingIds.Count == 0)
+                return null;
+
+            var partnerParts = new HashSet<uint>();
+            if (claimBp.ParentRecordingIds != null)
+            {
+                for (int p = 0; p < claimBp.ParentRecordingIds.Count; p++)
+                {
+                    Recording parent;
+                    if (!tree.Recordings.TryGetValue(claimBp.ParentRecordingIds[p], out parent)
+                        || parent == null)
+                        continue;
+                    HashSet<uint> parentParts = CollectRecordingPartIds(parent);
+                    if (parent.VesselPersistentId == claimedPid && parentParts.Count > 0)
+                    {
+                        source = ClaimedPartsSourceMergeParent;
+                        return parentParts;
+                    }
+                    partnerParts.UnionWith(parentParts);
+                }
+            }
+
+            if (partnerParts.Count == 0)
+                return null;
+
+            Recording merged;
+            if (!tree.Recordings.TryGetValue(claimBp.ChildRecordingIds[0], out merged) || merged == null)
+                return null;
+
+            HashSet<uint> claimed = CollectRecordingPartIds(merged);
+            claimed.ExceptWith(partnerParts);
+            if (claimed.Count == 0)
+                return null;
+
+            source = ClaimedPartsSourceMergedMinusPartner;
+            return claimed;
+        }
+
+        /// <summary>
+        /// Picks the child of a multi-child split that continues the claimed vessel. With a
+        /// claimed part set: the only child holding any claimed part (<c>claimed-parts</c>);
+        /// when several hold some, the one keeping the current recording's pid if it is among
+        /// them (<c>claimed-parts-same-pid</c>: KSP keeps the pid on the side with the root
+        /// part, so a vessel shedding a piece of itself continues there), else the one holding
+        /// the most (<c>claimed-parts-most</c>, first in child order on a tie). A child keeping
+        /// the current pid that has no part snapshot cannot be ruled out, so it is kept
+        /// (<c>same-pid-no-part-data</c>) rather than walking past it on another child's parts.
+        /// With no part set, or no child holding a claimed part: the child keeping the current
+        /// recording's pid (<c>same-pid</c>), else the first child (<c>first-child</c>).
+        /// </summary>
+        internal static string SelectWalkChild(
+            BranchPoint bp, RecordingTree tree, Recording current,
+            HashSet<uint> claimedParts, out string rule)
+        {
+            rule = RuleFirstChild;
+            if (bp == null || bp.ChildRecordingIds == null || bp.ChildRecordingIds.Count == 0)
+                return null;
+
+            var recordings = tree != null ? tree.Recordings : null;
+            uint currentPid = current != null ? current.VesselPersistentId : 0u;
+            string samePidChildId = null;
+            if (currentPid != 0 && recordings != null)
+            {
+                for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                {
+                    Recording candidate;
+                    if (recordings.TryGetValue(bp.ChildRecordingIds[c], out candidate)
+                        && candidate != null
+                        && candidate.VesselPersistentId == currentPid)
+                    {
+                        samePidChildId = bp.ChildRecordingIds[c];
+                        break;
+                    }
+                }
+            }
+
+            if (claimedParts != null && claimedParts.Count > 0 && recordings != null)
+            {
+                string mostId = null;
+                int mostOverlap = 0;
+                int holders = 0;
+                bool samePidHolds = false;
+                bool samePidHasNoParts = false;
+                for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                {
+                    string childId = bp.ChildRecordingIds[c];
+                    Recording candidate;
+                    if (!recordings.TryGetValue(childId, out candidate) || candidate == null)
+                        continue;
+                    HashSet<uint> candidateParts = CollectRecordingPartIds(candidate);
+                    if (childId == samePidChildId && candidateParts.Count == 0)
+                        samePidHasNoParts = true;
+                    int overlap = 0;
+                    foreach (uint partPid in candidateParts)
+                    {
+                        if (claimedParts.Contains(partPid))
+                            overlap++;
+                    }
+                    if (overlap == 0)
+                        continue;
+                    holders++;
+                    if (childId == samePidChildId)
+                        samePidHolds = true;
+                    if (overlap > mostOverlap)
+                    {
+                        mostOverlap = overlap;
+                        mostId = childId;
+                    }
+                }
+
+                if (samePidHasNoParts)
+                {
+                    rule = RuleSamePidNoPartData;
+                    return samePidChildId;
+                }
+                if (holders == 1)
+                {
+                    rule = RuleClaimedParts;
+                    return mostId;
+                }
+                if (holders > 1)
+                {
+                    if (samePidHolds)
+                    {
+                        rule = RuleClaimedPartsSamePid;
+                        return samePidChildId;
+                    }
+                    rule = RuleClaimedPartsMost;
+                    return mostId;
+                }
+            }
+
+            if (samePidChildId != null)
+            {
+                rule = RuleSamePid;
+                return samePidChildId;
+            }
+            return bp.ChildRecordingIds[0];
+        }
+
+        // Union of the part persistentIds in a recording's ghost (start-state) and vessel
+        // (end-state) snapshots; empty when it has neither.
+        private static HashSet<uint> CollectRecordingPartIds(Recording rec)
+        {
+            var parts = new HashSet<uint>();
+            if (rec == null)
+                return parts;
+            parts.UnionWith(VesselSnapshotOps.CollectPartPersistentIds(rec.GhostVisualSnapshot));
+            parts.UnionWith(VesselSnapshotOps.CollectPartPersistentIds(rec.VesselSnapshot));
+            return parts;
+        }
+
+        private static BranchPoint FindBranchPoint(RecordingTree tree, string branchPointId)
+        {
+            if (tree == null || tree.BranchPoints == null || string.IsNullOrEmpty(branchPointId))
+                return null;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                if (tree.BranchPoints[i] != null && tree.BranchPoints[i].Id == branchPointId)
+                    return tree.BranchPoints[i];
+            }
+            return null;
         }
 
         /// <summary>
