@@ -1212,5 +1212,390 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Claimed-vessel identity through dock and undock (CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER)
+
+        // Part persistentIds of the two vessels in the dock / undock shapes below.
+        static readonly uint[] TransportParts = { 1, 2, 3 };
+        static readonly uint[] StationParts = { 11, 12 };
+
+        static ConfigNode MakeSnapshot(params uint[] partPids)
+        {
+            var vessel = new ConfigNode("VESSEL");
+            vessel.AddValue("root", "0");
+            for (int i = 0; i < partPids.Length; i++)
+            {
+                ConfigNode part = vessel.AddNode("PART");
+                part.AddValue("persistentId",
+                    partPids[i].ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+            return vessel;
+        }
+
+        static uint[] Concat(uint[] a, uint[] b)
+        {
+            var all = new uint[a.Length + b.Length];
+            a.CopyTo(all, 0);
+            b.CopyTo(all, a.Length);
+            return all;
+        }
+
+        /// <summary>
+        /// The flying vessel F (pid <paramref name="flyingPid"/>, parts <paramref name="flyingParts"/>)
+        /// docks to the foreign vessel C (pid <paramref name="claimedPid"/>, parts
+        /// <paramref name="claimedParts"/>), which the Dock claims. The merged recording keeps
+        /// <paramref name="mergedPid"/> (the dominant vessel's pid); on undock the half that
+        /// was dominant keeps that pid and the other half departs with
+        /// <paramref name="departingPid"/>. Undock children: "F-half" first (the flying
+        /// vessel stays active), "C-half" second.
+        /// </summary>
+        static RecordingTree DockUndockTree(
+            uint flyingPid, uint[] flyingParts, uint claimedPid, uint[] claimedParts,
+            uint mergedPid, uint departingPid,
+            TerminalState flyingHalfTerminal, TerminalState claimedHalfTerminal,
+            bool withSnapshots = true)
+        {
+            var f = MakeRecording("F", flyingPid, 1000, 1060, childBpId: "bp-dock");
+            var m = MakeRecording("M", mergedPid, 1060, 1100,
+                parentBpId: "bp-dock", childBpId: "bp-undock");
+            uint flyingHalfPid = mergedPid == flyingPid ? flyingPid : departingPid;
+            uint claimedHalfPid = mergedPid == claimedPid ? claimedPid : departingPid;
+            var fHalf = MakeRecording("F-half", flyingHalfPid, 1100, 1200,
+                terminal: flyingHalfTerminal, parentBpId: "bp-undock");
+            var cHalf = MakeRecording("C-half", claimedHalfPid, 1100, 1150,
+                terminal: claimedHalfTerminal, parentBpId: "bp-undock");
+
+            if (withSnapshots)
+            {
+                // The flying vessel's start state still carried a stage it later dropped.
+                f.GhostVisualSnapshot = MakeSnapshot(Concat(flyingParts, new uint[] { 99 }));
+                f.VesselSnapshot = MakeSnapshot(flyingParts);
+                m.VesselSnapshot = MakeSnapshot(Concat(flyingParts, claimedParts));
+                fHalf.VesselSnapshot = MakeSnapshot(flyingParts);
+                cHalf.VesselSnapshot = MakeSnapshot(claimedParts);
+            }
+
+            var dockBp = MakeBranchPoint("bp-dock", BranchPointType.Dock,
+                1060, claimedPid, new[] { "F" }, new[] { "M" });
+            var undockBp = MakeBranchPoint("bp-undock", BranchPointType.Undock,
+                1100, 0, new[] { "M" }, new[] { "F-half", "C-half" });
+
+            return MakeTree("tree-dock", new[] { f, m, fHalf, cHalf },
+                new[] { dockBp, undockBp });
+        }
+
+        /// <summary>
+        /// The defect: a heavier transport (pid 50) docks to a foreign station (pid 100), so
+        /// the merged vessel keeps the transport's pid, and on undock the station half gets a
+        /// new pid (77). The station's chain tip must be the station half, found by its parts.
+        /// </summary>
+        [Fact]
+        public void TransportDominantDockThenUndock_TipIsStationHalf()
+        {
+            var tree = DockUndockTree(50, TransportParts, 100, StationParts,
+                mergedPid: 50, departingPid: 77,
+                flyingHalfTerminal: TerminalState.Orbiting,
+                claimedHalfTerminal: TerminalState.Orbiting);
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, 900);
+
+            Assert.True(chains.ContainsKey(100));
+            Assert.Equal("C-half", chains[100].TipRecordingId);
+            Assert.Equal(1150.0, chains[100].SpawnUT);
+            Assert.False(chains[100].IsTerminated);
+            Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                && l.Contains("part identity source=merged-minus-partner") && l.Contains("parts=2"));
+            Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                && l.Contains("WalkToLeaf: step") && l.Contains("child=C-half")
+                && l.Contains("rule=claimed-parts"));
+        }
+
+        /// <summary>
+        /// The duplicate: in the transport-dominant shape the transport half is later
+        /// recovered. The station's chain must not count as terminated (that skipped the
+        /// station's ghosting and let the new-pid station half spawn next to the real
+        /// station), and neither half is an intermediate link.
+        /// </summary>
+        [Fact]
+        public void TransportDominant_TransportHalfRecovered_StationChainNotTerminated()
+        {
+            var tree = DockUndockTree(50, TransportParts, 100, StationParts,
+                mergedPid: 50, departingPid: 77,
+                flyingHalfTerminal: TerminalState.Recovered,
+                claimedHalfTerminal: TerminalState.Orbiting);
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, 900);
+
+            Assert.True(chains.ContainsKey(100));
+            Assert.Equal("C-half", chains[100].TipRecordingId);
+            Assert.False(chains[100].IsTerminated);
+            Assert.False(GhostChainWalker.IsIntermediateChainLink(chains, tree.Recordings["C-half"]));
+            Assert.False(GhostChainWalker.IsIntermediateChainLink(chains, tree.Recordings["F-half"]));
+        }
+
+        /// <summary>
+        /// Mirror: the station half itself ends Destroyed in the transport-dominant shape.
+        /// The station's chain terminates on its own ending, not the transport's.
+        /// </summary>
+        [Fact]
+        public void TransportDominant_StationHalfDestroyed_ChainTerminated()
+        {
+            var tree = DockUndockTree(50, TransportParts, 100, StationParts,
+                mergedPid: 50, departingPid: 77,
+                flyingHalfTerminal: TerminalState.Orbiting,
+                claimedHalfTerminal: TerminalState.Destroyed);
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, 900);
+
+            Assert.Equal("C-half", chains[100].TipRecordingId);
+            Assert.True(chains[100].IsTerminated);
+        }
+
+        /// <summary>
+        /// Mirror (the bdock-recorded shape): the station outweighs the transport, so the
+        /// merged vessel and the station half keep the station's pid and the transport half
+        /// departs with a new pid. Unchanged: the tip is the station half, with or without
+        /// part snapshots.
+        /// </summary>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void StationDominantDockThenUndock_TipIsStationHalf(bool withSnapshots)
+        {
+            var tree = DockUndockTree(50, TransportParts, 100, StationParts,
+                mergedPid: 100, departingPid: 88,
+                flyingHalfTerminal: TerminalState.Recovered,
+                claimedHalfTerminal: TerminalState.Orbiting,
+                withSnapshots: withSnapshots);
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, 900);
+
+            Assert.Equal("C-half", chains[100].TipRecordingId);
+            Assert.Equal((uint)100, tree.Recordings["C-half"].VesselPersistentId);
+            Assert.False(chains[100].IsTerminated);
+        }
+
+        /// <summary>
+        /// Mirror: the claimed vessel is the TRANSPORT (pid 50), docked to by a flying
+        /// station (pid 100) it outweighs. The walk must still follow the transport half,
+        /// which kept its pid (the same answer the pid rule gave).
+        /// </summary>
+        [Fact]
+        public void ClaimedTransportDominant_TipIsTransportHalf()
+        {
+            var tree = DockUndockTree(100, StationParts, 50, TransportParts,
+                mergedPid: 50, departingPid: 77,
+                flyingHalfTerminal: TerminalState.Orbiting,
+                claimedHalfTerminal: TerminalState.Orbiting);
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, 900);
+
+            Assert.True(chains.ContainsKey(50));
+            Assert.Equal("C-half", chains[50].TipRecordingId);
+            Assert.Equal((uint)50, tree.Recordings["C-half"].VesselPersistentId);
+        }
+
+        /// <summary>
+        /// The defect seen from the other side: the claimed transport (pid 50) is the
+        /// LIGHTER partner of the flying station (pid 100), so the merged vessel keeps the
+        /// station's pid and the transport half departs with a new pid (88). The pid rule
+        /// followed the flying station; the part rule follows the claimed transport.
+        /// </summary>
+        [Fact]
+        public void ClaimedTransportNotDominant_TipIsTransportHalf()
+        {
+            var tree = DockUndockTree(100, StationParts, 50, TransportParts,
+                mergedPid: 100, departingPid: 88,
+                flyingHalfTerminal: TerminalState.Recovered,
+                claimedHalfTerminal: TerminalState.Orbiting);
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, 900);
+
+            Assert.Equal("C-half", chains[50].TipRecordingId);
+            Assert.Equal((uint)88, tree.Recordings["C-half"].VesselPersistentId);
+            Assert.False(chains[50].IsTerminated);
+        }
+
+        /// <summary>
+        /// The claimed station was recorded in the docking tree (a two-parent Dock): its part
+        /// set comes from its own recording, not the merged-minus-partner difference.
+        /// </summary>
+        [Fact]
+        public void TransportDominant_StationRecordedInTree_UsesMergeParentParts()
+        {
+            var tree = DockUndockTree(50, TransportParts, 100, StationParts,
+                mergedPid: 50, departingPid: 77,
+                flyingHalfTerminal: TerminalState.Recovered,
+                claimedHalfTerminal: TerminalState.Orbiting);
+            var station = MakeRecording("S-bg", 100, 900, 1060,
+                terminal: TerminalState.Docked, childBpId: "bp-dock", treeId: tree.Id);
+            station.VesselSnapshot = MakeSnapshot(StationParts);
+            tree.Recordings[station.RecordingId] = station;
+            tree.BranchPoints[0].ParentRecordingIds.Add("S-bg");
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, 800);
+
+            Assert.Equal("C-half", chains[100].TipRecordingId);
+            Assert.False(chains[100].IsTerminated);
+            Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                && l.Contains("part identity source=merge-parent"));
+        }
+
+        /// <summary>
+        /// Fallback contract: with no part snapshot anywhere the walk keeps the pid rule
+        /// (the child carrying the current recording's pid), and logs that it did.
+        /// </summary>
+        [Fact]
+        public void NoPartSnapshots_FallsBackToSamePidChild()
+        {
+            var tree = DockUndockTree(50, TransportParts, 100, StationParts,
+                mergedPid: 50, departingPid: 77,
+                flyingHalfTerminal: TerminalState.Orbiting,
+                claimedHalfTerminal: TerminalState.Orbiting,
+                withSnapshots: false);
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, 900);
+
+            Assert.Equal("F-half", chains[100].TipRecordingId);
+            Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                && l.Contains("part identity source=none"));
+            Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                && l.Contains("child=F-half") && l.Contains("rule=same-pid"));
+        }
+
+        [Fact]
+        public void ResolveClaimedPartIds_StartRecordingCarriesClaimedPid_UsesItsOwnParts()
+        {
+            var bg = MakeRecording("S-bg", 100, 900, 1000);
+            bg.GhostVisualSnapshot = MakeSnapshot(11, 12, 13);
+            bg.VesselSnapshot = MakeSnapshot(11, 12);
+            var tree = MakeTree("tree-bg", new[] { bg }, null);
+
+            string source;
+            HashSet<uint> parts = GhostChainWalker.ResolveClaimedPartIds(
+                bg, tree, 100, null, out source);
+
+            Assert.Equal(GhostChainWalker.ClaimedPartsSourceClaimRecording, source);
+            Assert.Equal(new HashSet<uint> { 11, 12, 13 }, parts);
+        }
+
+        [Fact]
+        public void ResolveClaimedPartIds_NoPartnerSnapshot_ReturnsNull()
+        {
+            // Without the docking partner's parts the difference would be the whole merged
+            // vessel, which holds parts of both undock halves.
+            var tree = DockUndockTree(50, TransportParts, 100, StationParts,
+                mergedPid: 50, departingPid: 77,
+                flyingHalfTerminal: TerminalState.Orbiting,
+                claimedHalfTerminal: TerminalState.Orbiting);
+            tree.Recordings["F"].GhostVisualSnapshot = null;
+            tree.Recordings["F"].VesselSnapshot = null;
+
+            string source;
+            HashSet<uint> parts = GhostChainWalker.ResolveClaimedPartIds(
+                tree.Recordings["F"], tree, 100, "bp-dock", out source);
+
+            Assert.Null(parts);
+            Assert.Equal(GhostChainWalker.ClaimedPartsSourceNone, source);
+        }
+
+        /// <summary>
+        /// A vessel that sheds a piece of itself leaves claimed parts on both children; the
+        /// child keeping the current pid (KSP's root-part side) continues it, even when the
+        /// shed piece holds more of the claimed parts.
+        /// </summary>
+        [Fact]
+        public void SelectWalkChild_ClaimedPartsOnBothChildren_PrefersSamePidChild()
+        {
+            var parent = MakeRecording("P", 100, 1000, 1100, childBpId: "bp-split");
+            var core = MakeRecording("core", 100, 1100, 1200, parentBpId: "bp-split");
+            core.VesselSnapshot = MakeSnapshot(11);
+            var chunk = MakeRecording("chunk", 300, 1100, 1200, parentBpId: "bp-split");
+            chunk.VesselSnapshot = MakeSnapshot(12, 13, 14);
+            var bp = MakeBranchPoint("bp-split", BranchPointType.JointBreak,
+                1100, 0, new[] { "P" }, new[] { "chunk", "core" });
+            var tree = MakeTree("tree-split", new[] { parent, core, chunk }, new[] { bp });
+
+            string rule;
+            string childId = GhostChainWalker.SelectWalkChild(
+                bp, tree, parent, new HashSet<uint> { 11, 12, 13, 14 }, out rule);
+
+            Assert.Equal("core", childId);
+            Assert.Equal(GhostChainWalker.RuleClaimedPartsSamePid, rule);
+        }
+
+        [Fact]
+        public void SelectWalkChild_ClaimedPartsOnBothChildren_NoSamePid_PicksMostParts()
+        {
+            var parent = MakeRecording("P", 50, 1000, 1100, childBpId: "bp-split");
+            var small = MakeRecording("small", 300, 1100, 1200, parentBpId: "bp-split");
+            small.VesselSnapshot = MakeSnapshot(11);
+            var large = MakeRecording("large", 301, 1100, 1200, parentBpId: "bp-split");
+            large.VesselSnapshot = MakeSnapshot(12, 13);
+            var bp = MakeBranchPoint("bp-split", BranchPointType.JointBreak,
+                1100, 0, new[] { "P" }, new[] { "small", "large" });
+            var tree = MakeTree("tree-split", new[] { parent, small, large }, new[] { bp });
+
+            string rule;
+            string childId = GhostChainWalker.SelectWalkChild(
+                bp, tree, parent, new HashSet<uint> { 11, 12, 13 }, out rule);
+
+            Assert.Equal("large", childId);
+            Assert.Equal(GhostChainWalker.RuleClaimedPartsMost, rule);
+        }
+
+        /// <summary>
+        /// A same-pid child with no part snapshot cannot be ruled out: a claimed vessel that
+        /// drops a piece keeps going on the same-pid side even when only the dropped piece's
+        /// snapshot shows claimed parts.
+        /// </summary>
+        [Fact]
+        public void SelectWalkChild_SamePidChildHasNoPartData_KeepsSamePidChild()
+        {
+            var parent = MakeRecording("P", 100, 1000, 1100, childBpId: "bp-split");
+            var debris = MakeRecording("debris", 300, 1100, 1200, parentBpId: "bp-split");
+            debris.GhostVisualSnapshot = MakeSnapshot(13);
+            var core = MakeRecording("core", 100, 1100, 1200, parentBpId: "bp-split");
+            var bp = MakeBranchPoint("bp-split", BranchPointType.JointBreak,
+                1100, 0, new[] { "P" }, new[] { "debris", "core" });
+            var tree = MakeTree("tree-split", new[] { parent, debris, core }, new[] { bp });
+
+            string rule;
+            string childId = GhostChainWalker.SelectWalkChild(
+                bp, tree, parent, new HashSet<uint> { 11, 12, 13 }, out rule);
+
+            Assert.Equal("core", childId);
+            Assert.Equal(GhostChainWalker.RuleSamePidNoPartData, rule);
+        }
+
+        [Fact]
+        public void SelectWalkChild_NoChildHoldsClaimedPart_NoSamePid_FirstChild()
+        {
+            var parent = MakeRecording("P", 50, 1000, 1100, childBpId: "bp-split");
+            var a = MakeRecording("a", 300, 1100, 1200, parentBpId: "bp-split");
+            a.VesselSnapshot = MakeSnapshot(1);
+            var b = MakeRecording("b", 301, 1100, 1200, parentBpId: "bp-split");
+            b.VesselSnapshot = MakeSnapshot(2);
+            var bp = MakeBranchPoint("bp-split", BranchPointType.Undock,
+                1100, 0, new[] { "P" }, new[] { "a", "b" });
+            var tree = MakeTree("tree-split", new[] { parent, a, b }, new[] { bp });
+
+            string rule;
+            string childId = GhostChainWalker.SelectWalkChild(
+                bp, tree, parent, new HashSet<uint> { 11 }, out rule);
+
+            Assert.Equal("a", childId);
+            Assert.Equal(GhostChainWalker.RuleFirstChild, rule);
+        }
+
+        #endregion
     }
 }
