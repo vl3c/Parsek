@@ -539,7 +539,9 @@ namespace Parsek.Tests
             internal readonly List<string> Aboard = new List<string>();
             internal readonly Dictionary<string, string> Status = new Dictionary<string, string>();
             internal readonly List<string> Calls = new List<string>();
+            internal readonly List<string> Detached = new List<string>();
             internal bool SuppressedAtDestroy;
+            internal bool ThrowOnDestroy;
 
             internal FakeUnloadedClaimedVessel(params string[] crew)
             {
@@ -557,6 +559,7 @@ namespace Parsek.Tests
             {
                 Calls.Add("detach");
                 var names = new List<string>(Aboard);
+                Detached.AddRange(names);
                 Aboard.Clear();
                 return names;
             }
@@ -565,6 +568,8 @@ namespace Parsek.Tests
             {
                 Calls.Add("destroy");
                 SuppressedAtDestroy = GameStateRecorder.SuppressCrewEvents;
+                if (ThrowOnDestroy)
+                    throw new InvalidOperationException("Die failed");
                 foreach (string name in Aboard)
                     Status[name] = "Dead";
                 Aboard.Clear();
@@ -576,6 +581,15 @@ namespace Parsek.Tests
                     return false;
                 Status[name] = "Available";
                 return true;
+            }
+
+            public int ReattachCrew()
+            {
+                Calls.Add("reattach");
+                int back = Detached.Count;
+                Aboard.AddRange(Detached);
+                Detached.Clear();
+                return back;
             }
         }
 
@@ -603,6 +617,30 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[ClaimRemoval]")
                 && l.Contains("crewDetached=3")
                 && l.Contains("crewSetAvailable=3"));
+        }
+
+        [Fact]
+        public void GhostVessel_DespawnThrowsWhileTheVesselStands_CrewGoBackAboard()
+        {
+            // The despawn fails after the crew were taken off; the vessel still exists, so the
+            // ghoster skips its snapshot restore. It must not be left crewless.
+            var claimed = new FakeUnloadedClaimedVessel("Bill Kerman", "Bob Kerman") { ThrowOnDestroy = true };
+            VesselGhoster.ResolveClaimedVesselForTesting = pid => new VesselGhoster.ClaimedVesselForGhosting
+            {
+                Name = "Kerbal X",
+                Snapshot = new ConfigNode("VESSEL"),
+                Target = claimed
+            };
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 3620499050u);
+
+            bool ghosted = ghoster.GhostVessel(3620499050u);
+
+            Assert.False(ghosted);
+            Assert.False(ghoster.IsGhosted(3620499050u));
+            Assert.Equal(new List<string> { "detach", "destroy", "reattach" }, claimed.Calls);
+            Assert.Equal(new List<string> { "Bill Kerman", "Bob Kerman" }, claimed.Aboard);
+            Assert.All(claimed.Status.Values, status => Assert.Equal("Assigned", status));
+            Assert.Contains(logLines, l => l.Contains("Restore from snapshot skipped after despawn failure"));
         }
 
         [Fact]

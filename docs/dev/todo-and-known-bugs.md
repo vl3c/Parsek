@@ -529,8 +529,14 @@ no `onCrewKilled`, no reputation loss, no Parsek roster event or ledger row. Ava
 the chain-tip spawn expects: `RespawnVessel` / `SpawnAtPosition` seat the tip snapshot's crew,
 and a kerbal already aboard another loaded vessel is kept out of the snapshot. The despawn
 snapshot taken before the removal still carries the crew, so the despawn-failure restore seats
-them too. Test: `VesselGhosterTests.GhostVessel_UnloadedCrewedClaimedVessel_CrewSurviveAndAreAvailable`
-(a fake unloaded vessel whose Destroy kills whoever is aboard; red before the fix).
+them too; a removal that throws after the detach puts the kerbals back aboard before the failure
+propagates (`IClaimedVesselRemovalTarget.ReattachCrew`), so a vessel the ghoster then leaves
+standing is never crewless. Tests: `VesselGhosterTests.GhostVessel_UnloadedCrewedClaimedVessel_CrewSurviveAndAreAvailable`
+(a fake unloaded vessel whose Destroy kills whoever is aboard; red before the fix),
+`GhostVessel_DespawnThrowsWhileTheVesselStands_CrewGoBackAboard`, and `ClaimedVesselRemovalTests`,
+which run the live target over real (uninitialized) ProtoVessel / ProtoPartSnapshot /
+ProtoCrewMember objects so dropping the ProtoVessel crew-list removal (what `MurderCrew` reads)
+reds.
 
 ---
 
@@ -579,7 +585,8 @@ retirement, which design 13.1 resolves by adopting the live counterpart), the re
 snapshot of the vessel taken just before it (crew still aboard), and every site completes the
 replacement in a `finally` after its spawn attempt (`CompleteReplacement`): when the tip spawned
 no vessel (a failure, an abandon such as the KSC dead-crew branch, an exception) that snapshot is
-respawned with its identity; the Tracking Station's own adoption exit, should its loaded-only
+respawned with its identity (the Space Center's wrapper is `ParsekKSC.RunKscEndSpawn`, whose
+`finally` a test drives through a throwing spawn); the Tracking Station's own adoption exit, should its loaded-only
 existence read find the tip's identity live after a replacement, restores the removed vessel
 first (`AbortReplacement`). On "replace" the stale vessel goes through `ClaimedVesselRemoval`
 (crew taken off its parts and set Available, then `Vessel.Die()`: no recovery, no funds, no

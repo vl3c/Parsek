@@ -68,6 +68,7 @@ namespace Parsek.Tests
             VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
             ChainTipStaleVessel.ResetForTesting();
             ParsekFlight.LeafSpawnOverrideForTesting = null;
+            ParsekKSC.KscEndSpawnBodyOverrideForTesting = null;
             ParsekSettingsPersistence.ResetForTesting();
             ParsekScenario.SetInstanceForTesting(null);
             ParsekLog.ResetTestOverrides();
@@ -115,6 +116,7 @@ namespace Parsek.Tests
         {
             ChainTipStaleVessel.ResetForTesting();
             ParsekFlight.LeafSpawnOverrideForTesting = null;
+            ParsekKSC.KscEndSpawnBodyOverrideForTesting = null;
             GhostPlaybackLogic.ResetVesselExistsOverride();
             GhostPlaybackLogic.ResetVesselGuidResolverOverrideForTesting();
             GhostPlaybackLogic.ResetVesselCacheForTesting();
@@ -743,6 +745,41 @@ namespace Parsek.Tests
             Assert.False(VesselSpawner.TryAdoptExistingSourceVesselForSpawn(tip, "KSCSpawn", "test"));
             Assert.Equal(0u, tip.SpawnedVesselPersistentId);
             Assert.Contains(logLines, l => l.Contains("Replacing stale pre-claim vessel (SPACECENTER) #4"));
+        }
+
+        [Fact]
+        public void SpaceCenterEndSpawn_SpawnThrows_RestoresTheRemovedVessel()
+        {
+            // The site wrapper's catch logs the exception; its finally completes the replacement.
+            Recording tip = CommitDockUndockTree();
+            LatchRewoundBefore(tip);
+            bool? sawReplacement = null;
+            ParsekKSC.KscEndSpawnBodyOverrideForTesting = (rec, index, replacement) =>
+            {
+                sawReplacement = replacement != null;
+                throw new InvalidOperationException("spawn blew up");
+            };
+
+            ParsekKSC.RunKscEndSpawn(tip, 4);
+
+            Assert.True(sawReplacement);
+            Assert.Equal(new List<uint> { StationPid }, removed);
+            Assert.Equal(new List<uint> { StationPid }, restored);
+            Assert.True(stationLive);
+            Assert.Contains(logLines, l => l.Contains("[ERROR][KSCSpawn]") && l.Contains("Spawn exception for #4"));
+        }
+
+        [Fact]
+        public void SpaceCenterEndSpawn_TipSpawns_KeepsTheReplacement()
+        {
+            Recording tip = CommitDockUndockTree();
+            LatchRewoundBefore(tip);
+            ParsekKSC.KscEndSpawnBodyOverrideForTesting = (rec, index, replacement) => SpawnTipAs(rec, StationPid);
+
+            ParsekKSC.RunKscEndSpawn(tip, 4);
+
+            Assert.Equal(new List<uint> { StationPid }, removed);
+            Assert.Empty(restored);
         }
 
         [Fact]

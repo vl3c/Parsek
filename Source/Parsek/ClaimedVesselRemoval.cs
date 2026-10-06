@@ -22,6 +22,12 @@ namespace Parsek
 
         /// <summary>Sets a detached kerbal Available when it is still Assigned; true when it changed.</summary>
         bool ReleaseCrew(string name);
+
+        /// <summary>
+        /// Puts every detached kerbal back where it was taken from (the removal failed, so
+        /// the vessel stays); returns how many went back.
+        /// </summary>
+        int ReattachCrew();
     }
 
     internal struct ClaimedVesselRemovalResult
@@ -56,7 +62,37 @@ namespace Parsek
             {
                 List<string> crew = target.DetachCrew() ?? new List<string>();
                 result.DetachedCrew = crew;
-                target.Destroy();
+                try
+                {
+                    target.Destroy();
+                }
+                catch (Exception ex)
+                {
+                    // The vessel may still stand: never leave it crewless. Its kerbals go back
+                    // aboard (still Assigned: nothing was released yet) before the failure
+                    // propagates to the caller's own recovery.
+                    int reattached = 0;
+                    try
+                    {
+                        reattached = target.ReattachCrew();
+                    }
+                    catch (Exception reattachEx)
+                    {
+                        ParsekLog.Error(Tag,
+                            string.Format(ic,
+                                "Claimed vessel crew could not be put back ({0}): pid={1}: {2}: {3}",
+                                string.IsNullOrEmpty(context) ? "(none)" : context,
+                                target.PersistentId, reattachEx.GetType().Name, reattachEx.Message));
+                    }
+                    ParsekLog.Warn(Tag,
+                        string.Format(ic,
+                            "Claimed vessel removal failed ({0}): pid={1} name=\"{2}\" {3}: {4}; " +
+                            "reattached {5}/{6} kerbal(s)",
+                            string.IsNullOrEmpty(context) ? "(none)" : context,
+                            target.PersistentId, target.VesselName ?? "(null)",
+                            ex.GetType().Name, ex.Message, reattached, crew.Count));
+                    throw;
+                }
                 for (int i = 0; i < crew.Count; i++)
                 {
                     if (target.ReleaseCrew(crew[i]))
@@ -93,6 +129,10 @@ namespace Parsek
         private readonly IList<ProtoVessel> protoVessels;
         private readonly Dictionary<string, ProtoCrewMember> detached =
             new Dictionary<string, ProtoCrewMember>(StringComparer.Ordinal);
+        private readonly List<KeyValuePair<Part, ProtoCrewMember>> detachedFromParts =
+            new List<KeyValuePair<Part, ProtoCrewMember>>();
+        private readonly List<KeyValuePair<ProtoPartSnapshot, ProtoCrewMember>> detachedFromSnapshots =
+            new List<KeyValuePair<ProtoPartSnapshot, ProtoCrewMember>>();
 
         internal LiveClaimedVesselRemovalTarget(Vessel vessel, ProtoVessel proto, IList<ProtoVessel> protoVessels)
         {
@@ -129,6 +169,7 @@ namespace Parsek
                         if (crew[c] == null)
                             continue;
                         part.RemoveCrewmember(crew[c]);
+                        detachedFromParts.Add(new KeyValuePair<Part, ProtoCrewMember>(part, crew[c]));
                         Note(crew[c], names);
                     }
                 }
@@ -149,6 +190,7 @@ namespace Parsek
                         continue;
                     pps.RemoveCrew(crew[c]);
                     proto.RemoveCrew(crew[c]);
+                    detachedFromSnapshots.Add(new KeyValuePair<ProtoPartSnapshot, ProtoCrewMember>(pps, crew[c]));
                     Note(crew[c], names);
                 }
             }
@@ -168,6 +210,34 @@ namespace Parsek
                 vessel.Die();
             if (proto != null && protoVessels != null)
                 protoVessels.Remove(proto);
+        }
+
+        public int ReattachCrew()
+        {
+            int back = 0;
+            for (int i = 0; i < detachedFromParts.Count; i++)
+            {
+                Part part = detachedFromParts[i].Key;
+                ProtoCrewMember pcm = detachedFromParts[i].Value;
+                if (part != null && pcm != null && part.AddCrewmember(pcm))
+                    back++;
+            }
+            for (int i = 0; i < detachedFromSnapshots.Count; i++)
+            {
+                ProtoPartSnapshot pps = detachedFromSnapshots[i].Key;
+                ProtoCrewMember pcm = detachedFromSnapshots[i].Value;
+                if (pps == null || pcm == null)
+                    continue;
+                pps.protoModuleCrew.Add(pcm);
+                pps.protoCrewNames.Add(pcm.name);
+                if (proto != null)
+                    proto.AddCrew(pcm);
+                back++;
+            }
+            detachedFromParts.Clear();
+            detachedFromSnapshots.Clear();
+            detached.Clear();
+            return back;
         }
 
         public bool ReleaseCrew(string name)
