@@ -11,7 +11,7 @@ Owner rulings, 2026-10-05:
 1. **Per-recording player loops are removed entirely.** The Recordings tab loop toggle, period and time-unit editing, auto-loop range, and every code path that exists only to serve a loop the player set on a recording. Existing saves simply drop their per-recording loops; no backwards compatibility (the mod is in development).
 2. **Missions loop only behind logistics routes.** A loop in Parsek is a real gameplay object with real effects (a supply route's runs, dispatches and deliveries), never a purely visual player choice. The Missions tab loses its loop controls.
 3. **The loop infrastructure stays.** Span clock, loop units, periodicity, relaunch schedule, re-aim, phasing, arrival hold, seams, overlap, `LoopSyncParentIdx`: routes run on all of it.
-4. **Retiring the persisted per-recording loop keys** follows the research recommendation in section 5 (owner asked for the best decision; it is recorded here for ratification at review).
+4. **Retiring the persisted per-recording loop keys** follows the research recommendation in section 5 (owner asked for the best decision; RATIFIED by the owner 2026-10-05; applied first to the `isGhostOnly` key of the deleted Gloops recorder in PR #2022).
 5. **Nothing valuable is lost.** The code removed is the per-recording path; the shared machinery a future Gloops would fork stays in Parsek. The removed code is archived by a git tag and listed in the Gloops design doc (section 8).
 
 ## 2. How looping works today (verified)
@@ -113,6 +113,6 @@ Each PR keeps xUnit and the harness Python suites green and updates CHANGELOG / 
 
 ## 9. Open items for the owner
 
-1. Ratify section 5 (key deletion without a generation bump, and the CLAUDE.md wording).
+1. ~~Ratify section 5 (key deletion without a generation bump, and the CLAUDE.md wording).~~ RATIFIED 2026-10-05; the CLAUDE.md wording landed with PR #2022 (the `isGhostOnly` key).
 2. Confirm section 6 (automation-only store-mission looping keeps the 60 lanes) versus retiring lanes that have no route shape.
 3. Whether the Missions tab should show a route-bound mission's next dispatch (read-only) now that the player countdown is gone, or leave that to the Logistics window, which already shows the route's loop-unit countdown.

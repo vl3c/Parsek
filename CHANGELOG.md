@@ -1387,7 +1387,9 @@ _(unreleased - entries accumulate here per commit)_
   it - closing two recording-lifecycle coverage cells that no automated test could
   reach before. Both scenarios have flown: the short take commits at three points and
   the deliberately-too-short one is refused at one, each confirmed by a repeat run and
-  by a control run that was made to expect the wrong number and duly failed.
+  by a control run that was made to expect the wrong number and duly failed. (Removed
+  again in this release with the recorder itself: see "The Gloops recorder is gone from
+  Parsek" under Changed.)
 
 - **Developer tooling: the source tree now has a module dependency map with four
   ways to look at it, and a boundary check that reports without failing anything.**
@@ -1499,8 +1501,8 @@ _(unreleased - entries accumulate here per commit)_
   `complexity-refused-gloops-recording` and `mock-refused-recording` refusals) and the lanes
   `GL-1`, `GL-2` and `GUI-16` are retired. Every GUI census describe echo now reads
   `windows=11`. A new xUnit test pins that a committed recording outside any tree is never
-  saved. The census lanes that opened the Gloops window (GUI-2, GUI-6) are owed a flight to
-  prove their new pins.
+  saved. The lanes the removal touched flew green on the new build: GUI-1, GUI-2, GUI-6,
+  H22 and H46.
 - **A new supply route is named after the mission it repeats.** Creating a route from a
   Candidates row names it after its mission (`Duna Supply 1`) instead of `Route: KSC -> Duna`,
   which only repeated the from/to line under it. A second route from the same mission (or any

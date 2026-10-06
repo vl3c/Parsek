@@ -7,7 +7,7 @@ STRUCTURAL CHANGE 2026-10-05 (owner decision): the Gloops Flight Recorder is DEL
 window (`UI/GloopsRecorderUI.cs`), the main window's launcher block, its `UiSurface` key
 (`MainButtonGloops`, the only retired key, so the retirement gate `IsRetired` went with it),
 the Settings Interface guard that greyed `Basic` while a take recorded, the `Gloops - Ghosts
-Only` permanent group, the ghost-only recording flag, its five screen messages, its entry in
+Only` permanent group, the ghost-only recording flag, its six screen messages, its entry in
 the mode-change close set, its seam verbs and its seam window token `gloops`. So the window
 population is **13** (was 14), the gate has **13** keys (was 14, 3.16), the close set has
 **4** targets (was 5), and the screen-message producers are **87** (was 92; 3.14). Section

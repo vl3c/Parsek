@@ -762,7 +762,7 @@ time unit, auto loop range) are removed entirely and existing saves drop them; i
 mission loops only behind a logistics route (the Missions tab loses its loop controls);
 the loop infrastructure routes run on stays. Looping at will is a Gloops concern
 (`docs/dev/gloops-recorder-design.md` section 8). The per-recording loop keys are deleted
-without a schema generation bump (plan section 5, for ratification at review); the harness
+without a schema generation bump (plan section 5, ratified 2026-10-05); the harness
 keeps store-mission looping reachable from automation only (plan section 6). PR sequence:
 plan section 7.
 
@@ -3376,7 +3376,7 @@ smallest remaining surfaces are `op=pointer inject=true` feeding IMGUI a synthet
 do not spend lanes on hover states, and do not read the four existing hover captures as
 coverage - they are text-identical to their un-hovered siblings.
 
-**3. The Gloops Flight Recorder's Recording / Saved / Previewing states are diagnostic
+**3. [MOOT 2026-10-06: the Gloops window, its seam verbs and `op=open window=gloops` are deleted, PR #2022]** The Gloops Flight Recorder's Recording / Saved / Previewing states are diagnostic
 only, because no player can open that window.** `UiSurfaceVisibility.IsRetired` answers true
 for `MainButtonGloops` and is tested BEFORE the mode switch, so the launcher draws in
 neither complexity mode; the only production writer that raises the flag sits behind that
@@ -6360,7 +6360,7 @@ Residue found on the way, left open deliberately:
 
 ---
 
-## GLOOPS-STANDALONE-WINDDOWN: Gloops UI retired from every mode; extraction to a standalone mod pending [OPENED 2026-08-28]
+## ~~GLOOPS-STANDALONE-WINDDOWN: Gloops UI retired from every mode; extraction to a standalone mod pending~~ [OPENED 2026-08-28. CLOSED 2026-10-06: the in-Parsek Gloops recorder is deleted as dead code (PR #2022, branch `gloops-dead-code-removal`); Gloops is to be rebuilt later (GLOOPS-EXTRACTION-2026-10-05); the looping wind-down is PLAYER-LOOPING-REMOVAL. The tests named below were deleted with it]
 
 Product decision (2026-08-28): Gloops becomes a standalone mod later, and Parsek
 gradually winds down player-facing ghost/recording-looping surfaces to focus on
