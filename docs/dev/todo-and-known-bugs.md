@@ -1334,7 +1334,10 @@ Re-scan or Delete. Residuals: a delivery already paid for when the hold begins (
 window after a rewind into the cycle) fails like any endpoint-lost delivery; a start-docked
 origin whose pid was never stamped (pid 0) cannot be matched to a chain (chains are keyed by
 pid). Tests: `RouteEndpointChainHoldTests` (red against the never-hold stub
-first), `LogisticsHoldPresentationTests.DescribeHold_EndpointLost_ChainGhostHold`.
+first), `LogisticsHoldPresentationTests.DescribeHold_EndpointLost_ChainGhostHold`, and
+`RouteEndpointScopeWiringGateTests.ResolverProximityStepAsksTheChainHoldFirst` (the resolver
+reads the hold as a branch condition inside the proximity step, before the search and the
+rebind, and returns false with the hold reason; red with the call deleted or short-circuited).
 
 ---
 
@@ -1405,7 +1408,11 @@ rate-limited as `Endpoint part scope undetermined: ... outcome=no-recorded-parts
 of the recorded parts aboard. Known consequence: a module docked to the station after the
 route was recorded is excluded too (conservative: cargo stays in the parts the route was proven
 against). Tests: `RouteEndpointPartScopeTests` (red against the whole-vessel stub first),
-`RouteScopedProbeSharingTests` (red against the pid-only cache key and grouping first).
+`RouteScopedProbeSharingTests` (red against the pid-only cache key and grouping first), and
+the source gate `RouteEndpointScopeWiringGateTests` (every production probe / writer built with
+the endpoint's scope, every part loop guarded, gate probes shared per pid and scope; red under
+each of a dropped scope argument, a `null` scope, an unguarded loop, a pid-only share and a
+pickup resolution without its scope key).
 
 ---
 
