@@ -7535,6 +7535,15 @@ namespace Parsek
                 realVesselExists = rec.VesselPersistentId != 0
                     && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
                 alreadyMaterialized = ShouldSkipTrackingStationDuplicateSpawn(rec, realVesselExists);
+                if (alreadyMaterialized)
+                {
+                    // The tip's own identity is live after all (this read covers loaded vessels,
+                    // the replacement's also proto ones): the exit below adopts it, so the
+                    // removed claimed vessel goes back first. No exit may leave it removed.
+                    ChainTipStaleVessel.AbortReplacement(rec, staleReplacement, "tip identity live in the Tracking Station");
+                    staleReplacement = null;
+                    replacedStaleVessel = false;
+                }
             }
 
             if (alreadyMaterialized)

@@ -35,6 +35,25 @@ namespace Parsek.Tests
         private double stationLastUT = PreClaimLastUT;
         private string stationLiveGuid = StationGuid;
 
+        // Other live vessels by pid (guid, lastUT), e.g. the stale depot of the two-claim shape.
+        private readonly Dictionary<uint, KeyValuePair<string, double>> otherLive =
+            new Dictionary<uint, KeyValuePair<string, double>>();
+        private const uint DepotPid = 600u;
+        private const string DepotGuid = "6a7e11002b3c4d5e8f90a1b2c3d4e5f6";
+
+        private bool IsLive(uint pid)
+        {
+            return pid == StationPid ? stationLive : otherLive.ContainsKey(pid);
+        }
+
+        private string LiveGuidOf(uint pid)
+        {
+            if (pid == StationPid)
+                return StationGuid;
+            KeyValuePair<string, double> v;
+            return otherLive.TryGetValue(pid, out v) ? v.Key : null;
+        }
+
         public ChainTipStaleVesselTests()
         {
             RecordingStore.SuppressLogging = true;
@@ -57,19 +76,27 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
             // The live station, as the rewind left it: pid 777, the station's launch guid.
-            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == StationPid && stationLive);
-            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => pid == StationPid ? StationGuid : null);
-            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == StationPid && stationLive);
-            VesselSpawner.SetMaterializedSourceVesselGuidOverrideForTesting(pid => pid == StationPid ? StationGuid : null);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => IsLive(pid));
+            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => LiveGuidOf(pid));
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => IsLive(pid));
+            VesselSpawner.SetMaterializedSourceVesselGuidOverrideForTesting(pid => LiveGuidOf(pid));
             ChainTipStaleVessel.LiveVesselInUseOverrideForTesting = _ => false;
             ChainTipStaleVessel.LiveVesselProbeOverrideForTesting = pid =>
-                pid == StationPid && stationLive
-                    ? new LiveClaimedVesselProbe { Exists = true, Guid = stationLiveGuid, LastUT = stationLastUT }
-                    : new LiveClaimedVesselProbe { LastUT = double.NaN };
+            {
+                if (pid == StationPid && stationLive)
+                    return new LiveClaimedVesselProbe { Exists = true, Guid = stationLiveGuid, LastUT = stationLastUT };
+                KeyValuePair<string, double> other;
+                if (otherLive.TryGetValue(pid, out other))
+                    return new LiveClaimedVesselProbe { Exists = true, Guid = other.Key, LastUT = other.Value };
+                return new LiveClaimedVesselProbe { LastUT = double.NaN };
+            };
             ChainTipStaleVessel.RemoveOverrideForTesting = (pid, scene) =>
             {
                 removed.Add(pid);
-                stationLive = false;
+                if (pid == StationPid)
+                    stationLive = false;
+                else
+                    otherLive.Remove(pid);
                 var snapshot = new ConfigNode("VESSEL");
                 snapshot.AddValue("persistentId", pid.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 return snapshot;
@@ -235,6 +262,54 @@ namespace Parsek.Tests
             });
             RecordingStore.AddCommittedTreeForTesting(tree);
             return stationHalf;
+        }
+
+        /// <summary>
+        /// One tip that ends TWO claimed vessels: a tug (300) docks to depot 600, carries it to
+        /// station 777 and docks there; the final recording (777, the station dominant) ends
+        /// both lineages. The walker folds the 777 chain into the 600 chain
+        /// (<c>MergeCrossTreeLinks</c>), so one chain keyed 600 has a tip that carries 777. The
+        /// stale depot and the stale station are both live.
+        /// </summary>
+        private Recording CommitTwoClaimTree()
+        {
+            var tug = MakeRecording("tug", 300u, TransportGuid, 1000, 1200,
+                TerminalState.Docked, null, "bp-dock-depot", "Tug");
+            var tugDepot = MakeRecording("tug-depot", 300u, TransportGuid, 1200, 1500,
+                TerminalState.Docked, "bp-dock-depot", "bp-dock-station", "Tug");
+            var final = MakeRecording("final", StationPid, StationGuid, 1500, 1700,
+                TerminalState.Orbiting, "bp-dock-station", null, "Station");
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-transport",
+                TreeName = "Tug",
+                RootRecordingId = tug.RecordingId
+            };
+            tree.AddOrReplaceRecording(tug);
+            tree.AddOrReplaceRecording(tugDepot);
+            tree.AddOrReplaceRecording(final);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-dock-depot",
+                Type = BranchPointType.Dock,
+                UT = 1200,
+                TargetVesselPersistentId = DepotPid,
+                ParentRecordingIds = new List<string> { tug.RecordingId },
+                ChildRecordingIds = new List<string> { tugDepot.RecordingId }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-dock-station",
+                Type = BranchPointType.Dock,
+                UT = DockUT,
+                TargetVesselPersistentId = StationPid,
+                ParentRecordingIds = new List<string> { tugDepot.RecordingId },
+                ChildRecordingIds = new List<string> { final.RecordingId }
+            });
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            otherLive[DepotPid] = new KeyValuePair<string, double>(DepotGuid, PreClaimLastUT);
+            return final;
         }
 
         /// <summary>The playhead was seen before the tip in this session (a rewind or a load).</summary>
@@ -526,7 +601,8 @@ namespace Parsek.Tests
             Assert.True(stationLive);
             Assert.False(tip.VesselSpawned);
             Assert.Contains(logLines, l => l.Contains("[WARN][ChainTip]")
-                && l.Contains("spawned no vessel (TRACKSTATION)")
+                && l.Contains("Chain-tip replacement undone (TRACKSTATION)")
+                && l.Contains("tip spawned no vessel")
                 && l.Contains("restored the removed vessel pid=777"));
         }
 
@@ -806,6 +882,123 @@ namespace Parsek.Tests
             Assert.Equal(new List<uint> { StationPid }, restored);
             Assert.True(stationLive);
             Assert.False(tip.VesselSpawned);
+        }
+
+        #endregion
+
+        #region One tip ending two claimed vessels
+
+        [Fact]
+        public void TwoClaims_Fixture_OneChainKeyedByTheDepotEndsAtTheStationTip()
+        {
+            Recording tip = CommitTwoClaimTree();
+            var chains = Chains();
+
+            GhostChain chain = ChainTipStaleVessel.FindChainForTip(chains, tip.RecordingId);
+            Assert.NotNull(chain);
+            Assert.Equal(DepotPid, chain.OriginalVesselPid);
+            Assert.Equal(StationPid, tip.VesselPersistentId);
+            Assert.Null(GhostChainWalker.FindChainForVessel(chains, StationPid));
+            Assert.Equal(new HashSet<uint> { DepotPid, StationPid },
+                ChainTipStaleVessel.ResolveClaimedPidsForTip(chains, tip.RecordingId, RecordingStore.CommittedTrees));
+        }
+
+        [Fact]
+        public void TwoClaims_Predicate_RefusesAndSaysWhy()
+        {
+            Recording tip = CommitTwoClaimTree();
+            StaleVesselEvidence evidence = Stale();
+            evidence.ClaimedVesselCount = 2;
+
+            Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
+                tip, Chains(), evidence, out string reason));
+            Assert.Equal(ChainTipStaleVessel.ReasonSeveralClaimedVessels, reason);
+        }
+
+        [Fact]
+        public void TipIdentityLive_OnAnotherPid_Predicate_Refuses()
+        {
+            // The claimed pid differs from the tip's and a live vessel already matches the tip's
+            // own identity: adopting it is the site's answer, so nothing may be removed.
+            Recording tip = CommitTransportDominantTree();
+            StaleVesselEvidence evidence = Stale();
+            evidence.TipIdentityLive = true;
+
+            Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
+                tip, Chains(), evidence, out string reason));
+            Assert.Equal(ChainTipStaleVessel.ReasonTipIdentityLive, reason);
+        }
+
+        [Fact]
+        public void TwoClaims_TrackingStationHandoff_RemovesNothingAndAdoptsAsBefore()
+        {
+            Recording tip = CommitTwoClaimTree();
+            LatchRewoundBefore(tip);
+            bool spawnCalled = false;
+            GhostMapPresence.TrackingStationSpawnOverrideForTesting = (rec, index, preserveIdentity) =>
+                spawnCalled = true;
+
+            GhostMapPresence.TryRunTrackingStationSpawnHandoffForIndex(
+                new List<Recording> { tip }, 0, tip.EndUT + 10);
+
+            Assert.Empty(removed);
+            Assert.False(spawnCalled);
+            Assert.True(otherLive.ContainsKey(DepotPid));
+            Assert.Equal(StationPid, tip.SpawnedVesselPersistentId);
+            Assert.Contains(logLines, l => l.Contains("[ChainTip]")
+                && l.Contains("reason=" + ChainTipStaleVessel.ReasonSeveralClaimedVessels));
+        }
+
+        [Fact]
+        public void TwoClaims_SpaceCenterAndFlightEntry_RemoveNothing()
+        {
+            Recording tip = CommitTwoClaimTree();
+            LatchRewoundBefore(tip);
+
+            Assert.Null(ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(tip, "SPACECENTER", 2));
+            Assert.Null(ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(tip, "FLIGHT", 2));
+            Assert.Empty(removed);
+            Assert.True(otherLive.ContainsKey(DepotPid));
+        }
+
+        [Fact]
+        public void TwoClaims_FlightLeafSpawn_AdoptsTheStationAndLeavesTheDepot()
+        {
+            Recording tip = CommitTwoClaimTree();
+            LatchRewoundBefore(tip);
+            ParsekFlight.LeafSpawnOverrideForTesting = (rec, index, preserveIdentity, allowDuplicate) =>
+                VesselSpawner.TryAdoptExistingSourceVesselForSpawn(rec, "Spawner", "test");
+
+            InvokeFlightLeafSpawn(tip, 0);
+
+            Assert.Empty(removed);
+            Assert.Empty(restored);
+            Assert.True(otherLive.ContainsKey(DepotPid));
+            Assert.Equal(StationPid, tip.SpawnedVesselPersistentId);
+        }
+
+        [Fact]
+        public void TrackingStationHandoff_ReplacementThenTipIdentityLive_PutsTheRemovedVesselBack()
+        {
+            // The two existence reads disagree (the TS reads loaded vessels, the replacement
+            // reads loaded and proto vessels): the TS finds the tip's own identity live after a
+            // replacement removed the claimed vessel. That exit adopts, so it must restore.
+            Recording tip = CommitTransportDominantTree();
+            LatchRewoundBefore(tip);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => IsLive(pid) || pid == StationHalfNewPid);
+            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(
+                pid => pid == StationHalfNewPid ? StationHalfNewGuid : LiveGuidOf(pid));
+            bool spawnCalled = false;
+            GhostMapPresence.TrackingStationSpawnOverrideForTesting = (rec, index, preserveIdentity) =>
+                spawnCalled = true;
+
+            GhostMapPresence.TryRunTrackingStationSpawnHandoffForIndex(
+                new List<Recording> { tip }, 0, tip.EndUT + 10);
+
+            Assert.Equal(new List<uint> { StationPid }, removed);
+            Assert.Equal(new List<uint> { StationPid }, restored);
+            Assert.False(spawnCalled);
+            Assert.Equal(StationHalfNewPid, tip.SpawnedVesselPersistentId);
         }
 
         #endregion

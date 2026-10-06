@@ -478,6 +478,35 @@ fixture.
 
 ---
 
+## CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS: one recording that ends two claimed vessels holds back only one of them [FILED 2026-10-06 from the PR #2029 re-review, by code read and a headless walker cell; not reproduced in game. OPEN, product]
+
+Shape: a tug docks to depot 600, carries it to station 777 and docks there; the final
+recording (777, the station dominant) ends both lineages. `GhostChainWalker.ComputeAllGhostChains`
+builds a chain for each claimed pid, both with that tip, and `MergeCrossTreeLinks` then folds the
+777 chain into the 600 chain because the 600 chain's tip carries 777: one chain keyed 600 whose
+links hold both claims, and no chain keyed 777 (pinned by
+`ChainTipStaleVesselTests.TwoClaims_Fixture_OneChainKeyedByTheDepotEndsAtTheStationTip`).
+
+- Flight (pre-existing): `ParsekFlight.FilterAndGhostChains` ghosts only the chain keys, so after
+  a rewind before the docks it holds back the depot and leaves the stale station live. At the
+  tip `VesselGhoster.SpawnAtChainTip` adopts that live station (`TryAdoptExistingSourceForChainTip`,
+  the tip carries 777) and drops the depot's ghost: the station keeps its pre-dock form and the
+  depot is gone.
+- Outside flight (CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT): the replacement refuses a tip
+  that ends more than one claimed vessel (`ChainTipStaleVessel.ResolveClaimedPidsForTip`, reason
+  `tip-ends-several-claimed-vessels`), so the sites adopt the stale station as before and the
+  depot stays live beside it. Removing only one of the two (what the first claimed-pid lookup
+  did) deleted the depot for nothing.
+
+What should happen (design 12.5 read for several claims): every claimed vessel is held back from
+the rewind until the tip, and the tip spawns once as their recorded merged form; nothing is
+adopted. That needs the chain to keep every claimed pid (not only its key) for the flight
+ghosting, and the replacement to remove all of them, spawn the tip once and restore all of them
+on a failed spawn. Red tests: a flight `FilterAndGhostChains` cell over this fixture (both pids
+ghosted), and the `TwoClaims_*` cells flipped to "both removed, tip spawned".
+
+---
+
 ## ~~CHAIN-GHOSTING-KILLS-UNLOADED-CLAIMED-CREW: a flight load that ghosts an unloaded crewed claimed vessel kills its crew~~ [FILED 2026-10-06 from the PR #2029 review, confirmed in three collected logs. FIXED 2026-10-06, branch `fix-chain-tip-outside-flight`]
 
 `VesselGhoster.GhostVessel` removed a claimed vessel with a bare `Vessel.Die()`. Stock `Die()` on
@@ -530,7 +559,11 @@ undock) the tip, so a tip-pid lookup left the stale station beside the spawned t
 stations (PR #2029 review). The claimed vessel's launch guid must not conclusively differ from
 the chain's (`ExpectedClaimedGuid`: the chain's `LaunchGuid`, else the tip's own when it kept
 the claimed pid, else pid only, as the flight ghosting). It answers "replace" only for the tip
-of a non-terminated chain, unspawned, with that live claimed vessel,
+of a non-terminated chain that ends that one claimed vessel only (a tip ending several is
+refused: CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS), unspawned, with that live claimed vessel and no
+live vessel already matching the tip's own pid and launch when the claimed pid is another one
+(that vessel is the site's adoption, so removing the claimed one would lose it; PR #2029
+re-review),
 when (a) this session saw the playhead strictly before the tip's start
 (`PlaybackScopeTracker.WasPlayheadSeenBeforeActivation`, a new no-tolerance, ready-clock latch
 next to the replay-scope one; the sweep re-notes a recording latched only by tolerance) AND
@@ -546,7 +579,9 @@ retirement, which design 13.1 resolves by adopting the live counterpart), the re
 snapshot of the vessel taken just before it (crew still aboard), and every site completes the
 replacement in a `finally` after its spawn attempt (`CompleteReplacement`): when the tip spawned
 no vessel (a failure, an abandon such as the KSC dead-crew branch, an exception) that snapshot is
-respawned with its identity. On "replace" the stale vessel goes through `ClaimedVesselRemoval`
+respawned with its identity; the Tracking Station's own adoption exit, should its loaded-only
+existence read find the tip's identity live after a replacement, restores the removed vessel
+first (`AbortReplacement`). On "replace" the stale vessel goes through `ClaimedVesselRemoval`
 (crew taken off its parts and set Available, then `Vessel.Die()`: no recovery, no funds, no
 ledger row, no crew loss; its vessel and part pids are freed synchronously), and the tip spawns
 from its snapshot with its identity preserved (same pid and guid, so route endpoints and later
