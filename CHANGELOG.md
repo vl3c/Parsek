@@ -3771,8 +3771,13 @@ _(unreleased - entries accumulate here per commit)_
   Sandbox), and that message no longer follows an upgrade. Upgrading a destroyed facility
   records its free repair together with the upgrade. In an existing save, an upgrade recorded
   at 0 takes its real price when the save is loaded, if the save still holds the funds record of
-  that upgrade (usually one made since your last committed flight); older upgrades keep 0,
-  because nothing left in the save proves what they cost.
+  that upgrade (usually one made since your last committed flight). Older upgrades are charged
+  the building's listed upgrade price times your current difficulty's funds multiplier, as soon
+  as the Space Center's buildings are loaded (at the latest when you visit the Space Center), so
+  the charge can differ from what you paid if a strategy discount applied or the difficulty has
+  changed since. A career Parsek joined midway keeps those older upgrades at 0: its starting
+  funds were read from the game at an unknown moment that may come after some of them were paid,
+  and charging them again could count them twice.
 
 - **Installing Parsek into an existing career no longer resets its milestones and world
   records.** The first time Parsek synced the career it un-achieved every milestone the career

@@ -409,9 +409,9 @@ namespace Parsek
         /// recording tag at the row's UT. That event is the observed debit the live capture
         /// now records, so a repaired row reads exactly as a freshly captured one. Rows whose
         /// proof is gone (the store prunes events at or before the latest committed flight's
-        /// end) or ambiguous keep cost 0; nothing is derived from the facility cost table,
-        /// whose difficulty multiplier and mod-patched costs need not match the day of the
-        /// upgrade. Mutates the rows in place, after load and before the first walk.
+        /// end) or ambiguous keep cost 0 here; <see cref="EstimateLegacyFacilityUpgradeCosts"/>
+        /// prices them later from the facility cost table, once the facility objects exist.
+        /// Mutates the rows in place, after load and before the first walk.
         /// </summary>
         internal static FacilityUpgradeCostRepairResult RepairZeroCostFacilityUpgradeActionsOnLoad(
             IReadOnlyList<GameStateEvent> events,
@@ -545,6 +545,276 @@ namespace Parsek
             cost = (float)(-debitDelta);
             refusal = null;
             return true;
+        }
+
+        // ================================================================
+        // Cost-table estimate of cost-0 FacilityUpgrade rows (owner ruling 2026-10-07)
+        // ================================================================
+
+        // Refusal tokens of TryEstimateLegacyFacilityUpgradeCost.
+        internal const string LegacyEstimateRefusalUnknownFacility = "unknown-facility";
+        internal const string LegacyEstimateRefusalLevelMismatch = "level-mismatch";
+        internal const string LegacyEstimateRefusalZeroCost = "zero-cost";
+
+        // Deferral reasons of EstimateLegacyFacilityUpgradeCosts (the pass retries later).
+        internal const string LegacyEstimateDeferNoGame = "no-current-game";
+        internal const string LegacyEstimateDeferNoFundsSeed = "no-funds-seed";
+        internal const string LegacyEstimateDeferNoMultiplier = "multiplier-unreadable";
+        internal const string LegacyEstimateDeferNoFacilityData = "facility-data-unreadable";
+
+        private const int LegacyEstimateSampleCap = 10;
+
+        /// <summary>
+        /// When the career's FundsInitial seed was taken, as far as the ledger can tell. The
+        /// seed row records no capture moment (its UT is always 0), so the only seed with a
+        /// known moment is one equal to the career-start baseline (UT within a second of 0),
+        /// which <c>LedgerOrchestrator.DecideInitialFundsSeed</c> always prefers when it is
+        /// non-zero: that seed is the pool before any upgrade Parsek recorded.
+        /// </summary>
+        internal enum FundsSeedCaptureMoment
+        {
+            NoSeed,
+            CareerStart,
+            Unknown
+        }
+
+        /// <summary>
+        /// Pure: classifies the funds seed for the cost-table estimate. A seed read off the
+        /// live pool (a mid-career install, or a seed deferred past an upgrade) may already
+        /// hold an upgrade's debit, and nothing persisted says when it was read, so it is
+        /// <see cref="FundsSeedCaptureMoment.Unknown"/>; a zero career start never seeds from
+        /// the baseline and is Unknown too.
+        /// </summary>
+        internal static FundsSeedCaptureMoment ClassifyFundsSeedCaptureMoment(
+            bool hasSeed, float seedFunds, bool hasInitialBaseline, double initialBaselineFunds)
+        {
+            if (!hasSeed)
+                return FundsSeedCaptureMoment.NoSeed;
+            if (hasInitialBaseline
+                && initialBaselineFunds != 0.0
+                && (float)initialBaselineFunds == seedFunds)
+                return FundsSeedCaptureMoment.CareerStart;
+            return FundsSeedCaptureMoment.Unknown;
+        }
+
+        /// <summary>
+        /// What the cost-table estimate reads from the running game. The facility level
+        /// costs exist only where the UpgradeableFacility objects do (the Space Center, not a
+        /// cold load or the Tracking Station), so <see cref="FacilityDataLoaded"/> gates the
+        /// pass; <see cref="LevelCosts"/> maps a facility id to its per-level
+        /// <c>levelCost</c> values (index = stock level) or null for an id the game does not
+        /// know.
+        /// </summary>
+        internal struct FacilityCostTableProbe
+        {
+            public bool GameAvailable;
+            public bool IsCareer;
+            public bool MultiplierReadable;
+            public float FundsLossMultiplier;
+            public bool FacilityDataLoaded;
+            public Func<string, float[]> LevelCosts;
+        }
+
+        /// <summary>Tally of one <see cref="EstimateLegacyFacilityUpgradeCosts"/> pass.</summary>
+        internal struct LegacyUpgradeEstimateResult
+        {
+            public bool Complete;
+            public string DeferReason;
+            public int Candidates;
+            public int Estimated;
+            public int Repaired;
+            public int EvidenceZero;
+            public int BeforeSeed;
+            public int UnknownFacility;
+            public int LevelMismatch;
+            public int ZeroCost;
+            public int SeedCaptureUnknown;
+            public int NotCareer;
+            public float FundsLossMultiplier;
+            public List<string> EstimatedSample;
+
+            public string Format()
+            {
+                var ic = CultureInfo.InvariantCulture;
+                string text = "candidates=" + Candidates.ToString(ic)
+                    + " estimated=" + Estimated.ToString(ic)
+                    + " repaired=" + Repaired.ToString(ic)
+                    + " evidenceZero=" + EvidenceZero.ToString(ic)
+                    + " beforeSeed=" + BeforeSeed.ToString(ic)
+                    + " unknownFacility=" + UnknownFacility.ToString(ic)
+                    + " levelMismatch=" + LevelMismatch.ToString(ic)
+                    + " zeroCost=" + ZeroCost.ToString(ic)
+                    + " seedCaptureUnknown=" + SeedCaptureUnknown.ToString(ic)
+                    + " notCareer=" + NotCareer.ToString(ic)
+                    + " fundsLossMultiplier=" + FundsLossMultiplier.ToString("R", ic);
+                if (EstimatedSample != null && EstimatedSample.Count > 0)
+                    text += " rows=[" + KspStatePatcher.ComposeBoundedIdentitySample(
+                        EstimatedSample, LegacyEstimateSampleCap) + "]";
+                return text;
+            }
+        }
+
+        /// <summary>
+        /// Pure: the stock price of one cost-0 FacilityUpgrade row from the facility cost
+        /// table, the way <c>UpgradeableFacility.GetUpgradeCost()</c> prices it (decompiled
+        /// KSP 1.12.5: <c>upgradeLevels[level + 1].levelCost * Career.FundsLossMultiplier</c>):
+        /// reaching the row's tier costs the levelCost at the tier's 0-based index, times
+        /// today's multiplier. The ledger tier is derived from stock's 0 / 0.5 / 1 normalized
+        /// level, so only a three-level facility maps back; anything else is refused, as is
+        /// an unknown facility and a price of 0 (then the cost-0 row is already right).
+        /// </summary>
+        internal static bool TryEstimateLegacyFacilityUpgradeCost(
+            GameAction row, float[] levelCosts, float fundsLossMultiplier,
+            out float cost, out string refusal)
+        {
+            cost = 0f;
+            if (levelCosts == null)
+            {
+                refusal = LegacyEstimateRefusalUnknownFacility;
+                return false;
+            }
+            int levelIndex = row != null ? row.ToLevel - 1 : -1;
+            if (levelCosts.Length != 3 || levelIndex < 1 || levelIndex >= levelCosts.Length)
+            {
+                refusal = LegacyEstimateRefusalLevelMismatch;
+                return false;
+            }
+
+            double price = (double)levelCosts[levelIndex] * fundsLossMultiplier;
+            if (double.IsNaN(price) || double.IsInfinity(price) || !(price > 0.0))
+            {
+                refusal = LegacyEstimateRefusalZeroCost;
+                return false;
+            }
+
+            cost = (float)price;
+            refusal = null;
+            return true;
+        }
+
+        /// <summary>
+        /// Gives every career FacilityUpgrade row still at cost 0 (written before the upgrade
+        /// cost capture, its saved debit since pruned, so <see cref="RepairZeroCostFacilityUpgradeActionsOnLoad"/>
+        /// could not prove it) the facility cost table's price of its upgrade. Owner ruling
+        /// 2026-10-07: an estimate beats leaving the ledger high by every old upgrade, even
+        /// though today's multiplier and the absence of a strategy discount can differ from
+        /// what was charged.
+        ///
+        /// <para>Order of refusals: Science / Sandbox rows are never priced (no funds were
+        /// charged there). The pass defers, changing nothing, while there is no game, no funds
+        /// seed, no readable multiplier or no loaded facility table; the caller retries on a
+        /// later recalc. A seed whose capture moment is unknown skips every row: it may
+        /// already hold the debits, and pricing them again would charge twice. Per row, saved
+        /// events still win (a unique debit is applied as in the load repair; an explicit
+        /// <c>cost=</c> or a non-debit keeps 0), and a row at or before the seed's moment is
+        /// skipped.</para>
+        ///
+        /// <para>Idempotent: a priced row is no longer cost 0. Mutates the rows in place only
+        /// on a complete pass.</para>
+        /// </summary>
+        internal static LegacyUpgradeEstimateResult EstimateLegacyFacilityUpgradeCosts(
+            IReadOnlyList<GameAction> ledgerActions,
+            IReadOnlyList<GameStateEvent> events,
+            FacilityCostTableProbe probe,
+            FundsSeedCaptureMoment seedMoment,
+            double seedCaptureUT)
+        {
+            var result = new LegacyUpgradeEstimateResult { FundsLossMultiplier = probe.FundsLossMultiplier };
+            var candidates = new List<GameAction>();
+            if (ledgerActions != null)
+            {
+                for (int i = 0; i < ledgerActions.Count; i++)
+                {
+                    var action = ledgerActions[i];
+                    if (action != null
+                        && action.Type == GameActionType.FacilityUpgrade
+                        && action.FacilityCost == 0f)
+                        candidates.Add(action);
+                }
+            }
+
+            result.Candidates = candidates.Count;
+            if (candidates.Count == 0)
+            {
+                result.Complete = true;
+                return result;
+            }
+            if (!probe.GameAvailable)
+                return Deferred(result, LegacyEstimateDeferNoGame);
+            if (!probe.IsCareer)
+            {
+                result.NotCareer = candidates.Count;
+                result.Complete = true;
+                return result;
+            }
+            if (seedMoment == FundsSeedCaptureMoment.NoSeed)
+                return Deferred(result, LegacyEstimateDeferNoFundsSeed);
+            if (seedMoment != FundsSeedCaptureMoment.CareerStart)
+            {
+                result.SeedCaptureUnknown = candidates.Count;
+                result.Complete = true;
+                return result;
+            }
+            if (!probe.MultiplierReadable)
+                return Deferred(result, LegacyEstimateDeferNoMultiplier);
+            if (!probe.FacilityDataLoaded || probe.LevelCosts == null)
+                return Deferred(result, LegacyEstimateDeferNoFacilityData);
+
+            var ic = CultureInfo.InvariantCulture;
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                var row = candidates[i];
+                float cost;
+                string refusal;
+                if (TryResolveLegacyFacilityUpgradeCost(row, events, ledgerActions, out cost, out refusal))
+                {
+                    row.FacilityCost = cost;
+                    result.Repaired++;
+                    continue;
+                }
+                if (refusal == LegacyUpgradeRefusalExplicitZero || refusal == LegacyUpgradeRefusalNonDebit)
+                {
+                    result.EvidenceZero++;
+                    continue;
+                }
+                if (!(row.UT > seedCaptureUT))
+                {
+                    result.BeforeSeed++;
+                    continue;
+                }
+
+                if (!TryEstimateLegacyFacilityUpgradeCost(
+                        row, probe.LevelCosts(row.FacilityId), probe.FundsLossMultiplier,
+                        out cost, out refusal))
+                {
+                    switch (refusal)
+                    {
+                        case LegacyEstimateRefusalUnknownFacility: result.UnknownFacility++; break;
+                        case LegacyEstimateRefusalLevelMismatch: result.LevelMismatch++; break;
+                        default: result.ZeroCost++; break;
+                    }
+                    continue;
+                }
+
+                row.FacilityCost = cost;
+                result.Estimated++;
+                if (result.EstimatedSample == null)
+                    result.EstimatedSample = new List<string>();
+                result.EstimatedSample.Add(
+                    (row.ActionId ?? "(no-id)") + " " + (row.FacilityId ?? "(null)")
+                    + "->Lv" + row.ToLevel.ToString(ic)
+                    + " estimated=" + cost.ToString("R", ic));
+            }
+
+            result.Complete = true;
+            return result;
+        }
+
+        private static LegacyUpgradeEstimateResult Deferred(LegacyUpgradeEstimateResult result, string reason)
+        {
+            result.Complete = false;
+            result.DeferReason = reason;
+            return result;
         }
 
         /// <summary>

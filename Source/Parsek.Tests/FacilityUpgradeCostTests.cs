@@ -666,6 +666,290 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // Cost-table estimate of rows no saved debit proves (owner ruling 2026-10-07)
+        // ================================================================
+
+        private const double CareerStartUt = 0.0;
+        private const double StartingFunds = 500000.0;
+
+        // Stock-shaped three-tier table: level 1 is free, then the two upgrade prices.
+        private static readonly float[] AdminLevelCosts = { 0f, 150000f, 500000f };
+
+        private static LedgerLoadMigration.FacilityCostTableProbe LoadedCareerTable(
+            float multiplier = 1f, Func<string, float[]> levelCosts = null) =>
+            new LedgerLoadMigration.FacilityCostTableProbe
+            {
+                GameAvailable = true,
+                IsCareer = true,
+                MultiplierReadable = true,
+                FundsLossMultiplier = multiplier,
+                FacilityDataLoaded = true,
+                LevelCosts = levelCosts ?? (id => id == Admin || id == Tracking ? AdminLevelCosts : null),
+            };
+
+        private static GameAction UpgradeRowTo(double ut, int toLevel, string facility = Admin)
+        {
+            var row = ZeroCostUpgradeRow(ut, facility);
+            row.ToLevel = toLevel;
+            return row;
+        }
+
+        [Fact]
+        public void Estimate_RowCost_IsTheTargetLevelsCostTimesTodaysMultiplier()
+        {
+            float cost;
+            string refusal;
+            Assert.True(LedgerLoadMigration.TryEstimateLegacyFacilityUpgradeCost(
+                UpgradeRowTo(UpgradeUt, 2), AdminLevelCosts, 1.25f, out cost, out refusal));
+            Assert.Equal(187500f, cost);
+            Assert.Null(refusal);
+
+            Assert.True(LedgerLoadMigration.TryEstimateLegacyFacilityUpgradeCost(
+                UpgradeRowTo(UpgradeUt, 3), AdminLevelCosts, 1f, out cost, out refusal));
+            Assert.Equal(500000f, cost);
+        }
+
+        [Fact]
+        public void Estimate_RefusesARowTheTableCannotPrice()
+        {
+            float cost;
+            string refusal;
+
+            // The ledger's 1-based tier comes from stock's 0 / 0.5 / 1 normalized levels, so
+            // only a three-tier facility maps back onto a table index.
+            Assert.False(LedgerLoadMigration.TryEstimateLegacyFacilityUpgradeCost(
+                UpgradeRowTo(UpgradeUt, 2), new[] { 0f, 1f, 2f, 3f }, 1f, out cost, out refusal));
+            Assert.Equal(LedgerLoadMigration.LegacyEstimateRefusalLevelMismatch, refusal);
+            Assert.False(LedgerLoadMigration.TryEstimateLegacyFacilityUpgradeCost(
+                UpgradeRowTo(UpgradeUt, 1), AdminLevelCosts, 1f, out cost, out refusal));
+            Assert.Equal(LedgerLoadMigration.LegacyEstimateRefusalLevelMismatch, refusal);
+            Assert.False(LedgerLoadMigration.TryEstimateLegacyFacilityUpgradeCost(
+                UpgradeRowTo(UpgradeUt, 4), AdminLevelCosts, 1f, out cost, out refusal));
+            Assert.Equal(LedgerLoadMigration.LegacyEstimateRefusalLevelMismatch, refusal);
+
+            // A free level, or a zero multiplier, prices the upgrade at 0: the row is right.
+            Assert.False(LedgerLoadMigration.TryEstimateLegacyFacilityUpgradeCost(
+                UpgradeRowTo(UpgradeUt, 2), new[] { 0f, 0f, 10f }, 1f, out cost, out refusal));
+            Assert.Equal(LedgerLoadMigration.LegacyEstimateRefusalZeroCost, refusal);
+            Assert.False(LedgerLoadMigration.TryEstimateLegacyFacilityUpgradeCost(
+                UpgradeRowTo(UpgradeUt, 2), AdminLevelCosts, 0f, out cost, out refusal));
+            Assert.Equal(LedgerLoadMigration.LegacyEstimateRefusalZeroCost, refusal);
+
+            Assert.False(LedgerLoadMigration.TryEstimateLegacyFacilityUpgradeCost(
+                UpgradeRowTo(UpgradeUt, 2), null, 1f, out cost, out refusal));
+            Assert.Equal(LedgerLoadMigration.LegacyEstimateRefusalUnknownFacility, refusal);
+            Assert.Equal(0f, cost);
+        }
+
+        [Fact]
+        public void ClassifyFundsSeedCaptureMoment_OnlyASeedTakenFromTheCareerStartBaselineIsDated()
+        {
+            Assert.Equal(LedgerLoadMigration.FundsSeedCaptureMoment.NoSeed,
+                LedgerLoadMigration.ClassifyFundsSeedCaptureMoment(
+                    hasSeed: false, seedFunds: 0f, hasInitialBaseline: true, initialBaselineFunds: StartingFunds));
+            Assert.Equal(LedgerLoadMigration.FundsSeedCaptureMoment.CareerStart,
+                LedgerLoadMigration.ClassifyFundsSeedCaptureMoment(
+                    hasSeed: true, seedFunds: (float)StartingFunds, hasInitialBaseline: true,
+                    initialBaselineFunds: StartingFunds));
+            // A seed read off the live pool records no moment: it may already hold the debits.
+            Assert.Equal(LedgerLoadMigration.FundsSeedCaptureMoment.Unknown,
+                LedgerLoadMigration.ClassifyFundsSeedCaptureMoment(
+                    hasSeed: true, seedFunds: 350000f, hasInitialBaseline: true,
+                    initialBaselineFunds: StartingFunds));
+            Assert.Equal(LedgerLoadMigration.FundsSeedCaptureMoment.Unknown,
+                LedgerLoadMigration.ClassifyFundsSeedCaptureMoment(
+                    hasSeed: true, seedFunds: (float)StartingFunds, hasInitialBaseline: false,
+                    initialBaselineFunds: 0.0));
+            // A zero career start never seeds from the baseline (DecideInitialFundsSeed).
+            Assert.Equal(LedgerLoadMigration.FundsSeedCaptureMoment.Unknown,
+                LedgerLoadMigration.ClassifyFundsSeedCaptureMoment(
+                    hasSeed: true, seedFunds: 0f, hasInitialBaseline: true, initialBaselineFunds: 0.0));
+        }
+
+        [Fact]
+        public void EstimatePass_CareerStartSeed_PricesEveryUnprovenRow_AndHonoursTheSavedEvidence()
+        {
+            var unproven = UpgradeRowTo(1000.0, 2);
+            var unprovenTier3 = UpgradeRowTo(1500.0, 3, Tracking);
+            var explicitZero = UpgradeRowTo(2000.0, 2);
+            var credit = UpgradeRowTo(3000.0, 2);
+            var unknownFacility = UpgradeRowTo(4000.0, 2, "SpaceCenter/ModdedHangar");
+            var beforeSeed = UpgradeRowTo(CareerStartUt, 2);
+            var costed = UpgradeRowTo(5000.0, 2);
+            costed.FacilityCost = 75000f;
+            var rows = new List<GameAction>
+                { unproven, unprovenTier3, explicitZero, credit, unknownFacility, beforeSeed, costed };
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent { ut = 2000.0, eventType = GameStateEventType.FacilityUpgraded, key = Admin, detail = "cost=0", valueAfter = 0.5f },
+                StructureConstructionDebit(3000.0, 350000.0, 360000.0),
+            };
+
+            var result = LedgerLoadMigration.EstimateLegacyFacilityUpgradeCosts(
+                rows, events, LoadedCareerTable(multiplier: 1f),
+                LedgerLoadMigration.FundsSeedCaptureMoment.CareerStart, CareerStartUt);
+
+            Assert.True(result.Complete);
+            Assert.Equal(6, result.Candidates);
+            Assert.Equal(2, result.Estimated);
+            Assert.Equal(2, result.EvidenceZero);
+            Assert.Equal(1, result.UnknownFacility);
+            Assert.Equal(1, result.BeforeSeed);
+            Assert.Equal(150000f, unproven.FacilityCost);
+            Assert.Equal(500000f, unprovenTier3.FacilityCost);
+            Assert.Equal(0f, explicitZero.FacilityCost);
+            Assert.Equal(0f, credit.FacilityCost);
+            Assert.Equal(0f, unknownFacility.FacilityCost);
+            Assert.Equal(0f, beforeSeed.FacilityCost);
+            Assert.Equal(75000f, costed.FacilityCost);
+            string formatted = result.Format();
+            Assert.Contains("candidates=6 estimated=2", formatted);
+            Assert.Contains(unproven.ActionId + " " + Admin + "->Lv2 estimated=150000", formatted);
+            Assert.Contains(unprovenTier3.ActionId + " " + Tracking + "->Lv3 estimated=500000", formatted);
+        }
+
+        [Fact]
+        public void EstimatePass_DefersWithoutTouchingARow_UntilEverythingItNeedsIsReadable()
+        {
+            var row = UpgradeRowTo(UpgradeUt, 2);
+            var rows = new List<GameAction> { row };
+            var events = new List<GameStateEvent>();
+            var career = LedgerLoadMigration.FundsSeedCaptureMoment.CareerStart;
+
+            var noGame = LoadedCareerTable();
+            noGame.GameAvailable = false;
+            var noTable = LoadedCareerTable();
+            noTable.FacilityDataLoaded = false;
+            var noMultiplier = LoadedCareerTable();
+            noMultiplier.MultiplierReadable = false;
+
+            var cases = new[]
+            {
+                (probe: noGame, seed: career, reason: LedgerLoadMigration.LegacyEstimateDeferNoGame),
+                (probe: LoadedCareerTable(), seed: LedgerLoadMigration.FundsSeedCaptureMoment.NoSeed,
+                    reason: LedgerLoadMigration.LegacyEstimateDeferNoFundsSeed),
+                (probe: noMultiplier, seed: career, reason: LedgerLoadMigration.LegacyEstimateDeferNoMultiplier),
+                (probe: noTable, seed: career, reason: LedgerLoadMigration.LegacyEstimateDeferNoFacilityData),
+            };
+            foreach (var c in cases)
+            {
+                var result = LedgerLoadMigration.EstimateLegacyFacilityUpgradeCosts(
+                    rows, events, c.probe, c.seed, CareerStartUt);
+                Assert.False(result.Complete, c.reason);
+                Assert.Equal(c.reason, result.DeferReason);
+                Assert.Equal(0f, row.FacilityCost);
+            }
+        }
+
+        [Fact]
+        public void EstimatePass_SeedFromTheLivePool_SkipsEveryRow_SoNothingIsChargedTwice()
+        {
+            var row = UpgradeRowTo(UpgradeUt, 2);
+
+            var result = LedgerLoadMigration.EstimateLegacyFacilityUpgradeCosts(
+                new List<GameAction> { row }, new List<GameStateEvent>(), LoadedCareerTable(),
+                LedgerLoadMigration.FundsSeedCaptureMoment.Unknown, double.NaN);
+
+            Assert.True(result.Complete);
+            Assert.Equal(1, result.SeedCaptureUnknown);
+            Assert.Equal(0, result.Estimated);
+            Assert.Equal(0f, row.FacilityCost);
+            Assert.Contains("seedCaptureUnknown=1", result.Format());
+        }
+
+        [Fact]
+        public void EstimatePass_ScienceOrSandbox_LeavesEveryRowAtZero()
+        {
+            var row = UpgradeRowTo(UpgradeUt, 2);
+            var probe = LoadedCareerTable();
+            probe.IsCareer = false;
+
+            var result = LedgerLoadMigration.EstimateLegacyFacilityUpgradeCosts(
+                new List<GameAction> { row }, new List<GameStateEvent>(), probe,
+                LedgerLoadMigration.FundsSeedCaptureMoment.CareerStart, CareerStartUt);
+
+            Assert.True(result.Complete);
+            Assert.Equal(1, result.NotCareer);
+            Assert.Equal(0f, row.FacilityCost);
+        }
+
+        [Fact]
+        public void EstimatePass_IsIdempotent_AnEstimatedRowIsNoLongerACandidate()
+        {
+            var row = UpgradeRowTo(UpgradeUt, 2);
+            var rows = new List<GameAction> { row };
+
+            var first = LedgerLoadMigration.EstimateLegacyFacilityUpgradeCosts(
+                rows, new List<GameStateEvent>(), LoadedCareerTable(),
+                LedgerLoadMigration.FundsSeedCaptureMoment.CareerStart, CareerStartUt);
+            var second = LedgerLoadMigration.EstimateLegacyFacilityUpgradeCosts(
+                rows, new List<GameStateEvent>(), LoadedCareerTable(multiplier: 2f),
+                LedgerLoadMigration.FundsSeedCaptureMoment.CareerStart, CareerStartUt);
+
+            Assert.Equal(1, first.Estimated);
+            Assert.True(second.Complete);
+            Assert.Equal(0, second.Candidates);
+            Assert.Equal(150000f, row.FacilityCost);
+        }
+
+        [Fact]
+        public void Recalc_CareerStartSeed_EstimatesOnceTheTableIsReadable_ThenChargesTheRow()
+        {
+            // A career started with Parsek: the funds seed is the career-start baseline, so it
+            // predates every upgrade row and cannot already hold the debit.
+            GameStateStore.AddBaseline(new GameStateBaseline { ut = CareerStartUt, funds = StartingFunds });
+            var row = UpgradeRowTo(UpgradeUt, 2);
+            Ledger.AddAction(row);
+            var probe = LoadedCareerTable();
+            probe.FacilityDataLoaded = false;
+            LedgerOrchestrator.FacilityCostTableProbeForTesting = () => probe;
+
+            // The Tracking Station / a cold load: no facility objects, so the estimate waits.
+            LedgerOrchestrator.RecalculateAndPatch();
+            Assert.Equal(0f, row.FacilityCost);
+            Assert.Equal(StartingFunds, LedgerOrchestrator.Funds.GetRunningBalance(), 3);
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE]")
+                && l.Contains("Legacy facility-upgrade cost estimate: deferred")
+                && l.Contains(LedgerLoadMigration.LegacyEstimateDeferNoFacilityData));
+
+            // The Space Center: the table is readable, the estimate runs inside this recalc.
+            probe.FacilityDataLoaded = true;
+            logLines.Clear();
+            LedgerOrchestrator.RecalculateAndPatch();
+            Assert.Equal(150000f, row.FacilityCost);
+            Assert.Equal(StartingFunds - 150000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 3);
+            Assert.Single(logLines, l => l.Contains("[INFO]")
+                && l.Contains("Legacy facility-upgrade cost estimate:")
+                && l.Contains("candidates=1 estimated=1")
+                && l.Contains(row.ActionId + " " + Admin + "->Lv2 estimated=150000"));
+
+            // Once per load: later recalcs neither rescan nor log.
+            logLines.Clear();
+            LedgerOrchestrator.RecalculateAndPatch();
+            Assert.DoesNotContain(logLines, l => l.Contains("Legacy facility-upgrade cost estimate"));
+            Assert.Equal(StartingFunds - 150000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 3);
+        }
+
+        [Fact]
+        public void Recalc_SeedFromTheLivePool_KeepsTheRowAtZero_AndSaysWhy()
+        {
+            // A mid-career install: the seed is whatever the pool held when Parsek first read it,
+            // which can already include the upgrade's debit.
+            Ledger.SeedInitialFunds(350000.0);
+            var row = UpgradeRowTo(UpgradeUt, 2);
+            Ledger.AddAction(row);
+            LedgerOrchestrator.FacilityCostTableProbeForTesting = () => LoadedCareerTable();
+
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            Assert.Equal(0f, row.FacilityCost);
+            Assert.Equal(350000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 3);
+            Assert.Single(logLines, l => l.Contains("[INFO]")
+                && l.Contains("Legacy facility-upgrade cost estimate:")
+                && l.Contains("seedCaptureUnknown=1") && l.Contains("estimated=0"));
+        }
+
+        // ================================================================
         // Harmony target: a stock rename must red here, not at runtime
         // ================================================================
 

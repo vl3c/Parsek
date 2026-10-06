@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a facility downgrade's funds debit never reaches the ledger [FILED 2026-10-06 while fixing KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, branch `fix-facility-upgrade-cost`. OPEN, product, low; reachability not traced]
+## FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a facility downgrade's funds debit never reaches the ledger [FILED 2026-10-06 while fixing KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, branch `fix-facility-upgrade-cost`. OPEN, product, low; reachability not traced. The older cost-0 upgrade rows paragraph: RULED and DONE 2026-10-07, branch `release-rulings`]
 
 Decompiled KSP 1.12.5: `SpaceCenterBuilding.DowngradeFacility` also debits funds (about 0.667x
 the level cost, reason `StructureConstruction`), but `FacilityDowngraded` events are
@@ -28,10 +28,33 @@ same `FacilityUpgradeCapture` scope pattern and add a row type or a negative-lev
 
 Older cost-0 upgrade rows: the fix above repairs a cost-0 `FacilityUpgrade` row only while the
 save still holds its `FundsChanged(StructureConstruction)` event (events at or before the last
-committed flight's end are pruned), so most existing careers keep their older rows at 0 and
-their ledger high by those upgrades. Owner decision needed: accept a facility cost-table
-estimate (`levelCost` x today's `FundsLossMultiplier`, which can differ from what was charged
-under a changed difficulty or a strategy discount), or leave them.
+committed flight's end are pruned), so most existing careers kept their older rows at 0 and
+their ledger high by those upgrades. RULED 2026-10-07: estimate them from the facility cost
+table. DONE 2026-10-07, branch `release-rulings`: `LedgerLoadMigration.EstimateLegacyFacilityUpgradeCosts`
+prices a career `FacilityUpgrade` row still at cost 0 as stock's `UpgradeableFacility.GetUpgradeCost()`
+does (decompiled: `upgradeLevels[level + 1].levelCost * Career.FundsLossMultiplier`), i.e. the
+`levelCost` of the row's tier (`ToLevel - 1`, three-level facilities only, since the ledger tier
+comes from stock's 0 / 0.5 / 1 normalized level) times TODAY's multiplier. Saved events still win:
+a unique saved debit is applied as in the load repair, an explicit `cost=` or a non-debit keeps 0.
+The level costs exist only where the `UpgradeableFacility` objects do
+(`ScenarioUpgradeableFacilities.protoUpgradeables[id].facilityRefs`, the Space Center, not a cold
+load or the Tracking Station), so `LedgerOrchestrator.EnsureLegacyFacilityUpgradeCostEstimates`
+runs at the top of every recalc, before the walk, until one pass completes (deferring with no
+mutation on no current game, no funds seed, no multiplier, or no loaded facility table), then not
+again until the next load; that same recalc charges the rows. Never double-charged: the
+FundsInitial seed records no capture moment (UT 0, no source), so only a seed equal to the
+non-zero career-start baseline (`|UT| <= 1 s`, the value `DecideInitialFundsSeed` always prefers)
+is known to predate the upgrades; a seed read off the live pool (a mid-career install, or a seed
+deferred past an upgrade) may already hold the debits, so every row is skipped and counted
+`seedCaptureUnknown` (and a row at or before the baseline UT is `beforeSeed`). Science / Sandbox
+rows are never priced. Idempotent (a priced row is no longer cost 0); one summary line per
+completed pass (Info, Verbose when every row is Science / Sandbox) with the counts and a bounded
+`rows=[<actionId> <facility>->LvN estimated=<cost>]` sample. Accepted: the estimate can differ
+from the charge under a changed difficulty or a strategy discount, and the next funds patch
+moves the live pool by that difference. Still open: mid-career-install careers keep their old
+rows at 0 (no evidence of the seed's moment). Tests: `FacilityUpgradeCostTests.Estimate_*`,
+`ClassifyFundsSeedCaptureMoment_*`, `EstimatePass_*`, `Recalc_*` (red first: they did not compile
+before the change).
 
 ---
 
@@ -3269,6 +3292,8 @@ Open residue:
    older rows, whose events were pruned after a commit, stay at 0 - nothing in the save proves
    their cost, and the facility cost table times today's difficulty multiplier is not proof.
    Pinned by `FacilityUpgradeCostTests`. Not yet re-flown (L1-upgrade-facility-career, KB-4).
+   Superseded 2026-10-07 by an owner ruling: those older rows are now priced from the cost
+   table when the funds seed is the career-start baseline (FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED).
 4. The gallery's `op=mock` refuses by COMPLEXITY mode only; it does not know the launcher is
    now Career-mode only, so a mock applied in a Science save would draw a window no Science
    player can open. No lane does that today. The same holds for `op=open window=career`
