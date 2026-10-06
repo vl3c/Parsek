@@ -24,8 +24,9 @@ namespace Parsek
         bool ReleaseCrew(string name);
 
         /// <summary>
-        /// Puts every detached kerbal back where it was taken from (the removal failed, so
-        /// the vessel stays); returns how many went back.
+        /// Puts every detached kerbal back on the part it was taken from (the removal failed, so
+        /// the vessel stays), Assigned; a loaded part may seat it in another seat. Returns how
+        /// many went back.
         /// </summary>
         int ReattachCrew();
     }
@@ -69,8 +70,11 @@ namespace Parsek
                 catch (Exception ex)
                 {
                     // The vessel may still stand: never leave it crewless. Its kerbals go back
-                    // aboard (still Assigned: nothing was released yet) before the failure
-                    // propagates to the caller's own recovery.
+                    // aboard before the failure propagates to the caller's own recovery: an
+                    // unloaded vessel's back into its part snapshots, still Assigned (nothing was
+                    // released yet); a loaded vessel's through Part.AddCrewmember, which sets
+                    // them Assigned again after Part.RemoveCrewmember set them Available, maybe
+                    // in another seat of the same part.
                     int reattached = 0;
                     try
                     {

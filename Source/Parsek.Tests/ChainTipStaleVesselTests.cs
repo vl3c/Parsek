@@ -336,6 +336,7 @@ namespace Parsek.Tests
         {
             return new StaleVesselEvidence
             {
+                ClaimedPid = StationPid,
                 LiveExists = liveExists,
                 LiveGuid = StationGuid,
                 PlayheadSeenBeforeTip = seenBefore,
@@ -961,11 +962,41 @@ namespace Parsek.Tests
         {
             Recording tip = CommitTwoClaimTree();
             StaleVesselEvidence evidence = Stale();
-            evidence.ClaimedVesselCount = 2;
+            evidence.LiveClaimedVesselCount = 2;
 
             Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
                 tip, Chains(), evidence, out string reason));
             Assert.Equal(ChainTipStaleVessel.ReasonSeveralClaimedVessels, reason);
+        }
+
+        [Fact]
+        public void TwoClaims_OnlyTheDepotLive_ReplacesTheDepot()
+        {
+            // Only one of the two claimed vessels stands (the station was gone at the rewind):
+            // it is the one vessel the tip stands for, so it is replaced.
+            Recording tip = CommitTwoClaimTree();
+            stationLive = false;
+            LatchRewoundBefore(tip);
+
+            StaleVesselReplacement replacement = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
+                tip, "SPACECENTER", 2);
+
+            Assert.NotNull(replacement);
+            Assert.Equal(DepotPid, replacement.RemovedPid);
+        }
+
+        [Fact]
+        public void TwoClaims_OnlyTheStationLive_ReplacesTheStation()
+        {
+            Recording tip = CommitTwoClaimTree();
+            otherLive.Remove(DepotPid);
+            LatchRewoundBefore(tip);
+
+            StaleVesselReplacement replacement = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
+                tip, "SPACECENTER", 2);
+
+            Assert.NotNull(replacement);
+            Assert.Equal(StationPid, replacement.RemovedPid);
         }
 
         [Fact]
@@ -1056,6 +1087,162 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region One station, several claimed pids (transport-dominant revisits)
+
+        private static Recording Retree(Recording r, string treeId)
+        {
+            r.TreeId = treeId;
+            return r;
+        }
+
+        /// <summary>
+        /// Shape A: tree 1 is the transport-dominant visit (station 777 -> station half 888); in
+        /// tree 2 a second transport (510) docks to the station half 888 (the station dominant,
+        /// keeping 888) and undocks, the station tip keeping 888. The walker folds the 888 chain
+        /// into 777's: one physical station, two claimed pids. After a rewind only 777 is live.
+        /// </summary>
+        private Recording CommitSecondMissionToStationHalf()
+        {
+            CommitTransportDominantTree();
+            const string t2Guid = "9a7e11002b3c4d5e8f90a1b2c3d4e5f6";
+            var t2 = Retree(MakeRecording("t2-predock", 510u, t2Guid, 2400, 2500,
+                TerminalState.Docked, null, "t2-dock", "Transport2", 5101u), "tree-2");
+            var t2merged = Retree(MakeRecording("t2-merged", StationHalfNewPid, StationHalfNewGuid, 2500, 2600,
+                null, "t2-dock", "t2-undock", "Station", 5101u, 7771u, 7772u), "tree-2");
+            var t2station = Retree(MakeRecording("t2-station", StationHalfNewPid, StationHalfNewGuid, 2600, 2700,
+                TerminalState.Orbiting, "t2-undock", null, "Station", 7771u, 7772u), "tree-2");
+            var t2half = Retree(MakeRecording("t2-half", 511u, t2Guid, 2600, 2800,
+                TerminalState.Orbiting, "t2-undock", null, "Transport2", 5101u), "tree-2");
+            var tree = new RecordingTree { Id = "tree-2", TreeName = "T2", RootRecordingId = t2.RecordingId };
+            tree.AddOrReplaceRecording(t2);
+            tree.AddOrReplaceRecording(t2merged);
+            tree.AddOrReplaceRecording(t2station);
+            tree.AddOrReplaceRecording(t2half);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "t2-dock",
+                Type = BranchPointType.Dock,
+                UT = 2500,
+                TargetVesselPersistentId = StationHalfNewPid,
+                ParentRecordingIds = new List<string> { t2.RecordingId },
+                ChildRecordingIds = new List<string> { t2merged.RecordingId }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "t2-undock",
+                Type = BranchPointType.Undock,
+                UT = 2600,
+                ParentRecordingIds = new List<string> { t2merged.RecordingId },
+                ChildRecordingIds = new List<string> { t2station.RecordingId, t2half.RecordingId }
+            });
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            return t2station;
+        }
+
+        /// <summary>
+        /// Shape B: one mission, transport dominant twice: dock to 777, undock (station half
+        /// 888), re-dock to 888, undock (station half 889). Two chains (777 and 888) end at the
+        /// same tip; one physical station. After a rewind only 777 is live.
+        /// </summary>
+        private static Recording CommitRedockTree()
+        {
+            var tr = MakeRecording("tr", TransportPid, TransportGuid, 1000, 1500,
+                TerminalState.Docked, null, "d1", "Transport", 5001u);
+            var m1 = MakeRecording("m1", TransportPid, TransportGuid, 1500, 1600,
+                null, "d1", "u1", "Transport", 5001u, 7771u, 7772u);
+            var trh1 = MakeRecording("trh1", TransportPid, TransportGuid, 1600, 1700,
+                TerminalState.Docked, "u1", "d2", "Transport", 5001u);
+            var st1 = MakeRecording("st1", StationHalfNewPid, StationHalfNewGuid, 1600, 1700,
+                TerminalState.Docked, "u1", "d2", "Station", 7771u, 7772u);
+            var m2 = MakeRecording("m2", TransportPid, TransportGuid, 1700, 1800,
+                null, "d2", "u2", "Transport", 5001u, 7771u, 7772u);
+            var trh2 = MakeRecording("trh2", TransportPid, TransportGuid, 1800, 1900,
+                TerminalState.Orbiting, "u2", null, "Transport", 5001u);
+            var st2 = MakeRecording("st2", 889u, "8b7e11002b3c4d5e8f90a1b2c3d4e5f6", 1800, 1900,
+                TerminalState.Orbiting, "u2", null, "Station", 7771u, 7772u);
+            var tree = new RecordingTree
+            {
+                Id = "tree-transport",
+                TreeName = "Transport",
+                RootRecordingId = tr.RecordingId
+            };
+            foreach (var r in new[] { tr, m1, trh1, st1, m2, trh2, st2 })
+                tree.AddOrReplaceRecording(r);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "d1", Type = BranchPointType.Dock, UT = 1500, TargetVesselPersistentId = StationPid,
+                ParentRecordingIds = new List<string> { "tr" }, ChildRecordingIds = new List<string> { "m1" }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "u1", Type = BranchPointType.Undock, UT = 1600,
+                ParentRecordingIds = new List<string> { "m1" }, ChildRecordingIds = new List<string> { "trh1", "st1" }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "d2", Type = BranchPointType.Dock, UT = 1700, TargetVesselPersistentId = StationHalfNewPid,
+                ParentRecordingIds = new List<string> { "trh1", "st1" }, ChildRecordingIds = new List<string> { "m2" }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "u2", Type = BranchPointType.Undock, UT = 1800,
+                ParentRecordingIds = new List<string> { "m2" }, ChildRecordingIds = new List<string> { "trh2", "st2" }
+            });
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            return st2;
+        }
+
+        [Fact]
+        public void SecondMissionToTransportDominantStationHalf_OnlyTheOriginalLive_IsReplaced()
+        {
+            Recording tip = CommitSecondMissionToStationHalf();
+            var chains = Chains();
+            Assert.Equal(new HashSet<uint> { StationPid, StationHalfNewPid },
+                ChainTipStaleVessel.ResolveClaimedPidsForTip(chains, tip.RecordingId, RecordingStore.CommittedTrees));
+            LatchRewoundBefore(tip);
+
+            StaleVesselReplacement replacement = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
+                tip, "SPACECENTER", 2);
+
+            Assert.NotNull(replacement);
+            Assert.Equal(StationPid, replacement.RemovedPid);
+            Assert.Equal(new List<uint> { StationPid }, removed);
+        }
+
+        [Fact]
+        public void RedockTransportDominant_OnlyTheOriginalLive_IsReplaced()
+        {
+            Recording tip = CommitRedockTree();
+            var chains = Chains();
+            Assert.Equal(new HashSet<uint> { StationPid, StationHalfNewPid },
+                ChainTipStaleVessel.ResolveClaimedPidsForTip(chains, tip.RecordingId, RecordingStore.CommittedTrees));
+            LatchRewoundBefore(tip);
+
+            StaleVesselReplacement replacement = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
+                tip, "SPACECENTER", 2);
+
+            Assert.NotNull(replacement);
+            Assert.Equal(StationPid, replacement.RemovedPid);
+            Assert.Equal(new List<uint> { StationPid }, removed);
+        }
+
+        [Fact]
+        public void RedockTransportDominant_TrackingStationHandoff_ReplacesTheOriginal()
+        {
+            Recording tip = CommitRedockTree();
+            LatchRewoundBefore(tip);
+            GhostMapPresence.TrackingStationSpawnOverrideForTesting = (rec, index, preserveIdentity) =>
+                SpawnTipAs(rec, 889u);
+
+            GhostMapPresence.TryRunTrackingStationSpawnHandoffForIndex(
+                new List<Recording> { tip }, 0, tip.EndUT + 10);
+
+            Assert.Equal(new List<uint> { StationPid }, removed);
+            Assert.Equal(889u, tip.SpawnedVesselPersistentId);
+        }
+
+        #endregion
+
         #region Transport-dominant dock (the tip carries a new pid)
 
         [Fact]
@@ -1089,11 +1276,15 @@ namespace Parsek.Tests
             var samePidTip = new Recording { VesselPersistentId = StationPid, RecordedVesselGuid = "a" };
             var newPidTip = new Recording { VesselPersistentId = StationHalfNewPid, RecordedVesselGuid = "b" };
 
-            Assert.Equal(StationGuid, ChainTipStaleVessel.ExpectedClaimedGuid(newPidTip, chain));
+            Assert.Equal(StationGuid, ChainTipStaleVessel.ExpectedClaimedGuid(newPidTip, chain, StationPid));
+            // A claimed pid that is not the chain's key (a folded-in claim): the chain's guid
+            // is another pid's, so only the tip's own guid can apply, when it carries that pid.
+            Assert.Null(ChainTipStaleVessel.ExpectedClaimedGuid(samePidTip, chain, StationHalfNewPid));
+            Assert.Equal("b", ChainTipStaleVessel.ExpectedClaimedGuid(newPidTip, chain, StationHalfNewPid));
             chain.LaunchGuid = null;
-            Assert.Equal("a", ChainTipStaleVessel.ExpectedClaimedGuid(samePidTip, chain));
-            Assert.Null(ChainTipStaleVessel.ExpectedClaimedGuid(newPidTip, chain));
-            Assert.Null(ChainTipStaleVessel.ExpectedClaimedGuid(newPidTip, null));
+            Assert.Equal("a", ChainTipStaleVessel.ExpectedClaimedGuid(samePidTip, chain, StationPid));
+            Assert.Null(ChainTipStaleVessel.ExpectedClaimedGuid(newPidTip, chain, StationPid));
+            Assert.Null(ChainTipStaleVessel.ExpectedClaimedGuid(newPidTip, null, StationPid));
         }
 
         [Fact]

@@ -507,11 +507,16 @@ links hold both claims, and no chain keyed 777 (pinned by
   tip `VesselGhoster.SpawnAtChainTip` adopts that live station (`TryAdoptExistingSourceForChainTip`,
   the tip carries 777) and drops the depot's ghost: the station keeps its pre-dock form and the
   depot is gone.
-- Outside flight (CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT): the replacement refuses a tip
-  that ends more than one claimed vessel (`ChainTipStaleVessel.ResolveClaimedPidsForTip`, reason
-  `tip-ends-several-claimed-vessels`), so the sites adopt the stale station as before and the
-  depot stays live beside it. Removing only one of the two (what the first claimed-pid lookup
-  did) deleted the depot for nothing.
+- Outside flight (CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT): the replacement probes every
+  claimed pid ending at the tip (`ChainTipStaleVessel.ResolveClaimedPidsForTip`) and refuses
+  when more than one of them is carried by a live vessel (reason
+  `tip-ends-several-claimed-vessels`), so with both the depot and the station live the sites
+  adopt the stale station as before and the depot stays live beside it. Removing only one of
+  the two (what the first claimed-pid lookup did) deleted the depot for nothing. The count is by
+  live vessel, not by pid: one station claimed again under the new pid it took in a dock it did
+  not dominate (a second mission to the station half, or one mission re-docking
+  transport-dominant) has only its original pid live after a rewind and is replaced
+  (PR #2029 round-two review); with only one of depot and station live, that one is replaced.
 
 What should happen (design 12.5 read for several claims): every claimed vessel is held back from
 the rewind until the tip, and the tip spawns once as their recorded merged form; nothing is
@@ -578,10 +583,14 @@ chain whose tip the spawning recording is (`FindChainForTip`), not the tip's own
 #2026's part-identity walk a transport-dominant dock makes the station half (a new pid on
 undock) the tip, so a tip-pid lookup left the stale station beside the spawned tip, two
 stations (PR #2029 review). The claimed vessel's launch guid must not conclusively differ from
-the chain's (`ExpectedClaimedGuid`: the chain's `LaunchGuid`, else the tip's own when it kept
-the claimed pid, else pid only, as the flight ghosting). It answers "replace" only for the tip
-of a non-terminated chain that ends that one claimed vessel only (a tip ending several is
-refused: CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS), unspawned, with that live claimed vessel and no
+the chain's (`ExpectedClaimedGuid`: the chain's `LaunchGuid` when the chain is keyed by that
+pid, else the tip's own when it kept the claimed pid, else pid only, as the flight ghosting).
+Every claimed pid ending at the tip is probed (all chains ending there, folded-in links
+included) and the live one is the vessel replaced. It answers "replace" only for the tip of a
+non-terminated chain whose claimed pids exactly one live vessel carries (two live are refused:
+CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS; one station claimed again under its new pid after a
+transport-dominant dock is one live vessel, PR #2029 round-two review), unspawned, with that
+live claimed vessel and no
 live vessel already matching the tip's own pid and launch when the claimed pid is another one
 (that vessel is the site's adoption, so removing the claimed one would lose it; PR #2029
 re-review),
