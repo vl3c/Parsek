@@ -4164,6 +4164,8 @@ namespace Parsek
                                 recordings);
                     }
 
+                    // The revert prune's launch boundary, read by the route reconcile below.
+                    double revertPruneCutoffUTForRoutes = double.NaN;
                     if (isRevert)
                     {
                         loadPhase = "revert-milestones";
@@ -4213,6 +4215,7 @@ namespace Parsek
                         double pruneCutoffUT = ResolveRevertPruneCutoff(
                             revertKind, loadedUT, editorBoundaryUT, out pruneInclusive);
                         int prunedOrphans = Ledger.PruneOrphanActionsAfterUT(pruneCutoffUT, pruneInclusive);
+                        revertPruneCutoffUTForRoutes = pruneCutoffUT;
                         if (prunedOrphans > 0)
                             ParsekLog.Info("Scenario",
                                 $"Revert ({revertKind}): pruned {prunedOrphans} untagged ledger action(s) " +
@@ -4348,6 +4351,30 @@ namespace Parsek
                             mergeDialogPending = true;
                             StartCoroutine(ShowDeferredMergeDialog());
                         }
+                    }
+
+                    // Routes on a load back in time (LoadReconcilePolicy Routes cells): RouteStore and
+                    // the ledger stay in memory across an in-session load, so an F9, a stock revert or
+                    // the Discard Re-fly load runs the go-back rewind's reconcile keyed to the loaded
+                    // save, and any other in-session load does when route state lies after the save.
+                    // Before the future-actions check and the recalculation so neither sees the
+                    // retired rows; removes rows only, never adds one, so it is OnLoad-safe.
+                    loadPhase = "route-load-reconcile";
+                    double loadedSaveUTForRoutes = KerbalsModule.ReadLoadedSaveUT();
+                    try
+                    {
+                        Logistics.RouteLoadReconcile.ReconcileAtInSessionLoad(
+                            refinedLoadKind,
+                            Logistics.RouteLoadReconcile.ResolveCutoffUT(
+                                refinedLoadKind, loadedSaveUTForRoutes, revertPruneCutoffUTForRoutes),
+                            loadedSaveUTForRoutes,
+                            node);
+                    }
+                    catch (Exception ex)
+                    {
+                        ParsekLog.Error(LoadReconcilePolicy.LogTag,
+                            $"Route reconcile at in-session load threw {ex.GetType().Name}: {ex.Message}; " +
+                            $"routes left as they were (kind={refinedLoadKind})");
                     }
 
                     loadPhase = "ledger-recalculate";

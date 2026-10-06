@@ -857,8 +857,9 @@ namespace Parsek.Logistics
         /// <c>LoopTimeUnit = Sec</c>, and <c>LoopAnchorUT = route.LoopAnchorUT</c>
         /// directly on the route-owned object — never via
         /// <c>MissionStore.SetLoopEnabled</c>, which mutates store siblings. The
-        /// loop builder floors the anchor to <c>spanEndUT</c>, so the route does not
-        /// own render phase. The stable derived id
+        /// loop builder takes the phase anchor as <c>max(LoopAnchorUT, spanEndUT)</c>,
+        /// so the route's anchor sets the loop clock's phase and the index space its
+        /// cycle cursors count in. The stable derived id
         /// (<c>"&lt;routeId&gt;-backing"</c>) keeps logs greppable and feeds
         /// <c>BuildSignature</c> cache invalidation.
         /// </remarks>

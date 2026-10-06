@@ -577,6 +577,19 @@ Expected player effect: F5 mid-flight, fly on until a contract completes, leave 
 menu (the flight is committed), load the quicksave: the abandoned future's contract reward row
 and tagged events survive into the resumed flight.
 
+Supply routes have the same cold twin (added 2026-10-07, by code read): the cold path reads the
+routes from the save (cursors and counters as of the save) but the free-standing route rows from
+the ledger file as last written, and `Ledger.Reconcile` keeps untagged rows in FLIGHT /
+SPACECENTER, so the save's next cycle id finds an abandoned-future `RouteDispatched` row and the
+dispatch dedup swallows the cycle (paid, never delivered). The in-session route reconcile
+(`RouteLoadReconcile`, ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD) is not run on the cold
+path: its shared store step would also drop the save's legitimately armed Send Once /
+pause-after-cycle, and the step's place against `LedgerOrchestrator.OnKspLoad` and the cold
+`RevalidateSources` is undecided. The candidate is the ledger half alone,
+`Ledger.RetireFutureRouteActionsAtRewind` at `flightState.universalTime` after
+`RouteStore.LoadRoutesFrom`, gated on `Ledger.HasFreeStandingRouteActionsAfterUT`. The Cold x
+Routes policy cell still reads Save and carries no gap id.
+
 Fix: not decided. The in-session fix (the reconcile at the quickload resume trim, QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT) is gated
 on QuickloadFlight / InSessionOther and does not cover this; either extend the same reconcile to
 the cold resume (the cold restore arms the same quickload resume context) or reconcile the
@@ -1296,7 +1309,7 @@ point the cell there.
 
 ---
 
-## ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD: an in-session load back in time leaves route cursors and credits in the abandoned future [FILED 2026-10-06 from the integration-coverage code read, verified by an adversarial pass; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; not yet reproduced]
+## ~~ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD: an in-session load back in time leaves route cursors and credits in the abandoned future~~ [FILED 2026-10-06 from the integration-coverage code read, verified by an adversarial pass; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-route-state-on-load` (owner ruling 2026-10-07: reuse the rewind reconcile): F9 quickload, stock revert and the Esc-menu Discard Re-fly load run the go-back rewind's reconcile at the loaded save's UT; the recovery credit refuses a retired dispatch]
 
 Routes are loaded from the save only on a cold load (`ParsekScenario.cs:4464`); an in-session
 load (F9 quickload, stock Revert) returns at `ParsekScenario.cs:4320` before any route code.
@@ -1315,13 +1328,71 @@ dispatch's recovery credit can still pay out. Logistics design 10.6 says stock r
 restores route state from the save; the code does not, and the "option C" ruling covers only
 discards with no LoadGame.
 
-Fix: not decided. Either reload the route store from the loaded save's ROUTES node on every
-in-session load, or run the same reconcile the two rewind exits run, keyed to the loaded UT;
-guard `EmitPendingRecoveryCredit` on its dispatch row. Pin it red first: `RouteLoopDeliveryFireTests`
-(swallowed cycle), `RouteRecoveryCreditTests` (orphan credit), a source-text gate on the three
-load paths; then lanes IR-1 / IR-2 / IR-4.
+Fix (shipped): `ParsekScenario.OnLoad`'s in-session branch calls
+`RouteLoadReconcile.ReconcileAtInSessionLoad` after the revert prune and before the
+future-actions check and the recalculation. It runs `Ledger.RetireFutureRouteActionsAtRewind` +
+`RouteRewindClassifier.ReconcileStoreAtRewind` (the go-back exit's calls) at the loaded save's
+`flightState.universalTime`; a stock revert takes the earlier of that and the revert prune's
+launch boundary, since a revert to the editor can hand OnLoad the revert-moment game. Loads:
+QuickloadFlight, StockRevert and DiscardReFly always (the classifier already knows they went
+back, and a cursor that advanced after the save leaves no UT stamp); InSessionOther (F9 at the
+Space Center or Tracking Station, F9 into a flight quicksave from the Space Center) only when a
+route row, a route creation or a route's cycle start / hold / partial delivery / owed-credit
+dispatch lies after the loaded save, so a forward or same-instant scene change touches nothing.
+Cold, PlainRewind and ReFlyStart stay with the cold load, `HandleRewindOnLoad` and the bundle.
+One step goes past the rewind exit: its cursor reset (-1) re-fires the crossing whose dock
+instant most recently passed under a fresh cycle id the dedup cannot match, which on an F9 just
+after a delivery would deliver and charge it twice (see
+ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING). So each kept route takes its loop position
+back from the loaded save's own ROUTES copy when the save is not newer than the cutoff: the loop
+anchor always (it is the cursors' index space; `TryActivate` after the save moves it), the route
+/ per-stop cursors and window anchor when the cadence, transit, dock UTs and window basis are
+unchanged, the partner alternation cursor when the route is linked to the same partner, and the
+recovery credit the save still owes when the reconcile cleared a later one. The loop span's
+other inputs (excluded interval keys, origin undock UT, source refs, creation members) never
+change after creation. `EmitPendingRecoveryCredit` now refuses (and clears) a credit whose
+`RouteDispatched` row is not in ELS; every flush site goes through it. Red cells:
+`RouteLoopDeliveryFireTests.LoadBackPastACrossing_ReflownCycleFiresAgain` (x3 kinds),
+`QuickloadJustAfterACrossing_DoesNotFireThatCrossingTwice` and
+`QuickloadBackPastAReactivation_RestoresTheSavedAnchorWithTheCursor` (PR #2032 review: pause +
+re-activate after the F5, then F9, swallowed all 4 owed crossings), `RouteRecoveryCreditTests`
+(orphan credit, pause flush, F9 past a credit flush), `RouteLoadReconcileTests` (per-kind cells,
+cutoff, evidence, restore, store runs, the OnLoad source gate), `LoadReconcilePolicyTests`
+(Routes cells flipped to ReconcileAtCutoff, the gap id dropped). Not flown; lanes IR-1 / IR-2 /
+IR-4 remain the live proof.
 
-Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
+---
+
+## ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING: after a go-back rewind or a Re-Fly start, a loop route fires its last pre-rewind crossing a second time [FILED 2026-10-07 from the `fix-route-state-on-load` work, reproduced headlessly. OPEN, product]
+
+`RouteRewindClassifier.ResetCycleStateForRewind` sets `LastObservedLoopCycleIndex`,
+`WindowAnchorCycleIndex` and every stop's `LastFiredCycleIndex` to -1, and
+`ReconstructCycleCounters` makes the next cycle id fresh (`cycle-{maxKeptOrdinal+1}`). The first
+tick after the rewind sees the crossing whose dock instant most recently passed as owed
+(`dockCycleIndex > -1`) and fires it under that fresh id, which `IsDispatchAlreadyInLedger`
+cannot match: the dedup keys on the counter-based cycle id, not the loop index, so the note on
+`ResetCycleStateForRewind` ("the ELS dedup over the KEPT rows is the double-fire backstop") does
+not hold. When that
+crossing was dispatched before the cutoff its cargo is already in the loaded world, so it is
+delivered and charged twice. Headless probe: tick at 1150 (cycle-0), tick at 1450, retire +
+reconcile at 1200, tick at 1200: a second dispatch for crossing 0. Same family: the reconcile
+clears a pending recovery credit owed by a dispatch after the cutoff but cannot bring back the
+credit the cutoff still owed when a later flush paid it, so that credit is lost. By code read,
+two more positions stay in the abandoned future: `LoopAnchorUT` (a re-activation after the
+cutoff leaves the loop clock anchored after it, so crossings before that anchor are not owed) and
+`LastConsumedPartnerCycle` (left above the partner's rebuilt `CompletedCycles`, it holds a linked
+pair on both sides).
+
+Both rewind exits are affected (`ParsekScenario.HandleRewindOnLoad`,
+`ReconciliationBundle.Restore(cutoff)`). The in-session load reconcile avoids it by taking the
+loop position (anchor, cursors, partner cursor) and owed credit back from the loaded save's
+route copy (`RouteLoadReconcile.RestoreLoopPositionFromSave`); the go-back exit cannot (its OnLoad node is
+persistent.sfs of unknown age), a Re-Fly start could (the RP quicksave carries the routes as of
+the RP).
+
+Fix: not decided. Either rebase the cursors at the first post-rewind tick through the loop clock
+from the latest kept `RouteDispatched` row's UT, or restore them from the rewind save's route
+copy where one is trustworthy (Re-Fly). Red test: the probe above against each exit.
 
 ---
 
@@ -1382,7 +1453,7 @@ part-subset selector), then lane IR-9.
 
 ---
 
-## LOGISTICS-DESIGN-DRIFT-2026-10-06: logistics design 10.6 and a RouteRevertSafety comment say a revert / load restores route state; it does not [FILED 2026-10-06 from the integration-coverage code read; branch `ccr-77f23eb2-dbqh6i`. OPEN, docs; waits on ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD]
+## ~~LOGISTICS-DESIGN-DRIFT-2026-10-06: logistics design 10.6 and a RouteRevertSafety comment say a revert / load restores route state; it does not~~ [FILED 2026-10-06 from the integration-coverage code read; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-route-state-on-load`, with ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD]
 
 - Design 10.6 says stock revert / load restores route state from the save; in-session loads
   do not reload routes (ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD).
@@ -1391,7 +1462,11 @@ part-subset selector), then lane IR-9.
 - Corrected on the same branch: 7.1 now records the shipped 500 m proximity radius (it said
   50 m), and 10.7 records that loop routes collapse missed cycles after a warp.
 
-Fix: rewrite 10.6 and the comment once the reconcile behaviour is decided.
+Fix (shipped): 10.6 now describes the reconcile every load back in time runs (who runs it, at
+which cutoff, the loop-position restore, the credit guard, the cold-load and no-load-discard
+residuals), and the `RouteRevertSafety` summary names every full-world load as the physical
+rollback and the Esc-menu Discard Re-fly as one of them; only the merge dialog's Re-Fly discard
+and the tree discard cores revert without a load.
 
 ---
 
