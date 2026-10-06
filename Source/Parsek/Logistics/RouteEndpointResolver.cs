@@ -284,7 +284,8 @@ namespace Parsek.Logistics
                         // Verbose: it is a standing condition an operator will want to see
                         // when a delivery lands somewhere unexpected - the recorded endpoint
                         // is currently INSIDE a merged craft whose pid is not the recorded
-                        // one, so the delivery goes into the composite. Rate-limited on a key
+                        // one. The writers then touch only the endpoint's own parts of that
+                        // composite (RouteEndpointPartScope). Rate-limited on a key
                         // that carries the resolved pid, so a re-dock to a different visitor
                         // prints at once while a stable pair prints once.
                         if (rootReason == "docked-composite-match"
@@ -727,9 +728,10 @@ namespace Parsek.Logistics
         /// would lose it for exactly as long as the pair stays docked; the walk would fall to
         /// proximity, land on the composite, and REBIND the route to the visitor, which then
         /// undocks and flies away with it. A part flightID is launch-unique, so a vessel
-        /// carrying it IS the physical craft that holds the recorded endpoint - cargo
-        /// delivered into that composite reaches the base, which is the pre-#1627 outcome
-        /// restored by identity rather than by positional accident.</para>
+        /// carrying it IS the physical craft that holds the recorded endpoint. The resolver
+        /// returns the whole composite; which of its parts a delivery or debit may touch is
+        /// decided afterwards by <see cref="RouteEndpointPartScope"/>, which keeps the
+        /// endpoint's own parts and leaves the docked partner's alone.</para>
         ///
         /// <para>PASS ORDER IS THE CONTRACT and it is not symmetric: an own-root match beats a
         /// contains match everywhere, so the MIRROR case (the destination dominates the merge)

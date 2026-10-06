@@ -2996,7 +2996,12 @@ namespace Parsek.Logistics
             // loaded/unloaded branch (same rationale as the delivery side's
             // destinationIsLoaded, ApplyDelivery STEP 3).
             bool originIsLoaded = EndpointStoreIsLiveParts(originVessel);
-            var probe = new LiveOriginCargoProbe(originVessel, originIsLoaded);
+            // The depot's OWN parts on that branch: a craft docked to it is not debited in
+            // its place (ROUTE-DELIVERY-INTO-DOCKED-VISITOR). One scope for the probe and
+            // every writer below, so the plan and the drain cover the same tanks.
+            EndpointPartScope originScope = RouteEndpointPartScope.ForEndpoint(
+                route, route.Origin, originVessel, originIsLoaded, "origin-debit");
+            var probe = new LiveOriginCargoProbe(originVessel, originIsLoaded, originScope);
             OriginDebitPlan plan = RouteOriginDebitPlanner.PrepareDebit(route, probe);
 
             // One plan line per debit (bounded: one resource set per cycle).
@@ -3006,9 +3011,10 @@ namespace Parsek.Logistics
                 $"short={(plan.IsShort ? "1" : "0")} " +
                 $"path={(originIsLoaded ? "loaded" : "unloaded")} " +
                 $"origin={originVessel.vesselName ?? "<none>"} " +
-                $"pid={originVessel.persistentId.ToString(IC)}");
+                $"pid={originVessel.persistentId.ToString(IC)} " +
+                $"parts={EndpointPartScope.Describe(originScope)}");
 
-            var writers = new LiveOriginDebitWriters(route, originVessel, plan, originIsLoaded);
+            var writers = new LiveOriginDebitWriters(route, originVessel, plan, originIsLoaded, originScope);
             Dictionary<string, double> actualManifest = null;
             Dictionary<string, double> requestedManifest = null;
             bool anyShort = false;
@@ -3055,7 +3061,7 @@ namespace Parsek.Logistics
             List<InventoryPayloadItem> requestedInventory = null;
             if (route.InventoryCostManifest != null && route.InventoryCostManifest.Count > 0)
             {
-                var inventoryWriter = new LiveInventoryPickupWriter(originVessel, originIsLoaded);
+                var inventoryWriter = new LiveInventoryPickupWriter(originVessel, originIsLoaded, originScope);
                 for (int i = 0; i < route.InventoryCostManifest.Count; i++)
                 {
                     InventoryPayloadItem item = route.InventoryCostManifest[i];
@@ -3217,7 +3223,9 @@ namespace Parsek.Logistics
             // two-direction applier touching multiple endpoint vessels captures
             // this PER VESSEL - never hoist one flag across vessels (design D5).
             bool endpointIsLoaded = EndpointStoreIsLiveParts(endpointVessel);
-            var probe = new LiveOriginCargoProbe(endpointVessel, endpointIsLoaded);
+            EndpointPartScope endpointScope = RouteEndpointPartScope.ForEndpointOfRoute(
+                routeIdForLog, endpoint, endpointVessel, endpointIsLoaded, "pickup-debit");
+            var probe = new LiveOriginCargoProbe(endpointVessel, endpointIsLoaded, endpointScope);
             OriginDebitPlan plan = RouteOriginDebitPlanner.PrepareDebit(pickupManifest, probe);
 
             ParsekLog.Info(Tag,
@@ -3226,9 +3234,10 @@ namespace Parsek.Logistics
                 $"short={(plan.IsShort ? "1" : "0")} " +
                 $"path={(endpointIsLoaded ? "loaded" : "unloaded")} " +
                 $"endpoint={endpointVessel.vesselName ?? "<none>"} " +
-                $"pid={endpointVessel.persistentId.ToString(IC)}");
+                $"pid={endpointVessel.persistentId.ToString(IC)} " +
+                $"parts={EndpointPartScope.Describe(endpointScope)}");
 
-            var writers = new LiveOriginDebitWriters(routeIdForLog, endpointVessel, plan, endpointIsLoaded);
+            var writers = new LiveOriginDebitWriters(routeIdForLog, endpointVessel, plan, endpointIsLoaded, endpointScope);
             Dictionary<string, double> actualManifest = null;
             Dictionary<string, double> requestedManifest = null;
             bool anyShort = false;
@@ -3384,14 +3393,17 @@ namespace Parsek.Logistics
             // Capture the loaded gate ONCE for THIS endpoint vessel (design D5
             // per-vessel capture) and thread it into the writer.
             bool endpointIsLoaded = EndpointStoreIsLiveParts(endpointVessel);
-            var writer = new LiveInventoryPickupWriter(endpointVessel, endpointIsLoaded);
+            EndpointPartScope endpointScope = RouteEndpointPartScope.ForEndpointOfRoute(
+                routeIdForLog, endpoint, endpointVessel, endpointIsLoaded, "inventory-pickup-debit");
+            var writer = new LiveInventoryPickupWriter(endpointVessel, endpointIsLoaded, endpointScope);
 
             ParsekLog.Info(Tag,
                 $"InventoryPickupDebit plan: route={routeIdForLog ?? "<none>"} " +
                 $"items={pickupManifest.Count.ToString(IC)} " +
                 $"path={(endpointIsLoaded ? "loaded" : "unloaded")} " +
                 $"endpoint={endpointVessel.vesselName ?? "<none>"} " +
-                $"pid={endpointVessel.persistentId.ToString(IC)}");
+                $"pid={endpointVessel.persistentId.ToString(IC)} " +
+                $"parts={EndpointPartScope.Describe(endpointScope)}");
 
             List<InventoryPayloadItem> actual = null;
             List<InventoryPayloadItem> requested = null;
@@ -4501,7 +4513,13 @@ namespace Parsek.Logistics
             // writes into a snapshot that's about to be re-initialized. One
             // source of truth, threaded through every consumer.
             bool destinationIsLoaded = EndpointStoreIsLiveParts(destVessel);
-            LiveDeliveryCapacityProbe probe = new LiveDeliveryCapacityProbe(destVessel, destinationIsLoaded);
+            // The destination's OWN parts on that branch, shared by the probe and the
+            // writers: a visiting craft docked to the station neither counts toward its
+            // capacity nor receives the cargo (ROUTE-DELIVERY-INTO-DOCKED-VISITOR).
+            EndpointPartScope destinationScope = RouteEndpointPartScope.ForEndpoint(
+                route, stop.Endpoint, destVessel, destinationIsLoaded, "delivery");
+            LiveDeliveryCapacityProbe probe = new LiveDeliveryCapacityProbe(
+                destVessel, destinationIsLoaded, destinationScope);
 
             // STEP 4: planner. Pure decision over the resource + inventory
             // manifest, capacity-clamped per resource and slot-aware for
@@ -4517,6 +4535,7 @@ namespace Parsek.Logistics
                 $"dest={destVessel.vesselName ?? "<none>"} " +
                 $"pid={destVessel.persistentId.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"path={(destinationIsLoaded ? "loaded" : "unloaded")} " +
+                $"parts={EndpointPartScope.Describe(destinationScope)} " +
                 $"plannedResources={(plan.Resources?.Count ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"plannedInventory={(plan.Inventory?.Count ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture)}");
 
@@ -4527,7 +4546,7 @@ namespace Parsek.Logistics
             // KSP-state mutation happens; ApplyDeliveryFromPlan owns the
             // bookkeeping (actuals, partial detection, status transition,
             // ledger row construction).
-            var liveWriters = new LiveDeliveryWriters(route, destVessel, plan, destinationIsLoaded);
+            var liveWriters = new LiveDeliveryWriters(route, destVessel, plan, destinationIsLoaded, destinationScope);
             bool isCareerKsc = env.IsCareer && route.IsKscOrigin;
             var ctx = new ApplyDeliveryContext
             {

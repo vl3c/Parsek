@@ -6325,7 +6325,7 @@ named in a row owns the detail.
 | A2 | A chain-ghosted surface endpoint holds instead of proximity-rebinding | new predicate beside `RouteEndpointTransferTests` | ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND |
 | A3 | Multi-stop escrow survives a scene switch between windows | `RouteCargoEscrowTests` / `RouteEscrowFireTests` | ROUTE-ESCROW-LOST-ON-SCENE-SWITCH |
 | A4 | No ledger write from the recovery-credit flush during OnLoad | a UT / in-load seam on `RouteStore` | ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD |
-| A5 | Delivery writers and the capacity read touch only the endpoint's own parts | a pure part-subset selector | ROUTE-DELIVERY-INTO-DOCKED-VISITOR |
+| A5 | Delivery writers and the capacity read touch only the endpoint's own parts. DONE 2026-10-07 (`fix-route-endpoint-writes`) | `RouteEndpointPartScopeTests` | ROUTE-DELIVERY-INTO-DOCKED-VISITOR |
 
 ### Capabilities the lanes need
 

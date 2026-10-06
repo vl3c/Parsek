@@ -946,6 +946,9 @@ defects, then the harness capabilities (route-aware ledger oracle that survives 
 mid-run route read-back, career route fixtures with a rewind handle, a dispatchable moon
 route), then the IR-1..IR-11 pair lanes and the IC-1..IC-4 campaign lanes.
 
+Progress: Phase A row A5 landed with its fix (ROUTE-DELIVERY-INTO-DOCKED-VISITOR,
+`fix-route-endpoint-writes`).
+
 ---
 
 ## HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND: the ledger oracle knows no route actions and refuses every rewind lane [FILED 2026-10-06 for the logistics integration program (C1), branch `ccr-77f23eb2-dbqh6i`. OPEN, harness]
@@ -1133,7 +1136,7 @@ red test with `RouteCargoEscrowTests` / `RouteEscrowFireTests`, then lane IR-10.
 
 ---
 
-## ROUTE-DELIVERY-INTO-DOCKED-VISITOR: cargo delivered to a station lands in (and origin debits drain) whatever is docked to it [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~ROUTE-DELIVERY-INTO-DOCKED-VISITOR: cargo delivered to a station lands in (and origin debits drain) whatever is docked to it~~ [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-route-endpoint-writes` (xUnit only; live proof is lane IR-9)]
 
 The resolver deliberately returns the docked composite (`RouteEndpointResolver.cs:283-310`),
 and `LiveDeliveryWriters` walks every part of the composite in vessel order (`:150-175`,
@@ -1143,6 +1146,28 @@ visitor instead of the depot.
 
 Fix: restrict the writers and the capacity read to the recorded endpoint's own parts (a pure
 part-subset selector), then lane IR-9.
+
+FIXED 2026-10-07 (`fix-route-endpoint-writes`): `RouteEndpointPartScope` cuts the resolved
+vessel at every settled stock dock seam the way an undock would (a docking node or claw with
+stock's `vesselInfo` whose `dockedPartUId` names its parent or child part) and keeps the pieces
+that hold the endpoint's root part or a part the route RECORDED as the endpoint's: the
+connection window's `EndpointPartPersistentIds` for an endpoint captured at a dock (matched by
+root part flightID, by target pid only when the endpoint has no root), and the depot half of
+the start-docked pair seam in the recording's start snapshot for a start-docked origin. Stock's
+own records alone could not decide it: a module docked before the route was recorded and a
+visitor docked after leave identical `DockedVesselInfo` pairs and no time. The resulting
+`EndpointPartScope` is built once per probe / writer bundle on the same loaded / unloaded
+branch and threaded into `LiveDeliveryCapacityProbe`, `LiveDeliveryWriters`,
+`LiveOriginCargoProbe`, `LiveOriginDebitWriters` and `LiveInventoryPickupWriter` at every
+production site (delivery, origin debit and gate, pickup debit and gate, destination gate, the
+Logistics window's capacity line). Both merge directions and the endpoint docked INTO a larger
+station resolve to the endpoint's own parts; an undocked endpoint is unchanged; a station
+assembled from earlier-docked modules stays whole. Fallback to the whole vessel, logged
+rate-limited as `Endpoint part scope undetermined: ... outcome=no-recorded-parts` (or
+`endpoint-not-aboard`): no recorded part set (a route that lost its window recordings) or none
+of the recorded parts aboard. Known consequence: a module docked to the station after the
+route was recorded is excluded too (conservative: cargo stays in the parts the route was proven
+against). Tests: `RouteEndpointPartScopeTests` (red against the whole-vessel stub first).
 
 ---
 

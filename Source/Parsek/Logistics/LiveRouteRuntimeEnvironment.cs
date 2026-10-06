@@ -186,7 +186,12 @@ namespace Parsek.Logistics
             // mid-tick load/unload flip cannot split the read across branches
             // (same contract as the delivery side's destinationIsLoaded).
             bool originIsLoaded = RouteOrchestrator.EndpointStoreIsLiveParts(originVessel);
-            var probe = new LiveOriginCargoProbe(originVessel, originIsLoaded);
+            // Gate over the depot's OWN parts, the same scope the debit drains, so a craft
+            // docked to the depot cannot make the gate pass on cargo it carries away
+            // (ROUTE-DELIVERY-INTO-DOCKED-VISITOR).
+            EndpointPartScope originScope = RouteEndpointPartScope.ForEndpoint(
+                route, route.Origin, originVessel, originIsLoaded, "origin-gate");
+            var probe = new LiveOriginCargoProbe(originVessel, originIsLoaded, originScope);
             bool covered = RouteOriginCargoCheck.HasRequired(
                 route.CostManifest, probe.ProbeResourceStored,
                 out string shortResource, out double resourceShortfall);
@@ -226,7 +231,7 @@ namespace Parsek.Logistics
             // trivially.
             if (route.InventoryCostManifest != null && route.InventoryCostManifest.Count > 0)
             {
-                var inventoryWriter = new LiveInventoryPickupWriter(originVessel, originIsLoaded);
+                var inventoryWriter = new LiveInventoryPickupWriter(originVessel, originIsLoaded, originScope);
                 bool inventoryCovered = RouteOriginCargoCheck.HasRequiredInventory(
                     route.InventoryCostManifest, inventoryWriter.CountStored,
                     out string shortIdentity, out int shortInventory);
@@ -309,8 +314,10 @@ namespace Parsek.Logistics
                     // Capture the loaded-gate ONCE for THIS vessel and bake it into
                     // both readers.
                     bool isLoaded = RouteOrchestrator.EndpointStoreIsLiveParts(vessel);
-                    var probe = new LiveOriginCargoProbe(vessel, isLoaded);
-                    var inventoryWriter = new LiveInventoryPickupWriter(vessel, isLoaded);
+                    EndpointPartScope sourceScope = RouteEndpointPartScope.ForEndpoint(
+                        route, endpoint, vessel, isLoaded, "pickup-gate");
+                    var probe = new LiveOriginCargoProbe(vessel, isLoaded, sourceScope);
+                    var inventoryWriter = new LiveInventoryPickupWriter(vessel, isLoaded, sourceScope);
 
                     // M4b Phase B2 escrow NET (plan D11): the amount THIS route may
                     // rely on = live stored MINUS the sum of reservations held by
@@ -528,7 +535,9 @@ namespace Parsek.Logistics
                     // Capture the loaded gate ONCE per stop vessel, same
                     // contract as the delivery applier's destinationIsLoaded.
                     bool isLoaded = RouteOrchestrator.EndpointStoreIsLiveParts(vessel);
-                    var probe = new LiveDeliveryCapacityProbe(vessel, isLoaded);
+                    EndpointPartScope destinationScope = RouteEndpointPartScope.ForEndpoint(
+                        route, stop.Endpoint, vessel, isLoaded, "destination-gate");
+                    var probe = new LiveDeliveryCapacityProbe(vessel, isLoaded, destinationScope);
                     probeByPid[pid] = probe;
                     return probe;
                 },

@@ -3676,6 +3676,18 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Supply-route cargo no longer goes into, or comes out of, a craft docked to the station.**
+  A route delivering to a station or base with another craft docked to it (a visiting tanker,
+  a lander parked at a port) used to fill that craft's empty tanks and cargo slots first, so
+  the cargo left with it when it undocked; the free-space check counted that craft's tanks
+  too, and a route paying from a depot could drain a docked visitor instead of the depot.
+  Routes now deliver into, measure and take from only the station's or depot's own parts: the
+  parts it had when you recorded the supply run, including modules already docked to it then.
+  This works whichever craft KSP treats as the main one after docking, and a lander endpoint
+  docked into a larger station gets its cargo itself. A module you dock to the station after
+  recording the route does not receive route cargo. When Parsek cannot tell which parts are
+  the station's, routes use the whole docked vessel as before. Covered by xUnit; not yet
+  checked in a test flight.
 - **After a quickload, a booster that survives the replayed flight is recorded again.** If you
   quicksaved, flew on (a booster crashed with its crew, a lander touched down) and then
   quickloaded back, the other vessels of that flight kept the ending they had reached after the

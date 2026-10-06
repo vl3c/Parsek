@@ -4109,7 +4109,15 @@ namespace Parsek
             if (destVessel != null && manifest != null && manifest.Count > 0)
             {
                 bool destinationIsLoaded = RouteOrchestrator.EndpointStoreIsLiveParts(destVessel);
-                var probe = new LiveDeliveryCapacityProbe(destVessel, destinationIsLoaded);
+                // The same own-parts scope the gate and the delivery use, so the line
+                // does not count a docked visitor's tanks.
+                EndpointPartScope scope = route?.Stops != null
+                    && capacityStop >= 0 && capacityStop < route.Stops.Count
+                    && route.Stops[capacityStop] != null
+                    ? RouteEndpointPartScope.ForEndpoint(route, route.Stops[capacityStop].Endpoint,
+                        destVessel, destinationIsLoaded, "capacity-context")
+                    : null;
+                var probe = new LiveDeliveryCapacityProbe(destVessel, destinationIsLoaded, scope);
                 foreach (KeyValuePair<string, double> kv in manifest)
                 {
                     if (string.IsNullOrEmpty(kv.Key)) continue;
@@ -4565,7 +4573,12 @@ namespace Parsek
                     if (v == null) return null;
                     if (probeByPid.TryGetValue(v.persistentId, out IDeliveryCapacityProbe cached))
                         return cached;
-                    var probe = new LiveDeliveryCapacityProbe(v, RouteOrchestrator.EndpointStoreIsLiveParts(v));
+                    bool isLoaded = RouteOrchestrator.EndpointStoreIsLiveParts(v);
+                    RouteStop stop = route.Stops[stopIndex];
+                    EndpointPartScope scope = stop != null
+                        ? RouteEndpointPartScope.ForEndpoint(route, stop.Endpoint, v, isLoaded, "capacity-context")
+                        : null;
+                    var probe = new LiveDeliveryCapacityProbe(v, isLoaded, scope);
                     probeByPid[v.persistentId] = probe;
                     return probe;
                 },

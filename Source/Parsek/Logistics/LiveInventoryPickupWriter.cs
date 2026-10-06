@@ -58,12 +58,17 @@ namespace Parsek.Logistics
         // the source loads or unloads mid-tick (same rationale as
         // LiveDeliveryWriters.isLoaded).
         internal readonly bool isLoaded;
+        // The source endpoint's own parts on the captured branch (null = every part): a
+        // craft docked to the depot neither counts toward its stock nor loses its stored
+        // parts to a pickup (ROUTE-DELIVERY-INTO-DOCKED-VISITOR).
+        private readonly EndpointPartScope partScope;
         private int removedCount;
 
-        internal LiveInventoryPickupWriter(Vessel vessel, bool isLoaded)
+        internal LiveInventoryPickupWriter(Vessel vessel, bool isLoaded, EndpointPartScope partScope = null)
         {
             this.vessel = vessel;
             this.isLoaded = isLoaded;
+            this.partScope = EndpointPartScope.ForBranch(partScope, isLoaded, nameof(LiveInventoryPickupWriter));
             this.removedCount = 0;
         }
 
@@ -103,6 +108,7 @@ namespace Parsek.Logistics
             int total = 0;
             for (int i = 0; i < vessel.parts.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 Part p = vessel.parts[i];
                 if (p?.Modules == null)
                     continue;
@@ -133,6 +139,7 @@ namespace Parsek.Logistics
             int total = 0;
             for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
                 if (pps?.modules == null)
                     continue;
@@ -207,6 +214,7 @@ namespace Parsek.Logistics
             int total = 0;
             for (int i = 0; i < vessel.parts.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 Part p = vessel.parts[i];
                 if (p?.Modules == null)
                     continue;
@@ -237,6 +245,7 @@ namespace Parsek.Logistics
             int total = 0;
             for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
                 if (pps?.modules == null)
                     continue;
@@ -334,6 +343,7 @@ namespace Parsek.Logistics
 
             for (int i = 0; i < vessel.parts.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 Part p = vessel.parts[i];
                 if (p?.Modules == null)
                     continue;
@@ -435,6 +445,7 @@ namespace Parsek.Logistics
 
             for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
                 if (pps?.modules == null)
                     continue;
