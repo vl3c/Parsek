@@ -18417,10 +18417,10 @@ namespace Parsek
             else
             {
                 // No active chain here (the flight loaded past the tip's spawn UT, so
-                // FilterAndGhostChains never ghosted the claimed vessel): a live vessel carrying
-                // a chain tip's identity after a rewind to before the tip is that vessel in its
+                // FilterAndGhostChains never ghosted the claimed vessel): a live vessel with the
+                // chain's claimed pid after a rewind to before the tip is that vessel in its
                 // pre-claim form. It is replaced by the tip with its identity preserved, the
-                // same end state the chain path reaches, instead of adopted.
+                // same end state the chain path reaches, instead of adopted or left beside it.
                 StaleVesselReplacement staleReplacement = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
                     rec,
                     "FLIGHT",

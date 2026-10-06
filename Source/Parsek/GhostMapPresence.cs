@@ -7523,18 +7523,18 @@ namespace Parsek
                 rec,
                 realVesselExists);
 
-            // The Ghost Chain Rule here: a live vessel carrying a chain tip's identity after a
-            // rewind to before the tip is the claimed vessel in its pre-claim form, not the
-            // tip's result. It is replaced by the tip snapshot instead of adopted.
-            StaleVesselReplacement staleReplacement = alreadyMaterialized
-                ? ChainTipStaleVessel.TryReplaceStaleLiveVessel(
-                    rec, chains, realVesselExists, "TRACKSTATION", index)
-                : null;
+            // The Ghost Chain Rule here: a live vessel with a chain's claimed pid after a rewind
+            // to before the chain's tip is the claimed vessel in its pre-claim form, not the
+            // tip's result. It is replaced by the tip snapshot instead of adopted (same pid) or
+            // left beside the tip (the tip got a new pid on undock).
+            StaleVesselReplacement staleReplacement = ChainTipStaleVessel.TryReplaceStaleLiveVessel(
+                rec, chains, "TRACKSTATION", index);
             bool replacedStaleVessel = staleReplacement != null;
             if (replacedStaleVessel)
             {
-                realVesselExists = false;
-                alreadyMaterialized = false;
+                realVesselExists = rec.VesselPersistentId != 0
+                    && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
+                alreadyMaterialized = ShouldSkipTrackingStationDuplicateSpawn(rec, realVesselExists);
             }
 
             if (alreadyMaterialized)

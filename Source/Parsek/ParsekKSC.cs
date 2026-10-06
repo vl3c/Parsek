@@ -1997,10 +1997,10 @@ namespace Parsek
             StaleVesselReplacement staleReplacement = null;
             try
             {
-                // The Ghost Chain Rule here: a live vessel carrying a chain tip's identity after
-                // a rewind to before the tip is the claimed vessel in its pre-claim form. It is
-                // replaced by the tip (spawned below with its identity preserved), never adopted;
-                // the finally below puts it back if the tip spawns no vessel.
+                // The Ghost Chain Rule here: a live vessel with a chain's claimed pid after a
+                // rewind to before the chain's tip is the claimed vessel in its pre-claim form. It
+                // is replaced by the tip (spawned below with its identity preserved), never adopted
+                // or left beside it; the finally below puts it back if the tip spawns no vessel.
                 staleReplacement = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
                     rec, "SPACECENTER", recIdx);
                 bool replacedStaleVessel = staleReplacement != null;

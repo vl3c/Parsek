@@ -522,8 +522,15 @@ pre-transfer tanks while the transport half spawns post-transfer.
 Fix (branch `fix-chain-tip-outside-flight`): the three adoption sites (the Tracking Station
 hand-off, `ParsekKSC.TrySpawnAtRecordingEnd`, and the flight leaf branch of
 `ParsekFlight.SpawnVesselOrChainTip`) ask one pure predicate,
-`ChainTipStaleVessel.ShouldReplaceStaleLiveVessel`, before adopting. It answers "replace" only
-for the tip of a non-terminated chain on its own pid, unspawned, with a live same-launch vessel,
+`ChainTipStaleVessel.ShouldReplaceStaleLiveVessel`, before adopting or spawning. The live vessel
+it looks at carries the chain's CLAIMED pid (`GhostChain.OriginalVesselPid`), found through the
+chain whose tip the spawning recording is (`FindChainForTip`), not the tip's own pid: after
+#2026's part-identity walk a transport-dominant dock makes the station half (a new pid on
+undock) the tip, so a tip-pid lookup left the stale station beside the spawned tip, two
+stations (PR #2029 review). The claimed vessel's launch guid must not conclusively differ from
+the chain's (`ExpectedClaimedGuid`: the chain's `LaunchGuid`, else the tip's own when it kept
+the claimed pid, else pid only, as the flight ghosting). It answers "replace" only for the tip
+of a non-terminated chain, unspawned, with that live claimed vessel,
 when (a) this session saw the playhead strictly before the tip's start
 (`PlaybackScopeTracker.WasPlayheadSeenBeforeActivation`, a new no-tolerance, ready-clock latch
 next to the replay-scope one; the sweep re-notes a recording latched only by tolerance) AND

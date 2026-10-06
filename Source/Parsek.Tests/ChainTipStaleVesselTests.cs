@@ -12,7 +12,9 @@ namespace Parsek.Tests
     /// replacement must never lose the vessel. Fixture: a transport (pid 500) docks to a
     /// station (pid 777) and undocks; the station half keeps the station's pid and launch guid
     /// and is the chain tip; a live vessel with pid 777 and that guid, last simulated at UT 900
-    /// (before the dock at 1500), is the station as the rewind left it.
+    /// (before the dock at 1500), is the station as the rewind left it. The transport-dominant
+    /// shape keeps the transport's pid through the dock, so the station half gets pid 888 on
+    /// undock and is the tip of the station's (pid 777) chain through its parts.
     /// </summary>
     [Collection("Sequential")]
     public class ChainTipStaleVesselTests : IDisposable
@@ -23,12 +25,15 @@ namespace Parsek.Tests
         private const string TransportGuid = "7a7e11002b3c4d5e8f90a1b2c3d4e5f6";
         private const double DockUT = 1500.0;
         private const double PreClaimLastUT = 900.0;
+        private const uint StationHalfNewPid = 888u;
+        private const string StationHalfNewGuid = "8a7e11002b3c4d5e8f90a1b2c3d4e5f6";
 
         private readonly List<string> logLines = new List<string>();
         private readonly List<uint> removed = new List<uint>();
         private readonly List<uint> restored = new List<uint>();
         private bool stationLive = true;
         private double stationLastUT = PreClaimLastUT;
+        private string stationLiveGuid = StationGuid;
 
         public ChainTipStaleVesselTests()
         {
@@ -57,8 +62,10 @@ namespace Parsek.Tests
             VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == StationPid && stationLive);
             VesselSpawner.SetMaterializedSourceVesselGuidOverrideForTesting(pid => pid == StationPid ? StationGuid : null);
             ChainTipStaleVessel.LiveVesselInUseOverrideForTesting = _ => false;
-            ChainTipStaleVessel.LiveVesselLastUTOverrideForTesting =
-                pid => pid == StationPid ? stationLastUT : double.NaN;
+            ChainTipStaleVessel.LiveVesselProbeOverrideForTesting = pid =>
+                pid == StationPid && stationLive
+                    ? new LiveClaimedVesselProbe { Exists = true, Guid = stationLiveGuid, LastUT = stationLastUT }
+                    : new LiveClaimedVesselProbe { LastUT = double.NaN };
             ChainTipStaleVessel.RemoveOverrideForTesting = (pid, scene) =>
             {
                 removed.Add(pid);
@@ -100,12 +107,18 @@ namespace Parsek.Tests
 
         private static Recording MakeRecording(
             string id, uint pid, string guid, double startUT, double endUT,
-            TerminalState? terminal, string parentBpId, string childBpId, string name)
+            TerminalState? terminal, string parentBpId, string childBpId, string name,
+            params uint[] partPids)
         {
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("sit", "ORBITING");
             snapshot.AddValue("type", "Station");
             snapshot.AddValue("name", name);
+            foreach (uint partPid in partPids)
+            {
+                ConfigNode part = snapshot.AddNode("PART");
+                part.AddValue("persistentId", partPid.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
             return new Recording
             {
                 RecordingId = id,
@@ -176,6 +189,54 @@ namespace Parsek.Tests
             return stationTip;
         }
 
+        /// <summary>
+        /// Transport-dominant dock: transport (500, parts 5001/5002) docks to station 777 and
+        /// keeps its pid on the merged vessel (500, all four parts); on undock the transport
+        /// half keeps 500 and the station half (parts 7771/7772) gets the new pid 888 and guid.
+        /// Main's part-identity walk makes the station half the tip of the 777 chain.
+        /// </summary>
+        private static Recording CommitTransportDominantTree()
+        {
+            var transport = MakeRecording("tr-predock", TransportPid, TransportGuid, 1000, 1500,
+                TerminalState.Docked, null, "bp-dock", "Transport", 5001u, 5002u);
+            var merged = MakeRecording("merged", TransportPid, TransportGuid, 1500, 1600,
+                null, "bp-dock", "bp-undock", "Transport", 5001u, 5002u, 7771u, 7772u);
+            var transportHalf = MakeRecording("tr-half", TransportPid, TransportGuid, 1600, 1800,
+                TerminalState.Orbiting, "bp-undock", null, "Transport", 5001u, 5002u);
+            var stationHalf = MakeRecording("station-half", StationHalfNewPid, StationHalfNewGuid, 1600, 1700,
+                TerminalState.Orbiting, "bp-undock", null, "Station", 7771u, 7772u);
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-transport",
+                TreeName = "Transport",
+                RootRecordingId = transport.RecordingId
+            };
+            tree.AddOrReplaceRecording(transport);
+            tree.AddOrReplaceRecording(merged);
+            tree.AddOrReplaceRecording(transportHalf);
+            tree.AddOrReplaceRecording(stationHalf);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-dock",
+                Type = BranchPointType.Dock,
+                UT = DockUT,
+                TargetVesselPersistentId = StationPid,
+                ParentRecordingIds = new List<string> { transport.RecordingId },
+                ChildRecordingIds = new List<string> { merged.RecordingId }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-undock",
+                Type = BranchPointType.Undock,
+                UT = 1600,
+                ParentRecordingIds = new List<string> { merged.RecordingId },
+                ChildRecordingIds = new List<string> { transportHalf.RecordingId, stationHalf.RecordingId }
+            });
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            return stationHalf;
+        }
+
         /// <summary>The playhead was seen before the tip in this session (a rewind or a load).</summary>
         private static void LatchRewoundBefore(Recording rec)
         {
@@ -199,6 +260,7 @@ namespace Parsek.Tests
             return new StaleVesselEvidence
             {
                 LiveExists = liveExists,
+                LiveGuid = StationGuid,
                 PlayheadSeenBeforeTip = seenBefore,
                 LiveLastUT = lastUT,
                 LiveInUse = inUse,
@@ -669,11 +731,11 @@ namespace Parsek.Tests
         {
             Recording tip = CommitDockUndockTree();
             LatchRewoundBefore(tip);
-            VesselSpawner.SetMaterializedSourceVesselGuidOverrideForTesting(
-                pid => pid == StationPid ? "ffffffffffffffffffffffffffffffff" : null);
+            stationLiveGuid = "ffffffffffffffffffffffffffffffff";
 
             Assert.Null(ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(tip, "SPACECENTER", 4));
             Assert.Empty(removed);
+            Assert.Contains(logLines, l => l.Contains("reason=" + ChainTipStaleVessel.ReasonDifferentLaunch));
         }
 
         [Fact]
@@ -744,6 +806,99 @@ namespace Parsek.Tests
             Assert.Equal(new List<uint> { StationPid }, restored);
             Assert.True(stationLive);
             Assert.False(tip.VesselSpawned);
+        }
+
+        #endregion
+
+        #region Transport-dominant dock (the tip carries a new pid)
+
+        [Fact]
+        public void TransportDominant_Fixture_StationHalfWithNewPidIsTheTipOfTheClaimedChain()
+        {
+            Recording tip = CommitTransportDominantTree();
+            var chains = Chains();
+
+            GhostChain chain = GhostChainWalker.FindChainForVessel(chains, StationPid);
+            Assert.NotNull(chain);
+            Assert.Equal(tip.RecordingId, chain.TipRecordingId);
+            Assert.Equal(StationHalfNewPid, tip.VesselPersistentId);
+            Assert.Null(GhostChainWalker.FindChainForVessel(chains, StationHalfNewPid));
+            Assert.Same(chain, ChainTipStaleVessel.FindChainForTip(chains, tip.RecordingId));
+        }
+
+        [Fact]
+        public void TransportDominant_Predicate_StaleStationOnTheClaimedPid_Replaces()
+        {
+            Recording tip = CommitTransportDominantTree();
+
+            Assert.True(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
+                tip, Chains(), Stale(), out string reason));
+            Assert.Equal(ChainTipStaleVessel.ReasonReplace, reason);
+        }
+
+        [Fact]
+        public void ExpectedClaimedGuid_ChainGuidThenSamePidTipGuidThenUnknown()
+        {
+            var chain = new GhostChain { OriginalVesselPid = StationPid, LaunchGuid = StationGuid };
+            var samePidTip = new Recording { VesselPersistentId = StationPid, RecordedVesselGuid = "a" };
+            var newPidTip = new Recording { VesselPersistentId = StationHalfNewPid, RecordedVesselGuid = "b" };
+
+            Assert.Equal(StationGuid, ChainTipStaleVessel.ExpectedClaimedGuid(newPidTip, chain));
+            chain.LaunchGuid = null;
+            Assert.Equal("a", ChainTipStaleVessel.ExpectedClaimedGuid(samePidTip, chain));
+            Assert.Null(ChainTipStaleVessel.ExpectedClaimedGuid(newPidTip, chain));
+            Assert.Null(ChainTipStaleVessel.ExpectedClaimedGuid(newPidTip, null));
+        }
+
+        [Fact]
+        public void TransportDominant_TrackingStationHandoff_RemovesTheStaleStationBeforeTheTipSpawns()
+        {
+            // Without the claimed-pid lookup the tip (pid 888) spawns beside the stale station
+            // (pid 777): two stations.
+            Recording tip = CommitTransportDominantTree();
+            LatchRewoundBefore(tip);
+            bool? spawnedWithPreservedIdentity = null;
+            GhostMapPresence.TrackingStationSpawnOverrideForTesting = (rec, index, preserveIdentity) =>
+            {
+                spawnedWithPreservedIdentity = preserveIdentity;
+                SpawnTipAs(rec, StationHalfNewPid);
+            };
+
+            bool handled = GhostMapPresence.TryRunTrackingStationSpawnHandoffForIndex(
+                new List<Recording> { tip }, 0, tip.EndUT + 10);
+
+            Assert.True(handled);
+            Assert.Equal(new List<uint> { StationPid }, removed);
+            Assert.Empty(restored);
+            Assert.True(spawnedWithPreservedIdentity);
+            Assert.Equal(StationHalfNewPid, tip.SpawnedVesselPersistentId);
+            Assert.Contains(logLines, l => l.Contains("Replacing stale pre-claim vessel (TRACKSTATION)")
+                && l.Contains("live pid=777") && l.Contains("tipPid=888"));
+        }
+
+        [Fact]
+        public void TransportDominant_SpaceCenterAndFlightEntry_RemoveTheStaleStation()
+        {
+            Recording tip = CommitTransportDominantTree();
+            LatchRewoundBefore(tip);
+
+            StaleVesselReplacement replacement = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
+                tip, "SPACECENTER", 2);
+
+            Assert.NotNull(replacement);
+            Assert.Equal(StationPid, replacement.RemovedPid);
+            Assert.Equal(new List<uint> { StationPid }, removed);
+        }
+
+        [Fact]
+        public void TransportDominant_NeverRewoundBeforeTheTip_LeavesTheLiveStationAlone()
+        {
+            // Normal play: the original station merged into the transport and the real station
+            // is the pid-888 half; a pid-777 vessel here was never rewound past, so it is left.
+            Recording tip = CommitTransportDominantTree();
+
+            Assert.Null(ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(tip, "SPACECENTER", 2));
+            Assert.Empty(removed);
         }
 
         #endregion

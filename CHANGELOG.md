@@ -3697,7 +3697,9 @@ _(unreleased - entries accumulate here per commit)_
   stand-in, so the kerbals you see aboard can differ from the ones who were there. The old station
   is only removed when the recorded one can be spawned, and it is put back if that spawn still
   fails. Only a station the clock was wound back past is replaced; one that went through the dock
-  in the loaded save, or one you are flying, is kept as it is.
+  in the loaded save, or one you are flying, is kept as it is. A station visited by a heavier
+  ship, whose recorded end state comes back under a new vessel id, is replaced the same way
+  instead of appearing twice at the Space Center or in the Tracking Station.
 
 - **Altitude, speed, distance and depth record rewards are no longer paid twice.** A flight that
   set several records at once (an ascent passes 500 m, 2 km, 7 km, 22 km and 70 km) was booked

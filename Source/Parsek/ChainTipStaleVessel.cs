@@ -25,8 +25,10 @@ namespace Parsek
     /// </summary>
     internal struct StaleVesselEvidence
     {
-        /// <summary>A live vessel with the tip's pid and launch exists.</summary>
+        /// <summary>A live vessel with the chain's claimed pid exists.</summary>
         internal bool LiveExists;
+        /// <summary>That vessel's launch guid (<c>Vessel.id</c>, "N" form); null when unknown.</summary>
+        internal string LiveGuid;
         /// <summary>This session saw the playhead strictly before the tip's start.</summary>
         internal bool PlayheadSeenBeforeTip;
         /// <summary>The live vessel's <c>lastUT</c>; NaN when unknown.</summary>
@@ -35,6 +37,14 @@ namespace Parsek
         internal bool LiveInUse;
         /// <summary>Why the tip cannot spawn right now (null when it can).</summary>
         internal string TipSpawnBlocker;
+    }
+
+    /// <summary>What the live side reads about the vessel carrying a claimed pid.</summary>
+    internal struct LiveClaimedVesselProbe
+    {
+        internal bool Exists;
+        internal string Guid;
+        internal double LastUT;
     }
 
     /// <summary>
@@ -62,9 +72,14 @@ namespace Parsek
     /// ahead). The Space Center and the Tracking Station never do, and a flight load past the
     /// spawn UT no longer ghosts the chain, so after a rewind or a load to before the claim
     /// the claimed vessel can still be live in its pre-claim form when the chain tip's spawn
-    /// UT passes. It carries the tip's pid and the tip's launch guid (the station half of a
-    /// dock keeps the station's Vessel.id), so the ordinary adoption check accepts it and the
-    /// recorded change (a fuel transfer, a docked module) is lost.</para>
+    /// UT passes. When the station kept its pid through the dock (it was the dominant
+    /// vessel), the stale station carries the tip's pid and launch guid and the ordinary
+    /// adoption check accepts it; when the transport was dominant, the station half got a new
+    /// pid on undock, the tip spawns beside the stale station, and the station is there twice.
+    /// Either way the recorded change (a fuel transfer, a docked module) is lost. So the live
+    /// vessel looked for is the one with the chain's CLAIMED pid
+    /// (<see cref="GhostChain.OriginalVesselPid"/>), found through the chain whose tip the
+    /// spawning recording is, not the tip's own pid.</para>
     ///
     /// <para>Two independent pieces of evidence must agree before a live vessel is called
     /// stale, because a pid and launch-guid match alone cannot tell the pre-claim original
@@ -102,6 +117,7 @@ namespace Parsek
         internal const string ReasonTipSpawned = "tip-already-spawned";
         internal const string ReasonNoLiveVessel = "no-live-same-launch-vessel";
         internal const string ReasonNotChainTip = "not-chain-tip";
+        internal const string ReasonDifferentLaunch = "different-launch";
         internal const string ReasonTerminated = "terminated-chain";
         internal const string ReasonNotRewoundBeforeTip = "not-rewound-before-tip";
         internal const string ReasonSimulatedSinceClaim = "live-vessel-simulated-since-claim";
@@ -126,22 +142,58 @@ namespace Parsek
         /// <summary>Test seam replacing the live in-use check (active vessel, recorded by the live tree).</summary>
         internal static Func<uint, bool> LiveVesselInUseOverrideForTesting;
 
-        /// <summary>Test seam replacing the live vessel's <c>lastUT</c> read (NaN = unknown).</summary>
-        internal static Func<uint, double> LiveVesselLastUTOverrideForTesting;
+        /// <summary>Test seam replacing the live probe of the vessel with a claimed pid.</summary>
+        internal static Func<uint, LiveClaimedVesselProbe> LiveVesselProbeOverrideForTesting;
 
         internal static void ResetForTesting()
         {
             RemoveOverrideForTesting = null;
             RestoreOverrideForTesting = null;
             LiveVesselInUseOverrideForTesting = null;
-            LiveVesselLastUTOverrideForTesting = null;
+            LiveVesselProbeOverrideForTesting = null;
         }
 
         /// <summary>
-        /// Pure: should the live vessel carrying <paramref name="rec"/>'s pid be replaced by
-        /// the tip snapshot instead of adopted? True only when <paramref name="rec"/> is the tip
-        /// of a non-terminated ghost chain on its own pid, the tip has not spawned, a live
-        /// vessel of the same launch exists, the playhead was seen before the tip's start this
+        /// The ghost chain whose tip is <paramref name="tipRecordingId"/>, or null. The chain's
+        /// key is the CLAIMED vessel's pid, which the tip does not carry when the claimed vessel
+        /// lost its pid in a dock it did not dominate.
+        /// </summary>
+        internal static GhostChain FindChainForTip(Dictionary<uint, GhostChain> chains, string tipRecordingId)
+        {
+            if (chains == null || string.IsNullOrEmpty(tipRecordingId))
+                return null;
+            foreach (var kvp in chains)
+            {
+                GhostChain chain = kvp.Value;
+                if (chain != null
+                    && string.Equals(chain.TipRecordingId, tipRecordingId, StringComparison.Ordinal))
+                    return chain;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The launch guid the live claimed vessel must not conclusively differ from: the
+        /// chain's (the claimed pid's guid in the claiming tree), else the tip's own when the tip
+        /// still carries the claimed pid; null (pid only, as the flight ghosting) otherwise.
+        /// </summary>
+        internal static string ExpectedClaimedGuid(Recording tip, GhostChain chain)
+        {
+            if (chain == null)
+                return null;
+            if (!string.IsNullOrEmpty(chain.LaunchGuid))
+                return chain.LaunchGuid;
+            if (tip != null && tip.VesselPersistentId == chain.OriginalVesselPid)
+                return tip.RecordedVesselGuid;
+            return null;
+        }
+
+        /// <summary>
+        /// Pure: should the live vessel carrying the CLAIMED pid of the chain whose tip is
+        /// <paramref name="rec"/> be replaced by the tip snapshot instead of adopted (or left
+        /// beside it)? True only when <paramref name="rec"/> is the tip of a non-terminated ghost
+        /// chain, the tip has not spawned, a live vessel with the claimed pid exists whose launch
+        /// guid does not conclusively differ from the claimed one, the playhead was seen before the tip's start this
         /// session (a rewind or a load), the live vessel was last simulated before the chain's
         /// last claim (NaN = unknown, never stale), the tip can spawn now and the live vessel
         /// is not in the player's hands. Every other answer leaves the site on its existing
@@ -163,16 +215,8 @@ namespace Parsek
                 reason = ReasonTipSpawned;
                 return false;
             }
-            if (!evidence.LiveExists)
-            {
-                reason = ReasonNoLiveVessel;
-                return false;
-            }
-
-            GhostChain chain = GhostChainWalker.FindChainForVessel(chains, rec.VesselPersistentId);
-            if (chain == null
-                || chain.OriginalVesselPid != rec.VesselPersistentId
-                || !string.Equals(chain.TipRecordingId, rec.RecordingId, StringComparison.Ordinal))
+            GhostChain chain = FindChainForTip(chains, rec.RecordingId);
+            if (chain == null || chain.OriginalVesselPid == 0)
             {
                 reason = ReasonNotChainTip;
                 return false;
@@ -180,6 +224,16 @@ namespace Parsek
             if (chain.IsTerminated)
             {
                 reason = ReasonTerminated;
+                return false;
+            }
+            if (!evidence.LiveExists)
+            {
+                reason = ReasonNoLiveVessel;
+                return false;
+            }
+            if (VesselLaunchIdentity.GuidsConclusivelyDiffer(evidence.LiveGuid, ExpectedClaimedGuid(rec, chain)))
+            {
+                reason = ReasonDifferentLaunch;
                 return false;
             }
             if (!evidence.PlayheadSeenBeforeTip)
@@ -250,11 +304,11 @@ namespace Parsek
 
         /// <summary>
         /// Shared entry for the end-of-recording sites that resolve the live source vessel
-        /// themselves (the Space Center end spawn and the flight leaf spawn). Reads the same
-        /// guid-aware existence the adoption path reads, then defers to
-        /// <see cref="TryReplaceStaleLiveVessel"/>. The #226 replay bypass never adopts, so it
-        /// never replaces either. Returns the replacement in progress (the caller spawns the tip
-        /// with its identity preserved, then calls <see cref="CompleteReplacement"/>), or null.
+        /// themselves (the Space Center end spawn and the flight leaf spawn): defers to
+        /// <see cref="TryReplaceStaleLiveVessel"/> with the chains walked on demand. The #226
+        /// replay bypass never adopts, so it never replaces either. Returns the replacement in
+        /// progress (the caller spawns the tip with its identity preserved, then calls
+        /// <see cref="CompleteReplacement"/>), or null.
         /// </summary>
         internal static StaleVesselReplacement TryReplaceStaleSourceBeforeSpawn(
             Recording rec,
@@ -264,52 +318,49 @@ namespace Parsek
         {
             if (allowExistingSourceDuplicate || !IsReplacementCandidate(rec))
                 return null;
-
-            bool liveSameLaunchVesselExists =
-                VesselSpawner.MaterializedSourceVesselExists(rec, logAdoptionRejection: false);
-            return TryReplaceStaleLiveVessel(rec, null, liveSameLaunchVesselExists, scene, index);
+            return TryReplaceStaleLiveVessel(rec, null, scene, index);
         }
 
         /// <summary>
-        /// Evaluates <see cref="ShouldReplaceStaleLiveVessel"/> for a site that already knows
-        /// whether a live same-launch vessel exists, and on a yes removes the stale vessel.
-        /// <paramref name="chains"/> may be null: the chains are then walked from the
-        /// committed trees, only once the cheap checks pass. Returns the replacement in
-        /// progress, or null to leave the site on its existing (adoption) path, including when
-        /// the removal itself is refused or fails.
+        /// Evaluates <see cref="ShouldReplaceStaleLiveVessel"/> for a recording about to spawn
+        /// (or be adopted) at its end, probing the live vessel with the chain's claimed pid, and
+        /// on a yes removes that vessel. <paramref name="chains"/> may be null: the chains are
+        /// then walked from the committed trees. Returns the replacement in progress, or null to
+        /// leave the site on its existing path, including when the removal itself is refused or
+        /// fails.
         /// </summary>
         internal static StaleVesselReplacement TryReplaceStaleLiveVessel(
             Recording rec,
             Dictionary<uint, GhostChain> chains,
-            bool liveSameLaunchVesselExists,
             string scene,
             int index)
         {
-            if (!IsReplacementCandidate(rec) || !liveSameLaunchVesselExists)
+            if (!IsReplacementCandidate(rec))
                 return null;
 
             if (chains == null)
                 chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, 0.0);
+            GhostChain chain = FindChainForTip(chains, rec.RecordingId);
+            if (chain == null || chain.IsTerminated || chain.OriginalVesselPid == 0)
+                return null;
 
+            uint claimedPid = chain.OriginalVesselPid;
+            LiveClaimedVesselProbe probe = ProbeLiveVessel(claimedPid);
             var evidence = new StaleVesselEvidence
             {
-                LiveExists = true,
-                PlayheadSeenBeforeTip = PlaybackScopeTracker.WasPlayheadSeenBeforeActivation(rec.RecordingId),
-                LiveLastUT = double.NaN
+                LiveExists = probe.Exists,
+                LiveGuid = probe.Guid,
+                LiveLastUT = probe.LastUT,
+                PlayheadSeenBeforeTip = PlaybackScopeTracker.WasPlayheadSeenBeforeActivation(rec.RecordingId)
             };
-            GhostChain chain = GhostChainWalker.FindChainForVessel(chains, rec.VesselPersistentId);
-            bool candidateTip = chain != null
-                && !chain.IsTerminated
-                && string.Equals(chain.TipRecordingId, rec.RecordingId, StringComparison.Ordinal);
             string inUseWhy = null;
-            if (candidateTip && evidence.PlayheadSeenBeforeTip)
+            if (probe.Exists && evidence.PlayheadSeenBeforeTip)
             {
                 // The spawn re-hydrates a dropped snapshot the same way; doing it here keeps a
                 // dropped in-memory copy from reading as "cannot spawn".
                 RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
-                evidence.LiveLastUT = ResolveLiveVesselLastUT(rec.VesselPersistentId);
                 evidence.TipSpawnBlocker = ResolveTipSpawnBlocker(rec);
-                evidence.LiveInUse = IsLiveVesselInUse(rec.VesselPersistentId, out inUseWhy);
+                evidence.LiveInUse = IsLiveVesselInUse(claimedPid, out inUseWhy);
             }
 
             bool replace = ShouldReplaceStaleLiveVessel(rec, chains, evidence, out string reason);
@@ -320,23 +371,23 @@ namespace Parsek
                 {
                     ParsekLog.Info(Tag,
                         string.Format(ic,
-                            "Stale chain-tip vessel kept ({0}) #{1} \"{2}\": live pid={3} reason={4} ({5}) - " +
-                            "adopting it as before, the recorded tip state is not applied rec={6}",
-                            sceneLabel, index, rec.VesselName ?? "(null)", rec.VesselPersistentId,
+                            "Stale chain-tip vessel kept ({0}) #{1} \"{2}\": live claimed pid={3} reason={4} ({5}) - " +
+                            "left as before, the recorded tip state is not applied rec={6} tipPid={7}",
+                            sceneLabel, index, rec.VesselName ?? "(null)", claimedPid,
                             reason,
                             reason == ReasonInUse ? (inUseWhy ?? "in use") : evidence.TipSpawnBlocker,
-                            rec.RecordingId));
+                            rec.RecordingId, rec.VesselPersistentId));
                 }
-                else if (chain != null)
+                else if (probe.Exists)
                 {
                     ParsekLog.VerboseRateLimited(Tag,
                         "stale-tip-keep|" + rec.RecordingId + "|" + reason,
                         string.Format(ic,
-                            "Live vessel on a claimed pid left to adoption ({0}) #{1} \"{2}\": pid={3} reason={4} " +
-                            "liveLastUT={5} lastClaimUT={6} rec={7}",
-                            sceneLabel, index, rec.VesselName ?? "(null)", rec.VesselPersistentId,
+                            "Live vessel on a claimed pid left as it is ({0}) #{1} \"{2}\": claimedPid={3} reason={4} " +
+                            "liveLastUT={5} lastClaimUT={6} rec={7} tipPid={8}",
+                            sceneLabel, index, rec.VesselName ?? "(null)", claimedPid,
                             reason, evidence.LiveLastUT.ToString("F1", ic),
-                            LatestClaimUT(chain).ToString("F1", ic), rec.RecordingId));
+                            LatestClaimUT(chain).ToString("F1", ic), rec.RecordingId, rec.VesselPersistentId));
                 }
                 return null;
             }
@@ -345,19 +396,19 @@ namespace Parsek
                 string.Format(ic,
                     "Replacing stale pre-claim vessel ({0}) #{1} \"{2}\": live pid={3} is the chain's " +
                     "original before its recorded change; the tip spawns from its snapshot with identity " +
-                    "preserved rec={4} originalPid={5} links={6} liveLastUT={7} lastClaimUT={8} spawnUT={9}",
-                    sceneLabel, index, rec.VesselName ?? "(null)", rec.VesselPersistentId,
-                    rec.RecordingId, chain.OriginalVesselPid, chain.Links != null ? chain.Links.Count : 0,
+                    "preserved rec={4} tipPid={5} links={6} liveLastUT={7} lastClaimUT={8} spawnUT={9}",
+                    sceneLabel, index, rec.VesselName ?? "(null)", claimedPid,
+                    rec.RecordingId, rec.VesselPersistentId, chain.Links != null ? chain.Links.Count : 0,
                     evidence.LiveLastUT.ToString("F1", ic), LatestClaimUT(chain).ToString("F1", ic),
                     chain.SpawnUT.ToString("F1", ic)));
 
-            ConfigNode removedSnapshot = RemoveStaleVessel(rec.VesselPersistentId, sceneLabel, out StaleChainVesselFocus focus);
+            ConfigNode removedSnapshot = RemoveStaleVessel(claimedPid, sceneLabel, out StaleChainVesselFocus focus);
             if (removedSnapshot == null)
             {
                 ParsekLog.Warn(Tag,
                     string.Format(ic,
-                        "Stale chain-tip vessel removal failed ({0}) #{1} \"{2}\" pid={3} - adopting it as before rec={4}",
-                        sceneLabel, index, rec.VesselName ?? "(null)", rec.VesselPersistentId,
+                        "Stale chain-tip vessel removal failed ({0}) #{1} \"{2}\" pid={3} - left as before rec={4}",
+                        sceneLabel, index, rec.VesselName ?? "(null)", claimedPid,
                         rec.RecordingId));
                 return null;
             }
@@ -365,7 +416,7 @@ namespace Parsek
             GhostPlaybackLogic.InvalidateVesselCache();
             return new StaleVesselReplacement
             {
-                RemovedPid = rec.VesselPersistentId,
+                RemovedPid = claimedPid,
                 RemovedName = rec.VesselName,
                 RemovedSnapshot = removedSnapshot,
                 Focus = focus,
@@ -431,35 +482,49 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The live vessel's <c>lastUT</c> (an unloaded vessel's equals its ProtoVessel's), or
-        /// NaN when it cannot be read.
+        /// The live (or proto-only) vessel with <paramref name="pid"/>: whether it exists, its
+        /// launch guid and its <c>lastUT</c> (an unloaded vessel's equals its ProtoVessel's).
         /// </summary>
-        private static double ResolveLiveVesselLastUT(uint pid)
+        private static LiveClaimedVesselProbe ProbeLiveVessel(uint pid)
         {
-            if (LiveVesselLastUTOverrideForTesting != null)
-                return LiveVesselLastUTOverrideForTesting(pid);
+            if (LiveVesselProbeOverrideForTesting != null)
+                return LiveVesselProbeOverrideForTesting(pid);
 
             try
             {
-                return ResolveLiveVesselLastUTCore(pid);
+                return ProbeLiveVesselCore(pid);
             }
             catch (Exception ex) when (IsHeadlessAccessFailure(ex))
             {
-                return double.NaN;
+                return new LiveClaimedVesselProbe { LastUT = double.NaN };
             }
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static double ResolveLiveVesselLastUTCore(uint pid)
+        private static LiveClaimedVesselProbe ProbeLiveVesselCore(uint pid)
         {
             Vessel vessel;
             ProtoVessel proto;
             FindLiveVessel(pid, out vessel, out proto);
             if (vessel != null)
-                return vessel.lastUT;
+            {
+                return new LiveClaimedVesselProbe
+                {
+                    Exists = true,
+                    Guid = vessel.id != Guid.Empty ? vessel.id.ToString("N") : null,
+                    LastUT = vessel.lastUT
+                };
+            }
             if (proto != null)
-                return proto.lastUT;
-            return double.NaN;
+            {
+                return new LiveClaimedVesselProbe
+                {
+                    Exists = true,
+                    Guid = proto.vesselID != Guid.Empty ? proto.vesselID.ToString("N") : null,
+                    LastUT = proto.lastUT
+                };
+            }
+            return new LiveClaimedVesselProbe { LastUT = double.NaN };
         }
 
         /// <summary>
