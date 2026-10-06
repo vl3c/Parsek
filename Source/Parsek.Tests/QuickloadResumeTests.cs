@@ -3140,7 +3140,8 @@ namespace Parsek.Tests
         public void ClearTerminalEndStateForResume_CoversEveryFieldApplyPersistenceArtifactsFromCopies()
         {
             // Recording.ApplyPersistenceArtifactsFrom copies these from the committed future onto
-            // a resumed member (called by ParsekScenario.RefreshLoadedRecordingFromCommittedSplit).
+            // a resumed member (called by ParsekScenario.CopyCommittedPayloadIntoLoadedRecording, the
+            // overwrite behind the same-id refresh and the stale-epoch salvage).
             // Each must be cleared by the resume clear or kept with a reason. Scope: this method
             // only. The refresh's own direct copies (CopyStartLocationFrom's start fields,
             // VesselName, the trajectory lists, CrewEndStates, SpawnSuppressedByRewind*,

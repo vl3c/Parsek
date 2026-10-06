@@ -30,8 +30,10 @@ id = "QL-4-quickload-booster-terminal"
 # WHY THIS LANE DOES NOT F9 FROM THE SPACE CENTER (the design's plan for QL-4).
 #
 # The design proposed: stage, quicksave, ExitToSpaceCenter (auto-merge commits), then
-# LoadGame the flight quicksave from the KSC. By code read that load never reaches the
-# trim, so it cannot witness the fix:
+# LoadGame the flight quicksave from the KSC. That route reaches the trim through a
+# different restore path, so it has its own lane (QL-4b) and this one keeps the plain
+# refresh/detach shape. Before the committed-copy restore rule that load never reached the
+# trim:
 #   1. ExitToSpaceCenter calls SceneExitInterceptor.SafeWritePersistent before
 #      LoadScene (stock saveAndExit). That OnSave runs ParsekScenario.SaveActiveTreeIfAny,
 #      which flushes the recorder and rewrites every dirty sidecar with the epoch
@@ -46,10 +48,12 @@ id = "QL-4-quickload-booster-terminal"
 #      the flight resumes unrecorded, the committed future tree stays committed, and the
 #      reconcile never runs.
 # Re-Fly does not hit this only because RewindInvoker refreshes the rewind-point
-# quicksave's sidecar epochs before loading it; a plain load does not. That KSC route is
-# a separate shape (todo QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE,
-# Space Center route) and is NOT claimed here; it is unflown and
-# the forbidden `dropped entire tree` token below names it if this lane ever hits it.
+# quicksave's sidecar epochs before loading it; a plain load does not. The rule
+# (ParsekScenario.DecideCommittedCopyRestore, todo
+# QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE, fixed) now salvages
+# the stale members from the committed copy and detaches it; that route is lane QL-4b,
+# NOT claimed here, and the forbidden `dropped entire tree` token below still names the
+# pre-fix shape.
 #
 # THE ROUTE TAKEN: COMMIT IN FLIGHT, THEN F9 IN FLIGHT. CommitTree commits the tree
 # without an OnSave, and RecordingStore.FlushDirtyFiles keeps every positive epoch
@@ -107,14 +111,14 @@ id = "QL-4-quickload-booster-terminal"
 # `subkind = "expectation"` with those strings as `mismatches`.
 #
 # READING-RUN NOTES (what to check first if the first flight reds):
-#   - `Sidecar epoch mismatch` lines plus no `removed committed tree` mean an OnSave
-#     (KSP's own FlightAutoSave) landed between SaveGame and LoadGame. The
-#     load then keeps the in-memory Limbo clone instead (the stale-epoch keep), nothing
-#     is detached, every member reads as still committed and the reconcile logs
-#     `reason=empty-plan`. That is a premise miss for this lane's refresh/detach tokens
-#     AND a product finding: the in-flight route of todo
-#     QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE (OPEN), which
-#     leaves the abandoned future committed. File the run against that todo entry.
+#   - `Sidecar epoch mismatch` lines mean an OnSave (KSP's own FlightAutoSave) landed
+#     between SaveGame and LoadGame: lane QL-4c's shape. The committed-copy restore line
+#     then reads `staleMembers>=1 ... replacesStaleKeep=true` and the stale members are
+#     salvaged instead of refreshed, so this lane's `refreshedRecordings>=2` splice token
+#     can miss: a premise miss, not a product finding. `keeping in-memory pending tree`
+#     plus `reason=empty-plan` would be the pre-fix in-flight route of todo
+#     QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE: a regression of
+#     that fix, file it there.
 #   - A REJECTED WarpToUT ut=150 (backward) means the mission ended after UT 150:
 #     driver-INVALID; re-derive the target from the run.
 #   - The rewind point is NOT pinned: the F9 rebuilds it from the quicksave (TA-1 owns

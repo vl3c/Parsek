@@ -1718,8 +1718,10 @@ namespace Parsek.Tests
         public void Recording_RefreshFromCommittedSidecar_PreservesSwitchSegmentSessionId()
         {
             // Fails if: a future refactor of
-            // ParsekScenario.RefreshLoadedRecordingFromCommittedSplit (or its
-            // companion RestoreCommittedSidecarPayloadIntoActiveTreeRecording)
+            // ParsekScenario.CopyCommittedPayloadIntoLoadedRecording (the
+            // overwrite behind RefreshLoadedRecordingFromCommittedSplit and the
+            // stale-epoch salvage), or its companion
+            // RestoreCommittedSidecarPayloadIntoActiveTreeRecording,
             // drops the SwitchSegmentSessionId snapshot/restore lines, silently
             // clobbering the field during sidecar refresh.
             //
@@ -1759,7 +1761,7 @@ namespace Parsek.Tests
             // or "... = target.SwitchSegmentSessionId;") + 1 restore.
             Assert.True(snapshotCount >= 2,
                 $"Expected at least 2 snapshots of switchSegmentSessionId; got {snapshotCount}. "
-                + "Both RefreshLoadedRecordingFromCommittedSplit and "
+                + "Both CopyCommittedPayloadIntoLoadedRecording and "
                 + "RestoreCommittedSidecarPayloadIntoActiveTreeRecording must "
                 + "snapshot SwitchSegmentSessionId before the DeepClone overwrite.");
             Assert.True(restoreCount >= 2,
