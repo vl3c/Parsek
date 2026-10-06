@@ -549,6 +549,11 @@ namespace Parsek
             double oldFunds = lastFunds;
             lastFunds = newFunds;
 
+            // An open UpgradeFacility scope reads stock's StructureConstruction debit off this
+            // same delta, so the upgrade row's cost equals the FundsChanged event below. It
+            // ignores every other reason and does nothing outside a scope.
+            FacilityUpgradeCapture.ObserveFundsChange(reason, oldFunds, newFunds);
+
             if (SuppressResourceEvents)
             {
                 ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-funds",
@@ -1271,6 +1276,17 @@ namespace Parsek
             string buildingId, bool nowIntact, double ut, float repairCost, string source)
         {
             return facilityRecorder.RecordBuildingTransition(buildingId, nowIntact, ut, repairCost, source);
+        }
+
+        /// <summary>
+        /// Test seam: records a facility level change through the same core the
+        /// OnKSCFacilityUpgrading handler uses, with explicit normalized levels and UT (the
+        /// handler takes an UpgradeableFacility and reads Planetarium, both absent headless).
+        /// </summary>
+        internal bool RecordFacilityLevelChangeForTesting(
+            string facilityId, float beforeNorm, float afterNorm, double ut)
+        {
+            return facilityRecorder.RecordEventDrivenLevelChange(facilityId, beforeNorm, afterNorm, ut);
         }
 
         #endregion

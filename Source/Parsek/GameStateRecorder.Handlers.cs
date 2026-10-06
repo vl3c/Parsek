@@ -747,29 +747,48 @@ namespace Parsek
             // zeros as defaults and rely on the AwardProgressPatch Harmony postfix to
             // update the detail in place once it has the real reward values. For non-
             // career modes the zeros are correct (no rewards apply).
+            //
+            // World-record nodes are the exception: their iterateVessels runs the whole
+            // award loop (one AwardProgress per threshold) BEFORE Complete(), so nothing
+            // follows the completion. Its event stands for no threshold, and leaving it
+            // pending would hand the NEXT award of that node (after any reset) to this old
+            // event, overwriting its reward instead of recording the new one.
+            bool worldRecordCompletion =
+                MilestonesModule.IsRepeatableWorldRecordMilestone(milestoneId);
             var evt = new GameStateEvent
             {
                 ut = ut,
                 eventType = GameStateEventType.MilestoneAchieved,
                 key = milestoneId,
-                detail = BuildMilestoneDetail(0.0, 0f, 0.0)
+                detail = worldRecordCompletion
+                    ? BuildMilestoneDetail(0.0, 0f, 0.0, recordThresholds: 0)
+                    : BuildMilestoneDetail(0.0, 0f, 0.0)
             };
             Emit(ref evt, "MilestoneAchieved");
 
-            // Emit/AddEvent take `ref GameStateEvent`, so `evt` here already carries the
-            // final identity fields — no mirror needed. The cached copy below is
-            // guaranteed to match the stored slot.
-            //
-            // #443: Tag node.Id -> event association (was ProgressNode reference pre-#443).
-            // The key is the qualified milestone id (e.g. "Kerbin/Landing"), which both
-            // OnProgressComplete and the AwardProgress postfix derive deterministically
-            // via QualifyMilestoneId(node). Re-keying by string removes any future
-            // exposure to ProgressNode instance-aliasing should KSP ever rebuild nodes
-            // mid-Complete().
-            PendingMilestoneEventById[milestoneId] = evt;
+            if (worldRecordCompletion)
+            {
+                ParsekLog.Info("GameStateRecorder",
+                    $"Game state: MilestoneAchieved '{milestoneId}' (world-record completion: " +
+                    "its thresholds were awarded before it, thresholds=0, not awaiting enrichment)");
+            }
+            else
+            {
+                // Emit/AddEvent take `ref GameStateEvent`, so `evt` here already carries the
+                // final identity fields — no mirror needed. The cached copy below is
+                // guaranteed to match the stored slot.
+                //
+                // #443: Tag node.Id -> event association (was ProgressNode reference pre-#443).
+                // The key is the qualified milestone id (e.g. "Kerbin/Landing"), which both
+                // OnProgressComplete and the AwardProgress postfix derive deterministically
+                // via QualifyMilestoneId(node). Re-keying by string removes any future
+                // exposure to ProgressNode instance-aliasing should KSP ever rebuild nodes
+                // mid-Complete().
+                PendingMilestoneEventById[milestoneId] = evt;
 
-            ParsekLog.Info("GameStateRecorder",
-                $"Game state: MilestoneAchieved '{milestoneId}' (awaiting reward enrichment)");
+                ParsekLog.Info("GameStateRecorder",
+                    $"Game state: MilestoneAchieved '{milestoneId}' (awaiting reward enrichment)");
+            }
 
             // Milestones can fire at KSC (e.g., facility-related) or in flight.
             // Write directly to ledger when no recording owner exists.
@@ -790,6 +809,22 @@ namespace Parsek
             return $"funds={funds.ToString("R", ic)};" +
                    $"rep={rep.ToString("R", ic)};" +
                    $"sci={sci.ToString("R", ic)}";
+        }
+
+        /// <summary>
+        /// World-record form of <see cref="BuildMilestoneDetail(double, float, double)"/>:
+        /// also carries how many reward thresholds the event stands for, under
+        /// <see cref="GameStateEventConverter.MilestoneRecordThresholdsDetailKey"/>, written
+        /// only when not 1 (an absent key reads 1, so a one-threshold detail keeps the plain
+        /// shape). Internal static for testability.
+        /// </summary>
+        internal static string BuildMilestoneDetail(double funds, float rep, double sci, int recordThresholds)
+        {
+            string detail = BuildMilestoneDetail(funds, rep, sci);
+            if (recordThresholds == 1)
+                return detail;
+            return detail + ";" + GameStateEventConverter.MilestoneRecordThresholdsDetailKey + "=" +
+                   recordThresholds.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         /// <summary>
@@ -1116,8 +1151,12 @@ namespace Parsek
             double newFunds = prior.MilestoneFundsAwarded + funds;
             float newRep = prior.MilestoneRepAwarded + rep;
             double newSci = prior.MilestoneScienceAwarded + sci;
+            // Every AwardProgress call is one stock reward threshold. The record-node patch
+            // rebuilds the node's band from the threshold sum over rows, so the folded row
+            // must keep counting them or the next recalc reopens the thresholds just paid.
+            int newThresholds = prior.MilestoneRecordThresholds + 1;
 
-            string newDetail = BuildMilestoneDetail(newFunds, newRep, newSci);
+            string newDetail = BuildMilestoneDetail(newFunds, newRep, newSci, newThresholds);
             if (!GameStateStore.UpdateEventDetail(seed, newDetail))
             {
                 // The seed was found in the snapshot but the identity-keyed update missed —
@@ -1131,7 +1170,12 @@ namespace Parsek
 
             // Accumulate the matching ledger action in place, if the direct path already
             // forwarded a seed action for this scope. (No action exists while a recording is
-            // live; those events become a single action at commit time.)
+            // live; those events become a single action at commit time.) Only the seed's OWN
+            // row, matched by its UT the way EnrichPendingMilestoneRewards matches: a
+            // recording that keeps its id past an in-flight commit has older committed rows in
+            // the same scope, and folding into one of them books the award twice once the
+            // seed event commits as its own row.
+            bool ledgerRowUpdated = false;
             if (LedgerOrchestrator.IsInitialized)
             {
                 var actions = Ledger.Actions;
@@ -1141,13 +1185,21 @@ namespace Parsek
                     if (a.Type != GameActionType.MilestoneAchievement) continue;
                     if (a.MilestoneId != milestoneId) continue;
                     if ((a.RecordingId ?? "") != recordingId) continue;
+                    if (Math.Abs(a.UT - seed.ut) > 0.1) continue;
                     a.MilestoneFundsAwarded += (float)funds;
                     a.MilestoneRepAwarded += rep;
                     a.MilestoneScienceAwarded += (float)sci;
+                    a.MilestoneRecordThresholds += 1;
+                    ledgerRowUpdated = true;
                     break;
                 }
             }
 
+            // Rate-limited: stock re-awards a record's last threshold on every iteration while
+            // the record sits between that threshold and a maximum the threshold rounding fell
+            // short of (RecordsAltitude on a home body whose atmosphere depth is not a multiple
+            // of 500 m), so this can fire per frame. The running totals keep a suppressed
+            // line's effect visible on the next one.
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             ParsekLog.VerboseRateLimited("GameStateRecorder",
                 "worldrecord-coalesce-" + milestoneId + "-" + recordingId,
@@ -1155,7 +1207,8 @@ namespace Parsek
                 $"+funds={funds.ToString("F0", ic)} +rep={rep.ToString("F1", ic)} " +
                 $"+sci={sci.ToString("F1", ic)} -> totals funds={newFunds.ToString("F0", ic)} " +
                 $"rep={newRep.ToString("F1", ic)} sci={newSci.ToString("F1", ic)} " +
-                "(no new action, no recalc)");
+                $"thresholds={newThresholds.ToString(ic)} seedUT={seed.ut.ToString("F1", ic)} " +
+                $"ledgerRow={(ledgerRowUpdated ? "updated" : "none")} (no new action, no recalc)");
             return true;
         }
 
