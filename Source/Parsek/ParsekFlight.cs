@@ -18258,6 +18258,13 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Test seam replacing the leaf spawn call in <see cref="SpawnVesselOrChainTip"/>
+        /// (rec, index, preserveIdentity, allowExistingSourceDuplicate); the real call needs a
+        /// live KSP scene.
+        /// </summary>
+        internal static Action<Recording, int, bool, bool> LeafSpawnOverrideForTesting;
+
+        /// <summary>
         /// The stale vessel a chain-tip replacement removed was the navigation target: the
         /// target moves to the tip that replaced it (same pid, new Vessel object).
         /// </summary>
@@ -18414,19 +18421,30 @@ namespace Parsek
                 // a chain tip's identity after a rewind to before the tip is that vessel in its
                 // pre-claim form. It is replaced by the tip with its identity preserved, the
                 // same end state the chain path reaches, instead of adopted.
-                bool replacedStaleVessel = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
+                StaleVesselReplacement staleReplacement = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
                     rec,
                     "FLIGHT",
                     index,
-                    out StaleChainVesselFocus staleFocus,
                     allowExistingSourceDuplicate);
-                VesselSpawner.SpawnOrRecoverIfTooClose(
-                    rec,
-                    index,
-                    preserveIdentity: replacedStaleVessel,
-                    allowExistingSourceDuplicate: allowExistingSourceDuplicate);
+                bool replacedStaleVessel = staleReplacement != null;
+                try
+                {
+                    if (LeafSpawnOverrideForTesting != null)
+                        LeafSpawnOverrideForTesting(rec, index, replacedStaleVessel, allowExistingSourceDuplicate);
+                    else
+                        VesselSpawner.SpawnOrRecoverIfTooClose(
+                            rec,
+                            index,
+                            preserveIdentity: replacedStaleVessel,
+                            allowExistingSourceDuplicate: allowExistingSourceDuplicate);
+                }
+                finally
+                {
+                    // A replacement whose tip spawned no vessel puts the removed vessel back.
+                    ChainTipStaleVessel.CompleteReplacement(rec, staleReplacement);
+                }
                 if (replacedStaleVessel
-                    && staleFocus.WasNavigationTarget
+                    && staleReplacement.Focus.WasNavigationTarget
                     && rec.SpawnedVesselPersistentId != 0)
                     RetargetReplacedChainTip(rec.SpawnedVesselPersistentId);
             }

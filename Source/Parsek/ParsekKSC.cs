@@ -1994,13 +1994,16 @@ namespace Parsek
                 GhostPlaybackLogic.LogChainLoopFirstRunSpawn(
                     "KSCSpawn", "SPACECENTER", recIdx, rec, Planetarium.GetUniversalTime(), true);
 
+            StaleVesselReplacement staleReplacement = null;
             try
             {
                 // The Ghost Chain Rule here: a live vessel carrying a chain tip's identity after
                 // a rewind to before the tip is the claimed vessel in its pre-claim form. It is
-                // replaced by the tip (spawned below with its identity preserved), never adopted.
-                bool replacedStaleVessel = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
-                    rec, "SPACECENTER", recIdx, out _);
+                // replaced by the tip (spawned below with its identity preserved), never adopted;
+                // the finally below puts it back if the tip spawns no vessel.
+                staleReplacement = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
+                    rec, "SPACECENTER", recIdx);
+                bool replacedStaleVessel = staleReplacement != null;
                 if (!replacedStaleVessel
                     && VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
                         rec,
@@ -2339,6 +2342,10 @@ namespace Parsek
             {
                 ParsekLog.Error("KSCSpawn",
                     $"Spawn exception for #{recIdx} \"{rec.VesselName}\": {ex}");
+            }
+            finally
+            {
+                ChainTipStaleVessel.CompleteReplacement(rec, staleReplacement);
             }
         }
 

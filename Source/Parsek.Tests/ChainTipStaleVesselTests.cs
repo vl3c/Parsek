@@ -8,11 +8,11 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT: a chain tip whose spawn UT passes outside
-    /// the flight chain path must replace the live pre-claim original, not adopt it. Fixture:
-    /// a transport (pid 500) docks to a station (pid 777) and undocks; the station half keeps
-    /// the station's pid and launch guid and is the chain tip; a live vessel with pid 777 and
-    /// that guid, last simulated at UT 900 (before the dock at 1500), is the station as the
-    /// rewind left it.
+    /// the flight chain path must replace the live pre-claim original, not adopt it, and a
+    /// replacement must never lose the vessel. Fixture: a transport (pid 500) docks to a
+    /// station (pid 777) and undocks; the station half keeps the station's pid and launch guid
+    /// and is the chain tip; a live vessel with pid 777 and that guid, last simulated at UT 900
+    /// (before the dock at 1500), is the station as the rewind left it.
     /// </summary>
     [Collection("Sequential")]
     public class ChainTipStaleVesselTests : IDisposable
@@ -25,7 +25,8 @@ namespace Parsek.Tests
         private const double PreClaimLastUT = 900.0;
 
         private readonly List<string> logLines = new List<string>();
-        private readonly List<uint> despawned = new List<uint>();
+        private readonly List<uint> removed = new List<uint>();
+        private readonly List<uint> restored = new List<uint>();
         private bool stationLive = true;
         private double stationLastUT = PreClaimLastUT;
 
@@ -42,6 +43,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.ResetVesselCacheForTesting();
             VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
             ChainTipStaleVessel.ResetForTesting();
+            ParsekFlight.LeafSpawnOverrideForTesting = null;
             ParsekSettingsPersistence.ResetForTesting();
             ParsekScenario.SetInstanceForTesting(null);
             ParsekLog.ResetTestOverrides();
@@ -57,17 +59,28 @@ namespace Parsek.Tests
             ChainTipStaleVessel.LiveVesselInUseOverrideForTesting = _ => false;
             ChainTipStaleVessel.LiveVesselLastUTOverrideForTesting =
                 pid => pid == StationPid ? stationLastUT : double.NaN;
-            ChainTipStaleVessel.DespawnOverrideForTesting = (pid, scene) =>
+            ChainTipStaleVessel.RemoveOverrideForTesting = (pid, scene) =>
             {
-                despawned.Add(pid);
+                removed.Add(pid);
                 stationLive = false;
-                return true;
+                var snapshot = new ConfigNode("VESSEL");
+                snapshot.AddValue("persistentId", pid.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                return snapshot;
+            };
+            ChainTipStaleVessel.RestoreOverrideForTesting = (snapshot, pid, scene) =>
+            {
+                Assert.Equal(pid.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    snapshot.GetValue("persistentId"));
+                restored.Add(pid);
+                stationLive = true;
+                return pid;
             };
         }
 
         public void Dispose()
         {
             ChainTipStaleVessel.ResetForTesting();
+            ParsekFlight.LeafSpawnOverrideForTesting = null;
             GhostPlaybackLogic.ResetVesselExistsOverride();
             GhostPlaybackLogic.ResetVesselGuidResolverOverrideForTesting();
             GhostPlaybackLogic.ResetVesselCacheForTesting();
@@ -175,6 +188,30 @@ namespace Parsek.Tests
             return GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, 0.0);
         }
 
+        /// <summary>The evidence of the stale station: live, rewound before, pre-claim, spawnable, free.</summary>
+        private static StaleVesselEvidence Stale(
+            bool liveExists = true,
+            bool seenBefore = true,
+            double lastUT = PreClaimLastUT,
+            bool inUse = false,
+            string blocker = null)
+        {
+            return new StaleVesselEvidence
+            {
+                LiveExists = liveExists,
+                PlayheadSeenBeforeTip = seenBefore,
+                LiveLastUT = lastUT,
+                LiveInUse = inUse,
+                TipSpawnBlocker = blocker
+            };
+        }
+
+        private static void SpawnTipAs(Recording rec, uint pid)
+        {
+            rec.VesselSpawned = true;
+            rec.SpawnedVesselPersistentId = pid;
+        }
+
         #endregion
 
         #region Pure predicate
@@ -196,11 +233,8 @@ namespace Parsek.Tests
         {
             Recording tip = CommitDockUndockTree();
 
-            bool replace = ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
-                tip, Chains(), liveSameLaunchVesselExists: true, playheadSeenBeforeTip: true,
-                liveVesselLastUT: PreClaimLastUT, liveVesselInUse: false, out string reason);
-
-            Assert.True(replace);
+            Assert.True(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
+                tip, Chains(), Stale(), out string reason));
             Assert.Equal(ChainTipStaleVessel.ReasonReplace, reason);
         }
 
@@ -208,13 +242,10 @@ namespace Parsek.Tests
         public void Predicate_AlreadySpawnedTip_LeavesTheSiteUnchanged()
         {
             Recording tip = CommitDockUndockTree();
-            tip.VesselSpawned = true;
-            tip.SpawnedVesselPersistentId = StationPid;
+            SpawnTipAs(tip, StationPid);
 
-            bool replace = ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
-                tip, Chains(), true, true, PreClaimLastUT, false, out string reason);
-
-            Assert.False(replace);
+            Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
+                tip, Chains(), Stale(), out string reason));
             Assert.Equal(ChainTipStaleVessel.ReasonTipSpawned, reason);
         }
 
@@ -225,10 +256,8 @@ namespace Parsek.Tests
             var standalone = MakeRecording("standalone", 4242u, StationGuid, 100, 200,
                 TerminalState.Orbiting, null, null, "Probe");
 
-            bool replace = ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
-                standalone, Chains(), true, true, PreClaimLastUT, false, out string reason);
-
-            Assert.False(replace);
+            Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
+                standalone, Chains(), Stale(), out string reason));
             Assert.Equal(ChainTipStaleVessel.ReasonNotChainTip, reason);
         }
 
@@ -238,10 +267,8 @@ namespace Parsek.Tests
             CommitDockUndockTree();
             Recording merged = RecordingStore.CommittedTrees[0].Recordings["merged"];
 
-            bool replace = ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
-                merged, Chains(), true, true, PreClaimLastUT, false, out string reason);
-
-            Assert.False(replace);
+            Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
+                merged, Chains(), Stale(), out string reason));
             Assert.Equal(ChainTipStaleVessel.ReasonNotChainTip, reason);
         }
 
@@ -252,10 +279,8 @@ namespace Parsek.Tests
             var chains = Chains();
             Assert.True(GhostChainWalker.FindChainForVessel(chains, StationPid).IsTerminated);
 
-            bool replace = ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
-                tip, chains, true, true, PreClaimLastUT, false, out string reason);
-
-            Assert.False(replace);
+            Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
+                tip, chains, Stale(), out string reason));
             Assert.Equal(ChainTipStaleVessel.ReasonTerminated, reason);
         }
 
@@ -265,11 +290,8 @@ namespace Parsek.Tests
             // Normal forward play: the live station IS the vessel the tip recorded.
             Recording tip = CommitDockUndockTree();
 
-            bool replace = ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
-                tip, Chains(), true, playheadSeenBeforeTip: false, liveVesselLastUT: PreClaimLastUT,
-                liveVesselInUse: false, out string reason);
-
-            Assert.False(replace);
+            Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
+                tip, Chains(), Stale(seenBefore: false), out string reason));
             Assert.Equal(ChainTipStaleVessel.ReasonNotRewoundBeforeTip, reason);
         }
 
@@ -281,12 +303,10 @@ namespace Parsek.Tests
             Recording tip = CommitDockUndockTree();
 
             Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
-                tip, Chains(), true, true, liveVesselLastUT: DockUT, liveVesselInUse: false,
-                out string atClaim));
+                tip, Chains(), Stale(lastUT: DockUT), out string atClaim));
             Assert.Equal(ChainTipStaleVessel.ReasonSimulatedSinceClaim, atClaim);
             Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
-                tip, Chains(), true, true, liveVesselLastUT: 1650.0, liveVesselInUse: false,
-                out string afterTip));
+                tip, Chains(), Stale(lastUT: 1650.0), out string afterTip));
             Assert.Equal(ChainTipStaleVessel.ReasonSimulatedSinceClaim, afterTip);
         }
 
@@ -295,11 +315,8 @@ namespace Parsek.Tests
         {
             Recording tip = CommitDockUndockTree();
 
-            bool replace = ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
-                tip, Chains(), true, true, liveVesselLastUT: double.NaN, liveVesselInUse: false,
-                out string reason);
-
-            Assert.False(replace);
+            Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
+                tip, Chains(), Stale(lastUT: double.NaN), out string reason));
             Assert.Equal(ChainTipStaleVessel.ReasonSimulatedSinceClaim, reason);
         }
 
@@ -310,8 +327,7 @@ namespace Parsek.Tests
             Recording tip = CommitDockUndockTree();
 
             Assert.True(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
-                tip, Chains(), true, true, liveVesselLastUT: -1.0, liveVesselInUse: false,
-                out string reason));
+                tip, Chains(), Stale(lastUT: -1.0), out string reason));
             Assert.Equal(ChainTipStaleVessel.ReasonReplace, reason);
         }
 
@@ -338,13 +354,21 @@ namespace Parsek.Tests
             chain.Links.Add(new ChainLink { recordingId = "second-dock", ut = 2500.0 });
 
             Assert.True(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
-                tip, chains, true, true, liveVesselLastUT: 1550.0, liveVesselInUse: false,
-                out string between));
+                tip, chains, Stale(lastUT: 1550.0), out string between));
             Assert.Equal(ChainTipStaleVessel.ReasonReplace, between);
             Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
-                tip, chains, true, true, liveVesselLastUT: 2600.0, liveVesselInUse: false,
-                out string after));
+                tip, chains, Stale(lastUT: 2600.0), out string after));
             Assert.Equal(ChainTipStaleVessel.ReasonSimulatedSinceClaim, after);
+        }
+
+        [Fact]
+        public void Predicate_TipThatCannotSpawn_KeepsTheLiveVessel()
+        {
+            Recording tip = CommitDockUndockTree();
+
+            Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
+                tip, Chains(), Stale(blocker: ChainTipStaleVessel.BlockerAttemptCap), out string reason));
+            Assert.Equal(ChainTipStaleVessel.ReasonTipCannotSpawn, reason);
         }
 
         [Fact]
@@ -352,10 +376,8 @@ namespace Parsek.Tests
         {
             Recording tip = CommitDockUndockTree();
 
-            bool replace = ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
-                tip, Chains(), true, true, PreClaimLastUT, liveVesselInUse: true, out string reason);
-
-            Assert.False(replace);
+            Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
+                tip, Chains(), Stale(inUse: true), out string reason));
             Assert.Equal(ChainTipStaleVessel.ReasonInUse, reason);
         }
 
@@ -364,12 +386,35 @@ namespace Parsek.Tests
         {
             Recording tip = CommitDockUndockTree();
 
-            bool replace = ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
-                tip, Chains(), liveSameLaunchVesselExists: false, playheadSeenBeforeTip: true,
-                liveVesselLastUT: PreClaimLastUT, liveVesselInUse: false, out string reason);
-
-            Assert.False(replace);
+            Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
+                tip, Chains(), Stale(liveExists: false), out string reason));
             Assert.Equal(ChainTipStaleVessel.ReasonNoLiveVessel, reason);
+        }
+
+        [Fact]
+        public void TipSpawnBlocker_NamesEveryStateThatWouldSpawnNothing()
+        {
+            Recording tip = CommitDockUndockTree();
+            Assert.Null(ChainTipStaleVessel.ResolveTipSpawnBlocker(tip));
+
+            tip.SpawnAttempts = VesselSpawner.MaxSpawnAttempts;
+            Assert.Equal(ChainTipStaleVessel.BlockerAttemptCap, ChainTipStaleVessel.ResolveTipSpawnBlocker(tip));
+            tip.SpawnAttempts = 0;
+
+            tip.TerminalSpawnCannotSpawnSafely = true;
+            Assert.Equal(ChainTipStaleVessel.BlockerTerminalOrbitHold, ChainTipStaleVessel.ResolveTipSpawnBlocker(tip));
+            tip.TerminalSpawnCannotSpawnSafely = false;
+
+            tip.TerminalSpawnSafetyDeferred = true;
+            Assert.Equal(ChainTipStaleVessel.BlockerTerminalOrbitHold, ChainTipStaleVessel.ResolveTipSpawnBlocker(tip));
+            tip.TerminalSpawnSafetyDeferred = false;
+
+            tip.SpawnAbandoned = true;
+            Assert.Equal(ChainTipStaleVessel.BlockerAbandoned, ChainTipStaleVessel.ResolveTipSpawnBlocker(tip));
+            tip.SpawnAbandoned = false;
+
+            tip.VesselSnapshot = null;
+            Assert.Equal(ChainTipStaleVessel.BlockerNoSnapshot, ChainTipStaleVessel.ResolveTipSpawnBlocker(tip));
         }
 
         #endregion
@@ -385,21 +430,78 @@ namespace Parsek.Tests
             GhostMapPresence.TrackingStationSpawnOverrideForTesting = (rec, index, preserveIdentity) =>
             {
                 spawnedWithPreservedIdentity = preserveIdentity;
-                rec.VesselSpawned = true;
-                rec.SpawnedVesselPersistentId = StationPid;
+                SpawnTipAs(rec, StationPid);
             };
 
             bool handled = GhostMapPresence.TryRunTrackingStationSpawnHandoffForIndex(
                 new List<Recording> { tip }, 0, tip.EndUT + 10);
 
             Assert.True(handled);
-            Assert.Equal(new List<uint> { StationPid }, despawned);
+            Assert.Equal(new List<uint> { StationPid }, removed);
+            Assert.Empty(restored);
             Assert.True(spawnedWithPreservedIdentity);
             Assert.True(tip.VesselSpawned);
             Assert.DoesNotContain(logLines, l => l.Contains("skipped duplicate spawn"));
             Assert.Contains(logLines, l => l.Contains("[ChainTip]")
                 && l.Contains("Replacing stale pre-claim vessel (TRACKSTATION)")
                 && l.Contains("rec=station-tip"));
+            Assert.Contains(logLines, l => l.Contains("Chain-tip replacement complete (TRACKSTATION)"));
+        }
+
+        [Fact]
+        public void TrackingStationHandoff_TipSpawnsNothing_RestoresTheRemovedVessel()
+        {
+            Recording tip = CommitDockUndockTree();
+            LatchRewoundBefore(tip);
+            GhostMapPresence.TrackingStationSpawnOverrideForTesting = (rec, index, preserveIdentity) =>
+                rec.SpawnAttempts++;
+
+            GhostMapPresence.TryRunTrackingStationSpawnHandoffForIndex(
+                new List<Recording> { tip }, 0, tip.EndUT + 10);
+
+            Assert.Equal(new List<uint> { StationPid }, removed);
+            Assert.Equal(new List<uint> { StationPid }, restored);
+            Assert.True(stationLive);
+            Assert.False(tip.VesselSpawned);
+            Assert.Contains(logLines, l => l.Contains("[WARN][ChainTip]")
+                && l.Contains("spawned no vessel (TRACKSTATION)")
+                && l.Contains("restored the removed vessel pid=777"));
+        }
+
+        [Fact]
+        public void TrackingStationHandoff_TipSpawnThrows_RestoresTheRemovedVessel()
+        {
+            Recording tip = CommitDockUndockTree();
+            LatchRewoundBefore(tip);
+            GhostMapPresence.TrackingStationSpawnOverrideForTesting = (rec, index, preserveIdentity) =>
+                throw new InvalidOperationException("spawn blew up");
+
+            Assert.Throws<InvalidOperationException>(() =>
+                GhostMapPresence.TryRunTrackingStationSpawnHandoffForIndex(
+                    new List<Recording> { tip }, 0, tip.EndUT + 10));
+
+            Assert.Equal(new List<uint> { StationPid }, restored);
+            Assert.True(stationLive);
+        }
+
+        [Fact]
+        public void TrackingStationHandoff_TipOutOfSpawnAttempts_KeepsAndAdoptsTheLiveVessel()
+        {
+            Recording tip = CommitDockUndockTree();
+            LatchRewoundBefore(tip);
+            tip.SpawnAttempts = VesselSpawner.MaxSpawnAttempts;
+            bool spawnCalled = false;
+            GhostMapPresence.TrackingStationSpawnOverrideForTesting = (rec, index, preserveIdentity) =>
+                spawnCalled = true;
+
+            GhostMapPresence.TryRunTrackingStationSpawnHandoffForIndex(
+                new List<Recording> { tip }, 0, tip.EndUT + 10);
+
+            Assert.Empty(removed);
+            Assert.False(spawnCalled);
+            Assert.Equal(StationPid, tip.SpawnedVesselPersistentId);
+            Assert.Contains(logLines, l => l.Contains("Stale chain-tip vessel kept (TRACKSTATION)")
+                && l.Contains(ChainTipStaleVessel.BlockerAttemptCap));
         }
 
         [Fact]
@@ -414,7 +516,7 @@ namespace Parsek.Tests
                 new List<Recording> { tip }, 0, tip.EndUT + 10);
 
             Assert.True(handled);
-            Assert.Empty(despawned);
+            Assert.Empty(removed);
             Assert.False(spawnCalled);
             Assert.True(tip.VesselSpawned);
             Assert.Equal(StationPid, tip.SpawnedVesselPersistentId);
@@ -437,7 +539,7 @@ namespace Parsek.Tests
             GhostMapPresence.TryRunTrackingStationSpawnHandoffForIndex(
                 new List<Recording> { tip }, 0, tip.EndUT + 10);
 
-            Assert.Empty(despawned);
+            Assert.Empty(removed);
             Assert.False(spawnCalled);
             Assert.Equal(StationPid, tip.SpawnedVesselPersistentId);
         }
@@ -457,7 +559,7 @@ namespace Parsek.Tests
             GhostMapPresence.TryRunTrackingStationSpawnHandoffForIndex(
                 new List<Recording> { tip }, 0, tip.EndUT + 10);
 
-            Assert.Empty(despawned);
+            Assert.Empty(removed);
             Assert.False(spawnCalled);
             Assert.Equal(StationPid, tip.SpawnedVesselPersistentId);
             Assert.Contains(logLines, l => l.Contains("[ChainTip]")
@@ -469,7 +571,7 @@ namespace Parsek.Tests
         {
             Recording tip = CommitDockUndockTree();
             LatchRewoundBefore(tip);
-            ChainTipStaleVessel.DespawnOverrideForTesting = (pid, scene) => false;
+            ChainTipStaleVessel.RemoveOverrideForTesting = (pid, scene) => null;
             bool spawnCalled = false;
             GhostMapPresence.TrackingStationSpawnOverrideForTesting = (rec, index, preserveIdentity) =>
                 spawnCalled = true;
@@ -478,6 +580,7 @@ namespace Parsek.Tests
                 new List<Recording> { tip }, 0, tip.EndUT + 10);
 
             Assert.False(spawnCalled);
+            Assert.Empty(restored);
             Assert.Equal(StationPid, tip.SpawnedVesselPersistentId);
             Assert.Contains(logLines, l => l.Contains("[ChainTip]")
                 && l.Contains("Stale chain-tip vessel removal failed (TRACKSTATION)"));
@@ -493,11 +596,11 @@ namespace Parsek.Tests
             Recording tip = CommitDockUndockTree();
             LatchRewoundBefore(tip);
 
-            bool replaced = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
-                tip, "SPACECENTER", 4, out StaleChainVesselFocus focus);
+            StaleVesselReplacement replacement = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
+                tip, "SPACECENTER", 4);
 
-            Assert.True(replaced);
-            Assert.Equal(new List<uint> { StationPid }, despawned);
+            Assert.NotNull(replacement);
+            Assert.Equal(new List<uint> { StationPid }, removed);
             // The site's adoption check that follows now finds nothing to adopt.
             Assert.False(VesselSpawner.TryAdoptExistingSourceVesselForSpawn(tip, "KSCSpawn", "test"));
             Assert.Equal(0u, tip.SpawnedVesselPersistentId);
@@ -505,15 +608,58 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SpaceCenterEndSpawn_DeadCrewAbandon_RestoresTheRemovedVessel()
+        {
+            // The KSC spawn's dead-crew branch settles the tip spawned-with-no-vessel; the
+            // site's finally then completes the replacement.
+            Recording tip = CommitDockUndockTree();
+            LatchRewoundBefore(tip);
+            StaleVesselReplacement replacement = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
+                tip, "SPACECENTER", 4);
+            tip.VesselSpawned = true;
+            tip.SpawnAbandoned = true;
+
+            Assert.True(ChainTipStaleVessel.CompleteReplacement(tip, replacement));
+
+            Assert.Equal(new List<uint> { StationPid }, restored);
+            Assert.True(stationLive);
+        }
+
+        [Fact]
+        public void CompleteReplacement_TipSpawned_RestoresNothing()
+        {
+            Recording tip = CommitDockUndockTree();
+            LatchRewoundBefore(tip);
+            StaleVesselReplacement replacement = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
+                tip, "SPACECENTER", 4);
+            SpawnTipAs(tip, StationPid);
+
+            Assert.False(ChainTipStaleVessel.CompleteReplacement(tip, replacement));
+            Assert.Empty(restored);
+            Assert.False(ChainTipStaleVessel.CompleteReplacement(tip, null));
+        }
+
+        [Fact]
+        public void CompleteReplacement_RestoreFails_SaysSoAsAnError()
+        {
+            Recording tip = CommitDockUndockTree();
+            LatchRewoundBefore(tip);
+            StaleVesselReplacement replacement = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
+                tip, "SPACECENTER", 4);
+            ChainTipStaleVessel.RestoreOverrideForTesting = (snapshot, pid, scene) => 0u;
+
+            Assert.False(ChainTipStaleVessel.CompleteReplacement(tip, replacement));
+            Assert.Contains(logLines, l => l.Contains("[ERROR][ChainTip]")
+                && l.Contains("could not be restored"));
+        }
+
+        [Fact]
         public void SpaceCenterEndSpawn_NeverRewoundBeforeTheTip_AdoptsAsBefore()
         {
             Recording tip = CommitDockUndockTree();
 
-            bool replaced = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
-                tip, "SPACECENTER", 4, out StaleChainVesselFocus focus);
-
-            Assert.False(replaced);
-            Assert.Empty(despawned);
+            Assert.Null(ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(tip, "SPACECENTER", 4));
+            Assert.Empty(removed);
             Assert.True(VesselSpawner.TryAdoptExistingSourceVesselForSpawn(tip, "KSCSpawn", "test"));
             Assert.Equal(StationPid, tip.SpawnedVesselPersistentId);
         }
@@ -526,11 +672,8 @@ namespace Parsek.Tests
             VesselSpawner.SetMaterializedSourceVesselGuidOverrideForTesting(
                 pid => pid == StationPid ? "ffffffffffffffffffffffffffffffff" : null);
 
-            bool replaced = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
-                tip, "SPACECENTER", 4, out StaleChainVesselFocus focus);
-
-            Assert.False(replaced);
-            Assert.Empty(despawned);
+            Assert.Null(ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(tip, "SPACECENTER", 4));
+            Assert.Empty(removed);
         }
 
         [Fact]
@@ -539,11 +682,9 @@ namespace Parsek.Tests
             Recording tip = CommitDockUndockTree();
             LatchRewoundBefore(tip);
 
-            bool replaced = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
-                tip, "FLIGHT", 1, out StaleChainVesselFocus focus, allowExistingSourceDuplicate: true);
-
-            Assert.False(replaced);
-            Assert.Empty(despawned);
+            Assert.Null(ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
+                tip, "FLIGHT", 1, allowExistingSourceDuplicate: true));
+            Assert.Empty(removed);
         }
 
         [Fact]
@@ -553,35 +694,56 @@ namespace Parsek.Tests
             LatchRewoundBefore(tip);
             ChainTipStaleVessel.LiveVesselInUseOverrideForTesting = pid => pid == StationPid;
 
-            bool replaced = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
-                tip, "FLIGHT", 1, out StaleChainVesselFocus focus);
-
-            Assert.False(replaced);
-            Assert.Empty(despawned);
+            Assert.Null(ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(tip, "FLIGHT", 1));
+            Assert.Empty(removed);
             Assert.Contains(logLines, l => l.Contains("[INFO][ChainTip]")
                 && l.Contains("Stale chain-tip vessel kept (FLIGHT)"));
+        }
+
+        private static void InvokeFlightLeafSpawn(Recording rec, int index)
+        {
+            // The ordinary flight leaf path (no active ghost chain: the flight loaded past the
+            // tip's spawn UT).
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            MethodInfo spawn = typeof(ParsekFlight).GetMethod(
+                "SpawnVesselOrChainTip", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(spawn);
+            spawn.Invoke(host, new object[] { rec, index });
         }
 
         [Fact]
         public void FlightLeafSpawn_PastSpawnUTWithStaleVessel_ReplacesInsteadOfAdopting()
         {
-            // The ordinary flight leaf path (no active ghost chain: the flight loaded past
-            // the tip's spawn UT). SpawnAttempts at the cap stops the shared spawn helper right
-            // after its adoption check, before any KSP call.
             Recording tip = CommitDockUndockTree();
             LatchRewoundBefore(tip);
-            tip.SpawnAttempts = 3;
-            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
-            MethodInfo spawn = typeof(ParsekFlight).GetMethod(
-                "SpawnVesselOrChainTip", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(spawn);
+            bool? spawnedWithPreservedIdentity = null;
+            ParsekFlight.LeafSpawnOverrideForTesting = (rec, index, preserveIdentity, allowDuplicate) =>
+            {
+                spawnedWithPreservedIdentity = preserveIdentity;
+                SpawnTipAs(rec, StationPid);
+            };
 
-            spawn.Invoke(host, new object[] { tip, 0 });
+            InvokeFlightLeafSpawn(tip, 0);
 
-            Assert.Equal(new List<uint> { StationPid }, despawned);
-            Assert.False(tip.VesselSpawned);
-            Assert.Equal(0u, tip.SpawnedVesselPersistentId);
+            Assert.Equal(new List<uint> { StationPid }, removed);
+            Assert.Empty(restored);
+            Assert.True(spawnedWithPreservedIdentity);
             Assert.Contains(logLines, l => l.Contains("Replacing stale pre-claim vessel (FLIGHT) #0"));
+        }
+
+        [Fact]
+        public void FlightLeafSpawn_TipSpawnsNothing_RestoresTheRemovedVessel()
+        {
+            Recording tip = CommitDockUndockTree();
+            LatchRewoundBefore(tip);
+            ParsekFlight.LeafSpawnOverrideForTesting = (rec, index, preserveIdentity, allowDuplicate) => { };
+
+            InvokeFlightLeafSpawn(tip, 0);
+
+            Assert.Equal(new List<uint> { StationPid }, removed);
+            Assert.Equal(new List<uint> { StationPid }, restored);
+            Assert.True(stationLive);
+            Assert.False(tip.VesselSpawned);
         }
 
         #endregion

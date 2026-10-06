@@ -7526,13 +7526,13 @@ namespace Parsek
             // The Ghost Chain Rule here: a live vessel carrying a chain tip's identity after a
             // rewind to before the tip is the claimed vessel in its pre-claim form, not the
             // tip's result. It is replaced by the tip snapshot instead of adopted.
-            bool replacedStaleVessel = false;
-            StaleChainVesselFocus staleFocus = default(StaleChainVesselFocus);
-            if (alreadyMaterialized
-                && ChainTipStaleVessel.TryReplaceStaleLiveVessel(
-                    rec, chains, realVesselExists, "TRACKSTATION", index, out staleFocus))
+            StaleVesselReplacement staleReplacement = alreadyMaterialized
+                ? ChainTipStaleVessel.TryReplaceStaleLiveVessel(
+                    rec, chains, realVesselExists, "TRACKSTATION", index)
+                : null;
+            bool replacedStaleVessel = staleReplacement != null;
+            if (replacedStaleVessel)
             {
-                replacedStaleVessel = true;
                 realVesselExists = false;
                 alreadyMaterialized = false;
             }
@@ -7568,6 +7568,7 @@ namespace Parsek
             {
                 // The removed vessel's map focus, navigation target and selection move to the
                 // tip that replaces it, as they would from the tip's own ghost.
+                StaleChainVesselFocus staleFocus = staleReplacement.Focus;
                 handoffState = new TrackingStationSpawnHandoffState(
                     handoffState.GhostPid,
                     handoffState.WasNavigationTarget || staleFocus.WasNavigationTarget,
@@ -7577,10 +7578,18 @@ namespace Parsek
             GhostPlaybackLogic.LogChainLoopFirstRunSpawn(
                 Tag, "TRACKSTATION", index, rec, currentUT,
                 !string.IsNullOrEmpty(rec.ChainId) && RecordingStore.IsChainLooping(rec.ChainId));
-            if (TrackingStationSpawnOverrideForTesting != null)
-                TrackingStationSpawnOverrideForTesting(rec, index, preserveIdentity);
-            else
-                VesselSpawner.SpawnOrRecoverIfTooClose(rec, index, preserveIdentity);
+            try
+            {
+                if (TrackingStationSpawnOverrideForTesting != null)
+                    TrackingStationSpawnOverrideForTesting(rec, index, preserveIdentity);
+                else
+                    VesselSpawner.SpawnOrRecoverIfTooClose(rec, index, preserveIdentity);
+            }
+            finally
+            {
+                // A replacement whose tip spawned no vessel puts the removed vessel back.
+                ChainTipStaleVessel.CompleteReplacement(rec, staleReplacement);
+            }
             if (!rec.VesselSpawned)
                 return;
 

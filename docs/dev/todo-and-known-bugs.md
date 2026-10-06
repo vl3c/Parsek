@@ -531,15 +531,24 @@ next to the replay-scope one; the sweep re-notes a recording latched only by tol
 happens with the claimed vessel in physics, and FlightIntegrator stamps `lastUT` each physics
 frame), and the vessel is not the active vessel or recorded by the live tree. (a) keeps normal play
 and a commit made seconds after the tip began on adoption; (b) keeps a session that rewound and
-then loaded a save from after the dock from replacing the real station there. On "replace" the
-stale vessel's crew are taken off its parts and set Available (an unloaded vessel's `Die()`
-runs stock `MurderCrew`), the vessel is removed with `Vessel.Die()` (no recovery: no funds, no
-ledger row; its vessel and part pids are freed synchronously), and the tip spawns from its
-snapshot with its identity preserved (same pid and guid, so route endpoints and later chain
-links still resolve). In the TS its map focus, navigation target and selection move to the
-spawned tip (in flight its navigation target). A failed removal, a vessel in use, or any doubt falls back to the old adoption
-with a log line (`[ChainTip]`). Tests: `ChainTipStaleVesselTests`, `PlaybackScopeTrackerTests`
-(strict latch).
+then loaded a save from after the dock from replacing the real station there. A replacement
+never loses the vessel (PR #2029 review): the tip must be able to spawn before anything is
+removed (`ChainTipStaleVessel.ResolveTipSpawnBlocker`: not abandoned, under
+`VesselSpawner.MaxSpawnAttempts`, no terminal-orbit hold, a snapshot, and not a KSC-zone
+retirement, which design 13.1 resolves by adopting the live counterpart), the removal needs a
+snapshot of the vessel taken just before it (crew still aboard), and every site completes the
+replacement in a `finally` after its spawn attempt (`CompleteReplacement`): when the tip spawned
+no vessel (a failure, an abandon such as the KSC dead-crew branch, an exception) that snapshot is
+respawned with its identity. On "replace" the stale vessel goes through `ClaimedVesselRemoval`
+(crew taken off its parts and set Available, then `Vessel.Die()`: no recovery, no funds, no
+ledger row, no crew loss; its vessel and part pids are freed synchronously), and the tip spawns
+from its snapshot with its identity preserved (same pid and guid, so route endpoints and later
+chain links still resolve). The KSC spawn's `SwapReservedCrewInSnapshot` may seat stand-ins in
+the tip in place of reserved kerbals, who then stay Available. In the TS the removed vessel's
+map focus, navigation target and selection move to the spawned tip (in flight its navigation
+target). A refused or failed removal, a vessel in use, or any doubt falls back to the old
+adoption with a log line (`[ChainTip]`). Tests: `ChainTipStaleVesselTests`,
+`PlaybackScopeTrackerTests` (strict latch).
 
 Remaining gaps and the design question (OPEN, product): design 12.5 / 20.3 say a claimed
 vessel is despawned AT the rewind in every scene. This fix replaces it only when the tip's

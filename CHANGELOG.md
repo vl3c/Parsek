@@ -3691,9 +3691,13 @@ _(unreleased - entries accumulate here per commit)_
   at the Space Center, in the Tracking Station or at a later flight load, it kept its old tanks
   while the departing craft left with the moved fuel. The station is now replaced at that moment
   by its recorded end state, with the same identity (supply routes and later missions still find
-  it); its kerbals are kept, not lost, and no recovery is paid. Only a station the clock was
-  wound back past is replaced; one that went through the dock in the loaded save, or one you
-  are flying, is kept as it is.
+  it), and no recovery is paid. The kerbals aboard the old station are taken off first and become
+  available at the Space Center; the new station carries the crew its recorded end state holds,
+  except that at the Space Center a kerbal Parsek reserves for a recorded flight is replaced by a
+  stand-in, so the kerbals you see aboard can differ from the ones who were there. The old station
+  is only removed when the recorded one can be spawned, and it is put back if that spawn still
+  fails. Only a station the clock was wound back past is replaced; one that went through the dock
+  in the loaded save, or one you are flying, is kept as it is.
 
 - **Altitude, speed, distance and depth record rewards are no longer paid twice.** A flight that
   set several records at once (an ascent passes 500 m, 2 km, 7 km, 22 km and 70 km) was booked
