@@ -203,7 +203,8 @@ When the loaded save's active tree was committed later, `RemoveCommittedTreeById
 (`RecordingStore.cs:820-843`) detaches it without touching its ledger rows, and the commit-time
 dedupe drops only new duplicates. Recovery funds or contract rewards from the abandoned future
 survive the resumed flight ending differently. (If the tree's root recording is stale the whole
-saved tree is dropped instead and the flight resumes unrecorded - see QL-R1 in the research.)
+saved tree is dropped instead and the flight resumes unrecorded - see
+QUICKLOAD-FROM-KSC-INTO-COMMITTED-FLIGHT-DROPS-TREE.)
 
 Fix: retire the detached tree's rows after the resume UT. Red test: extend
 `TryRestoreActiveTreeNode_SkipsCommittedTreeStashesActiveTree` with a Recovery funds row at 300
@@ -238,6 +239,39 @@ commit, because by code read a Space Center F9 into the older flight quicksave d
 saved tree on stale sidecar epochs and never reaches the trim (the spec header has the argument).
 
 Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
+
+---
+
+## QUICKLOAD-FROM-KSC-INTO-COMMITTED-FLIGHT-DROPS-TREE: F5 in flight, back to the Space Center, F9 resumes the flight unrecorded and leaves its abandoned future committed [FILED 2026-10-06 while authoring lane QL-4, verified by code read. OPEN, product; not yet reproduced]
+
+The common player sequence "F5 in flight, Esc -> Space Center (the tree auto-merges), F9" does
+not reach the quickload resume. Leaving the flight saves the game (`SafeWritePersistent`), and
+that OnSave rewrites every changed recording sidecar with its epoch advanced
+(`RecordingSidecarStore.cs` `rec.SidecarEpoch++`). The flight quicksave still names the older
+epochs, so on the F9 `LoadRecordingFiles` rejects each rewritten sidecar as
+`stale-sidecar-epoch` (`ShouldSkipStaleSidecar`, bug #270). In `TryRestoreActiveTreeNode` the
+stale-epoch keep path needs an in-memory PENDING tree and `RestoreHydrationFailedRecordingsFromPendingTree`
+salvages only from the pending tree; after the auto-merge the in-memory copy is a COMMITTED tree
+with the same id, which neither reads. `DropFailedSidecarHydrationRecordings` then drops the whole
+saved tree because its root is stale ("dropped entire tree").
+
+Expected player effect: the vessel flies on from the quicksave with no recording; the committed
+tree is never detached, so its abandoned future (trajectory, terminal, crew end states, tagged
+events and ledger rows) stays committed and its ghost replays next to the live vessel. The
+abandoned-future reconcile (QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE and its siblings)
+never runs on this path. Whether the committed leaf also spawns a duplicate vessel at its end is
+not traced.
+
+Fix direction (consistent with the 2026-10-06 rulings: F9 into a later-committed flight resumes
+it, and a flight F9'd back into records again): when the saved active tree's id matches a
+committed tree in memory, salvage its stale-epoch members from that committed copy before the
+drop (the same-id refresh already reads it), so the existing detach, trim and abandoned-future
+reconcile run. Red test first: xUnit over `TryRestoreActiveTreeNode` with a committed same-id
+tree whose root sidecar carries epoch N+1 and a saved node naming N.
+
+Live proof: a Space Center variant of lane QL-4 (the design's original route: auto-merge on
+`ExitToSpaceCenter`, then `LoadGame` the flight quicksave at the KSC), expected to fail until the
+fix. Witness for the defect today: `dropped entire tree` plus `Sidecar epoch mismatch` in KSP.log.
 
 ---
 
