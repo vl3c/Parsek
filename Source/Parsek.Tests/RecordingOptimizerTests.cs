@@ -3478,6 +3478,89 @@ namespace Parsek.Tests
             Assert.Equal(300, RecordingOptimizer.FindLastInterestingUT(rec));
         }
 
+        private static RouteHarvestWindow MakeHarvestWindow(
+            double startUT, double endUT,
+            double oreStart, double oreEnd,
+            double ecStart = 100.0, double ecEnd = 100.0)
+        {
+            return new RouteHarvestWindow
+            {
+                WindowId = "hw-" + startUT.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                StartUT = startUT,
+                EndUT = endUT,
+                StartTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    { "Ore", new ResourceAmount { amount = oreStart, maxAmount = 1500.0 } },
+                    { "ElectricCharge", new ResourceAmount { amount = ecStart, maxAmount = 1000.0 } },
+                },
+                EndTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    { "Ore", new ResourceAmount { amount = oreEnd, maxAmount = 1500.0 } },
+                    { "ElectricCharge", new ResourceAmount { amount = ecEnd, maxAmount = 1000.0 } },
+                },
+            };
+        }
+
+        [Fact]
+        public void FindLastInterestingUT_HarvestWindowWithResourceChange_ExtendsToWindowEnd()
+        {
+            // A drill ran through the boring tail and the window's measured manifests
+            // differ: the tail changed the vessel's resources, so it is not boring.
+            var rec = new Recording();
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 200 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.SurfaceStationary, startUT = 200, endUT = 800 });
+            rec.RouteHarvestWindows = new List<RouteHarvestWindow>
+            {
+                MakeHarvestWindow(210, 800, oreStart: 0.0, oreEnd: 75.0),
+            };
+
+            Assert.Equal(800, RecordingOptimizer.FindLastInterestingUT(rec));
+            Assert.Equal(800, RecordingOptimizer.FindLastResourceChangeUT(rec));
+        }
+
+        [Fact]
+        public void FindLastInterestingUT_HarvestWindowWithOnlyElectricChargeChange_Ignored()
+        {
+            // A stalled drill: no non-environmental resource moved. EC drift is
+            // environmental noise (ResourceTransferability.IsAlwaysIgnored).
+            var rec = new Recording();
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 200 });
+            rec.TrackSections.Add(new TrackSection
+                { environment = SegmentEnvironment.SurfaceStationary, startUT = 200, endUT = 800 });
+            rec.RouteHarvestWindows = new List<RouteHarvestWindow>
+            {
+                MakeHarvestWindow(210, 800, oreStart: 40.0, oreEnd: 40.0, ecStart: 900.0, ecEnd: 120.0),
+            };
+
+            Assert.Equal(200, RecordingOptimizer.FindLastInterestingUT(rec));
+            Assert.True(double.IsNaN(RecordingOptimizer.FindLastResourceChangeUT(rec)));
+        }
+
+        [Fact]
+        public void FindLastResourceChangeUT_ResourceAppearingOnlyAtEnd_Counts()
+        {
+            var window = MakeHarvestWindow(210, 640, oreStart: 0.0, oreEnd: 0.0);
+            window.EndTransportResources["LiquidFuel"] =
+                new ResourceAmount { amount = 12.5, maxAmount = 400.0 };
+            var rec = new Recording { RouteHarvestWindows = new List<RouteHarvestWindow> { window } };
+
+            Assert.Equal(640, RecordingOptimizer.FindLastResourceChangeUT(rec));
+        }
+
+        [Fact]
+        public void FindLastResourceChangeUT_OpenWindow_Ignored()
+        {
+            // An open window has no end manifest: nothing measured, nothing witnessed.
+            var window = MakeHarvestWindow(210, double.NaN, oreStart: 0.0, oreEnd: 0.0);
+            window.EndTransportResources = null;
+            var rec = new Recording { RouteHarvestWindows = new List<RouteHarvestWindow> { window } };
+
+            Assert.True(double.IsNaN(RecordingOptimizer.FindLastResourceChangeUT(rec)));
+        }
+
         #endregion
 
         #region IsLeafRecording
@@ -3565,6 +3648,84 @@ namespace Parsek.Tests
             // EndUT should be ~10s past last interesting (17030)
             Assert.True(rec.EndUT <= 17030 + RecordingOptimizer.DefaultTailBufferSeconds + 1);
             Assert.True(rec.EndUT >= 17030);
+        }
+
+        [Fact]
+        public void TrimBoringTail_ResourceChangingTail_IsKept()
+        {
+            // TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming moves the spawn earlier but the
+            // spawn snapshot is the commit-time vessel. A tail whose resources changed
+            // (a drill filling the tanks) must survive, or the ore arrives early.
+            var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RecordingId = "drill_tail";
+            rec.RouteHarvestWindows = new List<RouteHarvestWindow>
+            {
+                MakeHarvestWindow(17035, 17630, oreStart: 0.0, oreEnd: 300.0),
+            };
+            var recordings = new List<Recording> { rec };
+            int pointsBefore = rec.Points.Count;
+
+            Assert.False(RecordingOptimizer.TrimBoringTailInternal(
+                rec, recordings, RecordingOptimizer.DefaultTailBufferSeconds,
+                logSkipReason: false, skipCategory: out string skipCategory));
+            Assert.Equal("resource-changing-tail", skipCategory);
+            Assert.Equal(17630, rec.EndUT);
+            Assert.Equal(pointsBefore, rec.Points.Count);
+        }
+
+        [Fact]
+        public void TrimBoringTail_ResourceChangingTail_LogsTheReason()
+        {
+            EnableLogCapture();
+            var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RecordingId = "drill_tail_log";
+            rec.RouteHarvestWindows = new List<RouteHarvestWindow>
+            {
+                MakeHarvestWindow(17035, 17630, oreStart: 0.0, oreEnd: 300.0),
+            };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, new List<Recording> { rec }));
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("TrimBoringTail: skipped (resource-changing-tail)")
+                && l.Contains("id='drill_tail_log'")
+                && l.Contains("lastResourceChangeUT=17630.0"));
+        }
+
+        [Fact]
+        public void TrimBoringTail_UnchangedResourceTail_StillTrims()
+        {
+            // Same shape, but the converter window measured no non-EC change: the
+            // tail stays boring and is trimmed as before.
+            var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RouteHarvestWindows = new List<RouteHarvestWindow>
+            {
+                MakeHarvestWindow(17035, 17630, oreStart: 300.0, oreEnd: 300.0, ecStart: 800.0, ecEnd: 790.0),
+            };
+            var recordings = new List<Recording> { rec };
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.True(rec.EndUT <= 17030 + RecordingOptimizer.DefaultTailBufferSeconds + 1);
+        }
+
+        [Fact]
+        public void TrimBoringTail_ResourceChangeEndingMidTail_TrimsAfterIt()
+        {
+            // The drill stopped at 17200: the tail after 17200 + buffer is boring again.
+            var rec = MakeRecordingWithBoringTail(17000, 17030, 17630,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            rec.RouteHarvestWindows = new List<RouteHarvestWindow>
+            {
+                MakeHarvestWindow(17035, 17200, oreStart: 0.0, oreEnd: 90.0),
+            };
+            var recordings = new List<Recording> { rec };
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.True(rec.EndUT >= 17200, $"EndUT {rec.EndUT} cut into the resource change");
+            Assert.True(rec.EndUT <= 17200 + RecordingOptimizer.DefaultTailBufferSeconds + 31,
+                $"EndUT {rec.EndUT} not trimmed after the resource change");
         }
 
         [Fact]

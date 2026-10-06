@@ -472,7 +472,7 @@ applies. Lane RC-6 with `EvaGroundScience action=take` against a foreign contain
 
 ---
 
-## TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; RULED 2026-10-06: keep resource-changing tails]
+## ~~TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources~~ [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. RULED 2026-10-06: keep resource-changing tails. FIXED 2026-10-06, branch `release-cheap-fixes`, for every resource change the recording witnesses; the unwitnessed sources moved to TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES]
 
 `RecordingOptimizer.TailTrim` restamps the end UT and SpawnUT earlier (`:820-845`) but never
 touches the snapshot; `FindLastInterestingUT` (`:75`) ignores resources and the guard checks
@@ -483,6 +483,45 @@ the crossings between the trimmed SpawnUT and commit are delivered twice.
 Fix: RULED 2026-10-06 - keep a tail whose resources change (it is not boring):
 `FindLastInterestingUT` treats a resource change as interesting. Red test: a `RecordingOptimizer`
 tail-trim cell with a resource-changing tail.
+
+**FIXED 2026-10-06 (branch `release-cheap-fixes`).** The only per-UT resource witness a recording
+carries is a closed `RouteHarvestWindow` (converter activity, with the transport's resource
+manifest measured on the live vessel when the window opens and closes; `StartResources` /
+`EndResources` are recording-wide and say nothing about the tail, and no point, section or event
+carries resources). New `RecordingOptimizer.FindLastResourceChangeUT` returns the end UT of the last
+closed harvest window whose manifests differ by more than 1e-6 on any resource other than
+ElectricCharge / IntakeAir (`ResourceTransferability.IsAlwaysIgnored`), and `FindLastInterestingUT`
+takes it as one more interest source. A drill running to the end keeps the whole tail (new skip
+category `resource-changing-tail`, its own verbose line with `lastResourceChangeUT=`); a drill that
+stopped mid-tail trims to just after it; an EC-only or stalled window changes nothing. Tests:
+`RecordingOptimizerTests.FindLastInterestingUT_HarvestWindow*`, `FindLastResourceChangeUT_*`,
+`TrimBoringTail_ResourceChangingTail_*`, `TrimBoringTail_UnchangedResourceTail_StillTrims`,
+`TrimBoringTail_ResourceChangeEndingMidTail_TrimsAfterIt`.
+
+---
+
+## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness]
+
+TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT keeps a tail only when a closed `RouteHarvestWindow` measured a
+change. Three sources leave no such witness, so their tails still trim and their resources still
+arrive early with the commit-time snapshot:
+
+- a supply route delivering into (or debiting) the recorded vessel during the tail: the route
+  writers (`Logistics/LiveDeliveryWriters.cs`, `LiveOriginDebitWriters.cs`) touch no recording;
+  the ledger holds the route rows (`RouteCargoDelivered` / `RouteCargoPickedUp` / `RouteCargoDebited`)
+  with their UTs, the endpoint resolving through the route's stop, but the optimizer pass reads no
+  ledger;
+- a converter running on a BACKGROUND leg: `BackgroundRecorder` records `ConverterActivated` /
+  `ConverterDeactivated` part events but captures no harvest windows (only the active stop does,
+  `FlightRecorder.BuildCaptureRecording`), so a base left mining in the background trims after its
+  last converter event;
+- an in-vessel transfer (crossfeed, a docked pair's fuel transfer): vessel totals do not move, so no
+  manifest sees it, but the per-part split in the snapshot still arrives early.
+
+Fix options: (1) treat a converter still running at the recording end (last converter event per
+part is `ConverterActivated`) as interesting through the end - a proxy, not a measurement, covering
+background legs; (2) give the optimizer pass the ledger's route rows whose endpoint is the
+recording's vessel and treat a row inside the tail as interesting; (3) accept the in-vessel case.
 
 ---
 

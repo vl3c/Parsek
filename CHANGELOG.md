@@ -3676,6 +3676,16 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A drill or converter that kept running at the end of a recording no longer delivers its
+  resources early.** Parsek shortens a recording that ends with a long idle stretch (sitting
+  landed or coasting) so the real vessel appears sooner, but the vessel it brings back is the one
+  you had when you committed. When ore or fuel was still being produced during that idle
+  stretch, the vessel appeared early already holding all of it. A recording whose last stretch
+  changed the vessel's resources (measured when the converters start and stop; electric charge
+  does not count) is now kept to the end, or shortened only to just after the converters
+  stopped. Resources moved in by a supply route or recorded while the vessel was in the
+  background are not seen by this check yet.
+
 - **Installing Parsek into an existing career no longer resets its milestones and world
   records.** The first time Parsek synced the career it un-achieved every milestone the career
   had earned before Parsek was installed (First Launch, orbits, landings and the rest) and
