@@ -733,6 +733,36 @@ namespace Parsek.Tests
             Assert.Equal(TimelineSource.GameAction, row.Source);
         }
 
+        // FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a paid downgrade's row is a FacilityUpgrade
+        // marked FacilityDowngrade; its legacy twin is the FacilityDowngraded event.
+        [Fact]
+        public void FacilityDowngradeRow_ItsLegacyEventTwinIsNotShownTwice()
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction { UT = 900.5, Type = GameActionType.FacilityUpgrade,
+                    FacilityId = "SpaceCenter/TrackingStation", ToLevel = 1, FacilityCost = 100050f,
+                    FacilityDowngrade = true, Effective = true },
+            };
+            var milestone = new Milestone
+            {
+                Committed = true,
+                Epoch = 0,
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent { ut = 900.5, eventType = GameStateEventType.FacilityDowngraded,
+                        key = "SpaceCenter/TrackingStation", valueBefore = 0.5f, valueAfter = 0f,
+                        detail = "cost=100050" },
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(), actions, new List<Milestone> { milestone }, _ => true, Game.Modes.CAREER);
+
+            var row = Assert.Single(result);
+            Assert.Equal(TimelineSource.GameAction, row.Source);
+        }
+
         [Fact]
         public void FacilityBuildingRows_SeparateEvents_StaySeparate()
         {

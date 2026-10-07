@@ -666,10 +666,14 @@ namespace Parsek
                 // A facility upgrade and a KSC building's collapse / repair are captured as a
                 // FacilityUpgraded / BuildingDestroyed / BuildingRepaired event at the same UT
                 // and key as their ledger row, and the event is swept into a committed
-                // milestone like any other; the ledger row is the one the Timeline shows.
+                // milestone like any other; the ledger row is the one the Timeline shows. A paid
+                // downgrade's row is a FacilityUpgrade marked FacilityDowngrade, whose twin is
+                // the FacilityDowngraded event.
                 case GameActionType.FacilityUpgrade:
                     return EncodeLegacyDuplicateKey(
-                        GameStateEventType.FacilityUpgraded,
+                        action.FacilityDowngrade
+                            ? GameStateEventType.FacilityDowngraded
+                            : GameStateEventType.FacilityUpgraded,
                         action.UT,
                         action.FacilityId);
 

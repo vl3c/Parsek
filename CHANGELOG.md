@@ -3688,6 +3688,15 @@ _(unreleased - entries accumulate here per commit)_
   later part, the way it already moved booked entries. Covered by xUnit; not yet checked in a
   test flight.
 
+- **Rebuilding a facility at a lower level is now kept and charged.** KSP's facility menu,
+  opened with Left Ctrl held on a destroyed facility above level 1, offers "Rebuild lvl N",
+  which rebuilds it one level lower for about two thirds of that level's price. Parsek
+  treated the level drop as information only, so its timeline kept the facility at the old
+  level (the next recalculation could raise it back) and its funds ran high by the price.
+  The rebuild is now booked like an upgrade, with the funds KSP took, at the lower level,
+  and the Timeline shows it as "Downgrade". Covered by xUnit; not yet checked in a test
+  flight.
+
 - **A station hidden after a rewind comes back when its recorded future ends, also when that
   future crossed into the atmosphere or another world.** When a committed mission docks with
   or undocks from one of your vessels, the vessel is hidden after a rewind until the mission's

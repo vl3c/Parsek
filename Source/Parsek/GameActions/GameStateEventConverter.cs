@@ -236,8 +236,9 @@ namespace Parsek
         /// <summary>
         /// Converts a single GameStateEvent to a GameAction.
         /// Returns null for event types that have no GameAction equivalent
-        /// (CrewStatusChanged, CrewRemoved, ContractOffered, ContractDeclined,
-        /// FacilityDowngraded). FundsChanged / ReputationChanged / ScienceChanged
+        /// (CrewStatusChanged, CrewRemoved, ContractOffered, ContractDeclined), and for a
+        /// FacilityDowngraded event no stock DowngradeFacility call produced (one with no
+        /// <c>cost=</c> detail). FundsChanged / ReputationChanged / ScienceChanged
         /// return null for every reason EXCEPT their one strategy currency-exchange
         /// carve-out each, plus the ReputationChanged(ContractDecline) penalty - see the
         /// comment block on those three cases below.
@@ -254,6 +255,9 @@ namespace Parsek
 
                 case GameStateEventType.FacilityUpgraded:
                     return ConvertFacilityUpgraded(evt, recordingId);
+
+                case GameStateEventType.FacilityDowngraded:
+                    return ConvertFacilityDowngraded(evt, recordingId);
 
                 case GameStateEventType.BuildingDestroyed:
                     return ConvertBuildingDestroyed(evt, recordingId);
@@ -341,7 +345,6 @@ namespace Parsek
                 case GameStateEventType.CrewRemoved:
                 case GameStateEventType.ContractOffered:
                 case GameStateEventType.ContractDeclined:
-                case GameStateEventType.FacilityDowngraded:
                     return null;
 
                 default:
@@ -665,6 +668,52 @@ namespace Parsek
                 FacilityId = evt.key,
                 ToLevel = toLevel,
                 FacilityCost = cost
+            };
+        }
+
+        /// <summary>
+        /// FacilityDowngraded -> a <see cref="GameActionType.FacilityUpgrade"/> level-change row to
+        /// the lower tier, marked <see cref="GameAction.FacilityDowngrade"/>
+        /// (FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED). Only an event the recorder stamped with
+        /// <c>cost=</c> converts: that stamp is written inside stock's <c>DowngradeFacility</c>
+        /// call (<see cref="FacilityUpgradeCapture"/>'s downgrade scope), the player's paid
+        /// "Rebuild lvl N". An unstamped drop (the scene-change poll, a mod, Mission mode) has
+        /// no stock debit behind it and stays informational: null.
+        /// <para>Why the upgrade row type: the facility walk reads a FacilityUpgrade row as
+        /// "this facility is at tier ToLevel from UT on" (<c>FacilitiesModule.ProcessUpgrade</c>
+        /// assigns the level), the funds walk charges its FacilityCost, the KSC reconciler pairs
+        /// it with a StructureConstruction debit, and the tombstone, patch and slot readers key
+        /// on the facility and the level; a downgrade is all of those. The marker is read only
+        /// where the word "upgrade" would be wrong: the description, the stock-screen
+        /// reservation index, and the legacy upgrade-cost passes.</para>
+        /// </summary>
+        private static GameAction ConvertFacilityDowngraded(GameStateEvent evt, string recordingId)
+        {
+            string costStr = ExtractDetail(evt.detail, "cost");
+            if (costStr == null)
+                return null;
+
+            float cost = 0f;
+            float.TryParse(costStr, NumberStyles.Float, IC, out cost);
+            int toLevel = (int)Math.Round(evt.valueAfter * 2) + 1;
+            if (toLevel < 1)
+                toLevel = 1;
+
+            ParsekLog.Verbose(Tag,
+                $"ConvertFacilityDowngraded: facility='{evt.key}' " +
+                $"valueBefore={evt.valueBefore.ToString("R", IC)} " +
+                $"valueAfter={evt.valueAfter.ToString("R", IC)} " +
+                $"toLevel={toLevel.ToString(IC)} cost={cost.ToString("R", IC)}");
+
+            return new GameAction
+            {
+                UT = evt.ut,
+                Type = GameActionType.FacilityUpgrade,
+                RecordingId = recordingId,
+                FacilityId = evt.key,
+                ToLevel = toLevel,
+                FacilityCost = cost,
+                FacilityDowngrade = true
             };
         }
 

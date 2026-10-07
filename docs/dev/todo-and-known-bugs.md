@@ -212,7 +212,7 @@ it in the TS until the tip spawns.
 
 ---
 
-## FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a facility downgrade's funds debit never reaches the ledger [FILED 2026-10-06 while fixing KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, branch `fix-facility-upgrade-cost`. OPEN, product, low; reachability not traced. The older cost-0 upgrade rows paragraph: RULED and DONE 2026-10-07, branch `release-rulings`]
+## ~~FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a facility downgrade's funds debit never reaches the ledger~~ [FILED 2026-10-06 while fixing KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, branch `fix-facility-upgrade-cost`. REACHABLE by a player (stock KSC menu, Left Ctrl) and FIXED 2026-10-07, branch `optimizer-retag-followups`; xUnit only, not flown. The older cost-0 upgrade rows paragraph: RULED and DONE 2026-10-07, branch `release-rulings`; its mid-career-install residue below stays as stated]
 
 Decompiled KSP 1.12.5: `SpaceCenterBuilding.DowngradeFacility` also debits funds (about 0.667x
 the level cost, reason `StructureConstruction`), but `FacilityDowngraded` events are
@@ -221,6 +221,41 @@ debit, the same shape the upgrade had before its fix. First check whether any st
 a player can reach calls `DowngradeFacility` at all; if one does, record the debit through the
 same `FacilityUpgradeCapture` scope pattern and add a row type or a negative-level
 `FacilityUpgrade` row (decide which).
+
+Reachability (decompiled `Assembly-CSharp.dll`, KSP 1.12.5): the only caller is
+`SpaceCenterBuilding`'s facility-menu dismiss handler, case `KSCFacilityContextMenu.DismissAction.Downgrade`
+-> `DowngradeFacility(Funding.Instance != null)`. `KSCFacilityContextMenu.Create` sets
+`showDowngradeControls = Input.GetKey(KeyCode.LeftControl)` (no cheat, debug-menu or settings
+gate), and the "Rebuild lvl N" (`#autoLOC_6002251`) button is shown when that is set, the
+facility is NOT operational ("Out of Service"), its level is above 0 and the game is not Mission
+mode; it is interactable when `Funding.CanAfford(downgradeCost)`. The same Ctrl-held menu offers
+Demolish on an operational facility, so a player can take any upgraded facility out of service
+and rebuild it a level lower: an ordinary, if hidden, player path. The method debits
+`upgradeLevels[level - 1].levelCost * 0.667 * Career.FundsLossMultiplier`, runs `ResetStructures()`
+(free repair) and `SetLevel(level - 1)`. Before the fix the ledger kept the higher level, so the
+next recalc's `FacilityStatePatcher.PatchFacilities` would set the facility back UP, and the ledger
+ran high by the debit.
+
+Fix: a prefix + finalizer on `DowngradeFacility(bool)` (`Patches/FacilityDowngradeSpendPatch.cs`,
+S9-gated) opens `FacilityUpgradeCapture`'s scope in downgrade mode; the recorder stamps the
+FacilityDowngraded event of that facility with the observed StructureConstruction debit
+(`TryConsumeCostForDowngrade`) and forwards it in one batch with the free repairs, or leaves it for
+the commit when tagged. `GameStateEventConverter.ConvertFacilityDowngraded` turns a stamped event
+into a `FacilityUpgrade` row to the lower tier with the new sparse `GameAction.FacilityDowngrade`
+marker (`facilityDowngrade = True`). Row type decided: the existing `FacilityUpgrade`, because
+every consumer of it already reads it as an absolute level change with a cost (`FacilitiesModule.ProcessUpgrade`
+assigns `ToLevel`, `FundsModule` charges `FacilityCost`, `KscActionExpectationClassifier` pairs it
+with a StructureConstruction leg, tombstone eligibility, `BuildTombstonedFacilityIdsForPatch`,
+`CareerSlotSummary` slot limits, `HasFacilityActionsInRange`), so a new enum would have to be
+mirrored into about 25 switch sites whose defaults silently drop a cost or keep a superseded row.
+The marker is read only where "upgrade" would be wrong: `GameActionDisplay` ("Downgrade X -> Lv.N"),
+the Timeline's legacy-event twin key, `CommittedFutureIndex.TryClassify` (a committed downgrade
+reserves nothing) and the two legacy cost-0 upgrade passes (skipped). An unstamped level drop
+(the scene-change poll, another mod, Mission-mode facility limits) stays informational. Known
+limit, accepted: no click-block pairs a Rebuild with a committed future level change of the same
+facility; the walk stays consistent (levels are absolute, both debits are charged). Tests:
+`FacilityDowngradeCostTests` (10 cells; 8 red against API-only stubs before the fix) and
+`TimelineBuilderTests.FacilityDowngradeRow_ItsLegacyEventTwinIsNotShownTwice` (red before the key fix).
 
 Older cost-0 upgrade rows: the fix above repairs a cost-0 `FacilityUpgrade` row only while the
 save still holds its `FundsChanged(StructureConstruction)` event (events at or before the last
