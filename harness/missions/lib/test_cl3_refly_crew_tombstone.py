@@ -2267,7 +2267,7 @@ class ManeuverNodeReadGuardTests(unittest.TestCase):
             mission_runner.KrpcMissionControl(client_name="test")
             ._tolerate_unreadable_nodes)
 
-    def test_only_the_two_career_fliers_opt_in_across_every_mission_shell(self):
+    def test_only_the_career_fliers_opt_in_across_every_mission_shell(self):
         # Cross-file: a shell quietly opting in would re-globalise the semantics
         # change this flag exists to confine, so the set is an ALLOWLIST and a new
         # member costs an edit here with its reason.
@@ -2289,7 +2289,16 @@ class ManeuverNodeReadGuardTests(unittest.TestCase):
             with open(path, "r", encoding="utf-8") as fh:
                 if "tolerate_unreadable_nodes=True" in fh.read():
                     opters.append(os.path.basename(path))
-        self.assertEqual(["cl3_refly_crew_tombstone.py", "science_bench_recover.py"],
+        #
+        # `b1_pad_hop_career.py` joined on 2026-10-07, the same finding a third time:
+        # `QL-2-quickload-career-recovery-not-paid` flew `b1_pad_hop` on the career
+        # fixture `career-pad-craft` and died vessel-lost at PRELAUNCH
+        # (`2026-10-07_2231` / `_2232_a2`). It is a SEPARATE shell so the sandbox
+        # lanes flying `b1_pad_hop` keep the default; its safety argument is
+        # science_bench_recover's flight-leg one (B1's phase progression plus the
+        # apoapsis window), written out in its own make_control.
+        self.assertEqual(["b1_pad_hop_career.py", "cl3_refly_crew_tombstone.py",
+                          "science_bench_recover.py"],
                          sorted(opters))
 
     def test_any_exception_type_degrades_not_just_runtimeerror(self):

@@ -45,8 +45,16 @@ id = "QL-2-quickload-career-recovery-not-paid"
 # the GS-1 craft) AND an in-flight earning that does not leave the scene.
 #
 # THE HOST. `career-pad-craft` (500000 / 100 / 0, the Jumping Flea on the pad, pid
-# 2905720181 as ZF-1 and L3 measured) flown with `b1_pad_hop` and B1's parameters
+# 2905720181 as ZF-1 and L3 measured) flown with `b1_pad_hop_career` and B1's parameters
 # verbatim (the craft is byte-identical to `b1-pad-craft`'s, so B1's profile transfers).
+# `b1_pad_hop_career` is B1's machine, evaluator and schema with ONE control difference,
+# `tolerate_unreadable_nodes=True` (safety argument in its make_control). PREMISE MISS,
+# READ 2026-10-07: the lane first flew plain `b1_pad_hop` and went INVALID twice
+# (`2026-10-07_2231`, retry `_2232_a2`, see `*_mission.stdout.log`): kRPC's maneuver-node
+# read raises `Maneuver node editing is not available ... tracking station has not been
+# upgraded` on this level-0 career, three consecutive raises escalate to `vessel_lost` at
+# PRELAUNCH, and B1 resolves MISSION-ASSERT-FAIL in 1.2 s, before any Parsek step ran.
+# The same finding science_bench_recover (L3) and CL-3 recorded; spec changed, not re-flown.
 # No injected recordings: the produced save's recordings are this flight's own.
 #
 # THE TIMELINE (UTs from B1 / L3 readings, not measured on this lane):
@@ -95,9 +103,10 @@ id = "QL-2-quickload-career-recovery-not-paid"
 #     patch, and it is FLIGHT-only, so it has no window after the final commit here. The
 #     funds gate is the recalc walk and patch lines above.
 #
-# STATUS: AUTHORED 2026-10-07 (branch `ql-lanes`), NEVER FLOWN. Every token is quoted from
-# its emitting source line (LedgerRecoveryFundsPairing, FundsModule.ProcessFundsEarning,
-# ScienceModule, KspStatePatcher.PatchFunds / EmitDrawdownGuardClamp,
+# STATUS: AUTHORED 2026-10-07 (branch `ql-lanes`); two INVALID(mission) attempts on the
+# premise miss above, mission switched to `b1_pad_hop_career`; NOT YET FLOWN GREEN.
+# Every token is quoted from its emitting source line (LedgerRecoveryFundsPairing,
+# FundsModule.ProcessFundsEarning, ScienceModule, KspStatePatcher.PatchFunds / EmitDrawdownGuardClamp,
 # ParsekScenario.Trim.cs, Ledger.RetireAbandonedFutureActions, TestCommandRecover,
 # TestCommandListHandles, ParsekFlight.Finalization) or from QL-4b's flown header; the
 # saveParse blocks are REPORT-ONLY until a reading run.
@@ -115,7 +124,7 @@ craft              = []
 
 [driver]
 kind    = "autopilot"
-mission = "b1_pad_hop"
+mission = "b1_pad_hop_career"
 # `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
 steps = [
   { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
