@@ -140,7 +140,11 @@ namespace Parsek.Tests
         // RequiresFlight either: the active family answers with an empty tree outside a
         // live FLIGHT rather than deferring.
         [InlineData("ListHandles", "RequiresGameLoaded")]
-        [InlineData("WarpToUT", "RequiresFlight")]
+        // WarpToUT: the three scenes with a stock TimeWarp controller (FLIGHT, the Space
+        // Center, the Tracking Station), so a maxRate=1 warp is the seam's 1x wait in
+        // any of them (TC-1). Not RequiresGameLoaded: the editor and the main menu have
+        // no warp to drive.
+        [InlineData("WarpToUT", "RequiresWarpScene")]
         // GUI census. CaptureScreenshot is AnyScene, the ExportRenderManifest row: a
         // screenshot is meaningful in every settled scene, and the safe-point gate already
         // refuses to run during LOADING / a transition / the settle window, which is exactly

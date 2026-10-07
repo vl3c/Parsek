@@ -6409,7 +6409,7 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 
 | Id | Capability | Todo |
 |---|---|---|
-| TC-1 | Verbs: `Quickload`, `Revert`, `ReFlyRevert`, `RunInvariantReport`, `ReadVesselResources`, scene-agnostic `WarpToUT` | HARNESS-VERBS-FOR-TIMELINE-OPS |
+| TC-1 | Verbs: `Quickload`, `Revert`, `ReFlyRevert`, `RunInvariantReport`, `ReadVesselResources`, ~~scene-agnostic `WarpToUT`~~ (DONE 2026-10-07, branch `scene-wait`: FLIGHT / Space Center / Tracking Station, post-load physics hold deferred) | HARNESS-VERBS-FOR-TIMELINE-OPS |
 | TC-2 | Resource oracle (`resourceq.py`, `[expectations.world.vessels]`) + in-game `ResourceConservation` | HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES |
 | TC-3 | Analyzer INV13 crew conservation, INV14 vessel identity (baseline, then gate) | HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES |
 | TC-4 | Rewind-aware ledger oracle (L4) | HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND |

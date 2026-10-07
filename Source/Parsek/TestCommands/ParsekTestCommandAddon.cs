@@ -1326,6 +1326,7 @@ namespace Parsek.TestCommands
             ParsekFlight flight = ParsekFlight.Instance;
             ParsekScenario scenario = ParsekScenario.Instance;
             bool markerLive = scenario != null && scenario.ActiveReFlySessionMarker != null;
+            SampleWarpPhysicsHold(head, out bool warpHoldOnly, out double warpHoldSeconds);
             return new DispatchState
             {
                 Scene = MapScene(HighLogic.LoadedScene),
@@ -1354,6 +1355,8 @@ namespace Parsek.TestCommands
                 FlightEvaPresent = IsFlightEvaPresent(),
                 GhostChainsPending = HighLogic.LoadedScene == GameScenes.FLIGHT
                     && (flight == null || !flight.FlightReadyObserved),
+                WarpPhysicsHoldOnly = warpHoldOnly,
+                WarpPhysicsHoldSeconds = warpHoldSeconds,
                 JournalPhase = phase,
             };
         }

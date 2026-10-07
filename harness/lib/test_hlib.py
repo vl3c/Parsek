@@ -1153,7 +1153,8 @@ class SpecValidationRejectTests(unittest.TestCase):
                                 ("warp-unavailable", "driver-gate"),
                                 ("warp-locked", "driver-gate"),
                                 ("warp-ladder-invalid", "driver-arg"),
-                                ("physics-warp-disallowed", "driver-gate")):
+                                ("physics-warp-disallowed", "driver-gate"),
+                                ("physics-warp-not-in-flight", "driver-arg")):
             self.assertEqual(subkind, hlib._SEAM_REFUSAL_SUBKINDS[reason])
 
     def test_warptout_step_accepted_by_validate_spec(self):
@@ -24334,6 +24335,21 @@ class WarpToUTLadderSourceSyncTests(unittest.TestCase):
         self.assertEqual("driver-gate",
                          hlib._SEAM_REFUSAL_SUBKINDS[self.consts["PhysicsWarpDisallowedReason"]])
 
+    def test_every_warptout_refusal_reason_is_mapped(self):
+        # Every `*Reason` constant of the pure half reaches the wire as a REJECTED / ERROR
+        # msg (the physics-hold DEFER reason is a dispatch defer, never a refusal, and is
+        # excluded by name), so each needs a driver-* row or it collapses to the coarse
+        # driver-verdict-mismatch. Catches a new refusal (TC-1's scene gate) landing
+        # without its row.
+        reasons = {k: v for k, v in self.consts.items()
+                   if k.endswith("Reason") and k != "PhysicsHoldDeferReason"}
+        self.assertIn("PhysicsWarpNotInFlightReason", reasons)
+        unmapped = sorted(v for k, v in reasons.items()
+                          if v != "warp-timeout" and v not in hlib._SEAM_REFUSAL_SUBKINDS)
+        self.assertEqual([], unmapped)
+        self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS[
+            self.consts["PhysicsWarpNotInFlightReason"]])
+
 
 class ScreenResolutionSpecTests(unittest.TestCase):
     """`[runtime] screenResolution`: the per-run KSP window size a GUI census lane
@@ -24689,6 +24705,75 @@ class DeterministicSeamErrorRetryTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, line)
         self.assertTrue(all(ord(c) < 128 for c in line))
+
+
+class InertStepWaitLintTests(unittest.TestCase):
+    """A run of inert seam steps is not a time wait (todo
+    HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). Since PR #2017 an inert step
+    (`RecordingState`, `MissionMark`) costs one frame, so a lane that sized a 1x wait in
+    inert steps waited about a tenth as long, and 46 committed specs had to be audited
+    for it. The 1x wait is `WarpToUT maxRate=1` to an explicit UT (FLIGHT, the Space
+    Center or the Tracking Station since TC-1). This cell keeps a long run from coming
+    back unexplained: a run of `LONG_RUN` or more consecutive inert steps must carry an
+    `# inert-wait:` comment (directly above the run or inside it) that says why its
+    length does not matter."""
+
+    LONG_RUN = 40
+    INERT_RE = re.compile(r'^\s*\{\s*cmd\s*=\s*"(RecordingState|MissionMark)"')
+    STEP_RE = re.compile(r'^\s*\{\s*(cmd|phase)\s*=')
+    MARKER = "# inert-wait:"
+
+    @classmethod
+    def unexplained_long_runs(cls, text):
+        """(first line, run length) of every run of >= LONG_RUN inert steps with no
+        `# inert-wait:` comment between the previous non-inert step and the run's
+        end. Comment and blank lines neither break nor extend a run."""
+        lines = text.replace("\r\n", "\n").split("\n")
+        found = []
+        run, start, explained = 0, None, False
+        context_explained = False
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if cls.INERT_RE.match(line):
+                if run == 0:
+                    start, explained = i + 1, context_explained
+                run += 1
+            elif cls.STEP_RE.match(line):
+                if run >= cls.LONG_RUN and not explained:
+                    found.append((start, run))
+                run, context_explained = 0, False
+            elif stripped.startswith("#") and cls.MARKER in stripped:
+                if run:
+                    explained = True
+                else:
+                    context_explained = True
+        if run >= cls.LONG_RUN and not explained:
+            found.append((start, run))
+        return found
+
+    def test_the_scan_is_not_vacuous(self):
+        long_run = "\n".join(['  { cmd = "RecordingState", expect = "OK" },'] * 40)
+        self.assertEqual([(2, 40)], self.unexplained_long_runs(
+            '  { cmd = "LoadGame" },\n' + long_run + '\n  { cmd = "FlushAndQuit" },'))
+        self.assertEqual([], self.unexplained_long_runs(
+            '  { cmd = "LoadGame" },\n  # inert-wait: frames only, no clock\n' + long_run))
+        short = "\n".join(['  { cmd = "MissionMark", args = { label = "x" } },'] * 39)
+        self.assertEqual([], self.unexplained_long_runs(short))
+        # A marker belongs to the run that follows it, never to a later one.
+        self.assertEqual([(4, 40)], self.unexplained_long_runs(
+            '  # inert-wait: x\n  { cmd = "MissionMark" },\n  { cmd = "LoadGame" },\n'
+            + long_run))
+
+    def test_no_committed_spec_carries_an_unexplained_long_inert_run(self):
+        offenders = {}
+        for path in sorted(glob.glob(os.path.join(SCENARIOS_DIR, "*.toml"))):
+            with open(path, encoding="utf-8") as fh:
+                runs = self.unexplained_long_runs(fh.read())
+            if runs:
+                offenders[os.path.basename(path)] = runs
+        self.assertEqual({}, offenders,
+                         "inert-step runs of %d+ with no `# inert-wait:` comment; a 1x "
+                         "wait is `WarpToUT maxRate=1` to an explicit UT" % self.LONG_RUN)
 
 
 class DeterministicSeamErrorSourceSyncTests(unittest.TestCase):

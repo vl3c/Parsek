@@ -139,6 +139,25 @@ def _spec(name):
         return tomllib.load(fh)
 
 
+def _dwells(spec):
+    """The lane's 1x dwells as (step index, game seconds): every `WarpToUT
+    maxRate=1` step, measured from the UT of the nearest preceding `TimeJump`
+    (the dwell's own start, since nothing between them moves the clock). Since
+    2026-10-07 a dwell is this verb rather than a run of `RecordingState` ticks:
+    PR #2017 made an inert step one frame, so a tick count no longer measures
+    time (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). At 1x a game second
+    costs at least a wall second, so the span is a floor on the wall dwell."""
+    out = []
+    last_jump = None
+    for i, step in enumerate(spec["driver"]["steps"]):
+        args = step.get("args") or {}
+        if step.get("cmd") == "TimeJump" and "ut" in args:
+            last_jump = float(args["ut"])
+        elif step.get("cmd") == "WarpToUT" and args.get("maxRate") == "1":
+            out.append((i, float(args["ut"]) - last_jump))
+    return out
+
+
 def snap(**kw):
     return mlib.TelemetrySnapshot(**kw)
 
@@ -1094,13 +1113,12 @@ class V16CalibrationSeedTests(unittest.TestCase):
                            "rather than on the captured park")
         clearance = (anchor + (self.SPAN_END - self.UT0)) - park_ut
         self.assertGreater(clearance, 100.0)
-        # The dwell block must fit inside that clearance at its most expensive
-        # measured per-tick cost (V5's 0.54 s of 1x per RecordingState).
-        ticks = sum(1 for s in self.m["driver"]["steps"]
-                    if s.get("cmd") == "RecordingState")
-        self.assertGreater(clearance, 4.0 * ticks * 0.54,
-                           "the 40-tick dwell block has under 4x margin against "
-                           "the recorded tail remaining at the park epoch")
+        # The 1x dwell must fit inside that clearance with 4x margin.
+        dwells = _dwells(self.m)
+        self.assertEqual(1, len(dwells))
+        self.assertGreater(clearance, 4.0 * dwells[0][1],
+                           "the 1x dwell has under 4x margin against the "
+                           "recorded tail remaining at the park epoch")
 
     def test_v16m_jumps_are_strictly_forward(self):
         # The single most load-bearing property of a seeded bracket: a backward
@@ -1160,22 +1178,24 @@ class V16CalibrationSeedTests(unittest.TestCase):
         POLL_INTERVAL_SECONDS floor, not V5's measured 0.54 s/tick - sizing
         against the measured rate would clear the window only if the run behaves
         as well as V5's did."""
-        steps = self.m["driver"]["steps"]
-        ticks = sum(1 for s in steps if s.get("cmd") == "RecordingState")
-        poll_floor = 0.25          # run.py POLL_INTERVAL_SECONDS
+        # Since 2026-10-07 the dwell is a `WarpToUT maxRate=1` wait, whose game
+        # seconds are a floor on its wall seconds; the poll floor no longer bounds
+        # anything (an inert step is one frame since PR #2017).
         window = 5.0               # ParsekLog.VerboseRateLimited(..., 5.0)
-        self.assertGreaterEqual(ticks * poll_floor, 2.0 * window,
-                                "the dwell block does not clear the rate-limiter "
-                                "window at the poll floor, only at the measured "
-                                "per-tick cost")
+        dwells = _dwells(self.m)
+        self.assertEqual(1, len(dwells))
+        self.assertGreaterEqual(dwells[0][1], 2.0 * window,
+                                "the 1x dwell does not clear the rate-limiter "
+                                "window twice")
 
     def test_the_dwell_block_sits_between_the_two_cycles(self):
         """PLACEMENT IS THE WHOLE POINT: the ticks must fall between the cycle-1
         census emission (the third cycle-1 bracket jump) and the cycle-2 one, or
         they buy no separation at all."""
         cmds = [s.get("cmd") for s in self.m["driver"]["steps"]]
-        first_tick = cmds.index("RecordingState")
-        last_tick = len(cmds) - 1 - cmds[::-1].index("RecordingState")
+        dwells = _dwells(self.m)
+        self.assertEqual(1, len(dwells))
+        first_tick = last_tick = dwells[0][0]
         jumps = [i for i, c in enumerate(cmds) if c == "TimeJump"]
         # 4 cycle-1 jumps, then the block, then the 4 cycle-2 jumps.
         self.assertGreater(first_tick, jumps[3])

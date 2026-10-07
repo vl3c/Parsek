@@ -6310,11 +6310,26 @@ _(unreleased - entries accumulate here per commit)_
   QL-4b and QL-4c flew green on main with the in-session load fixes, alongside the in-game
   QuickloadResume and Rewind categories (H65, RF-6, R7a) and the re-fly regression lanes. Since
   PR #2017 an inert seam step costs one frame instead of a 0.25 s poll, so waits sized in inert
-  steps shrank: the QL-4 lanes now settle 150 steps before their post-load warp (it hit the
-  physics hold), their commit-UT token accepts 149.x, EX-1 waits for EndUT with
+  steps shrank: the QL-4 lanes' post-load warp hit the physics hold (now waited out by the
+  warp verb itself, next entry), their commit-UT token accepts 149.x, EX-1 waits for EndUT with
   `WarpToUT maxRate=1`, and QL-3's report-only rewind-point window reads its fixture's 1. LF-2
-  stays red on the same cause (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). No product
-  change.
+  red on the same cause and is fixed in its spec by the next entry. No product change.
+- **Automated testing: the warp command waits in any scene, and 1x waits are no longer counted in
+  idle steps.** The test-command `WarpToUT` now runs at the Space Center and in the Tracking
+  Station as well as in flight (the three scenes with KSP's time-warp control); with
+  `maxRate=1` it is a deterministic 1x wait until a given UT in all three. Outside flight no
+  vessel limits the warp, and `ladder=phys` is refused (`physics-warp-not-in-flight`); in flight
+  nothing changes. KSP's short physics hold after a flight load (about a second, until the vessel
+  unpacks) used to refuse a warp sent inside it; the command now waits it out (at most 30 s,
+  `warp-physics-hold`), while any other lock, such as an open dialog, still refuses. Since PR
+  #2017 an idle test step costs one frame instead of 0.25 s, so lanes that let runs of idle
+  steps carry 1x time waited about a tenth as long: 43 lanes now wait with `WarpToUT maxRate=1`
+  to explicit UTs (LF-2, LF-1, EX-1, EX-2, SS-1, BAY-1, the EVA spawn lanes, the CI chain-tip
+  lanes, H59, B32, V26M, V27M, RF-7T and the V16-V30 loop and arrival lanes), and the QL-4 lanes,
+  EX-1 and SS-1 drop their physics-hold padding. A new harness check refuses a run of 40 or more
+  idle steps without an `# inert-wait:` note. The changed lanes are not re-flown yet; six short
+  settles that wait from a UT the spec cannot name are left (todo
+  HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). No product change.
 - **Automated testing: lanes for a booster quickloaded back into the air (QL-4, QL-4b,
   QL-4c).** `QL-4-quickload-booster-terminal` (nightly, flown green 2026-10-07) is the live check for the
   quickload end-state fix: on the GS1 two-stage pad it quicksaves with the booster still under

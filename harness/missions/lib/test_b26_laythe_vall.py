@@ -1094,12 +1094,26 @@ class V17SeedTests(unittest.TestCase):
         V17T's single 40-tick block is SPAWN-THROTTLE HEADROOM (run 1: two ticks
         = 3 lifecycle ticks = 6 of 20 overlap instances, and cycle 1 - the
         Vall-leg instance both its anti-vacuity pins need - spawns LAST)."""
-        m_ticks = sum(1 for s in self.m["driver"]["steps"]
-                      if s.get("cmd") == "RecordingState")
-        t_ticks = sum(1 for s in self.t["driver"]["steps"]
-                      if s.get("cmd") == "RecordingState")
-        self.assertEqual(120, m_ticks)  # 3 x 40: +140 c1, park c1 (+watch), +140 c2... see spec
-        self.assertEqual(40, t_ticks)
+        # Since 2026-10-07 each 40-tick block is one `WarpToUT maxRate=1` wait of
+        # 12 game seconds (PR #2017 made a tick one frame, so a tick count no longer
+        # measures time; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). V17M's
+        # dwells follow a TimeJump; V17T's follows the TS reload of the save taken at
+        # its one jump UT, so both are measured from the preceding jump.
+        def dwells(spec):
+            out, last_jump = [], None
+            for step in spec["driver"]["steps"]:
+                args = step.get("args") or {}
+                if step.get("cmd") == "TimeJump":
+                    last_jump = float(args["ut"])
+                elif step.get("cmd") == "WarpToUT" and args.get("maxRate") == "1":
+                    out.append(float(args["ut"]) - last_jump)
+            return out
+        m_dwells = dwells(self.m)
+        t_dwells = dwells(self.t)
+        self.assertEqual(3, len(m_dwells))  # +140 c1, park c1 (+watch), +140 c2... see spec
+        self.assertEqual(1, len(t_dwells))
+        for span in m_dwells + t_dwells:
+            self.assertGreaterEqual(span, 10.0, "a dwell under the 10 s the blocks bought")
 
     def test_both_v17_lanes_arm_the_same_two_gating_blocks(self):
         """Grown from `test_neither_v17_spec_arms_a_gating_block` in two steps.

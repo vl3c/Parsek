@@ -45,7 +45,7 @@ witness: the QL-4 family's report-only `rewindPoints = { max = 0 }` (arm it afte
 
 ---
 
-## HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS: since PR #2017 an inert seam step costs one frame, so lanes that size a wait in inert steps wait about a tenth as long [FILED 2026-10-07 from the F9 verification flights, branch `f9-verify`, measured. OPEN, harness]
+## ~~HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS: since PR #2017 an inert seam step costs one frame, so lanes that size a wait in inert steps wait about a tenth as long~~ [FILED 2026-10-07 from the F9 verification flights, branch `f9-verify`, measured. FIXED 2026-10-07 in the specs on branch `scene-wait` (owner decision: scene-agnostic `WarpToUT`, TC-1), live proof owed by the flights listed below; six settles left with reasons, S4.4 stays a retry-absorbed race]
 
 PR #2017 (harness overhead, 2026-10-06) polls a seam response every 0.025 s for the first 2 s
 after the command write (`hlib.SEAM_FAST_POLL_SECONDS` / `seam_poll_interval`). An inert step
@@ -57,28 +57,77 @@ bd97e6a7):
 
 - `EX-1-ghost-extension-past-endut` `2026-10-07_1928` PARSEK-FAIL: ~140 inert steps were to
   carry UT from the reload (11.04) past EndUT (26.1); the after-end mark read UT 14.7. Fixed in
-  the spec: `WarpToUT ut=34 maxRate=1` (RL-1's 1x wait).
+  the spec: `WarpToUT ut=34 maxRate=1` (RL-1's 1x wait), green `_1948`; `scene-wait` then
+  dropped the inert settle before it and made the pad recording a 1x wait to UT 30 (after-end
+  target UT 38).
 - `LF-2-loop-armed-rewind-first-run-real` `2026-10-07_1929` PARSEK-FAIL: its 110 marks of 1x
   FLIGHT time (~27 s by design) took 3 s (UT 11.26 -> 14.38), and its Act 4 Space Center 1x wait
-  is shrunk the same way. NOT fixed: `WarpToUT` is FLIGHT-only, so no seam verb holds a
-  deterministic 1x wait at the Space Center.
+  is shrunk the same way. FIXED on `scene-wait`: all three waits (and the 16-step pad
+  recording, 0.58 s on `_1929`) are `WarpToUT maxRate=1` to UT 31 / 45 / 45, the Space Center
+  one possible since TC-1.
 - The QL-4 family's 12-step post-F9 settle (0.4 s) let `WarpToUT` reach the post-load physics
   hold (`warptout refused reason=warp-locked ut=400 holders=physicsHold`; the hold lifts at the
-  unpack, 1.0-1.2 s after OnFlightReady): fixed in the specs with a 150-step settle. A refused
-  post-mission step is non-gating on a MISSION-OK run, so the lane read PARSEK-FAIL on its
-  expectations rather than INVALID.
+  unpack, 1.0-1.2 s after OnFlightReady): fixed in the specs with a 150-step settle (green on
+  `f9-verify`). A refused post-mission step is non-gating on a MISSION-OK run, so the lane read
+  PARSEK-FAIL on its expectations rather than INVALID. `scene-wait` removed the pads: the hold is
+  now WarpToUT's own dispatch defer.
 - `S4.4-refly-quicksave-mid-session` attempt 1 `2026-10-07_1922` INVALID (passed on attempt 2):
   the bare LoadGame raced the re-fly recorder start. NOT fixed: a 60-step settle
   (`2026-10-07_1947`) let the recorder sample before the save, the provisional was no longer
   unflown and the lane's merge tokens went missing; it needs the recorder live and the
   provisional empty at the save, a window of a few frames, so the retry policy absorbs it.
 
-47 committed specs hold a run of 20 or more consecutive inert steps (largest: EVA-9 / EVA-10
-641, EVA-6 / EVA-7 241, BAY-1 202, EX-2 201, LF-1 / LF-2 121); each needs a read of whether the
-run is a time wait. Fix: owner decision. Options: a per-spec or per-step pacing floor in the
-harness (restoring the 0.25 s cadence where a spec asks for it), a seam wait verb that holds 1x
-time in any scene (`WaitUT`), or converting each FLIGHT wait to `WarpToUT maxRate=1` and each
-settle to a wait on a named condition.
+46 committed specs held a run of 20 or more consecutive inert steps (largest: EVA-9 / EVA-10
+641, EVA-6 / EVA-7 241, BAY-1 202, EX-2 201, LF-1 / LF-2 121; recounted on `scene-wait`, where
+the filing said 47).
+
+Fix (owner decision, branch `scene-wait`): TC-1's scene-agnostic `WarpToUT`. The verb is
+`RequiresWarpScene` (FLIGHT, the Space Center, the Tracking Station), so `maxRate=1` is a
+deterministic 1x wait to an explicit UT in all three; stock's post-load `physicsHold` (the only
+TIMEWARP holder, at most 30 s) is a dispatch DEFER `warp-physics-hold` instead of `REJECTED
+warp-locked`, so no spec pads a settle before a warp. Every run was read and classed: (A) a 1x
+wait whose length matters, converted to `WarpToUT maxRate=1` to a UT derived from the spec's own
+windows; (B) a settle before a warp that hit the physics hold, removed; (C) a settle whose
+length does not matter, left. 43 specs changed; none re-flown yet.
+
+| spec | run(s) | class | action |
+|---|---|---|---|
+| LF-2 | 110 FLIGHT, 120 KSC (+16 pad) | A | UT 45 / 45 (+ pad to 31) |
+| LF-1 | 120 KSC (+16 pad) | A | UT 45 (+ pad to 31) |
+| EX-1 | 140 settle (+24 pad) | B (+A) | settle removed; pad to 30; after-end 34 -> 38 |
+| QL-4 / QL-4b / QL-4c | 150 settle | B | removed |
+| SS-1 | 60, 24 (+12 settle) | A (+B) | UT 730 / 1106; settle removed |
+| EVA-6 / EVA-7 | 240 KSC | A | UT 1320 |
+| EVA-9 | 240 idle, 640 post-reload | A | UT 1360 / 1455 |
+| EVA-10 | 160 idle, 640 post-reload | A | UT 23340 / 23430 |
+| BAY-1 | 200 KSC | A | UT 75 |
+| EX-2 | 200 | A | UT 471 |
+| CI-5 | 30 | A | UT 429 |
+| CI-6 / CI-7 / CI-10 / CI-11 | 20 proximity settle, 20 after the SPH launch | A, A | first to UT 27; second LEFT (no explicit UT after the editor launch) |
+| CI-8 | 20 proximity settle, 20 after the spawn | A | UT 27 / 630 |
+| CI-9 | 20 proximity settle | A | UT 428 |
+| H59 | 40 map A, 40 map B, 40 KSC | A | UT 992 / 1612 / 1624 |
+| V27M | 30 map, 20 KSC | A | UT 1609 / 1616 |
+| V26M / B32 | 40 / 20 map dwell | A (rate-limited summaries) | UT 87625323 / 87625319 |
+| RF-7T | 20 TS dwell | A | UT 707 |
+| V16M, V17M, V19M-V23M | 40 census dwells | A | 12 s past each preceding jump |
+| V17T, V19T-V23T, V20K, V22K | 40 TS / KSC dwell | A | 12 s past the saved jump UT |
+| V28M / V29M / V30M | 20 park dwell | A | 6 s past the last jump |
+| RF-14 / RF-15 | 24 | A | LEFT: the re-fly recorder bind (~2 s after the marker write) at the rewind point's UT, which the mission sets; no explicit UT |
+| W1 | 20 | C | LEFT: a frame or two at the jumped clock before the watch probe |
+
+Left open: the six settles marked LEFT under A (CI-6 / CI-7 / CI-10 / CI-11 after the SPH
+launch, RF-14 / RF-15 after InvokeRewind) wait from a UT the spec cannot name, so they need a
+relative 1x wait (for example a harness-side `${step.ut}` offset) or a wait on a named
+condition; with one-frame steps their negative claims run for under a second. The 12-step
+settles before a warp in CN-2, CN-3 and RL-1 are now redundant (the hold is the verb's defer)
+and harmless. S4.4 stays as above (a few-frame window the retry policy absorbs). A new hlib
+cell (`InertStepWaitLintTests`) refuses a run of 40+ inert steps without an `# inert-wait:`
+note.
+
+Flights owed (each changed spec once): LF-2 and EX-1 first, then QL-4 / QL-4b / QL-4c, then
+SS-1, LF-1, EX-2, EVA-6, EVA-7, EVA-9, EVA-10, BAY-1, CI-5 to CI-11, H59, B32, V26M, V27M, RF-7T,
+and the V16-V30 player-loop / arrival lanes.
 
 ---
 
@@ -1551,7 +1600,10 @@ ISRU aboard. The two questions it raised are ruled (2026-10-06): cap harvest-ori
   read it lifts the one-`RunTests`-per-lane limit for invariant checks.
 - `ReadVesselResources pid=|name= [expect=...]`: per-vessel resource totals and a part-uid digest
   in FLIGHT, KSC and TS.
-- Scene-agnostic `WarpToUT` (FLIGHT only today, `ParsekTestCommandAddon.WarpToUT.cs:50`).
+- ~~Scene-agnostic `WarpToUT` (FLIGHT only today, `ParsekTestCommandAddon.WarpToUT.cs:50`).~~
+  DONE 2026-10-07 (branch `scene-wait`): `RequiresWarpScene` (FLIGHT, Space Center, Tracking
+  Station), the post-load physics hold a bounded defer; todo
+  HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS.
 
 Fix: one verb per PR with its hlib source-sync cell, in the order the roadmap register needs them.
 
