@@ -4213,7 +4213,12 @@ namespace Parsek
                             currentFlightLaunchUT, Ledger.GetLatestUntaggedVesselBuildUT());
                         double pruneCutoffUT = ResolveRevertPruneCutoff(
                             revertKind, loadedUT, editorBoundaryUT, out pruneInclusive);
-                        int prunedOrphans = Ledger.PruneOrphanActionsAfterUT(pruneCutoffUT, pruneInclusive);
+                        // Route rows up to the revert save's route state floor (a launch inside a
+                        // go-back rewind's lead-time window) are part of the route state that
+                        // save restores, not the reverted flight's.
+                        int prunedOrphans = Ledger.PruneOrphanActionsAfterUT(
+                            pruneCutoffUT, pruneInclusive,
+                            keepRouteRowsThroughUT: Logistics.RouteStore.ReadSavedRouteStateFloorUT(node));
                         revertPruneCutoffUTForRoutes = pruneCutoffUT;
                         if (prunedOrphans > 0)
                             ParsekLog.Info("Scenario",

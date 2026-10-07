@@ -3755,7 +3755,9 @@ _(unreleased - entries accumulate here per commit)_
   route run in those 15 seconds used to have its charge refunded while the route still counted it
   as done, so it ran for free, and the recovery credit it paid for the run before it was lost.
   Routes now go back to exactly the moment the rewind's save was made, so that run keeps its
-  charge and the credit and is not repeated. Covered by xUnit; not yet checked in a test flight.
+  charge and the credit and is not repeated, also when you change scenes, launch, save and load,
+  revert a launch or start a Re-fly within those 15 seconds. Covered by xUnit; not yet checked in
+  a test flight.
 
 - **Supply routes keep running at the Space Center right after a rewind to launch.** After the
   rewind, routes made no runs until the game clock caught up with the moment you rewound from,

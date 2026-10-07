@@ -717,7 +717,9 @@ namespace Parsek
                         "the revert prune runs only when the in-session branch reads isRevert");
                 case LoadKind.StockRevert:
                     return Today(LoadReconcileAction.Prune,
-                        "ParsekScenario.OnLoad revert branch -> Ledger.PruneOrphanActionsAfterUT at ResolveRevertPruneCutoff");
+                        "ParsekScenario.OnLoad revert branch -> Ledger.PruneOrphanActionsAfterUT at ResolveRevertPruneCutoff, "
+                        + "sparing route rows up to the revert save's route state floor (a launch inside a go-back "
+                        + "rewind's lead-time window)");
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
                     return Today(LoadReconcileAction.Keep,
@@ -768,12 +770,13 @@ namespace Parsek
                         + "the rewind save's own UT (before the lead-time windback; RewindAdjustedUT when no route copy "
                         + "was read), then each kept route takes its loop position back from that save's route copy "
                         + "(read from the parsed save in RecordingStore.ExecuteRewindSaveLoad; the OnLoad node is "
-                        + "persistent.sfs)");
+                        + "persistent.sfs); a cutoff ahead of the clock becomes the route state floor "
+                        + "(RouteStore.StateFloorUT) that saves carry until the clock passes it");
                 case LoadKind.ReFlyStart:
                     return Today(LoadReconcileAction.Bundle,
                         BundleRestores + " and reconciles routes at the loaded UT (RouteRewindClassifier.ReconcileStoreAtRewind), "
-                        + "then each kept route takes its loop position back from the RP quicksave's own route copy "
-                        + "(the OnLoad node)");
+                        + "raised to the route state floor the RP quicksave carries, then each kept route takes its "
+                        + "loop position back from the RP quicksave's own route copy (the OnLoad node)");
                 case LoadKind.DiscardReFly:
                 case LoadKind.StockRevert:
                 case LoadKind.QuickloadFlight:
@@ -791,8 +794,9 @@ namespace Parsek
             "ParsekScenario.OnLoad -> RouteLoadReconcile.ReconcileAtInSessionLoad, before the recalculation: "
             + "Ledger.RetireFutureRouteActionsAtRewind + RouteRewindClassifier.ReconcileStoreAtRewind at the "
             + "loaded save's UT (a stock revert: the earlier of it and the revert prune's launch boundary), "
-            + "then each kept route takes its loop position and owed recovery credit back from the loaded "
-            + "save's own route copy";
+            + "raised to the route state floor the save carries (written inside a go-back rewind's lead-time "
+            + "window, the outgoing node of a scene change in it included), then each kept route takes its loop "
+            + "position and owed recovery credit back from the loaded save's own route copy";
 
         private const string CrewAndSlotsFromNode =
             "ParsekScenario.LoadCrewAndGroupState reads the loaded node";

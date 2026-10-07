@@ -142,6 +142,19 @@ sample); refuse such a cut, or index the chain by section start rather than by S
 
 ---
 
+## ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS: inside a go-back rewind's lead-time window, a load back to a save written in that window keeps the route actions taken after it [FILED 2026-10-07 from the route state floor, branch `fix-route-goback-cutoff`. OPEN, product, low; by construction, not reproduced in game]
+
+The go-back rewind keys its route cutoff to the rewind save's own UT, up to 15 s ahead of the
+wound-back clock, and every save written before the clock passes it carries that route state floor;
+a load of such a save keys its route cutoff to the floor, not to its own UT. So a route row written
+after that save but before the floor (a pause or resume row, say; the window's crossings already
+fired) survives a quickload, a revert to a launch made in the window
+(its prune spares route rows up to the floor) and an F9 at the Space Center (which also keeps a Send
+Once or pause-after-this-run armed after the save). Needs a save AND an action AND a load inside the
+same 15 s of game time. A fix would mark the rows the go-back kept (action ids) instead of a UT.
+
+---
+
 ## ~~ROUTE-TICK-BASELINE-SET-BEFORE-GO-BACK-CLOCK-MOVE: after a go-back rewind, route ticks may stall until the clock passes the pre-rewind UT~~ [FILED 2026-10-07 from the PR #2036 review. CONFIRMED and FIXED 2026-10-07 on branch `fix-route-goback-cutoff` (headless only, not flown)]
 
 **CONFIRMED.** Code: the tick gate was `if (currentUT - lastRouteTickUT < TickIntervalSec) return;`
@@ -1645,15 +1658,33 @@ tech and crew stay at the adjusted UT. Every consumer of the route cutoff follow
 skip test (save never newer than the cutoff), the retired-route-cargo capture and its per-snapshot
 watermark (`CaptureRetiredRouteCargo` is called from `RetireFutureRouteActionsAtRewind` with the
 retire's own cutoff), and the dormant split (a route created inside the window stays committed,
-as the save carries it). The Re-Fly start needed nothing: its loaded save is the RP quicksave, so its
-cutoff is already that save's UT. A route whose clock definition changed after the save keeps the
+as the save carries it). The rows kept between the wound-back clock and the save's UT lie ahead of
+the clock, so a later load keyed to its own UT would take them for an abandoned future: the PR #2040
+review found that a scene change inside the window (KSC to the VAB, a launch, an F9 at the KSC) ran
+the in-session reconcile at the clock, retired them again under the restored fired cursor (the free
+run back) and cleared one-shots armed after the rewind. So a go-back whose cutoff lies ahead of the
+clock also sets the route state floor `RouteStore.StateFloorUT`; `SaveRoutesTo` writes it as the sparse
+`routeStateFloorUT` value while set, every load reads the floor its save carries
+(`RouteLoadReconcile.ReconcileAtInSessionLoad`, the cold `LoadRoutesFrom`, the Re-Fly start's
+`ConsumePostLoad`, the go-back capture) and keys its route cutoff and the UT of its route copy to the
+later of its own UT and that floor (`ApplyRouteStateFloor`), the revert prune spares route rows up to
+the revert save's floor, and the floor in memory becomes the loaded save's while its clock is behind
+it (`ResolveFloorAfterLoad`), so a save without one (written before the rewind) is a load back past
+the window that reconciles at its own UT and clears it, and so does a load whose clock has passed it.
+The Re-Fly start otherwise needed nothing: its loaded save is the RP quicksave, so its cutoff is
+already that save's UT. A route whose clock definition changed after the save keeps the
 reset; with the window's rows kept, a re-timed crossing landing inside the window can charge once
 more there (not measured, rare). Red cells: `RouteRewindLoopPositionTests.GoBack_CrossingInsideTheWindbackWindow_KeepsItsChargeAndItsCredit`
 (the charge and the credit row kept, the crossing not re-fired across 1445..1460, the next fires
 once), `ResolveGoBackRouteCutoffUT_IsTheSavesOwnUtWhenItsCopyIsInHand`,
 `ResolveRewindSaveOwnUT_PrefersThePreWindbackUt` and
 `RewindLoggingTests.PreProcessRewindSave_ReturnsTheSavesOwnUtBeforeTheWindback`; the
-`HandleRewindOnLoad` / `ExecuteRewindSaveLoad` source gates re-pinned to the new calls.
+`HandleRewindOnLoad` / `ExecuteRewindSaveLoad` source gates re-pinned to the new calls; the floor's
+cells in `RouteGoBackWindowFloorTests` (the review probe: a scene change in the window keeps the
+charge, the cursor and a Send Once armed after the rewind; F5 in the window then F9; a revert to a
+launch in the window; a Re-Fly start from an RP in the window; a load back past the window still
+reconciling; the floor's lifetime), 10 red before the floor. Residual, filed as
+ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS.
 `H58-route-rewind-to-launch` re-pinned to the predicted reading (see `autotest-status.md`), not
 re-flown. Red cells (written against stubs, 20 red, then green):
 `RouteRewindLoopPositionTests` (the double fire, no-op, anchor after a re-activation, partner
