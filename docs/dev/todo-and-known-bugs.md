@@ -16,18 +16,75 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT: a chain tip whose recording the optimizer split resolves to its first segment, which holds no snapshot, so the tip cannot spawn [FILED 2026-10-07 by code read while fixing CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (PR #2035); also noted by the PR #2026 review. OPEN, product; to verify, not reproduced]
+## ~~CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT: a chain tip whose recording the optimizer split resolves to its first segment, which holds no snapshot, so the tip cannot spawn~~ [FILED 2026-10-07 by code read while fixing CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (PR #2035); also noted by the PR #2026 review. VERIFIED and FIXED 2026-10-07, branch `fix-chain-walk-optimizer-segments`; not flown]
 
-`GhostChainWalker.WalkToLeaf` follows branch points only; it does not follow optimizer chain-segment
-links the way `TraceLineagePids` does, so when `RecordingStore.RunOptimizationPass` has split the
-claimed vessel's tip recording (an environment or body boundary), the walk returns the FIRST
-segment. The snapshot lives on the last segment, so `SpawnAtChainTip` and the out-of-flight
-replacement (`ChainTipStaleVessel`) have no snapshot to spawn from: the claimed vessel would stay
-ghosted / un-replaced past its tip spawn UT. Check first: a committed dock-undock tree whose
-station-half recording crosses an optimizer split boundary (or a fixture forced through
-`RunOptimizationPass`), then `ComputeAllGhostChains` and the tip spawn. Fix direction: let the walk
-continue through same-chain optimizer segments to the last one (PR #2035's cargo identity already
-resolves earlier segments to the snapshot-holding one).
+`GhostChainWalker.WalkToLeaf` followed branch points only. `RecordingStore.RunOptimizationPass`
+(every load and commit) splits a recording at environment / body boundaries: the first segment
+keeps the recording id (it stays the branch point's child) and the last one takes the vessel
+snapshot, the terminal state and the child branch point that closes the recording. So when the
+claimed vessel's tip recording was split, the walk stopped on the first segment: the chain's
+spawn UT was that segment's end (a flight load between the two ends did not ghost the claimed
+vessel at all), `ResolveTermination` read no terminal (a station that ended Destroyed kept a
+live chain), a time jump's `SpawnAtChainTip` found no snapshot, and the snapshot-holding last
+segment matched no chain, so flight spawned it as a plain recording end (identity not
+preserved, the chain and its ghost left in place) and the out-of-flight replacement
+(`ChainTipStaleVessel`) and the Tracking Station's identity-preserving spawn both missed it.
+The same stop happened at a first segment that keeps a branch point the vessel flew past (a
+stage dropped before the cut).
+
+Verified headless: a committed dock / undock tree whose station half flies exo -> atmo ->
+surface, run through the real optimizer pass, walked to tip `C-half` (the first of three
+segments) before the fix. In collected logs the shape appears once:
+`2026-09-08_2001_GS-7-kerbalx-crash-watch-hold` built `vessel=563449404 tip=06b271e6...
+terminated=False` on the first segment of a split crash recording (an older build, and a
+degenerate split, see OPTIMIZER-SPLIT-EMPTY-TAIL-INDEXED-FIRST); no collected log has a failed
+chain-tip spawn.
+
+Fix: where the vessel ends in a recording (no child branch point, or one it flew past), the
+walk goes on to the last segment of its optimizer chain
+(`EffectiveState.ResolveChainTerminalRecording`, the hop `WalkSlotVessel` uses) and continues
+from there, logging `WalkToLeaf: step N: rec=... -> segment=... rule=optimizer-chain`; tip, spawn
+UT and termination now read that segment. `IsTreeFullyTerminated` no longer treats an earlier
+chain segment as a leaf. An unsplit tip is unchanged. Cells: `GhostChainWalkerOptimizerSegmentTests`
+(red before the fix; the merged-recording cell, where the undock branch point sits on the cut
+merged recording's last segment, is the one that reds if the walk stops after the hop). PR
+#2035 files the same header as OPEN and its route-cargo identity also looks through earlier
+segments; reconcile the two entries at merge (this one is the fix).
+
+---
+
+## CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP: the ghost-chain walk can land on a Re-Fly TIP the fork supersedes, which suppresses the fork's spawn [FILED 2026-10-07 from the PR #2037 review. OPEN, product, narrow; not a release blocker]
+
+`GhostChainWalker` reads the committed trees as they are, supersede relations ignored.
+`RecordingTreeSplitter` gives a Re-Fly's HEAD and TIP the same `ChainId` (TIP at HEAD's index +
+1), so since the CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT fix the walk hops HEAD -> TIP, and
+the fork that supersedes TIP is not on that path. Reviewer's probe: HEAD index 0, TIP index 1
+ending at 2000, the fork carrying the claimed pid ending at 1500. Before the fix the tip was
+HEAD (spawn UT 1200) and the fork was not an intermediate link; after it the tip is TIP and
+`GhostChainWalker.FindIntermediateLinkChain(fork)` is non-null (same pid, the chain's spawn UT
+after the fork's end), so the fork's spawn is suppressed on the Tracking Station path (it reads
+the unfiltered chains) and in flight while TIP's end is still ahead. Narrow: it needs a claimed
+vessel that stayed the dominant one through its dock and was then Re-Flown on its own
+continuation slot. The same class already existed for an unsplit superseded child (the walk
+landed on the superseded child directly). Fix direction: route the walker's chain hop, and its
+leaf, through the supersede-aware walk (`EffectiveState.EffectiveTipRecordingId`), with a cell
+that builds HEAD / TIP / fork plus the supersede relation and checks the tip is the fork and the
+fork spawns.
+
+---
+
+## OPTIMIZER-SPLIT-EMPTY-TAIL-INDEXED-FIRST: an optimizer split can leave a payload-less second half that `ReindexChain` puts at chain index 0 [FILED 2026-10-07 while verifying CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT, from one collected log. OPEN, product, low; not reproduced on the current build]
+
+`2026-09-08_2001_GS-7-kerbalx-crash-watch-hold`: the crash recording `06b271e6...` ('Kerbal X
+Probe', ended Destroyed) was split at UT 347.9 at an Atmospheric -> SurfaceMobile boundary into
+`first: 547 pts/1 sections, second: 0 pts/1 sections` (`'surface' [0..0]`). The second half has
+no points, so its StartUT reads 0, and `RecordingOptimizer.ReindexChain` (sorted by StartUT) gave
+it chain index 0 and the head index 1 (the produced save holds exactly that, with the terminal
+on index 0). Every reader that takes the highest chain index as the chain's end (the slot walk,
+the ghost-chain walk) then reads the head, which has no terminal and no snapshot. Check first
+whether `CanAutoSplitIgnoringGhostTriggers` still accepts a cut whose second half has no payload
+(its 5 s test reads `rec.EndUT`, which can come from an explicit or terminal bound past the last
+sample); refuse such a cut, or index the chain by section start rather than by StartUT.
 
 ---
 
