@@ -258,8 +258,11 @@ namespace Parsek.Tests
             Assert.False(up.FacilityDowngrade);
         }
 
+        // Owner ruling 2026-10-07 reversed "a committed downgrade reserves nothing": a
+        // committed Rebuild is a level change that holds every earlier one of its facility
+        // (FacilityRebuildBlockTests pins the blocks).
         [Fact]
-        public void DowngradeRow_ReadsAsADowngrade_AndReservesNothing()
+        public void DowngradeRow_ReadsAsADowngrade_AndIsIndexedAsALevelChange()
         {
             var down = new GameAction
             {
@@ -277,12 +280,16 @@ namespace Parsek.Tests
             Assert.Contains("Lv.1", downText);
             Assert.StartsWith("Upgrade ", GameActionDisplay.GetDescription(up, Game.Modes.CAREER));
 
-            // The stock-screen reservation reads "Upgraded to level N": a committed
-            // downgrade is not an upgrade the player must wait for.
             CommittedFutureKind kind;
             string key;
-            Assert.False(CommittedFutureIndex.TryClassify(down, out kind, out key));
+            Assert.True(CommittedFutureIndex.TryClassify(down, out kind, out key));
+            Assert.Equal(CommittedFutureKind.FacilityUpgrade, kind);
+            Assert.Equal(Admin, key);
             Assert.True(CommittedFutureIndex.TryClassify(up, out kind, out key));
+            var index = CommittedFutureIndex.Build(new[] { up, down }, null, null, null);
+            var rows = index.AllEntries(CommittedFutureKind.FacilityUpgrade, Admin);
+            Assert.False(rows[0].FacilityDowngrade);
+            Assert.True(rows[1].FacilityDowngrade);
         }
 
         [Fact]
@@ -324,7 +331,7 @@ namespace Parsek.Tests
 
             var prefix = typeof(FacilityDowngradeSpendPatch).GetMethod("Prefix", BindingFlags.Static | BindingFlags.NonPublic);
             Assert.NotNull(prefix);
-            Assert.Equal(new[] { "__instance", "deduceFunds" }, prefix.GetParameters().Select(p => p.Name).ToArray());
+            Assert.Equal(new[] { "__instance", "deduceFunds", "__state" }, prefix.GetParameters().Select(p => p.Name).ToArray());
             var finalizer = typeof(FacilityDowngradeSpendPatch).GetMethod("Finalizer", BindingFlags.Static | BindingFlags.NonPublic);
             Assert.NotNull(finalizer);
             Assert.Equal(typeof(Exception), finalizer.ReturnType);

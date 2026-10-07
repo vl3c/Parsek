@@ -133,7 +133,10 @@ namespace Parsek
     /// before accepts (stock checks the slot at accept time); a contract accepted and resolved
     /// at the same UT still holds its slot at that accept;</item>
     /// <item>the limit starts at stock's limit now and rises at each committed Mission Control
-    /// upgrade to stock's limit for the upgraded level.</item>
+    /// upgrade to stock's limit for the upgraded level; a committed Rebuild (a level drop,
+    /// <see cref="CommittedFutureEntry.FacilityDowngrade"/>) sets it to stock's limit for the
+    /// lower level, so a contract accepted now that still holds its slot then is counted
+    /// against the smaller limit the committed accepts after the Rebuild were made under.</item>
     /// </list>
     /// <para>A new contract accepted now holds its slot until its own deadline
     /// (<see cref="NewAcceptReleaseUT(Contract.DeadlineType, double, double, double)"/>), so it
@@ -280,7 +283,7 @@ namespace Parsek
                 if (e.Rank == RankUpgrade)
                 {
                     if (e.Entry.FacilityToLevel > 0)
-                        limit = Math.Max(limit, slots(e.Entry.FacilityToLevel));
+                        limit = LimitAfterLevelChange(limit, e.Entry, slots);
                     continue;
                 }
                 count += e.Delta;
@@ -381,6 +384,18 @@ namespace Parsek
                 }
             }
             return best;
+        }
+
+        /// <summary>
+        /// The slot limit after one committed Mission Control level change: an upgrade raises it
+        /// to at least the new level's limit, a Rebuild sets it to the lower level's limit.
+        /// Shared with the strategy-slot walk (<c>StrategyReservationPredicates</c>).
+        /// </summary>
+        internal static long LimitAfterLevelChange(long limit, CommittedFutureEntry levelChange, Func<int, int> slots)
+        {
+            if (levelChange == null || levelChange.FacilityToLevel <= 0 || slots == null) return limit;
+            long atLevel = slots(levelChange.FacilityToLevel);
+            return levelChange.FacilityDowngrade ? atLevel : Math.Max(limit, atLevel);
         }
 
         private static void AddUpgrades(

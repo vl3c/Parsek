@@ -3726,6 +3726,14 @@ _(unreleased - entries accumulate here per commit)_
   and the Timeline shows it as "Downgrade". Covered by xUnit; not yet checked in a test
   flight.
 
+- **A facility can no longer be upgraded or rebuilt ahead of a level change or repair recorded
+  for later.** While a later upgrade or "Rebuild lvl N" of a facility is recorded, its Upgrade and
+  Rebuild buttons are greyed with the dated reason (for example `Rebuilt to level 2 on Y1, D09,
+  18:40, blocked by timeline until then.`). Both are also greyed while a later recorded repair
+  covers the facility's damage, because upgrading or rebuilding repairs it for free and would undo
+  that repair; they then show the Repair button's own reason (`Repaired on ..., blocked by timeline
+  until then.`). Covered by xUnit; not yet checked in a test flight.
+
 - **A quickload no longer brings back a re-flown flight or a retired crew death.** Quickloading,
   reverting or changing scene restored Parsek's Re-Fly bookkeeping from the save while it kept your
   recordings and career ledger as they were. After quickloading to a save from before a Re-Fly

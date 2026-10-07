@@ -164,7 +164,7 @@ namespace Parsek.Tests
         public void ForFacilityMenu_BeforeTheCommittedUpgrade_MarksAndBlocksWithTheExplanation()
         {
             Ledger.AddAction(Upgrade(1000, LaunchPadId, 2));
-            var d = StockUiDecorationQuery.ForFacilityMenu(CommittedFutureIndexCache.Current, 500, LaunchPadId, false, Fmt);
+            var d = StockUiDecorationQuery.ForFacilityMenu(CommittedFutureIndexCache.Current, 500, LaunchPadId, null, false, Fmt);
 
             Assert.Equal(StockUiScreen.FacilityMenu, d.Screen);
             Assert.Equal(StockUiDecorationKind.FacilityUpgrade, d.Kind);
@@ -181,7 +181,7 @@ namespace Parsek.Tests
         public void ForFacilityMenu_AtAndAfterTheCommittedUpgrade_LeavesTheMenuStock(double now)
         {
             Ledger.AddAction(Upgrade(1000, LaunchPadId, 2));
-            var d = StockUiDecorationQuery.ForFacilityMenu(CommittedFutureIndexCache.Current, now, LaunchPadId, false, Fmt);
+            var d = StockUiDecorationQuery.ForFacilityMenu(CommittedFutureIndexCache.Current, now, LaunchPadId, null, false, Fmt);
             Assert.False(d.Marked);
             Assert.False(d.Blocked);
             Assert.Null(d.Why);
@@ -193,10 +193,10 @@ namespace Parsek.Tests
         {
             Ledger.AddAction(Upgrade(1000, LaunchPadId, 2));
             var index = CommittedFutureIndexCache.Current;
-            Assert.False(StockUiDecorationQuery.ForFacilityMenu(index, 500, VabId, false, Fmt).Blocked);
-            Assert.False(StockUiDecorationQuery.ForFacilityMenu(index, 500, null, false, Fmt).Blocked);
-            Assert.False(StockUiDecorationQuery.ForFacilityMenu(index, 500, "", false, Fmt).Marked);
-            var replay = StockUiDecorationQuery.ForFacilityMenu(index, 500, LaunchPadId, true, Fmt);
+            Assert.False(StockUiDecorationQuery.ForFacilityMenu(index, 500, VabId, null, false, Fmt).Blocked);
+            Assert.False(StockUiDecorationQuery.ForFacilityMenu(index, 500, null, null, false, Fmt).Blocked);
+            Assert.False(StockUiDecorationQuery.ForFacilityMenu(index, 500, "", null, false, Fmt).Marked);
+            var replay = StockUiDecorationQuery.ForFacilityMenu(index, 500, LaunchPadId, null, true, Fmt);
             Assert.False(replay.Marked);
             Assert.False(replay.Blocked);
         }
@@ -207,9 +207,9 @@ namespace Parsek.Tests
             Ledger.AddAction(Upgrade(1000, LaunchPadId, 2));
             Ledger.AddAction(Upgrade(2000, LaunchPadId, 3));
             var index = CommittedFutureIndexCache.Current;
-            var both = StockUiDecorationQuery.ForFacilityMenu(index, 500, LaunchPadId, false, Fmt);
+            var both = StockUiDecorationQuery.ForFacilityMenu(index, 500, LaunchPadId, null, false, Fmt);
             Assert.Equal("Upgraded to level 2 on D10 and to level 3 on D20, blocked by timeline until then.", both.Why);
-            var later = StockUiDecorationQuery.ForFacilityMenu(index, 1500, LaunchPadId, false, Fmt);
+            var later = StockUiDecorationQuery.ForFacilityMenu(index, 1500, LaunchPadId, null, false, Fmt);
             Assert.True(later.Blocked);
             Assert.Equal(2000, later.UT);
             Assert.Equal("Upgraded to level 3 on D20, blocked by timeline until then.", later.Why);
@@ -286,7 +286,7 @@ namespace Parsek.Tests
         public void LogFacilityMenu_WritesOneInfoLineAndTheWhyAsVerbose()
         {
             Ledger.AddAction(Upgrade(1000, LaunchPadId, 2));
-            var d = StockUiDecorationQuery.ForFacilityMenu(CommittedFutureIndexCache.Current, 500, LaunchPadId, false, Fmt);
+            var d = StockUiDecorationQuery.ForFacilityMenu(CommittedFutureIndexCache.Current, 500, LaunchPadId, null, false, Fmt);
             StockUiDecorationQuery.LogFacilityMenu(d, false, "values modified");
 
             Assert.Equal("decorate screen=FacilityMenu facility=SpaceCenter/LaunchPad marked=true blocked=true",
@@ -302,15 +302,16 @@ namespace Parsek.Tests
         {
             var index = CommittedFutureIndexCache.Current;
             StockUiDecorationQuery.LogFacilityMenu(
-                StockUiDecorationQuery.ForFacilityMenu(index, 500, VabId, false, Fmt), false, "values modified");
+                StockUiDecorationQuery.ForFacilityMenu(index, 500, VabId, null, false, Fmt), false, "values modified");
             StockUiDecorationQuery.LogFacilityMenu(
-                StockUiDecorationQuery.ForFacilityMenu(index, 500, VabId, true, Fmt), true, "timeline changed");
+                StockUiDecorationQuery.ForFacilityMenu(index, 500, VabId, null, true, Fmt), true, "timeline changed");
             StockUiDecorationQuery.LogFacilityMenu(
-                StockUiDecorationQuery.ForFacilityMenu(index, 500, null, false, Fmt), false, "values modified");
+                StockUiDecorationQuery.ForFacilityMenu(index, 500, null, null, false, Fmt), false, "values modified");
 
             Assert.Contains(logLines, l => l.Contains("[INFO][StockUiOverlay]")
                 && l.Contains("decorate screen=FacilityMenu facility=SpaceCenter/VehicleAssemblyBuilding marked=false blocked=false"));
-            Assert.Contains(logLines, l => l.Contains("unmarked: no committed future upgrade of this facility"));
+            Assert.Contains(logLines, l => l.Contains("unmarked: no committed future level change of this facility, "
+                + "and no committed future repair covers its destruction"));
             Assert.Contains(logLines, l => l.Contains("(timeline changed) unmarked: action replay in progress"));
             Assert.Contains(logLines, l => l.Contains("decorate screen=FacilityMenu facility=<none> marked=false blocked=false"));
             Assert.Contains(logLines, l => l.Contains("unmarked: the building has no upgradeable facility"));
@@ -320,14 +321,14 @@ namespace Parsek.Tests
 
         private static bool MenuGreysUpgrade(string facilityId, double now, bool replaying)
         {
-            var d = StockUiDecorationQuery.ForFacilityMenu(CommittedFutureIndexCache.Current, now, facilityId, replaying,
+            var d = StockUiDecorationQuery.ForFacilityMenu(CommittedFutureIndexCache.Current, now, facilityId, null, replaying,
                 ReservationExplanation.DefaultDateFormatter);
             return StockUiFacilityDecoration.Decide(d).DisableUpgrade;
         }
 
         private static string MenuReason(string facilityId, double now)
         {
-            var d = StockUiDecorationQuery.ForFacilityMenu(CommittedFutureIndexCache.Current, now, facilityId, false,
+            var d = StockUiDecorationQuery.ForFacilityMenu(CommittedFutureIndexCache.Current, now, facilityId, null, false,
                 ReservationExplanation.DefaultDateFormatter);
             return StockUiFacilityDecoration.Decide(d).Reason;
         }

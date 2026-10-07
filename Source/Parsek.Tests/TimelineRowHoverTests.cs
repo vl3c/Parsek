@@ -66,7 +66,7 @@ namespace Parsek.Tests
                 ReservationExplanation.ForTimelineRow(Row(accept), index, 500, Fmt));
             Assert.Equal("Holds Cancel in Mission Control until D7.",
                 ReservationExplanation.ForTimelineRow(Row(complete), index, 500, Fmt));
-            Assert.Equal("Holds Upgrade on this facility until D6.", ReservationExplanation.ForTimelineRow(Row(upgrade), index, 500, Fmt));
+            Assert.Equal("Holds Upgrade and Rebuild on this facility until D6.", ReservationExplanation.ForTimelineRow(Row(upgrade), index, 500, Fmt));
             Assert.Equal("Holds Hire in the Astronaut Complex until D6.", ReservationExplanation.ForTimelineRow(Row(hire), index, 500, Fmt));
             Assert.Equal("Holds Activate in Administration until D6.",
                 ReservationExplanation.ForTimelineRow(Row(activate), index, 500, Fmt));

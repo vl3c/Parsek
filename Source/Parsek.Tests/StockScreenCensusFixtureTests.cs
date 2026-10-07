@@ -321,11 +321,11 @@ namespace Parsek.Tests
         {
             var index = BuildIndex();
             var d = StockUiDecorationQuery.ForFacilityMenu(index, Now,
-                StockScreenCensusFixture.UpgradedLaterFacility, false, Date);
+                StockScreenCensusFixture.UpgradedLaterFacility, null, false, Date);
             Assert.True(d.Marked && d.Blocked);
             Assert.Equal(StockUiDecorationKind.FacilityUpgrade, d.Kind);
             Assert.False(StockUiDecorationQuery.ForFacilityMenu(index, Now,
-                "SpaceCenter/VehicleAssemblyBuilding", false, Date).Blocked);
+                "SpaceCenter/VehicleAssemblyBuilding", null, false, Date).Blocked);
         }
 
         [Fact]

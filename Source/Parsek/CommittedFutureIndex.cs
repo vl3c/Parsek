@@ -14,7 +14,13 @@ namespace Parsek
     {
         /// <summary><c>ScienceSpending</c> with a <c>NodeId</c>. Key: tech id.</summary>
         TechResearch,
-        /// <summary><c>FacilityUpgrade</c>. Key: facility id (<c>SpaceCenter/LaunchPad</c>).</summary>
+        /// <summary>A facility LEVEL CHANGE: a <c>FacilityUpgrade</c> row, either an upgrade or a
+        /// stock "Rebuild lvl N" (a level drop, marked <c>GameAction.FacilityDowngrade</c>; the
+        /// entry's <see cref="CommittedFutureEntry.FacilityDowngrade"/> says which). Levels are
+        /// absolute, so any later committed level change holds every earlier one of that
+        /// facility: the Upgrade and Rebuild blocks both read this kind (owner ruling
+        /// 2026-10-07). A consumer that reads <see cref="CommittedFutureEntry.FacilityToLevel"/>
+        /// as a raise must check the direction. Key: facility id (<c>SpaceCenter/LaunchPad</c>).</summary>
         FacilityUpgrade,
         /// <summary><c>ContractAccept</c>. Key: contract guid string.</summary>
         ContractAccept,
@@ -56,7 +62,8 @@ namespace Parsek
         internal readonly double UT;
         internal readonly string RecordingId;
         internal readonly string RecordingName;
-        /// <summary>FacilityUpgrade only: the level the upgrade reaches (1-based), else 0.</summary>
+        /// <summary>FacilityUpgrade only: the level the row reaches (1-based), else 0. For a
+        /// Rebuild (<see cref="FacilityDowngrade"/>) that is the LOWER level.</summary>
         internal readonly int FacilityToLevel;
         /// <summary>The row's cost: science for a tech, funds for a facility, hire or part.</summary>
         internal readonly float Amount;
@@ -84,6 +91,9 @@ namespace Parsek
         /// (<c>GameActionDisplay.IsExpiredContractFail</c>), so Mission Control says "expires"
         /// where the Timeline says "Expired".</summary>
         internal readonly bool DeadlineExpiry;
+        /// <summary>FacilityUpgrade only: true when the row is a stock Rebuild (the level drops
+        /// to <see cref="FacilityToLevel"/>), false for an upgrade.</summary>
+        internal readonly bool FacilityDowngrade;
 
         internal CommittedFutureEntry(
             CommittedFutureKind kind,
@@ -98,7 +108,8 @@ namespace Parsek
             double deadlineUT = double.NaN,
             bool autoAccept = false,
             string agentTitle = null,
-            bool deadlineExpiry = false)
+            bool deadlineExpiry = false,
+            bool facilityDowngrade = false)
         {
             Kind = kind;
             Key = key ?? "";
@@ -113,6 +124,7 @@ namespace Parsek
             AutoAccept = autoAccept;
             AgentTitle = string.IsNullOrEmpty(agentTitle) ? null : agentTitle;
             DeadlineExpiry = deadlineExpiry;
+            FacilityDowngrade = facilityDowngrade;
         }
 
         /// <summary>A copy of this entry carrying <paramref name="agentTitle"/> as its agent.</summary>
@@ -120,7 +132,7 @@ namespace Parsek
         {
             return new CommittedFutureEntry(
                 Kind, Key, UT, RecordingId, RecordingName, FacilityToLevel, Amount, Title,
-                FromMilestoneFallback, DeadlineUT, AutoAccept, agentTitle, DeadlineExpiry);
+                FromMilestoneFallback, DeadlineUT, AutoAccept, agentTitle, DeadlineExpiry, FacilityDowngrade);
         }
     }
 
@@ -216,9 +228,8 @@ namespace Parsek
                     key = action.NodeId;
                     break;
                 case GameActionType.FacilityUpgrade:
-                    // A committed downgrade is not an upgrade the player must wait for: the
-                    // block and its "Upgraded to level N" reason cover upgrades only.
-                    if (action.FacilityDowngrade) return false;
+                    // Upgrades and Rebuilds alike (owner ruling 2026-10-07): a committed level
+                    // change of either direction holds every earlier one of the facility.
                     kind = CommittedFutureKind.FacilityUpgrade;
                     key = action.FacilityId;
                     break;
@@ -356,7 +367,8 @@ namespace Parsek
                         deadlineUT: isAccept ? a.DeadlineUT : double.NaN,
                         autoAccept: isAccept && isAutoAcceptContract != null && isAutoAcceptContract(key),
                         agentTitle: isAccept && contractAgentTitle != null ? contractAgentTitle(key) : null,
-                        deadlineExpiry: expiry));
+                        deadlineExpiry: expiry,
+                        facilityDowngrade: kind == CommittedFutureKind.FacilityUpgrade && a.FacilityDowngrade));
                     entries++;
                 }
             }
@@ -539,6 +551,18 @@ namespace Parsek
             return result;
         }
 
+        /// <summary>Number of Rebuild (level-drop) rows among the facility level changes.</summary>
+        internal int FacilityRebuildCount()
+        {
+            Dictionary<string, List<CommittedFutureEntry>> perKey;
+            if (!byKind.TryGetValue(CommittedFutureKind.FacilityUpgrade, out perKey)) return 0;
+            int n = 0;
+            foreach (var list in perKey.Values)
+                for (int i = 0; i < list.Count; i++)
+                    if (list[i].FacilityDowngrade) n++;
+            return n;
+        }
+
         /// <summary>Number of rows of this kind, past and future.</summary>
         internal int CountOf(CommittedFutureKind kind)
         {
@@ -599,7 +623,8 @@ namespace Parsek
 
         /// <summary>
         /// The per-kind counters the rebuild log line prints, e.g.
-        /// <c>tech=2 facility=1 accept=1 complete=0 ...</c>.
+        /// <c>tech=2 facility=1 accept=1 complete=0 ...</c>; <c>facility</c> counts every level
+        /// change and <c>rebuild</c> the Rebuilds among them.
         /// </summary>
         internal string DescribeCounts()
         {
@@ -607,7 +632,7 @@ namespace Parsek
             return string.Format(ic,
                 "tech={0} facility={1} accept={2} complete={3} fail={4} cancel={5} hire={6} " +
                 "retire={7} strategyOn={8} strategyOff={9} part={10} destroy={11} repair={12} " +
-                "assignments={13} skippedUncommitted={14}",
+                "rebuild={13} assignments={14} skippedUncommitted={15}",
                 CountOf(CommittedFutureKind.TechResearch),
                 CountOf(CommittedFutureKind.FacilityUpgrade),
                 CountOf(CommittedFutureKind.ContractAccept),
@@ -621,6 +646,7 @@ namespace Parsek
                 CountOf(CommittedFutureKind.PartPurchase),
                 CountOf(CommittedFutureKind.FacilityDestruction),
                 CountOf(CommittedFutureKind.FacilityRepair),
+                FacilityRebuildCount(),
                 AssignmentCount,
                 SkippedUncommittedRows);
         }

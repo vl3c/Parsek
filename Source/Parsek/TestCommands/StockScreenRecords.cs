@@ -227,6 +227,8 @@ namespace Parsek.TestCommands
                     StockUiFacilityDecoration.UpgradeButtonOf(menu)));
                 controls.Add(PlainButton("FacilityMenu", "Repair:" + StockUiFacilityDecoration.FacilityIdOf(menu),
                     StockUiFacilityDecoration.RepairButtonOf(menu)));
+                controls.Add(PlainButton("FacilityMenu", "Rebuild:" + StockUiFacilityDecoration.FacilityIdOf(menu),
+                    StockUiFacilityDecoration.RebuildButtonOf(menu)));
             }
 
             var tooltip = PartListTooltipMasterController.Instance != null
@@ -432,13 +434,16 @@ namespace Parsek.TestCommands
             foreach (KSCFacilityContextMenu menu in Object.FindObjectsOfType<KSCFacilityContextMenu>())
             {
                 string id = StockUiFacilityDecoration.FacilityIdOf(menu);
-                var d = StockUiDecorationQuery.ForFacilityMenu(index, now, id,
+                var buildings = Patches.FacilityRepairCapturePatchHelpers.ReadBuildings(StockUiFacilityDecoration.HostOf(menu));
+                var d = StockUiDecorationQuery.ForFacilityMenu(index, now, id, buildings,
                     GameStateRecorder.IsReplayingActions, ReservationExplanation.DefaultDateFormatter);
                 records.Add(StockScreenRecord.From(d));
-                var repair = StockUiDecorationQuery.ForFacilityMenuRepair(index, now, id,
-                    Patches.FacilityRepairCapturePatchHelpers.ReadBuildings(StockUiFacilityDecoration.HostOf(menu)),
+                var repair = StockUiDecorationQuery.ForFacilityMenuRepair(index, now, id, buildings,
                     GameStateRecorder.IsReplayingActions, ReservationExplanation.DefaultDateFormatter);
                 records.Add(StockScreenRecord.From(repair));
+                var rebuild = StockUiDecorationQuery.ForFacilityMenuRebuild(index, now, id, buildings,
+                    GameStateRecorder.IsReplayingActions, ReservationExplanation.DefaultDateFormatter);
+                records.Add(StockScreenRecord.From(rebuild));
             }
         }
 

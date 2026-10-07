@@ -188,8 +188,9 @@ namespace Parsek
                     return StockUiReservationPredicates.IsContractCancelBlocked(index, key, currentUT)
                         ? "Cancel in Mission Control" : null;
                 case CommittedFutureKind.FacilityUpgrade:
+                    // Any later level change (upgrade or Rebuild) holds both level controls.
                     return StockUiReservationPredicates.IsFacilityUpgradeBlocked(index, key, currentUT)
-                        ? "Upgrade on this facility" : null;
+                        ? "Upgrade and Rebuild on this facility" : null;
                 case CommittedFutureKind.KerbalHire:
                     return StockUiReservationPredicates.IsKerbalHireBlocked(index, key, currentUT)
                         ? "Hire in the Astronaut Complex" : null;
@@ -289,26 +290,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The facility-upgrade explanation over every upgrade of the facility timeline makes
-        /// later (UT ascending). The block lifts once the clock passes the last one, so every
-        /// date is listed.
+        /// The facility level-change explanation over every level change of the facility
+        /// timeline makes later (UT ascending): upgrades and Rebuilds (owner ruling
+        /// 2026-10-07). The Upgrade block lifts once the clock passes the last one, so every
+        /// row is listed, earliest first: <c>Upgraded to level 2 on A and to level 3 on B</c>,
+        /// <c>Rebuilt to level 1 on A and upgraded to level 2 on B</c>.
         /// </summary>
         internal static ReservationText FacilityUpgrade(
             IReadOnlyList<CommittedFutureEntry> futureUpgrades, Func<double, string> formatDate)
         {
-            if (futureUpgrades == null || futureUpgrades.Count == 0)
-                return new ReservationText { Title = "Upgraded later", Fact = "Upgraded later" + BlockedEnd };
-
-            var first = futureUpgrades[0];
-            string firstDate = FormatDate(first.UT, formatDate);
-            var parts = new List<string>();
-            for (int i = 0; i < futureUpgrades.Count; i++)
-                parts.Add(LevelPhrase(futureUpgrades[i]) + "on " + FormatDate(futureUpgrades[i].UT, formatDate));
-            return new ReservationText
-            {
-                Title = "Upgraded on " + firstDate,
-                Fact = "Upgraded " + JoinAnd(parts) + BlockedUntilThen
-            };
+            return FacilityRows(futureUpgrades, "Upgraded", formatDate);
         }
 
         /// <summary>
@@ -321,20 +312,76 @@ namespace Parsek
         internal static ReservationText FacilityRepair(
             IReadOnlyList<CommittedFutureEntry> coveringRepairs, Func<double, string> formatDate)
         {
-            if (coveringRepairs == null || coveringRepairs.Count == 0)
-                return new ReservationText { Title = "Repaired later", Fact = "Repaired later" + BlockedEnd };
+            return FacilityRows(coveringRepairs, "Repaired", formatDate);
+        }
 
-            var dates = new List<string>();
-            for (int i = 0; i < coveringRepairs.Count; i++)
+        /// <summary>
+        /// The Rebuild explanation: every committed future row that holds the facility menu's
+        /// "Rebuild lvl N" (its level changes, and the repairs that cover its current
+        /// destruction, which the Rebuild's free repair would rewrite), UT ascending. One kind
+        /// alone reads exactly as the Upgrade or the Repair button does.
+        /// </summary>
+        internal static ReservationText FacilityRebuild(
+            IReadOnlyList<CommittedFutureEntry> blockingRows, Func<double, string> formatDate)
+        {
+            return FacilityRows(blockingRows, "Changed", formatDate);
+        }
+
+        /// <summary>
+        /// One sentence over facility rows (level changes and repairs), earliest first: the
+        /// participle opens each run of rows of one kind (<c>Upgraded</c>, <c>Rebuilt</c>,
+        /// <c>Repaired</c>; lower case after the first), a level change names its level, and a
+        /// repair run lists its distinct dates (<c>Repaired on A and B</c>). The title is the
+        /// earliest row's participle and date. <paramref name="emptyParticiple"/> words the
+        /// undated fallback for an empty list.
+        /// </summary>
+        private static ReservationText FacilityRows(
+            IReadOnlyList<CommittedFutureEntry> rows, string emptyParticiple, Func<double, string> formatDate)
+        {
+            if (rows == null || rows.Count == 0)
+                return new ReservationText
+                {
+                    Title = emptyParticiple + " later",
+                    Fact = emptyParticiple + " later" + BlockedEnd
+                };
+
+            var parts = new List<string>();
+            var repairDates = new HashSet<string>(StringComparer.Ordinal);
+            string previous = null;
+            for (int i = 0; i < rows.Count; i++)
             {
-                string date = FormatDate(coveringRepairs[i].UT, formatDate);
-                if (!dates.Contains(date)) dates.Add(date);
+                var row = rows[i];
+                string participle = FacilityParticiple(row);
+                string date = FormatDate(row.UT, formatDate);
+                bool repair = row != null && row.Kind == CommittedFutureKind.FacilityRepair;
+                if (repair && !repairDates.Add(date)) continue;
+
+                string tail = repair ? date : LevelPhrase(row) + "on " + date;
+                if (participle == previous)
+                {
+                    parts.Add(tail);
+                    continue;
+                }
+                string head = parts.Count == 0 ? participle : participle.ToLowerInvariant();
+                parts.Add(head + " " + (repair ? "on " + date : tail));
+                previous = participle;
             }
             return new ReservationText
             {
-                Title = "Repaired on " + dates[0],
-                Fact = "Repaired on " + JoinAnd(dates) + BlockedUntilThen
+                Title = FacilityParticiple(rows[0]) + " on " + FormatDate(rows[0].UT, formatDate),
+                Fact = JoinAnd(parts) + BlockedUntilThen
             };
+        }
+
+        private static string FacilityParticiple(CommittedFutureEntry row)
+        {
+            if (row == null) return "Changed";
+            switch (row.Kind)
+            {
+                case CommittedFutureKind.FacilityRepair: return "Repaired";
+                case CommittedFutureKind.FacilityUpgrade: return row.FacilityDowngrade ? "Rebuilt" : "Upgraded";
+                default: return "Changed";
+            }
         }
 
         private static string LevelPhrase(CommittedFutureEntry entry)

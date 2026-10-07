@@ -38,8 +38,9 @@ namespace Parsek
         KerbalOnFlight,
         KerbalLost,
         KerbalRetiredStandIn,
-        /// <summary>A facility a committed row upgrades later: the facility menu's greyed
-        /// Upgrade button and the upgrade refusal.</summary>
+        /// <summary>A facility a committed row changes level later (an upgrade or a Rebuild),
+        /// or whose current destruction a committed row repairs later: the facility menu's
+        /// greyed Upgrade button and the upgrade refusal.</summary>
         FacilityUpgrade,
         /// <summary>An active stand-in (the active occupant of another kerbal's slot chain):
         /// the informational row label <c>Stand-in for &lt;owner&gt;</c> and the dismissal
@@ -47,7 +48,11 @@ namespace Parsek
         KerbalStandIn,
         /// <summary>A facility whose current destruction a committed row already repairs
         /// later: the facility menu's greyed Repair button and the repair refusal.</summary>
-        FacilityRepair
+        FacilityRepair,
+        /// <summary>A facility a committed row changes level later, or whose current
+        /// destruction a committed row repairs later: the facility menu's greyed
+        /// "Rebuild lvl N" button and the rebuild refusal (owner ruling 2026-10-07).</summary>
+        FacilityRebuild
     }
 
     /// <summary>One stock item as the screen lists it: a stable id and the tab it sits in.</summary>
@@ -177,13 +182,45 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Blocked while any committed upgrade of this facility is still ahead. Once the
-        /// clock passes the last one the block lifts, so a later upgrade the committed
-        /// timeline never made is allowed (the F1 fix).
+        /// The level-change half of the Upgrade block: true while any committed level change
+        /// of this facility is still ahead, an upgrade or a stock Rebuild (owner ruling
+        /// 2026-10-07: levels are absolute, so a level change placed before a recorded one
+        /// would rewrite it). Once the clock passes the last one it lifts, so a later upgrade
+        /// the committed timeline never made is allowed (the F1 fix). The <c>SetLevel</c>
+        /// backstop and the Timeline row hover read this alone; the facility menu and the
+        /// <c>UpgradeFacility</c> refusal read the full block over the buildings too.
         /// </summary>
         internal static bool IsFacilityUpgradeBlocked(CommittedFutureIndex index, string facilityId, double currentUT)
         {
             return index != null && index.HasFuture(CommittedFutureKind.FacilityUpgrade, facilityId, currentUT);
+        }
+
+        /// <summary>
+        /// The Upgrade block: true while a committed level change of the facility is still
+        /// ahead (<see cref="IsFacilityUpgradeBlocked(CommittedFutureIndex, string, double)"/>),
+        /// or a committed repair covers the current destruction of one of its buildings
+        /// (<see cref="CommittedRepairsCoveringFacility"/>): stock's <c>UpgradeFacility</c>
+        /// runs the free <c>ResetStructures</c> repair first, and leaves Upgrade clickable on
+        /// an out-of-service facility, so an upgrade now would repair the building ahead of
+        /// the recorded repair and rewrite it (owner principle 2026-10-07,
+        /// FACILITY-UPGRADE-FREE-REPAIR-REWRITES-COMMITTED-REPAIR). The same rows hold the
+        /// Rebuild (<see cref="IsFacilityRebuildBlocked"/>). The greyed Upgrade button and the
+        /// <c>UpgradeFacility</c> refusal read this one predicate. A null or empty id (a
+        /// building with no upgradeable facility) is never blocked.
+        /// </summary>
+        internal static bool IsFacilityUpgradeBlocked(CommittedFutureIndex index, string facilityId,
+            IEnumerable<FacilityRepairCapture.BuildingRepairInput> buildings, double currentUT)
+        {
+            return FacilityUpgradeBlockers(index, facilityId, buildings, currentUT).Count > 0;
+        }
+
+        /// <summary>The rows behind the buildings-aware Upgrade block, UT ascending:
+        /// <see cref="FacilityLevelChangeBlockers"/>, or none for a null or empty id.</summary>
+        internal static List<CommittedFutureEntry> FacilityUpgradeBlockers(CommittedFutureIndex index, string facilityId,
+            IEnumerable<FacilityRepairCapture.BuildingRepairInput> buildings, double currentUT)
+        {
+            if (string.IsNullOrEmpty(facilityId)) return new List<CommittedFutureEntry>();
+            return FacilityLevelChangeBlockers(index, facilityId, buildings, currentUT);
         }
 
         /// <summary>
@@ -254,6 +291,56 @@ namespace Parsek
                 CommittedRepairsCoveringFacility(index, buildings, currentUT), formatDate);
         }
 
+        /// <summary>
+        /// Every committed future row that holds a level change of the facility now, the
+        /// menu's Upgrade (<c>SpaceCenterBuilding.UpgradeFacility</c>) and "Rebuild lvl N"
+        /// (<c>DowngradeFacility</c>) alike, UT ascending: each level change of the facility
+        /// still ahead, and each committed repair that covers the current destruction of one
+        /// of its destroyed buildings (<see cref="CommittedRepairsCoveringFacility"/>): both
+        /// stock methods reset every building for free (<c>ResetStructures</c>) before
+        /// <c>SetLevel</c>, so either would repair now what the committed row repairs later.
+        /// Empty when nothing holds it.
+        /// </summary>
+        internal static List<CommittedFutureEntry> FacilityLevelChangeBlockers(
+            CommittedFutureIndex index, string facilityId,
+            IEnumerable<FacilityRepairCapture.BuildingRepairInput> buildings, double currentUT)
+        {
+            var result = new List<CommittedFutureEntry>();
+            if (index == null) return result;
+            result.AddRange(index.FutureEntries(CommittedFutureKind.FacilityUpgrade, facilityId, currentUT));
+            result.AddRange(CommittedRepairsCoveringFacility(index, buildings, currentUT));
+            result.Sort((x, y) =>
+            {
+                int c = x.UT.CompareTo(y.UT);
+                if (c != 0) return c;
+                // A level change before a repair at one UT; then by key, so the order is fixed.
+                c = (x.Kind == CommittedFutureKind.FacilityRepair ? 1 : 0)
+                    .CompareTo(y.Kind == CommittedFutureKind.FacilityRepair ? 1 : 0);
+                return c != 0 ? c : string.CompareOrdinal(x.Key, y.Key);
+            });
+            return result;
+        }
+
+        /// <summary>
+        /// The Rebuild block (owner ruling 2026-10-07): a Rebuild now is refused while a level
+        /// change of the facility is committed later (it would turn that row into a different
+        /// jump, or undo it), and while a committed repair covers the facility's current
+        /// destruction (the Rebuild's free repair would rewrite it). The greyed Rebuild button
+        /// and the <c>DowngradeFacility</c> refusal read this one predicate.
+        /// </summary>
+        internal static bool IsFacilityRebuildBlocked(CommittedFutureIndex index, string facilityId,
+            IEnumerable<FacilityRepairCapture.BuildingRepairInput> buildings, double currentUT)
+        {
+            return FacilityLevelChangeBlockers(index, facilityId, buildings, currentUT).Count > 0;
+        }
+
+        internal static ReservationText ExplainFacilityRebuild(CommittedFutureIndex index, string facilityId,
+            IEnumerable<FacilityRepairCapture.BuildingRepairInput> buildings, double currentUT, Func<double, string> formatDate)
+        {
+            return ReservationExplanation.FacilityRebuild(
+                FacilityLevelChangeBlockers(index, facilityId, buildings, currentUT), formatDate);
+        }
+
         internal static bool IsKerbalHireBlocked(CommittedFutureIndex index, string kerbalName, double currentUT)
         {
             return index != null && index.HasFuture(CommittedFutureKind.KerbalHire, kerbalName, currentUT);
@@ -322,6 +409,17 @@ namespace Parsek
                     ? index.FutureEntries(CommittedFutureKind.FacilityUpgrade, facilityId, currentUT)
                     : new List<CommittedFutureEntry>(),
                 formatDate);
+        }
+
+        /// <summary>The Upgrade block's text over its rows: a level change alone reads as
+        /// before (<c>Upgraded to level 2 on ...</c>), a covering repair alone as the Repair
+        /// button does (<c>Repaired on ...</c>), and mixed rows each with their own participle,
+        /// earliest first.</summary>
+        internal static ReservationText ExplainFacilityUpgrade(CommittedFutureIndex index, string facilityId,
+            IEnumerable<FacilityRepairCapture.BuildingRepairInput> buildings, double currentUT, Func<double, string> formatDate)
+        {
+            return ReservationExplanation.FacilityUpgrade(
+                FacilityUpgradeBlockers(index, facilityId, buildings, currentUT), formatDate);
         }
 
         internal static ReservationText ExplainKerbalHire(
@@ -403,10 +501,12 @@ namespace Parsek
         /// <summary>The crew assignment dialog's available-crew list (<c>scrollListAvail</c>).</summary>
         internal const string CrewAssignmentAvailableTab = "Available";
         /// <summary>The facility menu has no tabs; the tab names the decorated control
-        /// (Upgrade, or <see cref="FacilityMenuRepairTab"/>).</summary>
+        /// (Upgrade, <see cref="FacilityMenuRepairTab"/> or <see cref="FacilityMenuRebuildTab"/>).</summary>
         internal const string FacilityMenuTab = "Upgrade";
         /// <summary>The facility menu's Repair control.</summary>
         internal const string FacilityMenuRepairTab = "Repair";
+        /// <summary>The facility menu's "Rebuild lvl N" control (stock's <c>DowngradeButton</c>).</summary>
+        internal const string FacilityMenuRebuildTab = "Rebuild";
 
         /// <summary>The retired stand-in's text: the Kerbals window's <c>Retired</c>
         /// status, qualified because the stock list does not say he is a stand-in.</summary>
@@ -620,30 +720,34 @@ namespace Parsek
         }
 
         /// <summary>
-        /// KSC facility context menu: a facility a committed row upgrades later is marked
-        /// and its Upgrade button refused, over
-        /// <see cref="StockUiReservationPredicates.IsFacilityUpgradeBlocked"/>, the same
-        /// predicate and text the <c>FacilityUpgradeSpendPatch</c> /
-        /// <c>FacilityUpgradePatch</c> refusal reads. While
+        /// KSC facility context menu: a facility a committed row changes level later (an
+        /// upgrade or a Rebuild), or whose current destruction a committed row repairs later
+        /// (the upgrade's free <c>ResetStructures</c> would repair it now), is marked and its
+        /// Upgrade button refused, over the buildings-aware
+        /// <c>StockUiReservationPredicates.IsFacilityUpgradeBlocked</c>, the same predicate and
+        /// text the <c>FacilityUpgradeSpendPatch</c> refusal reads
+        /// (<c>FacilityUpgradePatch.TryBlockFacilityUpgradeFor</c>). While
         /// <paramref name="replaying"/> the refusal is bypassed, so the menu is left stock
         /// too (the pairing rule holds in both states). A null or empty id (a building with
-        /// no upgradeable facility) is undecorated.
+        /// no upgradeable facility) is undecorated. <see cref="StockUiDecoration.UT"/> is the
+        /// earliest blocking row.
         /// </summary>
         internal static StockUiDecoration ForFacilityMenu(
             CommittedFutureIndex index,
             double currentUT,
             string facilityId,
+            IEnumerable<FacilityRepairCapture.BuildingRepairInput> buildings,
             bool replaying,
             Func<double, string> formatDate)
         {
             var d = Undecorated(StockUiScreen.FacilityMenu, FacilityMenuTab, facilityId);
             if (string.IsNullOrEmpty(facilityId) || replaying)
                 return d;
-            if (!StockUiReservationPredicates.IsFacilityUpgradeBlocked(index, facilityId, currentUT))
+            var blockers = StockUiReservationPredicates.FacilityUpgradeBlockers(index, facilityId, buildings, currentUT);
+            if (blockers.Count == 0)
                 return d;
-            var text = StockUiReservationPredicates.ExplainFacilityUpgrade(index, facilityId, currentUT, formatDate);
-            Mark(ref d, StockUiDecorationKind.FacilityUpgrade, text,
-                index.FirstFuture(CommittedFutureKind.FacilityUpgrade, facilityId, currentUT).UT);
+            Mark(ref d, StockUiDecorationKind.FacilityUpgrade,
+                ReservationExplanation.FacilityUpgrade(blockers, formatDate), blockers[0].UT);
             d.Blocked = true;
             return d;
         }
@@ -698,6 +802,48 @@ namespace Parsek
                 + " Repair left to stock (" + (reason ?? "refresh") + "): " + why);
         }
 
+        /// <summary>
+        /// KSC facility context menu, the "Rebuild lvl N" control (owner ruling 2026-10-07): a
+        /// facility a committed row changes level later, or whose current destruction a
+        /// committed row repairs later, is marked and its Rebuild refused, over
+        /// <see cref="StockUiReservationPredicates.IsFacilityRebuildBlocked"/>, the same
+        /// predicate and text the <c>DowngradeFacility</c> refusal reads. Bypassed while
+        /// <paramref name="replaying"/>, as the refusal is. <see cref="StockUiDecoration.UT"/>
+        /// is the earliest blocking row.
+        /// </summary>
+        internal static StockUiDecoration ForFacilityMenuRebuild(CommittedFutureIndex index, double currentUT,
+            string facilityId, IEnumerable<FacilityRepairCapture.BuildingRepairInput> buildings, bool replaying,
+            Func<double, string> formatDate)
+        {
+            var d = Undecorated(StockUiScreen.FacilityMenu, FacilityMenuRebuildTab, facilityId);
+            if (replaying) return d;
+            var blockers = StockUiReservationPredicates.FacilityLevelChangeBlockers(index, facilityId, buildings, currentUT);
+            if (blockers.Count == 0) return d;
+            Mark(ref d, StockUiDecorationKind.FacilityRebuild,
+                ReservationExplanation.FacilityRebuild(blockers, formatDate), blockers[0].UT);
+            d.Blocked = true;
+            return d;
+        }
+
+        /// <summary>
+        /// Logs one facility menu Rebuild decoration, as <see cref="LogFacilityMenuRepair"/>
+        /// does for Repair: a marked one is the pass's per-item line, an unmarked one a plain
+        /// Verbose sentence saying why Rebuild is left to stock.
+        /// </summary>
+        internal static void LogFacilityMenuRebuild(StockUiDecoration d, bool replaying, string reason)
+        {
+            if (d.Marked || d.Blocked)
+            {
+                ParsekLog.Verbose(Tag, FormatItemLine(d));
+                return;
+            }
+            string why = replaying
+                ? "action replay in progress (the rebuild refusal is bypassed too)"
+                : "no committed future level change, and no committed future repair covers the destruction";
+            ParsekLog.Verbose(Tag, "FacilityMenu " + (string.IsNullOrEmpty(d.Id) ? "<none>" : d.Id)
+                + " Rebuild left to stock (" + (reason ?? "refresh") + "): " + why);
+        }
+
         /// <summary>The facility menu's one Info line per decoration:
         /// <c>decorate screen=FacilityMenu facility=&lt;id&gt; marked=&lt;b&gt; blocked=&lt;b&gt;</c>.</summary>
         internal static string FormatFacilityMenuLine(StockUiDecoration d)
@@ -723,7 +869,8 @@ namespace Parsek
             else if (replaying)
                 why = "unmarked: action replay in progress (the upgrade refusal is bypassed too)";
             else
-                why = "unmarked: no committed future upgrade of this facility";
+                why = "unmarked: no committed future level change of this facility, "
+                    + "and no committed future repair covers its destruction";
             ParsekLog.Verbose(Tag, "decorate screen=" + StockUiScreen.FacilityMenu
                 + " facility=" + (string.IsNullOrEmpty(d.Id) ? "<none>" : d.Id)
                 + " (" + (reason ?? "refresh") + ") " + why);

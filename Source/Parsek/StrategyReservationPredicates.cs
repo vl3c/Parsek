@@ -68,7 +68,8 @@ namespace Parsek
     /// no committed deactivation, so it counts throughout), apply the committed future
     /// activations and deactivations of every strategy in UT order (deactivations before
     /// activations at the same UT, since stock checks the slot at activation time), raise
-    /// the limit at each committed Administration upgrade, and refuse when the count
+    /// the limit at each committed Administration upgrade (a committed Rebuild lowers it to
+    /// the lower level's limit), and refuse when the count
     /// exceeds the limit at any committed activation. Nothing after the last committed
     /// activation can raise the count, so the walk stops there. An overflow at NOW alone
     /// is not reported: stock's own slot check already refuses it with its own reason.</item>
@@ -174,7 +175,8 @@ namespace Parsek
                 switch (events[i].Rank)
                 {
                     case 0:
-                        if (e.FacilityToLevel > 0) limit = Math.Max(limit, slots(e.FacilityToLevel));
+                        if (e.FacilityToLevel > 0)
+                            limit = (int)ContractSlotReservation.LimitAfterLevelChange(limit, e, slots);
                         break;
                     case 1:
                         active.Remove(e.Key);
@@ -314,7 +316,7 @@ namespace Parsek
         private struct SlotEvent
         {
             internal readonly CommittedFutureEntry Entry;
-            /// <summary>0 = Administration upgrade, 1 = deactivation, 2 = activation.</summary>
+            /// <summary>0 = Administration level change, 1 = deactivation, 2 = activation.</summary>
             internal readonly int Rank;
 
             internal SlotEvent(CommittedFutureEntry entry, int rank)

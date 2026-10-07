@@ -16,6 +16,45 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~FACILITY-UPGRADE-FREE-REPAIR-REWRITES-COMMITTED-REPAIR: an Upgrade of an out-of-service facility repairs it for free ahead of a committed repair~~ [FILED 2026-10-07 while adding the Rebuild block, branch `facility-rebuild-block`. FIXED 2026-10-07 on the same branch (PR #2046), applying the Rebuild ruling's principle (supervisor decision); xUnit only, not flown]
+
+Decompiled KSP 1.12.5: `SpaceCenterBuilding.UpgradeFacility` debits, then runs `ResetStructures()`
+unconditionally before `SetLevel(level + 1)`; each `DestructibleBuilding.Reset()` sets its
+building intact, so the call repairs, for free, exactly a facility with a destroyed building
+(booked as cost-0 repair rows by `FacilityResetStructuresPatch`). `KSCFacilityContextMenu.OnFacilityValuesModified`
+sets Upgrade interactable below the top level whether or not the
+facility is operational. After a rewind to a UT between a building's destruction and its
+committed repair, an Upgrade (allowed while no level change of the facility is committed later)
+repaired the building now, and the walk then marked the committed repair ineffective
+(`FundsModule.ShouldChargeFacilityRepair`, `FacilityAlreadyIntact`): the recorded repair was
+rewritten. The Rebuild is blocked on exactly this ground (owner ruling 2026-10-07, see
+FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED).
+
+Fix: the Upgrade is held by the Rebuild's rows, `StockUiReservationPredicates.FacilityLevelChangeBlockers`
+(later committed level changes plus `CommittedRepairsCoveringFacility`),
+through the buildings-aware `IsFacilityUpgradeBlocked(index, id, buildings, now)` /
+`FacilityUpgradeBlockers` (none for an empty id). Block: `FacilityUpgradeSpendPatch`, the
+`UpgradeFacility(bool)` prefix, reads the buildings and runs `FacilityUpgradePatch.TryBlockFacilityUpgradeFor`
+before stock's debit and the upgrade scope (`BlockOrOpenScope`).
+Annotation (D1): `StockUiDecorationQuery.ForFacilityMenu` takes the buildings (a mandatory
+parameter, so no caller can skip the repair half) and greys Upgrade with the same text. The
+`SetLevel` backstop stays level-only (`TryBlockFacilityUpgradeById`): `SetLevel` runs no structure
+reset. Text: a level change alone keeps the exact Upgrade sentence (KB-3 matches it); a covering
+repair alone reads the Repair sentence (`Repaired on ..., blocked by timeline until then.`);
+mixed rows are named earliest first. Log: the block line gains ` repairs=N`; a repair-only block
+reads `Blocking facility upgrade: '<id>' - no committed future level change; N committed future
+repair(s) cover a destruction ...`. KB-2's host (dish down, repair at UT 80000, upgrade at 90000)
+now reads its Upgrade as `Repaired on ... and upgraded to level 2 on ...`; KB-2 pins only the
+Repair lines. Tests: `FacilityRebuildBlockTests` (9 new cells, 8 red against API-only stubs that
+ignored the buildings; the replay cell was green on them by construction) plus 3 updated cells
+(`ACommittedRepairCoveringTheDestruction_BlocksTheRebuild_WithTheRepairsWords`,
+`StockScreenRepairFixtureTests.Index_TrackingStationRepairIsBlocked_WithTheExplanation`,
+`FacilityMenuStockUiTests.LogFacilityMenu_Unmarked_SaysWhyItIsLeftStock`), all red on the stubs.
+Mutations each turn a cell red: the menu ignoring the buildings, the refusal ignoring them, the
+prefix core dropping them, the replay bypass removed.
+
+---
+
 ## TIMELINE-PHANTOM-MILESTONE-AFTER-REFLY-OF-LATER-SEGMENT: a tombstoned milestone can leave a legacy "Milestone" text row on the Timeline [FILED 2026-10-07 from the PR #2042 review. OPEN, display only; the ledger is correct]
 
 `MilestoneStore.CreateMilestone` copies made at `CommitTree`, before the optimizer pass, keep the
@@ -421,7 +460,7 @@ it in the TS until the tip spawns.
 
 ---
 
-## ~~FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a facility downgrade's funds debit never reaches the ledger~~ [FILED 2026-10-06 while fixing KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, branch `fix-facility-upgrade-cost`. REACHABLE by a player (stock KSC menu, Left Ctrl) and FIXED 2026-10-07, branch `optimizer-retag-followups`; xUnit only, not flown. The older cost-0 upgrade rows paragraph: RULED and DONE 2026-10-07, branch `release-rulings`; its mid-career-install residue below stays as stated]
+## ~~FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a facility downgrade's funds debit never reaches the ledger~~ [FILED 2026-10-06 while fixing KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, branch `fix-facility-upgrade-cost`. REACHABLE by a player (stock KSC menu, Left Ctrl) and FIXED 2026-10-07, branch `optimizer-retag-followups`; xUnit only, not flown. Its known limit (a Rebuild before a committed level change): RULED and DONE 2026-10-07, branch `facility-rebuild-block`; xUnit only, not flown. The older cost-0 upgrade rows paragraph: RULED and DONE 2026-10-07, branch `release-rulings`; its mid-career-install residue below stays as stated]
 
 Decompiled KSP 1.12.5: `SpaceCenterBuilding.DowngradeFacility` also debits funds (about 0.667x
 the level cost, reason `StructureConstruction`), but `FacilityDowngraded` events are
@@ -458,15 +497,41 @@ with a StructureConstruction leg, tombstone eligibility, `BuildTombstonedFacilit
 `CareerSlotSummary` slot limits, `HasFacilityActionsInRange`), so a new enum would have to be
 mirrored into about 25 switch sites whose defaults silently drop a cost or keep a superseded row.
 The marker is read only where "upgrade" would be wrong: `GameActionDisplay` ("Downgrade X -> Lv.N"),
-the Timeline's legacy-event twin key, `CommittedFutureIndex.TryClassify` (a committed downgrade
-reserves nothing) and the two legacy cost-0 upgrade passes (skipped). An unstamped level drop
-(the scene-change poll, another mod, Mission-mode facility limits) stays informational. Known
-limit, OPEN for an owner decision (PR #2042 review): no click-block pairs a Rebuild with a
-committed future level change of the same facility, and levels are absolute, so a downgrade
-placed before a committed future upgrade turns that upgrade into a two-level jump charged at one
-step's price (a free level after a rewind). Options: block the Rebuild while a later level change
-of that facility is committed (with the D1 stock-control annotation on the Rebuild button), or
-price committed future upgrades by their actual level delta. Tests:
+the Timeline's legacy-event twin key, the committed-future index (below) and the two legacy
+cost-0 upgrade passes (skipped). An unstamped level drop (the scene-change poll, another mod,
+Mission-mode facility limits) stays informational.
+
+Known limit (PR #2042 review): no click-block paired a Rebuild with a committed future level
+change of the same facility, and levels are absolute, so a downgrade placed before a committed
+future upgrade turned that upgrade into a two-level jump charged at one step's price (a free
+level after a rewind). RULED 2026-10-07: "If a rebuild is reserved to get triggered later as
+recorded, no rebuild before it is allowed; we have to keep the timeline without weird rewrites
+that can introduce time travel paradoxes." DONE 2026-10-07, branch `facility-rebuild-block`:
+`CommittedFutureIndex.TryClassify` now indexes a Rebuild row under the facility level-change kind
+(`CommittedFutureKind.FacilityUpgrade`, the entry's `FacilityDowngrade` gives the direction;
+#2042 had it reserve nothing), so a committed FUTURE upgrade or Rebuild of a facility holds every
+earlier level change of it: the Upgrade block (`IsFacilityUpgradeBlocked`, now also over future
+Rebuild rows) and a new Rebuild block. Every consumer of the kind was walked: the two slot walks
+(`ContractSlotReservation.Forecast`, `StrategyReservationPredicates.EvaluateActivation`) now set
+the limit to the lower level's at a committed Rebuild through `LimitAfterLevelChange` instead of
+reading it as a raise; the explanation names each row with its own participle (`Upgraded to level
+3 on A and rebuilt to level 2 on B, blocked by timeline until then.`); the Timeline row hover holds
+"Upgrade and Rebuild on this facility"; the index log counts `rebuild=`. The Rebuild also repairs
+every destroyed building for free (`ResetStructures`), so it is blocked too while a committed
+repair covers the facility's current destruction (`CommittedRepairsCoveringFacility`, the Repair
+block's predicate): rebuilding then would rewrite that repair. Block: `FacilityRebuildBlock`,
+run first in the `DowngradeFacility(bool)` prefix (`FacilityDowngradeSpendPatch`, before stock's
+debit and before the downgrade scope opens; the prefix hands `__state` to the finalizer, which
+closes only a scope this call opened), replay bypass, Info line `[FacilityRebuildPatch] Blocking
+facility rebuild: ...` naming the earliest blocking row, dialog `Cannot rebuild "<facility>"`.
+Annotation (D1): the menu's private `DowngradeButton` greyed with the same text on its tooltip
+and the menu description, only while stock shows it (`StockUiFacilityDecoration.DecideRebuild`);
+decoration kind `FacilityRebuild`, tab `Rebuild`. An Upgrade of an out-of-service facility runs
+the same free `ResetStructures` repair, so it could rewrite a committed covering repair the same
+way: filed as FACILITY-UPGRADE-FREE-REPAIR-REWRITES-COMMITTED-REPAIR and fixed on the same branch
+(the Upgrade reads the Rebuild's rows). Tests: `FacilityRebuildBlockTests` (25 cells for the
+Rebuild; 21 red against API-only stubs before the fix). Tests of
+the #2042 fix:
 `FacilityDowngradeCostTests` (10 cells; 8 red against API-only stubs before the fix) and
 `TimelineBuilderTests.FacilityDowngradeRow_ItsLegacyEventTwinIsNotShownTwice` (red before the key fix).
 
