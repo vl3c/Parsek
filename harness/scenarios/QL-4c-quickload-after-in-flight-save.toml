@@ -67,10 +67,11 @@ id = "QL-4c-quickload-after-in-flight-save"
 # SaveGame at ~UT 150 right after the commit.
 #
 # STATUS: AUTHORED 2026-10-06 (PR #2030); LIVE-PROVEN 2026-10-07 `2026-10-07_1942` (PASS attempt 1 on the
-# settle fix). Report-only reading: `rewind.rewindPoints 1 > max 0` - the replayed booster
-# lands but keeps the abandoned future's CommittedProvisional merge state, so its rewind
-# point is never reaped (todo QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE);
-# the window stays at 0, the post-fix prediction. Every token is
+# settle fix). Report-only reading then: `rewind.rewindPoints 1 > max 0` - the replayed
+# booster kept the abandoned future's CommittedProvisional merge state, so its rewind point
+# was never reaped (todo QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE). Fixed
+# by PR #2049 and re-flown PASS `2026-10-07_2027` / `_2049`: `mergeStatesReset=1`, rewind point reaped,
+# the window reads clean at 0. Every token is
 # quoted from its emitting source line or from QL-4's header; saveParse blocks REPORT-ONLY.
 # =====================================================================================
 tier = "nightly"

@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE: an F9 resumes a tree member with the merge state its abandoned future's commit gave it~~ [FILED 2026-10-07 from the QL-4 / QL-4b / QL-4c reading runs, branch `f9-verify`, verified in the produced saves and by code read. FIXED 2026-10-07, branch `ql-merge-state`. Live proof owed: the QL-4 family's report-only `rewindPoints = { max = 0 }` should read clean]
+## ~~QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE: an F9 resumes a tree member with the merge state its abandoned future's commit gave it~~ [FILED 2026-10-07 from the QL-4 / QL-4b / QL-4c reading runs, branch `f9-verify`, verified in the produced saves and by code read. FIXED 2026-10-07, branch `ql-merge-state` (PR #2049). LIVE-PROVEN 2026-10-07: QL-4 / QL-4b / QL-4c PASS attempt 1 on both commits (`2026-10-07_2016` / `_2022` / `_2027`, then `_2055` / `_2043` / `_2049`), each logging `mergeStatesReset=1` and `ReapOrphanedRPs: reaped=1 remaining=0`, report-only `rewindPoints` clean]
 
 QL-4 commits the flight in flight while the probe booster is still under canopy: the commit
 classifies it `stableLeafUnconcluded` (SubOrbital) and promotes it to CommittedProvisional
