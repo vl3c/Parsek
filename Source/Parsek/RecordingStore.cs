@@ -4701,6 +4701,7 @@ namespace Parsek
             suppressNextActiveTreeRestoreReason = null;
             treesDiscardedThisSession.Clear();
             DiscardReFlyLoadIntent.ResetForTesting();
+            InSessionStagedStateHandoff.ResetForTesting();
         }
 
         /// <summary>

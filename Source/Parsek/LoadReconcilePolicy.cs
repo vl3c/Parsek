@@ -93,6 +93,11 @@ namespace Parsek
         Bundle,
         /// <summary>Kept from memory and reconciled against the load's cutoff UT.</summary>
         ReconcileAtCutoff,
+        /// <summary>Split by owner: <c>ParsekScenario.ApplyInSessionStagedStateHandoffStepB</c>
+        /// keeps memory's copy for points of trees committed in memory, the loaded copy for every
+        /// other point, and both sides' session-scoped points
+        /// (<c>InSessionStagedStateHandoff.MergeRewindPointsByOwner</c>).</summary>
+        OwnerPartition,
         /// <summary>Reconciled when the recorder resumes the restored tree:
         /// <c>ParsekScenario.TrimAndReconcileForQuickloadResume</c> retires the trimmed set's
         /// state from after the resume UT (the abandoned future).</summary>
@@ -185,7 +190,6 @@ namespace Parsek
     /// </summary>
     internal static class LoadReconcilePolicy
     {
-        internal const string GapReFlyLists = "QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY";
         internal const string GapColdLoadAbandonedFuture = "COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE";
 
         internal const string LogTag = "LoadPolicy";
@@ -308,7 +312,8 @@ namespace Parsek
         /// <summary>The once-per-load classification line (logged under <see cref="LogTag"/>).</summary>
         internal static string FormatClassificationLine(
             EarlyLoadKind early, LoadKind refined, string scene,
-            bool initialLoadDone, bool rewinding, bool reFlyInvoke, string discardReFlyTarget)
+            bool initialLoadDone, bool rewinding, bool reFlyInvoke, string discardReFlyTarget,
+            string handoff)
         {
             return "Load classified: early=" + early
                 + " refined=" + refined
@@ -316,7 +321,8 @@ namespace Parsek
                 + " initialLoadDone=" + (initialLoadDone ? "true" : "false")
                 + " rewinding=" + (rewinding ? "true" : "false")
                 + " reFlyInvoke=" + (reFlyInvoke ? "true" : "false")
-                + " discardReFly=" + (string.IsNullOrEmpty(discardReFlyTarget) ? "none" : discardReFlyTarget);
+                + " discardReFly=" + (string.IsNullOrEmpty(discardReFlyTarget) ? "none" : discardReFlyTarget)
+                + " handoff=" + (string.IsNullOrEmpty(handoff) ? "absent" : handoff);
         }
 
         // ------------------------------------------------------------------
@@ -430,8 +436,10 @@ namespace Parsek
 
         private const string StagingFromNode =
             "ParsekScenario.LoadRewindStagingState installs the loaded node's copy";
-        private const string InSessionListsFromNode =
-            StagingFromNode + " while committed recordings and the ledger stay in memory; target: memory";
+        private const string InSessionHandoffInstalls =
+            "ParsekScenario.ApplyInSessionStagedStateHandoffStepA installs the copy the previous scenario "
+            + "instance handed off when it was torn down (InSessionStagedStateHandoff, captured in OnDestroy) "
+            + "over the loaded node's, as committed recordings and the ledger stay in memory too";
         private const string BundleRestores =
             "RewindInvoker.ConsumePostLoad -> ReconciliationBundle.Restore replaces the loaded copy with the pre-invoke capture";
         private const string SweepValidates =
@@ -455,7 +463,12 @@ namespace Parsek
                 case LoadKind.StockRevert:
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
-                    return Gap(LoadReconcileAction.Save, GapReFlyLists, InSessionListsFromNode);
+                    return Today(LoadReconcileAction.Memory,
+                        InSessionHandoffInstalls + " (RecordingStore.MergeCarriedStagedList); "
+                        + "ParsekScenario.ApplyInSessionStagedStateHandoffStepB then hands the rows naming a tree "
+                        + "a quickload resumed from the save (the committed-copy restore, ResumeFromQuicksave) "
+                        + "back to the save, except rows the loaded marker's resumed Re-Fly attempt wrote "
+                        + "(owner ruling OQ-1)");
             }
             throw UnknownKind(kind);
         }
@@ -473,14 +486,14 @@ namespace Parsek
                 case LoadKind.ReFlyStart:
                     return Today(LoadReconcileAction.Bundle, BundleRestores);
                 case LoadKind.DiscardReFly:
-                    return Gap(LoadReconcileAction.Save, GapReFlyLists,
-                        StagingFromNode + " after DiscardReFlyHandler nulled the journal in memory; target: memory (null)");
+                    return Today(LoadReconcileAction.Memory,
+                        InSessionHandoffInstalls + "; DiscardReFlyHandler nulled it, so none (ShouldCarryMergeJournal)");
                 case LoadKind.StockRevert:
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
-                    return Gap(LoadReconcileAction.Save, GapReFlyLists,
-                        StagingFromNode + "; target: memory when null or Complete (ShouldCarryMergeJournal), "
-                        + "the loaded one with a Warn otherwise");
+                    return Today(LoadReconcileAction.Memory,
+                        InSessionHandoffInstalls + " when memory's is null or Complete (RecordingStore.ShouldCarryMergeJournal); "
+                        + "an in-flight one keeps the loaded journal with a Warn");
             }
             throw UnknownKind(kind);
         }
@@ -497,15 +510,15 @@ namespace Parsek
                 case LoadKind.ReFlyStart:
                     return Today(LoadReconcileAction.Bundle, BundleRestores);
                 case LoadKind.DiscardReFly:
-                    return Gap(LoadReconcileAction.Save, GapReFlyLists,
-                        StagingFromNode + ", dropping DiscardReFlyHandler's in-memory origin-RP promotion "
-                        + "(also the DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP trigger); target: memory");
                 case LoadKind.StockRevert:
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
-                    return Gap(LoadReconcileAction.Save, GapReFlyLists,
-                        StagingFromNode + "; target: partition by owner (memory for committed trees' points, "
-                        + "the save for the resumed or reverted flight's)");
+                    return Today(LoadReconcileAction.OwnerPartition,
+                        "ParsekScenario.ApplyInSessionStagedStateHandoffStepB, after the active-tree detach: memory's "
+                        + "copy for points of trees committed in memory (DiscardReFlyHandler's origin-RP promotion "
+                        + "included), the loaded copy for the resumed or reverted flight's and unknown owners' points "
+                        + "(their quicksave files stay, owner ruling OQ-3), both sides' session-scoped points "
+                        + "(LoadTimeSweep.Run then spares or purges them against the marker)");
             }
             throw UnknownKind(kind);
         }
@@ -523,10 +536,9 @@ namespace Parsek
                     return Today(LoadReconcileAction.Bundle,
                         BundleRestores + ", then RewindInvoker.ConsumePostLoad writes the new session's marker");
                 case LoadKind.DiscardReFly:
-                    return Gap(LoadReconcileAction.Save, GapReFlyLists,
-                        StagingFromNode + " after DiscardReFlyHandler cleared the marker in memory; LoadTimeSweep.Run "
-                        + "(MarkerValidator) validates the loaded marker and may clear it, as on every in-session load; "
-                        + "target: memory (null)");
+                    return Today(LoadReconcileAction.Memory,
+                        InSessionHandoffInstalls + "; DiscardReFlyHandler cleared it, so step A clears the loaded one "
+                        + "through ClearActiveReFlySessionMarker");
                 case LoadKind.StockRevert:
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:

@@ -359,9 +359,12 @@ namespace Parsek.Tests
         // ---------- gating (mirrors the RP carry) -------------------------
 
         [Fact]
-        public void NonRewindLoad_LeavesTheLoadedListsAlone_AndDropsAStrandedCapture()
+        public void NonRewindLoad_TheRewindCarryStaysOut_AndDropsAStrandedCapture()
         {
-            // Mirror direction: a quickload / scene change reads its lists from its own save.
+            // Mirror direction: the plain-rewind carry installs nothing on a load that is not a
+            // rewind and drops a stranded capture. Such a load takes its lists from whatever owns
+            // them on that load kind: the in-session handoff (InSessionStagedListsCarryTests), the
+            // Re-Fly bundle, or the loaded node on a cold load, which is what this cell leaves.
             var scenario = BuildTwoTreeCase(out _);
             var stale = NewScenario();
             stale.ActiveMergeJournal = new MergeJournal { JournalId = "mj_disk", Phase = MergeJournal.Phases.Split };
