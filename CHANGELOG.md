@@ -3775,6 +3775,20 @@ _(unreleased - entries accumulate here per commit)_
   ship, whose recorded end state comes back under a new vessel id, is replaced the same way
   instead of appearing twice at the Space Center or in the Tracking Station.
 
+- **After a rewind, a station that a later mission docks to no longer comes back holding
+  supply-route cargo the rewind refunded.** If a supply route was already delivering into a
+  station before a committed mission docked to it, and you rewound to before that dock, the
+  route's deliveries after the rewind point were undone (refunded, with the origin getting its
+  cargo back), and while the station was held back for the mission the route could not deliver
+  to it. But when the station reappeared in the mission's recorded end state it still held all
+  of those deliveries, so that cargo existed twice. It now reappears without the cargo of the
+  refunded deliveries, and with any cargo the route had taken from it given back, each tank kept
+  between empty and full; a delivery the route made again after the rewind was paid again and
+  stays. Only the station as that mission recorded it is corrected: a later recording of it (a
+  flight continued from the corrected station, a Re-fly) carries its own cargo and is left
+  alone, and a second rewind does not take the same delivery out twice. The recorded
+  mission itself is not changed. Covered by xUnit; not yet checked in a test flight.
+
 - **After a quickload, a booster that survives the replayed flight is recorded again.** If you
   quicksaved, flew on (a booster crashed with its crew, a lander touched down) and then
   quickloaded back, the other vessels of that flight kept the ending they had reached after the

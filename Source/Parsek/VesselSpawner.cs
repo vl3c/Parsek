@@ -4892,12 +4892,17 @@ namespace Parsek
                 return null;
             }
 
-            return BuildValidatedRespawnSnapshot(
+            ConfigNode snapshot = BuildValidatedRespawnSnapshot(
                 rec.VesselSnapshot,
                 rec,
                 currentUT,
                 logContext,
                 out materializationRejectionReason);
+            // This overload copies the stored snapshot, so it is where a chain tip's spawn copy
+            // drops the route cargo a rewind refunded. The prepared-snapshot overloads receive
+            // a copy their caller already adjusted.
+            ChainTipRouteCargo.ApplyToSpawnCopy(snapshot, rec, resolvedContext);
+            return snapshot;
         }
 
         internal static ConfigNode BuildValidatedRespawnSnapshot(
