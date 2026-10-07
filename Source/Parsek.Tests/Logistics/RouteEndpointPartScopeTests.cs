@@ -100,6 +100,14 @@ namespace Parsek.Tests.Logistics
                     if (mask[i]) set.Add(Pids[i]);
                 return set;
             }
+
+            internal HashSet<uint> OwnFlightIds(bool[] mask)
+            {
+                var set = new HashSet<uint>();
+                for (int i = 0; i < mask.Length; i++)
+                    if (mask[i]) set.Add(FlightIds[i]);
+                return set;
+            }
         }
 
         private struct DockNodeSpec
@@ -282,6 +290,188 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(Outcome.Scoped, outcome);
             Assert.Equal(coreOnly, craft.OwnPids(mask));
             Assert.Equal(3, own);
+        }
+
+        // ==================================================================
+        // Adopted part set (owner ruling 2026-10-07): the player re-captures the
+        // endpoint's current parts, so a module docked after the recording is admitted
+        // ==================================================================
+
+        // The station's parts by flightID while nothing but its own module was docked (the
+        // moment the adoption was taken): core 100 / 102 / 103 plus module 110 / 111 / 112.
+        private static readonly HashSet<uint> CoreAndModuleFlightIds =
+            new HashSet<uint> { 100u, 102u, 103u, 110u, 111u, 112u };
+        private static readonly HashSet<uint> CoreOnlyPids = new HashSet<uint> { 1001u, 1003u, 1004u };
+
+        private static bool[] SelectWithAdoption(Craft craft, uint root, ICollection<uint> recorded,
+            ICollection<uint> adoptedFlightIds, out Outcome outcome, out int own, out int excluded)
+        {
+            return SelectOwnParts(craft.PartRecords(), craft.NodeRecords(), root, recorded,
+                adoptedFlightIds, out outcome, out own, out excluded);
+        }
+
+        // catches: the adoption not reaching the scope (the module docked after the recording
+        // stays excluded, the station reads full sooner) or admitting everything (a visitor
+        // docked AFTER the adoption fills with the cargo again).
+        [Fact]
+        public void AdoptedSet_AdmitsModuleDockedAfterRecording_ExcludesVisitorDockedAfterAdoption()
+        {
+            Craft craft = ModularStation(withVisitor: true);
+            bool[] mask = SelectWithAdoption(craft, 100u, CoreOnlyPids, CoreAndModuleFlightIds,
+                out Outcome outcome, out int own, out int excluded);
+
+            Assert.Equal(Outcome.Scoped, outcome);
+            Assert.NotNull(mask);
+            Assert.Equal(ModularStationPids, craft.OwnPids(mask));
+            Assert.Equal(6, own);
+            Assert.Equal(1, excluded);
+        }
+
+        // catches: the same station without a visitor still being cut to the recorded core.
+        [Fact]
+        public void AdoptedSet_NoVisitor_StationWithLaterModuleStaysWhole()
+        {
+            Craft craft = ModularStation(withVisitor: false);
+            bool[] mask = SelectWithAdoption(craft, 100u, CoreOnlyPids, CoreAndModuleFlightIds,
+                out Outcome outcome, out int own, out int excluded);
+
+            Assert.Null(mask);
+            Assert.Equal(Outcome.AllOwn, outcome);
+            Assert.Equal(6, own);
+            Assert.Equal(0, excluded);
+        }
+
+        // catches: an absent (or empty) adoption changing the recorded-set answer in any way.
+        [Fact]
+        public void NoAdoptedSet_IsExactlyTheRecordedSetBehaviour()
+        {
+            var cases = new[]
+            {
+                new { Craft = ModularStation(withVisitor: true), Recorded = CoreOnlyPids },
+                new { Craft = ModularStation(withVisitor: true), Recorded = ModularStationPids },
+                new { Craft = ModularStation(withVisitor: false), Recorded = CoreOnlyPids },
+                new { Craft = StationDominantWithVisitor(), Recorded = StationPids },
+                new { Craft = StationDominantWithVisitor(), Recorded = (HashSet<uint>)null },
+            };
+            foreach (var c in cases)
+            {
+                bool[] baseline = Select(c.Craft, 100u, c.Recorded,
+                    out Outcome baseOutcome, out int baseOwn, out int baseExcluded);
+                foreach (ICollection<uint> none in new ICollection<uint>[] { null, new HashSet<uint>() })
+                {
+                    bool[] mask = SelectWithAdoption(c.Craft, 100u, c.Recorded, none,
+                        out Outcome outcome, out int own, out int excluded);
+                    Assert.Equal(baseOutcome, outcome);
+                    Assert.Equal(baseOwn, own);
+                    Assert.Equal(baseExcluded, excluded);
+                    Assert.Equal(baseline, mask);
+                }
+            }
+        }
+
+        // catches: matching the adoption by persistentId. A later launch of the module's own
+        // .craft carries the same baked part persistentIds (KSP reuses them once the original
+        // is gone); only the per-launch flightIDs tell it apart, so it must stay a visitor.
+        [Fact]
+        public void AdoptedSet_MatchesFlightIds_NotCraftBakedPersistentIds()
+        {
+            Craft craft = ModularStation(withVisitor: false)
+                .Part(210u, 1101u, 103u)
+                .Part(211u, 1102u, 210u)
+                .Part(212u, 1103u, 211u)
+                .Node(103u, 210u, ownRoot: 100u)
+                .Node(210u, 103u, ownRoot: 211u);
+
+            bool[] mask = SelectWithAdoption(craft, 100u, CoreOnlyPids, CoreAndModuleFlightIds,
+                out Outcome outcome, out int own, out int excluded);
+
+            Assert.Equal(Outcome.Scoped, outcome);
+            Assert.Equal(CoreAndModuleFlightIds, craft.OwnFlightIds(mask));
+            Assert.Equal(6, own);
+            Assert.Equal(1, excluded);
+        }
+
+        // catches: the adoption being unioned with the recorded set instead of replacing it:
+        // the recorded set still names the module, the adoption (taken while the module was
+        // away) does not, so the re-docked module is not the endpoint's.
+        [Fact]
+        public void AdoptedSet_ReplacesTheRecordedSet()
+        {
+            Craft craft = ModularStation(withVisitor: false);
+            var coreFlightIds = new HashSet<uint> { 100u, 102u, 103u };
+
+            bool[] mask = SelectWithAdoption(craft, 100u, ModularStationPids, coreFlightIds,
+                out Outcome outcome, out int own, out _);
+
+            Assert.Equal(Outcome.Scoped, outcome);
+            Assert.Equal(coreFlightIds, craft.OwnFlightIds(mask));
+            Assert.Equal(3, own);
+        }
+
+        // catches: an empty mask when neither the root nor any adopted part is aboard; the
+        // whole-composite fallback stands, as for the recorded set.
+        [Fact]
+        public void AdoptedSet_NothingAboard_FallsBackToWholeComposite()
+        {
+            Craft craft = StationDominantWithVisitor();
+            bool[] mask = SelectWithAdoption(craft, 999u, StationPids, new HashSet<uint> { 900u, 901u },
+                out Outcome outcome, out _, out _);
+
+            Assert.Null(mask);
+            Assert.Equal(Outcome.EndpointNotAboard, outcome);
+        }
+
+        // catches: the recordings being consulted (or winning) when the route carries an
+        // adoption for this endpoint, and the adoption leaking onto another endpoint.
+        [Fact]
+        public void OwnPartSets_AdoptionConsultedBeforeTheRecordings()
+        {
+            var rec = new Recording
+            {
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        EndpointRootPartUId = 900u,
+                        EndpointPartPersistentIds = new List<uint> { 9001u },
+                    },
+                },
+            };
+            var route = new Route
+            {
+                Id = "route-adopt",
+                AdoptedEndpointParts = new List<RouteEndpointAdoptedParts>
+                {
+                    new RouteEndpointAdoptedParts
+                    {
+                        EndpointRootPartUId = 100u,
+                        EndpointVesselPersistentId = 55u,
+                        PartFlightIds = new HashSet<uint>(CoreAndModuleFlightIds),
+                    },
+                },
+            };
+            int sourceReads = 0;
+            Func<IEnumerable<Recording>> sources = () =>
+            {
+                sourceReads++;
+                return new[] { rec };
+            };
+
+            ResolveOwnPartSets(route, Endpoint(100u, 55u), sources,
+                out HashSet<uint> adopted, out HashSet<uint> recorded, out string from);
+            Assert.Equal("adopted", from);
+            Assert.Equal(CoreAndModuleFlightIds, adopted);
+            Assert.Null(recorded);
+            Assert.Equal(0, sourceReads);
+
+            ResolveOwnPartSets(route, Endpoint(900u), sources, out adopted, out recorded, out from);
+            Assert.Null(adopted);
+            Assert.Equal(new HashSet<uint> { 9001u }, recorded);
+            Assert.Equal("window", from);
+            Assert.Equal(1, sourceReads);
+
+            ResolveOwnPartSets(null, Endpoint(100u), sources, out adopted, out recorded, out from);
+            Assert.Null(adopted);
         }
 
         // ==================================================================

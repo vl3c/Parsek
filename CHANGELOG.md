@@ -3712,6 +3712,7 @@ _(unreleased - entries accumulate here per commit)_
   docked into a larger station gets its cargo itself. A module you dock to the station after
   recording the route does not receive route cargo. When Parsek cannot tell which parts are
   the station's, routes use the whole docked vessel as before. Covered by xUnit; not yet
+  checked in a test flight.
 
 - **Quickloading back into a flight you discarded records it again.** Discarding a flight deletes
   its recording, so quickloading a quicksave taken during that flight used to resume recording
@@ -6127,6 +6128,17 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Supply routes can adopt an endpoint's current parts (no player control yet).** The endpoint
+  part scope admits only the parts a route recorded as the station's, so a module docked to it
+  later gets no cargo. `RouteEndpointPartAdoption.AdoptCurrentParts(route)` resolves the
+  route's origin and every stop and stores each resolved vessel's current part flightIDs on the
+  route (`Route.AdoptedEndpointParts`, a sparse `ADOPTED_ENDPOINT_PARTS` node in the ROUTE
+  save; a route without one is byte-identical). `RouteEndpointPartScope` reads that set before
+  the recorded sets, for the endpoint binding it was taken against (root part flightID, else
+  vessel pid gated by launch guid), so the later module is included and a craft docked after
+  the adoption still is not. One `Endpoint part adoption:` Info line per call gives the part
+  count per endpoint. Nothing calls it yet: the control that will trigger it is still to be
+  decided. No behaviour change.
 - **Lane fixes from the release verification flights.** CI-3 and CI-4 now expect no SubOrbital
   recording: since the Re-Fly chain-head fix (#2015) the optimizer's first chain segment keeps
   no ending of its own, where earlier runs gave it SubOrbital. L5 and L3 accept 2 or 3

@@ -1775,6 +1775,21 @@ the endpoint's scope, every part loop guarded, gate probes shared per pid and sc
 each of a dropped scope argument, a `null` scope, an unguarded loop, a pid-only share and a
 pickup resolution without its scope key).
 
+Follow-up, owner ruling 2026-10-07 (branch `route-rescan-adopts-parts`, below-UI half only): the
+player can opt a later-docked module in by re-capturing the endpoint's current parts.
+`RouteEndpointPartAdoption.AdoptCurrentParts(route)` resolves the origin and every stop and stores
+each resolved vessel's part flightIDs in `Route.AdoptedEndpointParts` (sparse
+`ADOPTED_ENDPOINT_PARTS` ROUTE node), keyed to the endpoint binding (root flightID, else pid
+gated by launch guid); `RouteEndpointPartScope` reads that set before the recorded sets and lets
+it replace them, so the module is admitted and a craft docked after the adoption is still
+excluded. The adoption survives in-session rewinds and load reconciles with the live route; a
+transfer leaves it unmatched. Tests: `RouteEndpointPartAdoptionTests` and the `AdoptedSet_*` /
+`OwnPartSets_*` cells in `RouteEndpointPartScopeTests` (red against stubs first). OPEN: no player
+control calls it yet. The ruling named the Logistics window's Re-scan, but that button is drawn
+only for an EndpointLost surface route (`LogisticsWindowUI.DrawEndpointRescan`,
+`LogisticsDeliveryPresentation.ShouldOfferEndpointRescan`), so a healthy route has nothing to
+press; the owner is choosing the trigger.
+
 ---
 
 ## ~~LOGISTICS-DESIGN-DRIFT-2026-10-06: logistics design 10.6 and a RouteRevertSafety comment say a revert / load restores route state; it does not~~ [FILED 2026-10-06 from the integration-coverage code read; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-route-state-on-load`, with ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD]
