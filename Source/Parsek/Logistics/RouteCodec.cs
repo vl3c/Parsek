@@ -24,6 +24,14 @@ namespace Parsek.Logistics
     /// existing zero-STOP / malformed-SOURCE rejects stand. Pre-1.0: graceful
     /// default, no migration.
     ///
+    /// Adopted endpoint parts (owner ruling 2026-10-07): a sparse
+    /// <c>ADOPTED_ENDPOINT_PARTS</c> node of <c>ENDPOINT_PARTS</c> children, each carrying the
+    /// endpoint binding it was captured against (<c>rootPartUId</c> /
+    /// <c>vesselPersistentId</c> / <c>launchGuid</c>, each omitted at its unknown default), a
+    /// sparse <c>adoptedUT</c> and repeated sorted <c>uid</c> part flightIDs. Omitted when no
+    /// entry has a part, so a route never updated is byte-identical; an entry without a
+    /// readable part is dropped on load.
+    ///
     /// Load rejects the whole route on (a) zero <c>STOP</c> children or
     /// (b) a malformed <c>SOURCE</c> entry — returning <c>null</c> with a
     /// warn log so partially-loaded routes never look valid downstream.
@@ -59,6 +67,9 @@ namespace Parsek.Logistics
         internal const string ExcludedIntervalValue = "excludedInterval";
         internal const string CreationTreeRecordingsNode = "CREATION_TREE_RECORDINGS";
         internal const string CreationTreeRecordingValue = "id";
+        internal const string AdoptedEndpointPartsNode = "ADOPTED_ENDPOINT_PARTS";
+        internal const string AdoptedEndpointPartsEntryNode = "ENDPOINT_PARTS";
+        internal const string AdoptedPartFlightIdValue = "uid";
 
         // -----------------------------------------------------------------
         // Serialize
@@ -277,6 +288,9 @@ namespace Parsek.Logistics
 
             // --- INVENTORY_COST_MANIFEST ---
             SerializeInventoryItems(node, InventoryCostManifestNode, route.InventoryCostManifest, ic);
+
+            // --- ADOPTED_ENDPOINT_PARTS (owner ruling 2026-10-07) ---
+            SerializeAdoptedEndpointParts(node, route.AdoptedEndpointParts, ic);
         }
 
         // -----------------------------------------------------------------
@@ -454,7 +468,91 @@ namespace Parsek.Logistics
             // --- INVENTORY_COST_MANIFEST ---
             route.InventoryCostManifest = DeserializeInventoryItems(node, InventoryCostManifestNode, ic);
 
+            // --- ADOPTED_ENDPOINT_PARTS: absent -> null (the recorded-set behaviour) ---
+            route.AdoptedEndpointParts = DeserializeAdoptedEndpointParts(node, inv, ic);
+
             return route;
+        }
+
+        // -----------------------------------------------------------------
+        // ADOPTED_ENDPOINT_PARTS
+        // -----------------------------------------------------------------
+
+        // Sparse: no node unless at least one entry carries a nonzero part flightID, so a route
+        // never updated writes nothing new and an older build (which reads keys by name)
+        // ignores the node. Each entry's binding keys are omitted at their unknown defaults and
+        // the flightIDs are written sorted, so the save bytes do not depend on HashSet order.
+        private static void SerializeAdoptedEndpointParts(
+            ConfigNode node, List<RouteEndpointAdoptedParts> entries, CultureInfo ic)
+        {
+            if (entries == null || entries.Count == 0)
+                return;
+
+            ConfigNode parent = null;
+            for (int i = 0; i < entries.Count; i++)
+            {
+                RouteEndpointAdoptedParts entry = entries[i];
+                if (entry?.PartFlightIds == null) continue;
+                var ids = new List<uint>(entry.PartFlightIds.Count);
+                foreach (uint id in entry.PartFlightIds)
+                    if (id != 0u) ids.Add(id);
+                if (ids.Count == 0) continue;
+                ids.Sort();
+
+                if (parent == null) parent = node.AddNode(AdoptedEndpointPartsNode);
+                ConfigNode child = parent.AddNode(AdoptedEndpointPartsEntryNode);
+                if (entry.EndpointRootPartUId != 0u)
+                    child.AddValue("rootPartUId", entry.EndpointRootPartUId.ToString(ic));
+                if (entry.EndpointVesselPersistentId != 0u)
+                    child.AddValue("vesselPersistentId", entry.EndpointVesselPersistentId.ToString(ic));
+                string guid = VesselLaunchIdentity.NormalizeGuid(entry.EndpointLaunchGuid);
+                if (guid != null)
+                    child.AddValue("launchGuid", guid);
+                if (entry.AdoptedUT >= 0.0)
+                    child.AddValue("adoptedUT", entry.AdoptedUT.ToString("R", ic));
+                for (int p = 0; p < ids.Count; p++)
+                    child.AddValue(AdoptedPartFlightIdValue, ids[p].ToString(ic));
+            }
+        }
+
+        private static List<RouteEndpointAdoptedParts> DeserializeAdoptedEndpointParts(
+            ConfigNode node, NumberStyles inv, CultureInfo ic)
+        {
+            ConfigNode parent = node.GetNode(AdoptedEndpointPartsNode);
+            if (parent == null)
+                return null;
+
+            List<RouteEndpointAdoptedParts> entries = null;
+            ConfigNode[] children = parent.GetNodes(AdoptedEndpointPartsEntryNode);
+            for (int i = 0; i < children.Length; i++)
+            {
+                ConfigNode child = children[i];
+                var entry = new RouteEndpointAdoptedParts();
+                string[] ids = child.GetValues(AdoptedPartFlightIdValue);
+                if (ids != null)
+                {
+                    for (int p = 0; p < ids.Length; p++)
+                    {
+                        if (uint.TryParse(ids[p], NumberStyles.Integer, ic, out uint id) && id != 0u)
+                            entry.PartFlightIds.Add(id);
+                    }
+                }
+                // An entry with no readable part is no override; dropping it keeps the
+                // recorded-set behaviour for its endpoint.
+                if (entry.PartFlightIds.Count == 0) continue;
+
+                uint root;
+                if (uint.TryParse(child.GetValue("rootPartUId"), NumberStyles.Integer, ic, out root))
+                    entry.EndpointRootPartUId = root;
+                uint pid;
+                if (uint.TryParse(child.GetValue("vesselPersistentId"), NumberStyles.Integer, ic, out pid))
+                    entry.EndpointVesselPersistentId = pid;
+                entry.EndpointLaunchGuid = VesselLaunchIdentity.NormalizeGuid(child.GetValue("launchGuid"));
+                TryParseDoubleWithDefault(child.GetValue("adoptedUT"), inv, ic, -1.0, out entry.AdoptedUT);
+
+                (entries ?? (entries = new List<RouteEndpointAdoptedParts>())).Add(entry);
+            }
+            return entries;
         }
 
         // -----------------------------------------------------------------

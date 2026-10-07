@@ -2239,6 +2239,51 @@ the endpoint's scope, every part loop guarded, gate probes shared per pid and sc
 each of a dropped scope argument, a `null` scope, an unguarded loop, a pid-only share and a
 pickup resolution without its scope key).
 
+Follow-up, owner ruling 2026-10-07 (branch `route-rescan-adopts-parts`): the player can opt a
+later-docked module in by re-capturing the endpoint's current parts with the route detail
+block's `Update parts` button.
+`RouteEndpointPartAdoption.AdoptCurrentParts(route)` resolves the origin and every stop and stores
+each resolved vessel's part flightIDs in `Route.AdoptedEndpointParts` (sparse
+`ADOPTED_ENDPOINT_PARTS` ROUTE node), keyed to the endpoint binding (root flightID, else pid
+gated by launch guid); `RouteEndpointPartScope` reads that set before the recorded sets and lets
+it replace them, so the module is admitted and a craft docked after the adoption is still
+excluded. The adoption survives in-session rewinds and load reconciles with the live route; a
+transfer leaves it unmatched. The ruling first named the Logistics window's Re-scan, but that
+button is drawn only for an EndpointLost surface route, so the owner chose a button of its own:
+`Update parts`, the detail block's third Interact single in both modes (Link moves to the
+fourth in Advanced), greyed with its reason while a run is under way
+(`LogisticsRoutePresentation.IsRunInFlight`), outcome in the `Endpoint part adoption:` Info line
+and the hover's `Last updated on <date>.`. PR #2043 review fixes: a press first widened an
+endpoint docked INTO a larger station to the whole station (a lander stop's scope went from 3
+own parts to 7, so its cargo would fill the host). A first fix adopted a composite only for the
+endpoint holding its root part, but `Vessel.GetDominantVessel` ranks vessel TYPE first, so a
+crewed lander docked at a probe-cored depot holds the root and still took the depot. Now
+`RouteEndpointPartAdoption.DecideCapture` uses a part-count SIZE rule: the endpoint's own pieces
+(root plus adopted, else recorded, parts) are always kept and set its own size; with them cut
+out of the part tree, every foreign cluster (everything behind one docking point, the seams
+between foreign pieces kept) is taken only when it has strictly fewer parts than that size, and
+inside a taken cluster the pieces another endpoint owns or that hold a recorded transport root
+stay out. An endpoint whose clusters are all left out re-adopts its own pieces (no refusal; the
+log line carries `leftOut=<sizes> own=<n>`). Known limits: a new module with as many parts as
+the station, or more, is left out (stock records nothing that tells it from a host), and a
+smaller visiting ship is taken, so the hover says to undock visitors first; the transport is
+recognised only while it carries the root part flightIDs its recordings captured, so a transport
+Parsek spawned from a recording (fresh flightIDs, `VesselSpawner.RegenerateVesselIdentity`)
+counts as a visiting ship. An endpoint with no recorded part set (its scope falls back to the whole vessel, `outcome=no-recorded-parts`) keeps only its root piece plus the smaller clusters after a press, so a module bigger than its core stops taking cargo; and a stop larger than a host that is not an endpoint of the route takes that host in. `IsRunInFlight` greys a multi-stop loop route part-way through its
+stops even while Paused (Send un-pauses without resetting the stop cursors and finishes that
+cycle; Activate resets them); it also greys a multi-stop
+route right after an Advanced cadence change on a windowed (re-aim) basis until that cycle's
+later stops pass (the rebase snaps each stop's cursor to its own dock phase, which reads like a
+half-fired cycle; telling the two apart needs the cycle's dispatch row from the ledger). Tests:
+`RouteEndpointPartAdoptionTests`, the `AdoptedSet_*` / `OwnPartSets_*` / `Capture_*` cells in
+`RouteEndpointPartScopeTests` (the size-rule cells red against the root-holder rule first),
+`LogisticsUpdatePartsPresentationTests` and `LogisticsUpdatePartsPausedCycleTests` (red against
+the Paused exemption first), the slot-order and source cells in `LogisticsRoutePresentationTests` /
+`TableRowInsetAlignmentTests` (the source cell went red under `bool live = true;`, an
+unguarded click and the call moved after an empty guard block), and the hover budget in `TooltipEchoBudgetTests`. Live proof would ride lane
+IR-9 (a station with a smaller module docked after the route was made, then Update parts; a
+lander stop parked at a larger station, then Update parts).
+
 ---
 
 ## ~~LOGISTICS-DESIGN-DRIFT-2026-10-06: logistics design 10.6 and a RouteRevertSafety comment say a revert / load restores route state; it does not~~ [FILED 2026-10-06 from the integration-coverage code read; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-route-state-on-load`, with ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD]

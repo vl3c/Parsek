@@ -160,6 +160,12 @@ namespace Parsek.Logistics
     /// out too, which is the conservative reading: cargo stays in the parts the route was
     /// proven against.</para>
     ///
+    /// <para>ADOPTED PARTS (owner ruling 2026-10-07): when the player has re-captured the
+    /// endpoint's current parts (<see cref="RouteEndpointPartAdoption"/>), that set, matched on
+    /// launch-unique part flightIDs, REPLACES the recorded set for the endpoint binding it was
+    /// taken against, so a later module is admitted and a craft docked after the adoption is
+    /// still excluded. With no adoption for the binding the rule above is unchanged.</para>
+    ///
     /// <para>FALLBACK: when no recorded part set exists, or none of the endpoint's recorded
     /// parts is aboard, the whole composite is used, exactly as before, and a rate-limited
     /// Info line says why.</para>
@@ -208,6 +214,16 @@ namespace Parsek.Logistics
                 OwnSideRootUId = ownSideRootUId;
                 OtherSideRootUId = otherSideRootUId;
             }
+        }
+
+        /// <summary>What makes a docked piece one endpoint's own: the piece holding its root
+        /// part flightID, plus every piece holding one of its adopted part flightIDs when it has
+        /// an adoption, else one of its recorded part persistentIds.</summary>
+        internal struct OwnPartSets
+        {
+            public uint RootPartUId;
+            public ICollection<uint> RecordedPartPids;
+            public ICollection<uint> AdoptedPartFlightIds;
         }
 
         /// <summary>One settled cross-vessel dock: the parent/child part edge an undock
@@ -380,15 +396,37 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Pure selection. Returns a per-part mask (true = the endpoint's own part) or null
-        /// for "use every part"; <paramref name="outcome"/> says which. See the class summary
-        /// for the rule.
+        /// Pure selection over the recorded part set only (no adoption). Returns a per-part mask
+        /// (true = the endpoint's own part) or null for "use every part";
+        /// <paramref name="outcome"/> says which. See the class summary for the rule.
         /// </summary>
         internal static bool[] SelectOwnParts(
             IReadOnlyList<PartRecord> parts,
             IReadOnlyList<DockNodeRecord> nodes,
             uint endpointRootPartUId,
             ICollection<uint> recordedOwnPartPids,
+            out Outcome outcome,
+            out int ownPartCount,
+            out int excludedComponentCount)
+        {
+            return SelectOwnParts(parts, nodes, endpointRootPartUId, recordedOwnPartPids, null,
+                out outcome, out ownPartCount, out excludedComponentCount);
+        }
+
+        /// <summary>
+        /// Pure selection. <paramref name="adoptedOwnPartFlightIds"/> is the player's adopted part
+        /// set for this endpoint (<see cref="RouteEndpointPartAdoption"/>), matched on part
+        /// flightIDs; when it is non-empty it REPLACES <paramref name="recordedOwnPartPids"/>
+        /// (matched on part persistentIds), so a module docked after the route was recorded is
+        /// admitted once adopted and a craft docked after the adoption is not. Null or empty
+        /// leaves the recorded-set rule exactly as it was.
+        /// </summary>
+        internal static bool[] SelectOwnParts(
+            IReadOnlyList<PartRecord> parts,
+            IReadOnlyList<DockNodeRecord> nodes,
+            uint endpointRootPartUId,
+            ICollection<uint> recordedOwnPartPids,
+            ICollection<uint> adoptedOwnPartFlightIds,
             out Outcome outcome,
             out int ownPartCount,
             out int excludedComponentCount)
@@ -403,9 +441,10 @@ namespace Parsek.Logistics
             if (seams.Count == 0)
                 return null;
 
+            bool useAdopted = adoptedOwnPartFlightIds != null && adoptedOwnPartFlightIds.Count > 0;
             // Stock cannot tell a module docked before the route was recorded from a visitor
-            // docked after it, so without the recorded part set nothing is excluded.
-            if (recordedOwnPartPids == null || recordedOwnPartPids.Count == 0)
+            // docked after it, so without a recorded (or adopted) part set nothing is excluded.
+            if (!useAdopted && (recordedOwnPartPids == null || recordedOwnPartPids.Count == 0))
             {
                 outcome = Outcome.NoRecordedParts;
                 return null;
@@ -416,22 +455,12 @@ namespace Parsek.Logistics
             for (int i = 0; i < component.Length; i++)
                 if (component[i] + 1 > componentCount) componentCount = component[i] + 1;
 
-            var ownComponents = new HashSet<int>();
-            if (endpointRootPartUId != 0u)
+            HashSet<int> ownComponents = OwnComponents(parts, component, new OwnPartSets
             {
-                for (int i = 0; i < parts.Count; i++)
-                {
-                    if (parts[i].FlightId != endpointRootPartUId) continue;
-                    ownComponents.Add(component[i]);
-                    break;
-                }
-            }
-            for (int i = 0; i < parts.Count; i++)
-            {
-                uint pid = parts[i].PersistentId;
-                if (pid != 0u && recordedOwnPartPids.Contains(pid))
-                    ownComponents.Add(component[i]);
-            }
+                RootPartUId = endpointRootPartUId,
+                RecordedPartPids = recordedOwnPartPids,
+                AdoptedPartFlightIds = adoptedOwnPartFlightIds,
+            });
 
             if (ownComponents.Count == 0)
             {
@@ -456,6 +485,40 @@ namespace Parsek.Logistics
             ownPartCount = own;
             excludedComponentCount = componentCount - ownComponents.Count;
             return mask;
+        }
+
+        /// <summary>
+        /// The components (labels from <see cref="LabelComponents"/>) that are the endpoint's
+        /// own per <paramref name="sets"/>: the one holding its root part, plus those holding
+        /// an adopted part flightID when the adopted set is non-empty (it REPLACES the recorded
+        /// set), else those holding a recorded part persistentId.
+        /// </summary>
+        internal static HashSet<int> OwnComponents(
+            IReadOnlyList<PartRecord> parts, int[] component, OwnPartSets sets)
+        {
+            var own = new HashSet<int>();
+            if (parts == null || component == null) return own;
+            bool useAdopted = sets.AdoptedPartFlightIds != null && sets.AdoptedPartFlightIds.Count > 0;
+            bool useRecorded = !useAdopted
+                && sets.RecordedPartPids != null && sets.RecordedPartPids.Count > 0;
+            for (int i = 0; i < parts.Count && i < component.Length; i++)
+            {
+                uint flightId = parts[i].FlightId;
+                if (sets.RootPartUId != 0u && flightId == sets.RootPartUId)
+                    own.Add(component[i]);
+                if (useAdopted)
+                {
+                    if (flightId != 0u && sets.AdoptedPartFlightIds.Contains(flightId))
+                        own.Add(component[i]);
+                }
+                else if (useRecorded)
+                {
+                    uint pid = parts[i].PersistentId;
+                    if (pid != 0u && sets.RecordedPartPids.Contains(pid))
+                        own.Add(component[i]);
+                }
+            }
+            return own;
         }
 
         /// <summary>
@@ -511,6 +574,33 @@ namespace Parsek.Logistics
             if (pids.Count == 0) return false;
             ownSidePartPids = pids;
             return true;
+        }
+
+        /// <summary>
+        /// The part sets the selection reads for <paramref name="endpoint"/> of
+        /// <paramref name="route"/>: the player's adopted set when the route holds one for this
+        /// endpoint binding (<see cref="RouteEndpointPartAdoption.FindAdoptedPartFlightIds"/>;
+        /// <paramref name="source"/> = <c>adopted</c>, and the recordings are not read at all),
+        /// else the recorded set (<see cref="CollectRecordedEndpointPartPids"/>; the adopted set
+        /// is null). <paramref name="sourceRecordings"/> is invoked only on the recorded path.
+        /// </summary>
+        internal static void ResolveOwnPartSets(
+            Route route,
+            RouteEndpoint endpoint,
+            Func<IEnumerable<Recording>> sourceRecordings,
+            out HashSet<uint> adoptedPartFlightIds,
+            out HashSet<uint> recordedPartPids,
+            out string source)
+        {
+            adoptedPartFlightIds = RouteEndpointPartAdoption.FindAdoptedPartFlightIds(route, endpoint);
+            if (adoptedPartFlightIds != null)
+            {
+                recordedPartPids = null;
+                source = "adopted";
+                return;
+            }
+            recordedPartPids = CollectRecordedEndpointPartPids(
+                sourceRecordings != null ? sourceRecordings() : null, endpoint, out source);
         }
 
         /// <summary>
@@ -713,9 +803,9 @@ namespace Parsek.Logistics
                 // without being a seam.
                 if (CollectSettledSeamEdges(parts, nodes).Count == 0) return null;
 
-                HashSet<uint> recorded = CollectRecordedEndpointPartPids(
-                    ResolveSourceRecordings(route), endpoint, out string recordedFrom);
-                bool[] mask = SelectOwnParts(parts, nodes, endpoint.RootPartUId, recorded,
+                ResolveOwnPartSets(route, endpoint, () => ResolveSourceRecordings(route),
+                    out HashSet<uint> adopted, out HashSet<uint> recorded, out string recordedFrom);
+                bool[] mask = SelectOwnParts(parts, nodes, endpoint.RootPartUId, recorded, adopted,
                     out Outcome outcome, out int own, out int excluded);
                 LogOutcome(route, endpoint, vessel, isLoaded, purpose, outcome, own, parts.Count,
                     excluded, recordedFrom);
@@ -794,7 +884,7 @@ namespace Parsek.Logistics
 
         /// <summary>The route's source recordings from the effective recording set. Empty
         /// when the route names none or the set cannot be computed.</summary>
-        private static List<Recording> ResolveSourceRecordings(Route route)
+        internal static List<Recording> ResolveSourceRecordings(Route route)
         {
             var result = new List<Recording>();
             if (route?.RecordingIds == null || route.RecordingIds.Count == 0) return result;
@@ -821,10 +911,27 @@ namespace Parsek.Logistics
             return result;
         }
 
+        /// <summary>
+        /// The vessel's part and dock-node records on the <paramref name="isLoaded"/> branch for a
+        /// caller that needs the parts even when nothing is docked (the endpoint part adoption);
+        /// the scope's own builders stop early on a vessel with no dock node.
+        /// </summary>
+        internal static bool TryBuildRecords(
+            Vessel v, bool isLoaded, out List<PartRecord> parts, out List<DockNodeRecord> nodes)
+        {
+            parts = null;
+            nodes = null;
+            if (v == null) return false;
+            return isLoaded
+                ? TryBuildLoadedRecords(v, out parts, out nodes, requireDockNodes: false)
+                : TryBuildUnloadedRecords(v, out parts, out nodes, requireDockNodes: false);
+        }
+
         /// <summary>Live parts: the dock / claw nodes carrying stock's vesselInfo first (no
         /// allocation beyond the node list when there are none), then the part records.</summary>
         private static bool TryBuildLoadedRecords(
-            Vessel v, out List<PartRecord> parts, out List<DockNodeRecord> nodes)
+            Vessel v, out List<PartRecord> parts, out List<DockNodeRecord> nodes,
+            bool requireDockNodes = true)
         {
             parts = null;
             nodes = null;
@@ -852,7 +959,11 @@ namespace Parsek.Logistics
                     }
                 }
             }
-            if (nodes == null) return false;
+            if (nodes == null)
+            {
+                if (requireDockNodes) return false;
+                nodes = new List<DockNodeRecord>();
+            }
 
             var indexByPart = new Dictionary<Part, int>(v.parts.Count);
             for (int i = 0; i < v.parts.Count; i++)
@@ -880,7 +991,8 @@ namespace Parsek.Logistics
         /// <summary>Proto parts, read the same way a snapshot is: the modules' persisted
         /// <c>dockUId</c> / <c>DOCKEDVESSEL</c> values.</summary>
         private static bool TryBuildUnloadedRecords(
-            Vessel v, out List<PartRecord> parts, out List<DockNodeRecord> nodes)
+            Vessel v, out List<PartRecord> parts, out List<DockNodeRecord> nodes,
+            bool requireDockNodes = true)
         {
             parts = null;
             nodes = null;
@@ -902,7 +1014,11 @@ namespace Parsek.Logistics
                     }
                 }
             }
-            if (nodes == null) return false;
+            if (nodes == null)
+            {
+                if (requireDockNodes) return false;
+                nodes = new List<DockNodeRecord>();
+            }
 
             int count = pv.protoPartSnapshots.Count;
             parts = new List<PartRecord>(count);
