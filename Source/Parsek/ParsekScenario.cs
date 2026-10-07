@@ -380,6 +380,7 @@ namespace Parsek
             s_instance = null;
             CurrentTimelineUTProviderForTesting = null;
             currentFlightLaunchUT = double.NaN;
+            pendingFreshRecordingAfterDiscard = null;
         }
 
         internal static void SetCurrentFlightLaunchUTForTesting(double ut)
@@ -736,6 +737,55 @@ namespace Parsek
                 && !hasLiveRecorder
                 && !hasActiveUncommittedTree
                 && hasFutureLedgerActions;
+        }
+
+        /// <summary>
+        /// The in-session OnLoad's ledger recalculation: reads the live load state, decides
+        /// between the current-UT cutoff and the plain walk
+        /// (<see cref="ShouldUseCurrentUtCutoffForPostRewindFlightLoad"/>), logs the decision
+        /// and runs it. Returns true when the cutoff walk ran.
+        /// </summary>
+        internal static bool RecalculateLedgerForInSessionLoad(
+            bool isRevert, GameScenes loadedScene, bool planetariumReady, double loadedUT)
+        {
+            bool loadedSceneSupportsCurrentUtCutoff =
+                IsCurrentUtCutoffSupportedScene(loadedScene);
+            bool hasPendingTree = RecordingStore.HasPendingTree;
+            ActiveTreeRestoreMode restoreMode = ScheduleActiveTreeRestoreOnFlightReady;
+            bool hasLiveRecorder = GameStateRecorder.HasLiveRecorder();
+            bool hasActiveUncommittedTree = GameStateRecorder.HasActiveUncommittedTree();
+            bool hasFutureLedgerActions = LedgerOrchestrator.HasActionsAfterUT(loadedUT);
+            bool useCurrentUtCutoffForPostRewindFlightLoad =
+                ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
+                    isRevert,
+                    loadedSceneSupportsCurrentUtCutoff,
+                    planetariumReady,
+                    hasPendingTree,
+                    restoreMode,
+                    hasLiveRecorder,
+                    hasActiveUncommittedTree,
+                    hasFutureLedgerActions);
+            ParsekLog.Info("Scenario",
+                $"OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff={useCurrentUtCutoffForPostRewindFlightLoad} " +
+                $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"isRevert={isRevert} loadedScene={loadedScene} " +
+                $"loadedSceneSupportsCurrentUtCutoff={loadedSceneSupportsCurrentUtCutoff} " +
+                $"planetariumReady={planetariumReady} hasPendingTree={hasPendingTree} " +
+                $"restoreMode={restoreMode} hasLiveRecorder={hasLiveRecorder} " +
+                $"hasActiveUncommittedTree={hasActiveUncommittedTree} " +
+                $"hasFutureLedgerActions={hasFutureLedgerActions}");
+            if (useCurrentUtCutoffForPostRewindFlightLoad)
+            {
+                ParsekLog.Info("Scenario",
+                    $"OnLoad: post-rewind scene-load recalc using current-UT cutoff {loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    "to keep future funds/contracts filtered until replay catches up");
+                RecalculateAndPatchForPostRewindFlightLoad(loadedUT);
+            }
+            else
+            {
+                LedgerOrchestrator.RecalculateAndPatch();
+            }
+            return useCurrentUtCutoffForPostRewindFlightLoad;
         }
 
         internal static bool IsCurrentUtCutoffSupportedScene(GameScenes scene)
@@ -3200,6 +3250,7 @@ namespace Parsek
             mergeDialogPending = false;
             pendingActiveTreeResumeRewindSave = null;
             ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.None;
+            pendingFreshRecordingAfterDiscard = null;
             vesselSwitchPending = false;
             vesselSwitchPendingFrame = -1;
 
@@ -4151,6 +4202,8 @@ namespace Parsek
                                 recordings);
                     }
 
+                    // The revert prune's launch boundary, read by the route reconcile below.
+                    double revertPruneCutoffUTForRoutes = double.NaN;
                     if (isRevert)
                     {
                         loadPhase = "revert-milestones";
@@ -4200,6 +4253,7 @@ namespace Parsek
                         double pruneCutoffUT = ResolveRevertPruneCutoff(
                             revertKind, loadedUT, editorBoundaryUT, out pruneInclusive);
                         int prunedOrphans = Ledger.PruneOrphanActionsAfterUT(pruneCutoffUT, pruneInclusive);
+                        revertPruneCutoffUTForRoutes = pruneCutoffUT;
                         if (prunedOrphans > 0)
                             ParsekLog.Info("Scenario",
                                 $"Revert ({revertKind}): pruned {prunedOrphans} untagged ledger action(s) " +
@@ -4337,45 +4391,33 @@ namespace Parsek
                         }
                     }
 
-                    GameScenes loadedScene = HighLogic.LoadedScene;
-                    bool loadedSceneSupportsCurrentUtCutoff =
-                        IsCurrentUtCutoffSupportedScene(loadedScene);
-                    bool hasPendingTree = RecordingStore.HasPendingTree;
-                    ActiveTreeRestoreMode restoreMode = ScheduleActiveTreeRestoreOnFlightReady;
-                    bool hasLiveRecorder = GameStateRecorder.HasLiveRecorder();
-                    bool hasActiveUncommittedTree = GameStateRecorder.HasActiveUncommittedTree();
-                    bool hasFutureLedgerActions = LedgerOrchestrator.HasActionsAfterUT(loadedUT);
+                    // Routes on a load back in time (LoadReconcilePolicy Routes cells): RouteStore and
+                    // the ledger stay in memory across an in-session load, so an F9, a stock revert or
+                    // the Discard Re-fly load runs the go-back rewind's reconcile keyed to the loaded
+                    // save, and any other in-session load does when route state lies after the save.
+                    // Before the future-actions check and the recalculation so neither sees the
+                    // retired rows; removes rows only, never adds one, so it is OnLoad-safe.
+                    loadPhase = "route-load-reconcile";
+                    double loadedSaveUTForRoutes = KerbalsModule.ReadLoadedSaveUT();
+                    try
+                    {
+                        Logistics.RouteLoadReconcile.ReconcileAtInSessionLoad(
+                            refinedLoadKind,
+                            Logistics.RouteLoadReconcile.ResolveCutoffUT(
+                                refinedLoadKind, loadedSaveUTForRoutes, revertPruneCutoffUTForRoutes),
+                            loadedSaveUTForRoutes,
+                            node);
+                    }
+                    catch (Exception ex)
+                    {
+                        ParsekLog.Error(LoadReconcilePolicy.LogTag,
+                            $"Route reconcile at in-session load threw {ex.GetType().Name}: {ex.Message}; " +
+                            $"routes left as they were (kind={refinedLoadKind})");
+                    }
+
                     loadPhase = "ledger-recalculate";
-                    bool useCurrentUtCutoffForPostRewindFlightLoad =
-                        ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
-                            isRevert,
-                            loadedSceneSupportsCurrentUtCutoff,
-                            planetariumReady,
-                            hasPendingTree,
-                            restoreMode,
-                            hasLiveRecorder,
-                            hasActiveUncommittedTree,
-                            hasFutureLedgerActions);
-                    ParsekLog.Info("Scenario",
-                        $"OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff={useCurrentUtCutoffForPostRewindFlightLoad} " +
-                        $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                        $"isRevert={isRevert} loadedScene={loadedScene} " +
-                        $"loadedSceneSupportsCurrentUtCutoff={loadedSceneSupportsCurrentUtCutoff} " +
-                        $"planetariumReady={planetariumReady} hasPendingTree={hasPendingTree} " +
-                        $"restoreMode={restoreMode} hasLiveRecorder={hasLiveRecorder} " +
-                        $"hasActiveUncommittedTree={hasActiveUncommittedTree} " +
-                        $"hasFutureLedgerActions={hasFutureLedgerActions}");
-                    if (useCurrentUtCutoffForPostRewindFlightLoad)
-                    {
-                        ParsekLog.Info("Scenario",
-                            $"OnLoad: post-rewind scene-load recalc using current-UT cutoff {loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                            "to keep future funds/contracts filtered until replay catches up");
-                        RecalculateAndPatchForPostRewindFlightLoad(loadedUT);
-                    }
-                    else
-                    {
-                        LedgerOrchestrator.RecalculateAndPatch();
-                    }
+                    RecalculateLedgerForInSessionLoad(
+                        isRevert, HighLogic.LoadedScene, planetariumReady, loadedUT);
                     if (KerbalLoadRepairDiagnostics.IsActive)
                         KerbalLoadRepairDiagnostics.EmitAndReset();
                     ParsekLog.Info("Scenario", $"{(isRevert ? "Revert" : "Scene change")} — preserving {recordings.Count} session recordings");
@@ -4389,7 +4431,7 @@ namespace Parsek
                     // lands in FLIGHT and the invoker issues LoadScene(FLIGHT)
                     // from FLIGHT/SPACECENTER/TRACKSTATION.
                     loadPhase = "rewind-post-load";
-                    DispatchRewindPostLoadIfPending();
+                    DispatchRewindPostLoadIfPending(node);
 
                     // Phase 10 of Rewind-to-Staging (design §6.9 step 2):
                     // resume any interrupted staged-commit merge on the
@@ -4758,7 +4800,7 @@ namespace Parsek
                 // coroutine (the old scenario's coroutine was torn down with
                 // the scene).
                 loadPhase = "rewind-post-load";
-                DispatchRewindPostLoadIfPending();
+                DispatchRewindPostLoadIfPending(node);
 
                 // Phase 10 of Rewind-to-Staging (design §6.9 step 2): if a
                 // staged-commit merge crashed mid-way, the scenario's
@@ -4828,8 +4870,14 @@ namespace Parsek
         /// always a flight-scene save. Any other scene means the load took an
         /// unexpected branch — log Error and clear the context.
         /// </para>
+        /// <para>
+        /// <paramref name="loadedScenarioNode"/> is this OnLoad's node, which on a Re-Fly start
+        /// is the RP quicksave's own ParsekScenario (<c>FlightDriver</c> loads the in-memory game
+        /// the invoker parsed from that file): the bundle restore reads each kept route's loop
+        /// position from its ROUTES.
+        /// </para>
         /// </summary>
-        private static void DispatchRewindPostLoadIfPending()
+        private static void DispatchRewindPostLoadIfPending(ConfigNode loadedScenarioNode)
         {
             if (!RewindInvokeContext.Pending) return;
 
@@ -4845,7 +4893,7 @@ namespace Parsek
                 return;
             }
 
-            RewindInvoker.ConsumePostLoad();
+            RewindInvoker.ConsumePostLoad(loadedScenarioNode);
         }
 
         /// <summary>
@@ -5026,6 +5074,19 @@ namespace Parsek
                 new List<Logistics.Route>(Logistics.RouteStore.DormantRoutes),
                 routeRewindCutoffUT,
                 keptLedgerActions,
+                logTag: "Rewind",
+                logPrefix: "OnLoad go-back");
+            // The reconcile reset every kept loop cursor to -1, which would re-fire the crossing
+            // that most recently passed before the cutoff under a fresh cycle id. Each kept route
+            // takes its loop position back from the rewind save's own route copy, read from the
+            // parsed save in ExecuteRewindSaveLoad (this OnLoad node is persistent.sfs, not the
+            // rewind save). That copy was written at the save's own UT, up to the lead-time
+            // windback after this cutoff: a crossing inside that window keeps its saved cursor
+            // while its retired row is not charged again. Sets Route fields only.
+            Logistics.RouteLoadReconcile.RestoreLoopPositionAtRewindExit(
+                RewindContext.RewindSaveRoutes,
+                routeRewindCutoffUT,
+                RewindContext.RewindSaveClockUT,
                 logTag: "Rewind",
                 logPrefix: "OnLoad go-back");
 
@@ -5536,6 +5597,7 @@ namespace Parsek
             mergeDialogPending = false;
             pendingActiveTreeResumeRewindSave = null;
             ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.None;
+            pendingFreshRecordingAfterDiscard = null;
             vesselSwitchPending = false;
             vesselSwitchPendingFrame = -1;
 
@@ -6016,6 +6078,11 @@ namespace Parsek
                 }
             }
 
+            // The pending-node mirror of the active-tree decline: a tree this session discarded
+            // would come back as an empty shell to merge or auto-commit.
+            if (TryDeclineDiscardedPendingTree(tree))
+                return false;
+
             int droppedHydrationFailures = DropFailedSidecarHydrationRecordings(
                 tree,
                 "TryRestorePendingTreeNode");
@@ -6073,6 +6140,7 @@ namespace Parsek
         {
             lastRestoredQuicksaveTreeFacts = null;
             ClearQuickloadResumeDetach();
+            pendingFreshRecordingAfterDiscard = null;
             if (node == null) return false;
             if (RewindContext.IsRewinding)
             {
@@ -6141,6 +6209,11 @@ namespace Parsek
                             staleEpochHydrationFailures++;
                     }
                 }
+
+                // A tree this session discarded is not resumed into its deleted ids: the flight
+                // records again as a new tree (QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN).
+                if (TryDeclineDiscardedActiveTree(tree, loadedSceneIsFlight))
+                    return false;
 
                 // A committed tree with this id that the quicksave does not hold as committed was
                 // committed after the quicksave (owner ruling OQ-2). Its stale-epoch members are

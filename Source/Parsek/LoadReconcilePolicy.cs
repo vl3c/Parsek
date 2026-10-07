@@ -190,7 +190,6 @@ namespace Parsek
     /// </summary>
     internal static class LoadReconcilePolicy
     {
-        internal const string GapRouteState = "ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD";
         internal const string GapColdLoadAbandonedFuture = "COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE";
 
         internal const string LogTag = "LoadPolicy";
@@ -777,20 +776,33 @@ namespace Parsek
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.ReconcileAtCutoff,
                         "ParsekScenario.HandleRewindOnLoad -> Ledger.RetireFutureRouteActionsAtRewind + "
-                        + "RouteRewindClassifier.ReconcileStoreAtRewind at RewindAdjustedUT");
+                        + "RouteRewindClassifier.ReconcileStoreAtRewind at RewindAdjustedUT, then each kept route "
+                        + "takes its loop position back from the rewind save's own route copy (read from the parsed "
+                        + "save in RecordingStore.ExecuteRewindSaveLoad; the OnLoad node is persistent.sfs)");
                 case LoadKind.ReFlyStart:
                     return Today(LoadReconcileAction.Bundle,
-                        BundleRestores + " and reconciles routes at the loaded UT (RouteRewindClassifier.ReconcileStoreAtRewind)");
+                        BundleRestores + " and reconciles routes at the loaded UT (RouteRewindClassifier.ReconcileStoreAtRewind), "
+                        + "then each kept route takes its loop position back from the RP quicksave's own route copy "
+                        + "(the OnLoad node)");
                 case LoadKind.DiscardReFly:
                 case LoadKind.StockRevert:
                 case LoadKind.QuickloadFlight:
+                    return Today(LoadReconcileAction.ReconcileAtCutoff, InSessionRouteReconcile);
                 case LoadKind.InSessionOther:
-                    return Gap(LoadReconcileAction.Memory, GapRouteState,
-                        "RouteStore is loaded on the cold path only and no in-session load reconciles it "
-                        + "(a forward scene change needs nothing; a load back in time does)");
+                    return Today(LoadReconcileAction.ReconcileAtCutoff,
+                        InSessionRouteReconcile + ", only when route state lies after the loaded save "
+                        + "(an F9 at the Space Center or Tracking Station, or into a flight quicksave from the "
+                        + "Space Center); a forward or same-instant scene change finds none and touches nothing");
             }
             throw UnknownKind(kind);
         }
+
+        private const string InSessionRouteReconcile =
+            "ParsekScenario.OnLoad -> RouteLoadReconcile.ReconcileAtInSessionLoad, before the recalculation: "
+            + "Ledger.RetireFutureRouteActionsAtRewind + RouteRewindClassifier.ReconcileStoreAtRewind at the "
+            + "loaded save's UT (a stock revert: the earlier of it and the revert prune's launch boundary), "
+            + "then each kept route takes its loop position and owed recovery credit back from the loaded "
+            + "save's own route copy";
 
         private const string CrewAndSlotsFromNode =
             "ParsekScenario.LoadCrewAndGroupState reads the loaded node";

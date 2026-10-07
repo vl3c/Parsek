@@ -252,8 +252,27 @@ namespace Parsek
         /// the loaded quicksave embeds, so its effect is part of the reverted
         /// world and the entry must be kept. Do NOT "fix" this to <c>&gt;=</c>.
         /// </para>
+        /// <para>
+        /// This overload has no loaded-save route copy, so the kept routes' loop cursors stay
+        /// at the reconcile's -1 reset; the Re-Fly start passes the RP quicksave's own routes
+        /// through the overload below.
+        /// </para>
         /// </summary>
         public static void Restore(ReconciliationBundle bundle, double dropRouteRowsAfterUT)
+            => Restore(bundle, dropRouteRowsAfterUT, null, double.NaN);
+
+        /// <summary>
+        /// <see cref="Restore(ReconciliationBundle, double)"/> plus the loaded save's own
+        /// committed route copy (<paramref name="loadedSaveRoutes"/>, the RP quicksave's ROUTES)
+        /// and clock (<paramref name="loadedSaveUT"/>): after the shared route reconcile, each
+        /// kept route takes its loop position back from that copy
+        /// (<c>RouteLoadReconcile.RestoreLoopPositionAtRewindExit</c>), so the reconcile's
+        /// cursor reset does not re-fire the crossing that most recently passed before the
+        /// cutoff. Ignored on the route-blind (+inf) path.
+        /// </summary>
+        public static void Restore(
+            ReconciliationBundle bundle, double dropRouteRowsAfterUT,
+            IReadOnlyList<Logistics.Route> loadedSaveRoutes, double loadedSaveUT)
         {
             // RecordingStore: clear + re-add via the internal helpers. Trees
             // and recordings are parallel lists that MUST round-trip together
@@ -284,10 +303,12 @@ namespace Parsek
             // Kept (post-retire) rows, reused below by the route seam's
             // status-derivation + counter-reconstruction pass over kept routes.
             List<GameAction> keptActions = null;
+            List<GameAction> retiredRouteRows = null;
             if (bundle.Actions != null && bundle.Actions.Count > 0)
             {
                 keptActions = Logistics.RouteLedgerRetire.RetireFutureRouteActions(
-                    bundle.Actions, dropRouteRowsAfterUT, out int routeRowsRetired);
+                    bundle.Actions, dropRouteRowsAfterUT, out int routeRowsRetired,
+                    out retiredRouteRows);
                 if (keptActions.Count > 0)
                     Ledger.AddActions(keptActions);
                 if (routeRowsRetired > 0)
@@ -295,6 +316,15 @@ namespace Parsek
                         "Restore: retired " + routeRowsRetired.ToString(System.Globalization.CultureInfo.InvariantCulture) +
                         " free-standing route row(s) with UT > cutoff " +
                         dropRouteRowsAfterUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + " (Rec-1)");
+            }
+            // The committed trees were restored above, so the chain tips are the pre-rewind
+            // ones whose snapshots carry these crossings. Called with no rows too: the cutoff
+            // still lowers every tip snapshot's watermark. The rollback (+inf) retires nothing.
+            if (!double.IsPositiveInfinity(dropRouteRowsAfterUT))
+            {
+                ChainTipRouteCargo.CaptureRetiredRouteCargo(
+                    retiredRouteRows, dropRouteRowsAfterUT,
+                    bundle.Routes, bundle.DormantRoutes, "re-fly restore");
             }
 
             // Routes (dormant-routes extension). RouteStore is preserved in
@@ -318,6 +348,15 @@ namespace Parsek
                     bundle.DormantRoutes,
                     dropRouteRowsAfterUT,
                     keptActions,
+                    logTag: "ReconciliationBundle",
+                    logPrefix: "Restore");
+                // The reconcile resets every kept loop cursor to -1, and the dispatch dedup keys
+                // on a counter-based cycle id, so the first tick would re-fire the crossing that
+                // most recently passed under a fresh id. Sets Route fields only (no ledger write).
+                Logistics.RouteLoadReconcile.RestoreLoopPositionAtRewindExit(
+                    loadedSaveRoutes,
+                    dropRouteRowsAfterUT,
+                    loadedSaveUT,
                     logTag: "ReconciliationBundle",
                     logPrefix: "Restore");
             }

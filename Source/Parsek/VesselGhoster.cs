@@ -761,6 +761,7 @@ namespace Parsek
                 return 0;
 
             ConfigNode spawnSnapshot = vesselSnapshot.CreateCopy();
+            ChainTipRouteCargo.ApplyToSpawnCopy(spawnSnapshot, tipRecording, logContext);
             VesselSpawner.ApplyResolvedSpawnStateToSnapshot(
                 spawnSnapshot,
                 tipRecording,

@@ -73,7 +73,19 @@ namespace Parsek.Logistics
                 Func<string, double> rawStoredResourceReader,
                 Func<string, string> reservingRouteNameLookup,
                 string reason)
+                : this(resolved, pid, vesselName, storedResourceReader, storedInventoryReader,
+                    rawStoredResourceReader, reservingRouteNameLookup, reason, null)
             {
+            }
+
+            internal PickupSourceResolution(bool resolved, uint pid, string vesselName,
+                Func<string, double> storedResourceReader, Func<string, int> storedInventoryReader,
+                Func<string, double> rawStoredResourceReader,
+                Func<string, string> reservingRouteNameLookup,
+                string reason,
+                string partScopeKey)
+            {
+                PartScopeKey = partScopeKey;
                 Resolved = resolved;
                 Pid = pid;
                 VesselName = vesselName;
@@ -110,6 +122,22 @@ namespace Parsek.Logistics
 
             internal string Reason { get; }
 
+            /// <summary>
+            /// Which parts of the resolved vessel the readers cover
+            /// (<see cref="EndpointPartScope.KeyOf"/>); null = the whole vessel. Windows are
+            /// summed against one source only when pid AND this key match: two pickup
+            /// endpoints docked into one composite read disjoint parts, and summing them
+            /// against the first one's readers would gate a pickup its own writer cannot
+            /// make.
+            /// </summary>
+            internal string PartScopeKey { get; }
+
+            /// <summary>This resolution with <see cref="PartScopeKey"/> set.</summary>
+            internal PickupSourceResolution WithPartScopeKey(string partScopeKey) =>
+                new PickupSourceResolution(Resolved, Pid, VesselName, StoredResourceReader,
+                    StoredInventoryReader, RawStoredResourceReader, ReservingRouteNameLookup,
+                    Reason, partScopeKey);
+
             internal static PickupSourceResolution Miss(string reason) =>
                 new PickupSourceResolution(false, 0u, null, null, null, reason);
 
@@ -134,8 +162,13 @@ namespace Parsek.Logistics
         /// </summary>
         internal sealed class PickupSourceGroup
         {
-            /// <summary>Resolved live vessel persistent id (the group key).</summary>
+            /// <summary>Resolved live vessel persistent id (the group key, with
+            /// <see cref="PartScopeKey"/>).</summary>
             public uint ResolvedPid;
+
+            /// <summary>The resolution's <see cref="PickupSourceResolution.PartScopeKey"/>;
+            /// null = the whole vessel.</summary>
+            public string PartScopeKey;
 
             /// <summary>Player-facing vessel name for the hold reason (best-effort).</summary>
             public string VesselName;
@@ -287,9 +320,12 @@ namespace Parsek.Logistics
             if (route == null || route.Stops == null || resolver == null)
                 return true; // nothing to gate
 
-            // pid -> group index for O(1) accumulation; preserves first-seen order
-            // (the final ordering is by EarliestDockUT below).
-            var byPid = new Dictionary<uint, int>();
+            // (pid, part scope) -> group index for O(1) accumulation; preserves
+            // first-seen order (the final ordering is by EarliestDockUT below). The scope
+            // is part of the key because two pickup endpoints docked into one composite
+            // share its pid but are read and debited through disjoint part sets; a null
+            // scope key (the whole vessel) keeps the pid-only grouping.
+            var byPid = new Dictionary<string, int>(StringComparer.Ordinal);
 
             for (int i = 0; i < route.Stops.Count; i++)
             {
@@ -311,8 +347,10 @@ namespace Parsek.Logistics
                     return false;
                 }
 
+                string groupKey = res.Pid.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    + "|" + (res.PartScopeKey ?? string.Empty);
                 PickupSourceGroup group;
-                if (byPid.TryGetValue(res.Pid, out int idx))
+                if (byPid.TryGetValue(groupKey, out int idx))
                 {
                     group = groups[idx];
                     // Same-pid windows: keep the EARLIEST dock UT for first-short
@@ -326,6 +364,7 @@ namespace Parsek.Logistics
                     group = new PickupSourceGroup
                     {
                         ResolvedPid = res.Pid,
+                        PartScopeKey = res.PartScopeKey,
                         VesselName = res.VesselName,
                         EarliestDockUT = stop.RecordedDockUT >= 0.0
                             ? stop.RecordedDockUT
@@ -337,7 +376,7 @@ namespace Parsek.Logistics
                         RawStoredResourceReader = res.RawStoredResourceReader,
                         ReservingRouteNameLookup = res.ReservingRouteNameLookup,
                     };
-                    byPid[res.Pid] = groups.Count;
+                    byPid[groupKey] = groups.Count;
                     groups.Add(group);
                 }
 
@@ -353,7 +392,7 @@ namespace Parsek.Logistics
         /// <summary>
         /// Run the all-or-nothing gate over pre-built, pre-summed source groups.
         /// Sources are checked in ASCENDING <see cref="PickupSourceGroup.EarliestDockUT"/>
-        /// order (then ordinal pid as a tie-break) so the first short source is
+        /// order (then ordinal pid, then part-scope key, as tie-breaks) so the first short source is
         /// deterministic and matches the flown sequence. Each source's summed
         /// resource manifest is gated via <see cref="RouteOriginCargoCheck.HasRequired"/>
         /// and its summed inventory manifest via
@@ -371,7 +410,9 @@ namespace Parsek.Logistics
             {
                 int byUt = a.EarliestDockUT.CompareTo(b.EarliestDockUT);
                 if (byUt != 0) return byUt;
-                return a.ResolvedPid.CompareTo(b.ResolvedPid);
+                int byPid = a.ResolvedPid.CompareTo(b.ResolvedPid);
+                if (byPid != 0) return byPid;
+                return string.CompareOrdinal(a.PartScopeKey ?? string.Empty, b.PartScopeKey ?? string.Empty);
             });
 
             for (int i = 0; i < ordered.Count; i++)

@@ -6321,11 +6321,11 @@ named in a row owns the detail.
 
 | Id | Pins | Host tests | Todo |
 |---|---|---|---|
-| A1 | F9 / stock Revert / Discard Re-fly leave route cursors ahead (replayed cycle swallowed) and pay an orphan recovery credit | `RouteLoopDeliveryFireTests`, `RouteRecoveryCreditTests`, a source-text gate on the three load paths | ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD |
-| A2 | A chain-ghosted surface endpoint holds instead of proximity-rebinding | new predicate beside `RouteEndpointTransferTests` | ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND |
+| A1 | ~~F9 / stock Revert / Discard Re-fly leave route cursors ahead (replayed cycle swallowed) and pay an orphan recovery credit~~ DONE 2026-10-07 (branch `fix-route-state-on-load`): `RouteLoadReconcile` runs the go-back reconcile at the loaded save's UT and restores the saved loop position; `EmitPendingRecoveryCredit` refuses a retired dispatch | `RouteLoopDeliveryFireTests`, `RouteRecoveryCreditTests`, `RouteLoadReconcileTests` (incl. the OnLoad source gate) | ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD |
+| A2 | A chain-ghosted surface endpoint holds instead of proximity-rebinding. DONE 2026-10-07 (`fix-route-endpoint-writes`) | `RouteEndpointChainHoldTests` | ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND |
 | A3 | Multi-stop escrow survives a scene switch between windows | `RouteCargoEscrowTests` / `RouteEscrowFireTests` | ROUTE-ESCROW-LOST-ON-SCENE-SWITCH |
 | A4 | No ledger write from the recovery-credit flush during OnLoad | a UT / in-load seam on `RouteStore` | ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD |
-| A5 | Delivery writers and the capacity read touch only the endpoint's own parts | a pure part-subset selector | ROUTE-DELIVERY-INTO-DOCKED-VISITOR |
+| A5 | Delivery writers and the capacity read touch only the endpoint's own parts. DONE 2026-10-07 (`fix-route-endpoint-writes`) | `RouteEndpointPartScopeTests` | ROUTE-DELIVERY-INTO-DOCKED-VISITOR |
 
 ### Capabilities the lanes need
 
@@ -6393,15 +6393,15 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | TA-4 | ~~Tree members' future terminal / crew end states cleared by the quickload trim~~ DONE 2026-10-06 (PR #2025): `ParsekScenario.TrimAndReconcileForQuickloadResume` + `Recording.ClearTerminalEndStateForResume`, gated on the `ReconcileAtResume` cells; red cells in `QuickloadResumeTests` (splice refresh, stale epoch, Re-Fly scope, field gate). Live proof: QL-4 | QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE |
 | TA-5 | Nested origin rewind point survives the Discard Re-fly (editor) load. Trigger removed by TA-1's carry 2026-10-06 (`InSessionStagedListsCarryTests.DiscardReFlyPrelaunch_NestedOriginRp_NotPurged`, red before it); close after QL-5 | DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP |
 | TA-6 | One converter-timestamp policy for every Parsek jump | TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND |
-| TA-7 | Route endpoint unresolved until X: no cycle before X delivered from the tip snapshot | CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO |
+| TA-7 | ~~Route endpoint unresolved until X: no cycle before X delivered from the tip snapshot~~ DONE 2026-10-07 (branch `fix-chain-tip-unpaid-route-cargo`, owner ruling: subtract from the snapshot): the retire keeps the crossings a committed tip snapshot carries, tied to that snapshot (`RetiredRouteCargoStore`), and every spawn copy of that snapshot drops their cargo, replays matched by UT (`ChainTipRouteCargo`); red cells in `ChainTipRouteCargoTests`; lane RC-2 not flown | CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO |
 | TA-8 | ~~Chain tip outside FLIGHT does not adopt a live pre-claim vessel~~ DONE 2026-10-06 (branch `fix-chain-tip-outside-flight`): `ChainTipStaleVesselTests` (predicate, TS hand-off, KSC / flight entry) | CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT |
 | TA-9 | ~~Chain walk follows the claimed vessel when the transport is dominant~~ DONE 2026-10-06 (branch `fix-chain-walk-claimed-identity`): the tip walk follows the claimed vessel's part set (`GhostChainWalker.ResolveClaimedPartIds` / `SelectWalkChild`), red cells in `GhostChainWalkerTests`; lane RC-5 not flown | CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER |
-| TA-10 | Tail trim keeps a resource-changing tail (ruled 2026-10-06). PARTIAL 2026-10-06 (branch `release-cheap-fixes`, PR #2027): an unsplit recording keeps its tail (`RecordingOptimizerTests.RunOptimizationPass_UnsplitDrillRecording_*`); a flown-then-landed one is split first and its windows voided (`..._FlownThenLandedDrillRecording_TrimsTail_DocumentsDefect`, the cell the fix flips), needs a ruling | TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT |
+| TA-10 | ~~Tail trim keeps a resource-changing tail (ruled 2026-10-06)~~ DONE 2026-10-07 (branch `release-rulings`): an unsplit recording keeps its tail through its harvest windows (PR #2027, `RecordingOptimizerTests.RunOptimizationPass_UnsplitDrillRecording_*`); a flown-then-landed one, whose windows the split voids, keeps it through the converter part events (owner ruling 2026-10-07: a converter still running at the end keeps the tail), red cells `RunOptimizationPass_FlownThenLandedDrillRecording_KeepsConverterTail_OnEveryPass` (the flipped `_DocumentsDefect` cell) and `RunOptimizationPass_ConverterSwitchedOnBeforeLanding_SeededAcrossSplit_KeepsTail` | TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT |
 | TA-11 | `bdock-recorded` endpoint LF delta is positive (offline over the fixture) | BDOCK-FIXTURE-TRANSFER-INVERTED |
 | TA-12 | Harvest-origin route capped at drill rate x duration (ruled) | HARVEST-ROUTE-PLAUSIBILITY-CAP |
 | TA-13 | Resource-scan unlock recorded, ledgered and re-applied after a rewind (ruled) | RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED |
 | TA-14 | Tracking Station uses the current-UT ledger cutoff (ruled) | TRACKING-STATION-LEDGER-CUTOFF-ALIGN |
-| TA-15 | F9 into a discarded flight records again (ruled) | QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN |
+| TA-15 | ~~F9 into a discarded flight records again (ruled)~~ DONE 2026-10-07 (branch `fix-quickload-into-discarded`): `TryRestoreActiveTreeNode` declines a tree this session's `DiscardPendingTree` deleted (every member `trajectory-missing`) and `OnFlightReady` starts a fresh tree through `StartRecording`; red cells in `QuickloadIntoDiscardedFlightTests`. Live proof: QL-6 not flown | QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN |
 | TA-W | ~~Load-path x reconciler wiring gate~~ DONE 2026-10-06 (PR #2021): `LoadReconcilePolicy` (today's decision per load kind x state category, the filed defects as known gaps) + `LoadReconcilePolicyTests` / `LoadReconcileWiringGateTests` | HARNESS-TIMELINE-FUZZERS |
 | TA-F | Headless timeline fuzzers (ledger / effective-state / route conservation) | HARNESS-TIMELINE-FUZZERS |
 
@@ -6436,7 +6436,7 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | MINE-5 | Live-drill harvest-origin route (moves D10 harvest-provenance from synthetic to live) | MINE-1 | TC-5 |
 | GS-6r3 | ISRU / drill on the GS-6 sweep craft (closes GS6-CONVERTER-LOOP-NEEDS-AN-ANIMATION-GROUP-PART-ABOARD) | GS-6 | VAB part harvest |
 | RC-1 | Three rewind / replay cycles at `bdock-recorded`'s rewind point, reading the station after each; same LF / MP every cycle, no duplicate part uids | `bdock-recorded` (re-harvested) | TC-1 ReadVesselResources |
-| RC-2 | Route into a station that a committed mission later docks; rewind before the dock | new fixture | TA-7 (expected-fail until fixed) |
+| RC-2 | Route into a station that a committed mission later docks; rewind before the dock | new fixture | TA-7 (fixed 2026-10-07; the lane is the live proof) |
 | RC-3 | Rewind-to-Launch, chain tip crossed at the KSC, then into flight; station resources | bdock twin with a launch quicksave | TA-8 |
 | RC-4 | Real warp across a spawn UT and three route crossings | RC-2 host | TC-1 |
 | RC-5 | Probe-typed station docked by a heavier transport that is later recovered; no second station | new fixture | TA-9 |

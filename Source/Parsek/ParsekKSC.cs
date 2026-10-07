@@ -2070,6 +2070,8 @@ namespace Parsek
             // Keep a private working snapshot for the entire KSC spawn flow so route
             // selection, fallback repairs, and aborts never mutate the stored recording.
             ConfigNode spawnSnapshot = rec.VesselSnapshot.CreateCopy();
+            ChainTipRouteCargo.ApplyToSpawnCopy(
+                spawnSnapshot, rec, $"KSC spawn #{recIdx} ({rec.VesselName})");
 
             // Bug #167: apply crew swap directly on the KSC spawn snapshot because
             // there is no loaded vessel for SwapReservedCrewInFlight to target here.

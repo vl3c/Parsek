@@ -3696,6 +3696,80 @@ _(unreleased - entries accumulate here per commit)_
   merged Re-Fly of another vessel from the same separation, with the crew death it undid. Loading
   another game and starting KSP are unchanged. Covered by xUnit; not yet checked in a test flight.
 
+- **A station hidden after a rewind comes back when its recorded future ends, also when that
+  future crossed into the atmosphere or another world.** When a committed mission docks with
+  or undocks from one of your vessels, the vessel is hidden after a rewind until the mission's
+  recording of it ends, then reappears in its recorded final form. Parsek cuts a long recording
+  into parts where the flight changes environment (space, atmosphere, surface) or world, and
+  the final form is kept on the last part. Parsek used to stop at the first part: the vessel
+  was due back at the end of that part instead of the end of the flight, it could not be put
+  back as itself (it came back as a different vessel, which supply routes and later missions
+  do not recognise; outside flight its old form stayed, or the new one appeared beside it),
+  and one that was destroyed at the end still counted as alive. Parsek now follows the vessel
+  to the last part, so it reappears at the right time and with its identity, or stays gone
+  when the recording ends in its loss. Covered by xUnit; not yet checked in a test flight.
+
+- **A base hidden as a ghost after a rewind keeps its supply route.** When you rewind to
+  before a recorded flight that docks with one of your bases and then enter flight, the base
+  is replaced by its ghost until that flight's recording ends, and it stays hidden if you go
+  on to the Space Center or the Tracking Station. (If you never enter flight in between, the
+  base stays as it is at the Space Center and in the Tracking Station and its route keeps
+  serving it.) While the base was hidden, a route serving it used to switch itself, for good,
+  to any craft parked within 500 m of it (and the Logistics window could trigger the switch
+  just by being open); when the base came back the route kept delivering to the neighbour. The route now waits instead: its runs hold with "destination
+  is a ghost until a recorded flight that docks with it ends - deliveries resume when it is
+  back", and it serves the base again as soon as the base reappears. A base that is really
+  gone (destroyed or recovered) still hands its route to a craft parked nearby, as before.
+  Covered by xUnit; not yet checked in a test flight.
+- **Supply-route cargo no longer goes into, or comes out of, a craft docked to the station.**
+  A route delivering to a station or base with another craft docked to it (a visiting tanker,
+  a lander parked at a port) used to fill that craft's empty tanks and cargo slots first, so
+  the cargo left with it when it undocked; the free-space check counted that craft's tanks
+  too, and a route paying from a depot could drain a docked visitor instead of the depot.
+  Routes now deliver into, measure and take from only the station's or depot's own parts: the
+  parts it had when you recorded the supply run, including modules already docked to it then.
+  This works whichever craft KSP treats as the main one after docking, and a lander endpoint
+  docked into a larger station gets its cargo itself. A module you dock to the station after
+  recording the route does not receive route cargo. When Parsek cannot tell which parts are
+  the station's, routes use the whole docked vessel as before. Covered by xUnit; not yet
+
+- **Quickloading back into a flight you discarded records it again.** Discarding a flight deletes
+  its recording, so quickloading a quicksave taken during that flight used to resume recording
+  into the deleted one: what was flown before the quicksave and the ghost's look were gone, and
+  the flight's other vessels kept empty recordings. The flight you quickload into now starts a
+  new recording from the quicksave's moment, as if it had never been discarded; the discarded
+  flight stays discarded and nothing of it comes back, also from a save that still held it
+  waiting for the merge dialog. This applies to a flight discarded earlier in the same game
+  session; after restarting KSP the old behaviour is kept. A save whose recording files are
+  missing or damaged for any other reason is handled as before. Covered by xUnit; not yet
+  checked in a test flight.
+
+- **Supply routes now go back in time with a quickload, a revert or a discarded Re-fly.**
+  Loading back past a route delivery (F9, Revert to Launch or to the VAB/SPH, or Discard Re-fly
+  from the Esc menu) left the route where it had got to in the future you abandoned: the funds
+  for the abandoned delivery stayed spent while its cargo vanished with the reload, the
+  deliveries you flew through again were skipped until the route caught up, and a recovery
+  credit from the abandoned run could still be paid. Routes now go back with the save: the
+  abandoned future's route entries are dropped, each route picks up from where it stood in the
+  loaded save, so every delivery you fly through again happens and is charged exactly once, a
+  delivery made before the save is not repeated, and the recovery credit the save still owed is
+  paid on the next run. A route you built after that moment comes back, paused, when the
+  timeline reaches it again, and an armed Send Once or pause-after-this-run is cleared, as after
+  a rewind. A quickload at the Space Center or Tracking Station gets the same treatment when a
+  route ran after the quicksave; an ordinary scene change leaves routes alone. A recovery credit
+  is never paid for a run the timeline no longer has. Covered by xUnit; not yet checked in a
+  test flight.
+
+- **A supply route no longer delivers and charges its last run twice after a rewind or a
+  Re-fly.** Rewinding to a launch, or starting a Re-fly from a separation, made every looping
+  route run again the delivery it had last made before that moment: its cargo was already
+  there, and it arrived and was paid for a second time. Each route now picks up from where it
+  stood in the save the rewind or Re-fly loads, the same way a quickload already does, so a run
+  made before that moment is not repeated, every run after it happens once, a linked pair keeps
+  its turn order and a recovery credit that save still owed is paid on the next run. A route
+  whose schedule you changed since then starts its count again from the next run, as before.
+  Covered by xUnit; not yet checked in a test flight.
+
 - **A crewed station hidden after a rewind no longer has its crew killed.** When a committed
   mission docks to a station later, the station is hidden from the rewind until that mission's
   end. If the station was far from your vessel when you entered flight, hiding it killed
@@ -3720,6 +3794,20 @@ _(unreleased - entries accumulate here per commit)_
   in the loaded save, or one you are flying, is kept as it is. A station visited by a heavier
   ship, whose recorded end state comes back under a new vessel id, is replaced the same way
   instead of appearing twice at the Space Center or in the Tracking Station.
+
+- **After a rewind, a station that a later mission docks to no longer comes back holding
+  supply-route cargo the rewind refunded.** If a supply route was already delivering into a
+  station before a committed mission docked to it, and you rewound to before that dock, the
+  route's deliveries after the rewind point were undone (refunded, with the origin getting its
+  cargo back), and while the station was held back for the mission the route could not deliver
+  to it. But when the station reappeared in the mission's recorded end state it still held all
+  of those deliveries, so that cargo existed twice. It now reappears without the cargo of the
+  refunded deliveries, and with any cargo the route had taken from it given back, each tank kept
+  between empty and full; a delivery the route made again after the rewind was paid again and
+  stays. Only the station as that mission recorded it is corrected: a later recording of it (a
+  flight continued from the corrected station, a Re-fly) carries its own cargo and is left
+  alone, and a second rewind does not take the same delivery out twice. The recorded
+  mission itself is not changed. Covered by xUnit; not yet checked in a test flight.
 
 - **After a quickload, a booster that survives the replayed flight is recorded again.** If you
   quicksaved, flew on (a booster crashed with its crew, a lander touched down) and then
@@ -3751,7 +3839,8 @@ _(unreleased - entries accumulate here per commit)_
   ending you abandoned. Quickloading back into a flight in flight now drops that flight's career
   events and ledger entries from after the quicksave's moment, and the replayed flight books what
   it actually does. Space Center actions after the quicksave (tech, facility upgrades, hires) are
-  kept, as are supply-route entries and every other committed flight; the quickload only touches
+  kept, as is every other committed flight (supply routes go back with the quicksave on their
+  own; see the supply-route entry above); the quickload only touches
   what the quicksave shows was not yet history, including a flight committed after the quicksave
   and saved again since (see the entry below). Covered by xUnit; not yet checked in a test
   flight.
@@ -3771,17 +3860,18 @@ _(unreleased - entries accumulate here per commit)_
   queued science and unlinks those payouts (they stay paid), exactly like the Discard button at
   the end of a flight.
 
-- **A drill or converter running at the end of a recording that stayed on the ground no longer
-  delivers its resources early.** Parsek shortens a recording that ends with a long idle stretch
-  (sitting landed or coasting) so the real vessel appears sooner, but the vessel it brings back is
-  the one you had when you committed. When ore or fuel was still being produced during that idle
-  stretch, the vessel appeared early already holding all of it. A recording that never left the
-  surface (for example, you switched to a landed base and ran its drills) and whose last stretch
-  changed the vessel's resources (measured when the converters start and stop; electric charge
-  does not count) is now kept to the end, or shortened only to just after the converters stopped.
-  Not fixed yet: a recording that flew before landing and drilling is split at the landing and
-  still shortened, as are resources moved in by a supply route or produced while the vessel was
-  in the background.
+- **A drill or converter running at the end of a recording no longer delivers its resources
+  early.** Parsek shortens a recording that ends with a long idle stretch (sitting landed or
+  coasting) so the real vessel appears sooner, but the vessel it brings back is the one you had
+  when you committed. When ore or fuel was still being produced during that idle stretch, the
+  vessel appeared early already holding all of it. A recording whose drills, ISRUs, fuel cells
+  or other converters are still switched on at its end is now kept to the end, and one whose
+  converters were switched off during the idle stretch is shortened only to just after the last
+  one stopped. This holds for a recording that flew before landing and drilling (Parsek splits it
+  at the landing), on every later load, and for a base you left mining in the background. A
+  converter that is switched on but producing nothing (full tanks, no input) keeps its stretch
+  too. Not fixed yet: resources moved in by a supply route, or between the tanks of one vessel,
+  during the idle stretch.
 
 - **Altitude, speed, distance and depth record rewards are no longer paid twice.** A flight that
   set several records at once (an ascent passes 500 m, 2 km, 7 km, 22 km and 70 km) was booked
@@ -3815,8 +3905,13 @@ _(unreleased - entries accumulate here per commit)_
   Sandbox), and that message no longer follows an upgrade. Upgrading a destroyed facility
   records its free repair together with the upgrade. In an existing save, an upgrade recorded
   at 0 takes its real price when the save is loaded, if the save still holds the funds record of
-  that upgrade (usually one made since your last committed flight); older upgrades keep 0,
-  because nothing left in the save proves what they cost.
+  that upgrade (usually one made since your last committed flight). Older upgrades are charged
+  the building's listed upgrade price times your current difficulty's funds multiplier, as soon
+  as the Space Center's buildings are loaded (at the latest when you visit the Space Center), so
+  the charge can differ from what you paid if a strategy discount applied or the difficulty has
+  changed since. A career Parsek joined midway keeps those older upgrades at 0: its starting
+  funds were read from the game at an unknown moment that may come after some of them were paid,
+  and charging them again could count them twice.
 
 - **Installing Parsek into an existing career no longer resets its milestones and world
   records.** The first time Parsek synced the career it un-achieved every milestone the career

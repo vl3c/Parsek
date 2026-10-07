@@ -492,10 +492,11 @@ namespace Parsek.Logistics
         /// <summary>
         /// Loop anchor UT set when the route is activated. Fed into the
         /// route-owned <c>Mission.LoopAnchorUT</c> by
-        /// <see cref="RouteBackingMission.BuildMission"/>. NOTE: the loop builder
-        /// floors the anchor to <c>spanEndUT</c>, so the route does NOT own the
-        /// render phase — phase is owned by the loop-clock crossing detector +
-        /// <see cref="LastObservedLoopCycleIndex"/> (Phase 4). Default -1 (unset).
+        /// <see cref="RouteBackingMission.BuildMission"/>; the loop builder takes the
+        /// phase anchor as <c>max(LoopAnchorUT, spanEndUT)</c>, so this is the index
+        /// space <see cref="LastObservedLoopCycleIndex"/> and the per-stop cursors
+        /// count in: a cursor is meaningful only with the anchor it was observed
+        /// against. Default -1 (unset).
         /// </summary>
         public double LoopAnchorUT = -1.0;
 

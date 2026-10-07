@@ -315,6 +315,13 @@ namespace Parsek
         private static bool suppressNextActiveTreeRestore;
         private static string suppressNextActiveTreeRestoreReason;
 
+        // Ids of the trees DiscardPendingTree deleted sidecars for in this process: the proof
+        // ParsekScenario.DecideDiscardedActiveTreeRestore needs that a saved active tree whose
+        // every trajectory is missing was thrown away on purpose, not damaged. Process
+        // lifetime: tree ids are Guids and the files it vouches for are gone for good.
+        private static readonly HashSet<string> treesDiscardedThisSession =
+            new HashSet<string>(StringComparer.Ordinal);
+
         // Merged to timeline — these auto-playback during flight.
         //
         // POLICY: the player can never delete a committed recording, singly or wholesale.
@@ -2679,6 +2686,32 @@ namespace Parsek
             => suppressNextActiveTreeRestore;
 
         /// <summary>
+        /// Records that <see cref="DiscardPendingTree"/> deleted the sidecars of
+        /// <paramref name="treeId"/>'s recordings in this process. A later load of a save that
+        /// still holds the tree as its active tree reads this to tell a deliberate discard
+        /// from a damaged or incomplete save folder.
+        /// </summary>
+        internal static void NoteTreeDiscardedThisSession(string treeId, string treeName, int removedSidecarSets)
+        {
+            if (string.IsNullOrEmpty(treeId))
+                return;
+            bool added = treesDiscardedThisSession.Add(treeId);
+            ParsekLog.Verbose("RecordingStore",
+                $"Noted tree '{treeName ?? "<unnamed>"}' id={treeId} as discarded this session " +
+                $"(removedSidecarSets={removedSidecarSets.ToString(CultureInfo.InvariantCulture)}, " +
+                $"new={(added ? "true" : "false")})");
+        }
+
+        /// <summary>
+        /// True when <see cref="DiscardPendingTree"/> deleted sidecars of this tree id in this
+        /// process (see <see cref="NoteTreeDiscardedThisSession"/>).
+        /// </summary>
+        internal static bool WasTreeDiscardedThisSession(string treeId)
+        {
+            return !string.IsNullOrEmpty(treeId) && treesDiscardedThisSession.Contains(treeId);
+        }
+
+        /// <summary>
         /// Commits the pending tree to the timeline.
         /// </summary>
         public static void CommitPendingTree()
@@ -2820,6 +2853,7 @@ namespace Parsek
 
             int skippedCommittedDeletes = 0;
             int skippedDeletesByDurableHint = 0;
+            int removedSidecarSets = 0;
             foreach (var rec in pendingTree.Recordings.Values)
             {
                 string deleteCandidateId = rec?.RecordingId;
@@ -2833,8 +2867,13 @@ namespace Parsek
                         skippedDeletesByDurableHint++;
                     continue;
                 }
-                DeleteRecordingFiles(rec);
+                // Counted only when nothing was left behind: a locked file that survives
+                // is not proof of a discard.
+                if (DeleteRecordingFiles(rec))
+                    removedSidecarSets++;
             }
+            if (removedSidecarSets > 0)
+                NoteTreeDiscardedThisSession(pendingTree.Id, pendingTree.TreeName, removedSidecarSets);
             if (skippedCommittedDeletes > 0)
             {
                 ParsekLog.Warn("RecordingStore",
@@ -4660,6 +4699,7 @@ namespace Parsek
             suppressNextTreeSceneExitCommitReason = null;
             suppressNextActiveTreeRestore = false;
             suppressNextActiveTreeRestoreReason = null;
+            treesDiscardedThisSession.Clear();
             DiscardReFlyLoadIntent.ResetForTesting();
             InSessionStagedStateHandoff.ResetForTesting();
         }
@@ -5495,6 +5535,13 @@ namespace Parsek
                 // supersede drop so the capture already holds this rewind's drop and
                 // retirements; the OnLoad re-apply then finds nothing left to do on it.
                 CaptureRewindStagedListsForRewind(ParsekScenario.Instance, messageLabel);
+
+                // Same reason, for the rewind save's own route copy: OnLoad will read persistent's
+                // ROUTES, of unknown age, so the go-back loop-position restore in
+                // HandleRewindOnLoad reads this save's from the parsed game's scenario protos,
+                // which still hold the file's nodes.
+                Logistics.RouteLoadReconcile.CaptureRewindSaveRoutes(game.scenarios,
+                    game.flightState.universalTime, messageLabel);
 
                 HighLogic.CurrentGame = game;
                 HighLogic.LoadScene(GameScenes.SPACECENTER);

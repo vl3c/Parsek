@@ -56,6 +56,21 @@ namespace Parsek
         internal static HashSet<string> RewindHistoricalSpawnKeepRecordingIds { get; private set; }
 
         /// <summary>
+        /// The committed routes the rewind save's own <c>ParsekScenario</c> node carries, read
+        /// from the parsed save before the scene load (the rewind's OnLoad node is persistent.sfs,
+        /// not the rewind save). <c>HandleRewindOnLoad</c> gives each kept route its loop position
+        /// back from it. Null when no rewind save was parsed or it held no Parsek scenario.
+        /// </summary>
+        internal static IReadOnlyList<Logistics.Route> RewindSaveRoutes { get; private set; }
+
+        /// <summary>
+        /// The parsed rewind save's own clock (<c>flightState.universalTime</c> after the
+        /// lead-time windback, the value <see cref="RewindAdjustedUT"/> takes) for
+        /// <see cref="RewindSaveRoutes"/>; NaN when unset.
+        /// </summary>
+        internal static double RewindSaveClockUT { get; private set; } = double.NaN;
+
+        /// <summary>
         /// Sets all rewind state at the start of a rewind operation.
         /// RewindAdjustedUT and RewindQuicksaveVesselPids are set separately
         /// (after LoadGame and PreProcessRewindSave respectively).
@@ -66,6 +81,8 @@ namespace Parsek
             IsRewinding = true;
             RewindUT = ut;
             RewindHistoricalSpawnKeepRecordingIds = null;
+            RewindSaveRoutes = null;
+            RewindSaveClockUT = double.NaN;
             RewindReserved = reserved;
             RewindBaselineFunds = baselineFunds;
             RewindBaselineScience = baselineScience;
@@ -93,6 +110,8 @@ namespace Parsek
             RewindBaselineRep = 0;
             RewindQuicksaveVesselPids = null;
             RewindHistoricalSpawnKeepRecordingIds = null;
+            RewindSaveRoutes = null;
+            RewindSaveClockUT = double.NaN;
 
             ParsekLog.Info("RewindContext", "EndRewind: all rewind flags cleared");
         }
@@ -160,6 +179,19 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Sets the rewind save's own committed routes and clock, read from the parsed save
+        /// before the scene load (see <see cref="RewindSaveRoutes"/>).
+        /// </summary>
+        internal static void SetRewindSaveRoutes(IReadOnlyList<Logistics.Route> routes, double clockUT)
+        {
+            RewindSaveRoutes = routes;
+            RewindSaveClockUT = clockUT;
+            ParsekLog.Verbose("RewindContext",
+                $"SetRewindSaveRoutes: {(routes == null ? "none" : routes.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))} route(s) " +
+                $"clockUT={clockUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
         /// Resets all state without logging. For unit tests only.
         /// </summary>
         internal static void ResetForTesting()
@@ -174,6 +206,8 @@ namespace Parsek
             RewindBaselineRep = 0;
             RewindQuicksaveVesselPids = null;
             RewindHistoricalSpawnKeepRecordingIds = null;
+            RewindSaveRoutes = null;
+            RewindSaveClockUT = double.NaN;
         }
     }
 }

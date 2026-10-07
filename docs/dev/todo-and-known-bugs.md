@@ -16,6 +16,101 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT: a chain tip whose recording the optimizer split resolves to its first segment, which holds no snapshot, so the tip cannot spawn~~ [FILED 2026-10-07 by code read while fixing CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (PR #2035); also noted by the PR #2026 review. VERIFIED and FIXED 2026-10-07, branch `fix-chain-walk-optimizer-segments`; not flown]
+
+`GhostChainWalker.WalkToLeaf` followed branch points only. `RecordingStore.RunOptimizationPass`
+(every load and commit) splits a recording at environment / body boundaries: the first segment
+keeps the recording id (it stays the branch point's child) and the last one takes the vessel
+snapshot, the terminal state and the child branch point that closes the recording. So when the
+claimed vessel's tip recording was split, the walk stopped on the first segment: the chain's
+spawn UT was that segment's end (a flight load between the two ends did not ghost the claimed
+vessel at all), `ResolveTermination` read no terminal (a station that ended Destroyed kept a
+live chain), a time jump's `SpawnAtChainTip` found no snapshot, and the snapshot-holding last
+segment matched no chain, so flight spawned it as a plain recording end (identity not
+preserved, the chain and its ghost left in place) and the out-of-flight replacement
+(`ChainTipStaleVessel`) and the Tracking Station's identity-preserving spawn both missed it.
+The same stop happened at a first segment that keeps a branch point the vessel flew past (a
+stage dropped before the cut).
+
+Verified headless: a committed dock / undock tree whose station half flies exo -> atmo ->
+surface, run through the real optimizer pass, walked to tip `C-half` (the first of three
+segments) before the fix. In collected logs the shape appears once:
+`2026-09-08_2001_GS-7-kerbalx-crash-watch-hold` built `vessel=563449404 tip=06b271e6...
+terminated=False` on the first segment of a split crash recording (an older build, and a
+degenerate split, see OPTIMIZER-SPLIT-EMPTY-TAIL-INDEXED-FIRST); no collected log has a failed
+chain-tip spawn.
+
+Fix: where the vessel ends in a recording (no child branch point, or one it flew past), the
+walk goes on to the last segment of its optimizer chain
+(`EffectiveState.ResolveChainTerminalRecording`, the hop `WalkSlotVessel` uses) and continues
+from there, logging `WalkToLeaf: step N: rec=... -> segment=... rule=optimizer-chain`; tip, spawn
+UT and termination now read that segment. `IsTreeFullyTerminated` no longer treats an earlier
+chain segment as a leaf. An unsplit tip is unchanged. Cells: `GhostChainWalkerOptimizerSegmentTests`
+(red before the fix; the merged-recording cell, where the undock branch point sits on the cut
+merged recording's last segment, is the one that reds if the walk stops after the hop). PR
+#2035 files the same header as OPEN and its route-cargo identity also looks through earlier
+segments; reconcile the two entries at merge (this one is the fix).
+
+---
+
+## CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP: the ghost-chain walk can land on a Re-Fly TIP the fork supersedes, which suppresses the fork's spawn [FILED 2026-10-07 from the PR #2037 review. OPEN, product, narrow; not a release blocker]
+
+`GhostChainWalker` reads the committed trees as they are, supersede relations ignored.
+`RecordingTreeSplitter` gives a Re-Fly's HEAD and TIP the same `ChainId` (TIP at HEAD's index +
+1), so since the CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT fix the walk hops HEAD -> TIP, and
+the fork that supersedes TIP is not on that path. Reviewer's probe: HEAD index 0, TIP index 1
+ending at 2000, the fork carrying the claimed pid ending at 1500. Before the fix the tip was
+HEAD (spawn UT 1200) and the fork was not an intermediate link; after it the tip is TIP and
+`GhostChainWalker.FindIntermediateLinkChain(fork)` is non-null (same pid, the chain's spawn UT
+after the fork's end), so the fork's spawn is suppressed on the Tracking Station path (it reads
+the unfiltered chains) and in flight while TIP's end is still ahead. Narrow: it needs a claimed
+vessel that stayed the dominant one through its dock and was then Re-Flown on its own
+continuation slot. The same class already existed for an unsplit superseded child (the walk
+landed on the superseded child directly). Fix direction: route the walker's chain hop, and its
+leaf, through the supersede-aware walk (`EffectiveState.EffectiveTipRecordingId`), with a cell
+that builds HEAD / TIP / fork plus the supersede relation and checks the tip is the fork and the
+fork spawns.
+
+---
+
+## OPTIMIZER-SPLIT-EMPTY-TAIL-INDEXED-FIRST: an optimizer split can leave a payload-less second half that `ReindexChain` puts at chain index 0 [FILED 2026-10-07 while verifying CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT, from one collected log. OPEN, product, low; not reproduced on the current build]
+
+`2026-09-08_2001_GS-7-kerbalx-crash-watch-hold`: the crash recording `06b271e6...` ('Kerbal X
+Probe', ended Destroyed) was split at UT 347.9 at an Atmospheric -> SurfaceMobile boundary into
+`first: 547 pts/1 sections, second: 0 pts/1 sections` (`'surface' [0..0]`). The second half has
+no points, so its StartUT reads 0, and `RecordingOptimizer.ReindexChain` (sorted by StartUT) gave
+it chain index 0 and the head index 1 (the produced save holds exactly that, with the terminal
+on index 0). Every reader that takes the highest chain index as the chain's end (the slot walk,
+the ghost-chain walk) then reads the head, which has no terminal and no snapshot. Check first
+whether `CanAutoSplitIgnoringGhostTriggers` still accepts a cut whose second half has no payload
+(its 5 s test reads `rec.EndUT`, which can come from an explicit or terminal bound past the last
+sample); refuse such a cut, or index the chain by section start rather than by StartUT.
+
+---
+
+## ROUTE-TICK-BASELINE-SET-BEFORE-GO-BACK-CLOCK-MOVE: after a go-back rewind, route ticks may stall until the clock passes the pre-rewind UT [FILED 2026-10-07 from the PR #2036 review. OPEN, product; unverified, pre-existing]
+
+`ParsekScenario.Update` sets `lastRouteTickUT` on the new scenario's first `Update`, which likely
+runs before `ApplyRewindResourceAdjustment` moves the clock back to the rewind target; if so the
+next ticks see the clock behind `lastRouteTickUT` and route crossings stall until it is passed.
+The H58 log has too few `Tick:` lines to tell. Check first: a go-back rewind log with an Active
+route, the first `Update` / `lastRouteTickUT` stamp against the clock-move line, then the next
+route `Tick:` lines.
+
+---
+
+## DESIGN-GO-BACK-REWIND-VESSEL-SOURCE: logistics design 10.6 says a go-back rewind restores the stock vessels from the loaded save; they come from persistent.sfs [FILED 2026-10-07 from the ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING fix, branch `fix-route-rewind-refire`. OPEN, docs; verify then correct]
+
+Decompiled `SpaceCenterMain.Start` calls `LoadGame("persistent")`, and `Game.Load` hands that game's
+protos to OnLoad, so a go-back rewind's world vessels come from persistent.sfs with the future
+vessels stripped, not from the rewind save (the rewind save's own scenario node is only parsed inside
+`RecordingStore.ExecuteRewindSaveLoad`; GS-4's log shows a second "Save loaded from disk" with no
+persistent write between). Design 10.6's "restores the stock vessels from the loaded save" reads
+otherwise. Confirm against a go-back rewind log, then correct 10.6 (and any rewind design text that
+repeats it).
+
+---
+
 ## CLAIMED-VESSEL-DESPAWN-AT-REWIND-OUTSIDE-FLIGHT: a vessel a committed future mission claims should leave the KSC and Tracking Station at the rewind, as it does in flight [FILED 2026-10-07 from the owner ruling on PR #2029, branch `fix-chain-tip-outside-flight`. OPEN, product design; follow-up, not a release blocker]
 
 Design 12.5 / 20.3 despawn a claimed vessel at the rewind in every scene. Today only flight does
@@ -31,7 +126,7 @@ it in the TS until the tip spawns.
 
 ---
 
-## FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a facility downgrade's funds debit never reaches the ledger [FILED 2026-10-06 while fixing KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, branch `fix-facility-upgrade-cost`. OPEN, product, low; reachability not traced]
+## FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a facility downgrade's funds debit never reaches the ledger [FILED 2026-10-06 while fixing KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, branch `fix-facility-upgrade-cost`. OPEN, product, low; reachability not traced. The older cost-0 upgrade rows paragraph: RULED and DONE 2026-10-07, branch `release-rulings`]
 
 Decompiled KSP 1.12.5: `SpaceCenterBuilding.DowngradeFacility` also debits funds (about 0.667x
 the level cost, reason `StructureConstruction`), but `FacilityDowngraded` events are
@@ -43,10 +138,33 @@ same `FacilityUpgradeCapture` scope pattern and add a row type or a negative-lev
 
 Older cost-0 upgrade rows: the fix above repairs a cost-0 `FacilityUpgrade` row only while the
 save still holds its `FundsChanged(StructureConstruction)` event (events at or before the last
-committed flight's end are pruned), so most existing careers keep their older rows at 0 and
-their ledger high by those upgrades. Owner decision needed: accept a facility cost-table
-estimate (`levelCost` x today's `FundsLossMultiplier`, which can differ from what was charged
-under a changed difficulty or a strategy discount), or leave them.
+committed flight's end are pruned), so most existing careers kept their older rows at 0 and
+their ledger high by those upgrades. RULED 2026-10-07: estimate them from the facility cost
+table. DONE 2026-10-07, branch `release-rulings`: `LedgerLoadMigration.EstimateLegacyFacilityUpgradeCosts`
+prices a career `FacilityUpgrade` row still at cost 0 as stock's `UpgradeableFacility.GetUpgradeCost()`
+does (decompiled: `upgradeLevels[level + 1].levelCost * Career.FundsLossMultiplier`), i.e. the
+`levelCost` of the row's tier (`ToLevel - 1`, three-level facilities only, since the ledger tier
+comes from stock's 0 / 0.5 / 1 normalized level) times TODAY's multiplier. Saved events still win:
+a unique saved debit is applied as in the load repair, an explicit `cost=` or a non-debit keeps 0.
+The level costs exist only where the `UpgradeableFacility` objects do
+(`ScenarioUpgradeableFacilities.protoUpgradeables[id].facilityRefs`, the Space Center, not a cold
+load or the Tracking Station), so `LedgerOrchestrator.EnsureLegacyFacilityUpgradeCostEstimates`
+runs at the top of every recalc, before the walk, until one pass completes (deferring with no
+mutation on no current game, no funds seed, no multiplier, or no loaded facility table), then not
+again until the next load; that same recalc charges the rows. Never double-charged: the
+FundsInitial seed records no capture moment (UT 0, no source), so only a seed equal to the
+non-zero career-start baseline (`|UT| <= 1 s`, the value `DecideInitialFundsSeed` always prefers)
+is known to predate the upgrades; a seed read off the live pool (a mid-career install, or a seed
+deferred past an upgrade) may already hold the debits, so every row is skipped and counted
+`seedCaptureUnknown` (and a row at or before the baseline UT is `beforeSeed`). Science / Sandbox
+rows are never priced. Idempotent (a priced row is no longer cost 0); one summary line per
+completed pass (Info, Verbose when every row is Science / Sandbox) with the counts and a bounded
+`rows=[<actionId> <facility>->LvN estimated=<cost>]` sample. Accepted: the estimate can differ
+from the charge under a changed difficulty or a strategy discount, and the next funds patch
+moves the live pool by that difference. Still open: mid-career-install careers keep their old
+rows at 0 (no evidence of the seed's moment). Tests: `FacilityUpgradeCostTests.Estimate_*`,
+`ClassifyFundsSeedCaptureMoment_*`, `EstimatePass_*`, `Recalc_*` (red first: they did not compile
+before the change).
 
 ---
 
@@ -168,15 +286,46 @@ stage-to-fixture promotion tool.
 
 ---
 
-## QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-quickload-into-discarded` (xUnit only; live proof is lane QL-6, not flown)]
 
-Discard deletes the recording files (`RecordingStore.cs:2856-2886`); on a later F9 back into that
-flight the missing trajectory marks the recordings failed, they are dropped and the restore is
-skipped, so the flight resumes UNRECORDED. Owner ruling 2026-10-06: the resumed flight starts a
-fresh recording from the loaded state, as if it had never been discarded.
+Discard deletes the recording files (`RecordingStore.DiscardPendingTree` -> `DeleteRecordingFiles`).
+Owner ruling 2026-10-06: an F9 back into that flight starts a fresh recording from the loaded
+state, as if it had never been discarded.
 
-Fix: when the restore is skipped because the tree's files were deliberately discarded, start a
-new recording for the active vessel instead of resuming unrecorded. Lane QL-6.
+Traced path (corrects the filing, which said the recordings are dropped and the flight resumes
+unrecorded): every member of the quicksave's active tree loads `trajectory-missing` with no
+points, the synthetic-fixture shape `DropFailedSidecarHydrationRecordings` keeps, so
+`TryRestoreActiveTreeNode` stashed the tree as Limbo "with N sidecar hydration failure(s)" and
+`RestoreActiveTreeFromPending` resumed the recorder INTO the discarded ids: no pre-quicksave
+trajectory, no ghost or vessel snapshot, and the other members metadata-only shells (live
+evidence: `logs/2026-08-12_0011_S4.2-refly-world-preservation/KSP.log`, a discard followed by
+"resumed recording tree 'WP Stack'" into the deleted ids). Only a member failing for another
+reason (a root whose `.prec` delete failed while its craft went) reached the drop-and-skip shape.
+
+Fix: `DiscardPendingTree` notes every tree whose sidecar sets it fully removed
+(`RecordingStore.NoteTreeDiscardedThisSession`, process lifetime). After hydration,
+`TryRestoreActiveTreeNode` runs the pure `ParsekScenario.DecideDiscardedActiveTreeRestore`
+(`ParsekScenario.DiscardedFlightRestore.cs`): a tree discarded this session whose every member
+failed `trajectory-missing`, with no committed copy and no same-id pending tree in memory, is not
+restored; the quickload resume hints are cleared, an in-memory Limbo stash the load abandons is
+popped as the restore would have popped it, and (landing in FLIGHT, with an active recording)
+a fresh recording is armed. `ParsekFlight.OnFlightReady` consumes it on every path through
+`ParsekScenario.ConsumeFreshRecordingAfterDiscard`, starting `ParsekFlight.StartRecording` (the
+auto-record entry: a new tree, fresh Guid ids) only when no restore is scheduled, no recorder
+or tree is live and an active vessel exists, after the committed-spawned-vessel restore. The
+load's ledger recalculation takes the ordinary current-UT cutoff at the loaded UT (no pending
+tree, recorder or active tree is left at OnLoad; a resume escapes the uncut walk only because its
+Limbo stash defers the KSP patch, so an uncut walk here would patch committed-future rows into
+KSP; PR #2034 review). Mirror:
+`TryRestorePendingTreeNode` declines the same tree saved as the PENDING tree (a save the
+discard's own save refresh did not rewrite), which would otherwise come back as an empty shell to
+merge or auto-commit. A missing or damaged sidecar not from this session's discard, a hydrated
+member, or any other failure reason keeps today's handling. Red cells:
+`QuickloadIntoDiscardedFlightTests`.
+
+Residue (owner decision): the proof is in memory, so after a KSP restart a load of that quicksave
+still resumes into the discarded ids (a durable discard tombstone outside the loaded save would
+be needed). No `LoadReconcilePolicy` cell covers the saved active tree itself.
 
 ---
 
@@ -220,7 +369,9 @@ note changes with it.
 ## RULINGS-NEEDED-TIMELINE-OPS-2026-10-06: owner decisions the coverage-extension research needed [FILED 2026-10-06, branch `ccr-77f23eb2-dbqh6i`. RULED 2026-10-06 (owner interview); each ruling's work item is filed below]
 
 - [x] F9 back into a flight that was Discarded resumes it UNRECORDED today. RULED: the resumed
-  flight records again (QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN; unblocks lane QL-6).
+  flight records again (QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN; unblocks lane QL-6). FIXED
+  2026-10-07 (branch `fix-quickload-into-discarded`); the trace found it resumed into the deleted
+  ids rather than unrecorded.
 - [x] Tail trim over a resource-changing tail. RULED: keep such tails - a tail where resources
   change is not boring (TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT).
 - [x] Harvest-origin routes and catch-up bursts. RULED: cap the recorded harvest at what the
@@ -564,6 +715,19 @@ trajectories only.
 Expected player effect: F5 mid-flight, fly on until a contract completes, leave to the main
 menu (the flight is committed), load the quicksave: the abandoned future's contract reward row
 and tagged events survive into the resumed flight.
+
+Supply routes have the same cold twin (added 2026-10-07, by code read): the cold path reads the
+routes from the save (cursors and counters as of the save) but the free-standing route rows from
+the ledger file as last written, and `Ledger.Reconcile` keeps untagged rows in FLIGHT /
+SPACECENTER, so the save's next cycle id finds an abandoned-future `RouteDispatched` row and the
+dispatch dedup swallows the cycle (paid, never delivered). The in-session route reconcile
+(`RouteLoadReconcile`, ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD) is not run on the cold
+path: its shared store step would also drop the save's legitimately armed Send Once /
+pause-after-cycle, and the step's place against `LedgerOrchestrator.OnKspLoad` and the cold
+`RevalidateSources` is undecided. The candidate is the ledger half alone,
+`Ledger.RetireFutureRouteActionsAtRewind` at `flightState.universalTime` after
+`RouteStore.LoadRoutesFrom`, gated on `Ledger.HasFreeStandingRouteActionsAfterUT`. The Cold x
+Routes policy cell still reads Save and carries no gap id.
 
 Fix: not decided. The in-session fix (the reconcile at the quickload resume trim, QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT) is gated
 on QuickloadFlight / InSessionOther and does not cover this; either extend the same reconcile to
@@ -935,7 +1099,7 @@ after each step, oracles at the end, seed and step index printed for exact repla
 
 ---
 
-## CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO: after a rewind before a committed dock, a route-fed station respawns holding cargo the rewind un-paid [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO: after a rewind before a committed dock, a route-fed station respawns holding cargo the rewind un-paid~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-chain-tip-unpaid-route-cargo` (owner ruling 2026-10-07: subtract from the snapshot); lane RC-2 not flown]
 
 Trigger: a route already delivering into a station BEFORE a later committed mission docks to it,
 then a rewind to before that dock. The station half's snapshot is taken at commit
@@ -950,9 +1114,70 @@ service, not lost cargo.)
 Expected player effect: the station comes back holding route cargo that was never paid for
 again; the origin keeps its cargo and KSC funds are refunded.
 
-Fix: not decided (subtract post-cutoff route rows from the tip snapshot at spawn, or keep the
-rows and skip their re-fire). Red test: a `RouteLoopDeliveryFireTests` cell; lane RC-2 on a new
-fixture.
+Fix (owner ruling 2026-10-07: subtract the retired rows from the tip snapshot at spawn, never
+from the committed snapshot). The retired rows are removed from the ledger, so the retire keeps
+the ones a tip snapshot carries:
+
+- **Capture at the retire.** `Ledger.RetireFutureRouteActionsAtRewind` (the go-back rewind and
+  the in-session load reconcile) and `ReconciliationBundle.Restore` (Re-Fly) hand their removed
+  rows to `ChainTipRouteCargo.CaptureRetiredRouteCargo`, every time, even with none removed; an
+  in-session load whose route reconcile finds nothing after its cutoff (an F9 at the Space Center
+  or in the Tracking Station, `RouteLoadReconcile`'s `SkippedNothingAfterCutoff`) calls it with no
+  rows, so the watermarks come down at every load back in time (PR #2035 re-review). Only tips
+  captured after the cutoff are read. A cargo row (`RouteCargoDelivered`, `RouteCargoPickedUp`, a physical `RouteCargoDebited`) is kept
+  when its route endpoint (read from the pre-rewind route store: the stop for a delivery or
+  pickup, the origin for a debit, plus the vessel the writer resolved) is one of a committed,
+  non-terminated chain tip's claimed pids or its own pid, launch guids not conclusively
+  different, and its UT is at or before both that tip's end (the snapshot capture) and the
+  snapshot's watermark.
+- **Tied to one snapshot (PR #2035 review).** Each kept row is tagged with the SNAPSHOT that
+  carries it (`RetiredRouteCargoTipTag`: tree, the recording holding it, that recording's
+  optimizer chain, the capture UT, a fingerprint of the snapshot's resource content). A spawn
+  uses a row only when one of its tags names the snapshot it spawns from: same tree and
+  fingerprint, and the tagged recording is the spawning one, an earlier segment of its optimizer
+  chain (a split moved the snapshot to its later half; the chain tip is also found through those
+  segments), or a segment of its chain since merged away. A later tip of the same tree (a switch
+  continuation flown on from the already adjusted station, a Re-Fly fork) or a snapshot replaced
+  in place gets none. The watermark is the lowest retire cutoff seen since a retire first saw
+  that snapshot: a row above it was created in a timeline that branched after the capture (for
+  example a replay into the pre-claim station standing live at the Space Center, retired again by
+  a second rewind), so the snapshot cannot hold it. Store: `RetiredRouteCargoStore` (rows, one
+  per retired row, a re-retire folding its tags in; watermarks), persisted as an additive
+  `RETIRED_ROUTE_CARGO` child of the ledger file (absent while empty), kept by `Ledger.Clear`.
+- **Subtract at every spawn copy.** The shared `VesselSpawner.BuildValidatedRespawnSnapshot(Recording, ...)`
+  (flight leaf, Tracking Station hand-off, the chain-tip fallbacks), `VesselGhoster.SpawnChainTipWithResolvedState`
+  (flight chain tip, blocked and walkback) and the Space Center end spawn's working copy call
+  `ChainTipRouteCargo.ApplyToSpawnCopy` on their copy. Every stashed row tagged with this snapshot
+  that names its vessel, lies after its own cutoff and at or before the tag's capture, and that
+  no replay stands for is undone latest first: a delivery removed, a pickup or origin debit added
+  back, from the claimed vessel's own parts first (`GhostChainWalker.ResolveClaimedPartIds` at
+  each claim), every tank clamped at zero and at capacity, the rest reported as clamped. One
+  `[ChainTipCargo]` Info line per adjusted spawn names route, resource, removed / added / clamped.
+- **Replays, matched by UT, not cycle id (PR #2035 review).** A crossing the current timeline
+  performed again (a cargo row back in the ELS, for example into the pre-claim station standing
+  live at the Space Center) was paid again, and the snapshot's copy is the one that survives the
+  replacement, so it stays. Cycle ids do not name a crossing across timelines: every retire
+  rebuilds `Completed + Skipped` from the max kept dispatch ordinal, a blocked crossing writes no
+  dispatch row, so the replay of cycle-3 can be paid as cycle-2. A replay is matched instead by
+  route, stop and row type, one to one, to the stashed crossing nearest in UT whose window (its
+  cutoff, the tag's capture] holds it.
+- Not covered: stored-part inventory (delivery rows carry no inventory manifest; a pickup's
+  stored parts are not put back); a tail-trimmed tip, whose end moved earlier than the snapshot
+  capture, keeps the crossings of its trimmed tail (TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT); and a cold
+  load into an older save lowers no watermark. That load keeps the abandoned future's route rows
+  (COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE), so lowering the watermark there would
+  drop rows a snapshot does hold; it waits for that entry's ruling.
+
+Tests: `ChainTipRouteCargoTests` (first round red first: 23 of 26 cells failed against stubs;
+review round red first: the switch-continuation, Re-Fly fork, counter-rebuild replay and
+second-rewind cells failed against the tree tag and the cycle-id key; re-review round: the
+Space Center F9 cell failed before the in-session load lowered the watermark, and the empty-retire
+and nearest-replay pins fail under their mutations; the pure adjustment with
+clamp, pickup, origin debit, cutoff, capture, other vessel / launch / snapshot, replay matching
+and own parts first; snapshot identity through an optimizer split and against an in-place
+replacement; the watermark; both retire sites; the ledger-file round trip; the shared spawn
+materialization; a source gate over the three spawn-copy sites). Live proof: lane RC-2 (not
+flown).
 
 ---
 
@@ -1159,13 +1384,16 @@ applies. Lane RC-6 with `EvaGroundScience action=take` against a foreign contain
 
 ---
 
-## TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. RULED 2026-10-06: keep resource-changing tails. PARTIAL 2026-10-06, branch `release-cheap-fixes` (PR #2027): fixed for recordings the optimizer does not split; a flown-then-landed recording still loses its witness to the split; NEEDS A RULING on the options below. The unwitnessed sources are TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES]
+## ~~TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources~~ [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. RULED 2026-10-06: keep resource-changing tails. PARTIAL 2026-10-06, branch `release-cheap-fixes` (PR #2027): fixed for recordings the optimizer does not split. RULED 2026-10-07: the converter part events are the witness (option 3). FIXED 2026-10-07, branch `release-rulings`. The sources still unwitnessed are TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES]
 
 `RecordingOptimizer.TailTrim` restamps the end UT and SpawnUT earlier (`:820-845`) but never
 touches the snapshot; `FindLastInterestingUT` (`:75`) ignores resources and the guard checks
 orbit / surface shape only (`:156-192`). Resources that changed in the trimmed tail (route
 deliveries, crossfeed, a converter) arrive early, and with CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO
-the crossings between the trimmed SpawnUT and commit are delivered twice.
+the crossings between the trimmed SpawnUT and commit are delivered twice. (That entry is fixed
+2026-10-07 for crossings up to the tip's end UT, the only capture time a recording keeps; a
+trimmed tail moves that end earlier, so its crossings are still in the spawned tip and are
+delivered again after it.)
 
 Fix: RULED 2026-10-06 - keep a tail whose resources change (it is not boring):
 `FindLastInterestingUT` treats a resource change as interesting. Red test: a `RecordingOptimizer`
@@ -1186,51 +1414,82 @@ stopped mid-tail trims to just after it; an EC-only or stalled window changes no
 `TrimBoringTail_ResourceChangeEndingMidTail_TrimsAfterIt`, and through the whole pass
 `RunOptimizationPass_UnsplitDrillRecording_KeepsResourceChangingTail_OnEveryPass`.
 
-**Still open: the split voids the witness (found by the PR #2027 review).** `RunOptimizationPass`
+**The split voided the witness (found by the PR #2027 review).** `RunOptimizationPass`
 (`RecordingStore.Optimization.cs`) runs the split pass BEFORE `TrimBoringTailsForOptimization`, and
 every split goes through `RecordingOptimizer.TransferTerminalFieldsToSecondHalf`, which nulls
 `RouteHarvestWindows` on BOTH halves (logistics plan D13: a window can land on the wrong side of the
-cut). Fly -> land -> drill splits at the Atmospheric -> Surface boundary, the surface leaf has no
-windows, and its drilling tail is trimmed exactly as before (pinned by
-`RunOptimizationPass_FlownThenLandedDrillRecording_TrimsTail_DocumentsDefect`, the cell the fix
-flips). A carry held only within the pass is not enough: the pass runs on every load
-(`ParsekScenario.OnLoad`, phase `optimization`) and after every commit (`MergeDialog.MergeCommit`,
-`ParsekScenario.AutoCommitPendingTreeOutsideFlight`), the trim revisits every committed leaf with no done marker, and after
-the first pass the voided windows are what is flushed and read back. Options (owner ruling needed):
-(1) persist the witness across the split in a new serialized field (e.g. the last resource-change
-UT, moved to the half that contains it before D13 voids the windows) - a schema addition;
-(2) narrow D13 to void only a window that straddles the cut and keep a closed window on the half
-that wholly contains it - a logistics-analysis change; (3) use the converter part events as the
-witness (a converter whose last event is `ConverterActivated` keeps the tail through the end): part
-events are partitioned by the split and the converter state is re-seeded on the second half
-(`RecordingOptimizer.SeedEvents.cs` converter reducer), so it survives splits and every pass with
-no new field and D13 untouched, but it is a proxy (a stalled drill keeps its tail too) - it also
-closes the background-leg item of TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES.
+cut). Fly -> land -> drill splits at the Atmospheric -> Surface boundary, so the surface leaf had no
+windows and its drilling tail was trimmed. A carry held only within the pass was not enough: the
+pass runs on every load (`ParsekScenario.OnLoad`, phase `optimization`) and after every commit
+(`MergeDialog.MergeCommit`, `ParsekScenario.AutoCommitPendingTreeOutsideFlight`), the trim revisits
+every committed leaf with no done marker, and after the first pass the voided windows are what is
+flushed and read back. The options were a new serialized witness field, narrowing D13, or the
+converter part events.
+
+**FIXED 2026-10-07 (branch `release-rulings`), owner ruling 2026-10-07: option 3, the converter part
+events.** New `RecordingOptimizer.CountConvertersRunningAtEnd` reduces the recording's
+`ConverterActivated` / `ConverterDeactivated` events per part (the latest at or before `EndUT` wins,
+ties go to the later list entry; a `Destroyed` event on the part ends its run, since the recorder
+writes no stop for a part that left the vessel). `FindLastResourceChangeUT` now takes the later of
+two witnesses: the harvest-window rule above (moved unchanged into `FindLastHarvestWindowChangeUT`)
+and, when any converter is still running at the end, the recording's `EndUT`, so the tail is kept to
+the end (skip category `resource-changing-tail`; the verbose skip line now also carries
+`runningConverters=`). A converter stop is a non-inert part event, so it already was an interesting
+UT: a converter stopped mid-tail trims to just after the stop. The events survive the split
+(`PartitionPartEvents`, and a converter running at the cut is re-seeded at the start of the second
+half by the `RecordingOptimizer.SeedEvents.cs` converter reducer) and every later pass, with no new
+field and D13 untouched. Accepted approximation (ruling): a converter switched on but stalled (full
+tanks, no input, an idle fuel cell) keeps its tail too. Tests in `RecordingOptimizerTests` (red
+before the fix where marked): `RunOptimizationPass_FlownThenLandedDrillRecording_KeepsConverterTail_OnEveryPass`
+(the flipped `..._TrimsTail_DocumentsDefect` cell; red),
+`RunOptimizationPass_ConverterSwitchedOnBeforeLanding_SeededAcrossSplit_KeepsTail` (red),
+`RunOptimizationPass_FlownThenLandedRecording_NoConverter_TrimsAsBefore`,
+`TrimBoringTail_ConverterRunningAtEnd_IsKept_AndLogsTheReason` (red),
+`TrimBoringTail_ConverterStoppedMidTail_TrimsToJustAfterTheStop`, `TrimBoringTail_ConverterOnlyEverOff_Trims`,
+and the pure `FindLastResourceChangeUT_ConverterRunningAtEnd_ReturnsEndUT` (red),
+`..._OneOfTwoConvertersStillRunning_ReturnsEndUT` (red), `..._ConverterStopped_NotAWitness`,
+`..._ConverterEventsOutOfOrder_UsesTheLatestPerPart`, `..._RunningConverterPartDestroyed_NotAWitness`
+and `..._ConverterOnlyEverOff_NotAWitness`.
 
 ---
 
-## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness]
+## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness. Background-leg item CLOSED 2026-10-07, branch `release-rulings`, by the converter-event witness]
 
-TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT keeps a tail only when a closed `RouteHarvestWindow` measured a
-change. Three sources leave no such witness, so their tails still trim and their resources still
-arrive early with the commit-time snapshot:
+TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT keeps a tail when a closed `RouteHarvestWindow` measured a change
+or a converter is still running at the recording end (the last converter part event of some part is
+`ConverterActivated`). Two sources leave no such witness, so their tails still trim and their
+resources still arrive early with the commit-time snapshot:
 
 - a supply route delivering into (or debiting) the recorded vessel during the tail: the route
   writers (`Logistics/LiveDeliveryWriters.cs`, `LiveOriginDebitWriters.cs`) touch no recording;
   the ledger holds the route rows (`RouteCargoDelivered` / `RouteCargoPickedUp` / `RouteCargoDebited`)
   with their UTs, the endpoint resolving through the route's stop, but the optimizer pass reads no
   ledger;
-- a converter running on a BACKGROUND leg: `BackgroundRecorder` records `ConverterActivated` /
-  `ConverterDeactivated` part events but captures no harvest windows (only the active stop does,
-  `FlightRecorder.BuildCaptureRecording`), so a base left mining in the background trims after its
-  last converter event;
 - an in-vessel transfer (crossfeed, a docked pair's fuel transfer): vessel totals do not move, so no
   manifest sees it, but the per-part split in the snapshot still arrives early.
 
-Fix options: (1) treat a converter still running at the recording end (last converter event per
-part is `ConverterActivated`) as interesting through the end - a proxy, not a measurement, covering
-background legs; (2) give the optimizer pass the ledger's route rows whose endpoint is the
-recording's vessel and treat a row inside the tail as interesting; (3) accept the in-vessel case.
+~~A converter running on a BACKGROUND leg~~ - CLOSED 2026-10-07 (branch `release-rulings`):
+`BackgroundRecorder` emits the same `ConverterActivated` / `ConverterDeactivated` part events
+(`BackgroundRecorder.PartEventPolling.cs` `CheckConverterState`, the same Layer-1
+`FlightRecorder.CheckConverterTransition`, plus the `InitializeLoadedState` seed and the rails-span
+diff), so a base left mining in the background keeps its tail through the converter witness. Two
+narrow residues of that witness, by code read: a background vessel recorded only on rails emits no
+converter event at all (the on-rails init seeds nothing), and a recording started as a promotion
+into a FRESH branch (`CreateSplitBranch`, `CreateSplitBranchFromBackgroundParent`, `CreateMergeBranch`,
+`BindLiveRecorderToSwitchSegment`; `StartRecording(isPromotion: true)` skips non-engine seeds) with a
+converter already running carries no `ConverterActivated`. Such a recording still opens a harvest
+window at start (`InitializeHarvestWindowAtStart`), which witnesses the tail unless the optimizer
+splits the recording. The opposite residue (PR #2031 review): a running converter part that leaves
+the vessel by decouple or undock keeps reading "running" on the parent recording, because
+`CheckConverterState` walks only `v.parts` and the `Decoupled` event carries the pid of the part
+that came off, not the converter's, so that parent's tail is never trimmed (a missed trim, never
+early resources; no recording in the fixture, dev-save or collected-log corpus ends with a
+converter running). A destroyed part is final (fixed in the same PR).
+
+Fix options: (1) give the optimizer pass the ledger's route rows whose endpoint is the recording's
+vessel and treat a row inside the tail as interesting; (2) accept the in-vessel case; (3) for the
+residues, emit a converter seed on a promotion into a fresh branch (it would also start the ghost's
+running loop there).
 
 ---
 
@@ -1276,6 +1535,9 @@ Fix: the phased program in the research doc - Phase A headless red tests for the
 defects, then the harness capabilities (route-aware ledger oracle that survives a rewind, a
 mid-run route read-back, career route fixtures with a rewind handle, a dispatchable moon
 route), then the IR-1..IR-11 pair lanes and the IC-1..IC-4 campaign lanes.
+
+Progress: Phase A rows A2 (ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND) and A5
+(ROUTE-DELIVERY-INTO-DOCKED-VISITOR) landed with their fixes on `fix-route-endpoint-writes`.
 
 ---
 
@@ -1341,6 +1603,8 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
 - [x] VERIFIED 2026-10-06, filed as CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (narrower trigger: a route delivering before a later committed dock). A chain-tip respawn carries route cargo from the abandoned future (the tip snapshot
   includes deliveries made before that recording ended), so after a rewind the station has the
   cargo and the re-fired cycles are blocked while it is hidden: cargo created from nothing.
+  FIXED 2026-10-07 (branch `fix-chain-tip-unpaid-route-cargo`): the tip's spawn copy drops the
+  cargo of the crossings the rewind retired.
 - [ ] (Traced 2026-10-06, not adversarially verified: crossings while an endpoint is absent are BLOCKED with no catch-up - lost service, not lost cargo; see CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO.) Spawns are deferred until warp ends while routes keep ticking: a cycle crossing a
   station's spawn UT during warp is held and its cargo lost.
 - [ ] Multi-stop routes reserve no destination capacity between dispatch and a later window.
@@ -1391,7 +1655,7 @@ point the cell there.
 
 ---
 
-## ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD: an in-session load back in time leaves route cursors and credits in the abandoned future [FILED 2026-10-06 from the integration-coverage code read, verified by an adversarial pass; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; not yet reproduced]
+## ~~ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD: an in-session load back in time leaves route cursors and credits in the abandoned future~~ [FILED 2026-10-06 from the integration-coverage code read, verified by an adversarial pass; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-route-state-on-load` (owner ruling 2026-10-07: reuse the rewind reconcile): F9 quickload, stock revert and the Esc-menu Discard Re-fly load run the go-back rewind's reconcile at the loaded save's UT; the recovery credit refuses a retired dispatch]
 
 Routes are loaded from the save only on a cold load (`ParsekScenario.cs:4464`); an in-session
 load (F9 quickload, stock Revert) returns at `ParsekScenario.cs:4320` before any route code.
@@ -1410,17 +1674,117 @@ dispatch's recovery credit can still pay out. Logistics design 10.6 says stock r
 restores route state from the save; the code does not, and the "option C" ruling covers only
 discards with no LoadGame.
 
-Fix: not decided. Either reload the route store from the loaded save's ROUTES node on every
-in-session load, or run the same reconcile the two rewind exits run, keyed to the loaded UT;
-guard `EmitPendingRecoveryCredit` on its dispatch row. Pin it red first: `RouteLoopDeliveryFireTests`
-(swallowed cycle), `RouteRecoveryCreditTests` (orphan credit), a source-text gate on the three
-load paths; then lanes IR-1 / IR-2 / IR-4.
-
-Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
+Fix (shipped): `ParsekScenario.OnLoad`'s in-session branch calls
+`RouteLoadReconcile.ReconcileAtInSessionLoad` after the revert prune and before the
+future-actions check and the recalculation. It runs `Ledger.RetireFutureRouteActionsAtRewind` +
+`RouteRewindClassifier.ReconcileStoreAtRewind` (the go-back exit's calls) at the loaded save's
+`flightState.universalTime`; a stock revert takes the earlier of that and the revert prune's
+launch boundary, since a revert to the editor can hand OnLoad the revert-moment game. Loads:
+QuickloadFlight, StockRevert and DiscardReFly always (the classifier already knows they went
+back, and a cursor that advanced after the save leaves no UT stamp); InSessionOther (F9 at the
+Space Center or Tracking Station, F9 into a flight quicksave from the Space Center) only when a
+route row, a route creation or a route's cycle start / hold / partial delivery / owed-credit
+dispatch lies after the loaded save, so a forward or same-instant scene change touches nothing.
+Cold, PlainRewind and ReFlyStart stay with the cold load, `HandleRewindOnLoad` and the bundle.
+One step goes past the rewind exit: its cursor reset (-1) re-fires the crossing whose dock
+instant most recently passed under a fresh cycle id the dedup cannot match, which on an F9 just
+after a delivery would deliver and charge it twice (see
+ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING, since fixed: both rewind exits now run the
+same restore). So each kept route takes its loop position
+back from the loaded save's own ROUTES copy when the save is not newer than the cutoff: the loop
+anchor always (it is the cursors' index space; `TryActivate` after the save moves it), the route
+/ per-stop cursors and window anchor when the cadence, transit, dock UTs and window basis are
+unchanged, the partner alternation cursor when the route is linked to the same partner, and the
+recovery credit the save still owes when the reconcile cleared a later one. The loop span's
+other inputs (excluded interval keys, origin undock UT, source refs, creation members) never
+change after creation. `EmitPendingRecoveryCredit` now refuses (and clears) a credit whose
+`RouteDispatched` row is not in ELS; every flush site goes through it. Red cells:
+`RouteLoopDeliveryFireTests.LoadBackPastACrossing_ReflownCycleFiresAgain` (x3 kinds),
+`QuickloadJustAfterACrossing_DoesNotFireThatCrossingTwice` and
+`QuickloadBackPastAReactivation_RestoresTheSavedAnchorWithTheCursor` (PR #2032 review: pause +
+re-activate after the F5, then F9, swallowed all 4 owed crossings), `RouteRecoveryCreditTests`
+(orphan credit, pause flush, F9 past a credit flush), `RouteLoadReconcileTests` (per-kind cells,
+cutoff, evidence, restore, store runs, the OnLoad source gate), `LoadReconcilePolicyTests`
+(Routes cells flipped to ReconcileAtCutoff, the gap id dropped). Not flown; lanes IR-1 / IR-2 /
+IR-4 remain the live proof.
 
 ---
 
-## ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND: after a rewind, a surface base hidden by the Ghost Chain Rule gets its route permanently re-pointed to a craft parked within 500 m [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; not yet reproduced]
+## ~~ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING: after a go-back rewind or a Re-Fly start, a loop route fires its last pre-rewind crossing a second time~~ [FILED 2026-10-07 from the `fix-route-state-on-load` work, reproduced headlessly. FIXED 2026-10-07 on branch `fix-route-rewind-refire` (headless only, not flown)]
+
+**FIXED.** Both rewind exits now run the in-session load's restore after the shared reconcile:
+`RouteLoadReconcile.RestoreLoopPositionAtRewindExit` runs
+`RestoreLoopPositionFromSave` (unchanged apart from an optional log tag) over the installed kept
+routes, so each takes back its loop anchor, route / per-stop cursors and window anchor (same
+clock definition), partner alternation cursor (same partner) and the recovery credit the save
+still owes. It sets Route fields only; both exits stay OnLoad-safe and the credit is paid by the
+next crossing. Which save copy each exit reads:
+- Go-back rewind: NOT its OnLoad node, which is persistent.sfs as last written
+  (`SpaceCenterMain.Start` reloads persistent and `Game.Load` hands its scenario protos to OnLoad,
+  decompiled; the GS-4 log shows the second `Save loaded from disk` and no persistent write in
+  between). The rewind save's own ParsekScenario node exists only in the `Game`
+  `GamePersistence.LoadGame` parses in `RecordingStore.ExecuteRewindSaveLoad` (its `scenarios`
+  protos hold the file's SCENARIO nodes; `PreProcessRewindSave` edits only FLIGHTSTATE).
+  `RouteLoadReconcile.CaptureRewindSaveRoutes` reads its ROUTES there, before the Space Center
+  load, into `RewindContext.RewindSaveRoutes` with the parsed clock
+  (`flightState.universalTime`, = `RewindAdjustedUT`); `HandleRewindOnLoad` restores from it
+  after `ReconcileStoreAtRewind` and before the career cutoff walk; `EndRewind` /
+  `ResetRewindFlags` clear it.
+- Re-Fly start: its OnLoad node IS the RP quicksave's ParsekScenario (`FlightDriver` runs
+  `Game.Load` on the game the invoker parsed from the file). `DispatchRewindPostLoadIfPending(node)`
+  -> `RewindInvoker.ConsumePostLoad(node)` reads its ROUTES and `KerbalsModule.ReadLoadedSaveUT()`
+  and passes them to the new `ReconciliationBundle.Restore(bundle, cutoff, loadedSaveRoutes,
+  loadedSaveUT)` overload; the two-argument overload keeps the reset (no copy in hand).
+
+Mirror cases as on the in-session load: a changed clock definition keeps the -1 reset (the
+anchor still goes back), a route created after the cutoff goes dormant as before, a kept route the
+save does not carry keeps the reset, no save copy / no usable clock / a save newer than the cutoff
+keeps the reset and logs `loop position not restored ... reason=`, and a rewind with nothing on
+the route after the save leaves its loop position unchanged. Residual (go-back only): the rewind
+save's route copy is as of the save's own UT, up to the 15 s lead-time windback after the cutoff,
+while route rows after the cutoff are retired; a crossing that fired inside that window keeps its
+saved cursor and is not charged again, and its `RouteRecoveryCredited` row (the credit it paid for
+the previous cycle) is retired too while the save no longer owes it, so that credit is lost as
+well (PR #2036 review; never a double charge or a double delivery). Changing the go-back's route
+cutoff to the save's own UT would close both; owner decision, not done here. Red cells (written against stubs, 20 red, then green):
+`RouteRewindLoopPositionTests` (the double fire, no-op, anchor after a re-activation, partner
+cursor, changed clock, created-after / missing-from-save, no save copy, owed credit unpaid by the
+exit, each x {GoBack, ReFlyStart}; the parsed-save capture; source gates on `HandleRewindOnLoad`,
+`ExecuteRewindSaveLoad` and the Re-Fly dispatch), plus a headless
+`RewindInvoker.ConsumePostLoad(node)` cell and the skip-reason table added after, both
+mutation-checked (dropping the routes from either exit's call reds them). The original filing
+follows.
+
+`RouteRewindClassifier.ResetCycleStateForRewind` sets `LastObservedLoopCycleIndex`,
+`WindowAnchorCycleIndex` and every stop's `LastFiredCycleIndex` to -1, and
+`ReconstructCycleCounters` makes the next cycle id fresh (`cycle-{maxKeptOrdinal+1}`). The first
+tick after the rewind sees the crossing whose dock instant most recently passed as owed
+(`dockCycleIndex > -1`) and fires it under that fresh id, which `IsDispatchAlreadyInLedger`
+cannot match: the dedup keys on the counter-based cycle id, not the loop index, so the note then
+on `ResetCycleStateForRewind` (that the ELS dedup was the double-fire backstop) did not hold. When that
+crossing was dispatched before the cutoff its cargo is already in the loaded world, so it is
+delivered and charged twice. Headless probe: tick at 1150 (cycle-0), tick at 1450, retire +
+reconcile at 1200, tick at 1200: a second dispatch for crossing 0. Same family: the reconcile
+clears a pending recovery credit owed by a dispatch after the cutoff but cannot bring back the
+credit the cutoff still owed when a later flush paid it, so that credit is lost. By code read,
+two more positions stay in the abandoned future: `LoopAnchorUT` (a re-activation after the
+cutoff leaves the loop clock anchored after it, so crossings before that anchor are not owed) and
+`LastConsumedPartnerCycle` (left above the partner's rebuilt `CompletedCycles`, it holds a linked
+pair on both sides).
+
+Both rewind exits are affected (`ParsekScenario.HandleRewindOnLoad`,
+`ReconciliationBundle.Restore(cutoff)`). The in-session load reconcile avoids it by taking the
+loop position (anchor, cursors, partner cursor) and owed credit back from the loaded save's
+route copy (`RouteLoadReconcile.RestoreLoopPositionFromSave`); the go-back exit cannot (its OnLoad node is
+persistent.sfs of unknown age), a Re-Fly start could (the RP quicksave carries the routes as of
+the RP).
+
+Fix: shipped as above (restore from each exit's loaded save copy; for the go-back, the copy read
+from the parsed rewind save rather than the OnLoad node).
+
+---
+
+## ~~ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND: after a rewind, a surface base hidden by the Ghost Chain Rule gets its route permanently re-pointed to a craft parked within 500 m~~ [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-route-endpoint-writes` (xUnit only; live proof is lane IR-8)]
 
 A base claimed by a committed dock is despawned after a rewind (`VesselGhoster.cs:75`). The
 endpoint resolver misses the root-part and pid steps and falls through to the surface
@@ -1433,6 +1797,36 @@ part id, which wins at the first resolver step, so the redirect is permanent.
 
 Fix: hold (do not proximity-rebind) while the recorded endpoint is ghosted by a chain; a pure
 predicate beside `RouteEndpointTransferTests`, then lane IR-8.
+
+FIXED 2026-10-07 (`fix-route-endpoint-writes`): `RouteEndpointResolver`'s surface-proximity
+step first asks `RouteEndpointChainHold.IsEndpointHeldLive`; when the endpoint is
+chain-ghosted it returns false with reason `endpoint-chain-ghosted` (logged rate-limited as
+`Endpoint HELD, not rebound:`) and neither searches nor calls `ApplyTransfers`. The pure
+predicate `IsHeldByGhostChain`: a claim with the endpoint's pid, launch guids not conclusively
+different, not terminated, and its tip spawn UT still ahead OR still pending in flight. The
+claims come from `GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees)`
+(memoized on `RecordingStore.StateVersion` + tree count + 120 frames; the UT test is live),
+plus `ParsekFlight.ActiveGhostChains`, which keeps a chain whose tip
+spawn a collision blocked past its spawn UT (the blocker may be the very neighbour). Per scene
+(after PR #2029): only a flight load despawns the claimed base, and it stays gone at the KSC
+and in the TS afterwards, which is why the claims come from the committed trees; a base no
+flight load removed stays live at the KSC / TS until `ChainTipStaleVessel` replaces it at the
+tip spawn UT, so there the root-part / pid step finds it and the hold is never reached. Mirror: a
+terminated chain (destroyed / recovered in the committed future) or no claim is not held and
+still transfers as before. A held loop route blocks its crossings exactly as for any missing
+endpoint (a `RouteHeld` row of kind EndpointLost carrying the `stop-N-` / `origin-` token; the
+route stays Active and fires again once the base resolves by identity), and the hold line now
+says "destination is a ghost until a recorded flight that docks with it ends - deliveries
+resume when it is back" (new `LogisticsHoldClauses` pair, compact "destination is a ghost" /
+"origin is a ghost"; the Route History row drops the advice tail) instead of pointing at
+Re-scan or Delete. Residuals: a delivery already paid for when the hold begins (a multi-stop
+window after a rewind into the cycle) fails like any endpoint-lost delivery; a start-docked
+origin whose pid was never stamped (pid 0) cannot be matched to a chain (chains are keyed by
+pid). Tests: `RouteEndpointChainHoldTests` (red against the never-hold stub
+first), `LogisticsHoldPresentationTests.DescribeHold_EndpointLost_ChainGhostHold`, and
+`RouteEndpointScopeWiringGateTests.ResolverProximityStepAsksTheChainHoldFirst` (the resolver
+reads the hold as a branch condition inside the proximity step, before the search and the
+rebind, and returns false with the hold reason; red with the call deleted or short-circuited).
 
 ---
 
@@ -1464,7 +1858,7 @@ red test with `RouteCargoEscrowTests` / `RouteEscrowFireTests`, then lane IR-10.
 
 ---
 
-## ROUTE-DELIVERY-INTO-DOCKED-VISITOR: cargo delivered to a station lands in (and origin debits drain) whatever is docked to it [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~ROUTE-DELIVERY-INTO-DOCKED-VISITOR: cargo delivered to a station lands in (and origin debits drain) whatever is docked to it~~ [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-route-endpoint-writes` (xUnit only; live proof is lane IR-9)]
 
 The resolver deliberately returns the docked composite (`RouteEndpointResolver.cs:283-310`),
 and `LiveDeliveryWriters` walks every part of the composite in vessel order (`:150-175`,
@@ -1475,9 +1869,43 @@ visitor instead of the depot.
 Fix: restrict the writers and the capacity read to the recorded endpoint's own parts (a pure
 part-subset selector), then lane IR-9.
 
+FIXED 2026-10-07 (`fix-route-endpoint-writes`): `RouteEndpointPartScope` cuts the resolved
+vessel at every settled stock dock seam the way an undock would (a docking node or claw with
+stock's `vesselInfo` whose `dockedPartUId` names its parent or child part) and keeps the pieces
+that hold the endpoint's root part or a part the route RECORDED as the endpoint's: the
+connection window's `EndpointPartPersistentIds` for an endpoint captured at a dock (matched by
+root part flightID, by target pid only when the endpoint has no root), and the depot half of
+the start-docked pair seam in the recording's start snapshot for a start-docked origin. Stock's
+own records alone could not decide it: a module docked before the route was recorded and a
+visitor docked after leave identical `DockedVesselInfo` pairs and no time. The resulting
+`EndpointPartScope` is built once per probe / writer bundle on the same loaded / unloaded
+branch and threaded into `LiveDeliveryCapacityProbe`, `LiveDeliveryWriters`,
+`LiveOriginCargoProbe`, `LiveOriginDebitWriters` and `LiveInventoryPickupWriter` at every
+production site (delivery, origin debit and gate, pickup debit and gate, destination gate, the
+Logistics window's capacity line). The multi-stop gates that share one probe per destination
+key it by vessel pid PLUS scope (`EndpointScopedCache`), and the pickup gate groups sources by
+pid plus `PartScopeKey`, so two stops whose endpoints were later docked into one composite are
+each gated against the parts their own writer touches (the review case: a station stop and a
+lander stop docked together used to be planned against the station's tanks, pass, debit the
+origin in full and drop what the lander could not take). Residual: two stops on one vessel
+whose scopes differ but overlap (only when one stop falls back to the whole vessel or two
+recorded sets partly overlap) are probed separately. Both merge directions and the endpoint
+docked INTO a larger station resolve to the endpoint's own parts; an undocked endpoint is unchanged; a station
+assembled from earlier-docked modules stays whole. Fallback to the whole vessel, logged
+rate-limited as `Endpoint part scope undetermined: ... outcome=no-recorded-parts` (or
+`endpoint-not-aboard`): no recorded part set (a route that lost its window recordings) or none
+of the recorded parts aboard. Known consequence: a module docked to the station after the
+route was recorded is excluded too (conservative: cargo stays in the parts the route was proven
+against). Tests: `RouteEndpointPartScopeTests` (red against the whole-vessel stub first),
+`RouteScopedProbeSharingTests` (red against the pid-only cache key and grouping first), and
+the source gate `RouteEndpointScopeWiringGateTests` (every production probe / writer built with
+the endpoint's scope, every part loop guarded, gate probes shared per pid and scope; red under
+each of a dropped scope argument, a `null` scope, an unguarded loop, a pid-only share and a
+pickup resolution without its scope key).
+
 ---
 
-## LOGISTICS-DESIGN-DRIFT-2026-10-06: logistics design 10.6 and a RouteRevertSafety comment say a revert / load restores route state; it does not [FILED 2026-10-06 from the integration-coverage code read; branch `ccr-77f23eb2-dbqh6i`. OPEN, docs; waits on ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD]
+## ~~LOGISTICS-DESIGN-DRIFT-2026-10-06: logistics design 10.6 and a RouteRevertSafety comment say a revert / load restores route state; it does not~~ [FILED 2026-10-06 from the integration-coverage code read; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-route-state-on-load`, with ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD]
 
 - Design 10.6 says stock revert / load restores route state from the save; in-session loads
   do not reload routes (ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD).
@@ -1486,7 +1914,11 @@ part-subset selector), then lane IR-9.
 - Corrected on the same branch: 7.1 now records the shipped 500 m proximity radius (it said
   50 m), and 10.7 records that loop routes collapse missed cycles after a warp.
 
-Fix: rewrite 10.6 and the comment once the reconcile behaviour is decided.
+Fix (shipped): 10.6 now describes the reconcile every load back in time runs (who runs it, at
+which cutoff, the loop-position restore, the credit guard, the cold-load and no-load-discard
+residuals), and the `RouteRevertSafety` summary names every full-world load as the physical
+rollback and the Esc-menu Discard Re-fly as one of them; only the merge dialog's Re-Fly discard
+and the tree discard cores revert without a load.
 
 ---
 
@@ -3574,6 +4006,8 @@ Open residue:
    older rows, whose events were pruned after a commit, stay at 0 - nothing in the save proves
    their cost, and the facility cost table times today's difficulty multiplier is not proof.
    Pinned by `FacilityUpgradeCostTests`. Not yet re-flown (L1-upgrade-facility-career, KB-4).
+   Superseded 2026-10-07 by an owner ruling: those older rows are now priced from the cost
+   table when the funds seed is the career-start baseline (FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED).
 4. The gallery's `op=mock` refuses by COMPLEXITY mode only; it does not know the launcher is
    now Career-mode only, so a mock applied in a Science save would draw a window no Science
    player can open. No lane does that today. The same holds for `op=open window=career`
