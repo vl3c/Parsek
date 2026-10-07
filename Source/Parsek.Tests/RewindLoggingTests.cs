@@ -83,6 +83,39 @@ namespace Parsek.Tests
                 l.Contains(Math.Floor(expectedUT).ToString(CultureInfo.InvariantCulture)));
         }
 
+        // catches: the go-back capture losing the moment the rewind save was written. The
+        // pre-process winds the file's clock back by the lead time, so the only place the save's
+        // own UT (the moment its route copy describes, the go-back route cutoff) survives is its
+        // return value; a clamped windback and a save with no usable UT included.
+        [Fact]
+        public void PreProcessRewindSave_ReturnsTheSavesOwnUtBeforeTheWindback()
+        {
+            string sfs = WriteTempSave(
+                "FLIGHTSTATE\n{\n  UT = 1600.52\n  VESSEL\n  {\n    name = MyRocket\n  }\n}\n");
+            double own = RecordingStore.PreProcessRewindSave(
+                sfs, RecordingStore.RewindOwnerStrip.FromNames(new HashSet<string> { "MyRocket" }),
+                _ => null, RecordingStore.RewindToLaunchLeadTimeSeconds);
+            Assert.Equal(1600.52, own);
+            double fileUT = double.Parse(
+                ConfigNode.Load(sfs).GetNode("FLIGHTSTATE").GetValue("UT"), CultureInfo.InvariantCulture);
+            Assert.Equal(1600.52 - RecordingStore.RewindToLaunchLeadTimeSeconds, fileUT, 9);
+
+            string clamped = WriteTempSave("FLIGHTSTATE\n{\n  UT = 5\n}\n");
+            Assert.Equal(5.0, RecordingStore.PreProcessRewindSave(
+                clamped, RecordingStore.RewindOwnerStrip.FromNames(new HashSet<string> { "X" }), _ => null,
+                RecordingStore.RewindToLaunchLeadTimeSeconds));
+
+            string noUT = WriteTempSave("FLIGHTSTATE\n{\n  VESSEL\n  {\n    name = X\n  }\n}\n");
+            Assert.True(double.IsNaN(RecordingStore.PreProcessRewindSave(
+                noUT, RecordingStore.RewindOwnerStrip.FromNames(new HashSet<string> { "X" }), _ => null,
+                RecordingStore.RewindToLaunchLeadTimeSeconds)));
+
+            string noFlightState = WriteTempSave("GAME\n{\n  Mode = CAREER\n}\n");
+            Assert.True(double.IsNaN(RecordingStore.PreProcessRewindSave(
+                noFlightState, RecordingStore.RewindOwnerStrip.FromNames(new HashSet<string> { "X" }), _ => null,
+                RecordingStore.RewindToLaunchLeadTimeSeconds)));
+        }
+
         [Fact]
         public void PreProcessRewindSave_ClampsUT_AtZero()
         {

@@ -1612,13 +1612,35 @@ Mirror cases as on the in-session load: a changed clock definition keeps the -1 
 anchor still goes back), a route created after the cutoff goes dormant as before, a kept route the
 save does not carry keeps the reset, no save copy / no usable clock / a save newer than the cutoff
 keeps the reset and logs `loop position not restored ... reason=`, and a rewind with nothing on
-the route after the save leaves its loop position unchanged. Residual (go-back only): the rewind
+the route after the save leaves its loop position unchanged. ~~Residual (go-back only): the rewind
 save's route copy is as of the save's own UT, up to the 15 s lead-time windback after the cutoff,
 while route rows after the cutoff are retired; a crossing that fired inside that window keeps its
 saved cursor and is not charged again, and its `RouteRecoveryCredited` row (the credit it paid for
 the previous cycle) is retired too while the save no longer owes it, so that credit is lost as
-well (PR #2036 review; never a double charge or a double delivery). Changing the go-back's route
-cutoff to the save's own UT would close both; owner decision, not done here. Red cells (written against stubs, 20 red, then green):
+well (PR #2036 review; never a double charge or a double delivery).~~ **CLOSED** (owner ruling
+2026-10-07, branch `fix-route-goback-cutoff`, headless only, not flown): the go-back's route retire
+and store reconcile now key on the rewind save's own UT, the moment the restored route state comes
+from. `RecordingStore.PreProcessRewindSave` returns the save's UT before the windback,
+`ExecuteRewindSaveLoad` parks it with the route copy (`RouteLoadReconcile.ResolveRewindSaveOwnUT`;
+the parsed clock when nothing was wound back), and `HandleRewindOnLoad` calls
+`RouteLoadReconcile.ReconcileAtGoBackRewind`, whose cutoff (`ResolveGoBackRouteCutoffUT`) is that UT
+whenever the copy is in hand and the adjusted UT otherwise (no copy: nothing is restored, so the rows
+after the clock go and the reset re-fires each once). Only routes move: the career prune, recalc,
+tech and crew stay at the adjusted UT. Every consumer of the route cutoff follows it: the restore's
+skip test (save never newer than the cutoff), the retired-route-cargo capture and its per-snapshot
+watermark (`CaptureRetiredRouteCargo` is called from `RetireFutureRouteActionsAtRewind` with the
+retire's own cutoff), and the dormant split (a route created inside the window stays committed,
+as the save carries it). The Re-Fly start needed nothing: its loaded save is the RP quicksave, so its
+cutoff is already that save's UT. A route whose clock definition changed after the save keeps the
+reset; with the window's rows kept, a re-timed crossing landing inside the window can charge once
+more there (not measured, rare). Red cells: `RouteRewindLoopPositionTests.GoBack_CrossingInsideTheWindbackWindow_KeepsItsChargeAndItsCredit`
+(the charge and the credit row kept, the crossing not re-fired across 1445..1460, the next fires
+once), `ResolveGoBackRouteCutoffUT_IsTheSavesOwnUtWhenItsCopyIsInHand`,
+`ResolveRewindSaveOwnUT_PrefersThePreWindbackUt` and
+`RewindLoggingTests.PreProcessRewindSave_ReturnsTheSavesOwnUtBeforeTheWindback`; the
+`HandleRewindOnLoad` / `ExecuteRewindSaveLoad` source gates re-pinned to the new calls.
+`H58-route-rewind-to-launch` re-pinned to the predicted reading (see `autotest-status.md`), not
+re-flown. Red cells (written against stubs, 20 red, then green):
 `RouteRewindLoopPositionTests` (the double fire, no-op, anchor after a re-activation, partner
 cursor, changed clock, created-after / missing-from-save, no save copy, owed credit unpaid by the
 exit, each x {GoBack, ReFlyStart}; the parsed-save capture; source gates on `HandleRewindOnLoad`,

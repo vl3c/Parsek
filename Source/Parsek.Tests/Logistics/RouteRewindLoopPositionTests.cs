@@ -20,8 +20,11 @@ namespace Parsek.Tests.Logistics
     /// <see cref="RewindContext.RewindSaveRoutes"/>, consumed by <c>HandleRewindOnLoad</c>), the
     /// Re-Fly start from the RP quicksave's OnLoad node through
     /// <see cref="ReconciliationBundle.Restore(ReconciliationBundle, double, IReadOnlyList{Route}, double)"/>.
-    /// The go-back exit is driven in its <c>HandleRewindOnLoad</c> call shape (OnLoad is not
-    /// xUnit-drivable; the source gates below pin that shape and the two capture sites).
+    /// The go-back exit is driven through <see cref="RouteLoadReconcile.ReconcileAtGoBackRewind"/>,
+    /// the call <c>HandleRewindOnLoad</c> makes (OnLoad is not xUnit-drivable; the source gates
+    /// below pin that call and the two capture sites). Its route cutoff is the rewind save's own
+    /// UT, before the lead-time windback (owner ruling 2026-10-07), so the route rows kept and the
+    /// route state restored describe the same moment.
     /// </summary>
     [Collection("Sequential")]
     public class RouteRewindLoopPositionTests : IDisposable
@@ -169,36 +172,37 @@ namespace Parsek.Tests.Logistics
         }
 
         /// <summary>
-        /// Runs one rewind exit at <paramref name="cutoffUT"/> with the loaded save's route copy.
+        /// Runs one rewind exit with the loaded save's route copy, written at
+        /// <paramref name="loadedSaveUT"/>, into a world at <paramref name="cutoffUT"/> (the two are
+        /// equal in these cells: no lead-time windback; <see cref="RunGoBack"/> takes them apart).
         /// GoBack: the capture <c>ExecuteRewindSaveLoad</c> makes, then <c>HandleRewindOnLoad</c>'s
-        /// route block (retire, shared reconcile, restore from the carried copy). ReFlyStart: the
-        /// bundle captured before the load, restored at the post-load UT.
+        /// route call. ReFlyStart: the bundle captured before the load, restored at the post-load UT.
         /// </summary>
         private static void RunExit(
             Exit exit, double cutoffUT, IReadOnlyList<Route> savedRoutes, double loadedSaveUT)
         {
             if (exit == Exit.GoBack)
             {
-                RewindContext.SetRewindSaveRoutes(savedRoutes, loadedSaveUT);
-                Ledger.RetireFutureRouteActionsAtRewind(cutoffUT, out List<GameAction> kept);
-                RouteRewindClassifier.ReconcileStoreAtRewind(
-                    new List<Route>(RouteStore.CommittedRoutes),
-                    new List<Route>(RouteStore.DormantRoutes),
-                    cutoffUT,
-                    kept,
-                    logTag: "Rewind",
-                    logPrefix: "OnLoad go-back");
-                RouteLoadReconcile.RestoreLoopPositionAtRewindExit(
-                    RewindContext.RewindSaveRoutes,
-                    cutoffUT,
-                    RewindContext.RewindSaveClockUT,
-                    logTag: "Rewind",
-                    logPrefix: "OnLoad go-back");
+                RunGoBack(cutoffUT, savedRoutes, loadedSaveUT);
                 return;
             }
 
             ReconciliationBundle bundle = ReconciliationBundle.Capture();
             ReconciliationBundle.Restore(bundle, cutoffUT, savedRoutes, loadedSaveUT);
+        }
+
+        /// <summary>
+        /// The go-back rewind: the rewind save written at <paramref name="rewindSaveUT"/> (its
+        /// route copy parked by <c>ExecuteRewindSaveLoad</c>), the clock wound back to
+        /// <paramref name="rewindAdjustedUT"/>, then <c>HandleRewindOnLoad</c>'s route call.
+        /// Returns the route cutoff it used.
+        /// </summary>
+        private static double RunGoBack(
+            double rewindAdjustedUT, IReadOnlyList<Route> savedRoutes, double rewindSaveUT)
+        {
+            RewindContext.SetRewindSaveRoutes(savedRoutes, rewindSaveUT);
+            return RouteLoadReconcile.ReconcileAtGoBackRewind(
+                rewindAdjustedUT, RewindContext.RewindSaveRoutes, RewindContext.RewindSaveClockUT);
         }
 
         private static Route Committed(string id)
@@ -466,6 +470,111 @@ namespace Parsek.Tests.Logistics
             Assert.Empty(liveCredits);
         }
 
+        // ------------------------------------------------------------------
+        // The go-back lead-time window (owner ruling 2026-10-07)
+        // ------------------------------------------------------------------
+
+        // catches: the go-back's route cutoff and its route copy describing different moments.
+        // The rewind save was written at 1460, after the cycle-1 crossing (dock 1450, fired at
+        // 1452, which paid cycle-0's recovery credit and left cycle-1's owed), and the rewind
+        // winds the clock back 15 s to 1445. Keyed to the clock, the retire took cycle-1's charge
+        // and cycle-0's credit row while the saved cursor kept the crossing from firing again: a
+        // free run and a lost credit. Keyed to the save's own UT, both rows stay, the crossing
+        // does not fire again while the clock replays 1445..1460, and the next one fires once.
+        [Fact]
+        public void GoBack_CrossingInsideTheWindbackWindow_KeepsItsChargeAndItsCredit()
+        {
+            var route = BuildLoopRoute();
+            RouteStore.AddRoute(route);
+            RouteOrchestrator.LoopUnitResolverForTesting = (r, ut) => BuildUnit();
+            InstallFakeDeliveryApplier();
+            var env = new EligibleEnv();
+
+            RouteOrchestrator.Tick(1150.0, env);               // cycle-0 crossing
+            RouteOrchestrator.Tick(1452.0, env);               // cycle-1 crossing, inside the window
+            // The career half a non-career env skips: the cycle-1 crossing paid cycle-0's credit
+            // and armed cycle-1's.
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteRecoveryCredited, UT = 1452.0, RouteId = route.Id,
+                RouteCycleId = "cycle-0", RouteStopIndex = -1, Sequence = 0,
+            });
+            route.PendingRecoveryCreditCycleId = "cycle-1";
+            route.PendingRecoveryCreditDispatchUT = 1452.0;
+            Route savedAt1460 = SnapshotAsSaved(route);
+
+            RouteOrchestrator.Tick(1755.0, env);               // cycle-2, the abandoned future
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteRecoveryCredited, UT = 1755.0, RouteId = route.Id,
+                RouteCycleId = "cycle-1", RouteStopIndex = -1, Sequence = 0,
+            });
+            route.PendingRecoveryCreditCycleId = "cycle-2";
+            route.PendingRecoveryCreditDispatchUT = 1755.0;
+            Assert.Equal(3, DispatchRows().Count);
+
+            double cutoff = RunGoBack(1445.0, new[] { savedAt1460 }, 1460.0);
+            Route live = Committed(route.Id);
+
+            Assert.Equal(new[] { 1150.0, 1452.0 }, DispatchRows().Select(a => a.UT).ToArray());
+            var credit = Assert.Single(Ledger.Actions, a => a.Type == GameActionType.RouteRecoveryCredited);
+            Assert.Equal("cycle-0", credit.RouteCycleId);
+            Assert.Equal("cycle-1", live.PendingRecoveryCreditCycleId);
+            Assert.Equal(1452.0, live.PendingRecoveryCreditDispatchUT);
+            Assert.Equal(1, live.LastObservedLoopCycleIndex);
+            Assert.Equal(1460.0, cutoff);
+            Assert.Contains(logLines, l => l.Contains("[Rewind]")
+                && l.Contains("OnLoad: go-back route reconcile at cutoff=1460 ")
+                && l.Contains("cutoffSource=rewind-save-ut")
+                && l.Contains("rewindAdjustedUT=1445"));
+            Assert.Contains(logLines, l => l.Contains("OnLoad go-back: loop position restored from the loaded save")
+                && l.Contains("loopPositionsRestored=1") && l.Contains("creditsRestored=1"));
+
+            foreach (double ut in new[] { 1446.0, 1452.0, 1460.0 })
+                RouteOrchestrator.Tick(ut, env);               // the clock replays the window
+            Assert.Equal(2, DispatchRows().Count);
+
+            RouteOrchestrator.Tick(1760.0, env);               // the re-flown cycle-2 crossing
+            var rows = DispatchRows();
+            Assert.Equal(3, rows.Count);
+            Assert.Equal(1760.0, rows.Last().UT);
+            Assert.Equal(3, rows.Select(a => a.RouteCycleId).Distinct().Count());
+        }
+
+        // catches: the cutoff choice. The save's own UT whenever the copy it restores from is in
+        // hand; the wound-back clock otherwise (nothing is restored, the reset stands, and the
+        // rows after the clock must go so the reset fires each of them once). A save with no
+        // windback (its UT equals the clock) changes nothing.
+        [Theory]
+        [InlineData(1445.0, true, 1460.0, 1460.0, "rewind-save-ut")]
+        [InlineData(1200.0, true, 1200.0, 1200.0, "rewind-save-ut")]
+        [InlineData(1445.0, false, 1460.0, 1445.0, "rewind-adjusted-ut:no-save-copy")]
+        [InlineData(1445.0, true, double.NaN, 1445.0, "rewind-adjusted-ut:no-save-ut")]
+        [InlineData(1445.0, true, 1440.0, 1445.0, "rewind-adjusted-ut:save-before-clock")]
+        public void ResolveGoBackRouteCutoffUT_IsTheSavesOwnUtWhenItsCopyIsInHand(
+            double adjustedUT, bool haveCopy, double saveUT, double expectedCutoff, string expectedSource)
+        {
+            IReadOnlyList<Route> copy = haveCopy ? new List<Route>() : null;
+            double cutoff = RouteLoadReconcile.ResolveGoBackRouteCutoffUT(
+                adjustedUT, copy, saveUT, out string source);
+            Assert.Equal(expectedCutoff, cutoff);
+            Assert.Equal(expectedSource, source);
+        }
+
+        // catches: the capture parking the wound-back clock, which says nothing about when the
+        // route copy was written. The pre-windback UT PreProcessRewindSave read wins; a load with
+        // no windback falls back to the parsed clock, which is then the save's own.
+        [Theory]
+        [InlineData(1460.0, 1445.0, 1460.0)]
+        [InlineData(5.0, 0.0, 5.0)]
+        [InlineData(double.NaN, 1445.0, 1445.0)]
+        [InlineData(0.0, 0.0, 0.0)]
+        public void ResolveRewindSaveOwnUT_PrefersThePreWindbackUt(
+            double preWindbackUT, double parsedClockUT, double expected)
+        {
+            Assert.Equal(expected, RouteLoadReconcile.ResolveRewindSaveOwnUT(preWindbackUT, parsedClockUT));
+        }
+
         // catches: the Re-Fly start's real entry dropping the node on the floor. Drives
         // RewindInvoker.ConsumePostLoad with the RP quicksave's ParsekScenario node (written by
         // the same RouteStore.SaveRoutesTo OnSave uses) and the bundle captured before the load;
@@ -626,33 +735,32 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
-        public void HandleRewindOnLoad_RestoresTheLoopPositionAfterTheReconcileBeforeTheCareerRestore()
+        public void HandleRewindOnLoad_RunsTheGoBackRouteReconcileBeforeTheCareerRestore()
         {
             string body = Between(ReadSource("ParsekScenario.cs"),
                 "HandleRewindOnLoad:entry", "HandleRewindOnLoad:exit");
 
-            int reconcileIdx = body.IndexOf(
-                "Logistics.RouteRewindClassifier.ReconcileStoreAtRewind(", StringComparison.Ordinal);
-            int restoreIdx = body.IndexOf(
-                "Logistics.RouteLoadReconcile.RestoreLoopPositionAtRewindExit(", StringComparison.Ordinal);
+            int routeIdx = body.IndexOf(
+                "Logistics.RouteLoadReconcile.ReconcileAtGoBackRewind(", StringComparison.Ordinal);
             int pruneIdx = body.IndexOf("GameStateStore.PruneBaselinesAfterUT(", StringComparison.Ordinal);
             int endIdx = body.IndexOf("RewindContext.EndRewind()", StringComparison.Ordinal);
 
-            Assert.True(reconcileIdx >= 0, "the shared reconcile is missing from HandleRewindOnLoad");
-            Assert.True(restoreIdx > reconcileIdx,
-                "HandleRewindOnLoad must restore the loop position AFTER the shared reconcile (which resets it)");
-            Assert.True(pruneIdx > restoreIdx,
-                "the loop-position restore must run BEFORE the career-state cutoff walk");
-            Assert.True(endIdx > restoreIdx, "the carried rewind-save routes are cleared by EndRewind after use");
-            string call = body.Substring(restoreIdx, pruneIdx - restoreIdx);
-            Assert.Contains("RewindContext.RewindSaveRoutes", call);
-            Assert.Contains("RewindContext.RewindSaveClockUT", call);
-            // The exact arguments: a different cutoff or save clock turns the restore off in
-            // production (save-newer-than-cutoff) while the copied exit in the cells stays green.
-            string flatCall = System.Text.RegularExpressions.Regex.Replace(call, @"\s+", " ");
-            Assert.Contains("Logistics.RouteLoadReconcile.RestoreLoopPositionAtRewindExit( "
-                + "RewindContext.RewindSaveRoutes, routeRewindCutoffUT, RewindContext.RewindSaveClockUT,",
-                flatCall);
+            Assert.True(routeIdx >= 0, "the go-back route reconcile is missing from HandleRewindOnLoad");
+            Assert.True(pruneIdx > routeIdx,
+                "the route reconcile (retire, reconcile, loop-position restore) must run BEFORE the career-state cutoff walk");
+            Assert.True(endIdx > routeIdx, "the carried rewind-save routes are cleared by EndRewind after use");
+            // The exact arguments: the wound-back clock, the carried copy and the save's own UT.
+            // The route cutoff is derived from them inside the helper; the career walk stays on
+            // the clock.
+            string flat = System.Text.RegularExpressions.Regex.Replace(body, @"\s+", " ");
+            Assert.Contains("Logistics.RouteLoadReconcile.ReconcileAtGoBackRewind( "
+                + "RewindContext.RewindAdjustedUT, RewindContext.RewindSaveRoutes, RewindContext.RewindSaveClockUT);",
+                flat);
+            Assert.Contains("GameStateStore.PruneBaselinesAfterUT(RewindContext.RewindAdjustedUT);", flat);
+            Assert.Contains("LedgerOrchestrator.RecalculateAndPatch( RewindContext.RewindAdjustedUT,", flat);
+            // One owner: no second route retire or restore beside the helper.
+            Assert.DoesNotContain("RetireFutureRouteActionsAtRewind(", body);
+            Assert.DoesNotContain("RestoreLoopPositionAtRewindExit(", body);
         }
 
         [Fact]
@@ -671,11 +779,14 @@ namespace Parsek.Tests.Logistics
                 "the rewind save's routes must be read from the parsed game after LoadGame");
             Assert.True(sceneIdx > captureIdx,
                 "and before the Space Center load replaces the game with persistent.sfs");
-            // The capture clock is the parsed save's own flight-state UT, the restore's skip test
-            // compares against it.
+            // The capture UT is the save's own, read by the pre-process before it wound the clock
+            // back (the parsed clock only when nothing was wound back): the go-back route cutoff
+            // and the restore's skip test read it.
             string flat = System.Text.RegularExpressions.Regex.Replace(body, @"\s+", " ");
+            Assert.Contains("rewindSaveOwnUT = PreProcessRewindSave(", flat);
             Assert.Contains("Logistics.RouteLoadReconcile.CaptureRewindSaveRoutes(game.scenarios, "
-                + "game.flightState.universalTime, messageLabel);", flat);
+                + "Logistics.RouteLoadReconcile.ResolveRewindSaveOwnUT( rewindSaveOwnUT, game.flightState.universalTime), "
+                + "messageLabel);", flat);
         }
 
         [Fact]

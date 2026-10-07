@@ -3750,6 +3750,13 @@ _(unreleased - entries accumulate here per commit)_
   whose schedule you changed since then starts its count again from the next run, as before.
   Covered by xUnit; not yet checked in a test flight.
 
+- **A supply route run made just before a rewind to launch is paid for once and keeps its
+  recovery credit.** A rewind to launch puts the clock back 15 seconds before the launch, and a
+  route run in those 15 seconds used to have its charge refunded while the route still counted it
+  as done, so it ran for free, and the recovery credit it paid for the run before it was lost.
+  Routes now go back to exactly the moment the rewind's save was made, so that run keeps its
+  charge and the credit and is not repeated. Covered by xUnit; not yet checked in a test flight.
+
 - **A crewed station hidden after a rewind no longer has its crew killed.** When a committed
   mission docks to a station later, the station is hidden from the rewind until that mission's
   end. If the station was far from your vessel when you entered flight, hiding it killed

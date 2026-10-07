@@ -763,10 +763,12 @@ namespace Parsek
                     return Today(LoadReconcileAction.Save, "RouteStore.LoadRoutesFrom + RevalidateSources on the cold path");
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.ReconcileAtCutoff,
-                        "ParsekScenario.HandleRewindOnLoad -> Ledger.RetireFutureRouteActionsAtRewind + "
-                        + "RouteRewindClassifier.ReconcileStoreAtRewind at RewindAdjustedUT, then each kept route "
-                        + "takes its loop position back from the rewind save's own route copy (read from the parsed "
-                        + "save in RecordingStore.ExecuteRewindSaveLoad; the OnLoad node is persistent.sfs)");
+                        "ParsekScenario.HandleRewindOnLoad -> RouteLoadReconcile.ReconcileAtGoBackRewind: "
+                        + "Ledger.RetireFutureRouteActionsAtRewind + RouteRewindClassifier.ReconcileStoreAtRewind at "
+                        + "the rewind save's own UT (before the lead-time windback; RewindAdjustedUT when no route copy "
+                        + "was read), then each kept route takes its loop position back from that save's route copy "
+                        + "(read from the parsed save in RecordingStore.ExecuteRewindSaveLoad; the OnLoad node is "
+                        + "persistent.sfs)");
                 case LoadKind.ReFlyStart:
                     return Today(LoadReconcileAction.Bundle,
                         BundleRestores + " and reconciles routes at the loaded UT (RouteRewindClassifier.ReconcileStoreAtRewind), "

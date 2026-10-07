@@ -5002,55 +5002,19 @@ namespace Parsek
             ParsekLog.Info("Rewind",
                 "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
 
-            // Route ledger + store reconciliation at the go-back cutoff. The
-            // go-back path never runs Ledger.PruneOrphanActionsAfterUT (that is
-            // the revert branch), so without this the abandoned-future
-            // free-standing route rows survive the rewind: the UT-blind dispatch
-            // dedup then swallows re-played cycles ("funds spent, no goods"),
-            // kept routes carry abandoned-future loop cursors, and routes
-            // created after the rewind target stay committed and firing before
-            // their own creation point. Mirror the Re-Fly seam
-            // (ReconciliationBundle.Restore(cutoff)): retire route rows after
-            // the cutoff in place, then run the SHARED store reconcile
-            // (RouteRewindClassifier.ReconcileStoreAtRewind: classify to
-            // dormant + hygiene, reset kept cursors, derive pause status from
-            // kept rows, clear armed one-shots, reconstruct counters, install).
-            // Cutoff = RewindAdjustedUT, the UT the loaded save actually
-            // reverted the world to (the same cutoff the baseline prune +
-            // recalc below use). Runs BEFORE the recalc so the recalc never
-            // sees retired rows; emits NO Ledger.AddAction (OnLoad-safe).
-            // RouteStore is preserved in memory across in-session loads, so
-            // the live lists ARE the pre-rewind capture; snapshots are passed
-            // because InstallRoutesAtRewind wholesale-replaces the lists.
-            double routeRewindCutoffUT = RewindContext.RewindAdjustedUT;
-            int retiredRouteRows = Ledger.RetireFutureRouteActionsAtRewind(
-                routeRewindCutoffUT, out List<GameAction> keptLedgerActions);
-            ParsekLog.Info("Rewind",
-                "OnLoad: go-back route reconcile at cutoff=" +
-                routeRewindCutoffUT.ToString("R", CultureInfo.InvariantCulture) +
-                $" retiredRouteRows={retiredRouteRows} " +
-                $"committedRoutes={Logistics.RouteStore.CommittedRoutes.Count} " +
-                $"dormantRoutes={Logistics.RouteStore.DormantRoutes.Count}");
-            Logistics.RouteRewindClassifier.ReconcileStoreAtRewind(
-                new List<Logistics.Route>(Logistics.RouteStore.CommittedRoutes),
-                new List<Logistics.Route>(Logistics.RouteStore.DormantRoutes),
-                routeRewindCutoffUT,
-                keptLedgerActions,
-                logTag: "Rewind",
-                logPrefix: "OnLoad go-back");
-            // The reconcile reset every kept loop cursor to -1, which would re-fire the crossing
-            // that most recently passed before the cutoff under a fresh cycle id. Each kept route
-            // takes its loop position back from the rewind save's own route copy, read from the
-            // parsed save in ExecuteRewindSaveLoad (this OnLoad node is persistent.sfs, not the
-            // rewind save). That copy was written at the save's own UT, up to the lead-time
-            // windback after this cutoff: a crossing inside that window keeps its saved cursor
-            // while its retired row is not charged again. Sets Route fields only.
-            Logistics.RouteLoadReconcile.RestoreLoopPositionAtRewindExit(
+            // Route ledger + store reconciliation, the Re-Fly seam's mirror
+            // (RouteLoadReconcile.ReconcileAtGoBackRewind: retire route rows after the cutoff in
+            // place, the shared RouteRewindClassifier.ReconcileStoreAtRewind, then each kept
+            // route's loop position back from the rewind save's own route copy, which this
+            // OnLoad node is not: it is persistent.sfs, so ExecuteRewindSaveLoad read the copy
+            // from the parsed save). The route cutoff is that save's own UT, before the lead-time
+            // windback, so the rows kept and the route state restored describe the same moment;
+            // the career prune and recalc below stay at RewindAdjustedUT. Runs BEFORE the recalc
+            // so the recalc never sees retired rows; emits NO Ledger.AddAction (OnLoad-safe).
+            Logistics.RouteLoadReconcile.ReconcileAtGoBackRewind(
+                RewindContext.RewindAdjustedUT,
                 RewindContext.RewindSaveRoutes,
-                routeRewindCutoffUT,
-                RewindContext.RewindSaveClockUT,
-                logTag: "Rewind",
-                logPrefix: "OnLoad go-back");
+                RewindContext.RewindSaveClockUT);
 
             // Restore career state to the rewind target. The cutoff walk keeps
             // funds/science/tech at the adjusted UT; LedgerOrchestrator then
