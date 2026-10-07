@@ -4898,9 +4898,9 @@ namespace Parsek
                 currentUT,
                 logContext,
                 out materializationRejectionReason);
-            // This overload copies the stored snapshot, so it is where a chain tip's spawn copy
-            // drops the route cargo a rewind refunded. The prepared-snapshot overloads receive
-            // a copy their caller already adjusted.
+            // This overload copies the stored snapshot, so it is where an end-of-recording spawn
+            // copy (a chain tip's, or a route-fed leaf's) drops the route cargo a rewind refunded.
+            // The prepared-snapshot overloads receive a copy their caller already adjusted.
             ChainTipRouteCargo.ApplyToSpawnCopy(snapshot, rec, resolvedContext);
             return snapshot;
         }

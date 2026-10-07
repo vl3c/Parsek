@@ -1458,11 +1458,15 @@ the ones a tip snapshot carries:
   route, stop and row type, one to one, to the stashed crossing nearest in UT whose window (its
   cutoff, the tag's capture] holds it.
 - Not covered: stored-part inventory (delivery rows carry no inventory manifest; a pickup's
-  stored parts are not put back); a tail-trimmed tip, whose end moved earlier than the snapshot
-  capture, keeps the crossings of its trimmed tail (TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT); and a cold
+  stored parts are not put back); ~~a tail-trimmed tip, whose end moved earlier than the snapshot
+  capture, keeps the crossings of its trimmed tail (TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT)~~ (fixed
+  2026-10-07 by END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO: the trim notes the snapshot's real
+  capture, and every capture bound reads it); and a cold
   load into an older save lowers no watermark. That load keeps the abandoned future's route rows
   (COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE), so lowering the watermark there would
   drop rows a snapshot does hold; it waits for that entry's ruling.
+- Extended 2026-10-07 to every end-of-recording spawn whose own vessel is the route endpoint
+  (END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO, below).
 
 Tests: `ChainTipRouteCargoTests` (first round red first: 23 of 26 cells failed against stubs;
 review round red first: the switch-continuation, Re-Fly fork, counter-rebuild replay and
@@ -1474,6 +1478,76 @@ and own parts first; snapshot identity through an optimizer split and against an
 replacement; the watermark; both retire sites; the ledger-file round trip; the shared spawn
 materialization; a source gate over the three spawn-copy sites). Live proof: lane RC-2 (not
 flown).
+
+---
+
+## ~~END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO: an ordinary route-fed leaf respawns after a rewind holding refunded route cargo, and a trimmed tail delivers it twice~~ [FILED and RULED 2026-10-07 (owner ruling: extend CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO to every end-of-recording spawn whose vessel is a route endpoint, so trimming stays). FIXED 2026-10-07, branch `chain-tip-cargo-all-spawns`; not flown]
+
+Shape: a recording of the route-fed vessel itself (for example a switch continuation of a
+station flown on from the Tracking Station while a route delivers into it) is an ordinary leaf,
+not a ghost chain tip, so PR #2035 left its spawn copy alone. Its commit-time snapshot holds the
+deliveries made while it recorded; a rewind to before them refunds them and the replayed
+crossings are blocked while the vessel is a ghost, so it respawned holding cargo nobody paid
+for. With its tail trimmed (`RecordingOptimizer.TrimBoringTail` moves the end and the spawn
+earlier, keeps the snapshot) it respawned early holding the trimmed tail's deliveries and the
+route then delivered them again, live: twice. The same trimmed-tail double hit a chain tip,
+whose capture bound was the trimmed end.
+
+Fix (generalizes #2035, one shared hook):
+
+- **Identity of a leaf.** `ChainTipRouteCargo.BuildLeafIdentity`: the snapshot the recording
+  spawns from, its own recorded vessel named POSITIVELY (`IsPositiveEndpointMatch`: pid equal,
+  then the launch guids decide when both are known, else both root part flightIDs must be known
+  and equal; never a bare pid). Rows carry the endpoint's root part flightID now
+  (`RetiredRouteCargoRow.EndpointRootPartUId`, from `RouteEndpoint.RootPartUId`, sparse
+  `endpointRootUid`). Chain tips keep their pid-plus-not-conclusively-different rule.
+- **Capture.** Every retire also tags the rows to every committed final spawn segment
+  (`GhostPlaybackLogic.IsFinalSpawnSegment`, not debris, spawnable or no terminal) whose vessel
+  is positively a stop or non-KSC origin of a committed or dormant route
+  (`BuildLeafIdentities`), with the same capture / watermark / fingerprint rules; a recording
+  already a chain tip is skipped, so it keeps one identity and one tag.
+- **Apply.** `ApplyToSpawnCopy` builds ONE identity per spawn (`BuildSpawnIdentity`: the chain
+  tip's, else the leaf's), at the same three copy sites, which already carried every
+  end-of-recording spawn: the shared `VesselSpawner.BuildValidatedRespawnSnapshot(Recording, ...)`
+  (flight leaf spawn, Tracking Station hand-off through `SpawnOrRecoverIfTooClose`, the deferred
+  spawn queue, Real Spawn Control's warp-to-spawn, `RespawnValidatedRecording`), `VesselGhoster`'s
+  chain tip copy and the Space Center end spawn's working copy. A new source gate pins every
+  production `RespawnVessel(` / `SpawnAtPosition(` caller per file, so a new spawn path reds the
+  suite. The `[ChainTipCargo]` line now names `kind=chain-tip|leaf` and `captureUT=`.
+- **Trimmed tails.** The trim pass (`RecordingStore.TrimBoringTailsForOptimization`, the only
+  production caller) notes the recording's pre-trim end as its snapshot's capture
+  (`NoteTrimmedSnapshotCapture` -> `RetiredRouteCargoStore.NoteSnapshotCapture`, keyed by tree and
+  snapshot fingerprint, persisted as `CAPTURE` entries of the ledger file's `RETIRED_ROUTE_CARGO`
+  node, only while some route exists), and every capture bound reads it (`SnapshotCaptureUT`, the
+  later of the end and the note). A crossing in the trimmed tail is therefore stashed and taken
+  out of the early spawn copy; the route replays it live after the spawn, paid once (a spawn that
+  comes after the replay leaves it in, the replay rule).
+
+Residuals: a recording trimmed by an earlier build has no note (its trimmed end stays its
+capture); a leaf whose vessel neither side knows by launch guid or root part is never adjusted;
+whether the replayed deliveries reach the respawned vessel depends on the route resolving its
+new identity (a blocked replay is consistent: neither paid nor delivered). From the PR #2045
+review, each a missed subtraction (today's pre-fix behaviour), not a wrong one: when both launch
+guids are known they decide even if the root parts match, and `Part.Undock` gives the half it
+restores a new `Vessel.id` while its root flightID survives, so an endpoint stamped before a dock
+misses a later recording of that half (only while the half keeps its pid; letting equal roots
+decide would close it); and after a leaf respawns with a new identity and a surface endpoint
+moves to it (the 500 m transfer), a deeper second rewind attributes the older timeline's rows to
+the new vessel, so the original recording's leaf misses them. Same design as #2035: rows are
+attributed to the endpoint at retire time, so a trimmed early spawn that comes before the replay
+of a crossing into a vessel the route later transferred away from can lose cargo it never
+received (narrow). Untested branches the review's mutants found: the chain-tip exclusion in
+`BuildLeafIdentities` is redundant with one identity per spawn, and `HasCaptureAfter` in
+`MayBeCapturedAfter` (a cutoff inside a trimmed tail) has no red cell.
+
+Tests (`ChainTipRouteCargoTests`, red first: 11 cells failed against stubs - the ordinary leaf,
+the trimmed leaf end to end through `RunOptimizationPass`, the trimmed chain tip, the root-part
+identity, the leaf second rewind, the leaf row addressing, the one-tag chain tip (on its new
+`kind=` token) and four rows of the positive-match truth table; the non-endpoint, other-launch,
+bare-pid and replay leaf cells, the capture-registry round trip and the materializer source gate
+are guards). Mutations checked:
+ignoring the noted capture or removing the trim hook reds both trimmed cells, skipping the leaf
+watermark reds the leaf second-rewind cell, a bare-pid positive rule reds the truth table.
 
 ---
 
@@ -1687,9 +1761,11 @@ touches the snapshot; `FindLastInterestingUT` (`:75`) ignores resources and the 
 orbit / surface shape only (`:156-192`). Resources that changed in the trimmed tail (route
 deliveries, crossfeed, a converter) arrive early, and with CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO
 the crossings between the trimmed SpawnUT and commit are delivered twice. (That entry is fixed
-2026-10-07 for crossings up to the tip's end UT, the only capture time a recording keeps; a
-trimmed tail moves that end earlier, so its crossings are still in the spawned tip and are
-delivered again after it.)
+2026-10-07 for crossings up to the tip's end UT; ~~a trimmed tail moves that end earlier, so its
+crossings are still in the spawned tip and are delivered again after it~~ - fixed 2026-10-07 by
+END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO: the trim notes the pre-trim end as the snapshot's
+capture, so those crossings are taken out of the early spawn copy and the live replay delivers
+them once, for chain tips and ordinary leaves alike.)
 
 Fix: RULED 2026-10-06 - keep a tail whose resources change (it is not boring):
 `FindLastInterestingUT` treats a resource change as interesting. Red test: a `RecordingOptimizer`
@@ -1749,18 +1825,23 @@ and `..._ConverterOnlyEverOff_NotAWitness`.
 
 ---
 
-## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness. Background-leg item CLOSED 2026-10-07, branch `release-rulings`, by the converter-event witness]
+## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness. Background-leg item CLOSED 2026-10-07, branch `release-rulings`, by the converter-event witness. Supply-route item CLOSED 2026-10-07, branch `chain-tip-cargo-all-spawns`, by END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (owner ruling: trimming stays)]
 
 TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT keeps a tail when a closed `RouteHarvestWindow` measured a change
 or a converter is still running at the recording end (the last converter part event of some part is
 `ConverterActivated`). Two sources leave no such witness, so their tails still trim and their
 resources still arrive early with the commit-time snapshot:
 
-- a supply route delivering into (or debiting) the recorded vessel during the tail: the route
+- ~~a supply route delivering into (or debiting) the recorded vessel during the tail: the route
   writers (`Logistics/LiveDeliveryWriters.cs`, `LiveOriginDebitWriters.cs`) touch no recording;
   the ledger holds the route rows (`RouteCargoDelivered` / `RouteCargoPickedUp` / `RouteCargoDebited`)
   with their UTs, the endpoint resolving through the route's stop, but the optimizer pass reads no
-  ledger;
+  ledger~~ - CLOSED 2026-10-07 (owner ruling: the tail still trims; a rewind's spawn copy drops
+  the refunded crossings of the whole snapshot, the trimmed tail included, and the route
+  replays them live after the early spawn, END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO). A
+  snapshot is spawned only after the timeline went back, and every such load retires the route
+  rows after its cutoff, except a cold load into an older save
+  (COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE);
 - an in-vessel transfer (crossfeed, a docked pair's fuel transfer): vessel totals do not move, so no
   manifest sees it, but the per-part split in the snapshot still arrives early.
 
@@ -1782,10 +1863,10 @@ that came off, not the converter's, so that parent's tail is never trimmed (a mi
 early resources; no recording in the fixture, dev-save or collected-log corpus ends with a
 converter running). A destroyed part is final (fixed in the same PR).
 
-Fix options: (1) give the optimizer pass the ledger's route rows whose endpoint is the recording's
-vessel and treat a row inside the tail as interesting; (2) accept the in-vessel case; (3) for the
-residues, emit a converter seed on a promotion into a fresh branch (it would also start the ghost's
-running loop there).
+Fix options: ~~(1) give the optimizer pass the ledger's route rows whose endpoint is the recording's
+vessel and treat a row inside the tail as interesting~~ (not taken, see the closed route item);
+(2) accept the in-vessel case; (3) for the residues, emit a converter seed on a promotion into a
+fresh branch (it would also start the ghost's running loop there).
 
 ---
 

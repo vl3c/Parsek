@@ -3878,6 +3878,22 @@ _(unreleased - entries accumulate here per commit)_
   alone, and a second rewind does not take the same delivery out twice. The recorded
   mission itself is not changed. Covered by xUnit; not yet checked in a test flight.
 
+- **After a rewind, any vessel a supply route delivered into while it was being recorded comes
+  back without the refunded cargo, and a delivery is no longer made twice when the recording's
+  quiet end was shortened.** The fix above now covers every vessel that reappears from its own
+  recorded end state, not only a station a later mission docked to: a station you flew on from
+  the Tracking Station, for example, while a route kept delivering into it. A rewind to before
+  those deliveries refunded them, yet the station still reappeared holding them. And because
+  Parsek shortens a recording's uneventful ending so the vessel reappears sooner, the route
+  then delivered the cargo of that shortened stretch a second time after the vessel was back.
+  The vessel now reappears without the refunded deliveries (and with cargo the route had taken
+  from it given back), the shortened stretch included, and the route delivers those again
+  live, each paid once. This also applies to the docked station of the fix above when its
+  recording's ending was shortened. Only a vessel whose launch is known to be the route's is
+  matched (another launch of the same craft is left alone), a delivery the route already made
+  again after the rewind stays, and the recording itself is not changed. Covered by xUnit; not
+  yet checked in a test flight.
+
 - **After a quickload, a booster that survives the replayed flight is recorded again.** If you
   quicksaved, flew on (a booster crashed with its crew, a lander touched down) and then
   quickloaded back, the other vessels of that flight kept the ending they had reached after the

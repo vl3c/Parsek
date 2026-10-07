@@ -375,6 +375,7 @@ namespace Parsek
             Dictionary<string, int> skipCounts = null;
             for (int i = 0; i < recordings.Count; i++)
             {
+                double endBeforeTrim = recordings[i] != null ? recordings[i].EndUT : double.NaN;
                 bool trimmed = RecordingOptimizer.TrimBoringTailInternal(
                     recordings[i],
                     recordings,
@@ -385,6 +386,9 @@ namespace Parsek
                 {
                     recordings[i].FilesDirty = true;
                     trimCount++;
+                    // The trim keeps the snapshot captured at the old end: note that moment,
+                    // so a spawn from it also takes out the route cargo of the trimmed tail.
+                    ChainTipRouteCargo.NoteTrimmedSnapshotCapture(recordings[i], endBeforeTrim);
                 }
                 else if (!string.IsNullOrEmpty(skipCategory))
                 {
