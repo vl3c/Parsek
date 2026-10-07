@@ -46,8 +46,30 @@ walk goes on to the last segment of its optimizer chain
 from there, logging `WalkToLeaf: step N: rec=... -> segment=... rule=optimizer-chain`; tip, spawn
 UT and termination now read that segment. `IsTreeFullyTerminated` no longer treats an earlier
 chain segment as a leaf. An unsplit tip is unchanged. Cells: `GhostChainWalkerOptimizerSegmentTests`
-(red before the fix). PR #2035 files the same header as OPEN and its route-cargo identity also
-looks through earlier segments; reconcile the two entries at merge (this one is the fix).
+(red before the fix; the merged-recording cell, where the undock branch point sits on the cut
+merged recording's last segment, is the one that reds if the walk stops after the hop). PR
+#2035 files the same header as OPEN and its route-cargo identity also looks through earlier
+segments; reconcile the two entries at merge (this one is the fix).
+
+---
+
+## CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP: the ghost-chain walk can land on a Re-Fly TIP the fork supersedes, which suppresses the fork's spawn [FILED 2026-10-07 from the PR #2037 review. OPEN, product, narrow; not a release blocker]
+
+`GhostChainWalker` reads the committed trees as they are, supersede relations ignored.
+`RecordingTreeSplitter` gives a Re-Fly's HEAD and TIP the same `ChainId` (TIP at HEAD's index +
+1), so since the CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT fix the walk hops HEAD -> TIP, and
+the fork that supersedes TIP is not on that path. Reviewer's probe: HEAD index 0, TIP index 1
+ending at 2000, the fork carrying the claimed pid ending at 1500. Before the fix the tip was
+HEAD (spawn UT 1200) and the fork was not an intermediate link; after it the tip is TIP and
+`GhostChainWalker.FindIntermediateLinkChain(fork)` is non-null (same pid, the chain's spawn UT
+after the fork's end), so the fork's spawn is suppressed on the Tracking Station path (it reads
+the unfiltered chains) and in flight while TIP's end is still ahead. Narrow: it needs a claimed
+vessel that stayed the dominant one through its dock and was then Re-Flown on its own
+continuation slot. The same class already existed for an unsplit superseded child (the walk
+landed on the superseded child directly). Fix direction: route the walker's chain hop, and its
+leaf, through the supersede-aware walk (`EffectiveState.EffectiveTipRecordingId`), with a cell
+that builds HEAD / TIP / fork plus the supersede relation and checks the tip is the fork and the
+fork spawns.
 
 ---
 

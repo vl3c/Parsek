@@ -189,6 +189,69 @@ namespace Parsek.Tests
             return tree;
         }
 
+        /// <summary>
+        /// The same dock / undock, but the MERGED recording M is the one the optimizer cuts:
+        /// docked, the pair flies exo [1060,1260] -> atmo [1260,1460] and undocks at 1460, so
+        /// the undock branch point moves to M's last segment. The station half [1460,1660] is
+        /// not cut.
+        /// </summary>
+        private static RecordingTree BuildMergedSplitAndCommit(bool transportDominant, out Recording merged)
+        {
+            uint mergedPid = transportDominant ? TransportPid : StationPid;
+            uint stationHalfPid = transportDominant ? DepartingPid : StationPid;
+            uint transportHalfPid = transportDominant ? TransportPid : DepartingPid;
+
+            Recording f = Plain("F", TransportPid, 1000, 1060, childBp: "bp-dock");
+            f.VesselSnapshot = Snapshot(TransportParts);
+
+            merged = new Recording
+            {
+                RecordingId = "M",
+                VesselName = "Docked pair",
+                TreeId = TreeId,
+                VesselPersistentId = mergedPid,
+                ParentBranchPointId = "bp-dock",
+                ChildBranchPointId = "bp-undock",
+                VesselSnapshot = Snapshot(TransportParts.Concat(StationParts).ToArray()),
+            };
+            AddSection(merged, SegmentEnvironment.ExoBallistic, 1060, 1260, 90000, 70000);
+            AddSection(merged, SegmentEnvironment.Atmospheric, 1260, 1460, 69000, 30000);
+            merged.Points.Add(new TrajectoryPoint { ut = 1460, altitude = 30000, bodyName = "Kerbin" });
+
+            Recording fHalf = Plain("F-half", transportHalfPid, 1460, 1560,
+                parentBp: "bp-undock", terminal: TerminalState.Orbiting);
+            fHalf.VesselSnapshot = Snapshot(TransportParts);
+            Recording cHalf = Plain("C-half", stationHalfPid, 1460, 1660,
+                parentBp: "bp-undock", terminal: TerminalState.Orbiting);
+            cHalf.VesselSnapshot = Snapshot(StationParts);
+
+            var tree = new RecordingTree { Id = TreeId, TreeName = "Merged split", RootRecordingId = "F" };
+            tree.AddOrReplaceRecording(f);
+            tree.AddOrReplaceRecording(merged);
+            tree.AddOrReplaceRecording(fHalf);
+            tree.AddOrReplaceRecording(cHalf);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-dock", Type = BranchPointType.Dock, UT = 1060,
+                TargetVesselPersistentId = StationPid,
+                ParentRecordingIds = new List<string> { "F" },
+                ChildRecordingIds = new List<string> { "M" },
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-undock", Type = BranchPointType.Undock, UT = 1460,
+                ParentRecordingIds = new List<string> { "M" },
+                ChildRecordingIds = new List<string> { "F-half", "C-half" },
+            });
+
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            RecordingStore.AddRecordingWithTreeForTesting(f);
+            RecordingStore.AddRecordingWithTreeForTesting(merged);
+            RecordingStore.AddRecordingWithTreeForTesting(fHalf);
+            RecordingStore.AddRecordingWithTreeForTesting(cHalf);
+            return tree;
+        }
+
         private static List<Recording> Segments(RecordingTree tree, Recording head)
         {
             return tree.Recordings.Values
@@ -288,6 +351,39 @@ namespace Parsek.Tests
             Assert.False(chains[StationPid].IsTerminated);
             Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
                 && l.Contains("continued past") && l.Contains("rec=C-half"));
+        }
+
+        // catches: a walk that stops on the segment it hopped to. The merged recording between
+        // the dock and the undock is cut, so the undock branch point sits on its LAST segment:
+        // the walk must hop there and then carry on through the undock to the station half.
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void OptimizerSplitMergedRecording_WalkHopsThenContinuesThroughTheUndock(bool transportDominant)
+        {
+            RecordingTree tree = BuildMergedSplitAndCommit(transportDominant, out Recording merged);
+
+            RecordingStore.RunOptimizationPass();
+
+            List<Recording> segs = Segments(tree, merged);
+            Assert.Equal(2, segs.Count);
+            Assert.Same(merged, segs[0]);
+            Assert.Null(segs[0].ChildBranchPointId);
+            Assert.Equal("bp-undock", segs[1].ChildBranchPointId);
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, 900);
+
+            Assert.True(chains.ContainsKey(StationPid));
+            Assert.Equal("C-half", chains[StationPid].TipRecordingId);
+            Assert.Equal(1660.0, chains[StationPid].SpawnUT);
+            Assert.False(chains[StationPid].IsTerminated);
+            Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                && l.Contains("WalkToLeaf: step") && l.Contains("rec=M")
+                && l.Contains("segment=" + segs[1].RecordingId)
+                && l.Contains("rule=" + GhostChainWalker.RuleOptimizerChainSegment));
+            Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                && l.Contains("WalkToLeaf: step") && l.Contains("rec=" + segs[1].RecordingId)
+                && l.Contains("child=C-half") && l.Contains("via bp=bp-undock"));
         }
 
         // catches: the unsplit mirror. A tip the optimizer did not cut is unchanged: no chain
