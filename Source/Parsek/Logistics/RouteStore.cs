@@ -1146,9 +1146,9 @@ namespace Parsek.Logistics
         /// <summary>
         /// Decodes the committed routes the <c>ROUTES</c> child of <paramref name="parent"/>
         /// carries WITHOUT touching the store: a read-only view of a loaded save's route state
-        /// (the in-session load route reconcile reads each route's loop position as of the
-        /// loaded save from it). Returns an empty list for a null parent or a save with no
-        /// routes; codec rejects are dropped (the codec logs why).
+        /// (the in-session load route reconcile and both rewind exits read each route's loop
+        /// position as of the loaded save from it). Returns an empty list for a null parent or a
+        /// save with no routes; codec rejects are dropped (the codec logs why).
         /// </summary>
         internal static List<Route> ReadSavedCommittedRoutes(ConfigNode parent)
         {
@@ -1164,6 +1164,31 @@ namespace Parsek.Logistics
                     saved.Add(route);
             }
             return saved;
+        }
+
+        /// <summary>
+        /// The committed routes a loaded game's own <c>ParsekScenario</c> proto carries
+        /// (<see cref="ReadSavedCommittedRoutes"/> over its module node), for a load whose
+        /// <c>OnLoad</c> node is not that game's: the go-back rewind parses its rewind save
+        /// with <c>GamePersistence.LoadGame</c>, but the Space Center it loads reloads
+        /// persistent.sfs, so OnLoad never sees the rewind save's ROUTES. Null when the list
+        /// holds no <c>ParsekScenario</c> proto (the save's route state is unknown); an empty
+        /// list when the save had no routes.
+        /// </summary>
+        internal static List<Route> ReadSavedCommittedRoutesFromScenarios(IList<ProtoScenarioModule> scenarios)
+        {
+            if (scenarios == null)
+                return null;
+            for (int i = 0; i < scenarios.Count; i++)
+            {
+                ProtoScenarioModule proto = scenarios[i];
+                if (proto != null
+                    && string.Equals(proto.moduleName, nameof(ParsekScenario), StringComparison.Ordinal))
+                {
+                    return ReadSavedCommittedRoutes(proto.GetData());
+                }
+            }
+            return null;
         }
 
         /// <summary>

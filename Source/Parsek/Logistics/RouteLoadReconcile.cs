@@ -32,14 +32,15 @@ namespace Parsek.Logistics
     /// Every other in-session load runs it only when route state lies after the loaded save
     /// (an F9 at the Space Center or Tracking Station), so a forward scene change is untouched.
     ///
-    /// <para>One step goes past the rewind exit. Its cursor reset (-1) makes the next tick fire
-    /// the crossing whose dock instant most recently passed, under a fresh cycle id the dispatch
-    /// dedup cannot match; that crossing was dispatched before the cutoff and its cargo is in the
-    /// loaded world, so an F9 would deliver and charge it twice. An in-session load holds the
-    /// loaded save's own route copy, so each kept route takes its loop position back from it
-    /// (loop anchor, route and per-stop cursors, window anchor, partner alternation cursor), and
-    /// the recovery credit the save still owes when the reconcile cleared a later one
-    /// (<see cref="RestoreLoopPositionFromSave"/>).</para>
+    /// <para>The shared reconcile's cursor reset (-1) makes the next tick fire the crossing whose
+    /// dock instant most recently passed, under a fresh cycle id the dispatch dedup cannot match;
+    /// that crossing was dispatched before the cutoff and its cargo is in the loaded world, so it
+    /// would be delivered and charged twice. So each kept route then takes its loop position back
+    /// from the loaded save's own route copy (loop anchor, route and per-stop cursors, window
+    /// anchor, partner alternation cursor), and the recovery credit the save still owes when the
+    /// reconcile cleared a later one (<see cref="RestoreLoopPositionFromSave"/>). An in-session
+    /// load reads that copy from its OnLoad node; the two rewind exits run the same restore
+    /// through <see cref="RestoreLoopPositionAtRewindExit"/>.</para>
     ///
     /// <para>OnLoad-safe: removes ledger rows and mutates Route instances only, never
     /// <c>Ledger.AddAction</c>, so it runs inside <c>ParsekScenario.OnLoad</c> before the
@@ -205,12 +206,14 @@ namespace Parsek.Logistics
         /// bring back the one a later flush paid.
         /// Restores nothing when the save is newer than the cutoff (its position is not the
         /// position at the cutoff) or unknown. A route missing from the save keeps the reset.
-        /// Pure over the Route instances handed in. Returns the loop positions restored.
+        /// Pure over the Route instances handed in (<paramref name="logTag"/> only tags its log
+        /// lines with the calling exit). Returns the loop positions restored.
         /// </summary>
         internal static int RestoreLoopPositionFromSave(
             IReadOnlyList<Route> keptRoutes, IReadOnlyList<Route> savedRoutes,
             double cutoffUT, double loadedSaveUT,
-            out int creditsRestored, out int definitionChanged, out int missingFromSave)
+            out int creditsRestored, out int definitionChanged, out int missingFromSave,
+            string logTag = LogTag)
         {
             creditsRestored = 0;
             definitionChanged = 0;
@@ -249,7 +252,7 @@ namespace Parsek.Logistics
                 // abandoned future's anchor. It goes back even when the cursors stay reset.
                 if (kept.LoopAnchorUT != saved.LoopAnchorUT)
                 {
-                    ParsekLog.Verbose(LogTag,
+                    ParsekLog.Verbose(logTag,
                         $"Route reconcile: route {RouteIds.Short(kept.Id)} loop anchor " +
                         $"{kept.LoopAnchorUT.ToString("R", IC)} -> {saved.LoopAnchorUT.ToString("R", IC)} (saved)");
                     kept.LoopAnchorUT = saved.LoopAnchorUT;
@@ -279,7 +282,7 @@ namespace Parsek.Logistics
                 if (!ClockDefinitionMatches(kept, saved))
                 {
                     definitionChanged++;
-                    ParsekLog.Verbose(LogTag,
+                    ParsekLog.Verbose(logTag,
                         $"Route reconcile: route {RouteIds.Short(kept.Id)} clock definition changed after the save; " +
                         "loop cursors stay reset (next crossing fires)");
                     continue;
@@ -295,12 +298,114 @@ namespace Parsek.Logistics
                 }
                 restored++;
             }
-            ParsekLog.Verbose(LogTag,
+            ParsekLog.Verbose(logTag,
                 $"Route reconcile: restored from the save cursors={restored.ToString(IC)} " +
                 $"anchors={anchorsRestored.ToString(IC)} partnerCursors={partnerCursorsRestored.ToString(IC)} " +
                 $"credits={creditsRestored.ToString(IC)} clockChanged={definitionChanged.ToString(IC)} " +
                 $"missingFromSave={missingFromSave.ToString(IC)}");
             return restored;
+        }
+
+        /// <summary>
+        /// Why <see cref="RestoreLoopPositionFromSave"/> would restore nothing for these inputs,
+        /// or null when it runs: no-kept-routes, no-save-copy, no-usable-cutoff,
+        /// no-loaded-save-clock, save-newer-than-cutoff.
+        /// </summary>
+        internal static string DescribeRestoreSkip(
+            int keptRouteCount, IReadOnlyList<Route> savedRoutes, double cutoffUT, double loadedSaveUT)
+        {
+            if (keptRouteCount <= 0)
+                return "no-kept-routes";
+            if (savedRoutes == null)
+                return "no-save-copy";
+            if (!IsUsableCutoffUT(cutoffUT))
+                return "no-usable-cutoff";
+            if (!IsUsableCutoffUT(loadedSaveUT))
+                return "no-loaded-save-clock";
+            if (loadedSaveUT > cutoffUT)
+                return "save-newer-than-cutoff";
+            return null;
+        }
+
+        /// <summary>
+        /// The rewind exits' half of the loop-position restore (todo
+        /// ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING). The go-back rewind
+        /// (<c>ParsekScenario.HandleRewindOnLoad</c>) and the Re-Fly start
+        /// (<c>ReconciliationBundle.Restore(cutoff)</c>) call it right after the shared
+        /// <see cref="RouteRewindClassifier.ReconcileStoreAtRewind"/> has installed the kept
+        /// routes: it runs <see cref="RestoreLoopPositionFromSave"/> over
+        /// <see cref="RouteStore.CommittedRoutes"/> with the loaded save's own route copy, so the
+        /// reset does not re-fire the crossing that most recently passed before the cutoff.
+        /// <paramref name="savedRoutes"/> null (no copy in hand) leaves the reset standing. Sets
+        /// Route fields only, never a ledger row (both exits run inside OnLoad), and the owed
+        /// credit it puts back is paid by the next crossing, not here. One log line per call.
+        /// </summary>
+        internal static int RestoreLoopPositionAtRewindExit(
+            IReadOnlyList<Route> savedRoutes, double cutoffUT, double loadedSaveUT,
+            string logTag, string logPrefix)
+        {
+            int keptCount = RouteStore.CommittedRoutes.Count;
+            string cutoffText = cutoffUT.ToString("R", IC);
+            string saveText = loadedSaveUT.ToString("R", IC);
+            string skip = DescribeRestoreSkip(keptCount, savedRoutes, cutoffUT, loadedSaveUT);
+            if (skip != null)
+            {
+                string line = logPrefix + ": loop position not restored from the loaded save: " +
+                    $"reason={skip} cutoff={cutoffText} loadedSaveUT={saveText} " +
+                    $"keptRoutes={keptCount.ToString(IC)}" +
+                    (keptCount > 0 ? "; kept loop cursors stay reset (the next crossing fires)" : string.Empty);
+                if (keptCount > 0)
+                    ParsekLog.Info(logTag, line);
+                else
+                    ParsekLog.Verbose(logTag, line);
+                return 0;
+            }
+
+            int restored = RestoreLoopPositionFromSave(
+                RouteStore.CommittedRoutes, savedRoutes, cutoffUT, loadedSaveUT,
+                out int creditsRestored, out int definitionChanged, out int missingFromSave,
+                logTag);
+            ParsekLog.Info(logTag,
+                logPrefix + ": loop position restored from the loaded save at cutoff=" + cutoffText +
+                $" loadedSaveUT={saveText} keptRoutes={keptCount.ToString(IC)} " +
+                $"savedRoutes={savedRoutes.Count.ToString(IC)} loopPositionsRestored={restored.ToString(IC)} " +
+                $"creditsRestored={creditsRestored.ToString(IC)} clockChanged={definitionChanged.ToString(IC)} " +
+                $"missingFromSave={missingFromSave.ToString(IC)}");
+            return restored;
+        }
+
+        /// <summary>
+        /// The go-back rewind's capture of the loaded save's route copy, called from
+        /// <c>RecordingStore.ExecuteRewindSaveLoad</c> right after <c>GamePersistence.LoadGame</c>
+        /// parsed the rewind save and before the Space Center load. That OnLoad node is
+        /// persistent.sfs as last written (<c>SpaceCenterMain.Start</c> reloads it and
+        /// <c>Game.Load</c> hands its scenario protos to OnLoad), so the rewind save's own ROUTES
+        /// exist only in <paramref name="scenarios"/>, the parsed game's scenario protos built
+        /// from the file. Parses them into detached Route instances and parks them with the
+        /// parsed save's clock (<paramref name="loadedClockUT"/>, after the lead-time windback) in
+        /// <see cref="RewindContext"/> for <c>HandleRewindOnLoad</c>. A read that throws parks no
+        /// copy (the reset then stands) instead of failing the rewind it runs inside.
+        /// </summary>
+        internal static void CaptureRewindSaveRoutes(
+            IList<ProtoScenarioModule> scenarios, double loadedClockUT, string label)
+        {
+            List<Route> saved;
+            try
+            {
+                saved = RouteStore.ReadSavedCommittedRoutesFromScenarios(scenarios);
+            }
+            catch (Exception ex)
+            {
+                saved = null;
+                ParsekLog.Warn("Rewind",
+                    $"{label}: reading the rewind save's route copy threw {ex.GetType().Name}: {ex.Message}; " +
+                    "route loop cursors will stay reset");
+            }
+            RewindContext.SetRewindSaveRoutes(saved, loadedClockUT);
+            ParsekLog.Info("Rewind",
+                $"{label}: rewind save's own route copy read for the loop-position restore: " +
+                $"routes={(saved == null ? "unknown (no ParsekScenario in the save)" : saved.Count.ToString(IC))} " +
+                $"clockUT={loadedClockUT.ToString("R", IC)}");
         }
 
         /// <summary>

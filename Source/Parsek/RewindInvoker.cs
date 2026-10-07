@@ -1051,6 +1051,11 @@ namespace Parsek
         /// returning. Cleans up the root-level temp quicksave copy regardless
         /// of success/failure.
         /// </para>
+        /// <para>
+        /// <paramref name="loadedScenarioNode"/> is the OnLoad node, the RP quicksave's own
+        /// ParsekScenario: its ROUTES give each kept route its loop position back after the
+        /// bundle's route reconcile. Null leaves the reconcile's cursor reset standing.
+        /// </para>
         /// </summary>
         // Test seams: override FlightGlobals-vessel readiness and the
         // onFlightReady subscription so headless tests can exercise both the
@@ -1058,7 +1063,7 @@ namespace Parsek
         internal static Func<bool> FlightReadyProbeOverrideForTesting;
         internal static Action<Action, string> DeferUntilFlightReadyOverrideForTesting;
 
-        internal static void ConsumePostLoad()
+        internal static void ConsumePostLoad(ConfigNode loadedScenarioNode = null)
         {
             if (!RewindInvokeContext.Pending)
                 return;
@@ -1100,6 +1105,26 @@ namespace Parsek
             double liveUTForCutoff = SafeNow();
             double retireCutoffUT = liveUTForCutoff > 0.0 ? liveUTForCutoff : rp.UT;
 
+            // The RP quicksave's own route copy and clock, for the loop-position restore that
+            // follows the bundle's route reconcile. A failed read leaves the cursor reset.
+            List<Logistics.Route> loadedSaveRoutes = null;
+            double loadedSaveUT = double.NaN;
+            if (hasBundle && loadedScenarioNode != null)
+            {
+                try
+                {
+                    loadedSaveRoutes = Logistics.RouteStore.ReadSavedCommittedRoutes(loadedScenarioNode);
+                    loadedSaveUT = KerbalsModule.ReadLoadedSaveUT();
+                }
+                catch (Exception ex)
+                {
+                    loadedSaveRoutes = null;
+                    ParsekLog.Warn(InvokeTag,
+                        $"ConsumePostLoad: reading the RP quicksave's route copy threw {ex.GetType().Name}: " +
+                        $"{ex.Message}; route loop cursors stay reset");
+                }
+            }
+
             if (hasBundle)
             {
                 try
@@ -1117,7 +1142,7 @@ namespace Parsek
                     double liveUT = liveUTForCutoff;
                     ParsekLog.Info(InvokeTag,
                         $"ConsumePostLoad: restoring bundle with route-retire cutoffUT={retireCutoffUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} (liveUT={liveUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, rp.UT={rp.UT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)})");
-                    ReconciliationBundle.Restore(bundle, retireCutoffUT);
+                    ReconciliationBundle.Restore(bundle, retireCutoffUT, loadedSaveRoutes, loadedSaveUT);
                 }
                 catch (Exception ex)
                 {
