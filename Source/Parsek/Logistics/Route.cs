@@ -567,6 +567,19 @@ namespace Parsek.Logistics
         public double PendingRecoveryCreditDispatchUT = -1.0;
 
         /// <summary>
+        /// The player's re-captured endpoint part sets (owner ruling 2026-10-07): one entry per
+        /// endpoint (origin or stop) whose current parts were adopted by
+        /// <see cref="RouteEndpointPartAdoption.AdoptCurrentParts(Route)"/>, keyed to that
+        /// endpoint's binding at the time. <see cref="RouteEndpointPartScope"/> consults the
+        /// matching entry BEFORE the recorded part sets, so a module docked to a station after
+        /// the route was recorded can be opted in. Null = none (the recorded-set behaviour).
+        /// Sparse in the codec (the <c>ADOPTED_ENDPOINT_PARTS</c> node is omitted when there is
+        /// no entry with a part), so a route never updated round-trips byte-identically and
+        /// an older build ignores the node.
+        /// </summary>
+        public List<RouteEndpointAdoptedParts> AdoptedEndpointParts;
+
+        /// <summary>
         /// Phase 0 discriminator (design §0.5, §0.6): TRUE when this route has a
         /// backing-mission tree, which is every v0 route. v0 has no non-loop
         /// dispatch model, so the self-timer paths (<see cref="NextDispatchUT"/>,

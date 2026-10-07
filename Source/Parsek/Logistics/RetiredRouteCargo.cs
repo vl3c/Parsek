@@ -5,11 +5,13 @@ using System.Globalization;
 namespace Parsek.Logistics
 {
     /// <summary>
-    /// Names ONE chain tip snapshot: the recording that held it when it was tagged, that
-    /// recording's optimizer chain, its tree, when it was captured (the recording's end at the
-    /// time) and a fingerprint of its resource content. A later recording of the same tree (a
-    /// switch continuation, a Re-Fly fork) carries a different snapshot and is a different
-    /// tip; a snapshot replaced in place changes the fingerprint.
+    /// Names ONE end-of-recording snapshot (a chain tip's, or an ordinary leaf's whose own
+    /// vessel is the route endpoint): the recording that held it when it was tagged, that
+    /// recording's optimizer chain, its tree, when it was captured (the recording's end before
+    /// any tail trim, <see cref="RetiredRouteCargoStore.CaptureUTOf"/>) and a fingerprint of
+    /// its resource content. A later recording of the same tree (a switch continuation, a
+    /// Re-Fly fork) carries a different snapshot and is a different tip; a snapshot replaced
+    /// in place changes the fingerprint.
     /// </summary>
     internal sealed class RetiredRouteCargoTipTag
     {
@@ -53,10 +55,27 @@ namespace Parsek.Logistics
     }
 
     /// <summary>
+    /// When one snapshot was really captured, noted when the optimizer trimmed its
+    /// recording's tail (TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT): the trim restamps the recording's
+    /// end earlier and leaves the snapshot as it was at commit. Keyed by tree and the
+    /// snapshot's resource fingerprint, which an optimizer split or merge carries along
+    /// unchanged and a replaced snapshot does not keep.
+    /// </summary>
+    internal sealed class RetiredRouteCargoSnapshotCapture
+    {
+        internal string TreeId;
+        /// <summary>Diagnostic only: the recording that held the snapshot when it was trimmed.</summary>
+        internal string RecordingId;
+        internal string Fingerprint;
+        internal double CaptureUT;
+    }
+
+    /// <summary>
     /// One physical route crossing (a delivery into, a pickup from, or an origin debit of a
-    /// vessel) that a rewind retired from the ledger and refunded, kept because a chain tip
-    /// snapshot captured after it still carries its cargo
-    /// (CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO). Built from the retired
+    /// vessel) that a rewind retired from the ledger and refunded, kept because an
+    /// end-of-recording snapshot captured after it still carries its cargo
+    /// (CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO, extended to ordinary leaves by
+    /// END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO). Built from the retired
     /// <see cref="GameAction"/> plus the route endpoint it touched, resolved while the route
     /// was still in the store: the delivery row itself names no vessel.
     /// </summary>
@@ -75,11 +94,13 @@ namespace Parsek.Logistics
         internal uint EndpointPid;
         /// <summary>The route endpoint's launch guid; null when unknown.</summary>
         internal string EndpointGuid;
+        /// <summary>The route endpoint's root part flightID (launch-unique); 0 when unknown.</summary>
+        internal uint EndpointRootPartUId;
         /// <summary>The live vessel the writer resolved (pickup and debit rows carry it); 0 when unknown.</summary>
         internal uint ActualVesselPid;
         /// <summary>Positive per-resource amounts the crossing moved.</summary>
         internal Dictionary<string, double> Resources;
-        /// <summary>The chain tip snapshots that carry this crossing.</summary>
+        /// <summary>The end-of-recording snapshots (chain tips and ordinary leaves) that carry this crossing.</summary>
         internal List<RetiredRouteCargoTipTag> Tips = new List<RetiredRouteCargoTipTag>();
 
         /// <summary>A pickup or an origin debit took the cargo FROM the vessel; a delivery put it in.</summary>
@@ -91,19 +112,24 @@ namespace Parsek.Logistics
     }
 
     /// <summary>
-    /// The retired route crossings that some committed chain tip's snapshot still carries.
+    /// The retired route crossings that some committed end-of-recording snapshot still carries.
     ///
     /// <para>A go-back rewind, a Re-Fly restore and an in-session load back in time remove the
     /// route rows after the cutoff from the ledger (<see cref="RouteLedgerRetire"/>): the
-    /// refund is right, because the reverted save restores the origin. But a chain tip
-    /// snapshot (the claimed station as a committed mission left it) was captured after those
-    /// crossings and holds their cargo, and while the station is held back from the rewind to
-    /// the tip's spawn the replayed crossings into it are blocked. So the rows are kept here,
-    /// each tagged with the tip snapshots that carry it, and a spawn from one of those
-    /// snapshots takes them back out of its spawn copy (<see cref="ChainTipRouteCargo"/>).</para>
+    /// refund is right, because the reverted save restores the origin. But a snapshot a
+    /// committed recording spawns its vessel from at its end (a chain tip: the claimed station
+    /// as a committed mission left it; or an ordinary leaf: the route-fed vessel's own
+    /// recording) was captured after those crossings and holds their cargo, while the replayed
+    /// crossings into the vessel are blocked until it spawns (and, when the optimizer trimmed
+    /// the recording's tail, the ones after its early spawn are delivered again live). So the
+    /// rows are kept here, each tagged with the snapshots that carry it, and a spawn from one
+    /// of those snapshots takes them back out of its spawn copy (<see cref="ChainTipRouteCargo"/>).</para>
     ///
-    /// <para>Also kept: one watermark per tip snapshot, the lowest retire cutoff seen since a
-    /// retire first saw it. Persisted beside the ledger actions as an additive
+    /// <para>Also kept: one watermark per snapshot, the lowest retire cutoff seen since a
+    /// retire first saw it; and the real capture UT of every snapshot whose recording's tail
+    /// the optimizer trimmed (<see cref="NoteSnapshotCapture"/>): the trim moves the
+    /// recording's end earlier and keeps the snapshot, so its end no longer says when the
+    /// snapshot was captured. Persisted beside the ledger actions as an additive
     /// <c>RETIRED_ROUTE_CARGO</c> child of the ledger file, absent while empty, so a build that
     /// predates it reads the file unchanged. Survives in-session loads with the ledger and is
     /// kept by <c>Ledger.Clear</c> (the Re-Fly restore clears and re-adds the actions).</para>
@@ -117,14 +143,18 @@ namespace Parsek.Logistics
         private const string RowNodeName = "ROW";
         private const string TipNodeName = "TIP";
         private const string WatermarkNodeName = "WATERMARK";
+        private const string CaptureNodeName = "CAPTURE";
         private const string ResourceNodeName = "RESOURCE";
 
         private static readonly List<RetiredRouteCargoRow> rows = new List<RetiredRouteCargoRow>();
         private static readonly List<RetiredRouteCargoWatermark> watermarks = new List<RetiredRouteCargoWatermark>();
+        private static readonly List<RetiredRouteCargoSnapshotCapture> captures = new List<RetiredRouteCargoSnapshotCapture>();
 
         internal static IReadOnlyList<RetiredRouteCargoRow> Rows => rows;
 
         internal static IReadOnlyList<RetiredRouteCargoWatermark> Watermarks => watermarks;
+
+        internal static IReadOnlyList<RetiredRouteCargoSnapshotCapture> Captures => captures;
 
         /// <summary>One retired row exactly (a row is retired once; a re-retire of the same row is a duplicate).</summary>
         internal static string RowKey(string routeId, string cycleId, int stopIndex, GameActionType type, double ut)
@@ -187,6 +217,7 @@ namespace Parsek.Logistics
                     {
                         row.EndpointPid = route.Origin.VesselPersistentId;
                         row.EndpointGuid = route.Origin.LaunchGuid;
+                        row.EndpointRootPartUId = route.Origin.RootPartUId;
                     }
                 }
                 else
@@ -196,6 +227,7 @@ namespace Parsek.Logistics
                     {
                         row.EndpointPid = route.Stops[stop].Endpoint.VesselPersistentId;
                         row.EndpointGuid = route.Stops[stop].Endpoint.LaunchGuid;
+                        row.EndpointRootPartUId = route.Stops[stop].Endpoint.RootPartUId;
                     }
                 }
             }
@@ -306,10 +338,75 @@ namespace Parsek.Logistics
             return double.PositiveInfinity;
         }
 
+        /// <summary>
+        /// Notes when a snapshot was really captured (its recording's end before the optimizer
+        /// trimmed the tail). A later note for the same tree and fingerprint keeps the later
+        /// UT. Entries are never pruned: committed trees are not deleted, and an entry whose
+        /// snapshot is gone matches nothing. Returns false when nothing was noted (no tree, no
+        /// fingerprint, or no finite UT).
+        /// </summary>
+        internal static bool NoteSnapshotCapture(
+            string treeId, string recordingId, string fingerprint, double captureUT)
+        {
+            if (string.IsNullOrEmpty(treeId) || string.IsNullOrEmpty(fingerprint)
+                || double.IsNaN(captureUT) || double.IsInfinity(captureUT))
+                return false;
+            for (int i = 0; i < captures.Count; i++)
+            {
+                RetiredRouteCargoSnapshotCapture c = captures[i];
+                if (!string.Equals(c.TreeId, treeId, StringComparison.Ordinal)
+                    || !string.Equals(c.Fingerprint, fingerprint, StringComparison.Ordinal))
+                    continue;
+                if (captureUT > c.CaptureUT)
+                {
+                    c.CaptureUT = captureUT;
+                    c.RecordingId = recordingId;
+                }
+                return true;
+            }
+            captures.Add(new RetiredRouteCargoSnapshotCapture
+            {
+                TreeId = treeId,
+                RecordingId = recordingId,
+                Fingerprint = fingerprint,
+                CaptureUT = captureUT
+            });
+            return true;
+        }
+
+        /// <summary>The noted capture UT of the snapshot (tree + fingerprint); NaN when none was noted.</summary>
+        internal static double CaptureUTOf(string treeId, string fingerprint)
+        {
+            if (string.IsNullOrEmpty(treeId) || string.IsNullOrEmpty(fingerprint))
+                return double.NaN;
+            for (int i = 0; i < captures.Count; i++)
+            {
+                if (string.Equals(captures[i].TreeId, treeId, StringComparison.Ordinal)
+                    && string.Equals(captures[i].Fingerprint, fingerprint, StringComparison.Ordinal))
+                    return captures[i].CaptureUT;
+            }
+            return double.NaN;
+        }
+
+        /// <summary>True when some snapshot of the tree has a noted capture after <paramref name="ut"/>.</summary>
+        internal static bool HasCaptureAfter(string treeId, double ut)
+        {
+            if (string.IsNullOrEmpty(treeId))
+                return false;
+            for (int i = 0; i < captures.Count; i++)
+            {
+                if (string.Equals(captures[i].TreeId, treeId, StringComparison.Ordinal)
+                    && captures[i].CaptureUT > ut)
+                    return true;
+            }
+            return false;
+        }
+
         internal static void Clear()
         {
             rows.Clear();
             watermarks.Clear();
+            captures.Clear();
         }
 
         internal static void ResetForTesting()
@@ -320,7 +417,7 @@ namespace Parsek.Logistics
         /// <summary>Writes the stash as a child of the ledger file root; nothing while empty.</summary>
         internal static void SerializeInto(ConfigNode ledgerRoot)
         {
-            if (ledgerRoot == null || (rows.Count == 0 && watermarks.Count == 0))
+            if (ledgerRoot == null || (rows.Count == 0 && watermarks.Count == 0 && captures.Count == 0))
                 return;
 
             ConfigNode node = ledgerRoot.AddNode(NodeName);
@@ -338,6 +435,8 @@ namespace Parsek.Logistics
                 r.AddValue("endpointPid", row.EndpointPid.ToString(IC));
                 if (!string.IsNullOrEmpty(row.EndpointGuid))
                     r.AddValue("endpointGuid", row.EndpointGuid);
+                if (row.EndpointRootPartUId != 0u)
+                    r.AddValue("endpointRootUid", row.EndpointRootPartUId.ToString(IC));
                 if (row.ActualVesselPid != 0u)
                     r.AddValue("actualPid", row.ActualVesselPid.ToString(IC));
                 if (row.Tips != null)
@@ -362,6 +461,15 @@ namespace Parsek.Logistics
                 ConfigNode w = node.AddNode(WatermarkNodeName);
                 WriteTag(w, watermarks[i].Snapshot);
                 w.AddValue("lowestCutoffUT", watermarks[i].LowestCutoffUT.ToString("R", IC));
+            }
+            for (int i = 0; i < captures.Count; i++)
+            {
+                ConfigNode c = node.AddNode(CaptureNodeName);
+                c.AddValue("tree", captures[i].TreeId ?? "");
+                if (!string.IsNullOrEmpty(captures[i].RecordingId))
+                    c.AddValue("rec", captures[i].RecordingId);
+                c.AddValue("fingerprint", captures[i].Fingerprint ?? "");
+                c.AddValue("captureUT", captures[i].CaptureUT.ToString("R", IC));
             }
         }
 
@@ -433,15 +541,36 @@ namespace Parsek.Logistics
                 }
                 watermarks.Add(new RetiredRouteCargoWatermark { Snapshot = tag, LowestCutoffUT = cutoff });
             }
+            ConfigNode[] captureNodes = node.GetNodes(CaptureNodeName);
+            for (int i = 0; i < captureNodes.Length; i++)
+            {
+                string tree = captureNodes[i].GetValue("tree");
+                string fingerprint = captureNodes[i].GetValue("fingerprint");
+                if (string.IsNullOrEmpty(tree) || string.IsNullOrEmpty(fingerprint)
+                    || !TryParseDouble(captureNodes[i].GetValue("captureUT"), out double capture))
+                {
+                    malformed++;
+                    continue;
+                }
+                captures.Add(new RetiredRouteCargoSnapshotCapture
+                {
+                    TreeId = tree,
+                    RecordingId = captureNodes[i].GetValue("rec"),
+                    Fingerprint = fingerprint,
+                    CaptureUT = capture
+                });
+            }
             if (malformed > 0)
                 ParsekLog.Warn(Tag,
                     "Retired route cargo: dropped " + malformed.ToString(IC)
                     + " unreadable entries on load, kept rows=" + rows.Count.ToString(IC)
-                    + " watermarks=" + watermarks.Count.ToString(IC));
+                    + " watermarks=" + watermarks.Count.ToString(IC)
+                    + " captures=" + captures.Count.ToString(IC));
             else
                 ParsekLog.Verbose(Tag,
                     "Retired route cargo loaded: rows=" + rows.Count.ToString(IC)
-                    + " watermarks=" + watermarks.Count.ToString(IC));
+                    + " watermarks=" + watermarks.Count.ToString(IC)
+                    + " captures=" + captures.Count.ToString(IC));
             return malformed;
         }
 
@@ -470,6 +599,8 @@ namespace Parsek.Logistics
                 row.StopIndex = stop;
             if (uint.TryParse(r.GetValue("endpointPid"), NumberStyles.Integer, IC, out uint endpointPid))
                 row.EndpointPid = endpointPid;
+            if (uint.TryParse(r.GetValue("endpointRootUid"), NumberStyles.Integer, IC, out uint endpointRootUid))
+                row.EndpointRootPartUId = endpointRootUid;
             if (uint.TryParse(r.GetValue("actualPid"), NumberStyles.Integer, IC, out uint actualPid))
                 row.ActualVesselPid = actualPid;
             ConfigNode[] tipNodes = r.GetNodes(TipNodeName);

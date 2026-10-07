@@ -490,6 +490,10 @@ namespace Parsek.Tests
                 LogisticsRoutePresentation.StatusHeaderTooltip,
                 LogisticsRoutePresentation.RunsTooltip,
                 LogisticsRoutePresentation.CancelButtonTooltip,
+                // The detail block's Update parts hover with its longest date, and its greyed
+                // reason (both runtime-picked, so the literal scan cannot see them).
+                LogisticsRoutePresentation.FormatUpdatePartsTooltip(100.0, date),
+                LogisticsRoutePresentation.UpdatePartsInFlightReason,
                 "Sending one run. " + LogisticsRoutePresentation.FormatDeliveringTooltip(1.0, 2.0, date),
                 LogisticsRoutePresentation.EveryTooltip(true, "(launch window schedule)"),
                 LogisticsRoutePresentation.FormatNextTooltip(

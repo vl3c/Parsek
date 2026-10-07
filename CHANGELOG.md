@@ -23,6 +23,24 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Added
 
+- **A supply route can take in modules you docked to its station after making it.** Routes
+  deliver into, measure and take from only the station's or depot's own parts, the ones it
+  had when you recorded the supply run, so a fuel module you dock to the station later
+  received no cargo and the station read as full sooner. Expand the route in the Logistics
+  window and press `Update parts`: what is docked to the origin and to each stop at that
+  moment then counts as that station's or depot's own, and a ship that docks afterwards still
+  gets nothing. Each one takes in only the docked craft with FEWER parts than itself (counting
+  everything behind one docking port as one craft): a station takes the smaller modules docked
+  to it, while a stop docked into a bigger station, such as a lander parked at a station, keeps
+  only its own parts, so its cargo never goes into the station. A new module with as many parts
+  as the station, or more, is left out too. Another stop of the same route is never taken in,
+  and neither is the route's transport while it is the craft that flew the recorded run (a
+  copy Parsek spawned counts as a visiting ship). Undock visiting ships before you press it,
+  or their tanks count too. The button is greyed while a run is still being delivered,
+  including a paused route stopped part-way through its stops (Send finishes that run,
+  Activate starts a fresh one), and its hover shows when you last pressed it. It is in both
+  Basic and Advanced. Covered by xUnit; not yet checked in a test flight.
+
 - **Parsek now tells you on screen when it starts up broken.** Two problems used to reach
   only `KSP.log`. If any of Parsek's game patches fails to load (usually another mod or a
   different KSP version), a message once the main menu settles says how many failed and which
@@ -1459,6 +1477,17 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **Launches no longer get a separate few-second pad recording.** When a flight that starts on
+  a launch pad or runway sat there for 5 seconds or more before lifting off (a slow engine
+  spool-up, clamps released a stage after ignition, recording started by hand on the pad),
+  the cleanup that splits a finished flight into phases cut that pad time off as its own
+  short "surface" recording, so two identical launches could produce a different number of
+  recordings depending on a fraction of a second. The time spent on the launch site before
+  liftoff now always stays with the flight. Landings, take-offs from anywhere other than a
+  launch site, and every later phase split exactly as before, and recordings that were
+  already split keep their pad segment. Covered by xUnit (`OptimizerLaunchSiteLeadingRunTests`);
+  the harness lanes `L3-career-science-recover` and `L5-career-contract-complete` pin exactly
+  2 recordings again.
 - **Dev: harness runs spend less time outside the mission.** The seam is polled every 25 ms
   for the first 2 s after each command (it was a flat 0.25 s, while the game answers within a
   frame or two; measured 13.7 s per run in such waits), and the response file is read from
@@ -3774,8 +3803,9 @@ _(unreleased - entries accumulate here per commit)_
   parts it had when you recorded the supply run, including modules already docked to it then.
   This works whichever craft KSP treats as the main one after docking, and a lander endpoint
   docked into a larger station gets its cargo itself. A module you dock to the station after
-  recording the route does not receive route cargo. When Parsek cannot tell which parts are
-  the station's, routes use the whole docked vessel as before. Covered by xUnit; not yet
+  recording the route receives route cargo once you press the route's new `Update parts`
+  button (see Added). When Parsek cannot tell which parts are the station's, routes use the
+  whole docked vessel as before. Covered by xUnit; not yet checked in a test flight.
 
 - **Quickloading back into a flight you discarded records it again.** Discarding a flight deletes
   its recording, so quickloading a quicksave taken during that flight used to resume recording
@@ -3866,6 +3896,22 @@ _(unreleased - entries accumulate here per commit)_
   flight continued from the corrected station, a Re-fly) carries its own cargo and is left
   alone, and a second rewind does not take the same delivery out twice. The recorded
   mission itself is not changed. Covered by xUnit; not yet checked in a test flight.
+
+- **After a rewind, any vessel a supply route delivered into while it was being recorded comes
+  back without the refunded cargo, and a delivery is no longer made twice when the recording's
+  quiet end was shortened.** The fix above now covers every vessel that reappears from its own
+  recorded end state, not only a station a later mission docked to: a station you flew on from
+  the Tracking Station, for example, while a route kept delivering into it. A rewind to before
+  those deliveries refunded them, yet the station still reappeared holding them. And because
+  Parsek shortens a recording's uneventful ending so the vessel reappears sooner, the route
+  then delivered the cargo of that shortened stretch a second time after the vessel was back.
+  The vessel now reappears without the refunded deliveries (and with cargo the route had taken
+  from it given back), the shortened stretch included, and the route delivers those again
+  live, each paid once. This also applies to the docked station of the fix above when its
+  recording's ending was shortened. Only a vessel whose launch is known to be the route's is
+  matched (another launch of the same craft is left alone), a delivery the route already made
+  again after the rewind stays, and the recording itself is not changed. Covered by xUnit; not
+  yet checked in a test flight.
 
 - **After a quickload, a booster that survives the replayed flight is recorded again.** If you
   quicksaved, flew on (a booster crashed with its crew, a lander touched down) and then
@@ -6205,6 +6251,34 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Endpoint part adoption behind the Logistics `Update parts` button.**
+  `RouteEndpointPartAdoption.AdoptCurrentParts(route)` resolves the route's origin and every
+  stop and stores each resolved vessel's current part flightIDs on the route
+  (`Route.AdoptedEndpointParts`, a sparse `ADOPTED_ENDPOINT_PARTS` node in the ROUTE save; a
+  route without one is byte-identical). What a press may take is the pure
+  `RouteEndpointPartAdoption.DecideCapture`, a part-count size rule: an undocked vessel whole; on
+  a docked composite the endpoint's own pieces (its root plus its adopted, else recorded, parts,
+  as the scope reads them; their part count is its own size) plus every FOREIGN CLUSTER (the
+  part tree with the own pieces cut out and the seams between foreign pieces kept: everything
+  behind one docking point) with strictly fewer parts than the own size; an equal or larger
+  cluster is left out (a host, a bigger visitor, or a module as big as the station). Who holds
+  the composite's root is not read: `Vessel.GetDominantVessel` ranks vessel type first, so a
+  crewed lander can root a probe-cored depot. Inside a taken cluster the pieces another endpoint
+  of the route owns or that hold a transport root (`CollectTransportRootFlightIds`: the source
+  recordings' snapshot roots and the start-docked proof's transport root, minus endpoint roots;
+  recorded flightIDs, so a Parsek-spawned copy with regenerated ids is not recognised) stay out.
+  An endpoint whose clusters are all left out re-adopts its own pieces (no refusal); the
+  remaining refusals are `own-parts-unknown`, `endpoint-not-aboard` and `no-readable-parts`.
+  `RouteEndpointPartScope` reads the adopted set before the recorded sets, for the endpoint
+  binding it was taken against (root part flightID, else vessel pid gated by launch guid), so
+  the later module is included and a craft docked after the adoption still is not. One
+  `Endpoint part adoption:` Info line per press gives each endpoint's part count, `excluded=`
+  pieces, `leftOut=` cluster sizes with `own=` size, or `refused=` reason. The button is greyed
+  while `LogisticsRoutePresentation.IsRunInFlight` (a self-timer run in transit or pending
+  delivery, or a multi-stop loop cycle part-way through its stops, Paused included: Send
+  un-pauses without resetting the stop cursors and finishes that cycle, Activate resets them);
+  its source gate pins that the click runs only inside the eligibility-guarded block (it went
+  red under `bool live = true;` and under the call moved after an empty guard).
 - **Lane fixes from the release verification flights.** CI-3 and CI-4 now expect no SubOrbital
   recording: since the Re-Fly chain-head fix (#2015) the optimizer's first chain segment keeps
   no ending of its own, where earlier runs gave it SubOrbital. L5 and L3 accept 2 or 3

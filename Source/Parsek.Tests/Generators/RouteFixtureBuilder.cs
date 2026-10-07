@@ -58,6 +58,7 @@ namespace Parsek.Tests.Generators
         private string lastPartialDeliverySummary;
         private double lastPartialDeliveryUT = -1.0;
         private string lastPartialDeliveryCycleId;
+        private List<RouteEndpointAdoptedParts> adoptedEndpointParts;
 
         public RouteFixtureBuilder WithId(string newId)
         {
@@ -259,6 +260,12 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public RouteFixtureBuilder WithAdoptedEndpointParts(RouteEndpointAdoptedParts entry)
+        {
+            (adoptedEndpointParts ?? (adoptedEndpointParts = new List<RouteEndpointAdoptedParts>())).Add(entry);
+            return this;
+        }
+
         public Route Build()
         {
             var route = new Route
@@ -299,7 +306,8 @@ namespace Parsek.Tests.Generators
                 LastHoldUT = lastHoldUT,
                 LastPartialDeliverySummary = lastPartialDeliverySummary,
                 LastPartialDeliveryUT = lastPartialDeliveryUT,
-                LastPartialDeliveryCycleId = lastPartialDeliveryCycleId
+                LastPartialDeliveryCycleId = lastPartialDeliveryCycleId,
+                AdoptedEndpointParts = adoptedEndpointParts
             };
 
             foreach (string key in excludedIntervalKeys)

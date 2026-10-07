@@ -362,11 +362,12 @@ namespace Parsek
         /// The accept reasons (BodyChange / SurfaceInvolved / ExoPropulsiveAtCrossing /
         /// PersistedPhaseChange) drive the Verbose accept log; the suppress reasons
         /// (SuppressedGrazeForward / SuppressedGrazeBackward / SuppressedSurfaceGrazeForward /
-        /// SuppressedSurfaceGrazeBackward / SuppressedBoundarySeam / SuppressedExoCoastBodyChange)
+        /// SuppressedSurfaceGrazeBackward / SuppressedBoundarySeam / SuppressedExoCoastBodyChange /
+        /// SuppressedLaunchSiteLeadingRun)
         /// feed the per-recording
         /// aggregate suppression-counter log. NotABoundary is the case
         /// where env class is unchanged AND body is unchanged — not a decision to log.
-        /// See docs/dev/plans/optimizer-persistence-split.md §8.
+        /// See docs/dev/done/plans/optimizer-persistence-split.md §8.
         /// </summary>
         internal enum SplitBoundaryReason
         {
@@ -380,7 +381,8 @@ namespace Parsek
             SuppressedSurfaceGrazeForward,
             SuppressedSurfaceGrazeBackward,
             SuppressedBoundarySeam,
-            SuppressedExoCoastBodyChange
+            SuppressedExoCoastBodyChange,
+            SuppressedLaunchSiteLeadingRun
         }
 
         /// <summary>
@@ -391,7 +393,9 @@ namespace Parsek
         ///   3. Same-class ExoBallistic body change — keep as one cohesive transfer coast.
         ///   4. Other body change (#251) — always meaningful.
         ///   5. Surface involved — split unless the boundary is a brief Atmo/Approach run
-        ///      bracketed by Surface on both sides.
+        ///      bracketed by Surface on both sides (surface graze), or it is the departure
+        ///      from the LEADING Surface run of a launch-site start (owner ruling 2026-10-07,
+        ///      <see cref="IsLaunchSiteDepartureBoundary"/>).
         ///   6. ExoPropulsive at the crossing — engine firing, direct gameplay event.
         ///   7. Persistence predicate (graze-pattern detection via collapse-walk).
         /// </summary>
@@ -459,6 +463,17 @@ namespace Parsek
                 if (IsSurfaceGrazePattern(rec, s, out var surfaceGrazeDirection))
                 {
                     reason = surfaceGrazeDirection;
+                    return false;
+                }
+
+                // Step 5b: the departure from a launch-site start's leading Surface run is
+                // never split (owner ruling 2026-10-07). Checked AFTER the surface graze, and
+                // the departure walk never names a graze boundary, so every boundary that rule
+                // suppresses keeps its reason and counter; this one fires only where step 5
+                // would otherwise split.
+                if (IsLaunchSiteDepartureBoundary(rec, s))
+                {
+                    reason = SplitBoundaryReason.SuppressedLaunchSiteLeadingRun;
                     return false;
                 }
 
@@ -620,6 +635,104 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when the recording starts on a launch site: <see cref="Recording.LaunchSiteName"/>
+        /// is set, or <see cref="Recording.StartSituation"/> is Prelaunch. The site name is the
+        /// recorder's launch-start proof (<c>FlightRecorder.ShouldCaptureLaunchSite</c>: the
+        /// vessel is PRELAUNCH, the start was the PRELAUNCH -> flight transition, it is this
+        /// scene's fresh rollout, or it stands on a stock launch site such as the runway; never
+        /// an EVA, a promotion or continuation, or an optimizer second half, which leaves both
+        /// fields empty). A Prelaunch start with no site name is a promoted or continued vessel
+        /// still standing on its site, which KSP's PRELAUNCH situation means by definition.
+        /// </summary>
+        internal static bool IsLaunchSiteStart(Recording rec)
+        {
+            if (rec == null) return false;
+            if (!string.IsNullOrEmpty(rec.LaunchSiteName)) return true;
+            return string.Equals(rec.StartSituation, "Prelaunch", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Owner ruling 2026-10-07 (todo OPTIMIZER-PAD-SPLIT-AT-FIVE-SECOND-THRESHOLD): the
+        /// section index where a launch-site start leaves its LEADING Surface run, or -1. The
+        /// leading run is sections 0.. while they are Surface class; a surface graze inside it
+        /// (a brief Atmospheric/Approach run bracketed by Surface, a bounce the optimizer
+        /// already folds) belongs to it. The departure is the first Surface -> non-Surface
+        /// boundary that is not such a graze. -1 when the recording is not a launch-site start
+        /// (<see cref="IsLaunchSiteStart"/>), its first section is not Surface, the leading run
+        /// changes body, the vessel never leaves the surface, or the leading run is not on the
+        /// recording's own start body (a Re-Fly fork copies its origin's start fields, so a
+        /// fork whose rewind point sits on another body can carry the origin's launch site).
+        /// </summary>
+        internal static int FindLaunchSiteDepartureSection(Recording rec)
+        {
+            if (!IsLaunchSiteStart(rec)) return -1;
+            var sections = rec.TrackSections;
+            if (sections == null || sections.Count < 2) return -1;
+            if (SplitEnvironmentClass(sections[0].environment) != SurfaceSplitClass) return -1;
+
+            if (!string.IsNullOrEmpty(rec.StartBodyName))
+            {
+                string leadingBody = GetSectionBody(rec, sections[0]);
+                if (!string.IsNullOrEmpty(leadingBody)
+                    && !string.Equals(leadingBody, rec.StartBodyName, StringComparison.Ordinal))
+                    return -1;
+            }
+
+            int i = 1;
+            while (i < sections.Count)
+            {
+                if (SectionBodyChanged(sections[i - 1], sections[i])) return -1;
+                int prevClass = SplitEnvironmentClass(sections[i - 1].environment);
+                int nextClass = SplitEnvironmentClass(sections[i].environment);
+                if (prevClass == nextClass)
+                {
+                    i++;
+                    continue;
+                }
+                // The walk only ever stands on a Surface section here: it starts on one and
+                // skips every graze run back onto one.
+                if (prevClass != SurfaceSplitClass) return -1;
+                if (IsSurfaceGrazePattern(rec, i, out var grazeDirection)
+                    && grazeDirection == SplitBoundaryReason.SuppressedSurfaceGrazeForward)
+                {
+                    int runEnd = i;
+                    while (runEnd + 1 < sections.Count
+                        && SplitEnvironmentClass(sections[runEnd + 1].environment) == nextClass)
+                    {
+                        runEnd++;
+                    }
+                    // sections[runEnd + 1] is Surface (the forward graze bracket); resume on it.
+                    for (int k = i + 1; k <= runEnd + 1; k++)
+                    {
+                        if (SectionBodyChanged(sections[k - 1], sections[k])) return -1;
+                    }
+                    i = runEnd + 2;
+                    continue;
+                }
+                return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// True when boundary <paramref name="s"/> is the departure from a launch-site start's
+        /// leading Surface run (<see cref="FindLaunchSiteDepartureSection"/>). Step 5b of
+        /// <see cref="IsSplittableEnvOrBodyBoundary"/>: such a boundary is never split, so a
+        /// launch keeps its pad (or runway) time with the flight instead of splitting it off
+        /// whenever ignition-to-liftoff reaches the 5.0 s both-halves floor.
+        /// </summary>
+        internal static bool IsLaunchSiteDepartureBoundary(Recording rec, int s)
+        {
+            var sections = rec?.TrackSections;
+            if (sections == null || s < 1 || s >= sections.Count) return false;
+            // Only a Surface -> non-Surface boundary can be the departure; a touchdown never is.
+            if (SplitEnvironmentClass(sections[s - 1].environment) != SurfaceSplitClass
+                || SplitEnvironmentClass(sections[s].environment) == SurfaceSplitClass)
+                return false;
+            return FindLaunchSiteDepartureSection(rec) == s;
+        }
+
+        /// <summary>
         /// Same as FindSplitCandidates but uses CanAutoSplitIgnoringGhostTriggers and applies
         /// the §3 / §3.1 boundary predicate (seam short-circuit, body hard split,
         /// Surface default split with surface-graze suppression, ExoPropulsive short-circuit,
@@ -703,6 +816,7 @@ namespace Parsek
                 int suppressedBoundarySeam = 0;
                 int suppressedExoCoastBodyChange = 0;
                 int splittableButRejected = 0;
+                int suppressedLaunchSiteLeadingRun = 0;
 
                 for (int s = 1; s < rec.TrackSections.Count; s++)
                 {
@@ -758,6 +872,9 @@ namespace Parsek
                         case SplitBoundaryReason.SuppressedExoCoastBodyChange:
                             suppressedExoCoastBodyChange++;
                             break;
+                        case SplitBoundaryReason.SuppressedLaunchSiteLeadingRun:
+                            suppressedLaunchSiteLeadingRun++;
+                            break;
                     }
                 }
 
@@ -767,11 +884,12 @@ namespace Parsek
                 // that CanAutoSplit later rejected. The line title is "Split summary" because
                 // "splittableButRejected" is downstream-rejected by CanAutoSplit, not
                 // suppressed by the §3 predicate — calling the whole line "Split suppressed"
-                // would imply the predicate caused all of it.
+                // would imply the predicate caused all of it. launchSiteRunKept is appended
+                // LAST so every committed token over the earlier fields stays a substring.
                 if (suppressedGrazeForward > 0 || suppressedGrazeBackward > 0
                     || suppressedSurfaceGrazeForward > 0 || suppressedSurfaceGrazeBackward > 0
                     || suppressedBoundarySeam > 0 || suppressedExoCoastBodyChange > 0
-                    || splittableButRejected > 0)
+                    || splittableButRejected > 0 || suppressedLaunchSiteLeadingRun > 0)
                 {
                     ParsekLog.Verbose("Optimizer",
                         $"Split summary: rec={rec.RecordingId} " +
@@ -782,7 +900,8 @@ namespace Parsek
                         $"surfaceGrazeBackward={suppressedSurfaceGrazeBackward} " +
                         $"seamSkipped={suppressedBoundarySeam} " +
                         $"exoCoastBodyChangeKept={suppressedExoCoastBodyChange} " +
-                        $"splittableButRejected={splittableButRejected}");
+                        $"splittableButRejected={splittableButRejected} " +
+                        $"launchSiteRunKept={suppressedLaunchSiteLeadingRun}");
                 }
             }
 

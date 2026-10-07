@@ -722,10 +722,10 @@ namespace Parsek.Tests
         /// <summary>
         /// Decision 1a, as laid out 2026-10-03: Delete lives in the expanded detail block,
         /// out of the scan line, as a 100 px single in the block's own Interact column
-        /// (Rename on the first line, Delete on the second, Link round-trip... on the third
-        /// in Advanced) - never on a button row of its own. Every route-detail line ends in
-        /// that slot cell, so the buttons take the block's first lines. The row and its
-        /// Interact cell never arm Delete.
+        /// (Rename on the first line, Delete on the second, Update parts on the third,
+        /// Link round-trip... on the fourth in Advanced) - never on a button row of its own.
+        /// Every route-detail line ends in that slot cell, so the buttons take the block's
+        /// first lines. The row and its Interact cell never arm Delete.
         /// </summary>
         [Fact]
         public void LogisticsDeleteLivesInTheDetailBlock()
@@ -737,6 +737,55 @@ namespace Parsek.Tests
             string slotButton = MethodBody(prepared, "DrawDetailSlotButton", file);
             Assert.Contains("pendingConfirmDeleteRoute = route", slotButton);
             Assert.Contains("InteractSingleWidth", slotButton);
+            // Update parts (owner ruling 2026-10-07): its own slot case draws the button in
+            // BOTH modes (no drawTuning gate), greys it with its reason through the window's
+            // disabled-hover pattern while a run is under way, and the click runs the endpoint
+            // part adoption on that route and refreshes the cached hover.
+            int updateCase = slotButton.IndexOf("case UpdatePartsSlot:", StringComparison.Ordinal);
+            int afterUpdate = updateCase < 0 ? -1 : slotButton.IndexOf("case ", updateCase + 1, StringComparison.Ordinal);
+            Assert.True(updateCase >= 0 && afterUpdate > updateCase,
+                "LogisticsWindowUI.DrawDetailSlotButton: Update parts needs its own slot case.");
+            string update = slotButton.Substring(updateCase, afterUpdate - updateCase);
+            Assert.DoesNotContain("drawTuning", update);
+            // The eligibility read flows into BOTH the greyed state and the click: the reason
+            // decides live, live greys the button and carries the reason, and the action runs
+            // only on a live click (PR #2043 review: `bool live = true;` survived the old
+            // presence-only checks). Whitespace-tolerant so CRLF / LF checkouts agree.
+            Match reasonDecl = Regex.Match(update,
+                @"string\s+reason\s*=\s*LogisticsRoutePresentation\.UpdatePartsDisabledReason\(\s*route\s*\)\s*;");
+            Match liveDecl = Regex.Match(update,
+                @"bool\s+live\s*=\s*string\.IsNullOrEmpty\(\s*reason\s*\)\s*;");
+            Match greys = Regex.Match(update, @"GUI\.enabled\s*=\s*live\s*;");
+            Match carries = Regex.Match(update,
+                @"DisabledHoverEcho\.CarryLastControl\(\s*live\s*,\s*reason\s*\)");
+            Match guard = Regex.Match(update, @"if\s*\(\s*clicked\s*&&\s*live\s*\)\s*\{");
+            Assert.True(reasonDecl.Success && liveDecl.Success && greys.Success && carries.Success && guard.Success,
+                "LogisticsWindowUI.DrawDetailSlotButton (Update parts): live must be string.IsNullOrEmpty(reason) of "
+                + "UpdatePartsDisabledReason(route), grey the button, carry the reason, and guard the click.");
+            Assert.True(reasonDecl.Index < liveDecl.Index && liveDecl.Index < greys.Index
+                    && greys.Index < guard.Index,
+                "LogisticsWindowUI.DrawDetailSlotButton (Update parts): read the reason, derive live, grey, then guard.");
+            // Neither flag is reassigned after its one declaration (a `live = true;` after the
+            // declaration would pass the order checks above).
+            Assert.Single(Regex.Matches(update, @"\blive\s*=(?!=)").Cast<Match>());
+            Assert.Single(Regex.Matches(update, @"\breason\s*=(?!=)").Cast<Match>());
+            // The action and the hover refresh run INSIDE the guarded block (brace-balanced over
+            // the comment-stripped, literal-masked text), not merely somewhere after its `if`.
+            int guardOpen = guard.Index + guard.Length - 1;
+            int guardClose = -1;
+            for (int i = guardOpen, depth = 0; i < update.Length && guardClose < 0; i++)
+            {
+                if (update[i] == '{') depth++;
+                else if (update[i] == '}' && --depth == 0) guardClose = i;
+            }
+            Assert.True(guardClose > guardOpen,
+                "LogisticsWindowUI.DrawDetailSlotButton (Update parts): unbalanced live-click guard block.");
+            string guarded = update.Substring(guardOpen, guardClose - guardOpen + 1);
+            Assert.True(guarded.Contains("RouteEndpointPartAdoption.AdoptCurrentParts(route)")
+                    && guarded.Contains("lastLegibilityComputeRealtime = -1f"),
+                "LogisticsWindowUI.DrawDetailSlotButton (Update parts): the action and the hover refresh must run "
+                + "inside the live-click guard block.");
+            Assert.Single(Regex.Matches(update, @"\bAdoptCurrentParts\(").Cast<Match>());
             Assert.DoesNotContain("DrawRouteDetailButtonRow", prepared);
             // Every route-detail line shape ends in the slot cell; a shape that skipped it
             // would shift the slots and leave its label wider than the rest.

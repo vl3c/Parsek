@@ -459,16 +459,19 @@ namespace Parsek.Tests.Logistics
             Assert.DoesNotContain("->", LogisticsRoutePresentation.FormatFromTo("KSC", "Depot"));
         }
 
-        // The detail block's Interact slots: Rename and Delete in both modes, Link
-        // round-trip in Advanced, so a Basic block needs two lines and an Advanced one three.
+        // The detail block's Interact slots: Rename, Delete and Update parts in both modes
+        // (Update parts changes which parts take cargo, not when a route runs, so it is not
+        // route tuning), Link round-trip after them in Advanced, so a Basic block needs three
+        // lines and an Advanced one four, and a mode switch never moves the first three.
         [Fact]
-        public void DetailSlots_RenameDeleteThenLinkInAdvanced()
+        public void DetailSlots_RenameDeleteUpdatePartsThenLinkInAdvanced()
         {
             Assert.Equal(0, LogisticsWindowUI.RenameSlot);
             Assert.Equal(1, LogisticsWindowUI.DeleteSlot);
-            Assert.Equal(2, LogisticsWindowUI.LinkSlot);
-            Assert.Equal(2, LogisticsWindowUI.RouteDetailSlotCount(false));
-            Assert.Equal(3, LogisticsWindowUI.RouteDetailSlotCount(true));
+            Assert.Equal(2, LogisticsWindowUI.UpdatePartsSlot);
+            Assert.Equal(3, LogisticsWindowUI.LinkSlot);
+            Assert.Equal(3, LogisticsWindowUI.RouteDetailSlotCount(false));
+            Assert.Equal(4, LogisticsWindowUI.RouteDetailSlotCount(true));
         }
 
         // ------------------------------------------------------------------
