@@ -33,6 +33,77 @@ tail before recovery) has fired every time so far. Next step: decide whether a p
 half (start situation PRELAUNCH, ending at liftoff) is exempt from the split, or the floor is
 measured differently; then re-pin L3 / L5.
 
+**Investigation 2026-10-07 (branch `optimizer-retag-followups`, report only, no code change).**
+
+Where the split comes from. The 5.0 s both-halves floor arrived with the optimizer itself
+(`9fb17cd06`, T97, 2026-03-31: "minimum duration for both halves", no further rationale; wired by
+T98 `43a82dab9`). The Surface default split is step 5 of `IsSplittableEnvOrBodyBoundary`; its
+recorded reason is the optimizer's purpose, per-phase chain segments so each phase gets its own
+loop toggle (`parsek-flight-recorder-design.md` 9A.5; `docs/dev/done/plans/optimizer-persistence-split.md`
+sections 1-3, which list "pad / atmo-ascent / exo-orbit / atmo-reentry-and-landing" as the
+expected chain of a real flight; `docs/dev/research/optimizer-meaningful-split-rule.md` section 4
+rates Surface -> Atmo "take-off: always meaningful" because Surface comes from `Vessel.Situations`
+plus debounce, not an altitude line). Nothing in either doc argues for a PAD segment as such: the
+pad run is split because it is a Surface run, and the only Surface carve-out (`IsSurfaceGrazePattern`)
+covers a brief Atmo/Approach run bracketed by Surface, never a leading Surface run. The 5 s floor
+was ruled deliberate once before for the landing side (L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR,
+closed 2026-09-02 with a mission-side dwell). The pad coin flip is gameplay, not harness timing:
+on L5 the auto-record started at the first staging on the pad (`OnStageActivate` while PRELAUNCH,
+UT 9.60), the Flea moved at 13.50 (SurfaceMobile) and its Atmospheric section opened at 14.64, so
+the pad run is ignition-to-liftoff time. A player gets a pad segment whenever that exceeds 5 s
+(low-TWR stacks, clamps released a stage after ignition, a manual record on the pad).
+
+What a separate pad segment buys or costs each consumer (code read):
+- Rewind to launch: none. `RecordingStore.GetRewindRecording` resolves the save through the tree
+  root, which keeps its id (and the save) on the first segment either way.
+- Re-Fly / `RecordingTreeSplitter`: none for correctness. A pad run holds no separation, so no
+  RP slot starts there; an earlier chain segment is carved out of the supersede and tombstone sets
+  as a pre-rewind chain head (`SupersedeCommit.IsPreRewindCarveOut`). Before
+  RETAG-ON-SPLIT-MISSES-LATER-ROWS (fixed the same day) the pad segment was where the WHOLE
+  flight's results landed, so a re-fly kept them; that cost is gone. Unsplit, the splitter's
+  env-homogeneous-origin check Warns on a Re-Fly origin that still holds the pad run (it already
+  does today below 5 s; it counts raw environment changes).
+- Unfinished Flights / slot tips: none. Slots resolve through the chain tip
+  (`EffectiveState.EffectiveTipRecordingId`); the pad segment is a non-final chain segment with no
+  terminal and no snapshot.
+- Missions rows: none (one row per physical vessel; chain segments fold). Timeline: none (the
+  launch row is the chain head and reads the chain's duration, `TimelineBuilder.GetChainDuration`).
+- Recordings table: one extra "surface" row of about 5 s inside the launch's chain block.
+- Loops: the only real benefit, a loopable ascent that starts at liftoff instead of at ignition.
+  Owner ruling 2026-10-05 (branch `player-loop-removal`): per-recording player loops are being
+  removed, Parsek loops only behind routes, and a route loop replays the whole flight, pad run
+  included, so the benefit is on its way out. Route origin proof and the route-run manifest read
+  the chain head's start fields, which the first segment keeps either way.
+- KSC pad retirement (`LaunchSiteExclusionZones` / `SpawnCollisionDetector`): none; it judges the
+  flight's END, which is on the last segment.
+- Tail trim: none; `TrimBoringTail` only trims leaves and only tails.
+- Costs: a nondeterministic recording count in every pad-launch lane near 5 s (L3 / L5 now pin
+  2..3); one more recording, three more sidecar files and one more ghost snapshot clone per such
+  launch; one more first-segment-without-snapshot for every chain walker to cross
+  (CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT was this shape).
+
+If a leading pad run were NEVER split off: no consumer above breaks; the ascent segment would
+start at ignition; the chain head would be "atmo" instead of "surface"; already-split chains stay
+split (`CanAutoMerge` needs equal `SegmentPhase`); the cells that build a leading 30 s
+`SurfaceStationary` pad run and expect it split need re-checking against whatever predicate marks
+a launch (`RecordingOptimizerTests.Persistence_AscentLongAtmoLongExo_Splits` expects the s=1
+candidate, `OptimizationPass_PassiveDeorbitReentry_ProducesAscentExoReentryChain` at least 4
+segments "pad / ascent / orbit / reentry-and-landing", and the in-game
+`RealAscentReentry_ProducesPerPhaseChain_InGame` the same), and
+every lane whose flights split a pad run would lose one recording (needs a census of collected
+logs for `'surface' [..] + 'atmo'` first splits before re-pinning). If it were ALWAYS split (no
+floor for the leading run): deterministic, but every auto-recorded launch gets a sub-second to
+few-second pad recording, more UI noise and files for no consumer.
+
+Recommendation: exempt the LEADING Surface run of a recording that started on a launch site in
+PRELAUNCH (the first split-class run, never preceded by flight) from the step-5 Surface split, as
+a named suppress reason logged with the existing counters, and keep every other Surface boundary
+(touchdown, take-off from a non-launch-site surface, body changes) as it is. It removes the coin
+flip at its source with no consumer cost, since the split's one benefit (a liftoff-aligned loop)
+belongs to the player-loop UI being removed. The landing-side floor (L6) is a separate, smaller
+question: the landed tail carries the terminal state and the spawn, so it stays. Needs an owner
+ruling before code; then re-pin L3 / L5 to an exact count and re-run the census above.
+
 ---
 
 ## ~~RETAG-ON-SPLIT-MISSES-LATER-ROWS: ledger rows written after the optimizer split stay on the split recording's first segment, even when their UT is past its end~~ [FILED 2026-10-07 from the release verification flights, branch `verify-followups`. CONFIRMED (not cosmetic) and FIXED 2026-10-07, branch `optimizer-retag-followups`; xUnit only, not flown]
