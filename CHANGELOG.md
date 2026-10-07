@@ -1477,6 +1477,17 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **Launches no longer get a separate few-second pad recording.** When a flight that starts on
+  a launch pad or runway sat there for 5 seconds or more before lifting off (a slow engine
+  spool-up, clamps released a stage after ignition, recording started by hand on the pad),
+  the cleanup that splits a finished flight into phases cut that pad time off as its own
+  short "surface" recording, so two identical launches could produce a different number of
+  recordings depending on a fraction of a second. The time spent on the launch site before
+  liftoff now always stays with the flight. Landings, take-offs from anywhere other than a
+  launch site, and every later phase split exactly as before, and recordings that were
+  already split keep their pad segment. Covered by xUnit (`OptimizerLaunchSiteLeadingRunTests`);
+  the harness lanes `L3-career-science-recover` and `L5-career-contract-complete` pin exactly
+  2 recordings again.
 - **Dev: harness runs spend less time outside the mission.** The seam is polled every 25 ms
   for the first 2 s after each command (it was a flat 0.25 s, while the game answers within a
   frame or two; measured 13.7 s per run in such waits), and the response file is read from

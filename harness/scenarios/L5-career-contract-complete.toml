@@ -193,7 +193,15 @@ D14 = ["kerbin", "career", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# 2 OR 3, AND WHICH ONE IS A TIMING THRESHOLD, NOT A PRODUCT CHANGE. Runs
+# EXACTLY 2 SINCE THE OWNER RULING OF 2026-10-07 (todo
+# OPTIMIZER-PAD-SPLIT-AT-FIVE-SECOND-THRESHOLD): the optimizer never splits off the
+# LEADING launch-site Surface run of a flight that starts on the pad or runway
+# (`RecordingOptimizer.IsLaunchSiteDepartureBoundary`, predicate step 5b), so the
+# pad segment stays with the flight whatever its length and only the landing split
+# below remains. `2026-10-07_0032`'s 3 was that pad split; the history that follows
+# is how the 2..3 window came about.
+#
+# WAS 2 OR 3, AND WHICH ONE WAS A TIMING THRESHOLD, NOT A PRODUCT CHANGE. Runs
 # `2026-08-20_2217` and `2026-09-15_1727` produced 2 on this fixture, the same pair
 # `L3-career-science-recover` reads for the same craft and mission: the optimizer
 # splits the flight at the landing (`Split recording 'Jumping Flea' ... 'surface'
@@ -207,7 +215,7 @@ allowedAnomalies = []
 # OPTIMIZER-PAD-SPLIT-AT-FIVE-SECOND-THRESHOLD). The floor stays 2: the landing split
 # has fired on every flight so far. No other expectation here reads the count or a
 # recording index.
-count = { min = 2, max = 3 }
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 # NINE tokens. The first three are inherited context, the last six are the

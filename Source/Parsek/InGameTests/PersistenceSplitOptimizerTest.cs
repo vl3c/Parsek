@@ -109,6 +109,10 @@ namespace Parsek.InGameTests
                 //                      class 2, ≠ Exo class 1, no
                 //                      bracket)                      → split
                 //   s=4 Atmo→Surface  (Surface short-circuit)        → split
+                // The recording carries no launch-site start (no LaunchSiteName, no
+                // Prelaunch StartSituation), so s=1 still splits like any landed start;
+                // a real pad launch keeps its leading Surface run with the ascent (owner
+                // ruling 2026-10-07, xUnit OptimizerLaunchSiteLeadingRunTests).
                 var rec = new Recording
                 {
                     RecordingId = recId,
