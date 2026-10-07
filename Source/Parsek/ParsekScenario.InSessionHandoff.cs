@@ -160,7 +160,8 @@ namespace Parsek
                     ParsekLog.Warn(InSessionStagedStateHandoff.Tag,
                         $"In-session load found no staged-list handoff (kind={early}): the supersede rows, "
                         + "retirements, tombstones, journal and rewind points stay as the loaded save carries them "
-                        + "(the previous scenario instance was not torn down before this load)");
+                        + "(the previous scenario instance was not torn down before this load, or its own load "
+                        + "never reached step A and dropped the handoff)");
                 }
                 else
                 {

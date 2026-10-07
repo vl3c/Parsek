@@ -3692,8 +3692,9 @@ _(unreleased - entries accumulate here per commit)_
   now also keeps the Unfinished Flight it promised to keep: the load that follows no longer brings
   back the discarded session and deletes its rewind point. Quickloading into a save taken during a
   Re-Fly you have since merged resumes that Re-Fly; discarding it at the Merge dialog then brings
-  the original flight and its outcome back. Discarding a Re-Fly no longer deletes an earlier,
-  merged Re-Fly of another vessel from the same separation, with the crew death it undid. Loading
+  the original flight and its outcome back. Discarding a Re-Fly that a quickload resumed no longer
+  deletes an earlier, merged Re-Fly of another vessel from the same separation, and the crew
+  death that earlier Re-Fly undid stays undone. Loading
   another game and starting KSP are unchanged. Covered by xUnit; not yet checked in a test flight.
 
 - **A station hidden after a rewind comes back when its recorded future ends, also when that
