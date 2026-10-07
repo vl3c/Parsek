@@ -716,6 +716,14 @@ the updates below record how each verb arrived.
 > merely race the write - it would change the very UI the pending capture is about to
 > record. Full contract below (`#### DumpGuiTree`).
 
+> Update (WarpToUT scene-agnostic, TC-1, 2026-10-07): no new verb and no new argument.
+> `WarpToUT` moves from `RequiresFlight` to the new `RequiresWarpScene` row (FLIGHT, the
+> Space Center, the Tracking Station), so `maxRate=1` is a deterministic 1x wait in all
+> three, and stock's transient post-load `physicsHold` becomes a bounded DEFER
+> (`warp-physics-hold`) instead of a `warp-locked` refusal. One new refusal,
+> `physics-warp-not-in-flight` (`ladder=phys` outside FLIGHT). FLIGHT behaviour is
+> otherwise unchanged. Full contract below (`#### WarpToUT`).
+
 > Update (WarpToUT, 2026-09-09): one further ADDITIVE verb, `WarpToUT ut=<absolute UT>
 > [maxRate=<float>]` - the SaveGame / ExportRenderManifest / ListHandles shape, never in
 > the reserved envelope (which carried no warp verb). It takes the table to **33
@@ -1538,11 +1546,53 @@ RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT. The short form is that the seam c
 the CLOCK but not the WORLD, and every terminal-gated in-game `Rewind` cell needs a
 provisional that reached an ending.
 
-**Contract.** `RequiresFlight` - a hard precondition, not a convenience: rails warp is a
-flight-scene mechanism and the whole content of the verb is that the ACTIVE VESSEL travels
-while the clock advances. It is a DEFER on not-in-flight (the wrong-scene case is
-overwhelmingly a scene still settling in from the previous step), like every other
-FLIGHT-only verb. TWO-PHASE, and its completion is a genuine POLL rather than a settle:
+**Contract.** `RequiresWarpScene` (TC-1, 2026-10-07; `RequiresFlight` before): FLIGHT,
+the Space Center or the Tracking Station, the three scenes with a stock `TimeWarp`
+controller (decompiled KSP 1.12.5: the KSC / TS warp widgets and `UIWarpToNextMorning` call
+`TimeWarp.fetch` in both non-flight scenes, and stock's `setRate` applies its vessel clamps
+only under `HighLogic.LoadedSceneIsFlight`). In FLIGHT the ACTIVE VESSEL travels while the
+clock advances, exactly as before (ladder, physics mode, refusals and log lines unchanged).
+Outside FLIGHT the clock advances with no vessel to clamp it: the applier's rails ceiling is
+the top of the ladder, FlightGlobals is not read, and one extra Info line
+`warptout scene=<scene> outside FLIGHT: rails ladder, no vessel ceiling, maxRate=<c>`
+follows the start line. **With `maxRate=1` the verb is the seam's deterministic 1x wait in
+any of the three scenes**: the clock runs at 1x until it reaches `ut`, independent of how
+fast the harness polls (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS: since PR #2017 an
+inert step costs one frame, so a run of inert steps is no longer a time wait). In any other
+scene (main menu, editor) it is a DEFER `not-in-warp-scene`, bounded by the budget, for every
+FLIGHT-only verb's reason. `ladder=phys` outside FLIGHT is `REJECTED
+physics-warp-not-in-flight` (physics warp is a flight mode).
+
+**The post-load physics hold is a DEFER, not a refusal.** Stock's `Vessel.Load` /
+`Vessel.Initialize` register the `physicsHold` input lock (its mask covers TIMEWARP) and
+`GoOffRails` removes it at the unpack, measured 1.0-1.2 s after OnFlightReady. A WarpToUT
+sent inside that window used to be `REJECTED warp-locked holders=physicsHold`, so specs
+padded inert steps before it. The dispatcher now DEFERS a WarpToUT head with
+`warp-physics-hold` while TIMEWARP is locked and `physicsHold` is the ONLY holder
+(`TestCommandWarpToUT.IsTransientPhysicsHoldOnly`, over the same sorted holder list the
+refusal line prints), for at most `PhysicsHoldDeferMaxSeconds` (30 s) per head
+(`ShouldDeferForPhysicsHold`; the addon samples the bits for a WarpToUT head only and logs
+`warptout waiting out the post-load physics hold id=<id> holders=physicsHold maxWait=30s`
+once per head). Any other holder (a modal dialog), a lock with no stack entry (`none`), or a
+hold that outlives the bound executes and is refused `warp-locked` exactly as before.
+
+**The 1x wait goes past every TIMEWARP lock.** A WarpToUT whose cap is exactly 1
+(`maxRate=1`, `TestCommandWarpToUT.OneXWaitIgnoresTimeWarpLock`) requests rate index 0 and
+nothing else (`SelectRateIndex` returns 0 for it on any ladder), so no input lock on
+TIMEWARP can change what it does. Its feasibility gate
+(`EvaluateFeasibility(present, locked, cap)`) therefore never refuses `warp-locked`, the
+dispatcher never defers it on the physics hold (`IsOneXWaitArg`), and the applier logs one
+`warptout 1x wait ignores TIMEWARP lock holders=<ids> ut=<t>` line instead. A missing
+`TimeWarp` controller still refuses. Measured why: RF-7T's Tracking Station dwell
+(`2026-10-07_2159`, `_2200_a2`) met `holders=intro_TS`, stock
+`ScenarioNewGameIntro.TSTutorialSetup`'s TRACKINGSTATION_ALL lock for the new-game
+tutorial popup, which holds until a player dismisses it. The popup does not stop the clock
+(decompiled: it is spawned non-modal and neither it nor `TutorialScenario` touches the time
+scale or pauses; RF-7T's green `2026-09-09_0100` TS dwell ran UT 701.56 -> 705.60 in 4 s of
+wall time on the same fixture). Every cap other than exactly 1 keeps the gate above
+unchanged.
+
+TWO-PHASE, and its completion is a genuine POLL rather than a settle:
 `TimeJump` lands its clock synchronously and only watches the spawn queue drain, while
 this verb watches a clock that advances over many frames. Budget 540 s
 (`DeferralBudget.WarpToUTSeconds`), which is the harness's own
@@ -1591,7 +1641,8 @@ into a real-time wait that the budget bounds. That is deliberate: refusing there
 the verb useless on the exact lane it was built for, and `maxRate=1` in the terminal
 payload is how a reader tells a waited span from a warped one. Only a warp that cannot be
 driven AT ALL is `REJECTED`: no `TimeWarp` controller (`warp-unavailable`) or a stock input
-lock on `ControlTypes.TIMEWARP` (`warp-locked`).
+lock on `ControlTypes.TIMEWARP` (`warp-locked`; stock's transient post-load `physicsHold`
+alone is waited out first, see the Contract).
 
 **The warp is always lowered, and the OK is the proof.** The mirror-direction obligation
 (CLAUDE.md: a fix derived from an asymmetry must be checked in the mirror direction) for a
@@ -1620,8 +1671,10 @@ maxRate=<m> elapsed=<e>s` on success. Refusals log `warptout refused reason=<r> 
 Warn and the timeout logs at Error.
 
 **Pure decision.** `TestCommandWarpToUT` (`ResolveTargetUt`, `ResolveMaxRate`,
-`IsForwardWarp`, `EvaluateFeasibility`, `HasReached`, `SelectRateIndex`,
-`DecideWarpCompletion`, `BuildCompletePayload`, and the refusal-reason constants),
+`IsForwardWarp`, `EvaluateFeasibility`, `EvaluateSceneFeasibility`,
+`IsTransientPhysicsHoldOnly`, `ShouldDeferForPhysicsHold`, `HasReached`, `SelectRateIndex`,
+`DecideWarpCompletion`, `BuildCompletePayload`, and the refusal-reason constants) plus
+`TestCommandDispatcher.IsWarpScene` and the `WarpToUT` dispatch case,
 xUnit-covered in `TestCommandWarpToUTTests.cs`. The partial
 `ParsekTestCommandAddon.WarpToUT.cs` only samples live KSP state and calls
 `TimeWarp.SetRate`.

@@ -1,5 +1,10 @@
 schema = 1
 id = "V28M-tylo-player-loop"
+# 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
+# 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
+# since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
+# FLIGHT, the Space Center and the Tracking Station since TC-1. Spec changed, not
+# re-flown.
 # =====================================================================================
 # V28M-tylo-player-loop: THE TYLO REPLAY LANE (roadmap G9, coverage wave 11). The V16M player-loop
 # shape, one cycle, on `tylo-orbit-recorded` - the B33 harvest (run `2026-09-25_2246`): a Jool-rooted
@@ -64,26 +69,9 @@ steps = [
   { cmd = "TimeJump", args = { ut = "30278373" }, expect = "OK", budget = 300 },
   { cmd = "TimeJump", args = { ut = "30278573" }, expect = "OK", budget = 300 },
   { cmd = "TimeJump", args = { ut = "30289056" }, expect = "OK", budget = 300 },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
+  # 1x FLIGHT time to UT 30289062: the park dwell, 6 s after the jump, census pacing (20 inert steps before 2026-10-07: since PR #2017 one costs a
+  # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
+  { cmd = "WarpToUT", args = { ut = "30289062", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 

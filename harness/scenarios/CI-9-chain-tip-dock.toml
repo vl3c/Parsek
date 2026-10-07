@@ -58,6 +58,11 @@
 
 schema = 1
 id = "CI-9-chain-tip-dock"
+# 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
+# 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
+# since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
+# FLIGHT, the Space Center and the Tracking Station since TC-1. Spec changed, not
+# re-flown.
 tier = "nightly"
 description = "D18 player action, dock with a Real-Spawned chain tip: over eva2-lko-crewed plus the chain-tip-dock preset (a committed tree whose parentless background recording of a small docking target is an orbital ghost chain tip ~140 m ahead of the focused Kerbal X), RealSpawn the tip, start a recording on the Kerbal X, fly mission ci9_tip_dock to rendezvous with and dock to the spawned tip, commit the tree."
 instanceProfile = "stock-minimal"
@@ -82,26 +87,9 @@ steps = [
   { cmd = "ListHandles", args = { kind = "chains" }, label = "chains", expect = "OK" },
   # THE SETTLE: the proximity scan admits a row only on its second sighting, 1.5 s apart
   # (CI-6's twenty inert steps; the probe flight `2026-10-03_1642` pressed at +6.2 s).
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
+  # 1x FLIGHT time to UT 428: the proximity scan admits a row on its second sighting 1.5 s apart; ~6.8 s after the save UT 421.19 (20 inert steps before 2026-10-07: since PR #2017 one costs a
+  # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
+  { cmd = "WarpToUT", args = { ut = "428", maxRate = "1" }, expect = "OK", budget = 120 },
   # ACT 1.
   { cmd = "RealSpawn", args = { rec = "${chains.chain0tip}" }, label = "spawn", expect = "OK", budget = 120 },
   { cmd = "RecordingState", expect = "OK" },

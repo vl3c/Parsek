@@ -1,5 +1,17 @@
 schema = 1
 id = "RF-7T-predicted-tail-ts-render"
+# READING 2026-10-07 `2026-10-07_2159` / `_2200_a2` (branch `scene-wait`): INVALID twice on
+# `warptout refused reason=warp-locked ut=707 holders=intro_TS`. `intro_TS` is stock
+# `ScenarioNewGameIntro.TSTutorialSetup`'s TRACKINGSTATION_ALL lock for this fixture's new-game
+# Tracking Station tutorial popup; it holds until a player dismisses the popup, while the
+# clock runs at 1x (the popup is non-modal and pauses nothing). Fixed in the verb, not here: a
+# `maxRate=1` WarpToUT now ignores TIMEWARP locks (it never changes the rate) and logs
+# `warptout 1x wait ignores TIMEWARP lock holders=intro_TS`. Not re-flown.
+# 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
+# 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
+# since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
+# FLIGHT, the Space Center and the Tracking Station since TC-1. Spec changed, not
+# re-flown.
 # =====================================================================================
 # THE RE-FLY CONTINUATION PROGRAM, LANE 7T. THE SAME PREDICTED TAIL, IN THE TRACKING
 # STATION. RF-7M's sibling, and the half the seed session has ZERO evidence for.
@@ -110,26 +122,9 @@ steps = [
   # TS dwell. Twenty polls at the seam's cadence is ~20 s of scene time, which is what the
   # map-presence resolver needs to run its per-recording pass and what the tracers need to
   # have something to compare frames against.
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
-  { cmd = "RecordingState",                                                      expect = "OK" },
+  # 1x Tracking Station time to UT 707: the TS dwell, ~5 s after the re-pointed clock (700) is saved and reloaded (20 inert steps before 2026-10-07: since PR #2017 one costs a
+  # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
+  { cmd = "WarpToUT", args = { ut = "707", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                        expect = "OK" },
 ]
 

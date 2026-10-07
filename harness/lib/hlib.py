@@ -9892,6 +9892,10 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # maxRate); a game whose difficulty forbids physics warp is a gate.
     "warp-ladder-invalid": "driver-arg",
     "physics-warp-disallowed": "driver-gate",
+    # WarpToUT is scene-agnostic since TC-1 (FLIGHT, Space Center, Tracking Station), but
+    # physics warp is a FLIGHT mode: `ladder=phys` outside FLIGHT is the spec asking for a
+    # ladder that scene does not have, arg-class like an unknown ladder token.
+    "physics-warp-not-in-flight": "driver-arg",
     # StockScreen: a spec-shaped fault (spelling, a missing arg, an act the screen does
     # not have, a row or part the fixture does not carry) is arg-class; a screen that is
     # not open / already open, a wrong scene or a non-career save is a gate the verb
@@ -10700,6 +10704,9 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     # The retry sends the same args.
     "missing-arg", "missing-jump-target", "missing-warp-target",
     "max-rate-invalid", "warp-ladder-invalid",
+    # WarpToUT `ladder=phys` outside FLIGHT: the spec put a physics-ladder warp in a
+    # scene that has none; the retry reaches the same scene with the same arg.
+    "physics-warp-not-in-flight",
     "allow-live-recorder-arg-invalid", "cadence-arg-invalid", "cadence-arg-missing",
     "category-arg-empty", "dialog-arg-invalid", "edit-commit-arg-invalid",
     "edit-field-arg-missing", "edit-key-arg-missing", "expand-key-arg-missing",

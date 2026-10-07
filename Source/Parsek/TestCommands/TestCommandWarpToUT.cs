@@ -45,6 +45,13 @@ namespace Parsek.TestCommands
     /// Pure decision + payload helpers for the forward-only, REAL-TIME-ADVANCING
     /// <c>WarpToUT</c> verb.
     ///
+    /// <para><b>Scenes.</b> FLIGHT, the Space Center and the Tracking Station (the
+    /// dispatcher's <c>RequiresWarpScene</c> row): stock keeps a <c>TimeWarp</c>
+    /// controller in all three (its own KSC / TS warp buttons and
+    /// <c>UIWarpToNextMorning</c> drive it there), and outside FLIGHT stock's
+    /// <c>setRate</c> applies no vessel clamp. With <c>maxRate=1</c> the verb is a
+    /// deterministic 1x wait until the clock reaches the target in any of the three.</para>
+    ///
     /// <para><b>Why this is not a second spelling of TimeJump.</b> <c>TimeJump</c> is an
     /// EPOCH SHIFT: <c>ParsekFlight.TimeJumpTo</c> -&gt; <c>TimeJumpManager.ExecuteJump</c>
     /// stops warp and moves the clock instantly with frozen relative positions
@@ -151,8 +158,74 @@ namespace Parsek.TestCommands
         /// physics-warp button reads).</summary>
         internal const string PhysicsWarpDisallowedReason = "physics-warp-disallowed";
 
+        /// <summary><c>ladder=phys</c> outside FLIGHT. Physics warp is a flight-scene mode
+        /// (stock's LOW ladder steps the vessel's physics); the Space Center and the
+        /// Tracking Station run the rails ladder only, so a physics request there is the
+        /// spec's fault and is refused rather than run as a rails wait.</summary>
+        internal const string PhysicsWarpNotInFlightReason = "physics-warp-not-in-flight";
+
         /// <summary>The <c>ladder</c> token that selects the physics ladder.</summary>
         internal const string PhysicsModeToken = "phys";
+
+        // ----- The post-load physics hold (a DEFER, not a refusal) -----
+
+        /// <summary>The input-lock id stock's <c>Vessel.AddPhysicsHoldLock</c> registers
+        /// on a vessel load (decompiled KSP 1.12.5: <c>Vessel.Load</c> /
+        /// <c>Vessel.Initialize</c> add it, <c>GoOffRails</c> / <c>CheckGroundCollision</c>
+        /// / <c>Die</c> / <c>OnDestroy</c> remove it). Its mask covers TIMEWARP, so between a
+        /// flight load and the vessel's unpack (measured 1.0-1.2 s after OnFlightReady)
+        /// every warp request is locked out.</summary>
+        internal const string StockPhysicsHoldLockId = "physicsHold";
+
+        /// <summary>The dispatch DEFER reason while the ONLY TIMEWARP lock holder is
+        /// <see cref="StockPhysicsHoldLockId"/>: the hold lifts on its own at the unpack, so
+        /// the verb waits for it instead of answering <see cref="WarpLockedReason"/>.</summary>
+        internal const string PhysicsHoldDeferReason = "warp-physics-hold";
+
+        /// <summary>How long (wall seconds) a WarpToUT head defers on a physics-hold-only
+        /// lock before it executes anyway and the feasibility gate refuses it
+        /// <see cref="WarpLockedReason"/>. The hold is measured at about one second; a
+        /// hold still standing after thirty is not the transient one (a vessel that never
+        /// unpacks), so the verb answers the same refusal it always did.</summary>
+        internal const double PhysicsHoldDeferMaxSeconds = 30.0;
+
+        /// <summary>
+        /// True when the TIMEWARP lock is held by stock's transient post-load physics hold
+        /// and nothing else: <paramref name="holders"/> is
+        /// <see cref="FormatTimeWarpLockHolders"/>'s output, which is sorted and
+        /// comma-joined, so exactly <see cref="StockPhysicsHoldLockId"/> means it is the
+        /// sole holder. A modal dialog's lock, a <c>none</c> answer (a bare
+        /// <c>lockMask</c> write with no stack entry) or any second holder is a genuine
+        /// lock and reads false.
+        /// </summary>
+        internal static bool IsTransientPhysicsHoldOnly(bool timeWarpLocked, string holders)
+            => timeWarpLocked && string.Equals(holders, StockPhysicsHoldLockId, StringComparison.Ordinal);
+
+        /// <summary>
+        /// The dispatch decision for the post-load physics hold: DEFER while the lock is the
+        /// transient hold alone and has stood for less than
+        /// <see cref="PhysicsHoldDeferMaxSeconds"/>; otherwise let the verb execute (its
+        /// feasibility gate then answers any lock still standing with
+        /// <see cref="WarpLockedReason"/>, the pre-existing refusal).
+        /// </summary>
+        internal static bool ShouldDeferForPhysicsHold(bool physicsHoldOnly, double heldSeconds)
+            => physicsHoldOnly
+               && !double.IsNaN(heldSeconds)
+               && heldSeconds < PhysicsHoldDeferMaxSeconds;
+
+        /// <summary>
+        /// The scene feasibility gate, evaluated after <see cref="EvaluateFeasibility"/> and
+        /// <see cref="EvaluateModeFeasibility"/>: outside FLIGHT only the rails ladder runs,
+        /// so <see cref="WarpLadderMode.Physics"/> is refused
+        /// <see cref="PhysicsWarpNotInFlightReason"/>. Never refuses in FLIGHT, so the
+        /// FLIGHT contract is unchanged.
+        /// </summary>
+        internal static string EvaluateSceneFeasibility(WarpLadderMode mode, bool inFlight)
+        {
+            if (!inFlight && mode == WarpLadderMode.Physics)
+                return PhysicsWarpNotInFlightReason;
+            return null;
+        }
 
         /// <summary>
         /// Pure forward-warp gate (strictly <c>target &gt; now</c>). A backward or zero
@@ -288,6 +361,41 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
+        /// True when the cap is exactly 1x (<c>maxRate=1</c>): the 1x wait. Such a warp
+        /// never requests a rate above index 0 (<see cref="SelectRateIndex"/> returns 0 for
+        /// it on any ladder), so a TIMEWARP input lock cannot affect it and the verb neither
+        /// refuses <see cref="WarpLockedReason"/> nor waits out the physics hold for it.
+        /// Measured why it matters: RF-7T's Tracking Station dwell met stock's new-game
+        /// tutorial lock (<c>intro_TS</c>, <c>ScenarioNewGameIntro.TSTutorialSetup</c>'s
+        /// TRACKINGSTATION_ALL lock), which holds until a player dismisses the popup, while
+        /// the clock itself runs at 1x (the popup is non-modal and sets no pause or time
+        /// scale).
+        /// </summary>
+        internal static bool OneXWaitIgnoresTimeWarpLock(double maxRateCap)
+            => maxRateCap == 1.0;
+
+        /// <summary>
+        /// <see cref="EvaluateFeasibility(bool, bool)"/> with the cap: a missing controller
+        /// still refuses, a TIMEWARP lock refuses only when the cap is not exactly 1x
+        /// (<see cref="OneXWaitIgnoresTimeWarpLock"/>). For any other cap (or none) this is
+        /// the two-argument gate verbatim, so a real warp's refusals are unchanged.
+        /// </summary>
+        internal static string EvaluateFeasibility(bool warpControllerPresent, bool warpLocked, double maxRateCap)
+            => EvaluateFeasibility(
+                warpControllerPresent, warpLocked && !OneXWaitIgnoresTimeWarpLock(maxRateCap));
+
+        /// <summary>
+        /// The 1x-wait test on the raw <c>maxRate</c> arg, for the dispatcher (which holds the
+        /// parsed command, not the resolved cap): true only when the arg parses as exactly 1.
+        /// An absent or invalid arg reads false, so the physics-hold defer still applies to it.
+        /// </summary>
+        internal static bool IsOneXWaitArg(string maxRateArg)
+        {
+            double cap = ResolveMaxRate(maxRateArg, out string error);
+            return error == null && OneXWaitIgnoresTimeWarpLock(cap);
+        }
+
+        /// <summary>
         /// The ids of the input locks whose mask includes <paramref name="timeWarpMask"/>,
         /// sorted ordinally and comma-joined, or <c>none</c> when no entry carries the bit.
         /// Appended to the <c>warp-locked</c> refusal LOG line (never to the response msg,
@@ -358,6 +466,10 @@ namespace Parsek.TestCommands
             // against code without it.)
             int ceiling = maxAllowedIndex;
             if (ceiling > warpRates.Count - 1) ceiling = warpRates.Count - 1;
+
+            // The 1x wait never leaves rung 0, whatever a ladder holds above it: its
+            // lock-free admission (OneXWaitIgnoresTimeWarpLock) relies on that.
+            if (OneXWaitIgnoresTimeWarpLock(maxRateCap)) return 0;
 
             bool capped = maxRateCap > UncappedMaxRate;
             for (int i = ceiling; i > 0; i--)

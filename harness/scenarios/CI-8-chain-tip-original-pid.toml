@@ -54,6 +54,11 @@
 
 schema = 1
 id = "CI-8-chain-tip-original-pid"
+# 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
+# 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
+# since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
+# FLIGHT, the Space Center and the Tracking Station since TC-1. Spec changed, not
+# re-flown.
 tier = "nightly"
 description = "D18 chain-tip-original-pid, the player-action re-claim: over gloops-airshow plus the chain-tip-recovery preset (a committed tree whose parentless background recording of a landed lander is a ghost chain tip ~130 m from the pad), read the chain's pid from ListHandles kind=chains, RealSpawn the tip through Real Spawn Control, and require the spawned vessel's pid to equal the captured chain pid, the identity to be preserved, and exactly one lander in the produced save."
 instanceProfile = "stock-minimal"
@@ -76,51 +81,17 @@ steps = [
   { cmd = "ListHandles", args = { kind = "chains" }, label = "chains", expect = "OK" },
   # THE SETTLE: the proximity scan admits a row only on its second sighting, 1.5 s apart.
   # Twenty inert steps (~5 s) are CI-6's measured count.
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
+  # 1x FLIGHT time to UT 27: the proximity scan admits a row on its second sighting 1.5 s apart; ~5 s after the save UT 21.16 (20 inert steps before 2026-10-07: since PR #2017 one costs a
+  # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
+  { cmd = "WarpToUT", args = { ut = "27", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "RealSpawn", args = { rec = "${chains.chain0tip}" }, label = "spawn", expect = "OK", budget = 120 },
   # THE GATE: both captures in one line; the required regex back-references them.
   { cmd = "MissionMark", args = { label = "ci8-chain-pid-${chains.chain0pid}-spawn-pid-${spawn.pid}-tip-${chains.chain0tip}-rec-${spawn.rec}" }, expect = "OK" },
   # Let the playback loop run a few seconds past the spawn, so a duplicate spawn (spawn-death
   # pass, a second chain-tip spawn) would have its frames before the save is written.
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
+  # 1x FLIGHT time to UT 630: RealSpawn jumps to the tip's EndUT 622.16 (save UT 21.16 + 1 + 600), so ~8 s of playback past the spawn (20 inert steps before 2026-10-07: since PR #2017 one costs a
+  # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
+  { cmd = "WarpToUT", args = { ut = "630", maxRate = "1" }, expect = "OK", budget = 120 },
   # Readbacks for the review (not gates): the committed rows carry the tip's spawnedPid, and
   # the post-spawn chain set says what the walker made of a spawned tip.
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
