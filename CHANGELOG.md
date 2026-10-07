@@ -6268,7 +6268,12 @@ _(unreleased - entries accumulate here per commit)_
   the load, any funds uplift, and the EVA kerbal reaching the final commit. Its host,
   `career-gs1-two-stage-pad`, is `fresh-career` with the GS-1 craft spliced in by
   `career-pad-craft`'s recipe (`harness/tools/build_career_gs1_two_stage_pad.py`, byte-identity
-  checked by `harness/lib/test_career_gs1_two_stage_pad.py`). No product change; nothing flown.
+  checked by `harness/lib/test_career_gs1_two_stage_pad.py`). It flies the new mission shell
+  `gs1_auto_chute_booster_career`, GS-1's machine, assertions and parameter schema plus the
+  unreadable-maneuver-node tolerance a level-0 Tracking Station needs (QL-2's measured death on
+  plain `b1_pad_hop`, applied before this lane's first flight); GS-1, QL-4 / QL-4b / QL-4c,
+  RF-1, RF-4 and CA-1 keep `gs1_auto_chute_booster` unchanged. No product change; nothing
+  flown.
 - **Automated testing: the F9 checks automated (QL-2 new, QL-3 and QL-4b extended) and the
   rewind fixtures production-shaped.** `QL-2-quickload-career-recovery-not-paid` (nightly,
   never flown) is the career half of "a reward earned after the F5 is not paid": the Jumping

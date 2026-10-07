@@ -65,7 +65,16 @@ id = "QL-2b-quickload-booster-career-reward-not-paid"
 # Kerman, Assigned) and inert ParsekScenario node spliced in by `career-pad-craft`'s recipe
 # (harness/tools/build_career_gs1_two_stage_pad.py, byte-identity gated by
 # harness/lib/test_career_gs1_two_stage_pad.py). The craft is the donor's VESSEL node byte
-# for byte, so `gs1_auto_chute_booster` and QL-4's parameters transfer verbatim.
+# for byte, so GS-1's profile and QL-4's parameters transfer verbatim. It flies
+# `gs1_auto_chute_booster_career`: GS-1's machine, assertions and schema with ONE control
+# difference, `tolerate_unreadable_nodes=True` (safety argument in its make_control).
+# PREMISE MISS, APPLIED BEFORE THE FIRST FLIGHT: QL-2 flew plain `b1_pad_hop` on the
+# level-0 career `career-pad-craft` and went INVALID twice (`2026-10-07_2231`, retry
+# `_2232_a2`): kRPC's maneuver-node read raises `Maneuver node editing is not available
+# ... tracking station has not been upgraded`, three consecutive raises escalate to
+# `vessel_lost` at PRELAUNCH, and the mission died MISSION-ASSERT-FAIL in 1.2 s. This
+# host's Tracking Station is at level 0 too and GS-1's machine condemns a vessel_lost
+# frame the same way, so the plain mission would die identically. Spec changed, not flown.
 #
 # THE TIMELINE (UTs from QL-4 `2026-10-07_1931` on the sandbox twin, not measured here):
 #   ~UT 26    launch; recording starts; FirstLaunch and the world records pay on the ascent.
@@ -113,7 +122,8 @@ id = "QL-2b-quickload-booster-career-reward-not-paid"
 #     funds gate is the walk and patch lines.
 #
 # STATUS: AUTHORED 2026-10-08 (branch `ql-career-booster`, stacked on PR #2052), NEVER
-# FLOWN. Every token is quoted from its emitting source line (GameStateRecorder
+# FLOWN (mission switched to `gs1_auto_chute_booster_career` 2026-10-08, see THE HOST).
+# Every token is quoted from its emitting source line (GameStateRecorder
 # .RegisterPendingMilestoneEvent / OnFundsChanged / the enrichment postfix, MilestonesModule
 # .ProcessAction, FundsModule, LedgerOrchestrator.OnRecordingCommitted, KspStatePatcher,
 # ParsekScenario.Trim.cs, GameStateStore, Ledger.RetireAbandonedFutureActions,
@@ -135,7 +145,7 @@ craft              = []
 
 [driver]
 kind    = "autopilot"
-mission = "gs1_auto_chute_booster"
+mission = "gs1_auto_chute_booster_career"
 # `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
 steps = [
   { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },

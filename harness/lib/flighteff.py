@@ -1038,6 +1038,7 @@ MISSION_MACHINES = {
     "ci11_krpc_recover": "krec_decide",
     "eva4_atmo_chute": "eva4_decide", "forge_lko": "forge_lko_decide",
     "forge_station": "forge_decide", "gs1_auto_chute_booster": "gs1_decide",
+    "gs1_auto_chute_booster_career": "gs1_decide",
     "gs2_orbital_probe_deploy": "gs2_decide", "kx_rewind_watch": "kxrw_decide",
     "m3_loop_arrival_dwell": "m3_decide", "r1_rewind_loop": "r1_decide",
     "rf12s_refly_orbit_insert": "rfo_decide", "science_bench_recover": "sbr_decide",

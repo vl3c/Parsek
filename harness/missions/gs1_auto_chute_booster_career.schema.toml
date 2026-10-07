@@ -1,0 +1,110 @@
+# Declared param schema for mission gs1_auto_chute_booster_career: GS-1's
+# two-stage flight on a CAREER save (the shell differs from gs1_auto_chute_booster
+# only in its control's tolerate_unreadable_nodes opt-in; see
+# gs1_auto_chute_booster_career.py).
+#
+# The [params] tables below are GS-1's, key for key: the shell drives the SAME
+# mlib.gs1_decide machine from the SAME mlib.gs1_params_from_dict, so a key declared
+# in one schema and not the other would validate a spec the machine reads
+# differently. test_gs1_auto_chute_booster_career pins the two `params` tables EQUAL
+# after parse; edit gs1_auto_chute_booster.schema.toml and copy the change here. The
+# rationale comments for each bound live there.
+
+[params.throttle]
+required = true
+type = "float"
+min = 0.0
+max = 1.0
+
+[params.stagingApoapsisMeters]
+required = true
+type = "number"
+min = 100.0
+max = 5000.0
+
+[params.stagingMaxAltMeters]
+required = true
+type = "number"
+min = 100.0
+max = 5000.0
+
+[params.apoapsisWindowMeters]
+required = true
+type = "window"
+
+[params.stageSettleFrames]
+required = false
+type = "int"
+min = 1
+max = 50
+
+[params.coastTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.chuteArmMaxRateMps]
+required = true
+type = "number"
+min = 1.0
+max = 100.0
+
+[params.chuteFullDeployAltMeters]
+required = true
+type = "number"
+min = 500.0
+max = 5000.0
+
+[params.landedSituations]
+required = true
+type = "list"
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.stageTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.descentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.siblingVesselName]
+required = false
+type = "string"
+
+[params.siblingAirborneAtExit]
+required = false
+type = "bool"
+
+[params.focusImpactAtExit]
+required = false
+type = "bool"
+
+[params.siblingDownTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.separationThrustEpsilonNewtons]
+required = false
+type = "number"
+min = 1.0
+max = 10000.0
+
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000
+
+[params.frozenToleranceAbs]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
