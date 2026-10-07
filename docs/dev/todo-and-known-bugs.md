@@ -275,12 +275,18 @@ resumed from the save back to the save: when the active-tree restore's committed
 supersede row naming one of that tree's recordings on either side, a retirement retiring one, or a
 tombstone whose retiring recording is one or whose retired action is tagged to one follows the save
 (the save's copy kept, a memory-only one dropped, a save-only one put back), since a Re-Fly merged
-into that flight after the save is part of the future the quickload retires. Exception (OQ-1): a
-row the loaded marker's resumed attempt wrote (writer side in the set the discard prune removes)
-keeps memory's copy. A detach that keeps the committed future (a load outside flight) keeps
-memory's rows. A scenario instance hands off only after its own OnLoad got through step A (capture
-skip `staged-state-not-loaded`). An in-session load with no handoff keeps the save's lists and
-Warns. OQ-1: `MergeDialog.PruneStagedRowsNamingAttempt`, called from both Re-Fly discard helpers,
+into that flight after the save is part of the future the quickload retires (its recording is
+QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE). Exception (OQ-1): a row the
+loaded marker's resumed attempt wrote (writer side in the set the discard prune removes) keeps
+memory's copy; the attempt is identified by its session stamp (`MergeDialog.IsCreatedByReFlySession`,
+`CreatingSessionId`), not `ProvisionalForRpId`, which every provisional carries next to its session
+and keeps through the merge, so a rewind-point match also claimed another session's fork on the
+same rewind point (a later merge's rows kept; an earlier merged Re-Fly of the point's other slot
+pruned with its rows by a discard, owner ruling D2; the live discard had the same over-reach). A
+detach that keeps the committed future (a load outside flight) keeps memory's rows. A scenario
+instance hands off only after its own OnLoad got through step A: its teardown skips the capture
+(Warn, `staged-state-not-loaded`) and drops the older handoff that OnLoad never took. An in-session
+load with no handoff keeps the save's lists and Warns. OQ-1: `MergeDialog.PruneStagedRowsNamingAttempt`, called from both Re-Fly discard helpers,
 removes supersede rows whose new side, tombstones whose retiring recording and rewind retirements
 whose retired recording is a pruned attempt recording (the same writer selectors the load-time
 exception keeps by). The
@@ -290,8 +296,10 @@ ELS, rows only in the save not resurrected, committed tree's newer RP kept, reap
 resurrected, session RPs of a session the save never had purged with files, merged-session resume
 keeps its rows, both Discard Re-fly loads keep the origin RP, stale journal dropped; the review
 follow-up's `Quickload_SaveBeforeReFlyMergeOfTheResumedFlight_RowsFollowTheSave` through the real
-`TryRestoreActiveTreeNode`, red with the row O->A' still installed); the OQ-1 discard pair red with
-the prune or its tombstone-version bump removed; `InSessionHandoffWiringGateTests` pins the order.
+`TryRestoreActiveTreeNode`, red with the row O->A' still installed; the production-stamped
+same-rewind-point second session and the earlier same-rewind-point attempt surviving both discards,
+red with the rewind-point match); the OQ-1 discard pair red with the prune or its tombstone-version
+bump removed; `InSessionHandoffWiringGateTests` pins the order.
 The OQ-1 Esc-menu Discard is proven for the rows only (see
 ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE). Decompile
 note: the Discard Re-fly load is ONE OnLoad, and it reads persistent.sfs, not the rewind-point
@@ -669,6 +677,36 @@ which need the point again.
 
 Fix: none planned; revisit with a disk-usage sweep that knows every quicksave still able to name
 the point.
+
+---
+
+## QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE: a quickload into a flight re-flown since the save keeps the re-flown recording while its rows follow the save [FILED 2026-10-07 from the in-session carry review, branch `insession-staged-lists`; pre-existing on main, traced by code read, the second case reproduced by the reviewer's probe. OPEN, product]
+
+An F9 into a save of a flight that was committed, then re-flown and merged after the save, resumes
+the save's tree through the committed-copy restore (`ResumeFromQuicksave`):
+`SpliceMissingCommittedRecordingsIntoLoadedTree` first copies every committed recording the save
+lacks into the resumed tree, the post-save Re-Fly fork included, and the resume trim decides what
+survives. Since the in-session carry the fork's supersede row and tombstones follow the save (the
+resumed-tree row rule), so the two halves disagree whenever the fork survives the trim:
+- Tree-wide resume (no Re-Fly marker in the save; `ChooseQuickloadTrimScope` -> `TreeWide`):
+  `CollectFutureOnlyRecordingIds` prunes a member only when `StartUT >= cutoff`. A fork whose rewind
+  point predates the save starts before the cutoff, so `TrimRecordingPastUT` keeps a stub of it
+  (rewind point to save) and, its row dropped, the stub plays next to the origin. Consistent today:
+  a fork that starts at or after the save's moment (the save was taken before the separation) is
+  pruned with its rows.
+- Re-Fly resume (the save's marker resumes session S; `ActiveRecOnly`): only S's active recording
+  is trimmed, so the fork of a later session S2 (same rewind point or another) stays whole; its
+  rows follow the save, so its origin C and C' both play, and C's tombstoned crew death counts
+  again.
+Main has both shapes already: before the carry every in-session load took the rows from the save,
+so the rows were dropped there too while the splice kept the fork.
+
+Fix: in the resume reconcile, prune the spliced Re-Fly forks that are absent from the quicksave
+tree (`QuicksaveTreeFacts`) and not owned by the resumed attempt (`MergeDialog.IsCreatedByReFlySession`),
+with their sidecars and tagged events, so recordings and rows agree. Red test: the
+`InSessionStagedListsCarryTests` reviewer sequence (tree-wide stub) and the production-stamped S2
+theory (`ActiveRecOnly`) driven on through `FlightRecorder.PrepareQuickloadResumeStateIfNeeded`;
+neither fork may survive in the resumed tree.
 
 ---
 

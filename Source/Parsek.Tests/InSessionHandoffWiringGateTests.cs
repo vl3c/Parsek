@@ -128,10 +128,11 @@ namespace Parsek.Tests
                 if (moved != null) produced.Add(moved);
             }
 
-            string scenario = SourceScanText.StripCommentsAndMaskLiterals(ReadParsekSource(ScenarioPath));
+            string scenario = SourceScanText.StripCommentsAndMaskLiterals(ReadParsekSource(ScenarioPath))
+                + SourceScanText.StripCommentsAndMaskLiterals(ReadParsekSource(HandoffPartialPath));
             var dropSite = new Regex(@"InSessionStagedStateHandoff\.Drop\(\s*InSessionStagedStateHandoff\.(\w+)\s*\)");
             var sites = dropSite.Matches(scenario).Cast<Match>().Select(m => m.Groups[1].Value).ToList();
-            Assert.Equal(new[] { "DropInertGameMode", "DropMainMenu", "DropSaveFolderChanged" },
+            Assert.Equal(new[] { "DropInertGameMode", "DropMainMenu", "DropSaveFolderChanged", "DropStagedStateNotLoaded" },
                 sites.OrderBy(s => s, StringComparer.Ordinal));
             foreach (string field in sites)
             {
@@ -149,6 +150,8 @@ namespace Parsek.Tests
             Assert.Contains("InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropMainMenu);", mainMenu);
             string folder = PreparedMethodBody(ScenarioPath, "private void DetectSaveFolderChange()");
             Assert.Contains("InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropSaveFolderChanged);", folder);
+            string capture = PreparedMethodBody(HandoffPartialPath, "internal void CaptureInSessionStagedStateHandoff(string reason)");
+            Assert.Contains("InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropStagedStateNotLoaded);", capture);
         }
 
         [Fact]

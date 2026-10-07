@@ -105,9 +105,15 @@ namespace Parsek
             {
                 if (skipReason == InSessionStagedStateHandoff.CaptureSkipStagedStateNotLoaded)
                 {
+                    // The handoff this instance's OnLoad never took predates that load; handing it
+                    // to the next load would install lists older than whatever this scene wrote.
+                    bool hadOlder = InSessionStagedStateHandoff.HasPending;
+                    InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropStagedStateNotLoaded);
                     ParsekLog.Warn(InSessionStagedStateHandoff.Tag,
                         $"Staged-list handoff capture skipped reason={skipReason} site={reason ?? "<none>"}: "
-                        + "this instance's OnLoad did not get through step A, so the next load keeps its save's lists");
+                        + "this instance's OnLoad did not get through step A"
+                        + (hadOlder ? " (the older handoff it never took is dropped)" : "")
+                        + "; the next load keeps its save's lists");
                 }
                 else
                 {

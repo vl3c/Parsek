@@ -638,8 +638,9 @@ namespace Parsek
 
         /// <summary>
         /// The recordings a Re-Fly attempt owns in <paramref name="tree"/>: the marker's active
-        /// recording, recordings stamped with its session, rewind point or supersede target, and
-        /// children of branch points the session authored. The discards prune these; the
+        /// recording, recordings stamped with its session (<see cref="IsCreatedByReFlySession"/>;
+        /// never another session's fork on the same rewind point), an unstamped NotCommitted fork
+        /// aimed at its slot, and children of branch points the session authored. The discards prune these; the
         /// in-session handoff's resumed-tree rule keeps the rows they wrote when the loaded marker
         /// resumes the attempt (owner ruling OQ-1).
         /// </summary>
@@ -739,6 +740,31 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Whether <paramref name="rec"/> was created by the Re-Fly session <paramref name="marker"/>
+        /// names, by its session stamp. <c>RewindInvoker.BuildProvisionalRecording</c> stamps
+        /// <c>CreatingSessionId</c> and <c>ProvisionalForRpId</c> together, every copy site (clone,
+        /// optimizer split, tree splitter, hydration repair) copies both, and a merge clears neither,
+        /// so a rewind-point match alone also claims every other session's fork on the same rewind
+        /// point: one merged before this session started (committed history) and one merged after a
+        /// quicksave this session resumes from. The rewind-point stamp decides only for a marker with
+        /// no session id, and then only for a recording with no session stamp.
+        /// </summary>
+        internal static bool IsCreatedByReFlySession(Recording rec, ReFlySessionMarker marker)
+        {
+            if (rec == null || marker == null)
+                return false;
+            if (!string.IsNullOrEmpty(marker.SessionId))
+            {
+                return string.Equals(rec.CreatingSessionId,
+                    marker.SessionId, System.StringComparison.Ordinal);
+            }
+            return string.IsNullOrEmpty(rec.CreatingSessionId)
+                && !string.IsNullOrEmpty(marker.RewindPointId)
+                && string.Equals(rec.ProvisionalForRpId,
+                    marker.RewindPointId, System.StringComparison.Ordinal);
+        }
+
         private static bool IsReFlyAttemptOwnedRecording(
             Recording rec, ReFlySessionMarker marker)
         {
@@ -750,18 +776,15 @@ namespace Parsek
                     marker.ActiveReFlyRecordingId, System.StringComparison.Ordinal))
                 return true;
 
-            if (!string.IsNullOrEmpty(marker.SessionId)
-                && string.Equals(rec.CreatingSessionId,
-                    marker.SessionId, System.StringComparison.Ordinal))
+            if (IsCreatedByReFlySession(rec, marker))
                 return true;
 
-            if (!string.IsNullOrEmpty(marker.RewindPointId)
-                && string.Equals(rec.ProvisionalForRpId,
-                    marker.RewindPointId, System.StringComparison.Ordinal))
-                return true;
-
+            // An unstamped NotCommitted fork aimed at the marker's slot; one stamped by another
+            // session is that session's (a zombie the invoke reaps, or LoadTimeSweep does).
             if (rec.MergeState == MergeState.NotCommitted
-                && !string.IsNullOrEmpty(rec.SupersedeTargetId))
+                && !string.IsNullOrEmpty(rec.SupersedeTargetId)
+                && (string.IsNullOrEmpty(rec.CreatingSessionId)
+                    || string.Equals(rec.CreatingSessionId, marker.SessionId, System.StringComparison.Ordinal)))
             {
                 if (string.Equals(rec.SupersedeTargetId,
                         marker.OriginChildRecordingId, System.StringComparison.Ordinal))
@@ -1132,17 +1155,12 @@ namespace Parsek
                 if (rec == null)
                     continue;
 
-                bool sessionOwned = !string.IsNullOrEmpty(marker.SessionId)
-                    && string.Equals(rec.CreatingSessionId,
-                        marker.SessionId, System.StringComparison.Ordinal);
-                bool rpOwned = !string.IsNullOrEmpty(marker.RewindPointId)
-                    && string.Equals(rec.ProvisionalForRpId,
-                        marker.RewindPointId, System.StringComparison.Ordinal);
+                bool sessionOwned = IsCreatedByReFlySession(rec, marker);
                 bool attemptOwned = attemptIds != null
                     && !string.IsNullOrEmpty(rec.RecordingId)
                     && attemptIds.Contains(rec.RecordingId);
 
-                if (!sessionOwned && !rpOwned && !attemptOwned)
+                if (!sessionOwned && !attemptOwned)
                     continue;
 
                 if (!string.IsNullOrEmpty(rec.CreatingSessionId)

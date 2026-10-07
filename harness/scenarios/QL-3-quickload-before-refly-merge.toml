@@ -17,9 +17,9 @@ id = "QL-3-quickload-before-refly-merge"
 # the post-merge game (`MergeDialog.MergeCommit` -> `RecordingStore.RefreshQuicksaveAfterMerge`,
 # `refreshQuicksaveAfterCommit` defaults true), so after `AnswerMergeDialog merge` the slot
 # named `quicksave` already holds the merge's rows and could not tell a fixed build from a
-# pre-fix one. The lane saves to `ql3-before-refly`, which nothing but this lane writes (EVA-10's
-# named-slot pattern); that is the player's "load a save from before the Re-Fly" from the Load
-# menu.
+# pre-fix one. The lane saves to `ql3-before-refly`, which nothing but this lane writes (the
+# named-slot pattern of EVA-9 and EVA-10); that is the player's "load a save from before the
+# Re-Fly" from the Load menu.
 #
 # THE MECHANISM UNDER TEST (ParsekScenario.OnDestroy -> InSessionStagedStateHandoff ->
 # ParsekScenario.ApplyInSessionStagedStateHandoffStepA / ApplyInSessionStagedStateHandoffStepB).

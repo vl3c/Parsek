@@ -82,12 +82,15 @@ namespace Parsek
         internal const string DropSaveFolderChanged = "save-folder-changed";
         internal const string DropMainMenu = "main-menu";
         internal const string DropInertGameMode = "inert-game-mode";
+        /// <summary>An instance whose OnLoad never reached step A is torn down: the handoff it
+        /// never took is older than that load, so it is dropped rather than handed to the next.</summary>
+        internal const string DropStagedStateNotLoaded = "staged-state-not-loaded";
 
         /// <summary>Every reason a handoff can be dropped without being applied.</summary>
         internal static readonly IReadOnlyList<string> DropReasons = new[]
         {
             DropColdLoad, DropRewindCarryOwns, DropReFlyBundleOwns,
-            DropSaveFolderChanged, DropMainMenu, DropInertGameMode,
+            DropSaveFolderChanged, DropMainMenu, DropInertGameMode, DropStagedStateNotLoaded,
         };
 
         /// <summary>Shallow copies of the scenario's staged lists plus its two singletons.</summary>
