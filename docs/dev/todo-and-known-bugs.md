@@ -45,25 +45,36 @@ witness: the QL-4 family's report-only `rewindPoints = { max = 0 }` (arm it afte
 
 FIXED: the first direction, in the reconcile. `CaptureQuicksaveTreeFacts` records each member's
 merge state as the quicksave node holds it (`QuicksaveMemberFacts.QuicksaveMergeState`; no key
-reads Immutable), and `TrimAndReconcileForQuickloadResume` gives every member whose end state it
-cleared that state back (`ResetAbandonedFutureMergeStates`, pure `ShouldResetMergeStateForResume`),
-under the same `AbandonedFutureEndStates` cell. The merge state is retracted with the end state it
-was derived from: committed history never reaches the cleared set (the plan skips a recording
-still committed or shown as history by the quicksave), a live NotCommitted provisional and a
-quicksave NotCommitted state are kept (the Re-Fly scope is ActiveRecOnly and its provisional's
-session fields are untouched), and the refresh rule itself is unchanged (the Re-Fly sibling-slot
-adoption still needs it). The final commit re-derives the state: the detached committed copy no
-longer counts as committed, so it is the member's first commit and a booster still SubOrbital is
-promoted again, while a Landed one stays Immutable and the reaper closes the rewind point once
-every slot is. Logged: `mergeStatesReset=N` appended LAST to the `Quickload abandoned-future
-reconcile:` line (every QL-4 lane regex still matches) plus one Verbose `Quickload abandoned-future
-merge state reset:` / `... kept:` line per cleared member. Red tests (failed with the reset call
-disabled): `QuickloadCommittedAfterQuicksaveTests.PromotedAfterTheQuicksave_ResumedMemberTakesBackTheQuicksaveMergeState`
-(the QL-4 no-save refresh, the QL-4b Space Center salvage and the QL-4c in-flight-save salvage) and
+reads Immutable), and `TrimAndReconcileForQuickloadResume` gives every surviving trimmed member the
+merge state of its quicksave baseline back (`ResetAbandonedFutureMergeStates`, pure
+`ResolveQuicksaveBaselineId` and `ShouldResetMergeStateForResume`), under the same
+`AbandonedFutureEndStates` cell. The baseline is the member itself when the quicksave holds it;
+a member the quicksave does not hold is a second half the abandoned commit's optimizer split cut
+off a quicksave member (SplitAtSection copies CommittedProvisional onto both halves and moves the
+terminal to the second), so its baseline is the nearest earlier member of the same chain and
+branch the quicksave holds. Every surviving member is covered, not only those whose end state was
+cleared: a split past the cutoff prunes the second half and leaves the head as the slot tip with no
+end state to clear. Committed history never reaches the set (the plan skips a recording still
+committed or shown as history by the quicksave), a split half whose baseline is such a recording
+keeps its state (`baseline-not-reconciled`), a live NotCommitted provisional and a quicksave
+NotCommitted state are kept (the Re-Fly scope is ActiveRecOnly and its provisional's session fields
+are untouched), and the refresh rule itself is unchanged (the Re-Fly sibling-slot adoption still
+needs it). The final commit re-derives the state: the detached committed copy no longer counts as
+committed, so it is the member's first commit and a booster still SubOrbital is promoted again,
+while a Landed one stays Immutable and the reaper closes the rewind point once every slot is.
+Logged: `mergeStatesReset=N` appended LAST to the `Quickload abandoned-future reconcile:` line
+(every QL-4 lane regex still matches) plus one Verbose `Quickload abandoned-future merge state
+reset: ... baseline=<id>` per reset member and `... kept:` per kept member whose state differs or
+has no baseline. Red tests (failed with the reset disabled, the split cells against the first
+commit's cleared-members-only reset): `QuickloadCommittedAfterQuicksaveTests.PromotedAfterTheQuicksave_ResumedMemberTakesBackTheQuicksaveMergeState`
+(the QL-4 no-save refresh, the QL-4b Space Center salvage and the QL-4c in-flight-save salvage, each
+unsplit, split after and split before the quicksave),
 `QuickloadResumedMergeStateTests.FinalCommit_RederivesTheBoosterMergeState_AndReapsWhenEverySlotIsClosed`
-(Landed: reaped; SubOrbital: re-promoted, kept; without the reconcile: the leak). Mirror cells:
-`CommittedBeforeTheQuicksave_PromotedMemberKeepsItsCommittedMergeState`,
-`CommittedHistory_MergeStateLeftAlone`, `ReFlyScope_ProvisionalAndSiblingKeepTheirMergeStateAndSessionFields`.
+(Landed: reaped; SubOrbital: re-promoted, kept; without the reconcile: the leak) and
+`FinalCommit_SplitBeforeTheQuicksave_TipRederivedAndReapedWhenClosed` (the same through the split
+tail as slot tip). Mirror cells: `CommittedBeforeTheQuicksave_PromotedMemberKeepsItsCommittedMergeState`,
+`CommittedHistory_MergeStateLeftAlone`, `SplitHalfOfQuicksaveHistory_KeepsItsMergeState`,
+`ReFlyScope_ProvisionalAndSiblingKeepTheirMergeStateAndSessionFields`, `ResolveQuicksaveBaselineId_Table`.
 
 ---
 

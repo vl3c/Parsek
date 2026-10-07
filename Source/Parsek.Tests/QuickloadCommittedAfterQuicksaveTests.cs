@@ -431,19 +431,34 @@ namespace Parsek.Tests
         // and the reconcile must hand back the quicksave's state with the end state it clears.
         // ============================================================
 
+        // split: the abandoned commit's optimizer pass split the promoted booster (atmo / surface)
+        // and copied CommittedProvisional onto both halves, the terminal moving to the second
+        // half, which the quicksave does not hold. "after": the cut lies past the quicksave, so
+        // the second half is pruned and the head becomes the slot tip with no end state to
+        // clear. "before": the cut lies before it, so the second half survives as the tip, its
+        // end state is cleared and its merge state has no quicksave node of its own.
         [Theory]
-        [InlineData("nosave")]
-        [InlineData("spacecenter")]
-        [InlineData("inflight-save")]
-        public void PromotedAfterTheQuicksave_ResumedMemberTakesBackTheQuicksaveMergeState(string route)
+        [InlineData("nosave", "none")]
+        [InlineData("spacecenter", "none")]
+        [InlineData("inflight-save", "none")]
+        [InlineData("nosave", "after")]
+        [InlineData("spacecenter", "after")]
+        [InlineData("inflight-save", "after")]
+        [InlineData("nosave", "before")]
+        [InlineData("spacecenter", "before")]
+        [InlineData("inflight-save", "before")]
+        public void PromotedAfterTheQuicksave_ResumedMemberTakesBackTheQuicksaveMergeState(string route, string split)
         {
-            string id = "ql_ms_" + route.Replace("-", "_");
-            RecordingTree committed;
+            string id = "ql_ms_" + route.Replace("-", "_") + "_" + split;
+            RecordingTree committed = MakeFutureTree(id);
+            string boosterId = BoosterId(committed);
+            committed.Recordings[boosterId].MergeState = MergeState.CommittedProvisional;
+            string tailId = null;
+            if (split != "none")
+                tailId = SplitBoosterInCommittedCopy(committed, split == "after" ? 250.0 : 150.0);
             if (route == "nosave")
             {
                 // QL-4: commit in flight, no save, F9 (nothing reads stale; the same-id refresh).
-                committed = MakeFutureTree(id);
-                committed.Recordings[BoosterId(committed)].MergeState = MergeState.CommittedProvisional;
                 foreach (var rec in committed.Recordings.Values)
                     RecordingStore.AddCommittedInternal(rec);
                 RecordingStore.AddCommittedTreeForTesting(committed);
@@ -453,11 +468,10 @@ namespace Parsek.Tests
             {
                 // QL-4b (exit to the Space Center, F9) and QL-4c (commit in flight, a save, F9):
                 // the stale-epoch salvage.
-                committed = CommitFuture(id, promoteBooster: true);
+                CommitTreeWithSidecars(committed);
                 if (route == "inflight-save")
                     StashResumedClone(committed);
             }
-            string boosterId = BoosterId(committed);
             RecordingTree quicksaved = MakeQuicksaveTree(id);
             Assert.Equal(MergeState.Immutable, quicksaved.Recordings[boosterId].MergeState);
             ConfigNode node = QuicksaveNode(quicksaved, committedTree: null);
@@ -468,6 +482,8 @@ namespace Parsek.Tests
             Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == committed.Id);
             // The leak's first half: the restore hands the booster the abandoned commit's state.
             Assert.Equal(MergeState.CommittedProvisional, resumed.Recordings[boosterId].MergeState);
+            if (tailId != null)
+                Assert.Equal(MergeState.CommittedProvisional, resumed.Recordings[tailId].MergeState);
 
             RunResumePrep(resumed, QuicksaveUT, LoadKind.QuickloadFlight);
 
@@ -476,6 +492,25 @@ namespace Parsek.Tests
             Assert.Equal(MergeState.Immutable, booster.MergeState);
             Assert.True(booster.FilesDirty);
             Assert.Equal(MergeState.Immutable, resumed.Recordings[resumed.RootRecordingId].MergeState);
+            int expectedResets = 1;
+            int expectedCleared = 1;
+            if (split == "after")
+            {
+                // The tail started past the quicksave: pruned; the head is the tip now.
+                Assert.False(resumed.Recordings.ContainsKey(tailId));
+                expectedCleared = 0;
+            }
+            else if (split == "before")
+            {
+                Recording tail = resumed.Recordings[tailId];
+                Assert.Null(tail.TerminalStateValue);
+                Assert.Equal(MergeState.Immutable, tail.MergeState);
+                Assert.Contains(logLines, l =>
+                    l.Contains("Quickload abandoned-future merge state reset: rec=" + tailId
+                        + " previousMergeState=CommittedProvisional mergeState=Immutable reason=abandoned-future-merge-state")
+                    && l.Contains("baseline=" + boosterId));
+                expectedResets = 2;
+            }
             Assert.Contains(logLines, l =>
                 l.Contains("[Scenario]")
                 && l.Contains("Quickload abandoned-future merge state reset: rec=" + boosterId
@@ -483,8 +518,8 @@ namespace Parsek.Tests
             // The new token is the line's LAST field, so every lane regex over the line still matches.
             Assert.Contains(logLines, l => Regex.IsMatch(l,
                 @"\[Scenario\] Quickload abandoned-future reconcile: tree='" + id + @"' "
-                + @"(?=.*\bkind=QuickloadFlight\b)(?=.*\bscope=TreeWide\b)(?=.*\bendStatesCleared=[1-9][0-9]*\b)"
-                + @"(?=.*\bskippedCommitted=0\b).* quicksaveFacts=present mergeStatesReset=1$"));
+                + @"(?=.*\bkind=QuickloadFlight\b)(?=.*\bscope=TreeWide\b)(?=.*\bendStatesCleared=" + expectedCleared + @"\b)"
+                + @"(?=.*\bskippedCommitted=0\b).* quicksaveFacts=present mergeStatesReset=" + expectedResets + "$"));
         }
 
         [Fact]
@@ -761,11 +796,54 @@ namespace Parsek.Tests
             // The commit's promotion pass made the crashed booster an Unfinished Flight.
             if (promoteBooster)
                 tree.Recordings[BoosterId(tree)].MergeState = MergeState.CommittedProvisional;
+            CommitTreeWithSidecars(tree);
+            return tree;
+        }
+
+        private static void CommitTreeWithSidecars(RecordingTree tree)
+        {
             WriteSidecarsAtEpoch(tree, 2);
             foreach (var rec in tree.Recordings.Values)
                 RecordingStore.AddCommittedInternal(rec);
             RecordingStore.AddCommittedTreeForTesting(tree);
-            return tree;
+        }
+
+        // The abandoned commit's optimizer split of the booster, as RunOptimizationPass applies
+        // it (SplitAtSection carries the merge state and the end state to the second half; the
+        // caller assigns the second half's identity and the shared chain). Returns its id.
+        private static string SplitBoosterInCommittedCopy(RecordingTree tree, double splitUT)
+        {
+            Recording head = tree.Recordings[BoosterId(tree)];
+            // An atmospheric descent that touches down at splitUT: the boundary the optimizer cuts.
+            SetPoints(head, 120.0, splitUT < 180.0 ? 140.0 : 180.0, splitUT, 300.0);
+            head.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                startUT = 120.0, endUT = splitUT, frames = new List<TrajectoryPoint>(),
+            });
+            head.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceStationary,
+                startUT = splitUT, endUT = 300.0, frames = new List<TrajectoryPoint>(),
+            });
+            Recording tail = RecordingOptimizer.SplitAtSection(head, 1);
+            Assert.NotNull(tail);
+            tail.RecordingId = "tail_" + tree.Id;
+            tail.TreeId = tree.Id;
+            tail.VesselName = head.VesselName;
+            tail.VesselPersistentId = head.VesselPersistentId;
+            tail.RecordingFormatVersion = head.RecordingFormatVersion;
+            tail.RecordingSchemaGeneration = head.RecordingSchemaGeneration;
+            tail.SidecarEpoch = head.SidecarEpoch;
+            head.ChainId = "chain_" + tree.Id;
+            head.ChainIndex = 0;
+            tail.ChainId = head.ChainId;
+            tail.ChainIndex = 1;
+            Assert.Equal(MergeState.CommittedProvisional, tail.MergeState);
+            Assert.Null(head.TerminalStateValue);
+            tree.AddOrReplaceRecording(tail);
+            tree.RebuildBackgroundMap();
+            return tail.RecordingId;
         }
 
         // The copy-on-write clone the recorder resumed on the still-active pod after the

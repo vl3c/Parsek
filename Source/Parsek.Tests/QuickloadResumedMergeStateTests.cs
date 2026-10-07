@@ -175,6 +175,101 @@ namespace Parsek.Tests
                 && l.EndsWith("mergeStatesReset=0", StringComparison.Ordinal));
         }
 
+        [Fact]
+        public void SplitHalfOfQuicksaveHistory_KeepsItsMergeState()
+        {
+            // The abandoned commit's optimizer split a member the quicksave already shows as
+            // history; its second half is absent from the quicksave and takes its history status
+            // from that ancestor, never a reset.
+            var tree = NewTree("hist_split", "pod");
+            // Crashed before the quicksave (terminal-in-quicksave), split at 105 by the later commit.
+            Recording crashed = AddMember(tree, "crashed", MergeState.CommittedProvisional, TerminalState.Destroyed, 100.0, 105.0);
+            crashed.TerminalStateValue = null;
+            crashed.ChainId = "chain_crashed";
+            crashed.ChainIndex = 0;
+            Recording crashedTail = AddMember(tree, "crashed_tail", MergeState.CommittedProvisional, TerminalState.Destroyed, 105.0, 110.0);
+            crashedTail.ChainId = "chain_crashed";
+            crashedTail.ChainIndex = 1;
+            // Committed in the quicksave, split past the cutoff by a later commit.
+            Recording held = AddMember(tree, "held", MergeState.CommittedProvisional, TerminalState.SubOrbital, 100.0, 130.0);
+            held.TerminalStateValue = null;
+            held.ChainId = "chain_held";
+            held.ChainIndex = 0;
+            Recording heldTail = AddMember(tree, "held_tail", MergeState.CommittedProvisional, TerminalState.SubOrbital, 110.0, 150.0);
+            heldTail.ChainId = "chain_held";
+            heldTail.ChainIndex = 1;
+
+            var facts = Facts(tree);
+            facts.Members.Remove("crashed_tail");
+            facts.Members.Remove("held_tail");
+            facts.Members["crashed"] = new ParsekScenario.QuicksaveMemberFacts
+            {
+                HasTerminal = true,
+                QuicksaveMergeState = MergeState.Immutable,
+                ExplicitStartUT = double.NaN, ExplicitEndUT = double.NaN,
+                StartBranchUT = double.NaN, EndBranchUT = double.NaN,
+            };
+            facts.Members["held"] = new ParsekScenario.QuicksaveMemberFacts
+            {
+                CommittedInQuicksave = true,
+                QuicksaveMergeState = MergeState.CommittedProvisional,
+                ExplicitStartUT = double.NaN, ExplicitEndUT = double.NaN,
+                StartBranchUT = double.NaN, EndBranchUT = double.NaN,
+            };
+
+            ParsekScenario.TrimAndReconcileForQuickloadResume(
+                tree, tree.Recordings["pod"], CutoffUT, ParsekScenario.QuickloadTrimScope.TreeWide,
+                LoadKind.QuickloadFlight, CutoffUT, facts);
+
+            Assert.Equal(MergeState.CommittedProvisional, crashed.MergeState);
+            Assert.Equal(MergeState.CommittedProvisional, crashedTail.MergeState);
+            Assert.Equal(MergeState.CommittedProvisional, held.MergeState);
+            Assert.Equal(MergeState.CommittedProvisional, heldTail.MergeState);
+            Assert.DoesNotContain(logLines, l => l.Contains("Quickload abandoned-future merge state reset:"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload abandoned-future merge state kept: rec=crashed_tail")
+                && l.Contains("reason=baseline-not-reconciled"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload abandoned-future reconcile: tree='hist_split'")
+                && l.EndsWith("mergeStatesReset=0", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void ResolveQuicksaveBaselineId_Table()
+        {
+            var tree = NewTree("baseline", "pod");
+            AddMember(tree, "solo", MergeState.Immutable, TerminalState.Landed, 100.0, 150.0);
+            Recording a = AddMember(tree, "a", MergeState.Immutable, TerminalState.Landed, 100.0, 110.0);
+            a.ChainId = "c"; a.ChainIndex = 0;
+            Recording b = AddMember(tree, "b", MergeState.Immutable, TerminalState.Landed, 110.0, 120.0);
+            b.ChainId = "c"; b.ChainIndex = 1;
+            Recording c = AddMember(tree, "c2", MergeState.Immutable, TerminalState.Landed, 120.0, 150.0);
+            c.ChainId = "c"; c.ChainIndex = 2;
+            Recording branch = AddMember(tree, "branch", MergeState.Immutable, TerminalState.Landed, 120.0, 150.0);
+            branch.ChainId = "c"; branch.ChainIndex = 2; branch.ChainBranch = 1;
+            Recording orphan = AddMember(tree, "orphan", MergeState.Immutable, TerminalState.Landed, 120.0, 150.0);
+            orphan.ChainId = "other"; orphan.ChainIndex = 1;
+
+            var facts = Facts(tree);
+            facts.Members.Remove("b");
+            facts.Members.Remove("c2");
+            facts.Members.Remove("branch");
+            facts.Members.Remove("orphan");
+            facts.Members.Remove("solo");
+
+            // Held by the quicksave: itself.
+            Assert.Equal("a", ParsekScenario.ResolveQuicksaveBaselineId(tree, "a", facts));
+            // A split half: the nearest earlier member of its chain the quicksave holds.
+            Assert.Equal("a", ParsekScenario.ResolveQuicksaveBaselineId(tree, "b", facts));
+            Assert.Equal("a", ParsekScenario.ResolveQuicksaveBaselineId(tree, "c2", facts));
+            // A parallel branch of the chain is not a split half of the primary path.
+            Assert.Null(ParsekScenario.ResolveQuicksaveBaselineId(tree, "branch", facts));
+            // No earlier chain member in the quicksave, and no chain at all.
+            Assert.Null(ParsekScenario.ResolveQuicksaveBaselineId(tree, "orphan", facts));
+            Assert.Null(ParsekScenario.ResolveQuicksaveBaselineId(tree, "solo", facts));
+            Assert.Null(ParsekScenario.ResolveQuicksaveBaselineId(tree, "b", null));
+        }
+
         // ============================================================
         // Mirror (ii): the Re-Fly scope touches only the session's provisional, never its state.
         // ============================================================
@@ -301,6 +396,88 @@ namespace Parsek.Tests
                 Assert.Equal(1, reaped);
                 Assert.Empty(scenario.RewindPoints);
                 Assert.Equal(new[] { "rp_fc" }, deletedRpIds.ToArray());
+            }
+        }
+
+        // The abandoned commit split the promoted booster at 110, before the 115 quicksave: the
+        // head ends at the cut with no end state, the tail (absent from the quicksave) carries
+        // the terminal and is the slot tip.
+        [Theory]
+        [InlineData(TerminalState.Landed)]
+        [InlineData(TerminalState.SubOrbital)]
+        public void FinalCommit_SplitBeforeTheQuicksave_TipRederivedAndReapedWhenClosed(TerminalState replayedEnd)
+        {
+            RecordingTree tree = MakeSeparationTree("fcs");
+            var facts = Facts(tree);
+            Recording booster = tree.Recordings["booster"];
+            SetPoints(booster, 100.0, 110.0);
+            booster.TerminalStateValue = null;
+            booster.MergeState = MergeState.CommittedProvisional;
+            booster.ChainId = "chain_fcs";
+            booster.ChainIndex = 0;
+            var tail = new Recording
+            {
+                RecordingId = "booster_tail", TreeId = tree.Id, VesselName = "booster", VesselPersistentId = 222u,
+                ChainId = "chain_fcs", ChainIndex = 1,
+                MergeState = MergeState.CommittedProvisional, TerminalStateValue = TerminalState.SubOrbital,
+            };
+            SetPoints(tail, 110.0, 150.0);
+            tree.AddOrReplaceRecording(tail);
+            tree.RebuildBackgroundMap();
+
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_fcs",
+                BranchPointId = "bp_fcs",
+                UT = 100.0,
+                SessionProvisional = true,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "pod", Controllable = true },
+                    new ChildSlot { SlotIndex = 1, OriginChildRecordingId = "booster", Controllable = true },
+                },
+            };
+            var scenario = new ParsekScenario
+            {
+                RewindPoints = new List<RewindPoint> { rp },
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            scenario.BumpSupersedeStateVersion();
+            EffectiveState.ResetCachesForTesting();
+
+            ParsekScenario.TrimAndReconcileForQuickloadResume(
+                tree, tree.Recordings["pod"], CutoffUT, ParsekScenario.QuickloadTrimScope.TreeWide,
+                LoadKind.QuickloadFlight, CutoffUT, facts);
+
+            Assert.Null(tail.TerminalStateValue);
+            Assert.Equal(MergeState.Immutable, booster.MergeState);
+            Assert.Equal(MergeState.Immutable, tail.MergeState);
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload abandoned-future merge state reset: rec=booster_tail")
+                && l.Contains("baseline=booster"));
+
+            tree.Recordings["pod"].TerminalStateValue = TerminalState.Landed;
+            tail.TerminalStateValue = replayedEnd;
+            RecordingStore.CommitTree(tree);
+            Assert.False(rp.SessionProvisional);
+            Assert.Equal("booster_tail", rp.ChildSlots[1].EffectiveRecordingId(scenario.RecordingSupersedes));
+
+            int reaped = RewindPointReaper.ReapOrphanedRPs();
+            if (replayedEnd == TerminalState.SubOrbital)
+            {
+                Assert.Equal(MergeState.CommittedProvisional, tail.MergeState);
+                Assert.Equal(0, reaped);
+                Assert.Single(scenario.RewindPoints);
+            }
+            else
+            {
+                Assert.Equal(MergeState.Immutable, tail.MergeState);
+                Assert.Equal(MergeState.Immutable, booster.MergeState);
+                Assert.Equal(1, reaped);
+                Assert.Empty(scenario.RewindPoints);
             }
         }
 

@@ -3933,7 +3933,8 @@ _(unreleased - entries accumulate here per commit)_
   Flight you could re-fly) and then quickloaded back to before that, the booster kept its
   Unfinished Flight status from the abandoned commit: after it landed safely in the replay it
   still read as open, and its rewind point was never cleaned up. The quickload now gives every
-  vessel whose ending it clears back the status it had in the quicksave, and the next commit
+  vessel of the resumed flight back the status it had in the quicksave, including a booster whose
+  recording the abandoned commit had cut in two at a phase change, and the next commit
   decides it again from how the vessel actually ends: a booster that lands is closed and its
   rewind point is removed once every vessel of that separation is done; one that is still
   falling at the commit becomes an Unfinished Flight again. Vessels already committed when the
