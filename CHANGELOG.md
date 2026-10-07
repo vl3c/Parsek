@@ -6148,6 +6148,13 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Lane fixes from the release verification flights.** CI-3 and CI-4 now expect no SubOrbital
+  recording: since the Re-Fly chain-head fix (#2015) the optimizer's first chain segment keeps
+  no ending of its own, where earlier runs gave it SubOrbital. L5 and L3 accept 2 or 3
+  recordings: the flight also splits at liftoff when the time on the pad before it reaches the
+  optimizer's 5 s minimum, which a 0.04 s difference decided. RR-1 now waits for the flight
+  scene to finish loading before it stops its recording, because a stop that lands first loses
+  the recording (seen once, `committree no-active-tree`). No product change.
 - **Load reconcile policy table and wiring gate (TA-W).** `LoadReconcilePolicy` names every
   kind of `ParsekScenario.OnLoad` (cold, plain rewind, Re-Fly start, Discard Re-fly, stock
   revert, F9 in flight, any other in-session load) and holds today's decision for every load

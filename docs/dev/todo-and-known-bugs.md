@@ -16,6 +16,60 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## OPTIMIZER-PAD-SPLIT-AT-FIVE-SECOND-THRESHOLD: whether a pad launch's pre-liftoff segment becomes its own recording depends on a few tens of milliseconds [FILED 2026-10-07 from the release verification flights, branch `verify-followups`. OPEN, product question; the lane pins are widened]
+
+The optimizer splits a recording at the SurfaceMobile -> Atmospheric boundary at liftoff only
+when both halves last at least 5.0 s (`RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers`,
+the same floor as `CanAutoSplit`). On the `science_bench_recover` craft the pre-liftoff segment
+measured 4.48-4.70 s on all 11 L3 / L5 flights with a collected log from 2026-08-19 to
+2026-09-29 (no liftoff split), and 5.04 s on `2026-10-07_0032_L5-career-contract-complete`
+(the auto-record started at UT 9.60 instead of 10.0-10.16; liftoff 14.64 as before), which split
+there (`'surface' [10..15] + 'atmo' [15..347]`) and read 3 recordings, PARSEK-FAIL(expectations)
+on `recordings.count 3 > max 2`. Lane side done: L5 and L3 now pin `count = { min = 2, max = 3 }`.
+Product question: should a first half that never left the pad split off at all? It is a 5 s
+recording of a vessel on the pad, and any pad-launch lane whose pre-liftoff time sits near 5 s
+carries the same coin flip in its count pin. The landing split on the same flights (the landed
+tail before recovery) has fired every time so far. Next step: decide whether a pad-only first
+half (start situation PRELAUNCH, ending at liftoff) is exempt from the split, or the floor is
+measured differently; then re-pin L3 / L5.
+
+---
+
+## RETAG-ON-SPLIT-MISSES-LATER-ROWS: ledger rows written after the optimizer split stay on the split recording's first segment, even when their UT is past its end [FILED 2026-10-07 from the release verification flights, branch `verify-followups`. OPEN, to check; impact on supersede / tombstone scoping not traced]
+
+On the commit of `2026-10-07_0032_L5-career-contract-complete` the optimizer split the flight
+twice (`RetagActionsForSplitSecondHalf: ... splitUT=14.64 retagged=0` and `... splitUT=341.26
+retagged=0`), and only then did `LedgerOrchestrator` add the flight's rows (`Committed recording
+'4ca9bc6b...': 6 actions added to ledger (... startUT=9.6, endUT=14.6)`). The retag ran before
+those rows existed, so it moved nothing, and the converter tagged them to the id the first
+segment kept: FirstLaunch (UT 15.12) and Kerbin/Science (UT 345.26) sit on the pad segment
+`4ca9bc6b`, which ends at 14.64. Not new to that run: the green `2026-09-15_1727` has
+Kerbin/Science (UT 345.78) on the segment ending 341.7. Rows a later commit writes (the recovery
+at 347.24) land on the last segment. Check whether anything scopes rows by the tagged
+recording's UT span: a Re-Fly or rewind supersede / tombstone set built from a subtree (a row
+on an earlier segment may stay outside the superseded set), and per-recording reward readouts.
+If it matters, convert the events per segment after the split, or retag by UT after the ledger
+add.
+
+---
+
+## FLIGHT-READY-RESET-DROPS-STOPPED-UNCOMMITTED-TREE: a recording stopped before stock onFlightReady is silently discarded by the flight-ready reset [FILED 2026-10-07 from the RR-1 harness race, branch `verify-followups`. OPEN, low; seen only through the harness, likely unreachable for a player]
+
+`2026-10-07_0040_RR-1-relaunch-rewind-keeps-earlier-launch` (INVALID driver-unresolved-handle):
+`LaunchFromEditor` answered before stock onFlightReady, then `StartRecording` (KSP.log
+03:41:41.334) and `StopRecording` (41.527) both ran before it (41.686). `OnFlightReady` found
+`rec.live=F/F` with the tree still active, so `ShouldIgnoreFlightReadyReset` (it needs a live
+recorder) was false and `ResetFlightReadyState` set `activeTree = null` with no line naming the
+tree it dropped; the next `CommitTree` answered `committree no-active-tree`. When onFlightReady
+lands while the recorder is still live (`_0043`, 25 ms before the stop) the reset is skipped and
+the lane passes. A player would need to start and stop a recording in the fraction of a second
+between the scene switch and onFlightReady, which only the seam's back-to-back verbs do; not
+traced whether any player input is accepted in that window. The lane now waits for flight-ready
+(`ListHandles kind=chains`) before its stop. If it is ever worth fixing: keep a stopped,
+uncommitted tree across the reset (or stash it as pending), and log the drop either way.
+
+---
+
 ## ~~CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT: a chain tip whose recording the optimizer split resolves to its first segment, which holds no snapshot, so the tip cannot spawn~~ [FILED 2026-10-07 by code read while fixing CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (PR #2035); also noted by the PR #2026 review. VERIFIED and FIXED 2026-10-07, branch `fix-chain-walk-optimizer-segments`; not flown]
 
 `GhostChainWalker.WalkToLeaf` followed branch points only. `RecordingStore.RunOptimizationPass`
@@ -2589,7 +2643,7 @@ Next step if it recurs: have the hover verb pick the part icon's visible centre 
 by the viewport mask) and re-read the tooltip's presence at capture time, so a lost
 tooltip reads INVALID(pointer) instead of a missing product token.
 
-## STOCK-SCREEN-CENSUS-FUNDS-GUARD-CLAMPS: the census career's funds guard clamps both ways, and an allowed upgrade does not move the walk target [FILED 2026-09-28 from KB-4 `2026-09-28_2031`, branch `kb4-block-proof`. OPEN for the load-time drawdown, not gated; the after-upgrade uplift is KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, fixed 2026-10-06]
+## STOCK-SCREEN-CENSUS-FUNDS-GUARD-CLAMPS: the census career's funds guard clamps both ways, and an allowed upgrade does not move the walk target [FILED 2026-09-28 from KB-4 `2026-09-28_2031`, branch `kb4-block-proof`. OPEN for the load-time drawdown, not gated; the after-upgrade uplift is KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, fixed 2026-10-06, gone live on KB-4 `2026-10-07_0015`]
 
 On `stock-screen-census` the funds patch clamps at load (`PatchFunds: GUARDED DRAWDOWN
 clamped resource=Funds running=244370.5 live=465808 wouldBeTarget=244370.5 clampedTo=465808`,
@@ -2613,6 +2667,17 @@ clamp - the row carried cost 0, so the walk kept the pre-upgrade pool. The row n
 observed 150000 debit, so the walk target should drop to the live 86416.75 with no clamp (not
 re-flown). The load-time DRAWDOWN clamp (the fixture's ledger seed, `running` 244370.5, against
 its save pool, `live` 465808) is a separate fixture question and stays open.
+
+Update 2026-10-07 (release verification, KB-4 `2026-10-07_0015` PASS, branch `verify-followups`):
+the after-upgrade uplift is gone. The upgrade's row walks at its cost (`[Funds] FacilityUpgrade:
+-150000, facilityId=SpaceCenter/Administration`) and the patch after it reads `PatchFunds: no
+change needed (current=86416.8, target=86416.8)`. The boot load is unchanged (`GUARDED DRAWDOWN
+... running=244370.5 live=465808`, then `PatchFunds: 465808.0 -> 236416.8`). The clamp left is on
+the next scene load: `GUARDED UPLIFT clamped resource=Funds running=94370.5 live=86416.75
+wouldBeTarget=94370.5 clampedTo=86416.75`. 94370.5 is the boot walk's 244370.5 less the 150000
+upgrade now charged, and the 7953.75 still between `running` and `live` is the boot gap between
+that walk (244370.5, refused) and the 236416.75 applied after it, so the open question is still
+the fixture's seed, not the upgrade.
 
 ## CHILD-BRANCH-SINGLE-SLOT-OVERWRITE: a second split overwrites a breakup-continuous recording's `ChildBranchPointId` [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OPEN, low; owner ruling 2026-09-28: leave filed until a player-visible defect shows]
 

@@ -73,6 +73,11 @@ tier = "operator"
 # `ghostChainNodes = { min = 1 }` - PARSEK-FAIL(expectation) on exactly the two seeded log
 # tokens plus saveParse's `recordings.structure.ghostChainNodes 0 < min 1`, analyzer green.
 # LIVE-PROVEN. PR-B DLL, deployed sha256 `096ff6c8...`.
+# SUBORBITAL RE-PINNED 1 -> 0 off reading `2026-10-07_0030` (PARSEK-FAIL save-structure on
+# `terminalStates.SubOrbital 0 < min 1` alone, every other facet and token unchanged): since
+# PR #2015 the re-fly conclusion leaves the optimizer chain head 5157d655 without a terminal
+# (`is a non-final chain segment ... - not finalized as a leaf`); the 09-22 runs finalized it
+# as a leaf and inferred SubOrbital.
 # SCOPE, STATED: the re-derivation is proven WITHIN ONE KSP PROCESS (the F9 reload rebuilds
 # the flight scene from the file, but the process, and every static store, survives), not
 # from a cold load. The digest covers only the chains the scene KEEPS (future spawn, not
@@ -155,13 +160,14 @@ count = { min = 22, max = 22 }
 # ARMED 2026-09-22 off three readings whose facets matched window for window (rp2 `_1951`,
 # rp1 `_1954`, rp1 pinned `_1956`). `ghostChainNodes` is the save-side half of
 # chain-state-rederived: zero on every save the writer produces today. trees admits 3 for
-# the duplicate-tree writer hazard (observed 2), CI-2's bracket.
+# the duplicate-tree writer hazard (observed 2), CI-2's bracket. SubOrbital is pinned to
+# exactly 0 (header): the chain head keeps no terminal since #2015.
 gating          = true
 trees           = { min = 2, max = 3 }
 committedTrees  = { min = 2, max = 2 }
 recordings      = { min = 22, max = 22 }
 branchPoints    = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 }, JointBreak = { min = 10, max = 10 } }
-terminalStates  = { Docked = { min = 1, max = 1 }, Orbiting = { min = 6, max = 6 }, Destroyed = { min = 12, max = 12 }, SubOrbital = { min = 1, max = 1 } }
+terminalStates  = { Docked = { min = 1, max = 1 }, Orbiting = { min = 6, max = 6 }, Destroyed = { min = 12, max = 12 }, SubOrbital = { min = 0, max = 0 } }
 ghostChainNodes = { max = 0 }
 
 [expectations.logContracts]

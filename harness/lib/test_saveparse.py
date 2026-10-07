@@ -1997,7 +1997,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         #
         # THE 1/1/2 TOPOLOGY IS THE CONTRACT: the flown main recording plus the
         # post-recovery continuation, both `Immutable`, in ONE committed tree - the
-        # same pair `L3-career-science-recover` pins as `recordings.count = 2` and
+        # same pair `L3-career-science-recover` measured as `recordings.count = 2` and
         # the same pair the ledger's recovery credit resolves through. A different
         # number means the fixture was re-derived from something else.
         # --- THE SAME-NAME RELAUNCH SUBJECT (THE RECOVERY CORRELATOR) ----
