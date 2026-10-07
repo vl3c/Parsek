@@ -431,6 +431,17 @@ namespace Parsek.Logistics
             }
 
             RouteLoadReconcileOutcome outcome = Decide(kind, cutoffUT, evidenceFound);
+            if (outcome == RouteLoadReconcileOutcome.SkippedNothingAfterCutoff)
+            {
+                // Nothing to retire, but the load still branches the timeline at the cutoff: a
+                // route row created from now on is in no chain tip snapshot committed before
+                // this load, so each such snapshot captured after the cutoff gets its watermark
+                // lowered to it. A forward or same-instant load touches no snapshot, and no row is
+                // removed, so it is OnLoad-safe.
+                ChainTipRouteCargo.CaptureRetiredRouteCargo(
+                    null, cutoffUT, RouteStore.CommittedRoutes, RouteStore.DormantRoutes,
+                    "in-session load " + kind);
+            }
             if (outcome != RouteLoadReconcileOutcome.Reconciled)
             {
                 ParsekLog.Verbose(LogTag,
