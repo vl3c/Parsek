@@ -6193,7 +6193,12 @@ namespace Parsek.Tests
             var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
 
             // Optimizer returns one candidate per pass (break after first), so we just check
-            // a candidate IS produced. The Surface boundary at s=1 is reached first.
+            // a candidate IS produced. The Surface boundary at s=1 is reached first: this
+            // recording carries no launch-site start (no LaunchSiteName, no Prelaunch
+            // StartSituation), so its leading Surface run is an ordinary landed start and
+            // still splits. A pad launch keeps that run with the ascent (owner ruling
+            // 2026-10-07); its twin is OptimizerLaunchSiteLeadingRunTests
+            // .PadLaunch_LongPadRun_FirstCandidateIsTheAtmosphereExit.
             Assert.Single(candidates);
             Assert.Equal((0, 1), candidates[0]);
         }
@@ -6777,6 +6782,10 @@ namespace Parsek.Tests
         // Test #23: Real ascent + reentry chain — `Surface, Atmo[long], ExoBallistic[long],
         // Atmo[medium], Surface`. After RunOptimizationPass, each phase becomes its own chain
         // segment. Guards the player-facing per-phase loop split that the entire feature is for.
+        // The leading Surface run carries no launch-site start (no LaunchSiteName, no Prelaunch
+        // StartSituation), so it still splits off as a landed start's would; a pad launch
+        // keeps it with the ascent (owner ruling 2026-10-07), pinned by the twin
+        // OptimizerLaunchSiteLeadingRunTests.PadLaunch_AscentOrbitReentryLanding_ProducesFourSegmentsWithNoPadSegment.
         [Fact]
         public void OptimizationPass_PassiveDeorbitReentry_ProducesAscentExoReentryChain()
         {
@@ -6784,7 +6793,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
 
             var rec = MakePersistenceIntegrationRecording("ascent-reentry-chain", "tree-1", 17000,
-                (SegmentEnvironment.SurfaceStationary, 30, "Kerbin", false), // pad
+                (SegmentEnvironment.SurfaceStationary, 30, "Kerbin", false), // landed start (no launch site)
                 (SegmentEnvironment.Atmospheric, 300, "Kerbin", false),       // ascent
                 (SegmentEnvironment.ExoBallistic, 1800, "Kerbin", false),     // orbit
                 (SegmentEnvironment.Atmospheric, 200, "Kerbin", false),       // reentry
@@ -6797,7 +6806,7 @@ namespace Parsek.Tests
             // RunOptimizationSplitPass.MaxSplitsPerPass; verify chain >= 4 to be tolerant).
             int chainLength = RecordingStore.CommittedRecordings.Count;
             Assert.True(chainLength >= 4,
-                $"Expected at least 4 chain segments (pad / ascent / orbit / reentry-and-landing); got {chainLength}.");
+                $"Expected at least 4 chain segments (landed start / ascent / orbit / reentry-and-landing); got {chainLength}.");
 
             RecordingStore.ResetForTesting();
         }

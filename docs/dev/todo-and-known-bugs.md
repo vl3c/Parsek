@@ -27,7 +27,7 @@ and pending science), or have the Timeline dedup the legacy row against tombston
 
 ---
 
-## OPTIMIZER-PAD-SPLIT-AT-FIVE-SECOND-THRESHOLD: whether a pad launch's pre-liftoff segment becomes its own recording depends on a few tens of milliseconds [FILED 2026-10-07 from the release verification flights, branch `verify-followups`. OPEN, product question; the lane pins are widened]
+## ~~OPTIMIZER-PAD-SPLIT-AT-FIVE-SECOND-THRESHOLD: whether a pad launch's pre-liftoff segment becomes its own recording depends on a few tens of milliseconds~~ [FILED 2026-10-07 from the release verification flights, branch `verify-followups`. RULED by the owner 2026-10-07 (never split off a launch's leading launch-site run) and FIXED 2026-10-07, branch `optimizer-no-pad-split`; xUnit only, not flown; L3 / L5 re-pinned to exactly 2]
 
 The optimizer splits a recording at the SurfaceMobile -> Atmospheric boundary at liftoff only
 when both halves last at least 5.0 s (`RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers`,
@@ -114,6 +114,41 @@ flip at its source with no consumer cost, since the split's one benefit (a lifto
 belongs to the player-loop UI being removed. The landing-side floor (L6) is a separate, smaller
 question: the landed tail carries the terminal state and the spawn, so it stays. Needs an owner
 ruling before code; then re-pin L3 / L5 to an exact count and re-run the census above.
+
+**Fix (2026-10-07, branch `optimizer-no-pad-split`).** Owner ruling: never split off the
+LEADING launch-site Surface run of a flight that starts on the pad or runway; keep touchdown
+splits and every later Surface split. It is step 5b of `IsSplittableEnvOrBodyBoundary`: inside
+step 5, after the surface-graze check and before the `SurfaceInvolved` split. After the seam
+short-circuit (step 1, which still wins) and the body-change steps 3-4 (a Surface run cannot
+cross an SOI, and #251 stays ungated); after the graze check so every boundary that rule already
+suppressed keeps its reason and counter (RF-1's pinned `surfaceGrazeForward=1
+surfaceGrazeBackward=1` on its pad hop does not move), and the new reason
+`SuppressedLaunchSiteLeadingRun` fires only where step 5 used to split. Steps 6-7 never see a
+Surface boundary. Definition (`RecordingOptimizer.FindLaunchSiteDepartureSection`): the
+recording is a launch-site start (`IsLaunchSiteStart`: `LaunchSiteName` set, which
+`FlightRecorder.ShouldCaptureLaunchSite` writes only for a launch start - PRELAUNCH, the
+PRELAUNCH -> flight transition, the fresh rollout, or standing on a stock launch site such as the
+runway - or `StartSituation` Prelaunch); its first section is Surface class and on its own
+`StartBodyName`; the leading run is sections 0.. while Surface, with a surface graze (a brief
+bounce bracketed by Surface) counted inside it; the departure is the first Surface -> non-Surface
+boundary that is not a graze. Only that boundary is kept. Mirror direction: a recording that
+starts landed anywhere else (a Mun lander, a field on Kerbin) carries no launch-site start and
+splits at take-off as before - its landed stay is a phase of its own, not ignition-to-liftoff
+time - and a Re-Fly fork that copied its origin's launch site but starts on another body is
+excluded by the body check. Consumers re-checked by grep: none reads a pad segment (no code tests
+`SegmentPhase == "surface"` on a chain head except the loop-eligibility list, and every chain-head
+reader - rewind save, Re-Fly carve-out, slot tips, Missions, Timeline, route origin proof - takes
+the head's start fields, which the head keeps either way); the unsplit shape is the one 11 of the
+12 collected L3 / L5 flights already had under the 5 s floor. Already-split chains stay split
+(`CanAutoMerge` needs equal `SegmentPhase`). The `Split summary` line gains `launchSiteRunKept=N`
+appended LAST, so every committed token over the earlier fields still matches. Census of the 774
+collected `KSP.log`s for a `Split recording ... 'surface' [..] + 'atmo'|'approach'` first split:
+the only flown one is `2026-10-07_0032_L5-career-contract-complete` (the others are LT-2's
+synthetic `Persistence Smoke Probe`, which carries no launch-site start and still splits), so
+only L3 and L5 change: both re-pinned to `count = { min = 2, max = 2 }`. Tests:
+`OptimizerLaunchSiteLeadingRunTests` (9 cells red before the change), and
+`Persistence_AscentLongAtmoLongExo_Splits` / `OptimizationPass_PassiveDeorbitReentry_*` keep
+their split as the non-launch-site landed-start mirror.
 
 ---
 

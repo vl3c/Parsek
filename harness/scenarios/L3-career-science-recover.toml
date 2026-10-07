@@ -248,9 +248,17 @@ allowedAnomalies = []
 # (`RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers`). On this spec that
 # segment measured 4.48-4.64 s (`2026-09-22_2132` / `_2149` / `_2226` / `_2325`,
 # `2026-09-29_2153`), so it can split the same way; todo
-# OPTIMIZER-PAD-SPLIT-AT-FIVE-SECOND-THRESHOLD. No other expectation here reads the
-# count or a recording index.
-count = { min = 2, max = 3 }
+# OPTIMIZER-PAD-SPLIT-AT-FIVE-SECOND-THRESHOLD.
+# RE-PINNED TO EXACTLY 2 on 2026-10-07 by the owner ruling on that todo: the
+# optimizer never splits off the LEADING launch-site Surface run of a flight that
+# starts on the pad or runway (`RecordingOptimizer.IsLaunchSiteDepartureBoundary`,
+# predicate step 5b), so the pad segment stays with the flight whatever its length
+# and only the landing split remains, which fired on every flight above. Every
+# collected run of this spec read 2 (`2026-08-19_1912`, `_2130`, `2026-09-22_2132` /
+# `_2149` / `_2226` / `_2325`, `2026-09-29_2153`); L5's 3 on `2026-10-07_0032` was
+# the pad split this rule removes. No other expectation here reads the count or a
+# recording index.
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 # FIVE tokens. The first two are the flight-leg pair, measured on every prior flight
