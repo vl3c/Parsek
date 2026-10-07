@@ -6264,7 +6264,12 @@ _(unreleased - entries accumulate here per commit)_
   (funds, recovery science and crew XP booked to the flight), and the quicksave is loaded from
   the Space Center. It requires the abandoned-future reconcile to retire the payout as
   after-cutoff rows and forbids any later Recovery walk, funds uplift or guard clamp, a
-  re-booked payout and a Recovered ending at the final commit. QL-3 now also checks, after the
+  re-booked payout and a Recovered ending at the final commit. It flies the new mission shell
+  `b1_pad_hop_career`: B1's machine, assertions and parameter schema with one control
+  difference, the unreadable-maneuver-node tolerance a career with a level-0 Tracking Station
+  needs (its first two attempts on plain `b1_pad_hop` went INVALID, vessel lost at PRELAUNCH
+  in 1.2 s on kRPC's `Maneuver node editing is not available`); the sandbox lanes keep
+  `b1_pad_hop` unchanged. QL-3 now also checks, after the
   load of the save from before the Re-Fly, that the replaced pod stays out of the effective
   recordings and of Space Center ghost playback and that the undone crew death stays skipped
   with no permanent reservation; QL-4b checks that no ghost of the detached flight is built
@@ -6272,8 +6277,8 @@ _(unreleased - entries accumulate here per commit)_
   (`rewind-crew-loss`, `rewind-b9`, `refly-world-preservation`, `rewind-readback`) now carry
   their split branch point linked to their rewind point, and the point is persistent, as a
   committed production tree has it, so an in-session load claims the point for its tree instead
-  of following the save (QL-3's report-only window is back at 0). No product change; nothing
-  flown.
+  of following the save (QL-3's report-only window is back at 0). No product change; QL-2's
+  mission switch is not yet re-flown.
 - **Endpoint part adoption behind the Logistics `Update parts` button.**
   `RouteEndpointPartAdoption.AdoptCurrentParts(route)` resolves the route's origin and every
   stop and stores each resolved vessel's current part flightIDs on the route
