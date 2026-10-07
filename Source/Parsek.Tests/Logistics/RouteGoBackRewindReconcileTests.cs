@@ -298,18 +298,13 @@ namespace Parsek.Tests.Logistics
             Ledger.ResetForTesting();
             InstallFixture();
 
-            // --- Exit B: the go-back seam (HandleRewindOnLoad shape):
-            // in-place ledger retire, then the shared reconcile over live
-            // RouteStore snapshots. ---
-            Ledger.RetireFutureRouteActionsAtRewind(
-                cutoffUT, out List<GameAction> keptLedgerActions);
-            RouteRewindClassifier.ReconcileStoreAtRewind(
-                new List<Route>(RouteStore.CommittedRoutes),
-                new List<Route>(RouteStore.DormantRoutes),
-                cutoffUT,
-                keptLedgerActions,
-                logTag: "Rewind",
-                logPrefix: "OnLoad go-back");
+            // --- Exit B: the go-back seam, HandleRewindOnLoad's call: in-place
+            // ledger retire, then the shared reconcile over live RouteStore
+            // snapshots. No rewind-save route copy, so the cutoff is the clock
+            // and the loop-position restore is skipped (the reset stands). ---
+            double goBackCutoff = RouteLoadReconcile.ReconcileAtGoBackRewind(
+                cutoffUT, rewindSaveRoutes: null, rewindSaveUT: double.NaN);
+            Assert.Equal(cutoffUT, goBackCutoff);
             List<string> goBackOutcome = SnapshotStoreState();
 
             Assert.Equal(reFlyOutcome, goBackOutcome);
@@ -388,11 +383,12 @@ namespace Parsek.Tests.Logistics
         // flow), so a source-text gate catches a literal deletion of the
         // go-back hookup - same pattern as
         // RouteStoreScenarioIntegrationTests.Scenario_OnSaveAndOnLoad_InvokeRouteStoreCodec.
-        // The ordering matters: the in-place ledger retire must precede the
-        // store reconcile (which consumes the kept rows), and both must run
-        // before the career-state cutoff walk (GameStateStore baseline prune +
-        // recalc), all inside HandleRewindOnLoad while RewindAdjustedUT is
-        // still populated (EndRewind clears it).
+        // The ordering matters: the go-back route reconcile
+        // (RouteLoadReconcile.ReconcileAtGoBackRewind, whose in-place ledger
+        // retire must precede the store reconcile that consumes the kept rows)
+        // must run before the career-state cutoff walk (GameStateStore baseline
+        // prune + recalc), all inside HandleRewindOnLoad while RewindAdjustedUT
+        // is still populated (EndRewind clears it).
         [Fact]
         public void HandleRewindOnLoad_RunsRetireThenReconcileBeforeCareerRestore()
         {
@@ -423,23 +419,38 @@ namespace Parsek.Tests.Logistics
             Assert.True(exitIdx > entryIdx, "HandleRewindOnLoad exit marker missing or before entry");
             string body = source.Substring(entryIdx, exitIdx - entryIdx);
 
-            int retireIdx = body.IndexOf(
-                "Ledger.RetireFutureRouteActionsAtRewind(", StringComparison.Ordinal);
-            int reconcileIdx = body.IndexOf(
-                "Logistics.RouteRewindClassifier.ReconcileStoreAtRewind(",
-                StringComparison.Ordinal);
+            int routeIdx = body.IndexOf(
+                "Logistics.RouteLoadReconcile.ReconcileAtGoBackRewind(", StringComparison.Ordinal);
             int pruneIdx = body.IndexOf(
                 "GameStateStore.PruneBaselinesAfterUT(", StringComparison.Ordinal);
 
-            Assert.True(retireIdx >= 0,
-                "HandleRewindOnLoad must call Ledger.RetireFutureRouteActionsAtRewind " +
-                "(go-back route-row retire) inside its entry/exit markers");
-            Assert.True(reconcileIdx > retireIdx,
-                "HandleRewindOnLoad must call RouteRewindClassifier.ReconcileStoreAtRewind " +
-                "AFTER the ledger retire (it consumes the kept rows)");
-            Assert.True(pruneIdx > reconcileIdx,
+            Assert.True(routeIdx >= 0,
+                "HandleRewindOnLoad must call RouteLoadReconcile.ReconcileAtGoBackRewind " +
+                "(go-back route-row retire + store reconcile) inside its entry/exit markers");
+            Assert.True(pruneIdx > routeIdx,
                 "the route reconcile must run BEFORE the career-state cutoff walk " +
                 "(GameStateStore.PruneBaselinesAfterUT + recalc) inside HandleRewindOnLoad");
+
+            // Inside the helper: retire, then the shared reconcile over the kept rows, then the
+            // loop-position restore (which the reconcile's cursor reset needs).
+            string reconcileSource = File.ReadAllText(Path.Combine(projectRoot,
+                "Source", "Parsek", "Logistics", "RouteLoadReconcile.cs")).Replace("\r\n", "\n");
+            int start = reconcileSource.IndexOf(
+                "internal static double ReconcileAtGoBackRewind(", StringComparison.Ordinal);
+            Assert.True(start >= 0, "RouteLoadReconcile.ReconcileAtGoBackRewind is missing");
+            int end = reconcileSource.IndexOf("\n        }\n", start, StringComparison.Ordinal);
+            string helper = reconcileSource.Substring(start, end - start);
+            int retireIdx = helper.IndexOf(
+                "Ledger.RetireFutureRouteActionsAtRewind(", StringComparison.Ordinal);
+            int reconcileIdx = helper.IndexOf(
+                "RouteRewindClassifier.ReconcileStoreAtRewind(", StringComparison.Ordinal);
+            int restoreIdx = helper.IndexOf(
+                "RestoreLoopPositionAtRewindExit(", StringComparison.Ordinal);
+            Assert.True(retireIdx >= 0, "the go-back helper must retire the post-cutoff route rows");
+            Assert.True(reconcileIdx > retireIdx,
+                "the shared store reconcile must run AFTER the ledger retire (it consumes the kept rows)");
+            Assert.True(restoreIdx > reconcileIdx,
+                "the loop-position restore must run AFTER the reconcile (which resets the cursors)");
         }
     }
 }
