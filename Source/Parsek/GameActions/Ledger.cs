@@ -318,9 +318,11 @@ namespace Parsek
         /// / <see cref="GameActionType.ScienceInitial"/> / <see cref="GameActionType.ReputationInitial"/>)
         /// are excluded explicitly: they define the session baseline and must survive regardless of UT.</para>
         /// </summary>
-        internal static int PruneOrphanActionsAfterUT(double cutoffUT, bool inclusive = false)
+        internal static int PruneOrphanActionsAfterUT(
+            double cutoffUT, bool inclusive = false, double keepRouteRowsThroughUT = double.NaN)
         {
             int removed = 0;
+            int routeRowsKept = 0;
             for (int i = actions.Count - 1; i >= 0; i--)
             {
                 var action = actions[i];
@@ -330,6 +332,13 @@ namespace Parsek
                     continue;
                 if (RecalculationEngine.IsSeedType(action.Type))
                     continue;
+                if (keepRouteRowsThroughUT > cutoffUT
+                    && Logistics.RouteLedgerRetire.IsFreeStandingRouteAction(action)
+                    && action.UT <= keepRouteRowsThroughUT)
+                {
+                    routeRowsKept++;
+                    continue;
+                }
                 // Keep everything before the launch boundary. Exclusive keeps the boundary UT
                 // itself (rollout retained on Revert-to-Launch); inclusive drops it (rollout
                 // refunded on Revert-to-editor).
@@ -342,6 +351,13 @@ namespace Parsek
             }
 
             string boundary = inclusive ? "at/after" : "after";
+            if (routeRowsKept > 0)
+            {
+                ParsekLog.Info("Ledger",
+                    $"PruneOrphanActionsAfterUT: kept {routeRowsKept} free-standing route action(s) " +
+                    $"through the route state floor UT " +
+                    $"{keepRouteRowsThroughUT.ToString("R", CultureInfo.InvariantCulture)}");
+            }
             if (removed > 0)
             {
                 BumpStateVersion();
@@ -667,6 +683,33 @@ namespace Parsek
             }
 
             return cleared;
+        }
+
+        /// <summary>
+        /// The recording tag of every action whose id is in <paramref name="actionIds"/>, keyed by
+        /// action id (the first action wins on a duplicate id). Untagged actions and ids no action
+        /// carries are absent. Read by the in-session handoff's resumed-tree rule, which asks
+        /// whether a tombstone retires an action of the resumed tree.
+        /// </summary>
+        internal static Dictionary<string, string> CollectRecordingIdsForActions(ICollection<string> actionIds)
+        {
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (actionIds == null || actionIds.Count == 0)
+                return map;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null
+                    || string.IsNullOrEmpty(action.ActionId)
+                    || string.IsNullOrEmpty(action.RecordingId)
+                    || map.ContainsKey(action.ActionId)
+                    || !actionIds.Contains(action.ActionId))
+                {
+                    continue;
+                }
+                map[action.ActionId] = action.RecordingId;
+            }
+            return map;
         }
 
         /// <summary>

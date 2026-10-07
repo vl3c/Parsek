@@ -3694,6 +3694,48 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A flight the recording optimizer splits when you commit it now books each result on the
+  part where it happened.** Parsek cuts a fresh flight into parts (a few seconds on the pad,
+  the climb, the landing) before it books the flight's results, and every milestone, contract,
+  transmitted experiment and reputation change still named the first part. A re-fly of a later
+  part then kept the milestones and science earned in it after the rewind point, a transmitted
+  experiment was dated at the end of the first part (in one test flight, a pad stretch ending
+  330 s before the transmission), and a crewed vessel lost after a split got no reputation
+  penalty in the ledger at all, because that penalty is booked on the part that carries the
+  crew deaths. The split now moves the flight's not-yet-booked results past its cut onto the
+  later part, the way it already moved booked entries. Covered by xUnit; not yet checked in a
+  test flight.
+
+- **Rebuilding a facility at a lower level is now kept and charged.** KSP's facility menu,
+  opened with Left Ctrl held on a destroyed facility above level 1, offers "Rebuild lvl N",
+  which rebuilds it one level lower for about two thirds of that level's price. Parsek
+  treated the level drop as information only, so its timeline kept the facility at the old
+  level (the next recalculation could raise it back) and its funds ran high by the price.
+  The rebuild is now booked like an upgrade, with the funds KSP took, at the lower level,
+  and the Timeline shows it as "Downgrade". Covered by xUnit; not yet checked in a test
+  flight.
+
+- **A quickload no longer brings back a re-flown flight or a retired crew death.** Quickloading,
+  reverting or changing scene restored Parsek's Re-Fly bookkeeping from the save while it kept your
+  recordings and career ledger as they were. After quickloading to a save from before a Re-Fly
+  merge, the flight you had replaced played back next to its re-fly, the crew death and reputation
+  penalty the re-fly had undone counted again, and Unfinished Flights made after the save
+  disappeared (their quicksave files left behind). Every load inside a game session now keeps that
+  bookkeeping from the session you are playing, like the recordings: re-flown flights stay
+  replaced, retired deaths stay retired, an Unfinished Flight made since the save stays listed and
+  one already closed does not come back. The flight a quickload resumes, and a flight you reverted,
+  still keep the save's Unfinished Flights for that flight, and a Re-Fly you merged into the resumed
+  flight after the save does not carry over: its records follow the save, so its original vessel
+  is not hidden. Its re-flown recording can still play back next to that original (known issue,
+  todo QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE). Discard Re-fly from the Esc menu
+  now also keeps the Unfinished Flight it promised to keep: the load that follows no longer brings
+  back the discarded session and deletes its rewind point. Quickloading into a save taken during a
+  Re-Fly you have since merged resumes that Re-Fly; discarding it at the Merge dialog then brings
+  the original flight and its outcome back. Discarding a Re-Fly that a quickload resumed no longer
+  deletes an earlier, merged Re-Fly of another vessel from the same separation, and the crew
+  death that earlier Re-Fly undid stays undone. Loading
+  another game and starting KSP are unchanged. Covered by xUnit; not yet checked in a test flight.
+
 - **A station hidden after a rewind comes back when its recorded future ends, also when that
   future crossed into the atmosphere or another world.** When a committed mission docks with
   or undocks from one of your vessels, the vessel is hidden after a rewind until the mission's
@@ -3706,6 +3748,20 @@ _(unreleased - entries accumulate here per commit)_
   and one that was destroyed at the end still counted as alive. Parsek now follows the vessel
   to the last part, so it reappears at the right time and with its identity, or stays gone
   when the recording ends in its loss. Covered by xUnit; not yet checked in a test flight.
+- **A vessel hidden after a rewind comes back as you re-flew it.** The same hiding applies when
+  you later re-flew that vessel's own flight from a Rewind Point (Re-Fly): Parsek still followed
+  the replaced flight, so the vessel was due back when the replaced flight ended, and the
+  re-flown flight's own return was held back as an earlier step of it (always in the Tracking
+  Station, in flight while the replaced flight's end was still ahead). Parsek now follows the
+  re-flown flight, so the vessel reappears when and as that flight ends, or stays gone if it
+  ended in the vessel's loss. Covered by xUnit; not yet checked in a test flight.
+- **A flight whose environment changed after its last recorded moment is no longer cut into an
+  empty part.** Parsek cuts a recording into parts where the flight changes environment. When the
+  change came after the last recorded sample (a probe that crashed a moment after its last sample,
+  its crash time later than the data), the last part held no flight data, read as starting at UT 0
+  and was ordered first, so Parsek read the flight's ending from the wrong part (a destroyed vessel
+  read as still flying). Such a cut is now skipped, and a part with no data can no longer be
+  ordered first. Covered by xUnit; not yet checked in a test flight.
 
 - **A base hidden as a ghost after a rewind keeps its supply route.** When you rewind to
   before a recorded flight that docks with one of your bases and then enter flight, the base
@@ -3767,6 +3823,20 @@ _(unreleased - entries accumulate here per commit)_
   made before that moment is not repeated, every run after it happens once, a linked pair keeps
   its turn order and a recovery credit that save still owed is paid on the next run. A route
   whose schedule you changed since then starts its count again from the next run, as before.
+  Covered by xUnit; not yet checked in a test flight.
+
+- **A supply route run made just before a rewind to launch is paid for once and keeps its
+  recovery credit.** A rewind to launch puts the clock back 15 seconds before the launch, and a
+  route run in those 15 seconds used to have its charge refunded while the route still counted it
+  as done, so it ran for free, and the recovery credit it paid for the run before it was lost.
+  Routes now go back to exactly the moment the rewind's save was made, so that run keeps its
+  charge and the credit and is not repeated, also when you change scenes, launch, save and load,
+  revert a launch or start a Re-fly within those 15 seconds. Covered by xUnit; not yet checked in
+  a test flight.
+
+- **Supply routes keep running at the Space Center right after a rewind to launch.** After the
+  rewind, routes made no runs until the game clock caught up with the moment you rewound from,
+  or until you left the Space Center. They now pick up as soon as the rewound clock moves on.
   Covered by xUnit; not yet checked in a test flight.
 
 - **A crewed station hidden after a rewind no longer has its crew killed.** When a committed

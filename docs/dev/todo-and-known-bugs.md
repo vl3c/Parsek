@@ -16,6 +16,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## TIMELINE-PHANTOM-MILESTONE-AFTER-REFLY-OF-LATER-SEGMENT: a tombstoned milestone can leave a legacy "Milestone" text row on the Timeline [FILED 2026-10-07 from the PR #2042 review. OPEN, display only; the ledger is correct]
+
+`MilestoneStore.CreateMilestone` copies made at `CommitTree`, before the optimizer pass, keep the
+first segment's tag. After a Re-Fly of a later segment tombstones that milestone's ledger row, the
+Timeline dedups against ELS only, so the copy (still visible through ERS) renders as a leftover
+legacy "Milestone" text row. The Re-Fly splitter had the same shape before (it retags the milestone
+id, not the events inside). Fix: retag the milestone copies with the split (as #2042 does for events
+and pending science), or have the Timeline dedup the legacy row against tombstoned ledger rows too.
+
+---
+
 ## OPTIMIZER-PAD-SPLIT-AT-FIVE-SECOND-THRESHOLD: whether a pad launch's pre-liftoff segment becomes its own recording depends on a few tens of milliseconds [FILED 2026-10-07 from the release verification flights, branch `verify-followups`. OPEN, product question; the lane pins are widened]
 
 The optimizer splits a recording at the SurfaceMobile -> Atmospheric boundary at liftoff only
@@ -33,9 +44,80 @@ tail before recovery) has fired every time so far. Next step: decide whether a p
 half (start situation PRELAUNCH, ending at liftoff) is exempt from the split, or the floor is
 measured differently; then re-pin L3 / L5.
 
+**Investigation 2026-10-07 (branch `optimizer-retag-followups`, report only, no code change).**
+
+Where the split comes from. The 5.0 s both-halves floor arrived with the optimizer itself
+(`9fb17cd06`, T97, 2026-03-31: "minimum duration for both halves", no further rationale; wired by
+T98 `43a82dab9`). The Surface default split is step 5 of `IsSplittableEnvOrBodyBoundary`; its
+recorded reason is the optimizer's purpose, per-phase chain segments so each phase gets its own
+loop toggle (`parsek-flight-recorder-design.md` 9A.5; `docs/dev/done/plans/optimizer-persistence-split.md`
+sections 1-3, which list "pad / atmo-ascent / exo-orbit / atmo-reentry-and-landing" as the
+expected chain of a real flight; `docs/dev/research/optimizer-meaningful-split-rule.md` section 4
+rates Surface -> Atmo "take-off: always meaningful" because Surface comes from `Vessel.Situations`
+plus debounce, not an altitude line). Nothing in either doc argues for a PAD segment as such: the
+pad run is split because it is a Surface run, and the only Surface carve-out (`IsSurfaceGrazePattern`)
+covers a brief Atmo/Approach run bracketed by Surface, never a leading Surface run. The 5 s floor
+was ruled deliberate once before for the landing side (L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR,
+closed 2026-09-02 with a mission-side dwell). The pad coin flip is gameplay, not harness timing:
+on L5 the auto-record started at the first staging on the pad (`OnStageActivate` while PRELAUNCH,
+UT 9.60), the Flea moved at 13.50 (SurfaceMobile) and its Atmospheric section opened at 14.64, so
+the pad run is ignition-to-liftoff time. A player gets a pad segment whenever that exceeds 5 s
+(low-TWR stacks, clamps released a stage after ignition, a manual record on the pad).
+
+What a separate pad segment buys or costs each consumer (code read):
+- Rewind to launch: none. `RecordingStore.GetRewindRecording` resolves the save through the tree
+  root, which keeps its id (and the save) on the first segment either way.
+- Re-Fly / `RecordingTreeSplitter`: none for correctness. A pad run holds no separation, so no
+  RP slot starts there; an earlier chain segment is carved out of the supersede and tombstone sets
+  as a pre-rewind chain head (`SupersedeCommit.IsPreRewindCarveOut`). Before
+  RETAG-ON-SPLIT-MISSES-LATER-ROWS (fixed the same day) the pad segment was where the WHOLE
+  flight's results landed, so a re-fly kept them; that cost is gone. Unsplit, the splitter's
+  env-homogeneous-origin check Warns on a Re-Fly origin that still holds the pad run (it already
+  does today below 5 s; it counts raw environment changes).
+- Unfinished Flights / slot tips: none. Slots resolve through the chain tip
+  (`EffectiveState.EffectiveTipRecordingId`); the pad segment is a non-final chain segment with no
+  terminal and no snapshot.
+- Missions rows: none (one row per physical vessel; chain segments fold). Timeline: none (the
+  launch row is the chain head and reads the chain's duration, `TimelineBuilder.GetChainDuration`).
+- Recordings table: one extra "surface" row of about 5 s inside the launch's chain block.
+- Loops: the only real benefit, a loopable ascent that starts at liftoff instead of at ignition.
+  Owner ruling 2026-10-05 (branch `player-loop-removal`): per-recording player loops are being
+  removed, Parsek loops only behind routes, and a route loop replays the whole flight, pad run
+  included, so the benefit is on its way out. Route origin proof and the route-run manifest read
+  the chain head's start fields, which the first segment keeps either way.
+- KSC pad retirement (`LaunchSiteExclusionZones` / `SpawnCollisionDetector`): none; it judges the
+  flight's END, which is on the last segment.
+- Tail trim: none; `TrimBoringTail` only trims leaves and only tails.
+- Costs: a nondeterministic recording count in every pad-launch lane near 5 s (L3 / L5 now pin
+  2..3); one more recording, three more sidecar files and one more ghost snapshot clone per such
+  launch; one more first-segment-without-snapshot for every chain walker to cross
+  (CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT was this shape).
+
+If a leading pad run were NEVER split off: no consumer above breaks; the ascent segment would
+start at ignition; the chain head would be "atmo" instead of "surface"; already-split chains stay
+split (`CanAutoMerge` needs equal `SegmentPhase`); the cells that build a leading 30 s
+`SurfaceStationary` pad run and expect it split need re-checking against whatever predicate marks
+a launch (`RecordingOptimizerTests.Persistence_AscentLongAtmoLongExo_Splits` expects the s=1
+candidate, `OptimizationPass_PassiveDeorbitReentry_ProducesAscentExoReentryChain` at least 4
+segments "pad / ascent / orbit / reentry-and-landing", and the in-game
+`RealAscentReentry_ProducesPerPhaseChain_InGame` the same), and
+every lane whose flights split a pad run would lose one recording (needs a census of collected
+logs for `'surface' [..] + 'atmo'` first splits before re-pinning). If it were ALWAYS split (no
+floor for the leading run): deterministic, but every auto-recorded launch gets a sub-second to
+few-second pad recording, more UI noise and files for no consumer.
+
+Recommendation: exempt the LEADING Surface run of a recording that started on a launch site in
+PRELAUNCH (the first split-class run, never preceded by flight) from the step-5 Surface split, as
+a named suppress reason logged with the existing counters, and keep every other Surface boundary
+(touchdown, take-off from a non-launch-site surface, body changes) as it is. It removes the coin
+flip at its source with no consumer cost, since the split's one benefit (a liftoff-aligned loop)
+belongs to the player-loop UI being removed. The landing-side floor (L6) is a separate, smaller
+question: the landed tail carries the terminal state and the spawn, so it stays. Needs an owner
+ruling before code; then re-pin L3 / L5 to an exact count and re-run the census above.
+
 ---
 
-## RETAG-ON-SPLIT-MISSES-LATER-ROWS: ledger rows written after the optimizer split stay on the split recording's first segment, even when their UT is past its end [FILED 2026-10-07 from the release verification flights, branch `verify-followups`. OPEN, to check; impact on supersede / tombstone scoping not traced]
+## ~~RETAG-ON-SPLIT-MISSES-LATER-ROWS: ledger rows written after the optimizer split stay on the split recording's first segment, even when their UT is past its end~~ [FILED 2026-10-07 from the release verification flights, branch `verify-followups`. CONFIRMED (not cosmetic) and FIXED 2026-10-07, branch `optimizer-retag-followups`; xUnit only, not flown]
 
 On the commit of `2026-10-07_0032_L5-career-contract-complete` the optimizer split the flight
 twice (`RetagActionsForSplitSecondHalf: ... splitUT=14.64 retagged=0` and `... splitUT=341.26
@@ -50,6 +132,38 @@ recording's UT span: a Re-Fly or rewind supersede / tombstone set built from a s
 on an earlier segment may stay outside the superseded set), and per-recording reward readouts.
 If it matters, convert the events per segment after the split, or retag by UT after the ledger
 add.
+
+It matters. Both commit paths (`MergeDialog.MergeCommit` and `ParsekFlight.CommitTreeFlight`)
+run `RecordingStore.RunOptimizationPass` BEFORE `LedgerOrchestrator.NotifyLedgerTreeCommitted`,
+so a fresh flight's results are still captured events (`GameStateStore.Events`) and pending
+science subjects (`GameStateRecorder.PendingScienceSubjects`) when it is split, all tagged with
+the pre-split id the first segment keeps, and `GameStateEventConverter.ConvertEvents` reads the
+tag as ownership past the segment's end (BUG-A). Measured headless on the real split + commit
+(`OptimizerSplitCommitAttributionTests`, fixture atmo 8-20 / exo 20-53, crew killed at 53):
+before the fix both milestones and the transmitted subject landed on segment 1, the subject's
+`ScienceEarning` row at UT 20 (segment 1's end; it was captured at 45), and NO
+`ReputationPenalty(KerbalDeath)` row was filed at all (`KerbalDeathRepPenalty.Decide` matches the
+VesselLoss event by exact tag: segment 1 has the event but no dead crew, the last segment has the
+dead crew but no event). A Re-Fly of segment 2 from UT 34 then retired only the two deaths: the
+milestone earned at 40 and the science stayed effective, because
+`SupersedeCommit.IsPreRewindCarveOut` carves the earlier chain segment out of the tombstone set
+(chain sibling, lower index, ends before the rewind) and the Re-Fly split's step-2.9 retag moves
+only rows tagged to the segment it splits. The L5 run shows the science-UT effect live: its
+`crewReport` ScienceEarning row reads UT 14.64 (the pad segment's end) for a capture at 345.26.
+Readouts that only resolve the tag to a vessel name (the Timeline, `CommittedFutureIndex`) were
+unaffected beyond that UT.
+
+Fix: the optimizer split partitions all three carriers of the original id at the same cut and
+`>=` sense: ledger rows (`Ledger.RetagActionsForSplitSecondHalf`, unchanged), captured events
+(`GameStateStore.RetagEventsForSplitSecondHalf`) and pending science subjects plus the cached
+pending-milestone copies the reward enrichment matches by tag
+(`GameStateRecorder.RetagPendingScienceForSplitSecondHalf`), all from
+`RecordingStore.RetagLedgerActionsAfterOptimizationSplit`, so the commit books each result on the
+segment whose span contains it. Mirror direction checked: an optimizer MERGE cannot absorb a
+recording whose events are still unconverted (chain ids exist only on committed recordings, and
+the merge pass runs before the split pass), and the Re-Fly split runs after the tree's ledger
+commit, so neither needs the event retag. Tests: `OptimizerSplitCommitAttributionTests` (five
+cells, the end-to-end one red before the fix on all four facts above).
 
 ---
 
@@ -107,7 +221,7 @@ segments; reconcile the two entries at merge (this one is the fix).
 
 ---
 
-## CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP: the ghost-chain walk can land on a Re-Fly TIP the fork supersedes, which suppresses the fork's spawn [FILED 2026-10-07 from the PR #2037 review. OPEN, product, narrow; not a release blocker]
+## ~~CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP: the ghost-chain walk can land on a Re-Fly TIP the fork supersedes, which suppresses the fork's spawn~~ [FILED 2026-10-07 from the PR #2037 review. FIXED 2026-10-07, branch `fix-chain-walk-supersede`; not flown]
 
 `GhostChainWalker` reads the committed trees as they are, supersede relations ignored.
 `RecordingTreeSplitter` gives a Re-Fly's HEAD and TIP the same `ChainId` (TIP at HEAD's index +
@@ -125,9 +239,46 @@ leaf, through the supersede-aware walk (`EffectiveState.EffectiveTipRecordingId`
 that builds HEAD / TIP / fork plus the supersede relation and checks the tip is the fork and the
 fork spawns.
 
+Fix: `GhostChainWalker.WalkToLeaf` follows supersede rows at both of its hops (the child picked at
+a branch point and the optimizer-chain hop): where the recording it lands on is superseded, it goes
+on to the effective recording (`EffectiveState.EffectiveRecordingId`, the pure supersede walk, so
+nested Re-Flies resolve too; not `EffectiveTipRecordingId`, whose switch / EVA chain hop would skip
+the walker's own claimed-parts and continued-past rules) and continues the walk from there, logging
+`WalkToLeaf: step N: segment|child=... superseded -> effective=... rule=supersede identity=...`.
+`ComputeAllGhostChains` reads the live scenario's rows (an explicit-rows overload takes a list).
+Three guards keep the old behaviour, each logged `... superseded by X, <why> - not followed`: the
+effective recording is not in the walk's tree (rows are tree-scoped, rewind design 5.7, and the
+chain's tip tree is the walk's tree; a one-sided orphan row lands here too), it is already visited,
+or it does not continue the walked vessel. The last one is the mirror: a Re-Fly writes a row from
+EVERY recording of TIP's subtree to its one fork, so a row on another vessel of that subtree (the
+merged vessel of a dock the old TIP made, a stage it dropped) names a fork that does not carry the
+claimed vessel; `ForkContinuesWalkedVessel` requires the fork to hold a claimed part (the fork
+restores from the RP quicksave, so part persistentIds match), or without part data the replaced
+recording's pid with a launch guid not conclusively different. An un-superseded chain, and the
+fork itself, are walked as before. Cells: `GhostChainWalkerSupersedeTests` (the probe shape, the
+unsplit superseded child and the nested Re-Fly red before the fix; the dock-partner row cells red
+with the identity guard removed; the no-row, off-path-row, cross-tree and orphan-row controls).
+Found while fixing: a claim whose claiming recording is itself superseded still counts (filed as
+CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING).
+
 ---
 
-## OPTIMIZER-SPLIT-EMPTY-TAIL-INDEXED-FIRST: an optimizer split can leave a payload-less second half that `ReindexChain` puts at chain index 0 [FILED 2026-10-07 while verifying CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT, from one collected log. OPEN, product, low; not reproduced on the current build]
+## CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING: a dock or undock that only a superseded flight recorded still claims the other vessel for a ghost chain [FILED 2026-10-07 by code read while fixing CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP. OPEN, product, to check; consequences not traced]
+
+`GhostChainWalker.ScanBranchPointClaims` / `ScanBackgroundEventClaims` read every committed tree's
+branch points and recordings with no supersede check, and every caller passes the unfiltered
+`RecordingStore.CommittedTrees`. So when a Re-Fly replaces a flight whose old TIP docked with a
+station (or undocked from one), the old dock branch point still claims the station: the chain is
+built, its walk starts on the superseded TIP and ends on the superseded merged recording (the walk's
+new supersede hop deliberately does not follow that recording's row to the fork, which does not
+carry the station), and flight ghosts the station until that recording's end, though the recording
+no longer plays. Not traced: what the station's spawn then does, and the Tracking Station path.
+Check first with a headless cell (the shape is `GhostChainWalkerSupersedeTests.BuildVisitorReFlyTree`);
+the likely fix is to skip a claim whose claiming recording a supersede row names.
+
+---
+
+## ~~OPTIMIZER-SPLIT-EMPTY-TAIL-INDEXED-FIRST: an optimizer split can leave a payload-less second half that `ReindexChain` puts at chain index 0~~ [FILED 2026-10-07 while verifying CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT, from one collected log. REPRODUCED headless on main b8f306e56 and FIXED 2026-10-07, branch `fix-chain-walk-supersede`; not flown]
 
 `2026-09-08_2001_GS-7-kerbalx-crash-watch-hold`: the crash recording `06b271e6...` ('Kerbal X
 Probe', ended Destroyed) was split at UT 347.9 at an Atmospheric -> SurfaceMobile boundary into
@@ -140,16 +291,68 @@ whether `CanAutoSplitIgnoringGhostTriggers` still accepts a cut whose second hal
 (its 5 s test reads `rec.EndUT`, which can come from an explicit or terminal bound past the last
 sample); refuse such a cut, or index the chain by section start rather than by StartUT.
 
+Reproduced on current main through `RecordingStore.RunOptimizationPass`: samples [118.9, 347.9], a
+SurfaceMobile section from 347.92, and the crash UT 357 as `ExplicitEndUT` split into `first: 230
+pts/1 sections, second: 0 pts/1 sections`, `'atmo' [119..348] + 'surface' [0..0]`, the head at
+index 1 and the empty tail (terminal Destroyed, StartUT and EndUT 0) at index 0, the GS-7 shape.
+Fix, both halves: (a) `RecordingOptimizer.SplitHalvesCarryPayload`, called by
+`CanAutoSplitIgnoringGhostTriggers` and `CanAutoSplit` after their 5 s floor, refuses a cut unless
+the recording's actual sampled bounds (`Recording.TryGetActualTrajectoryBounds`: points, orbit
+segments, playable track sections; never the explicit or terminal bound) strictly straddle it, so
+neither half can be payload-less; the mirror (a cut before the first sample, an explicit start
+carrying the floor) is refused the same way. Logged once per state: `Optimizer split refused:
+rec=... sec=... - the second half would hold no trajectory payload (actual bounds [...])`. The 5 s
+floor itself still reads StartUT / EndUT (left alone: OPTIMIZER-PAD-SPLIT-AT-FIVE-SECOND-THRESHOLD
+is about that floor). (b) `ReindexChain` orders by `ChainOrderUT`: StartUT for a member with
+payload or an explicit start (unchanged), else its first track section's start, else last; ties go
+by the previous index, then id. Cells: `OptimizerSplitEmptyHalfTests` (both refusals through the
+real pass and the two payload-less orderings red before the fix; a split with samples on both sides
+and a payload chain's StartUT order are the controls).
+
 ---
 
-## ROUTE-TICK-BASELINE-SET-BEFORE-GO-BACK-CLOCK-MOVE: after a go-back rewind, route ticks may stall until the clock passes the pre-rewind UT [FILED 2026-10-07 from the PR #2036 review. OPEN, product; unverified, pre-existing]
+## ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS: inside a go-back rewind's lead-time window, a load back to a save written in that window keeps the route actions taken after it [FILED 2026-10-07 from the route state floor, branch `fix-route-goback-cutoff`. OPEN, product, low; by construction, not reproduced in game]
 
-`ParsekScenario.Update` sets `lastRouteTickUT` on the new scenario's first `Update`, which likely
-runs before `ApplyRewindResourceAdjustment` moves the clock back to the rewind target; if so the
-next ticks see the clock behind `lastRouteTickUT` and route crossings stall until it is passed.
-The H58 log has too few `Tick:` lines to tell. Check first: a go-back rewind log with an Active
-route, the first `Update` / `lastRouteTickUT` stamp against the clock-move line, then the next
-route `Tick:` lines.
+The go-back rewind keys its route cutoff to the rewind save's own UT, up to 15 s ahead of the
+wound-back clock, and every save written before the clock passes it carries that route state floor;
+a load of such a save keys its route cutoff to the floor, not to its own UT. So a route row written
+after that save but before the floor (a pause or resume row, say; the window's crossings already
+fired) survives a quickload, a revert to a launch made in the window
+(its prune spares route rows up to the floor) and an F9 at the Space Center (which also keeps a Send
+Once or pause-after-this-run armed after the save). A route CREATED in the window after that save
+also survives a load back to it (its CreatedUT is below the floor, and the save does not carry it)
+with a reset cursor, so its in-window crossing can charge a second time; before the floor such a
+route went dormant. Needs a save AND an action inside the same 15 s of game time; the load itself can
+come any time later (an F9 to that quicksave much later hits the same thing). Same class as the
+UT-only reconcile: an F9 to an in-window save from an abandoned timeline keeps the newer timeline's
+route rows up to the floor. A fix would mark the rows the go-back kept (action ids) instead of a UT.
+Found by the PR #2040 re-review.
+
+---
+
+## ~~ROUTE-TICK-BASELINE-SET-BEFORE-GO-BACK-CLOCK-MOVE: after a go-back rewind, route ticks may stall until the clock passes the pre-rewind UT~~ [FILED 2026-10-07 from the PR #2036 review. CONFIRMED and FIXED 2026-10-07 on branch `fix-route-goback-cutoff` (headless only, not flown)]
+
+**CONFIRMED.** Code: the tick gate was `if (currentUT - lastRouteTickUT < TickIntervalSec) return;`
+with no reseed, so a clock behind the baseline read as "no time passed" until it passed the
+baseline again. The go-back rewind loads the Space Center at persistent.sfs's clock and moves the
+UT back from `ApplyRewindResourceAdjustment` after a `yield return null`, so the new scenario's
+first `Update` seeds the baseline at the pre-rewind UT. Logs (the only go-back rewind logs with a
+route are H58's): `2026-09-10_2144` and `2026-09-11_0303` (`Parsek-cheap-flights-arming/harness/results`)
+and `logs/2026-09-02_1336_H58-NEGCTL` all read `[OnLoad:settings-applied] ... ut=1601.9
+scene=SPACECENTER` and `HandleRewindOnLoad:exit ... ut=1601.9`, then `UT adjustment: 1601.9 ->
+1585.5` about 55 ms later, then OnSave at ut=1587.7 / 1587.9 before the quit: 2.4 s of game time
+at 1x with no route `Tick:` line and no per-route `not ghost-driving - skipped` line, both 5 s
+wall rate-limited and last printed about 4.5 s before the clock move in each run (`_2144`:
+00:45:21.188 against 00:45:25.719), so the tick due at ~1586.5 (about 1 s of wall after the move,
+past the limit) would have printed. The stall lasts until the clock
+passes the pre-rewind UT or the player leaves the Space Center (a new scenario instance reseeds);
+on a deep rewind that is the whole stay, warp included.
+**FIXED.** `Logistics/RouteTickClock.Advance` owns the pacing `ParsekScenario.Update` used to
+inline and re-seeds the baseline when the clock is behind it (Info `Tick clock: UT moved back
+from <a> to <b>; baseline reset ...`), so the first tick comes one interval after the move.
+Red cell `RouteTickClockTests.ClockMovedBack_ReseedsTheBaseline_TheNextIntervalTicks` (the H58
+sequence 1601.9 -> 1585.5 -> 1586.5; red `Waiting` on the old gate), plus the pacing contract
+cell and a source gate that `Update` goes through the helper.
 
 ---
 
@@ -180,7 +383,7 @@ it in the TS until the tip spawns.
 
 ---
 
-## FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a facility downgrade's funds debit never reaches the ledger [FILED 2026-10-06 while fixing KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, branch `fix-facility-upgrade-cost`. OPEN, product, low; reachability not traced. The older cost-0 upgrade rows paragraph: RULED and DONE 2026-10-07, branch `release-rulings`]
+## ~~FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a facility downgrade's funds debit never reaches the ledger~~ [FILED 2026-10-06 while fixing KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, branch `fix-facility-upgrade-cost`. REACHABLE by a player (stock KSC menu, Left Ctrl) and FIXED 2026-10-07, branch `optimizer-retag-followups`; xUnit only, not flown. The older cost-0 upgrade rows paragraph: RULED and DONE 2026-10-07, branch `release-rulings`; its mid-career-install residue below stays as stated]
 
 Decompiled KSP 1.12.5: `SpaceCenterBuilding.DowngradeFacility` also debits funds (about 0.667x
 the level cost, reason `StructureConstruction`), but `FacilityDowngraded` events are
@@ -189,6 +392,45 @@ debit, the same shape the upgrade had before its fix. First check whether any st
 a player can reach calls `DowngradeFacility` at all; if one does, record the debit through the
 same `FacilityUpgradeCapture` scope pattern and add a row type or a negative-level
 `FacilityUpgrade` row (decide which).
+
+Reachability (decompiled `Assembly-CSharp.dll`, KSP 1.12.5): the only caller is
+`SpaceCenterBuilding`'s facility-menu dismiss handler, case `KSCFacilityContextMenu.DismissAction.Downgrade`
+-> `DowngradeFacility(Funding.Instance != null)`. `KSCFacilityContextMenu.Create` sets
+`showDowngradeControls = Input.GetKey(KeyCode.LeftControl)` (no cheat, debug-menu or settings
+gate), and the "Rebuild lvl N" (`#autoLOC_6002251`) button is shown when that is set, the
+facility is NOT operational ("Out of Service"), its level is above 0 and the game is not Mission
+mode; it is interactable when `Funding.CanAfford(downgradeCost)`. The same Ctrl-held menu offers
+Demolish on an operational facility, so a player can take any upgraded facility out of service
+and rebuild it a level lower: an ordinary, if hidden, player path. The method debits
+`upgradeLevels[level - 1].levelCost * 0.667 * Career.FundsLossMultiplier`, runs `ResetStructures()`
+(free repair) and `SetLevel(level - 1)`. Before the fix the ledger kept the higher level, so the
+next recalc's `FacilityStatePatcher.PatchFacilities` would set the facility back UP, and the ledger
+ran high by the debit.
+
+Fix: a prefix + finalizer on `DowngradeFacility(bool)` (`Patches/FacilityDowngradeSpendPatch.cs`,
+S9-gated) opens `FacilityUpgradeCapture`'s scope in downgrade mode; the recorder stamps the
+FacilityDowngraded event of that facility with the observed StructureConstruction debit
+(`TryConsumeCostForDowngrade`) and forwards it in one batch with the free repairs, or leaves it for
+the commit when tagged. `GameStateEventConverter.ConvertFacilityDowngraded` turns a stamped event
+into a `FacilityUpgrade` row to the lower tier with the new sparse `GameAction.FacilityDowngrade`
+marker (`facilityDowngrade = True`). Row type decided: the existing `FacilityUpgrade`, because
+every consumer of it already reads it as an absolute level change with a cost (`FacilitiesModule.ProcessUpgrade`
+assigns `ToLevel`, `FundsModule` charges `FacilityCost`, `KscActionExpectationClassifier` pairs it
+with a StructureConstruction leg, tombstone eligibility, `BuildTombstonedFacilityIdsForPatch`,
+`CareerSlotSummary` slot limits, `HasFacilityActionsInRange`), so a new enum would have to be
+mirrored into about 25 switch sites whose defaults silently drop a cost or keep a superseded row.
+The marker is read only where "upgrade" would be wrong: `GameActionDisplay` ("Downgrade X -> Lv.N"),
+the Timeline's legacy-event twin key, `CommittedFutureIndex.TryClassify` (a committed downgrade
+reserves nothing) and the two legacy cost-0 upgrade passes (skipped). An unstamped level drop
+(the scene-change poll, another mod, Mission-mode facility limits) stays informational. Known
+limit, OPEN for an owner decision (PR #2042 review): no click-block pairs a Rebuild with a
+committed future level change of the same facility, and levels are absolute, so a downgrade
+placed before a committed future upgrade turns that upgrade into a two-level jump charged at one
+step's price (a free level after a rewind). Options: block the Rebuild while a later level change
+of that facility is committed (with the D1 stock-control annotation on the Rebuild button), or
+price committed future upgrades by their actual level delta. Tests:
+`FacilityDowngradeCostTests` (10 cells; 8 red against API-only stubs before the fix) and
+`TimelineBuilderTests.FacilityDowngradeRow_ItsLegacyEventTwinIsNotShownTwice` (red before the key fix).
 
 Older cost-0 upgrade rows: the fix above repairs a cost-0 `FacilityUpgrade` row only while the
 save still holds its `FundsChanged(StructureConstruction)` event (events at or before the last
@@ -437,7 +679,7 @@ note changes with it.
 
 ---
 
-## QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY: an in-session load rebuilds the Re-Fly bookkeeping from the save but keeps recordings and the ledger from memory [FILED 2026-10-06 from the coverage-extension research, adversarially verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; not yet reproduced]
+## ~~QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY: an in-session load rebuilds the Re-Fly bookkeeping from the save but keeps recordings and the ledger from memory~~ [FILED 2026-10-06 from the coverage-extension research, adversarially verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, PR #2038 (xUnit only; live proof is lane QL-3, authored, never flown, and QL-5 for the Discard Re-fly load, which needs the TC-1 `ReFlyRevert` verb)]
 
 `LoadRewindStagingState` (`ParsekScenario.cs:2783`, called at `:3609` on every load) replaces
 rewind points, supersede rows, retirements, tombstones, the Re-Fly marker and the merge journal
@@ -454,17 +696,61 @@ re-flown flight both replay, the tombstoned crew deaths and reputation penalties
 rewind points created after the save drop out (Unfinished Flight rows vanish, quicksave files
 leak).
 
-Fix: not decided - either carry the lists on every in-session load (the recordings are carried),
-or reconcile the in-memory recordings / ledger against the loaded lists. Red test first: a
-`RewindStagedListsCarryTests`-style xUnit (commit A and A', supersede row only in memory,
-non-rewind load of a node without it, assert A invisible); then lane QL-3.
-
-Tracked as a known gap (`KnownGapTodoId`) in `LoadReconcilePolicy.Decide`; the fix flips those cells.
-
 Owner rulings 2026-10-06: F9 into a quicksave taken during a Re-Fly session that has since
 merged RESUMES the session, and a later Discard of that resumed session also drops the first
 merge's rows that name the pruned attempt (OQ-1); rewind-point quicksave files of an abandoned
 future or a reverted flight stay on disk for now (OQ-3).
+
+Fix: the lists are carried on every in-session load, as the recordings are.
+`ParsekScenario.OnDestroy` (stock `ScenarioRunner.OnGameSceneLoadRequested` destroys every scenario
+module when a scene load is requested, before the next scene's `Game.Load`; an `OnAwake` fallback
+covers a predecessor still registered) captures the instance's rewind points, supersede rows,
+retirements, tombstones, merge journal and marker into `InSessionStagedStateHandoff`; every OnLoad
+consumes it once. A cold load, a plain rewind (`rewind-carry-owns`) and a Re-Fly start
+(`refly-bundle-owns`) drop it, as do the main-menu transition, a save-folder change and the inert
+game-mode return. On the in-session kinds and the Discard Re-fly load, step A (prologue, after the
+rewind carries) installs memory's rows, retirements and tombstones, the journal when memory's is
+null or Complete (an in-flight one keeps the loaded journal with a Warn), and on the Discard
+Re-fly load memory's (cleared) marker through `ClearActiveReFlySessionMarker`; step B (after the
+active and pending tree restores, so a resumed tree is already detached) partitions the rewind
+points by owner (`MergeRewindPointsByOwner`): session-scoped points from both sides (memory's
+instance first; the sweep then spares or purges them against the loaded marker, with files),
+memory's copy for points of trees memory holds committed, the save's for everything else (the
+resumed or reverted flight: OQ-3, files untouched). Step B then gives the rows of a tree the load
+resumed from the save back to the save: when the active-tree restore's committed-copy rule
+(`ResumeFromQuicksave`, the flight was committed after the save) detached the committed copy, a
+supersede row naming one of that tree's recordings on either side, a retirement retiring one, or a
+tombstone whose retiring recording is one or whose retired action is tagged to one follows the save
+(the save's copy kept, a memory-only one dropped, a save-only one put back), since a Re-Fly merged
+into that flight after the save is part of the future the quickload retires (its recording is
+QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE). Exception (OQ-1): a row the
+loaded marker's resumed attempt wrote (writer side in the set the discard prune removes) keeps
+memory's copy; the attempt is identified by its session stamp (`MergeDialog.IsCreatedByReFlySession`,
+`CreatingSessionId`), not `ProvisionalForRpId`, which every provisional carries next to its session
+and keeps through the merge, so a rewind-point match also claimed another session's fork on the
+same rewind point (a later merge's rows kept; an earlier merged Re-Fly of the point's other slot
+pruned with its rows by a discard, owner ruling D2; the live discard had the same over-reach). A
+detach that keeps the committed future (a load outside flight) keeps memory's rows. A scenario
+instance hands off only after its own OnLoad got through step A: its teardown skips the capture
+(Warn, `staged-state-not-loaded`) and drops the older handoff that OnLoad never took. An in-session
+load with no handoff keeps the save's lists and Warns. OQ-1: `MergeDialog.PruneStagedRowsNamingAttempt`, called from both Re-Fly discard helpers,
+removes supersede rows whose new side, tombstones whose retiring recording and rewind retirements
+whose retired recording is a pruned attempt recording (the same writer selectors the load-time
+exception keeps by). The
+`LoadReconcilePolicy` cells flipped to Memory / OwnerPartition and lost this known-gap id. Red
+first: `InSessionStagedListsCarryTests` (origin stays invisible, tombstoned death stays out of the
+ELS, rows only in the save not resurrected, committed tree's newer RP kept, reaped RP not
+resurrected, session RPs of a session the save never had purged with files, merged-session resume
+keeps its rows, both Discard Re-fly loads keep the origin RP, stale journal dropped; the review
+follow-up's `Quickload_SaveBeforeReFlyMergeOfTheResumedFlight_RowsFollowTheSave` through the real
+`TryRestoreActiveTreeNode`, red with the row O->A' still installed; the production-stamped
+same-rewind-point second session and the earlier same-rewind-point attempt surviving both discards,
+red with the rewind-point match); the OQ-1 discard pair red with the prune or its tombstone-version
+bump removed; `InSessionHandoffWiringGateTests` pins the order.
+The OQ-1 Esc-menu Discard is proven for the rows only (see
+ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE). Decompile
+note: the Discard Re-fly load is ONE OnLoad, and it reads persistent.sfs, not the rewind-point
+quicksave (see DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT).
 
 ---
 
@@ -789,7 +1075,7 @@ clear deleted),
 
 ---
 
-## DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP: Discard Re-fly to the editor can delete an origin rewind point created inside an earlier, merged Re-Fly session [FILED 2026-10-06 from the coverage-extension research, partly verified (narrow); branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP: Discard Re-fly to the editor can delete an origin rewind point created inside an earlier, merged Re-Fly session [FILED 2026-10-06 from the coverage-extension research, partly verified (narrow); branch `ccr-77f23eb2-dbqh6i`. OPEN, product; trigger removed by the in-session carry (PR #2038); close after lane QL-5]
 
 `RewindPointAuthor` stamps the creating session on a rewind point created inside a Re-Fly
 session S0 and adds it before its own quicksave. Discard Re-fly with the Prelaunch target loads
@@ -802,6 +1088,144 @@ cells stub LoadGame / LoadScene).
 
 Fix: keep a point whose creating session is already merged. Red test: xUnit over
 `LoadTimeSweep.Run`; lane QL-5 with a new `ReFlyRevert` verb.
+
+Trigger removed by the in-session carry (QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY): the
+Discard Re-fly load now takes the marker (cleared) and the committed tree's rewind points
+(the handler's promoted instance) from memory, so whatever the loaded node carries, no stale
+marker reaches the sweep and the point is not session-scoped
+(`InSessionStagedListsCarryTests.DiscardReFlyPrelaunch_NestedOriginRp_NotPurged`, red before the
+carry). The deciding runtime fact is answered by decompile (KSP 1.12.5): `EditorDriver.Start`, like
+`SpaceCenterMain.Start`, calls `GamePersistence.LoadGame("persistent")` and `Game.Load` on that, so
+the editor load reads persistent.sfs, not the point's quicksave (see
+DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT); the node the load reads is whatever
+persistent.sfs last held. Close after lane QL-5 flies both targets.
+
+---
+
+## DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT: Discard Re-fly loads the rewind point's quicksave, but the scene it then opens reloads persistent.sfs [FILED 2026-10-06 from the in-session carry work (PR #2038), verified by decompile; player effect not traced. OPEN, product; to trace]
+
+`RevertInterceptor.DiscardReFlyHandler` loads the origin rewind point's quicksave into
+`HighLogic.CurrentGame` and calls `HighLogic.LoadScene(SPACECENTER)` (Launch) or
+`LoadScene(EDITOR)` (Prelaunch). Decompiled KSP 1.12.5: `SpaceCenterMain.Start` and
+`EditorDriver.Start` both call `GamePersistence.LoadGame("persistent", ...)` and `Game.Load` on that
+game, so the quicksave game is thrown away, and the discard arms
+`ArmNextTreeSceneExitCommitSuppression`, so Parsek's pre-LoadScene `SafeWritePersistent` does not
+write it to persistent.sfs either. The load therefore restores whatever persistent.sfs last held:
+normally the Re-Fly flight's own start (`FlightDriver` PostInit writes `PostInitState` there), but
+a later persistent write during the session (a switch to an unloaded vessel,
+`FlightGlobals.setActiveVessel`) would put the clock and the vessels at that later moment. One
+OnLoad per discard (stock `ScenarioRunner` destroys the scenario on the scene request, then the
+scene start runs `Game.Load` once); the in-session handoff supplies Parsek's own bookkeeping on it.
+
+Fix: to trace first (does any reachable session write persistent.sfs after its start; what the
+player sees at the Space Center / in the editor). Candidate: write the quicksave game to
+persistent.sfs before the scene load, as stock `QuickSaveLoad.onQuickloadPipelineFinished` does
+for a non-flight quickload (`GamePersistence.SaveGame(Game, "persistent", ...)` then `LoadScene`).
+Live proof: lane QL-5.
+
+---
+
+## REWIND-POINT-FILES-OF-AN-ABANDONED-FUTURE-STAY-ON-DISK: a quickload or a revert drops rewind points from the list but leaves their quicksave files [FILED 2026-10-06 from the in-session carry (owner ruling OQ-3), PR #2038. OPEN, residual by ruling]
+
+The in-session owner partition (`InSessionStagedStateHandoff.MergeRewindPointsByOwner`) lets a
+rewind point whose owner is the flight a quickload resumes, a reverted flight or an unknown tree
+follow the loaded save: a point that flight created after the save drops out of the list and its
+`Parsek/RewindPoints/<id>.sfs` stays on disk (no reaper or sweep walks a file the list no longer
+names). Owner ruling OQ-3 (2026-10-06): leave the files for now; deleting them would break revert
+then F9 back into a mid-flight quicksave, and F9 to another quicksave of the same flight, both of
+which need the point again.
+
+Fix: none planned; revisit with a disk-usage sweep that knows every quicksave still able to name
+the point.
+
+---
+
+## QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE: a quickload into a flight re-flown since the save keeps the re-flown recording while its rows follow the save [FILED 2026-10-07 from the in-session carry review, PR #2038; pre-existing on main, traced by code read, the second case reproduced by the reviewer's probe. OPEN, product]
+
+An F9 into a save of a flight that was committed, then re-flown and merged after the save, resumes
+the save's tree through the committed-copy restore (`ResumeFromQuicksave`):
+`SpliceMissingCommittedRecordingsIntoLoadedTree` first copies every committed recording the save
+lacks into the resumed tree, the post-save Re-Fly fork included, and the resume trim decides what
+survives. Since the in-session carry the fork's supersede row and tombstones follow the save (the
+resumed-tree row rule), so the two halves disagree whenever the fork survives the trim:
+- Tree-wide resume (no Re-Fly marker in the save; `ChooseQuickloadTrimScope` -> `TreeWide`):
+  `CollectFutureOnlyRecordingIds` prunes a member only when `StartUT >= cutoff`. A fork whose rewind
+  point predates the save starts before the cutoff, so `TrimRecordingPastUT` keeps a stub of it
+  (rewind point to save) and, its row dropped, the stub plays next to the origin. Consistent today:
+  a fork that starts at or after the save's moment (the save was taken before the separation) is
+  pruned with its rows.
+- Re-Fly resume (the save's marker resumes session S; `ActiveRecOnly`): only S's active recording
+  is trimmed, so the fork of a later session S2 (same rewind point or another) stays whole; its
+  rows follow the save, so its origin C and C' both play, and C's tombstoned crew death counts
+  again.
+Main has both shapes already: before the carry every in-session load took the rows from the save,
+so the rows were dropped there too while the splice kept the fork.
+
+Fix: in the resume reconcile, prune the spliced Re-Fly forks that are absent from the quicksave
+tree (`QuicksaveTreeFacts`) and not owned by the resumed attempt (`MergeDialog.IsCreatedByReFlySession`),
+with their sidecars and tagged events, so recordings and rows agree. Red test: the
+`InSessionStagedListsCarryTests` reviewer sequence (tree-wide stub) and the production-stamped S2
+theory (`ActiveRecOnly`) driven on through `FlightRecorder.PrepareQuickloadResumeStateIfNeeded`;
+neither fork may survive in the resumed tree.
+
+---
+
+## ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE: Discard Re-fly from the Esc menu after an F9 during a Re-Fly may drop the flight's tree [FILED 2026-10-06 from the in-session carry review, PR #2038; pre-existing, verified by code read, not reproduced. OPEN, product]
+
+An F9 during any Re-Fly session restores the quicksave's active tree, and
+`ParsekScenario.TryRestoreActiveTreeNode` detaches any committed copy of that tree (a session that
+merged since, a fork attached to the committed tree) through `RecordingStore.RemoveCommittedTreeById`
+on every path past the stale-epoch keep. The Esc-menu
+`RevertInterceptor.DiscardReFlyHandler` then prunes the attempt
+(`MergeDialog.PruneActiveReFlyAttemptOwnedTopology`) and arms
+`RecordingStore.ArmNextTreeSceneExitCommitSuppression`, so the scene exit does not commit the live
+tree, and that path has no `RestoreSanitizedPendingTreeIfDetached` (the merge-dialog Discard's
+`DiscardReFlyAttemptRecordingsAndRewindPoints` puts a detached committed tree back sanitized).
+Expected player effect: the whole flight the Re-Fly belonged to (origin included) is missing from
+the timeline after the discard. The OQ-1 Esc cell in `InSessionStagedListsCarryTests` asserts the
+rows only (its seams leave the suppression unarmed), so the "discarding it brings the original
+flight back" claim is proven for the merge-dialog Discard alone.
+
+Fix: to trace first (the suppression's consumer and what the Discard Re-fly load restores for the
+tree); candidate: put a detached committed tree back sanitized on the Esc path as the merge-dialog
+Discard does. Red test: the resumed-session fixture through `DiscardReFlyHandler` with the
+suppression armed, then the Discard Re-fly load; the committed tree must hold the origin.
+
+---
+
+## SESSION-RPS-OF-A-RESUMED-SESSIONS-ABANDONED-FUTURE-STAY-LISTED: an F9 back into a Re-Fly session keeps the rewind points that session made after the quicksave [FILED 2026-10-06 from the in-session carry review, PR #2038; verified by code read, not reproduced. OPEN, product; narrow]
+
+The in-session owner partition keeps a session-scoped rewind point (`SessionProvisional` with a
+`CreatingSessionId`) from either side, and `LoadTimeSweep` spares it when the loaded marker is that
+session. After an F5 during Re-Fly session S, a split later in S (a new session-scoped point
+stamped S, in memory only) and an F9 back to the F5, S resumes from the save and the memory-only
+point is kept and spared, though the restored tree has no branch point for it (the split is in the
+future the quickload retires). Before the carry it dropped out of the list (the save never had
+it). Expected player effect: an Unfinished Flight row for a split that has not happened in the
+resumed flight (its Fly button waits for the split's time), next to the row the flight makes when
+it separates again.
+
+Fix: a memory-only session-scoped point whose branch point is in no tree after the restore (the
+resumed pending tree, the committed trees) follows the save (dropped from the list, file untouched
+per OQ-3); or the sweep spares a session point only when its branch point exists. Red test: the
+`InSessionStagedListsCarryTests` merged-session resume shape with a memory-only point stamped S
+and no branch point in the restored tree; the point must be gone after the load.
+
+---
+
+## RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW: Retry on a Re-Fly session a quickload resumed after its merge keeps the first merge's rows [FILED 2026-10-06 from the in-session carry (owner ruling OQ-1), PR #2038; verified by code read, not reproduced. OPEN, product; narrow]
+
+OQ-1's discard prune (`MergeDialog.PruneStagedRowsNamingAttempt`) runs from the two Re-Fly
+discard helpers. `RevertInterceptor.RetryHandler` does not prune the attempt (the sweep reaps the
+NotCommitted provisional as a zombie), so after an F9 into a session that has since merged and a
+Retry, the first merge's supersede row A->A' and the tombstones retiring A' stay while A' is
+reaped. Harmless while the retried session merges (A->A'' then supersedes A again); if the retried
+session is then discarded, A stays hidden behind the one-sided A->A' row and A's crew death stays
+retired.
+
+Fix: prune the rows naming the retried attempt's provisional in `RetryHandler` too (or in the
+sweep, for a supersede row whose new side is a reaped zombie). Red test: the
+`InSessionStagedListsCarryTests` resumed-session fixture, Retry, then Discard; A must be visible.
 
 ---
 
@@ -1612,13 +2036,53 @@ Mirror cases as on the in-session load: a changed clock definition keeps the -1 
 anchor still goes back), a route created after the cutoff goes dormant as before, a kept route the
 save does not carry keeps the reset, no save copy / no usable clock / a save newer than the cutoff
 keeps the reset and logs `loop position not restored ... reason=`, and a rewind with nothing on
-the route after the save leaves its loop position unchanged. Residual (go-back only): the rewind
+the route after the save leaves its loop position unchanged. ~~Residual (go-back only): the rewind
 save's route copy is as of the save's own UT, up to the 15 s lead-time windback after the cutoff,
 while route rows after the cutoff are retired; a crossing that fired inside that window keeps its
 saved cursor and is not charged again, and its `RouteRecoveryCredited` row (the credit it paid for
 the previous cycle) is retired too while the save no longer owes it, so that credit is lost as
-well (PR #2036 review; never a double charge or a double delivery). Changing the go-back's route
-cutoff to the save's own UT would close both; owner decision, not done here. Red cells (written against stubs, 20 red, then green):
+well (PR #2036 review; never a double charge or a double delivery).~~ **CLOSED** (owner ruling
+2026-10-07, branch `fix-route-goback-cutoff`, headless only, not flown): the go-back's route retire
+and store reconcile now key on the rewind save's own UT, the moment the restored route state comes
+from. `RecordingStore.PreProcessRewindSave` returns the save's UT before the windback,
+`ExecuteRewindSaveLoad` parks it with the route copy (`RouteLoadReconcile.ResolveRewindSaveOwnUT`;
+the parsed clock when nothing was wound back), and `HandleRewindOnLoad` calls
+`RouteLoadReconcile.ReconcileAtGoBackRewind`, whose cutoff (`ResolveGoBackRouteCutoffUT`) is that UT
+whenever the copy is in hand and the adjusted UT otherwise (no copy: nothing is restored, so the rows
+after the clock go and the reset re-fires each once). Only routes move: the career prune, recalc,
+tech and crew stay at the adjusted UT. Every consumer of the route cutoff follows it: the restore's
+skip test (save never newer than the cutoff), the retired-route-cargo capture and its per-snapshot
+watermark (`CaptureRetiredRouteCargo` is called from `RetireFutureRouteActionsAtRewind` with the
+retire's own cutoff), and the dormant split (a route created inside the window stays committed,
+as the save carries it). The rows kept between the wound-back clock and the save's UT lie ahead of
+the clock, so a later load keyed to its own UT would take them for an abandoned future: the PR #2040
+review found that a scene change inside the window (KSC to the VAB, a launch, an F9 at the KSC) ran
+the in-session reconcile at the clock, retired them again under the restored fired cursor (the free
+run back) and cleared one-shots armed after the rewind. So a go-back whose cutoff lies ahead of the
+clock also sets the route state floor `RouteStore.StateFloorUT`; `SaveRoutesTo` writes it as the sparse
+`routeStateFloorUT` value while set, every load reads the floor its save carries
+(`RouteLoadReconcile.ReconcileAtInSessionLoad`, the cold `LoadRoutesFrom`, the Re-Fly start's
+`ConsumePostLoad`, the go-back capture) and keys its route cutoff and the UT of its route copy to the
+later of its own UT and that floor (`ApplyRouteStateFloor`), the revert prune spares route rows up to
+the revert save's floor, and the floor in memory becomes the loaded save's while its clock is behind
+it (`ResolveFloorAfterLoad`), so a save without one (written before the rewind) is a load back past
+the window that reconciles at its own UT and clears it, and so does a load whose clock has passed it.
+The Re-Fly start otherwise needed nothing: its loaded save is the RP quicksave, so its cutoff is
+already that save's UT. A route whose clock definition changed after the save keeps the
+reset; with the window's rows kept, a re-timed crossing landing inside the window can charge once
+more there (not measured, rare). Red cells: `RouteRewindLoopPositionTests.GoBack_CrossingInsideTheWindbackWindow_KeepsItsChargeAndItsCredit`
+(the charge and the credit row kept, the crossing not re-fired across 1445..1460, the next fires
+once), `ResolveGoBackRouteCutoffUT_IsTheSavesOwnUtWhenItsCopyIsInHand`,
+`ResolveRewindSaveOwnUT_PrefersThePreWindbackUt` and
+`RewindLoggingTests.PreProcessRewindSave_ReturnsTheSavesOwnUtBeforeTheWindback`; the
+`HandleRewindOnLoad` / `ExecuteRewindSaveLoad` source gates re-pinned to the new calls; the floor's
+cells in `RouteGoBackWindowFloorTests` (the review probe: a scene change in the window keeps the
+charge, the cursor and a Send Once armed after the rewind; F5 in the window then F9; a revert to a
+launch in the window; a Re-Fly start from an RP in the window; a load back past the window still
+reconciling; the floor's lifetime), 10 red before the floor. Residual, filed as
+ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS.
+`H58-route-rewind-to-launch` re-pinned to the predicted reading (see `autotest-status.md`), not
+re-flown. Red cells (written against stubs, 20 red, then green):
 `RouteRewindLoopPositionTests` (the double fire, no-op, anchor after a re-activation, partner
 cursor, changed clock, created-after / missing-from-save, no save copy, owed credit unpaid by the
 exit, each x {GoBack, ReFlyStart}; the parsed-save capture; source gates on `HandleRewindOnLoad`,

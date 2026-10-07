@@ -27,11 +27,22 @@ namespace Parsek
 
         /// <summary>
         /// Scans all committed trees and builds ghost chains for every pre-existing
-        /// vessel claimed by a ghosting-trigger interaction.
+        /// vessel claimed by a ghosting-trigger interaction, reading the live scenario's
+        /// supersede rows (<see cref="ParsekScenario.RecordingSupersedes"/>) for the walk.
         /// Returns dict of vessel PID -> GhostChain.
         /// </summary>
         internal static Dictionary<uint, GhostChain> ComputeAllGhostChains(
             List<RecordingTree> committedTrees, double rewindUT)
+            => ComputeAllGhostChains(committedTrees, rewindUT, CurrentSupersedes());
+
+        /// <summary>
+        /// Explicit-rows overload. <paramref name="supersedes"/> are the Re-Fly supersede
+        /// rows the tip walk follows (<see cref="WalkToLeaf"/>); null or empty walks the
+        /// trees as they are.
+        /// </summary>
+        internal static Dictionary<uint, GhostChain> ComputeAllGhostChains(
+            List<RecordingTree> committedTrees, double rewindUT,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
             var ic = CultureInfo.InvariantCulture;
 
@@ -149,7 +160,7 @@ namespace Parsek
             }
 
             // Step 5 + 6: Find chain tips and cross-tree linking
-            ResolveTipsAndCrossTreeLinks(chains, committedTrees);
+            ResolveTipsAndCrossTreeLinks(chains, committedTrees, supersedes);
 
             // Step 7: Set IsTerminated and log each chain
             foreach (var kvp in chains)
@@ -242,6 +253,15 @@ namespace Parsek
         }
 
         #region Private Helpers
+
+        // The live scenario's supersede rows, or null outside a scene with a scenario.
+        // ReferenceEquals skips Unity's Object == null override (a plain-CLR test fixture
+        // has no Unity lifecycle).
+        private static IReadOnlyList<RecordingSupersedeRelation> CurrentSupersedes()
+        {
+            ParsekScenario scenario = ParsekScenario.Instance;
+            return object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes;
+        }
 
         /// <summary>
         /// Scans a tree's BranchPoints for claiming events (Dock, Board, Undock, EVA, JointBreak)
@@ -501,13 +521,14 @@ namespace Parsek
         /// VesselPersistentId is claimed by another chain, merges the chains.
         /// </summary>
         private static void ResolveTipsAndCrossTreeLinks(
-            Dictionary<uint, GhostChain> chains, List<RecordingTree> committedTrees)
+            Dictionary<uint, GhostChain> chains, List<RecordingTree> committedTrees,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
             // First pass: resolve tip for each chain
             foreach (var kvp in chains)
             {
                 var chain = kvp.Value;
-                ResolveChainTip(chain, committedTrees);
+                ResolveChainTip(chain, committedTrees, supersedes);
             }
 
             // Second pass: cross-tree linking and merge
@@ -613,7 +634,8 @@ namespace Parsek
         /// from it through ChildBranchPointId to find the leaf.
         /// </summary>
         private static void ResolveChainTip(
-            GhostChain chain, List<RecordingTree> committedTrees)
+            GhostChain chain, List<RecordingTree> committedTrees,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
             if (chain.Links.Count == 0)
                 return;
@@ -637,7 +659,8 @@ namespace Parsek
 
             // Walk to the leaf through ChildBranchPointId, following the CLAIMED vessel.
             RecordingTree tree = FindTree(treeId, committedTrees);
-            Recording leaf = WalkToLeaf(rec, tree, chain.OriginalVesselPid, lastLink.branchPointId);
+            Recording leaf = WalkToLeaf(
+                rec, tree, chain.OriginalVesselPid, lastLink.branchPointId, supersedes);
 
             chain.TipRecordingId = leaf.RecordingId;
             chain.TipTreeId = treeId;
@@ -657,9 +680,19 @@ namespace Parsek
         /// (<see cref="EffectiveState.ResolveChainTerminalRecording(Recording, RecordingTree)"/>),
         /// which holds the vessel snapshot and the terminal state, so the leaf is always the
         /// segment a chain-tip spawn reads.
+        /// <para>
+        /// Supersede-aware: every hop (the child picked at a branch point and the optimizer
+        /// chain hop) lands on the recording a committed Re-Fly replaced it with, when one did
+        /// (<see cref="FollowSupersede"/>). A Re-Fly splits the slot's recording into HEAD + TIP
+        /// on one chain (<see cref="RecordingTreeSplitter"/>) and its fork supersedes TIP and
+        /// TIP's subtree, but no branch point names the fork, so without this hop the walk
+        /// lands on TIP: a recording that no longer plays, whose end then suppresses the
+        /// fork's spawn as an intermediate link.
+        /// </para>
         /// </summary>
         private static Recording WalkToLeaf(
-            Recording rec, RecordingTree tree, uint claimedPid, string claimBranchPointId)
+            Recording rec, RecordingTree tree, uint claimedPid, string claimBranchPointId,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
             var ic = CultureInfo.InvariantCulture;
 
@@ -673,8 +706,7 @@ namespace Parsek
             var visited = new HashSet<string>();
             var current = rec;
             int steps = 0;
-            bool claimedPartsResolved = false;
-            HashSet<uint> claimedParts = null;
+            var claimed = new ClaimedPartsLookup(rec, tree, claimedPid, claimBranchPointId);
 
             while (!visited.Contains(current.RecordingId))
             {
@@ -722,7 +754,8 @@ namespace Parsek
                             "WalkToLeaf: step {0}: rec={1} -> segment={2} chain={3} index={4}->{5} rule={6}",
                             steps, current.RecordingId, lastSegment.RecordingId, current.ChainId,
                             current.ChainIndex, lastSegment.ChainIndex, RuleOptimizerChainSegment));
-                    current = lastSegment;
+                    current = FollowSupersede(
+                        lastSegment, tree, supersedes, visited, claimed, rec.RecordingId, steps, "segment");
                     continue;
                 }
 
@@ -754,22 +787,7 @@ namespace Parsek
                 }
                 else
                 {
-                    if (!claimedPartsResolved)
-                    {
-                        claimedPartsResolved = true;
-                        string source;
-                        claimedParts = ResolveClaimedPartIds(
-                            rec, tree, claimedPid, claimBranchPointId, out source);
-                        ParsekLog.VerboseOnChange(Tag,
-                            identity: string.Format(ic, "walk-identity|{0}", rec.RecordingId),
-                            stateKey: string.Format(ic, "{0}|{1}|{2}",
-                                claimedPid, source, claimedParts != null ? claimedParts.Count : 0),
-                            message: string.Format(ic,
-                                "WalkToLeaf: claimed vessel PID={0} part identity source={1} parts={2} (start={3})",
-                                claimedPid, source,
-                                claimedParts != null ? claimedParts.Count : 0, rec.RecordingId));
-                    }
-                    bestChildId = SelectWalkChild(bp, tree, current, claimedParts, out rule);
+                    bestChildId = SelectWalkChild(bp, tree, current, claimed.Get(), out rule);
                 }
 
                 Recording child;
@@ -784,7 +802,8 @@ namespace Parsek
                         message: string.Format(ic,
                             "WalkToLeaf: step {0}: rec={1} -> child={2} via bp={3} rule={4}",
                             steps, current.RecordingId, bestChildId, bp.Id, rule));
-                    current = child;
+                    current = FollowSupersede(
+                        child, tree, supersedes, visited, claimed, rec.RecordingId, steps, "child");
                 }
                 else
                 {
@@ -805,6 +824,154 @@ namespace Parsek
             return current;
         }
 
+        /// <summary>
+        /// The recording a committed Re-Fly replaced <paramref name="candidate"/> with, else
+        /// the candidate. Follows the pure supersede walk
+        /// (<see cref="EffectiveState.EffectiveRecordingId(string, IReadOnlyList{RecordingSupersedeRelation})"/>,
+        /// nested Re-Flies included); a recording nothing supersedes, the fork among them, is
+        /// returned as is. The effective recording is followed only when:
+        /// <list type="bullet">
+        /// <item>it is in the walk's own tree: supersede rows are scoped to the Re-Fly
+        /// session's tree (rewind design 5.7) and the chain's tip tree is the walk's tree, so
+        /// a row naming a recording of another tree, or one no longer in the store (a
+        /// one-sided orphan row), keeps the walk on the candidate as before;</item>
+        /// <item>it is not yet visited (cycle guard);</item>
+        /// <item>it continues the vessel the walk is following
+        /// (<see cref="ForkContinuesWalkedVessel"/>): a Re-Fly writes a row from EVERY
+        /// recording of the superseded subtree to its one fork, which continues only the
+        /// re-flown vessel, so a row on another vessel of that subtree (a stage it dropped,
+        /// the merged vessel of a dock it made) names a fork that does not continue it.</item>
+        /// </list>
+        /// </summary>
+        private static Recording FollowSupersede(
+            Recording candidate, RecordingTree tree,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes, HashSet<string> visited,
+            ClaimedPartsLookup claimed, string walkStartId, int step, string hopLabel)
+        {
+            if (candidate == null || supersedes == null || supersedes.Count == 0
+                || string.IsNullOrEmpty(candidate.RecordingId))
+                return candidate;
+
+            string effectiveId = EffectiveState.EffectiveRecordingId(candidate.RecordingId, supersedes);
+            if (string.IsNullOrEmpty(effectiveId)
+                || string.Equals(effectiveId, candidate.RecordingId, System.StringComparison.Ordinal))
+                return candidate;
+
+            var ic = CultureInfo.InvariantCulture;
+            Recording effective = null;
+            bool inTree = tree != null && tree.Recordings != null
+                && tree.Recordings.TryGetValue(effectiveId, out effective) && effective != null;
+            string why = null;
+            string basis = null;
+            if (!inTree)
+                why = "not in tree " + (tree != null ? tree.Id : "(null)");
+            else if (visited.Contains(effectiveId))
+                why = "already visited";
+            else if (!ForkContinuesWalkedVessel(candidate, effective, claimed != null ? claimed.Get() : null,
+                         out basis))
+                why = "does not continue the walked vessel (" + basis + ")";
+
+            if (why != null)
+            {
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: string.Format(ic, "walk-supersede|{0}|{1}", walkStartId, step),
+                    stateKey: string.Format(ic, "{0}|{1}|skip|{2}", candidate.RecordingId, effectiveId, why),
+                    message: string.Format(ic,
+                        "WalkToLeaf: step {0}: {1}={2} superseded by {3}, {4} - not followed, " +
+                        "the walk stays on {2}",
+                        step, hopLabel, candidate.RecordingId, effectiveId, why));
+                return candidate;
+            }
+
+            ParsekLog.VerboseOnChange(Tag,
+                identity: string.Format(ic, "walk-supersede|{0}|{1}", walkStartId, step),
+                stateKey: string.Format(ic, "{0}|{1}|{2}|{3}", candidate.RecordingId, effectiveId, RuleSupersede, basis),
+                message: string.Format(ic,
+                    "WalkToLeaf: step {0}: {1}={2} superseded -> effective={3} rule={4} identity={5}",
+                    step, hopLabel, candidate.RecordingId, effectiveId, RuleSupersede, basis));
+            return effective;
+        }
+
+        // How a supersede hop decided the fork continues the walked vessel, named in its log line.
+        internal const string SupersedeBasisClaimedParts = "claimed-parts";
+        internal const string SupersedeBasisSamePid = "same-pid";
+
+        /// <summary>
+        /// Whether the recording that superseded <paramref name="candidate"/> continues the
+        /// vessel the walk is following. By part identity when it can tell: with the claimed
+        /// vessel's part set known and part data on the fork, the fork must hold one of the
+        /// claimed parts (<c>claimed-parts</c>; a Re-Fly fork restores the vessel from the
+        /// Rewind Point quicksave, so its parts keep their persistentIds). Otherwise by vessel
+        /// identity: the fork inherits the replaced vessel's pid and launch guid
+        /// (<c>RewindInvoker.CopyInheritedIdentityForFork</c>), so it must carry the
+        /// candidate's pid with a launch guid not conclusively different (<c>same-pid</c>).
+        /// </summary>
+        internal static bool ForkContinuesWalkedVessel(
+            Recording candidate, Recording fork, HashSet<uint> claimedParts, out string basis)
+        {
+            basis = SupersedeBasisSamePid;
+            if (candidate == null || fork == null)
+                return false;
+
+            if (claimedParts != null && claimedParts.Count > 0)
+            {
+                HashSet<uint> forkParts = CollectRecordingPartIds(fork);
+                if (forkParts.Count > 0)
+                {
+                    basis = SupersedeBasisClaimedParts;
+                    return forkParts.Overlaps(claimedParts);
+                }
+            }
+
+            return candidate.VesselPersistentId != 0
+                && candidate.VesselPersistentId == fork.VesselPersistentId
+                && !VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                    candidate.RecordedVesselGuid, fork.RecordedVesselGuid);
+        }
+
+        /// <summary>
+        /// The claimed vessel's part set (<see cref="ResolveClaimedPartIds"/>), resolved and
+        /// logged at most once per walk, on first use: a walk with no multi-child split and
+        /// no supersede hop reads no snapshot.
+        /// </summary>
+        private sealed class ClaimedPartsLookup
+        {
+            private readonly Recording start;
+            private readonly RecordingTree tree;
+            private readonly uint claimedPid;
+            private readonly string claimBranchPointId;
+            private bool resolved;
+            private HashSet<uint> parts;
+
+            internal ClaimedPartsLookup(
+                Recording start, RecordingTree tree, uint claimedPid, string claimBranchPointId)
+            {
+                this.start = start;
+                this.tree = tree;
+                this.claimedPid = claimedPid;
+                this.claimBranchPointId = claimBranchPointId;
+            }
+
+            internal HashSet<uint> Get()
+            {
+                if (resolved)
+                    return parts;
+                resolved = true;
+                var ic = CultureInfo.InvariantCulture;
+                string source;
+                parts = ResolveClaimedPartIds(start, tree, claimedPid, claimBranchPointId, out source);
+                string startId = start != null ? start.RecordingId : "(null)";
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: string.Format(ic, "walk-identity|{0}", startId),
+                    stateKey: string.Format(ic, "{0}|{1}|{2}",
+                        claimedPid, source, parts != null ? parts.Count : 0),
+                    message: string.Format(ic,
+                        "WalkToLeaf: claimed vessel PID={0} part identity source={1} parts={2} (start={3})",
+                        claimedPid, source, parts != null ? parts.Count : 0, startId));
+                return parts;
+            }
+        }
+
         // Child-selection rules, named in the WalkToLeaf step line.
         internal const string RuleOnlyChild = "only-child";
         internal const string RuleClaimedParts = "claimed-parts";
@@ -814,6 +981,7 @@ namespace Parsek
         internal const string RuleSamePidNoPartData = "same-pid-no-part-data";
         internal const string RuleFirstChild = "first-child";
         internal const string RuleOptimizerChainSegment = "optimizer-chain";
+        internal const string RuleSupersede = "supersede";
 
         // Where the claimed vessel's part set came from, named in the walk-identity line.
         internal const string ClaimedPartsSourceClaimRecording = "claim-recording";

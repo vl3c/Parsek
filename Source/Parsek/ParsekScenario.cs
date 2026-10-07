@@ -1218,6 +1218,21 @@ namespace Parsek
             // ActiveReFlySessionMarker through <see cref="Instance"/>. OnAwake
             // fires before OnLoad, so the Instance is available throughout the
             // load path.
+            // A predecessor still registered here was not torn down before this instance woke:
+            // take the in-session handoff from it now (its OnDestroy will no longer be Instance).
+            var predecessor = s_instance;
+            if (!ReferenceEquals(predecessor, null) && !ReferenceEquals(predecessor, this))
+            {
+                try
+                {
+                    predecessor.CaptureInSessionStagedStateHandoff(InSessionStagedStateHandoff.CaptureReasonOnAwake);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(InSessionStagedStateHandoff.Tag,
+                        $"Staged-list handoff capture from the predecessor threw in OnAwake: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
             s_instance = this;
 
             // Drawdown-guard signal 5 fail-safe (MINOR-A, plan §3.2): clear the deferred
@@ -1238,7 +1253,9 @@ namespace Parsek
         /// UT at which the last <see cref="RouteOrchestrator.Tick(double)"/>
         /// fired. Sentinel <c>-1.0</c> means "no tick yet this session" — the
         /// first Update merely seeds the accumulator and skips the tick body
-        /// so the very first tick does not see a zero-length delta.
+        /// so the very first tick does not see a zero-length delta. Advanced by
+        /// <see cref="RouteTickClock.Advance"/>, which also re-seeds it when the
+        /// clock moves behind it.
         /// </summary>
         private double lastRouteTickUT = -1.0;
 
@@ -1276,14 +1293,11 @@ namespace Parsek
                 return;
             }
 
-            if (lastRouteTickUT < 0.0)
-            {
-                lastRouteTickUT = currentUT;
+            // Seeds on the first Update and re-seeds when the clock is behind the baseline (the
+            // go-back rewind moves the UT back after this instance's first Update).
+            if (RouteTickClock.Advance(ref lastRouteTickUT, currentUT, RouteOrchestrator.TickIntervalSec)
+                != RouteTickClockStep.Tick)
                 return;
-            }
-            if (currentUT - lastRouteTickUT < RouteOrchestrator.TickIntervalSec)
-                return;
-            lastRouteTickUT = currentUT;
 
             try
             {
@@ -3570,12 +3584,13 @@ namespace Parsek
         /// <summary>The once-per-load <see cref="LoadReconcilePolicy"/> classification line.</summary>
         private static void LogLoadClassification(
             EarlyLoadKind early, LoadKind refined,
-            bool initialLoadDoneAtClassify, bool rewinding, bool reFlyInvoke, string discardReFlyTarget)
+            bool initialLoadDoneAtClassify, bool rewinding, bool reFlyInvoke, string discardReFlyTarget,
+            string handoff)
         {
             ParsekLog.Info(LoadReconcilePolicy.LogTag,
                 LoadReconcilePolicy.FormatClassificationLine(
                     early, refined, HighLogic.LoadedScene.ToString(),
-                    initialLoadDoneAtClassify, rewinding, reFlyInvoke, discardReFlyTarget));
+                    initialLoadDoneAtClassify, rewinding, reFlyInvoke, discardReFlyTarget, handoff));
         }
 
         public override void OnLoad(ConfigNode node)
@@ -3587,6 +3602,7 @@ namespace Parsek
             if (ParsekGameModeGate.CheckInert("ParsekScenario.OnLoad"))
             {
                 StashInertGameModeNode(node);
+                InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropInertGameMode);
                 return;
             }
             inertGameModePassthroughNode = null;
@@ -3687,12 +3703,14 @@ namespace Parsek
                 string classifyDiscardReFlyTarget = classifyDiscardReFly
                     ? discardReFlyIntentTarget.ToString()
                     : null;
+                string classifyHandoff = InSessionStagedStateHandoff.DescribeForClassification();
                 EarlyLoadKind earlyLoadKind = LoadReconcilePolicy.ClassifyEarly(
                     classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFly);
                 if (earlyLoadKind != EarlyLoadKind.InSession)
                 {
                     LogLoadClassification(earlyLoadKind, LoadReconcilePolicy.ToLoadKind(earlyLoadKind),
-                        classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget);
+                        classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget,
+                        classifyHandoff);
                 }
 
                 if (!RewindContext.IsRewinding)
@@ -3719,6 +3737,16 @@ namespace Parsek
                 // drops the rewound tree's rows from the carried list. No-op when not a rewind.
                 loadPhase = "rewind-staged-lists-carry-over";
                 RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(this);
+
+                // In-session loads: the same lists, the journal and (on a Discard Re-fly) the marker
+                // come from the scenario instance this load replaces, as the committed recordings
+                // and the ledger do (InSessionStagedStateHandoff, captured in OnDestroy). Consumed
+                // by every load: a cold load, a plain rewind (the carries above own its lists) and
+                // a Re-Fly start (the reconciliation bundle owns them) drop it. The rewind points
+                // are partitioned by owner, and a resumed tree's rows handed back to the save, once
+                // the tree restores below have detached that tree (step B).
+                loadPhase = "in-session-staged-handoff";
+                ApplyInSessionStagedStateHandoffStepA(earlyLoadKind);
 
                 // PR #774 cross-LoadScene fix: re-apply the rewind-time supersede drop
                 // performed in RecordingStore.InitiateRewind. The in-memory mutation
@@ -3791,6 +3819,14 @@ namespace Parsek
                     bool pendingTreeRestoredFromSave = TryRestorePendingTreeNode(
                         node, activeTreeRestoredFromSave);
                     RecorderStateLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
+
+                    // Step B of the in-session handoff: rewind points of trees memory still holds
+                    // committed come from memory, the rest from the save, and the supersede rows,
+                    // retirements and tombstones naming a tree the restore resumed from the save
+                    // follow the save. After the restores above, so a tree the load resumes has
+                    // already been detached from the committed set.
+                    loadPhase = "in-session-handoff-step-b";
+                    ApplyInSessionStagedStateHandoffStepB();
 
                     loadPhase = "revert-classification";
                     ConfigNode[] savedRecNodes = node.GetNodes("RECORDING");
@@ -3916,7 +3952,8 @@ namespace Parsek
                     if (earlyLoadKind == EarlyLoadKind.InSession)
                     {
                         LogLoadClassification(earlyLoadKind, refinedLoadKind,
-                            classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget);
+                            classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget,
+                            classifyHandoff);
                     }
 
                     // Capture the launch UT for the editor-revert orphan-prune boundary. A fresh
@@ -4214,7 +4251,12 @@ namespace Parsek
                             currentFlightLaunchUT, Ledger.GetLatestUntaggedVesselBuildUT());
                         double pruneCutoffUT = ResolveRevertPruneCutoff(
                             revertKind, loadedUT, editorBoundaryUT, out pruneInclusive);
-                        int prunedOrphans = Ledger.PruneOrphanActionsAfterUT(pruneCutoffUT, pruneInclusive);
+                        // Route rows up to the revert save's route state floor (a launch inside a
+                        // go-back rewind's lead-time window) are part of the route state that
+                        // save restores, not the reverted flight's.
+                        int prunedOrphans = Ledger.PruneOrphanActionsAfterUT(
+                            pruneCutoffUT, pruneInclusive,
+                            keepRouteRowsThroughUT: Logistics.RouteStore.ReadSavedRouteStateFloorUT(node));
                         revertPruneCutoffUTForRoutes = pruneCutoffUT;
                         if (prunedOrphans > 0)
                             ParsekLog.Info("Scenario",
@@ -5002,55 +5044,19 @@ namespace Parsek
             ParsekLog.Info("Rewind",
                 "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
 
-            // Route ledger + store reconciliation at the go-back cutoff. The
-            // go-back path never runs Ledger.PruneOrphanActionsAfterUT (that is
-            // the revert branch), so without this the abandoned-future
-            // free-standing route rows survive the rewind: the UT-blind dispatch
-            // dedup then swallows re-played cycles ("funds spent, no goods"),
-            // kept routes carry abandoned-future loop cursors, and routes
-            // created after the rewind target stay committed and firing before
-            // their own creation point. Mirror the Re-Fly seam
-            // (ReconciliationBundle.Restore(cutoff)): retire route rows after
-            // the cutoff in place, then run the SHARED store reconcile
-            // (RouteRewindClassifier.ReconcileStoreAtRewind: classify to
-            // dormant + hygiene, reset kept cursors, derive pause status from
-            // kept rows, clear armed one-shots, reconstruct counters, install).
-            // Cutoff = RewindAdjustedUT, the UT the loaded save actually
-            // reverted the world to (the same cutoff the baseline prune +
-            // recalc below use). Runs BEFORE the recalc so the recalc never
-            // sees retired rows; emits NO Ledger.AddAction (OnLoad-safe).
-            // RouteStore is preserved in memory across in-session loads, so
-            // the live lists ARE the pre-rewind capture; snapshots are passed
-            // because InstallRoutesAtRewind wholesale-replaces the lists.
-            double routeRewindCutoffUT = RewindContext.RewindAdjustedUT;
-            int retiredRouteRows = Ledger.RetireFutureRouteActionsAtRewind(
-                routeRewindCutoffUT, out List<GameAction> keptLedgerActions);
-            ParsekLog.Info("Rewind",
-                "OnLoad: go-back route reconcile at cutoff=" +
-                routeRewindCutoffUT.ToString("R", CultureInfo.InvariantCulture) +
-                $" retiredRouteRows={retiredRouteRows} " +
-                $"committedRoutes={Logistics.RouteStore.CommittedRoutes.Count} " +
-                $"dormantRoutes={Logistics.RouteStore.DormantRoutes.Count}");
-            Logistics.RouteRewindClassifier.ReconcileStoreAtRewind(
-                new List<Logistics.Route>(Logistics.RouteStore.CommittedRoutes),
-                new List<Logistics.Route>(Logistics.RouteStore.DormantRoutes),
-                routeRewindCutoffUT,
-                keptLedgerActions,
-                logTag: "Rewind",
-                logPrefix: "OnLoad go-back");
-            // The reconcile reset every kept loop cursor to -1, which would re-fire the crossing
-            // that most recently passed before the cutoff under a fresh cycle id. Each kept route
-            // takes its loop position back from the rewind save's own route copy, read from the
-            // parsed save in ExecuteRewindSaveLoad (this OnLoad node is persistent.sfs, not the
-            // rewind save). That copy was written at the save's own UT, up to the lead-time
-            // windback after this cutoff: a crossing inside that window keeps its saved cursor
-            // while its retired row is not charged again. Sets Route fields only.
-            Logistics.RouteLoadReconcile.RestoreLoopPositionAtRewindExit(
+            // Route ledger + store reconciliation, the Re-Fly seam's mirror
+            // (RouteLoadReconcile.ReconcileAtGoBackRewind: retire route rows after the cutoff in
+            // place, the shared RouteRewindClassifier.ReconcileStoreAtRewind, then each kept
+            // route's loop position back from the rewind save's own route copy, which this
+            // OnLoad node is not: it is persistent.sfs, so ExecuteRewindSaveLoad read the copy
+            // from the parsed save). The route cutoff is that save's own UT, before the lead-time
+            // windback, so the rows kept and the route state restored describe the same moment;
+            // the career prune and recalc below stay at RewindAdjustedUT. Runs BEFORE the recalc
+            // so the recalc never sees retired rows; emits NO Ledger.AddAction (OnLoad-safe).
+            Logistics.RouteLoadReconcile.ReconcileAtGoBackRewind(
+                RewindContext.RewindAdjustedUT,
                 RewindContext.RewindSaveRoutes,
-                routeRewindCutoffUT,
-                RewindContext.RewindSaveClockUT,
-                logTag: "Rewind",
-                logPrefix: "OnLoad go-back");
+                RewindContext.RewindSaveClockUT);
 
             // Restore career state to the rewind target. The cutoff walk keeps
             // funds/science/tech at the adjusted UT; LedgerOrchestrator then
@@ -5403,6 +5409,7 @@ namespace Parsek
                 // persistent leak in a DIFFERENT save toasts once again. A plain scene
                 // change within the same save does NOT reset these latches (plan §9).
                 KspStatePatcher.ResetDrawdownGuardSessionLatches();
+                InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropSaveFolderChanged);
                 ScenarioLog($"[Parsek Scenario] Save folder changed to '{currentSave}' — resetting session state");
             }
         }
@@ -6100,6 +6107,7 @@ namespace Parsek
             bool loadedSceneIsFlight = true)
         {
             lastRestoredQuicksaveTreeFacts = null;
+            ClearQuickloadResumeDetach();
             pendingFreshRecordingAfterDiscard = null;
             if (node == null) return false;
             if (RewindContext.IsRewinding)
@@ -6243,9 +6251,16 @@ namespace Parsek
                 // though the save file has the T2 active version), remove the committed
                 // copy so the active version is the single source of truth. Otherwise
                 // the next OnSave would write the tree twice with the same id.
-                if (!RecordingStore.RemoveCommittedTreeById(
-                        tree.Id,
-                        logContext: "TryRestoreActiveTreeNode"))
+                // A resume from the quicksave notes the detached copy's members for the
+                // in-session handoff's step B (its rows follow the save).
+                List<string> resumeDetachedCopyIds =
+                    committedCopyAction == CommittedCopyRestoreAction.ResumeFromQuicksave
+                        ? CollectCommittedCopyRecordingIds(tree)
+                        : null;
+                bool committedCopyDetached = RecordingStore.RemoveCommittedTreeById(
+                    tree.Id,
+                    logContext: "TryRestoreActiveTreeNode");
+                if (!committedCopyDetached)
                 {
                     ParsekLog.Verbose("Scenario",
                         $"TryRestoreActiveTreeNode: no committed copy of tree '{tree.TreeName}' " +
@@ -6286,6 +6301,8 @@ namespace Parsek
                     ? PendingTreeState.LimboVesselSwitch
                     : PendingTreeState.Limbo;
                 RecordingStore.StashPendingTree(tree, stashState);
+                if (committedCopyDetached && resumeDetachedCopyIds != null)
+                    NoteQuickloadResumeDetach(tree, resumeDetachedCopyIds);
 
                 // Read resume hints for the restore coroutine (rewind save filename only).
                 pendingActiveTreeResumeRewindSave = treeNodes[t].GetValue("resumeRewindSave");
@@ -8543,6 +8560,9 @@ namespace Parsek
                 // way the escrow must not survive into a different save's logistics
                 // state. DROP-not-revert (no ledger row to reverse).
                 RouteStore.ClearAllEscrow("main-menu-transition");
+                // A handoff captured before this reset would otherwise wait for the next game's
+                // load (which is cold anyway and would drop it there).
+                InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropMainMenu);
                 ParsekLog.Info("Scenario",
                     "Main menu transition — reset initialLoadDone to prevent stale data leak");
             }
@@ -8635,8 +8655,22 @@ namespace Parsek
             Parsek.Rendering.RenderSessionState.Clear("scenario-destroyed");
             // Phase 2 (Rewind-to-Staging): drop the Instance back-reference so
             // EffectiveState does not read stale scenario state after destruction.
+            // Before that, hand this instance's staged lists to the next OnLoad of the session:
+            // stock destroys every scenario module when a scene load is requested
+            // (ScenarioRunner.OnGameSceneLoadRequested), before the next scene's Game.Load.
             if (ReferenceEquals(s_instance, this))
+            {
+                try
+                {
+                    CaptureInSessionStagedStateHandoff(InSessionStagedStateHandoff.CaptureReasonOnDestroy);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(InSessionStagedStateHandoff.Tag,
+                        $"Staged-list handoff capture threw in OnDestroy: {ex.GetType().Name}: {ex.Message}");
+                }
                 s_instance = null;
+            }
         }
     }
 }

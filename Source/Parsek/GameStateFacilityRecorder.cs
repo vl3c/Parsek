@@ -101,6 +101,9 @@ namespace Parsek
         /// <c>ConvertFacilityUpgraded</c>), and writes an untagged upgrade to the ledger in one
         /// batch with any building repairs the same UpgradeFacility call queued. A tagged
         /// upgrade becomes a ledger row when its recording commits, carrying the same detail.
+        /// A downgrade gets the same treatment only inside stock's <c>DowngradeFacility</c>
+        /// call on that facility (the player's paid "Rebuild lvl N",
+        /// FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED); any other level drop stays informational.
         /// Returns true when an event was emitted.
         /// </summary>
         internal bool RecordEventDrivenLevelChange(string facilityId, float before, float after, double ut)
@@ -116,15 +119,18 @@ namespace Parsek
             bool upgrade = kind.Value == GameStateEventType.FacilityUpgraded;
             float cost = 0f;
             string costSource = null;
+            bool paidDowngrade = !upgrade
+                && FacilityUpgradeCapture.TryConsumeCostForDowngrade(facilityId, out cost, out costSource);
             if (upgrade)
                 cost = FacilityUpgradeCapture.ConsumeCostForUpgrade(facilityId, out costSource);
+            bool ledgerRow = upgrade || paidDowngrade;
 
             var evt = new GameStateEvent
             {
                 ut = ut,
                 eventType = kind.Value,
                 key = facilityId,
-                detail = upgrade ? FacilityUpgradeCapture.BuildUpgradeDetail(cost) : null,
+                detail = ledgerRow ? FacilityUpgradeCapture.BuildUpgradeDetail(cost) : null,
                 valueBefore = before,
                 valueAfter = after
             };
@@ -133,12 +139,13 @@ namespace Parsek
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: {kind.Value} '{facilityId}' {before.ToString("F2", ic)} → " +
                 $"{after.ToString("F2", ic)} (event-driven)" +
-                (upgrade ? $" cost={cost.ToString("R", ic)} costSource={costSource}" : ""));
+                (ledgerRow ? $" cost={cost.ToString("R", ic)} costSource={costSource}" : " informational"));
 
-            // Mirror the poll's ledger-forward: only upgrades forward (downgrades are
-            // informational), gated on ShouldForwardFacilityLedgerEvent.
-            if (upgrade)
+            // Mirror the poll's ledger-forward: upgrades and paid downgrades forward, gated on
+            // ShouldForwardFacilityLedgerEvent; any other downgrade is informational.
+            if (ledgerRow)
             {
+                string label = upgrade ? "upgrade" : "downgrade";
                 var batch = FacilityUpgradeCapture.TakePendingForward();
                 if (owner.ShouldForwardFacilityLedgerEvent(evt.recordingId))
                 {
@@ -147,11 +154,11 @@ namespace Parsek
                 else
                 {
                     ParsekLog.Verbose("GameStateRecorder",
-                        $"Facility upgrade '{facilityId}' owned by recording '{evt.recordingId ?? ""}' " +
+                        $"Facility {label} '{facilityId}' owned by recording '{evt.recordingId ?? ""}' " +
                         "(or a live recorder) - becomes a ledger row at commit");
                 }
                 if (batch.Count > 0)
-                    LedgerOrchestrator.OnKscSpendingBatch(batch, "facility-upgrade");
+                    LedgerOrchestrator.OnKscSpendingBatch(batch, "facility-" + label);
             }
 
             // Update the poll cache so a subsequent scene-change poll does not re-emit.

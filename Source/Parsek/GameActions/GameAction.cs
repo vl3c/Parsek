@@ -865,6 +865,16 @@ namespace Parsek
         /// <summary>Funds cost for facility upgrade or repair.</summary>
         public float FacilityCost;
 
+        /// <summary>
+        /// True on a <see cref="GameActionType.FacilityUpgrade"/> level-change row that LOWERS
+        /// the facility: stock's paid <c>SpaceCenterBuilding.DowngradeFacility</c> (the KSC
+        /// menu's "Rebuild lvl N"; FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED). The walk needs no
+        /// flag (<c>ToLevel</c> is absolute and <c>FacilityCost</c> is the debit either way);
+        /// the description, the stock-screen reservation index and the legacy upgrade-cost
+        /// passes read it. Sparse key <c>facilityDowngrade</c>, absent = false.
+        /// </summary>
+        public bool FacilityDowngrade;
+
         // ---- Strategy fields ----
 
         /// <summary>Strategy identifier, e.g. "UnpaidResearch".</summary>
@@ -1947,6 +1957,8 @@ namespace Parsek
             if (FacilityId != null) n.AddValue("facilityId", FacilityId);
             n.AddValue("toLevel", ToLevel.ToString(IC));
             n.AddValue("facilityCost", FacilityCost.ToString("R", IC));
+            if (FacilityDowngrade)
+                n.AddValue(FacilityDowngradeKey, FacilityDowngrade.ToString());
         }
 
         private static void DeserializeFacilityUpgrade(ConfigNode n, GameAction a)
@@ -1954,7 +1966,13 @@ namespace Parsek
             a.FacilityId = n.GetValue("facilityId");
             TryParseInt(n, "toLevel", out a.ToLevel);
             TryParseFloat(n, "facilityCost", out a.FacilityCost);
+            string downgradeStr = n.GetValue(FacilityDowngradeKey);
+            if (downgradeStr != null)
+                bool.TryParse(downgradeStr, out a.FacilityDowngrade);
         }
+
+        /// <summary>Sparse ledger key of <see cref="FacilityDowngrade"/>.</summary>
+        internal const string FacilityDowngradeKey = "facilityDowngrade";
 
         private void SerializeFacilityDestruction(ConfigNode n)
         {

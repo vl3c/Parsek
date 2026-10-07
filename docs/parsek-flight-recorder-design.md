@@ -877,6 +877,7 @@ A single Recording can be split at a TrackSection boundary where the environment
 1. Recording has ≥ 2 TrackSections
 2. No ghosting-trigger events anywhere in the recording
 3. Both resulting halves are **≥ 5 seconds** long
+4. Both resulting halves hold trajectory payload: the recording's actual sampled bounds (points, orbit segments, playable track sections, never an explicit or terminal bound) strictly straddle the cut (`SplitHalvesCarryPayload`). The 5-second test reads `StartUT` / `EndUT`, which an explicit bound can carry past the samples (a crash UT after the last sample), so without this a cut there left a half with no sample, whose `StartUT` read the 0.0 fallback.
 
 **Split operation** (`SplitAtSection`): Points partitioned by UT at the section boundary. Events partitioned (backward loop to avoid index shifting). TrackSections split at the section index. `GhostVisualSnapshot` cloned to both halves. Each half tagged with `SegmentPhase` derived from its first section's environment via `EnvironmentToPhase`:
 
@@ -917,9 +918,27 @@ its own): the logistics transport lineage does, and the mission Log lets any lat
 own a stage whose branch point still names an earlier segment that ended before it (a repair
 that had to stop).
 
+**Career results across a split** (`RecordingStore.RetagLedgerActionsAfterOptimizationSplit`):
+three things carry the recording id as their owner, and the split moves each one whose UT is
+at or after the cut to the second half, with the same `>=` sense as the parent links: the
+ledger rows (`Ledger.RetagActionsForSplitSecondHalf`, attribution UT: a death row by its
+`EndUT`, a KerbalDeath reputation penalty with its paired death), the captured game-state
+events not yet converted (`GameStateStore.RetagEventsForSplitSecondHalf`) and the pending
+science subjects by capture UT (`GameStateRecorder.RetagPendingScienceForSplitSecondHalf`,
+which also retags the cached pending-milestone copies the reward enrichment matches by tag).
+The last two matter at a fresh commit: the flight commit paths (`MergeDialog.MergeCommit`,
+`ParsekFlight.CommitTreeFlight`; the ghost-only auto-commit outside flight converts first) run the optimizer BEFORE
+`LedgerOrchestrator.NotifyLedgerTreeCommitted` converts the flight's events into rows, and the
+converter reads an event's tag as ownership, so without them every result of the flight was
+booked on the first segment (RETAG-ON-SPLIT-MISSES-LATER-ROWS). A Re-Fly of a later segment
+carves the earlier chain segments out of its tombstone set (`SupersedeCommit.IsPreRewindCarveOut`),
+so a row is retired by a re-fly only when it sits on the segment that owns its UT.
+
 #### Discovery Passes
 
 **`FindMergeCandidates`**: Groups committed recordings by `ChainId`, sorts each group by `ChainIndex`, tests all consecutive pairs with `CanAutoMerge`.
+
+**`ReindexChain`**: after every merge and split, renumbers a chain's branch-0 members from 0 in `StartUT` order (ties by the previous index, then id). A member with no trajectory payload and no explicit start has only the 0.0 fallback as its `StartUT`, so it is ordered by its first track section's start instead, or last with no section: the highest index must stay the chain's end, which the chain-tip walks read.
 
 **`FindSplitCandidates`**: Scans each committed recording's `TrackSections` for adjacent sections with **different environments**. Tests each boundary with `CanAutoSplit`. Finds **at most one split per recording per pass** — the caller re-scans after each split because indices shift.
 
@@ -1223,6 +1242,8 @@ Undocking follows the same ghost logic as docking. If R1 involves undocking a mo
 **Which half is the claimed vessel.** The chain walker finds the tip by walking from the last claim to a leaf, and at every split it follows the CLAIMED vessel by its parts, not by its vessel pid. The pid does not track the vessel: a dock keeps the dominant vessel's pid (`Vessel.GetDominantVessel`: higher vessel type, then mass) and an undock gives the departing half a new pid, so after a heavier visitor docks and leaves, the station is the half with the NEW pid. Part persistentIds survive both, so the walker reads the claimed vessel's part set from snapshots the tree already holds (its own recording when it is in the tree, else the merged recording's parts minus the docking partner's) and takes the child that holds those parts; when several children do, the one keeping the current pid (KSP's root-part side), else the one holding most. With no part snapshot (on the claimed vessel, or on the child keeping the current pid) it falls back to the child keeping the current pid. Implemented in `GhostChainWalker.ResolveClaimedPartIds` / `SelectWalkChild`.
 
 **The tip is the last optimizer segment.** The optimization pass that runs on every load and commit cuts a recording at environment and body boundaries into chain segments: the first keeps the recording's id (and so stays the child of the branch point that started it), and the last one carries the vessel snapshot, the terminal state and the branch point that closes the recording. Wherever the walk finds the vessel ending in a recording (no child branch point, or a breakup-continuous one it flew past), it goes on to the last segment of that recording's chain (`EffectiveState.ResolveChainTerminalRecording`, the same hop the Rewind Point slot walk takes) and continues from there. The chain's tip, spawn UT and termination are therefore read from the segment the tip spawn uses, and an earlier segment is never a leaf (`GhostChainWalker.WalkToLeaf`, `IsTreeFullyTerminated`).
+
+**The tip follows a Re-Fly.** A Re-Fly replaces a vessel's flight from a Rewind Point: it cuts the slot's recording at the rewind into a HEAD and a TIP on one optimizer chain, and on merge every recording of TIP's subtree gets a supersede row naming the fork, which no branch point lists as a child. So wherever the walk hops (the child it picks at a branch point, the hop to a chain's last segment) onto a recording a supersede row names, it goes on to the recording that replaced it (`EffectiveState.EffectiveRecordingId`, nested Re-Flies included) and continues from there: the chain's tip, spawn UT and termination are the fork's, and the fork is not suppressed as an intermediate link of the flight it replaced. The hop is taken only when the replacing recording is in the same tree (supersede rows are tree-scoped) and continues the vessel the walk follows: it holds one of the claimed vessel's parts, or, without part data, carries the replaced recording's pid and launch. A row on another vessel of the replaced subtree (a stage it dropped, the merged vessel of a dock it made) names a fork that does not carry the claimed vessel, and the walk stays where it was. A claim made by a dock or undock that only a replaced flight recorded is still counted (todo CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING).
 
 ### 12.9 Edge Cases
 

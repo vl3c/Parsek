@@ -216,6 +216,9 @@ namespace Parsek
                     key = action.NodeId;
                     break;
                 case GameActionType.FacilityUpgrade:
+                    // A committed downgrade is not an upgrade the player must wait for: the
+                    // block and its "Upgraded to level N" reason cover upgrades only.
+                    if (action.FacilityDowngrade) return false;
                     kind = CommittedFutureKind.FacilityUpgrade;
                     key = action.FacilityId;
                     break;

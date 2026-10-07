@@ -426,6 +426,7 @@ namespace Parsek
                 var action = ledgerActions[i];
                 if (action == null
                     || action.Type != GameActionType.FacilityUpgrade
+                    || action.FacilityDowngrade
                     || action.FacilityCost != 0f)
                     continue;
 
@@ -726,8 +727,11 @@ namespace Parsek
                 for (int i = 0; i < ledgerActions.Count; i++)
                 {
                     var action = ledgerActions[i];
+                    // A downgrade row is never a legacy upgrade: it exists only from the
+                    // build that captures its debit, and stock prices it differently.
                     if (action != null
                         && action.Type == GameActionType.FacilityUpgrade
+                        && !action.FacilityDowngrade
                         && action.FacilityCost == 0f)
                         candidates.Add(action);
                 }

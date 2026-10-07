@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek.Logistics
 {
@@ -25,6 +26,22 @@ namespace Parsek.Logistics
         private const string DismissedCandidatesNodeName = "DISMISSED_ROUTE_CANDIDATES";
         private const string DismissedTreeIdValueName = "treeId";
         private const string PromptedCandidatesNodeName = "PROMPTED_ROUTE_CANDIDATES";
+        private const string StateFloorValueName = "routeStateFloorUT";
+
+        /// <summary>
+        /// The UT the route state (this store's loop positions and owed credits, and the route
+        /// ledger rows up to it) is settled through when that UT lies ahead of the clock; NaN
+        /// otherwise. Only the go-back rewind creates one: its route reconcile keys on the rewind
+        /// save's own UT, up to the lead-time windback after the clock, so the rows it keeps in
+        /// that window lie in the clock's future without being an abandoned future. Every load
+        /// that retires route rows after its UT reads the floor its save carries and retires
+        /// only after the later of the two (<c>RouteLoadReconcile.ApplyRouteStateFloor</c>).
+        /// Persisted as a sparse value beside ROUTES by <see cref="SaveRoutesTo"/>, so a save
+        /// written inside the window carries it; set from the loaded save by every load
+        /// (<see cref="LoadRoutesFrom"/> on the cold path, the in-session and rewind loads through
+        /// <c>RouteLoadReconcile</c>), which drops it once the loaded clock has passed it.
+        /// </summary>
+        internal static double StateFloorUT { get; set; } = double.NaN;
 
         private static readonly List<Route> committedRoutes = new List<Route>();
 
@@ -796,6 +813,7 @@ namespace Parsek.Logistics
             dismissedCandidateTreeIds.Clear();
             int prevPrompted = promptedCandidateTreeIds.Count;
             promptedCandidateTreeIds.Clear();
+            StateFloorUT = double.NaN;
             ParsekLog.Verbose(Tag,
                 $"ResetForTesting prevCount={prevCount} prevEscrowRoutes={prevEscrowRoutes} " +
                 $"prevDismissedCandidates={prevDismissed} prevPromptedCandidates={prevPrompted}");
@@ -1078,6 +1096,17 @@ namespace Parsek.Logistics
             parent.RemoveNodes(DormantRoutesParentNodeName);
             parent.RemoveNodes(DismissedCandidatesNodeName);
             parent.RemoveNodes(PromptedCandidatesNodeName);
+            parent.RemoveValues(StateFloorValueName);
+
+            // Sparse: written only while a go-back rewind's floor is alive, so every other save
+            // stays byte-identical.
+            if (!double.IsNaN(StateFloorUT) && !double.IsInfinity(StateFloorUT) && StateFloorUT > 0.0)
+            {
+                parent.AddValue(StateFloorValueName, StateFloorUT.ToString("R", CultureInfo.InvariantCulture));
+                ParsekLog.Verbose(Tag,
+                    "SaveRoutesTo: wrote route state floor UT " +
+                    StateFloorUT.ToString("R", CultureInfo.InvariantCulture));
+            }
 
             if (committedRoutes.Count == 0)
             {
@@ -1141,6 +1170,41 @@ namespace Parsek.Logistics
                 ParsekLog.Verbose(Tag,
                     $"SaveRoutesTo: wrote {ids.Count} prompted candidate tree id(s)");
             }
+        }
+
+        /// <summary>
+        /// The route state floor a saved <c>ParsekScenario</c> node carries
+        /// (<see cref="StateFloorUT"/> as written by <see cref="SaveRoutesTo"/>); NaN when it
+        /// carries none or the value does not parse.
+        /// </summary>
+        internal static double ReadSavedRouteStateFloorUT(ConfigNode parent)
+        {
+            string raw = parent?.GetValue(StateFloorValueName);
+            if (string.IsNullOrEmpty(raw)
+                || !double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double ut)
+                || double.IsNaN(ut) || double.IsInfinity(ut))
+                return double.NaN;
+            return ut;
+        }
+
+        /// <summary>
+        /// <see cref="ReadSavedRouteStateFloorUT"/> over a parsed game's own
+        /// <c>ParsekScenario</c> proto (the go-back rewind's parsed save); NaN without one.
+        /// </summary>
+        internal static double ReadSavedRouteStateFloorUTFromScenarios(IList<ProtoScenarioModule> scenarios)
+        {
+            if (scenarios == null)
+                return double.NaN;
+            for (int i = 0; i < scenarios.Count; i++)
+            {
+                ProtoScenarioModule proto = scenarios[i];
+                if (proto != null
+                    && string.Equals(proto.moduleName, nameof(ParsekScenario), StringComparison.Ordinal))
+                {
+                    return ReadSavedRouteStateFloorUT(proto.GetData());
+                }
+            }
+            return double.NaN;
         }
 
         /// <summary>
@@ -1209,6 +1273,11 @@ namespace Parsek.Logistics
             dormantRoutes.Clear();
             dismissedCandidateTreeIds.Clear();
             promptedCandidateTreeIds.Clear();
+            StateFloorUT = ReadSavedRouteStateFloorUT(parent);
+            if (!double.IsNaN(StateFloorUT))
+                ParsekLog.Info(Tag,
+                    "LoadRoutesFrom: route state floor UT " +
+                    StateFloorUT.ToString("R", CultureInfo.InvariantCulture) + " from the save");
 
             if (parent == null)
             {

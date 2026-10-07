@@ -34,6 +34,22 @@ namespace Parsek
     /// <para>Buildings <c>ResetStructures</c> repairs for free inside the call are queued here
     /// and written in one batch with the upgrade row, so no recalc runs between the debit and
     /// the row that explains it.</para>
+    ///
+    /// <para>The same scope, opened with <c>downgrade: true</c>, serves the private
+    /// <c>SpaceCenterBuilding.DowngradeFacility(bool deduceFunds)</c>
+    /// (FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED). Stock reaches it from the KSC facility menu's
+    /// "Rebuild lvl N" button, shown when the menu is opened with Left Ctrl held on an
+    /// out-of-service facility above level 1, outside Mission mode
+    /// (<c>KSCFacilityContextMenu.showDowngradeControls = Input.GetKey(KeyCode.LeftControl)</c>,
+    /// no cheat or debug gate). Its order is the upgrade's: an affordability check, then
+    /// <c>AddFunds(-|GetDowngradeCost()|, StructureConstruction)</c> (0.667 times
+    /// <c>upgradeLevels[level - 1].levelCost</c> times <c>Career.FundsLossMultiplier</c>), then
+    /// <c>ResetStructures()</c> and <c>SetLevel(level - 1)</c>, then a save. The recorder reads
+    /// the debit for the FacilityDowngraded event of that facility through
+    /// <see cref="TryConsumeCostForDowngrade"/>, and that event becomes a
+    /// <see cref="GameActionType.FacilityUpgrade"/> level-change row marked
+    /// <see cref="GameAction.FacilityDowngrade"/>. A level drop with no downgrade scope open
+    /// stays informational.</para>
     /// </summary>
     internal static class FacilityUpgradeCapture
     {
@@ -49,6 +65,7 @@ namespace Parsek
         internal const string SourceNoScope = "no-upgrade-scope";
         internal const string SourceFacilityMismatch = "facility-mismatch";
         internal const string SourceAlreadyConsumed = "already-consumed";
+        internal const string SourceDirectionMismatch = "direction-mismatch";
 
         private static bool scopeActive;
         private static string scopeFacility;
@@ -57,10 +74,35 @@ namespace Parsek
         private static int scopeObservedDebits;
         private static double scopeObservedDelta;
         private static bool scopeCostConsumed;
+        private static bool scopeDowngrade;
         private static readonly List<GameStateEvent> scopePendingForward = new List<GameStateEvent>();
 
-        /// <summary>True while a <c>SpaceCenterBuilding.UpgradeFacility</c> call is on the stack.</summary>
+        /// <summary>
+        /// True while a <c>SpaceCenterBuilding.UpgradeFacility</c> or <c>DowngradeFacility</c>
+        /// call is on the stack.
+        /// </summary>
         internal static bool IsScopeActive => scopeActive;
+
+        /// <summary>
+        /// True while a <c>DowngradeFacility</c> call on <paramref name="facilityId"/> is on the
+        /// stack: the one case in which a FacilityDowngraded event is the player's paid
+        /// downgrade and becomes a ledger row.
+        /// </summary>
+        internal static bool IsDowngradeScopeOpenFor(string facilityId)
+        {
+            return scopeActive && scopeDowngrade
+                && string.Equals(facilityId, scopeFacility, StringComparison.Ordinal);
+        }
+
+        private static string ScopeLabel(bool downgrade)
+        {
+            return downgrade ? "FacilityDowngrade" : "FacilityUpgrade";
+        }
+
+        private static string StockCallName(bool downgrade)
+        {
+            return downgrade ? "DowngradeFacility" : "UpgradeFacility";
+        }
 
         // ================================================================
         // Pure decisions
@@ -146,15 +188,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Opens the upgrade scope. A scope left open by an interrupted call is closed first,
-        /// so no queued row is ever lost.
+        /// Opens the upgrade scope, or with <paramref name="downgrade"/> the downgrade scope.
+        /// A scope left open by an interrupted call is closed first, so no queued row is ever
+        /// lost.
         /// </summary>
-        internal static void BeginScope(string facility, bool fundsCharged, double fundsAtOpen)
+        internal static void BeginScope(string facility, bool fundsCharged, double fundsAtOpen, bool downgrade = false)
         {
             if (scopeActive)
             {
                 ParsekLog.Warn(Tag,
-                    $"FacilityUpgrade scope: '{scopeFacility ?? "(null)"}' was still open when " +
+                    $"{ScopeLabel(scopeDowngrade)} scope: '{scopeFacility ?? "(null)"}' was still open when " +
                     $"'{facility ?? "(null)"}' began - closing it first");
                 EndScope("reentered");
             }
@@ -166,10 +209,11 @@ namespace Parsek
             scopeObservedDebits = 0;
             scopeObservedDelta = 0.0;
             scopeCostConsumed = false;
+            scopeDowngrade = downgrade;
             scopePendingForward.Clear();
 
             ParsekLog.Verbose(Tag,
-                $"FacilityUpgrade scope open: facility='{facility ?? "(null)"}' " +
+                $"{ScopeLabel(downgrade)} scope open: facility='{facility ?? "(null)"}' " +
                 $"fundsCharged={fundsCharged.ToString(IC)} " +
                 $"fundsAtOpen={scopeFundsAtOpen.ToString("R", IC)}");
         }
@@ -191,7 +235,7 @@ namespace Parsek
             scopeObservedDelta += delta;
 
             ParsekLog.Verbose(Tag,
-                $"FacilityUpgrade scope: StructureConstruction funds change observed " +
+                $"{ScopeLabel(scopeDowngrade)} scope: StructureConstruction funds change observed " +
                 $"facility='{scopeFacility ?? "(null)"}' delta={delta.ToString("R", IC)} " +
                 $"total={scopeObservedDelta.ToString("R", IC)} " +
                 $"firings={scopeObservedDebits.ToString(IC)}");
@@ -205,28 +249,66 @@ namespace Parsek
         /// </summary>
         internal static float ConsumeCostForUpgrade(string facilityId, out string costSource)
         {
+            return ConsumeCost(facilityId, false, out costSource);
+        }
+
+        /// <summary>
+        /// Reads the downgrade's cost for the FacilityDowngraded event of
+        /// <paramref name="facilityId"/>. False (cost 0, nothing consumed) unless a
+        /// <c>DowngradeFacility</c> scope on that facility is open
+        /// (<see cref="IsDowngradeScopeOpenFor"/>): a level drop no such call made is not the
+        /// player's paid downgrade, and the caller leaves its event informational. Inside the
+        /// scope the first read gets the observed debit, as for an upgrade.
+        /// </summary>
+        internal static bool TryConsumeCostForDowngrade(string facilityId, out float cost, out string costSource)
+        {
+            if (!IsDowngradeScopeOpenFor(facilityId))
+            {
+                cost = 0f;
+                costSource = SourceNoScope;
+                ParsekLog.Verbose(Tag,
+                    $"FacilityDowngrade cost: '{facilityId ?? "(null)"}' dropped a level outside a " +
+                    "DowngradeFacility call on it (no stock debit to read) - informational, no ledger row");
+                return false;
+            }
+            cost = ConsumeCost(facilityId, true, out costSource);
+            return true;
+        }
+
+        private static float ConsumeCost(string facilityId, bool downgrade, out string costSource)
+        {
+            string label = ScopeLabel(downgrade);
+            string call = StockCallName(downgrade);
             if (!scopeActive)
             {
                 costSource = SourceNoScope;
                 ParsekLog.Verbose(Tag,
-                    $"FacilityUpgrade cost: '{facilityId ?? "(null)"}' changed level outside an " +
-                    "UpgradeFacility call (no stock debit to read) - cost 0");
+                    $"{label} cost: '{facilityId ?? "(null)"}' changed level outside an " +
+                    $"{call} call (no stock debit to read) - cost 0");
                 return 0f;
             }
             if (!string.Equals(facilityId, scopeFacility, StringComparison.Ordinal))
             {
                 costSource = SourceFacilityMismatch;
                 ParsekLog.Warn(Tag,
-                    $"FacilityUpgrade cost: '{facilityId ?? "(null)"}' changed level inside the " +
-                    $"UpgradeFacility scope of '{scopeFacility ?? "(null)"}' - cost 0");
+                    $"{label} cost: '{facilityId ?? "(null)"}' changed level inside the " +
+                    $"{StockCallName(scopeDowngrade)} scope of '{scopeFacility ?? "(null)"}' - cost 0");
+                return 0f;
+            }
+            if (scopeDowngrade != downgrade)
+            {
+                costSource = SourceDirectionMismatch;
+                ParsekLog.Warn(Tag,
+                    $"{label} cost: '{facilityId}' changed level the other way inside its own " +
+                    $"{StockCallName(scopeDowngrade)} scope - cost 0");
                 return 0f;
             }
             if (scopeCostConsumed)
             {
                 costSource = SourceAlreadyConsumed;
                 ParsekLog.Warn(Tag,
-                    $"FacilityUpgrade cost: a second level change of '{facilityId}' inside one " +
-                    "UpgradeFacility call - the debit was already read, cost 0");
+                    $"{label} cost: a second level change of '{facilityId}' inside one " +
+                    $"{call} call - the debit was already read, cost 0");
                 return 0f;
             }
 
@@ -237,14 +319,14 @@ namespace Parsek
             if (scopeFundsCharged && costSource != SourceObservedDebit)
             {
                 ParsekLog.Warn(Tag,
-                    $"FacilityUpgrade cost: '{facilityId}' was charged funds but the debit could not " +
+                    $"{label} cost: '{facilityId}' was charged funds but the debit could not " +
                     $"be read (costSource={costSource} firings={scopeObservedDebits.ToString(IC)} " +
                     $"delta={scopeObservedDelta.ToString("R", IC)}) - cost 0");
             }
             else
             {
                 ParsekLog.Verbose(Tag,
-                    $"FacilityUpgrade cost: '{facilityId}' cost={cost.ToString("R", IC)} " +
+                    $"{label} cost: '{facilityId}' cost={cost.ToString("R", IC)} " +
                     $"costSource={costSource}");
             }
             return cost;
@@ -287,6 +369,7 @@ namespace Parsek
             int debits = scopeObservedDebits;
             double delta = scopeObservedDelta;
             bool consumed = scopeCostConsumed;
+            bool downgrade = scopeDowngrade;
 
             scopeActive = false;
             scopeFacility = null;
@@ -295,24 +378,27 @@ namespace Parsek
             scopeObservedDebits = 0;
             scopeObservedDelta = 0.0;
             scopeCostConsumed = false;
+            scopeDowngrade = false;
             scopePendingForward.Clear();
 
             if (!consumed && debits > 0)
             {
                 ParsekLog.Warn(Tag,
-                    $"FacilityUpgrade scope: stock moved funds by {delta.ToString("R", IC)} " +
-                    $"(StructureConstruction) for '{facility ?? "(null)"}' but no FacilityUpgraded " +
+                    $"{ScopeLabel(downgrade)} scope: stock moved funds by {delta.ToString("R", IC)} " +
+                    $"(StructureConstruction) for '{facility ?? "(null)"}' but no " +
+                    $"{(downgrade ? "FacilityDowngraded" : "FacilityUpgraded")} " +
                     "event read it - the ledger carries no row for this spend");
             }
 
             ParsekLog.Verbose(Tag,
-                $"FacilityUpgrade scope close: facility='{facility ?? "(null)"}' " +
+                $"{ScopeLabel(downgrade)} scope close: facility='{facility ?? "(null)"}' " +
                 $"reason={reason ?? "(none)"} fundsCharged={fundsCharged.ToString(IC)} " +
                 $"firings={debits.ToString(IC)} delta={delta.ToString("R", IC)} " +
                 $"costRead={consumed.ToString(IC)} rowsToWrite={pending.Count.ToString(IC)}");
 
             if (pending.Count > 0)
-                LedgerOrchestrator.OnKscSpendingBatch(pending, "facility-upgrade-reset");
+                LedgerOrchestrator.OnKscSpendingBatch(
+                    pending, downgrade ? "facility-downgrade-reset" : "facility-upgrade-reset");
         }
 
         internal static void ResetForTesting()
@@ -324,6 +410,7 @@ namespace Parsek
             scopeObservedDebits = 0;
             scopeObservedDelta = 0.0;
             scopeCostConsumed = false;
+            scopeDowngrade = false;
             scopePendingForward.Clear();
         }
     }

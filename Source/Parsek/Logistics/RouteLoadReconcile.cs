@@ -58,6 +58,57 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// The UT a loaded route copy describes, and so the UT its load retires route rows after:
+        /// <paramref name="ut"/> (the load's own cutoff or its save's clock), raised to the route
+        /// state floor the save carries (<see cref="RouteStore.StateFloorUT"/>,
+        /// <paramref name="floorUT"/>) when that lies ahead of it. A save written in the
+        /// lead-time window after a go-back rewind holds the loop positions as of the rewind
+        /// save's own UT, so the rows up to that UT are part of what it restores, not a future to
+        /// retire. An unusable <paramref name="ut"/> stays as it is.
+        /// </summary>
+        internal static double ApplyRouteStateFloor(double ut, double floorUT)
+        {
+            if (!IsUsableCutoffUT(ut) || !IsUsableCutoffUT(floorUT))
+                return ut;
+            return floorUT > ut ? floorUT : ut;
+        }
+
+        /// <summary>
+        /// The route state floor to keep in memory after a load whose save's clock is
+        /// <paramref name="loadedClockUT"/> and which carried <paramref name="loadedFloorUT"/>:
+        /// the carried floor while the clock is still behind it, NaN otherwise (no floor, or the
+        /// clock has passed it). A save without one is a load back past any window, so it clears
+        /// the floor in memory.
+        /// </summary>
+        internal static double ResolveFloorAfterLoad(double loadedClockUT, double loadedFloorUT)
+        {
+            if (!IsUsableCutoffUT(loadedClockUT) || !IsUsableCutoffUT(loadedFloorUT))
+                return double.NaN;
+            return loadedFloorUT > loadedClockUT ? loadedFloorUT : double.NaN;
+        }
+
+        /// <summary>
+        /// Sets <see cref="RouteStore.StateFloorUT"/> after a load and logs a change.
+        /// </summary>
+        internal static void InstallFloorAfterLoad(double loadedClockUT, double loadedFloorUT, string logTag, string site)
+        {
+            double before = RouteStore.StateFloorUT;
+            double after = ResolveFloorAfterLoad(loadedClockUT, loadedFloorUT);
+            RouteStore.StateFloorUT = after;
+            bool beforeSet = !double.IsNaN(before);
+            bool afterSet = !double.IsNaN(after);
+            if (beforeSet || afterSet)
+            {
+                ParsekLog.Info(logTag,
+                    site + ": route state floor " +
+                    (beforeSet ? before.ToString("R", IC) : "none") + " -> " +
+                    (afterSet ? after.ToString("R", IC) : "none") +
+                    " (loaded clock " + loadedClockUT.ToString("R", IC) +
+                    ", carried " + (double.IsNaN(loadedFloorUT) ? "none" : loadedFloorUT.ToString("R", IC)) + ")");
+            }
+        }
+
+        /// <summary>
         /// The UT the loaded world sits at. The loaded save's own clock
         /// (<c>flightState.universalTime</c>, <paramref name="loadedSaveUT"/>), except a stock
         /// revert takes the earlier of it and the revert prune's launch boundary
@@ -375,6 +426,95 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// The rewind save's own UT for its route copy: the UT the save was written at, as
+        /// <c>RecordingStore.PreProcessRewindSave</c> read it before winding the clock back by the
+        /// lead time (<paramref name="preWindbackSaveUT"/>), else the parsed save's clock
+        /// (<paramref name="parsedClockUT"/>; a save loaded without the windback, such as the
+        /// career-start snapshot, carries its own UT there).
+        /// </summary>
+        internal static double ResolveRewindSaveOwnUT(double preWindbackSaveUT, double parsedClockUT)
+        {
+            return IsUsableCutoffUT(preWindbackSaveUT) ? preWindbackSaveUT : parsedClockUT;
+        }
+
+        /// <summary>
+        /// The go-back rewind's route cutoff: the rewind save's own UT
+        /// (<paramref name="rewindSaveUT"/>, before the lead-time windback) when its route copy is
+        /// in hand, else the wound-back clock (<paramref name="rewindAdjustedUT"/>). Every route
+        /// state the exit restores (loop cursors, owed recovery credit, which routes exist) comes
+        /// from that copy, so the route rows kept must be the rows up to the same moment: a
+        /// crossing between the two UTs keeps its saved cursor and its charge and recovery-credit
+        /// rows. Without a copy nothing is restored, the reset stands, and the rows after the
+        /// clock are retired so the reset re-fires them once. Only the route reconcile reads it;
+        /// the career cutoff stays at the clock. <paramref name="source"/> names the choice.
+        /// </summary>
+        internal static double ResolveGoBackRouteCutoffUT(
+            double rewindAdjustedUT, IReadOnlyList<Route> rewindSaveRoutes, double rewindSaveUT,
+            out string source)
+        {
+            if (rewindSaveRoutes == null)
+                source = "rewind-adjusted-ut:no-save-copy";
+            else if (!IsUsableCutoffUT(rewindSaveUT))
+                source = "rewind-adjusted-ut:no-save-ut";
+            else if (rewindSaveUT < rewindAdjustedUT)
+                source = "rewind-adjusted-ut:save-before-clock";
+            else
+            {
+                source = "rewind-save-ut";
+                return rewindSaveUT;
+            }
+            return rewindAdjustedUT;
+        }
+
+        /// <summary>
+        /// The go-back rewind's route reconcile, run by <c>ParsekScenario.HandleRewindOnLoad</c>.
+        /// The go-back path never runs <c>Ledger.PruneOrphanActionsAfterUT</c> (the revert branch),
+        /// so without it the abandoned future's free-standing route rows survive (the UT-blind
+        /// dispatch dedup then swallows re-played cycles), kept routes carry its loop cursors, and
+        /// routes created after the cutoff stay committed. Retires route rows after the cutoff in
+        /// place, runs the shared store reconcile over the live route lists (RouteStore survives
+        /// the in-session load, so they are the pre-rewind capture; snapshots because
+        /// <c>InstallRoutesAtRewind</c> replaces the lists), then gives each kept route its loop
+        /// position back from the rewind save's own copy. The cutoff is
+        /// <see cref="ResolveGoBackRouteCutoffUT"/>. Emits no ledger action (it runs inside OnLoad,
+        /// before the recalculation). Returns the cutoff used.
+        /// </summary>
+        internal static double ReconcileAtGoBackRewind(
+            double rewindAdjustedUT, IReadOnlyList<Route> rewindSaveRoutes, double rewindSaveUT)
+        {
+            double cutoffUT = ResolveGoBackRouteCutoffUT(
+                rewindAdjustedUT, rewindSaveRoutes, rewindSaveUT, out string cutoffSource);
+            // The rows kept between the wound-back clock and the cutoff lie ahead of the clock:
+            // every later load and save must know they are settled until the clock passes them.
+            RouteStore.StateFloorUT = cutoffSource == "rewind-save-ut" && cutoffUT > rewindAdjustedUT
+                ? cutoffUT
+                : double.NaN;
+            int retiredRouteRows = Ledger.RetireFutureRouteActionsAtRewind(
+                cutoffUT, out List<GameAction> keptLedgerActions);
+            ParsekLog.Info("Rewind",
+                "OnLoad: go-back route reconcile at cutoff=" + cutoffUT.ToString("R", IC) +
+                " retiredRouteRows=" + retiredRouteRows.ToString(IC) +
+                " committedRoutes=" + RouteStore.CommittedRoutes.Count.ToString(IC) +
+                " dormantRoutes=" + RouteStore.DormantRoutes.Count.ToString(IC) +
+                " cutoffSource=" + cutoffSource +
+                " rewindAdjustedUT=" + rewindAdjustedUT.ToString("R", IC) +
+                " rewindSaveUT=" + rewindSaveUT.ToString("R", IC) +
+                " stateFloorUT=" + (double.IsNaN(RouteStore.StateFloorUT) ? "none" : RouteStore.StateFloorUT.ToString("R", IC)));
+            RouteRewindClassifier.ReconcileStoreAtRewind(
+                new List<Route>(RouteStore.CommittedRoutes),
+                new List<Route>(RouteStore.DormantRoutes),
+                cutoffUT,
+                keptLedgerActions,
+                logTag: "Rewind",
+                logPrefix: "OnLoad go-back");
+            RestoreLoopPositionAtRewindExit(
+                rewindSaveRoutes, cutoffUT, rewindSaveUT,
+                logTag: "Rewind",
+                logPrefix: "OnLoad go-back");
+            return cutoffUT;
+        }
+
+        /// <summary>
         /// The go-back rewind's capture of the loaded save's route copy, called from
         /// <c>RecordingStore.ExecuteRewindSaveLoad</c> right after <c>GamePersistence.LoadGame</c>
         /// parsed the rewind save and before the Space Center load. That OnLoad node is
@@ -382,12 +522,13 @@ namespace Parsek.Logistics
         /// <c>Game.Load</c> hands its scenario protos to OnLoad), so the rewind save's own ROUTES
         /// exist only in <paramref name="scenarios"/>, the parsed game's scenario protos built
         /// from the file. Parses them into detached Route instances and parks them with the
-        /// parsed save's clock (<paramref name="loadedClockUT"/>, after the lead-time windback) in
+        /// save's own UT (<paramref name="rewindSaveUT"/>, before the lead-time windback: the
+        /// moment the copy describes, <see cref="ResolveRewindSaveOwnUT"/>) in
         /// <see cref="RewindContext"/> for <c>HandleRewindOnLoad</c>. A read that throws parks no
         /// copy (the reset then stands) instead of failing the rewind it runs inside.
         /// </summary>
         internal static void CaptureRewindSaveRoutes(
-            IList<ProtoScenarioModule> scenarios, double loadedClockUT, string label)
+            IList<ProtoScenarioModule> scenarios, double rewindSaveUT, string label)
         {
             List<Route> saved;
             try
@@ -401,11 +542,17 @@ namespace Parsek.Logistics
                     $"{label}: reading the rewind save's route copy threw {ex.GetType().Name}: {ex.Message}; " +
                     "route loop cursors will stay reset");
             }
-            RewindContext.SetRewindSaveRoutes(saved, loadedClockUT);
+            // A rewind save written inside an earlier go-back's window carries that floor: its
+            // route copy describes the later moment.
+            double carriedFloor = RouteStore.ReadSavedRouteStateFloorUTFromScenarios(scenarios);
+            double routeStateUT = ApplyRouteStateFloor(rewindSaveUT, carriedFloor);
+            RewindContext.SetRewindSaveRoutes(saved, routeStateUT);
             ParsekLog.Info("Rewind",
                 $"{label}: rewind save's own route copy read for the loop-position restore: " +
                 $"routes={(saved == null ? "unknown (no ParsekScenario in the save)" : saved.Count.ToString(IC))} " +
-                $"clockUT={loadedClockUT.ToString("R", IC)}");
+                $"saveUT={rewindSaveUT.ToString("R", IC)} " +
+                $"carriedFloor={(double.IsNaN(carriedFloor) ? "none" : carriedFloor.ToString("R", IC))} " +
+                $"routeStateUT={routeStateUT.ToString("R", IC)}");
         }
 
         /// <summary>
@@ -485,11 +632,43 @@ namespace Parsek.Logistics
         internal static RouteLoadReconcileOutcome ReconcileAtInSessionLoad(
             LoadKind kind, double cutoffUT, double loadedSaveUT, ConfigNode loadedNode)
         {
-            List<Route> saved = Decide(kind, cutoffUT, routeStateAfterCutoff: true)
+            // The loaded save's route state floor (a save written inside a go-back's lead-time
+            // window, the outgoing node of a scene change in it included): its route copy is as
+            // of the floor, so the cutoff and the copy's UT rise to it. Loads owned elsewhere
+            // (cold, plain rewind, Re-Fly start) set the floor on their own paths.
+            double carriedFloor = RouteStore.ReadSavedRouteStateFloorUT(loadedNode);
+            double routeCutoffUT = ApplyRouteStateFloor(cutoffUT, carriedFloor);
+            double routeStateUT = ApplyRouteStateFloor(loadedSaveUT, carriedFloor);
+            if (routeCutoffUT != cutoffUT)
+            {
+                ParsekLog.Info(LogTag,
+                    $"Route reconcile at in-session load: kind={kind} cutoff {cutoffUT.ToString("R", IC)} -> " +
+                    $"{routeCutoffUT.ToString("R", IC)} (the loaded save's route state floor; its route copy " +
+                    "is as of the floor)");
+            }
+            if (Decide(kind, cutoffUT, routeStateAfterCutoff: true) != RouteLoadReconcileOutcome.SkippedOwnedElsewhere)
+                InstallFloorAfterLoad(loadedSaveUT, carriedFloor, LogTag, "In-session load " + kind);
+
+            List<Route> saved = Decide(kind, routeCutoffUT, routeStateAfterCutoff: true)
                 == RouteLoadReconcileOutcome.Reconciled
                 ? RouteStore.ReadSavedCommittedRoutes(loadedNode)
                 : null;
-            return ReconcileAtInSessionLoad(kind, cutoffUT, loadedSaveUT, saved);
+            return ReconcileAtInSessionLoad(kind, routeCutoffUT, routeStateUT, saved);
+        }
+
+        /// <summary>
+        /// The Re-Fly start's route cutoff: the bundle's retire cutoff
+        /// (<paramref name="cutoffUT"/>, the post-load clock), raised to the UT the RP
+        /// quicksave's route copy describes (<paramref name="loadedRouteStateUT"/>, its clock
+        /// raised to the floor it carries) when that copy is in hand and lies ahead. Without a
+        /// copy, or on the route-blind rollback (+inf), the cutoff stands.
+        /// </summary>
+        internal static double ResolveLoadedRouteCutoffUT(
+            double cutoffUT, IReadOnlyList<Route> loadedSaveRoutes, double loadedRouteStateUT)
+        {
+            if (loadedSaveRoutes == null || !IsUsableCutoffUT(cutoffUT))
+                return cutoffUT;
+            return ApplyRouteStateFloor(cutoffUT, loadedRouteStateUT);
         }
     }
 }
