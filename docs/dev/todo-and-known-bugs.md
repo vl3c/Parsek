@@ -16,6 +16,89 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE: an F9 resumes a tree member with the merge state its abandoned future's commit gave it [FILED 2026-10-07 from the QL-4 / QL-4b / QL-4c reading runs, branch `f9-verify`, verified in the produced saves and by code read. OPEN, product]
+
+QL-4 commits the flight in flight while the probe booster is still under canopy: the commit
+classifies it `stableLeafUnconcluded` (SubOrbital) and promotes it to CommittedProvisional
+(`CommitTree promoted rec=... to CommittedProvisional`), and its rewind point to persistent. The
+F9 then resumes the quicksave's tree. The quicksave's booster node carries no `mergeState` key
+(`RecordingTreeRecordCodec` writes it only when it is not Immutable), so it loads Immutable, and
+the same-id refresh (`ParsekScenario.CopyCommittedPayloadIntoLoadedRecording` and
+`RestoreCommittedSidecarPayloadIntoActiveTreeRecording`: keep the loaded state only when it is
+NotCommitted, else take the committed copy's) takes CommittedProvisional from the committed copy.
+The abandoned-future reconcile clears the booster's terminal and crew end states
+(`Recording.ClearTerminalEndStateForResume`) but not its merge state, and the final commit does
+not revisit it (`isFirstCommit` in `RecordingStore`'s promotion pass). The booster lands in the
+replay and is saved Landed AND CommittedProvisional (both halves of the exit commit's
+atmo / surface split), and its rewind point is never reaped (`ReapOrphanedRPs: reaped=0
+remaining=1`; produced saves of `2026-10-07_1931`, `_1936`, `_1942`, report-only
+`rewind.rewindPoints 1 > max 0` on all three). A Landed child is `stableTerminal`, not an
+Unfinished Flight, so the slot should read closed and the point be reaped.
+
+Same class as QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE (an abandoned future's state
+carried into the resumed tree), on a field that fix did not cover. Fix: not decided; either the
+reconcile resets a cleared member's merge state to what the quicksave held, or the refresh rule
+treats a member the quicksave holds as live (not committed history) as NotCommitted. Red test:
+xUnit - a committed tree whose child was promoted CommittedProvisional after the quicksave, the
+quicksave restore + reconcile, then assert the member's merge state is the quicksave's. Live
+witness: the QL-4 family's report-only `rewindPoints = { max = 0 }` (arm it after the fix).
+
+---
+
+## HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS: since PR #2017 an inert seam step costs one frame, so lanes that size a wait in inert steps wait about a tenth as long [FILED 2026-10-07 from the F9 verification flights, branch `f9-verify`, measured. OPEN, harness]
+
+PR #2017 (harness overhead, 2026-10-06) polls a seam response every 0.025 s for the first 2 s
+after the command write (`hlib.SEAM_FAST_POLL_SECONDS` / `seam_poll_interval`). An inert step
+(`RecordingState`, `MissionMark`) completes in one frame, so it now costs 0.02-0.035 s instead
+of the 0.25 s poll the specs were sized against (SS-1 and RL-1 state "about 0.25 s per inert
+step"). Every lane that lets N inert steps carry 1x game time, or settle a post-load physics
+hold, now waits about a tenth as long. Measured on 2026-10-07 (automation DLL sha256 prefix
+bd97e6a7):
+
+- `EX-1-ghost-extension-past-endut` `2026-10-07_1928` PARSEK-FAIL: ~140 inert steps were to
+  carry UT from the reload (11.04) past EndUT (26.1); the after-end mark read UT 14.7. Fixed in
+  the spec: `WarpToUT ut=34 maxRate=1` (RL-1's 1x wait).
+- `LF-2-loop-armed-rewind-first-run-real` `2026-10-07_1929` PARSEK-FAIL: its 110 marks of 1x
+  FLIGHT time (~27 s by design) took 3 s (UT 11.26 -> 14.38), and its Act 4 Space Center 1x wait
+  is shrunk the same way. NOT fixed: `WarpToUT` is FLIGHT-only, so no seam verb holds a
+  deterministic 1x wait at the Space Center.
+- The QL-4 family's 12-step post-F9 settle (0.4 s) let `WarpToUT` reach the post-load physics
+  hold (`warptout refused reason=warp-locked ut=400 holders=physicsHold`; the hold lifts at the
+  unpack, 1.0-1.2 s after OnFlightReady): fixed in the specs with a 150-step settle. A refused
+  post-mission step is non-gating on a MISSION-OK run, so the lane read PARSEK-FAIL on its
+  expectations rather than INVALID.
+- `S4.4-refly-quicksave-mid-session` attempt 1 `2026-10-07_1922` INVALID (passed on attempt 2):
+  the bare LoadGame raced the re-fly recorder start. NOT fixed: a 60-step settle
+  (`2026-10-07_1947`) let the recorder sample before the save, the provisional was no longer
+  unflown and the lane's merge tokens went missing; it needs the recorder live and the
+  provisional empty at the save, a window of a few frames, so the retry policy absorbs it.
+
+47 committed specs hold a run of 20 or more consecutive inert steps (largest: EVA-9 / EVA-10
+641, EVA-6 / EVA-7 241, BAY-1 202, EX-2 201, LF-1 / LF-2 121); each needs a read of whether the
+run is a time wait. Fix: owner decision. Options: a per-spec or per-step pacing floor in the
+harness (restoring the 0.25 s cadence where a spec asks for it), a seam wait verb that holds 1x
+time in any scene (`WaitUT`), or converting each FLIGHT wait to `WarpToUT maxRate=1` and each
+settle to a wait on a named condition.
+
+---
+
+## REWIND-CREW-LOSS-FIXTURE-RP-HAS-NO-BRANCH-POINT: the `rewind-crew-loss` corpus's rewind point is not linked to its tree, so in-session RP ownership reads it as the save's [FILED 2026-10-07 from the QL-3 reading run, branch `f9-verify`. OPEN, test fixture, low]
+
+`RewindCrewLossFixture.BuildRewindPoint` builds `rp_cl_root` SessionProvisional with no
+creating session and a `BranchPointId` (`bp_cl_root`) its tree does not carry: the committed
+tree has no branch points at all (QL-3's saveParse `branchPoints: {}`). A production rewind point
+is authored on a branch point of its tree and promoted to persistent at commit. The in-session
+owner partition (`InSessionStagedStateHandoff.Classify`) claims a point for a committed tree by
+that tree's branch-point ids or branch-point rewind-point ids, so it cannot claim this one and the
+point follows the save: QL-3 `2026-10-07_1920` logged `rp_cl_root:FollowSave:kept-loaded` and
+re-listed the point the merge had reaped (its quicksave file already deleted), report-only
+`rewindPoints 1` where a production-shaped tree reads 0. Not a product defect, but a fixture
+divergence that reads like one (the RP-quicksave lesson in CLAUDE.md). Fix: give the corpus tree a
+split BranchPoint `bp_cl_root` carrying `RewindPointId = rp_cl_root`, then re-pin QL-3's
+`rewindPoints` window to 0 and re-check CL-3 / RF lanes that inject the corpus.
+
+---
+
 ## ~~FACILITY-UPGRADE-FREE-REPAIR-REWRITES-COMMITTED-REPAIR: an Upgrade of an out-of-service facility repairs it for free ahead of a committed repair~~ [FILED 2026-10-07 while adding the Rebuild block, branch `facility-rebuild-block`. FIXED 2026-10-07 on the same branch (PR #2046), applying the Rebuild ruling's principle (supervisor decision); xUnit only, not flown]
 
 Decompiled KSP 1.12.5: `SpaceCenterBuilding.UpgradeFacility` debits, then runs `ResetStructures()`
@@ -782,7 +865,7 @@ note changes with it.
 
 ---
 
-## ~~QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY: an in-session load rebuilds the Re-Fly bookkeeping from the save but keeps recordings and the ledger from memory~~ [FILED 2026-10-06 from the coverage-extension research, adversarially verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, PR #2038 (xUnit only; live proof is lane QL-3, authored, never flown, and QL-5 for the Discard Re-fly load, which needs the TC-1 `ReFlyRevert` verb)]
+## ~~QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY: an in-session load rebuilds the Re-Fly bookkeeping from the save but keeps recordings and the ledger from memory~~ [FILED 2026-10-06 from the coverage-extension research, adversarially verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, PR #2038. LIVE-PROVEN 2026-10-07 by lane QL-3 (`2026-10-07_1920`, PASS attempt 1: the load of the pre-merge save installed the session's supersede row and both tombstones, `loadedFromSave=0 restored=1` / `restored=2`); QL-5 for the Discard Re-fly load still needs the TC-1 `ReFlyRevert` verb]
 
 `LoadRewindStagingState` (`ParsekScenario.cs:2783`, called at `:3609` on every load) replaces
 rewind points, supersede rows, retirements, tombstones, the Re-Fly marker and the merge journal
@@ -887,7 +970,7 @@ QL-2.
 
 ---
 
-## ~~QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS: a committed tree detached on F9 keeps its future ledger rows~~ [FILED 2026-10-06 from the coverage-extension research, verified (when the detach runs); branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, PR #2025 (xUnit only; live proof is a career variant of lane QL-4)]
+## ~~QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS: a committed tree detached on F9 keeps its future ledger rows~~ [FILED 2026-10-06 from the coverage-extension research, verified (when the detach runs); branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, PR #2025 (xUnit; QL-4's sandbox flight `2026-10-07_1931` ran the retire, `ledgerRowsRetired=1` (a kerbal-assignment row); funds and reward rows still need a career variant of lane QL-4)]
 
 When the loaded save's active tree was committed later, `RemoveCommittedTreeById`
 (`RecordingStore.cs:820-843`) detaches it without touching its ledger rows, and the commit-time
@@ -921,7 +1004,7 @@ recording-tagged ledger rows after the quicksave; untagged KSC rows are kept.
 
 ---
 
-## ~~QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE: other tree members keep the abandoned future's terminal state and crew end states after F9~~ [FILED 2026-10-06 from the coverage-extension research, partly verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, PR #2025 (xUnit only; live proof is lane QL-4)]
+## ~~QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE: other tree members keep the abandoned future's terminal state and crew end states after F9~~ [FILED 2026-10-06 from the coverage-extension research, partly verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, PR #2025. LIVE-PROVEN 2026-10-07 by lane QL-4 (`2026-10-07_1931`, PASS attempt 1: `endStatesCleared=2`, the booster back in the background map and recorded down to `terminal=Landed`). Its merge state is a separate leak, todo QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE]
 
 The splice and same-id refresh (`HydrationRepair.cs:495-508`, `:684-787`) copy terminal state,
 terminal orbit, snapshot and crew end states from the committed future copy, and the stale-epoch
@@ -963,8 +1046,9 @@ scanned) and `QuickloadAbandonedFutureLedgerTests` (a tree committed before the
 quicksave: terminal, committed-node and branch-point history members kept). Open: the trim itself
 still cuts such history members (QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESUMED-CLONE).
 
-Live proof: `harness/scenarios/QL-4-quickload-booster-terminal.toml` (authored 2026-10-06, never
-flown; fly on request once the fix is in the automation DLL). It F9s in FLIGHT after an in-flight
+Live proof: `harness/scenarios/QL-4-quickload-booster-terminal.toml`, green 2026-10-07
+`2026-10-07_1931` (attempt 1 `_1912` was a spec premise miss: the post-F9 `WarpToUT` hit the
+post-load physics hold and the commit-UT token excluded 149.9; both fixed in the spec). It F9s in FLIGHT after an in-flight
 commit with no save in between; the Space Center F9 into the older flight quicksave (which
 dropped the whole saved tree on stale sidecar epochs until
 QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE was fixed) is lane QL-4b, and
@@ -972,7 +1056,7 @@ the in-flight F9 after a later save is lane QL-4c.
 
 ---
 
-## ~~QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE: F9 into a committed flight's quicksave after any later save (the Space Center exit, an autosave, a far vessel switch) leaves its abandoned future committed~~ [FILED 2026-10-06 while authoring lane QL-4 (Space Center route), verified by code read; in-flight route folded in 2026-10-06 from the PR-C review, verified by code read. FIXED 2026-10-06, PR #2030 (xUnit; live proof is lanes QL-4b and QL-4c, authored, never flown)]
+## ~~QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE: F9 into a committed flight's quicksave after any later save (the Space Center exit, an autosave, a far vessel switch) leaves its abandoned future committed~~ [FILED 2026-10-06 while authoring lane QL-4 (Space Center route), verified by code read; in-flight route folded in 2026-10-06 from the PR-C review, verified by code read. FIXED 2026-10-06, PR #2030. LIVE-PROVEN 2026-10-07 by lanes QL-4b (`2026-10-07_1936`, Space Center route) and QL-4c (`2026-10-07_1942`, in-flight route), both PASS attempt 1 with `staleMembers=2 salvagedFromCommitted=2`]
 
 One root, two routes. Any OnSave between the quicksave and the F9 of a flight committed in that
 window rewrites the flight's changed
@@ -1061,8 +1145,9 @@ game-state events tagged to a recording created only on the in-flight route's re
 (after the commit) stay tagged to an id no tree holds, as on the no-save route
 (QUICKLOAD-RESUMED-CLONE-EVENTS-ORPHANED).
 
-Live proof (authored 2026-10-06, never flown; fly on request once the fix is in the automation
-DLL): `harness/scenarios/QL-4b-quickload-from-space-center.toml` (QL-4's flight, `ExitToSpaceCenter`
+Live proof (green 2026-10-07: QL-4b `2026-10-07_1936`, QL-4c `2026-10-07_1942`, after the
+same spec settle fix as QL-4; the first readings `_1914` / `_1917` already showed every F9 token):
+`harness/scenarios/QL-4b-quickload-from-space-center.toml` (QL-4's flight, `ExitToSpaceCenter`
 for the auto-merge and the exit save, then `LoadGame` of the flight quicksave at the KSC) and
 `harness/scenarios/QL-4c-quickload-after-in-flight-save.toml` (QL-4 plus a `SaveGame persistent`
 between the in-flight commit and the load). Each requires the decision line and the reconcile line
@@ -1071,7 +1156,10 @@ tree` plus `reason=empty-plan` (in flight). First reading run of QL-4b: read the
 commit-time optimizer split of the quicksave's active recording at a point before the cutoff (the
 pod lands about a second before the quicksave). The resume would then run on a truncated chain
 head under the quicksave's active id while the spliced tail survives the trim up to the cutoff;
-file it here if it shows.
+file it here if it shows. Read 2026-10-07 on `_1914` and `_1936`: no split before the load (the exit
+commit only tail-trimmed the pod's recording, endUT 150.0 -> 129.4 / 131.7, both after the
+cutoff); the only split in `_1936` is the final exit commit's atmo / surface split of the
+replayed booster.
 
 ---
 

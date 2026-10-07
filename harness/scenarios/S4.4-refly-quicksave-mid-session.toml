@@ -1,5 +1,17 @@
 schema = 1
 id = "S4.4-refly-quicksave-mid-session"
+# READING 2026-10-07 (branch `f9-verify`, automation DLL sha256 prefix bd97e6a7): attempt 1
+# `2026-10-07_1922` INVALID driver-verdict-mismatch, attempt 2 `2026-10-07_1923` PASS. Attempt 1
+# is the pre-registered "reload OK instead of REJECTED" shape and it is TIMING, not the guard:
+# since PR #2017 an inert seam step costs one frame, and the SaveGame went out 0.07 s and the
+# bare LoadGame 0.16 s after `Invocation complete`, before the re-fly recorder went live
+# (`recorderLive=false`). On attempt 2 the recorder started 0.33 s after the invocation and the
+# reload was refused. A settle pad is NOT the fix: with a 60-step pad (`2026-10-07_1947`) the
+# recorder sampled ~1.5 s before the save, the provisional was no longer unflown, and the
+# merge tokens `outcome=retired-empty-provisional` / `refused-unflown-provisional` went
+# missing. The lane needs the recorder live AND the provisional empty at the save, a window
+# of a few frames, so the race stays and the retry policy absorbs it (todo
+# HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
 # `operator` for its first flight: this WAS the deliberate experiment the todo entry
 # REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION asked for - a real quicksave AND quickload
 # taken WHILE a Re-Fly session is live, OUTSIDE any in-game batch. READING RUN 1
