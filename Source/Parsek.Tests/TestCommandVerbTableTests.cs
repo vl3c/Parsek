@@ -59,6 +59,7 @@ namespace Parsek.Tests
         [InlineData("Recover")]
         [InlineData("TrackingStationRecover")]
         [InlineData("KscMarkerRecover")]
+        [InlineData("ReFlyRevert")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -187,7 +188,9 @@ namespace Parsek.Tests
             // The Gloops pair's REMOVAL (48 -> 46; reserved unchanged at 4) went with the
             // in-Parsek Gloops recorder itself: the ghost-only recorder they drove is gone,
             // so the first number moves alone and by TWO, the mirror of their addition.
-            Assert.Equal(46, TestCommandVerbs.ImplementedVerbNames.Count);
+            // ReFlyRevert is ADDITIVE (46 -> 47; reserved unchanged at 4): the Esc menu's
+            // Revert during a live Re-Fly, answered on Parsek's Re-Fly revert dialog.
+            Assert.Equal(47, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

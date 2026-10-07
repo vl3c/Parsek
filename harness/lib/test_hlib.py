@@ -1104,7 +1104,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # Recover, the recovery a player makes without leaving the Space Center.
         # 46 / 4 after the manual ghost-only recorder pair's removal (2026-10-05), a
         # REMOVAL by two.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 46)
+        # 47 / 4 after ReFlyRevert, an ADDITION by one: the Esc menu's Revert during a
+        # live Re-Fly, answered on Parsek's Re-Fly revert dialog.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 47)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -16357,6 +16359,103 @@ class KscMarkerRecoverSourceSyncTests(unittest.TestCase):
         steps.insert(len(steps) - 1, {"cmd": hlib.KSCRECOVER_VERB, "args": {}})
         v = hlib.validate_spec(spec, load_registry())
         self.assertTrue(any("kscrecover-pid-arg-missing" in e for e in v.errors), v.errors)
+
+
+class ReFlyRevertSourceSyncTests(unittest.TestCase):
+    """`ReFlyRevert`. Reads OUTSIDE harness/: the verb, the two arg keys, their closed
+    vocabularies and the refusal reasons (the `Reasons` array, IN ORDER) of the
+    comment-stripped TestCommands/TestCommandReFlyRevert.cs, plus the three dialog button
+    labels the applier finds in ReFlyRevertDialog.cs."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# ReFlyRevert tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_keys_values_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandReFlyRevert.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.REFLYREVERT_VERB, text)
+        self.assertIn('internal const string ChoiceKey = "%s";' % hlib.REFLYREVERT_CHOICE_KEY, text)
+        self.assertIn('internal const string TargetKey = "%s";' % hlib.REFLYREVERT_TARGET_KEY, text)
+        self.assertEqual(list(hlib.REFLYREVERT_CHOICE_VALUES),
+                         StockScreenSourceSyncTests._cs_string_array(text, "ChoiceValues"))
+        self.assertEqual(list(hlib.REFLYREVERT_TARGET_VALUES),
+                         StockScreenSourceSyncTests._cs_string_array(text, "TargetValues"))
+        self.assertEqual(list(hlib.REFLYREVERT_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        for reason in hlib.REFLYREVERT_REASONS:
+            self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason),
+                          ("driver-arg", "driver-gate", "driver-dialog"), reason)
+
+    def test_the_dialog_labels_the_applier_finds_are_the_dialogs_own(self):
+        text = self._source("ReFlyRevertDialog.cs")
+        for const, label in (("RetryButtonText", "Retry from Rewind Point"),
+                             ("DiscardButtonText", "Discard Re-Fly"),
+                             ("ContinueButtonText", "Continue Flying")):
+            with self.subTest(const=const):
+                self.assertIn('internal const string %s = "%s";' % (const, label), text)
+                self.assertIn("new DialogGUIButton(%s," % const, text)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.REFLYREVERT_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(300.0, hlib.dispatch_deferral_budget(verb))
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+        self.assertEqual("driver-gate",
+                         hlib.classify_seam_refusal_subkind("reflyrevert-no-session"))
+        self.assertEqual("driver-gate",
+                         hlib.classify_seam_refusal_subkind("reflyrevert-option-unavailable"))
+        self.assertEqual("driver-dialog",
+                         hlib.classify_seam_refusal_subkind("reflyrevert-dialog-not-shown"))
+        self.assertEqual("driver-arg",
+                         hlib.classify_seam_refusal_subkind("reflyrevert-choice-arg-invalid"))
+        # The four spec-text refusals are deterministic (the retry sends the same args).
+        for reason in ("reflyrevert-choice-arg-missing", "reflyrevert-choice-arg-invalid",
+                       "reflyrevert-target-arg-missing", "reflyrevert-target-arg-invalid"):
+            self.assertIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        # The live-state refusals are not: they read a session a load race could change.
+        for reason in ("reflyrevert-no-session", "reflyrevert-dialog-not-shown"):
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+
+    def test_the_step_validator(self):
+        v = hlib.validate_refly_revert_step
+        for choice in hlib.REFLYREVERT_CHOICE_VALUES:
+            for target in hlib.REFLYREVERT_TARGET_VALUES:
+                self.assertEqual([], v(0, {"choice": choice, "target": target}))
+        self.assertIn("reflyrevert-choice-arg-missing", v(0, {"target": "launch"})[0])
+        self.assertIn("reflyrevert-target-arg-missing", v(0, {"choice": "discard"})[0])
+        self.assertIn("reflyrevert-choice-arg-missing", v(0, {"choice": "", "target": "launch"})[0])
+        self.assertEqual(2, len(v(0, {})))
+        for bad in ("Discard", "merge", " discard"):
+            with self.subTest(choice=bad):
+                self.assertIn("reflyrevert-choice-arg-invalid",
+                              v(0, {"choice": bad, "target": "launch"})[0])
+        for bad in ("Launch", "vab", "editor"):
+            with self.subTest(target=bad):
+                self.assertIn("reflyrevert-target-arg-invalid",
+                              v(0, {"choice": "discard", "target": bad})[0])
+
+    def test_validate_spec_runs_the_step_validator(self):
+        spec = copy.deepcopy(load_spec("B10-career-passive-safety.toml"))
+        steps = spec["driver"]["steps"]
+        steps.insert(len(steps) - 1, {"cmd": hlib.REFLYREVERT_VERB, "args": {"choice": "discard"}})
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertTrue(any("reflyrevert-target-arg-missing" in e for e in v.errors), v.errors)
+
+    def test_the_committed_lane_validates(self):
+        spec = load_spec("QL-5-discard-refly-keeps-unfinished-flight.toml")
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertEqual([], list(v.errors))
+        cmds = [s.get("cmd") for s in spec["driver"]["steps"]]
+        self.assertIn(hlib.REFLYREVERT_VERB, cmds)
+        # The verb runs after the rewind that makes the session it reverts.
+        self.assertLess(cmds.index("InvokeRewind"), cmds.index(hlib.REFLYREVERT_VERB))
 
 
 class GuiCensusSeamVerbTests(unittest.TestCase):

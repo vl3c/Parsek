@@ -270,6 +270,9 @@ namespace Parsek.TestCommands
         // ----- KscMarkerRecover (the Space Center marker recovery: open the vessel's
         // marker, press its Recover) -----
         void KscMarkerRecover(ParsedCommand cmd);
+        // ----- ReFlyRevert (the Esc menu's Revert during a live Re-Fly: the stock pause
+        // menu, the stock revert option, then a button of Parsek's Re-Fly revert dialog) -----
+        void ReFlyRevert(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -537,6 +540,11 @@ namespace Parsek.TestCommands
                 // Space Center only, the wrong scene its own typed REJECTED
                 // (kscrecover-wrong-scene).
                 ["KscMarkerRecover"] = VerbSceneRequirement.RequiresGameLoaded,
+                // ReFlyRevert. RequiresGameLoaded, not RequiresFlight: a FLIGHT verb would
+                // DEFER not-in-flight up to its 300 s budget, and the verb's wrong scene is
+                // a typed REJECTED instead (reflyrevert-wrong-scene), next to its other
+                // pre-press refusal, reflyrevert-no-session.
+                ["ReFlyRevert"] = VerbSceneRequirement.RequiresGameLoaded,
             };
 
         /// <summary>
@@ -735,6 +743,10 @@ namespace Parsek.TestCommands
                 case "Recover":
                 case "TrackingStationRecover":
                 case "KscMarkerRecover":
+                // ReFlyRevert's Discard and Retry each load a save and change scene, so it
+                // takes the same pair: never over a LoadGame's own scene change, never over a
+                // re-fly merge journal mid-finalize (the dialog also hides Discard then).
+                case "ReFlyRevert":
                     // The ExitToSpaceCenter pair, for its two reasons: Recover drives a
                     // scene exit (TrackingStationRecover two: into the Tracking Station and
                     // back; KscMarkerRecover a recovery plus stock's persistent save) and
@@ -995,6 +1007,13 @@ namespace Parsek.TestCommands
         /// named so the table states it.</summary>
         internal const double KscMarkerRecoverSeconds = 60.0;
 
+        /// <summary>ReFlyRevert: the resume settle (up to 30 s), the stock menus, then the
+        /// chosen button's outcome - Discard copies the rewind point's quicksave, parses it
+        /// through GamePersistence.LoadGame and loads the Space Center or the editor (the
+        /// InvokeRewindToLaunch shape), Retry reloads the flight (the InvokeRewind shape).
+        /// Their size, 300 s.</summary>
+        internal const double ReFlyRevertSeconds = 300.0;
+
         /// <summary>
         /// The deferral budget (seconds) for <paramref name="verb"/>. For RunTests the
         /// scenario's declared runtime budget is authoritative when supplied via
@@ -1046,6 +1065,8 @@ namespace Parsek.TestCommands
                     return TrackingStationRecoverSeconds;
                 case "KscMarkerRecover":
                     return KscMarkerRecoverSeconds;
+                case "ReFlyRevert":
+                    return ReFlyRevertSeconds;
                 // KscAction rides the default 60 s (career-ready / SPACECENTER wait; the
                 // action itself is immediate). SimulateStockSwitchClick rides it too: it is
                 // SINGLE-phase (the switch and its consume are synchronous inside

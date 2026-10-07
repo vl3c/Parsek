@@ -1324,6 +1324,15 @@ the editor load reads persistent.sfs, not the point's quicksave (see
 DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT); the node the load reads is whatever
 persistent.sfs last held. Close after lane QL-5 flies both targets.
 
+Reachability (2026-10-07, decompiled KSP 1.12.5 while building the `ReFlyRevert` verb): the
+editor target is not reachable through the stock Esc menu during a separation Re-Fly. The
+session is a resumed flight, `FlightDriver.Start` sets `CanRevertToPrelaunch` only for a
+PRELAUNCH vessel that is the post-init vessel with a ship config and a pre-launch state, and
+`ReFlyRevertButtonGate` forces only `CanRevertToPostInit`, so `PauseMenu.drawStockRevertOptions`
+offers no Revert to VAB / SPH (`ReFlyRevert target=prelaunch` answers
+`reflyrevert-option-unavailable`). QL-5 therefore flies the launch target only (authored, never
+flown); the unit cell remains the proof of the editor path.
+
 ---
 
 ## DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT: Discard Re-fly loads the rewind point's quicksave, but the scene it then opens reloads persistent.sfs [FILED 2026-10-06 from the in-session carry work (PR #2038), verified by decompile; player effect not traced. OPEN, product; to trace]
@@ -1579,7 +1588,13 @@ ISRU aboard. The two questions it raised are ruled (2026-10-06): cap harvest-ori
 - `Quickload` (or `LoadGame allowLiveRecorder=quickload`): LoadGame refuses a live recorder today
   except for Re-Fly (`TestCommandDispatcher.cs:619-643`).
 - `Revert target=launch|vab`: no stock-revert verb exists.
-- `ReFlyRevert choice=... target=launch|prelaunch`: the Esc > Revert dialog during a Re-Fly.
+- ~~`ReFlyRevert choice=... target=launch|prelaunch`: the Esc > Revert dialog during a Re-Fly.~~
+  DONE 2026-10-07 (branch `refly-revert-verb`): `ReFlyRevert choice=discard|retry|cancel
+  target=launch|prelaunch` presses the stock pause menu's Revert Flight and revert option, then
+  the chosen button of Parsek's Re-Fly revert dialog; hlib mirror `ReFlyRevertSourceSyncTests`;
+  consumer lane `QL-5-discard-refly-keeps-unfinished-flight` (never flown). A resumed flight
+  never offers Revert to VAB / SPH, so `target=prelaunch` answers
+  `reflyrevert-option-unavailable` during a separation Re-Fly.
 - `RunInvariantReport`: reserved, not implemented (`TestCommandVerbs.cs:343-361`); as a per-step
   read it lifts the one-`RunTests`-per-lane limit for invariant checks.
 - `ReadVesselResources pid=|name= [expect=...]`: per-vessel resource totals and a part-uid digest
