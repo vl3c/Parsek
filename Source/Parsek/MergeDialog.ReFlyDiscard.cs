@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Parsek
@@ -190,6 +191,8 @@ namespace Parsek
                     summary.AttemptIds = single;
                     summary.RemovedCommitted = RemoveCommittedAttemptRecordings(single);
                     summary.LedgerTagsCleared = Ledger.ClearRecordingTagForRecordings(single);
+                    summary.StagedRows = PruneStagedRowsNamingAttempt(
+                        ParsekScenario.Instance, single, callSite ?? "PruneActiveReFlyAttemptOwnedTopology");
                 }
                 ParsekLog.Warn("MergeDialog",
                     $"PruneActiveReFlyAttemptOwnedTopology: no in-memory tree found " +
@@ -211,6 +214,8 @@ namespace Parsek
             summary.TransientCleared = ClearReFlyAttemptTransientFields(
                 tree, marker, summary.AttemptIds);
             summary.LedgerTagsCleared = Ledger.ClearRecordingTagForRecordings(summary.AttemptIds);
+            summary.StagedRows = PruneStagedRowsNamingAttempt(
+                ParsekScenario.Instance, summary.AttemptIds, callSite ?? "PruneActiveReFlyAttemptOwnedTopology");
 
             ParsekLog.Info("MergeDialog",
                 $"PruneActiveReFlyAttemptOwnedTopology callSite={callSite ?? "<none>"} " +
@@ -222,7 +227,8 @@ namespace Parsek
                 $"deletedFiles={summary.DeletedFiles} " +
                 $"prunedCommittedTreeEntries={summary.PrunedCommittedTreeEntries} " +
                 $"transientCleared={summary.TransientCleared} " +
-                $"ledgerTagsCleared={summary.LedgerTagsCleared}");
+                $"ledgerTagsCleared={summary.LedgerTagsCleared} " +
+                $"stagedRowsPruned={summary.StagedRows.Total}");
 
             return summary;
         }
@@ -241,6 +247,97 @@ namespace Parsek
             internal int PrunedCommittedTreeEntries;
             internal int TransientCleared;
             internal int LedgerTagsCleared;
+            internal StagedRowsPruneResult StagedRows;
+        }
+
+        /// <summary>Counts of <see cref="PruneStagedRowsNamingAttempt"/>.</summary>
+        internal struct StagedRowsPruneResult
+        {
+            internal int Supersedes;
+            internal int Tombstones;
+            internal int Retirements;
+            internal int Total => Supersedes + Tombstones + Retirements;
+        }
+
+        /// <summary>
+        /// Owner ruling OQ-1: a quickload into a quicksave taken during a Re-Fly session that has
+        /// since merged resumes that session while memory keeps the first merge's rows. A discard
+        /// of the resumed session prunes the attempt's recordings, so the rows that NAME them must
+        /// go too, or a supersede row left pointing at a pruned recording keeps hiding the origin
+        /// (<see cref="EffectiveState.IsVisible"/> walks to the missing recording and
+        /// <c>LoadTimeSweep</c> keeps one-sided rows) and a tombstone the first merge wrote keeps
+        /// the origin's crew death and penalties retired. Removes supersede rows whose NEW side is
+        /// a pruned recording, tombstones whose retiring recording is one, and rewind retirements
+        /// that retire one. A fresh session's discard finds none (rows are written only at merge).
+        /// Bumps the tombstone version when a tombstone went; the callers bump the supersede
+        /// version when they end the session.
+        /// </summary>
+        internal static StagedRowsPruneResult PruneStagedRowsNamingAttempt(
+            ParsekScenario scenario, HashSet<string> attemptIds, string callSite)
+        {
+            var result = new StagedRowsPruneResult();
+            if (object.ReferenceEquals(null, scenario) || attemptIds == null || attemptIds.Count == 0)
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"PruneStagedRowsNamingAttempt callSite={callSite ?? "<none>"}: "
+                    + (object.ReferenceEquals(null, scenario) ? "no scenario" : "no attempt ids") + " - nothing to prune");
+                return result;
+            }
+
+            var removedIds = new List<string>();
+            result.Supersedes = RemoveRowsNaming(
+                scenario.RecordingSupersedes, InSessionStagedStateHandoff.SupersedeWriterId,
+                r => r.RelationId, attemptIds, removedIds);
+            result.Tombstones = RemoveRowsNaming(
+                scenario.LedgerTombstones, InSessionStagedStateHandoff.TombstoneWriterId,
+                t => t.TombstoneId, attemptIds, removedIds);
+            result.Retirements = RemoveRowsNaming(
+                scenario.RecordingRewindRetirements, InSessionStagedStateHandoff.RetirementWriterId,
+                r => r.RetirementId, attemptIds, removedIds);
+
+            if (result.Tombstones > 0)
+                scenario.BumpTombstoneStateVersion();
+
+            if (result.Total > 0)
+            {
+                ParsekLog.Info("MergeDialog",
+                    $"PruneStagedRowsNamingAttempt callSite={callSite ?? "<none>"}: removed rows naming the pruned "
+                    + $"attempt supersedes={result.Supersedes} tombstones={result.Tombstones} "
+                    + $"retirements={result.Retirements} attemptIds={attemptIds.Count} "
+                    + $"[{InSessionStagedStateHandoff.JoinBounded(removedIds, 20)}]");
+            }
+            else
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"PruneStagedRowsNamingAttempt callSite={callSite ?? "<none>"}: no row names the "
+                    + $"{attemptIds.Count} pruned attempt recording(s)");
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Pure: removes every row whose <paramref name="namedIdOf"/> is in <paramref name="ids"/>,
+        /// appending each removed row's own id to <paramref name="removedIds"/>. Returns the count.
+        /// </summary>
+        internal static int RemoveRowsNaming<T>(
+            List<T> rows, Func<T, string> namedIdOf, Func<T, string> rowIdOf,
+            HashSet<string> ids, List<string> removedIds)
+            where T : class
+        {
+            if (rows == null || rows.Count == 0 || ids == null || ids.Count == 0)
+                return 0;
+            int removed = 0;
+            for (int i = rows.Count - 1; i >= 0; i--)
+            {
+                var row = rows[i];
+                if (row == null) continue;
+                string named = namedIdOf(row);
+                if (string.IsNullOrEmpty(named) || !ids.Contains(named)) continue;
+                removedIds?.Add(rowIdOf(row) ?? "<no-id>");
+                rows.RemoveAt(i);
+                removed++;
+            }
+            return removed;
         }
 
         /// <summary>
@@ -312,6 +409,7 @@ namespace Parsek
                 $"transientCleared={discard.TransientCleared}, " +
                 $"ledgerTagsCleared={discard.LedgerTagsCleared}, " +
                 $"rpPromoted={discard.RpPromoted}, discardedSessionRps={discard.DiscardedSessionRps}, " +
+                $"stagedRowsPruned={discard.StagedRows.Total}, " +
                 $"restoredCommittedTree={discard.RestoredCommittedTree}, durableSaved={durableSaved})");
             ParsekLog.Info("ReFlySession",
                 $"End reason={MergeDialogDiscardReason} sess={sessionId ?? "<no-id>"} " +
@@ -339,6 +437,7 @@ namespace Parsek
             internal bool RpPromoted;
             internal int DiscardedSessionRps;
             internal bool RestoredCommittedTree;
+            internal StagedRowsPruneResult StagedRows;
         }
 
         /// <summary>
@@ -366,6 +465,7 @@ namespace Parsek
             result.PrunedCommittedTreeEntries = PruneAttemptRecordingsFromCommittedTrees(
                 result.AttemptIds, marker);
             result.TransientCleared = ClearReFlyAttemptTransientFields(tree, marker, result.AttemptIds);
+            result.StagedRows = PruneStagedRowsNamingAttempt(scenario, result.AttemptIds, reason);
             // Retire-time tag re-home, same contract as
             // SupersedeCommit.ConcludeRetiredProvisional: this path already purges the
             // attempt's store events and files but never touched Ledger.Actions, so a payout
@@ -536,7 +636,15 @@ namespace Parsek
             return string.Equals(marker.TreeId, tree.Id, System.StringComparison.Ordinal);
         }
 
-        private static HashSet<string> CollectReFlyAttemptOwnedRecordingIds(
+        /// <summary>
+        /// The recordings a Re-Fly attempt owns in <paramref name="tree"/>: the marker's active
+        /// recording, recordings stamped with its session (<see cref="IsCreatedByReFlySession"/>;
+        /// never another session's fork on the same rewind point), an unstamped NotCommitted fork
+        /// aimed at its slot, and children of branch points the session authored. The discards prune these; the
+        /// in-session handoff's resumed-tree rule keeps the rows they wrote when the loaded marker
+        /// resumes the attempt (owner ruling OQ-1).
+        /// </summary>
+        internal static HashSet<string> CollectReFlyAttemptOwnedRecordingIds(
             RecordingTree tree, ReFlySessionMarker marker)
         {
             var ids = new HashSet<string>(System.StringComparer.Ordinal);
@@ -632,6 +740,31 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Whether <paramref name="rec"/> was created by the Re-Fly session <paramref name="marker"/>
+        /// names, by its session stamp. <c>RewindInvoker.BuildProvisionalRecording</c> stamps
+        /// <c>CreatingSessionId</c> and <c>ProvisionalForRpId</c> together, every copy site (clone,
+        /// optimizer split, tree splitter, hydration repair) copies both, and a merge clears neither,
+        /// so a rewind-point match alone also claims every other session's fork on the same rewind
+        /// point: one merged before this session started (committed history) and one merged after a
+        /// quicksave this session resumes from. The rewind-point stamp decides only for a marker with
+        /// no session id, and then only for a recording with no session stamp.
+        /// </summary>
+        internal static bool IsCreatedByReFlySession(Recording rec, ReFlySessionMarker marker)
+        {
+            if (rec == null || marker == null)
+                return false;
+            if (!string.IsNullOrEmpty(marker.SessionId))
+            {
+                return string.Equals(rec.CreatingSessionId,
+                    marker.SessionId, System.StringComparison.Ordinal);
+            }
+            return string.IsNullOrEmpty(rec.CreatingSessionId)
+                && !string.IsNullOrEmpty(marker.RewindPointId)
+                && string.Equals(rec.ProvisionalForRpId,
+                    marker.RewindPointId, System.StringComparison.Ordinal);
+        }
+
         private static bool IsReFlyAttemptOwnedRecording(
             Recording rec, ReFlySessionMarker marker)
         {
@@ -643,18 +776,15 @@ namespace Parsek
                     marker.ActiveReFlyRecordingId, System.StringComparison.Ordinal))
                 return true;
 
-            if (!string.IsNullOrEmpty(marker.SessionId)
-                && string.Equals(rec.CreatingSessionId,
-                    marker.SessionId, System.StringComparison.Ordinal))
+            if (IsCreatedByReFlySession(rec, marker))
                 return true;
 
-            if (!string.IsNullOrEmpty(marker.RewindPointId)
-                && string.Equals(rec.ProvisionalForRpId,
-                    marker.RewindPointId, System.StringComparison.Ordinal))
-                return true;
-
+            // An unstamped NotCommitted fork aimed at the marker's slot; one stamped by another
+            // session is that session's (a zombie the invoke reaps, or LoadTimeSweep does).
             if (rec.MergeState == MergeState.NotCommitted
-                && !string.IsNullOrEmpty(rec.SupersedeTargetId))
+                && !string.IsNullOrEmpty(rec.SupersedeTargetId)
+                && (string.IsNullOrEmpty(rec.CreatingSessionId)
+                    || string.Equals(rec.CreatingSessionId, marker.SessionId, System.StringComparison.Ordinal)))
             {
                 if (string.Equals(rec.SupersedeTargetId,
                         marker.OriginChildRecordingId, System.StringComparison.Ordinal))
@@ -1025,17 +1155,12 @@ namespace Parsek
                 if (rec == null)
                     continue;
 
-                bool sessionOwned = !string.IsNullOrEmpty(marker.SessionId)
-                    && string.Equals(rec.CreatingSessionId,
-                        marker.SessionId, System.StringComparison.Ordinal);
-                bool rpOwned = !string.IsNullOrEmpty(marker.RewindPointId)
-                    && string.Equals(rec.ProvisionalForRpId,
-                        marker.RewindPointId, System.StringComparison.Ordinal);
+                bool sessionOwned = IsCreatedByReFlySession(rec, marker);
                 bool attemptOwned = attemptIds != null
                     && !string.IsNullOrEmpty(rec.RecordingId)
                     && attemptIds.Contains(rec.RecordingId);
 
-                if (!sessionOwned && !rpOwned && !attemptOwned)
+                if (!sessionOwned && !attemptOwned)
                     continue;
 
                 if (!string.IsNullOrEmpty(rec.CreatingSessionId)

@@ -263,10 +263,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NonRewindLoad_LeavesTheLoadedListAlone_AndDropsAStrandedCapture()
+        public void NonRewindLoad_TheRewindCarryStaysOut_AndDropsAStrandedCapture()
         {
-            // Mirror direction: a quickload / scene change (IsRewinding false) must keep
-            // reading its RP list from the save it loaded.
+            // Mirror direction: the plain-rewind RP carry installs nothing on a load that is not
+            // a rewind (IsRewinding false) and drops a stranded capture. Such a load's RP list is
+            // decided elsewhere: the in-session owner partition (InSessionStagedListsCarryTests),
+            // the Re-Fly bundle, or the loaded node on a cold load, which is what this cell leaves.
             var scenario = InstallScenario(Rp("rp_mem", 10.0));
             RecordingStore.CaptureRewindPointsForRewind(scenario, "Rewind");
             var fromQuicksave = Rp("rp_quicksave", 5.0);
@@ -302,8 +304,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ReloadAfterTheRewind_IsAnOrdinaryLoad_TheCaptureIsConsumedOnce()
+        public void ReloadAfterTheRewind_TheRewindCaptureIsConsumedOnce()
         {
+            // The rewind's own load spends the capture; the next load is not a rewind, so the
+            // carry stays out of it and that load's list comes from its own owner (the
+            // in-session handoff on a scene change, the loaded node here).
             var rp = Rp("rp_a", 10.0);
             var scenario = InstallScenario(rp);
             BeginPlainRewind();
@@ -312,7 +317,7 @@ namespace Parsek.Tests
             RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
             RewindContext.EndRewind();   // HandleRewindOnLoad's EndRewind
 
-            // The next load reads the list OnSave wrote from memory: the RP round-trips.
+            // The list OnSave wrote from memory round-trips through the next load.
             var node = new ConfigNode("REWIND_POINTS");
             scenario.RewindPoints[0].SaveInto(node);
             var reloaded = RewindPoint.LoadFrom(node.GetNodes("POINT").Single());

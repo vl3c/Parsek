@@ -1218,6 +1218,21 @@ namespace Parsek
             // ActiveReFlySessionMarker through <see cref="Instance"/>. OnAwake
             // fires before OnLoad, so the Instance is available throughout the
             // load path.
+            // A predecessor still registered here was not torn down before this instance woke:
+            // take the in-session handoff from it now (its OnDestroy will no longer be Instance).
+            var predecessor = s_instance;
+            if (!ReferenceEquals(predecessor, null) && !ReferenceEquals(predecessor, this))
+            {
+                try
+                {
+                    predecessor.CaptureInSessionStagedStateHandoff(InSessionStagedStateHandoff.CaptureReasonOnAwake);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(InSessionStagedStateHandoff.Tag,
+                        $"Staged-list handoff capture from the predecessor threw in OnAwake: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
             s_instance = this;
 
             // Drawdown-guard signal 5 fail-safe (MINOR-A, plan §3.2): clear the deferred
@@ -3570,12 +3585,13 @@ namespace Parsek
         /// <summary>The once-per-load <see cref="LoadReconcilePolicy"/> classification line.</summary>
         private static void LogLoadClassification(
             EarlyLoadKind early, LoadKind refined,
-            bool initialLoadDoneAtClassify, bool rewinding, bool reFlyInvoke, string discardReFlyTarget)
+            bool initialLoadDoneAtClassify, bool rewinding, bool reFlyInvoke, string discardReFlyTarget,
+            string handoff)
         {
             ParsekLog.Info(LoadReconcilePolicy.LogTag,
                 LoadReconcilePolicy.FormatClassificationLine(
                     early, refined, HighLogic.LoadedScene.ToString(),
-                    initialLoadDoneAtClassify, rewinding, reFlyInvoke, discardReFlyTarget));
+                    initialLoadDoneAtClassify, rewinding, reFlyInvoke, discardReFlyTarget, handoff));
         }
 
         public override void OnLoad(ConfigNode node)
@@ -3587,6 +3603,7 @@ namespace Parsek
             if (ParsekGameModeGate.CheckInert("ParsekScenario.OnLoad"))
             {
                 StashInertGameModeNode(node);
+                InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropInertGameMode);
                 return;
             }
             inertGameModePassthroughNode = null;
@@ -3687,12 +3704,14 @@ namespace Parsek
                 string classifyDiscardReFlyTarget = classifyDiscardReFly
                     ? discardReFlyIntentTarget.ToString()
                     : null;
+                string classifyHandoff = InSessionStagedStateHandoff.DescribeForClassification();
                 EarlyLoadKind earlyLoadKind = LoadReconcilePolicy.ClassifyEarly(
                     classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFly);
                 if (earlyLoadKind != EarlyLoadKind.InSession)
                 {
                     LogLoadClassification(earlyLoadKind, LoadReconcilePolicy.ToLoadKind(earlyLoadKind),
-                        classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget);
+                        classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget,
+                        classifyHandoff);
                 }
 
                 if (!RewindContext.IsRewinding)
@@ -3719,6 +3738,16 @@ namespace Parsek
                 // drops the rewound tree's rows from the carried list. No-op when not a rewind.
                 loadPhase = "rewind-staged-lists-carry-over";
                 RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(this);
+
+                // In-session loads: the same lists, the journal and (on a Discard Re-fly) the marker
+                // come from the scenario instance this load replaces, as the committed recordings
+                // and the ledger do (InSessionStagedStateHandoff, captured in OnDestroy). Consumed
+                // by every load: a cold load, a plain rewind (the carries above own its lists) and
+                // a Re-Fly start (the reconciliation bundle owns them) drop it. The rewind points
+                // are partitioned by owner, and a resumed tree's rows handed back to the save, once
+                // the tree restores below have detached that tree (step B).
+                loadPhase = "in-session-staged-handoff";
+                ApplyInSessionStagedStateHandoffStepA(earlyLoadKind);
 
                 // PR #774 cross-LoadScene fix: re-apply the rewind-time supersede drop
                 // performed in RecordingStore.InitiateRewind. The in-memory mutation
@@ -3791,6 +3820,14 @@ namespace Parsek
                     bool pendingTreeRestoredFromSave = TryRestorePendingTreeNode(
                         node, activeTreeRestoredFromSave);
                     RecorderStateLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
+
+                    // Step B of the in-session handoff: rewind points of trees memory still holds
+                    // committed come from memory, the rest from the save, and the supersede rows,
+                    // retirements and tombstones naming a tree the restore resumed from the save
+                    // follow the save. After the restores above, so a tree the load resumes has
+                    // already been detached from the committed set.
+                    loadPhase = "in-session-handoff-step-b";
+                    ApplyInSessionStagedStateHandoffStepB();
 
                     loadPhase = "revert-classification";
                     ConfigNode[] savedRecNodes = node.GetNodes("RECORDING");
@@ -3916,7 +3953,8 @@ namespace Parsek
                     if (earlyLoadKind == EarlyLoadKind.InSession)
                     {
                         LogLoadClassification(earlyLoadKind, refinedLoadKind,
-                            classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget);
+                            classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget,
+                            classifyHandoff);
                     }
 
                     // Capture the launch UT for the editor-revert orphan-prune boundary. A fresh
@@ -5403,6 +5441,7 @@ namespace Parsek
                 // persistent leak in a DIFFERENT save toasts once again. A plain scene
                 // change within the same save does NOT reset these latches (plan §9).
                 KspStatePatcher.ResetDrawdownGuardSessionLatches();
+                InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropSaveFolderChanged);
                 ScenarioLog($"[Parsek Scenario] Save folder changed to '{currentSave}' — resetting session state");
             }
         }
@@ -6100,6 +6139,7 @@ namespace Parsek
             bool loadedSceneIsFlight = true)
         {
             lastRestoredQuicksaveTreeFacts = null;
+            ClearQuickloadResumeDetach();
             pendingFreshRecordingAfterDiscard = null;
             if (node == null) return false;
             if (RewindContext.IsRewinding)
@@ -6243,9 +6283,16 @@ namespace Parsek
                 // though the save file has the T2 active version), remove the committed
                 // copy so the active version is the single source of truth. Otherwise
                 // the next OnSave would write the tree twice with the same id.
-                if (!RecordingStore.RemoveCommittedTreeById(
-                        tree.Id,
-                        logContext: "TryRestoreActiveTreeNode"))
+                // A resume from the quicksave notes the detached copy's members for the
+                // in-session handoff's step B (its rows follow the save).
+                List<string> resumeDetachedCopyIds =
+                    committedCopyAction == CommittedCopyRestoreAction.ResumeFromQuicksave
+                        ? CollectCommittedCopyRecordingIds(tree)
+                        : null;
+                bool committedCopyDetached = RecordingStore.RemoveCommittedTreeById(
+                    tree.Id,
+                    logContext: "TryRestoreActiveTreeNode");
+                if (!committedCopyDetached)
                 {
                     ParsekLog.Verbose("Scenario",
                         $"TryRestoreActiveTreeNode: no committed copy of tree '{tree.TreeName}' " +
@@ -6286,6 +6333,8 @@ namespace Parsek
                     ? PendingTreeState.LimboVesselSwitch
                     : PendingTreeState.Limbo;
                 RecordingStore.StashPendingTree(tree, stashState);
+                if (committedCopyDetached && resumeDetachedCopyIds != null)
+                    NoteQuickloadResumeDetach(tree, resumeDetachedCopyIds);
 
                 // Read resume hints for the restore coroutine (rewind save filename only).
                 pendingActiveTreeResumeRewindSave = treeNodes[t].GetValue("resumeRewindSave");
@@ -8543,6 +8592,9 @@ namespace Parsek
                 // way the escrow must not survive into a different save's logistics
                 // state. DROP-not-revert (no ledger row to reverse).
                 RouteStore.ClearAllEscrow("main-menu-transition");
+                // A handoff captured before this reset would otherwise wait for the next game's
+                // load (which is cold anyway and would drop it there).
+                InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropMainMenu);
                 ParsekLog.Info("Scenario",
                     "Main menu transition — reset initialLoadDone to prevent stale data leak");
             }
@@ -8635,8 +8687,22 @@ namespace Parsek
             Parsek.Rendering.RenderSessionState.Clear("scenario-destroyed");
             // Phase 2 (Rewind-to-Staging): drop the Instance back-reference so
             // EffectiveState does not read stale scenario state after destruction.
+            // Before that, hand this instance's staged lists to the next OnLoad of the session:
+            // stock destroys every scenario module when a scene load is requested
+            // (ScenarioRunner.OnGameSceneLoadRequested), before the next scene's Game.Load.
             if (ReferenceEquals(s_instance, this))
+            {
+                try
+                {
+                    CaptureInSessionStagedStateHandoff(InSessionStagedStateHandoff.CaptureReasonOnDestroy);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(InSessionStagedStateHandoff.Tag,
+                        $"Staged-list handoff capture threw in OnDestroy: {ex.GetType().Name}: {ex.Message}");
+                }
                 s_instance = null;
+            }
         }
     }
 }

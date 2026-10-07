@@ -925,7 +925,8 @@ ledger rows (`Ledger.RetagActionsForSplitSecondHalf`, attribution UT: a death ro
 events not yet converted (`GameStateStore.RetagEventsForSplitSecondHalf`) and the pending
 science subjects by capture UT (`GameStateRecorder.RetagPendingScienceForSplitSecondHalf`,
 which also retags the cached pending-milestone copies the reward enrichment matches by tag).
-The last two matter at a fresh commit: both commit paths run the optimizer BEFORE
+The last two matter at a fresh commit: the flight commit paths (`MergeDialog.MergeCommit`,
+`ParsekFlight.CommitTreeFlight`; the ghost-only auto-commit outside flight converts first) run the optimizer BEFORE
 `LedgerOrchestrator.NotifyLedgerTreeCommitted` converts the flight's events into rows, and the
 converter reads an event's tag as ownership, so without them every result of the flight was
 booked on the first segment (RETAG-ON-SPLIT-MISSES-LATER-ROWS). A Re-Fly of a later segment
