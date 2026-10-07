@@ -702,7 +702,8 @@ namespace Parsek
                     return Today(LoadReconcileAction.ReconcileAtResume,
                         "FlightRecorder.PrepareQuickloadResumeStateIfNeeded -> "
                         + "ParsekScenario.TrimAndReconcileForQuickloadResume clears the terminal and crew end states "
-                        + "of every trimmed recording that ended after the resume UT (not committed history: a recording "
+                        + "of every trimmed recording that ended after the resume UT and gives it back the merge state "
+                        + "the quicksave held (ShouldResetMergeStateForResume; not committed history: a recording "
                         + "still committed, or one the quicksave already shows as history, IsCommittedHistoryAtQuicksave)");
             }
             throw UnknownKind(kind);

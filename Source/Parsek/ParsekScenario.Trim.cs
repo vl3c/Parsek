@@ -137,7 +137,8 @@ namespace Parsek
 
         // ------------------------------------------------------------------
         // Abandoned-future reconcile: the quickload-resume trim owns the
-        // trimmed set's end states, tagged events and ledger rows after the
+        // trimmed set's end states (and the merge states derived from them),
+        // tagged events and ledger rows after the
         // resume UT. Nothing outside that set is touched, and neither is committed
         // history: a recording still committed in memory, or one the quicksave
         // itself already shows as history (the trim may still cut or prune such a
@@ -169,6 +170,7 @@ namespace Parsek
             internal readonly List<KeyValuePair<string, string>> SkippedQuicksaveHistory =
                 new List<KeyValuePair<string, string>>();
             internal readonly HashSet<string> EndStateClearedIds = new HashSet<string>(StringComparer.Ordinal);
+            internal readonly HashSet<string> MergeStateResetIds = new HashSet<string>(StringComparer.Ordinal);
         }
 
         /// <summary>
@@ -189,6 +191,9 @@ namespace Parsek
             internal double StartBranchUT;
             internal double EndBranchUT;
             internal bool CommittedInQuicksave;
+            // The merge state the quicksave node held (no `mergeState` key reads Immutable, the
+            // codec default a live, never-committed member carries). Null: not captured.
+            internal MergeState? QuicksaveMergeState;
         }
 
         /// <summary>The quicksave's facts about every member of one restored active tree.</summary>
@@ -313,6 +318,7 @@ namespace Parsek
                     EndBranchUT = LookupBranchUT(branchUTs, rec.ChildBranchPointId),
                     CommittedInQuicksave = committedIdsInQuicksave != null
                         && committedIdsInQuicksave.Contains(kvp.Key),
+                    QuicksaveMergeState = rec.MergeState,
                 };
             }
             return facts;
@@ -485,6 +491,47 @@ namespace Parsek
             return preTrimEndUT > cutoffUT;
         }
 
+        /// <summary>
+        /// Pure: whether a recording whose end state the reconcile just cleared takes back the
+        /// merge state the quicksave held. A commit derives the merge state from the end state
+        /// (<c>RecordingStore.ApplyRewindProvisionalMergeStates</c> promotes an Unfinished Flight
+        /// to CommittedProvisional from its terminal), and the same-id refresh copies the
+        /// committed copy's merge state onto the restored member, so a member whose end the
+        /// abandoned future decided also carries that future's merge state; it is retracted with
+        /// the end state, and the next commit derives it again from the replayed end (the
+        /// detached committed copy no longer counts as committed, so that commit is the member's
+        /// first). Never touched: a member the quicksave does not hold or whose state was not
+        /// captured (nothing to restore to), a live NotCommitted recording (a Re-Fly session's
+        /// provisional, owned by the session), and a quicksave NotCommitted state (a provisional
+        /// the session machinery owns; the refresh never overwrites one either).
+        /// </summary>
+        internal static bool ShouldResetMergeStateForResume(
+            MergeState current, MergeState? quicksaveState, out string reason)
+        {
+            if (!quicksaveState.HasValue)
+            {
+                reason = "no-quicksave-state";
+                return false;
+            }
+            if (current == MergeState.NotCommitted)
+            {
+                reason = "live-provisional";
+                return false;
+            }
+            if (quicksaveState.Value == MergeState.NotCommitted)
+            {
+                reason = "quicksave-provisional";
+                return false;
+            }
+            if (current == quicksaveState.Value)
+            {
+                reason = "unchanged";
+                return false;
+            }
+            reason = "abandoned-future-merge-state";
+            return true;
+        }
+
         /// <summary>True when <paramref name="loadKind"/>'s policy cell for
         /// <paramref name="category"/> is <see cref="LoadReconcileAction.ReconcileAtResume"/>.</summary>
         internal static bool ShouldReconcileAtResume(LoadKind? loadKind, LoadStateCategory category)
@@ -562,6 +609,9 @@ namespace Parsek
             // End states first: the ledger step retires the KerbalAssignment summary row of
             // every recording whose end state this clears.
             int endStatesCleared = reconcileEndStates ? ClearAbandonedFutureEndStates(tree, plan) : 0;
+            int mergeStatesReset = reconcileEndStates
+                ? ResetAbandonedFutureMergeStates(tree, plan, quicksaveFacts)
+                : 0;
             int eventsPurged = reconcileEvents ? PurgeAbandonedFutureEvents(plan) : 0;
             int rowsAfterCutoff = 0;
             int rowsKerbalAssignment = 0;
@@ -595,7 +645,8 @@ namespace Parsek
                     : "") +
                 $" skippedQuicksaveHistory={plan.SkippedQuicksaveHistory.Count}" +
                 FormatQuicksaveHistory(plan) +
-                $" quicksaveFacts={(quicksaveFacts != null ? "present" : "none")}");
+                $" quicksaveFacts={(quicksaveFacts != null ? "present" : "none")}" +
+                $" mergeStatesReset={mergeStatesReset.ToString(CultureInfo.InvariantCulture)}");
             return treeTrimmed;
         }
 
@@ -659,6 +710,59 @@ namespace Parsek
             }
 
             return cleared;
+        }
+
+        /// <summary>
+        /// Gives every recording whose end state <see cref="ClearAbandonedFutureEndStates"/> cleared
+        /// the merge state the quicksave held (<see cref="ShouldResetMergeStateForResume"/>) and
+        /// records the ids in <see cref="AbandonedFuturePlan.MergeStateResetIds"/>. Committed
+        /// history never reaches this set: the plan leaves out every recording still committed
+        /// and every one the quicksave shows as history. Returns the count.
+        /// </summary>
+        private static int ResetAbandonedFutureMergeStates(
+            RecordingTree tree, AbandonedFuturePlan plan, QuicksaveTreeFacts quicksaveFacts)
+        {
+            if (plan.EndStateClearedIds.Count == 0)
+                return 0;
+
+            var ids = new List<string>(plan.EndStateClearedIds);
+            ids.Sort(StringComparer.Ordinal);
+            int reset = 0;
+            for (int i = 0; i < ids.Count; i++)
+            {
+                string id = ids[i];
+                if (!tree.Recordings.TryGetValue(id, out Recording rec) || rec == null)
+                    continue;
+
+                MergeState? quicksaveState = null;
+                if (quicksaveFacts != null
+                    && quicksaveFacts.Members.TryGetValue(id, out QuicksaveMemberFacts member))
+                {
+                    quicksaveState = member.QuicksaveMergeState;
+                }
+
+                MergeState current = rec.MergeState;
+                if (!ShouldResetMergeStateForResume(current, quicksaveState, out string reason))
+                {
+                    ParsekLog.Verbose("Scenario",
+                        $"Quickload abandoned-future merge state kept: rec={id} mergeState={current} " +
+                        $"quicksaveMergeState={(quicksaveState.HasValue ? quicksaveState.Value.ToString() : "none")} " +
+                        $"reason={reason}");
+                    continue;
+                }
+
+                rec.MergeState = quicksaveState.Value;
+                rec.MarkFilesDirty();
+                plan.MergeStateResetIds.Add(id);
+                reset++;
+                ParsekLog.Verbose("Scenario",
+                    $"Quickload abandoned-future merge state reset: rec={id} previousMergeState={current} " +
+                    $"mergeState={rec.MergeState} reason={reason}");
+            }
+
+            if (reset > 0)
+                RecordingStore.BumpStateVersion();
+            return reset;
         }
 
         /// <summary>

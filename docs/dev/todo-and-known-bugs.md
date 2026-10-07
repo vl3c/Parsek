@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE: an F9 resumes a tree member with the merge state its abandoned future's commit gave it [FILED 2026-10-07 from the QL-4 / QL-4b / QL-4c reading runs, branch `f9-verify`, verified in the produced saves and by code read. OPEN, product]
+## ~~QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE: an F9 resumes a tree member with the merge state its abandoned future's commit gave it~~ [FILED 2026-10-07 from the QL-4 / QL-4b / QL-4c reading runs, branch `f9-verify`, verified in the produced saves and by code read. FIXED 2026-10-07, branch `ql-merge-state`. Live proof owed: the QL-4 family's report-only `rewindPoints = { max = 0 }` should read clean]
 
 QL-4 commits the flight in flight while the probe booster is still under canopy: the commit
 classifies it `stableLeafUnconcluded` (SubOrbital) and promotes it to CommittedProvisional
@@ -42,6 +42,28 @@ treats a member the quicksave holds as live (not committed history) as NotCommit
 xUnit - a committed tree whose child was promoted CommittedProvisional after the quicksave, the
 quicksave restore + reconcile, then assert the member's merge state is the quicksave's. Live
 witness: the QL-4 family's report-only `rewindPoints = { max = 0 }` (arm it after the fix).
+
+FIXED: the first direction, in the reconcile. `CaptureQuicksaveTreeFacts` records each member's
+merge state as the quicksave node holds it (`QuicksaveMemberFacts.QuicksaveMergeState`; no key
+reads Immutable), and `TrimAndReconcileForQuickloadResume` gives every member whose end state it
+cleared that state back (`ResetAbandonedFutureMergeStates`, pure `ShouldResetMergeStateForResume`),
+under the same `AbandonedFutureEndStates` cell. The merge state is retracted with the end state it
+was derived from: committed history never reaches the cleared set (the plan skips a recording
+still committed or shown as history by the quicksave), a live NotCommitted provisional and a
+quicksave NotCommitted state are kept (the Re-Fly scope is ActiveRecOnly and its provisional's
+session fields are untouched), and the refresh rule itself is unchanged (the Re-Fly sibling-slot
+adoption still needs it). The final commit re-derives the state: the detached committed copy no
+longer counts as committed, so it is the member's first commit and a booster still SubOrbital is
+promoted again, while a Landed one stays Immutable and the reaper closes the rewind point once
+every slot is. Logged: `mergeStatesReset=N` appended LAST to the `Quickload abandoned-future
+reconcile:` line (every QL-4 lane regex still matches) plus one Verbose `Quickload abandoned-future
+merge state reset:` / `... kept:` line per cleared member. Red tests (failed with the reset call
+disabled): `QuickloadCommittedAfterQuicksaveTests.PromotedAfterTheQuicksave_ResumedMemberTakesBackTheQuicksaveMergeState`
+(the QL-4 no-save refresh, the QL-4b Space Center salvage and the QL-4c in-flight-save salvage) and
+`QuickloadResumedMergeStateTests.FinalCommit_RederivesTheBoosterMergeState_AndReapsWhenEverySlotIsClosed`
+(Landed: reaped; SubOrbital: re-promoted, kept; without the reconcile: the leak). Mirror cells:
+`CommittedBeforeTheQuicksave_PromotedMemberKeepsItsCommittedMergeState`,
+`CommittedHistory_MergeStateLeftAlone`, `ReFlyScope_ProvisionalAndSiblingKeepTheirMergeStateAndSessionFields`.
 
 ---
 
