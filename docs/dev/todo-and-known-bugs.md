@@ -107,7 +107,7 @@ segments; reconcile the two entries at merge (this one is the fix).
 
 ---
 
-## CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP: the ghost-chain walk can land on a Re-Fly TIP the fork supersedes, which suppresses the fork's spawn [FILED 2026-10-07 from the PR #2037 review. OPEN, product, narrow; not a release blocker]
+## ~~CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP: the ghost-chain walk can land on a Re-Fly TIP the fork supersedes, which suppresses the fork's spawn~~ [FILED 2026-10-07 from the PR #2037 review. FIXED 2026-10-07, branch `fix-chain-walk-supersede`; not flown]
 
 `GhostChainWalker` reads the committed trees as they are, supersede relations ignored.
 `RecordingTreeSplitter` gives a Re-Fly's HEAD and TIP the same `ChainId` (TIP at HEAD's index +
@@ -124,6 +124,43 @@ landed on the superseded child directly). Fix direction: route the walker's chai
 leaf, through the supersede-aware walk (`EffectiveState.EffectiveTipRecordingId`), with a cell
 that builds HEAD / TIP / fork plus the supersede relation and checks the tip is the fork and the
 fork spawns.
+
+Fix: `GhostChainWalker.WalkToLeaf` follows supersede rows at both of its hops (the child picked at
+a branch point and the optimizer-chain hop): where the recording it lands on is superseded, it goes
+on to the effective recording (`EffectiveState.EffectiveRecordingId`, the pure supersede walk, so
+nested Re-Flies resolve too; not `EffectiveTipRecordingId`, whose switch / EVA chain hop would skip
+the walker's own claimed-parts and continued-past rules) and continues the walk from there, logging
+`WalkToLeaf: step N: segment|child=... superseded -> effective=... rule=supersede identity=...`.
+`ComputeAllGhostChains` reads the live scenario's rows (an explicit-rows overload takes a list).
+Three guards keep the old behaviour, each logged `... superseded by X, <why> - not followed`: the
+effective recording is not in the walk's tree (rows are tree-scoped, rewind design 5.7, and the
+chain's tip tree is the walk's tree; a one-sided orphan row lands here too), it is already visited,
+or it does not continue the walked vessel. The last one is the mirror: a Re-Fly writes a row from
+EVERY recording of TIP's subtree to its one fork, so a row on another vessel of that subtree (the
+merged vessel of a dock the old TIP made, a stage it dropped) names a fork that does not carry the
+claimed vessel; `ForkContinuesWalkedVessel` requires the fork to hold a claimed part (the fork
+restores from the RP quicksave, so part persistentIds match), or without part data the replaced
+recording's pid with a launch guid not conclusively different. An un-superseded chain, and the
+fork itself, are walked as before. Cells: `GhostChainWalkerSupersedeTests` (the probe shape, the
+unsplit superseded child and the nested Re-Fly red before the fix; the dock-partner row cells red
+with the identity guard removed; the no-row, off-path-row, cross-tree and orphan-row controls).
+Found while fixing: a claim whose claiming recording is itself superseded still counts (filed as
+CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING).
+
+---
+
+## CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING: a dock or undock that only a superseded flight recorded still claims the other vessel for a ghost chain [FILED 2026-10-07 by code read while fixing CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP. OPEN, product, to check; consequences not traced]
+
+`GhostChainWalker.ScanBranchPointClaims` / `ScanBackgroundEventClaims` read every committed tree's
+branch points and recordings with no supersede check, and every caller passes the unfiltered
+`RecordingStore.CommittedTrees`. So when a Re-Fly replaces a flight whose old TIP docked with a
+station (or undocked from one), the old dock branch point still claims the station: the chain is
+built, its walk starts on the superseded TIP and ends on the superseded merged recording (the walk's
+new supersede hop deliberately does not follow that recording's row to the fork, which does not
+carry the station), and flight ghosts the station until that recording's end, though the recording
+no longer plays. Not traced: what the station's spawn then does, and the Tracking Station path.
+Check first with a headless cell (the shape is `GhostChainWalkerSupersedeTests.BuildVisitorReFlyTree`);
+the likely fix is to skip a claim whose claiming recording a supersede row names.
 
 ---
 

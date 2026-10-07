@@ -3688,6 +3688,13 @@ _(unreleased - entries accumulate here per commit)_
   and one that was destroyed at the end still counted as alive. Parsek now follows the vessel
   to the last part, so it reappears at the right time and with its identity, or stays gone
   when the recording ends in its loss. Covered by xUnit; not yet checked in a test flight.
+- **A vessel hidden after a rewind comes back as you re-flew it.** The same hiding applies when
+  you later re-flew that vessel's own flight from a Rewind Point (Re-Fly): Parsek still followed
+  the replaced flight, so the vessel was due back when the replaced flight ended, and the
+  re-flown flight's own return was held back as an earlier step of it (always in the Tracking
+  Station, in flight while the replaced flight's end was still ahead). Parsek now follows the
+  re-flown flight, so the vessel reappears when and as that flight ends, or stays gone if it
+  ended in the vessel's loss. Covered by xUnit; not yet checked in a test flight.
 
 - **A base hidden as a ghost after a rewind keeps its supply route.** When you rewind to
   before a recorded flight that docks with one of your bases and then enter flight, the base
