@@ -3676,6 +3676,27 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A flight the recording optimizer splits when you commit it now books each result on the
+  part where it happened.** Parsek cuts a fresh flight into parts (a few seconds on the pad,
+  the climb, the landing) before it books the flight's results, and every milestone, contract,
+  transmitted experiment and reputation change still named the first part. A re-fly of a later
+  part then kept the milestones and science earned in it after the rewind point, a transmitted
+  experiment was dated at the end of the first part (in one test flight, a pad stretch ending
+  330 s before the transmission), and a crewed vessel lost after a split got no reputation
+  penalty in the ledger at all, because that penalty is booked on the part that carries the
+  crew deaths. The split now moves the flight's not-yet-booked results past its cut onto the
+  later part, the way it already moved booked entries. Covered by xUnit; not yet checked in a
+  test flight.
+
+- **Rebuilding a facility at a lower level is now kept and charged.** KSP's facility menu,
+  opened with Left Ctrl held on a destroyed facility above level 1, offers "Rebuild lvl N",
+  which rebuilds it one level lower for about two thirds of that level's price. Parsek
+  treated the level drop as information only, so its timeline kept the facility at the old
+  level (the next recalculation could raise it back) and its funds ran high by the price.
+  The rebuild is now booked like an upgrade, with the funds KSP took, at the lower level,
+  and the Timeline shows it as "Downgrade". Covered by xUnit; not yet checked in a test
+  flight.
+
 - **A quickload no longer brings back a re-flown flight or a retired crew death.** Quickloading,
   reverting or changing scene restored Parsek's Re-Fly bookkeeping from the save while it kept your
   recordings and career ledger as they were. After quickloading to a save from before a Re-Fly

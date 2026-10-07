@@ -129,7 +129,12 @@ namespace Parsek
                         action.KerbalName ?? "unknown", action.ReplacesKerbal ?? "unknown");
 
                 case GameActionType.FacilityUpgrade:
-                    return string.Format(IC, "Upgrade {0} \u2192 Lv.{1} -{2:0}",
+                    // A downgrade row (stock's paid "Rebuild lvl N") is the same level-change
+                    // row type; only the verb differs.
+                    return string.Format(IC,
+                        action.FacilityDowngrade
+                            ? "Downgrade {0} \u2192 Lv.{1} -{2:0}"
+                            : "Upgrade {0} \u2192 Lv.{1} -{2:0}",
                         FacilityDisplayNames.ResolveBuildingDisplayName(action.FacilityId),
                         action.ToLevel, action.FacilityCost);
 

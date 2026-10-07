@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek
 {
@@ -496,10 +497,18 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Optimizer split: moves the ledger rows attributed to the second half onto it
-        /// (<see cref="Ledger.RetagActionsForSplitSecondHalf"/>, the same predicate as the
-        /// Re-Fly split's step 2.9). The cut is the second half's first section start,
-        /// which <see cref="RecordingOptimizer.SplitAtSection"/> sets to its split UT.
+        /// Optimizer split: moves everything attributed to the second half onto it, at
+        /// the second half's first section start (which
+        /// <see cref="RecordingOptimizer.SplitAtSection"/> sets to its split UT). Three
+        /// carriers hold the original id, and all three are partitioned at the same cut:
+        /// the ledger rows (<see cref="Ledger.RetagActionsForSplitSecondHalf"/>, the same
+        /// predicate as the Re-Fly split's step 2.9), the captured events
+        /// (<see cref="GameStateStore.RetagEventsForSplitSecondHalf"/>) and the pending
+        /// science subjects (<see cref="GameStateRecorder.RetagPendingScienceForSplitSecondHalf"/>).
+        /// The last two matter at a fresh commit, where this pass runs BEFORE
+        /// <c>LedgerOrchestrator.NotifyLedgerTreeCommitted</c> converts the flight's events
+        /// into rows: they are the rows-to-be, and the converter reads their tag as
+        /// ownership (RETAG-ON-SPLIT-MISSES-LATER-ROWS).
         /// </summary>
         private static void RetagLedgerActionsAfterOptimizationSplit(Recording original, Recording second)
         {
@@ -515,6 +524,17 @@ namespace Parsek
                     $"Optimization split: retagged {retagged} ledger action(s) from " +
                     $"'{original.RecordingId}' to second half '{second.RecordingId}' " +
                     $"(deathIntervalsByEndUT={deathIntervalsByEndUT})");
+
+            int eventsRetagged = GameStateStore.RetagEventsForSplitSecondHalf(
+                original.RecordingId, second.RecordingId, splitUT);
+            int scienceRetagged = GameStateRecorder.RetagPendingScienceForSplitSecondHalf(
+                original.RecordingId, second.RecordingId, splitUT);
+            if (eventsRetagged > 0 || scienceRetagged > 0)
+                ParsekLog.Info("RecordingStore",
+                    $"Optimization split: retagged {eventsRetagged.ToString(CultureInfo.InvariantCulture)} event(s) " +
+                    $"and {scienceRetagged.ToString(CultureInfo.InvariantCulture)} pending science subject(s) " +
+                    $"from '{original.RecordingId}' to second half '{second.RecordingId}' " +
+                    $"(splitUT={splitUT.ToString("R", CultureInfo.InvariantCulture)})");
         }
 
         private static void UpdateTreeStateAfterOptimizationMerge(Recording target, Recording absorbed)

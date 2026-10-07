@@ -254,6 +254,7 @@ namespace Parsek.Tests
             "Parsek.Patches.CrewDialogFillPatch.Prefix",
             "Parsek.Patches.CrewDialogMoveToSeatPatch.Prefix",
             "Parsek.Patches.CrewTooltipReservationPatch.Postfix",
+            "Parsek.Patches.FacilityDowngradeSpendPatch.Prefix",
             "Parsek.Patches.FacilityMenuUpgradeBlockPatch.Postfix",
             "Parsek.Patches.FacilityRepairScopePatch.Prefix",
             "Parsek.Patches.FacilityResetStructuresPatch.Prefix",

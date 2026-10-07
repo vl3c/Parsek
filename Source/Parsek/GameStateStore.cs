@@ -438,6 +438,50 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Optimizer-split partition of the event store (RETAG-ON-SPLIT-MISSES-LATER-ROWS):
+        /// every event tagged <paramref name="firstRecordingId"/> whose UT is
+        /// <c>&gt;= splitUT</c> is retagged to <paramref name="secondRecordingId"/>, the same
+        /// cut and comparison sense as <see cref="Ledger.RetagActionsForSplitSecondHalf"/>.
+        /// A fresh flight is split BEFORE its events are converted (both commit paths run
+        /// the optimizer pass ahead of <c>LedgerOrchestrator.NotifyLedgerTreeCommitted</c>),
+        /// and the converter treats the capture tag as ownership, so without this every
+        /// event of the flight was converted for the first segment: rows past the cut sat
+        /// outside a later segment's Re-Fly tombstone set, and a VesselLoss reputation
+        /// event never met the deaths the split moves to the second half. Untagged events
+        /// and other recordings' events are untouched. Returns the number retagged.
+        /// </summary>
+        internal static int RetagEventsForSplitSecondHalf(
+            string firstRecordingId, string secondRecordingId, double splitUT)
+        {
+            if (string.IsNullOrEmpty(firstRecordingId) || string.IsNullOrEmpty(secondRecordingId))
+                return 0;
+            if (string.Equals(firstRecordingId, secondRecordingId, StringComparison.Ordinal))
+                return 0;
+            if (double.IsNaN(splitUT) || double.IsInfinity(splitUT))
+                return 0;
+
+            int retagged = 0;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (!string.Equals(e.recordingId ?? "", firstRecordingId, StringComparison.Ordinal))
+                    continue;
+                if (!(e.ut >= splitUT))
+                    continue;
+                e.recordingId = secondRecordingId;
+                events[i] = e;
+                retagged++;
+            }
+
+            ParsekLog.Verbose("GameStateStore",
+                $"RetagEventsForSplitSecondHalf: first='{firstRecordingId}' second='{secondRecordingId}' " +
+                $"splitUT={splitUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"retagged={retagged.ToString(CultureInfo.InvariantCulture)} " +
+                $"total={events.Count.ToString(CultureInfo.InvariantCulture)}");
+            return retagged;
+        }
+
+        /// <summary>
         /// Removes an event by matching ut, eventType, and key.
         /// Returns true if the event was found and removed.
         /// </summary>

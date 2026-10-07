@@ -917,6 +917,22 @@ its own): the logistics transport lineage does, and the mission Log lets any lat
 own a stage whose branch point still names an earlier segment that ended before it (a repair
 that had to stop).
 
+**Career results across a split** (`RecordingStore.RetagLedgerActionsAfterOptimizationSplit`):
+three things carry the recording id as their owner, and the split moves each one whose UT is
+at or after the cut to the second half, with the same `>=` sense as the parent links: the
+ledger rows (`Ledger.RetagActionsForSplitSecondHalf`, attribution UT: a death row by its
+`EndUT`, a KerbalDeath reputation penalty with its paired death), the captured game-state
+events not yet converted (`GameStateStore.RetagEventsForSplitSecondHalf`) and the pending
+science subjects by capture UT (`GameStateRecorder.RetagPendingScienceForSplitSecondHalf`,
+which also retags the cached pending-milestone copies the reward enrichment matches by tag).
+The last two matter at a fresh commit: the flight commit paths (`MergeDialog.MergeCommit`,
+`ParsekFlight.CommitTreeFlight`; the ghost-only auto-commit outside flight converts first) run the optimizer BEFORE
+`LedgerOrchestrator.NotifyLedgerTreeCommitted` converts the flight's events into rows, and the
+converter reads an event's tag as ownership, so without them every result of the flight was
+booked on the first segment (RETAG-ON-SPLIT-MISSES-LATER-ROWS). A Re-Fly of a later segment
+carves the earlier chain segments out of its tombstone set (`SupersedeCommit.IsPreRewindCarveOut`),
+so a row is retired by a re-fly only when it sits on the segment that owns its UT.
+
 #### Discovery Passes
 
 **`FindMergeCandidates`**: Groups committed recordings by `ChainId`, sorts each group by `ChainIndex`, tests all consecutive pairs with `CanAutoMerge`.

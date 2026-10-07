@@ -16,6 +16,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## TIMELINE-PHANTOM-MILESTONE-AFTER-REFLY-OF-LATER-SEGMENT: a tombstoned milestone can leave a legacy "Milestone" text row on the Timeline [FILED 2026-10-07 from the PR #2042 review. OPEN, display only; the ledger is correct]
+
+`MilestoneStore.CreateMilestone` copies made at `CommitTree`, before the optimizer pass, keep the
+first segment's tag. After a Re-Fly of a later segment tombstones that milestone's ledger row, the
+Timeline dedups against ELS only, so the copy (still visible through ERS) renders as a leftover
+legacy "Milestone" text row. The Re-Fly splitter had the same shape before (it retags the milestone
+id, not the events inside). Fix: retag the milestone copies with the split (as #2042 does for events
+and pending science), or have the Timeline dedup the legacy row against tombstoned ledger rows too.
+
+---
+
 ## OPTIMIZER-PAD-SPLIT-AT-FIVE-SECOND-THRESHOLD: whether a pad launch's pre-liftoff segment becomes its own recording depends on a few tens of milliseconds [FILED 2026-10-07 from the release verification flights, branch `verify-followups`. OPEN, product question; the lane pins are widened]
 
 The optimizer splits a recording at the SurfaceMobile -> Atmospheric boundary at liftoff only
@@ -33,9 +44,80 @@ tail before recovery) has fired every time so far. Next step: decide whether a p
 half (start situation PRELAUNCH, ending at liftoff) is exempt from the split, or the floor is
 measured differently; then re-pin L3 / L5.
 
+**Investigation 2026-10-07 (branch `optimizer-retag-followups`, report only, no code change).**
+
+Where the split comes from. The 5.0 s both-halves floor arrived with the optimizer itself
+(`9fb17cd06`, T97, 2026-03-31: "minimum duration for both halves", no further rationale; wired by
+T98 `43a82dab9`). The Surface default split is step 5 of `IsSplittableEnvOrBodyBoundary`; its
+recorded reason is the optimizer's purpose, per-phase chain segments so each phase gets its own
+loop toggle (`parsek-flight-recorder-design.md` 9A.5; `docs/dev/done/plans/optimizer-persistence-split.md`
+sections 1-3, which list "pad / atmo-ascent / exo-orbit / atmo-reentry-and-landing" as the
+expected chain of a real flight; `docs/dev/research/optimizer-meaningful-split-rule.md` section 4
+rates Surface -> Atmo "take-off: always meaningful" because Surface comes from `Vessel.Situations`
+plus debounce, not an altitude line). Nothing in either doc argues for a PAD segment as such: the
+pad run is split because it is a Surface run, and the only Surface carve-out (`IsSurfaceGrazePattern`)
+covers a brief Atmo/Approach run bracketed by Surface, never a leading Surface run. The 5 s floor
+was ruled deliberate once before for the landing side (L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR,
+closed 2026-09-02 with a mission-side dwell). The pad coin flip is gameplay, not harness timing:
+on L5 the auto-record started at the first staging on the pad (`OnStageActivate` while PRELAUNCH,
+UT 9.60), the Flea moved at 13.50 (SurfaceMobile) and its Atmospheric section opened at 14.64, so
+the pad run is ignition-to-liftoff time. A player gets a pad segment whenever that exceeds 5 s
+(low-TWR stacks, clamps released a stage after ignition, a manual record on the pad).
+
+What a separate pad segment buys or costs each consumer (code read):
+- Rewind to launch: none. `RecordingStore.GetRewindRecording` resolves the save through the tree
+  root, which keeps its id (and the save) on the first segment either way.
+- Re-Fly / `RecordingTreeSplitter`: none for correctness. A pad run holds no separation, so no
+  RP slot starts there; an earlier chain segment is carved out of the supersede and tombstone sets
+  as a pre-rewind chain head (`SupersedeCommit.IsPreRewindCarveOut`). Before
+  RETAG-ON-SPLIT-MISSES-LATER-ROWS (fixed the same day) the pad segment was where the WHOLE
+  flight's results landed, so a re-fly kept them; that cost is gone. Unsplit, the splitter's
+  env-homogeneous-origin check Warns on a Re-Fly origin that still holds the pad run (it already
+  does today below 5 s; it counts raw environment changes).
+- Unfinished Flights / slot tips: none. Slots resolve through the chain tip
+  (`EffectiveState.EffectiveTipRecordingId`); the pad segment is a non-final chain segment with no
+  terminal and no snapshot.
+- Missions rows: none (one row per physical vessel; chain segments fold). Timeline: none (the
+  launch row is the chain head and reads the chain's duration, `TimelineBuilder.GetChainDuration`).
+- Recordings table: one extra "surface" row of about 5 s inside the launch's chain block.
+- Loops: the only real benefit, a loopable ascent that starts at liftoff instead of at ignition.
+  Owner ruling 2026-10-05 (branch `player-loop-removal`): per-recording player loops are being
+  removed, Parsek loops only behind routes, and a route loop replays the whole flight, pad run
+  included, so the benefit is on its way out. Route origin proof and the route-run manifest read
+  the chain head's start fields, which the first segment keeps either way.
+- KSC pad retirement (`LaunchSiteExclusionZones` / `SpawnCollisionDetector`): none; it judges the
+  flight's END, which is on the last segment.
+- Tail trim: none; `TrimBoringTail` only trims leaves and only tails.
+- Costs: a nondeterministic recording count in every pad-launch lane near 5 s (L3 / L5 now pin
+  2..3); one more recording, three more sidecar files and one more ghost snapshot clone per such
+  launch; one more first-segment-without-snapshot for every chain walker to cross
+  (CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT was this shape).
+
+If a leading pad run were NEVER split off: no consumer above breaks; the ascent segment would
+start at ignition; the chain head would be "atmo" instead of "surface"; already-split chains stay
+split (`CanAutoMerge` needs equal `SegmentPhase`); the cells that build a leading 30 s
+`SurfaceStationary` pad run and expect it split need re-checking against whatever predicate marks
+a launch (`RecordingOptimizerTests.Persistence_AscentLongAtmoLongExo_Splits` expects the s=1
+candidate, `OptimizationPass_PassiveDeorbitReentry_ProducesAscentExoReentryChain` at least 4
+segments "pad / ascent / orbit / reentry-and-landing", and the in-game
+`RealAscentReentry_ProducesPerPhaseChain_InGame` the same), and
+every lane whose flights split a pad run would lose one recording (needs a census of collected
+logs for `'surface' [..] + 'atmo'` first splits before re-pinning). If it were ALWAYS split (no
+floor for the leading run): deterministic, but every auto-recorded launch gets a sub-second to
+few-second pad recording, more UI noise and files for no consumer.
+
+Recommendation: exempt the LEADING Surface run of a recording that started on a launch site in
+PRELAUNCH (the first split-class run, never preceded by flight) from the step-5 Surface split, as
+a named suppress reason logged with the existing counters, and keep every other Surface boundary
+(touchdown, take-off from a non-launch-site surface, body changes) as it is. It removes the coin
+flip at its source with no consumer cost, since the split's one benefit (a liftoff-aligned loop)
+belongs to the player-loop UI being removed. The landing-side floor (L6) is a separate, smaller
+question: the landed tail carries the terminal state and the spawn, so it stays. Needs an owner
+ruling before code; then re-pin L3 / L5 to an exact count and re-run the census above.
+
 ---
 
-## RETAG-ON-SPLIT-MISSES-LATER-ROWS: ledger rows written after the optimizer split stay on the split recording's first segment, even when their UT is past its end [FILED 2026-10-07 from the release verification flights, branch `verify-followups`. OPEN, to check; impact on supersede / tombstone scoping not traced]
+## ~~RETAG-ON-SPLIT-MISSES-LATER-ROWS: ledger rows written after the optimizer split stay on the split recording's first segment, even when their UT is past its end~~ [FILED 2026-10-07 from the release verification flights, branch `verify-followups`. CONFIRMED (not cosmetic) and FIXED 2026-10-07, branch `optimizer-retag-followups`; xUnit only, not flown]
 
 On the commit of `2026-10-07_0032_L5-career-contract-complete` the optimizer split the flight
 twice (`RetagActionsForSplitSecondHalf: ... splitUT=14.64 retagged=0` and `... splitUT=341.26
@@ -50,6 +132,38 @@ recording's UT span: a Re-Fly or rewind supersede / tombstone set built from a s
 on an earlier segment may stay outside the superseded set), and per-recording reward readouts.
 If it matters, convert the events per segment after the split, or retag by UT after the ledger
 add.
+
+It matters. Both commit paths (`MergeDialog.MergeCommit` and `ParsekFlight.CommitTreeFlight`)
+run `RecordingStore.RunOptimizationPass` BEFORE `LedgerOrchestrator.NotifyLedgerTreeCommitted`,
+so a fresh flight's results are still captured events (`GameStateStore.Events`) and pending
+science subjects (`GameStateRecorder.PendingScienceSubjects`) when it is split, all tagged with
+the pre-split id the first segment keeps, and `GameStateEventConverter.ConvertEvents` reads the
+tag as ownership past the segment's end (BUG-A). Measured headless on the real split + commit
+(`OptimizerSplitCommitAttributionTests`, fixture atmo 8-20 / exo 20-53, crew killed at 53):
+before the fix both milestones and the transmitted subject landed on segment 1, the subject's
+`ScienceEarning` row at UT 20 (segment 1's end; it was captured at 45), and NO
+`ReputationPenalty(KerbalDeath)` row was filed at all (`KerbalDeathRepPenalty.Decide` matches the
+VesselLoss event by exact tag: segment 1 has the event but no dead crew, the last segment has the
+dead crew but no event). A Re-Fly of segment 2 from UT 34 then retired only the two deaths: the
+milestone earned at 40 and the science stayed effective, because
+`SupersedeCommit.IsPreRewindCarveOut` carves the earlier chain segment out of the tombstone set
+(chain sibling, lower index, ends before the rewind) and the Re-Fly split's step-2.9 retag moves
+only rows tagged to the segment it splits. The L5 run shows the science-UT effect live: its
+`crewReport` ScienceEarning row reads UT 14.64 (the pad segment's end) for a capture at 345.26.
+Readouts that only resolve the tag to a vessel name (the Timeline, `CommittedFutureIndex`) were
+unaffected beyond that UT.
+
+Fix: the optimizer split partitions all three carriers of the original id at the same cut and
+`>=` sense: ledger rows (`Ledger.RetagActionsForSplitSecondHalf`, unchanged), captured events
+(`GameStateStore.RetagEventsForSplitSecondHalf`) and pending science subjects plus the cached
+pending-milestone copies the reward enrichment matches by tag
+(`GameStateRecorder.RetagPendingScienceForSplitSecondHalf`), all from
+`RecordingStore.RetagLedgerActionsAfterOptimizationSplit`, so the commit books each result on the
+segment whose span contains it. Mirror direction checked: an optimizer MERGE cannot absorb a
+recording whose events are still unconverted (chain ids exist only on committed recordings, and
+the merge pass runs before the split pass), and the Re-Fly split runs after the tree's ledger
+commit, so neither needs the event retag. Tests: `OptimizerSplitCommitAttributionTests` (five
+cells, the end-to-end one red before the fix on all four facts above).
 
 ---
 
@@ -180,7 +294,7 @@ it in the TS until the tip spawns.
 
 ---
 
-## FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a facility downgrade's funds debit never reaches the ledger [FILED 2026-10-06 while fixing KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, branch `fix-facility-upgrade-cost`. OPEN, product, low; reachability not traced. The older cost-0 upgrade rows paragraph: RULED and DONE 2026-10-07, branch `release-rulings`]
+## ~~FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED: a facility downgrade's funds debit never reaches the ledger~~ [FILED 2026-10-06 while fixing KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, branch `fix-facility-upgrade-cost`. REACHABLE by a player (stock KSC menu, Left Ctrl) and FIXED 2026-10-07, branch `optimizer-retag-followups`; xUnit only, not flown. The older cost-0 upgrade rows paragraph: RULED and DONE 2026-10-07, branch `release-rulings`; its mid-career-install residue below stays as stated]
 
 Decompiled KSP 1.12.5: `SpaceCenterBuilding.DowngradeFacility` also debits funds (about 0.667x
 the level cost, reason `StructureConstruction`), but `FacilityDowngraded` events are
@@ -189,6 +303,45 @@ debit, the same shape the upgrade had before its fix. First check whether any st
 a player can reach calls `DowngradeFacility` at all; if one does, record the debit through the
 same `FacilityUpgradeCapture` scope pattern and add a row type or a negative-level
 `FacilityUpgrade` row (decide which).
+
+Reachability (decompiled `Assembly-CSharp.dll`, KSP 1.12.5): the only caller is
+`SpaceCenterBuilding`'s facility-menu dismiss handler, case `KSCFacilityContextMenu.DismissAction.Downgrade`
+-> `DowngradeFacility(Funding.Instance != null)`. `KSCFacilityContextMenu.Create` sets
+`showDowngradeControls = Input.GetKey(KeyCode.LeftControl)` (no cheat, debug-menu or settings
+gate), and the "Rebuild lvl N" (`#autoLOC_6002251`) button is shown when that is set, the
+facility is NOT operational ("Out of Service"), its level is above 0 and the game is not Mission
+mode; it is interactable when `Funding.CanAfford(downgradeCost)`. The same Ctrl-held menu offers
+Demolish on an operational facility, so a player can take any upgraded facility out of service
+and rebuild it a level lower: an ordinary, if hidden, player path. The method debits
+`upgradeLevels[level - 1].levelCost * 0.667 * Career.FundsLossMultiplier`, runs `ResetStructures()`
+(free repair) and `SetLevel(level - 1)`. Before the fix the ledger kept the higher level, so the
+next recalc's `FacilityStatePatcher.PatchFacilities` would set the facility back UP, and the ledger
+ran high by the debit.
+
+Fix: a prefix + finalizer on `DowngradeFacility(bool)` (`Patches/FacilityDowngradeSpendPatch.cs`,
+S9-gated) opens `FacilityUpgradeCapture`'s scope in downgrade mode; the recorder stamps the
+FacilityDowngraded event of that facility with the observed StructureConstruction debit
+(`TryConsumeCostForDowngrade`) and forwards it in one batch with the free repairs, or leaves it for
+the commit when tagged. `GameStateEventConverter.ConvertFacilityDowngraded` turns a stamped event
+into a `FacilityUpgrade` row to the lower tier with the new sparse `GameAction.FacilityDowngrade`
+marker (`facilityDowngrade = True`). Row type decided: the existing `FacilityUpgrade`, because
+every consumer of it already reads it as an absolute level change with a cost (`FacilitiesModule.ProcessUpgrade`
+assigns `ToLevel`, `FundsModule` charges `FacilityCost`, `KscActionExpectationClassifier` pairs it
+with a StructureConstruction leg, tombstone eligibility, `BuildTombstonedFacilityIdsForPatch`,
+`CareerSlotSummary` slot limits, `HasFacilityActionsInRange`), so a new enum would have to be
+mirrored into about 25 switch sites whose defaults silently drop a cost or keep a superseded row.
+The marker is read only where "upgrade" would be wrong: `GameActionDisplay` ("Downgrade X -> Lv.N"),
+the Timeline's legacy-event twin key, `CommittedFutureIndex.TryClassify` (a committed downgrade
+reserves nothing) and the two legacy cost-0 upgrade passes (skipped). An unstamped level drop
+(the scene-change poll, another mod, Mission-mode facility limits) stays informational. Known
+limit, OPEN for an owner decision (PR #2042 review): no click-block pairs a Rebuild with a
+committed future level change of the same facility, and levels are absolute, so a downgrade
+placed before a committed future upgrade turns that upgrade into a two-level jump charged at one
+step's price (a free level after a rewind). Options: block the Rebuild while a later level change
+of that facility is committed (with the D1 stock-control annotation on the Rebuild button), or
+price committed future upgrades by their actual level delta. Tests:
+`FacilityDowngradeCostTests` (10 cells; 8 red against API-only stubs before the fix) and
+`TimelineBuilderTests.FacilityDowngradeRow_ItsLegacyEventTwinIsNotShownTwice` (red before the key fix).
 
 Older cost-0 upgrade rows: the fix above repairs a cost-0 `FacilityUpgrade` row only while the
 save still holds its `FundsChanged(StructureConstruction)` event (events at or before the last

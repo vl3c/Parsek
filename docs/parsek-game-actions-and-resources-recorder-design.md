@@ -2005,8 +2005,9 @@ FacilityUpgrade (spending action)
   ut:           double - frozen KSC time
   sequence:     int - order within that UT
   facilityId:   string - "LaunchPad" / "VehicleAssemblyBuilding" / etc.
-  toLevel:      int - target level (2 or 3)
+  toLevel:      int - the facility's level from this UT on (2 or 3; 1 or 2 for a downgrade)
   facilityCost: float - the funds stock deducted for it (code field: FacilityCost)
+  facilityDowngrade: bool, sparse - true when the row LOWERS the level (code field: FacilityDowngrade)
 
 FacilityDestruction (recording-associated action, or a direct KSC row)
   ut:           double - when the building collapsed (stock OnKSCStructureCollapsing)
@@ -2026,11 +2027,13 @@ Destruction and repair are keyed by the single DestructibleBuilding id; a facili
 
 One stock upgrade (`SpaceCenterBuilding.UpgradeFacility`) deducts one `FundsChanged(StructureConstruction)` (`upgradeLevels[level + 1].levelCost` times `Career.FundsLossMultiplier`, nothing in a game without funds) BEFORE `SetLevel` raises the event the upgrade row is recorded from. Parsek reads that debit as the funds handler observes it inside the call, so the row carries what the pool actually lost (net of a strategy discount, whose funds share no strategy row records for this event-derived reason) and the KSC reconciliation pairs it with that one event. A level change no `UpgradeFacility` call observed (the scene-change poll) carries cost 0 rather than a guessed one. Rows written at cost 0 before this capture take their debit on load when the saved `FundsChanged(StructureConstruction)` event of the row's own tag and UT still proves it, and are left as stored otherwise.
 
+A paid downgrade is the same kind of row. Stock's KSC facility menu, opened with Left Ctrl held on an out-of-service facility above level 1 (outside Mission mode), shows a "Rebuild lvl N" button that calls the private `SpaceCenterBuilding.DowngradeFacility(Funding.Instance != null)`: one `FundsChanged(StructureConstruction)` debit of 0.667 times `upgradeLevels[level - 1].levelCost` times `Career.FundsLossMultiplier`, the free `ResetStructures`, then `SetLevel(level - 1)`. The same capture scope, opened in downgrade mode by a prefix on that method, stamps the FacilityDowngraded event with the observed debit, and the event becomes a FacilityUpgrade row to the lower tier marked `facilityDowngrade` (written in one batch with the free repairs, or at commit when tagged). The row type is the upgrade's because every reader of it reads "the facility is at tier `toLevel` from this UT on, for `facilityCost`": the facility walk assigns the level, the funds walk charges the cost, the KSC reconciliation pairs it with the StructureConstruction debit, and the tombstone, patch and slot readers key on the facility and the level. The marker is read where the word "upgrade" would be wrong: the description ("Downgrade X -> Lv.N"), the Timeline's legacy-event twin (FacilityDowngraded), the stock-screen reservation index (a committed downgrade reserves nothing: neither the facility's Upgrade nor its Rebuild button is blocked by it), and the legacy cost-0 upgrade repair and estimate (never applied to a downgrade). A level drop no `DowngradeFacility` call made (the scene-change poll, another mod, Mission mode's facility limits) stays an informational event with no row.
+
 ### 10.3 Funds accounting
 
 All three action types participate in the unified funds walk:
 
-- **Upgrade**: deducts funds at the upgrade UT.
+- **Upgrade**: deducts funds at the upgrade UT (a downgrade row the same way, at its UT).
 - **Repair**: deducts funds at the repair UT.
 - **Destruction**: no direct funds cost (the destruction itself is free — the cost comes from the subsequent repair).
 
