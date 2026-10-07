@@ -383,7 +383,7 @@ note changes with it.
 
 ---
 
-## ~~QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY: an in-session load rebuilds the Re-Fly bookkeeping from the save but keeps recordings and the ledger from memory~~ [FILED 2026-10-06 from the coverage-extension research, adversarially verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, branch `insession-staged-lists` (xUnit only; live proof is lane QL-3, authored, never flown, and QL-5 for the Discard Re-fly load, which needs the TC-1 `ReFlyRevert` verb)]
+## ~~QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY: an in-session load rebuilds the Re-Fly bookkeeping from the save but keeps recordings and the ledger from memory~~ [FILED 2026-10-06 from the coverage-extension research, adversarially verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-06, PR #2038 (xUnit only; live proof is lane QL-3, authored, never flown, and QL-5 for the Discard Re-fly load, which needs the TC-1 `ReFlyRevert` verb)]
 
 `LoadRewindStagingState` (`ParsekScenario.cs:2783`, called at `:3609` on every load) replaces
 rewind points, supersede rows, retirements, tombstones, the Re-Fly marker and the merge journal
@@ -779,7 +779,7 @@ clear deleted),
 
 ---
 
-## DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP: Discard Re-fly to the editor can delete an origin rewind point created inside an earlier, merged Re-Fly session [FILED 2026-10-06 from the coverage-extension research, partly verified (narrow); branch `ccr-77f23eb2-dbqh6i`. OPEN, product; trigger removed by the in-session carry (branch `insession-staged-lists`); close after lane QL-5]
+## DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP: Discard Re-fly to the editor can delete an origin rewind point created inside an earlier, merged Re-Fly session [FILED 2026-10-06 from the coverage-extension research, partly verified (narrow); branch `ccr-77f23eb2-dbqh6i`. OPEN, product; trigger removed by the in-session carry (PR #2038); close after lane QL-5]
 
 `RewindPointAuthor` stamps the creating session on a rewind point created inside a Re-Fly
 session S0 and adds it before its own quicksave. Discard Re-fly with the Prelaunch target loads
@@ -806,7 +806,7 @@ persistent.sfs last held. Close after lane QL-5 flies both targets.
 
 ---
 
-## DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT: Discard Re-fly loads the rewind point's quicksave, but the scene it then opens reloads persistent.sfs [FILED 2026-10-06 from the in-session carry work (branch `insession-staged-lists`), verified by decompile; player effect not traced. OPEN, product; to trace]
+## DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT: Discard Re-fly loads the rewind point's quicksave, but the scene it then opens reloads persistent.sfs [FILED 2026-10-06 from the in-session carry work (PR #2038), verified by decompile; player effect not traced. OPEN, product; to trace]
 
 `RevertInterceptor.DiscardReFlyHandler` loads the origin rewind point's quicksave into
 `HighLogic.CurrentGame` and calls `HighLogic.LoadScene(SPACECENTER)` (Launch) or
@@ -829,7 +829,7 @@ Live proof: lane QL-5.
 
 ---
 
-## REWIND-POINT-FILES-OF-AN-ABANDONED-FUTURE-STAY-ON-DISK: a quickload or a revert drops rewind points from the list but leaves their quicksave files [FILED 2026-10-06 from the in-session carry (owner ruling OQ-3), branch `insession-staged-lists`. OPEN, residual by ruling]
+## REWIND-POINT-FILES-OF-AN-ABANDONED-FUTURE-STAY-ON-DISK: a quickload or a revert drops rewind points from the list but leaves their quicksave files [FILED 2026-10-06 from the in-session carry (owner ruling OQ-3), PR #2038. OPEN, residual by ruling]
 
 The in-session owner partition (`InSessionStagedStateHandoff.MergeRewindPointsByOwner`) lets a
 rewind point whose owner is the flight a quickload resumes, a reverted flight or an unknown tree
@@ -844,7 +844,7 @@ the point.
 
 ---
 
-## QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE: a quickload into a flight re-flown since the save keeps the re-flown recording while its rows follow the save [FILED 2026-10-07 from the in-session carry review, branch `insession-staged-lists`; pre-existing on main, traced by code read, the second case reproduced by the reviewer's probe. OPEN, product]
+## QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE: a quickload into a flight re-flown since the save keeps the re-flown recording while its rows follow the save [FILED 2026-10-07 from the in-session carry review, PR #2038; pre-existing on main, traced by code read, the second case reproduced by the reviewer's probe. OPEN, product]
 
 An F9 into a save of a flight that was committed, then re-flown and merged after the save, resumes
 the save's tree through the committed-copy restore (`ResumeFromQuicksave`):
@@ -874,7 +874,7 @@ neither fork may survive in the resumed tree.
 
 ---
 
-## ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE: Discard Re-fly from the Esc menu after an F9 during a Re-Fly may drop the flight's tree [FILED 2026-10-06 from the in-session carry review, branch `insession-staged-lists`; pre-existing, verified by code read, not reproduced. OPEN, product]
+## ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE: Discard Re-fly from the Esc menu after an F9 during a Re-Fly may drop the flight's tree [FILED 2026-10-06 from the in-session carry review, PR #2038; pre-existing, verified by code read, not reproduced. OPEN, product]
 
 An F9 during any Re-Fly session restores the quicksave's active tree, and
 `ParsekScenario.TryRestoreActiveTreeNode` detaches any committed copy of that tree (a session that
@@ -897,7 +897,7 @@ suppression armed, then the Discard Re-fly load; the committed tree must hold th
 
 ---
 
-## SESSION-RPS-OF-A-RESUMED-SESSIONS-ABANDONED-FUTURE-STAY-LISTED: an F9 back into a Re-Fly session keeps the rewind points that session made after the quicksave [FILED 2026-10-06 from the in-session carry review, branch `insession-staged-lists`; verified by code read, not reproduced. OPEN, product; narrow]
+## SESSION-RPS-OF-A-RESUMED-SESSIONS-ABANDONED-FUTURE-STAY-LISTED: an F9 back into a Re-Fly session keeps the rewind points that session made after the quicksave [FILED 2026-10-06 from the in-session carry review, PR #2038; verified by code read, not reproduced. OPEN, product; narrow]
 
 The in-session owner partition keeps a session-scoped rewind point (`SessionProvisional` with a
 `CreatingSessionId`) from either side, and `LoadTimeSweep` spares it when the loaded marker is that
@@ -917,7 +917,7 @@ and no branch point in the restored tree; the point must be gone after the load.
 
 ---
 
-## RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW: Retry on a Re-Fly session a quickload resumed after its merge keeps the first merge's rows [FILED 2026-10-06 from the in-session carry (owner ruling OQ-1), branch `insession-staged-lists`; verified by code read, not reproduced. OPEN, product; narrow]
+## RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW: Retry on a Re-Fly session a quickload resumed after its merge keeps the first merge's rows [FILED 2026-10-06 from the in-session carry (owner ruling OQ-1), PR #2038; verified by code read, not reproduced. OPEN, product; narrow]
 
 OQ-1's discard prune (`MergeDialog.PruneStagedRowsNamingAttempt`) runs from the two Re-Fly
 discard helpers. `RevertInterceptor.RetryHandler` does not prune the attempt (the sweep reaps the

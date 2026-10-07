@@ -63,7 +63,7 @@ id = "QL-3-quickload-before-refly-merge"
 #   - The rewind block is REPORT-ONLY; predicted supersedeRows 1, tombstones 2 (CL-3's
 #     2026-09-29 reading), rewindPoints 0. Arm it after a reading run whose facets match.
 #
-# STATUS: AUTHORED 2026-10-06 (branch `insession-staged-lists`), NEVER FLOWN. Every new
+# STATUS: AUTHORED 2026-10-06 (PR #2038), NEVER FLOWN. Every new
 # token is quoted from its emitting source line (ParsekScenario.InSessionHandoff.cs,
 # InSessionStagedStateHandoff.cs, LoadReconcilePolicy.FormatClassificationLine,
 # ParsekTestCommandAddon.LoadGameImpl); the rest are CL-3's.
