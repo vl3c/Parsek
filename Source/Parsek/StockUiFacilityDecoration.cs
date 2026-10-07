@@ -35,6 +35,18 @@ namespace Parsek
     /// re-sets Repair's interactable state last in the same <c>OnFacilityValuesModified</c>,
     /// so the postfix runs after it. The Repair state is kept apart from the Upgrade state
     /// (<see cref="RepairStateOf"/>), so each button restores only what Parsek changed on it.</para>
+    ///
+    /// <para>The "Rebuild lvl N" button (stock's private <c>DowngradeButton</c>, shown with Left
+    /// Ctrl held on an out-of-service facility above level 1) gets it too (owner ruling
+    /// 2026-10-07): greyed with the explanation while a committed level change of the facility
+    /// is ahead, or a committed repair covers its current destruction, through
+    /// <see cref="StockUiDecorationQuery.ForFacilityMenuRebuild"/>, the predicate the
+    /// <c>DowngradeFacility</c> refusal (<see cref="Patches.FacilityRebuildBlock"/>) reads. Only
+    /// a SHOWN Rebuild is decorated (<see cref="DecideRebuild"/>), so the menu's description
+    /// never explains a button the player cannot see. The buttons share the description, and
+    /// the Upgrade, Repair and Rebuild reasons are often the same sentence: a line is appended
+    /// once and removed only when no other button of the menu still shows it
+    /// (<see cref="RemoveReasonUnlessHeld"/>).</para>
     /// </summary>
     internal static class StockUiFacilityDecoration
     {
@@ -44,6 +56,10 @@ namespace Parsek
         /// <summary>Stock's protected <c>RepairButton</c> field.</summary>
         internal const string RepairButtonFieldName = "RepairButton";
         internal const string HostFieldName = "host";
+        /// <summary>Stock's private <c>DowngradeButton</c>: the "Rebuild lvl N" control
+        /// (<c>#autoLOC_6002251</c>), which dismisses the menu with
+        /// <c>DismissAction.Downgrade</c> -> <c>SpaceCenterBuilding.DowngradeFacility</c>.</summary>
+        internal const string DowngradeButtonFieldName = "DowngradeButton";
         /// <summary>The fallback reason field: the building description, which stock writes
         /// once in <c>CreateWindowContent</c>. The level text (<c>levelStatsText</c>) is not
         /// used because hovering Upgrade rewrites it (<c>PreviewNextLevel</c>).</summary>
@@ -66,6 +82,19 @@ namespace Parsek
         {
             if (!d.Blocked) return default(UpgradeButtonDecision);
             return new UpgradeButtonDecision { DisableUpgrade = true, Reason = d.Why };
+        }
+
+        /// <summary>
+        /// The Rebuild decision: disabled, with the explanation, exactly when the decoration is
+        /// blocked AND stock shows the button (<paramref name="buttonShown"/>; stock hides it
+        /// without Left Ctrl, on an operational facility and at level 1). A hidden Rebuild is
+        /// left to stock, so no reason for it reaches the menu's description. The refusal does
+        /// not read <paramref name="buttonShown"/>: a hidden button cannot be clicked.
+        /// </summary>
+        internal static UpgradeButtonDecision DecideRebuild(StockUiDecoration d, bool buttonShown)
+        {
+            if (!buttonShown) return default(UpgradeButtonDecision);
+            return Decide(d);
         }
 
         /// <summary>
@@ -125,6 +154,19 @@ namespace Parsek
             return parsekOwned ? (why ?? "") : StockUiRnDDecoration.AppendReason(stockText, why, site);
         }
 
+        /// <summary>
+        /// <see cref="RemoveReason"/>, unless another button of the same menu still shows the
+        /// same sentence (<paramref name="heldElsewhere"/>): the Upgrade, Repair and Rebuild
+        /// buttons share the description, and one reason line serves every button it explains.
+        /// </summary>
+        internal static string RemoveReasonUnlessHeld(string text, string why, IEnumerable<string> heldElsewhere)
+        {
+            if (heldElsewhere != null)
+                foreach (string held in heldElsewhere)
+                    if (held != null && string.Equals(held, why, StringComparison.Ordinal)) return text;
+            return RemoveReason(text, why);
+        }
+
         /// <summary>Removes a line <see cref="StockUiRnDDecoration.AppendReason"/> added.
         /// Text without it is returned unchanged.</summary>
         internal static string RemoveReason(string text, string why)
@@ -145,6 +187,42 @@ namespace Parsek
         private static AccessTools.FieldRef<KSCFacilityContextMenu, Button> repairButtonRef;
         private static bool repairRefResolved;
         private static bool repairRefFailed;
+        private static AccessTools.FieldRef<KSCFacilityContextMenu, Button> downgradeButtonRef;
+        private static bool downgradeRefResolved;
+        private static bool downgradeRefFailed;
+
+        /// <summary>The private <c>DowngradeButton</c> (Rebuild) accessor.</summary>
+        internal static AccessTools.FieldRef<KSCFacilityContextMenu, Button> ResolveDowngradeButtonRefForTesting()
+        {
+            return AccessTools.FieldRefAccess<KSCFacilityContextMenu, Button>(DowngradeButtonFieldName);
+        }
+
+        private static bool TryResolveDowngradeRef()
+        {
+            if (downgradeRefResolved) return true;
+            if (downgradeRefFailed) return false;
+            try
+            {
+                downgradeButtonRef = ResolveDowngradeButtonRefForTesting();
+                downgradeRefResolved = downgradeButtonRef != null;
+            }
+            catch (Exception ex)
+            {
+                downgradeRefResolved = false;
+                ParsekLog.Warn(Tag, "KSCFacilityContextMenu." + DowngradeButtonFieldName + " not accessible ("
+                    + ex.GetType().Name + ": " + ex.Message + ") - the facility menu Rebuild button will not be "
+                    + "disabled (the DowngradeFacility prefix still refuses the click)");
+            }
+            if (!downgradeRefResolved) downgradeRefFailed = true;
+            return downgradeRefResolved;
+        }
+
+        /// <summary>The menu's stock Rebuild ("Rebuild lvl N") button, or null.</summary>
+        internal static Button RebuildButtonOf(KSCFacilityContextMenu menu)
+        {
+            if (menu == null || !TryResolveDowngradeRef()) return null;
+            return downgradeButtonRef(menu);
+        }
 
         /// <summary>The protected <c>RepairButton</c> accessor.</summary>
         internal static AccessTools.FieldRef<KSCFacilityContextMenu, Button> ResolveRepairButtonRefForTesting()
@@ -258,6 +336,30 @@ namespace Parsek
         private static ConditionalWeakTable<KSCFacilityContextMenu, MenuState> repairStates =
             new ConditionalWeakTable<KSCFacilityContextMenu, MenuState>();
 
+        /// <summary>The Rebuild button's state, kept apart from the other two.</summary>
+        private static ConditionalWeakTable<KSCFacilityContextMenu, MenuState> rebuildStates =
+            new ConditionalWeakTable<KSCFacilityContextMenu, MenuState>();
+
+        /// <summary>The Parsek state of an open menu's Rebuild button, or null when Parsek
+        /// never decorated it.</summary>
+        internal static MenuState RebuildStateOf(KSCFacilityContextMenu menu)
+        {
+            if (menu == null) return null;
+            MenuState state;
+            return rebuildStates.TryGetValue(menu, out state) ? state : null;
+        }
+
+        /// <summary>The description reasons the menu's OTHER buttons still show.</summary>
+        private static List<string> DescriptionReasonsBesides(KSCFacilityContextMenu menu, MenuState state)
+        {
+            var held = new List<string>(2);
+            var states = new[] { StateOf(menu), RepairStateOf(menu), RebuildStateOf(menu) };
+            for (int i = 0; i < states.Length; i++)
+                if (states[i] != null && !ReferenceEquals(states[i], state) && states[i].DescriptionReason != null)
+                    held.Add(states[i].DescriptionReason);
+            return held;
+        }
+
         /// <summary>The Parsek state of an open menu's Repair button, or null when Parsek never
         /// decorated it.</summary>
         internal static MenuState RepairStateOf(KSCFacilityContextMenu menu)
@@ -350,6 +452,15 @@ namespace Parsek
             ApplyUpgrade(menu, reason);
             try
             {
+                ApplyRebuild(menu, reason);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.WarnRateLimited(Tag, "facility-menu-rebuild-block-failed",
+                    "Facility menu Rebuild block failed (" + ex.GetType().Name + ": " + ex.Message + ")");
+            }
+            try
+            {
                 ApplyRepair(menu, reason);
             }
             catch (Exception ex)
@@ -388,6 +499,46 @@ namespace Parsek
             if (state != null && ClearReason(menu, state))
                 ParsekLog.Verbose(Tag, "FacilityMenu " + (facilityId ?? "<none>")
                     + ": block lifted - Upgrade left to stock, Parsek reason removed");
+        }
+
+        /// <summary>
+        /// The Rebuild part of the postfix: stock has just shown or hidden "Rebuild lvl N" and
+        /// set it interactable when the player can afford it; disable a SHOWN Rebuild with the
+        /// reason while a committed level change of the facility is ahead or a committed
+        /// repair covers its destruction, else clear any reason Parsek left on it. The id is
+        /// read as the <c>DowngradeFacility</c> refusal reads it, so both see the same rows.
+        /// </summary>
+        private static void ApplyRebuild(KSCFacilityContextMenu menu, string reason)
+        {
+            SpaceCenterBuilding host = hostRef(menu);
+            if (host == null) return;
+            string facilityId = host.Facility != null ? host.Facility.id : host.facilityName;
+            var buildings = Patches.FacilityRepairCapturePatchHelpers.ReadBuildings(host);
+            bool replaying = GameStateRecorder.IsReplayingActions;
+            var snapshot = StockUiLiveSnapshot.Current;
+            var d = StockUiDecorationQuery.ForFacilityMenuRebuild(snapshot.Index, snapshot.UT, facilityId, buildings,
+                replaying, ReservationExplanation.DefaultDateFormatter);
+            StockUiDecorationQuery.LogFacilityMenuRebuild(d, replaying, reason);
+
+            Button rebuild = RebuildButtonOf(menu);
+            bool shown = rebuild != null && rebuild.gameObject.activeSelf;
+            var decision = DecideRebuild(d, shown);
+            MenuState state = RebuildStateOf(menu);
+            if (decision.DisableUpgrade)
+            {
+                if (state == null) state = rebuildStates.GetValue(menu, _ => new MenuState());
+                rebuild.interactable = false;
+                string where = ShowReason(menu, rebuild, state, decision.Reason);
+                ParsekLog.Verbose(Tag, "FacilityMenu " + facilityId + ": Rebuild disabled, reason on the " + where);
+                return;
+            }
+
+            if (d.Blocked && !shown)
+                ParsekLog.Verbose(Tag, "FacilityMenu " + (facilityId ?? "<none>")
+                    + ": Rebuild not shown by stock - nothing to disable (the DowngradeFacility prefix still refuses)");
+            if (state != null && ClearReason(menu, state))
+                ParsekLog.Verbose(Tag, "FacilityMenu " + (facilityId ?? "<none>")
+                    + ": rebuild block lifted - Rebuild left to stock, Parsek reason removed");
         }
 
         /// <summary>
@@ -517,7 +668,7 @@ namespace Parsek
             string text = StockUiText.Get(label);
             if (text == null) return;
             if (state.DescriptionReason != null && state.DescriptionReason != why)
-                text = RemoveReason(text, state.DescriptionReason);
+                text = RemoveReasonUnlessHeld(text, state.DescriptionReason, DescriptionReasonsBesides(menu, state));
             StockUiText.Set(label, StockUiRnDDecoration.AppendReason(text, why, "facility menu description"));
             state.DescriptionReason = why;
         }
@@ -528,7 +679,8 @@ namespace Parsek
             object label = StockUiText.LabelField(menu, typeof(KSCFacilityContextMenu), DescriptionFieldName);
             string text = StockUiText.Get(label);
             if (text != null)
-                StockUiText.Set(label, RemoveReason(text, state.DescriptionReason));
+                StockUiText.Set(label, RemoveReasonUnlessHeld(text, state.DescriptionReason,
+                    DescriptionReasonsBesides(menu, state)));
             state.DescriptionReason = null;
             return true;
         }
@@ -607,6 +759,7 @@ namespace Parsek
         {
             menuStates = new ConditionalWeakTable<KSCFacilityContextMenu, MenuState>();
             repairStates = new ConditionalWeakTable<KSCFacilityContextMenu, MenuState>();
+            rebuildStates = new ConditionalWeakTable<KSCFacilityContextMenu, MenuState>();
             openMenus.Clear();
             cachedTooltipPrefab = null;
             tooltipPrefabMissingLogged = false;
@@ -617,6 +770,9 @@ namespace Parsek
             repairRefResolved = false;
             repairRefFailed = false;
             repairButtonRef = null;
+            downgradeRefResolved = false;
+            downgradeRefFailed = false;
+            downgradeButtonRef = null;
             valuesModifiedMethod = null;
         }
     }

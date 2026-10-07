@@ -37,9 +37,10 @@ namespace Parsek.Patches
         /// true when the upgrade must be BLOCKED (and emits the log + blocked dialog as a
         /// side effect); false to allow. Funds affordability is intentionally NOT checked
         /// (stock's own CurrencyModifierQuery enforces it, and SetLevel does not receive
-        /// the cost); this only blocks a facility a committed future row still upgrades.
-        /// The block lifts once the clock passes the last committed upgrade of that
-        /// facility, so a later upgrade the committed timeline never made is allowed.
+        /// the cost); this only blocks a facility a committed future row still changes the
+        /// level of: an upgrade, or a stock Rebuild (owner ruling 2026-10-07). The block lifts
+        /// once the clock passes the last committed level change of that facility, so a later
+        /// upgrade the committed timeline never made is allowed.
         /// </summary>
         internal static bool TryBlockFacilityUpgrade(UpgradeableFacility facility)
         {
@@ -76,10 +77,13 @@ namespace Parsek.Patches
 
             var future = index.FutureEntries(CommittedFutureKind.FacilityUpgrade, facilityId, nowUT);
             var last = future[future.Count - 1];
+            int rebuilds = 0;
+            for (int i = 0; i < future.Count; i++)
+                if (future[i].FacilityDowngrade) rebuilds++;
             ParsekLog.Info("FacilityUpgradePatch",
                 $"Blocking facility upgrade: '{facilityId}' - {future.Count.ToString(ic)} committed future " +
                 $"upgrade(s), last ut={last.UT.ToString("F0", ic)} toLevel={last.FacilityToLevel.ToString(ic)} " +
-                $"nowUT={nowUT.ToString("F0", ic)}");
+                $"nowUT={nowUT.ToString("F0", ic)} rebuilds={rebuilds.ToString(ic)}");
 
             var text = StockUiReservationPredicates.ExplainFacilityUpgrade(
                 index, facilityId, nowUT, ReservationExplanation.DefaultDateFormatter);

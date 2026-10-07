@@ -227,6 +227,8 @@ namespace Parsek.TestCommands
                     StockUiFacilityDecoration.UpgradeButtonOf(menu)));
                 controls.Add(PlainButton("FacilityMenu", "Repair:" + StockUiFacilityDecoration.FacilityIdOf(menu),
                     StockUiFacilityDecoration.RepairButtonOf(menu)));
+                controls.Add(PlainButton("FacilityMenu", "Rebuild:" + StockUiFacilityDecoration.FacilityIdOf(menu),
+                    StockUiFacilityDecoration.RebuildButtonOf(menu)));
             }
 
             var tooltip = PartListTooltipMasterController.Instance != null
@@ -435,10 +437,13 @@ namespace Parsek.TestCommands
                 var d = StockUiDecorationQuery.ForFacilityMenu(index, now, id,
                     GameStateRecorder.IsReplayingActions, ReservationExplanation.DefaultDateFormatter);
                 records.Add(StockScreenRecord.From(d));
-                var repair = StockUiDecorationQuery.ForFacilityMenuRepair(index, now, id,
-                    Patches.FacilityRepairCapturePatchHelpers.ReadBuildings(StockUiFacilityDecoration.HostOf(menu)),
+                var buildings = Patches.FacilityRepairCapturePatchHelpers.ReadBuildings(StockUiFacilityDecoration.HostOf(menu));
+                var repair = StockUiDecorationQuery.ForFacilityMenuRepair(index, now, id, buildings,
                     GameStateRecorder.IsReplayingActions, ReservationExplanation.DefaultDateFormatter);
                 records.Add(StockScreenRecord.From(repair));
+                var rebuild = StockUiDecorationQuery.ForFacilityMenuRebuild(index, now, id, buildings,
+                    GameStateRecorder.IsReplayingActions, ReservationExplanation.DefaultDateFormatter);
+                records.Add(StockScreenRecord.From(rebuild));
             }
         }
 

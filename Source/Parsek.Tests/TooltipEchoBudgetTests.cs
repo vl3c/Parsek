@@ -320,6 +320,9 @@ namespace Parsek.Tests
                 new GameAction { UT = 600, Type = GameActionType.StrategyActivate, StrategyId = "s" },
                 new GameAction { UT = 600, Type = GameActionType.ContractAccept, ContractId = "c" },
                 new GameAction { UT = 600, Type = GameActionType.KerbalHire, KerbalName = "k" },
+                // A facility level change holds Upgrade and Rebuild (the longest held-control name).
+                new GameAction { UT = 600, Type = GameActionType.FacilityUpgrade, FacilityId = "f", ToLevel = 1,
+                    FacilityDowngrade = true },
             };
             var index = CommittedFutureIndex.Build(rows, id => true, id => null, null);
             foreach (var a in rows)

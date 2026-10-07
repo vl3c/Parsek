@@ -336,7 +336,7 @@ Anything your committed timeline does later is reserved on KSP's own screens, so
 - **Administration** - activating or deactivating a strategy against a committed change.
 - **Astronaut Complex** - hiring an applicant the timeline hires later (its row reads `Hired on <date>`), and dismissing a kerbal Parsek manages.
 - **VAB/SPH crew dialog** - kerbals a committed flight holds are listed greyed with the reason and cannot be seated.
-- **Space Center facility menus** - upgrading (or repairing) a building the timeline upgrades or repairs later.
+- **Space Center facility menus** - upgrading or rebuilding a lower level (Left Ctrl, "Rebuild lvl N") a building while the timeline changes its level later, and repairing or rebuilding a building the timeline repairs later.
 - **In flight** - the EVA and Transfer buttons for a kerbal a committed flight still needs.
 
 A click that reaches the action some other way (another mod, a different button) is refused with the same text. Where stock already refuses for its own reason (a full strategy slot, for example), its own greyed state and text are left alone.
