@@ -16,6 +16,32 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. OPEN, harness]
+
+Two lanes gate on an UNFLOWN Re-Fly provisional, and both race the re-fly recorder's start, which
+happens when `RestoreActiveTreeFromPending` runs from the re-fly scene's OnFlightReady:
+
+- `S4.2-refly-world-preservation` requires the merge to conclude an EMPTY provisional
+  (`outcome=retired-empty-provisional`, `AppendRelations outcome=refused-unflown-provisional`,
+  `outcome=concluded-no-supersede`). Its `RunTests` step (the ReFlyWorldPreservation batch) spans the
+  scene settle: in `2026-10-07_2239` the recorder started at 01:40:44.290, the batch finished at
+  45.396 and the merge concluded at 45.509, so the provisional carried ~1 s of samples and the merge
+  correctly wrote a supersede row (`Added 1 supersede relations`). Its August green
+  (`2026-08-11_2111`) concluded before the first sample.
+- `S4.4-refly-quicksave-mid-session` needs the recorder LIVE at its bare LoadGame (to be refused
+  `recording-active`) but the provisional EMPTY at the merge. Attempt 1 of `2026-10-07_1922`
+  and both attempts of `_2242` / `_2243_a2` sent the LoadGame before the recorder started
+  (`recorderLive=false`); `_1923_a2` passed. A settle pad (`_1947`) broke the empty-provisional
+  half instead.
+
+Neither is a product defect: the recorder starting on the restored tree and recording is correct.
+Fix: owner decision. Options: a seam wait on a named condition (`RecordingState` reporting the re-fly
+recorder live, then nothing else), or gate the merge tokens on the provisional's measured point
+count (accept the flown branch's tokens when points > 0), or drop the empty-provisional pins and
+cover that conclusion route in a dedicated lane that stops recording first.
+
+---
+
 ## QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE: an F9 resumes a tree member with the merge state its abandoned future's commit gave it [FILED 2026-10-07 from the QL-4 / QL-4b / QL-4c reading runs, branch `f9-verify`, verified in the produced saves and by code read. OPEN, product]
 
 QL-4 commits the flight in flight while the probe booster is still under canopy: the commit
