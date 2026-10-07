@@ -52,6 +52,10 @@ namespace Parsek.Logistics
         // per call would diverge if the origin loads or unloads mid-tick
         // (same rationale as <see cref="LiveDeliveryWriters.isLoaded"/>).
         internal readonly bool isLoaded;
+        // The debited endpoint's own parts on the captured branch (null = every part): the
+        // SAME scope the cargo probe planned against, so a craft docked to the depot is never
+        // drained in its place (ROUTE-DELIVERY-INTO-DOCKED-VISITOR).
+        private readonly EndpointPartScope partScope;
         private readonly Dictionary<string, double> actualPerResource;
 
         /// <summary>
@@ -60,8 +64,9 @@ namespace Parsek.Logistics
         /// M1 call site (<see cref="RouteOrchestrator.ApplyOriginDebit"/>) is
         /// byte-behaviour-identical; delegates to the route-agnostic ctor.
         /// </summary>
-        internal LiveOriginDebitWriters(Route route, Vessel originVessel, OriginDebitPlan plan, bool isLoaded)
-            : this(route?.Id, originVessel, plan, isLoaded)
+        internal LiveOriginDebitWriters(Route route, Vessel originVessel, OriginDebitPlan plan, bool isLoaded,
+            EndpointPartScope partScope = null)
+            : this(route?.Id, originVessel, plan, isLoaded, partScope)
         {
         }
 
@@ -74,12 +79,14 @@ namespace Parsek.Logistics
         /// (<see cref="RouteOrchestrator.ApplyPickupDebit"/>) constructs the
         /// writer this way pointed at the resolved endpoint vessel.
         /// </summary>
-        internal LiveOriginDebitWriters(string routeIdForLog, Vessel targetVessel, OriginDebitPlan plan, bool isLoaded)
+        internal LiveOriginDebitWriters(string routeIdForLog, Vessel targetVessel, OriginDebitPlan plan, bool isLoaded,
+            EndpointPartScope partScope = null)
         {
             this.routeIdForLog = routeIdForLog;
             this.vessel = targetVessel;
             this.plan = plan;
             this.isLoaded = isLoaded;
+            this.partScope = EndpointPartScope.ForBranch(partScope, isLoaded, nameof(LiveOriginDebitWriters));
             this.actualPerResource = new Dictionary<string, double>(
                 plan.Resources?.Count ?? 0, StringComparer.Ordinal);
         }
@@ -145,7 +152,7 @@ namespace Parsek.Logistics
                 $"resource={resourceName} requested={amount.ToString("R", IC)} " +
                 $"debited={actual.ToString("R", IC)} " +
                 $"tankBefore={tankBefore.ToString("R", IC)} tankAfter={tankAfter.ToString("R", IC)} " +
-                $"path={(isLoaded ? "loaded" : "unloaded")}");
+                $"path={(isLoaded ? "loaded" : "unloaded")} parts={EndpointPartScope.Describe(partScope)}");
         }
 
         internal double ReadActualDebited(string resourceName)
@@ -187,6 +194,7 @@ namespace Parsek.Logistics
             if (vessel.parts == null) return;
             for (int i = 0; i < vessel.parts.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 Part p = vessel.parts[i];
                 if (p == null || p.Resources == null) continue;
                 PartResource pr = p.Resources.Get(resourceName);
@@ -204,6 +212,7 @@ namespace Parsek.Logistics
             ResourceFlowMode mode = RouteOrchestrator.LookupResourceFlowMode(resourceName);
             for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
                 if (pps == null || pps.resources == null) continue;
                 for (int j = 0; j < pps.resources.Count; j++)
@@ -231,6 +240,7 @@ namespace Parsek.Logistics
 
             for (int i = 0; i < vessel.parts.Count && remaining > 0.0; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 Part p = vessel.parts[i];
                 if (p == null || p.Resources == null) continue;
                 PartResource pr = p.Resources.Get(resourceName);
@@ -273,6 +283,7 @@ namespace Parsek.Logistics
 
             for (int i = 0; i < pv.protoPartSnapshots.Count && remaining > 0.0; i++)
             {
+                if (!EndpointPartScope.Includes(partScope, i)) continue;
                 ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
                 if (pps == null || pps.resources == null) continue;
                 for (int j = 0; j < pps.resources.Count && remaining > 0.0; j++)

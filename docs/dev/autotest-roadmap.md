@@ -6322,10 +6322,10 @@ named in a row owns the detail.
 | Id | Pins | Host tests | Todo |
 |---|---|---|---|
 | A1 | ~~F9 / stock Revert / Discard Re-fly leave route cursors ahead (replayed cycle swallowed) and pay an orphan recovery credit~~ DONE 2026-10-07 (branch `fix-route-state-on-load`): `RouteLoadReconcile` runs the go-back reconcile at the loaded save's UT and restores the saved loop position; `EmitPendingRecoveryCredit` refuses a retired dispatch | `RouteLoopDeliveryFireTests`, `RouteRecoveryCreditTests`, `RouteLoadReconcileTests` (incl. the OnLoad source gate) | ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD |
-| A2 | A chain-ghosted surface endpoint holds instead of proximity-rebinding | new predicate beside `RouteEndpointTransferTests` | ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND |
+| A2 | A chain-ghosted surface endpoint holds instead of proximity-rebinding. DONE 2026-10-07 (`fix-route-endpoint-writes`) | `RouteEndpointChainHoldTests` | ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND |
 | A3 | Multi-stop escrow survives a scene switch between windows | `RouteCargoEscrowTests` / `RouteEscrowFireTests` | ROUTE-ESCROW-LOST-ON-SCENE-SWITCH |
 | A4 | No ledger write from the recovery-credit flush during OnLoad | a UT / in-load seam on `RouteStore` | ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD |
-| A5 | Delivery writers and the capacity read touch only the endpoint's own parts | a pure part-subset selector | ROUTE-DELIVERY-INTO-DOCKED-VISITOR |
+| A5 | Delivery writers and the capacity read touch only the endpoint's own parts. DONE 2026-10-07 (`fix-route-endpoint-writes`) | `RouteEndpointPartScopeTests` | ROUTE-DELIVERY-INTO-DOCKED-VISITOR |
 
 ### Capabilities the lanes need
 
@@ -6401,7 +6401,7 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | TA-12 | Harvest-origin route capped at drill rate x duration (ruled) | HARVEST-ROUTE-PLAUSIBILITY-CAP |
 | TA-13 | Resource-scan unlock recorded, ledgered and re-applied after a rewind (ruled) | RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED |
 | TA-14 | Tracking Station uses the current-UT ledger cutoff (ruled) | TRACKING-STATION-LEDGER-CUTOFF-ALIGN |
-| TA-15 | F9 into a discarded flight records again (ruled) | QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN |
+| TA-15 | ~~F9 into a discarded flight records again (ruled)~~ DONE 2026-10-07 (branch `fix-quickload-into-discarded`): `TryRestoreActiveTreeNode` declines a tree this session's `DiscardPendingTree` deleted (every member `trajectory-missing`) and `OnFlightReady` starts a fresh tree through `StartRecording`; red cells in `QuickloadIntoDiscardedFlightTests`. Live proof: QL-6 not flown | QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN |
 | TA-W | ~~Load-path x reconciler wiring gate~~ DONE 2026-10-06 (PR #2021): `LoadReconcilePolicy` (today's decision per load kind x state category, the filed defects as known gaps) + `LoadReconcilePolicyTests` / `LoadReconcileWiringGateTests` | HARNESS-TIMELINE-FUZZERS |
 | TA-F | Headless timeline fuzzers (ledger / effective-state / route conservation) | HARNESS-TIMELINE-FUZZERS |
 
