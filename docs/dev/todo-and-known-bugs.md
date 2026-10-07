@@ -150,8 +150,14 @@ a load of such a save keys its route cutoff to the floor, not to its own UT. So 
 after that save but before the floor (a pause or resume row, say; the window's crossings already
 fired) survives a quickload, a revert to a launch made in the window
 (its prune spares route rows up to the floor) and an F9 at the Space Center (which also keeps a Send
-Once or pause-after-this-run armed after the save). Needs a save AND an action AND a load inside the
-same 15 s of game time. A fix would mark the rows the go-back kept (action ids) instead of a UT.
+Once or pause-after-this-run armed after the save). A route CREATED in the window after that save
+also survives a load back to it (its CreatedUT is below the floor, and the save does not carry it)
+with a reset cursor, so its in-window crossing can charge a second time; before the floor such a
+route went dormant. Needs a save AND an action inside the same 15 s of game time; the load itself can
+come any time later (an F9 to that quicksave much later hits the same thing). Same class as the
+UT-only reconcile: an F9 to an in-window save from an abandoned timeline keeps the newer timeline's
+route rows up to the floor. A fix would mark the rows the go-back kept (action ids) instead of a UT.
+Found by the PR #2040 re-review.
 
 ---
 
