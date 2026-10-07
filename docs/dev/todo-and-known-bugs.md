@@ -1526,7 +1526,19 @@ Fix (generalizes #2035, one shared hook):
 Residuals: a recording trimmed by an earlier build has no note (its trimmed end stays its
 capture); a leaf whose vessel neither side knows by launch guid or root part is never adjusted;
 whether the replayed deliveries reach the respawned vessel depends on the route resolving its
-new identity (a blocked replay is consistent: neither paid nor delivered).
+new identity (a blocked replay is consistent: neither paid nor delivered). From the PR #2045
+review, each a missed subtraction (today's pre-fix behaviour), not a wrong one: when both launch
+guids are known they decide even if the root parts match, and `Part.Undock` gives the half it
+restores a new `Vessel.id` while its root flightID survives, so an endpoint stamped before a dock
+misses a later recording of that half (only while the half keeps its pid; letting equal roots
+decide would close it); and after a leaf respawns with a new identity and a surface endpoint
+moves to it (the 500 m transfer), a deeper second rewind attributes the older timeline's rows to
+the new vessel, so the original recording's leaf misses them. Same design as #2035: rows are
+attributed to the endpoint at retire time, so a trimmed early spawn that comes before the replay
+of a crossing into a vessel the route later transferred away from can lose cargo it never
+received (narrow). Untested branches the review's mutants found: the chain-tip exclusion in
+`BuildLeafIdentities` is redundant with one identity per spawn, and `HasCaptureAfter` in
+`MayBeCapturedAfter` (a cutoff inside a trimmed tail) has no red cell.
 
 Tests (`ChainTipRouteCargoTests`, red first: 11 cells failed against stubs - the ordinary leaf,
 the trimmed leaf end to end through `RunOptimizationPass`, the trimmed chain tip, the root-part
