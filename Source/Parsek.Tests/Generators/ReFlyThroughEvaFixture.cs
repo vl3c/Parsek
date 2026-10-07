@@ -149,6 +149,14 @@ namespace Parsek.Tests.Generators
             };
         }
 
+        // The split carries its rewind point, as RewindPointAuthor.Begin stamps a staging
+        // split in production (todo REWIND-CREW-LOSS-FIXTURE-RP-HAS-NO-BRANCH-POINT).
+        private static BranchPoint LinkToRewindPoint(BranchPoint bp)
+        {
+            bp.RewindPointId = RewindPointId;
+            return bp;
+        }
+
         /// <summary>
         /// The committed tree for <paramref name="variant"/>. With
         /// <paramref name="upperIsTreeBranchingParent"/> the upper stage is the ROOT
@@ -170,8 +178,8 @@ namespace Parsek.Tests.Generators
                 // the split to the EVA.
                 builders.Add(Vessel(RootId, "TE Upper", UpperPid));
                 spans[RootId] = new[] { LaunchUT, EvaUT };
-                bps.Add(ScenarioWriter.SeparationBranch(
-                    SplitBranchPointId, RootId, new[] { BoosterId }, SplitUT));
+                bps.Add(LinkToRewindPoint(ScenarioWriter.SeparationBranch(
+                    SplitBranchPointId, RootId, new[] { BoosterId }, SplitUT)));
             }
             else
             {
@@ -179,8 +187,8 @@ namespace Parsek.Tests.Generators
                 spans[RootId] = new[] { LaunchUT, SplitUT };
                 builders.Add(Vessel(UpperId, "TE Upper", UpperPid));
                 spans[UpperId] = new[] { SplitUT, EvaUT };
-                bps.Add(ScenarioWriter.SeparationBranch(
-                    SplitBranchPointId, RootId, new[] { BoosterId, UpperId }, SplitUT));
+                bps.Add(LinkToRewindPoint(ScenarioWriter.SeparationBranch(
+                    SplitBranchPointId, RootId, new[] { BoosterId, UpperId }, SplitUT)));
             }
 
             // The upper stage's own EVA: U -> U1 (vessel) + K (Jeb).

@@ -96,8 +96,11 @@ namespace Parsek.Tests.Generators
                 UT = splitUt,
                 QuicksaveFilename = RecordingPaths.BuildRewindPointRelativePath(RewindPointId),
                 FocusSlotIndex = UpperSlotIndex,
-                // Durable staging RP: no CreatingSessionId, so LoadTimeSweep keeps it.
-                SessionProvisional = true,
+                // A committed tree's staging point is persistent: the commit promoted it
+                // (RecordingStore.PromoteNormalStagingRewindPoints). LoadTimeSweep only ever
+                // discards SessionProvisional points, so it stays a durable split point; the
+                // reaper keeps it while the booster slot is open (CommittedProvisional).
+                SessionProvisional = false,
                 CreatingSessionId = null,
                 Corrupted = false,
                 ChildSlots = new List<ChildSlot>
@@ -128,19 +131,35 @@ namespace Parsek.Tests.Generators
             };
         }
 
+        /// <summary>
+        /// The split <see cref="BranchPoint"/> the committed tree carries, linked to
+        /// <see cref="RewindPointId"/> as <c>RewindPointAuthor.Begin</c> links a staging
+        /// point. Pure: no I/O.
+        /// </summary>
+        public static BranchPoint BuildSplitBranchPoint(double splitUt)
+        {
+            BranchPoint bp = ScenarioWriter.SeparationBranch(
+                BranchPointId, RootRecordingId,
+                new[] { UpperRecordingId, BoosterRecordingId }, splitUt);
+            bp.RewindPointId = RewindPointId;
+            return bp;
+        }
+
         public static void PopulateWriter(ScenarioWriter writer, double saveUT)
         {
             if (writer == null)
                 throw new ArgumentNullException(nameof(writer));
 
             double splitUt = SplitUTFor(saveUT);
-            writer.AddRecordingsAsTree(new[]
-            {
-                BuildRoot(splitUt),
-                BuildSlot(UpperRecordingId, "RB Upper B", splitUt, MergeState.Immutable),
-                BuildSlot(BoosterRecordingId, "RB Booster A", splitUt,
-                    MergeState.CommittedProvisional),
-            });
+            writer.AddRecordingsAsTree(
+                new[]
+                {
+                    BuildRoot(splitUt),
+                    BuildSlot(UpperRecordingId, "RB Upper B", splitUt, MergeState.Immutable),
+                    BuildSlot(BoosterRecordingId, "RB Booster A", splitUt,
+                        MergeState.CommittedProvisional),
+                },
+                branchPoints: new[] { BuildSplitBranchPoint(splitUt) });
             writer.AddRewindPoint(BuildRewindPoint(splitUt));
             writer.RewindSlotVesselNamePrefix = SlotVesselNamePrefix;
             writer.RewindPointWorldAuthor = AuthorWorld;

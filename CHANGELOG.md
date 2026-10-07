@@ -6257,6 +6257,23 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: the F9 checks automated (QL-2 new, QL-3 and QL-4b extended) and the
+  rewind fixtures production-shaped.** `QL-2-quickload-career-recovery-not-paid` (nightly,
+  never flown) is the career half of "a reward earned after the F5 is not paid": the Jumping
+  Flea hops in `career-pad-craft`, quicksaves on the ground, is recovered through stock's button
+  (funds, recovery science and crew XP booked to the flight), and the quicksave is loaded from
+  the Space Center. It requires the abandoned-future reconcile to retire the payout as
+  after-cutoff rows and forbids any later Recovery walk, funds uplift or guard clamp, a
+  re-booked payout and a Recovered ending at the final commit. QL-3 now also checks, after the
+  load of the save from before the Re-Fly, that the replaced pod stays out of the effective
+  recordings and of Space Center ghost playback and that the undone crew death stays skipped
+  with no permanent reservation; QL-4b checks that no ghost of the detached flight is built
+  after the F9 and that nothing is left committed. The injected rewind test corpora
+  (`rewind-crew-loss`, `rewind-b9`, `refly-world-preservation`, `rewind-readback`) now carry
+  their split branch point linked to their rewind point, and the point is persistent, as a
+  committed production tree has it, so an in-session load claims the point for its tree instead
+  of following the save (QL-3's report-only window is back at 0). No product change; nothing
+  flown.
 - **Endpoint part adoption behind the Logistics `Update parts` button.**
   `RouteEndpointPartAdoption.AdoptCurrentParts(route)` resolves the route's origin and every
   stop and stores each resolved vessel's current part flightIDs on the route
@@ -6312,7 +6329,8 @@ _(unreleased - entries accumulate here per commit)_
   PR #2017 an inert seam step costs one frame instead of a 0.25 s poll, so waits sized in inert
   steps shrank: the QL-4 lanes now settle 150 steps before their post-load warp (it hit the
   physics hold), their commit-UT token accepts 149.x, EX-1 waits for EndUT with
-  `WarpToUT maxRate=1`, and QL-3's report-only rewind-point window reads its fixture's 1. LF-2
+  `WarpToUT maxRate=1`, and QL-3's report-only rewind-point window read its fixture's 1 (back
+  at 0 since the fixture fix in the QL-2 entry above). LF-2
   stays red on the same cause (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). No product
   change.
 - **Automated testing: lanes for a booster quickloaded back into the air (QL-4, QL-4b,

@@ -64,7 +64,14 @@ namespace Parsek.Tests.Generators
         /// <summary>Fixed, known RP id the scenario spec cites: <c>InvokeRewind rp=rp_wp_root</c>.</summary>
         public const string RewindPointId = "rp_wp_root";
 
-        /// <summary>Weak link to the split BranchPoint (diagnostic only).</summary>
+        /// <summary>
+        /// The split BranchPoint the committed tree carries (a decouple: JointBreak, parent
+        /// <see cref="RootRecordingId"/>, children <see cref="UpperRecordingId"/> and
+        /// <see cref="BoosterRecordingId"/>), whose <c>RewindPointId</c> names
+        /// <see cref="RewindPointId"/>: the link production writes and the one the in-session
+        /// rewind-point owner partition claims a point for its committed tree by (todo
+        /// REWIND-CREW-LOSS-FIXTURE-RP-HAS-NO-BRANCH-POINT).
+        /// </summary>
         public const string BranchPointId = "bp_wp_root";
 
         /// <summary>Pre-split ascent recording id (the tree root).</summary>
@@ -155,7 +162,11 @@ namespace Parsek.Tests.Generators
                 UT = splitUt,
                 QuicksaveFilename = RecordingPaths.BuildRewindPointRelativePath(RewindPointId),
                 FocusSlotIndex = UpperSlotIndex,
-                SessionProvisional = true,
+                // A committed tree's staging point is persistent: the commit promoted it
+                // (RecordingStore.PromoteNormalStagingRewindPoints). LoadTimeSweep only ever
+                // discards SessionProvisional points, so it stays a durable split point; the
+                // reaper keeps it while the booster slot is open (CommittedProvisional).
+                SessionProvisional = false,
                 CreatingSessionId = null,
                 Corrupted = false,
                 ChildSlots = new List<ChildSlot>
@@ -187,6 +198,20 @@ namespace Parsek.Tests.Generators
         }
 
         /// <summary>
+        /// The split <see cref="BranchPoint"/> the committed tree carries, linked to
+        /// <see cref="RewindPointId"/> as <c>RewindPointAuthor.Begin</c> links a staging
+        /// point. Pure: no I/O.
+        /// </summary>
+        public static BranchPoint BuildSplitBranchPoint(double splitUt)
+        {
+            BranchPoint bp = ScenarioWriter.SeparationBranch(
+                BranchPointId, RootRecordingId,
+                new[] { UpperRecordingId, BoosterRecordingId }, splitUt);
+            bp.RewindPointId = RewindPointId;
+            return bp;
+        }
+
+        /// <summary>
         /// Populates a v3 <see cref="ScenarioWriter"/> with the committed tree, the
         /// split RewindPoint, this fixture's slot-name prefix AND the unrelated-fleet
         /// world author. The caller injects the writer into the fixture save; the RP
@@ -200,12 +225,14 @@ namespace Parsek.Tests.Generators
 
             double splitUt = baseUT + 60.0;
 
-            writer.AddRecordingsAsTree(new[]
-            {
-                BuildRoot(baseUT),
-                BuildUpperStage(splitUt),
-                BuildBooster(splitUt),
-            });
+            writer.AddRecordingsAsTree(
+                new[]
+                {
+                    BuildRoot(baseUT),
+                    BuildUpperStage(splitUt),
+                    BuildBooster(splitUt),
+                },
+                branchPoints: new[] { BuildSplitBranchPoint(splitUt) });
 
             writer.AddRewindPoint(BuildRewindPoint(splitUt));
             writer.RewindSlotVesselNamePrefix = SlotVesselNamePrefix;

@@ -82,7 +82,17 @@ namespace Parsek.Tests.Generators
         /// <summary>Fixed, known RP id a scenario spec cites: <c>InvokeRewind rp=rp_cl_root</c>.</summary>
         public const string RewindPointId = "rp_cl_root";
 
-        /// <summary>Weak link to the split BranchPoint (diagnostic only).</summary>
+        /// <summary>
+        /// The split BranchPoint the committed tree carries (a decouple: JointBreak,
+        /// parent <see cref="RootRecordingId"/>, children <see cref="ProbeRecordingId"/> and
+        /// <see cref="PodRecordingId"/>), whose <c>RewindPointId</c> names
+        /// <see cref="RewindPointId"/>. This is the link production writes
+        /// (<c>RewindPointAuthor.Begin</c> stamps the branch point; the commit promotes the
+        /// point through it) and the one the in-session rewind-point owner partition
+        /// (<c>InSessionStagedStateHandoff.CollectCommittedTreeRewindLinks</c>) claims a
+        /// point for its committed tree by. Without it the point read as the save's
+        /// (todo REWIND-CREW-LOSS-FIXTURE-RP-HAS-NO-BRANCH-POINT).
+        /// </summary>
         public const string BranchPointId = "bp_cl_root";
 
         /// <summary>
@@ -139,10 +149,16 @@ namespace Parsek.Tests.Generators
         /// <summary>
         /// Builds the crew-loss <see cref="RewindPoint"/> for the split at
         /// <paramref name="splitUt"/>. Pure: no I/O. Two controllable child slots
-        /// (probe upper stage slot 0, crewed pod slot 1);
-        /// <see cref="RewindPoint.CreatingSessionId"/> stays null so
-        /// <c>LoadTimeSweep</c> keeps it as a durable split point instead of
-        /// discarding it as a session-scoped provisional.
+        /// (probe upper stage slot 0, crewed pod slot 1).
+        ///
+        /// <para>Production-shaped for a point whose tree is ALREADY COMMITTED, which is
+        /// what this corpus injects: a staging point is born SessionProvisional with no
+        /// creating session (<c>RewindPointAuthor.Begin</c>), and the commit of its tree
+        /// promotes it to persistent through the tree's branch point
+        /// (<c>RecordingStore.PromoteNormalStagingRewindPoints</c>: SessionProvisional false,
+        /// CreatingSessionId null). A persistent point is a durable split point to
+        /// <c>LoadTimeSweep</c>, which only ever considers SessionProvisional points for
+        /// discard; the reaper keeps it while the pod slot is open (CommittedProvisional).</para>
         /// </summary>
         public static RewindPoint BuildRewindPoint(double splitUt)
         {
@@ -153,7 +169,7 @@ namespace Parsek.Tests.Generators
                 UT = splitUt,
                 QuicksaveFilename = RecordingPaths.BuildRewindPointRelativePath(RewindPointId),
                 FocusSlotIndex = ProbeSlotIndex,
-                SessionProvisional = true,
+                SessionProvisional = false,
                 CreatingSessionId = null,
                 Corrupted = false,
                 ChildSlots = new List<ChildSlot>
@@ -186,9 +202,24 @@ namespace Parsek.Tests.Generators
         }
 
         /// <summary>
+        /// The split <see cref="BranchPoint"/> the committed tree carries: the decouple that
+        /// separates the probe upper stage and the crewed pod from the stack, linked to
+        /// <see cref="RewindPointId"/> as <c>RewindPointAuthor.Begin</c> links a staging
+        /// point. Pure: no I/O.
+        /// </summary>
+        public static BranchPoint BuildSplitBranchPoint(double splitUt)
+        {
+            BranchPoint bp = ScenarioWriter.SeparationBranch(
+                BranchPointId, RootRecordingId,
+                new[] { ProbeRecordingId, PodRecordingId }, splitUt);
+            bp.RewindPointId = RewindPointId;
+            return bp;
+        }
+
+        /// <summary>
         /// Populates a v3 <see cref="ScenarioWriter"/> with the crew-loss committed
-        /// tree (crewed root ascent + surviving probe + destroyed crewed pod) and the
-        /// split RewindPoint. The caller injects the writer into the fixture save; the
+        /// tree (crewless root ascent + surviving probe + destroyed crewed pod, joined by
+        /// the split branch point) and the split RewindPoint. The caller injects the writer into the fixture save; the
         /// RP quicksave sidecar is written self-referentially at inject time.
         /// </summary>
         public static void PopulateWriter(ScenarioWriter writer, double baseUT)
@@ -198,12 +229,14 @@ namespace Parsek.Tests.Generators
 
             double splitUt = baseUT + 60.0;
 
-            writer.AddRecordingsAsTree(new[]
-            {
-                BuildRoot(baseUT),
-                BuildProbeUpperStage(splitUt),
-                BuildCrewedPod(splitUt),
-            });
+            writer.AddRecordingsAsTree(
+                new[]
+                {
+                    BuildRoot(baseUT),
+                    BuildProbeUpperStage(splitUt),
+                    BuildCrewedPod(splitUt),
+                },
+                branchPoints: new[] { BuildSplitBranchPoint(splitUt) });
 
             writer.AddRewindPoint(BuildRewindPoint(splitUt));
 

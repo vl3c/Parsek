@@ -275,9 +275,13 @@ namespace Parsek.Tests
 
             Assert.Equal("rp_cl_root", rp.RewindPointId);
             Assert.Equal(RewindCrewLossFixture.RewindPointId, rp.RewindPointId);
-            // Null CreatingSessionId keeps LoadTimeSweep from discarding it as a
-            // session-scoped provisional.
+            // A committed tree's staging point is persistent: the commit promoted it
+            // (RecordingStore.PromoteNormalStagingRewindPoints clears SessionProvisional and
+            // CreatingSessionId), so LoadTimeSweep, which only ever discards
+            // SessionProvisional points, keeps it as a durable split point.
+            Assert.False(rp.SessionProvisional);
             Assert.Null(rp.CreatingSessionId);
+            Assert.Equal(RewindCrewLossFixture.BranchPointId, rp.BranchPointId);
             Assert.False(rp.Corrupted);
             Assert.Equal(RecordingPaths.BuildRewindPointRelativePath(
                 RewindCrewLossFixture.RewindPointId), rp.QuicksaveFilename);
@@ -378,6 +382,78 @@ namespace Parsek.Tests
             Assert.Contains("rewindPointId = " + RewindCrewLossFixture.RewindPointId, text);
         }
 
+        // ---- the split branch point (REWIND-CREW-LOSS-FIXTURE-RP-HAS-NO-BRANCH-POINT) --
+
+        [Fact]
+        public void TheInjectedTreeCarriesTheSplitBranchPointLinkedToTheRewindPoint()
+        {
+            RecordingTree tree = InjectedTree();
+
+            Assert.Single(tree.BranchPoints);
+            BranchPoint bp = tree.BranchPoints[0];
+            Assert.Equal(RewindCrewLossFixture.BranchPointId, bp.Id);
+            // A decouple split, the type the live recorder writes for staging and one
+            // RewindPointAuthor.IsReFlySplitType admits.
+            Assert.Equal(BranchPointType.JointBreak, bp.Type);
+            Assert.True(RewindPointAuthor.IsReFlySplitType(bp.Type));
+            Assert.Equal(RewindCrewLossFixture.RewindPointId, bp.RewindPointId);
+            Assert.Equal(new[] { RewindCrewLossFixture.RootRecordingId }, bp.ParentRecordingIds);
+            Assert.Equal(
+                new[] { RewindCrewLossFixture.ProbeRecordingId, RewindCrewLossFixture.PodRecordingId },
+                bp.ChildRecordingIds);
+            Assert.Equal(1060.0, bp.UT);
+
+            Assert.Equal(RewindCrewLossFixture.BranchPointId,
+                tree.Recordings[RewindCrewLossFixture.RootRecordingId].ChildBranchPointId);
+            Assert.Equal(RewindCrewLossFixture.BranchPointId,
+                tree.Recordings[RewindCrewLossFixture.ProbeRecordingId].ParentBranchPointId);
+            Assert.Equal(RewindCrewLossFixture.BranchPointId,
+                tree.Recordings[RewindCrewLossFixture.PodRecordingId].ParentBranchPointId);
+        }
+
+        [Fact]
+        public void TheRootIsNotALeafOnceTheSplitIsLinked()
+        {
+            // A production tree ends its pre-split recording at the split: the stack is
+            // not a leaf, so it is never a spawn candidate of its own. Before the branch
+            // point every recording of this tree was a leaf (RecordingTree.GetAllLeaves
+            // reads ChildBranchPointId).
+            RecordingTree tree = InjectedTree();
+            var leafIds = tree.GetAllLeaves().Select(r => r.RecordingId).ToList();
+
+            Assert.DoesNotContain(RewindCrewLossFixture.RootRecordingId, leafIds);
+            Assert.Contains(RewindCrewLossFixture.ProbeRecordingId, leafIds);
+            Assert.Contains(RewindCrewLossFixture.PodRecordingId, leafIds);
+        }
+
+        [Fact]
+        public void TheInSessionOwnerPartitionClaimsThePointForItsCommittedTree()
+        {
+            // QL-3 2026-10-07_1920 logged `rp_cl_root:FollowSave:kept-loaded`: with no
+            // branch point the committed tree could not claim the point and a load of an
+            // earlier save resurrected the point the merge had reaped. Production-shaped,
+            // the committed tree claims it (by branch-point id and by the branch point's
+            // rewind-point id), so a save-only copy is dropped.
+            RecordingTree tree = InjectedTree();
+            InSessionStagedStateHandoff.CollectCommittedTreeRewindLinks(
+                new[] { tree }, out HashSet<string> bpIds, out HashSet<string> rpIds);
+            Assert.Contains(RewindCrewLossFixture.BranchPointId, bpIds);
+            Assert.Contains(RewindCrewLossFixture.RewindPointId, rpIds);
+
+            RewindPoint rp = RewindCrewLossFixture.BuildRewindPoint(1060.0);
+            System.Func<RewindPoint, bool> owned = p =>
+                bpIds.Contains(p.BranchPointId ?? "") || rpIds.Contains(p.RewindPointId ?? "");
+            Assert.Equal(RewindPointOwnerClass.CommittedOwner,
+                InSessionStagedStateHandoff.Classify(rp, owned));
+
+            var decisions = new List<string>();
+            List<RewindPoint> merged = InSessionStagedStateHandoff.MergeRewindPointsByOwner(
+                new List<RewindPoint>(), new List<RewindPoint> { rp }, owned,
+                out RewindPointPartitionCounts _, decisions);
+            Assert.Empty(merged);
+            Assert.Equal(new[] { "rp_cl_root:CommittedOwner:dropped-save-only" }, decisions);
+        }
+
         [Fact]
         public void TheRewindPointIdIsDistinctFromB9sSoTheTwoFixturesCannotCollide()
         {
@@ -438,6 +514,21 @@ namespace Parsek.Tests
 
         private static string InjectedSaveText()
             => WithInjectedSave(File.ReadAllText);
+
+        private static RecordingTree InjectedTree()
+        {
+            return WithInjectedSave(path =>
+            {
+                ConfigNode loaded = ConfigNode.Load(path);
+                ConfigNode game = loaded.GetNode("GAME") ?? loaded;
+                ConfigNode scenario = game.GetNodes("SCENARIO")
+                    .FirstOrDefault(n => n.GetValue("name") == "ParsekScenario");
+                Assert.NotNull(scenario);
+                ConfigNode[] trees = scenario.GetNodes("RECORDING_TREE");
+                Assert.Single(trees);
+                return RecordingTree.Load(trees[0]);
+            });
+        }
 
         private static ConfigNode PodRecordingNode()
             => RecordingNode(RewindCrewLossFixture.PodRecordingId);
